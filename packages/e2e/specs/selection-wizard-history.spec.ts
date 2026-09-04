@@ -18,6 +18,7 @@
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
+import { pickMatchDoor } from "../src/wizard.js";
 
 const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
@@ -80,7 +81,7 @@ test.describe("Selection wizard history", () => {
 
 		// The door is the first branching answer, and it adds the editor step
 		// after the step it is given on.
-		await page.getByRole("button", { name: "Its properties" }).click();
+		await pickMatchDoor(page, "Its properties");
 		await expect(stepRail(page)).toHaveText(/^Step 1 of 6 · Apply to$/);
 
 		await continueButton(page).click();

@@ -12,10 +12,10 @@
  * itself and needs no index. The two that save a rule take the properties door
  * instead: a rule needs a predicate to keep matching on, and the ticked rows are
  * a list of ids rather than one (#1193). Its count comes from the vector-free
- * preview, which this lane answers. Downstream of the review screen, the back-apply job and
- * the filter create both re-run that absent index server-side, so they are
- * stubbed per scenario and the run screen's states are exercised
- * deterministically. Real filter CRUD is covered by
+ * preview, which this lane answers. Downstream of the review screen, the
+ * back-apply job and the filter create both re-run that absent index
+ * server-side, so they are stubbed per scenario and the run screen's states are
+ * exercised deterministically. Real filter CRUD is covered by
  * organize-standing-filter.spec.ts, and a real folder create against Dovecot by
  * organize-standing-back-apply.spec.ts.
  *
@@ -228,7 +228,12 @@ test.describe("Organize through the selection wizard", () => {
 
 		// Every create the flow sends, so "exactly one" is assertable rather than
 		// assumed. Real filter CRUD is covered elsewhere; this pins the body.
-		const creates: { scope?: string; expiresAt?: string; name?: string }[] = [];
+		const creates: {
+			scope?: string;
+			expiresAt?: string;
+			name?: string;
+			literalClauses?: unknown[];
+		}[] = [];
 		await page.route(/\/filters$/, async (route) => {
 			if (route.request().method() !== "POST") return route.continue();
 			creates.push(route.request().postDataJSON());
@@ -279,6 +284,9 @@ test.describe("Organize through the selection wizard", () => {
 			expect(creates).toHaveLength(1);
 			expect(creates[0].scope).toBe("Temporary");
 			expect(creates[0].name).toBe(tag);
+			// The rule went out with something to match on, which is the whole
+			// point of taking the properties door (#1193).
+			expect(creates[0].literalClauses?.length ?? 0).toBeGreaterThan(0);
 			// The wizard collects a civil date; the draft carries the instant it
 			// means, with the zone offset it was picked in (#477 5.4).
 			expect(creates[0].expiresAt).toMatch(

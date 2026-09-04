@@ -300,6 +300,30 @@ export interface WizardScope {
 }
 
 /**
+ * Why an escalated predicate cannot become a rule (#1193). The list resolved it
+ * to the query on screen before the wizard opened, so there is no clause to
+ * build a rule from and no anchor to widen — and no door on the match step to
+ * get one from. It applies once; the query itself is what makes a filter, from
+ * the affordance above the results.
+ */
+export const escalatedRuleReason =
+	"A match this wide applies once — use “Make this a filter” above the results to keep doing it.";
+
+/**
+ * Why the two persisting scopes cannot be reached, or `undefined` when they can.
+ * Two restrictions land on the same step — a selection spanning more accounts or
+ * folders than a rule can take, and a match the wizard was handed already
+ * resolved — and both dim the saving scopes and state themselves there. Every
+ * surface asks here, so none of them can dim a scope without a reason or state a
+ * reason it cannot act on.
+ */
+export const ruleRestrictionFor = (
+	mode: MatchMode,
+	scope: WizardScope,
+): string | undefined =>
+	mode === "escalated" ? escalatedRuleReason : scope.rule;
+
+/**
  * The scope a selection walks the wizard with. A selection with no single
  * account is account-restricted whatever it was handed, since the account is
  * what the filter, the folder create and the preview all hang off.

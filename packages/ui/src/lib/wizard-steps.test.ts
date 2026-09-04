@@ -10,11 +10,13 @@ import {
 	clauseSentence,
 	clauseWords,
 	crossAccountMatchReason,
+	crossAccountRuleReason,
 	crossFolderDestinationReason,
 	crossFolderRuleReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	escalatedMatchLabel,
+	escalatedRuleReason,
 	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
@@ -23,6 +25,7 @@ import {
 	matchPhrase,
 	matchSummary,
 	type RunState,
+	ruleRestrictionFor,
 	runCopy,
 	type StepId,
 	sampleEmptyCopy,
@@ -34,6 +37,7 @@ import {
 	type Verb,
 	verbCopy,
 	type WizardDraft,
+	type WizardScope,
 	wizardScopeFor,
 } from "./wizard-steps.js";
 
@@ -978,5 +982,41 @@ describe("the restriction a selection walks the wizard with", () => {
 		assert.deepEqual(wizardScopeFor("acc-personal", undefined), {
 			accountId: "acc-personal",
 		});
+	});
+});
+
+describe("the restriction the rule step states", () => {
+	const unrestricted: WizardScope = { accountId: "acc-personal" };
+
+	it("states what an escalated match can do, not what it lacks", () => {
+		// The escalated walk is offered no door and earns no editor step, so
+		// "add a clause" would name a remedy that is on no screen it can reach.
+		// The restriction names one that is: the query's own "Make this a filter".
+		assert.equal(
+			stepsFor({
+				verb: "organize",
+				mode: "escalated",
+				scope: "standing",
+			}).includes("properties"),
+			false,
+		);
+		assert.equal(
+			ruleRestrictionFor("escalated", unrestricted),
+			escalatedRuleReason,
+		);
+		assert.notEqual(escalatedRuleReason, ruleBlockedCopy.noMatch);
+	});
+
+	it("restricts nothing on a door that can carry a predicate", () => {
+		for (const mode of ["selected", "similar", "properties"] as const) {
+			assert.equal(ruleRestrictionFor(mode, unrestricted), undefined);
+		}
+	});
+
+	it("still states the restriction the selection itself carries", () => {
+		assert.equal(
+			ruleRestrictionFor("selected", wizardScopeFor(undefined, undefined)),
+			crossAccountRuleReason,
+		);
 	});
 });

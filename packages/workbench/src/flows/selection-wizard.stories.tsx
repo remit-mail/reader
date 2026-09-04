@@ -16,6 +16,8 @@ import {
 	type RuleClause,
 	type RuleScope,
 	type RunState,
+	ruleBlockedCopy,
+	ruleRestrictionFor,
 	type SampleEmptyReason,
 	type SearchChip,
 	type SearchConversion,
@@ -36,6 +38,7 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, within } from "storybook/test";
 import {
 	FACETS_ONLY_CONVERSION,
 	PLAIN_CONVERSION,
@@ -285,11 +288,12 @@ function WizardDriver({
 		entry.restriction === "spansAccounts" ? undefined : "acc-personal",
 		entry.restriction,
 	);
+	const ruleRestriction = ruleRestrictionFor(mode, wizardScope);
 	const stepRestriction =
 		current === "folder"
 			? wizardScope.destination
 			: current === "rule" && (scope === "standing" || scope === "until")
-				? wizardScope.rule
+				? ruleRestriction
 				: undefined;
 	const blockedReason =
 		stepRestriction ?? stepBlockedReason(current, draft, count);
@@ -452,7 +456,7 @@ function WizardDriver({
 				draft,
 				onScopeChange: setScope,
 				onUntilChange: setUntil,
-				restriction: wizardScope.rule,
+				restriction: ruleRestriction,
 			}}
 			name={{ name: ruleName, onNameChange: setTypedName }}
 			review={{
@@ -1243,6 +1247,12 @@ export const OrganizeStandingNoPredicate: Story = {
 	play: async ({ canvasElement }) => {
 		clickByText(canvasElement, "Continue");
 		await tick();
+		// The live region is empty until the press, so this is the announcement
+		// itself rather than the description that was there all along.
+		const announced = within(canvasElement)
+			.getAllByRole("status")
+			.some((region) => region.textContent === ruleBlockedCopy.noMatch);
+		await expect(announced).toBe(true);
 	},
 };
 
@@ -1712,6 +1722,26 @@ export const EscalatedReviewDesktop: Story = {
 			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("delete", "review")}
+		/>
+	),
+};
+
+/**
+ * Organize over the predicate reaches the scope step, and the two that save a
+ * rule are dimmed there. The list resolved this match before the wizard opened,
+ * so there is no clause to build a rule from, no anchor to widen, and no door on
+ * the match step to get either — asking for a clause would name a remedy on no
+ * screen this walk can reach. The step states the one that works instead: the
+ * query's own "Make this a filter" (#1193). Applying once is unaffected.
+ */
+export const EscalatedRuleRestricted: Story = {
+	name: "Select all matching — scope, no rule to save",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("organize", "rule")}
 		/>
 	),
 };

@@ -12,6 +12,7 @@ import {
 	type MatchMode,
 	type RuleClause,
 	type RunState,
+	ruleRestrictionFor,
 	type SearchConversion,
 	type SelectionRestriction,
 	SelectionWizard,
@@ -513,11 +514,15 @@ function SelectionWizardSession({
 	// preview behind a widened door has something to count against. The one-off
 	// scope and the ticked rows act on the messages themselves and are unaffected.
 	const wizardScope = wizardScopeFor(accountId, selectionRestriction);
+	// An escalated match is restricted on the same step for its own reason: the
+	// list resolved it before the wizard opened, and no door on the match step can
+	// give it a predicate to keep matching on (#1193).
+	const ruleRestriction = ruleRestrictionFor(mode, wizardScope);
 	const restrictionFor = (step: StepId): string | undefined => {
 		if (step === "folder") return wizardScope.destination;
 		if (step !== "rule") return undefined;
 		return named.scope === "standing" || named.scope === "until"
-			? wizardScope.rule
+			? ruleRestriction
 			: undefined;
 	};
 	const blockedReason =
@@ -1048,7 +1053,7 @@ function SelectionWizardSession({
 				draft: named,
 				onScopeChange: (scope) => setDraft((held) => ({ ...held, scope })),
 				onUntilChange: (until) => setDraft((held) => ({ ...held, until })),
-				restriction: wizardScope.rule,
+				restriction: ruleRestriction,
 			}}
 			name={{
 				name: named.name ?? "",
