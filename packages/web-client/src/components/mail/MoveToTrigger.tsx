@@ -17,7 +17,6 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { useTranslation } from "react-i18next";
 import { Drawer } from "vaul";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
@@ -86,7 +85,6 @@ export const MoveToTrigger = ({
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const triggerLabel = label ?? "Move to folder";
 	const popoverId = useId();
-	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator = useFolderLabelTranslator();
 
 	const {
@@ -223,12 +221,8 @@ export const MoveToTrigger = ({
 			// drawer runs its own focus and must not raise a phone keyboard.
 			autoFocusFilter={isDesktop}
 			labels={{
-				filterPlaceholder: t("move_picker_filter_placeholder", {
-					defaultValue: "Filter folders…",
-				}),
-				filterAriaLabel: t("move_picker_filter_label", {
-					defaultValue: "Filter folders",
-				}),
+				filterPlaceholder: "Filter folders…",
+				filterAriaLabel: "Filter folders",
 			}}
 		/>
 	);
