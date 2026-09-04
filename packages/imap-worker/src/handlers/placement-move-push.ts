@@ -21,7 +21,7 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
-	searchMailboxByMessageId,
+	searchMailboxForFreshCopyUid,
 } from "./message-move.js";
 
 export const getPlacementMoveMaxAttempts = (
@@ -97,9 +97,12 @@ export const attemptMove = async (
 	}
 
 	// Unconfirmed: either no COPYUID entry, or the server explicitly claimed
-	// "not found" — never trust either without independent verification.
+	// "not found" — never trust either without independent verification. The
+	// message this MOVE delivered is the newest copy of that Message-ID at the
+	// destination, so the probe binds to the highest matching uid (#1122); an
+	// older copy filed there earlier belongs to no move this handler made.
 	if (messageIdHeader) {
-		const destinationUid = await searchMailboxByMessageId(
+		const destinationUid = await searchMailboxForFreshCopyUid(
 			destinationConnection,
 			destinationMailboxPath,
 			messageIdHeader,

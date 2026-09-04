@@ -516,6 +516,30 @@ describe("handleMessageDelete", () => {
 			);
 		});
 
+		// Issue #1122. Trash already holds an older copy of this Message-ID (a
+		// resend, a sieve `fileinto` + `keep`, an earlier delete of another
+		// folder's copy). Settling on uid 12 points the row at that copy and
+		// orphans the one this MOVE just delivered: Empty Trash then expunges by
+		// the wrong uid and the fresh copy survives, unreachable.
+		it("settles on the copy this move delivered, not on an older copy already in Trash", async () => {
+			h.connection.moveMessages = async () => ({ uidMap: new Map() });
+			sourceNoLongerHoldsTheUid();
+			h.destinationSearchUids = [12, 77];
+
+			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+
+			assert.deepEqual(called("message.updateUid")[0]?.args, [
+				"msg-1",
+				77,
+				"trash-mbx",
+			]);
+			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+				uid: 77,
+				mailboxId: "trash-mbx",
+				isDeleted: true,
+			});
+		});
+
 		it("probes the DESTINATION mailbox, read-only, by Message-ID", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			sourceNoLongerHoldsTheUid();
@@ -650,11 +674,11 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("emitEvent").length, 0);
 		});
 
-		// `searchMailboxByMessageId` returns the LOWEST matching uid, and one
-		// Message-ID can have several server copies in one account while
+		// One Message-ID can have several server copies in one account while
 		// `deriveMessageId` gives them one local row. A source that still holds
 		// the uid proves the MOVE did not happen, so any hit at the destination
-		// is a different copy.
+		// is a different copy — including the highest one #1122 now takes, since
+		// with no fresh copy at all the highest match is still an older copy.
 		it("never takes a destination hit while the source still holds the uid (duplicate Message-ID)", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			h.destinationSearchUids = [100];

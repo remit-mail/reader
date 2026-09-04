@@ -12,7 +12,7 @@ import {
 	handleMessageMove,
 	MESSAGE_MOVE_MAX_ATTEMPTS,
 	moveThenResync,
-	searchMailboxByMessageId,
+	searchMailboxForFreshCopyUid,
 } from "./message-move.js";
 
 const silentLogger = (() => {
@@ -343,7 +343,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	});
 });
 
-describe("searchMailboxByMessageId — the probe that binds a move to a UID (#912)", () => {
+describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID (#912)", () => {
 	const isMessageIdCriterion = (
 		criterion: unknown,
 	): criterion is [string, string, string] =>
@@ -381,7 +381,7 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 			},
 		} as unknown as IImapConnection;
 
-		await searchMailboxByMessageId(
+		await searchMailboxForFreshCopyUid(
 			destination,
 			"Archive",
 			'<a"b@example.com>\r\nUID 1',
@@ -392,14 +392,14 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 		]);
 	});
 
-	it("answers null, not the lowest UID, when the folder holds no such message", async () => {
+	it("answers null, not another message's UID, when the folder holds no such message", async () => {
 		const destination = buildDestination([
 			{ uid: 11, messageIdHeader: "<stranger-a@example.com>" },
 			{ uid: 12, messageIdHeader: "<stranger-b@example.com>" },
 		]);
 
 		assert.strictEqual(
-			await searchMailboxByMessageId(
+			await searchMailboxForFreshCopyUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
@@ -415,12 +415,51 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 		]);
 
 		assert.strictEqual(
-			await searchMailboxByMessageId(
+			await searchMailboxForFreshCopyUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
 			),
 			12,
+		);
+	});
+
+	// Issue #1122. The folder already held an older copy of this Message-ID — a
+	// sieve `fileinto` + `keep`, a resend, an earlier copy of the same message —
+	// and the uid this probe hands back settles the row the fresh copy lives in.
+	// Answering 12 binds that row to mail this operation never touched and
+	// leaves the copy that just arrived unreachable by any later delete.
+	it("answers the newest copy's UID when the folder already held an older copy of it", async () => {
+		const destination = buildDestination([
+			{ uid: 12, messageIdHeader: "<moved@example.com>" },
+			{ uid: 40, messageIdHeader: "<moved@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxForFreshCopyUid(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			40,
+		);
+	});
+
+	// RFC 3501 does not order a SEARCH response, so the fresh copy is the
+	// highest uid returned rather than the last one returned.
+	it("takes the highest match whatever order the server lists them in", async () => {
+		const destination = buildDestination([
+			{ uid: 40, messageIdHeader: "<moved@example.com>" },
+			{ uid: 12, messageIdHeader: "<moved@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxForFreshCopyUid(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			40,
 		);
 	});
 });

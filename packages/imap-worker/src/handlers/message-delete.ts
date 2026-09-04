@@ -23,7 +23,10 @@ import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
-import { emitMoveResync, searchMailboxByMessageId } from "./message-move.js";
+import {
+	emitMoveResync,
+	searchMailboxForFreshCopyUid,
+} from "./message-move.js";
 import {
 	buildThreadMessageMoveRevert,
 	buildThreadMessageTrashUpdate,
@@ -70,14 +73,14 @@ export const deleteAllThreadMessagesForMessage = async (
  * never be opened through the source's guard.
  *
  * The source is asked first, and a source that still holds the uid ends it: the
- * MOVE did not happen, so nothing at the destination can be this message.
- * Skipping that question is not safe, because `searchMailboxByMessageId`
- * returns the LOWEST matching uid rather than the one that just arrived, and
- * one Message-ID can have several server copies in one account (a sieve
- * `fileinto` + `keep`, a multi-label store, a resend) while
- * `deriveMessageId` is folder-independent and gives them one local row. An
- * ungated probe can hand back an earlier copy's uid, and Empty Trash then
- * expunges by that uid. It also closes the second half of #912: an empty
+ * MOVE did not happen, so nothing at the destination can be this message. The
+ * gate survives #1122's switch to the highest matching uid and is not made
+ * redundant by it — highest picks the fresh copy out of several only once a
+ * fresh copy exists, and where the MOVE never ran every hit at the destination
+ * is an older copy of the same Message-ID (a sieve `fileinto` + `keep`, a
+ * multi-label store, a resend) that `deriveMessageId` folds into this one local
+ * row. An ungated probe hands back that copy's uid, and Empty Trash then
+ * expunges by it. The gate also closes the second half of #912: an empty
  * `uidMap` can mean the MOVE matched nothing at all.
  *
  * A row with no `messageIdHeader`, and a row that is already deleted, have
@@ -109,7 +112,7 @@ const confirmTrashMoveUid = async (
 	if (!message) return { outcome: "row-gone" };
 	if (!message.messageIdHeader) return { outcome: "unprobeable" };
 
-	const probedUid = await searchMailboxByMessageId(
+	const probedUid = await searchMailboxForFreshCopyUid(
 		destinationConnection,
 		destinationMailboxPath,
 		message.messageIdHeader,

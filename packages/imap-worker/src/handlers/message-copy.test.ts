@@ -229,6 +229,25 @@ describe("handleMessageCopy", () => {
 		assert.equal(called("threadMessage.update").length, 1);
 	});
 
+	// Issue #1122. `deriveCopyMessageId` reuses the row, so copying the same
+	// message into the same folder twice issues a second server COPY and leaves
+	// the destination holding both. Nothing here can rule the older one out the
+	// way the trash probe's source check does — a COPY leaves the source
+	// untouched — so the row must settle on the highest match. Settling on 12
+	// points it at the earlier copy and orphans the one just made.
+	it("settles on the copy this event made, not on an earlier copy of the same message", async () => {
+		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.destinationHolds = [12, 42];
+
+		await handleMessageCopy(event, noopLog, 1, deps());
+
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+	});
+
 	it("reconciles the optimistic row away when the destination does not hold the copy", async () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
 		h.destinationHolds = [];

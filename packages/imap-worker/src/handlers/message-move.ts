@@ -53,11 +53,24 @@ export const emitMoveResync = async (
 };
 
 /**
- * SEARCH a mailbox for a message by its RFC822 Message-ID header. Read-only
- * (EXAMINE, not SELECT) — this is a verification probe, never a write.
- * Returns the first matching UID, or `null` if nothing matched.
+ * SEARCH a mailbox for the copy of a message this operation just put there,
+ * identified by its RFC822 Message-ID header. Read-only (EXAMINE, not SELECT) —
+ * this is a verification probe, never a write. `null` when nothing matched.
+ *
+ * Answers the HIGHEST matching uid, and every probe in this package wants that
+ * one: uids ascend with arrival inside a UIDVALIDITY, so a copy that has just
+ * landed outranks every copy of the same Message-ID the folder already held.
+ * One Message-ID can have several server copies in one account (a sieve
+ * `fileinto` + `keep`, a resend, a repeated COPY — `deriveCopyMessageId` reuses
+ * the row, so the second copy is a second server COPY), while `deriveMessageId`
+ * is folder-independent and gives them one local row. Taking the lowest bound
+ * the fresh copy's row to an older copy's uid and orphaned the fresh one, which
+ * a later delete or Empty Trash then expunged by the wrong uid (issue #1122).
+ *
+ * The maximum is computed rather than read off the tail: RFC 3501 leaves the
+ * order of a SEARCH response unspecified, so "last returned" is not "highest".
  */
-export const searchMailboxByMessageId = async (
+export const searchMailboxForFreshCopyUid = async (
 	connection: IImapConnection,
 	mailboxPath: string,
 	messageIdHeader: string,
@@ -66,7 +79,8 @@ export const searchMailboxByMessageId = async (
 	const uids = await connection.search([
 		["HEADER", "Message-ID", messageIdHeader],
 	]);
-	return uids[0] ?? null;
+	if (uids.length === 0) return null;
+	return uids.reduce((highest, uid) => (uid > highest ? uid : highest));
 };
 
 /**
@@ -273,7 +287,7 @@ export const handleMessageMove = async (
 							const newUid =
 								result.uidMap.get(uid) ??
 								(message.messageIdHeader
-									? await searchMailboxByMessageId(
+									? await searchMailboxForFreshCopyUid(
 											rawConnection,
 											destinationMailboxPath,
 											message.messageIdHeader,

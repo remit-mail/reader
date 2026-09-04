@@ -156,6 +156,28 @@ describe("attemptMove — the IMAP push (issue #1271)", () => {
 			assert.equal(outcome.newUid, 77);
 		});
 
+		// Issue #1122. The destination already held an older copy of this
+		// Message-ID; the marker must bind to the copy this MOVE delivered, or
+		// the placement row names mail this push never touched.
+		it("moved: binds to the newest copy when the destination already held an older one", async () => {
+			const connection = buildConnection({
+				uidMap: new Map(),
+				destinationSearchUids: [15, 77],
+			});
+
+			const outcome = await attemptMove(
+				connection,
+				connection,
+				"Junk",
+				"INBOX",
+				42,
+				MESSAGE_ID_HEADER,
+			);
+
+			assert.equal(outcome.kind, "moved");
+			assert.equal(outcome.newUid, 77);
+		});
+
 		it("throws (never deletes) when unconfirmed at the destination but STILL present at the source", async () => {
 			const connection = buildConnection({
 				uidMap: new Map(),
