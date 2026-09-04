@@ -9,6 +9,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./test-sqlite": {
+      "types": "./src/test-sqlite.ts",
+      "default": "./src/test-sqlite.ts"
     }
   },
   "scripts": {

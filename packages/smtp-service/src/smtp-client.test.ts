@@ -158,9 +158,13 @@ describe("sendMail", () => {
 		);
 	});
 
-	it("throws a classified auth error on a 535 AUTH rejection", async () => {
+	it("throws a classified auth error on a 535 AUTH rejection, in the server's words", async () => {
+		// What Microsoft answers a tenant with SMTP AUTH switched off. Signing in
+		// again never clears it, so the text has to survive classification for the
+		// account card to say what actually has to change.
 		const server = await spawn({
-			authResponse: "535 5.7.8 Authentication credentials invalid\r\n",
+			authResponse:
+				"535 5.7.139 Authentication unsuccessful, SmtpClientAuthentication is disabled for the Tenant\r\n",
 		});
 
 		await assert.rejects(
@@ -168,7 +172,7 @@ describe("sendMail", () => {
 			(error: unknown) => {
 				assert.ok(error instanceof SmtpConnectionError);
 				assert.equal(error.kind, "auth");
-				assert.equal(error.message, "SMTP authentication failed");
+				assert.match(error.message, /SmtpClientAuthentication is disabled/);
 				return true;
 			},
 		);

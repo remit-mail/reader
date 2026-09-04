@@ -10,13 +10,14 @@ import {
 const RAW_API_RESPONSE: unique symbol = Symbol("remit.rawApiResponse");
 
 /**
- * A response whose bytes are not JSON — an iCalendar feed, and whatever later
- * joins it.
+ * A response the caller reads by something other than its JSON body — an
+ * iCalendar feed, an OAuth redirect's Location, and whatever later joins them.
  *
  * Every other handler returns a plain object and lets this module decide the
  * status, the content type and the serialization. That is the right default and
- * stays the default; a handler that has to own its own media type says so with
- * `rawApiResponse` rather than by returning a shape this one has to guess at.
+ * stays the default; a handler that has to own its own media type or headers
+ * says so with `rawApiResponse` rather than by returning a shape this one has
+ * to guess at.
  * The CORS and correlation headers are still added here, so a raw response is
  * not a way around them.
  */

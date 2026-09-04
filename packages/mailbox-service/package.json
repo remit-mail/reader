@@ -13,6 +13,10 @@
       "types": "./src/body-sync-queue.ts",
       "default": "./src/body-sync-queue.ts"
     },
+    "./imapflow-connection": {
+      "types": "./src/imapflow-connection.ts",
+      "default": "./src/imapflow-connection.ts"
+    },
     "./account-credentials": {
       "types": "./src/account-credentials.ts",
       "default": "./src/account-credentials.ts"

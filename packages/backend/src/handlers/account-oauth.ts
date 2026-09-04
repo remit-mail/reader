@@ -16,6 +16,7 @@ import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getMsOAuthConfig } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
+import { rawApiResponse } from "../response.js";
 import { getClient } from "../service/data-client.js";
 import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
@@ -228,11 +229,15 @@ export const MicrosoftOAuthOperations: Record<
 		const webOrigin = getWebOrigin();
 		const qs = event.queryStringParameters ?? {};
 
-		const redirect = (url: string): APIGatewayProxyResult => ({
-			statusCode: 302,
-			headers: { Location: url },
-			body: "",
-		});
+		// Marked raw so the response formatter forwards the Location header
+		// instead of serializing this object as a JSON body. Microsoft's browser
+		// redirect lands here, so a dropped Location is a blank page.
+		const redirect = (url: string): APIGatewayProxyResult =>
+			rawApiResponse({
+				statusCode: 302,
+				headers: { Location: url },
+				body: "",
+			});
 
 		// If Microsoft returned an error, pass it through to the frontend
 		if (qs.error) {

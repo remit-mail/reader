@@ -87,11 +87,18 @@ export interface SendMessageDeps {
 	 */
 	resolveCredentials: (account: AccountItem) => Promise<CredentialResolution>;
 	/**
-	 * Persist the account's connectionState. Called when a terminal OAuth/SMTP
-	 * auth failure is detected so the account is fenced off until the user
-	 * re-auths (mirrors the IMAP withOAuthLifecycle contract).
+	 * Persist the account's connectionState, and with it the sentence the
+	 * account card shows. Called when a terminal OAuth/SMTP auth failure is
+	 * detected so the account is fenced off until the user re-auths (mirrors the
+	 * IMAP withOAuthLifecycle contract). `lastError` carries the server's own
+	 * words when the refusal came with any, and its absence clears the stored
+	 * reason rather than leaving an older failure to describe this one.
 	 */
-	updateConnectionState: (accountId: string, state: string) => Promise<void>;
+	updateConnectionState: (
+		accountId: string,
+		state: string,
+		lastError?: string,
+	) => Promise<void>;
 	send: typeof sendMail;
 	emitAppendSentMessage: (
 		accountId: string,
@@ -268,10 +275,14 @@ export const sendMessage = async (
 				throw err;
 			}
 			log.warn(
-				{ accountId, errorKind: err.kind },
+				{ accountId, errorKind: err.kind, error: err.message },
 				"SMTP auth rejected; marking account reauth_required",
 			);
-			await deps.updateConnectionState(accountId, "reauth_required");
+			await deps.updateConnectionState(
+				accountId,
+				"reauth_required",
+				err.message,
+			);
 			await settleBlockedOnReauth();
 			return; // ACK — do not retry
 		}
@@ -311,10 +322,14 @@ export const sendMessage = async (
 			account.authType === AccountAuthType.OauthMicrosoft
 		) {
 			log.warn(
-				{ accountId, errorKind: err.kind },
+				{ accountId, errorKind: err.kind, error: err.message },
 				"SMTP auth rejected during send; marking account reauth_required",
 			);
-			await deps.updateConnectionState(accountId, "reauth_required");
+			await deps.updateConnectionState(
+				accountId,
+				"reauth_required",
+				err.message,
+			);
 			await settleBlockedOnReauth(OutboxMessageStatus.sending);
 			return; // ACK — do not retry
 		}
