@@ -21,7 +21,7 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
-	searchMailboxByMessageId,
+	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 
 export const getPlacementMoveMaxAttempts = (
@@ -97,9 +97,16 @@ export const attemptMove = async (
 	}
 
 	// Unconfirmed: either no COPYUID entry, or the server explicitly claimed
-	// "not found" — never trust either without independent verification.
+	// "not found" — never trust either without independent verification. A
+	// message this MOVE delivered is the newest copy of that Message-ID at the
+	// destination, so the probe binds to the highest matching uid (#1122).
+	// Unlike `confirmTrashMoveUid`, this probe is ungated: where the MOVE never
+	// ran and an older copy filed there earlier is the only match, the marker
+	// binds to that unrelated mail. Pre-existing, and not narrowed by taking the
+	// highest — the source is not asked first here, so nothing rules the case
+	// out.
 	if (messageIdHeader) {
-		const destinationUid = await searchMailboxByMessageId(
+		const destinationUid = await searchMailboxForHighestMessageIdUid(
 			destinationConnection,
 			destinationMailboxPath,
 			messageIdHeader,

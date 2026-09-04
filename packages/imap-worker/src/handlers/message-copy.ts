@@ -16,7 +16,7 @@ import type { MessageCopyEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { searchMailboxByMessageId } from "./message-move.js";
+import { searchMailboxForHighestMessageIdUid } from "./message-move.js";
 
 export interface MessageCopyDeps {
 	getClient: typeof getClient;
@@ -188,11 +188,18 @@ export const handleMessageCopy = async (
 			// handle: a `guardConnectionCursor` wrap is bound to the SOURCE mailbox
 			// snapshot alone, and opening the destination through it trips that
 			// mailbox into a rebuild.
+			//
+			// This is the call site with no source-side gate to fall back on
+			// (#1122): a COPY leaves the source untouched, so nothing here can rule
+			// an older destination copy out the way `confirmTrashMoveUid` does. The
+			// fresh copy is the highest matching uid, and `deriveCopyMessageId`
+			// makes a repeated copy of the same message a second server COPY, so
+			// this probe must never bind to the earlier one.
 			const probeDestination = async (
 				connection: IImapConnection,
 			): Promise<CopyProbe> => {
 				if (!copyRow.messageIdHeader) return { kind: "unprobeable" };
-				const probedUid = await searchMailboxByMessageId(
+				const probedUid = await searchMailboxForHighestMessageIdUid(
 					connection,
 					destinationMailboxPath,
 					copyRow.messageIdHeader,
