@@ -96,6 +96,14 @@ export interface SendMessageDeps {
 const UNFILED_NOT_QUEUED =
 	"Sent, but not filed: the copy for the Sent folder could not be queued.";
 
+/**
+ * Every re-auth branch settles the row with this, because the row is the only
+ * place the user learns the send stopped: `blocked` shows its reason and offers
+ * no Retry, and a retry cannot succeed until the account is reconnected.
+ */
+const REAUTH_REQUIRED =
+	"This account needs to be reconnected before it can send. Open Settings → Accounts and choose Reconnect, then send this message again.";
+
 const UNFILED_CONNECTION_LOST =
 	"The connection to the outgoing server dropped during the send, so this message may already have been delivered. Check with the recipient before sending it again.";
 
@@ -156,6 +164,16 @@ export const sendMessage = async (
 	const account = await deps.getAccount(accountId);
 	const { accountConfigId } = account;
 
+	// State first, row second: a flip that lands and an update that throws is
+	// redelivered into the fence below, which settles the row. The other order
+	// leaves the row settled and the account never fenced, and the settled row
+	// is no longer sendable so no redelivery gets back here.
+	const settleBlockedOnReauth = (): Promise<unknown> =>
+		deps.updateOutbox(accountConfigId, outboxMessageId, {
+			status: OutboxMessageStatus.blocked,
+			lastError: REAUTH_REQUIRED,
+		});
+
 	const outbox = await deps.getOutbox(accountConfigId, outboxMessageId);
 	// The fence against SQS at-least-once redelivery, stated as the states a
 	// send may proceed FROM. Every other state has already been on the wire, so
@@ -181,9 +199,10 @@ export const sendMessage = async (
 	// Reauth fence: skip accounts that need re-authentication. No SMTP traffic
 	// until the user re-auths (mirrors the IMAP reauth/ACK contract, #472).
 	if (account.connectionState === "reauth_required") {
+		await settleBlockedOnReauth();
 		log.info(
 			{ accountId, connectionState: account.connectionState },
-			"Account requires reauth, dropping send event",
+			"Account requires reauth, blocking the message",
 		);
 		return;
 	}
@@ -219,6 +238,7 @@ export const sendMessage = async (
 					"OAuth token revoked; marking account reauth_required",
 				);
 				await deps.updateConnectionState(accountId, "reauth_required");
+				await settleBlockedOnReauth();
 				return; // ACK — do not retry
 			}
 			// transient or config: let-it-crash (SQS retry / DLQ)
@@ -235,6 +255,7 @@ export const sendMessage = async (
 				"SMTP auth rejected; marking account reauth_required",
 			);
 			await deps.updateConnectionState(accountId, "reauth_required");
+			await settleBlockedOnReauth();
 			return; // ACK — do not retry
 		}
 		throw err;
@@ -277,6 +298,7 @@ export const sendMessage = async (
 				"SMTP auth rejected during send; marking account reauth_required",
 			);
 			await deps.updateConnectionState(accountId, "reauth_required");
+			await settleBlockedOnReauth();
 			return; // ACK — do not retry
 		}
 		// A password account's auth failure and every network failure retry on

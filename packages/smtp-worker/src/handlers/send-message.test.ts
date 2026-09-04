@@ -527,8 +527,20 @@ describe("sendMessage handler", () => {
 	});
 });
 
+/**
+ * The row is the only place the user learns a send stopped on re-auth, so every
+ * branch that abandons the send has to leave a `blocked` row naming the remedy
+ * (issue #1152).
+ */
+const assertBlockedOnReauth = (recorded: Recorded): void => {
+	const settled = recorded.updates.at(-1)?.patch;
+	assert.equal(settled?.status, "blocked");
+	assert.match(String(settled?.lastError), /reconnected/i);
+	assert.match(String(settled?.lastError), /Reconnect/);
+};
+
 describe("sendMessage OAuth reauth/ACK contract", () => {
-	it("skips send when account is reauth_required", async () => {
+	it("blocks the message when the account already needs reauth (issue #1152)", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({
 				smtpHost: "smtp.example.com",
@@ -546,7 +558,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			0,
 			"must not flip connectionState",
 		);
-		assert.equal(recorded.updates.length, 0, "must not update outbox");
+		assertBlockedOnReauth(recorded);
 		assert.equal(recorded.statuses.length, 0, "must not change status");
 	});
 
@@ -569,6 +581,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("account storing no credential: settles `blocked` and never retries (issue #1120)", async () => {
@@ -629,6 +642,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("on SmtpConnectionError auth during credential resolution for password account: rethrows (no state flip)", async () => {
@@ -673,6 +687,7 @@ describe("sendMessage OAuth reauth/ACK contract", () => {
 			accountId: "acc-1",
 			state: "reauth_required",
 		});
+		assertBlockedOnReauth(recorded);
 	});
 
 	it("on SmtpConnectionError auth during send for password account: rethrows (no state flip)", async () => {
