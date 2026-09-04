@@ -1,6 +1,10 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
 import { inboxFilterConfig } from "../filter-presets.js";
+import {
+	type BriefFilterId,
+	matchesBriefFilters,
+} from "../lib/brief-filters.js";
 import { useListKeyboard } from "../lib/use-list-keyboard.js";
 import type { MessageListKeyboard, ThreadSection } from "./app-shell-types.js";
 import { FilterSheet } from "./filter-sheet.js";
@@ -102,13 +106,39 @@ const noKeyboard: MessageListKeyboard = {
  */
 function LiveList({ briefFilters = false }: { briefFilters?: boolean }) {
 	const list = useListKeyboard({ isDesktop: true });
+	// The pane draws the brief's chips and applies none of them, so the story
+	// holds the set and narrows the rows itself — as the app's requests do (#314).
+	const [chips, setChips] = useState<ReadonlySet<BriefFilterId>>(new Set());
+	const briefRows = sections
+		.map((section) => ({
+			...section,
+			threads: section.threads.filter((thread) =>
+				matchesBriefFilters(thread, chips),
+			),
+		}))
+		.filter((section) => section.threads.length > 0);
 	return (
 		<MessageListPane
 			listTitle="Inbox"
 			listMeta="3 conversations"
-			sections={sections}
+			sections={briefFilters ? briefRows : sections}
 			flatList={!briefFilters}
 			briefFilters={briefFilters}
+			briefFilter={
+				briefFilters
+					? {
+							activeFilters: chips,
+							onToggleFilter: (id) =>
+								setChips((prev) => {
+									const next = new Set(prev);
+									if (next.has(id)) next.delete(id);
+									else next.add(id);
+									return next;
+								}),
+							onClearFilters: () => setChips(new Set()),
+						}
+					: undefined
+			}
 			isDesktop
 			onSelectThread={() => undefined}
 			selection={list.selection}

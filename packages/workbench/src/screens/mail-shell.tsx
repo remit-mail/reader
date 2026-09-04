@@ -36,6 +36,7 @@ import {
 	type AppShellSlottedProps,
 	Avatar,
 	type BriefCategoryFilter,
+	type BriefFilterId,
 	type BriefFilterSurface,
 	Button,
 	briefChipFilters,
@@ -60,6 +61,7 @@ import {
 	type MessageListFilter,
 	MessageListPane,
 	MobileSearchView,
+	matchesBriefFilters,
 	NavSidebar,
 	ReadingPane,
 	RefreshButton,
@@ -516,9 +518,21 @@ function ListPane({
 	const freeText = briefRendersQuery
 		? clearBriefFiltersInQuery(search.query).trim().toLowerCase()
 		: "";
-	const narrows = source !== "all" || freeText.length > 0;
+	// The prototype stands in for the server: the app's category scope and its
+	// attribute chips are query parameters, answered before the rows are handed
+	// to the list, and the list itself renders whatever it is given (#314). With
+	// no request behind these fixtures, the shell answers them here.
+	const briefChips = briefFilter?.activeFilters ?? new Set<BriefFilterId>();
+	const briefScope = briefFilter?.briefCategory ?? "all";
+	const narrows =
+		source !== "all" ||
+		freeText.length > 0 ||
+		briefScope !== "all" ||
+		briefChips.size > 0;
 	const keeps = (thread: ThreadRowData): boolean =>
 		(source === "all" || thread.accountId === source) &&
+		(briefScope === "all" || thread.category === briefScope) &&
+		matchesBriefFilters(thread, briefChips) &&
 		(freeText.length === 0 ||
 			thread.subject.toLowerCase().includes(freeText) ||
 			thread.fromName.toLowerCase().includes(freeText));

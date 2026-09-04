@@ -24,11 +24,14 @@
  * chips and the account source group, in a panel the list header's caret opens
  * over the rows. `FilterPanelProvider` shares that panel's open state between
  * the caret and the sheet, the same shape `MailViewChrome` gives the mailbox and
- * Starred views. The category and the chips narrow the grouped sections
- * themselves, and the phone search takeover reads the same selection, so a
- * filter set on one surface holds on the other. Under a query the chips are
- * terms of that query — see `briefChipFilters` — so what narrows the list is
- * readable and editable in the search field.
+ * Starred views. The list draws those controls but applies none of them: the
+ * category and every chip a parameter can express travel with the section
+ * requests, and the two that cannot ("From contacts", "Today") are applied here
+ * alongside the residual tokens (#314). The phone search takeover reads the same
+ * selection and the same rows, so a filter set on one surface holds on the
+ * other. Under a query the chips are terms of that query — see
+ * `briefChipFilters` — so what narrows the list is readable and editable in the
+ * search field.
  *
  * Multi-select is the mailbox list's, not a copy of it: the same
  * `ThreadListInteraction` cursor and `useSelection` state, and the same
@@ -114,7 +117,11 @@ import {
 	matchesSearchTokens,
 	toThreadRowData,
 } from "@/lib/brief";
-import { briefCountsMatchRows, briefCriteria } from "@/lib/brief-criteria";
+import {
+	briefClientOnlyFilters,
+	briefCountsMatchRows,
+	briefCriteria,
+} from "@/lib/brief-criteria";
 import { isServerError } from "@/lib/error-classifier";
 import { junkDestination } from "@/lib/junk-destination";
 import type { ListHeaderChrome } from "@/lib/list-header-chrome";
@@ -659,11 +666,16 @@ export function DailyBrief({
 		refetchSections();
 	}, [underQuery, refetchSearch, refetchSections]);
 
-	// What the request could not carry: muted senders, the account pill, and the
+	// What the request could not carry: muted senders, the account pill, the two
+	// chips no endpoint takes a parameter for ("From contacts", "Today"), and the
 	// residual tokens (`from:`, `subject:`, `before:`, `after:`, `in:`,
 	// `account:`) that `listAllThreads` has no parameter for. Everything else was
 	// answered over the whole scope by the request itself, and the order the rows
 	// arrived in is kept — narrowing never re-sorts.
+	const clientOnlyFilters = useMemo(
+		() => briefClientOnlyFilters(requestFilters),
+		[requestFilters],
+	);
 	const narrowRows = useCallback(
 		(rows: RemitImapThreadMessageResponse[]): ThreadRowData[] =>
 			// One row per conversation, because that is what the server counted:
@@ -676,9 +688,10 @@ export function DailyBrief({
 					(t) =>
 						(selectedAccountId === "all" ||
 							t.accountId === selectedAccountId) &&
+						matchesBriefFilters(t, clientOnlyFilters) &&
 						matchesSearchTokens(t, residualTokens),
 				),
-		[selectedAccountId, residualTokens],
+		[selectedAccountId, clientOnlyFilters, residualTokens],
 	);
 
 	const briefRows = useMemo<BriefCategoryResult[]>(
@@ -826,18 +839,13 @@ export function DailyBrief({
 		[refreshState, onRefreshBrief, refreshError, hasNewMail, refreshAccountIds],
 	);
 
-	// The phone search takeover renders the account/free-text-narrowed rows,
-	// further narrowed by the same category and attribute chips the list applies.
+	// The phone search takeover renders the rows the list renders: the same
+	// requests answered the category and the chips, so a second pass here would
+	// narrow one surface by a criterion the other already applied to the whole
+	// scope.
 	const searchResults = useMemo<SearchResult[]>(
-		() =>
-			filteredRows
-				.filter(
-					(t) =>
-						(chipCategory === "all" || t.category === chipCategory) &&
-						matchesBriefFilters(t, chipFilters),
-				)
-				.map((row) => rowToSearchResult(row, resultFolderIndex)),
-		[filteredRows, chipCategory, chipFilters, resultFolderIndex],
+		() => filteredRows.map((row) => rowToSearchResult(row, resultFolderIndex)),
+		[filteredRows, resultFolderIndex],
 	);
 
 	// "Related" (semantic) spans every account here — the brief is the

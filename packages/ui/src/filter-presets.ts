@@ -1,9 +1,9 @@
-import { briefFilterChips } from "./components/brief-sections.js";
 import type {
 	FilterSheetCategory,
 	FilterSheetFilter,
 	FilterSheetSource,
 } from "./components/filter-sheet.js";
+import { briefFilterChips } from "./lib/brief-filters.js";
 
 /**
  * An account as a filter dimension. Accounts segment the unified daily brief
@@ -70,8 +70,8 @@ function accountSources(
 }
 
 /**
- * Daily-brief filter: categories + the BriefSections chip set (the single source
- * of truth for the brief's attribute chips), plus an account source group when
+ * Daily-brief filter: categories + the brief chip set (the single source of
+ * truth for the brief's attribute chips), plus an account source group when
  * more than one account feeds the brief (the brief aggregates them all).
  */
 export function briefFilterConfig(

@@ -14,8 +14,8 @@
  * restores the sheet exactly as it was.
  *
  * The daily brief composes the same three parts itself — provider, header,
- * sheet — around the kit `BriefSections`, whose sheet narrows the grouped
- * sections and flattens them when scoped to one category.
+ * sheet — around the kit `BriefSections`, whose sheet reports the selection and
+ * flattens the sections when the brief is scoped to one category.
  */
 import {
 	FilterPanelProvider,

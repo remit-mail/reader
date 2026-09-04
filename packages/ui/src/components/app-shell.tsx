@@ -1,11 +1,16 @@
 import { FolderInput } from "lucide-react";
 import { useState } from "react";
+import {
+	type BriefFilterId,
+	narrowBriefSections,
+} from "../lib/brief-filters.js";
 import { AppShellSlotted, useAppShellLayout } from "./app-shell-slotted.js";
 import type {
 	AppShellProps,
 	BriefCategoryFilter,
 	NarrowView,
 } from "./app-shell-types.js";
+import type { BriefFilterControl } from "./brief-sections.js";
 import { Button } from "./button.js";
 import { IntelligencePanel } from "./intelligence-panel.js";
 import { MessageListPane } from "./message-list-pane.js";
@@ -95,6 +100,26 @@ export function AppShell({
 		setInternalCategory(category);
 		onSelectBriefCategory?.(category);
 	};
+	/* The list draws the brief's chips and its category pills and applies
+	   neither (#314). This shell holds the rows, so it answers both here —
+	   otherwise a chip would tick and nothing on screen would move. */
+	const [briefChips, setBriefChips] = useState<ReadonlySet<BriefFilterId>>(
+		new Set(),
+	);
+	const toggleBriefChip = (id: BriefFilterId) =>
+		setBriefChips((prev) => {
+			const next = new Set(prev);
+			if (next.has(id)) next.delete(id);
+			else next.add(id);
+			return next;
+		});
+	const clearBriefFilters = () => {
+		selectCategory("all");
+		setBriefChips(new Set());
+	};
+	const listSections = briefFilters
+		? narrowBriefSections(sections ?? [], activeCategory, briefChips)
+		: sections;
 
 	const nav = (
 		<NavSidebar
@@ -113,7 +138,7 @@ export function AppShell({
 			onBackToList={() => setNarrowView("list")}
 			listTitle={listTitle}
 			listMeta={listMeta}
-			sections={sections}
+			sections={listSections}
 			briefFilters={briefFilters}
 			flatList={flatList}
 			listState={listState}
@@ -128,6 +153,9 @@ export function AppShell({
 				onSelectThread?.(id);
 			}}
 			onSelectBriefCategory={selectCategory}
+			activeFilters={briefChips}
+			onToggleFilter={toggleBriefChip}
+			onClearFilters={clearBriefFilters}
 			initialTouchState={initialTouchState}
 			selection={selection}
 			keyboard={keyboard}
@@ -190,6 +218,9 @@ function AppShellList({
 	density,
 	onSelectThread,
 	onSelectBriefCategory,
+	activeFilters,
+	onToggleFilter,
+	onClearFilters,
 	initialTouchState,
 	selection,
 	keyboard,
@@ -219,7 +250,7 @@ function AppShellList({
 	onBackToList: () => void;
 	briefCategory: BriefCategoryFilter;
 	onSelectBriefCategory: (category: BriefCategoryFilter) => void;
-}) {
+} & BriefFilterControl) {
 	const layout = useAppShellLayout();
 	const showReadingPane = layout?.showReadingPane ?? false;
 	const showNavPane = layout?.showNavPane ?? true;
@@ -248,7 +279,13 @@ function AppShellList({
 			searchQuery={searchQuery}
 			onRetry={onRetry}
 			onReportError={onReportError}
-			briefFilter={{ briefCategory, onSelectBriefCategory }}
+			briefFilter={{
+				briefCategory,
+				onSelectBriefCategory,
+				activeFilters,
+				onToggleFilter,
+				onClearFilters,
+			}}
 			selectedThreadId={selectedThreadId}
 			density={density}
 			onSelectThread={onSelectThread}

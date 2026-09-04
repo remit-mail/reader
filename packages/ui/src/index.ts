@@ -129,13 +129,10 @@ export {
 export {
 	type BriefCategoryControl,
 	type BriefFilterControl,
-	type BriefFilterId,
 	type BriefFilterSurface,
 	BriefSections,
 	type BriefSectionsProps,
 	type BriefSourceControl,
-	isBriefFilterId,
-	matchesBriefFilters,
 } from "./components/brief-sections.js";
 export {
 	Button,
@@ -948,6 +945,12 @@ export {
 	setBriefCategoryInQuery,
 	toggleBriefFilterInQuery,
 } from "./lib/brief-filter-query.js";
+export {
+	type BriefFilterId,
+	isBriefFilterId,
+	matchesBriefFilters,
+	narrowBriefSections,
+} from "./lib/brief-filters.js";
 export {
 	type CalendarColorClasses,
 	calendarColorClasses,

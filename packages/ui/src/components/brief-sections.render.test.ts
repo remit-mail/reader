@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import type { BriefFilterId } from "../lib/brief-filters.js";
 import type { BriefCategoryFilter, ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { ComfortableRow } from "./message-row.js";
@@ -43,6 +44,14 @@ const sections: ThreadSection[] = [
 	},
 ];
 
+const NO_CHIPS: ReadonlySet<BriefFilterId> = new Set();
+
+const chipControl = {
+	activeFilters: NO_CHIPS,
+	onToggleFilter: () => undefined,
+	onClearFilters: () => undefined,
+};
+
 function render(briefCategory: BriefCategoryFilter) {
 	return renderToString(
 		createElement(BriefSections, {
@@ -51,6 +60,7 @@ function render(briefCategory: BriefCategoryFilter) {
 			briefCategory,
 			onSelectThread: () => undefined,
 			onSelectBriefCategory: () => undefined,
+			...chipControl,
 		}),
 	);
 }
@@ -64,10 +74,30 @@ describe("BriefSections", () => {
 		assert.match(html, /Weekly Brief/);
 	});
 
-	it("filters rows by briefCategory", () => {
-		const html = render("newsletter");
+	// #314: membership is the host's answer, and in the app it is the server's.
+	// A list that drops a row it was handed is a second filter layer under the
+	// first, narrowing one page by a criterion the request applied to the whole
+	// scope (#312).
+	it("renders every row it is given, whatever the chips and the category say", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections,
+				Row: ComfortableRow,
+				briefCategory: "newsletter",
+				activeFilters: new Set<BriefFilterId>([
+					"unread",
+					"attachment",
+					"contacts",
+					"today",
+				]),
+				onToggleFilter: () => undefined,
+				onClearFilters: () => undefined,
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+			}),
+		);
+		assert.match(html, /Priya Nair/);
 		assert.match(html, /Weekly Brief/);
-		assert.doesNotMatch(html, /Priya Nair/);
 	});
 
 	// #312: a section the server answered for is a section, rows or not. Dropping
@@ -88,6 +118,7 @@ describe("BriefSections", () => {
 				briefCategory: "all",
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.match(html, /No Personal mail in this brief\./);
@@ -104,6 +135,7 @@ describe("BriefSections", () => {
 				flat: true,
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.doesNotMatch(html, />Personal</);
@@ -131,6 +163,7 @@ describe("BriefSections", () => {
 				briefCategory: "newsletter",
 				onSelectThread: () => undefined,
 				onSelectBriefCategory: () => undefined,
+				...chipControl,
 			}),
 		);
 		assert.match(html, /Newsletter/);
