@@ -17,10 +17,11 @@
  * What this lane proves, in server truth: the standing filter is created and
  * points at the newly-created folder (not a dangling row), the folder is
  * materialized on Dovecot, and the back-apply the save entered actually moves
- * the mail — the selected messages leave the inbox and land in the new folder on
- * the mail server. That last leg crosses three processes: the account-worker
- * drains the job off the fan-out queue and applies it, and the move it commits
- * is pushed to Dovecot by the imap-worker off the message-management queue.
+ * the mail — every message the rule matches leaves the inbox and lands in the
+ * new folder on the mail server. That last leg crosses three processes: the
+ * account-worker drains the job off the fan-out queue and applies it, and the
+ * move it commits is pushed to Dovecot by the imap-worker off the
+ * message-management queue.
  *
  * The mobile organize spec drives the run screen's progress-to-summary states
  * over a stubbed job; the states are not re-asserted here.
@@ -43,6 +44,7 @@ import {
 	commitButton,
 	createFolderInPicker,
 	expectBlockedReason,
+	pickMatchDoor,
 	wizardContinue,
 	wizardStep,
 } from "../src/wizard.js";
@@ -57,10 +59,9 @@ const RULE_NAME = `E2E BackApply rule ${STAMP}`;
 const SUBJECTS = [1, 2, 3].map((n) => `E2E Keep ${STAMP} #${n}`);
 
 /**
- * The two rows the wizard is opened on. Whether the match door widens to the
- * sender or stays on the ticked rows, these two are in the applied set either
- * way — so they are what the back-apply is asserted over, and the folder is
- * never asserted to hold only them.
+ * The two rows the wizard is opened on. The rule is built from what they have in
+ * common — one sender, which the whole seed shares — so all three seeded
+ * messages are in the applied set, not only the two that were ticked.
  */
 const SELECTED = SUBJECTS.slice(0, 2);
 
@@ -130,6 +131,21 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
 				timeout: 30_000,
 			});
+
+			// A rule matches on what the mail has in common, so the walk goes through
+			// the properties door. The ticked-rows door carries no predicate at all —
+			// a standing rule saved through it has nothing to match, now or as mail
+			// arrives — and this lane is about the pass a real rule enters.
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
+
+			// The clause the wizard derived from the ticked rows is their shared
+			// sender, and the server counts what it matches: the whole seed. That
+			// count is the set the back-apply commits to, so it is asserted before the
+			// rule is saved rather than inferred from the folder afterwards.
+			await expect(
+				page.getByText(`${SUBJECTS.length} messages match`),
+			).toBeVisible({ timeout: 30_000 });
 
 			await advanceTo(page, "Folder");
 
@@ -230,10 +246,10 @@ test.describe("Standing filter back-applies over existing mail", () => {
 		await waitForServerMailbox(
 			run.imapUser,
 			FOLDER_NAME,
-			(subjects) => SELECTED.every((subject) => subjects.includes(subject)),
+			(subjects) => SUBJECTS.every((subject) => subjects.includes(subject)),
 			{
 				timeoutMs: 180_000,
-				what: `the back-apply to move ${SELECTED.length} messages into "${FOLDER_NAME}"`,
+				what: `the back-apply to move ${SUBJECTS.length} messages into "${FOLDER_NAME}"`,
 			},
 		);
 
@@ -241,7 +257,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 		await waitForServerMailbox(
 			run.imapUser,
 			"INBOX",
-			(subjects) => SELECTED.every((subject) => !subjects.includes(subject)),
+			(subjects) => SUBJECTS.every((subject) => !subjects.includes(subject)),
 			{
 				timeoutMs: 60_000,
 				what: "the back-applied messages to leave the inbox",
