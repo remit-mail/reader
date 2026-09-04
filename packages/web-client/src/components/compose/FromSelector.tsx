@@ -56,6 +56,11 @@ export const FromSelector = ({
 				}}
 				className="flex-1 px-2 py-1.5 border rounded-md bg-canvas text-sm"
 			>
+				{!selectedAccountId && (
+					<option value="" disabled>
+						Choose an account
+					</option>
+				)}
 				{accounts.map((account) => (
 					<option key={account.accountId} value={account.accountId}>
 						{account.email}
