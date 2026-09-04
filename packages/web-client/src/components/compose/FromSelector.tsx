@@ -39,6 +39,8 @@ export const FromSelector = ({
 		);
 	}
 
+	const resolved = accounts.some((a) => a.accountId === selectedAccountId);
+
 	return (
 		<div className="flex items-start gap-2">
 			<label
@@ -49,14 +51,14 @@ export const FromSelector = ({
 			</label>
 			<select
 				id="from-account-selector"
-				value={selectedAccountId ?? ""}
+				value={resolved ? selectedAccountId : ""}
 				onChange={(e) => {
 					const account = accounts.find((a) => a.accountId === e.target.value);
 					if (account) onSelect(account);
 				}}
 				className="flex-1 px-2 py-1.5 border rounded-md bg-canvas text-sm"
 			>
-				{!accounts.some((a) => a.accountId === selectedAccountId) && (
+				{!resolved && (
 					<option value="" disabled>
 						Choose an account
 					</option>
