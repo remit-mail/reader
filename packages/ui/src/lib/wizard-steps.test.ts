@@ -10,11 +10,13 @@ import {
 	clauseSentence,
 	clauseWords,
 	crossAccountMatchReason,
+	crossAccountRuleReason,
 	crossFolderDestinationReason,
 	crossFolderRuleReason,
 	ESCALATED_MATCH_HINT,
 	ESCALATED_REVIEW_WARNING,
 	escalatedMatchLabel,
+	escalatedRuleReason,
 	type MatchCount,
 	type MatchMode,
 	matchDoorHint,
@@ -23,6 +25,7 @@ import {
 	matchPhrase,
 	matchSummary,
 	type RunState,
+	ruleRestrictionFor,
 	runCopy,
 	type StepId,
 	sampleEmptyCopy,
@@ -34,6 +37,7 @@ import {
 	type Verb,
 	verbCopy,
 	type WizardDraft,
+	type WizardScope,
 	wizardScopeFor,
 } from "./wizard-steps.js";
 
@@ -330,18 +334,19 @@ describe("stepBlockedReason", () => {
 	});
 
 	it("names what the scope step is missing", () => {
+		const clauses = [clause("From", "a@b.example")];
 		assert.equal(
-			stepBlockedReason("rule", draft(), UNCOUNTED),
+			stepBlockedReason("rule", draft({ clauses }), UNCOUNTED),
 			"Choose one of the three first.",
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ scope: "until" }), UNCOUNTED),
+			stepBlockedReason("rule", draft({ clauses, scope: "until" }), UNCOUNTED),
 			ruleBlockedCopy.noUntilDate,
 		);
 		assert.equal(
 			stepBlockedReason(
 				"rule",
-				draft({ scope: "until", until: "2026-09-01" }),
+				draft({ clauses, scope: "until", until: "2026-09-01" }),
 				UNCOUNTED,
 			),
 			undefined,
@@ -445,6 +450,68 @@ describe("stepBlockedReason", () => {
 		);
 	});
 
+	it("refuses a standing rule the ticked-rows door built no predicate for", () => {
+		// The ticked rows are a list of ids, not a predicate: a rule saved through
+		// that door has no anchor and no clause, so it matches nothing now and
+		// nothing later (#1193).
+		const ticked = draft({ scope: "standing", name: "Receipts" });
+		assert.equal(
+			stepBlockedReason("rule", ticked, UNCOUNTED),
+			ruleBlockedCopy.noMatch,
+		);
+		assert.equal(
+			stepBlockedReason("review", ticked, { status: "ready", count: 3 }),
+			ruleBlockedCopy.noMatch,
+		);
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				{ ...ticked, scope: "until", until: "2026-09-01" },
+				{ status: "ready", count: 3 },
+			),
+			ruleBlockedCopy.noMatch,
+		);
+	});
+
+	it("takes either matcher as the predicate a saved rule needs", () => {
+		const named = { scope: "standing" as const, name: "Receipts" };
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, clauses: [clause("From", "a@b.example")] }),
+				{ status: "ready", count: 3 },
+			),
+			undefined,
+		);
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, widen: { anchorCount: 3 } }),
+				{ status: "ready", count: 3 },
+			),
+			undefined,
+		);
+		// A widen the probe could not evaluate is no matcher at all.
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, widen: { anchorCount: 3, inactive: true } }),
+				{ status: "ready", count: 3 },
+			),
+			ruleBlockedCopy.noMatch,
+		);
+	});
+
+	it("leaves the one-off scopes to the door that already resolved them", () => {
+		assert.equal(
+			stepBlockedReason("review", draft({ scope: "once" }), {
+				status: "ready",
+				count: 3,
+			}),
+			undefined,
+		);
+	});
+
 	it("blocks nothing on the steps that ask nothing", () => {
 		for (const step of ["match", "run"] as StepId[]) {
 			assert.equal(stepBlockedReason(step, draft(), UNCOUNTED), undefined);
@@ -460,6 +527,15 @@ describe("stepBlockedReason", () => {
 		assert.equal(
 			commitBlockedReason(rule, { status: "ready", count: 0 }),
 			stepBlockedReason("properties", draft(), UNCOUNTED),
+		);
+		// The editor refuses a predicate-less standing rule; so does the step the
+		// wizard would have saved it from.
+		assert.equal(
+			commitBlockedReason(rule, { status: "ready", count: 3 }),
+			stepBlockedReason("review", draft({ scope: "standing" }), {
+				status: "ready",
+				count: 3,
+			}),
 		);
 	});
 });
@@ -906,5 +982,41 @@ describe("the restriction a selection walks the wizard with", () => {
 		assert.deepEqual(wizardScopeFor("acc-personal", undefined), {
 			accountId: "acc-personal",
 		});
+	});
+});
+
+describe("the restriction the rule step states", () => {
+	const unrestricted: WizardScope = { accountId: "acc-personal" };
+
+	it("states what an escalated match can do, not what it lacks", () => {
+		// The escalated walk is offered no door and earns no editor step, so
+		// "add a clause" would name a remedy that is on no screen it can reach.
+		// The restriction names one that is: the query's own "Make this a filter".
+		assert.equal(
+			stepsFor({
+				verb: "organize",
+				mode: "escalated",
+				scope: "standing",
+			}).includes("properties"),
+			false,
+		);
+		assert.equal(
+			ruleRestrictionFor("escalated", unrestricted),
+			escalatedRuleReason,
+		);
+		assert.notEqual(escalatedRuleReason, ruleBlockedCopy.noMatch);
+	});
+
+	it("restricts nothing on a door that can carry a predicate", () => {
+		for (const mode of ["selected", "similar", "properties"] as const) {
+			assert.equal(ruleRestrictionFor(mode, unrestricted), undefined);
+		}
+	});
+
+	it("still states the restriction the selection itself carries", () => {
+		assert.equal(
+			ruleRestrictionFor("selected", wizardScopeFor(undefined, undefined)),
+			crossAccountRuleReason,
+		);
 	});
 });

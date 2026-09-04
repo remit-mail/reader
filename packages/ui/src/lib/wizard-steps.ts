@@ -11,6 +11,7 @@
 import {
 	clauseFieldLabel,
 	type FilterRule,
+	hasMatcher,
 	type MatchOperator,
 	matchJoinWord,
 	matchModeHint,
@@ -204,6 +205,23 @@ export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
 	unreadableBodyClauses(asRule(draft, draft.scope ?? "once"));
 
 /**
+ * Why a scope that persists cannot be saved from the door the wizard is on, or
+ * `undefined` when it can. The ticked-rows door is a bounded list of ids and no
+ * predicate at all: a rule saved through it carries neither an anchor nor a
+ * clause, so it would match nothing, now and for future mail. The rule editor
+ * refuses that shape through `hasMatcher`, and so does this — one question, one
+ * answer, in the editor's words (#1193).
+ *
+ * The one-off scopes are unaffected: they act on the messages the door already
+ * resolved rather than on a predicate that has to outlive them.
+ */
+const missingPredicateReason = (draft: WizardDraft): string | undefined => {
+	if (draft.scope !== "standing" && draft.scope !== "until") return undefined;
+	if (hasMatcher(asRule(draft, draft.scope))) return undefined;
+	return ruleBlockedCopy.noMatch;
+};
+
+/**
  * The count the wizard is committing against. `uncounted` is a stated answer,
  * not a missing one: neither widened door carries a count until it has run
  * (#477 3.3), so there is nothing to wait for and nothing to display.
@@ -282,6 +300,30 @@ export interface WizardScope {
 }
 
 /**
+ * Why an escalated predicate cannot become a rule (#1193). The list resolved it
+ * to the query on screen before the wizard opened, so there is no clause to
+ * build a rule from and no anchor to widen — and no door on the match step to
+ * get one from. It applies once; the query itself is what makes a filter, from
+ * the affordance above the results.
+ */
+export const escalatedRuleReason =
+	"A match this wide applies once — use “Make this a filter” above the results to keep doing it.";
+
+/**
+ * Why the two persisting scopes cannot be reached, or `undefined` when they can.
+ * Two restrictions land on the same step — a selection spanning more accounts or
+ * folders than a rule can take, and a match the wizard was handed already
+ * resolved — and both dim the saving scopes and state themselves there. Every
+ * surface asks here, so none of them can dim a scope without a reason or state a
+ * reason it cannot act on.
+ */
+export const ruleRestrictionFor = (
+	mode: MatchMode,
+	scope: WizardScope,
+): string | undefined =>
+	mode === "escalated" ? escalatedRuleReason : scope.rule;
+
+/**
  * The scope a selection walks the wizard with. A selection with no single
  * account is account-restricted whatever it was handed, since the account is
  * what the filter, the folder create and the preview all hang off.
@@ -354,6 +396,8 @@ export const stepBlockedReason = (
 	}
 	if (step === "rule") {
 		if (!draft.scope) return NO_SCOPE;
+		const missingPredicate = missingPredicateReason(draft);
+		if (missingPredicate) return missingPredicate;
 		if (draft.scope === "once" && unreadableDraftClauses(draft).length > 0) {
 			return ruleBlockedCopy.bodyTextOnce;
 		}
@@ -364,6 +408,8 @@ export const stepBlockedReason = (
 	}
 	if (step === "name" && !draft.name?.trim()) return ruleBlockedCopy.unnamed;
 	if (step === "review") {
+		const missingPredicate = missingPredicateReason(draft);
+		if (missingPredicate) return missingPredicate;
 		if (count.status === "uncounted") return undefined;
 		if (count.status === "ready" && count.count === 0 && !count.stale) {
 			return EMPTY_MATCH;

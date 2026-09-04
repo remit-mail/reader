@@ -172,6 +172,16 @@ export function hasActiveWiden(rule: FilterRule): boolean {
 }
 
 /**
+ * Whether the rule carries a live way to match. Without one the predicate is
+ * empty, and a rule with an empty predicate matches nothing — not the mail
+ * already there and not the mail still to come. Every surface that saves a rule
+ * asks the question here, so none of them can save that shape.
+ */
+export function hasMatcher(rule: FilterRule): boolean {
+	return rule.clauses.length > 0 || hasActiveWiden(rule);
+}
+
+/**
  * The rule's body-text clauses that nothing on its current match path can read
  * — a `HasWords` chip with no active widen behind it. Empty for every rule the
  * literal matcher can evaluate.
@@ -293,10 +303,7 @@ export function commitBlockedReason(
 	rule: FilterRule,
 	preview: PreviewCount,
 ): string | undefined {
-	const hasMatch =
-		rule.clauses.length > 0 ||
-		(rule.widen !== undefined && !rule.widen.inactive);
-	if (!hasMatch) return ruleBlockedCopy.noMatch;
+	if (!hasMatcher(rule)) return ruleBlockedCopy.noMatch;
 	if (rule.scope === "once" && unreadableBodyClauses(rule).length > 0)
 		return ruleBlockedCopy.bodyTextOnce;
 	if (!rule.moveMailboxId && !rule.labelId) return ruleBlockedCopy.noAction;
