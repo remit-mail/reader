@@ -1787,21 +1787,33 @@ request_age_seconds() {
 	printf '%s' "$(($(epoch) - _at))"
 }
 
+# Why a request was refused, as the status requested_target returns. The caller
+# runs it in a command substitution, so the status is the only channel back: a
+# variable set here would not survive the subshell. Each one is a different
+# thing to tell the operator, so they are kept apart rather than collapsed into
+# a single failure.
+REQUEST_UNREADABLE=1
+REQUEST_EXPIRED=2
+REQUEST_TOO_LARGE=3
+REQUEST_NOT_FLAT=4
+REQUEST_NO_VERSION=5
+REQUEST_WRONG_VERSION=6
+REQUEST_BAD_RUN_ID=7
+
 # Emits the accepted target version, and the run id the request named on a
 # second line — empty when the request carried none. Both are refused together:
 # a request whose runId is unusable is rejected whole, like every other
 # malformed field, rather than being run under an id of our own.
 #
-# Status 2 is the one refusal the caller reports rather than swallows: the file
-# was well-formed and simply too old. It is tested before the version, because
-# a request left on the seam for days is stale whether or not a newer release
-# has since shipped, and "this is not the published release" is the wrong thing
-# to tell an operator whose real problem is an updater that was not running.
+# Expiry is tested before the version, because a request left on the seam for
+# days is stale whether or not a newer release has since shipped, and "this is
+# not the published release" is the wrong thing to tell an operator whose real
+# problem is an updater that was not running.
 requested_target() {
-	[ -f "$CONTROL_DIR/request.json" ] || return 1
+	[ -f "$CONTROL_DIR/request.json" ] || return "$REQUEST_UNREADABLE"
 	_bytes=$(wc -c <"$CONTROL_DIR/request.json" 2>/dev/null || printf '%s' "$((REQUEST_MAX_BYTES + 1))")
 	if [ "$_bytes" -gt "$REQUEST_MAX_BYTES" ]; then
-		return 1
+		return "$REQUEST_TOO_LARGE"
 	fi
 	_raw=$(cat "$CONTROL_DIR/request.json")
 	_saw_target=0
@@ -1810,50 +1822,51 @@ requested_target() {
 		[ -n "$_k" ] || continue
 		case "$ALLOWED_REQUEST_KEYS" in
 		*" $_k "*) ;;
-		*) return 1 ;;
+		*) return "$REQUEST_NOT_FLAT" ;;
 		esac
 		if [ "$_k" = "targetVersion" ]; then _saw_target=1; fi
 		if [ "$_k" = "runId" ]; then _saw_run=1; fi
 	done <<EOF
 $(request_keys "$_raw")
 EOF
-	[ "$_saw_target" = "1" ] || return 1
+	[ "$_saw_target" = "1" ] || return "$REQUEST_NO_VERSION"
 	# Bounded from below as well as above. A stamp in this instance's future was
 	# not written against this clock, and a box with no RTC is exactly where that
 	# happens: it comes up reading roughly its own shutdown time, so a request
 	# written just before the stop looks minutes old days later. Without the
 	# floor, the surviving-a-`remit stop` case #587 names is the one the window
 	# misses.
-	_age=$(request_age_seconds "$_raw") || return 2
+	_age=$(request_age_seconds "$_raw") || return "$REQUEST_EXPIRED"
 	if [ "$_age" -lt 0 ] || [ "$_age" -gt "$REQUEST_MAX_AGE_SECONDS" ]; then
-		return 2
+		return "$REQUEST_EXPIRED"
 	fi
 	_want=$(json_string "$_raw" targetVersion)
 	if ! version_valid "$_want"; then
-		return 1
+		return "$REQUEST_NO_VERSION"
 	fi
 	if [ "$_want" != "$CHECK_VERSION" ]; then
-		return 1
+		return "$REQUEST_WRONG_VERSION"
 	fi
 	_run=""
 	if [ "$_saw_run" = "1" ]; then
 		_run=$(json_string "$_raw" runId)
 		if ! request_run_id_valid "$_run"; then
-			return 1
+			return "$REQUEST_BAD_RUN_ID"
 		fi
 	fi
 	printf '%s\n%s' "$_want" "$_run"
 }
 
-# An expired request is discarded, and the discard is recorded as a run that
-# changed nothing. Silence here would trade a surprise install for a surprise
-# no-op: run.json is what `remit status` and the app both read, so it is the
-# only place the operator can learn that an install was asked for and not
-# performed. The run keeps the id the request named, so a page still polling
-# gets a verdict on its own run rather than never hearing back. Nothing out of
-# the file reaches the message unvalidated — the version is rendered only if it
-# is a version, the time only if it is a time.
-discard_expired_request() {
+# A request that is not installed still settles a run. Silence here would trade
+# a surprise install for a surprise no-op: run.json is what `remit status` and
+# the app both read, so it is the only place the operator can learn that an
+# install was asked for and not performed. The run keeps the id the request
+# named, so a page still polling gets a verdict on its own run rather than never
+# hearing back; a file too broken to name a usable id gets a fresh one, because
+# a run under an id nobody is polling still beats no record at all. Nothing out
+# of the file reaches the message unvalidated — the version is rendered only if
+# it is a version, the time only if it is a time.
+settle_unusable_request() {
 	RUN_ID=$(json_string "$1" runId)
 	if ! request_run_id_valid "$RUN_ID"; then
 		RUN_ID=$(new_run_id)
@@ -1863,6 +1876,13 @@ discard_expired_request() {
 	version_valid "$RUN_TARGET" || RUN_TARGET=""
 	RUN_STARTED=$(iso_now)
 	RUN_PHASE=checking
+	mkdir -p "$STATE_DIR"
+	terminate abandoned \
+		"The update request on the control volume $2, so it was $3 rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
+		"$PROG update"
+}
+
+discard_expired_request() {
 	_at=$(json_string "$1" requestedAt)
 	_atsec=$(iso_epoch "$_at")
 	if [ -z "$_atsec" ]; then
@@ -1872,10 +1892,28 @@ discard_expired_request() {
 	else
 		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
 	fi
-	mkdir -p "$STATE_DIR"
-	terminate abandoned \
-		"The update request on the control volume $_why, so it was discarded rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
-		"$PROG update"
+	settle_unusable_request "$1" "$_why" discarded
+}
+
+# Every refusal settles the run, not only the expired one (#906). The backend
+# posts the request and polls the id it minted, so a rejection that writes no
+# run.json leaves `"run":null` on the seam and the app waiting on a verdict that
+# never comes — nothing retries, and the file that would explain it is already
+# deleted. An expired request has its own account of itself; the rest name what
+# about the file could not be used, in terms an operator can act on.
+settle_refused_request() {
+	case "$2" in
+	"$REQUEST_EXPIRED")
+		discard_expired_request "$1"
+		return 0
+		;;
+	"$REQUEST_TOO_LARGE") _why="is larger than a request may be" ;;
+	"$REQUEST_NO_VERSION") _why="names no version to install" ;;
+	"$REQUEST_WRONG_VERSION") _why="names a version other than the one this instance was offered" ;;
+	"$REQUEST_BAD_RUN_ID") _why="names a run id this instance cannot use" ;;
+	*) _why="is not the flat set of fields a request carries" ;;
+	esac
+	settle_unusable_request "$1" "$_why" rejected
 }
 
 # --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
@@ -3053,12 +3091,9 @@ cmd_update() {
 		# Consumed either way: a request that was refused must not be retried on
 		# every later run, and one that was taken is now the run's business.
 		rm -f "$CONTROL_DIR/request.json"
-		if [ "$_refusal" = "2" ]; then
-			discard_expired_request "$_raw_request"
+		if [ "$_refusal" != "0" ]; then
+			settle_refused_request "$_raw_request" "$_refusal"
 			return 1
-		fi
-		if [ -z "$_request" ]; then
-			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, named an unusable run id, or did not name the published release"
 		fi
 		_tag=$(printf '%s\n' "$_request" | sed -n 1p)
 		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)

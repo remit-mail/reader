@@ -1311,7 +1311,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 	});
 
@@ -1331,7 +1331,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("attacker"));
@@ -1349,7 +1349,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("run snapshot"));
@@ -1385,7 +1385,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 	});
@@ -1402,7 +1402,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 	});
@@ -1419,7 +1419,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("attacker"));
@@ -1492,6 +1492,83 @@ describe("the control seam", () => {
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
+	});
+
+	it("settles the run the request named when the request is rejected", () => {
+		// #906: the backend posted the request and polls the id it minted. A
+		// rejection that writes no run.json leaves `"run":null` on the seam, so the
+		// app waits on a verdict that never comes — nothing retries, and the file
+		// that would explain it is already deleted.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-rejected",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+				registry: "ghcr.io/attacker",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(run.runId, "r-rejected");
+		assert.match(
+			run.message,
+			/is not the flat set of fields a request carries/,
+		);
+		assert.match(run.message, /rejected rather than installed/);
+		assert.match(result.stdout, /rejected rather than installed/);
+		assert.ok(!run.message.includes("attacker"));
+	});
+
+	it("mints a run id for a rejection that named none it could use", () => {
+		// The id is refused precisely because it is unusable, so the run cannot
+		// keep it. A record under an id nobody polls still beats no record at all.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "../../../etc",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+			}),
+		);
+		box.run(["update"]);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(run.runId, /^\d{8}T\d{6}Z-[0-9a-f]+$/);
+		assert.match(run.message, /names a run id this instance cannot use/);
+	});
+
+	it("names what about the rejected request could not be used", () => {
+		// One rejection is not the next: an operator told only "rejected" cannot
+		// tell a file the backend never wrote from a version this box was never
+		// offered.
+		const cases = [
+			[
+				{ targetVersion: "v1.5.0", pad: "x".repeat(8192) },
+				/is larger than a request may be/,
+			],
+			[{ requestedBy: "owner@example.test" }, /names no version to install/],
+			[
+				{ targetVersion: "v9.9.9" },
+				/names a version other than the one this instance was offered/,
+			],
+		];
+		for (const [fields, expected] of cases) {
+			const box = sandbox({ scenario: { probe: "ok" } });
+			writeFileSync(
+				join(box.state, "request.json"),
+				JSON.stringify({ runId: "r-said", requestedAt: justNow(), ...fields }),
+			);
+			box.run(["update"]);
+			const run = box.stateJson().run;
+			assert.equal(run.outcome, "abandoned");
+			assert.equal(run.runId, "r-said");
+			assert.match(run.message, expected);
+		}
 	});
 
 	it("discards a request older than the window instead of installing it", () => {
