@@ -146,6 +146,27 @@ const longLabelName: ThreadRowData = {
 	],
 };
 
+const deleteFailed: ThreadRowData = {
+	id: "r-delete-failed",
+	accountId: "a1",
+	fromName: "Tomas Berg",
+	fromEmail: "tomas@example.com",
+	subject: "Signed lease, final version",
+	snippet: "Deleted here; Remit refused to finish it and the row came back.",
+	timeLabel: "Mon",
+	isRead: false,
+	settlement: "delete_failed",
+};
+
+const deleteFailedWithLabels: ThreadRowData = {
+	...deleteFailed,
+	id: "r-delete-failed-labels",
+	category: "newsletter",
+	labels: [{ labelId: "l1", name: "Receipts", color: "Blue" }],
+};
+
+const unsettled = [deleteFailed, deleteFailedWithLabels, read];
+
 const labeled = [noLabel, oneLabel, twoLabels, severalLabels, longLabelName];
 
 const all = [read, unread, starred, suspicious, withAttachment, withCategory];
@@ -276,6 +297,49 @@ export const CompactLabelsDark: Story = {
 	render: () => (
 		<List>
 			{labeled.map((thread) => (
+				<CompactRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/**
+ * A row whose delete Remit abandoned (issue #1002): it was removed here, then
+ * refused before it reached the server, so the message came back to the folder
+ * the server still has it in. The only unsettled state the wire can prove — a
+ * move that gave up leaves the same fields a move mid-retry leaves, so it gets
+ * no chip. The chip names the state; the open message carries the statement, a
+ * working Delete again, and the report link (`MessageSettlementNotice`).
+ */
+export const DeleteFailed: Story = {
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** The same rows on the dark theme. */
+export const DeleteFailedDark: Story = {
+	name: "Delete failed (dark)",
+	parameters: { theme: "dark" },
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
+				<ComfortableRow key={thread.id} thread={thread} />
+			))}
+		</List>
+	),
+};
+
+/** Compact density carries the same chip. */
+export const DeleteFailedCompact: Story = {
+	name: "Delete failed (compact)",
+	render: () => (
+		<List>
+			{unsettled.map((thread) => (
 				<CompactRow key={thread.id} thread={thread} />
 			))}
 		</List>

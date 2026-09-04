@@ -46,6 +46,7 @@ import type {
 } from "@remit/ui";
 import { toDisplayCategory } from "./display-category.js";
 import { formatEmailDate } from "./format.js";
+import { rowSettlement } from "./row-settlement.js";
 import type { SearchToken } from "./search-tokens.js";
 
 /**
@@ -74,6 +75,7 @@ export function toThreadRowData(
 		trust: thread.senderTrust as SenderTrustLevel,
 		category: toDisplayCategory(thread.category),
 		suspicious,
+		...rowSettlement(thread),
 	};
 }
 

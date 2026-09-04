@@ -8,6 +8,8 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
+import { hasAbandonedDelete } from "@remit/data-ports/message-settlement";
+import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import { type EnrichClient, enrichThreadRows } from "./enrichThreadRows.js";
 
 const threadRow = (
@@ -248,5 +250,82 @@ describe("enrichThreadRows — muted", () => {
 		const rows = [threadRow("tm-1", "msg-1")];
 		const [result] = await enrichThreadRows(rows, buildClient([], []), "acc-1");
 		assert.equal(result?.muted, false);
+	});
+});
+
+describe("enrichThreadRows — the mutation pair", () => {
+	const withMessage = (message: Partial<MessageItem>): EnrichClient => ({
+		message: {
+			get: async () =>
+				[{ messageId: "msg-1", ...message }] as unknown as MessageItem[],
+		},
+		address: { getAddress: async () => [] },
+		messageLabel: { listByMessageIds: async () => [] },
+		label: { listByAccountConfig: async () => [] },
+	});
+
+	const project = async (message: Partial<MessageItem>) => {
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			withMessage(message),
+			"acc-1",
+		);
+		return result;
+	};
+
+	test("projects the pair an abandoned delete leaves behind", async () => {
+		const result = await project({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		assert.equal(result?.status, MessageStatus.active);
+		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(
+			hasAbandonedDelete({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			true,
+		);
+	});
+
+	test("projects a move mid-retry without calling it a give-up", async () => {
+		const result = await project({
+			status: MessageStatus.moving,
+			syncStatus: MessageSyncStatus.failed,
+		});
+		assert.equal(result?.status, MessageStatus.moving);
+		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(
+			hasAbandonedDelete({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			false,
+		);
+	});
+
+	test("projects an ordinary inbound row", async () => {
+		const result = await project({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.pending,
+		});
+		assert.equal(result?.status, MessageStatus.active);
+		assert.equal(result?.syncStatus, MessageSyncStatus.pending);
+	});
+
+	test("a row whose Message row is missing claims no mutation", async () => {
+		const [result] = await enrichThreadRows(
+			[threadRow("tm-1", "msg-1")],
+			buildClient([], []),
+			"acc-1",
+		);
+		assert.equal(
+			hasAbandonedDelete({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+			}),
+			false,
+		);
 	});
 });

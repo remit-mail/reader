@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
-import { MessageCategory, SenderTrust, StarColor } from "@remit/domain-enums";
+import {
+	MessageCategory,
+	MessageStatus,
+	MessageSyncStatus,
+	SenderTrust,
+	StarColor,
+} from "@remit/domain-enums";
 import {
 	filterByOffRowCriteria,
 	hasOffRowCriteria,
@@ -30,6 +36,8 @@ const row = (
 	updatedAt: 0,
 	senderTrust: SenderTrust.Unknown,
 	muted: false,
+	status: MessageStatus.active,
+	syncStatus: MessageSyncStatus.pending,
 	...overrides,
 });
 

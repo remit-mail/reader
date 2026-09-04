@@ -2,6 +2,8 @@ import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/MessageCategory.tsp";
+import "../enums/MessageStatus.tsp";
+import "../enums/MessageSyncStatus.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
@@ -252,6 +254,12 @@ model ThreadMessageResponse {
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
   authenticity?: MessageAuthenticity;
 
+  @doc("Mutation lifecycle of the underlying Message, projected at read time — the ThreadMessage row has no column of its own. `active` means no move or delete is outstanding; `moving` or `deleting` means one is, and this row's folder is a local write the mail server has not confirmed.")
+  status: MessageStatus;
+
+  @doc("Sync status of the underlying Message, projected at read time. Read it WITH `status`, never alone: `message-move`, `message-delete` and `message-copy` all write `failed` on an ordinary transient attempt before a redelivery that usually succeeds, so `failed` by itself does not mean a mutation gave up. One pair does prove one: `active` + `failed`, written only by `abandonDelete` — a delete Remit refused to run and handed back. Nothing else here is decidable. A move that gave up leaves `moving` + `failed`, the same pair its first dropped connection leaves; a delete that exhausted its retries is repaired to `active` + `synced` and reads as settled; `flag-push` and `placement-move-push` never write either field.")
+  syncStatus: MessageSyncStatus;
+
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
   accountId?: UUID;
 
@@ -272,7 +280,7 @@ model ThreadMessageResponse {
   `items` is omitted when `results=false` (count-only); `count` is present only
   when `count=true`. Thread-specific so the shared `ResultList<T>` (7 endpoints)
   stays untouched.
-
+  
   `listAllThreads` answers with this model rather than `ResultList<T>` for that
   same reason: it needs the count field and the shared model cannot carry one.
   One model over both operations rather than a second of the same shape, so a
@@ -291,7 +299,7 @@ model ThreadSearchResponse {
     How much the query matches, over the whole scope. Exact: no page size bounds
     it, no cursor narrows it, so it is the same number on the first page and the
     last. Present only when `count=true`.
-
+    
     Each operation counts what it lists. `searchThreads` lists messages of one
     mailbox and counts messages. `listAllThreads` counts CONVERSATIONS across
     every non-muted mailbox of every account — a thread holding two matching
@@ -299,7 +307,7 @@ model ThreadSearchResponse {
     folder and a virtual copy of it — because that is what the cross-account
     listing renders after collapsing by `threadId`. A count that disagreed with
     the rows beneath it would be a third number for the same set.
-
+    
     Absent when the query carries `senderTrust` or `dkimMismatch`, even with
     `count=true`. Those are resolved by enriching rows rather than by a
     predicate, so no exact count exists short of enriching the whole mailbox.
