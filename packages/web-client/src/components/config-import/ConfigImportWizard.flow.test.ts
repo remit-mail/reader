@@ -19,9 +19,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query";
 import { createElement } from "react";
-import { ApiError } from "../../lib/api";
 import "../../lib/client";
-import { shouldEscalate, softErrorStatuses } from "../../lib/error-classifier";
 import { __resetFatalError, getCurrentFatalError } from "../../lib/fatal-error";
 import {
 	handleMutationCacheError,
@@ -196,28 +194,18 @@ describe("ConfigImportWizard — an instance that is not empty", () => {
 
 	/**
 	 * The other half of reaching that screen: the refusal must not also take the
-	 * app to the fatal page over it. That decision is `shouldEscalate` reading
-	 * the mutation's meta, and it is pinned here rather than through the wizard
-	 * because under this loader `lib/client.ts` and the generated SDK resolve
-	 * `client.gen` through two specifiers (`…/client.gen.ts` and `./client.gen.js`)
-	 * and so hold two client instances — the error interceptor registers on one
-	 * and the request goes through the other, which never happens under Vite,
-	 * where both specifiers resolve to the same module.
+	 * app to the fatal page over it. Driven through the wizard, so it holds the
+	 * whole chain — the error interceptor stamping the status on the thrown
+	 * `ApiError`, and the mutation's meta telling `shouldEscalate` to leave 409
+	 * to the caller.
 	 */
-	it("keeps the 409 off the fatal page, and still escalates a 401", () => {
-		const meta = softErrorStatuses(409);
-		assert.equal(
-			shouldEscalate(new ApiError("not empty", 409, {}), meta, "user"),
-			false,
-		);
-		assert.equal(
-			shouldEscalate(new ApiError("signed out", 401, {}), meta, "user"),
-			true,
-		);
-		assert.equal(
-			shouldEscalate(new ApiError("broken", 500, {}), meta, "user"),
-			true,
-		);
+	it("keeps the 409 off the fatal page", async () => {
+		const dom = start({ onImport: conflicted });
+		await pickFile(dom, "config.json", CONFIG);
+		dom.click(checkButton(dom));
+		await dom.flush();
+
+		assert.equal(getCurrentFatalError(), null);
 	});
 
 	it("does not record an import when the reader aborts the 409", async () => {
