@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { StorageService } from "@remit/storage-service";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountExportEvent } from "../events.js";
@@ -9,16 +9,6 @@ import {
 	type ProcessAccountExportDeps,
 	processAccountExport,
 } from "./account-export.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Update {
 	state: string;
@@ -84,7 +74,7 @@ const event: AccountExportEvent = {
 describe("processAccountExport", () => {
 	it("drives the request Processing then Ready and stores the archive key", async () => {
 		const updates: Update[] = [];
-		await processAccountExport(event, noopLog, buildDeps(updates));
+		await processAccountExport(event, noopLogger, buildDeps(updates));
 
 		assert.deepEqual(
 			updates.map((u) => u.state),
@@ -103,7 +93,7 @@ describe("processAccountExport", () => {
 		let retrieved = 0;
 		await processAccountExport(
 			event,
-			noopLog,
+			noopLogger,
 			buildDeps(updates, {
 				retrieveMessageBodyStream: async (
 					_cfg: string,
@@ -125,7 +115,7 @@ describe("processAccountExport", () => {
 		await assert.rejects(
 			processAccountExport(
 				event,
-				noopLog,
+				noopLogger,
 				buildDeps(updates, {
 					storeExportArchiveStream: async (
 						_cfg: string,

@@ -1,19 +1,9 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import type { RoleResolution } from "@remit/data-ports/folder-role";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { EmptyTrashEvent } from "../events.js";
 import { type EmptyTrashDeps, handleEmptyTrash } from "./empty-trash.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Call {
 	method: string;
@@ -224,7 +214,7 @@ describe("handleEmptyTrash", () => {
 	});
 
 	it("expunges every server uid and both local rows for each trashed message", async () => {
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10, 11]]);
 		assert.deepEqual(
@@ -245,7 +235,7 @@ describe("handleEmptyTrash", () => {
 			{ messageId: "msg-late", uid: 12, status: "active" },
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),
@@ -259,7 +249,7 @@ describe("handleEmptyTrash", () => {
 		// exists anywhere, with nothing left to clear the mark.
 		h.connection.search = async () => [];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
@@ -274,7 +264,7 @@ describe("handleEmptyTrash", () => {
 		h.localMessages = [deleting("msg-2", 11)];
 		h.connection.search = async () => [];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("message.delete").length, 0);
 		assert.deepEqual(revertedMessageIds(), ["msg-2"]);
@@ -288,7 +278,7 @@ describe("handleEmptyTrash", () => {
 		h.messagesWithoutListingRow = ["msg-expunging"];
 		h.connection.search = async () => [];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(revertedMessageIds(), ["msg-1"]);
 	});
@@ -296,7 +286,7 @@ describe("handleEmptyTrash", () => {
 	it("deletes the message even when it has no thread row", async () => {
 		h.threadMessage = false;
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("message.delete").length, 2);
 		assert.equal(called("threadMessage.delete").length, 0);
@@ -309,7 +299,7 @@ describe("handleEmptyTrash", () => {
 			deletedAt: Date.now(),
 		};
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -317,7 +307,10 @@ describe("handleEmptyTrash", () => {
 	it("throws when the account no longer exists", async () => {
 		h.account = null;
 
-		await assert.rejects(handleEmptyTrash(event, noopLog, deps()), /not found/);
+		await assert.rejects(
+			handleEmptyTrash(event, noopLogger, deps()),
+			/not found/,
+		);
 	});
 
 	it("acks terminally without connecting when the Trash mailbox was deleted", async () => {
@@ -325,7 +318,7 @@ describe("handleEmptyTrash", () => {
 			name: "NotFoundError",
 		});
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.delete").length, 0);
@@ -339,7 +332,7 @@ describe("handleEmptyTrash", () => {
 			trashMailboxPath: "Trash",
 		} as unknown as EmptyTrashEvent;
 
-		await handleEmptyTrash(unversioned, noopLog, deps());
+		await handleEmptyTrash(unversioned, noopLogger, deps());
 
 		assert.equal(h.getConnectionCount, 0, "no connection is ever opened");
 		assert.equal(called("connection.deleteMessages").length, 0);
@@ -353,7 +346,7 @@ describe("handleEmptyTrash", () => {
 			mailbox: { mailboxId: "other-mbx", fullPath: "INBOX/Bak" },
 		};
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("connection.deleteMessages").length, 0);
@@ -366,7 +359,7 @@ describe("handleEmptyTrash", () => {
 			mailbox: { mailboxId: "trash-mbx", fullPath: "Trash" },
 		};
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
@@ -378,7 +371,7 @@ describe("handleEmptyTrash", () => {
 		h.connection.openBox = async () => ({ uidvalidity: 77 });
 		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.deepEqual(revertedMessageIds(), ["msg-1", "msg-2"]);
@@ -394,7 +387,7 @@ describe("handleEmptyTrash", () => {
 		h.connection.openBox = async () => ({ uidvalidity: 77 });
 		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(revertedMessageIds(), ["msg-1"]);
 		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-1"]);
@@ -405,7 +398,7 @@ describe("handleEmptyTrash", () => {
 		// marked `deleting` hides healthy mail until the user notices.
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -424,7 +417,7 @@ describe("handleEmptyTrash", () => {
 			cursorState: "rebuilding",
 		};
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.delete").length, 0);
@@ -437,7 +430,7 @@ describe("handleEmptyTrash", () => {
 		};
 
 		await assert.rejects(
-			handleEmptyTrash(event, noopLog, deps()),
+			handleEmptyTrash(event, noopLogger, deps()),
 			/server exploded/,
 		);
 
@@ -463,7 +456,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			movingIntoTrash("msg-moving", 10),
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),
@@ -480,7 +473,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		// uid is somebody else's.
 		h.localMessages = [retryingIntoTrash("msg-retrying", 11)];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("message.delete").length, 0);
 		assert.equal(called("threadMessage.delete").length, 0);
@@ -495,7 +488,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		// `deleting` is hidden from every listing for good.
 		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-marked", 11)];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),
@@ -522,7 +515,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			},
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),
@@ -547,7 +540,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			},
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),

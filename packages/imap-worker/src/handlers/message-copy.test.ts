@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { MessageCopyEvent } from "../events.js";
 import { handleMessageCopy, type MessageCopyDeps } from "./message-copy.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Call {
 	method: string;
@@ -194,7 +184,7 @@ describe("handleMessageCopy", () => {
 	});
 
 	it("writes the new UID, marks the copy synced, and updates the thread row", async () => {
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"new-msg",
@@ -214,7 +204,7 @@ describe("handleMessageCopy", () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
 		h.destinationHolds = [42];
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.ok(askedTheDestination(), "the destination was asked for the copy");
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
@@ -240,7 +230,7 @@ describe("handleMessageCopy", () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
 		h.destinationHolds = [12, 42];
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"new-msg",
@@ -253,7 +243,7 @@ describe("handleMessageCopy", () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
 		h.destinationHolds = [];
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.ok(askedTheDestination());
 		assert.equal(called("message.delete")[0]?.args[0], "new-msg");
@@ -269,7 +259,7 @@ describe("handleMessageCopy", () => {
 		};
 		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(copies, 1, "the COPY is issued once");
 		assert.equal(called("search").length, 0, "there is nothing to ask with");
@@ -285,7 +275,7 @@ describe("handleMessageCopy", () => {
 	it("never copies twice when a redelivered copy already landed", async () => {
 		h.destinationHolds = [42];
 
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.equal(called("copyMessages").length, 0);
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
@@ -305,10 +295,10 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, 1, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/connection reset/,
 		);
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.equal(copies, 1, "the redelivery issues no second COPY");
 		assert.equal(called("search").length, 0);
@@ -324,7 +314,7 @@ describe("handleMessageCopy", () => {
 			syncStatus: "synced",
 		};
 
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("copyMessages").length, 0);
@@ -333,7 +323,7 @@ describe("handleMessageCopy", () => {
 	it("acks when the copy row no longer exists", async () => {
 		h.copyRow = null;
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.update").length, 0);
@@ -346,7 +336,7 @@ describe("handleMessageCopy", () => {
 			deletedAt: Date.now(),
 		};
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -355,7 +345,7 @@ describe("handleMessageCopy", () => {
 		h.account = null;
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, 1, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/not found/,
 		);
 	});
@@ -363,7 +353,7 @@ describe("handleMessageCopy", () => {
 	it("acks terminally without connecting when the source mailbox was deleted", async () => {
 		h.mailboxError = notFoundError();
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
@@ -382,7 +372,7 @@ describe("handleMessageCopy", () => {
 			cursorState: "rebuilding",
 		};
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
@@ -405,7 +395,7 @@ describe("handleMessageCopy", () => {
 		};
 		h.destinationHolds = [42];
 
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.ok(askedTheDestination(), "the destination was asked for the copy");
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
@@ -429,7 +419,7 @@ describe("handleMessageCopy", () => {
 		};
 		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
 
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.equal(
 			called("message.delete").length,
@@ -453,7 +443,7 @@ describe("handleMessageCopy", () => {
 			cursorState: "rebuilding",
 		};
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.deepEqual(
 			called("emitEvent").map((c) => c.args[0]),
@@ -472,7 +462,7 @@ describe("handleMessageCopy", () => {
 		};
 		h.destinationHolds = [];
 
-		await handleMessageCopy(event, noopLog, 2, deps());
+		await handleMessageCopy(event, noopLogger, 2, deps());
 
 		assert.ok(askedTheDestination());
 		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
@@ -481,7 +471,7 @@ describe("handleMessageCopy", () => {
 	it("reconciles the optimistic copy row away when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -500,7 +490,7 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, 1, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/TRYCREATE/,
 		);
 
@@ -513,7 +503,7 @@ describe("handleMessageCopy", () => {
 			throw new Error("NONEXISTENT source message");
 		};
 
-		await handleMessageCopy(event, noopLog, 1, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		const update = called("message.update")[0];
 		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
@@ -526,7 +516,7 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, 1, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/server exploded/,
 		);
 
@@ -548,7 +538,7 @@ describe("handleMessageCopy", () => {
 			return asked === 1 ? [] : [42];
 		};
 
-		await handleMessageCopy(event, noopLog, 3, deps());
+		await handleMessageCopy(event, noopLogger, 3, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"new-msg",
@@ -563,7 +553,7 @@ describe("handleMessageCopy", () => {
 		};
 		h.destinationHolds = [];
 
-		await handleMessageCopy(event, noopLog, 3, deps());
+		await handleMessageCopy(event, noopLogger, 3, deps());
 
 		assert.equal(called("message.delete")[0]?.args[0], "new-msg");
 		assert.equal(called("threadMessage.deleteMany").length, 1);

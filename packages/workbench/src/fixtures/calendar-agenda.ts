@@ -15,12 +15,14 @@
  */
 import type { CalendarEventData, EventSuggestion } from "@remit/ui";
 import {
+	event,
 	events as fixtureEvents,
 	suggestions as fixtureSuggestions,
 	HOME_ZONE,
 	hobbyCalendarId,
 	MONTHLY_REVIEW_RULE,
 	MONTHLY_REVIEW_SERIES_ID,
+	OFFSET,
 	ONE_TO_ONE_RULE,
 	ONE_TO_ONE_SERIES_ID,
 	personalCalendarId,
@@ -30,32 +32,8 @@ import {
 	workCalendarId,
 } from "./calendar.js";
 
-const OFFSET = "+02:00";
-
 function at(date: string, clock: string): string {
 	return `${date}T${clock}:00${OFFSET}`;
-}
-
-type Seed = Partial<CalendarEventData> &
-	Pick<CalendarEventData, "id" | "calendarId" | "title" | "start" | "end">;
-
-function event(seed: Seed): CalendarEventData {
-	return {
-		allDay: false,
-		location: "",
-		notes: "",
-		attendees: [],
-		myRsvp: "accepted",
-		threadId: "",
-		threadSubject: "",
-		timeZone: HOME_ZONE,
-		zoneCertainty: "local",
-		recurrenceRule: "",
-		seriesId: "",
-		seriesException: false,
-		status: "confirmed",
-		...seed,
-	};
 }
 
 /** The weekdays the standup runs on outside the fixture week. */
