@@ -150,6 +150,13 @@ export const handleSendMessage = (
 					id,
 					status,
 				),
+			updateOutboxIfStatus: async (accountConfigId, id, expected, patch) =>
+				(await getPorts()).outboxMessage.updateIfStatus(
+					accountConfigId,
+					id,
+					expected,
+					patch,
+				),
 			markOutboxSent: async (accountConfigId, id, fields) =>
 				(await getPorts()).outboxMessage.markSent(accountConfigId, id, fields),
 			secrets,
