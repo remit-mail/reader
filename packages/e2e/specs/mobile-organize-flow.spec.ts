@@ -23,6 +23,7 @@ import type { Locator, Page } from "@playwright/test";
 import { type ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import { deleteSettledMatchesEverywhere } from "../src/sweep.js";
 import {
 	advanceTo,
 	barOrganize,
@@ -108,11 +109,12 @@ const seedScratch = async (
 	const first = rows(page).filter({ hasText: subjects[0] });
 	const second = rows(page).filter({ hasText: subjects[1] });
 
+	// A scenario that filed its scratch leaves it in the destination, so the
+	// sweep covers every mailbox — and waits out the move it follows: the rows
+	// read as filed while the IMAP copy is still in flight, and the delete is
+	// refused against one of those (#1155).
 	const cleanup = async () => {
-		for (const mailbox of await api.listMailboxes(run.accountId)) {
-			const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, tag);
-			if (ids.length > 0) await api.deleteMessages(ids);
-		}
+		await deleteSettledMatchesEverywhere(api, run.accountId, tag);
 	};
 
 	return { first, second, cleanup };
