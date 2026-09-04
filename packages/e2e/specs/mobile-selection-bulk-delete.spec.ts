@@ -30,6 +30,7 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import { deleteSettledMatchesEverywhere } from "../src/sweep.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";
 import {
 	advanceTo,
@@ -894,17 +895,11 @@ test.describe("Search-scoped escalated move and mark-read", () => {
 		const run = readRunState();
 		const api = new ApiClient(run);
 		// The move test relocates the fixtures out of the inbox, so cleanup sweeps
-		// every mailbox rather than the inbox alone — a run leaves no scraps.
-		const mailboxes = await api.listMailboxes(run.accountId);
-		for (const mailbox of mailboxes) {
-			const leftover = await api.searchMatchingMessageIds(
-				mailbox.mailboxId,
-				RUN_TAG,
-			);
-			for (let i = 0; i < leftover.length; i += 100) {
-				await api.deleteMessages(leftover.slice(i, i + 100));
-			}
-		}
+		// every mailbox rather than the inbox alone — a run leaves no scraps. The
+		// sweep waits out that move: the rows read as filed in the destination
+		// while the IMAP copy is still in flight, and the delete is refused
+		// against one of those (#1155).
+		await deleteSettledMatchesEverywhere(api, run.accountId, RUN_TAG);
 		// Dovecot decides what the next sync puts back, so the sweep is not done
 		// until the server's inbox is clear of these fixtures — the read model
 		// drops them the moment the delete is accepted, the IMAP write follows.

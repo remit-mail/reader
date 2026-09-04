@@ -114,6 +114,27 @@ export interface MessageSummary {
 	spamReport?: { reportedAt: number };
 }
 
+/** Where the row's own lifecycle stands. `moving` is the one a dependent write
+ *  has to wait out: the row carries the destination mailbox with the SOURCE
+ *  folder's uid until the mail server confirms the copy, so its folder and uid
+ *  do not name the same message. */
+export type MessageStatus = "active" | "deleting" | "deleted" | "moving";
+
+/** Read it with `status`, never alone — every handler writes `failed` on an
+ *  ordinary transient attempt before a redelivery that usually succeeds. */
+export type MessageSyncStatus = "synced" | "pending" | "failed";
+
+/**
+ * One search hit, narrowed to what a spec reads off it: which message, and
+ * whether the mutation it is under has settled. The pair is on every message
+ * row of the read model since #1144.
+ */
+export interface MatchingMessage {
+	messageId: string;
+	status: MessageStatus;
+	syncStatus: MessageSyncStatus;
+}
+
 export interface Filter {
 	filterId: string;
 	name: string;
@@ -642,16 +663,18 @@ export class ApiClient {
 	}
 
 	/**
-	 * Every message id currently matching a free-text query in one mailbox,
-	 * paged to exhaustion at the write side's own 100-id cap — the same page
-	 * size `useEscalatedActions` uses, so a spec can compute "how many actually
-	 * match right now" independently of whatever the UI claims.
+	 * Every message currently matching a free-text query in one mailbox, paged
+	 * to exhaustion at the write side's own 100-id cap — the same page size
+	 * `useEscalatedActions` uses, so a spec can compute "what actually matches
+	 * right now" independently of whatever the UI claims. Each hit carries its
+	 * settlement pair, which is what tells a match that has landed apart from
+	 * one whose move the mail server has yet to confirm.
 	 */
-	async searchMatchingMessageIds(
+	async searchMatchingMessages(
 		mailboxId: string,
 		query: string,
-	): Promise<string[]> {
-		const ids: string[] = [];
+	): Promise<MatchingMessage[]> {
+		const messages: MatchingMessage[] = [];
 		let continuationToken: string | undefined;
 		do {
 			const params = new URLSearchParams({
@@ -660,14 +683,24 @@ export class ApiClient {
 				limit: "100",
 			});
 			if (continuationToken) params.set("continuationToken", continuationToken);
-			const result = await this.json<ResultList<{ messageId: string }>>(
+			const result = await this.json<ResultList<MatchingMessage>>(
 				"GET",
 				`/mailboxes/${mailboxId}/threads/search?${params.toString()}`,
 			);
-			ids.push(...(result.items ?? []).map((item) => item.messageId));
+			messages.push(...(result.items ?? []));
 			continuationToken = result.continuationToken;
 		} while (continuationToken);
-		return ids;
+		return messages;
+	}
+
+	/** The same search, taken back as ids alone — what a spec counting or
+	 *  deleting the match set wants. */
+	async searchMatchingMessageIds(
+		mailboxId: string,
+		query: string,
+	): Promise<string[]> {
+		const messages = await this.searchMatchingMessages(mailboxId, query);
+		return messages.map((message) => message.messageId);
 	}
 
 	/**
