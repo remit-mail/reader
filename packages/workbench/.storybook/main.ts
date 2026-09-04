@@ -37,9 +37,6 @@ const config: StorybookConfig = {
 			"@remit/ui/tokens.css": fileURLToPath(
 				new URL("../../ui/src/tokens.css", import.meta.url),
 			),
-			"@remit/ui/calendar.css": fileURLToPath(
-				new URL("../../ui/src/calendar.css", import.meta.url),
-			),
 			// Ordered before the bare package alias: Vite matches string aliases by
 			// prefix, so "@remit/ui" alone would rewrite this subpath into
 			// index.ts/rich-text.

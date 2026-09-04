@@ -1,3 +1,4 @@
+import "../calendar.css";
 import type {
 	CalendarRef,
 	EventDisplayInfo,
