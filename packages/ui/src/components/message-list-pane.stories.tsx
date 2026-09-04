@@ -354,7 +354,7 @@ export const FilteredEmptyState: Story = {
 		listState: "empty",
 		keyboard: noKeyboard,
 		listFilter: {
-			label: "Personal",
+			label: "Personal mail",
 			reach: "whole-folder",
 			onClear: () => undefined,
 		},

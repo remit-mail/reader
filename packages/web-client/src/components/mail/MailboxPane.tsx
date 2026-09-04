@@ -100,7 +100,6 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import type { ConversationTarget } from "@/lib/conversation-target";
 import { dedupeThreadMessages } from "@/lib/dedupe-thread-messages";
 import {
-	categoryLabel,
 	filterReach,
 	hasInboxFilter,
 	type InboxFilterCriteria,
@@ -109,6 +108,7 @@ import {
 	sameInboxFilter,
 } from "@/lib/inbox-filters";
 import { junkDestination } from "@/lib/junk-destination";
+import { listNarrowing } from "@/lib/list-narrowing";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
@@ -178,11 +178,17 @@ interface MailboxPaneContextValue {
 	onToggleFilterAttribute: (id: string) => void;
 	onClearFilters: () => void;
 	/**
-	 * The active category filter as the empty state renders it — its label, the
-	 * way out of it, and how much of the mailbox the request reached. Undefined
-	 * when no category is selected.
+	 * What narrows the list as the empty state renders it — the narrowing named,
+	 * the way out of it, and how much of the mailbox the request reached.
+	 * Undefined when nothing narrows the list.
 	 */
 	listFilter: MessageListFilter | undefined;
+	/**
+	 * The free text the empty state names. The typed tokens narrow the list too,
+	 * but `listFilter` already names them, and a headline saying the same
+	 * narrowing twice reads as two.
+	 */
+	listSearchText: string | undefined;
 	onToggleIntelligence: () => void;
 	/**
 	 * Where the mounted reading surface publishes the intelligence commands the
@@ -277,7 +283,8 @@ function MailboxPaneProvider({
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const telemetry = useTelemetry();
-	const { accounts, searchQuery, onToggleIntelligence } = useMailContext();
+	const { accounts, searchQuery, onToggleIntelligence, onSearchClearQuery } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
@@ -295,6 +302,13 @@ function MailboxPaneProvider({
 		normalizedSearchQuery,
 		tokenContext,
 	);
+	// The same free text in the reader's own casing. The request's copy is folded
+	// to lowercase so equivalent searches share a cache entry; a sentence quoting
+	// the query back to the reader must not be.
+	const typedFreeText = parseSearchTokens(
+		searchQuery.trim(),
+		tokenContext,
+	).freeText;
 
 	const [filterCategory, setFilterCategory] = useState("all");
 	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
@@ -445,20 +459,25 @@ function MailboxPaneProvider({
 		setFilterAttributes(new Set());
 	}, []);
 
+	// The empty state's way out has to clear everything its headline names, or
+	// it is a button that leaves the list exactly as narrowed as it found it.
+	const onClearNarrowing = useCallback(() => {
+		onClearFilters();
+		onSearchClearQuery();
+	}, [onClearFilters, onSearchClearQuery]);
+
 	// The empty state has to say how much was read, and the reach comes off the
 	// request rather than the call site: the day a chip is answered over a window
 	// instead of the whole mailbox, the sentence changes with it.
-	const filterLabel = categoryLabel(filterCategory);
-	const listFilter: MessageListFilter | undefined = filterLabel
-		? {
-				label: filterLabel,
-				reach:
-					residualTokens.length > 0
-						? "loaded-pages"
-						: filterReach(searchThreadsQuery),
-				onClear: onClearFilters,
-			}
-		: undefined;
+	const listFilter: MessageListFilter | undefined = listNarrowing({
+		chips: filterCriteria,
+		tokens: searchTokens,
+		reach:
+			residualTokens.length > 0
+				? "loaded-pages"
+				: filterReach(searchThreadsQuery),
+		onClear: onClearNarrowing,
+	});
 
 	// The row this folder itself lists, preferred because a mutation patches it in
 	// place. A thread the loaded pages do not hold — a chip that paged it out, a
@@ -799,6 +818,7 @@ function MailboxPaneProvider({
 		onToggleFilterAttribute,
 		onClearFilters,
 		listFilter,
+		listSearchText: typedFreeText || undefined,
 		onToggleIntelligence,
 		intelligenceRef,
 		handleDeselectIfRemoved,
@@ -875,6 +895,7 @@ function MailboxList() {
 		onToggleFilterAttribute,
 		onClearFilters,
 		listFilter,
+		listSearchText,
 		searchPredicate,
 		resultCount,
 	} = useMailboxPane();
@@ -1011,6 +1032,7 @@ function MailboxList() {
 			accountId={mailboxAccountId}
 			listTitle={listTitle}
 			listFilter={listFilter}
+			listSearchText={listSearchText}
 			listScopeLabel={listTitle}
 			hideHeader
 			onTriageContextChange={onTriageContextChange}

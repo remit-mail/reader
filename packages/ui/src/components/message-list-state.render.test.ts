@@ -20,7 +20,7 @@ function empty(props: MessageListEmptyProps = {}): string {
 }
 
 const personal: MessageListFilter = {
-	label: "Personal",
+	label: "Personal mail",
 	reach: "whole-folder",
 	onClear: () => undefined,
 };
@@ -88,7 +88,7 @@ describe("MessageListEmpty under a filter", () => {
 			{ filter: personal, scopeLabel: "Inbox" },
 			{ filter: personal, searchQuery: "invoice" },
 			{ filter: personal, scopeLabel: "Inbox", searchQuery: "invoice" },
-			{ filter: { ...personal, label: "Unclassified" } },
+			{ filter: { ...personal, label: "Unclassified mail" } },
 			{ filter: { ...personal, reach: "loaded-pages" } },
 			{ filter: { ...personal, reach: "loaded-pages" }, scopeLabel: "Inbox" },
 		];
@@ -130,6 +130,17 @@ describe("MessageListEmpty under a filter", () => {
 		assert.match(html, new RegExp(COMPLETENESS));
 	});
 
+	it("names a narrowing that is not a category at all (#1126)", () => {
+		const html = empty({
+			filter: { ...personal, label: "unread mail" },
+			scopeLabel: "Starred",
+		});
+		assert.match(html, /No unread mail in Starred/);
+		assert.match(html, new RegExp(COMPLETENESS));
+		assert.match(html, /Clear filter/);
+		assert.doesNotMatch(html, /No messages in Starred/);
+	});
+
 	it("offers the way out of the filter", () => {
 		assert.match(empty({ filter: personal }), /Clear filter/);
 	});
@@ -152,7 +163,7 @@ describe("MessageListEmpty under a filter", () => {
 
 	it("renders unclassified as itself, never as personal (#45)", () => {
 		const unclassified = empty({
-			filter: { ...personal, label: "Unclassified" },
+			filter: { ...personal, label: "Unclassified mail" },
 			scopeLabel: "Inbox",
 		});
 		assert.match(unclassified, /No Unclassified mail in Inbox/);
