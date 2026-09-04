@@ -53,13 +53,17 @@ export const emitMoveResync = async (
 };
 
 /**
- * SEARCH a mailbox for the copy of a message this operation just put there,
- * identified by its RFC822 Message-ID header. Read-only (EXAMINE, not SELECT) —
+ * SEARCH a mailbox for copies of a message identified by its RFC822 Message-ID
+ * header and answer the HIGHEST matching uid. Read-only (EXAMINE, not SELECT) —
  * this is a verification probe, never a write. `null` when nothing matched.
  *
- * Answers the HIGHEST matching uid, and every probe in this package wants that
- * one: uids ascend with arrival inside a UIDVALIDITY, so a copy that has just
- * landed outranks every copy of the same Message-ID the folder already held.
+ * The highest uid is the freshly delivered copy only when one exists; deciding
+ * that it does is the caller's job, not this function's. Every probe in this
+ * package wants the highest: uids ascend with arrival inside a UIDVALIDITY, so a
+ * copy that has just landed outranks every copy of the same Message-ID the
+ * folder already held. Where nothing was delivered, the highest is simply the
+ * newest pre-existing copy, and a caller that has not ruled that case out binds
+ * itself to unrelated mail.
  * One Message-ID can have several server copies in one account (a sieve
  * `fileinto` + `keep`, a resend, a repeated COPY — `deriveCopyMessageId` reuses
  * the row, so the second copy is a second server COPY), while `deriveMessageId`
@@ -70,7 +74,7 @@ export const emitMoveResync = async (
  * The maximum is computed rather than read off the tail: RFC 3501 leaves the
  * order of a SEARCH response unspecified, so "last returned" is not "highest".
  */
-export const searchMailboxForFreshCopyUid = async (
+export const searchMailboxForHighestMessageIdUid = async (
 	connection: IImapConnection,
 	mailboxPath: string,
 	messageIdHeader: string,
@@ -287,7 +291,7 @@ export const handleMessageMove = async (
 							const newUid =
 								result.uidMap.get(uid) ??
 								(message.messageIdHeader
-									? await searchMailboxForFreshCopyUid(
+									? await searchMailboxForHighestMessageIdUid(
 											rawConnection,
 											destinationMailboxPath,
 											message.messageIdHeader,

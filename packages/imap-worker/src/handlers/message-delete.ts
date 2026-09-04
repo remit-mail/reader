@@ -25,7 +25,7 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
 import {
 	emitMoveResync,
-	searchMailboxForFreshCopyUid,
+	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 import {
 	buildThreadMessageMoveRevert,
@@ -112,7 +112,7 @@ const confirmTrashMoveUid = async (
 	if (!message) return { outcome: "row-gone" };
 	if (!message.messageIdHeader) return { outcome: "unprobeable" };
 
-	const probedUid = await searchMailboxForFreshCopyUid(
+	const probedUid = await searchMailboxForHighestMessageIdUid(
 		destinationConnection,
 		destinationMailboxPath,
 		message.messageIdHeader,

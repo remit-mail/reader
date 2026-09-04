@@ -16,7 +16,7 @@ import type { MessageCopyEvent } from "../events.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { searchMailboxForFreshCopyUid } from "./message-move.js";
+import { searchMailboxForHighestMessageIdUid } from "./message-move.js";
 
 export interface MessageCopyDeps {
 	getClient: typeof getClient;
@@ -199,7 +199,7 @@ export const handleMessageCopy = async (
 				connection: IImapConnection,
 			): Promise<CopyProbe> => {
 				if (!copyRow.messageIdHeader) return { kind: "unprobeable" };
-				const probedUid = await searchMailboxForFreshCopyUid(
+				const probedUid = await searchMailboxForHighestMessageIdUid(
 					connection,
 					destinationMailboxPath,
 					copyRow.messageIdHeader,

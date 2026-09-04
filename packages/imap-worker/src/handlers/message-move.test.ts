@@ -12,7 +12,7 @@ import {
 	handleMessageMove,
 	MESSAGE_MOVE_MAX_ATTEMPTS,
 	moveThenResync,
-	searchMailboxForFreshCopyUid,
+	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 
 const silentLogger = (() => {
@@ -343,7 +343,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	});
 });
 
-describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID (#912)", () => {
+describe("searchMailboxForHighestMessageIdUid — the probe that binds a move to a UID (#912)", () => {
 	const isMessageIdCriterion = (
 		criterion: unknown,
 	): criterion is [string, string, string] =>
@@ -381,7 +381,7 @@ describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID 
 			},
 		} as unknown as IImapConnection;
 
-		await searchMailboxForFreshCopyUid(
+		await searchMailboxForHighestMessageIdUid(
 			destination,
 			"Archive",
 			'<a"b@example.com>\r\nUID 1',
@@ -399,7 +399,7 @@ describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID 
 		]);
 
 		assert.strictEqual(
-			await searchMailboxForFreshCopyUid(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
@@ -415,7 +415,7 @@ describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID 
 		]);
 
 		assert.strictEqual(
-			await searchMailboxForFreshCopyUid(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
@@ -436,7 +436,7 @@ describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID 
 		]);
 
 		assert.strictEqual(
-			await searchMailboxForFreshCopyUid(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
@@ -454,7 +454,7 @@ describe("searchMailboxForFreshCopyUid — the probe that binds a move to a UID 
 		]);
 
 		assert.strictEqual(
-			await searchMailboxForFreshCopyUid(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
