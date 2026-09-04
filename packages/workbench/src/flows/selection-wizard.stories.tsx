@@ -9,6 +9,7 @@ import {
 	inboxFilterConfig,
 	isConvertible,
 	type MatchCount,
+	type MatchDoor,
 	type MatchMode,
 	type MatchOperator,
 	makeFilterBlockedCopy,
@@ -190,6 +191,14 @@ function WizardDriver({
 		if (entry.startMode) return entry.startMode;
 		return entry.startAt === "properties" ? "properties" : "selected";
 	});
+	const seedPropertyClauses = () =>
+		withIds(
+			derivePropertyClauses(
+				senders,
+				selected.map((message) => message.subject),
+			),
+			"seed",
+		);
 	const [clauses, setClauses] = useState<RuleClause[]>(() => {
 		if (fromSearch && conversion) {
 			return conversion.clauses.map((clause, index) => ({
@@ -200,13 +209,9 @@ function WizardDriver({
 		if (entry.bodyTextClause) {
 			return [{ id: "body-text", field: "HasWords", value: "invoice" }];
 		}
-		return withIds(
-			derivePropertyClauses(
-				senders,
-				selected.map((message) => message.subject),
-			),
-			"seed",
-		);
+		// The ticked-rows door builds no predicate, and the app holds it that way:
+		// clauses are seeded by the property door, when it is taken.
+		return mode === "properties" ? seedPropertyClauses() : [];
 	});
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
 		conversion?.matchOperator ?? "all",
@@ -316,6 +321,13 @@ function WizardDriver({
 		setStep(steps[Math.min(steps.length - 1, index + 1)]);
 	};
 
+	const changeMode = (next: MatchDoor) => {
+		setMode(next);
+		if (next === "properties" && clauses.length === 0) {
+			setClauses(seedPropertyClauses());
+		}
+	};
+
 	const fallBackToProperties = () => {
 		setSemanticFallbackTaken(true);
 		setClauses(withIds(deriveSenderClauses(senders), "sender"));
@@ -378,7 +390,7 @@ function WizardDriver({
 				selectedCount: selected.length,
 				mode,
 				accountId: wizardScope.accountId,
-				onModeChange: setMode,
+				onModeChange: changeMode,
 				semanticUnavailable:
 					entry.semanticUnavailable ||
 					entry.semanticOff ||
@@ -1167,12 +1179,17 @@ export const OrganizeNothingIndexed: Story = {
 /* Scope step                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Reached through a widened door, which is what a scope that persists has to
+ * hold: the two saving scopes need a predicate to keep matching on, and the
+ * ticked rows are not one.
+ */
 export const OrganizeScope: Story = {
 	name: "Organize — scope",
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule" }}
+			openAt={{ verb: "organize", startAt: "rule", startMode: "similar" }}
 		/>
 	),
 };
@@ -1183,7 +1200,12 @@ export const OrganizeStanding: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule", scope: "standing" }}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				startMode: "similar",
+				scope: "standing",
+			}}
 		/>
 	),
 };
@@ -1194,9 +1216,34 @@ export const OrganizeUntil: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule", scope: "until" }}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				startMode: "similar",
+				scope: "until",
+			}}
 		/>
 	),
+};
+
+/**
+ * The ticked rows are a bounded list of ids and no predicate at all, so a rule
+ * saved through that door would match nothing — now or later. The step refuses
+ * it in the rule editor's words rather than saving a rule that never fires
+ * (#1193); Back reaches the doors that do carry a predicate.
+ */
+export const OrganizeStandingNoPredicate: Story = {
+	name: "Organize — keep doing this, nothing to match on",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "rule", scope: "standing" }}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		clickByText(canvasElement, "Continue");
+		await tick();
+	},
 };
 
 /**
@@ -1220,7 +1267,7 @@ export const OrganizeName: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "name" }}
+			openAt={{ verb: "organize", startAt: "name", startMode: "similar" }}
 		/>
 	),
 };
@@ -1230,7 +1277,12 @@ export const OrganizeReviewStanding: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "review", scope: "standing" }}
+			openAt={{
+				verb: "organize",
+				startAt: "review",
+				startMode: "similar",
+				scope: "standing",
+			}}
 		/>
 	),
 };

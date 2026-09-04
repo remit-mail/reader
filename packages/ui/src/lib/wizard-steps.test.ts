@@ -330,18 +330,19 @@ describe("stepBlockedReason", () => {
 	});
 
 	it("names what the scope step is missing", () => {
+		const clauses = [clause("From", "a@b.example")];
 		assert.equal(
-			stepBlockedReason("rule", draft(), UNCOUNTED),
+			stepBlockedReason("rule", draft({ clauses }), UNCOUNTED),
 			"Choose one of the three first.",
 		);
 		assert.equal(
-			stepBlockedReason("rule", draft({ scope: "until" }), UNCOUNTED),
+			stepBlockedReason("rule", draft({ clauses, scope: "until" }), UNCOUNTED),
 			ruleBlockedCopy.noUntilDate,
 		);
 		assert.equal(
 			stepBlockedReason(
 				"rule",
-				draft({ scope: "until", until: "2026-09-01" }),
+				draft({ clauses, scope: "until", until: "2026-09-01" }),
 				UNCOUNTED,
 			),
 			undefined,
@@ -445,6 +446,68 @@ describe("stepBlockedReason", () => {
 		);
 	});
 
+	it("refuses a standing rule the ticked-rows door built no predicate for", () => {
+		// The ticked rows are a list of ids, not a predicate: a rule saved through
+		// that door has no anchor and no clause, so it matches nothing now and
+		// nothing later (#1193).
+		const ticked = draft({ scope: "standing", name: "Receipts" });
+		assert.equal(
+			stepBlockedReason("rule", ticked, UNCOUNTED),
+			ruleBlockedCopy.noMatch,
+		);
+		assert.equal(
+			stepBlockedReason("review", ticked, { status: "ready", count: 3 }),
+			ruleBlockedCopy.noMatch,
+		);
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				{ ...ticked, scope: "until", until: "2026-09-01" },
+				{ status: "ready", count: 3 },
+			),
+			ruleBlockedCopy.noMatch,
+		);
+	});
+
+	it("takes either matcher as the predicate a saved rule needs", () => {
+		const named = { scope: "standing" as const, name: "Receipts" };
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, clauses: [clause("From", "a@b.example")] }),
+				{ status: "ready", count: 3 },
+			),
+			undefined,
+		);
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, widen: { anchorCount: 3 } }),
+				{ status: "ready", count: 3 },
+			),
+			undefined,
+		);
+		// A widen the probe could not evaluate is no matcher at all.
+		assert.equal(
+			stepBlockedReason(
+				"review",
+				draft({ ...named, widen: { anchorCount: 3, inactive: true } }),
+				{ status: "ready", count: 3 },
+			),
+			ruleBlockedCopy.noMatch,
+		);
+	});
+
+	it("leaves the one-off scopes to the door that already resolved them", () => {
+		assert.equal(
+			stepBlockedReason("review", draft({ scope: "once" }), {
+				status: "ready",
+				count: 3,
+			}),
+			undefined,
+		);
+	});
+
 	it("blocks nothing on the steps that ask nothing", () => {
 		for (const step of ["match", "run"] as StepId[]) {
 			assert.equal(stepBlockedReason(step, draft(), UNCOUNTED), undefined);
@@ -460,6 +523,15 @@ describe("stepBlockedReason", () => {
 		assert.equal(
 			commitBlockedReason(rule, { status: "ready", count: 0 }),
 			stepBlockedReason("properties", draft(), UNCOUNTED),
+		);
+		// The editor refuses a predicate-less standing rule; so does the step the
+		// wizard would have saved it from.
+		assert.equal(
+			commitBlockedReason(rule, { status: "ready", count: 3 }),
+			stepBlockedReason("review", draft({ scope: "standing" }), {
+				status: "ready",
+				count: 3,
+			}),
 		);
 	});
 });

@@ -364,6 +364,7 @@ export {
 	demoVocabularyRule,
 	type FilterRule,
 	hasActiveWiden,
+	hasMatcher,
 	type LabelOption,
 	type MatchOperator,
 	matchesBodyText,

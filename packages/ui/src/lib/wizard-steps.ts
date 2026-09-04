@@ -11,6 +11,7 @@
 import {
 	clauseFieldLabel,
 	type FilterRule,
+	hasMatcher,
 	type MatchOperator,
 	matchJoinWord,
 	matchModeHint,
@@ -204,6 +205,23 @@ export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
 	unreadableBodyClauses(asRule(draft, draft.scope ?? "once"));
 
 /**
+ * Why a scope that persists cannot be saved from the door the wizard is on, or
+ * `undefined` when it can. The ticked-rows door is a bounded list of ids and no
+ * predicate at all: a rule saved through it carries neither an anchor nor a
+ * clause, so it would match nothing, now and for future mail. The rule editor
+ * refuses that shape through `hasMatcher`, and so does this — one question, one
+ * answer, in the editor's words (#1193).
+ *
+ * The one-off scopes are unaffected: they act on the messages the door already
+ * resolved rather than on a predicate that has to outlive them.
+ */
+const missingPredicateReason = (draft: WizardDraft): string | undefined => {
+	if (draft.scope !== "standing" && draft.scope !== "until") return undefined;
+	if (hasMatcher(asRule(draft, draft.scope))) return undefined;
+	return ruleBlockedCopy.noMatch;
+};
+
+/**
  * The count the wizard is committing against. `uncounted` is a stated answer,
  * not a missing one: neither widened door carries a count until it has run
  * (#477 3.3), so there is nothing to wait for and nothing to display.
@@ -354,6 +372,8 @@ export const stepBlockedReason = (
 	}
 	if (step === "rule") {
 		if (!draft.scope) return NO_SCOPE;
+		const missingPredicate = missingPredicateReason(draft);
+		if (missingPredicate) return missingPredicate;
 		if (draft.scope === "once" && unreadableDraftClauses(draft).length > 0) {
 			return ruleBlockedCopy.bodyTextOnce;
 		}
@@ -364,6 +384,8 @@ export const stepBlockedReason = (
 	}
 	if (step === "name" && !draft.name?.trim()) return ruleBlockedCopy.unnamed;
 	if (step === "review") {
+		const missingPredicate = missingPredicateReason(draft);
+		if (missingPredicate) return missingPredicate;
 		if (count.status === "uncounted") return undefined;
 		if (count.status === "ready" && count.count === 0 && !count.stale) {
 			return EMPTY_MATCH;
