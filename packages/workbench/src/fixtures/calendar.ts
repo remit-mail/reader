@@ -36,22 +36,22 @@ import {
 
 /** Alice's own zone; June puts Amsterdam at UTC+2. */
 export const HOME_ZONE = "Europe/Amsterdam";
-const OFFSET = "+02:00";
+export const OFFSET = "+02:00";
 
 /** The Wednesday every relative label in this file is measured from. */
 export const TODAY = "2026-06-10";
 export const NOW_ISO = `${TODAY}T09:30:00${OFFSET}`;
 
-function pad(n: number): string {
+export function pad(n: number): string {
 	return String(n).padStart(2, "0");
 }
 
 /** June day of month → ISO date. The whole fixture lives inside one month. */
-function day(dayOfMonth: number): string {
+export function day(dayOfMonth: number): string {
 	return `2026-06-${pad(dayOfMonth)}`;
 }
 
-function at(dayOfMonth: number, hour: number, minute = 0): string {
+export function at(dayOfMonth: number, hour: number, minute = 0): string {
 	return `${day(dayOfMonth)}T${pad(hour)}:${pad(minute)}:00${OFFSET}`;
 }
 
@@ -170,7 +170,7 @@ const mei = (rsvp: CalendarAttendee["rsvp"], role?: CalendarAttendee["role"]) =>
 type EventSeed = Partial<CalendarEventData> &
 	Pick<CalendarEventData, "id" | "calendarId" | "title" | "start" | "end">;
 
-function event(seed: EventSeed): CalendarEventData {
+export function event(seed: EventSeed): CalendarEventData {
 	return {
 		allDay: false,
 		location: "",

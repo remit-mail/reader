@@ -1,20 +1,10 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountDeleteEvent } from "../events.js";
 import { processAccountFanout } from "./account-fanout.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 // A CascadeServices fake with one account and no data: enough for
 // enumerateCascadeEntities to yield a single Account row (so the stop-signal
@@ -81,7 +71,7 @@ describe("processAccountFanout — imap-worker stop signal on account delete", (
 		delete process.env.SQS_QUEUE_URL_IMAP_WORKER;
 		const sent: SentMessage[] = [];
 
-		await processAccountFanout(deleteEvent, noopLog, {
+		await processAccountFanout(deleteEvent, noopLogger, {
 			services: buildServices(),
 			sqs: recordingSqs(sent),
 			signOut: async () => {},
@@ -99,7 +89,7 @@ describe("processAccountFanout — imap-worker stop signal on account delete", (
 	it("enqueues one stop signal per account when a queue is configured", async () => {
 		const sent: SentMessage[] = [];
 
-		await processAccountFanout(deleteEvent, noopLog, {
+		await processAccountFanout(deleteEvent, noopLogger, {
 			services: buildServices(),
 			sqs: recordingSqs(sent),
 			signOut: async () => {},

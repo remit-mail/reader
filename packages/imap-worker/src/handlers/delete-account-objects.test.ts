@@ -6,20 +6,10 @@ import {
 	S3Client,
 } from "@aws-sdk/client-s3";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import { mockClient } from "aws-sdk-client-mock";
 import type { DeleteAccountObjectsEvent } from "../events.js";
 import { handleDeleteAccountObjects } from "./delete-account-objects.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 const s3Mock = mockClient(S3Client);
 const sqsMock = mockClient(SQSClient);
@@ -45,7 +35,7 @@ describe("handleDeleteAccountObjects", () => {
 		});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(event, noopLog);
+		await handleDeleteAccountObjects(event, noopLogger);
 
 		const listCall = s3Mock.commandCalls(ListObjectsV2Command)[0];
 		assert.equal(listCall.args[0].input.Prefix, "accounts/cfg-1/");
@@ -72,7 +62,7 @@ describe("handleDeleteAccountObjects", () => {
 			});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(event, noopLog);
+		await handleDeleteAccountObjects(event, noopLogger);
 
 		const listCalls = s3Mock.commandCalls(ListObjectsV2Command);
 		assert.equal(listCalls.length, 2);
@@ -83,7 +73,7 @@ describe("handleDeleteAccountObjects", () => {
 	it("skips the delete call when a page holds no keys", async () => {
 		s3Mock.on(ListObjectsV2Command).resolves({ IsTruncated: false });
 
-		await handleDeleteAccountObjects(event, noopLog);
+		await handleDeleteAccountObjects(event, noopLogger);
 
 		assert.equal(s3Mock.commandCalls(DeleteObjectsCommand).length, 0);
 	});
@@ -94,7 +84,7 @@ describe("handleDeleteAccountObjects", () => {
 
 		await handleDeleteAccountObjects(
 			{ ...event, continuationToken: "tok-mid" },
-			noopLog,
+			noopLogger,
 			() => 5_000,
 		);
 
@@ -119,7 +109,7 @@ describe("handleDeleteAccountObjects", () => {
 		});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(event, noopLog, () => 120_000);
+		await handleDeleteAccountObjects(event, noopLogger, () => 120_000);
 
 		assert.equal(s3Mock.commandCalls(ListObjectsV2Command).length, 1);
 		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);

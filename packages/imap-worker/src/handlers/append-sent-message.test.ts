@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { AppendSentMessageEvent } from "../events.js";
 import {
 	APPEND_SENT_MAX_ATTEMPTS,
 	type AppendSentMessageDeps,
 	handleAppendSentMessage,
 } from "./append-sent-message.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Call {
 	method: string;
@@ -175,7 +165,7 @@ describe("handleAppendSentMessage", () => {
 	});
 
 	it("appends a seen RFC822 copy to the Sent folder and drops the outbox row", async () => {
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		const append = called("connection.append")[0];
 		assert.equal(append?.args[0], "INBOX/Sent");
@@ -188,7 +178,7 @@ describe("handleAppendSentMessage", () => {
 	});
 
 	it("takes the draft's stored attachments with the row (#679)", async () => {
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		// The row is the only reference to those objects. Sweeping has to happen
 		// here too, not only on a discard, or a sent message leaves its files
@@ -201,7 +191,7 @@ describe("handleAppendSentMessage", () => {
 	});
 
 	it("builds the message from the outbox row's own headers", async () => {
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		const raw = String(called("connection.append")[0]?.args[1] as Buffer);
 		assert.match(raw, /^From: Alice <alice@example\.com>$/m);
@@ -216,7 +206,7 @@ describe("handleAppendSentMessage", () => {
 	it("uses a bare address when the outbox row carries no display name", async () => {
 		h.outbox = { ...h.outbox, fromName: undefined };
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		const raw = String(called("connection.append")[0]?.args[1] as Buffer);
 		assert.match(raw, /^From: alice@example\.com$/m);
@@ -225,7 +215,7 @@ describe("handleAppendSentMessage", () => {
 	it("settles the row as unfiled when the account has no Sent folder at all", async () => {
 		h.sentMailbox = null;
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		assert.equal(called("connection.append").length, 0);
 		assert.equal(called("outboxMessage.delete").length, 0);
@@ -243,7 +233,7 @@ describe("handleAppendSentMessage", () => {
 	it("skips the append while the outbox row is not yet sent", async () => {
 		h.outbox = { ...h.outbox, status: "pending" };
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		assert.equal(called("connection.append").length, 0);
 		assert.equal(called("outboxMessage.delete").length, 0);
@@ -252,7 +242,7 @@ describe("handleAppendSentMessage", () => {
 	it("returns early without touching the outbox when the account is soft-deleted", async () => {
 		h.account = { ...h.account, deletedAt: Date.now() };
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		assert.equal(called("connection.append").length, 0);
 		assert.equal(called("outboxMessage.delete").length, 0);
@@ -264,7 +254,7 @@ describe("handleAppendSentMessage", () => {
 		};
 
 		await assert.rejects(
-			handleAppendSentMessage(event, noopLog, 1, deps()),
+			handleAppendSentMessage(event, noopLogger, 1, deps()),
 			/server exploded/,
 		);
 
@@ -282,7 +272,7 @@ describe("handleAppendSentMessage", () => {
 
 		await handleAppendSentMessage(
 			event,
-			noopLog,
+			noopLogger,
 			APPEND_SENT_MAX_ATTEMPTS,
 			deps(),
 		);
@@ -301,7 +291,7 @@ describe("handleAppendSentMessage", () => {
 	it("settles the row as unfiled when a terminal auth failure acks the record", async () => {
 		h.ackWithoutWork = true;
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		const patch = called("outboxMessage.update")[0]?.args[2] as {
 			status: string;
@@ -313,7 +303,7 @@ describe("handleAppendSentMessage", () => {
 
 	it("leaves the row alone when the APPEND landed but the delete did not", async () => {
 		await assert.rejects(
-			handleAppendSentMessage(event, noopLog, 1, depsWithFailingDelete()),
+			handleAppendSentMessage(event, noopLogger, 1, depsWithFailingDelete()),
 			/storage down/,
 		);
 
@@ -325,7 +315,7 @@ describe("handleAppendSentMessage", () => {
 	it("stops redelivering a landed APPEND at the budget instead of filing another copy", async () => {
 		await handleAppendSentMessage(
 			event,
-			noopLog,
+			noopLogger,
 			APPEND_SENT_MAX_ATTEMPTS,
 			depsWithFailingDelete(),
 		);
@@ -335,7 +325,7 @@ describe("handleAppendSentMessage", () => {
 	});
 
 	it("records the uid the APPEND produced before it deletes the row", async () => {
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		// Order is the whole of it: a uid written after the delete is a uid a
 		// redelivery never sees, and the redelivery is what files the second copy.
@@ -352,7 +342,7 @@ describe("handleAppendSentMessage", () => {
 		// nothing, and "filed" still has to be told apart from "not filed".
 		h.append = async () => ({ uid: 0, uidValidity: 0 });
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		assert.deepEqual(patches(), [{ appendedUid: -1 }]);
 		assert.equal(called("outboxMessage.delete").length, 1);
@@ -361,7 +351,7 @@ describe("handleAppendSentMessage", () => {
 	it("files nothing a second time when a redelivery finds a recorded uid (#858)", async () => {
 		h.outbox = { ...h.outbox, appendedUid: 55 };
 
-		await handleAppendSentMessage(event, noopLog, 1, deps());
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
 
 		// The copy is already in the user's Sent folder. All this redelivery owes
 		// is the delete the last attempt could not make.
@@ -382,7 +372,7 @@ describe("handleAppendSentMessage", () => {
 		h.outbox = { ...h.outbox, appendedUid: 55 };
 
 		await assert.rejects(
-			handleAppendSentMessage(event, noopLog, 1, depsWithFailingDelete()),
+			handleAppendSentMessage(event, noopLogger, 1, depsWithFailingDelete()),
 			/storage down/,
 		);
 
@@ -392,7 +382,7 @@ describe("handleAppendSentMessage", () => {
 
 	it("keeps the row when the uid cannot be recorded", async () => {
 		await assert.rejects(
-			handleAppendSentMessage(event, noopLog, 1, depsWithFailingUpdate()),
+			handleAppendSentMessage(event, noopLogger, 1, depsWithFailingUpdate()),
 			/storage down/,
 		);
 
@@ -425,7 +415,7 @@ describe("handleAppendSentMessage", () => {
 			},
 		};
 
-		await handleAppendSentMessage(event, noopLog, 1, failing);
+		await handleAppendSentMessage(event, noopLogger, 1, failing);
 
 		assert.equal(called("connection.append").length, 0);
 		assert.deepEqual(patches(), []);
@@ -436,7 +426,7 @@ describe("handleAppendSentMessage", () => {
 
 		await handleAppendSentMessage(
 			event,
-			noopLog,
+			noopLogger,
 			APPEND_SENT_MAX_ATTEMPTS,
 			depsWithFailingDelete(),
 		);

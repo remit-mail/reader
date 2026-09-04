@@ -12,6 +12,10 @@
 		"./metrics": {
 			"types": "./src/metrics.ts",
 			"default": "./src/metrics.ts"
+		},
+		"./noop-logger": {
+			"types": "./src/noop-logger.ts",
+			"default": "./src/noop-logger.ts"
 		}
 	},
 	"scripts": {

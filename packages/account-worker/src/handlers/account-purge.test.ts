@@ -1,23 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountDataPurgeEvent } from "../events.js";
 import {
 	type ProcessPurgeFanoutDeps,
 	processAccountDataPurge,
 } from "./account-purge.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Sent {
 	queueUrl: string | undefined;
@@ -91,7 +81,7 @@ const baseDeps = (
 describe("processAccountDataPurge", () => {
 	it("enqueues vector deletes then a subtrees batch and one container leftover", async () => {
 		const sent: Sent[] = [];
-		await processAccountDataPurge(event, noopLog, baseDeps(sent));
+		await processAccountDataPurge(event, noopLogger, baseDeps(sent));
 
 		const vectorBatch = sent.find((m) => m.queueUrl === "http://queue/search");
 		assert.equal(vectorBatch?.entries?.length, 2, "one entry per message");
@@ -110,7 +100,7 @@ describe("processAccountDataPurge", () => {
 		const sent: Sent[] = [];
 		await processAccountDataPurge(
 			event,
-			noopLog,
+			noopLogger,
 			baseDeps(sent, { dataBackend: "sqlite" }),
 		);
 
@@ -129,7 +119,7 @@ describe("processAccountDataPurge", () => {
 
 	it("drops manifest rows outside the account's mailbox set", async () => {
 		const sent: Sent[] = [];
-		await processAccountDataPurge(event, noopLog, {
+		await processAccountDataPurge(event, noopLogger, {
 			...baseDeps(sent),
 			services: buildServices([
 				{ threadMessageId: "tm-1", messageId: "msg-1", mailboxId: "mbx-1" },
@@ -143,7 +133,7 @@ describe("processAccountDataPurge", () => {
 
 	it("no-ops when the account is already gone", async () => {
 		const sent: Sent[] = [];
-		await processAccountDataPurge(event, noopLog, {
+		await processAccountDataPurge(event, noopLogger, {
 			...baseDeps(sent),
 			services: {
 				accountService: {
@@ -163,7 +153,7 @@ describe("processAccountDataPurge", () => {
 	it("rethrows a non-NotFound describe error", async () => {
 		const sent: Sent[] = [];
 		await assert.rejects(
-			processAccountDataPurge(event, noopLog, {
+			processAccountDataPurge(event, noopLogger, {
 				...baseDeps(sent),
 				services: {
 					accountService: {
@@ -181,7 +171,7 @@ describe("processAccountDataPurge", () => {
 	it("throws when a vector-delete batch reports failed entries", async () => {
 		const sent: Sent[] = [];
 		await assert.rejects(
-			processAccountDataPurge(event, noopLog, {
+			processAccountDataPurge(event, noopLogger, {
 				...baseDeps(sent),
 				sqs: recordingSqs(sent, true),
 			}),

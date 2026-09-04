@@ -1,23 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MessageDescription } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import {
 	type CascadeEntity,
 	type CascadeServices,
 	collectMessageChildEntities,
 	enumerateCascadeEntities,
 } from "./cascade.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 const messageWithChildren = {
 	messageFlag: [{ messageFlagId: "flag-1" }],
@@ -127,7 +117,7 @@ describe("enumerateCascadeEntities", () => {
 		const { entities, messageIds } = await enumerateCascadeEntities(
 			"cfg-1",
 			fullServices(),
-			noopLog,
+			noopLogger,
 		);
 
 		assert.deepEqual(messageIds, ["msg-1"]);
@@ -166,7 +156,7 @@ describe("enumerateCascadeEntities", () => {
 		const { entities } = await enumerateCascadeEntities(
 			"cfg-1",
 			services,
-			noopLog,
+			noopLogger,
 		);
 
 		assert.equal(entities.filter((e) => e.entityType === "Filter").length, 1);
@@ -183,7 +173,7 @@ describe("enumerateCascadeEntities", () => {
 		const { entities } = await enumerateCascadeEntities(
 			"cfg-1",
 			services,
-			noopLog,
+			noopLogger,
 		);
 
 		assert.equal(
@@ -204,7 +194,7 @@ describe("enumerateCascadeEntities", () => {
 		const { entities, messageIds } = await enumerateCascadeEntities(
 			"cfg-empty",
 			services,
-			noopLog,
+			noopLogger,
 		);
 
 		assert.equal(messageIds.length, 0);
