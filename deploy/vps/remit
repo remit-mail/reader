@@ -607,9 +607,14 @@ apply() {
 
 cmd_restart() {
 	require_deployment
-	if [ -n "${1:-}" ] && [ "$1" != "--hard" ]; then
-		die "restart: unknown option '$1'"
-	fi
+	_hard=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--hard) _hard=1 ;;
+		*) die "restart: unknown option '$1'" ;;
+		esac
+		shift
+	done
 	# An unscoped `up` never names a service behind a profile, so without this
 	# the line printed at the end is false for the observability containers: a
 	# raised REMIT_METRICS_RETENTION never reaches VictoriaMetrics and the
@@ -620,7 +625,7 @@ cmd_restart() {
 	# turned on stays off.
 	_profiled=$(uniq_services "$(running_profile_services) $(profile_hold_read)")
 	profile_hold_write "$_profiled"
-	if [ "${1:-}" = "--hard" ]; then
+	if [ "$_hard" = "1" ]; then
 		# All profiles, or --hard stops the always-on services and leaves the
 		# optional ones up on the configuration it just claimed to replace.
 		compose_all stop
@@ -793,10 +798,11 @@ cmd_semantic() {
 	require_deployment
 	[ $# -le 1 ] ||
 		die "semantic: takes one argument — 'on', 'off', or none to print the state"
-	case "${1:-}" in
-	"")
+	if [ $# -eq 0 ]; then
 		semantic_report
-		;;
+		return 0
+	fi
+	case "$1" in
 	on)
 		# `bedrock` is the one value left alone. Every other value that is not
 		# already `local` embeds nothing an operator can search — `off`, and the
@@ -1121,6 +1127,7 @@ report_reachability() {
 
 cmd_status() {
 	require_deployment
+	[ $# -eq 0 ] || die "status: unknown argument '$1' — status takes no arguments"
 	_origin=$(get_var PUBLIC_ORIGIN)
 	printf 'Directory: %s\n' "$REMIT_DIR"
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
@@ -3175,6 +3182,7 @@ report_last_run() {
 
 cmd_down() {
 	require_deployment
+	[ $# -eq 0 ] || die "down: unknown argument '$1' — down takes no arguments"
 	_profiled=$(running_profile_services)
 	# stop, never `down`: the sqlite_data and message_storage volumes hold every
 	# account, credential and message body on this box. All profiles, or the
@@ -3685,7 +3693,10 @@ main() {
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"
 		;;
-	help | --help | -h) usage ;;
+	help | --help | -h)
+		[ $# -eq 0 ] || die "$_cmd: unknown argument '$1' — $_cmd takes no arguments"
+		usage
+		;;
 	*)
 		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_cmd" >&2
 		usage >&2
