@@ -7,7 +7,7 @@ import {
 	AUTH_COMPOSITIONS,
 	bundleAppGraph,
 	graphPath,
-} from "@/test-support/bundle-app";
+} from "@/test-support/test-bundle-app";
 
 /**
  * A stylesheet the kit ships beside a component has to reach the app on its

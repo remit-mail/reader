@@ -4,7 +4,7 @@ import {
 	type AppGraph,
 	AUTH_COMPOSITIONS,
 	bundleAppGraph,
-} from "@/test-support/bundle-app";
+} from "@/test-support/test-bundle-app";
 
 /**
  * Proves the auth shell is a composition choice, not a runtime toggle inside
