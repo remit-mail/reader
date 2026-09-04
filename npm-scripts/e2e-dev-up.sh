@@ -40,8 +40,9 @@ echo "e2e-dev: starting the backend and the workers"
 e2e_dev_start backend npm --prefix "$REPO_ROOT" run serve -w @remit/backend
 e2e_dev_start imap-worker npm --prefix "$REPO_ROOT" run dev -w @remit/imap-worker
 e2e_dev_start smtp-worker npm --prefix "$REPO_ROOT" run dev -w @remit/smtp-worker
+e2e_dev_start account-worker npm --prefix "$REPO_ROOT" run dev -w @remit/account-worker
 e2e_dev_wait_for backend "http://127.0.0.1:${SERVER_PORT}/health" 90
-e2e_dev_require_running imap-worker smtp-worker
+e2e_dev_require_running imap-worker smtp-worker account-worker
 
 echo "e2e-dev: starting the web client"
 e2e_dev_start web npm --prefix "$REPO_ROOT" run dev -w @remit/web-client -- \
