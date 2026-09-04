@@ -3,18 +3,8 @@ import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import { buildRelationalDeletionCapabilities } from "./compose-relational.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 const exists = (path: string): Promise<boolean> =>
 	stat(path)
@@ -54,7 +44,7 @@ describe("relational deletion capabilities — filesystem storage cleanup", () =
 			"accounts/cfg-2/acc-9/messages/m9/body.eml",
 		);
 
-		await caps.deleteStoragePrefix("accounts/cfg-1/", noopLog);
+		await caps.deleteStoragePrefix("accounts/cfg-1/", noopLogger);
 
 		for (const path of deleted) {
 			assert.equal(await exists(path), false, `${path} must be deleted`);
@@ -74,7 +64,7 @@ describe("relational deletion capabilities — filesystem storage cleanup", () =
 			"accounts/cfg-1/acc-2/messages/m2/body.eml",
 		);
 
-		await caps.deleteStoragePrefix("accounts/cfg-1/acc-1/", noopLog);
+		await caps.deleteStoragePrefix("accounts/cfg-1/acc-1/", noopLogger);
 
 		assert.equal(await exists(deleted), false);
 		assert.equal(
@@ -86,19 +76,19 @@ describe("relational deletion capabilities — filesystem storage cleanup", () =
 
 	it("is replay-safe — deleting a missing prefix does not throw", async () => {
 		const caps = buildRelationalDeletionCapabilities();
-		await caps.deleteStoragePrefix("accounts/never-existed/", noopLog);
+		await caps.deleteStoragePrefix("accounts/never-existed/", noopLogger);
 	});
 });
 
 describe("relational deletion capabilities — CDN and sign-out are no-ops", () => {
 	it("invalidateContent resolves without a CDN", async () => {
 		const caps = buildRelationalDeletionCapabilities();
-		await caps.invalidateContent("cfg-1", noopLog);
-		await caps.invalidateContent("cfg-1/acc-1", noopLog);
+		await caps.invalidateContent("cfg-1", noopLogger);
+		await caps.invalidateContent("cfg-1/acc-1", noopLogger);
 	});
 
 	it("signOut resolves without a federated session store", async () => {
 		const caps = buildRelationalDeletionCapabilities();
-		await caps.signOut("user-123", noopLog);
+		await caps.signOut("user-123", noopLogger);
 	});
 });

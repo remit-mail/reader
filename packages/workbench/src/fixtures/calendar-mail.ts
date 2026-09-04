@@ -10,10 +10,14 @@ import type {
 	ThreadSection,
 } from "@remit/ui";
 import {
+	at,
 	events as baseEvents,
 	suggestions as baseSuggestions,
 	calendarsById,
+	day,
+	event,
 	HOME_ZONE,
+	pad,
 	personalCalendarId,
 	travelCalendarId,
 	workCalendarId,
@@ -29,42 +33,6 @@ import { allThreads, personalId, workId } from "./workspace.js";
  * Nothing here mutates the shared week. The extra events are a second list that
  * the screen concatenates, so Option C sees exactly the fixtures it was given.
  */
-
-const OFFSET = "+02:00";
-
-function pad(value: number): string {
-	return String(value).padStart(2, "0");
-}
-
-function day(dayOfMonth: number): string {
-	return `2026-06-${pad(dayOfMonth)}`;
-}
-
-function at(dayOfMonth: number, hour: number, minute = 0): string {
-	return `${day(dayOfMonth)}T${pad(hour)}:${pad(minute)}:00${OFFSET}`;
-}
-
-type EventSeed = Partial<CalendarEventData> &
-	Pick<CalendarEventData, "id" | "calendarId" | "title" | "start" | "end">;
-
-function event(seed: EventSeed): CalendarEventData {
-	return {
-		allDay: false,
-		location: "",
-		notes: "",
-		attendees: [],
-		myRsvp: "accepted",
-		threadId: "",
-		threadSubject: "",
-		timeZone: HOME_ZONE,
-		zoneCertainty: "local",
-		recurrenceRule: "",
-		seriesId: "",
-		seriesException: false,
-		status: "confirmed",
-		...seed,
-	};
-}
 
 function guest(
 	name: string,

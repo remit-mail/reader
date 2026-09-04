@@ -1,8 +1,8 @@
 import assert from "node:assert";
 import { beforeEach, describe, it, mock } from "node:test";
 import type { ThreadMessageItem } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
 import { renderMetrics, resetMetrics } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { MessageDeleteEvent } from "../events.js";
 import {
 	deleteAllThreadMessagesForMessage,
@@ -256,16 +256,6 @@ describe("deleteAllThreadMessagesForMessage (#212)", () => {
 	});
 });
 
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
-
 interface Call {
 	method: string;
 	args: unknown[];
@@ -471,7 +461,7 @@ describe("handleMessageDelete", () => {
 	});
 
 	it("moves to trash, rewrites the uid, and flips the thread row to deleted", async () => {
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"msg-1",
@@ -497,7 +487,7 @@ describe("handleMessageDelete", () => {
 			sourceNoLongerHoldsTheUid();
 			h.destinationSearchUids = [77];
 
-			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 			assert.deepEqual(called("message.updateUid")[0]?.args, [
 				"msg-1",
@@ -526,7 +516,7 @@ describe("handleMessageDelete", () => {
 				return { uidvalidity: 1 };
 			}) as Connection["openBox"];
 
-			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 			assert.deepEqual(
 				opened,
@@ -553,7 +543,7 @@ describe("handleMessageDelete", () => {
 			h.destinationSearchUids = [];
 
 			await assert.rejects(
-				handleMessageDelete(moveEvent, noopLog, 1, deps()),
+				handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 				/unconfirmed/,
 			);
 
@@ -586,7 +576,7 @@ describe("handleMessageDelete", () => {
 			sourceNoLongerHoldsTheUid();
 			h.destinationSearchUids = [];
 
-			await handleMessageDelete(moveEvent, noopLog, 3, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 			assert.equal(
 				called("threadMessage.deleteMany").length,
@@ -613,7 +603,7 @@ describe("handleMessageDelete", () => {
 			sourceNoLongerHoldsTheUid();
 			h.messageRow = {};
 
-			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 			assert.equal(
 				called("connection.search").filter((c) =>
@@ -642,7 +632,7 @@ describe("handleMessageDelete", () => {
 			sourceNoLongerHoldsTheUid();
 			h.messageRow = undefined;
 
-			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 			assert.equal(called("message.update").length, 0);
 			assert.equal(called("message.delete").length, 0);
@@ -660,7 +650,7 @@ describe("handleMessageDelete", () => {
 			h.destinationSearchUids = [100];
 
 			await assert.rejects(
-				handleMessageDelete(moveEvent, noopLog, 1, deps()),
+				handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 				/unconfirmed/,
 			);
 
@@ -700,7 +690,7 @@ describe("handleMessageDelete", () => {
 				},
 			];
 
-			await handleMessageDelete(moveEvent, noopLog, 3, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 			assert.equal(called("message.delete").length, 0);
 			assert.equal(called("threadMessage.deleteMany").length, 0);
@@ -749,7 +739,7 @@ describe("handleMessageDelete", () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			h.destinationSearchUids = [100];
 
-			await handleMessageDelete(moveEvent, noopLog, 3, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 			assert.deepEqual(
 				called("emitEvent").map((c) => c.args[0]),
@@ -778,7 +768,7 @@ describe("handleMessageDelete", () => {
 				moveThrows();
 
 				await assert.rejects(
-					handleMessageDelete(moveEvent, noopLog, 1, deps()),
+					handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 					/UID MOVE failed/,
 				);
 
@@ -795,7 +785,7 @@ describe("handleMessageDelete", () => {
 				moveThrows();
 				sourceNoLongerHoldsTheUid();
 
-				await handleMessageDelete(moveEvent, noopLog, 3, deps());
+				await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 				assert.equal(
 					called("threadMessage.deleteMany").length,
@@ -809,7 +799,7 @@ describe("handleMessageDelete", () => {
 			it("settles a still-present message at the ceiling back onto its source", async () => {
 				moveThrows();
 
-				await handleMessageDelete(moveEvent, noopLog, 3, deps());
+				await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 				assert.deepEqual(called("message.updateUid").at(-1)?.args, [
 					"msg-1",
@@ -832,7 +822,7 @@ describe("handleMessageDelete", () => {
 			}) as Connection["openBox"];
 
 			await assert.rejects(
-				handleMessageDelete(moveEvent, noopLog, 1, deps()),
+				handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 				/unconfirmed/,
 			);
 
@@ -863,7 +853,7 @@ describe("handleMessageDelete", () => {
 				operation,
 			} as unknown as MessageDeleteEvent;
 
-			await handleMessageDelete(malformed, noopLog, 1, deps());
+			await handleMessageDelete(malformed, noopLogger, 1, deps());
 
 			assert.equal(
 				called("connection.deleteMessages").length,
@@ -900,7 +890,7 @@ describe("handleMessageDelete", () => {
 			destinationMailboxPath: undefined,
 		} as MessageDeleteEvent;
 
-		await handleMessageDelete(destinationless, noopLog, 1, deps());
+		await handleMessageDelete(destinationless, noopLogger, 1, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
@@ -911,7 +901,7 @@ describe("handleMessageDelete", () => {
 	});
 
 	it("expunges on the server and removes every thread row before the message row", async () => {
-		await handleMessageDelete(permanentEvent, noopLog, 1, deps());
+		await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
 
 		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10]]);
 		assert.equal(called("threadMessage.delete").length, 2);
@@ -930,7 +920,7 @@ describe("handleMessageDelete", () => {
 		};
 		sourceNoLongerHoldsTheUid();
 
-		await handleMessageDelete(permanentEvent, noopLog, 1, deps());
+		await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
 
 		assert.equal(called("message.delete").length, 1);
 		assert.equal(called("threadMessage.delete").length, 2);
@@ -951,7 +941,7 @@ describe("handleMessageDelete", () => {
 		sourceNoLongerHoldsTheUid();
 
 		await assert.rejects(
-			handleMessageDelete(moveEvent, noopLog, 1, deps()),
+			handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 			/not found/,
 		);
 
@@ -979,7 +969,7 @@ describe("handleMessageDelete", () => {
 		};
 
 		await assert.rejects(
-			handleMessageDelete(moveEvent, noopLog, 1, deps()),
+			handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 			/NONEXISTENT/,
 		);
 
@@ -1001,7 +991,7 @@ describe("handleMessageDelete", () => {
 		h.connection.fetchMessages = async () => [];
 
 		await assert.rejects(
-			handleMessageDelete(permanentEvent, noopLog, 1, deps()),
+			handleMessageDelete(permanentEvent, noopLogger, 1, deps()),
 			/NONEXISTENT/,
 		);
 
@@ -1026,7 +1016,7 @@ describe("handleMessageDelete", () => {
 		};
 
 		await assert.rejects(
-			handleMessageDelete(permanentEvent, noopLog, 1, deps()),
+			handleMessageDelete(permanentEvent, noopLogger, 1, deps()),
 			/NONEXISTENT mailbox does not exist/,
 		);
 
@@ -1047,7 +1037,7 @@ describe("handleMessageDelete", () => {
 			throw new Error("TRYCREATE: no such mailbox");
 		};
 
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.equal(called("connection.createMailbox").length, 0);
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
@@ -1072,7 +1062,7 @@ describe("handleMessageDelete", () => {
 			schemaVersion: undefined,
 		} as unknown as MessageDeleteEvent;
 
-		await handleMessageDelete(unversioned, noopLog, 1, deps());
+		await handleMessageDelete(unversioned, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("connection.deleteMessages").length, 0);
@@ -1094,7 +1084,7 @@ describe("handleMessageDelete", () => {
 			schemaVersion: undefined,
 		} as unknown as MessageDeleteEvent;
 
-		await handleMessageDelete(unversioned, noopLog, 1, deps());
+		await handleMessageDelete(unversioned, noopLogger, 1, deps());
 
 		assert.deepEqual(
 			called("threadMessage.update").map((c) => c.args[1]),
@@ -1113,7 +1103,7 @@ describe("handleMessageDelete", () => {
 			schemaVersion: undefined,
 		} as unknown as MessageDeleteEvent;
 
-		await handleMessageDelete(unversioned, noopLog, 1, deps());
+		await handleMessageDelete(unversioned, noopLogger, 1, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
@@ -1130,7 +1120,7 @@ describe("handleMessageDelete", () => {
 		};
 
 		await assert.rejects(
-			handleMessageDelete(moveEvent, noopLog, 1, deps()),
+			handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 			/server exploded/,
 		);
 
@@ -1144,7 +1134,7 @@ describe("handleMessageDelete", () => {
 	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -1161,7 +1151,7 @@ describe("handleMessageDelete", () => {
 			cursorState: "rebuilding",
 		};
 
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -1171,7 +1161,7 @@ describe("handleMessageDelete", () => {
 			name: "NotFoundError",
 		});
 
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
@@ -1185,7 +1175,7 @@ describe("handleMessageDelete", () => {
 			deletedAt: Date.now(),
 		};
 
-		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -1194,7 +1184,7 @@ describe("handleMessageDelete", () => {
 		h.account = null;
 
 		await assert.rejects(
-			handleMessageDelete(moveEvent, noopLog, 1, deps()),
+			handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 			/not found/,
 		);
 	});
