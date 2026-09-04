@@ -7,8 +7,9 @@ import { fanoutHandler, finalizeHandler } from "./index.js";
  * Production queue poller, and the standalone entrypoint for the dedicated
  * image. The sibling workers carry a separate `e2e-processor-shim.ts` because
  * they predate `runQueuePoller`; this one has no shim and needs none — the
- * poller drains an ElasticMQ endpoint exactly as it drains SQS, so the
- * source-built e2e stack runs this same file (`npm run dev -w
+ * poller drains an SQS-compatible endpoint (the queue sidecar) exactly as it
+ * drains SQS, which is what deploy/vps/docker-compose.sqlite.yml already does,
+ * so the source-built e2e stack runs this same file (`npm run dev -w
  * @remit/account-worker`, wired in npm-scripts/e2e-dev-up.sh).
  *
  * The deployment-specific steps of the cascade — sign-out, content
