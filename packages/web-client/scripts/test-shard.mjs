@@ -146,8 +146,6 @@ const child = spawn(
 		"--import",
 		"tsx",
 		"--import",
-		"@remit/test-dom/css",
-		"--import",
 		"./test-support/register.mjs",
 		"--experimental-test-coverage",
 		"--test-coverage-include=src/**",
