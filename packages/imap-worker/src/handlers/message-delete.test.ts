@@ -303,6 +303,10 @@ interface Harness {
 	allThreadMessages: Record<string, unknown>[];
 	getConnectionCount: number;
 	disconnectCount: number;
+	// Rejections handed to `getConnection`, one per call, oldest first. A
+	// dropped connection is how the guarded openBox gets skipped on a delivery
+	// that still goes on to settle the row.
+	connectionErrors: Error[];
 }
 
 let h: Harness;
@@ -367,6 +371,7 @@ const fresh = (): Harness => ({
 	],
 	getConnectionCount: 0,
 	disconnectCount: 0,
+	connectionErrors: [],
 });
 
 const deps = (): MessageDeleteDeps =>
@@ -417,6 +422,8 @@ const deps = (): MessageDeleteDeps =>
 		createConnectionScope: () => ({
 			getConnection: async () => {
 				h.getConnectionCount += 1;
+				const failure = h.connectionErrors.shift();
+				if (failure) throw failure;
 				return h.connection;
 			},
 			disconnect: async () => {
@@ -1176,6 +1183,41 @@ describe("handleMessageDelete", () => {
 			"cursor_invalid",
 		);
 		assert.equal(called("message.updateUid").length, 0);
+	});
+
+	// The terminal resolver opens the source itself, and since #1005 its answer
+	// WRITES a placement. A folder deleted and recreated renumbers every uid, so
+	// an unguarded probe finds whatever now sits at this one, reads it as "still
+	// at source", and binds the row to a stranger the next permanent delete
+	// expunges. The dropped connection is what makes it reachable: it skips the
+	// guarded openBox on the very delivery that goes on to settle.
+	it("never settles an exhausted delete off a probe that skipped the cursor guard", async () => {
+		h.connectionErrors = [new Error("ECONNRESET")];
+		h.connection.openBox = async () => ({ uidvalidity: 999 });
+
+		await handleMessageDelete(
+			moveEvent,
+			noopLog,
+			MESSAGE_DELETE_MAX_ATTEMPTS,
+			deps(),
+		);
+
+		assert.equal(
+			called("message.updateUid").length,
+			0,
+			"a renumbered folder answers for a different message; nothing settles off it",
+		);
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"and nothing is reconciled away off it either",
+		);
+		assert.equal(
+			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
+				?.cursorState,
+			"cursor_invalid",
+			"the probe trips the mailbox into a rebuild instead",
+		);
 	});
 
 	it("skips without opening a connection when the cursor is rebuilding", async () => {

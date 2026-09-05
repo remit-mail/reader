@@ -44,10 +44,12 @@ export const bindsForeignUid = (
 
 /**
  * `in_flight` — a mover is still working on the row, so waiting resolves it.
- * `abandoned` — the mover gave up without confirming (`syncStatus: failed`,
- * written by every handler's give-up path while `status` stays `moving`, since
- * only `updateUid` clears it). Nothing routine settles such a row, so waiting
- * on one is a wait that never ends, and the pair stays a lie either way.
+ * `abandoned` — the last attempt failed (`syncStatus: failed`) and the row is
+ * still `moving`: either a redelivery is pending, or the record dead-lettered
+ * and nothing is coming for it. The two are indistinguishable from the row
+ * (`message-settlement.ts`), and the pair is a lie either way, so neither is
+ * worth spending the settle ceiling on. A mover that exhausts its budget
+ * settles the row against IMAP instead of leaving this state behind (#1005).
  */
 export type PlacementBinding = "consistent" | "in_flight" | "abandoned";
 

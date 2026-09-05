@@ -33,13 +33,12 @@ export type MessageSettlementFields = Pick<
  * those handlers `status` stays at its in-flight value (`moving`, `deleting`),
  * which is what separates them from the pair above.
  *
- * Three give-ups this cannot see, and must not pretend to:
+ * Two give-ups this cannot see, and must not pretend to:
  *
- * - A MOVE that gave up leaves `moving` + `failed`, the same pair a first
- *   dropped connection writes. Nothing persisted tells the two apart.
- * - A DELETE that exhausted its retries settles `active` + `synced` (#1143's
- *   `resolveExhaustedMessageDeleteFailure` repairs the row to where the message
- *   actually is), so it reads as fully settled here.
+ * - A MOVE or a DELETE that exhausted its retries settles `active` + `synced`
+ *   (`resolveExhaustedMessageMoveFailure` and
+ *   `resolveExhaustedMessageDeleteFailure` repair the row to where the message
+ *   actually is — #1098, #1005), so both read as fully settled here.
  * - `flag-push` and `placement-move-push` never write either field at all.
  *   Their give-up state lives on their own marker rows.
  */
