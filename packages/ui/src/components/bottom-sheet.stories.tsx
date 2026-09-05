@@ -96,3 +96,59 @@ export const MirrorsDialogSemantics: Story = {
 		await expect(canvas.queryByRole("dialog")).toBeNull();
 	},
 };
+
+function TrapDemo() {
+	const [open, setOpen] = useState(true);
+	return (
+		<div className="relative h-full overflow-hidden bg-surface">
+			<div className="px-row-inset py-3">
+				<Button variant="secondary" onClick={() => setOpen(true)}>
+					Open sheet
+				</Button>
+			</div>
+			<BottomSheet
+				open={open}
+				onClose={() => setOpen(false)}
+				label="Action sheet"
+			>
+				<div className="flex flex-col gap-3 px-row-inset py-6">
+					<Button variant="secondary" onClick={() => setOpen(false)}>
+						Rename
+					</Button>
+					<Button variant="primary" onClick={() => setOpen(false)}>
+						Got it
+					</Button>
+				</div>
+			</BottomSheet>
+		</div>
+	);
+}
+
+/**
+ * The sheet claims `aria-modal`, so the page behind it is hidden from a screen
+ * reader and the keyboard has to agree: Tab off the last control wraps to the
+ * first, Shift+Tab off the first wraps to the last, and neither reaches the
+ * button behind the scrim.
+ */
+export const TrapsTabAtBothEdges: Story = {
+	render: () => <TrapDemo />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const first = canvas.getByRole("button", { name: "Rename" });
+		const last = canvas.getByRole("button", { name: "Got it" });
+		const opener = canvas.getByRole("button", { name: "Open sheet" });
+
+		await expect(first).toHaveFocus();
+
+		await userEvent.tab();
+		await expect(last).toHaveFocus();
+
+		await userEvent.tab();
+		await expect(first).toHaveFocus();
+		await expect(opener).not.toHaveFocus();
+
+		await userEvent.tab({ shift: true });
+		await expect(last).toHaveFocus();
+		await expect(opener).not.toHaveFocus();
+	},
+};

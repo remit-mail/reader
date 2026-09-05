@@ -1,37 +1,11 @@
-import { cn, type OverlayAnswers, useOverlayScope } from "@remit/ui";
+import {
+	cn,
+	type OverlayAnswers,
+	useModalFocus,
+	useOverlayScope,
+} from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
-
-const FOCUSABLE_SELECTOR =
-	"a[href], button, input, select, textarea, [tabindex]";
-
-const isTabbable = (element: HTMLElement): boolean => {
-	if (element.tabIndex < 0) return false;
-	if (element.hasAttribute("disabled")) return false;
-	if (element.getAttribute("aria-disabled") === "true") return false;
-	if (element.closest("[inert], [hidden], [aria-hidden='true']")) return false;
-	const style = getComputedStyle(element);
-	return style.display !== "none" && style.visibility !== "hidden";
-};
-
-/**
- * The elements Tab may reach, in the order it reaches them.
- *
- * A modal opened from inside the drawer takes the ring with it: the
- * intelligence pane's reclassify dialog renders under the drawer's own panel,
- * so a ring scoped to the panel puts its Cancel last and leaves every control
- * behind that dialog's backdrop in the cycle — Tab walks onto buttons no
- * pointer can reach, which is the bug the trap exists to prevent.
- */
-const tabRing = (panel: HTMLElement): HTMLElement[] => {
-	const nested = panel.querySelectorAll<HTMLElement>(
-		'[role="dialog"][aria-modal="true"]',
-	);
-	const root = nested[nested.length - 1] ?? panel;
-	return [...root.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR)].filter(
-		isTabbable,
-	);
-};
 
 interface DrawerProps {
 	isOpen: boolean;
@@ -68,7 +42,6 @@ export const Drawer = ({
 	answers,
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
-	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
 
 	useOverlayScope({
 		id: "drawer",
@@ -76,53 +49,14 @@ export const Drawer = ({
 		answers: { back: onClose, ...answers },
 	});
 
+	useModalFocus(drawerRef, isOpen);
+
 	useEffect(() => {
 		if (!isOpen) return;
-
-		previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-
-		const handleKey = (event: KeyboardEvent) => {
-			// Trap Tab inside the drawer's ring: walking off either end cycles
-			// round, and focus that is in the drawer but outside the ring — a
-			// control behind a nested dialog's backdrop — is pulled in, so Tab
-			// never lands where a pointer cannot reach (#747). The trap only
-			// applies while the drawer already holds focus; an error banner or
-			// the fatal-error overlay above it keeps its own Tab (#970).
-			if (event.key !== "Tab" || !drawerRef.current) return;
-			const active = document.activeElement;
-			if (!(active instanceof HTMLElement)) return;
-			if (!drawerRef.current.contains(active)) return;
-			const ring = tabRing(drawerRef.current);
-			if (ring.length === 0) return;
-			const first = ring[0];
-			const last = ring[ring.length - 1];
-			const inside = ring.includes(active);
-			if (event.shiftKey) {
-				if (!inside || active === first) {
-					event.preventDefault();
-					last.focus();
-				}
-				return;
-			}
-			if (!inside || active === last) {
-				event.preventDefault();
-				first.focus();
-			}
-		};
-
-		document.addEventListener("keydown", handleKey);
-
-		// Move focus into the drawer
-		if (drawerRef.current) tabRing(drawerRef.current)[0]?.focus();
-
-		// Lock body scroll
 		const previousOverflow = document.body.style.overflow;
 		document.body.style.overflow = "hidden";
-
 		return () => {
-			document.removeEventListener("keydown", handleKey);
 			document.body.style.overflow = previousOverflow;
-			previouslyFocusedRef.current?.focus();
 		};
 	}, [isOpen]);
 

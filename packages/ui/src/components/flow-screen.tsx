@@ -5,8 +5,9 @@
  */
 
 import { ArrowLeft, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 
 export interface FlowStepRailProps {
 	/** How many steps the flow walks. */
@@ -79,8 +80,12 @@ export function FlowScreen({
 	bodyFit = "scroll",
 }: FlowScreenProps) {
 	const contained = anchor === "container";
+	const screenRef = useRef<HTMLDivElement>(null);
+	// On screen for as long as it is mounted, so the trap is open with it.
+	useModalFocus(screenRef, true);
 	return (
 		<div
+			ref={screenRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label={title}

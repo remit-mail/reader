@@ -1128,7 +1128,6 @@ export {
 	type SuggestKeyState,
 	suggestKeyAction,
 } from "./lib/suggest-keys.js";
-export { useInitialFocus } from "./lib/use-initial-focus.js";
 export { type ListCursor, useListCursor } from "./lib/use-list-cursor.js";
 export {
 	type ListKeyboard,
@@ -1141,6 +1140,7 @@ export {
 	useLongPress,
 } from "./lib/use-long-press.js";
 export { useMatchMedia } from "./lib/use-match-media.js";
+export { useModalFocus } from "./lib/use-modal-focus.js";
 export {
 	MESSAGE_ROW_SELECTOR,
 	useRenderedRowIds,
