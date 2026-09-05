@@ -608,7 +608,7 @@ describe("the brief's sections come from the server (#312)", () => {
 		// A category's word still reaches the screen on a row badge, so the
 		// headers are counted rather than read off the text.
 		assert.equal(
-			mounted.queryAll("button[aria-expanded]").length,
+			mounted.queryAll("[data-section-header]").length,
 			0,
 			"the search rendered a section header",
 		);

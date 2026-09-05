@@ -139,9 +139,7 @@ describe("BriefSections", () => {
 				...chipControl,
 			}),
 		);
-		// The section header is the only collapsible <button>; the filter sheet's
-		// own header is a <div role="button">.
-		assert.doesNotMatch(html, /<button[^>]*aria-expanded/);
+		assert.doesNotMatch(html, /data-section-header/);
 		assert.ok(
 			html.indexOf("Priya Nair") < html.indexOf("Weekly Brief"),
 			"the flat list reordered its rows",
