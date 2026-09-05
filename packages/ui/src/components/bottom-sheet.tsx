@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
-import { useInitialFocus } from "../lib/use-initial-focus.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 
 const SNAP_MS = 320;
 const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
@@ -44,7 +44,7 @@ export function BottomSheet({
 	const [height, setHeight] = useState(HEIGHT_FALLBACK);
 	const [drag, setDrag] = useState<number | null>(null);
 
-	useInitialFocus(contentRef, open);
+	useModalFocus(contentRef, open);
 
 	useLayoutEffect(() => {
 		const el = sheetRef.current;
