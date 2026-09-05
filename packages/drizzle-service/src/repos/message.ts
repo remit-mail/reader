@@ -107,7 +107,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
  * the search-index worker relays a search-index REMOVE and the vectors are
  * dropped.
  */
-export const MESSAGE_REMOVED_EVENT = "message.removed";
+export const MESSAGE_REMOVED_EVENT = "message.removed" as const;
 
 export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete" | "insert">;
 
@@ -207,22 +207,15 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			updatedAt: now,
 		};
 
-		// Faithful to ElectroDB message.create: a duplicate messageId throws
-		// CreateFailedConflictError. The plain insert raises a unique-constraint
-		// violation, which rolls back the transaction so NO outbox row is
-		// written; we surface it as the domain conflict error.
+		// Faithful to ElectroDB message.create: a duplicate messageId raises a
+		// unique-constraint violation, surfaced as the domain conflict error.
+		//
+		// No outbox event. A freshly created message has neither a body nor a
+		// threadMessage yet, so there is nothing to index — the search-index
+		// relay never drained a creation event, and the rows accumulated forever
+		// (reader#1063). Body-sync appends the event once there is content.
 		try {
-			await runInTransaction(this.db, async (tx) => {
-				await tx.insert(messageTable).values(row);
-
-				await tx.insert(outboxTable).values({
-					id: randomUUID(),
-					messageId: input.messageId,
-					event: "message.created",
-					payload: { messageId: input.messageId },
-					createdAt: new Date(),
-				});
-			});
+			await this.db.insert(messageTable).values(row);
 		} catch (error) {
 			if (isUniqueViolation(error)) {
 				throw new CreateFailedConflictError("Message", input);

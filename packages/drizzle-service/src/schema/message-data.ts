@@ -1,7 +1,7 @@
 import * as entities from "@remit/drizzle-sqlite-schema";
-import { outboxTable } from "./outbox.js";
+import { OUTBOX_EVENTS, type OutboxEvent, outboxTable } from "./outbox.js";
 
-export { outboxTable };
+export { OUTBOX_EVENTS, type OutboxEvent, outboxTable };
 
 const bodyPartContentTable = entities.bodyPartContents;
 const bodyPartParameterTable = entities.bodyPartParameters;

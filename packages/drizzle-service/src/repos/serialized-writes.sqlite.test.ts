@@ -21,7 +21,7 @@ import { runInTransaction, serializeSqliteWrites } from "../tx.js";
 const row = (id: string) => ({
 	id,
 	messageId: `msg-${id}`,
-	event: "message.body_synced",
+	event: "message.body_synced" as const,
 	payload: { messageId: `msg-${id}` },
 	createdAt: new Date(),
 });
