@@ -28,6 +28,7 @@ const COMPOSE_SERVICES = [
 ];
 
 const STARTED = "2026-09-02T09:00:00Z";
+const STARTED_EPOCH = Math.floor(Date.parse(STARTED) / 1000);
 
 function callShell(script, ...args) {
 	return execFileSync(
@@ -76,8 +77,19 @@ const serviceFailures = (facts, services = COMPOSE_SERVICES.join("\n")) =>
 		.split("\n")
 		.filter(Boolean);
 
-const restartFailures = (facts, limit = "5") =>
-	callShell('dev_sqlite_restart_failures "$2" "$3"', facts, limit)
+// `now` defaults to the moment the fixtures say the stack started, so a case
+// that says nothing about uptime is read as a service that has just restarted.
+const restartFailures = (
+	facts,
+	{ limit = "5", window = "600", now = STARTED_EPOCH } = {},
+) =>
+	callShell(
+		'dev_sqlite_restart_failures "$2" "$3" "$4" "$5"',
+		facts,
+		limit,
+		window,
+		String(now),
+	)
 		.split("\n")
 		.filter(Boolean);
 
@@ -114,6 +126,15 @@ describe("dev_sqlite_service_failures", () => {
 		const facts = healthyFacts({ web: { health: "unhealthy" } });
 		assert.deepEqual(serviceFailures(facts), [
 			"services: web is running but unhealthy",
+		]);
+	});
+
+	// Inside its start_period the service is not up yet, but it is on its way
+	// rather than broken, and a check run during a boot must not read as a fault.
+	it("reports a service inside its start period as still starting", () => {
+		const facts = healthyFacts({ backend: { health: "starting" } });
+		assert.deepEqual(serviceFailures(facts), [
+			"services: backend is still starting, its healthcheck has not passed yet",
 		]);
 	});
 
@@ -165,13 +186,21 @@ describe("dev_sqlite_restart_failures", () => {
 
 	// The crash loop that ran ~6400 times on `Cannot find package 'tsx'` while
 	// every surface still called the stack up.
-	it("names a crash-looping service and its count", () => {
+	it("names a crash-looping service, its count and its uptime", () => {
 		const facts = healthyFacts({
 			"search-index-worker": { restarts: 6400 },
 		});
-		assert.deepEqual(restartFailures(facts), [
-			"restarts: search-index-worker has restarted 6400 times, over the limit of 5",
+		assert.deepEqual(restartFailures(facts, { now: STARTED_EPOCH + 4 }), [
+			"restarts: search-index-worker has restarted 6400 times and has been up for only 4s — it is crash-looping",
 		]);
+	});
+
+	// The count is cumulative for the life of the container, so rating it against
+	// nothing would leave a service that restarted six times last month failing
+	// this check every day until somebody recreated it.
+	it("passes a service that restarted in the past and has since held", () => {
+		const facts = healthyFacts({ backend: { restarts: 6400 } });
+		assert.deepEqual(restartFailures(facts, { now: STARTED_EPOCH + 601 }), []);
 	});
 
 	it("allows exactly the limit", () => {
@@ -190,14 +219,37 @@ describe("dev_sqlite_restart_failures", () => {
 
 	it("takes the limit from its caller", () => {
 		assert.deepEqual(
-			restartFailures(healthyFacts({ backend: { restarts: 6 } }), "10"),
+			restartFailures(healthyFacts({ backend: { restarts: 6 } }), {
+				limit: "10",
+			}),
 			[],
 		);
+	});
+
+	it("takes the window from its caller", () => {
+		const facts = healthyFacts({ backend: { restarts: 6 } });
+		assert.equal(
+			restartFailures(facts, { window: "60", now: STARTED_EPOCH + 59 }).length,
+			1,
+		);
+		assert.deepEqual(
+			restartFailures(facts, { window: "60", now: STARTED_EPOCH + 60 }),
+			[],
+		);
+	});
+
+	it("reports a service it cannot rate rather than passing it", () => {
+		const facts = healthyFacts({
+			backend: { restarts: 6, started: "not a date" },
+		});
+		assert.deepEqual(restartFailures(facts), [
+			"restarts: backend has restarted 6 times, over the limit of 5, and its start time could not be read",
+		]);
 	});
 });
 
 describe("dev_sqlite_stale_services", () => {
-	const startedEpoch = Math.floor(Date.parse(STARTED) / 1000);
+	const startedEpoch = STARTED_EPOCH;
 
 	it("reports nothing when the stack started after the commit", () => {
 		assert.equal(staleServices(healthyFacts(), startedEpoch - 60), "");

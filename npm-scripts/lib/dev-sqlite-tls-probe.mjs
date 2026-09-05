@@ -14,6 +14,10 @@ const port = Number(process.env.REMIT_DEV_TLS_PORT ?? 4143);
 const host = process.env.REMIT_DEV_TLS_HOST ?? "127.0.0.1";
 const timeoutMs = Number(process.env.REMIT_DEV_TLS_TIMEOUT_MS ?? 5000);
 
+// The verdict is the whole output of this program, and the caller reads it as
+// text — so the exit code is set and the process left to end on its own. A
+// process.exit() here would race its own console output, which is an async write
+// to a pipe, and hand the caller an empty line to report.
 const probe = request(
 	{
 		host,
@@ -23,6 +27,9 @@ const probe = request(
 		rejectUnauthorized: false,
 		servername: "localhost",
 		timeout: timeoutMs,
+		// No keep-alive: the connection is the probe, and a pooled socket held
+		// open afterwards keeps this process alive past its own answer.
+		agent: false,
 	},
 	(response) => {
 		response.resume();
@@ -31,10 +38,11 @@ const probe = request(
 		// is the shape "vite returns 500 behind a listening TLS front" takes.
 		if (status >= 500) {
 			console.error(`tls: port ${port} answered over TLS with ${status}`);
-			process.exit(1);
+			process.exitCode = 1;
+			return;
 		}
 		console.log(`port ${port} answered over TLS with ${status}`);
-		process.exit(0);
+		process.exitCode = 0;
 	},
 );
 
@@ -44,7 +52,7 @@ probe.on("timeout", () => {
 
 probe.on("error", (error) => {
 	console.error(`tls: port ${port} did not answer over TLS — ${error.message}`);
-	process.exit(1);
+	process.exitCode = 1;
 });
 
 probe.end();

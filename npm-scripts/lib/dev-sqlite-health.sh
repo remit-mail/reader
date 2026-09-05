@@ -61,28 +61,55 @@ dev_sqlite_service_failures() {
 			continue
 		fi
 
+		# "starting" is a service inside its healthcheck's start_period, which is 90
+		# seconds for the backend and 120 for the web client. It is not serving yet,
+		# so it is not up — but it is on its way there rather than broken, and the
+		# line has to read that way or every check run during a boot looks like a
+		# fault.
+		if [ "$health" = "starting" ]; then
+			echo "services: $service is still starting, its healthcheck has not passed yet"
+			continue
+		fi
+
 		if [ "$health" != "none" ] && [ "$health" != "healthy" ]; then
 			echo "services: $service is running but $health"
 		fi
 	done <<<"$services"
 }
 
-# Claim 2: nothing is crash-looping.
+# Claim 2: nothing is crash-looping right now.
 #
 # A restarting service reads as "up" to `docker compose ps` and to anything that
 # only asks whether a container exists — the search-index-worker was on its
 # ~6400th restart, and every surface still called the stack fine.
+#
+# `.RestartCount` alone cannot answer it, because the count is cumulative for the
+# life of the container: six restarts last week would fail this check every day
+# until somebody recreated the container, and a check that stays red is a check
+# people stop reading. So the count is rated against how long the service has
+# been up since its last restart. Docker's restart backoff tops out at a minute,
+# so anything genuinely looping restarted within the window; a service that has
+# held for longer than the window is not looping now, whatever it did before.
 dev_sqlite_restart_failures() {
-	local facts="$1" limit="$2"
-	local service restarts
+	local facts="$1" limit="$2" window="$3" now="$4"
+	local service restarts started started_epoch uptime
 
-	while IFS=$'\t' read -r service _ _ restarts _ _ _; do
+	while IFS=$'\t' read -r service _ _ restarts _ _ started; do
 		[ -n "$service" ] || continue
 		case "$restarts" in
 		'' | *[!0-9]*) continue ;;
 		esac
 		[ "$restarts" -gt "$limit" ] || continue
-		echo "restarts: $service has restarted $restarts times, over the limit of $limit"
+
+		started_epoch="$(date -d "$started" +%s 2>/dev/null || echo "")"
+		if [ -z "$started_epoch" ]; then
+			echo "restarts: $service has restarted $restarts times, over the limit of $limit, and its start time could not be read"
+			continue
+		fi
+
+		uptime=$((now - started_epoch))
+		[ "$uptime" -lt "$window" ] || continue
+		echo "restarts: $service has restarted $restarts times and has been up for only ${uptime}s — it is crash-looping"
 	done <<<"$facts"
 }
 
