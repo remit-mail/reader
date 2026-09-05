@@ -74,7 +74,7 @@ test.describe("Daily brief filter surface (#559)", () => {
 
 		// The panel the caret opens is the brief's own: the category scope and the
 		// attribute chips, in one place.
-		await expect(chip(page, "Newsletters")).toBeVisible();
+		await expect(chip(page, "Newsletter")).toBeVisible();
 		await expect(chip(page, "Has attachment")).toBeVisible();
 
 		// One axis at a time: the chip is the only thing that moves, so what it

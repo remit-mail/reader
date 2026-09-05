@@ -106,7 +106,7 @@ export const Filtered: Story = {
 		await expect(categories).not.toBeNull();
 		await userEvent.click(
 			within(categories as HTMLElement).getByRole("button", {
-				name: "Newsletters",
+				name: "Newsletter",
 			}),
 		);
 
