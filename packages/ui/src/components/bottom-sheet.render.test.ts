@@ -21,6 +21,34 @@ describe("BottomSheet", () => {
 		assert.match(html, /Drag down to dismiss/);
 	});
 
+	it("carries modal dialog semantics when open", () => {
+		const html = renderToString(
+			createElement(BottomSheet, {
+				open: true,
+				onClose: noop,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
+				children: "Sheet body",
+			}),
+		);
+		assert.match(html, /role="dialog"/);
+		assert.match(html, /aria-modal="true"/);
+		assert.doesNotMatch(html, /aria-hidden="true"/);
+	});
+
+	it("goes inert and hides from assistive tech when closed", () => {
+		const html = renderToString(
+			createElement(BottomSheet, {
+				open: false,
+				onClose: noop,
+				// biome-ignore lint/correctness/noChildrenProp: React 19 types require children in props object when using createElement
+				children: "Sheet body",
+			}),
+		);
+		assert.match(html, /role="dialog"/);
+		assert.match(html, /aria-hidden="true"/);
+		assert.match(html, /inert=""/);
+	});
+
 	it("uses the provided dismiss label on the scrim", () => {
 		const html = renderToString(
 			createElement(BottomSheet, {

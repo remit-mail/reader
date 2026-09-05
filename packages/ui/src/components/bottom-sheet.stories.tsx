@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
 
@@ -68,4 +69,25 @@ function Demo() {
 
 export const Default: Story = {
 	render: () => <Demo />,
+};
+
+/**
+ * Same as `Default`, plus the dialog semantics the sheet now carries: a
+ * `role="dialog"` node opens focused on its first control, and Escape
+ * dismisses it the same way tapping the scrim does.
+ */
+export const MirrorsDialogSemantics: Story = {
+	render: () => <Demo />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const sheet = await canvas.findByRole("dialog");
+		await expect(sheet).toHaveAttribute("aria-modal", "true");
+		await expect(canvas.getByRole("button", { name: "Got it" })).toHaveFocus();
+
+		await userEvent.keyboard("{Escape}");
+		await expect(
+			canvas.getByRole("button", { name: "Open sheet" }),
+		).toBeVisible();
+		await expect(canvas.queryByRole("dialog")).toBeNull();
+	},
 };

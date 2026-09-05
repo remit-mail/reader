@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useInitialFocus } from "../lib/use-initial-focus.js";
 
 const SNAP_MS = 320;
 const SNAP_EASE = "cubic-bezier(0.32, 0.9, 0.3, 1)";
@@ -38,6 +39,8 @@ export function BottomSheet({
 	const sheetRef = useRef<HTMLDivElement>(null);
 	const [height, setHeight] = useState(HEIGHT_FALLBACK);
 	const [drag, setDrag] = useState<number | null>(null);
+
+	useInitialFocus(sheetRef, open);
 
 	useLayoutEffect(() => {
 		const el = sheetRef.current;
@@ -122,6 +125,10 @@ export function BottomSheet({
 			/>
 			<div
 				ref={sheetRef}
+				role="dialog"
+				aria-modal="true"
+				aria-hidden={!open}
+				inert={!open}
 				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface pb-[env(safe-area-inset-bottom,0px)] shadow-2xl shadow-black/30"
 				style={{ transform: `translateY(${offset}px)`, transition }}
 			>
