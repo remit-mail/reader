@@ -34,10 +34,21 @@ export interface RestoreSourcePlacementInput {
  *
  * The caller must have evidence, not an inference: this writes a placement, and
  * a placement written on a guess binds live mail to a uid that names somebody
- * else's message. Every caller reaches here from
- * {@link isMessageGoneFromOpenMailbox} answering that the message is STILL at
- * `sourceMailboxId`/`uid`, which makes this the server's own answer rather than
- * a revert on ambiguity (what PR #652 was pulled for).
+ * else's message. Two kinds of caller qualify, and nothing else does.
+ *
+ * A terminal resolver reaches here from {@link isMessageGoneFromOpenMailbox}
+ * answering that the message is STILL at `sourceMailboxId`/`uid`, which makes
+ * this the server's own answer rather than a revert on ambiguity (what PR #652
+ * was pulled for).
+ *
+ * A paused-cursor caller runs no probe at all and does not need one (issue
+ * #1203). It reaches here from a `MailboxCursorPausedError` the openBox guard
+ * threw before the outbound command was issued, and the pair it restores is the
+ * pre-mutation pair off its own event, never a probe's answer. The source
+ * mailbox is by definition awaiting a cursor rebuild, and the rebuild matches
+ * its rows by Message-ID: it re-keys this one onto the new axis or reconciles
+ * it away. Handing the row back is what puts it in the set the rebuild walks —
+ * a row still naming the destination is in neither folder's.
  *
  * A row another path deleted while the probe was in flight has nothing left to
  * restore, and a thread row whose composites have moved on is being rewritten

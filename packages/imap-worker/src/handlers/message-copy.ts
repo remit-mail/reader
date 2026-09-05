@@ -304,24 +304,57 @@ export const handleMessageCopy = async (
 				);
 			};
 
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. Optimization only — the
-			// guardConnectionCursor openBox wrap below is the structural guarantee.
+			const scope = createConnectionScopeWithCredentials(account, credentials);
+
+			// A paused cursor settles rather than acks: acking leaves the optimistic
+			// row at `uid: 0`/`moving` with nothing to re-enqueue it and no folder
+			// set for the cursor rebuild to find it in (issue #1203).
 			//
-			// Both pauses settle rather than ack: they are reached before
-			// `copyMessages`, so the COPY was never issued, and acking leaves the
-			// optimistic row at `uid: 0`/`moving` with nothing to re-enqueue it and
-			// no folder set for the cursor rebuild to find it in (issue #1203).
+			// What may be concluded from the pause depends on the delivery. A first
+			// delivery has provably issued no COPY, so the row records something the
+			// server was never asked for and reconciling it away is exact. A
+			// redelivery has not: the earlier attempt's tagged OK can be lost with
+			// the connection, so this row may be the only record real mail will ever
+			// have, and deleting it would let the next destination sync repoint the
+			// SOURCE row out of the folder the server still holds it in. The pause
+			// is on the source and says nothing about the destination, which is
+			// probed on the unguarded handle anyway, so the destination is asked
+			// before anything is deleted and silence settles broken.
+			const settlePausedCopy = async (): Promise<void> => {
+				if (receiveCount === 1) {
+					await settleNeverLanded(
+						"source mailbox cursor paused before the copy",
+					);
+					return;
+				}
+				const probe = await probeDestination(await scope.getConnection());
+				if (probe.kind === "confirmed") {
+					await settleCopied(probe.uid);
+					return;
+				}
+				if (probe.kind === "absent") {
+					await settleNeverLanded(
+						"redelivered onto a paused source cursor, absent from destination",
+					);
+					return;
+				}
+				await settleBroken(
+					"redelivered onto a paused source cursor with no Message-ID to ask the destination with",
+				);
+			};
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection on a first delivery. Optimization
+			// only — the guardConnectionCursor openBox wrap below is the structural
+			// guarantee.
 			if (isCursorRebuildNeeded(mailbox.cursorState)) {
 				log.info(
 					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
 					"Mailbox cursor not normal; pausing outbound copy this round",
 				);
-				await settleNeverLanded("source mailbox cursor paused before the copy");
+				await settlePausedCopy().finally(() => scope.disconnect());
 				return;
 			}
-
-			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
 				.getConnection()

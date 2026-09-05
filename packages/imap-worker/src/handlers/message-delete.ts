@@ -13,7 +13,6 @@ import {
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
-	reconcileStaleMessage,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
@@ -265,22 +264,36 @@ export const handleMessageDelete = async (
 	 * rows by `(accountConfigId, mailboxId)`, so it never even sees a
 	 * move-to-trash row that already names Trash (issue #1203).
 	 *
-	 * A move to trash goes back onto the source pair, which is the set the
-	 * rebuild adjudicates. A permanent delete has no listing rows left to
-	 * restore — `MessageMoveService` drops them at enqueue and only the sync
-	 * path can shape them — so restoring the Message alone would leave mail
-	 * nothing can list. The row is reconciled away instead and the mailbox's own
-	 * resync re-projects it, exactly as `abandonDelete` resolves the same state.
+	 * The listing rows decide which way back, on the same rule
+	 * {@link abandonDelete} resolves the identical state by. Rows still there —
+	 * the ordinary move to trash — put the row back on the source pair, which is
+	 * the set the rebuild adjudicates. No rows left is a permanent delete, whose
+	 * listing rows go at enqueue and can only be shaped by the sync path, so
+	 * restoring the Message alone would leave mail nothing can list; the row is
+	 * removed instead and the mailbox's own resync re-projects it. That is local
+	 * mail disappearing while the server still holds it, so it alerts.
 	 */
 	const handBackPausedDelete = async (): Promise<void> => {
-		if (operation === "permanent_delete") {
-			await reconcileStaleMessage(
-				{ messageService, threadMessageService },
-				account.accountConfigId,
-				messageId,
+		const threadMessages = await threadMessageService.findAllByMessageId(
+			account.accountConfigId,
+			messageId,
+		);
+
+		if (threadMessages.length === 0) {
+			log.error(
+				{
+					alert: "message_delete_abandoned_after_local_cleanup",
+					accountId,
+					messageId,
+					uid,
+					mailboxPath,
+				},
+				"Paused delete had no listing rows left to restore; the local row was removed and the server copy was not expunged",
 			);
+			await messageService.delete(messageId);
 			return;
 		}
+
 		await restoreSourcePlacement(
 			{ messageService, threadMessageService },
 			{

@@ -338,7 +338,10 @@ const buildConnection = (): Connection => ({
 	) as Connection["createMailbox"],
 	// The source box still holds the uid unless a case says otherwise, so the
 	// presence probe only reports "gone" where a test made it true.
-	fetchMessages: async (uids: number[]) => uids.map((uid) => ({ uid })),
+	fetchMessages: async (uids: number[]) => {
+		h.calls.push({ method: "connection.fetchMessages", args: [uids] });
+		return uids.map((uid) => ({ uid }));
+	},
 	search: async (...args: unknown[]) => {
 		h.calls.push({ method: "connection.search", args });
 		return isMessageIdSearch(args[0]) ? h.destinationSearchUids : [10];
@@ -1218,6 +1221,12 @@ describe("handleMessageDelete", () => {
 		);
 
 		assert.equal(
+			called("connection.fetchMessages").length +
+				called("connection.search").length,
+			0,
+			"the guard refused the SELECT, so the presence probe never asked the folder anything",
+		);
+		assert.equal(
 			called("message.delete").length,
 			0,
 			"a renumbered folder answers for a different message; nothing is reconciled away off it",
@@ -1258,10 +1267,12 @@ describe("handleMessageDelete", () => {
 
 	// A permanent delete drops its listing rows at enqueue and only the sync
 	// path can shape them, so restoring the Message alone leaves mail nothing
-	// can list. The row is reconciled away instead and the mailbox's own resync
+	// can list. The row is removed instead and the mailbox's own resync
 	// re-projects it — leaving it `deleting` made the message invisible locally
-	// while the server still held it (issue #1203).
-	it("reconciles a paused permanent delete away rather than leaving it deleting", async () => {
+	// while the server still held it (issue #1203). The rule is the listing
+	// rows, the same one `abandonDelete` resolves this state by, not the
+	// operation on the event.
+	it("removes a paused delete that has no listing rows left to restore", async () => {
 		h.mailbox = {
 			mailboxId: "src-mbx",
 			uidValidity: 1,
@@ -1277,6 +1288,24 @@ describe("handleMessageDelete", () => {
 			called("message.updateUid").length,
 			0,
 			"a row no listing can reach is never restored",
+		);
+	});
+
+	it("removes a paused move to trash whose listing rows are already gone", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.allThreadMessages = [];
+
+		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+
+		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
+		assert.equal(
+			called("message.updateUid").length,
+			0,
+			"restoring a Message no listing can reach is the silent vanish, not a hand-back",
 		);
 	});
 
