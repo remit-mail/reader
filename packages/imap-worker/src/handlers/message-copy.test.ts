@@ -157,6 +157,7 @@ const deps = (): MessageCopyDeps =>
 			_log: unknown,
 			cb: (credentials: unknown) => Promise<void>,
 		) => cb({}),
+		emitEvent: record("emitEvent"),
 		createConnectionScope: () => ({
 			getConnection: async () => {
 				h.getConnectionCount += 1;
@@ -438,6 +439,28 @@ describe("handleMessageCopy", () => {
 		assert.equal(
 			(called("message.update")[0]?.args[1] as { status?: string })?.status,
 			"deleted",
+		);
+	});
+
+	// A paused settle is a settle, and this handler had no way to say so: it
+	// carried no `emitEvent` at all, so the destination — which is not paused
+	// and has no rebuild coming — was never told to re-project. The move and
+	// delete handlers have run this resync since #1203.
+	it("resyncs both folders after a paused copy settles", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageCopy(event, noopLog, 1, deps());
+
+		assert.deepEqual(
+			called("emitEvent").map((c) => c.args[0]),
+			[
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "dst-mbx" },
+			],
 		);
 	});
 

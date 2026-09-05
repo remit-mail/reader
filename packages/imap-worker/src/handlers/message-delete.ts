@@ -25,7 +25,9 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
 import {
+	emitMailboxResync,
 	emitMoveResync,
+	type PausedPlacement,
 	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
@@ -195,10 +197,31 @@ export const handleMessageDelete = async (
 	}
 
 	/**
+	 * Re-read the folders this delete touched. A move to trash has two; a
+	 * permanent delete has only the source, and it is owed one just as much —
+	 * the local rows are gone while the server copy survives, so with no resync
+	 * the mail is invisible until the next scheduled sync. SYNC_MESSAGES on a
+	 * mailbox whose cursor is not normal routes to the rebuild, which is what
+	 * re-projects the rows this handler removed (`message-sync.ts`).
+	 */
+	const emitSettleResync = async (): Promise<void> => {
+		if (destinationMailboxId) {
+			await emitMoveResync(emitEvent, {
+				accountId,
+				sourceMailboxId: mailboxId,
+				destinationMailboxId,
+			});
+			return;
+		}
+		await emitMailboxResync(emitEvent, { accountId, mailboxId });
+	};
+
+	/**
 	 * Undo the optimistic local delete, for every reason this handler has to
-	 * give one up. The verdict differs — a refused event is a failure the row
-	 * carries, a paused cursor is a mutation the server never heard of — but the
-	 * way back is one rule, and it is the listing rows that pick it.
+	 * give one up, and say so exactly once. The verdict differs — a refused
+	 * event is a failure the row carries, a paused cursor is a mutation the
+	 * server never heard of — but the way back is one rule, and it is the
+	 * listing rows that pick it.
 	 *
 	 * Rows still there is the ordinary move to trash: the row goes back on the
 	 * source pair, which is also the set the cursor rebuild adjudicates.
@@ -208,28 +231,46 @@ export const handleMessageDelete = async (
 	 * rebuilt from here, so restoring the Message alone would leave mail nothing
 	 * can list — the silent vanish rather than a visible failure. The local
 	 * removal finishes instead. Nothing was expunged, so the server copy
-	 * survives and the mailbox's own sync re-projects it, but local mail
-	 * disappearing while the server still holds it alerts either way.
+	 * survives and the mailbox's own sync re-projects it.
+	 *
+	 * `alert` is a refusal or a placement the server never settled, both of
+	 * which an operator adjudicates. `metric` is the routine pause the guard doc
+	 * calls never-a-fault: the user's delete was silently dropped, worth
+	 * counting and not worth waking anyone for. Either way `localRowsRemoved`
+	 * keeps the disappearance of local mail visible.
 	 */
 	const handBackDelete = async (
 		syncStatus: MessageItem["syncStatus"],
+		signal: { alert: string } | { metric: string },
+		reason: string,
 	): Promise<void> => {
 		const threadMessages = await threadMessageService.findAllByMessageId(
 			account.accountConfigId,
 			messageId,
 		);
+		const localRowsRemoved = threadMessages.length === 0;
 
-		if (threadMessages.length === 0) {
-			log.error(
-				{
-					alert: "message_delete_abandoned_after_local_cleanup",
-					accountId,
-					messageId,
-					uid,
-					mailboxPath,
-				},
-				"Delete given up with no listing rows left to restore; the local row was removed and the server copy was not expunged",
-			);
+		const context = {
+			...signal,
+			accountId,
+			messageId,
+			uid,
+			mailboxPath,
+			operation,
+			receiveCount,
+			reason,
+			localRowsRemoved,
+		};
+		const summary = localRowsRemoved
+			? "Delete given up with no listing rows left to restore; the local row was removed and the server copy was not expunged"
+			: "Delete given up; the row was handed back to its source pair";
+		if ("alert" in signal) {
+			log.error(context, summary);
+		} else {
+			log.warn(context, summary);
+		}
+
+		if (localRowsRemoved) {
 			await messageService.delete(messageId);
 			return;
 		}
@@ -242,6 +283,7 @@ export const handleMessageDelete = async (
 				sourceMailboxId: mailboxId,
 				uid,
 				syncStatus,
+				threadMessages,
 			},
 		);
 	};
@@ -255,16 +297,8 @@ export const handleMessageDelete = async (
 	// it: an invisible `failed` on a row the user cannot see is the shape of
 	// the incident this whole change is about. The row keeps `failed`, because
 	// the product refused something the user asked for.
-	const abandonDelete = async (
-		reason: string,
-		alert: string,
-	): Promise<void> => {
-		log.error(
-			{ alert, accountId, messageId, uid, mailboxPath, operation },
-			reason,
-		);
-		await handBackDelete(MessageSyncStatus.failed);
-	};
+	const abandonDelete = (reason: string, alert: string): Promise<void> =>
+		handBackDelete(MessageSyncStatus.failed, { alert }, reason);
 
 	const settleTrashMoveConfirmed = async (
 		newUid: number,
@@ -305,55 +339,71 @@ export const handleMessageDelete = async (
 	 * pair the server can be shown to hold, and the resync plus the source's own
 	 * cursor rebuild are its repair path.
 	 *
-	 * A first delivery has provably issued neither the MOVE nor the EXPUNGE —
-	 * every paused exit is thrown by the openBox guard before them — so undoing
-	 * the local write claims nothing about the server. A redelivery cannot say
-	 * that: the earlier attempt's tagged OK can be lost with the connection, and
-	 * handing back on that assumption writes `synced` onto INBOX for mail the
-	 * server already holds in Trash. It asks {@link probePausedPlacement}
-	 * instead, on the unguarded handle, and settles the trash move where the
-	 * destination confirms it. A permanent delete has nothing to ask: its answer
-	 * is the same either way, since the row is unlistable and goes.
+	 * Undoing the local write claims nothing about the server only where the
+	 * command provably never left. `commandIssued` says what this round did;
+	 * `receiveCount` adds what an earlier one may have done and lost with its
+	 * connection. `receiveCount === 1` alone is not that proof: an unprobeable
+	 * confirmation reaches {@link settleExhaustedDelete} on the first attempt,
+	 * with the MOVE already issued and the source already saying it no longer
+	 * holds the message. Where either says the server may have been asked, it is
+	 * asked again — {@link probePausedPlacement}, on the unguarded handle. A
+	 * permanent delete has nothing to ask: its answer is the same either way,
+	 * since the row is unlistable and goes.
 	 */
 	const settlePausedDelete = async (
 		getRawConnection: () => Promise<IImapConnection>,
+		commandIssued: boolean,
 	): Promise<void> => {
-		const isRedeliveredTrashMove =
-			receiveCount > 1 &&
+		const mayHaveIssued = commandIssued || receiveCount > 1;
+		const isProbeableTrashMove =
+			mayHaveIssued &&
 			operation === "move_to_trash" &&
 			destinationMailboxId !== undefined &&
 			destinationMailboxPath !== undefined;
 
-		if (isRedeliveredTrashMove) {
-			const [message] = await messageService.get([messageId]);
-			const placement = await probePausedPlacement(await getRawConnection(), {
-				messageIdHeader: message?.messageIdHeader,
-				sourceMailboxPath: mailboxPath,
-				destinationMailboxPath,
-			});
-			if (placement.kind === "at-destination") {
-				await settleTrashMoveConfirmed(placement.uid, destinationMailboxId);
-				await emitMoveResync(emitEvent, {
-					accountId,
-					sourceMailboxId: mailboxId,
-					destinationMailboxId,
-				});
-				return;
-			}
+		const placement: PausedPlacement = isProbeableTrashMove
+			? await probePausedPlacement(await getRawConnection(), {
+					messageIdHeader: (await messageService.get([messageId]))[0]
+						?.messageIdHeader,
+					sourceMailboxPath: mailboxPath,
+					destinationMailboxPath,
+				})
+			: { kind: "at-source" };
+
+		// A sighting in Trash is not proof this delete ran. The pause means the
+		// source's UIDVALIDITY has moved, so its "no" can be a recreated folder
+		// answering about mail it never held, and the hit can be an older copy of
+		// the same Message-ID — a sieve `fileinto` + `keep`, a resend — that
+		// `deriveMessageId` folds into this row; settling `moved` on it hands
+		// Empty Trash a stranger's uid. `unprobeable` is silence, and silence
+		// settles nothing either (the rule `message-copy.ts` already applies).
+		// Both hand the row back on the source pair carrying `failed`: that is the
+		// set the source's own cursor rebuild walks and adjudicates by Message-ID,
+		// which is the reconcile path (R2) Trash — not paused, no rebuild coming —
+		// does not have.
+		const unproven =
+			placement.kind === "at-destination" || placement.kind === "unprobeable";
+
+		if (unproven) {
+			await handBackDelete(
+				MessageSyncStatus.failed,
+				{ alert: "message_delete_paused_placement_unproven" },
+				placement.kind === "at-destination"
+					? "the destination holds this Message-ID but the source's uid axis has moved, so the sighting does not prove this delete ran"
+					: "no Message-ID header to ask either folder with",
+			);
+		} else {
+			// `gone` lands here with `at-source`: the source pair is the set the
+			// rebuild walks, and a row it cannot match against a fresh envelope
+			// snapshot is the one thing it reconciles away.
+			await handBackDelete(
+				MessageSyncStatus.synced,
+				{ metric: "message_delete_dropped_on_pause" },
+				`source mailbox cursor paused, placement ${placement.kind}`,
+			);
 		}
 
-		// `gone` and `unprobeable` land here with the rest: the source pair is the
-		// set the rebuild walks, and a row it cannot match against a fresh
-		// envelope snapshot is the one thing it reconciles away.
-		await handBackDelete(MessageSyncStatus.synced);
-
-		if (destinationMailboxId) {
-			await emitMoveResync(emitEvent, {
-				accountId,
-				sourceMailboxId: mailboxId,
-				destinationMailboxId,
-			});
-		}
+		await emitSettleResync();
 	};
 
 	const settleExhaustedDelete = async (
@@ -402,13 +452,7 @@ export const handleMessageDelete = async (
 		// rows are gone and the resync rebuilds them. BROKEN, the row has just
 		// been put back at the source the server confirmed, and the resync is
 		// what carries any drift either folder has picked up since.
-		if (destinationMailboxId) {
-			await emitMoveResync(emitEvent, {
-				accountId,
-				sourceMailboxId: mailboxId,
-				destinationMailboxId,
-			});
-		}
+		await emitSettleResync();
 	};
 
 	/**
@@ -505,8 +549,12 @@ export const handleMessageDelete = async (
 					mailbox,
 				);
 
-			const settlePaused = (): Promise<void> =>
-				settlePausedDelete(scope.getConnection);
+			const settlePaused = (commandIssued: boolean): Promise<void> =>
+				settlePausedDelete(scope.getConnection, commandIssued);
+
+			// Flipped the instant the MOVE or the EXPUNGE leaves, so every settle
+			// downstream of it knows the server was asked.
+			let commandIssued = false;
 
 			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 			// paused never opens a connection on a first delivery. Optimization
@@ -517,7 +565,7 @@ export const handleMessageDelete = async (
 					{ accountId, messageId, mailboxId },
 					"Mailbox cursor not normal; pausing outbound delete this round and settling the row against the server",
 				);
-				await settlePaused().finally(() => scope.disconnect());
+				await settlePaused(false).finally(() => scope.disconnect());
 				return;
 			}
 
@@ -560,6 +608,7 @@ export const handleMessageDelete = async (
 						destinationMailboxId
 					) {
 						// Move to Trash
+						commandIssued = true;
 						const result = await connection.moveMessages(
 							[uid],
 							destinationMailboxPath,
@@ -608,10 +657,11 @@ export const handleMessageDelete = async (
 							confirmation,
 							account.accountConfigId,
 							getGuardedConnection,
-							settlePaused,
+							() => settlePaused(true),
 						);
 					} else {
 						// Permanent delete — reached only by `operation === "permanent_delete"`.
+						commandIssued = true;
 						await connection.deleteMessages([uid]);
 
 						// Delete ThreadMessage rows BEFORE the Message row to collapse the
@@ -640,7 +690,7 @@ export const handleMessageDelete = async (
 							{ accountId, messageId, mailboxId, cursorState: error.state },
 							"Mailbox cursor not normal; pausing outbound delete this round and settling the row against the server",
 						);
-						await settlePaused();
+						await settlePaused(commandIssued);
 						return;
 					}
 
@@ -714,7 +764,7 @@ export const handleMessageDelete = async (
 					await settleExhaustedDelete(
 						account.accountConfigId,
 						getGuardedConnection,
-						settlePaused,
+						() => settlePaused(commandIssued),
 					);
 					log.error(
 						{ accountId, messageId, uid, mailboxPath, error: errorMessage },

@@ -2,6 +2,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 	MessageItem,
+	ThreadMessageItem,
 } from "@remit/data-ports";
 import { MessageStatus } from "@remit/domain-enums";
 import { isNotFoundError } from "../is-not-found.js";
@@ -28,6 +29,11 @@ export interface RestoreSourcePlacementInput {
 	 * which is a failure the row has to carry.
 	 */
 	syncStatus: MessageItem["syncStatus"];
+	/**
+	 * The listing rows, where the caller has already read them to pick this
+	 * outcome. Omitted, they are read here.
+	 */
+	threadMessages?: ThreadMessageItem[];
 }
 
 /**
@@ -105,10 +111,12 @@ export const restoreSourcePlacement = async (
 		});
 	if (!messageRestored) return;
 
-	const threadMessages = await deps.threadMessageService.findAllByMessageId(
-		accountConfigId,
-		messageId,
-	);
+	const threadMessages =
+		input.threadMessages ??
+		(await deps.threadMessageService.findAllByMessageId(
+			accountConfigId,
+			messageId,
+		));
 	for (const threadMessage of threadMessages) {
 		const args = buildThreadMessageMoveRevert(
 			threadMessage,

@@ -271,6 +271,11 @@ interface Call {
 	args: unknown[];
 }
 
+interface LogLine {
+	level: string;
+	fields: Record<string, unknown>;
+}
+
 interface Connection {
 	openBox: (
 		path: string,
@@ -312,7 +317,32 @@ interface Harness {
 	// dropped connection is how the guarded openBox gets skipped on a delivery
 	// that still goes on to settle the row.
 	connectionErrors: Error[];
+	logs: LogLine[];
 }
+
+// The level a give-up is logged at is behaviour: a routine pause must not page
+// anyone, and the local rows going while the server copy survives must stay
+// readable whichever level it lands on.
+const capturingLog = (): Logger => {
+	const at =
+		(level: string) =>
+		(fields: Record<string, unknown>): void => {
+			h.logs.push({ level, fields });
+		};
+	const log = {
+		info: at("info"),
+		warn: at("warn"),
+		error: at("error"),
+		debug: at("debug"),
+		fatal: at("fatal"),
+		trace: at("trace"),
+		child: () => log,
+	} as unknown as Logger;
+	return log;
+};
+
+const loggedWith = (key: string, value: string): LogLine[] =>
+	h.logs.filter((line) => line.fields[key] === value);
 
 let h: Harness;
 
@@ -392,6 +422,7 @@ const fresh = (): Harness => ({
 	getConnectionCount: 0,
 	disconnectCount: 0,
 	connectionErrors: [],
+	logs: [],
 });
 
 const deps = (): MessageDeleteDeps =>
@@ -415,7 +446,10 @@ const deps = (): MessageDeleteDeps =>
 			},
 			threadMessage: {
 				findByMessageId: async () => h.threadMessage,
-				findAllByMessageId: async () => h.allThreadMessages,
+				findAllByMessageId: async (...args: unknown[]) => {
+					h.calls.push({ method: "threadMessage.findAllByMessageId", args });
+					return h.allThreadMessages;
+				},
 				update: async (...args: unknown[]) => {
 					h.calls.push({ method: "threadMessage.update", args });
 					if (h.threadMessageUpdateError) throw h.threadMessageUpdateError;
@@ -1268,13 +1302,15 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
-	// Issue #1203, the redelivery half. Attempt 1's MOVE landed and its tagged
-	// OK was lost with the connection; the cursor tripped meanwhile, so attempt
-	// 2 is refused at the openBox guard. Restoring the source pair here writes
-	// `synced` on INBOX for mail the server holds in Trash — a settled placement
-	// on an inference, which is exactly what `restoreSourcePlacement` forbids.
-	// The source no longer answers to the Message-ID, and the destination does.
-	it("settles a redelivered paused trash move onto the destination the server confirms", async () => {
+	// Issue #1203, the redelivery half, and the mail-loss edge in it. INBOX was
+	// recreated (UIDVALIDITY bumped, which is why the cursor is paused), the
+	// MOVE never ran, and INBOX honestly answers "no" for the Message-ID because
+	// it no longer holds anything it used to. Trash holds an older copy of the
+	// same Message-ID at uid 77 — a sieve `fileinto` + `keep`, a resend — which
+	// `deriveMessageId` folds into this one local row. Settling `moved` on 77
+	// binds the row to that copy, and the next permanent delete expunges it:
+	// Trash is not paused, so no rebuild is ever coming to adjudicate there.
+	it("never settles a redelivered paused trash move as moved off a destination sighting", async () => {
 		h.mailbox = {
 			mailboxId: "src-mbx",
 			uidValidity: 1,
@@ -1283,23 +1319,159 @@ describe("handleMessageDelete", () => {
 		h.sourceSearchUids = [];
 		h.destinationSearchUids = [77];
 
-		await handleMessageDelete(moveEvent, noopLog, 2, deps());
+		await handleMessageDelete(moveEvent, capturingLog(), 2, deps());
 
-		assert.deepEqual(called("message.updateUid")[0]?.args, [
-			"msg-1",
-			77,
-			"trash-mbx",
-		]);
 		assert.equal(
-			called("message.updateForMove").length,
+			called("message.updateUid").length,
 			0,
-			"the row must never be handed back to a folder the server has moved it out of",
+			"a sighting off a source whose uid axis has moved is not proof this delete ran",
 		);
-		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
-			uid: 77,
-			mailboxId: "trash-mbx",
-			isDeleted: true,
-		});
+		// The source pair is the set its own cursor rebuild walks and adjudicates
+		// by Message-ID, so handing the row back there is the reconcile path.
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("failed"),
+		);
+		assert.equal(
+			loggedWith("alert", "message_delete_paused_placement_unproven").length,
+			1,
+			"a placement the server never settled is an operator's to adjudicate",
+		);
+	});
+
+	// Issue #1203 and the taxonomy `message-copy.ts` already applies: an
+	// evidence-free redelivery is broken, not settled. With no Message-ID header
+	// neither folder was asked, and silence is not an answer to write `synced`
+	// on. Route in: attempt 1 issues the MOVE, the confirmation comes back
+	// unprobeable, and the exhausted settle's guarded openBox trips the pause.
+	// `receiveCount === 1` there is not proof the command never left.
+	it("settles a paused delete broken when the MOVE was issued and neither folder can be asked", async () => {
+		h.connection.moveMessages = async () => ({ uidMap: new Map() });
+		sourceNoLongerHoldsTheUid();
+		h.messageRow = {};
+		let opened = 0;
+		h.connection.openBox = async (path: string) => {
+			h.openBoxPath = path;
+			opened += 1;
+			// The folder was recreated between the confirmation probe and the
+			// settle, which is what the terminal resolver's guarded openBox
+			// refuses to settle off.
+			return { uidvalidity: opened > 2 ? 999 : 1 };
+		};
+
+		await handleMessageDelete(moveEvent, capturingLog(), 1, deps());
+
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("failed"),
+			"the first attempt reaches this settle with the MOVE already issued, so `synced` claims what nothing confirmed",
+		);
+		assert.equal(
+			loggedWith("alert", "message_delete_paused_placement_unproven").length,
+			1,
+		);
+	});
+
+	// The user's delete was silently dropped. Nothing throws, nothing alerts and
+	// the row reads settled, so the only trace it ever leaves is this metric —
+	// the counterpart of copy's `message_copy_not_landed`.
+	it("counts a paused delete the server was never told about", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageDelete(moveEvent, capturingLog(), 1, deps());
+
+		const dropped = loggedWith("metric", "message_delete_dropped_on_pause");
+		assert.equal(dropped.length, 1);
+		assert.equal(dropped[0]?.level, "warn");
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("synced"),
+		);
+	});
+
+	// The listing rows decide the outcome, so the caller has already read them.
+	// Reading them a second time inside `restoreSourcePlacement` is a query per
+	// hand-back for an answer already in hand.
+	it("reads the listing rows once per hand-back", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+
+		assert.equal(called("threadMessage.findAllByMessageId").length, 1);
+	});
+
+	// A permanent delete has no destination, so the resync was gated off
+	// entirely: `handBackDelete` removed the local row, nothing enqueued a
+	// SYNC_MESSAGES, and the mail was invisible until the next scheduled sync
+	// while the server still held it. One folder is all this event touches, and
+	// SYNC_MESSAGES on a paused mailbox routes to the cursor rebuild.
+	it("resyncs the source folder after a paused permanent delete removes the local rows", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.allThreadMessages = [];
+
+		await handleMessageDelete(permanentEvent, capturingLog(), 1, deps());
+
+		assert.deepEqual(
+			called("emitEvent").map((c) => c.args[0]),
+			[{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" }],
+			"the folder whose rows just went must be told to re-project them",
+		);
+	});
+
+	// The pause is the expected skip the guard doc calls never-a-fault, so it
+	// alerted on every routine paused permanent delete. The fact that local mail
+	// went while the server copy survived still has to be readable.
+	it("does not alert on a routine paused permanent delete", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.allThreadMessages = [];
+
+		await handleMessageDelete(permanentEvent, capturingLog(), 1, deps());
+
+		assert.deepEqual(
+			h.logs.filter((line) => line.level === "error"),
+			[],
+			"a pause the guard expects never pages anyone",
+		);
+		const dropped = loggedWith("metric", "message_delete_dropped_on_pause");
+		assert.equal(dropped.length, 1);
+		assert.equal(
+			dropped[0]?.fields.localRowsRemoved,
+			true,
+			"local mail disappearing while the server still holds it stays visible",
+		);
+	});
+
+	// A refusal is not a pause: the product declined something the user asked
+	// for, and that still wakes someone.
+	it("keeps alerting when a refused delete removed the last listing rows", async () => {
+		h.allThreadMessages = [];
+		const unversioned = {
+			...permanentEvent,
+			schemaVersion: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(unversioned, capturingLog(), 1, deps());
+
+		assert.equal(
+			loggedWith("alert", "message_delete_unknown_schema_version").length,
+			1,
+		);
 	});
 
 	// Issue #1122 on the same path. Trash already held an older copy of this

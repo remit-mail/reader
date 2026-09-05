@@ -290,6 +290,27 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 
 	let emitted: unknown[] = [];
 	let connectCount = 0;
+	let logLines: { level: string; fields: Record<string, unknown> }[] = [];
+
+	// The level a give-up is logged at is behaviour: a routine pause must not
+	// page anyone, and a placement the server never settled must.
+	const capturingLogger = (): Logger => {
+		const at =
+			(level: string) =>
+			(fields: Record<string, unknown>): void => {
+				logLines.push({ level, fields });
+			};
+		const log = {
+			info: at("info"),
+			warn: at("warn"),
+			error: at("error"),
+			debug: at("debug"),
+			fatal: at("fatal"),
+			trace: at("trace"),
+			child: () => log,
+		} as unknown as Logger;
+		return log;
+	};
 
 	// One folder's Message-ID SEARCH answers, keyed by the box last opened.
 	// `openBox` on this handle is deliberately unguarded: the paused settle asks
@@ -333,6 +354,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	beforeEach(() => {
 		emitted = [];
 		connectCount = 0;
+		logLines = [];
 	});
 
 	afterEach(() => mock.restoreAll());
@@ -385,7 +407,9 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		);
 	});
 
-	const arrangePausedMove = async (): Promise<{
+	const arrangePausedMove = async (
+		options: { probeable: boolean } = { probeable: true },
+	): Promise<{
 		updateForMoveCalls: unknown[][];
 		updateUidCalls: unknown[][];
 		threadUpdateCalls: unknown[][];
@@ -394,7 +418,10 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		mock.method(client.account, "get", async () => cappedAccount());
 		mock.method(client.secrets, "decrypt", async () => "fake-password");
 		mock.method(client.message, "get", async () => [
-			{ ...pendingRow(), messageIdHeader: "<moved@example.com>" },
+			{
+				...pendingRow(),
+				messageIdHeader: options.probeable ? "<moved@example.com>" : undefined,
+			},
 		]);
 		mock.method(client.mailbox, "get", async () => pausedSource());
 		const updateForMoveCalls: unknown[][] = [];
@@ -473,33 +500,88 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		]);
 	});
 
-	// Issue #1203, the redelivery half. Attempt 1's MOVE landed and its tagged
-	// OK was lost with the connection; the cursor tripped meanwhile, so attempt
-	// 2 is refused at the openBox guard. Handing the row back here writes
-	// `synced` on INBOX for mail the server holds in Archive — a settled
-	// placement on an inference, which is what `restoreSourcePlacement` forbids.
-	it("settles a redelivered paused move onto the destination the server confirms", async () => {
-		const { updateForMoveCalls, updateUidCalls, threadUpdateCalls } =
-			await arrangePausedMove();
+	// Issue #1203, the redelivery half, and the mail-loss edge in it. INBOX was
+	// recreated (UIDVALIDITY bumped, which is why the cursor is paused), the
+	// MOVE never ran, and INBOX honestly answers "no" for the Message-ID because
+	// it no longer holds anything it used to. Archive holds an older copy of the
+	// same Message-ID at uid 40 — a sieve `fileinto` + `keep`, a resend — which
+	// `deriveMessageId` folds into this one local row. Settling `moved` on 40
+	// binds the row to that copy, and the next permanent delete expunges it:
+	// Archive is not paused, so no rebuild is ever coming to adjudicate there.
+	it("never settles a redelivered paused move as moved off a destination sighting", async () => {
+		const { updateForMoveCalls, updateUidCalls } = await arrangePausedMove();
 
 		await handleMessageMove(
 			event,
-			silentLogger,
+			capturingLogger(),
 			2,
-			moveDeps(holdingConnection({ INBOX: [], Archive: [77] })),
+			moveDeps(holdingConnection({ INBOX: [], Archive: [40] })),
 		);
 
-		assert.deepEqual(updateUidCalls[0], ["mm-msg-zzz", 77, "mm-dst-zzz"]);
 		assert.equal(
-			updateForMoveCalls.length,
+			updateUidCalls.length,
 			0,
-			"the row must never be handed back to a folder the server has moved it out of",
+			"a sighting off a source whose uid axis has moved is not proof this move ran",
+		);
+		// The source pair is the set its own cursor rebuild walks and adjudicates
+		// by Message-ID, so handing the row back there is the reconcile path.
+		assert.deepEqual(updateForMoveCalls[0]?.[1], {
+			mailboxId: "mm-src-zzz",
+			uid: 10,
+			status: "active",
+			syncStatus: "failed",
+		});
+		assert.equal(
+			logLines.filter(
+				(line) =>
+					line.fields.alert === "message_move_paused_placement_unproven",
+			).length,
+			1,
+			"a placement the server never settled is an operator's to adjudicate",
+		);
+	});
+
+	// The taxonomy `message-copy.ts` already applies: an evidence-free
+	// redelivery is broken, not settled. With no Message-ID header neither
+	// folder was asked, and silence is not an answer to write `synced` on.
+	it("settles a redelivered paused move broken when neither folder can be asked", async () => {
+		const { updateForMoveCalls } = await arrangePausedMove({
+			probeable: false,
+		});
+
+		await handleMessageMove(
+			event,
+			capturingLogger(),
+			2,
+			moveDeps(holdingConnection({})),
+		);
+
+		assert.equal(
+			(updateForMoveCalls[0]?.[1] as { syncStatus?: string })?.syncStatus,
+			"failed",
 		);
 		assert.equal(
-			(threadUpdateCalls[0]?.[2] as { uid?: number })?.uid,
-			77,
-			"the listing row takes the destination's own uid",
+			logLines.filter(
+				(line) =>
+					line.fields.alert === "message_move_paused_placement_unproven",
+			).length,
+			1,
 		);
+	});
+
+	// The user's move was silently dropped. Nothing throws, nothing alerts and
+	// the row reads settled, so the only trace it ever leaves is this metric —
+	// the counterpart of copy's `message_copy_not_landed`.
+	it("counts a paused move the server was never told about", async () => {
+		await arrangePausedMove();
+
+		await handleMessageMove(event, capturingLogger(), 1, moveDeps());
+
+		const dropped = logLines.filter(
+			(line) => line.fields.metric === "message_move_dropped_on_pause",
+		);
+		assert.equal(dropped.length, 1);
+		assert.equal(dropped[0]?.level, "warn");
 	});
 
 	// Issue #1122 on the same path. The destination already held an older copy

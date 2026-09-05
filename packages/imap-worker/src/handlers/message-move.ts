@@ -1,5 +1,5 @@
 import { getClient } from "@remit/backend/client";
-import type { ThreadMessageItem } from "@remit/data-ports";
+import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
 import { MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
@@ -51,6 +51,18 @@ export const emitMoveResync = async (
 			emit({ type: "SYNC_MESSAGES", accountId, mailboxId }),
 		),
 	);
+};
+
+/**
+ * The one-folder half of {@link emitMoveResync}, for a mutation that has no
+ * destination — a permanent delete removed local rows the server still holds,
+ * and only a resync of that folder puts them back.
+ */
+export const emitMailboxResync = async (
+	emit: EmitSyncMessages,
+	params: { accountId: string; mailboxId: string },
+): Promise<void> => {
+	await emit({ type: "SYNC_MESSAGES", ...params });
 };
 
 /**
@@ -115,6 +127,13 @@ export type PausedPlacement =
  * is an older copy of the same Message-ID — a sieve `fileinto` + `keep`, a
  * multi-label store, a resend — that `deriveMessageId` folds into this one local
  * row, and binding to it hands a later delete somebody else's uid.
+ *
+ * The source's silence, however, is not the mirror image of its hit. Every
+ * caller here reaches this on a paused cursor, which means the source's
+ * UIDVALIDITY has moved and the folder may have been recreated holding nothing
+ * it held before — so "not at the source" is an answer about the folder, not
+ * about our mutation, and `at-destination` is a sighting rather than a
+ * confirmation. Callers settle it as unproven; see `settlePausedMove`.
  *
  * Identity, not position, is what makes this askable at all: a paused cursor
  * means the source's UIDVALIDITY has moved, so every stored uid for it names
@@ -368,17 +387,52 @@ export const handleMessageMove = async (
 				);
 			};
 
-			const handBackToSource = (): Promise<void> =>
-				restoreSourcePlacement(
+			/**
+			 * Put the row back on the pair it was moved off, and say so once.
+			 *
+			 * `metric` is the routine give-up the guard doc calls never-a-fault:
+			 * the user's move was silently dropped, which is worth counting and
+			 * not worth waking anyone for. `alert` is the give-up the server did
+			 * not settle — the row carries `failed` and an operator adjudicates.
+			 */
+			const handBackToSource = async (
+				syncStatus: MessageItem["syncStatus"],
+				signal: { alert: string } | { metric: string },
+				reason: string,
+			): Promise<void> => {
+				const context = {
+					...signal,
+					accountId,
+					messageId,
+					uid,
+					sourceMailboxPath,
+					destinationMailboxPath,
+					receiveCount,
+					reason,
+				};
+				if ("alert" in signal) {
+					log.error(
+						context,
+						"Move given up without a settled placement; row handed back to its source for adjudication",
+					);
+				} else {
+					log.warn(
+						context,
+						"Move not pushed to the server; row handed back to its source",
+					);
+				}
+
+				await restoreSourcePlacement(
 					{ messageService, threadMessageService },
 					{
 						accountConfigId: account.accountConfigId,
 						messageId,
 						sourceMailboxId,
 						uid,
-						syncStatus: MessageSyncStatus.synced,
+						syncStatus,
 					},
 				);
+			};
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
@@ -409,31 +463,57 @@ export const handleMessageMove = async (
 			// whichever pair the server can be shown to hold, and the resync below
 			// plus the source's own cursor rebuild are its repair path.
 			//
-			// A first delivery has provably issued no MOVE — every paused exit is
-			// reached before `moveMessages`, one without a connection and one from
-			// the openBox guard — so putting the row back is an undo of this
-			// product's own write, not a claim about the server. A redelivery has
-			// not: the earlier attempt's tagged OK can be lost with the connection,
-			// and restoring the source pair on that assumption writes a settled
-			// placement onto a folder the server has already moved the mail out of.
-			// It asks instead.
-			const settlePausedMove = async (): Promise<void> => {
-				const placement =
-					receiveCount === 1
-						? ({ kind: "at-source" } as const)
-						: await probePausedPlacement(await scope.getConnection(), {
-								messageIdHeader: message.messageIdHeader,
-								sourceMailboxPath,
-								destinationMailboxPath,
-							});
+			// Putting the row back is an undo of this product's own write only where
+			// the MOVE provably never left. `commandIssued` says what this round
+			// did; `receiveCount` adds what an earlier one may have done and lost
+			// with its connection. Inferring the first from the second is what
+			// `settlePausedDelete` got wrong — attempt 1 reaches an exhausted settle
+			// too, with the MOVE already issued.
+			const settlePausedMove = async (
+				commandIssued: boolean,
+			): Promise<void> => {
+				const mayHaveIssued = commandIssued || receiveCount > 1;
 
-				if (placement.kind === "at-destination") {
-					await settleMoved(placement.uid);
+				const placement: PausedPlacement = mayHaveIssued
+					? await probePausedPlacement(await scope.getConnection(), {
+							messageIdHeader: message.messageIdHeader,
+							sourceMailboxPath,
+							destinationMailboxPath,
+						})
+					: { kind: "at-source" };
+
+				// A sighting at the destination is not proof this move ran. The pause
+				// means the source's UIDVALIDITY has moved, so its "no" can be a
+				// recreated folder answering about mail it never held, and the hit can
+				// be an older copy of the same Message-ID that `deriveMessageId` folds
+				// into this row — settling `moved` on it points the row at mail a
+				// later permanent delete would expunge. `unprobeable` is silence, and
+				// silence settles nothing either (the rule `message-copy.ts` already
+				// applies). Both hand the row back on the source pair carrying
+				// `failed`: that is the set the source's own cursor rebuild walks and
+				// adjudicates by Message-ID, which is the reconcile path (R2) the
+				// destination — not paused, no rebuild coming — does not have.
+				const unproven =
+					placement.kind === "at-destination" ||
+					placement.kind === "unprobeable";
+
+				if (unproven) {
+					await handBackToSource(
+						MessageSyncStatus.failed,
+						{ alert: "message_move_paused_placement_unproven" },
+						placement.kind === "at-destination"
+							? "destination holds this Message-ID but the source's uid axis has moved, so the sighting does not prove this move ran"
+							: "no Message-ID header to ask either folder with",
+					);
 				} else {
-					// `gone` and `unprobeable` land here with the rest: the source pair
-					// is the set the rebuild walks, and a row it cannot match against a
-					// fresh envelope snapshot is the one thing it reconciles away.
-					await handBackToSource();
+					// `gone` lands here with `at-source`: the source pair is the set the
+					// rebuild walks, and a row it cannot match against a fresh envelope
+					// snapshot is the one thing it reconciles away.
+					await handBackToSource(
+						MessageSyncStatus.synced,
+						{ metric: "message_move_dropped_on_pause" },
+						`source mailbox cursor paused, placement ${placement.kind}`,
+					);
 				}
 
 				await emitMoveResync(emitEvent, {
@@ -452,9 +532,13 @@ export const handleMessageMove = async (
 					{ accountId, messageId, mailboxId: sourceMailboxId },
 					"Mailbox cursor not normal; pausing outbound move this round and settling the row against the server",
 				);
-				await settlePausedMove().finally(() => scope.disconnect());
+				await settlePausedMove(false).finally(() => scope.disconnect());
 				return;
 			}
+
+			// Flipped the instant the MOVE leaves, so every settle downstream of it
+			// knows the server was asked.
+			let commandIssued = false;
 
 			await scope
 				.getConnection()
@@ -474,6 +558,7 @@ export const handleMessageMove = async (
 							await connection.openBox(sourceMailboxPath, false);
 
 							// Execute IMAP MOVE
+							commandIssued = true;
 							const result = await connection.moveMessages(
 								[uid],
 								destinationMailboxPath,
@@ -524,7 +609,7 @@ export const handleMessageMove = async (
 							},
 							"Mailbox cursor not normal; pausing outbound move this round and settling the row against the server",
 						);
-						await settlePausedMove();
+						await settlePausedMove(commandIssued);
 						return;
 					}
 
@@ -589,7 +674,7 @@ export const handleMessageMove = async (
 								},
 								"Mailbox cursor not normal; settling the exhausted move against the server by Message-ID",
 							);
-							await settlePausedMove();
+							await settlePausedMove(commandIssued);
 							return null;
 						}
 						throw settleError;
