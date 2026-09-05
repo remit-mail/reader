@@ -44,7 +44,7 @@ describe("DrizzleMessageRepository", () => {
 		await stop();
 	});
 
-	describe("create — writes message + outbox row in one transaction", () => {
+	describe("create — writes the message row only", () => {
 		test("creates a message and returns MessageItem", async () => {
 			const item = await messageRepo.create(BASE_MESSAGE_INPUT);
 			assert.equal(item.messageId, MESSAGE_ID);
@@ -56,16 +56,14 @@ describe("DrizzleMessageRepository", () => {
 			assert.ok(typeof item.updatedAt === "number");
 		});
 
-		test("writes an outbox row in the same transaction", async () => {
+		test("writes no outbox row — there is nothing to index before the body", async () => {
 			const { outboxTable } = await import("../schema/message-data.js");
 			const { eq } = await import("drizzle-orm");
 			const rows = await db
 				.select()
 				.from(outboxTable)
 				.where(eq(outboxTable.messageId, MESSAGE_ID));
-			assert.ok(rows.length >= 1, "should have at least 1 outbox row");
-			assert.equal(rows[0].event, "message.created");
-			assert.deepStrictEqual(rows[0].payload, { messageId: MESSAGE_ID });
+			assert.equal(rows.length, 0);
 		});
 
 		test("duplicate messageId throws CreateFailedConflictError and writes no extra outbox row", async () => {
