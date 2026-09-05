@@ -35,8 +35,44 @@ describe("useInitialFocus", () => {
 		assert.equal(document.activeElement?.textContent, "First action");
 	});
 
-	it("leaves focus alone while closed", () => {
+	it("leaves focus on the body while closed", () => {
 		act(() => root.render(createElement(Panel, { open: false })));
-		assert.notEqual(document.activeElement?.textContent, "First action");
+		assert.equal(document.activeElement, document.body);
+	});
+
+	it("moves focus in when an already-mounted panel opens", () => {
+		act(() => root.render(createElement(Panel, { open: false })));
+		assert.equal(document.activeElement, document.body);
+
+		act(() => root.render(createElement(Panel, { open: true })));
+		assert.equal(document.activeElement?.textContent, "First action");
+	});
+
+	it("returns focus to the trigger once the panel closes", () => {
+		const trigger = document.createElement("button");
+		trigger.textContent = "Open panel";
+		document.body.appendChild(trigger);
+		trigger.focus();
+		assert.equal(document.activeElement, trigger);
+
+		act(() => root.render(createElement(Panel, { open: true })));
+		assert.equal(document.activeElement?.textContent, "First action");
+
+		act(() => root.render(createElement(Panel, { open: false })));
+		assert.equal(document.activeElement, trigger);
+
+		trigger.remove();
+	});
+
+	it("does not throw restoring focus to a trigger that left the DOM", () => {
+		const trigger = document.createElement("button");
+		document.body.appendChild(trigger);
+		trigger.focus();
+
+		act(() => root.render(createElement(Panel, { open: true })));
+		trigger.remove();
+
+		act(() => root.render(createElement(Panel, { open: false })));
+		assert.notEqual(document.activeElement, trigger);
 	});
 });

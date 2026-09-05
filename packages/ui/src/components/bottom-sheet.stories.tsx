@@ -48,7 +48,11 @@ function Demo() {
 					Open sheet
 				</Button>
 			)}
-			<BottomSheet open={open} onClose={() => setOpen(false)}>
+			<BottomSheet
+				open={open}
+				onClose={() => setOpen(false)}
+				label="Action sheet"
+			>
 				<div className="px-row-inset py-6">
 					<h2 className="text-sm font-semibold text-fg">Action sheet</h2>
 					<p className="mt-1 text-xs text-fg-subtle">
@@ -82,6 +86,7 @@ export const MirrorsDialogSemantics: Story = {
 		const canvas = within(canvasElement);
 		const sheet = await canvas.findByRole("dialog");
 		await expect(sheet).toHaveAttribute("aria-modal", "true");
+		await expect(sheet).toHaveAccessibleName("Action sheet");
 		await expect(canvas.getByRole("button", { name: "Got it" })).toHaveFocus();
 
 		await userEvent.keyboard("{Escape}");

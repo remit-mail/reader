@@ -18,6 +18,8 @@ export interface BottomSheetProps {
 	open: boolean;
 	onClose: () => void;
 	children: ReactNode;
+	/** Accessible name for the sheet itself, read before its content. */
+	label: string;
 	/** Accessible label for the drag-to-dismiss scrim and grabber. */
 	dismissLabel?: string;
 }
@@ -32,15 +34,17 @@ export function BottomSheet({
 	open,
 	onClose,
 	children,
+	label,
 	dismissLabel = "Dismiss",
 }: BottomSheetProps) {
 	useOverlayScope({ id: "bottom-sheet", open, answers: { back: onClose } });
 
 	const sheetRef = useRef<HTMLDivElement>(null);
+	const contentRef = useRef<HTMLDivElement>(null);
 	const [height, setHeight] = useState(HEIGHT_FALLBACK);
 	const [drag, setDrag] = useState<number | null>(null);
 
-	useInitialFocus(sheetRef, open);
+	useInitialFocus(contentRef, open);
 
 	useLayoutEffect(() => {
 		const el = sheetRef.current;
@@ -127,18 +131,22 @@ export function BottomSheet({
 				ref={sheetRef}
 				role="dialog"
 				aria-modal="true"
+				aria-labelledby="bottom-sheet-title"
 				aria-hidden={!open}
 				inert={!open}
 				className="absolute inset-x-0 bottom-0 flex max-h-[92%] flex-col rounded-t-3xl border-t border-line bg-surface pb-[env(safe-area-inset-bottom,0px)] shadow-2xl shadow-black/30"
 				style={{ transform: `translateY(${offset}px)`, transition }}
 			>
+				<h2 id="bottom-sheet-title" className="sr-only">
+					{label}
+				</h2>
 				<div
 					role="slider"
 					aria-label="Drag down to dismiss"
 					aria-valuemin={0}
 					aria-valuemax={100}
 					aria-valuenow={Math.round(openness * 100)}
-					tabIndex={0}
+					tabIndex={-1}
 					onPointerDown={onPointerDown}
 					onPointerMove={onPointerMove}
 					onPointerUp={finishDrag}
@@ -147,7 +155,10 @@ export function BottomSheet({
 				>
 					<div className="h-1 w-10 rounded-full bg-fg-subtle/40" />
 				</div>
-				<div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+				<div
+					ref={contentRef}
+					className="flex min-h-0 flex-1 flex-col overflow-hidden"
+				>
 					{children}
 				</div>
 			</div>
