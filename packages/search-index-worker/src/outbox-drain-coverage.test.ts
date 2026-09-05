@@ -18,6 +18,12 @@ type SqliteHandle = ReturnType<typeof createShippedSqliteDb>["sqlite"];
 // clear. This runs the real producers (the message repo) and the real consumer
 // (the relay over the SQLite store) against the shipped migrations, so a kind
 // with no drain shows up as a row that stays undrained.
+//
+// What holds the invariant is the union `OUTBOX_EVENTS`, not this file: the
+// column's type is what stops a producer in another package inventing a kind,
+// and the compiler is what reports it. This covers the kinds the union declares
+// and the producers in this repo's message repo — a producer elsewhere reaches
+// it only by adding its kind to the union first.
 
 const fakeSqs = (sent: string[]) =>
 	({
@@ -106,7 +112,7 @@ describe("outbox drain coverage", () => {
 		close();
 	});
 
-	test("every declared event kind has a consumer that drains it", async () => {
+	test("every kind the union declares is drained", async () => {
 		const { sqlite, close } = createShippedSqliteDb();
 
 		for (const event of OUTBOX_EVENTS) {
