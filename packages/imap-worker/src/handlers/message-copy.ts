@@ -172,17 +172,6 @@ export const handleMessageCopy = async (
 				return;
 			}
 
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. Optimization only — the
-			// guardConnectionCursor openBox wrap below is the structural guarantee.
-			if (isCursorRebuildNeeded(mailbox.cursorState)) {
-				log.info(
-					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
-					"Mailbox cursor not normal; pausing outbound copy this round",
-				);
-				return;
-			}
-
 			// The copy row carries the source's Message-ID header, so the
 			// destination can be asked where this copy is. Always on the UNGUARDED
 			// handle: a `guardConnectionCursor` wrap is bound to the SOURCE mailbox
@@ -317,6 +306,60 @@ export const handleMessageCopy = async (
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
+			// A paused cursor settles rather than acks: acking leaves the optimistic
+			// row at `uid: 0`/`moving` with nothing to re-enqueue it and no folder
+			// set for the cursor rebuild to find it in (issue #1203). Like every
+			// other verdict on this row, it reconciles rather than waits (R2,
+			// docs/architecture/imap-mutations.md) — the settle below IS the
+			// reconciliation path, since the destination is not paused and no
+			// rebuild is coming for it.
+			//
+			// What may be concluded from the pause depends on the delivery. A first
+			// delivery has provably issued no COPY, so the row records something the
+			// server was never asked for and reconciling it away is exact. A
+			// redelivery has not: the earlier attempt's tagged OK can be lost with
+			// the connection, so this row may be the only record real mail will ever
+			// have, and deleting it would let the next destination sync repoint the
+			// SOURCE row out of the folder the server still holds it in. The pause
+			// is on the source and says nothing about the destination, which is
+			// probed on the unguarded handle anyway, so the destination is asked
+			// before anything is deleted and silence settles broken.
+			const settlePausedCopy = async (): Promise<void> => {
+				if (receiveCount === 1) {
+					await settleNeverLanded(
+						"source mailbox cursor paused before the copy",
+					);
+					return;
+				}
+				const probe = await probeDestination(await scope.getConnection());
+				if (probe.kind === "confirmed") {
+					await settleCopied(probe.uid);
+					return;
+				}
+				if (probe.kind === "absent") {
+					await settleNeverLanded(
+						"redelivered onto a paused source cursor, absent from destination",
+					);
+					return;
+				}
+				await settleBroken(
+					"redelivered onto a paused source cursor with no Message-ID to ask the destination with",
+				);
+			};
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection on a first delivery. Optimization
+			// only — the guardConnectionCursor openBox wrap below is the structural
+			// guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
+					"Mailbox cursor not normal; pausing outbound copy this round",
+				);
+				await settlePausedCopy().finally(() => scope.disconnect());
+				return;
+			}
+
 			await scope
 				.getConnection()
 				.then(async (rawConnection) => {
@@ -394,6 +437,12 @@ export const handleMessageCopy = async (
 								cursorState: error.state,
 							},
 							"Mailbox cursor not normal; pausing outbound copy this round",
+						);
+						// No probe here, and none owed: a redelivery reaching this openBox
+						// has already asked the destination above and been told `absent`,
+						// which is the one answer that lets the row go.
+						await settleNeverLanded(
+							"source mailbox cursor paused before the copy",
 						);
 						return;
 					}

@@ -19,6 +19,7 @@ import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export const getMessageMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -88,6 +89,72 @@ export const searchMailboxForHighestMessageIdUid = async (
 };
 
 /**
+ * Which side of a paused mutation the server actually holds the message on.
+ * `gone` is an answer both folders gave; `unprobeable` is the row that carries
+ * no Message-ID header, where the server was never asked and its silence says
+ * nothing.
+ */
+export type PausedPlacement =
+	| { kind: "at-source" }
+	| { kind: "at-destination"; uid: number }
+	| { kind: "gone" }
+	| { kind: "unprobeable" };
+
+/**
+ * Ask the server, by Message-ID, which folder holds a message whose mutation a
+ * paused cursor interrupted (issue #1203).
+ *
+ * Reached only on a redelivery, where "the command never left" has stopped
+ * being provable: the earlier attempt's tagged OK can be lost with the
+ * connection, so restoring the source pair on that assumption would write a
+ * settled placement naming a folder the server has already moved the mail out
+ * of. `message-copy.ts` asks the same question for the same reason.
+ *
+ * The SOURCE is asked first and a hit ends it, the gate `confirmTrashMoveUid`
+ * documents (#1122): where the mutation never ran, every hit at the destination
+ * is an older copy of the same Message-ID — a sieve `fileinto` + `keep`, a
+ * multi-label store, a resend — that `deriveMessageId` folds into this one local
+ * row, and binding to it hands a later delete somebody else's uid.
+ *
+ * Identity, not position, is what makes this askable at all: a paused cursor
+ * means the source's UIDVALIDITY has moved, so every stored uid for it names
+ * something else, but a SEARCH by header is independent of the axis and answers
+ * the same question the cursor rebuild itself matches rows by. For that reason
+ * the caller passes the UNGUARDED connection — a `guardConnectionCursor` wrap
+ * refuses to open the mailbox at all, and it is bound to the source's snapshot
+ * anyway, so opening the destination through it would trip that mailbox too.
+ */
+export const probePausedPlacement = async (
+	connection: IImapConnection,
+	input: {
+		messageIdHeader: string | undefined;
+		sourceMailboxPath: string;
+		destinationMailboxPath: string | undefined;
+	},
+): Promise<PausedPlacement> => {
+	const { messageIdHeader, sourceMailboxPath, destinationMailboxPath } = input;
+	if (!messageIdHeader) return { kind: "unprobeable" };
+
+	const atSource = await searchMailboxForHighestMessageIdUid(
+		connection,
+		sourceMailboxPath,
+		messageIdHeader,
+	);
+	if (atSource !== null) return { kind: "at-source" };
+
+	if (!destinationMailboxPath) return { kind: "gone" };
+
+	const atDestination = await searchMailboxForHighestMessageIdUid(
+		connection,
+		destinationMailboxPath,
+		messageIdHeader,
+	);
+	return atDestination === null
+		? { kind: "gone" }
+		: { kind: "at-destination", uid: atDestination };
+};
+
+/**
  * Resync the affected folders only once the IMAP move has resolved. A move that
  * fails (or is retried) must not refresh counts off a move that didn't happen,
  * so the resync is sequenced strictly after `performMove`.
@@ -140,6 +207,22 @@ export const buildThreadMessageMoveUpdate = (
 	},
 });
 
+export interface MessageMoveDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+	emitEvent: typeof emitEvent;
+}
+
+const defaultDeps: MessageMoveDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+	emitEvent,
+};
+
 /**
  * Handle MESSAGE_MOVE events.
  * Executes IMAP MOVE command and updates local state with new UID.
@@ -155,7 +238,16 @@ export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
 	receiveCount = 1,
+	deps: MessageMoveDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+		emitEvent,
+	} = deps;
+
 	const {
 		account: accountService,
 		message: messageService,
@@ -244,16 +336,49 @@ export const handleMessageMove = async (
 				return;
 			}
 
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. Optimization only — the
-			// guardConnectionCursor openBox wrap below is the structural guarantee.
-			if (isCursorRebuildNeeded(mailbox.cursorState)) {
-				log.info(
-					{ accountId, messageId, mailboxId: sourceMailboxId },
-					"Mailbox cursor not normal; pausing outbound move this round",
+			const settleMoved = async (newUid: number): Promise<void> => {
+				await messageService.updateUid(messageId, newUid, destinationMailboxId);
+
+				const threadMessage = await threadMessageService.findByMessageId(
+					account.accountConfigId,
+					messageId,
 				);
-				return;
-			}
+				if (threadMessage) {
+					const args = buildThreadMessageMoveUpdate(
+						threadMessage,
+						newUid,
+						destinationMailboxId,
+					);
+					await threadMessageService.update(
+						threadMessage.accountConfigId,
+						threadMessage.threadMessageId,
+						args.set,
+						{ composites: args.composites },
+					);
+				}
+
+				log.info(
+					{
+						messageId,
+						oldUid: uid,
+						newUid,
+						destination: destinationMailboxPath,
+					},
+					"Message moved successfully",
+				);
+			};
+
+			const handBackToSource = (): Promise<void> =>
+				restoreSourcePlacement(
+					{ messageService, threadMessageService },
+					{
+						accountConfigId: account.accountConfigId,
+						messageId,
+						sourceMailboxId,
+						uid,
+						syncStatus: MessageSyncStatus.synced,
+					},
+				);
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
@@ -271,6 +396,65 @@ export const handleMessageMove = async (
 					accountId,
 					mailbox,
 				);
+
+			// A paused cursor is never acked on the optimistic row: `updateForMove`
+			// has pointed it at the destination while `uid` still names the source,
+			// and that pair strands the row for good — the cursor rebuild matches
+			// rows by `(accountConfigId, mailboxId)`, so a row naming the
+			// destination is in neither folder's set, and nothing re-enqueues a
+			// MESSAGE_MOVE (issue #1203).
+			//
+			// This move therefore reconciles rather than waits (R2,
+			// docs/architecture/imap-mutations.md): the row is settled onto
+			// whichever pair the server can be shown to hold, and the resync below
+			// plus the source's own cursor rebuild are its repair path.
+			//
+			// A first delivery has provably issued no MOVE — every paused exit is
+			// reached before `moveMessages`, one without a connection and one from
+			// the openBox guard — so putting the row back is an undo of this
+			// product's own write, not a claim about the server. A redelivery has
+			// not: the earlier attempt's tagged OK can be lost with the connection,
+			// and restoring the source pair on that assumption writes a settled
+			// placement onto a folder the server has already moved the mail out of.
+			// It asks instead.
+			const settlePausedMove = async (): Promise<void> => {
+				const placement =
+					receiveCount === 1
+						? ({ kind: "at-source" } as const)
+						: await probePausedPlacement(await scope.getConnection(), {
+								messageIdHeader: message.messageIdHeader,
+								sourceMailboxPath,
+								destinationMailboxPath,
+							});
+
+				if (placement.kind === "at-destination") {
+					await settleMoved(placement.uid);
+				} else {
+					// `gone` and `unprobeable` land here with the rest: the source pair
+					// is the set the rebuild walks, and a row it cannot match against a
+					// fresh envelope snapshot is the one thing it reconciles away.
+					await handBackToSource();
+				}
+
+				await emitMoveResync(emitEvent, {
+					accountId,
+					sourceMailboxId,
+					destinationMailboxId,
+				});
+			};
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never opens a connection on a first delivery. Optimization
+			// only — the guardConnectionCursor openBox wrap below is the structural
+			// guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, messageId, mailboxId: sourceMailboxId },
+					"Mailbox cursor not normal; pausing outbound move this round and settling the row against the server",
+				);
+				await settlePausedMove().finally(() => scope.disconnect());
+				return;
+			}
 
 			await scope
 				.getConnection()
@@ -319,41 +503,7 @@ export const handleMessageMove = async (
 								);
 							}
 
-							// Update message with new UID
-							await messageService.updateUid(
-								messageId,
-								newUid,
-								destinationMailboxId,
-							);
-
-							// Update ThreadMessage UID and mailboxId
-							const threadMessage = await threadMessageService.findByMessageId(
-								account.accountConfigId,
-								messageId,
-							);
-							if (threadMessage) {
-								const args = buildThreadMessageMoveUpdate(
-									threadMessage,
-									newUid,
-									destinationMailboxId,
-								);
-								await threadMessageService.update(
-									threadMessage.accountConfigId,
-									threadMessage.threadMessageId,
-									args.set,
-									{ composites: args.composites },
-								);
-							}
-
-							log.info(
-								{
-									messageId,
-									oldUid: uid,
-									newUid,
-									destination: destinationMailboxPath,
-								},
-								"Message moved successfully",
-							);
+							await settleMoved(newUid);
 						},
 						() =>
 							emitMoveResync(emitEvent, {
@@ -372,8 +522,9 @@ export const handleMessageMove = async (
 								mailboxId: sourceMailboxId,
 								cursorState: error.state,
 							},
-							"Mailbox cursor not normal; pausing outbound move this round",
+							"Mailbox cursor not normal; pausing outbound move this round and settling the row against the server",
 						);
+						await settlePausedMove();
 						return;
 					}
 
@@ -421,12 +572,13 @@ export const handleMessageMove = async (
 							sourceMailboxPath,
 							getConnection: getGuardedConnection,
 						},
-					).catch((settleError: unknown) => {
+					).catch(async (settleError: unknown) => {
 						// The guarded probe found a mailbox whose UIDVALIDITY has moved.
-						// Every stored uid for this folder now names something else, so
-						// there is nothing here that may be settled off them, and the
-						// pause is the routine skip `guardMailboxCursor` documents, not
-						// a fault to re-throw out of this catch.
+						// Nothing may be settled off a uid on a dead axis, and the pause
+						// is the routine skip `guardMailboxCursor` documents, not a fault
+						// to re-throw out of this catch. The row is still settled, on the
+						// identity axis instead: `settlePausedMove` asks by Message-ID,
+						// which a UIDVALIDITY change does not invalidate.
 						if (settleError instanceof MailboxCursorPausedError) {
 							log.info(
 								{
@@ -435,8 +587,9 @@ export const handleMessageMove = async (
 									mailboxId: sourceMailboxId,
 									cursorState: settleError.state,
 								},
-								"Mailbox cursor not normal; leaving the exhausted move for the cursor rebuild",
+								"Mailbox cursor not normal; settling the exhausted move against the server by Message-ID",
 							);
+							await settlePausedMove();
 							return null;
 						}
 						throw settleError;

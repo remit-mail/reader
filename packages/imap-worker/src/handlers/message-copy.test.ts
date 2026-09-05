@@ -369,7 +369,12 @@ describe("handleMessageCopy", () => {
 		assert.equal(called("message.update").length, 0);
 	});
 
-	it("skips the copy without opening a connection when the cursor is rebuilding", async () => {
+	// Issue #1203. Both pauses are reached before `copyMessages`, so the COPY
+	// was never issued. Acking left the optimistic row at `uid: 0`/`moving`
+	// with nothing to re-enqueue it and no folder set for the cursor rebuild to
+	// find it in, which is `holdsCopyOf`'s row-existence answer turning into a
+	// copy that can never settle.
+	it("reconciles the optimistic copy row away when the cursor is rebuilding", async () => {
 		h.mailbox = {
 			mailboxId: "src-mbx",
 			uidValidity: 1,
@@ -380,9 +385,77 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
+		assert.equal(called("threadMessage.deleteMany").length, 1);
 	});
 
-	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+	// A redelivery's earlier attempt may have copied: the tagged OK can be lost
+	// with the connection. Deleting this row on the pause alone would leave the
+	// landed copy with no row of its own — `holdsCopyOf` answers on row
+	// existence, so no sync makes a second one — and the next destination sync
+	// would repoint the SOURCE row out of the folder the server still holds it
+	// in. The pause is on the source; the destination is asked before anything
+	// is deleted.
+	it("asks the destination before reconciling a redelivered copy onto a paused cursor", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.destinationHolds = [42];
+
+		await handleMessageCopy(event, noopLog, 2, deps());
+
+		assert.ok(askedTheDestination(), "the destination was asked for the copy");
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"a copy the destination confirms is never reconciled away",
+		);
+		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("settles a redelivered copy broken when the destination cannot be asked", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
+
+		await handleMessageCopy(event, noopLog, 2, deps());
+
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"silence is never grounds to delete a row that may describe real mail",
+		);
+		assert.equal(
+			(called("message.update")[0]?.args[1] as { status?: string })?.status,
+			"deleted",
+		);
+	});
+
+	it("reconciles a redelivered copy away when the destination denies holding it", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.destinationHolds = [];
+
+		await handleMessageCopy(event, noopLog, 2, deps());
+
+		assert.ok(askedTheDestination());
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
+	});
+
+	it("reconciles the optimistic copy row away when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
 		await handleMessageCopy(event, noopLog, 1, deps());
@@ -394,6 +467,7 @@ describe("handleMessageCopy", () => {
 			"the mismatch trips the mailbox cursor",
 		);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
 		assert.equal(h.disconnectCount, 1);
 	});
 
