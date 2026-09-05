@@ -2,6 +2,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import { isNotFoundError } from "../is-not-found.js";
 import { buildThreadMessageMoveRevert } from "./thread-message-rows.js";
 
 export interface RestoreSourcePlacementDeps {
@@ -37,6 +38,14 @@ export interface RestoreSourcePlacementInput {
  * {@link isMessageGoneFromOpenMailbox} answering that the message is STILL at
  * `sourceMailboxId`/`uid`, which makes this the server's own answer rather than
  * a revert on ambiguity (what PR #652 was pulled for).
+ *
+ * A row another path deleted while the probe was in flight has nothing left to
+ * restore, and a thread row whose composites have moved on is being rewritten
+ * by that other path anyway. Both surface as `NotFoundError` — ElectroDB wraps
+ * the conditional-check miss as one — and both are settled states here, not
+ * faults. Throwing on them would escape the caller's `.catch()` and cost the
+ * record its ack and its resync, which is the contract the terminal resolvers
+ * state: never re-thrown.
  */
 export const restoreSourcePlacement = async (
 	deps: RestoreSourcePlacementDeps,
@@ -44,7 +53,19 @@ export const restoreSourcePlacement = async (
 ): Promise<void> => {
 	const { accountConfigId, messageId, sourceMailboxId, uid } = input;
 
-	await deps.messageService.updateUid(messageId, uid, sourceMailboxId);
+	const skipNotFound = (error: unknown): void => {
+		if (isNotFoundError(error)) return;
+		throw error;
+	};
+
+	const messageRestored = await deps.messageService
+		.updateUid(messageId, uid, sourceMailboxId)
+		.then(() => true)
+		.catch((error: unknown) => {
+			skipNotFound(error);
+			return false;
+		});
+	if (!messageRestored) return;
 
 	const threadMessages = await deps.threadMessageService.findAllByMessageId(
 		accountConfigId,
@@ -56,11 +77,13 @@ export const restoreSourcePlacement = async (
 			uid,
 			sourceMailboxId,
 		);
-		await deps.threadMessageService.update(
-			threadMessage.accountConfigId,
-			threadMessage.threadMessageId,
-			args.set,
-			{ composites: args.composites },
-		);
+		await deps.threadMessageService
+			.update(
+				threadMessage.accountConfigId,
+				threadMessage.threadMessageId,
+				args.set,
+				{ composites: args.composites },
+			)
+			.catch(skipNotFound);
 	}
 };

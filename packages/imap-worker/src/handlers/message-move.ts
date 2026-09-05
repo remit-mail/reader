@@ -257,6 +257,21 @@ export const handleMessageMove = async (
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
+			// The terminal resolver opens the source itself, and its answer now
+			// WRITES a placement, so it has to reach IMAP through the same
+			// UIDVALIDITY choke point every other outbound operation does. An
+			// unguarded probe on a folder that was deleted and recreated finds
+			// whatever the server has renumbered onto this uid, reads it as "still
+			// at source", and binds the row to a stranger the next permanent delete
+			// would expunge.
+			const getGuardedConnection = async (): Promise<IImapConnection> =>
+				guardConnectionCursor(
+					await scope.getConnection(),
+					{ mailboxService },
+					accountId,
+					mailbox,
+				);
+
 			await scope
 				.getConnection()
 				.then((rawConnection) => {
@@ -395,7 +410,7 @@ export const handleMessageMove = async (
 					// Redelivery budget exhausted: resolve into exactly one of the two
 					// terminal outcomes instead of dead-lettering with no diagnosis,
 					// and never by inferring the server's state from our own failures.
-					const { outcome } = await resolveExhaustedMessageMoveFailure(
+					const settled = await resolveExhaustedMessageMoveFailure(
 						{ messageService, threadMessageService, log },
 						{
 							accountId,
@@ -404,11 +419,32 @@ export const handleMessageMove = async (
 							sourceMailboxId,
 							uid,
 							sourceMailboxPath,
-							getConnection: scope.getConnection,
+							getConnection: getGuardedConnection,
 						},
-					);
+					).catch((settleError: unknown) => {
+						// The guarded probe found a mailbox whose UIDVALIDITY has moved.
+						// Every stored uid for this folder now names something else, so
+						// there is nothing here that may be settled off them, and the
+						// pause is the routine skip `guardMailboxCursor` documents, not
+						// a fault to re-throw out of this catch.
+						if (settleError instanceof MailboxCursorPausedError) {
+							log.info(
+								{
+									accountId,
+									messageId,
+									mailboxId: sourceMailboxId,
+									cursorState: settleError.state,
+								},
+								"Mailbox cursor not normal; leaving the exhausted move for the cursor rebuild",
+							);
+							return null;
+						}
+						throw settleError;
+					});
 
-					if (outcome === "broken") {
+					if (!settled) return;
+
+					if (settled.outcome === "broken") {
 						// Terminal and never re-thrown, so the handler-outcome series
 						// records this record as a success. Counted here or it is
 						// invisible.

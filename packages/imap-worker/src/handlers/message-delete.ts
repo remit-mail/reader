@@ -259,7 +259,7 @@ export const handleMessageDelete = async (
 		accountConfigId: string,
 		getConnection: () => Promise<IImapConnection>,
 	): Promise<void> => {
-		const { outcome } = await resolveExhaustedMessageDeleteFailure(
+		const settled = await resolveExhaustedMessageDeleteFailure(
 			{ messageService, threadMessageService, log },
 			{
 				accountId,
@@ -270,9 +270,25 @@ export const handleMessageDelete = async (
 				sourceMailboxPath: mailboxPath,
 				getConnection,
 			},
-		);
+		).catch((settleError: unknown) => {
+			// The guarded probe found a mailbox whose UIDVALIDITY has moved. Every
+			// stored uid for this folder now names something else, so there is
+			// nothing here that may be settled off them, and the pause is the
+			// routine skip `guardMailboxCursor` documents, not a fault to re-throw
+			// out of the caller's catch.
+			if (settleError instanceof MailboxCursorPausedError) {
+				log.info(
+					{ accountId, messageId, mailboxId, cursorState: settleError.state },
+					"Mailbox cursor not normal; leaving the exhausted delete for the cursor rebuild",
+				);
+				return null;
+			}
+			throw settleError;
+		});
 
-		if (outcome === "broken") {
+		if (!settled) return;
+
+		if (settled.outcome === "broken") {
 			recordImapFailure("MESSAGE_DELETE_EXHAUSTED", "other");
 		}
 
@@ -379,6 +395,21 @@ export const handleMessageDelete = async (
 			}
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
+
+			// The terminal resolver opens the source itself, and its answer now
+			// WRITES a placement, so it has to reach IMAP through the same
+			// UIDVALIDITY choke point every other outbound operation does. An
+			// unguarded probe on a folder that was deleted and recreated finds
+			// whatever the server has renumbered onto this uid, reads it as "still
+			// at source", and binds the row to a stranger the next permanent delete
+			// would expunge.
+			const getGuardedConnection = async (): Promise<IImapConnection> =>
+				guardConnectionCursor(
+					await scope.getConnection(),
+					{ mailboxService },
+					accountId,
+					mailbox,
+				);
 
 			await scope
 				.getConnection()
@@ -490,7 +521,7 @@ export const handleMessageDelete = async (
 						await settleUnconfirmedTrashMove(
 							confirmation,
 							account.accountConfigId,
-							scope.getConnection,
+							getGuardedConnection,
 						);
 					} else {
 						// Permanent delete — reached only by `operation === "permanent_delete"`.
@@ -594,7 +625,7 @@ export const handleMessageDelete = async (
 					// failure this budget exists for.
 					await settleExhaustedDelete(
 						account.accountConfigId,
-						scope.getConnection,
+						getGuardedConnection,
 					);
 					log.error(
 						{ accountId, messageId, uid, mailboxPath, error: errorMessage },

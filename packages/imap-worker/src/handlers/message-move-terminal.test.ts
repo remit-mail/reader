@@ -268,6 +268,88 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		);
 	});
 
+	// The resolver's contract is that it is never re-thrown, so the caller can
+	// ack the record and emit its resync. A row another path deleted while the
+	// probe was in flight has nothing left to restore, and the same NotFound
+	// wraps an ElectroDB composites miss on the listing row.
+	it("BROKEN: a row deleted underneath the probe settles instead of throwing", async () => {
+		const repos = buildRepositories(pendingMoveRow());
+		const notFound = Object.assign(new Error("Message not found: msg-1"), {
+			name: "NotFoundError",
+		});
+		const { log } = buildLogger();
+		const deps: ResolveExhaustedMessageMoveDeps = {
+			messageService: {
+				...repos.messageService,
+				updateUid: async () => {
+					throw notFound;
+				},
+			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
+			threadMessageService: repos.threadMessageService,
+			log,
+		};
+
+		const result = await resolveExhaustedMessageMoveFailure(deps, {
+			...input,
+			getConnection: async () => buildConnection(new Set([101])),
+		});
+
+		assert.equal(result.outcome, "broken");
+	});
+
+	it("BROKEN: a listing row whose composites moved on does not fail the settle", async () => {
+		const repos = buildRepositories(pendingMoveRow());
+		const { log } = buildLogger();
+		const deps: ResolveExhaustedMessageMoveDeps = {
+			messageService: repos.messageService,
+			threadMessageService: {
+				...repos.threadMessageService,
+				update: async () => {
+					throw Object.assign(new Error("Thread message not found"), {
+						name: "NotFoundError",
+					});
+				},
+			} as unknown as ResolveExhaustedMessageMoveDeps["threadMessageService"],
+			log,
+		};
+
+		const result = await resolveExhaustedMessageMoveFailure(deps, {
+			...input,
+			getConnection: async () => buildConnection(new Set([101])),
+		});
+
+		assert.equal(result.outcome, "broken");
+		assert.equal(
+			repos.messages.get("msg-1")?.mailboxId,
+			"mbx-inbox",
+			"the Message row still lands on the pair the server confirmed",
+		);
+	});
+
+	it("a repository fault that is not a missing row still propagates", async () => {
+		const repos = buildRepositories(pendingMoveRow());
+		const { log } = buildLogger();
+		const deps: ResolveExhaustedMessageMoveDeps = {
+			messageService: {
+				...repos.messageService,
+				updateUid: async () => {
+					throw new Error("ProvisionedThroughputExceeded");
+				},
+			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
+			threadMessageService: repos.threadMessageService,
+			log,
+		};
+
+		await assert.rejects(
+			() =>
+				resolveExhaustedMessageMoveFailure(deps, {
+					...input,
+					getConnection: async () => buildConnection(new Set([101])),
+				}),
+			/ProvisionedThroughputExceeded/,
+		);
+	});
+
 	it("an unreachable server reaches no verdict at all — the probe propagates and the row is untouched", async () => {
 		const repos = buildRepositories(pendingMoveRow());
 		const { log } = buildLogger();
