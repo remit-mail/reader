@@ -93,7 +93,7 @@ function SheetStage({ children }: { children: ReactNode }) {
 							</div>
 						))}
 					</div>
-					<BottomSheet open onClose={() => undefined}>
+					<BottomSheet open onClose={() => undefined} label="Filter rule">
 						{children}
 					</BottomSheet>
 				</div>

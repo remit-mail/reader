@@ -1128,6 +1128,7 @@ export {
 	type SuggestKeyState,
 	suggestKeyAction,
 } from "./lib/suggest-keys.js";
+export { useInitialFocus } from "./lib/use-initial-focus.js";
 export { type ListCursor, useListCursor } from "./lib/use-list-cursor.js";
 export {
 	type ListKeyboard,

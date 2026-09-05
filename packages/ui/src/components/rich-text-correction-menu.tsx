@@ -179,6 +179,7 @@ export const RichTextCorrectionMenu = ({
 			<BottomSheet
 				open
 				onClose={() => onDismiss(true)}
+				label={`Corrections for ${rows.word}`}
 				dismissLabel="Close corrections"
 			>
 				<div

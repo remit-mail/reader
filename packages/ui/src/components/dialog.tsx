@@ -1,6 +1,7 @@
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useInitialFocus } from "../lib/use-initial-focus.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
@@ -29,16 +30,7 @@ export function Dialog({
 	const dialogRef = useRef<HTMLDivElement>(null);
 
 	useOverlayScope({ id: "dialog", open, answers: { back: onClose } });
-
-	useEffect(() => {
-		if (!open) return;
-		const dialog = dialogRef.current;
-		if (!dialog) return;
-		const focusable = dialog.querySelectorAll<HTMLElement>(
-			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-		);
-		focusable[0]?.focus();
-	}, [open]);
+	useInitialFocus(dialogRef, open);
 
 	if (!open) return null;
 
