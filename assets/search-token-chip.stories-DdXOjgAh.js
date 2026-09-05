@@ -1,0 +1,7 @@
+import{j as o,r as c}from"./iframe-uufGNBEn.js";import{a as s}from"./search-token-chip-DqTHOlIk.js";import"./preload-helper-PPVm8Dsz.js";import"./cn-d2XQ1MEC.js";import"./x-CuwWA0oJ.js";import"./createLucideIcon-Bn-Stmx4.js";const v={title:"Mail/SearchTokenChips",component:s,parameters:{layout:"padded"}},m=["From: dhl.com","Has attachment","Unread"];function p(){const[a,n]=c.useState(m);return o.jsx("div",{className:"w-96 rounded-md border border-line",children:o.jsx(s,{tokens:a.map(t=>({label:t,onRemove:()=>n(d=>d.filter(i=>i!==t))}))})})}const e={render:()=>o.jsx(p,{})},r={render:()=>o.jsx("div",{className:"w-96 rounded-md border border-line",children:o.jsx(s,{tokens:[]})})};e.parameters={...e.parameters,docs:{...e.parameters?.docs,source:{originalSource:`{
+  render: () => <Interactive />
+}`,...e.parameters?.docs?.source},description:{story:"Removable filter-token chips under the search field; click × to drop one.",...e.parameters?.docs?.description}}};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:`{
+  render: () => <div className="w-96 rounded-md border border-line">
+            <SearchTokenChips tokens={[]} />
+        </div>
+}`,...r.parameters?.docs?.source},description:{story:"No recognized tokens in the query — the row collapses to nothing.",...r.parameters?.docs?.description}}};const f=["Tokens","Empty"];export{r as Empty,e as Tokens,f as __namedExportsOrder,v as default};

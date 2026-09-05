@@ -1,0 +1,12 @@
+import{j as e,r as p}from"./iframe-uufGNBEn.js";import{p as m}from"./event-phrase-nOW2e_Id.js";import{E as o}from"./event-quick-entry-Cc2_WLqy.js";import"./preload-helper-PPVm8Dsz.js";import"./cn-d2XQ1MEC.js";import"./wand-sparkles-eM_wlEts.js";import"./createLucideIcon-Bn-Stmx4.js";import"./info-CzU_cXHr.js";import"./triangle-alert-BMnL-Txz.js";const j={title:"Calendar/Quick entry",component:o,parameters:{layout:"padded",docs:{description:{component:`Typing a sentence is the fastest way to make an event, and the machine's
+reading of that sentence is on screen while you type — each field next to the
+words it came from, with anything assumed or missing said out loud. The
+correction happens before the event exists.`}}}},h=new Date(2026,5,10,9,30);function n({initial:d}){const[a,c]=p.useState(d);return e.jsx("div",{className:"max-w-md",children:e.jsx(o,{value:a,onChange:c,parse:m(a,h),onCommit:()=>{}})})}const t={render:()=>e.jsx(n,{initial:"lunch with Jane friday 1pm"})},r={render:()=>e.jsx(n,{initial:"dentist next tuesday 15:00 for 45m"})},s={render:()=>e.jsx(n,{initial:"design review monday"})},i={render:()=>e.jsx(n,{initial:""})};t.parameters={...t.parameters,docs:{...t.parameters?.docs,source:{originalSource:`{
+  render: () => <Live initial="lunch with Jane friday 1pm" />
+}`,...t.parameters?.docs?.source},description:{story:"Type into it. Every keystroke moves the reading below the field.",...t.parameters?.docs?.description}}};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:`{
+  render: () => <Live initial="dentist next tuesday 15:00 for 45m" />
+}`,...r.parameters?.docs?.source},description:{story:"A length in the phrase is read; without one the reader says it picked an hour.",...r.parameters?.docs?.description}}};s.parameters={...s.parameters,docs:{...s.parameters?.docs,source:{originalSource:`{
+  render: () => <Live initial="design review monday" />
+}`,...s.parameters?.docs?.source},description:{story:"No time in the sentence, so no time in the event — and it says so.",...s.parameters?.docs?.description}}};i.parameters={...i.parameters,docs:{...i.parameters?.docs,source:{originalSource:`{
+  render: () => <Live initial="" />
+}`,...i.parameters?.docs?.source},description:{story:"Nothing typed yet: the reading stays out of the way until there is one.",...i.parameters?.docs?.description}}};const L=["Typing","WithLength","MissingTime","Empty"];export{i as Empty,s as MissingTime,t as Typing,r as WithLength,L as __namedExportsOrder,j as default};

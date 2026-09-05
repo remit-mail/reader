@@ -1,0 +1,1 @@
+import{j as e}from"./iframe-uufGNBEn.js";const a=390,n=411,c=834,d=1440,t=s=>o=>e.jsx("div",{className:"relative overflow-hidden rounded-lg border border-line",style:{width:s,height:844},children:e.jsx(o,{})}),i=t(a),l={layout:"centered",viewport:{value:"mobile"}};export{d as D,a as P,c as T,n as W,l as a,t as f,i as p};
