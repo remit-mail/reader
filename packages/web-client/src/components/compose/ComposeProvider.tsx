@@ -41,17 +41,23 @@ const ComposeContext = createContext<ComposeContextValue | undefined>(
 const POLL_INTERVAL_MS = 2000;
 const MAX_POLL_DURATION_MS = 60_000;
 
+/**
+ * `sent` is not one of these. It is the window between SMTP handing the message
+ * over and the APPEND either filing it — row deleted, 404 — or settling it
+ * `unfiled`, and the outbox list renders no `sent` row (`isOutboxListRow`). A
+ * watch that stopped there invalidated the list over a row nothing displays and
+ * never asked again, so the `unfiled` a beat later reached no screen: #824's
+ * message the sender can reach in no view, arrived at from the client's side.
+ * A row stranded at `sent` by a delete that failed polls to the cap below,
+ * which is what the cap is for.
+ */
 const isSettledStatus = (status: string | undefined): boolean =>
-	status === "sent" ||
-	status === "unfiled" ||
-	status === "failed" ||
-	status === "blocked";
+	status === "unfiled" || status === "failed" || status === "blocked";
 
 /**
  * A send that lands is filed and then forgotten: the worker APPENDs the message
  * to Sent and drops the outbox row, so the row's absence is the settled state
- * and the 404 is the confirmation. `sent` lives for under a second and this poll
- * runs every two, so the 404 is the outcome it normally reads.
+ * and the 404 is the confirmation.
  *
  * Only the 404 is this call site's to own. A 401 or a 403 here is a session that
  * lapsed under a send, which the app owes the user an answer about.

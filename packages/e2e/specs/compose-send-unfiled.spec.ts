@@ -44,6 +44,7 @@ import {
 } from "../src/imap.js";
 import { expectNoFatalOverlay } from "../src/overlay.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { holdRoute } from "../src/routes.js";
 import {
 	countAcceptedMessages,
 	waitForAcceptedMessage,
@@ -197,6 +198,19 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 		await body.click();
 		await page.keyboard.type(BODY);
 
+		// The watch's first read lands about a tenth of a second after Send, which
+		// is inside the row's own trip from `queued` through `sent` to `unfiled`.
+		// Whichever of those three it caught was a coin toss, and the spec's
+		// answers are only about the last one — so the reads are held until the
+		// server has settled the row, and every read the watch gets is of a state
+		// the server already committed. Registered after the draft is written and
+		// before Send: nothing but the watch reads this route in between.
+		let openTheGate: (() => void) | undefined;
+		const rowHasSettled = new Promise<void>((resolve) => {
+			openTheGate = resolve;
+		});
+		await holdRoute(page, OUTBOX_DETAIL, { until: rowHasSettled });
+
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 
 		// Compose closing is the app saying the send was accepted, and is what
@@ -228,6 +242,8 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 			},
 		);
 		expect(settled.lastError ?? "").toContain("Sent, but not filed");
+
+		openTheGate?.();
 
 		await expect
 			.poll(() => watchReadUnfiledAt !== undefined, {
