@@ -43,6 +43,11 @@ describe("DrizzleUnitOfWork", () => {
 			envelopeId: deriveEnvelopeId(MESSAGE_ID),
 			rootBodyPartId: deriveRootBodyPartId(MESSAGE_ID),
 		});
+		// Body-sync is the write that appends the transactional-outbox row; the
+		// create itself emits none.
+		await repos.message.update(MESSAGE_ID, {
+			bodyStorageKey: "body/hello.json",
+		});
 	};
 
 	const rows = async () => {
@@ -99,7 +104,7 @@ describe("DrizzleUnitOfWork", () => {
 		assert.equal(envelopes.length, 1);
 		assert.equal(messages.length, 1);
 		assert.equal(outbox.length, 1);
-		assert.equal(outbox[0].event, "message.created");
+		assert.equal(outbox[0].event, "message.body_synced");
 		assert.deepStrictEqual(outbox[0].payload, { messageId: MESSAGE_ID });
 	});
 });
