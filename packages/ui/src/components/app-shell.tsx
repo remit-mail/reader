@@ -1,15 +1,12 @@
 import { FolderInput } from "lucide-react";
 import { useState } from "react";
+import type { BriefCategoryFilter } from "../category-presentation.js";
 import {
 	type BriefFilterId,
 	narrowBriefSections,
 } from "../lib/brief-filters.js";
 import { AppShellSlotted, useAppShellLayout } from "./app-shell-slotted.js";
-import type {
-	AppShellProps,
-	BriefCategoryFilter,
-	NarrowView,
-} from "./app-shell-types.js";
+import type { AppShellProps, NarrowView } from "./app-shell-types.js";
 import type { BriefFilterControl } from "./brief-sections.js";
 import { Button } from "./button.js";
 import { IntelligencePanel } from "./intelligence-panel.js";

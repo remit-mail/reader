@@ -11,8 +11,8 @@
  * anywhere, so the host applies them with `matchesBriefFilters` before it hands
  * the rows down. One table for both, rather than one per surface (#314).
  */
+import type { BriefCategoryFilter } from "../category-presentation.js";
 import type {
-	BriefCategoryFilter,
 	ThreadRowData,
 	ThreadSection,
 } from "../components/app-shell-types.js";

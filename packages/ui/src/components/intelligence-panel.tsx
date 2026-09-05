@@ -11,13 +11,13 @@ import {
 	X,
 } from "lucide-react";
 import { type ReactElement, type ReactNode, useId, useState } from "react";
+import { categoryTone, type ThreadCategory } from "../category-presentation.js";
 import { cn } from "../lib/cn.js";
 import {
 	SEMANTIC_OFF_BUYS,
 	SEMANTIC_OFF_COMMAND,
 	SEMANTIC_OFF_TITLE,
 } from "../lib/semantic-off.js";
-import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";

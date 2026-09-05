@@ -4,6 +4,19 @@
 // instead of chaining them) without importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
+	type BriefCategoryFilter,
+	CATEGORY_PRESENTATION,
+	CATEGORY_SECTION_ORDER,
+	type CategoryPresentation,
+	categoryChips,
+	categoryLabels,
+	categoryTone,
+	getCategoryLabel,
+	isBriefCategory,
+	isThreadCategory,
+	type ThreadCategory,
+} from "./category-presentation.js";
+export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,
@@ -47,13 +60,8 @@ export {
 } from "./components/app-shell-slotted.js";
 export {
 	type AppShellProps,
-	type BriefCategoryFilter,
-	briefCategories,
-	categoryTone,
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
-	isBriefCategory,
-	isThreadCategory,
 	type MessageListKeyboard,
 	type MessageListSelection,
 	type NarrowView,
@@ -66,7 +74,6 @@ export {
 	type PaneLayout,
 	READING_PANE_MIN_WIDTH,
 	resolvePaneLayout,
-	type ThreadCategory,
 	type ThreadData,
 	type ThreadMessageData,
 	type ThreadRowData,
@@ -222,8 +229,6 @@ export {
 export {
 	CategoryBadge,
 	type CategoryBadgeProps,
-	getCategoryLabel,
-	type MessageCategory,
 } from "./components/category-badge.js";
 export { Checkbox, type CheckboxProps } from "./components/checkbox.js";
 export {

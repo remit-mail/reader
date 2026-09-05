@@ -1,12 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { expect, within } from "storybook/test";
+import { categoryTone, type ThreadCategory } from "../category-presentation.js";
 import { briefFilterConfig } from "../filter-presets.js";
-import {
-	categoryTone,
-	type ThreadCategory,
-	type ThreadRowData,
-	type ThreadSection,
-} from "./app-shell-types.js";
+import type { ThreadRowData, ThreadSection } from "./app-shell-types.js";
 import { Badge } from "./badge.js";
 import { BriefSection } from "./brief-section.js";
 import {

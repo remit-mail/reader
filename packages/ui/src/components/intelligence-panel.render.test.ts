@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { categoryTone, isThreadCategory } from "./app-shell-types.js";
+import { categoryTone, isThreadCategory } from "../category-presentation.js";
 import type { IntelligenceCalendarActions } from "./intelligence-calendar.js";
 import { inviteWithClash } from "./intelligence-calendar-fixtures.js";
 import type {

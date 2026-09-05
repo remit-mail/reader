@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { CategoryBadge, getCategoryLabel } from "./category-badge.js";
+import {
+	CATEGORY_PRESENTATION,
+	getCategoryLabel,
+} from "../category-presentation.js";
+import { CategoryBadge } from "./category-badge.js";
 
 describe("getCategoryLabel", () => {
 	it("returns null for undefined (no badge)", () => {
@@ -13,12 +17,11 @@ describe("getCategoryLabel", () => {
 		assert.equal(getCategoryLabel("personal"), null);
 	});
 
-	it("maps each non-personal category to its label", () => {
-		assert.equal(getCategoryLabel("newsletter"), "newsletter");
-		assert.equal(getCategoryLabel("marketing"), "marketing");
-		assert.equal(getCategoryLabel("automated"), "notification");
-		assert.equal(getCategoryLabel("transactional"), "receipt");
-		assert.equal(getCategoryLabel("social"), "social");
+	it("gives every other category the word every surface shows", () => {
+		for (const { category, label } of CATEGORY_PRESENTATION) {
+			if (category === "personal") continue;
+			assert.equal(getCategoryLabel(category), label);
+		}
 	});
 });
 
@@ -34,7 +37,7 @@ describe("CategoryBadge", () => {
 		const html = renderToString(
 			createElement(CategoryBadge, { category: "newsletter" }),
 		);
-		assert.match(html, /newsletter/);
-		assert.match(html, /aria-label="Category: newsletter"/);
+		assert.match(html, /Newsletter/);
+		assert.match(html, /aria-label="Category: Newsletter"/);
 	});
 });

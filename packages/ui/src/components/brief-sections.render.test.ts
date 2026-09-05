@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import type { BriefCategoryFilter } from "../category-presentation.js";
 import type { BriefFilterId } from "../lib/brief-filters.js";
-import type { BriefCategoryFilter, ThreadSection } from "./app-shell-types.js";
+import type { ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { ComfortableRow } from "./message-row.js";
 
@@ -138,8 +139,9 @@ describe("BriefSections", () => {
 				...chipControl,
 			}),
 		);
-		assert.doesNotMatch(html, />Personal</);
-		assert.doesNotMatch(html, />Newsletter</);
+		// The section header is the only collapsible <button>; the filter sheet's
+		// own header is a <div role="button">.
+		assert.doesNotMatch(html, /<button[^>]*aria-expanded/);
 		assert.ok(
 			html.indexOf("Priya Nair") < html.indexOf("Weekly Brief"),
 			"the flat list reordered its rows",
