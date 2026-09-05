@@ -1,9 +1,14 @@
+import type {
+	IMessageRepository,
+	IThreadMessageRepository,
+} from "@remit/data-ports";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export interface MessageMoveTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -12,6 +17,11 @@ export interface MessageMoveTerminalLogger {
 
 export interface ResolveExhaustedMessageMoveDeps
 	extends StaleMessageReconcileDeps {
+	messageService: Pick<IMessageRepository, "delete" | "updateUid">;
+	threadMessageService: Pick<
+		IThreadMessageRepository,
+		"findAllByMessageId" | "deleteMany" | "update"
+	>;
 	log: MessageMoveTerminalLogger;
 }
 
@@ -19,6 +29,7 @@ export interface ResolveExhaustedMessageMoveInput {
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
+	sourceMailboxId: string;
 	uid: number;
 	sourceMailboxPath: string;
 	getConnection: () => Promise<IImapConnection>;
@@ -51,12 +62,21 @@ export interface ResolveExhaustedMessageMoveResult {
  *    server's own UID. Metric only, no alarm — routine.
  * 2. BROKEN — the message is still at the source, so the move never took
  *    effect, but it keeps failing: broken code or a broken account, not a
- *    transient blip. Local state is left exactly as it stands. Reverting the
- *    optimistic move here is what PR #652 was pulled for: the local row is the
- *    only record that this move is still owed, and a revert races a MOVE that
- *    may yet have landed. Logged with an `alert`-shaped entry for an operator
- *    alarm; never re-thrown (terminal — the caller acks either way, since
- *    retrying a permanently-broken move can never succeed).
+ *    transient blip. The row is put back where the server has just said the
+ *    message is, as `resolveExhaustedMessageDeleteFailure` does (#1098). Logged
+ *    with an `alert`-shaped entry for an operator alarm; never re-thrown
+ *    (terminal — the caller acks either way, since retrying a
+ *    permanently-broken move can never succeed).
+ *
+ *    Leaving the row `moving` is what this replaces. BROKEN is terminal, so
+ *    nothing was ever going to come back and settle it, and only `updateUid`
+ *    clears `moving` — the row kept a `mailboxId` naming the destination and a
+ *    `uid` belonging to the source, which `bindsForeignUid` refuses to act on,
+ *    leaving the message undeletable and unmovable for good (issue #1005).
+ *    Restoring the pair is not the revert-on-ambiguity PR #652 was pulled for:
+ *    the presence probe above has just answered, so this writes a placement the
+ *    server confirmed, and a MOVE that lands after all is re-projected by the
+ *    resync the caller runs.
  *
  * A server that cannot be reached at exhaustion time never reaches either
  * verdict: the probe throws and the record dead-letters with the row untouched.
@@ -66,9 +86,10 @@ export interface ResolveExhaustedMessageMoveResult {
  * message is not actually at the source: a message another client expunged
  * mid-session can answer an empty FETCH while the server still lists its UID
  * in SEARCH, until it is allowed to send the untagged EXPUNGE. That message
- * lands in BROKEN, and BROKEN is terminal — the row stays pending and the
- * alert stands until someone clears it. The reverse mistake discards the row
- * for live mail, so the cost is paid deliberately.
+ * lands in BROKEN, and BROKEN is terminal — the row is bound to a source the
+ * message has already left and the alert stands until someone clears it. The
+ * reverse mistake discards the row for live mail, so the cost is paid
+ * deliberately.
  */
 export const resolveExhaustedMessageMoveFailure = async (
 	deps: ResolveExhaustedMessageMoveDeps,
@@ -78,6 +99,7 @@ export const resolveExhaustedMessageMoveFailure = async (
 		accountId,
 		accountConfigId,
 		messageId,
+		sourceMailboxId,
 		uid,
 		sourceMailboxPath,
 		getConnection,
@@ -114,9 +136,18 @@ export const resolveExhaustedMessageMoveFailure = async (
 			accountConfigId,
 			messageId,
 			uid,
+			sourceMailboxId,
 			sourceMailboxPath,
 		},
-		"Message move could not be pushed to IMAP after retry exhaustion; message still exists at its source — local state left pending for operator investigation",
+		"Message move could not be pushed to IMAP after retry exhaustion; the message is still at its source — row moved back to the source folder",
 	);
+
+	await restoreSourcePlacement(deps, {
+		accountConfigId,
+		messageId,
+		sourceMailboxId,
+		uid,
+	});
+
 	return { outcome: "broken" };
 };

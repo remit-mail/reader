@@ -8,7 +8,7 @@ import {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
-import { buildThreadMessageMoveRevert } from "./thread-message-rows.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export interface MessageDeleteTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -125,25 +125,12 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		"Delete could not be pushed to IMAP after retry exhaustion; the message is still at its source — row moved back to the source folder",
 	);
 
-	await deps.messageService.updateUid(messageId, uid, sourceMailboxId);
-
-	const threadMessages = await deps.threadMessageService.findAllByMessageId(
+	await restoreSourcePlacement(deps, {
 		accountConfigId,
 		messageId,
-	);
-	for (const threadMessage of threadMessages) {
-		const args = buildThreadMessageMoveRevert(
-			threadMessage,
-			uid,
-			sourceMailboxId,
-		);
-		await deps.threadMessageService.update(
-			threadMessage.accountConfigId,
-			threadMessage.threadMessageId,
-			args.set,
-			{ composites: args.composites },
-		);
-	}
+		sourceMailboxId,
+		uid,
+	});
 
 	return { outcome: "broken" };
 };

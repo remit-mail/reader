@@ -401,30 +401,35 @@ export const handleMessageMove = async (
 							accountId,
 							accountConfigId: account.accountConfigId,
 							messageId,
+							sourceMailboxId,
 							uid,
 							sourceMailboxPath,
 							getConnection: scope.getConnection,
 						},
 					);
 
-					if (outcome === "reconciled") {
-						// Whichever folder the message actually sits in re-projects it
-						// with the server's own UID.
-						await emitMoveResync(emitEvent, {
-							accountId,
-							sourceMailboxId,
-							destinationMailboxId,
-						});
-						return;
+					if (outcome === "broken") {
+						// Terminal and never re-thrown, so the handler-outcome series
+						// records this record as a success. Counted here or it is
+						// invisible.
+						recordImapFailure("MESSAGE_MOVE_EXHAUSTED", "other");
+						log.error(
+							{ error: errorMessage },
+							"Message move retry exhausted; message still exists at its source",
+						);
 					}
 
-					// Terminal and never re-thrown, so the handler-outcome series
-					// records this record as a success. Counted here or it is invisible.
-					recordImapFailure("MESSAGE_MOVE_EXHAUSTED", "other");
-					log.error(
-						{ error: errorMessage },
-						"Message move retry exhausted; message still exists at its source",
-					);
+					// Both verdicts end in a row the server has contradicted, so this
+					// move reconciles rather than waits (R2). RECONCILED, the local rows
+					// are gone and whichever folder actually holds the message
+					// re-projects it with the server's own UID. BROKEN, the row has just
+					// been put back at the source the server confirmed, and the resync
+					// is what carries any drift either folder has picked up since.
+					await emitMoveResync(emitEvent, {
+						accountId,
+						sourceMailboxId,
+						destinationMailboxId,
+					});
 					// Terminal — never re-thrown, so the caller acks either way.
 				})
 				.finally(() => scope.disconnect());
