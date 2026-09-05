@@ -308,7 +308,11 @@ export const handleMessageCopy = async (
 
 			// A paused cursor settles rather than acks: acking leaves the optimistic
 			// row at `uid: 0`/`moving` with nothing to re-enqueue it and no folder
-			// set for the cursor rebuild to find it in (issue #1203).
+			// set for the cursor rebuild to find it in (issue #1203). Like every
+			// other verdict on this row, it reconciles rather than waits (R2,
+			// docs/architecture/imap-mutations.md) — the settle below IS the
+			// reconciliation path, since the destination is not paused and no
+			// rebuild is coming for it.
 			//
 			// What may be concluded from the pause depends on the delivery. A first
 			// delivery has provably issued no COPY, so the row records something the
@@ -434,6 +438,9 @@ export const handleMessageCopy = async (
 							},
 							"Mailbox cursor not normal; pausing outbound copy this round",
 						);
+						// No probe here, and none owed: a redelivery reaching this openBox
+						// has already asked the destination above and been told `absent`,
+						// which is the one answer that lets the row go.
 						await settleNeverLanded(
 							"source mailbox cursor paused before the copy",
 						);

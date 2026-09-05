@@ -2,9 +2,10 @@ import { getClient } from "@remit/backend/client";
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -25,13 +26,11 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
 import {
 	emitMoveResync,
+	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 import { restoreSourcePlacement } from "./restore-source-placement.js";
-import {
-	buildThreadMessageMoveRevert,
-	buildThreadMessageTrashUpdate,
-} from "./thread-message-rows.js";
+import { buildThreadMessageTrashUpdate } from "./thread-message-rows.js";
 
 export const getMessageDeleteMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -195,85 +194,26 @@ export const handleMessageDelete = async (
 		return;
 	}
 
-	// Only an operation that explicitly says so destroys mail. The event is
-	// `JSON.parse`d and cast in the queue handler with no validation, so a
-	// missing, misspelled or future field must abandon the delete — the
-	// "anything that is not move_to_trash is an expunge" inference is the same
-	// one that destroyed mail in the service, and an unrecoverable EXPUNGE is
-	// not a default. Abandoning hands the row back where the server still has
-	// it: an invisible `failed` on a row the user cannot see is the shape of
-	// the incident this whole change is about.
-	const abandonDelete = async (
-		reason: string,
-		alert: string,
-	): Promise<void> => {
-		log.error(
-			{ alert, accountId, messageId, uid, mailboxPath, operation },
-			reason,
-		);
-
-		const threadMessages = await threadMessageService.findAllByMessageId(
-			account.accountConfigId,
-			messageId,
-		);
-
-		// A permanent delete removes the listing rows before it enqueues, and
-		// they cannot be rebuilt from here — the row is denormalized off an
-		// envelope only the sync path shapes. Restoring the Message alone would
-		// leave mail nothing can list, which is the silent vanish rather than a
-		// visible failure, so the local removal finishes instead. The server copy
-		// survives (nothing was expunged) and a full sync of the mailbox brings
-		// it back. Reachable only through the rollout window, where a v1 event
-		// carries no `schemaVersion`.
-		if (threadMessages.length === 0) {
-			log.error(
-				{
-					alert: "message_delete_abandoned_after_local_cleanup",
-					accountId,
-					messageId,
-					uid,
-					mailboxPath,
-				},
-				"Abandoned delete had no listing rows left to restore; the server copy was not expunged",
-			);
-			await messageService.delete(messageId);
-			return;
-		}
-
-		await messageService.updateUid(messageId, uid, mailboxId);
-		await messageService.update(messageId, {
-			status: MessageStatus.active,
-			syncStatus: MessageSyncStatus.failed,
-		});
-		for (const threadMessage of threadMessages) {
-			const args = buildThreadMessageMoveRevert(threadMessage, uid, mailboxId);
-			await threadMessageService.update(
-				threadMessage.accountConfigId,
-				threadMessage.threadMessageId,
-				args.set,
-				{ composites: args.composites },
-			);
-		}
-	};
-
 	/**
-	 * Hand the optimistic local delete back when a paused cursor means IMAP
-	 * never saw it. Every pause below is thrown by the openBox guard before the
-	 * MOVE or the EXPUNGE is issued, and acking on the optimistic row strands
-	 * it: nothing re-enqueues a MESSAGE_DELETE, and the cursor rebuild matches
-	 * rows by `(accountConfigId, mailboxId)`, so it never even sees a
-	 * move-to-trash row that already names Trash (issue #1203).
+	 * Undo the optimistic local delete, for every reason this handler has to
+	 * give one up. The verdict differs — a refused event is a failure the row
+	 * carries, a paused cursor is a mutation the server never heard of — but the
+	 * way back is one rule, and it is the listing rows that pick it.
 	 *
-	 * The listing rows decide which way back, on the same rule
-	 * {@link abandonDelete} resolves the identical state by. Rows still there —
-	 * the ordinary move to trash — put the row back on the source pair, which is
-	 * the set the rebuild adjudicates. No rows left is a permanent delete, whose
-	 * listing rows go at enqueue and can only be shaped by the sync path, so
-	 * restoring the Message alone would leave mail nothing can list; the row is
-	 * removed instead and the mailbox's own resync re-projects it. That is local
-	 * mail disappearing while the server still holds it, so it alerts.
+	 * Rows still there is the ordinary move to trash: the row goes back on the
+	 * source pair, which is also the set the cursor rebuild adjudicates.
+	 *
+	 * No rows left is a permanent delete, which drops them at enqueue; they are
+	 * denormalized off an envelope only the sync path shapes and cannot be
+	 * rebuilt from here, so restoring the Message alone would leave mail nothing
+	 * can list — the silent vanish rather than a visible failure. The local
+	 * removal finishes instead. Nothing was expunged, so the server copy
+	 * survives and the mailbox's own sync re-projects it, but local mail
+	 * disappearing while the server still holds it alerts either way.
 	 */
-	const handBackPausedDelete = async (): Promise<void> => {
+	const handBackDelete = async (
+		syncStatus: MessageItem["syncStatus"],
+	): Promise<void> => {
 		const threadMessages = await threadMessageService.findAllByMessageId(
 			account.accountConfigId,
 			messageId,
@@ -288,7 +228,7 @@ export const handleMessageDelete = async (
 					uid,
 					mailboxPath,
 				},
-				"Paused delete had no listing rows left to restore; the local row was removed and the server copy was not expunged",
+				"Delete given up with no listing rows left to restore; the local row was removed and the server copy was not expunged",
 			);
 			await messageService.delete(messageId);
 			return;
@@ -301,13 +241,125 @@ export const handleMessageDelete = async (
 				messageId,
 				sourceMailboxId: mailboxId,
 				uid,
+				syncStatus,
 			},
 		);
+	};
+
+	// Only an operation that explicitly says so destroys mail. The event is
+	// `JSON.parse`d and cast in the queue handler with no validation, so a
+	// missing, misspelled or future field must abandon the delete — the
+	// "anything that is not move_to_trash is an expunge" inference is the same
+	// one that destroyed mail in the service, and an unrecoverable EXPUNGE is
+	// not a default. Abandoning hands the row back where the server still has
+	// it: an invisible `failed` on a row the user cannot see is the shape of
+	// the incident this whole change is about. The row keeps `failed`, because
+	// the product refused something the user asked for.
+	const abandonDelete = async (
+		reason: string,
+		alert: string,
+	): Promise<void> => {
+		log.error(
+			{ alert, accountId, messageId, uid, mailboxPath, operation },
+			reason,
+		);
+		await handBackDelete(MessageSyncStatus.failed);
+	};
+
+	const settleTrashMoveConfirmed = async (
+		newUid: number,
+		trashMailboxId: string,
+	): Promise<void> => {
+		await messageService.updateUid(messageId, newUid, trashMailboxId);
+
+		const threadMessage = await threadMessageService.findByMessageId(
+			account.accountConfigId,
+			messageId,
+		);
+		if (threadMessage) {
+			const args = buildThreadMessageTrashUpdate(
+				threadMessage,
+				newUid,
+				trashMailboxId,
+			);
+			await threadMessageService.update(
+				threadMessage.accountConfigId,
+				threadMessage.threadMessageId,
+				args.set,
+				{ composites: args.composites },
+			);
+		}
+
+		log.info({ messageId, newUid }, "Message moved to trash");
+	};
+
+	/**
+	 * Settle the optimistic local delete when a paused cursor stops this round
+	 * from issuing it. Acking on the optimistic row strands it: nothing
+	 * re-enqueues a MESSAGE_DELETE, and the cursor rebuild matches rows by
+	 * `(accountConfigId, mailboxId)`, so it never even sees a move-to-trash row
+	 * that already names Trash (issue #1203).
+	 *
+	 * The delete therefore reconciles rather than waits (R2,
+	 * docs/architecture/imap-mutations.md): the row is settled onto whichever
+	 * pair the server can be shown to hold, and the resync plus the source's own
+	 * cursor rebuild are its repair path.
+	 *
+	 * A first delivery has provably issued neither the MOVE nor the EXPUNGE —
+	 * every paused exit is thrown by the openBox guard before them — so undoing
+	 * the local write claims nothing about the server. A redelivery cannot say
+	 * that: the earlier attempt's tagged OK can be lost with the connection, and
+	 * handing back on that assumption writes `synced` onto INBOX for mail the
+	 * server already holds in Trash. It asks {@link probePausedPlacement}
+	 * instead, on the unguarded handle, and settles the trash move where the
+	 * destination confirms it. A permanent delete has nothing to ask: its answer
+	 * is the same either way, since the row is unlistable and goes.
+	 */
+	const settlePausedDelete = async (
+		getRawConnection: () => Promise<IImapConnection>,
+	): Promise<void> => {
+		const isRedeliveredTrashMove =
+			receiveCount > 1 &&
+			operation === "move_to_trash" &&
+			destinationMailboxId !== undefined &&
+			destinationMailboxPath !== undefined;
+
+		if (isRedeliveredTrashMove) {
+			const [message] = await messageService.get([messageId]);
+			const placement = await probePausedPlacement(await getRawConnection(), {
+				messageIdHeader: message?.messageIdHeader,
+				sourceMailboxPath: mailboxPath,
+				destinationMailboxPath,
+			});
+			if (placement.kind === "at-destination") {
+				await settleTrashMoveConfirmed(placement.uid, destinationMailboxId);
+				await emitMoveResync(emitEvent, {
+					accountId,
+					sourceMailboxId: mailboxId,
+					destinationMailboxId,
+				});
+				return;
+			}
+		}
+
+		// `gone` and `unprobeable` land here with the rest: the source pair is the
+		// set the rebuild walks, and a row it cannot match against a fresh
+		// envelope snapshot is the one thing it reconciles away.
+		await handBackDelete(MessageSyncStatus.synced);
+
+		if (destinationMailboxId) {
+			await emitMoveResync(emitEvent, {
+				accountId,
+				sourceMailboxId: mailboxId,
+				destinationMailboxId,
+			});
+		}
 	};
 
 	const settleExhaustedDelete = async (
 		accountConfigId: string,
 		getConnection: () => Promise<IImapConnection>,
+		settlePaused: () => Promise<void>,
 	): Promise<void> => {
 		const settled = await resolveExhaustedMessageDeleteFailure(
 			{ messageService, threadMessageService, log },
@@ -321,19 +373,18 @@ export const handleMessageDelete = async (
 				getConnection,
 			},
 		).catch(async (settleError: unknown) => {
-			// The guarded probe found a mailbox whose UIDVALIDITY has moved. Every
-			// stored uid for this folder now names something else, so nothing may
-			// be settled off the probe, and the pause is the routine skip
-			// `guardMailboxCursor` documents, not a fault to re-throw out of the
-			// caller's catch. The optimistic delete is still handed back: that is
-			// the only way the rebuild sees the row at all, and the rebuild is what
-			// adjudicates it.
+			// The guarded probe found a mailbox whose UIDVALIDITY has moved. Nothing
+			// may be settled off a uid on a dead axis, and the pause is the routine
+			// skip `guardMailboxCursor` documents, not a fault to re-throw out of
+			// the caller's catch. The delete is still settled, on the identity axis
+			// instead: the paused settle asks by Message-ID, which a UIDVALIDITY
+			// change does not invalidate.
 			if (settleError instanceof MailboxCursorPausedError) {
 				log.info(
 					{ accountId, messageId, mailboxId, cursorState: settleError.state },
-					"Mailbox cursor not normal; handing the exhausted delete back for the cursor rebuild",
+					"Mailbox cursor not normal; settling the exhausted delete against the server by Message-ID",
 				);
-				await handBackPausedDelete();
+				await settlePaused();
 				return null;
 			}
 			throw settleError;
@@ -370,6 +421,7 @@ export const handleMessageDelete = async (
 		confirmation: Exclude<TrashMoveConfirmation, { outcome: "confirmed" }>,
 		accountConfigId: string,
 		getConnection: () => Promise<IImapConnection>,
+		settlePaused: () => Promise<void>,
 	): Promise<void> => {
 		const context = {
 			accountId,
@@ -395,7 +447,7 @@ export const handleMessageDelete = async (
 				context,
 				"Move to trash carries no Message-ID header to probe the destination with; settling on the source's answer alone",
 			);
-			await settleExhaustedDelete(accountConfigId, getConnection);
+			await settleExhaustedDelete(accountConfigId, getConnection, settlePaused);
 			return;
 		}
 
@@ -436,18 +488,6 @@ export const handleMessageDelete = async (
 				return;
 			}
 
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. Optimization only — the
-			// guardConnectionCursor openBox wrap below is the structural guarantee.
-			if (isCursorRebuildNeeded(mailbox.cursorState)) {
-				log.info(
-					{ accountId, messageId, mailboxId },
-					"Mailbox cursor not normal; pausing outbound delete this round and handing the optimistic delete back",
-				);
-				await handBackPausedDelete();
-				return;
-			}
-
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			// The terminal resolver opens the source itself, and its answer now
@@ -464,6 +504,22 @@ export const handleMessageDelete = async (
 					accountId,
 					mailbox,
 				);
+
+			const settlePaused = (): Promise<void> =>
+				settlePausedDelete(scope.getConnection);
+
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never opens a connection on a first delivery. Optimization
+			// only — the guardConnectionCursor openBox wrap below is the structural
+			// guarantee.
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, messageId, mailboxId },
+					"Mailbox cursor not normal; pausing outbound delete this round and settling the row against the server",
+				);
+				await settlePaused().finally(() => scope.disconnect());
+				return;
+			}
 
 			await scope
 				.getConnection()
@@ -541,34 +597,10 @@ export const handleMessageDelete = async (
 								});
 
 						if (confirmation.outcome === "confirmed") {
-							const newUid = confirmation.uid;
-							// Update message with new UID in Trash
-							await messageService.updateUid(
-								messageId,
-								newUid,
+							await settleTrashMoveConfirmed(
+								confirmation.uid,
 								destinationMailboxId,
 							);
-
-							// Update ThreadMessage with new UID and isDeleted = true
-							const threadMessage = await threadMessageService.findByMessageId(
-								account.accountConfigId,
-								messageId,
-							);
-							if (threadMessage) {
-								const args = buildThreadMessageTrashUpdate(
-									threadMessage,
-									newUid,
-									destinationMailboxId,
-								);
-								await threadMessageService.update(
-									threadMessage.accountConfigId,
-									threadMessage.threadMessageId,
-									args.set,
-									{ composites: args.composites },
-								);
-							}
-
-							log.info({ messageId, newUid }, "Message moved to trash");
 							return;
 						}
 
@@ -576,6 +608,7 @@ export const handleMessageDelete = async (
 							confirmation,
 							account.accountConfigId,
 							getGuardedConnection,
+							settlePaused,
 						);
 					} else {
 						// Permanent delete — reached only by `operation === "permanent_delete"`.
@@ -605,9 +638,9 @@ export const handleMessageDelete = async (
 					if (error instanceof MailboxCursorPausedError) {
 						log.info(
 							{ accountId, messageId, mailboxId, cursorState: error.state },
-							"Mailbox cursor not normal; pausing outbound delete this round and handing the optimistic delete back",
+							"Mailbox cursor not normal; pausing outbound delete this round and settling the row against the server",
 						);
-						await handBackPausedDelete();
+						await settlePaused();
 						return;
 					}
 
@@ -681,6 +714,7 @@ export const handleMessageDelete = async (
 					await settleExhaustedDelete(
 						account.accountConfigId,
 						getGuardedConnection,
+						settlePaused,
 					);
 					log.error(
 						{ accountId, messageId, uid, mailboxPath, error: errorMessage },

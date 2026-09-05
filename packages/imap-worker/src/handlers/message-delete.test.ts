@@ -299,6 +299,11 @@ interface Harness {
 	threadMessageUpdateError?: Error;
 	messageRow: { messageIdHeader?: string } | undefined;
 	destinationSearchUids: number[];
+	// A Message-ID SEARCH is answered by whichever folder was opened last, so a
+	// case can put the same header in both. Default: the source still holds it,
+	// the destination does not.
+	sourceSearchUids: number[];
+	openBoxPath: string;
 	threadMessage: Record<string, unknown> | null;
 	allThreadMessages: Record<string, unknown>[];
 	getConnectionCount: number;
@@ -328,7 +333,10 @@ const isMessageIdSearch = (criteria: unknown): boolean =>
 	criteria[0][0] === "HEADER";
 
 const buildConnection = (): Connection => ({
-	openBox: async () => ({ uidvalidity: 1 }),
+	openBox: async (path: string) => {
+		h.openBoxPath = path;
+		return { uidvalidity: 1 };
+	},
 	moveMessages: async () => ({ uidMap: new Map([[10, 20]]) }),
 	deleteMessages: record(
 		"connection.deleteMessages",
@@ -344,15 +352,22 @@ const buildConnection = (): Connection => ({
 	},
 	search: async (...args: unknown[]) => {
 		h.calls.push({ method: "connection.search", args });
-		return isMessageIdSearch(args[0]) ? h.destinationSearchUids : [10];
+		if (!isMessageIdSearch(args[0])) return [10];
+		return h.openBoxPath === "INBOX"
+			? h.sourceSearchUids
+			: h.destinationSearchUids;
 	},
 });
 
 const sourceNoLongerHoldsTheUid = (): void => {
+	h.sourceSearchUids = [];
 	h.connection.fetchMessages = async () => [];
 	h.connection.search = async (...args: unknown[]) => {
 		h.calls.push({ method: "connection.search", args });
-		return isMessageIdSearch(args[0]) ? h.destinationSearchUids : [];
+		if (!isMessageIdSearch(args[0])) return [];
+		return h.openBoxPath === "INBOX"
+			? h.sourceSearchUids
+			: h.destinationSearchUids;
 	};
 };
 
@@ -362,6 +377,8 @@ const fresh = (): Harness => ({
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
 	messageRow: { messageIdHeader: MESSAGE_ID_HEADER },
 	destinationSearchUids: [],
+	sourceSearchUids: [10],
+	openBoxPath: "INBOX",
 	connection: buildConnection(),
 	threadMessage: {
 		...baseThreadMessage,
@@ -392,6 +409,7 @@ const deps = (): MessageDeleteDeps =>
 					return h.messageRow ? [h.messageRow] : [];
 				},
 				updateUid: record("message.updateUid"),
+				updateForMove: record("message.updateForMove"),
 				update: record("message.update"),
 				delete: record("message.delete"),
 			},
@@ -461,6 +479,16 @@ const permanentEvent: MessageDeleteEvent = {
 
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
+
+// The one write that puts a given-up delete back on its source pair. It clears
+// `moving` in the same write as the pair, which is what keeps a later delete
+// from waiting on a mutation that has terminated (#1005), and it goes through
+// `updateForMove` rather than `updateUid` so a row that never moved does not
+// enqueue a search re-index.
+const restoredToSource = (syncStatus: string): unknown[] => [
+	"msg-1",
+	{ mailboxId: "src-mbx", uid: 10, status: "active", syncStatus },
+];
 
 // Label order in the rendered text is prom-client's, not ours.
 const imapFailures = async (operation: string): Promise<number> => {
@@ -557,6 +585,7 @@ describe("handleMessageDelete", () => {
 			const opened: unknown[][] = [];
 			h.connection.openBox = (async (...args: unknown[]) => {
 				opened.push(args);
+				h.openBoxPath = args[0] as string;
 				return { uidvalidity: 1 };
 			}) as Connection["openBox"];
 
@@ -739,14 +768,13 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("message.delete").length, 0);
 			assert.equal(called("threadMessage.deleteMany").length, 0);
 
-			// `mailboxId` and `uid` name the same message again, and `updateUid`
-			// settles `status` out of `moving` in the same write, so no later
-			// delete of this message waits on a mutation that has terminated.
-			assert.deepEqual(called("message.updateUid").at(-1)?.args, [
-				"msg-1",
-				10,
-				"src-mbx",
-			]);
+			// `mailboxId` and `uid` name the same message again, and the same write
+			// settles `status` out of `moving`, so no later delete of this message
+			// waits on a mutation that has terminated.
+			assert.deepEqual(
+				called("message.updateForMove").at(-1)?.args,
+				restoredToSource("synced"),
+			);
 			assert.equal(
 				called("message.update").length,
 				0,
@@ -845,11 +873,10 @@ describe("handleMessageDelete", () => {
 
 				await handleMessageDelete(moveEvent, noopLog, 3, deps());
 
-				assert.deepEqual(called("message.updateUid").at(-1)?.args, [
-					"msg-1",
-					10,
-					"src-mbx",
-				]);
+				assert.deepEqual(
+					called("message.updateForMove").at(-1)?.args,
+					restoredToSource("synced"),
+				);
 				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 			});
 		});
@@ -909,16 +936,12 @@ describe("handleMessageDelete", () => {
 
 			// The row goes back to the mailbox the server still holds it in, so
 			// the failure is visible as the message reappearing rather than as an
-			// invisible syncStatus on a row that claims Trash.
-			assert.deepEqual(called("message.updateUid")[0]?.args, [
-				"msg-1",
-				10,
-				"src-mbx",
-			]);
-			assert.deepEqual(called("message.update")[0]?.args[1], {
-				status: "active",
-				syncStatus: "failed",
-			});
+			// invisible syncStatus on a row that claims Trash. A refusal keeps
+			// `failed`: the product turned down something the user asked for.
+			assert.deepEqual(
+				called("message.updateForMove")[0]?.args,
+				restoredToSource("failed"),
+			);
 			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 				uid: 10,
 				mailboxId: "src-mbx",
@@ -938,10 +961,10 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
-		assert.deepEqual(called("message.update")[0]?.args[1], {
-			status: "active",
-			syncStatus: "failed",
-		});
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("failed"),
+		);
 	});
 
 	it("expunges on the server and removes every thread row before the message row", async () => {
@@ -1084,15 +1107,10 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, noopLog, 1, deps());
 
 		assert.equal(called("connection.createMailbox").length, 0);
-		assert.deepEqual(called("message.updateUid")[0]?.args, [
-			"msg-1",
-			10,
-			"src-mbx",
-		]);
-		assert.deepEqual(called("message.update")[0]?.args[1], {
-			status: "active",
-			syncStatus: "failed",
-		});
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("failed"),
+		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
 			mailboxId: "src-mbx",
@@ -1110,11 +1128,10 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("connection.deleteMessages").length, 0);
-		assert.deepEqual(called("message.updateUid")[0]?.args, [
-			"msg-1",
-			10,
-			"src-mbx",
-		]);
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("failed"),
+		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
 			mailboxId: "src-mbx",
@@ -1191,8 +1208,8 @@ describe("handleMessageDelete", () => {
 			"cursor_invalid",
 		);
 		assert.deepEqual(
-			called("message.updateUid")[0]?.args,
-			["msg-1", 10, "src-mbx"],
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("synced"),
 			"the row goes back to the source pair, which is the set the rebuild adjudicates",
 		);
 		assert.equal(
@@ -1205,13 +1222,16 @@ describe("handleMessageDelete", () => {
 
 	// The terminal resolver opens the source itself, and since #1005 its answer
 	// WRITES a placement. A folder deleted and recreated renumbers every uid, so
-	// an unguarded probe finds whatever now sits at this one, reads it as "still
+	// a uid-keyed probe finds whatever now sits at this one, reads it as "still
 	// at source", and binds the row to a stranger the next permanent delete
 	// expunges. The dropped connection is what makes it reachable: it skips the
 	// guarded openBox on the very delivery that goes on to settle.
-	it("never settles an exhausted delete off a probe that skipped the cursor guard", async () => {
+	it("never settles an exhausted delete off a uid-keyed probe that skipped the cursor guard", async () => {
 		h.connectionErrors = [new Error("ECONNRESET")];
-		h.connection.openBox = async () => ({ uidvalidity: 999 });
+		h.connection.openBox = async (path: string) => {
+			h.openBoxPath = path;
+			return { uidvalidity: 999 };
+		};
 
 		await handleMessageDelete(
 			moveEvent,
@@ -1221,10 +1241,9 @@ describe("handleMessageDelete", () => {
 		);
 
 		assert.equal(
-			called("connection.fetchMessages").length +
-				called("connection.search").length,
+			called("connection.fetchMessages").length,
 			0,
-			"the guard refused the SELECT, so the presence probe never asked the folder anything",
+			"the guard refused the SELECT, so nothing was settled off a uid on the dead axis",
 		);
 		assert.equal(
 			called("message.delete").length,
@@ -1239,13 +1258,92 @@ describe("handleMessageDelete", () => {
 		);
 		// Issue #1203: "leaving it for the cursor rebuild" was never an option —
 		// the rebuild matches rows by `(accountConfigId, mailboxId)`, so it only
-		// sees this row once the row names the source again. The pair comes from
-		// the event, not from the probe the guard just refused.
+		// sees this row once the row names the source again. The source still
+		// answers to the Message-ID, so the pair the row goes back on is the one
+		// the server has just confirmed on the axis a UIDVALIDITY change leaves
+		// intact.
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("synced"),
+		);
+	});
+
+	// Issue #1203, the redelivery half. Attempt 1's MOVE landed and its tagged
+	// OK was lost with the connection; the cursor tripped meanwhile, so attempt
+	// 2 is refused at the openBox guard. Restoring the source pair here writes
+	// `synced` on INBOX for mail the server holds in Trash — a settled placement
+	// on an inference, which is exactly what `restoreSourcePlacement` forbids.
+	// The source no longer answers to the Message-ID, and the destination does.
+	it("settles a redelivered paused trash move onto the destination the server confirms", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "cursor_invalid",
+		};
+		h.sourceSearchUids = [];
+		h.destinationSearchUids = [77];
+
+		await handleMessageDelete(moveEvent, noopLog, 2, deps());
+
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"msg-1",
-			10,
-			"src-mbx",
+			77,
+			"trash-mbx",
 		]);
+		assert.equal(
+			called("message.updateForMove").length,
+			0,
+			"the row must never be handed back to a folder the server has moved it out of",
+		);
+		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
+			uid: 77,
+			mailboxId: "trash-mbx",
+			isDeleted: true,
+		});
+	});
+
+	// Issue #1122 on the same path. Trash already held an older copy of this
+	// Message-ID and the MOVE never ran, so the destination hit is not this
+	// message. The source is asked first for exactly this reason, and its answer
+	// ends it — settling on uid 12 would hand Empty Trash a stranger's uid.
+	it("never binds a redelivered paused trash move to an older copy while the source still answers", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "cursor_invalid",
+		};
+		h.sourceSearchUids = [4];
+		h.destinationSearchUids = [12];
+
+		await handleMessageDelete(moveEvent, noopLog, 2, deps());
+
+		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("synced"),
+		);
+	});
+
+	// A paused settle is a settle, so both folders re-read their counts from
+	// IMAP — the same resync every other terminal verdict in this handler runs.
+	// Without it the repair depended entirely on someone else arming the
+	// mailbox's rebuild.
+	it("resyncs both folders after a paused delete settles", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageDelete(moveEvent, noopLog, 1, deps());
+
+		assert.deepEqual(
+			called("emitEvent").map((c) => c.args[0]),
+			[
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "trash-mbx" },
+			],
+		);
 	});
 
 	it("skips without opening a connection when the cursor is rebuilding", async () => {
@@ -1258,11 +1356,10 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, noopLog, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
-		assert.deepEqual(called("message.updateUid")[0]?.args, [
-			"msg-1",
-			10,
-			"src-mbx",
-		]);
+		assert.deepEqual(
+			called("message.updateForMove")[0]?.args,
+			restoredToSource("synced"),
+		);
 	});
 
 	// A permanent delete drops its listing rows at enqueue and only the sync
@@ -1285,7 +1382,7 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateUid").length,
+			called("message.updateForMove").length,
 			0,
 			"a row no listing can reach is never restored",
 		);
@@ -1303,7 +1400,7 @@ describe("handleMessageDelete", () => {
 
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateUid").length,
+			called("message.updateForMove").length,
 			0,
 			"restoring a Message no listing can reach is the silent vanish, not a hand-back",
 		);

@@ -2,6 +2,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import { MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
@@ -17,7 +18,7 @@ export interface MessageDeleteTerminalLogger {
 
 export interface ResolveExhaustedMessageDeleteDeps
 	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "updateUid">;
+	messageService: Pick<IMessageRepository, "delete" | "updateForMove">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"
@@ -130,6 +131,10 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		messageId,
 		sourceMailboxId,
 		uid,
+		// The probe above just confirmed the pair, so the row is a faithful
+		// projection of the source again. The delete's own failure is the alert,
+		// not a `failed` left on a row nothing is still trying to delete.
+		syncStatus: MessageSyncStatus.synced,
 	});
 
 	return { outcome: "broken" };
