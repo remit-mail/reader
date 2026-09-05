@@ -44,6 +44,7 @@ import {
 } from "../src/imap.js";
 import { expectNoFatalOverlay } from "../src/overlay.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { holdRoute } from "../src/routes.js";
 import {
 	countAcceptedMessages,
 	waitForAcceptedMessage,
@@ -197,6 +198,19 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 		await body.click();
 		await page.keyboard.type(BODY);
 
+		// The watch's first read lands about a tenth of a second after Send, which
+		// is inside the row's own trip from `queued` through `sent` to `unfiled`.
+		// Whichever of those three it caught was a coin toss, and the spec's
+		// answers are only about the last one — so the reads are held until the
+		// server has settled the row, and every read the watch gets is of a state
+		// the server already committed. Registered after the draft is written and
+		// before Send: nothing but the watch reads this route in between.
+		let openTheGate: (() => void) | undefined;
+		const rowHasSettled = new Promise<void>((resolve) => {
+			openTheGate = resolve;
+		});
+		await holdRoute(page, OUTBOX_DETAIL, { until: rowHasSettled });
+
 		await page.getByRole("button", { name: "Send", exact: true }).click();
 
 		// Compose closing is the app saying the send was accepted, and is what
@@ -211,23 +225,25 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 			throw new Error("unreachable: the send was matched but not captured");
 		}
 
-		// The recipient's half: the message left the process. Counted under this
-		// run's own subject, because the sink is shared and never emptied.
-		await waitForAcceptedMessage(subject);
-		expect(await countAcceptedMessages(subject)).toBe(1);
-
 		// `sent` is a status the row holds for well under a second on its way
 		// through; `unfiled` is where the filing stops, and it is what the user is
 		// left with.
+		//
+		// Nothing else is read before the gate opens, and this budget is under the
+		// watch's own minute: a settle that outlives the watch is a settle that
+		// took too long, and it says so here rather than as a watch that read
+		// nothing forty seconds later.
 		const settled = await waitFor(
 			() => api.getOutboxMessage(outboxMessageId),
 			(row) => row.status === "unfiled",
 			{
-				timeoutMs: 180_000,
+				timeoutMs: 45_000,
 				what: "the outbox row to settle as sent but unfiled",
 			},
 		);
 		expect(settled.lastError ?? "").toContain("Sent, but not filed");
+
+		openTheGate?.();
 
 		await expect
 			.poll(() => watchReadUnfiledAt !== undefined, {
@@ -241,6 +257,13 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 		// app stays standing (#921).
 		await expectNoFatalOverlay(page, QUIET_WINDOW_MS);
 		expect(polls.length).toBe(polledWhenSettled);
+
+		// The recipient's half: the message left the process. Counted under this
+		// run's own subject, because the sink is shared and never emptied — and
+		// read after the gate, because the sink is slow enough to spend the
+		// watch's minute waiting on it.
+		await waitForAcceptedMessage(subject);
+		expect(await countAcceptedMessages(subject)).toBe(1);
 
 		// Read off Dovecot behind the settled row, which is where the filing
 		// stopped: no copy in the folder the server keeps making, and none
