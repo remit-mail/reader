@@ -1,7 +1,8 @@
 import { X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 
 /* ------------------------------------------------------------------ */
 /* SlidePanel: right-edge slide-over for a focused sub-task (editing   */
@@ -37,6 +38,9 @@ export function SlidePanel({
 		answers: { back: onClose },
 	});
 
+	const panelRef = useRef<HTMLDivElement>(null);
+	useModalFocus(panelRef, isOpen);
+
 	return (
 		<>
 			{/* Click-to-dismiss scrim: a pointer shortcut for the header's Close
@@ -52,6 +56,7 @@ export function SlidePanel({
 			/>
 
 			<div
+				ref={panelRef}
 				className={cn(
 					"safe-area-frame fixed top-0 right-0 z-50 flex h-full w-full flex-col border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
 					"transform transition-transform duration-200 ease-out",

@@ -3,10 +3,11 @@ import {
 	DialogBackdrop,
 	Kbd,
 	KEY_HINT_GROUPS,
+	useModalFocus,
 	useOverlayScope,
 } from "@remit/ui";
 import { X } from "lucide-react";
-import { Fragment } from "react";
+import { Fragment, useRef } from "react";
 
 interface KeyboardShortcutsModalProps {
 	isOpen: boolean;
@@ -22,11 +23,14 @@ export const KeyboardShortcutsModal = ({
 	isOpen,
 	onClose,
 }: KeyboardShortcutsModalProps) => {
+	const modalRef = useRef<HTMLDivElement>(null);
+
 	useOverlayScope({
 		id: "shortcuts",
 		open: isOpen,
 		answers: { back: onClose },
 	});
+	useModalFocus(modalRef, isOpen);
 
 	if (!isOpen) return null;
 
@@ -40,6 +44,7 @@ export const KeyboardShortcutsModal = ({
 
 			{/* Modal */}
 			<div
+				ref={modalRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Keyboard shortcuts"
