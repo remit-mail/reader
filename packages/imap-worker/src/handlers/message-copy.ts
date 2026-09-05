@@ -172,17 +172,6 @@ export const handleMessageCopy = async (
 				return;
 			}
 
-			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
-			// paused never even opens a connection. Optimization only — the
-			// guardConnectionCursor openBox wrap below is the structural guarantee.
-			if (isCursorRebuildNeeded(mailbox.cursorState)) {
-				log.info(
-					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
-					"Mailbox cursor not normal; pausing outbound copy this round",
-				);
-				return;
-			}
-
 			// The copy row carries the source's Message-ID header, so the
 			// destination can be asked where this copy is. Always on the UNGUARDED
 			// handle: a `guardConnectionCursor` wrap is bound to the SOURCE mailbox
@@ -315,6 +304,23 @@ export const handleMessageCopy = async (
 				);
 			};
 
+			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
+			// paused never even opens a connection. Optimization only — the
+			// guardConnectionCursor openBox wrap below is the structural guarantee.
+			//
+			// Both pauses settle rather than ack: they are reached before
+			// `copyMessages`, so the COPY was never issued, and acking leaves the
+			// optimistic row at `uid: 0`/`moving` with nothing to re-enqueue it and
+			// no folder set for the cursor rebuild to find it in (issue #1203).
+			if (isCursorRebuildNeeded(mailbox.cursorState)) {
+				log.info(
+					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
+					"Mailbox cursor not normal; pausing outbound copy this round",
+				);
+				await settleNeverLanded("source mailbox cursor paused before the copy");
+				return;
+			}
+
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
@@ -394,6 +400,9 @@ export const handleMessageCopy = async (
 								cursorState: error.state,
 							},
 							"Mailbox cursor not normal; pausing outbound copy this round",
+						);
+						await settleNeverLanded(
+							"source mailbox cursor paused before the copy",
 						);
 						return;
 					}

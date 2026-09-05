@@ -274,6 +274,11 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 				update: async () => undefined,
 				updateUid: async () => undefined,
 			},
+			threadMessage: {
+				findAllByMessageId: async () => [],
+				findByMessageId: async () => undefined,
+				update: async () => undefined,
+			},
 			secrets: { decrypt: async () => undefined },
 		} as unknown as RemitClient);
 	});
@@ -325,6 +330,53 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			update.mock.calls.length,
 			0,
 			"a settled row is never written again",
+		);
+	});
+
+	// Issue #1203. Acking a paused cursor left the row `moving` with `mailboxId`
+	// on the destination and `uid` on the source. Nothing re-enqueues a
+	// MESSAGE_MOVE, and the cursor rebuild matches rows by
+	// `(accountConfigId, mailboxId)`, so a row naming the destination sits in
+	// neither folder's set: `placementBindingOf` answered `in_flight` for good
+	// and the message became unmovable and undeletable.
+	it("hands the row back to its source when the cursor is paused", async () => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => [pendingRow()]);
+		mock.method(client.mailbox, "get", async () => ({
+			mailboxId: "mm-src-zzz",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		}));
+		const updateUidCalls: unknown[][] = [];
+		mock.method(client.message, "updateUid", async (...args: unknown[]) => {
+			updateUidCalls.push(args);
+		});
+		mock.method(client.threadMessage, "findAllByMessageId", async () => [
+			{
+				...baseThreadMessage,
+				accountConfigId: "mm-cfg-zzz",
+				threadMessageId: "mm-tm-zzz",
+				mailboxId: "mm-dst-zzz",
+			},
+		]);
+		const threadUpdateCalls: unknown[][] = [];
+		mock.method(client.threadMessage, "update", async (...args: unknown[]) => {
+			threadUpdateCalls.push(args);
+		});
+
+		await handleMessageMove(event, silentLogger);
+
+		assert.deepEqual(
+			updateUidCalls[0],
+			["mm-msg-zzz", 10, "mm-src-zzz"],
+			"the row goes back to the source pair, which is the set the rebuild adjudicates",
+		);
+		assert.equal(
+			(threadUpdateCalls[0]?.[2] as { mailboxId?: string })?.mailboxId,
+			"mm-src-zzz",
+			"the listing row follows the message back to its source folder",
 		);
 	});
 

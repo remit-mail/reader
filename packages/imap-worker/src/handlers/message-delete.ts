@@ -13,6 +13,7 @@ import {
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
+	reconcileStaleMessage,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
@@ -27,6 +28,7 @@ import {
 	emitMoveResync,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 import {
 	buildThreadMessageMoveRevert,
 	buildThreadMessageTrashUpdate,
@@ -255,6 +257,41 @@ export const handleMessageDelete = async (
 		}
 	};
 
+	/**
+	 * Hand the optimistic local delete back when a paused cursor means IMAP
+	 * never saw it. Every pause below is thrown by the openBox guard before the
+	 * MOVE or the EXPUNGE is issued, and acking on the optimistic row strands
+	 * it: nothing re-enqueues a MESSAGE_DELETE, and the cursor rebuild matches
+	 * rows by `(accountConfigId, mailboxId)`, so it never even sees a
+	 * move-to-trash row that already names Trash (issue #1203).
+	 *
+	 * A move to trash goes back onto the source pair, which is the set the
+	 * rebuild adjudicates. A permanent delete has no listing rows left to
+	 * restore — `MessageMoveService` drops them at enqueue and only the sync
+	 * path can shape them — so restoring the Message alone would leave mail
+	 * nothing can list. The row is reconciled away instead and the mailbox's own
+	 * resync re-projects it, exactly as `abandonDelete` resolves the same state.
+	 */
+	const handBackPausedDelete = async (): Promise<void> => {
+		if (operation === "permanent_delete") {
+			await reconcileStaleMessage(
+				{ messageService, threadMessageService },
+				account.accountConfigId,
+				messageId,
+			);
+			return;
+		}
+		await restoreSourcePlacement(
+			{ messageService, threadMessageService },
+			{
+				accountConfigId: account.accountConfigId,
+				messageId,
+				sourceMailboxId: mailboxId,
+				uid,
+			},
+		);
+	};
+
 	const settleExhaustedDelete = async (
 		accountConfigId: string,
 		getConnection: () => Promise<IImapConnection>,
@@ -270,17 +307,20 @@ export const handleMessageDelete = async (
 				sourceMailboxPath: mailboxPath,
 				getConnection,
 			},
-		).catch((settleError: unknown) => {
+		).catch(async (settleError: unknown) => {
 			// The guarded probe found a mailbox whose UIDVALIDITY has moved. Every
-			// stored uid for this folder now names something else, so there is
-			// nothing here that may be settled off them, and the pause is the
-			// routine skip `guardMailboxCursor` documents, not a fault to re-throw
-			// out of the caller's catch.
+			// stored uid for this folder now names something else, so nothing may
+			// be settled off the probe, and the pause is the routine skip
+			// `guardMailboxCursor` documents, not a fault to re-throw out of the
+			// caller's catch. The optimistic delete is still handed back: that is
+			// the only way the rebuild sees the row at all, and the rebuild is what
+			// adjudicates it.
 			if (settleError instanceof MailboxCursorPausedError) {
 				log.info(
 					{ accountId, messageId, mailboxId, cursorState: settleError.state },
-					"Mailbox cursor not normal; leaving the exhausted delete for the cursor rebuild",
+					"Mailbox cursor not normal; handing the exhausted delete back for the cursor rebuild",
 				);
+				await handBackPausedDelete();
 				return null;
 			}
 			throw settleError;
@@ -389,8 +429,9 @@ export const handleMessageDelete = async (
 			if (isCursorRebuildNeeded(mailbox.cursorState)) {
 				log.info(
 					{ accountId, messageId, mailboxId },
-					"Mailbox cursor not normal; pausing outbound delete this round",
+					"Mailbox cursor not normal; pausing outbound delete this round and handing the optimistic delete back",
 				);
+				await handBackPausedDelete();
 				return;
 			}
 
@@ -551,8 +592,9 @@ export const handleMessageDelete = async (
 					if (error instanceof MailboxCursorPausedError) {
 						log.info(
 							{ accountId, messageId, mailboxId, cursorState: error.state },
-							"Mailbox cursor not normal; pausing outbound delete this round",
+							"Mailbox cursor not normal; pausing outbound delete this round and handing the optimistic delete back",
 						);
+						await handBackPausedDelete();
 						return;
 					}
 

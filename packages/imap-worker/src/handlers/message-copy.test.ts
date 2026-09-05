@@ -369,7 +369,12 @@ describe("handleMessageCopy", () => {
 		assert.equal(called("message.update").length, 0);
 	});
 
-	it("skips the copy without opening a connection when the cursor is rebuilding", async () => {
+	// Issue #1203. Both pauses are reached before `copyMessages`, so the COPY
+	// was never issued. Acking left the optimistic row at `uid: 0`/`moving`
+	// with nothing to re-enqueue it and no folder set for the cursor rebuild to
+	// find it in, which is `holdsCopyOf`'s row-existence answer turning into a
+	// copy that can never settle.
+	it("reconciles the optimistic copy row away when the cursor is rebuilding", async () => {
 		h.mailbox = {
 			mailboxId: "src-mbx",
 			uidValidity: 1,
@@ -380,9 +385,11 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
+		assert.equal(called("threadMessage.deleteMany").length, 1);
 	});
 
-	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+	it("reconciles the optimistic copy row away when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
 		await handleMessageCopy(event, noopLog, 1, deps());
@@ -394,6 +401,7 @@ describe("handleMessageCopy", () => {
 			"the mismatch trips the mailbox cursor",
 		);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
 		assert.equal(h.disconnectCount, 1);
 	});
 

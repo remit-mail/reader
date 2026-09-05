@@ -19,6 +19,7 @@ import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export const getMessageMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -244,14 +245,35 @@ export const handleMessageMove = async (
 				return;
 			}
 
+			// A paused cursor means this move was never issued: both exits below
+			// are reached before `moveMessages`, one without a connection and one
+			// from the openBox guard. `updateForMove` has already pointed the row
+			// at the destination while `uid` still names the source, and acking on
+			// that pair strands the row for good — the cursor rebuild matches rows
+			// by `(accountConfigId, mailboxId)`, so a row naming the destination is
+			// in neither folder's set, and nothing re-enqueues a MESSAGE_MOVE
+			// (issue #1203). Handing the row back to the source pair the server
+			// still holds is what puts it inside the rebuild's set.
+			const handBackToSource = (): Promise<void> =>
+				restoreSourcePlacement(
+					{ messageService, threadMessageService },
+					{
+						accountConfigId: account.accountConfigId,
+						messageId,
+						sourceMailboxId,
+						uid,
+					},
+				);
+
 			// Cheap frugal skip (epic #1281 invariant 6): a mailbox already known
 			// paused never even opens a connection. Optimization only — the
 			// guardConnectionCursor openBox wrap below is the structural guarantee.
 			if (isCursorRebuildNeeded(mailbox.cursorState)) {
 				log.info(
 					{ accountId, messageId, mailboxId: sourceMailboxId },
-					"Mailbox cursor not normal; pausing outbound move this round",
+					"Mailbox cursor not normal; pausing outbound move this round and handing the row back to its source",
 				);
+				await handBackToSource();
 				return;
 			}
 
@@ -372,8 +394,9 @@ export const handleMessageMove = async (
 								mailboxId: sourceMailboxId,
 								cursorState: error.state,
 							},
-							"Mailbox cursor not normal; pausing outbound move this round",
+							"Mailbox cursor not normal; pausing outbound move this round and handing the row back to its source",
 						);
+						await handBackToSource();
 						return;
 					}
 
@@ -421,12 +444,16 @@ export const handleMessageMove = async (
 							sourceMailboxPath,
 							getConnection: getGuardedConnection,
 						},
-					).catch((settleError: unknown) => {
+					).catch(async (settleError: unknown) => {
 						// The guarded probe found a mailbox whose UIDVALIDITY has moved.
 						// Every stored uid for this folder now names something else, so
-						// there is nothing here that may be settled off them, and the
-						// pause is the routine skip `guardMailboxCursor` documents, not
-						// a fault to re-throw out of this catch.
+						// nothing may be settled off the probe, and the pause is the
+						// routine skip `guardMailboxCursor` documents, not a fault to
+						// re-throw out of this catch. The row still goes back to the
+						// source pair: that is the only way the rebuild sees it at all,
+						// and the rebuild is what adjudicates it — a row it can match
+						// keeps its message on the new axis, a row it cannot is
+						// reconciled away.
 						if (settleError instanceof MailboxCursorPausedError) {
 							log.info(
 								{
@@ -435,8 +462,9 @@ export const handleMessageMove = async (
 									mailboxId: sourceMailboxId,
 									cursorState: settleError.state,
 								},
-								"Mailbox cursor not normal; leaving the exhausted move for the cursor rebuild",
+								"Mailbox cursor not normal; handing the exhausted move back to its source for the cursor rebuild",
 							);
+							await handBackToSource();
 							return null;
 						}
 						throw settleError;

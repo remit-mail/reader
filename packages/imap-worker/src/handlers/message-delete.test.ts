@@ -1172,7 +1172,12 @@ describe("handleMessageDelete", () => {
 		);
 	});
 
-	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+	// Issue #1203. The pause is thrown by the openBox guard before the MOVE is
+	// issued, so acking left the row `moving` on Trash with the source's uid.
+	// Nothing re-enqueues a MESSAGE_DELETE, and the cursor rebuild matches rows
+	// by `(accountConfigId, mailboxId)`, so a row naming Trash is in neither
+	// folder's set — the message stayed undeletable and unmovable for good.
+	it("hands the optimistic trash move back when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
 		await handleMessageDelete(moveEvent, noopLog, 1, deps());
@@ -1182,7 +1187,17 @@ describe("handleMessageDelete", () => {
 				?.cursorState,
 			"cursor_invalid",
 		);
-		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(
+			called("message.updateUid")[0]?.args,
+			["msg-1", 10, "src-mbx"],
+			"the row goes back to the source pair, which is the set the rebuild adjudicates",
+		);
+		assert.equal(
+			(called("threadMessage.update")[0]?.args[2] as { isDeleted?: boolean })
+				?.isDeleted,
+			false,
+			"the listing rows lose the deletion mark the optimistic write put on them",
+		);
 	});
 
 	// The terminal resolver opens the source itself, and since #1005 its answer
@@ -1203,14 +1218,9 @@ describe("handleMessageDelete", () => {
 		);
 
 		assert.equal(
-			called("message.updateUid").length,
-			0,
-			"a renumbered folder answers for a different message; nothing settles off it",
-		);
-		assert.equal(
 			called("message.delete").length,
 			0,
-			"and nothing is reconciled away off it either",
+			"a renumbered folder answers for a different message; nothing is reconciled away off it",
 		);
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -1218,6 +1228,15 @@ describe("handleMessageDelete", () => {
 			"cursor_invalid",
 			"the probe trips the mailbox into a rebuild instead",
 		);
+		// Issue #1203: "leaving it for the cursor rebuild" was never an option —
+		// the rebuild matches rows by `(accountConfigId, mailboxId)`, so it only
+		// sees this row once the row names the source again. The pair comes from
+		// the event, not from the probe the guard just refused.
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			10,
+			"src-mbx",
+		]);
 	});
 
 	it("skips without opening a connection when the cursor is rebuilding", async () => {
@@ -1230,6 +1249,35 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, noopLog, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			10,
+			"src-mbx",
+		]);
+	});
+
+	// A permanent delete drops its listing rows at enqueue and only the sync
+	// path can shape them, so restoring the Message alone leaves mail nothing
+	// can list. The row is reconciled away instead and the mailbox's own resync
+	// re-projects it — leaving it `deleting` made the message invisible locally
+	// while the server still held it (issue #1203).
+	it("reconciles a paused permanent delete away rather than leaving it deleting", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.allThreadMessages = [];
+
+		await handleMessageDelete(permanentEvent, noopLog, 1, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
+		assert.equal(
+			called("message.updateUid").length,
+			0,
+			"a row no listing can reach is never restored",
+		);
 	});
 
 	it("acks terminally without connecting when the mailbox was deleted", async () => {
