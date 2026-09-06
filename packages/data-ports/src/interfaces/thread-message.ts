@@ -101,6 +101,10 @@ export interface IThreadMessageRepository {
 	 * An empty `terms` narrows nothing under either operator: the whole config,
 	 * newest first.
 	 *
+	 * A term an implementation cannot evaluate faithfully is IGNORED, never
+	 * approximated: the result may be wider than the terms asked for and never
+	 * narrower, so the caller's own matcher stays the judge.
+	 *
 	 * Matching follows `searchByMailbox`: accent- and case-insensitive
 	 * substring over the same folded columns.
 	 *

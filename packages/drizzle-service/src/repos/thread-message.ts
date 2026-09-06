@@ -27,6 +27,7 @@ import { decodeToken } from "../pagination.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import {
 	fromMatch,
+	isNarrowableTerm,
 	listIdMatch,
 	subjectMatch,
 } from "./thread-search-predicates.js";
@@ -171,11 +172,18 @@ const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
 
 // Combine the caller's terms into one condition, or `undefined` when there are
 // none — an empty set narrows nothing, which is what both operators mean here.
+//
+// A term this engine cannot evaluate faithfully ({@link isNarrowableTerm}) is
+// left out rather than emitted: under `and` a missing conjunct only widens the
+// candidate set, which the caller refines anyway, but under `or` a missing
+// branch loses matches outright, so the whole narrowing goes.
 function buildFieldTermCondition(
 	terms: readonly ThreadMessageFieldTerm[],
 	operator: "and" | "or",
 ): SQL | undefined {
-	const conditions = terms.map(fieldTermCondition);
+	const narrowable = terms.filter((term) => isNarrowableTerm(term.contains));
+	if (operator === "or" && narrowable.length !== terms.length) return undefined;
+	const conditions = narrowable.map(fieldTermCondition);
 	if (conditions.length === 0) return undefined;
 	return operator === "or" ? or(...conditions) : and(...conditions);
 }

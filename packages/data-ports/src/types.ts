@@ -495,8 +495,9 @@ export type UpdateThreadMessageInput = Partial<
  * `SearchOptions.from` reads.
  *
  * Matching is accent- and case-insensitive substring, identical to the search
- * predicates, so a term is a NARROWING a caller may refine further in memory —
- * never a weaker filter than the one it stands in for.
+ * predicates, so a term is a NARROWING a caller refines further in memory. It
+ * may return more than the criterion it stands for and never less — a term an
+ * implementation cannot evaluate faithfully is dropped, not approximated.
  */
 export type ThreadMessageFieldTerm = {
 	field: "sender" | "subject" | "listId";

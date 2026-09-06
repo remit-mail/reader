@@ -31,6 +31,23 @@ const ftsPhrase = (term: string): string => `"${term.replace(/"/g, '""')}"`;
 // index floor.
 const isTrigramIndexable = (term: string): boolean => [...term].length >= 3;
 
+const isAscii = (term: string): boolean =>
+	[...term].every((char) => (char.codePointAt(0) ?? 0) < 128);
+
+/**
+ * Whether a term can be pushed into the query without dropping a row the
+ * caller's own matcher would accept.
+ *
+ * Below the trigram floor the predicate is the folded LIKE, and SQLite's
+ * `lower()` folds ASCII only: `é` never matches a stored `CAFÉ`. For a search
+ * box that is the accepted C10 difference between a short term and an indexed
+ * one. For a NARROWING it is not — a narrowing that misses is the #459 defect
+ * again, one clause shape at a time — so such a term is not narrowable at all
+ * and the caller widens instead.
+ */
+export const isNarrowableTerm = (term: string): boolean =>
+	isTrigramIndexable(term) || isAscii(term);
+
 const ftsRowidMatch = (matchExpr: string): SQL =>
 	sql`"thread_message"."rowid" in (select "rowid" from "thread_message_fts" where "thread_message_fts" match ${matchExpr})`;
 

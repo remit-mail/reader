@@ -65,6 +65,16 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 				listId: "statements.bank.example",
 			}),
 		);
+		await repo.create(
+			makeInput({
+				messageId: "accented",
+				subject: "CAFÉ closing early",
+				fromName: "Café",
+				fromEmail: "hello@paris.example",
+				sentDate: OLD_DATE + 9_000_000,
+				internalDate: OLD_DATE + 9_000_000,
+			}),
+		);
 		for (let index = 0; index < NEWER_NOISE; index++) {
 			await repo.create(
 				makeInput({
@@ -143,6 +153,69 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 			"noise-0",
 			"quiet-sender",
 		]);
+	});
+
+	// Below the trigram floor the predicate is the folded LIKE, and sqlite's
+	// lower() folds ASCII only — `é` never matches a stored `CAFÉ`. Applying it
+	// anyway would drop a row the caller's own matcher accepts, which is #459
+	// again for that clause shape, so a short non-ASCII term narrows nothing.
+	test("drops a short accented term rather than missing the row it should match", async () => {
+		const result = await repo.listByFieldTerms(
+			ACCOUNT,
+			[{ field: "subject", contains: "é" }],
+			{ limit: THREAD_SEARCH_MAX_LIMIT },
+		);
+
+		assert.ok(
+			result.items.some((item) => item.messageId === "accented"),
+			"the accented row survives",
+		);
+		assert.ok(result.items.length > 1, "the term narrowed nothing at all");
+	});
+
+	test("keeps narrowing on the other terms of an `and` around a dropped one", async () => {
+		const result = await repo.listByFieldTerms(
+			ACCOUNT,
+			[
+				{ field: "subject", contains: "é" },
+				{ field: "sender", contains: "bank.example" },
+			],
+			{ operator: "and" },
+		);
+
+		assert.deepEqual(
+			result.items.map((item) => item.messageId),
+			["quiet-sender"],
+		);
+	});
+
+	test("drops the whole narrowing when an `or` branch cannot be evaluated", async () => {
+		const result = await repo.listByFieldTerms(
+			ACCOUNT,
+			[
+				{ field: "subject", contains: "é" },
+				{ field: "sender", contains: "bank.example" },
+			],
+			{ operator: "or", limit: 5 },
+		);
+
+		const found = result.items.map((item) => item.messageId);
+		assert.ok(found.includes("accented"), "the dropped branch keeps its rows");
+		assert.ok(
+			found.some((messageId) => messageId.startsWith("noise-")),
+			"a narrowed `or` would have excluded these",
+		);
+	});
+
+	test("still narrows on a short ASCII term, which lower() folds correctly", async () => {
+		const result = await repo.listByFieldTerms(ACCOUNT, [
+			{ field: "sender", contains: "k." },
+		]);
+
+		assert.deepEqual(
+			result.items.map((item) => item.messageId),
+			["quiet-sender"],
+		);
 	});
 
 	test("no terms narrows nothing", async () => {
