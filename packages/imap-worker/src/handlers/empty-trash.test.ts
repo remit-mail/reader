@@ -148,13 +148,12 @@ const deps = (): EmptyTrashDeps =>
 					expected: unknown,
 					next: unknown,
 				) => {
+					const won = !h.transitionsLost.includes(messageId);
 					h.calls.push({
 						method: "message.transitionPlacement",
-						args: [messageId, expected, next],
+						args: [messageId, expected, next, won],
 					});
-					return h.transitionsLost.includes(messageId)
-						? undefined
-						: { messageId };
+					return won ? { messageId } : undefined;
 				},
 			},
 			threadMessage: {
@@ -209,10 +208,13 @@ const event: EmptyTrashEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+// Only a transition that WON reverted anything; a lost predicate is an offered
+// write that the row refused.
 const revertedMessageIds = (): string[] =>
 	called("message.transitionPlacement")
 		.filter(
 			(c) =>
+				c.args[3] === true &&
 				(c.args[2] as { status?: string; syncStatus?: string }).status ===
 					"active" &&
 				(c.args[2] as { syncStatus?: string }).syncStatus === "synced",

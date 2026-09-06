@@ -221,8 +221,8 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 	});
 
 	// Issue #1005: a give-up that never writes `status` leaves the row naming
-	// the destination with the source's uid — a pair `bindsForeignUid` refuses,
-	// which made the message undeletable and unmovable for good.
+	// the destination with the source's uid — a pair every dependent mutation
+	// refuses, which made the message undeletable and unmovable for good.
 	it("BROKEN: the settled row is no longer refused by the placement guard (#1005)", async () => {
 		const repos = buildRepositories(pendingMoveRow());
 		const { log } = buildLogger();
@@ -234,8 +234,8 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 
 		assert.equal(
 			placementBindingOf(pendingMoveRow() as never),
-			"abandoned",
-			"the row starts in the state the delete route refuses as unverified",
+			"in_flight",
+			"the row starts on a pair the delete route will not act on",
 		);
 
 		await resolveExhaustedMessageMoveFailure(deps, {

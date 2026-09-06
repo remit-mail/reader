@@ -267,7 +267,8 @@ describe("handleMessageCopy", () => {
 		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
 		assert.equal(
 			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
+			"abandoned",
+			"a copy that gave up carries the give-up value, not the transient one",
 		);
 		assert.equal(called("message.delete").length, 0, "no row is thrown away");
 	});
