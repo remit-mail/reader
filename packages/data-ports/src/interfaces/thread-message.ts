@@ -2,6 +2,7 @@ import type {
 	CreateThreadMessageInput,
 	ResultList,
 	SearchOptions,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "../types.js";
@@ -82,6 +83,42 @@ export interface IThreadMessageRepository {
 			limit?: number;
 			continuationToken?: string;
 			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * Rows of a config whose sender, subject or `List-Id` column matches a set
+	 * of substring terms, newest first, across every mailbox — the store-side
+	 * narrowing a rule back-apply reads with.
+	 *
+	 * The terms are evaluated in the query, so `limit` is a page size over
+	 * MATCHES and the scan reaches the whole config however old the matching
+	 * mail is. Paging a date-ordered listing and filtering the rows it returned
+	 * is what makes a rule for a quiet sender report a handful of matches on a
+	 * mailbox holding thousands (#459).
+	 *
+	 * `operator` combines the terms — `"and"` requires every one, `"or"` any.
+	 * An empty `terms` narrows nothing under either operator: the whole config,
+	 * newest first.
+	 *
+	 * A term an implementation cannot evaluate faithfully is IGNORED, never
+	 * approximated: the result may be wider than the terms asked for and never
+	 * narrower, so the caller's own matcher stays the judge.
+	 *
+	 * Matching follows `searchByMailbox`: accent- and case-insensitive
+	 * substring over the same folded columns.
+	 *
+	 * Rows are per mailbox, not per conversation: the same mail filed in two
+	 * folders is two rows sharing a `threadId`.
+	 */
+	listByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options?: {
+			operator?: "and" | "or";
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;

@@ -76,7 +76,9 @@ export {
 	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
+	type LiteralClauseNarrowing,
 	literalClausesMatch,
+	literalClauseTerms,
 	NO_ACTION,
 	selectMoveWinner,
 } from "./filters/match.js";

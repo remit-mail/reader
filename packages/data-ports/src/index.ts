@@ -138,6 +138,7 @@ export type {
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateAccountConfigInput,
 	UpdateAccountExportRequestInput,

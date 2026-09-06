@@ -10,7 +10,9 @@ import { logger } from "@remit/logger-lambda";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
+	type LiteralClauseNarrowing,
 	literalClausesMatch,
+	literalClauseTerms,
 	NO_ACTION,
 	PlacementMoveService,
 	refreshAnchorForEmbedder,
@@ -34,8 +36,10 @@ import {
 /**
  * Hard cap on both the previewed and the applied set. A back-apply is a
  * data-heavy corpus pass (remit-data-heavy: frugal): the semantic side is
- * bounded by the vector query's `topK`, the literal-only side by a paginated
- * message scan, and the final match set never exceeds this.
+ * bounded by the vector query's `topK`, the literal-only side by counting
+ * MATCHES as it pages a store-side narrowed listing, and the final match set
+ * never exceeds this. It bounds the answer, never the corpus the question is
+ * asked of (#459).
  */
 export const ORGANIZE_MATCH_LIMIT = 500;
 
@@ -117,6 +121,22 @@ export interface OrganizeCandidate {
 	message: FilterMessage;
 }
 
+/**
+ * One page of the narrowed corpus, cursored exactly as the underlying listing
+ * is: an absent `continuationToken` means the store has no more rows matching
+ * the terms, never that a read window ran out.
+ */
+export interface OrganizeCandidatePage {
+	items: OrganizeCandidate[];
+	continuationToken?: string;
+}
+
+/** What to ask the store for, and where to resume. */
+export interface OrganizeCandidateQuery extends LiteralClauseNarrowing {
+	limit: number;
+	continuationToken?: string;
+}
+
 export interface OrganizeMatchDeps {
 	/**
 	 * Build the semantic side on demand. Invoked only for an anchored predicate,
@@ -126,13 +146,16 @@ export interface OrganizeMatchDeps {
 	 */
 	semantic: () => OrganizeSemanticDeps;
 	/**
-	 * The account's messages as literal-match candidates, bounded and vector-free
-	 * — the corpus slice a purely-literal (or degraded) pass scans.
+	 * One page of the account's messages as literal-match candidates,
+	 * vector-free, with the clause terms evaluated by the store — the corpus a
+	 * purely-literal (or degraded) pass reads. Paged rather than capped, so the
+	 * caller's bound falls on matches instead of on how far back the read
+	 * reached (#459).
 	 */
 	listAccountFilterMessages: (
 		accountConfigId: string,
-		limit: number,
-	) => Promise<OrganizeCandidate[]>;
+		query: OrganizeCandidateQuery,
+	) => Promise<OrganizeCandidatePage>;
 	/**
 	 * Every persisted FilterAnchor for the account — read-only, always
 	 * available (never gated behind {@link semantic}, since it never touches
@@ -378,12 +401,18 @@ export const organizePredicateRejection = (
 	hasAnchor(predicate) ? null : bodyContentRejection(predicate.literalClauses);
 
 /**
- * The literal-only arm: scan a bounded, vector-free slice of the corpus and keep
- * the messages whose literal clauses match. Used both for a purely-literal
+ * The literal-only arm: the store selects on the clause terms, this refines
+ * what it returned and stops at `limit` MATCHES. Used both for a purely-literal
  * predicate and as the degraded fallback when a widen is requested on a
  * deployment without the vector pipeline. Serves `From`/`Subject` clauses at
  * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
  * refused before this runs (see {@link bodyContentRejection}).
+ *
+ * The terms are a narrowing, not the verdict ({@link literalClauseTerms}), so
+ * every page is still run through {@link literalClausesMatch} — and paging
+ * continues until the cap fills or the store runs out, which is what makes the
+ * bound a bound on results rather than on the newest `limit` rows (#459).
+ * Deduped by message id: the same mail filed in two folders is one match.
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
@@ -392,20 +421,29 @@ const matchLiteral = async (
 	limit: number,
 ): Promise<string[]> => {
 	const clauses = predicate.literalClauses;
-	const candidates = await deps.listAccountFilterMessages(
-		accountConfigId,
-		limit,
-	);
-	if (clauses.length === 0) {
-		return candidates.slice(0, limit).map((c) => c.messageId);
-	}
+	const narrowing = literalClauseTerms(clauses, predicate.matchOperator);
+	if (!narrowing) return [];
+
 	const matched: string[] = [];
-	for (const { messageId, message } of candidates) {
-		if (matched.length >= limit) break;
-		if (literalClausesMatch(clauses, predicate.matchOperator, message)) {
+	const seen = new Set<string>();
+	let continuationToken: string | undefined;
+	do {
+		const page = await deps.listAccountFilterMessages(accountConfigId, {
+			...narrowing,
+			limit,
+			continuationToken,
+		});
+		for (const { messageId, message } of page.items) {
+			if (seen.has(messageId)) continue;
+			seen.add(messageId);
+			if (!literalClausesMatch(clauses, predicate.matchOperator, message)) {
+				continue;
+			}
 			matched.push(messageId);
+			if (matched.length >= limit) return matched;
 		}
-	}
+		continuationToken = page.continuationToken;
+	} while (continuationToken);
 	return matched;
 };
 
@@ -508,11 +546,10 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 };
 
 /**
- * A bounded, vector-free corpus slice for a literal back-apply: the account's
- * messages projected onto the literal-match fields, gathered newest-first across
- * every mailbox and capped. Reads the core thread rows, so it runs on a
- * deployment that ships no vector pipeline. Deduped by message id — the same
- * mail filed in two folders is one candidate.
+ * The vector-free corpus read for a literal back-apply: one page of the
+ * account's messages, newest-first across every mailbox, with the clause terms
+ * evaluated in the query. Reads the core thread rows, so it runs on a
+ * deployment that ships no vector pipeline.
  *
  * `From`/`Subject`/`listId` come from the row verbatim (full fidelity), so a
  * `From`, `Subject`, `FromDomain` or `ListId` clause matches here exactly as it
@@ -525,34 +562,30 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
  */
 const listAccountFilterMessagesFromClient =
 	(client: RemitClient): OrganizeMatchDeps["listAccountFilterMessages"] =>
-	async (accountConfigId, limit) => {
-		const candidates: OrganizeCandidate[] = [];
-		const seen = new Set<string>();
-		let continuationToken: string | undefined;
-		do {
-			const page = await client.threadMessage.listByDate(accountConfigId, {
-				limit,
-				continuationToken,
+	async (accountConfigId, query) => {
+		const page = await client.threadMessage.listByFieldTerms(
+			accountConfigId,
+			query.terms,
+			{
+				operator: query.operator,
+				limit: query.limit,
+				continuationToken: query.continuationToken,
 				excludeDeleted: true,
-			});
-			for (const row of page.items) {
-				if (seen.has(row.messageId)) continue;
-				seen.add(row.messageId);
-				candidates.push({
-					messageId: row.messageId,
-					message: {
-						from: row.fromEmail ?? "",
-						fromName: row.fromName ?? "",
-						subject: row.subject ?? "",
-						text: "",
-						listId: row.listId ?? "",
-					},
-				});
-				if (candidates.length >= limit) return candidates;
-			}
-			continuationToken = page.continuationToken;
-		} while (continuationToken);
-		return candidates;
+			},
+		);
+		return {
+			items: page.items.map((row) => ({
+				messageId: row.messageId,
+				message: {
+					from: row.fromEmail ?? "",
+					fromName: row.fromName ?? "",
+					subject: row.subject ?? "",
+					text: "",
+					listId: row.listId ?? "",
+				},
+			})),
+			continuationToken: page.continuationToken,
+		};
 	};
 
 /**

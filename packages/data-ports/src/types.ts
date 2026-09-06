@@ -488,6 +488,22 @@ export type UpdateThreadMessageInput = Partial<
 	Omit<CreateThreadMessageInput, "accountConfigId" | "threadId" | "messageId">
 >;
 
+/**
+ * One substring criterion over a text column of a ThreadMessage row, named by
+ * the column it selects on rather than by whatever rule derived it. `sender`
+ * covers the From address and display name together, the same pair
+ * `SearchOptions.from` reads.
+ *
+ * Matching is accent- and case-insensitive substring, identical to the search
+ * predicates, so a term is a NARROWING a caller refines further in memory. It
+ * may return more than the criterion it stands for and never less — a term an
+ * implementation cannot evaluate faithfully is dropped, not approximated.
+ */
+export type ThreadMessageFieldTerm = {
+	field: "sender" | "subject" | "listId";
+	contains: string;
+};
+
 export type SearchOptions = {
 	query?: string;
 	subject?: string;
