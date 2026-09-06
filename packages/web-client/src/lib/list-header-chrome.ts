@@ -1,4 +1,3 @@
-import type { SearchConversion } from "@remit/ui";
 import { createContext, type ReactNode, useContext } from "react";
 
 /**
@@ -11,6 +10,11 @@ import { createContext, type ReactNode, useContext } from "react";
  * Handing the built nodes down keeps one definition of the chrome and keeps the
  * bar's two states in the same commit: nothing here is derived from a state
  * update that lands after paint.
+ *
+ * The body is a virtualized list, so it re-renders every row when this object
+ * changes. Nothing that moves with a keystroke belongs on it (#506) — what is
+ * typed, where the caret is and what the query converts to reach their readers
+ * through their own contexts.
  */
 export interface ListHeaderChrome {
 	/** The view's name, carried while nothing is ticked. */
@@ -32,15 +36,6 @@ export interface ListHeaderChrome {
 	searchResults: ReactNode;
 	/** The search's make-this-a-filter row, up only while nothing is ticked. */
 	makeFilterSlot: ReactNode;
-	/**
-	 * The active query as clauses, which is what the wizard's search entry opens
-	 * on (#484). It travels with the chrome for the same reason the rest does:
-	 * the query belongs to `MailListHeader` and the wizard is mounted by the body
-	 * below it, and one conversion computed in one place is what keeps the reason
-	 * the affordance gives and the clauses the wizard seeds from disagreeing.
-	 * Absent when no query is up.
-	 */
-	searchConversion?: SearchConversion;
 }
 
 const NO_CHROME: ListHeaderChrome = {

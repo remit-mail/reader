@@ -80,6 +80,7 @@ import {
 import { useMailContext } from "@/lib/mail-context";
 import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
+import { SearchConversionContext } from "@/lib/search-conversion";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import { applySearchSuggestion } from "@/lib/search-suggestions";
 import { showInlineSearchResults } from "@/lib/search-surface";
@@ -180,7 +181,14 @@ const HeaderSearchContext = createContext<HeaderSearchState | null>(null);
 function ListHeaderSearchField() {
 	const search = useContext(HeaderSearchContext);
 	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
-	if (!search) return null;
+	// Only `MailListHeader` puts this slot on the chrome, and it does so inside
+	// its own provider, so there is no reachable path here without one. Say so
+	// rather than rendering nothing: a search field that silently disappears is
+	// indistinguishable from a view that has no search.
+	if (!search)
+		throw new Error(
+			"ListHeaderSearchField rendered outside MailListHeader's HeaderSearchContext provider",
+		);
 	return (
 		<>
 			<div className="min-w-0 flex-1">
@@ -410,9 +418,10 @@ export function MailListHeader({
 	// Make-this-a-filter (#477 clause 1.8): the search is the wizard's second
 	// entry. It opens on the properties step with the clauses `convertSearchToRule`
 	// derives from the query, nothing ticked, and the notice for what the query
-	// could not be turned into. The conversion is computed once, here, and handed
-	// to the wizard through the chrome — the reason the affordance gives and the
-	// clauses the wizard seeds from are the same answer. The literal filter cannot
+	// could not be turned into. The conversion is computed once, here, and reaches
+	// the wizard through its own context — the reason the affordance gives and the
+	// clauses the wizard seeds from are the same answer, without the per-keystroke
+	// object riding on the chrome the list reads. The literal filter cannot
 	// reproduce the search's semantic reach, so the conversion states it whenever
 	// the search surfaced a "Related" section — a direct signal, read here from
 	// the semantic results, never a capability probe.
@@ -439,19 +448,18 @@ export function MailListHeader({
 		setSearchOpen(false);
 		openWizard("properties", "search");
 	}, [openWizard]);
+	// Keyed on the copy the affordance shows, not on the conversion it is derived
+	// from: the conversion is a fresh object for every character typed, while the
+	// reason it yields is the same string for all of them, and this row travels to
+	// the virtualized list on the chrome (#506).
+	const blockedReason = isConvertible(conversion)
+		? undefined
+		: makeFilterBlockedCopy(
+				conversion.droppedFacets.map((facet) => facet.label),
+			);
 	const makeFilter = useMemo(
-		() =>
-			hasQuery
-				? {
-						onClick: openFilterWizard,
-						blockedReason: isConvertible(conversion)
-							? undefined
-							: makeFilterBlockedCopy(
-									conversion.droppedFacets.map((facet) => facet.label),
-								),
-					}
-				: undefined,
-		[hasQuery, conversion, openFilterWizard],
+		() => (hasQuery ? { onClick: openFilterWizard, blockedReason } : undefined),
+		[hasQuery, blockedReason, openFilterWizard],
 	);
 	// Handed to the bar rather than rendered here: the bar knows whether rows
 	// are ticked, and a selection's own verbs own the surface while they are up.
@@ -531,7 +539,6 @@ export function MailListHeader({
 			title,
 			searchResults: chromeResults,
 			makeFilterSlot: makeFilterAction,
-			searchConversion,
 			navSlot: layout && !layout.showNavPane && (
 				<Button
 					variant="ghost"
@@ -573,7 +580,6 @@ export function MailListHeader({
 			searchExpanded,
 			chromeResults,
 			makeFilterAction,
-			searchConversion,
 			refreshControl,
 		],
 	);
@@ -586,44 +592,48 @@ export function MailListHeader({
 		};
 		return (
 			<HeaderSearchContext.Provider value={headerSearch}>
-				<ListHeaderChromeContext.Provider value={chrome}>
-					<MobileSearchView
-						value={searchInput}
-						onChange={onSearchChange}
-						onClear={onSearchClear}
-						onCancel={() => {
-							setSearchOpen(false);
-							onSearchClear();
-						}}
-						filter={searchFilter}
-						recentSearches={recentSearches}
-						onPickRecent={onSearchChange}
-						makeFilter={makeFilter}
-						sections={sections}
-						loading={resultsLoading}
-						onSelectResult={handleSelectResult}
-						tokens={tokenChips}
-						scope={resultsScope}
-						suggest={searchSuggest}
-						suggestList={suggestList}
-					/>
-					{paneOverlay}
-				</ListHeaderChromeContext.Provider>
+				<SearchConversionContext.Provider value={searchConversion}>
+					<ListHeaderChromeContext.Provider value={chrome}>
+						<MobileSearchView
+							value={searchInput}
+							onChange={onSearchChange}
+							onClear={onSearchClear}
+							onCancel={() => {
+								setSearchOpen(false);
+								onSearchClear();
+							}}
+							filter={searchFilter}
+							recentSearches={recentSearches}
+							onPickRecent={onSearchChange}
+							makeFilter={makeFilter}
+							sections={sections}
+							loading={resultsLoading}
+							onSelectResult={handleSelectResult}
+							tokens={tokenChips}
+							scope={resultsScope}
+							suggest={searchSuggest}
+							suggestList={suggestList}
+						/>
+						{paneOverlay}
+					</ListHeaderChromeContext.Provider>
+				</SearchConversionContext.Provider>
 			</HeaderSearchContext.Provider>
 		);
 	}
 
 	return (
 		<HeaderSearchContext.Provider value={headerSearch}>
-			<ListHeaderChromeContext.Provider value={chrome}>
-				<section className="relative flex h-full w-full flex-col bg-surface">
-					{selectionBar?.(chrome)}
-					{suggestList}
-					<div className="min-h-0 flex-1">{body}</div>
-					{footer}
-					{paneOverlay}
-				</section>
-			</ListHeaderChromeContext.Provider>
+			<SearchConversionContext.Provider value={searchConversion}>
+				<ListHeaderChromeContext.Provider value={chrome}>
+					<section className="relative flex h-full w-full flex-col bg-surface">
+						{selectionBar?.(chrome)}
+						{suggestList}
+						<div className="min-h-0 flex-1">{body}</div>
+						{footer}
+						{paneOverlay}
+					</section>
+				</ListHeaderChromeContext.Provider>
+			</SearchConversionContext.Provider>
 		</HeaderSearchContext.Provider>
 	);
 }

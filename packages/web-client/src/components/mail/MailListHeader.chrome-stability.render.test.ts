@@ -2,15 +2,15 @@
  * The chrome the list header hands its body is one object, and the body is a
  * virtualized list that re-renders every row when that object changes (#506).
  *
- * What is typed, where the caret is and which suggestion is highlighted belong
- * to the search field alone. Moving the highlight changes nothing the header
- * shows, so the body must be handed back the object it already has — which it
- * was not, because the field was built into the chrome and its ARIA wiring and
- * key handler were fresh on every render.
+ * What is typed, where the caret is, which suggestion is highlighted and what
+ * the query converts to belong to the field and the wizard, not to the list.
+ * None of it changes anything the header shows, so the body must be handed back
+ * the object it already has.
  *
- * Driven through the real field and real keystrokes, in the real header, so the
- * assertion is about the object the body receives rather than the shape of the
- * memo that built it.
+ * Driven through the real field and real keystrokes, in the real header, so
+ * every assertion is about the object the body receives rather than the shape of
+ * any one memo that fed it — `use-suggest-list.test.ts` is what pins the
+ * combobox props the field itself reads.
  */
 
 import assert from "node:assert/strict";
@@ -40,6 +40,8 @@ const MAILBOX_ID = "11111111-1111-4111-8111-111111111111";
 const TABLET_WIDTH = 900;
 /** A bare word, so the offer is token names and needs no lookup. */
 const TYPED = "fro";
+/** Still a bare word, so the query converts to the same clause and copy. */
+const TYPED_NEXT = `${TYPED}g`;
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
@@ -48,6 +50,15 @@ let chromes: ListHeaderChrome[] = [];
 let commits = 0;
 /** Which body the mounted view has: its own rows, or the read-only results panel. */
 let resultsInBody = true;
+/** The address the view mounts on; a `q` on it is a query already committed. */
+let initialPath = `/mail/${MAILBOX_ID}`;
+/**
+ * The query the shell has committed, as the /mail shell would hand it down: the
+ * field is mirrored to the URL on a debounce, so a view mounted on an address
+ * carrying `q` reads a query the next keystroke does not move. Unset, the typed
+ * text answers for both, which is the mid-debounce case the other tests are in.
+ */
+let committedQuery: string | undefined;
 
 afterEach(() => {
 	harness?.close();
@@ -57,6 +68,8 @@ afterEach(() => {
 	chromes = [];
 	commits = 0;
 	resultsInBody = true;
+	initialPath = `/mail/${MAILBOX_ID}`;
+	committedQuery = undefined;
 });
 
 // The router reads `self` at construction; the shared jsdom globals stop at
@@ -79,7 +92,7 @@ function Header() {
 			mailboxNameIndex: new Map(),
 			accountNameIndex: new Map(),
 			resultFolderIndex: EMPTY_RESULT_FOLDER_INDEX,
-			searchQuery: query,
+			searchQuery: committedQuery ?? query,
 			searchInput: query,
 			searchViewKey: "list",
 			onSearchChange: setQuery,
@@ -131,18 +144,22 @@ const testRouter = (): AnyRouter => {
 	});
 	return createRouter({
 		routeTree: rootRoute.addChildren([mailRoute.addChildren([mailboxRoute])]),
-		history: createMemoryHistory({ initialEntries: [`/mail/${MAILBOX_ID}`] }),
+		history: createMemoryHistory({ initialEntries: [initialPath] }),
 	}) as unknown as AnyRouter;
 };
 
 /** Mount the header with a query typed and the field holding focus. */
 const mount = async (
-	options: { resultsPanelInChrome?: boolean } = {},
+	options: { resultsPanelInChrome?: boolean; committedQuery?: string } = {},
 ): Promise<{
 	mounted: DomHarness;
 	field: HTMLInputElement;
 }> => {
 	resultsInBody = options.resultsPanelInChrome !== true;
+	committedQuery = options.committedQuery;
+	initialPath = committedQuery
+		? `/mail/${MAILBOX_ID}?q=${committedQuery}`
+		: `/mail/${MAILBOX_ID}`;
 	http = mockFetch(() => ({ items: [] }));
 	const router = testRouter();
 	await router.load();
@@ -198,6 +215,47 @@ describe("the chrome the list header hands its body (#506)", () => {
 			chromes.at(-1),
 			before,
 			"a highlight move in the field pushed a new chrome at the list below it",
+		);
+	});
+
+	// The symptom #506 was filed on: a mailbox on tablet, its query already in the
+	// URL, its own rows in the body — and a character typed into the field
+	// repainting all of them. Everything a keystroke moves here (the parse, the
+	// conversion the wizard opens on, the copy the make-this-a-filter row shows)
+	// is derived from the text, so the chrome holds only if none of it rides on it.
+	//
+	// The typed text lives above the header, so the list is re-rendered either
+	// way — what it must be handed is the chrome it already has, which is what
+	// keeps its own rows off the render path.
+	it("is the same object across a character typed over a committed query", async () => {
+		const { mounted, field } = await mount({ committedQuery: TYPED });
+		const before = chromes.at(-1);
+		assert.ok(before, "the body was never handed a chrome");
+		const handedBefore = chromes.length;
+		const commitsBefore = commits;
+
+		mounted.type(field, TYPED_NEXT);
+		await mounted.flush();
+
+		assert.equal(
+			field.value,
+			TYPED_NEXT,
+			"the character never reached the field",
+		);
+		assert.ok(
+			commits > commitsBefore,
+			"the keystroke committed no render at all, so the memo was never put to the test",
+		);
+		assert.ok(
+			chromes.length > handedBefore,
+			"the list was never re-rendered, so it was never handed a second chrome to compare",
+		);
+		// Identity, not `assert.equal`: a failure there renders a diff of two
+		// chromes full of React elements, and that is what runs the reporter out of
+		// memory rather than reporting the bug.
+		assert.ok(
+			chromes.at(-1) === before,
+			"a character typed over a committed query pushed a new chrome at the list below it",
 		);
 	});
 
