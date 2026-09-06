@@ -46,7 +46,26 @@ const proposedDeletedFolder: RoleResolution<TrashMailbox> = {
 interface TrashMessage {
 	messageId: string;
 	syncStatus: string;
+	status?: string;
+	mailboxId?: string;
+	uid?: number;
+	originalMailboxId?: string;
+	originalUid?: number;
 }
+
+/**
+ * A row mid-move into Trash: the folder is already written, the uid is still
+ * the inbox's, and only `status: moving` says so.
+ */
+const movingIntoTrash = (messageId: string, uid: number): TrashMessage => ({
+	messageId,
+	syncStatus: "pending",
+	status: "moving",
+	mailboxId: REAL_TRASH,
+	uid,
+	originalMailboxId: "mbx-inbox",
+	originalUid: uid,
+});
 
 interface EnqueuedEvent {
 	type: string;
@@ -194,20 +213,36 @@ describe("MessageMoveService.emptyTrash", () => {
 		assert.equal(deletedCount, 3);
 	});
 
-	it("marks and counts a message whose move to Trash has not settled", async () => {
-		// The user saw the message in Trash and asked for the folder to be
-		// emptied. Skipping it reports a number the folder contradicts, and the
-		// queue is per-account FIFO, so the move has landed on the server before
-		// the expunge is even delivered.
+	it("marks and counts a message whose sync is merely pending", async () => {
+		// `syncStatus: pending` is where every freshly synced inbound row sits
+		// forever; it says nothing about where the message is. The user saw it in
+		// Trash and asked for the folder to be emptied, and skipping it would
+		// report a number the folder contradicts.
 		const { service, markedDeleting } = buildWorld(appointedTrash, [
 			{ messageId: "settled-1", syncStatus: "synced" },
-			{ messageId: "still-moving-1", syncStatus: "pending" },
+			{ messageId: "pending-1", syncStatus: "pending" },
 		]);
 
 		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
 
-		assert.deepEqual(markedDeleting, ["settled-1", "still-moving-1"]);
+		assert.deepEqual(markedDeleting, ["settled-1", "pending-1"]);
 		assert.equal(deletedCount, 2);
+	});
+
+	it("leaves a row whose move into Trash has not settled unmarked and uncounted", async () => {
+		// Issue #1217. Marking it `deleting` overwrites the `moving` its own
+		// MESSAGE_MOVE reads to decide there is still work to do, so that move
+		// returns without touching IMAP and the worker's expunge then binds the
+		// inbox's uid against whatever Trash really holds at it.
+		const { service, markedDeleting } = buildWorld(appointedTrash, [
+			{ messageId: "settled-1", syncStatus: "synced" },
+			movingIntoTrash("moving-1", 10),
+		]);
+
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.deepEqual(markedDeleting, ["settled-1"]);
+		assert.equal(deletedCount, 1);
 	});
 
 	it("reports the same count when pressed twice before the worker runs", async () => {

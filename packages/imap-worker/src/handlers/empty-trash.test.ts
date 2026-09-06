@@ -92,10 +92,16 @@ const movingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
 	originalUid: uid,
 });
 
-/** The same row after the mover gave up without confirming. */
-const strandedIntoTrash = (messageId: string, uid: number): LocalMessage => ({
+/** The same row between a failed attempt and its redelivery. */
+const retryingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
 	...movingIntoTrash(messageId, uid),
 	syncStatus: "failed",
+});
+
+/** The same row after an empty marked the folder, `status` overwritten. */
+const markedMidMove = (messageId: string, uid: number): LocalMessage => ({
+	...movingIntoTrash(messageId, uid),
+	status: "deleting",
 });
 
 const fresh = (): Harness => ({
@@ -467,16 +473,33 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		assert.equal(called("threadMessage.delete").length, 1);
 	});
 
-	it("leaves a row stranded by a move that gave up rather than sweeping it", async () => {
-		// `syncStatus: failed` with `status: moving` is what every mover's
-		// give-up path leaves behind. The pair is still a lie, so the uid is
-		// still somebody else's.
-		h.localMessages = [strandedIntoTrash("msg-stranded", 11)];
+	it("leaves a row whose move is mid-retry rather than sweeping it", async () => {
+		// `syncStatus: failed` under `status: moving` is an ordinary transient
+		// attempt about to be redelivered (`data-ports/message-settlement.ts`),
+		// not a give-up. Either way the pair is a lie while it stands, and the
+		// uid is somebody else's.
+		h.localMessages = [retryingIntoTrash("msg-retrying", 11)];
 
 		await handleEmptyTrash(event, noopLog, deps());
 
 		assert.equal(called("message.delete").length, 0);
 		assert.equal(called("threadMessage.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), []);
+	});
+
+	it("leaves a mid-move row an earlier mark already rewrote", async () => {
+		// Defence in depth for the shape `emptyTrash` used to write: the mark
+		// overwrote `status` and the row reached here reading settled while its
+		// uid still belonged to the inbox. Nothing but `updateUid` or a restore
+		// clears that, so the uid is answered on its own terms.
+		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-marked", 11)];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
 		assert.deepEqual(revertedMessageIds(), []);
 	});
 

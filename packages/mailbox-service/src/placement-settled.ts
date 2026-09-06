@@ -29,18 +29,32 @@ export const isPlacementUnsettled = (
  * never moved, so its uid names nothing but itself — a freshly copied row is
  * `moving` with `uid: 0` until COPYUID lands, which is a uid that is not ready,
  * not a uid that names somebody else's message.
+ *
+ * Answered without reference to `status`, because `status` is not what clears
+ * it: only `updateUid` does, by writing the destination's own uid, or a
+ * restore, by pointing `mailboxId` back at `originalMailboxId`. An operation
+ * that rewrites `status` on its way past — Empty Trash marking a whole folder
+ * `deleting` — leaves the lie in place, so anything that resolves a uid off a
+ * row it did not settle itself must ask this rather than the binding below
+ * (issue #1217).
  */
+export const carriesForeignUid = (
+	message: Pick<
+		MessageItem,
+		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
+	>,
+): boolean =>
+	message.originalUid !== undefined &&
+	message.originalUid === message.uid &&
+	message.originalMailboxId !== undefined &&
+	message.originalMailboxId !== message.mailboxId;
+
 export const bindsForeignUid = (
 	message: Pick<
 		MessageItem,
 		"status" | "mailboxId" | "uid" | "originalMailboxId" | "originalUid"
 	>,
-): boolean =>
-	isPlacementUnsettled(message) &&
-	message.originalUid !== undefined &&
-	message.originalUid === message.uid &&
-	message.originalMailboxId !== undefined &&
-	message.originalMailboxId !== message.mailboxId;
+): boolean => isPlacementUnsettled(message) && carriesForeignUid(message);
 
 /**
  * `in_flight` — a mover is still working on the row, so waiting resolves it.

@@ -34,6 +34,7 @@ import {
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
+	bindsForeignUid,
 	type PlacementBinding,
 	placementBindingOf,
 	waitForPlacementToSettle,
@@ -917,9 +918,20 @@ export class MessageMoveService {
 			trashMailbox.mailboxId,
 		);
 
-		const messages = await this.messageService.listAllByMailbox(
+		const rows = await this.messageService.listAllByMailbox(
 			trashMailbox.mailboxId,
 		);
+
+		// Reconciles, never waits (imap-mutations R2). A row whose move into
+		// Trash has not settled names this folder while still carrying the SOURCE
+		// folder's uid, and marking it `deleting` overwrites the only marker that
+		// says so: its own MESSAGE_MOVE then reads the row as settled and returns
+		// without moving anything, and the worker's expunge binds that borrowed
+		// uid against whatever Trash really holds at it. The row is left as it
+		// stands for its move to settle, and out of the count, because a message
+		// the server has not put in Trash is not one this empty can carry. The
+		// user presses again for it.
+		const messages = rows.filter((message) => !bindsForeignUid(message));
 
 		// Mark all as deleting locally
 		for (const message of messages) {

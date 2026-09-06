@@ -5,10 +5,10 @@ import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
+	carriesForeignUid,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
-	placementBindingOf,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
@@ -256,13 +256,18 @@ export const handleEmptyTrash = async (
 					// expunge answers for whatever Trash held at that uid — another
 					// message, deleted here in both its rows. Waiting is not open to
 					// this handler the way it is to the API-side mutators: every event
-					// of an account shares one FIFO group, so the MESSAGE_MOVE that
-					// settles the row cannot run until this returns, and the ceiling
+					// of an account shares one FIFO group, so the move that would
+					// settle the row cannot run until this returns, and the ceiling
 					// would be spent to reach the same answer. The row is left to that
-					// move, which binds the confirmed pair and leaves the message in a
-					// Trash the user emptied before it arrived.
+					// move, and the message stays in a Trash the user emptied before
+					// it arrived.
+					//
+					// `carriesForeignUid`, not the placement binding: the binding reads
+					// `status`, and `status` is exactly what an operation marking this
+					// folder overwrites. This is the second half of the gate `emptyTrash`
+					// applies before it marks anything.
 					const bindable = localMessages.filter(
-						(message) => placementBindingOf(message) === "consistent",
+						(message) => !carriesForeignUid(message),
 					);
 					const unsettledCount = localMessages.length - bindable.length;
 					let deletedCount = 0;
@@ -289,11 +294,11 @@ export const handleEmptyTrash = async (
 					// that will never come: mail another client already emptied, mail
 					// that reached Trash after the SEARCH, or a redelivery finishing a
 					// partial sweep. All three must come back rather than sit invisible.
-					// Read off the same settled rows: an unsettled one's uid names
-					// another folder's message, so its absence from the expunge is not
-					// evidence about this row.
+					// The whole listing, as `abandonEmptyTrash` passes it: a row whose
+					// uid names another folder was never marked by this empty, and the
+					// `deleting` check inside is what leaves it alone.
 					const revertedCount = await handBackMarkedRows(
-						bindable.filter((message) => !expunged.has(message.uid)),
+						localMessages.filter((message) => !expunged.has(message.uid)),
 					);
 
 					log.info(
