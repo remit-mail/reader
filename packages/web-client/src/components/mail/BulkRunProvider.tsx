@@ -257,8 +257,21 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 					role: refusal.role,
 					reason: refusal.reason,
 					action: { kind: "delete", count: request.matched },
+					// The replay is a new run, and it claims nothing: the claim the
+					// original was started under belongs to a screen whose release has
+					// already fired or never will for this run, so re-claiming would
+					// leave the replay's ending held back by nobody and never said.
 					onAppointed: async () => {
-						await startRef.current(request);
+						const replayed = await startRef.current({
+							...request,
+							claimEnding: undefined,
+						});
+						if (replayed.kind === "refused") {
+							pushError({
+								title: bulkActionFailureTitle(request.action.kind, 0),
+								detail: replayed.reason,
+							});
+						}
 					},
 				});
 			} else if (outcome.error) {

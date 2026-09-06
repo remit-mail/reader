@@ -466,7 +466,7 @@ describe("another mailbox, while a run is going", () => {
 	});
 });
 
-describe("a commit that starts no run of its own", () => {
+describe("the claim a screen showing an ending in place holds", () => {
 	// An organize or filter commit reports in place too, and used to take a claim
 	// over any ending at all — so the delete still paging in another mailbox
 	// finished in silence.
