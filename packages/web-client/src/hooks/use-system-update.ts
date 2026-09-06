@@ -37,7 +37,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { shouldEscalate, softErrorMeta } from "@/lib/error-classifier";
+import {
+	restartExpectedMeta,
+	shouldEscalate,
+	softErrorMeta,
+} from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import {
 	appliesSchemaMigration,
@@ -54,6 +58,16 @@ import {
 
 const IDLE_POLL_MS = 30_000;
 const RUN_POLL_MS = 5_000;
+
+/**
+ * The poll's own error UX, and — only while this page holds a run it started —
+ * the restart that run performs. Stopping and starting the backend is what the
+ * user pressed for, so the gateway statuses answered while it is down belong to
+ * the surface below, which shows the phase and gives up loudly if the server
+ * never comes back (#468). Outside that window the poll carries no such claim.
+ */
+const POLL_META = softErrorMeta;
+const POLL_ACROSS_RESTART_META = { ...softErrorMeta, ...restartExpectedMeta };
 
 /**
  * How long a pressed check waits for the updater before the pane calls it a
@@ -114,7 +128,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const query = useQuery({
 		...systemOperationsGetSystemUpdateOptions(),
 		retry: false,
-		meta: { softError: true },
+		meta: held === null ? POLL_META : POLL_ACROSS_RESTART_META,
 		refetchInterval: (query) =>
 			pollInterval(
 				query.state.error,

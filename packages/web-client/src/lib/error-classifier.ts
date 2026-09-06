@@ -144,6 +144,32 @@ const isSoftErrorMeta = (
 };
 
 /**
+ * The statuses a proxy answers for the seconds an upstream it fronts is not
+ * there. Caddy turns a failed dial into a 502 once its retry window is out
+ * (`deploy/vps/caddy/routes.caddy`); 503 and 504 are the same gap seen through
+ * a different hop.
+ */
+const RESTART_GAP_STATUSES = [502, 503, 504];
+
+/**
+ * The gap in a restart this call site asked for. A self-update stops and starts
+ * the backend on purpose, so the poll watching that run meets a proxy with
+ * nothing behind it — the designed shape of the operation the user pressed, not
+ * our API answering "I'm broken".
+ *
+ * A 500 is not in it: a server that answered is a server that is up, and up and
+ * broken is never designed.
+ */
+const isDesignedRestartGap = (
+	error: unknown,
+	meta: Record<string, unknown> | undefined,
+): boolean => {
+	if (meta?.restartExpected !== true) return false;
+	const status = getErrorStatus(error);
+	return status !== undefined && RESTART_GAP_STATUSES.includes(status);
+};
+
+/**
  * The single fail-fast decision: should this error escalate to the full-screen
  * fatal overlay? Default is YES — a non-2xx must never silently vanish.
  *
@@ -151,7 +177,10 @@ const isSoftErrorMeta = (
  *  1. DEFAULT = escalate.
  *  2. A 5xx (500–599) ALWAYS escalates — no opt-out, even on a background
  *     refetch, even when the call site marked `meta.softError`. Our API
- *     answered "I'm broken"; that is never benign.
+ *     answered "I'm broken"; that is never benign. The single exception is a
+ *     502/503/504 on a call site that declared it is polling across a restart it
+ *     asked for (`meta.restartExpected`, #468): there the backend being gone is
+ *     the operation working, and that call site renders the wait itself.
  *  3. A client-side exception ALWAYS escalates, on the same terms. It is our
  *     bug; there is nothing for the user to retry and nothing to dismiss.
  *  4. A 401 on a request the user is waiting on ALWAYS escalates, on the same
@@ -173,7 +202,7 @@ export const shouldEscalate = (
 	meta?: Record<string, unknown>,
 	awaiting: Awaiting = "nobody",
 ): boolean => {
-	if (isServerError(error)) return true;
+	if (isServerError(error)) return !isDesignedRestartGap(error, meta);
 	if (isAbortError(error)) return false;
 	if (isNetworkError(error)) return false;
 	if (awaiting === "user" && isUnauthenticated(error)) return true;
@@ -208,6 +237,20 @@ export const softErrorMeta: { softError: true } = { softError: true };
 export const softErrorStatuses = (
 	...statuses: number[]
 ): { softErrorStatuses: number[] } => ({ softErrorStatuses: statuses });
+
+/**
+ * The one opt-out from rule 2, for a request watching a restart its own call
+ * site asked for. Set it only while that restart is in flight — the update poll
+ * carries it while it holds a run it started, and drops it the moment the run is
+ * accounted for — because a 502 outside that window is the API being broken,
+ * which is exactly what rule 2 is for.
+ *
+ * A call site that sets this owns the whole wait: the phase it shows while the
+ * backend is gone, and the loud give-up when it never comes back.
+ */
+export const restartExpectedMeta: { restartExpected: true } = {
+	restartExpected: true,
+};
 
 /** The record is not there. */
 export const isNotFound = (error: unknown): boolean =>
