@@ -500,15 +500,22 @@ function SelectionWizardSession({
 	});
 	const { runAction } = bulk;
 
-	// While the run screen is up it states the ending itself, so the run's owner
-	// holds its banner back. Leaving — closing the wizard, or leaving the mailbox
-	// altogether — releases the claim, and the ending is bannered where the user
-	// now is (#112, #521).
+	// While this screen is up it states the ending itself, so the run's owner
+	// holds its banner back. The claim is taken by the press that sends the
+	// commit rather than by the step landing in the URL: a run over a small
+	// selection can be back before the navigation is, and an ending said twice is
+	// as wrong as one said not at all. Leaving — closing the wizard, or leaving
+	// the mailbox altogether — unmounts this and releases it, and the ending is
+	// bannered where the user now is (#112, #521).
 	const { claimReport } = useBulkRun();
-	useEffect(() => {
-		if (step !== "run") return;
-		return claimReport();
-	}, [step, claimReport]);
+	const releaseReport = useRef<(() => void) | undefined>(undefined);
+	useEffect(
+		() => () => {
+			releaseReport.current?.();
+			releaseReport.current = undefined;
+		},
+		[],
+	);
 
 	const steps = stepsFor({ verb, mode, scope: draft.scope, fromSearch });
 	// The step the screens are on, which is the held one only while the answers
@@ -772,9 +779,10 @@ function SelectionWizardSession({
 		}
 		if (commitSent.current) return;
 		commitSent.current = true;
+		releaseReport.current = claimReport();
 		goToStep("run");
 		sendCommit();
-	}, [blockedReason, current, goToStep, sendCommit]);
+	}, [blockedReason, current, goToStep, sendCommit, claimReport]);
 
 	const jobSnapshot = useCallback(
 		(ruleSaved: boolean): RunSnapshot => {
