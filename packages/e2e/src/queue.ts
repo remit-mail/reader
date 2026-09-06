@@ -23,6 +23,9 @@ export const MESSAGE_MGMT_QUEUE = "remit-message-mgmt";
 /** Where a record that exhausts its redrive budget on that queue ends up. */
 export const MESSAGE_MGMT_DLQ = "remit-message-mgmt-dlq";
 
+/** Where MESSAGE_DELETE is delivered, one FIFO group per account. */
+export const MESSAGES_QUEUE = "remit-messages.fifo";
+
 const unescapeXml = (value: string): string =>
 	value
 		.replace(/&lt;/g, "<")
@@ -83,6 +86,47 @@ export const enqueueAppendSentMessage = async (
 			outboxMessageId,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
+		}),
+	});
+};
+
+/**
+ * The MESSAGE_DELETE envelope, as `MessageMoveService.deleteMessages` writes it
+ * and `handleMessageDelete` reads it (`packages/imap-worker/src/events.ts`).
+ * Restated here for the same reason the append envelope above is, and kept
+ * honest the same way: an envelope the worker cannot recognise abandons the
+ * delete and shows up as an alert, and one it cannot handle exhausts its budget
+ * into {@link MESSAGES_DLQ}.
+ *
+ * `uid` is the SOURCE folder's uid, which is what the API records at the moment
+ * it enqueues — the whole point of a redelivery being dangerous is that the uid
+ * no longer names anything once the move has landed.
+ */
+export interface MessageDeleteEnvelope {
+	accountId: string;
+	messageId: string;
+	mailboxId: string;
+	mailboxPath: string;
+	uid: number;
+	destinationMailboxId: string;
+	destinationMailboxPath: string;
+}
+
+export const enqueueMessageDelete = async (
+	envelope: MessageDeleteEnvelope,
+): Promise<void> => {
+	const eventId = randomUUID();
+	await sqs("SendMessage", {
+		QueueName: MESSAGES_QUEUE,
+		MessageGroupId: envelope.accountId,
+		MessageDeduplicationId: eventId,
+		MessageBody: JSON.stringify({
+			type: "MESSAGE_DELETE",
+			schemaVersion: 2,
+			eventId,
+			timestamp: Date.now(),
+			operation: "move_to_trash",
+			...envelope,
 		}),
 	});
 };
