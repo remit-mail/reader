@@ -8,6 +8,7 @@ import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
+	placementBindingOf,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
@@ -248,9 +249,25 @@ export const handleEmptyTrash = async (
 					const expunged = new Set(uids);
 					const localMessages =
 						await messageService.listAllByMailbox(trashMailboxId);
+
+					// Reconciles, never waits (imap-mutations R2). A row whose move
+					// into Trash has not settled names this folder while still
+					// carrying the SOURCE folder's uid, so matching it against the
+					// expunge answers for whatever Trash held at that uid — another
+					// message, deleted here in both its rows. Waiting is not open to
+					// this handler the way it is to the API-side mutators: every event
+					// of an account shares one FIFO group, so the MESSAGE_MOVE that
+					// settles the row cannot run until this returns, and the ceiling
+					// would be spent to reach the same answer. The row is left to that
+					// move, which binds the confirmed pair and leaves the message in a
+					// Trash the user emptied before it arrived.
+					const bindable = localMessages.filter(
+						(message) => placementBindingOf(message) === "consistent",
+					);
+					const unsettledCount = localMessages.length - bindable.length;
 					let deletedCount = 0;
 
-					for (const message of localMessages) {
+					for (const message of bindable) {
 						if (!expunged.has(message.uid)) continue;
 						deletedCount += 1;
 
@@ -272,12 +289,15 @@ export const handleEmptyTrash = async (
 					// that will never come: mail another client already emptied, mail
 					// that reached Trash after the SEARCH, or a redelivery finishing a
 					// partial sweep. All three must come back rather than sit invisible.
+					// Read off the same settled rows: an unsettled one's uid names
+					// another folder's message, so its absence from the expunge is not
+					// evidence about this row.
 					const revertedCount = await handBackMarkedRows(
-						localMessages.filter((message) => !expunged.has(message.uid)),
+						bindable.filter((message) => !expunged.has(message.uid)),
 					);
 
 					log.info(
-						{ accountId, deletedCount, revertedCount },
+						{ accountId, deletedCount, revertedCount, unsettledCount },
 						"Trash emptied successfully",
 					);
 				})
