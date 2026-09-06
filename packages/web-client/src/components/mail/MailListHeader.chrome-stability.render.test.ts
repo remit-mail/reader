@@ -24,7 +24,7 @@ import {
 	Outlet,
 	RouterProvider,
 } from "@tanstack/react-router";
-import { createElement, useCallback, useMemo, useState } from "react";
+import { createElement, Profiler, useCallback, useMemo, useState } from "react";
 import {
 	type ListHeaderChrome,
 	useListHeaderChrome,
@@ -44,6 +44,10 @@ const TYPED = "fro";
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 let chromes: ListHeaderChrome[] = [];
+/** Commits React made in the header's subtree, so "it held" cannot mean "nothing ran". */
+let commits = 0;
+/** Which body the mounted view has: its own rows, or the read-only results panel. */
+let resultsInBody = true;
 
 afterEach(() => {
 	harness?.close();
@@ -51,6 +55,8 @@ afterEach(() => {
 	http?.restore();
 	http = undefined;
 	chromes = [];
+	commits = 0;
+	resultsInBody = true;
 });
 
 // The router reads `self` at construction; the shared jsdom globals stop at
@@ -88,15 +94,25 @@ function Header() {
 	return createElement(
 		MailContext.Provider,
 		{ value: context },
-		createElement(MailListHeader, {
-			title: "Inbox",
-			unreadCount: null,
-			// The body renders the committed search itself, which is what keeps the
-			// read-only results panel out of the chrome on this tier.
-			searchResultsInBody: true,
-			// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
-			children: createElement(ChromeProbe),
-		}),
+		createElement(
+			Profiler,
+			{
+				id: "list-header",
+				onRender: () => {
+					commits += 1;
+				},
+			},
+			createElement(MailListHeader, {
+				title: "Inbox",
+				unreadCount: null,
+				// Set, the body renders the committed search itself and the read-only
+				// results panel stays out of the chrome; unset, the panel rides in the
+				// chrome, which is the other thing a keystroke must not churn.
+				searchResultsInBody: resultsInBody,
+				// biome-ignore lint/correctness/noChildrenProp: no JSX in a `.ts` test, and createElement's variadic children do not satisfy a required prop
+				children: createElement(ChromeProbe),
+			}),
+		),
 	);
 }
 
@@ -120,10 +136,13 @@ const testRouter = (): AnyRouter => {
 };
 
 /** Mount the header with a query typed and the field holding focus. */
-const mount = async (): Promise<{
+const mount = async (
+	options: { resultsPanelInChrome?: boolean } = {},
+): Promise<{
 	mounted: DomHarness;
 	field: HTMLInputElement;
 }> => {
+	resultsInBody = options.resultsPanelInChrome !== true;
 	http = mockFetch(() => ({ items: [] }));
 	const router = testRouter();
 	await router.load();
@@ -156,13 +175,24 @@ describe("the chrome the list header hands its body (#506)", () => {
 		const { mounted, field } = await mount();
 		const before = chromes.at(-1);
 		assert.ok(before, "the body was never handed a chrome");
+		const handedBefore = chromes.length;
+		const commitsBefore = commits;
 
 		press(mounted, field, "ArrowDown");
 		await mounted.flush();
 
 		assert.ok(
+			commits > commitsBefore,
+			"the keystroke committed no render at all, so the memo was never put to the test",
+		);
+		assert.ok(
 			field.getAttribute("aria-activedescendant"),
 			"the keystroke did not move the highlight, so nothing was put to the test",
+		);
+		assert.equal(
+			chromes.length,
+			handedBefore,
+			"a highlight move in the field re-rendered the list below it",
 		);
 		assert.equal(
 			chromes.at(-1),
@@ -171,9 +201,33 @@ describe("the chrome the list header hands its body (#506)", () => {
 		);
 	});
 
+	it("is the same object for a view whose results panel rides in the chrome", async () => {
+		const { mounted, field } = await mount({ resultsPanelInChrome: true });
+		const before = chromes.at(-1);
+		assert.ok(before?.searchResults, "the panel never reached the chrome");
+		const handedBefore = chromes.length;
+		const commitsBefore = commits;
+
+		press(mounted, field, "ArrowDown");
+		await mounted.flush();
+
+		assert.ok(
+			commits > commitsBefore,
+			"the keystroke committed no render at all, so the memo was never put to the test",
+		);
+		assert.equal(
+			chromes.length,
+			handedBefore,
+			"a highlight move in the field re-rendered the list below it",
+		);
+		assert.equal(chromes.at(-1), before);
+	});
+
 	it("is the same object across the field taking and losing focus", async () => {
 		const { mounted, field } = await mount();
 		const before = chromes.at(-1);
+		const handedBefore = chromes.length;
+		const commitsBefore = commits;
 
 		mounted.dispatch(field, new Event("focusout", { bubbles: true }));
 		await mounted.flush();
@@ -183,6 +237,15 @@ describe("the chrome the list header hands its body (#506)", () => {
 			"the suggestion list to open again",
 		);
 
+		assert.ok(
+			commits > commitsBefore,
+			"focus moved nothing, so the memo was never put to the test",
+		);
+		assert.equal(
+			chromes.length,
+			handedBefore,
+			"focusing the field re-rendered the list below it",
+		);
 		assert.equal(chromes.at(-1), before);
 	});
 
