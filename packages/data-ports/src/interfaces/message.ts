@@ -3,6 +3,8 @@ import type {
 	MessageDescription,
 	MessageIdSource,
 	MessageItem,
+	PlacementPredicate,
+	PlacementTransitionInput,
 	ResultList,
 	UpdateMessageInput,
 	UpdateMessageMoveInput,
@@ -37,6 +39,20 @@ export interface IMessageRepository {
 		newUid: number,
 		newMailboxId: string,
 	): Promise<MessageItem>;
+	/**
+	 * Move the row's placement from the state the caller read to the state it
+	 * decided on, as one conditional write (imap-mutations R3).
+	 *
+	 * Resolves with the written row when the predicate matched, and with
+	 * `undefined` when it did not — someone else won, or the row is gone. The
+	 * loser re-reads and re-decides; it never blind-retries and never writes
+	 * anyway.
+	 */
+	transitionPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+		next: PlacementTransitionInput,
+	): Promise<MessageItem | undefined>;
 }
 
 export type { MessageIdSource };

@@ -207,7 +207,7 @@ model Message {
   @visibility(Lifecycle.Read)
   status: MessageStatus = MessageStatus.active;
 
-  @doc("Sync status for move/delete operations. The `synced` column default only applies to a row written without the field: the repository always supplies one, and an ordinary inbound sync writes `pending`, which nothing later promotes. So `pending` here does not mean an outstanding move or delete — `status` names that, and `failed` marks a mutation that gave up.")
+  @doc("Sync status for move/delete operations, read as a pair with `status` (imap-mutations R3). The `synced` column default only applies to a row written without the field: the repository always supplies one, and an ordinary inbound sync writes `pending`, which nothing later promotes. So `pending` here does not mean an outstanding move or delete — `status` names that, `failed` marks an attempt about to be redelivered, and `abandoned` marks a mutation that gave up.")
   @visibility(Lifecycle.Read)
   syncStatus: MessageSyncStatus = MessageSyncStatus.synced;
 

@@ -126,6 +126,8 @@ export type {
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	PlacementPredicate,
+	PlacementTransitionInput,
 	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput,
 	PutCalendarSuggestionInput,

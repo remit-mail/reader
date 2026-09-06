@@ -416,6 +416,33 @@ export type UpdateMessageMoveInput = Partial<
 	>
 >;
 
+/**
+ * The placement a transition expects to find, as the caller read it
+ * (docs/architecture/imap-mutations.md R3). Every field named here becomes a
+ * term of the UPDATE's WHERE clause; what the caller did not read, it does not
+ * supply. `syncStatus` takes a set because several of the six placement states
+ * share one `status`.
+ */
+export type PlacementPredicate = {
+	status?: MessageItem["status"] | readonly MessageItem["status"][];
+	syncStatus?: MessageItem["syncStatus"] | readonly MessageItem["syncStatus"][];
+	mailboxId?: string;
+	uid?: number;
+};
+
+/**
+ * What a winning transition writes. `originalMailboxId` and `originalUid` take
+ * `null` to clear, the way `updateForMove` already spells a cleared pair.
+ */
+export type PlacementTransitionInput = {
+	status?: MessageItem["status"];
+	syncStatus?: MessageItem["syncStatus"];
+	mailboxId?: string;
+	uid?: number;
+	originalMailboxId?: string | null;
+	originalUid?: number | null;
+};
+
 export type MessageIdSource = {
 	messageId?: string;
 	uid: number;
