@@ -588,12 +588,15 @@ describe("runCopy", () => {
 
 	it("separates a run that stopped from a pass the server rejected", () => {
 		// The bulk endpoints accept every id in a call that returns, so the only
-		// failure the chunked runner can observe is a call that threw — and
-		// everything after it was never sent. Saying the mail server rejected
-		// those states a cause that did not happen.
+		// failure the chunked runner can observe is a call that threw or was
+		// aborted — and everything after it was never sent. Saying the mail server
+		// rejected those states a cause that did not happen. Stopping aborts the
+		// request on the wire without un-sending it (#113), so the copy stops short
+		// of promising that batch never landed either.
 		const stopped = outcome("runStopped", "once");
 		assert.equal(stopped.title, "Stopped after 10");
-		assert.match(stopped.detail, /nothing was sent for them/);
+		assert.match(stopped.detail, /The rest were not sent/);
+		assert.match(stopped.detail, /may still have gone through/);
 		assert.doesNotMatch(stopped.detail, /rejected/);
 		assert.equal(stopped.retryLabel, "Retry 2");
 		assert.equal(stopped.showProgress, true);

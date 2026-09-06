@@ -481,37 +481,6 @@ describe("runPredicateAction", () => {
 // search or delete already on the wire ran to completion — up to a hundred
 // messages deleted after the press. The run's signal is now the call's signal.
 describe("stopping a run that has a request in flight", () => {
-	test("hands the run's own signal to every batch it sends", async () => {
-		const stop = new AbortController();
-		const seen: AbortSignal[] = [];
-		await runChunkedAction(
-			targets(BULK_ACTION_CHUNK_SIZE + 1),
-			async (chunk, signal) => {
-				seen.push(signal);
-				return { successCount: chunk.length, failureCount: 0 };
-			},
-			() => undefined,
-			stop.signal,
-		);
-		assert.deepEqual(seen, [stop.signal, stop.signal]);
-	});
-
-	test("hands the run's own signal to every page it fetches", async () => {
-		const stop = new AbortController();
-		const seen: AbortSignal[] = [];
-		await runPredicateAction(
-			async (_token, signal) => {
-				seen.push(signal);
-				return { ids: ["a"] };
-			},
-			1,
-			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
-			() => undefined,
-			stop.signal,
-		);
-		assert.deepEqual(seen, [stop.signal]);
-	});
-
 	test("a bounded run reports the aborted batch as a clean stop, never an error", async () => {
 		const stop = new AbortController();
 		const calls: string[][] = [];

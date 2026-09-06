@@ -998,9 +998,11 @@ export function RunStepBody(props: RunStepProps) {
 	const { matched, applied, failures } = props;
 	const outcome = runOutcomeOf(props);
 	const copy = runCopy(outcome);
-	// A stopped run never sent these, so nothing rejected them.
+	// A stopped run confirmed none of these: most were never sent, and the ones
+	// on their way when the stop landed may have gone through anyway. Neither is
+	// a rejection, so neither can be badged as one.
 	const failureBadge =
-		props.state === "runStopped" ? "Never sent" : "Server rejected";
+		props.state === "runStopped" ? "Not confirmed" : "Server rejected";
 
 	return (
 		<div className="space-y-4 pt-2">

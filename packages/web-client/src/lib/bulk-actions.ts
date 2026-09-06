@@ -22,12 +22,20 @@
  * the signal is aborted is that abort, so it reports `cancelled` rather than an
  * error — the user asked for it.
  *
+ * That classification reads `signal.aborted`, deliberately, and not the shape of
+ * the rejection (`isAbortError`): a genuine failure that raced the user's Stop
+ * should read as a stop. The user pressed it and the run is over either way, and
+ * an error banner for a run they ended themselves is the wrong answer.
+ *
  * Pure, framework-agnostic, and independently testable — no React, no fetch.
  * `useEscalatedActions.ts` supplies the real `ApplyBatch`/`FetchIdsPage`
  * implementations (the generated SDK client) and owns the React state.
  */
 
 export const BULK_ACTION_CHUNK_SIZE = 100;
+
+/** For a run with no Stop control to wire a signal to. */
+const NEVER_ABORTED = new AbortController().signal;
 
 /**
  * Resolves a promise to a discriminated result instead of throwing, so a
@@ -224,7 +232,7 @@ export const runChunkedMutation = async (
 			return { successCount: chunk.length, failureCount: 0 };
 		},
 		() => {},
-		new AbortController().signal,
+		NEVER_ABORTED,
 	);
 };
 

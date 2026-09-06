@@ -602,7 +602,7 @@ export const runCopy = ({
 		return {
 			...shared,
 			title: `Stopped after ${applied}`,
-			detail: `${applied} of ${matched} ${done}. The run stopped before it reached the rest, so nothing was sent for them and nothing has happened to them.`,
+			detail: `${applied} of ${matched} ${done}. The rest were not sent, apart from the ones already on their way when you stopped — those may still have gone through.`,
 			tone: "warning",
 			dismissLabel: "Close",
 			retryLabel: `Retry ${failed}`,

@@ -68,19 +68,29 @@ describe("bulkActionFailureTitle", () => {
 });
 
 describe("a run that stopped short of its match", () => {
-	test("states what it reached and that the rest is untouched", () => {
+	test("states what it reached and what became of the rest", () => {
 		assert.equal(bulkActionStoppedTitle(1200), "Stopped after 1,200");
 		assert.equal(
 			bulkActionStoppedDetail("delete", 1200, 3412),
-			"1,200 of 3,412 moved to Trash. Nothing was sent for the rest, so they are untouched.",
+			"1,200 of 3,412 moved to Trash. The rest were not sent, apart from the ones already on their way when you stopped — those may still have gone through.",
 		);
 		assert.equal(
 			bulkActionStoppedDetail("markRead", 1200, 3412),
-			"1,200 of 3,412 marked as read. Nothing was sent for the rest, so they are untouched.",
+			"1,200 of 3,412 marked as read. The rest were not sent, apart from the ones already on their way when you stopped — those may still have gone through.",
 		);
 	});
 
-	test("never reads as a rejection — nothing was sent", () => {
+	// Stopping aborts the request on the wire; it does not un-send one the server
+	// already took (#113). Promising the remainder is untouched would be a claim
+	// the client cannot make about the batch that was in flight.
+	test("stops short of promising the batch in flight never landed", () => {
+		assert.match(
+			bulkActionStoppedDetail("move", 1, 2),
+			/may still have gone through/,
+		);
+	});
+
+	test("never reads as a rejection — nothing was refused", () => {
 		assert.doesNotMatch(
 			bulkActionStoppedDetail("move", 1, 2),
 			/rejected|couldn't/i,

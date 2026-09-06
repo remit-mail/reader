@@ -86,9 +86,11 @@ export const bulkActionCompletionText = (
 
 /**
  * Shown when a run ended before it covered what it was started against. The
- * remainder was never sent, so the mail is where it was and only the user can
+ * remainder was never sent, so that mail is where it was and only the user can
  * decide to run it again — which is why this is stated rather than left to a
- * list that quietly stops changing.
+ * list that quietly stops changing. Stopping aborts the request already on the
+ * wire rather than un-sending it (#113), so what the copy can promise about the
+ * remainder stops short of the batch that was in flight.
  */
 export const bulkActionStoppedTitle = (done: number): string =>
 	`Stopped after ${formatNumber(done)}`;
@@ -99,7 +101,7 @@ export const bulkActionStoppedDetail = (
 	total: number,
 	outcome: DeleteOutcome = "trash",
 ): string =>
-	`${formatNumber(done)} of ${formatNumber(total)} ${pastTenseFor(kind, outcome)}. Nothing was sent for the rest, so they are untouched.`;
+	`${formatNumber(done)} of ${formatNumber(total)} ${pastTenseFor(kind, outcome)}. The rest were not sent, apart from the ones already on their way when you stopped — those may still have gone through.`;
 
 /** Error-banner title for a run stopped by an infrastructure failure. */
 export const bulkActionFailureTitle = (
