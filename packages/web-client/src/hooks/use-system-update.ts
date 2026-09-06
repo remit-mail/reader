@@ -52,6 +52,7 @@ import {
 	type HeldRun,
 	isSurfaceAbsent,
 	mapUpdatePhase,
+	type RunSighting,
 	releaseFromCheck,
 	runInFlight,
 	type UpdateSurface,
@@ -125,6 +126,7 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
 	const [checkPress, setCheckPress] = useState<CheckPress | null>(null);
 	const [checkFailure, setCheckFailure] = useState<string | null>(null);
+	const [sighting, setSighting] = useState<RunSighting | null>(null);
 
 	const heldRef = useRef(held);
 	heldRef.current = held;
@@ -163,8 +165,25 @@ export function useSystemUpdate(): SelfUpdateApi {
 		dismissedRunId,
 		checkPress,
 		checkFailure,
+		sighting,
 		now: Date.now(),
 	});
+
+	// Stamp the run the server reports, once, off this tab's clock. The stamp is
+	// what the give-up is measured against, so it must not move while the server
+	// is unreachable — and it must not carry over to the next run.
+	const reported = runInFlight(query.data, dismissedRunId);
+	useEffect(() => {
+		if (reported === null) {
+			setSighting((current) => (current === null ? current : null));
+			return;
+		}
+		setSighting((current) =>
+			current !== null && current.runId === reported.runId
+				? current
+				: { runId: reported.runId, observedAt: Date.now() },
+		);
+	}, [reported]);
 
 	const shownRunIdRef = useRef<string | null>(null);
 	shownRunIdRef.current =

@@ -263,7 +263,7 @@ describe("a tab that never pressed install (#468)", () => {
 		assert.match(dom().html(), /Installing Remit 0\.9\.4/);
 	});
 
-	test("gives up loudly past the same apply budget, measured from the run's own start", async () => {
+	test("gives up loudly past the same apply budget, and names the run's own log command", async () => {
 		let restarting = false;
 		await mount(() => (restarting ? httpError(502) : reportedRunning()));
 
@@ -275,8 +275,41 @@ describe("a tab that never pressed install (#468)", () => {
 
 			assert.equal(getCurrentFatalError(), null);
 			assert.match(dom().html(), /has not answered since the restart/);
-			assert.match(dom().html(), /remit logs/);
+			assert.match(dom().html(), /remit logs --since 10m/);
 			assert.doesNotMatch(dom().html(), /Installing Remit 0\.9\.4/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("a box clock behind the browser's does not spend the budget before the first 502", async () => {
+		// `startedAt` is written on the box. Twenty minutes of skew is more than
+		// the whole budget, so measuring the wait from it would open the screen on
+		// the give-up and never show the install at all.
+		const skewed = () => ({
+			...accepted.run,
+			startedAt: new Date(Date.now() - BUDGET_MS - 60_000).toISOString(),
+		});
+		let restarting = false;
+		await mount(() =>
+			restarting ? httpError(502) : { ...accepted, run: skewed() },
+		);
+
+		restarting = true;
+		await repoll();
+
+		assert.equal(getCurrentFatalError(), null);
+		assert.match(dom().html(), /Installing Remit 0\.9\.4/);
+		assert.doesNotMatch(dom().html(), /has not answered since the restart/);
+
+		// The wait is this tab's, so it still runs out — on this tab's clock.
+		const realNow = Date.now;
+		Date.now = () => realNow() + BUDGET_MS + 60_000;
+		try {
+			await repoll();
+
+			assert.equal(getCurrentFatalError(), null);
+			assert.match(dom().html(), /has not answered since the restart/);
 		} finally {
 			Date.now = realNow;
 		}

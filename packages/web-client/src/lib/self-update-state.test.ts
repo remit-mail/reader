@@ -72,6 +72,7 @@ function input(overrides: Partial<DeriveInput> = {}): DeriveInput {
 		dismissedRunId: null,
 		checkPress: null,
 		checkFailure: null,
+		sighting: null,
 		now: NOW,
 		...overrides,
 	};
