@@ -7,6 +7,7 @@ import type { MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
 	ForbiddenError,
+	MessagePlacementUnsettledError,
 	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
@@ -356,13 +357,35 @@ export const GENERIC_FAILURE_REASON =
  * each names what happened and what the user can do about it, which the
  * generic text cannot.
  */
-const DESIGNED_FAILURES = [MoveNotSettledError, NoJunkMailboxError];
+const DESIGNED_FAILURES = [
+	MoveNotSettledError,
+	NoJunkMailboxError,
+	MessagePlacementUnsettledError,
+];
 
 const isDesignedFailure = (reason: unknown): reason is Error =>
 	DESIGNED_FAILURES.some((designed) => reason instanceof designed);
 
-const failureReason = (reason: unknown): string =>
-	isDesignedFailure(reason) ? reason.message : GENERIC_FAILURE_REASON;
+/**
+ * The placement refusal is the one designed outcome whose own message is not
+ * the text to ship: it names a uuid and no remedy, and the two reasons do not
+ * share a remedy — an in-flight move settles on its own, an abandoned one only
+ * clears once the folder is resynced. Worded here off `details.reason`, the way
+ * the delete path words the same refusal for the client.
+ */
+const placementRefusalReason = (
+	error: MessagePlacementUnsettledError,
+): string =>
+	error.publicApiError?.details?.reason === "unverified"
+		? "An earlier move of this message never finished, so where it sits is unknown. Sync the folder, then report it again."
+		: "This message is still being moved on the mail server. Try again in a moment.";
+
+const failureReason = (reason: unknown): string => {
+	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
+	if (reason instanceof MessagePlacementUnsettledError)
+		return placementRefusalReason(reason);
+	return reason.message;
+};
 
 /**
  * Drive one report-spam/not-spam operation per message, concurrently. Each

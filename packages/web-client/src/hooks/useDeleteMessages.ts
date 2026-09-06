@@ -186,7 +186,7 @@ export const useDeleteMessages = ({
 			const count = vars.body.messageIds?.length ?? 0;
 			const placement = isPlacementRefusal(err);
 			if (placement) {
-				pushError(placementRefusalBanner(placement, count));
+				pushError(placementRefusalBanner(placement, count, "delete"));
 				return;
 			}
 			pushError({

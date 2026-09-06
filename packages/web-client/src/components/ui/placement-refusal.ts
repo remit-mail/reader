@@ -1,7 +1,8 @@
 /**
- * The coded 409 a delete is refused with when the message's folder and uid do
- * not name the same message (#845). Read the `code`, never the message: the
- * server's sentence names a uuid and no remedy, and a message-string match
+ * The coded 409 a delete or a move is refused with when the message's folder
+ * and uid do not name the same message (#845). Read the `code`, never the
+ * message: the server's sentence names a uuid and no remedy, and a
+ * message-string match
  * would start firing on an unrelated conflict the moment the copy changes.
  */
 import type { PushErrorInput } from "@/components/ui/error-banners";
@@ -46,20 +47,27 @@ export const isPlacementRefusal = (
 };
 
 /**
+ * What the user pressed. The same refusal answers a delete and a move, and the
+ * banner names the action they took rather than one they never asked for.
+ */
+export type PlacementRefusalAction = "delete" | "move";
+
+/**
  * The banner copy. Both reasons say what happened and what to do; neither is a
  * dead end, and neither repeats the server's uuid at the user.
  */
 export const placementRefusalBanner = (
 	refusal: PlacementRefusal,
 	count: number,
+	action: PlacementRefusalAction,
 ): PushErrorInput => ({
 	severity: "warning",
 	title:
 		count > 1
-			? `Couldn't delete ${count} messages yet`
-			: "Couldn't delete this message yet",
+			? `Couldn't ${action} ${count} messages yet`
+			: `Couldn't ${action} this message yet`,
 	detail:
 		refusal.reason === "in_flight"
 			? "It is still being moved on the mail server. Try again in a moment."
-			: "An earlier move never finished, so where this message sits is unknown. Sync the folder, then delete it again.",
+			: `An earlier move never finished, so where this message sits is unknown. Sync the folder, then ${action} it again.`,
 });

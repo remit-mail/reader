@@ -32,15 +32,20 @@ import { createDomHarness, type DomHarness } from "../test-support/dom";
 import { type HttpMock, mockFetch } from "../test-support/http";
 import { useDeleteMessages } from "./useDeleteMessages";
 import { type EmptyTrashState, useEmptyTrash } from "./useEmptyTrash";
+import { useMoveMessages } from "./useMoveMessages";
 import "@/lib/client";
 
 const ACCOUNT = "acc-1";
 const INBOX = "mbx-inbox";
 const TRASH = "mbx-trash";
+const ARCHIVE = "mbx-archive";
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 let deleteMessages: ((messageIds: string[]) => void) | undefined;
+let moveMessages:
+	| ((messageIds: string[], destinationMailboxId: string) => void)
+	| undefined;
 let trash: EmptyTrashState | undefined;
 
 afterEach(() => {
@@ -49,6 +54,7 @@ afterEach(() => {
 	http?.restore();
 	http = undefined;
 	deleteMessages = undefined;
+	moveMessages = undefined;
 	trash = undefined;
 	__resetFatalError();
 });
@@ -77,6 +83,19 @@ const refusal = (): Response =>
 		{ status: 409, headers: { "content-type": "application/json" } },
 	);
 
+/** The move gate's own coded 409: the row's folder and uid disagree (#665). */
+const unsettled = (): Response =>
+	new Response(
+		JSON.stringify({
+			status: 409,
+			message:
+				"Message msg-1 was not acted on: its folder and uid do not name the same message",
+			code: "message_placement_unsettled",
+			details: { accountId: ACCOUNT, messageId: "msg-1", reason: "in_flight" },
+		}),
+		{ status: 409, headers: { "content-type": "application/json" } },
+	);
+
 const broken = (): Response =>
 	new Response(JSON.stringify({ message: "boom" }), {
 		status: 500,
@@ -88,6 +107,10 @@ const Probe = () => {
 		mailboxId: INBOX,
 		accountId: ACCOUNT,
 	}).deleteMessages;
+	moveMessages = useMoveMessages({
+		mailboxId: INBOX,
+		accountId: ACCOUNT,
+	}).moveMessages;
 	trash = useEmptyTrash({ accountId: ACCOUNT, mailboxId: TRASH });
 	return null;
 };
@@ -162,6 +185,39 @@ describe("a delete refused for its folder role", () => {
 
 		await act(async () => {
 			deleteMessages?.(["msg-1"]);
+		});
+		await settle();
+
+		assert.ok(
+			getCurrentFatalError(),
+			"the 409 opt-out must not cover anything else",
+		);
+	});
+});
+
+describe("a move refused for an unsettled placement", () => {
+	it("states the wait in a banner without taking the screen", async () => {
+		await mount(responder("/messages/move", unsettled));
+
+		await act(async () => {
+			moveMessages?.(["msg-1"], ARCHIVE);
+		});
+		await settle();
+
+		assert.equal(
+			getCurrentFatalError(),
+			null,
+			"a refusal the banner answers is not a fatal error",
+		);
+		assert.match(harness?.text() ?? "", /Couldn't move this message yet/);
+		assert.match(harness?.text() ?? "", /Try again in a moment/);
+	});
+
+	it("still escalates a 500 on the same move", async () => {
+		await mount(responder("/messages/move", broken));
+
+		await act(async () => {
+			moveMessages?.(["msg-1"], ARCHIVE);
 		});
 		await settle();
 
