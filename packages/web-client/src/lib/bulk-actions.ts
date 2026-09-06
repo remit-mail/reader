@@ -34,6 +34,28 @@
 
 export const BULK_ACTION_CHUNK_SIZE = 100;
 
+/**
+ * What a bulk run applies to every batch it reaches (#114). Delete, move and
+ * mark-read differ only in the bulk call they issue and the caches that call
+ * invalidates; the paging, chunking, progress and cancellation are the same.
+ */
+export type EscalatedAction =
+	| { kind: "delete" }
+	| { kind: "move"; destinationMailboxId: string }
+	| { kind: "markRead" };
+
+/**
+ * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
+ * over, plus a move's destination, which gains the messages the source loses.
+ */
+export const mailboxesTouchedBy = (
+	action: EscalatedAction,
+	mailboxId: string,
+): string[] =>
+	action.kind === "move"
+		? [mailboxId, action.destinationMailboxId]
+		: [mailboxId];
+
 /** For a run with no Stop control to wire a signal to. */
 const NEVER_ABORTED = new AbortController().signal;
 

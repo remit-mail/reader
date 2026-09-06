@@ -1,4 +1,3 @@
-import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	messageBulkOperationsDeleteMessages,
 	messageBulkOperationsMoveMessages,
@@ -6,30 +5,22 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { ThreadOperationsSearchThreadsData } from "@remit/api-http-client/types.gen.ts";
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useRoleAppointmentPrompt } from "@/components/mail/RoleAppointmentPromptProvider";
+import {
+	type BulkRunRequest,
+	type BulkRunSource,
+	useBulkRun,
+} from "@/components/mail/BulkRunProvider";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
-import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
-import {
-	bulkActionFailureDetail,
-	bulkActionFailureTitle,
-} from "@/lib/bulk-action-copy";
-import {
-	type ApplyBatch,
-	type BulkActionProgress,
-	type BulkActionTarget,
-	type BulkRunOutcome,
-	type FetchIdsPage,
-	honestProgress,
-	runChunkedAction,
-	runPredicateAction,
+import type {
+	ApplyBatch,
+	BulkActionProgress,
+	BulkActionTarget,
+	BulkRunOutcome,
+	EscalatedAction,
+	FetchIdsPage,
 } from "@/lib/bulk-actions";
-import {
-	invalidateThreadListQueries,
-	threadListCacheKeys,
-} from "@/lib/thread-list-cache";
 
 /** The predicate a search-scoped run re-issues on every page — the same
  *  filters the visible list is searching with, minus pagination/count knobs. */
@@ -44,16 +35,6 @@ export type EscalationSearchQuery = Pick<
 	| "attachments"
 	| "category"
 >;
-
-/**
- * What a bulk run applies to every batch it reaches (#114). Delete, move and
- * mark-read differ only in the bulk call they issue and the caches that call
- * invalidates; the paging, chunking, progress and cancellation are the same.
- */
-export type EscalatedAction =
-	| { kind: "delete" }
-	| { kind: "move"; destinationMailboxId: string }
-	| { kind: "markRead" };
 
 /** Page size for the execution loop. Set to the write side's own 100-id cap so
  *  an execution page IS a write chunk — no in-memory accumulation step between
@@ -76,6 +57,12 @@ interface UseEscalatedActionsOptions {
 	 *  changes (a different search is a different question). */
 	predicateKey: string;
 	searchQuery: EscalationSearchQuery;
+	/**
+	 * States how a run ended, for a user who is no longer looking at any screen
+	 * that could show it. Handed to the run's owner rather than called here, so
+	 * an ending that lands after this hook unmounted is still said (#112).
+	 */
+	reportEnding?: BulkRunRequest["reportEnding"];
 }
 
 export interface UseEscalatedActionsResult {
@@ -88,7 +75,8 @@ export interface UseEscalatedActionsResult {
 	 * aborted and nothing further leaves (#113); a delete the server has already
 	 * accepted still applies, so the batch on the wire is what a stop is worth.
 	 * A no-op when nothing is running. The only thing that ends a run in
-	 * flight: leaving the selection, the wizard or the search does not.
+	 * flight: leaving the selection, the wizard, the search or the mailbox does
+	 * not.
 	 */
 	stop: () => void;
 	/**
@@ -99,7 +87,7 @@ export interface UseEscalatedActionsResult {
 	 */
 	clear: () => void;
 	/** True while a chunked run (bounded->100 ids, or the escalated predicate)
-	 *  is in flight. */
+	 *  over this mailbox is in flight, whichever screen started it. */
 	isRunning: boolean;
 	/** The action currently in flight, for status and progress wording. */
 	runningAction: EscalatedAction | undefined;
@@ -113,9 +101,11 @@ export interface UseEscalatedActionsResult {
 	 * for any reason — cancelled, errored, or complete — with a
 	 * `done`/`failedIds` outcome the caller reads to decide what is still
 	 * outstanding.
-	 * Infrastructure failures are reported through the app's existing
-	 * escalation seam (`pushError`, which itself escalates a 5xx/exception to
-	 * the fatal overlay) — not swallowed here.
+	 *
+	 * The run itself belongs to `BulkRunProvider`, which outlives every screen
+	 * that can show it: the caches, the refusal replay, the failure banner and
+	 * the ending are its, so none of them are lost when the surface that started
+	 * the run goes (#112).
 	 */
 	runAction: (
 		action: EscalatedAction,
@@ -123,50 +113,28 @@ export interface UseEscalatedActionsResult {
 	) => Promise<BulkRunOutcome>;
 }
 
-/**
- * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
- * over, plus a move's destination, which gains the messages the source loses.
- */
-export const mailboxesTouchedBy = (
-	action: EscalatedAction,
-	mailboxId: string,
-): string[] =>
-	action.kind === "move"
-		? [mailboxId, action.destinationMailboxId]
-		: [mailboxId];
-
 export const useEscalatedActions = ({
 	mailboxId,
 	accountId,
 	enabled,
 	predicateKey,
 	searchQuery,
+	reportEnding,
 }: UseEscalatedActionsOptions): UseEscalatedActionsResult => {
 	const [phase, setPhase] = useState<EscalationPhase>({ kind: "idle" });
-	const [runningAction, setRunningAction] = useState<
-		EscalatedAction | undefined
-	>(undefined);
-	const [progress, setProgress] = useState<BulkActionProgress | undefined>(
-		undefined,
-	);
-	// Cancellation is the signal every call the run makes is issued under, so a
-	// stop ends the request on the wire instead of waiting for it to come back
-	// (#113). Replaced, never reused, at the start of each count and each run.
-	const abortRef = useRef<AbortController | undefined>(undefined);
-	// True from the moment a run starts until its outcome is in hand. A run is
-	// mail already leaving the mailbox, so nothing that merely changes what the
-	// list is showing gets to end it — only `stop`.
-	const runningRef = useRef(false);
-	const queryClient = useQueryClient();
+	// The count's own signal, which is not the run's: leaving the search ends a
+	// count, and never a run (#112).
+	const countAbortRef = useRef<AbortController | undefined>(undefined);
+	const { run, start, stop: stopRun } = useBulkRun();
 	const { pushError } = useErrorBanners();
-	const { requestAppointment } = useRoleAppointmentPrompt();
-	// The run replays itself once a folder is appointed, so it needs a handle on
-	// itself that does not make `runAction` its own dependency.
-	const runRef = useRef<UseEscalatedActionsResult["runAction"]>(async () => ({
-		done: 0,
-		failedIds: [],
-		cancelled: false,
-	}));
+
+	// The live run, when it is this mailbox's. A run is mail leaving one mailbox,
+	// so it reports on that mailbox's list — not on whichever list is on screen.
+	const activeRun = run?.mailboxId === mailboxId ? run : undefined;
+	const isRunning = activeRun !== undefined;
+	// Read by callbacks that must not close over a stale render's answer.
+	const isRunningRef = useRef(false);
+	isRunningRef.current = isRunning;
 
 	// A different search (or leaving search/desktop) makes any in-flight
 	// escalation meaningless — it would otherwise keep counting or offering to
@@ -175,7 +143,7 @@ export const useEscalatedActions = ({
 	// against and reports what it reached, wherever the list moved on to.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself reads neither.
 	useEffect(() => {
-		if (!runningRef.current) abortRef.current?.abort();
+		countAbortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, [enabled, predicateKey]);
 
@@ -252,36 +220,9 @@ export const useEscalatedActions = ({
 		[],
 	);
 
-	/**
-	 * The unseen counts a run moved, per account. A cross-account selection has
-	 * no single owning account — the surface leaves the option undefined exactly
-	 * then — so the run's own targets are what name the accounts to refresh.
-	 */
-	const invalidateAfterRun = useCallback(
-		(action: EscalatedAction, targets: readonly BulkActionTarget[]) => {
-			invalidateThreadListQueries(
-				queryClient,
-				threadListCacheKeys(mailboxesTouchedBy(action, mailboxId)),
-			);
-			const touched = new Set<string>();
-			if (accountId) touched.add(accountId);
-			for (const target of targets) {
-				if (target.accountId) touched.add(target.accountId);
-			}
-			for (const touchedAccountId of touched) {
-				queryClient.invalidateQueries({
-					queryKey: mailboxOperationsListMailboxesQueryKey({
-						path: { accountId: touchedAccountId },
-					}),
-				});
-			}
-		},
-		[queryClient, mailboxId, accountId],
-	);
-
 	const escalate = useCallback(() => {
 		const controller = new AbortController();
-		abortRef.current = controller;
+		countAbortRef.current = controller;
 		setPhase({ kind: "counting" });
 		fetchMatchCount(controller.signal).then(
 			(total) => {
@@ -311,12 +252,13 @@ export const useEscalatedActions = ({
 	}, [fetchMatchCount, pushError]);
 
 	const stop = useCallback(() => {
-		abortRef.current?.abort();
-	}, []);
+		countAbortRef.current?.abort();
+		stopRun();
+	}, [stopRun]);
 
 	const clear = useCallback(() => {
-		if (runningRef.current) return;
-		abortRef.current?.abort();
+		if (isRunningRef.current) return;
+		countAbortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, []);
 
@@ -325,104 +267,55 @@ export const useEscalatedActions = ({
 			action: EscalatedAction,
 			targets?: readonly BulkActionTarget[],
 		): Promise<BulkRunOutcome> => {
-			const controller = new AbortController();
-			abortRef.current = controller;
-			runningRef.current = true;
-			setRunningAction(action);
 			// Read before the run clears the phase below, so a refusal can say how
 			// many messages the appointment's replay is about.
 			const matched =
 				targets?.length ?? (phase.kind === "escalated" ? phase.total : 0);
-			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
-			// predicate can match more by the time the run pages it than the count
-			// saw, and the bar must never show more done than out of.
-			const onProgress = (next: BulkActionProgress) =>
-				setProgress(honestProgress(next));
-			const applyBatch = applyBatchFor(action);
 			// The predicate as it read when the run was confirmed. The run outlives
 			// the screen that started it, so reading the live query on every page
 			// would let a search typed afterwards redirect what is being deleted.
-			const runPages = fetchPagesOf(searchQueryRef.current);
+			const source: BulkRunSource =
+				targets !== undefined
+					? { kind: "targets", targets }
+					: {
+							kind: "predicate",
+							fetchPage: fetchPagesOf(searchQueryRef.current),
+						};
 
-			// The one invariant nothing may lose: while `runningRef` is up, both
-			// `clear` and the reset effect stand down, so a run that never marked
-			// itself finished would leave an escalated selection nobody can leave.
-			let outcome: BulkRunOutcome;
-			try {
-				outcome =
-					targets !== undefined
-						? await runChunkedAction(
-								targets,
-								applyBatch,
-								onProgress,
-								controller.signal,
-							)
-						: await runPredicateAction(
-								runPages,
-								phase.kind === "escalated" ? phase.total : 0,
-								applyBatch,
-								onProgress,
-								controller.signal,
-							);
-			} finally {
-				runningRef.current = false;
-			}
+			const outcome = await start({
+				action,
+				mailboxId,
+				accountId,
+				matched,
+				source,
+				applyBatch: applyBatchFor(action),
+				reportEnding,
+			});
 
-			setRunningAction(undefined);
-			setProgress(undefined);
+			// The escalated selection was what the run was confirmed from, and the
+			// run has now happened to it.
 			setPhase({ kind: "idle" });
-
-			// A provenance refusal is answered by the appointment prompt here exactly
-			// as it is on the single-row path (#887, #876). Left to the banner it
-			// arrives as the API's own sentence — "Appoint one under Settings ›
-			// Folder roles" — which asks the user to reassemble a select-all they
-			// have already made.
-			const refusal = outcome.error
-				? isFolderRoleRefusal(outcome.error)
-				: undefined;
-			if (refusal) {
-				requestAppointment({
-					accountId: refusal.accountId,
-					role: refusal.role,
-					reason: refusal.reason,
-					action: { kind: "delete", count: matched },
-					onAppointed: async () => {
-						await runRef.current(action, targets);
-					},
-				});
-			} else if (outcome.error) {
-				pushError(
-					buildMutationErrorBanner(
-						bulkActionFailureTitle(action.kind, outcome.done),
-						bulkActionFailureDetail(action.kind),
-						outcome.error,
-					),
-				);
-			}
-			if (outcome.done > 0) {
-				invalidateAfterRun(action, targets ?? []);
-			}
 			return outcome;
 		},
 		[
 			applyBatchFor,
 			fetchPagesOf,
 			phase,
-			pushError,
-			invalidateAfterRun,
-			requestAppointment,
+			mailboxId,
+			accountId,
+			reportEnding,
+			start,
 		],
 	);
-	runRef.current = runAction;
 
 	return {
 		phase,
 		escalate,
 		stop,
 		clear,
-		isRunning: runningAction !== undefined,
-		runningAction,
-		progress,
+		isRunning,
+		runningAction: activeRun?.action,
+		progress: activeRun?.progress,
 		runAction,
 	};
 };

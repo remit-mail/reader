@@ -39,7 +39,6 @@ import {
 import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import {
-	type EscalatedAction,
 	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
@@ -55,6 +54,7 @@ import type {
 	BulkActionProgress,
 	BulkActionTarget,
 	BulkRunOutcome,
+	EscalatedAction,
 } from "@/lib/bulk-actions";
 import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
 import { useMailContext } from "@/lib/mail-context";
@@ -75,6 +75,7 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useWizardEntryValue, useWizardStep } from "@/routing";
+import { useBulkRun } from "./BulkRunProvider";
 import { bulkRunReport } from "./bulk-run-state";
 import { organizeRunState } from "./organize-run-state";
 import {
@@ -154,10 +155,11 @@ export interface SelectionWizardHostProps {
 	/** The wizard is done with the selection, and the list drops it. */
 	onFinished: () => void;
 	/**
-	 * How a run ended, once the screen that was reporting on it is gone. The run
-	 * screen invites the user to close it and keep the run going, so the surface
-	 * that outlives the wizard is what states the ending. Called only for a run
-	 * the user walked away from; a run screen still up reports in place.
+	 * How a run ended, once no screen reporting on it is left. Handed to the run's
+	 * owner rather than called here: the run screen invites the user to close it
+	 * and keep the run going, and leaving the mailbox on top of that takes this
+	 * component with it — so the ending is stated by something that outlives both
+	 * (#112). A run screen still up reports in place instead.
 	 */
 	onRunEnded?: (
 		kind: EscalatedAction["kind"],
@@ -361,11 +363,6 @@ function SelectionWizardSession({
 	// cleared, so a failed start can be retried.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
 	const commitSent = useRef(false);
-	// The user left the run screen while it was still reporting. Held here rather
-	// than read back off the URL: the rewind the exit starts lands a frame or two
-	// later, and an outcome arriving in between would find a screen that is on
-	// its way out and say nothing.
-	const walkedAway = useRef(false);
 
 	const messageIds = useMemo(
 		() => selection.map((message) => message.id),
@@ -499,8 +496,19 @@ function SelectionWizardSession({
 		enabled: false,
 		predicateKey: "selection-wizard",
 		searchQuery: {},
+		reportEnding: onRunEnded,
 	});
 	const { runAction } = bulk;
+
+	// While the run screen is up it states the ending itself, so the run's owner
+	// holds its banner back. Leaving — closing the wizard, or leaving the mailbox
+	// altogether — releases the claim, and the ending is bannered where the user
+	// now is (#112, #521).
+	const { claimReport } = useBulkRun();
+	useEffect(() => {
+		if (step !== "run") return;
+		return claimReport();
+	}, [step, claimReport]);
 
 	const steps = stepsFor({ verb, mode, scope: draft.scope, fromSearch });
 	// The step the screens are on, which is the held one only while the answers
@@ -663,11 +671,8 @@ function SelectionWizardSession({
 			setBulkRun({ matched: targets.length, sent: targets });
 			const outcome = await runAction(action, targets);
 			setBulkRun({ matched: targets.length, sent: targets, outcome });
-			if (walkedAway.current) {
-				onRunEnded?.(action.kind, targets.length, outcome);
-			}
 		},
-		[verb, named.moveMailboxId, junkMailboxId, runAction, onRunEnded],
+		[verb, named.moveMailboxId, junkMailboxId, runAction],
 	);
 
 	// The escalated predicate, run by the chunked runner the list already owns.
@@ -687,10 +692,7 @@ function SelectionWizardSession({
 		setBulkRun({ matched: escalated.total, sent: [] });
 		const outcome = await escalated.run(action);
 		setBulkRun({ matched: escalated.total, sent: [], outcome });
-		if (walkedAway.current) {
-			onRunEnded?.(action.kind, escalated.total, outcome);
-		}
-	}, [escalated, verb, named.moveMailboxId, junkMailboxId, onRunEnded]);
+	}, [escalated, verb, named.moveMailboxId, junkMailboxId]);
 
 	const { start: startJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
@@ -909,7 +911,6 @@ function SelectionWizardSession({
 	// run alone: the screen says so in as many words, and stopping it is a
 	// control of its own.
 	const dismiss = useCallback(() => {
-		walkedAway.current = true;
 		closeWizard(steps, current);
 		onFinished();
 	}, [closeWizard, steps, current, onFinished]);

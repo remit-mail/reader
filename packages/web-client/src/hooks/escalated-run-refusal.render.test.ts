@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { act, createElement } from "react";
+import { BulkRunProvider } from "@/components/mail/BulkRunProvider";
 import { RoleAppointmentPromptProvider } from "@/components/mail/RoleAppointmentPromptProvider";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
@@ -95,7 +96,7 @@ const mount = async (respond: (path: string) => unknown): Promise<void> => {
 				createElement(
 					RoleAppointmentPromptProvider,
 					null,
-					createElement(Probe),
+					createElement(BulkRunProvider, null, createElement(Probe)),
 				),
 			),
 		),

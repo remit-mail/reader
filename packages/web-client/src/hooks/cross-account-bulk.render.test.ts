@@ -20,11 +20,10 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
-import type { BulkActionTarget } from "../lib/bulk-actions";
+import type { BulkActionTarget, EscalatedAction } from "../lib/bulk-actions";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../test-support/http";
 import {
-	type EscalatedAction,
 	type UseEscalatedActionsResult,
 	useEscalatedActions,
 } from "./useEscalatedActions";
