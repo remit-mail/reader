@@ -84,7 +84,9 @@ export interface UseEscalatedActionsResult {
 	 *  selection to that predicate once it answers. */
 	escalate: () => void;
 	/**
-	 * Stop whatever's running — the count or an action — at the next boundary.
+	 * Stop whatever's running — the count or an action. The request in flight is
+	 * aborted and nothing further leaves (#113); a delete the server has already
+	 * accepted still applies, so the batch on the wire is what a stop is worth.
 	 * A no-op when nothing is running. The only thing that ends a run in
 	 * flight: leaving the selection, the wizard or the search does not.
 	 */
@@ -147,7 +149,10 @@ export const useEscalatedActions = ({
 	const [progress, setProgress] = useState<BulkActionProgress | undefined>(
 		undefined,
 	);
-	const cancelRef = useRef(false);
+	// Cancellation is the signal every call the run makes is issued under, so a
+	// stop ends the request on the wire instead of waiting for it to come back
+	// (#113). Replaced, never reused, at the start of each count and each run.
+	const abortRef = useRef<AbortController | undefined>(undefined);
 	// True from the moment a run starts until its outcome is in hand. A run is
 	// mail already leaving the mailbox, so nothing that merely changes what the
 	// list is showing gets to end it — only `stop`.
@@ -170,7 +175,7 @@ export const useEscalatedActions = ({
 	// against and reports what it reached, wherever the list moved on to.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself reads neither.
 	useEffect(() => {
-		if (!runningRef.current) cancelRef.current = true;
+		if (!runningRef.current) abortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, [enabled, predicateKey]);
 
@@ -179,10 +184,11 @@ export const useEscalatedActions = ({
 
 	const fetchPagesOf = useCallback(
 		(query: EscalationSearchQuery): FetchIdsPage =>
-			async (continuationToken) => {
+			async (continuationToken, signal) => {
 				const { data } = await threadOperationsSearchThreads({
 					path: { mailboxId },
 					query: { ...query, continuationToken, limit: PAGE_SIZE },
+					signal,
 					throwOnError: true,
 				});
 				return {
@@ -198,27 +204,32 @@ export const useEscalatedActions = ({
 	 * resolves it (#509). One count-only request: `limit` is a page size and has
 	 * no bearing on the answer, so nothing is paged to arrive at it.
 	 */
-	const fetchMatchCount = useCallback(async (): Promise<number> => {
-		const { data } = await threadOperationsSearchThreads({
-			path: { mailboxId },
-			query: { ...searchQueryRef.current, count: true, results: false },
-			throwOnError: true,
-		});
-		if (data.count === undefined) {
-			throw new Error("the search returned no count for the selection");
-		}
-		return data.count;
-	}, [mailboxId]);
+	const fetchMatchCount = useCallback(
+		async (signal: AbortSignal): Promise<number> => {
+			const { data } = await threadOperationsSearchThreads({
+				path: { mailboxId },
+				query: { ...searchQueryRef.current, count: true, results: false },
+				signal,
+				throwOnError: true,
+			});
+			if (data.count === undefined) {
+				throw new Error("the search returned no count for the selection");
+			}
+			return data.count;
+		},
+		[mailboxId],
+	);
 
 	const applyBatchFor = useCallback(
 		(action: EscalatedAction): ApplyBatch =>
-			async (ids: string[]) => {
+			async (ids: string[], signal: AbortSignal) => {
 				if (action.kind === "move") {
 					const { data } = await messageBulkOperationsMoveMessages({
 						body: {
 							messageIds: ids,
 							destinationMailboxId: action.destinationMailboxId,
 						},
+						signal,
 						throwOnError: true,
 					});
 					return data;
@@ -226,12 +237,14 @@ export const useEscalatedActions = ({
 				if (action.kind === "markRead") {
 					const { data } = await messageBulkOperationsUpdateFlags({
 						body: { messageIds: ids, isRead: true },
+						signal,
 						throwOnError: true,
 					});
 					return data;
 				}
 				const { data } = await messageBulkOperationsDeleteMessages({
 					body: { messageIds: ids },
+					signal,
 					throwOnError: true,
 				});
 				return data;
@@ -267,17 +280,24 @@ export const useEscalatedActions = ({
 	);
 
 	const escalate = useCallback(() => {
-		cancelRef.current = false;
+		const controller = new AbortController();
+		abortRef.current = controller;
 		setPhase({ kind: "counting" });
-		fetchMatchCount().then(
+		fetchMatchCount(controller.signal).then(
 			(total) => {
-				if (cancelRef.current) {
+				if (controller.signal.aborted) {
 					setPhase({ kind: "idle" });
 					return;
 				}
 				setPhase({ kind: "escalated", total });
 			},
 			(error: unknown) => {
+				// A stopped count rejects with its own abort. That is the press the
+				// user made, not a failure to report back to them.
+				if (controller.signal.aborted) {
+					setPhase({ kind: "idle" });
+					return;
+				}
 				pushError(
 					buildMutationErrorBanner(
 						"Couldn't count matching messages",
@@ -291,12 +311,12 @@ export const useEscalatedActions = ({
 	}, [fetchMatchCount, pushError]);
 
 	const stop = useCallback(() => {
-		cancelRef.current = true;
+		abortRef.current?.abort();
 	}, []);
 
 	const clear = useCallback(() => {
 		if (runningRef.current) return;
-		cancelRef.current = true;
+		abortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, []);
 
@@ -305,7 +325,8 @@ export const useEscalatedActions = ({
 			action: EscalatedAction,
 			targets?: readonly BulkActionTarget[],
 		): Promise<BulkRunOutcome> => {
-			cancelRef.current = false;
+			const controller = new AbortController();
+			abortRef.current = controller;
 			runningRef.current = true;
 			setRunningAction(action);
 			// Read before the run clears the phase below, so a refusal can say how
@@ -334,14 +355,14 @@ export const useEscalatedActions = ({
 								targets,
 								applyBatch,
 								onProgress,
-								() => cancelRef.current,
+								controller.signal,
 							)
 						: await runPredicateAction(
 								runPages,
 								phase.kind === "escalated" ? phase.total : 0,
 								applyBatch,
 								onProgress,
-								() => cancelRef.current,
+								controller.signal,
 							);
 			} finally {
 				runningRef.current = false;
