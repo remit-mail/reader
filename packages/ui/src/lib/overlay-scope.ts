@@ -70,6 +70,18 @@ let entries: ScopeEntry[] = [];
 let renderedOverlays = 0;
 const nextDepth = (): number => ++renderedOverlays;
 
+/**
+ * This surface's position in the React tree, as the stack orders it.
+ *
+ * Shared with the focus trap, which needs the same ordering for the same
+ * reason: registration order puts an inner surface underneath the one
+ * containing it, and a sibling raised later underneath the one already up.
+ */
+export function useOverlayDepth(): number {
+	const [depth] = useState(nextDepth);
+	return depth;
+}
+
 const byDepth = (a: ScopeEntry, b: ScopeEntry): number => a.depth - b.depth;
 
 /**
@@ -192,7 +204,7 @@ export function useOverlayScope({
 
 	// Numbered during the first render, where React is still going parent before
 	// child — the one moment nesting is legible from inside a hook.
-	const [depth] = useState(nextDepth);
+	const depth = useOverlayDepth();
 
 	useEffect(() => {
 		if (!open) return;

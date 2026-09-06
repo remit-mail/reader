@@ -8,9 +8,10 @@ import {
 	type SimilarMessageLinkComponent,
 	type SimilarState,
 	type ThreadCategory,
+	useModalFocus,
 } from "@remit/ui";
 import { Sparkles } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -170,6 +171,9 @@ function ReclassifyDialog({
 	onSelect: (category: CategoryOverride) => void;
 	onCancel: () => void;
 }) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useModalFocus(dialogRef, isOpen);
+
 	if (!isOpen) return null;
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -179,9 +183,11 @@ function ReclassifyDialog({
 				className="backdrop-blur-sm"
 			/>
 			<div
+				ref={dialogRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Reclassify sender"
+				tabIndex={-1}
 				className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg"
 			>
 				<h2 className="text-lg font-semibold">Reclassify this sender</h2>

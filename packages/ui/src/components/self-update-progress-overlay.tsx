@@ -1,7 +1,8 @@
 import { AlertOctagon, Check, Loader2 } from "lucide-react";
-import { type RefObject, useEffect, useRef } from "react";
+import { useRef } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 import { Button } from "./button.js";
 import {
 	type UpdatePhase,
@@ -10,51 +11,6 @@ import {
 } from "./self-update.js";
 
 const phaseOrder: UpdatePhase[] = ["preparing", "restarting", "reconnecting"];
-
-const FOCUSABLE =
-	'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-
-/**
- * A screen whose purpose is to stop interaction has to stop it for the
- * keyboard too. Focus moves in on mount and Tab cycles inside, so nothing
- * behind the overlay can be reached while the server is gone.
- */
-function useBlockingFocus(ref: RefObject<HTMLDivElement | null>) {
-	useEffect(() => {
-		const container = ref.current;
-		if (!container) return;
-
-		const focusables = () =>
-			Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
-
-		(focusables()[0] ?? container).focus();
-
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key !== "Tab") return;
-			const items = focusables();
-			if (items.length === 0) {
-				event.preventDefault();
-				container.focus();
-				return;
-			}
-			const first = items[0];
-			const last = items[items.length - 1];
-			const active = document.activeElement;
-			if (event.shiftKey && (active === first || !container.contains(active))) {
-				event.preventDefault();
-				last.focus();
-				return;
-			}
-			if (!event.shiftKey && (active === last || !container.contains(active))) {
-				event.preventDefault();
-				first.focus();
-			}
-		};
-
-		window.addEventListener("keydown", onKeyDown, true);
-		return () => window.removeEventListener("keydown", onKeyDown, true);
-	}, [ref]);
-}
 
 const overlayShell =
 	"fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-canvas p-6 text-center outline-none";
@@ -76,7 +32,10 @@ export function SelfUpdateProgressOverlay({
 	elapsedSeconds,
 }: SelfUpdateProgressOverlayProps) {
 	const ref = useRef<HTMLDivElement>(null);
-	useBlockingFocus(ref);
+	// A screen whose purpose is to stop interaction has to stop it for the
+	// keyboard too: it has nothing to Tab to, so focus rests on the screen itself
+	// and stays there while the server is gone.
+	useModalFocus(ref, true);
 	// Nothing to answer: the update is running and there is no way out of it, so
 	// every shortcut is contained rather than acting on a mailbox that is gone.
 	useOverlayScope({ id: "self-update", open: true });
@@ -163,7 +122,7 @@ export function SelfUpdateUnreachableScreen({
 	onRetryConnection,
 }: SelfUpdateUnreachableScreenProps) {
 	const ref = useRef<HTMLDivElement>(null);
-	useBlockingFocus(ref);
+	useModalFocus(ref, true);
 	const minutes = Math.max(1, Math.round(elapsedSeconds / 60));
 
 	return (

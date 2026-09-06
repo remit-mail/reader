@@ -1,7 +1,7 @@
 import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
 import { useOverlayScope } from "../lib/overlay-scope.js";
-import { useInitialFocus } from "../lib/use-initial-focus.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
@@ -30,7 +30,7 @@ export function Dialog({
 	const dialogRef = useRef<HTMLDivElement>(null);
 
 	useOverlayScope({ id: "dialog", open, answers: { back: onClose } });
-	useInitialFocus(dialogRef, open);
+	useModalFocus(dialogRef, open);
 
 	if (!open) return null;
 
@@ -54,6 +54,7 @@ export function Dialog({
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="dialog-title"
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 overflow-hidden border-line bg-surface shadow-xl",
 					// The edge-anchored panels reach the device edges; the centered

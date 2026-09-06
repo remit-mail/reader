@@ -5,8 +5,9 @@
  */
 
 import { ArrowLeft, X } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 
 export interface FlowStepRailProps {
 	/** How many steps the flow walks. */
@@ -63,8 +64,13 @@ export interface FlowScreenProps {
 
 /**
  * The body is the only scrolling region, so back and the footer's controls
- * never leave the screen. The screen covers what opened it, which is why it
- * takes the accessibility tree with it.
+ * never leave the screen.
+ *
+ * The viewport variant covers what opened it, which is why it takes both the
+ * accessibility tree and the keyboard with it. The contained one is the content
+ * of a pane that is already on screen, so it claims neither: `aria-modal` there
+ * tells a screen reader the rest of the page is gone while Tab walks straight
+ * into it, which is the split the trap exists to close (#1204).
  */
 export function FlowScreen({
 	title,
@@ -79,91 +85,111 @@ export function FlowScreen({
 	bodyFit = "scroll",
 }: FlowScreenProps) {
 	const contained = anchor === "container";
-	return (
+	const screenRef = useRef<HTMLElement>(null);
+	useModalFocus(screenRef, !contained);
+	const frame = cn(
+		"z-50 flex flex-col font-sans text-fg",
+		contained
+			? "absolute inset-0"
+			: "fixed inset-0 md:items-center md:justify-center md:bg-black/40 md:p-6",
+	);
+	const body = (
 		<div
+			className={cn(
+				"flex min-h-0 w-full flex-1 flex-col bg-canvas",
+				!contained &&
+					"md:h-[45rem] md:max-h-[calc(100dvh-3rem)] md:w-[35rem] md:max-w-[calc(100vw-3rem)] md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-line md:shadow-lg",
+			)}
+		>
+			<header
+				className={cn(
+					"shrink-0 border-b border-line px-3 pb-2",
+					contained
+						? "pt-3"
+						: "pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:pt-3",
+				)}
+			>
+				<div className="flex items-center gap-1">
+					<button
+						type="button"
+						onClick={onBack}
+						aria-label="Back"
+						className="flex size-11 items-center justify-center rounded-md text-fg-muted"
+					>
+						<ArrowLeft className="size-5" />
+					</button>
+					<div className="min-w-0 flex-1 text-center">
+						<h1 className="truncate text-sm font-semibold">{title}</h1>
+						{subtitle && (
+							<p className="truncate text-2xs text-fg-muted">{subtitle}</p>
+						)}
+					</div>
+					<button
+						type="button"
+						onClick={onExit}
+						aria-label="Cancel"
+						className="flex size-11 items-center justify-center rounded-md text-fg-muted"
+					>
+						<X className="size-5" />
+					</button>
+				</div>
+				{steps.length > 1 && (
+					<div className="space-y-1 px-1 pt-2">
+						<FlowStepRail count={steps.length} activeStep={activeStep} />
+						<p className="text-2xs text-fg-subtle">
+							Step {activeStep + 1} of {steps.length} · {steps[activeStep]}
+						</p>
+					</div>
+				)}
+			</header>
+
+			<div
+				className={cn(
+					"min-h-0 flex-1",
+					bodyFit === "fill" ? "overflow-hidden" : "overflow-y-auto px-4 py-4",
+				)}
+			>
+				{children}
+			</div>
+
+			{footer && (
+				<footer
+					className={cn(
+						"shrink-0 border-t border-line px-4 py-3",
+						contained
+							? ""
+							: "pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3",
+					)}
+				>
+					{footer}
+				</footer>
+			)}
+		</div>
+	);
+
+	if (contained) {
+		return (
+			<section
+				ref={screenRef}
+				aria-label={title}
+				tabIndex={-1}
+				className={frame}
+			>
+				{body}
+			</section>
+		);
+	}
+
+	return (
+		<section
+			ref={screenRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label={title}
-			className={cn(
-				"z-50 flex flex-col font-sans text-fg",
-				contained
-					? "absolute inset-0"
-					: "fixed inset-0 md:items-center md:justify-center md:bg-black/40 md:p-6",
-			)}
+			tabIndex={-1}
+			className={frame}
 		>
-			<div
-				className={cn(
-					"flex min-h-0 w-full flex-1 flex-col bg-canvas",
-					!contained &&
-						"md:h-[45rem] md:max-h-[calc(100dvh-3rem)] md:w-[35rem] md:max-w-[calc(100vw-3rem)] md:flex-none md:overflow-hidden md:rounded-xl md:border md:border-line md:shadow-lg",
-				)}
-			>
-				<header
-					className={cn(
-						"shrink-0 border-b border-line px-3 pb-2",
-						contained
-							? "pt-3"
-							: "pt-[calc(0.75rem+env(safe-area-inset-top,0px))] md:pt-3",
-					)}
-				>
-					<div className="flex items-center gap-1">
-						<button
-							type="button"
-							onClick={onBack}
-							aria-label="Back"
-							className="flex size-11 items-center justify-center rounded-md text-fg-muted"
-						>
-							<ArrowLeft className="size-5" />
-						</button>
-						<div className="min-w-0 flex-1 text-center">
-							<h1 className="truncate text-sm font-semibold">{title}</h1>
-							{subtitle && (
-								<p className="truncate text-2xs text-fg-muted">{subtitle}</p>
-							)}
-						</div>
-						<button
-							type="button"
-							onClick={onExit}
-							aria-label="Cancel"
-							className="flex size-11 items-center justify-center rounded-md text-fg-muted"
-						>
-							<X className="size-5" />
-						</button>
-					</div>
-					{steps.length > 1 && (
-						<div className="space-y-1 px-1 pt-2">
-							<FlowStepRail count={steps.length} activeStep={activeStep} />
-							<p className="text-2xs text-fg-subtle">
-								Step {activeStep + 1} of {steps.length} · {steps[activeStep]}
-							</p>
-						</div>
-					)}
-				</header>
-
-				<div
-					className={cn(
-						"min-h-0 flex-1",
-						bodyFit === "fill"
-							? "overflow-hidden"
-							: "overflow-y-auto px-4 py-4",
-					)}
-				>
-					{children}
-				</div>
-
-				{footer && (
-					<footer
-						className={cn(
-							"shrink-0 border-t border-line px-4 py-3",
-							contained
-								? ""
-								: "pb-[max(0.75rem,env(safe-area-inset-bottom))] md:pb-3",
-						)}
-					>
-						{footer}
-					</footer>
-				)}
-			</div>
-		</div>
+			{body}
+		</section>
 	);
 }
