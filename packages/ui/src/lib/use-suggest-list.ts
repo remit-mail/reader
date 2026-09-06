@@ -3,6 +3,7 @@ import {
 	useCallback,
 	useEffect,
 	useId,
+	useMemo,
 	useState,
 } from "react";
 import { suggestKeyAction } from "./suggest-keys.js";
@@ -101,6 +102,23 @@ export function useSuggestList({
 		[open, count, activeIndex, acceptKeys, onAccept],
 	);
 
+	// Stable while open, listId and activeIndex don't change: this is spread onto
+	// the field on every render, and a fresh object here would defeat every memo
+	// downstream that takes it as a dependency (#506).
+	const comboboxProps = useMemo<ComboboxProps>(
+		() => ({
+			role: "combobox",
+			"aria-expanded": open,
+			"aria-controls": listId,
+			"aria-autocomplete": "list",
+			...(activeIndex >= 0
+				? { "aria-activedescendant": optionId(activeIndex) }
+				: {}),
+			...(open ? { "data-escape-owner": "" as const } : {}),
+		}),
+		[open, listId, activeIndex, optionId],
+	);
+
 	return {
 		open,
 		activeIndex,
@@ -110,15 +128,6 @@ export function useSuggestList({
 		handleKeyDown,
 		listId,
 		optionId,
-		comboboxProps: {
-			role: "combobox",
-			"aria-expanded": open,
-			"aria-controls": listId,
-			"aria-autocomplete": "list",
-			...(activeIndex >= 0
-				? { "aria-activedescendant": optionId(activeIndex) }
-				: {}),
-			...(open ? { "data-escape-owner": "" as const } : {}),
-		},
+		comboboxProps,
 	};
 }
