@@ -927,10 +927,11 @@ export class MessageMoveService {
 		// folder's uid, and marking it `deleting` overwrites the only marker that
 		// says so: its own MESSAGE_MOVE then reads the row as settled and returns
 		// without moving anything, and the worker's expunge binds that borrowed
-		// uid against whatever Trash really holds at it. The row is left as it
-		// stands for its move to settle, and out of the count, because a message
-		// the server has not put in Trash is not one this empty can carry. The
-		// user presses again for it.
+		// uid against whatever Trash really holds at it. Left as it stands, that
+		// move runs ahead of this expunge in the account's FIFO group and settles
+		// the row, so the message is in Trash by the time the sweep reaches it and
+		// goes with the rest of this same press — only the count below is one
+		// short of what the sweep ends up removing.
 		const messages = rows.filter((message) => !bindsForeignUid(message));
 
 		// Mark all as deleting locally

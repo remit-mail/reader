@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { MessageItem } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import { placementBindingOf } from "./placement-settled.js";
+import { carriesForeignUid, placementBindingOf } from "./placement-settled.js";
 
 /**
  * Pins `placementBindingOf` directly. It is the guard #1098/#1143 depend on and
@@ -68,5 +68,50 @@ describe("placementBindingOf", () => {
 			),
 			"consistent",
 		);
+	});
+});
+
+/**
+ * The same question with the `status` gate off, for callers that resolve a uid
+ * off a row some other operation may have re-marked on its way past (#1217).
+ */
+describe("carriesForeignUid", () => {
+	test("holds whatever an operation has since written to `status`", () => {
+		for (const status of [
+			MessageStatus.moving,
+			MessageStatus.deleting,
+			MessageStatus.active,
+		]) {
+			assert.equal(carriesForeignUid(row({ status })), true, status);
+		}
+	});
+
+	test("is false once `updateUid` settles the move", () => {
+		// The settle writes the destination's own uid and drops `originalUid` in
+		// the same statement, so a destination counter that hands back the
+		// source's number cannot leave the row reading foreign forever.
+		assert.equal(
+			carriesForeignUid(
+				row({
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.synced,
+					originalUid: undefined,
+				}),
+			),
+			false,
+		);
+	});
+
+	test("is false for a row that was never moved", () => {
+		assert.equal(
+			carriesForeignUid(
+				row({ originalUid: undefined, originalMailboxId: undefined }),
+			),
+			false,
+		);
+	});
+
+	test("is false once a restore points the row back at that folder", () => {
+		assert.equal(carriesForeignUid(row({ mailboxId: "mbx-src" })), false);
 	});
 });

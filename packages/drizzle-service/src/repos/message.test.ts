@@ -277,6 +277,17 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(rows[0].processedAt, null, "event starts undrained");
 		});
 
+		test("updateUid drops the source uid and keeps the folder Undo restores to", async () => {
+			// `originalUid` says the row's `uid` was recorded under
+			// `originalMailboxId`. The confirmation above makes that untrue, and a
+			// leftover that happens to equal the destination's own uid — two
+			// independent per-folder counters, so a routine collision — reads as an
+			// unsettled placement for the rest of the row's life (#1217).
+			const read = await messageRepo.get(MOVE_MESSAGE_ID);
+			assert.equal(read.originalUid, undefined);
+			assert.equal(read.originalMailboxId, SOURCE_MAILBOX_ID);
+		});
+
 		test("updateForMove throws NotFoundError for unknown messageId", async () => {
 			await assert.rejects(
 				() =>

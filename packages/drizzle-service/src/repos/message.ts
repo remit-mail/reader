@@ -574,12 +574,20 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// re-index would skip them on content hash. Enqueue a move re-index event
 		// in the same transaction as the update; the search-index worker drains it
 		// with force, refreshing the stored mailbox metadata.
+		//
+		// `originalUid` goes with the settle. It exists to say the row's `uid`
+		// was recorded under `originalMailboxId`, and that stops being true here;
+		// left behind it makes the settled row indistinguishable from an
+		// in-flight one whenever the destination's counter happens to hand back
+		// the source's number, which on a young account is most of them (#1217).
+		// `originalMailboxId` stays: Undo restores the message to it.
 		const rows = await runInTransaction(this.db, async (tx) => {
 			const updated = await tx
 				.update(messageTable)
 				.set({
 					uid: newUid,
 					mailboxId: newMailboxId,
+					originalUid: null,
 					status: "active",
 					syncStatus: "synced",
 					updatedAt: Date.now(),

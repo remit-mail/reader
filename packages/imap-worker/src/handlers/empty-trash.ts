@@ -258,24 +258,20 @@ export const handleEmptyTrash = async (
 					// this handler the way it is to the API-side mutators: every event
 					// of an account shares one FIFO group, so the move that would
 					// settle the row cannot run until this returns, and the ceiling
-					// would be spent to reach the same answer. The row is left to that
-					// move, and the message stays in a Trash the user emptied before
-					// it arrived.
+					// would be spent to reach the same answer.
 					//
 					// `carriesForeignUid`, not the placement binding: the binding reads
 					// `status`, and `status` is exactly what an operation marking this
-					// folder overwrites. This is the second half of the gate `emptyTrash`
-					// applies before it marks anything.
-					const bindable = localMessages.filter(
-						(message) => !carriesForeignUid(message),
+					// folder overwrites. This is the second half of the gate
+					// `emptyTrash` applies before it marks anything.
+					const swept = localMessages.filter(
+						(message) =>
+							!carriesForeignUid(message) && expunged.has(message.uid),
 					);
-					const unsettledCount = localMessages.length - bindable.length;
-					let deletedCount = 0;
+					const sweptIds = new Set(swept.map((message) => message.messageId));
+					const deletedCount = swept.length;
 
-					for (const message of bindable) {
-						if (!expunged.has(message.uid)) continue;
-						deletedCount += 1;
-
+					for (const message of swept) {
 						await messageService.delete(message.messageId);
 
 						const threadMessage = await threadMessageService.findByMessageId(
@@ -290,19 +286,20 @@ export const handleEmptyTrash = async (
 						}
 					}
 
-					// Everything the SEARCH did not name is still marked for a deletion
-					// that will never come: mail another client already emptied, mail
-					// that reached Trash after the SEARCH, or a redelivery finishing a
-					// partial sweep. All three must come back rather than sit invisible.
-					// The whole listing, as `abandonEmptyTrash` passes it: a row whose
-					// uid names another folder was never marked by this empty, and the
-					// `deleting` check inside is what leaves it alone.
+					// Everything this sweep did not carry through is still marked for a
+					// deletion that will never come: mail another client already
+					// emptied, mail that reached Trash after the SEARCH, a redelivery
+					// finishing a partial sweep, and a row whose uid the sweep would
+					// not bind. All of them must come back rather than sit invisible —
+					// the last one especially, since nothing else is coming to clear
+					// its mark, and a row hidden in a folder it never left is worse
+					// than one the next sync re-projects.
 					const revertedCount = await handBackMarkedRows(
-						localMessages.filter((message) => !expunged.has(message.uid)),
+						localMessages.filter((message) => !sweptIds.has(message.messageId)),
 					);
 
 					log.info(
-						{ accountId, deletedCount, revertedCount, unsettledCount },
+						{ accountId, deletedCount, revertedCount },
 						"Trash emptied successfully",
 					);
 				})

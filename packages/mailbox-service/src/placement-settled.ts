@@ -31,12 +31,12 @@ export const isPlacementUnsettled = (
  * not a uid that names somebody else's message.
  *
  * Answered without reference to `status`, because `status` is not what clears
- * it: only `updateUid` does, by writing the destination's own uid, or a
- * restore, by pointing `mailboxId` back at `originalMailboxId`. An operation
- * that rewrites `status` on its way past — Empty Trash marking a whole folder
- * `deleting` — leaves the lie in place, so anything that resolves a uid off a
- * row it did not settle itself must ask this rather than the binding below
- * (issue #1217).
+ * it: `updateUid` does, dropping `originalUid` in the same statement that
+ * writes the destination's own, and a restore does by pointing `mailboxId`
+ * back at `originalMailboxId`. An operation that rewrites `status` on its way
+ * past — Empty Trash marking a whole folder `deleting` — leaves the pair
+ * untouched, so anything that resolves a uid off a row it did not settle
+ * itself asks this rather than the binding below (issue #1217).
  */
 export const carriesForeignUid = (
 	message: Pick<

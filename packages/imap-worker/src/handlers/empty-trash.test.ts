@@ -487,11 +487,12 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		assert.deepEqual(revertedMessageIds(), []);
 	});
 
-	it("leaves a mid-move row an earlier mark already rewrote", async () => {
+	it("hands back, rather than binds, a mid-move row an earlier mark rewrote", async () => {
 		// Defence in depth for the shape `emptyTrash` used to write: the mark
 		// overwrote `status` and the row reached here reading settled while its
-		// uid still belonged to the inbox. Nothing but `updateUid` or a restore
-		// clears that, so the uid is answered on its own terms.
+		// uid still belonged to the inbox. The uid is not bound — but the mark is
+		// cleared, because nothing else is coming to clear it and a row left
+		// `deleting` is hidden from every listing for good.
 		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-marked", 11)];
 
 		await handleEmptyTrash(event, noopLog, deps());
@@ -499,6 +500,33 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		assert.deepEqual(
 			called("message.delete").map((c) => c.args[0]),
 			["msg-1"],
+		);
+		assert.deepEqual(revertedMessageIds(), ["msg-marked"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-marked"]);
+	});
+
+	it("sweeps a settled row whose Trash uid matches the one it left behind", async () => {
+		// Two folders count uids independently, so a move can land on the same
+		// number it started from. `updateUid` drops `originalUid` when it settles,
+		// which is what keeps this row apart from one still mid-move — without it
+		// the sweep would expunge the message on the server and then refuse its
+		// rows, leaving mail that no longer exists hidden in Trash for good.
+		h.localMessages = [
+			{
+				messageId: "msg-collided",
+				uid: 10,
+				status: "deleting",
+				syncStatus: "pending",
+				mailboxId: "trash-mbx",
+				originalMailboxId: "inbox-mbx",
+			},
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-collided"],
 		);
 		assert.deepEqual(revertedMessageIds(), []);
 	});
