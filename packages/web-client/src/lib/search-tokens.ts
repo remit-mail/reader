@@ -43,6 +43,7 @@
 import type { RemitImapMessageCategory } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import {
+	categoryLabels,
 	quoteSearchTokenValue,
 	type SearchQueryWord,
 	type SearchTermParts,
@@ -134,24 +135,9 @@ export interface SearchTokenSpec {
 	options?: readonly SearchTokenValueOption[];
 }
 
-/**
- * Category labels, keyed by the API enum. `uncategorized` reads "Unclassified"
- * — the same word the filter chips use (issue #45): mail the classifier has not
- * reached is a pending state with a name, never the absence of one.
- */
-const CATEGORY_LABELS: Record<RemitImapMessageCategory, string> = {
-	personal: "Personal",
-	uncategorized: "Unclassified",
-	transactional: "Transactional",
-	newsletter: "Newsletter",
-	marketing: "Marketing",
-	social: "Social",
-	automated: "Automated",
-};
-
 const CATEGORY_OPTIONS: readonly SearchTokenValueOption[] = Object.values(
 	MessageCategory,
-).map((value) => ({ value, label: CATEGORY_LABELS[value] }));
+).map((value) => ({ value, label: categoryLabels[value] }));
 
 /**
  * Spellings that resolve to a category beyond the enum values themselves — the
@@ -313,7 +299,7 @@ export function searchTokenLabel(token: SearchToken): string {
 		case "subject":
 			return `Subject: ${token.value}`;
 		case "category":
-			return `Category: ${CATEGORY_LABELS[token.category]}`;
+			return `Category: ${categoryLabels[token.category]}`;
 		case "hasAttachment":
 			return "Has attachment";
 		case "isUnread":

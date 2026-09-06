@@ -36,13 +36,14 @@
  */
 
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import { MessageCategory } from "@remit/domain-enums";
-import type {
-	ResultCount,
-	SenderTrustLevel,
-	ThreadCategory,
-	ThreadRowData,
-	ThreadSection,
+import {
+	CATEGORY_SECTION_ORDER,
+	categoryLabels,
+	type ResultCount,
+	type SenderTrustLevel,
+	type ThreadCategory,
+	type ThreadRowData,
+	type ThreadSection,
 } from "@remit/ui";
 import { toDisplayCategory } from "./display-category.js";
 import { formatEmailDate } from "./format.js";
@@ -145,39 +146,12 @@ export function mergeSearchRows(
 }
 
 /**
- * Category sections in fixed display order. The `id`/`label` drive the rendered
- * section; `category` is both the section's own scope and the query parameter
- * the section's request carries.
+ * The categories the brief asks for, in the order it renders them. A category
+ * is both the section's own scope and the query parameter its request carries;
+ * the order and the label come from the kit's category table.
  */
-export const CATEGORY_SECTIONS: ReadonlyArray<{
-	id: string;
-	label: string;
-	category: ThreadCategory;
-}> = [
-	{ id: "personal", label: "Personal", category: MessageCategory.personal },
-	{
-		id: "transactional",
-		label: "Transactional",
-		category: MessageCategory.transactional,
-	},
-	{
-		id: "newsletter",
-		label: "Newsletter",
-		category: MessageCategory.newsletter,
-	},
-	{ id: "marketing", label: "Marketing", category: MessageCategory.marketing },
-	{ id: "social", label: "Social", category: MessageCategory.social },
-	{ id: "automated", label: "Automated", category: MessageCategory.automated },
-	{
-		id: "uncategorized",
-		label: "Unclassified",
-		category: MessageCategory.uncategorized,
-	},
-];
-
-/** The categories the brief asks for, in the order it renders them. */
 export const BRIEF_CATEGORIES: readonly ThreadCategory[] =
-	CATEGORY_SECTIONS.map((section) => section.category);
+	CATEGORY_SECTION_ORDER;
 
 /** One category's own server answer: its newest rows and how many it holds. */
 export interface BriefCategoryResult {
@@ -214,8 +188,8 @@ export function briefSections(
 		results.map((result) => [result.category, result] as const),
 	);
 	const sections: ThreadSection[] = [];
-	for (const section of CATEGORY_SECTIONS) {
-		const result = byCategory.get(section.category);
+	for (const category of BRIEF_CATEGORIES) {
+		const result = byCategory.get(category);
 		if (!result) continue;
 		const holdsMail =
 			result.loading ||
@@ -224,8 +198,8 @@ export function briefSections(
 			(result.total.kind === "exact" && result.total.value > 0);
 		if (!holdsMail) continue;
 		sections.push({
-			id: section.id,
-			label: section.label,
+			id: category,
+			label: categoryLabels[category],
 			threads: result.rows,
 			total: result.total,
 			atCap: result.atCap,

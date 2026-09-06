@@ -52,7 +52,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		await close();
 	});
 
-	test("create returns a MessageItem and writes one outbox row atomically", async () => {
+	test("create returns a MessageItem and writes no outbox row", async () => {
 		const item = await repo.create(BASE_INPUT);
 		assert.equal(item.messageId, MESSAGE_ID);
 		assert.equal(item.status, "active");
@@ -62,9 +62,11 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			.select()
 			.from(outboxTable)
 			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.equal(rows.length, 1);
-		assert.equal(rows[0].event, "message.created");
-		assert.deepEqual(rows[0].payload, { messageId: MESSAGE_ID });
+		assert.equal(
+			rows.length,
+			0,
+			"a message with no body yet has nothing to index",
+		);
 	});
 
 	test("boolean and json columns round-trip", async () => {
@@ -120,7 +122,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		assert.equal(afterUpdate.placementVerdict?.action, "MoveToInbox");
 	});
 
-	test("duplicate messageId throws CreateFailedConflictError and rolls back the outbox row", async () => {
+	test("duplicate messageId throws CreateFailedConflictError and appends no outbox row", async () => {
 		const before = await db
 			.select()
 			.from(outboxTable)

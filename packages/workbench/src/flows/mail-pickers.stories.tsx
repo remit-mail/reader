@@ -1,4 +1,10 @@
-import { Button, DialogBackdrop, inboxFilterConfig } from "@remit/ui";
+import {
+	Button,
+	CATEGORY_PRESENTATION,
+	categoryLabels,
+	DialogBackdrop,
+	inboxFilterConfig,
+} from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import {
 	Archive,
@@ -68,14 +74,10 @@ export const MovePicker: Story = {
 	),
 };
 
-const CATEGORIES = [
-	"personal",
-	"newsletter",
-	"marketing",
-	"automated",
-	"transactional",
-	"social",
-];
+/** The same categories, in the same order, the real dialog offers. */
+const CATEGORIES = CATEGORY_PRESENTATION.map((entry) => entry.category).filter(
+	(category) => category !== "uncategorized",
+);
 
 /**
  * Reclassify-sender dialog, opened from the intelligence pane it overrides a
@@ -118,11 +120,11 @@ function ReclassifyOverlay() {
 						<button
 							key={cat}
 							type="button"
-							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm capitalize hover:bg-surface-raised ${
+							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm hover:bg-surface-raised ${
 								cat === "newsletter" ? "font-semibold text-accent" : "text-fg"
 							}`}
 						>
-							{cat}
+							{categoryLabels[cat]}
 							{cat === "newsletter" && (
 								<span className="text-2xs text-fg-subtle">current</span>
 							)}

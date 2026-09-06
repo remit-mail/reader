@@ -148,6 +148,13 @@
       "when": 1788540630553,
       "tag": "0021_legal_bill_hollister",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1788646138769,
+      "tag": "0022_drop_message_created_outbox",
+      "breakpoints": true
     }
   ]
 }

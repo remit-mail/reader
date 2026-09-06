@@ -1,10 +1,13 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	CATEGORY_PRESENTATION,
+	categoryLabels,
 	DialogBackdrop,
 	IntelligencePanel,
 	type IntelligenceQuickActions,
 	type SimilarMessageLinkComponent,
 	type SimilarState,
+	type ThreadCategory,
 	useModalFocus,
 } from "@remit/ui";
 import { Sparkles } from "lucide-react";
@@ -53,18 +56,20 @@ export interface IntelligencePaneProps {
 
 /**
  * Category-override values accepted by the `AddressFlags.category` override
- * (PATCH /addresses/{id}). Matches `MessageCategory` — the full taxonomy the
- * user can assign as a sender-level override.
+ * (PATCH /addresses/{id}), in the kit's chip-row order and named with the kit's
+ * words. `uncategorized` is left out: it names the classifier not having reached
+ * a message yet, which is not something a reader chooses for a sender.
  */
-const CATEGORY_OVERRIDES = [
-	"personal",
-	"newsletter",
-	"marketing",
-	"automated",
-	"transactional",
-	"social",
-] as const;
-type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
+type CategoryOverride = Exclude<ThreadCategory, "uncategorized">;
+
+const isCategoryOverride = (
+	category: ThreadCategory,
+): category is CategoryOverride => category !== "uncategorized";
+
+const CATEGORY_OVERRIDES: readonly CategoryOverride[] =
+	CATEGORY_PRESENTATION.map((entry) => entry.category).filter(
+		isCategoryOverride,
+	);
 
 /**
  * Decide which spam quick-action to offer for the current message (issue #648).
@@ -195,11 +200,11 @@ function ReclassifyDialog({
 							key={cat}
 							type="button"
 							onClick={() => onSelect(cat)}
-							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm capitalize transition-colors hover:bg-surface-raised ${
+							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm transition-colors hover:bg-surface-raised ${
 								cat === current ? "font-semibold text-accent" : "text-fg"
 							}`}
 						>
-							{cat}
+							{categoryLabels[cat]}
 							{cat === current && (
 								<span className="text-2xs text-fg-subtle">current</span>
 							)}

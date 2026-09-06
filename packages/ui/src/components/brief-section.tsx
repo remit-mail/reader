@@ -108,6 +108,7 @@ export function BriefSection({
 			{section.label && (
 				<button
 					type="button"
+					data-section-header=""
 					aria-expanded={!collapsed}
 					onClick={() => setCollapsed((v) => !v)}
 					className="sticky top-0 z-10 flex h-section-row w-full items-center gap-1.5 border-b border-line bg-surface-sunken px-row-inset text-left outline-none transition-colors hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"

@@ -105,7 +105,7 @@ test.describe("The brief's chips compose into the search query (#460)", () => {
 
 		// A category is the same bargain, and it flattens the sections as the
 		// category pill always has.
-		await chip(page, "Newsletters").click();
+		await chip(page, "Newsletter").click();
 		await expect(searchField(page)).toHaveValue(
 			`${tag} is:unread category:newsletter`,
 		);

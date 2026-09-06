@@ -1,14 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
+import type { BriefCategoryFilter } from "../category-presentation.js";
 import {
 	type BriefFilterId,
 	narrowBriefSections,
 } from "../lib/brief-filters.js";
-import type {
-	BriefCategoryFilter,
-	ThreadRowData,
-	ThreadSection,
-} from "./app-shell-types.js";
+import type { ThreadRowData, ThreadSection } from "./app-shell-types.js";
 import {
 	type BriefFilterControl,
 	BriefSections,

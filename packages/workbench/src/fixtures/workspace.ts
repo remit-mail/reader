@@ -1,12 +1,14 @@
-import type {
-	IntelligenceData,
-	NavAccount,
-	ResultFolder,
-	SearchResult,
-	SearchResultSection,
-	ThreadData,
-	ThreadRowData,
-	ThreadSection,
+import {
+	categoryLabels,
+	categoryTone,
+	type IntelligenceData,
+	type NavAccount,
+	type ResultFolder,
+	type SearchResult,
+	type SearchResultSection,
+	type ThreadData,
+	type ThreadRowData,
+	type ThreadSection,
 } from "@remit/ui";
 
 /**
@@ -1253,14 +1255,12 @@ const resultFolders: Record<string, ResultFolder> = {
 	},
 };
 
-const categoryLabels: Partial<
-	Record<NonNullable<ThreadRowData["category"]>, SearchResult["category"]>
-> = {
-	transactional: { label: "Transactional", tone: "positive" },
-	personal: { label: "Personal", tone: "accent" },
-	marketing: { label: "Marketing", tone: "warning" },
-	newsletter: { label: "Newsletter", tone: "neutral" },
-};
+const searchResultCategory = (
+	category: NonNullable<ThreadRowData["category"]>,
+): SearchResult["category"] => ({
+	label: categoryLabels[category],
+	tone: categoryTone[category],
+});
 
 function toSearchResult(
 	thread: ThreadRowData,
@@ -1276,7 +1276,9 @@ function toSearchResult(
 		date: thread.timeLabel,
 		unread: thread.isRead === false,
 		flagged: thread.starred,
-		category: thread.category ? categoryLabels[thread.category] : undefined,
+		category: thread.category
+			? searchResultCategory(thread.category)
+			: undefined,
 		folder: resultFolders[thread.id] ?? { role: "inbox" },
 		...overrides,
 	};
