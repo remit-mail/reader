@@ -11,13 +11,17 @@ import {
 	X,
 } from "lucide-react";
 import { type ReactElement, type ReactNode, useId, useState } from "react";
+import {
+	categoryLabels,
+	categoryTone,
+	type ThreadCategory,
+} from "../category-presentation.js";
 import { cn } from "../lib/cn.js";
 import {
 	SEMANTIC_OFF_BUYS,
 	SEMANTIC_OFF_COMMAND,
 	SEMANTIC_OFF_TITLE,
 } from "../lib/semantic-off.js";
-import { categoryTone, type ThreadCategory } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
@@ -501,7 +505,7 @@ export function IntelligencePanel({
 					<IntelligenceSection label="Category">
 						<div className="flex items-center gap-2">
 							<Badge tone={categoryTone[category.value]}>
-								{category.value}
+								{categoryLabels[category.value]}
 							</Badge>
 							{category.overridden && (
 								<span className="text-2xs text-fg-subtle">your override</span>

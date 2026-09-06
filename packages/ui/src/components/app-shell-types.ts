@@ -6,6 +6,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type {
+	BriefCategoryFilter,
+	ThreadCategory,
+} from "../category-presentation.js";
 import type { TriageHandlers } from "../lib/keymap.js";
 import type { SelectionModifiers } from "../lib/use-selection.js";
 import type {
@@ -227,46 +231,6 @@ export interface NavLinkRenderProps {
 
 export type NavLinkComponent = (props: NavLinkRenderProps) => ReactElement;
 
-export type ThreadCategory =
-	| "uncategorized"
-	| "personal"
-	| "newsletter"
-	| "marketing"
-	| "automated"
-	| "transactional"
-	| "social";
-
-/** "all" (no category narrowing) plus every content-type category. */
-export type BriefCategoryFilter = ThreadCategory | "all";
-
-/**
- * Ordered content-type categories for the brief expando. Mirrors the generated
- * `MessageCategory` enum (@remit/domain-enums); swap this local list for the
- * generated enum's values once that package is importable from the UI build.
- */
-export const briefCategories: ReadonlyArray<{
-	id: BriefCategoryFilter;
-	label: string;
-}> = [
-	{ id: "all", label: "All" },
-	{ id: "personal", label: "Personal" },
-	{ id: "uncategorized", label: "Unclassified" },
-	{ id: "newsletter", label: "Newsletters" },
-	{ id: "marketing", label: "Marketing" },
-	{ id: "automated", label: "Automated" },
-	{ id: "transactional", label: "Transactional" },
-	{ id: "social", label: "Social" },
-];
-
-/**
- * Whether an id names one of the brief's category scopes. A host holding one
- * category across views whose sheets speak plain strings narrows it with this
- * rather than asserting it.
- */
-export function isBriefCategory(id: string): id is BriefCategoryFilter {
-	return briefCategories.some((c) => c.id === id);
-}
-
 export interface ThreadRowLabel {
 	labelId: string;
 	name: string;
@@ -451,27 +415,4 @@ export interface AppShellProps {
 	onSelectNav?: (id: string) => void;
 	onSelectThread?: (id: string) => void;
 	onToggleIntelligence?: () => void;
-}
-
-export const categoryTone: Record<
-	ThreadCategory,
-	"neutral" | "accent" | "positive" | "warning"
-> = {
-	uncategorized: "neutral",
-	personal: "accent",
-	newsletter: "neutral",
-	marketing: "neutral",
-	automated: "neutral",
-	transactional: "positive",
-	social: "warning",
-};
-
-/**
- * Whether a string names one of the classifier's categories. A host reading a
- * category off the API narrows it with this rather than asserting it: a value
- * from a newer server that this build has no tone for is a value it cannot
- * render, and it needs to know that rather than find out at lookup time.
- */
-export function isThreadCategory(value: string): value is ThreadCategory {
-	return Object.hasOwn(categoryTone, value);
 }

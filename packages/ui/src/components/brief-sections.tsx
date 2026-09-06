@@ -1,22 +1,14 @@
 import { useRef, useState } from "react";
+import {
+	type BriefCategoryFilter,
+	categoryChips,
+} from "../category-presentation.js";
 import { type BriefFilterId, briefFilterChips } from "../lib/brief-filters.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
-import type {
-	BriefCategoryFilter,
-	MessageListKeyboard,
-	ThreadSection,
-} from "./app-shell-types.js";
-import {
-	briefCategories,
-	categoryTone,
-	keyboardWalksRows,
-} from "./app-shell-types.js";
+import type { MessageListKeyboard, ThreadSection } from "./app-shell-types.js";
+import { keyboardWalksRows } from "./app-shell-types.js";
 import { BriefSection } from "./brief-section.js";
-import {
-	FilterSheet,
-	type FilterSheetCategory,
-	type FilterSheetSource,
-} from "./filter-sheet.js";
+import { FilterSheet, type FilterSheetSource } from "./filter-sheet.js";
 import type { BriefRowComponent } from "./message-row.js";
 
 /**
@@ -170,12 +162,6 @@ export function BriefSections({
 
 	const flatRows = sections.flatMap((s) => s.threads);
 
-	const sheetCategories: FilterSheetCategory[] = briefCategories.map((cat) => ({
-		id: cat.id,
-		label: cat.label,
-		tone: cat.id === "all" ? "neutral" : categoryTone[cat.id],
-	}));
-
 	const sheetFilters = briefFilterChips;
 
 	const empty = showSections ? shown.length === 0 : flatRows.length === 0;
@@ -225,7 +211,7 @@ export function BriefSections({
 	// category scope.
 	return (
 		<FilterSheet
-			categories={sheetCategories}
+			categories={[...categoryChips]}
 			filters={sheetFilters}
 			sources={sources}
 			sourcesNote={sourcesNote}

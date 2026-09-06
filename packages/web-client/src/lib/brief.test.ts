@@ -1,8 +1,14 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
-import type { ResultCount, ThreadCategory, ThreadRowData } from "@remit/ui";
 import {
+	categoryLabels,
+	type ResultCount,
+	type ThreadCategory,
+	type ThreadRowData,
+} from "@remit/ui";
+import {
+	BRIEF_CATEGORIES,
 	type BriefCategoryResult,
 	briefSections,
 	briefSectionTotal,
@@ -109,16 +115,8 @@ describe("briefSections", () => {
 	});
 
 	test("each category answers for its own section, with its own label", () => {
-		const labels = new Map<ThreadCategory, string>([
-			["personal", "Personal"],
-			["transactional", "Transactional"],
-			["newsletter", "Newsletter"],
-			["marketing", "Marketing"],
-			["social", "Social"],
-			["automated", "Automated"],
-			["uncategorized", "Unclassified"],
-		]);
-		for (const [category, label] of labels) {
+		for (const category of BRIEF_CATEGORIES) {
+			const label = categoryLabels[category];
 			const sections = briefSections([
 				result(category, [row({ id: "1", category })]),
 			]);

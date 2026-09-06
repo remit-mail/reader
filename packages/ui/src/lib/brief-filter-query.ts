@@ -25,7 +25,7 @@
 import {
 	type BriefCategoryFilter,
 	isBriefCategory,
-} from "../components/app-shell-types.js";
+} from "../category-presentation.js";
 import type { BriefFilterId } from "./brief-filters.js";
 import {
 	searchTokenTerm,
