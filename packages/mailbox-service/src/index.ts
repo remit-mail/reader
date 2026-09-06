@@ -268,6 +268,12 @@ export {
 	shapeFromMessageData,
 } from "./quarantine.js";
 export {
+	type RestoreSourcePlacementDeps,
+	type RestoreSourcePlacementInput,
+	type RestoreSourcePlacementOutcome,
+	restoreSourcePlacement,
+} from "./restore-source-placement.js";
+export {
 	extractSnippetFromEmail,
 	generateSnippet,
 	normalizeSubject,
@@ -286,6 +292,12 @@ export {
 	type StaleMessageReconcileDeps,
 	type StaleMessageReconcileResult,
 } from "./stale-message-reconcile.js";
+export {
+	buildThreadMessageMoveRevert,
+	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
+	type ThreadMessageRowState,
+} from "./thread-message-rows.js";
 export type {
 	FlatMailboxInfo,
 	IImapConnection,

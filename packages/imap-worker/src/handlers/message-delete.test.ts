@@ -4,6 +4,10 @@ import type { ThreadMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import { renderMetrics, resetMetrics } from "@remit/logger-lambda";
 import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import {
+	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
+} from "@remit/mailbox-service";
 import type { MessageDeleteEvent } from "../events.js";
 import {
 	deleteAllThreadMessagesForMessage,
@@ -12,10 +16,6 @@ import {
 	MESSAGE_DELETE_MAX_ATTEMPTS,
 	type MessageDeleteDeps,
 } from "./message-delete.js";
-import {
-	buildThreadMessageTrashUpdate,
-	buildThreadMessageUndelete,
-} from "./thread-message-rows.js";
 
 describe("getMessageDeleteMaxAttempts — env-derived threshold (#980)", () => {
 	it("parses the injected env var", () => {
@@ -293,7 +293,9 @@ interface Harness {
 	mailboxError?: Error;
 	connection: Connection;
 	threadMessageUpdateError?: Error;
-	messageRow: { messageIdHeader?: string } | undefined;
+	messageRow: { messageIdHeader?: string; status?: string } | undefined;
+	/** The row was settled by another lane, so every transition loses. */
+	transitionLost?: boolean;
 	destinationSearchUids: number[];
 	// A Message-ID SEARCH is answered by whichever folder was opened last, so a
 	// case can put the same header in both. Default: the source still holds it,
@@ -432,6 +434,10 @@ const deps = (): MessageDeleteDeps =>
 				},
 				updateUid: record("message.updateUid"),
 				updateForMove: record("message.updateForMove"),
+				transitionPlacement: async (...args: unknown[]) => {
+					h.calls.push({ method: "message.transitionPlacement", args });
+					return h.transitionLost ? undefined : { messageId: "msg-1" };
+				},
 				update: record("message.update"),
 				delete: record("message.delete"),
 			},
@@ -507,11 +513,12 @@ const called = (method: string): Call[] =>
 
 // The one write that puts a given-up delete back on its source pair. It clears
 // `moving` in the same write as the pair, which is what keeps a later delete
-// from waiting on a mutation that has terminated (#1005), and it goes through
-// `updateForMove` rather than `updateUid` so a row that never moved does not
-// enqueue a search re-index.
+// from waiting on a mutation that has terminated (#1005), and it is a
+// transition rather than a plain update so a row another lane already settled
+// keeps its own placement (imap-mutations R3).
 const restoredToSource = (syncStatus: string): unknown[] => [
 	"msg-1",
+	{ status: ["moving", "deleting"] },
 	{ mailboxId: "src-mbx", uid: 10, status: "active", syncStatus },
 ];
 
@@ -738,6 +745,38 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("emitEvent").length, 0);
 		});
 
+		// A lost SQS acknowledgement is the ordinary way this happens: the delete
+		// ran, `settleTrashMoveConfirmed` wrote the Trash uid, and the record came
+		// back anyway. Without the guard its three siblings carry (MESSAGE_MOVE,
+		// MESSAGE_COPY, FLAG_PUSH) the redelivery MOVEs a uid the source no longer
+		// holds, exhausts, and the terminal resolver reads the source's honest
+		// "gone" as grounds to delete rows that are correct — taking spamReport,
+		// classificationState, category and the Undo target's `originalMailboxId`
+		// with them, none of which the resync re-projection can rebuild.
+		it("skips a redelivery of a delete that already settled, rather than re-running it", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+
+			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0, "no IMAP command is issued");
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("threadMessage.delete").length, 0);
+			assert.equal(called("threadMessage.deleteMany").length, 0);
+			assert.equal(called("message.transitionPlacement").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
+		it("skips a redelivered permanent delete the same way", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+
+			await handleMessageDelete(permanentEvent, noopLog, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
 		// One Message-ID can have several server copies in one account while
 		// `deriveMessageId` gives them one local row. A source that still holds
 		// the uid proves the MOVE did not happen, so any hit at the destination
@@ -797,7 +836,7 @@ describe("handleMessageDelete", () => {
 			// settles `status` out of `moving`, so no later delete of this message
 			// waits on a mutation that has terminated.
 			assert.deepEqual(
-				called("message.updateForMove").at(-1)?.args,
+				called("message.transitionPlacement").at(-1)?.args,
 				restoredToSource("synced"),
 			);
 			assert.equal(
@@ -899,7 +938,7 @@ describe("handleMessageDelete", () => {
 				await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 				assert.deepEqual(
-					called("message.updateForMove").at(-1)?.args,
+					called("message.transitionPlacement").at(-1)?.args,
 					restoredToSource("synced"),
 				);
 				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
@@ -964,8 +1003,8 @@ describe("handleMessageDelete", () => {
 			// invisible syncStatus on a row that claims Trash. A refusal keeps
 			// `failed`: the product turned down something the user asked for.
 			assert.deepEqual(
-				called("message.updateForMove")[0]?.args,
-				restoredToSource("failed"),
+				called("message.transitionPlacement")[0]?.args,
+				restoredToSource("abandoned"),
 			);
 			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 				uid: 10,
@@ -987,8 +1026,8 @@ describe("handleMessageDelete", () => {
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 	});
 
@@ -1133,8 +1172,8 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("connection.createMailbox").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
@@ -1154,8 +1193,8 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
@@ -1233,7 +1272,7 @@ describe("handleMessageDelete", () => {
 			"cursor_invalid",
 		);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 			"the row goes back to the source pair, which is the set the rebuild adjudicates",
 		);
@@ -1288,7 +1327,7 @@ describe("handleMessageDelete", () => {
 		// the server has just confirmed on the axis a UIDVALIDITY change leaves
 		// intact.
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1320,8 +1359,8 @@ describe("handleMessageDelete", () => {
 		// The source pair is the set its own cursor rebuild walks and adjudicates
 		// by Message-ID, so handing the row back there is the reconcile path.
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.equal(
 			loggedWith("alert", "message_delete_paused_placement_unproven").length,
@@ -1353,8 +1392,8 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, capturingLog(), 1, deps());
 
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 			"the first attempt reaches this settle with the MOVE already issued, so `synced` claims what nothing confirmed",
 		);
 		assert.equal(
@@ -1379,7 +1418,7 @@ describe("handleMessageDelete", () => {
 		assert.equal(dropped.length, 1);
 		assert.equal(dropped[0]?.level, "warn");
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1482,7 +1521,7 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("message.updateUid").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1520,7 +1559,7 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1545,7 +1584,7 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateForMove").length,
+			called("message.transitionPlacement").length,
 			0,
 			"a row no listing can reach is never restored",
 		);
@@ -1563,7 +1602,7 @@ describe("handleMessageDelete", () => {
 
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateForMove").length,
+			called("message.transitionPlacement").length,
 			0,
 			"restoring a Message no listing can reach is the silent vanish, not a hand-back",
 		);

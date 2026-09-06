@@ -278,6 +278,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 				update: async () => undefined,
 				updateUid: async () => undefined,
 				updateForMove: async () => undefined,
+				transitionPlacement: async () => undefined,
 			},
 			threadMessage: {
 				findAllByMessageId: async () => [],
@@ -410,7 +411,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	const arrangePausedMove = async (
 		options: { probeable: boolean } = { probeable: true },
 	): Promise<{
-		updateForMoveCalls: unknown[][];
+		transitionCalls: unknown[][];
 		updateUidCalls: unknown[][];
 		threadUpdateCalls: unknown[][];
 	}> => {
@@ -424,10 +425,15 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			},
 		]);
 		mock.method(client.mailbox, "get", async () => pausedSource());
-		const updateForMoveCalls: unknown[][] = [];
-		mock.method(client.message, "updateForMove", async (...args: unknown[]) => {
-			updateForMoveCalls.push(args);
-		});
+		const transitionCalls: unknown[][] = [];
+		mock.method(
+			client.message,
+			"transitionPlacement",
+			async (...args: unknown[]) => {
+				transitionCalls.push(args);
+				return { messageId: "mm-msg-zzz" };
+			},
+		);
 		const updateUidCalls: unknown[][] = [];
 		mock.method(client.message, "updateUid", async (...args: unknown[]) => {
 			updateUidCalls.push(args);
@@ -446,7 +452,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		mock.method(client.threadMessage, "update", async (...args: unknown[]) => {
 			threadUpdateCalls.push(args);
 		});
-		return { updateForMoveCalls, updateUidCalls, threadUpdateCalls };
+		return { transitionCalls, updateUidCalls, threadUpdateCalls };
 	};
 
 	// Issue #1203. Acking a paused cursor left the row `moving` with `mailboxId`
@@ -456,7 +462,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	// neither folder's set: `placementBindingOf` answered `in_flight` for good
 	// and the message became unmovable and undeletable.
 	it("hands the row back to its source on a first delivery, without connecting", async () => {
-		const { updateForMoveCalls, threadUpdateCalls } = await arrangePausedMove();
+		const { transitionCalls, threadUpdateCalls } = await arrangePausedMove();
 
 		await handleMessageMove(event, silentLogger, 1, moveDeps());
 
@@ -466,9 +472,10 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			"a first delivery has provably issued no MOVE, so it needs no answer from the server",
 		);
 		assert.deepEqual(
-			updateForMoveCalls[0],
+			transitionCalls[0],
 			[
 				"mm-msg-zzz",
+				{ status: ["moving", "deleting"] },
 				{
 					mailboxId: "mm-src-zzz",
 					uid: 10,
@@ -509,7 +516,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	// binds the row to that copy, and the next permanent delete expunges it:
 	// Archive is not paused, so no rebuild is ever coming to adjudicate there.
 	it("never settles a redelivered paused move as moved off a destination sighting", async () => {
-		const { updateForMoveCalls, updateUidCalls } = await arrangePausedMove();
+		const { transitionCalls, updateUidCalls } = await arrangePausedMove();
 
 		await handleMessageMove(
 			event,
@@ -525,11 +532,11 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		);
 		// The source pair is the set its own cursor rebuild walks and adjudicates
 		// by Message-ID, so handing the row back there is the reconcile path.
-		assert.deepEqual(updateForMoveCalls[0]?.[1], {
+		assert.deepEqual(transitionCalls[0]?.[2], {
 			mailboxId: "mm-src-zzz",
 			uid: 10,
 			status: "active",
-			syncStatus: "failed",
+			syncStatus: "abandoned",
 		});
 		assert.equal(
 			logLines.filter(
@@ -545,7 +552,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	// redelivery is broken, not settled. With no Message-ID header neither
 	// folder was asked, and silence is not an answer to write `synced` on.
 	it("settles a redelivered paused move broken when neither folder can be asked", async () => {
-		const { updateForMoveCalls } = await arrangePausedMove({
+		const { transitionCalls } = await arrangePausedMove({
 			probeable: false,
 		});
 
@@ -557,8 +564,8 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		);
 
 		assert.equal(
-			(updateForMoveCalls[0]?.[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
+			(transitionCalls[0]?.[2] as { syncStatus?: string })?.syncStatus,
+			"abandoned",
 		);
 		assert.equal(
 			logLines.filter(
@@ -589,7 +596,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	// this message. The source is asked first for exactly that reason, and its
 	// answer ends it.
 	it("never binds a redelivered paused move to an older copy while the source still answers", async () => {
-		const { updateForMoveCalls, updateUidCalls } = await arrangePausedMove();
+		const { transitionCalls, updateUidCalls } = await arrangePausedMove();
 
 		await handleMessageMove(
 			event,
@@ -599,7 +606,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		);
 
 		assert.equal(updateUidCalls.length, 0);
-		assert.deepEqual(updateForMoveCalls[0]?.[1], {
+		assert.deepEqual(transitionCalls[0]?.[2], {
 			mailboxId: "mm-src-zzz",
 			uid: 10,
 			status: "active",

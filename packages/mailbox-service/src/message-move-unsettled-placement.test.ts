@@ -58,11 +58,11 @@ const movingRow = () => ({
 	originalUid: INBOX_UID,
 });
 
-/** The same row after the mover gave up without confirming. */
+/** The same row after the mutation gave up without confirming (R3). */
 const strandedRow = () => ({
 	...movingRow(),
 	messageId: STRANDED_ID,
-	syncStatus: "failed",
+	syncStatus: "abandoned",
 });
 
 /** An ordinary settled row. */
@@ -319,8 +319,8 @@ describe("the move gate refuses only a uid that names somebody else (#665)", () 
 	});
 
 	it("refuses a row stranded by a move that gave up, without spending the ceiling", async () => {
-		// `syncStatus: failed` with `status: moving` is what every handler's
-		// give-up path leaves behind, and only `updateUid` clears it. The pair is
+		// `syncStatus: abandoned` is the give-up value (R3), distinct from the
+		// `failed` a transient attempt writes before its redelivery. The pair is
 		// still a lie, so the move is still refused — under a reason whose remedy
 		// is a resync, and without a wait that could never succeed.
 		const { service, events } = buildWorld([strandedRow()]);

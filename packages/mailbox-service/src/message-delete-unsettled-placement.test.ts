@@ -72,7 +72,7 @@ const movingRow = () => ({
 const strandedRow = () => ({
 	...movingRow(),
 	messageId: STRANDED_ID,
-	syncStatus: "failed",
+	syncStatus: "abandoned",
 });
 
 /** An ordinary settled row. */
@@ -330,7 +330,7 @@ describe("the gate refuses only a uid that names somebody else (#845.3)", () => 
 	});
 
 	it("refuses a row stranded by a move that gave up, without spending the ceiling", async () => {
-		// `syncStatus: failed` with `status: moving` is the shape every handler's
+		// `syncStatus: abandoned` with `status: moving` is the shape a handler's
 		// give-up path leaves behind, and only `updateUid` clears it. The pair is
 		// still a lie, so the delete is still refused — but under a reason whose
 		// remedy is a resync, and without a wait that could never succeed.

@@ -7,9 +7,9 @@ import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
 	reconcileStaleMessage,
+	restoreSourcePlacement,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export interface MessageDeleteTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -18,7 +18,7 @@ export interface MessageDeleteTerminalLogger {
 
 export interface ResolveExhaustedMessageDeleteDeps
 	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "updateForMove">;
+	messageService: Pick<IMessageRepository, "delete" | "transitionPlacement">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"

@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -15,7 +16,6 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -399,6 +399,7 @@ export const handlePlacementMovePush = async (
 							accountConfigId,
 							messageId,
 							uid: message.uid,
+							sourceMailboxId: marker.sourceMailboxId,
 							sourceMailboxPath: sourceMailbox.fullPath,
 							getConnection: scope.getConnection,
 						},

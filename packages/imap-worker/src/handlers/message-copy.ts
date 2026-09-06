@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -14,7 +15,6 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageCopyEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -295,7 +295,7 @@ export const handleMessageCopy = async (
 			const settleBroken = async (reason: string): Promise<void> => {
 				await messageService.update(newMessageId, {
 					status: MessageStatus.deleted,
-					syncStatus: MessageSyncStatus.failed,
+					syncStatus: MessageSyncStatus.abandoned,
 				});
 				log.error(
 					{
@@ -497,7 +497,7 @@ export const handleMessageCopy = async (
 						);
 						await messageService.update(newMessageId, {
 							status: MessageStatus.deleted,
-							syncStatus: MessageSyncStatus.failed,
+							syncStatus: MessageSyncStatus.abandoned,
 						});
 						return;
 					}

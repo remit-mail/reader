@@ -4,23 +4,25 @@ import type {
 	IThreadMessageRepository,
 	MessageItem,
 } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
+	buildThreadMessageTrashUpdate,
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
+	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
@@ -31,8 +33,6 @@ import {
 	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
-import { buildThreadMessageTrashUpdate } from "./thread-message-rows.js";
 
 export const getMessageDeleteMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -196,6 +196,42 @@ export const handleMessageDelete = async (
 		return;
 	}
 
+	const [message] = await messageService.get([messageId]);
+
+	// The row is gone — a permanent delete that already ran, or a
+	// reconciliation path that removed it. Nothing left to delete; ack.
+	if (!message) {
+		log.warn(
+			{ accountId, messageId, operation },
+			"Skipping MESSAGE_DELETE: message row no longer exists",
+		);
+		return;
+	}
+
+	// This delete already settled, which for both operations means the row is
+	// back to `active`: `settleTrashMoveConfirmed` writes it with the Trash
+	// uid the server confirmed, and `abandonDelete` writes it on a row handed
+	// back. MESSAGE_MOVE, MESSAGE_COPY and FLAG_PUSH each carry this guard
+	// already; without it a lost SQS acknowledgement re-runs the delete
+	// against a uid the source no longer holds, exhausts, and lets the
+	// terminal resolver read the source's honest "gone" as grounds to delete
+	// rows that are correct — taking spamReport, classificationState,
+	// category and the Undo target's `originalMailboxId` with them, none of
+	// which the resync re-projection can rebuild.
+	if (message.status === MessageStatus.active) {
+		log.info(
+			{
+				accountId,
+				messageId,
+				operation,
+				uid: message.uid,
+				syncStatus: message.syncStatus,
+			},
+			"Skipping MESSAGE_DELETE: the delete already settled against confirmed IMAP state",
+		);
+		return;
+	}
+
 	/**
 	 * Re-read the folders this delete touched. A move to trash has two; a
 	 * permanent delete has only the source, and it is owed one just as much —
@@ -294,11 +330,12 @@ export const handleMessageDelete = async (
 	// "anything that is not move_to_trash is an expunge" inference is the same
 	// one that destroyed mail in the service, and an unrecoverable EXPUNGE is
 	// not a default. Abandoning hands the row back where the server still has
-	// it: an invisible `failed` on a row the user cannot see is the shape of
-	// the incident this whole change is about. The row keeps `failed`, because
-	// the product refused something the user asked for.
+	// it: an invisible failure on a row the user cannot see is the shape of the
+	// incident this whole change is about. The row carries `abandoned` — the
+	// give-up value, not the transient one a redelivery follows (R3) — because
+	// the product refused something the user asked for and nothing is coming.
 	const abandonDelete = (reason: string, alert: string): Promise<void> =>
-		handBackDelete(MessageSyncStatus.failed, { alert }, reason);
+		handBackDelete(MessageSyncStatus.abandoned, { alert }, reason);
 
 	const settleTrashMoveConfirmed = async (
 		newUid: number,
@@ -386,7 +423,7 @@ export const handleMessageDelete = async (
 
 		if (unproven) {
 			await handBackDelete(
-				MessageSyncStatus.failed,
+				MessageSyncStatus.abandoned,
 				{ alert: "message_delete_paused_placement_unproven" },
 				placement.kind === "at-destination"
 					? "the destination holds this Message-ID but the source's uid axis has moved, so the sighting does not prove this delete ran"

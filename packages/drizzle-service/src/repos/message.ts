@@ -4,8 +4,9 @@ import type {
 	IMessageRepository,
 	MessageDescription,
 	MessageItem,
+	PlacementPredicate,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, type SQL } from "drizzle-orm";
 
 import type { Db } from "../db.js";
 import {
@@ -168,6 +169,31 @@ export async function deleteMessageSubtree(
 		})),
 	);
 }
+
+/**
+ * The WHERE terms of a placement transition (imap-mutations R3). A field the
+ * caller left out is a field it did not read, so it constrains nothing; a field
+ * given as a list matches any of the states that share one column value.
+ */
+const oneOf = <T>(value: T | readonly T[]): T[] =>
+	Array.isArray(value) ? [...(value as readonly T[])] : [value as T];
+
+const placementTerms = (expected: PlacementPredicate): SQL[] => {
+	const terms: SQL[] = [];
+	if (expected.status !== undefined) {
+		terms.push(inArray(messageTable.status, oneOf(expected.status)));
+	}
+	if (expected.syncStatus !== undefined) {
+		terms.push(inArray(messageTable.syncStatus, oneOf(expected.syncStatus)));
+	}
+	if (expected.mailboxId !== undefined) {
+		terms.push(eq(messageTable.mailboxId, expected.mailboxId));
+	}
+	if (expected.uid !== undefined) {
+		terms.push(eq(messageTable.uid, expected.uid));
+	}
+	return terms;
+};
 
 export class DrizzleMessageRepository implements IMessageRepository {
 	constructor(private db: DB) {}
@@ -560,6 +586,36 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		if (rows.length === 0) {
 			throw new NotFoundError(`Message not found: ${messageId}`);
 		}
+		return toMessageItem(rows[0]);
+	}
+
+	async transitionPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+		next: Parameters<IMessageRepository["transitionPlacement"]>[2],
+	): ReturnType<IMessageRepository["transitionPlacement"]> {
+		const setValues = {
+			...(next.mailboxId !== undefined ? { mailboxId: next.mailboxId } : {}),
+			...(next.uid !== undefined ? { uid: next.uid } : {}),
+			...(next.status !== undefined ? { status: next.status } : {}),
+			...(next.syncStatus !== undefined ? { syncStatus: next.syncStatus } : {}),
+			...(next.originalMailboxId !== undefined
+				? { originalMailboxId: next.originalMailboxId }
+				: {}),
+			...(next.originalUid !== undefined
+				? { originalUid: next.originalUid }
+				: {}),
+			updatedAt: Date.now(),
+		};
+
+		const rows = await this.db
+			.update(messageTable)
+			.set(setValues)
+			.where(
+				and(eq(messageTable.messageId, messageId), ...placementTerms(expected)),
+			)
+			.returning();
+		if (rows.length === 0) return undefined;
 		return toMessageItem(rows[0]);
 	}
 

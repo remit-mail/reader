@@ -4,6 +4,7 @@ import {
 	APPENDED_UID_UNREPORTED,
 	isSentCopyFiled,
 } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -14,7 +15,6 @@ import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { AppendSentMessageEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 

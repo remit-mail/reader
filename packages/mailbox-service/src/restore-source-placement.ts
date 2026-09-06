@@ -4,17 +4,20 @@ import type {
 	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { MessageStatus } from "@remit/domain-enums";
-import { isNotFoundError } from "../is-not-found.js";
 import { buildThreadMessageMoveRevert } from "./thread-message-rows.js";
 
 export interface RestoreSourcePlacementDeps {
-	messageService: Pick<IMessageRepository, "updateForMove">;
+	messageService: Pick<IMessageRepository, "transitionPlacement">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "update"
 	>;
 }
+
+/** Whether the row was still owed a restore when this ran. */
+export type RestoreSourcePlacementOutcome = "restored" | "superseded";
 
 export interface RestoreSourcePlacementInput {
 	accountConfigId: string;
@@ -25,8 +28,8 @@ export interface RestoreSourcePlacementInput {
 	 * What the row records about the mutation that will now never happen.
 	 * `synced` where the row is a faithful projection of the source again — the
 	 * server never received the command, or has just said the message is still
-	 * there. `failed` where the product refused an operation the user asked for,
-	 * which is a failure the row has to carry.
+	 * there. `abandoned` where the product refused an operation the user asked
+	 * for, which is a failure the row has to carry (imap-mutations R3).
 	 */
 	syncStatus: MessageItem["syncStatus"];
 	/**
@@ -41,19 +44,24 @@ export interface RestoreSourcePlacementInput {
  * with it.
  *
  * `status: moving` has to be cleared here or the row is stuck: a give-up that
- * writes `syncStatus: failed` and returns leaves the row naming the destination
- * with the source's uid — the pair `bindsForeignUid` calls a lie and
+ * writes a sync status and returns leaves the row naming the destination with
+ * the source's uid — the pair `placementBindingOf` calls a lie and
  * `MessagePlacementUnsettledError` refuses to act on. Nothing routine repairs it
  * (sync does not touch `status`, and the cursor rebuild's `updateUid` runs only
  * on a UIDVALIDITY change), so the message is undeletable and unmovable for good
  * (issue #1005).
  *
- * `updateForMove`, not `updateUid`: both write the same settled pair, but
- * `updateUid` also appends a `message.moved` outbox row so the search index can
- * refresh the mailbox it stores per message. Nothing here moved. The optimistic
- * `updateForMove` that pointed the row at the destination never enqueued one
- * either, so the index still holds the source and a revert has nothing to
- * correct — the re-index would be a forced pass over an unchanged document.
+ * A transition, not a plain update (imap-mutations R3): the restore is only
+ * owed while a mutation is still outstanding on the row, so the predicate is
+ * `moving` or `deleting`. A row another lane has already settled — the
+ * placement-move push runs off a standard queue and is ordered against nothing
+ * on the account's FIFO — is the winner, and dragging it back to a source it
+ * has since left is the corruption this predicate exists to refuse. The loser
+ * writes nothing at all, listing rows included, and answers `superseded`.
+ *
+ * No `message.moved` outbox row: nothing here moved. The optimistic write that
+ * pointed the row at the destination never enqueued one either, so the search
+ * index still holds the source and a revert has nothing to correct.
  *
  * The caller must have evidence, not an inference: this writes a placement, and
  * a placement written on a guess binds live mail to a uid that names somebody
@@ -78,17 +86,18 @@ export interface RestoreSourcePlacementInput {
  * folder's.
  *
  * A row another path deleted while the probe was in flight has nothing left to
- * restore, and a thread row whose composites have moved on is being rewritten
- * by that other path anyway. Both surface as `NotFoundError` — ElectroDB wraps
- * the conditional-check miss as one — and both are settled states here, not
- * faults. Throwing on them would escape the caller's `.catch()` and cost the
+ * restore, and it fails the predicate like any other row that is no longer
+ * owed one. A thread row whose composites have moved on is being rewritten by
+ * that other path anyway; it surfaces as `NotFoundError` — ElectroDB wraps the
+ * conditional-check miss as one — and that is a settled state here, not a
+ * fault. Throwing on it would escape the caller's `.catch()` and cost the
  * record its ack and its resync, which is the contract the terminal resolvers
  * state: never re-thrown.
  */
 export const restoreSourcePlacement = async (
 	deps: RestoreSourcePlacementDeps,
 	input: RestoreSourcePlacementInput,
-): Promise<void> => {
+): Promise<RestoreSourcePlacementOutcome> => {
 	const { accountConfigId, messageId, sourceMailboxId, uid, syncStatus } =
 		input;
 
@@ -97,19 +106,17 @@ export const restoreSourcePlacement = async (
 		throw error;
 	};
 
-	const messageRestored = await deps.messageService
-		.updateForMove(messageId, {
+	const restored = await deps.messageService.transitionPlacement(
+		messageId,
+		{ status: [MessageStatus.moving, MessageStatus.deleting] },
+		{
 			mailboxId: sourceMailboxId,
 			uid,
 			status: MessageStatus.active,
 			syncStatus,
-		})
-		.then(() => true)
-		.catch((error: unknown) => {
-			skipNotFound(error);
-			return false;
-		});
-	if (!messageRestored) return;
+		},
+	);
+	if (!restored) return "superseded";
 
 	const threadMessages =
 		input.threadMessages ??
@@ -132,4 +139,5 @@ export const restoreSourcePlacement = async (
 			)
 			.catch(skipNotFound);
 	}
+	return "restored";
 };

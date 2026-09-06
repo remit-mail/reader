@@ -34,7 +34,7 @@ import {
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
-	bindsForeignUid,
+	carriesForeignUid,
 	type PlacementBinding,
 	placementBindingOf,
 	waitForPlacementToSettle,
@@ -928,18 +928,45 @@ export class MessageMoveService {
 		// says so: its own MESSAGE_MOVE then reads the row as settled and returns
 		// without moving anything, and the worker's expunge binds that borrowed
 		// uid against whatever Trash really holds at it. Left as it stands, that
-		// move runs ahead of this expunge in the account's FIFO group and settles
-		// the row, so the message is in Trash by the time the sweep reaches it and
-		// goes with the rest of this same press — only the count below is one
-		// short of what the sweep ends up removing.
-		const messages = rows.filter((message) => !bindsForeignUid(message));
+		// move settles the row on its own, so the message is in Trash by the time
+		// the sweep reaches it and goes with the rest of this same press — only
+		// the count below is one short of what the sweep ends up removing.
+		//
+		// `carriesForeignUid`, the same predicate the sweep applies (#1217).
+		// The binding form reads `status` too, and `status` is exactly what this
+		// mark is about to overwrite, so the two halves of one gate would have
+		// disagreed the moment the mark landed.
+		const candidates = rows.filter((message) => !carriesForeignUid(message));
 
-		// Mark all as deleting locally
-		for (const message of messages) {
-			await this.messageService.update(message.messageId, {
-				status: MessageStatus.deleting,
-				syncStatus: MessageSyncStatus.pending,
-			});
+		// Each mark is a transition off the row as it was just read
+		// (imap-mutations R3), not a blind write onto a snapshot. The rows are
+		// held by nothing between the listing and here, and PLACEMENT_MOVE_PUSH
+		// runs on a standard queue that this account's FIFO group does not order,
+		// so a row can move out from under the sweep. A lost predicate means
+		// another lane won: the row is left alone and not counted, rather than
+		// marked `deleting` for an expunge that would bind somebody else's uid.
+		const messages: MessageItem[] = [];
+		for (const message of candidates) {
+			const marked = await this.messageService.transitionPlacement(
+				message.messageId,
+				{
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.deleting,
+					syncStatus: MessageSyncStatus.pending,
+				},
+			);
+			if (!marked) {
+				this.log.info(
+					{ accountId, messageId: message.messageId },
+					"Empty Trash skipped a message whose placement changed while the folder was being read",
+				);
+				continue;
+			}
+			messages.push(marked);
 			await this.updateThreadMessageDeleted(
 				accountConfigId,
 				message.messageId,
@@ -952,6 +979,7 @@ export class MessageMoveService {
 				accountId,
 				trashMailboxId: trashMailbox.mailboxId,
 				count: messages.length,
+				skipped: rows.length - messages.length,
 			},
 			"Marked all trash messages for deletion (local)",
 		);

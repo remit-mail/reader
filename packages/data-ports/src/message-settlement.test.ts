@@ -8,13 +8,23 @@ describe("hasAbandonedDelete", () => {
 		assert.equal(
 			hasAbandonedDelete({
 				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.failed,
+				syncStatus: MessageSyncStatus.abandoned,
 			}),
 			true,
 		);
 	});
 
-	test("a move mid-retry is not a give-up, whatever `failed` suggests", () => {
+	test("`failed` on an active row is a transient attempt, never a give-up (R3)", () => {
+		assert.equal(
+			hasAbandonedDelete({
+				status: MessageStatus.active,
+				syncStatus: MessageSyncStatus.failed,
+			}),
+			false,
+		);
+	});
+
+	test("a move mid-retry is not a give-up: `failed` means a redelivery is coming", () => {
 		assert.equal(
 			hasAbandonedDelete({
 				status: MessageStatus.moving,
@@ -48,7 +58,8 @@ describe("hasAbandonedDelete", () => {
 	 * Both a settled move (`updateUid`) and a delete that exhausted its retries
 	 * (#1143 repairs the row to where the message actually is) land on this pair.
 	 * The second is a give-up this predicate deliberately cannot see — pinned so
-	 * the gap is a decision on record, not an oversight.
+	 * the gap is a decision on record, not an oversight. It is also why the
+	 * give-up value is its own state rather than a second meaning for `failed`.
 	 */
 	test("`active` + `synced` is never a give-up, however it was reached", () => {
 		assert.equal(

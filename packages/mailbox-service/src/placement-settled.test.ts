@@ -9,10 +9,10 @@ import { carriesForeignUid, placementBindingOf } from "./placement-settled.js";
  * only end-to-end specs covered it, so a change made for the client's benefit
  * could have moved it without anything going red.
  *
- * Note what these cases say about `syncStatus: failed`: it answers `abandoned`
- * here for a row that may well be mid-retry. That is correct for a guard whose
- * consequence is a temporary refusal, and it is exactly why no user-facing
- * statement may be derived from that field alone.
+ * Note what these cases say about `syncStatus`: `failed` is a transient attempt
+ * with a redelivery behind it, so a foreign-uid row carrying it is `in_flight`
+ * and gets the settle ceiling. Only `abandoned` — the give-up value of the
+ * placement state model (imap-mutations R3) — refuses outright.
  */
 const row = (over: Partial<MessageItem>): MessageItem =>
 	({
@@ -38,10 +38,17 @@ describe("placementBindingOf", () => {
 		assert.equal(placementBindingOf(row({})), "in_flight");
 	});
 
-	test("`failed` on a foreign-uid row is refused as abandoned", () => {
+	test("`abandoned` on a foreign-uid row is refused outright", () => {
+		assert.equal(
+			placementBindingOf(row({ syncStatus: MessageSyncStatus.abandoned })),
+			"abandoned",
+		);
+	});
+
+	test("`failed` on a foreign-uid row is mid-retry, so it waits rather than refusing", () => {
 		assert.equal(
 			placementBindingOf(row({ syncStatus: MessageSyncStatus.failed })),
-			"abandoned",
+			"in_flight",
 		);
 	});
 

@@ -1,5 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
@@ -9,17 +10,16 @@ import {
 	isCursorRebuildNeeded,
 	isPlacementUnsettled,
 	MailboxCursorPausedError,
+	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export const getMessageMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -499,7 +499,7 @@ export const handleMessageMove = async (
 
 				if (unproven) {
 					await handBackToSource(
-						MessageSyncStatus.failed,
+						MessageSyncStatus.abandoned,
 						{ alert: "message_move_paused_placement_unproven" },
 						placement.kind === "at-destination"
 							? "destination holds this Message-ID but the source's uid axis has moved, so the sighting does not prove this move ran"

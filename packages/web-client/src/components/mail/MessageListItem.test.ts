@@ -47,9 +47,16 @@ describe("threadToRowData — labels", () => {
 describe("threadToRowData — settlement (issue #1002)", () => {
 	it("marks a row whose delete gave up and came back", () => {
 		const row = threadToRowData(
-			baseThread({ status: "active", syncStatus: "failed" }),
+			baseThread({ status: "active", syncStatus: "abandoned" }),
 		);
 		assert.equal(row.settlement, "delete_failed");
+	});
+
+	it("says nothing about a transient attempt on an active row", () => {
+		const row = threadToRowData(
+			baseThread({ status: "active", syncStatus: "failed" }),
+		);
+		assert.equal(row.settlement, undefined);
 	});
 
 	it("says nothing about a move mid-retry, which writes the same failed flag", () => {
@@ -77,14 +84,14 @@ describe("threadToRowData — settlement (issue #1002)", () => {
 describe("the mobile and drafts rows carry the same mark", () => {
 	it("marks the swipeable mobile row", () => {
 		const row = swipeableRowData(
-			baseThread({ status: "active", syncStatus: "failed" }),
+			baseThread({ status: "active", syncStatus: "abandoned" }),
 		);
 		assert.equal(row.settlement, "delete_failed");
 	});
 
 	it("marks the drafts row", () => {
 		const row = toImapDraftRowData(
-			baseThread({ status: "active", syncStatus: "failed" }),
+			baseThread({ status: "active", syncStatus: "abandoned" }),
 		);
 		assert.equal(row.settlement, "delete_failed");
 	});

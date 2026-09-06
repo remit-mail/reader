@@ -58,12 +58,15 @@ export const bindsForeignUid = (
 
 /**
  * `in_flight` — a mover is still working on the row, so waiting resolves it.
- * `abandoned` — the last attempt failed (`syncStatus: failed`) and the row is
- * still `moving`: either a redelivery is pending, or the record dead-lettered
- * and nothing is coming for it. The two are indistinguishable from the row
- * (`message-settlement.ts`), and the pair is a lie either way, so neither is
- * worth spending the settle ceiling on. A mover that exhausts its budget
- * settles the row against IMAP instead of leaving this state behind (#1005).
+ * That includes a row mid-retry: `message-move`, `message-delete` and
+ * `message-copy` write `syncStatus: failed` on an ordinary transient attempt
+ * and re-throw for redelivery, so a failed attempt is a move about to succeed
+ * and the settle ceiling is exactly what it is for (imap-mutations R3).
+ *
+ * `abandoned` — the mutation gave up, which is `syncStatus: abandoned` and
+ * nothing else. Waiting on it would spend the ceiling to reach the same answer.
+ * A mover that exhausts its budget ordinarily settles the row against IMAP
+ * instead of leaving this state behind (#1005).
  */
 export type PlacementBinding = "consistent" | "in_flight" | "abandoned";
 
@@ -79,7 +82,7 @@ export const placementBindingOf = (
 	>,
 ): PlacementBinding => {
 	if (!bindsForeignUid(message)) return "consistent";
-	return message.syncStatus === MessageSyncStatus.failed
+	return message.syncStatus === MessageSyncStatus.abandoned
 		? "abandoned"
 		: "in_flight";
 };

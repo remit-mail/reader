@@ -75,8 +75,10 @@ interface ThreadRow {
  * The move's pending state IS the Message row, so these fakes hold real rows
  * and the assertions read the rows back — a resolver that settled the row on
  * anything but the server's own answer shows up here as a changed row, not as
- * an uncalled mock. `updateForMove` writes what the repository writes: whatever
- * fields the caller set, and nothing it left out.
+ * an uncalled mock. `transitionPlacement` honours its predicate the way the
+ * repository does: the write lands only while the row is still in one of the
+ * from-states the caller named (imap-mutations R3), and answers `undefined`
+ * otherwise.
  */
 const buildRepositories = (row: MessageRow) => {
 	const messages = new Map<string, MessageRow>([[row.messageId, row]]);
@@ -108,7 +110,21 @@ const buildRepositories = (row: MessageRow) => {
 				const current = messages.get(messageId);
 				if (current) messages.set(messageId, { ...current, ...set });
 			},
-		} as unknown as Pick<IMessageRepository, "delete" | "updateForMove">,
+			transitionPlacement: async (
+				messageId: string,
+				expected: { status?: string[] },
+				next: Partial<MessageRow>,
+			) => {
+				const current = messages.get(messageId);
+				if (!current) return undefined;
+				if (expected.status && !expected.status.includes(current.status)) {
+					return undefined;
+				}
+				const written = { ...current, ...next };
+				messages.set(messageId, written);
+				return written;
+			},
+		} as unknown as Pick<IMessageRepository, "delete" | "transitionPlacement">,
 		threadMessageService: {
 			findAllByMessageId: async () => [...threadMessages.values()],
 			deleteMany: async (
@@ -257,21 +273,17 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 	});
 
 	// The resolver's contract is that it is never re-thrown, so the caller can
-	// ack the record and emit its resync. A row another path deleted while the
-	// probe was in flight has nothing left to restore, and the same NotFound
-	// wraps an ElectroDB composites miss on the listing row.
-	it("BROKEN: a row deleted underneath the probe settles instead of throwing", async () => {
+	// ack the record and emit its resync. A row another path deleted or settled
+	// while the probe was in flight has nothing left to restore, and it loses
+	// the transition's predicate rather than raising; a NotFound still wraps an
+	// ElectroDB composites miss on the listing row.
+	it("BROKEN: a row settled underneath the probe loses the predicate instead of throwing", async () => {
 		const repos = buildRepositories(pendingMoveRow());
-		const notFound = Object.assign(new Error("Message not found: msg-1"), {
-			name: "NotFoundError",
-		});
 		const { log } = buildLogger();
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateForMove: async () => {
-					throw notFound;
-				},
+				transitionPlacement: async () => undefined,
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
 			threadMessageService: repos.threadMessageService,
 			log,
@@ -320,7 +332,7 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateForMove: async () => {
+				transitionPlacement: async () => {
 					throw new Error("ProvisionedThroughputExceeded");
 				},
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],

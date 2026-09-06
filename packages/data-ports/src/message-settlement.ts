@@ -12,36 +12,20 @@ export type MessageSettlementFields = Pick<
  * expunge: the Trash folder the event names is not on the server (TRYCREATE),
  * the event carries no destination, it names an operation this build does not
  * recognise, or it was minted under an unknown contract. The row is handed back
- * to the folder the server still holds the message in.
+ * to the folder the server still holds the message in, and only then marked.
  *
- * `status: active` alongside `syncStatus: failed` is the whole signal, and
- * `abandonDelete` (`imap-worker/src/handlers/message-delete.ts`) is its ONLY
- * writer. Every other writer of either value writes the other along with it:
+ * `status: active` alongside `syncStatus: abandoned` is the whole signal, and
+ * `abandonDelete` (`imap-worker/src/handlers/message-delete.ts`) is its only
+ * writer. `abandoned` is the give-up value of the placement state model
+ * (docs/architecture/imap-mutations.md R3) and it is unambiguous by
+ * construction: a transient attempt writes `failed` and re-throws for
+ * redelivery, so `failed` never reaches here, and a mutation that exhausted its
+ * retries is repaired against IMAP to `active` + `synced` and reads as settled.
  *
- * - `updateUid` (`drizzle-service/src/repos/message.ts`) settles a confirmed
- *   move by writing `active` and `synced` in the same statement, so a move that
- *   worked after a failed attempt cannot leave `failed` behind.
- * - `empty-trash` and `message-copy`'s `settleCopied` both hand a row back as
- *   `active` + `synced`.
- * - `upsertWithStatus` leaves an existing row alone, so no inbound sync writes
- *   either value onto a row that already has them.
- *
- * `syncStatus: failed` ON ITS OWN is NOT a give-up marker, whatever
- * `placement-settled.ts`'s docstring says. `message-move.ts`, `message-delete.ts`
- * and `message-copy.ts` each write it on an ORDINARY TRANSIENT attempt and then
- * re-throw for queue redelivery — the row is mid-retry and about to succeed. In
- * those handlers `status` stays at its in-flight value (`moving`, `deleting`),
- * which is what separates them from the pair above.
- *
- * Two give-ups this cannot see, and must not pretend to:
- *
- * - A MOVE or a DELETE that exhausted its retries settles `active` + `synced`
- *   (`resolveExhaustedMessageMoveFailure` and
- *   `resolveExhaustedMessageDeleteFailure` repair the row to where the message
- *   actually is — #1098, #1005), so both read as fully settled here.
- * - `flag-push` and `placement-move-push` never write either field at all.
- *   Their give-up state lives on their own marker rows.
+ * One give-up this cannot see, and must not pretend to: `flag-push` and
+ * `placement-move-push` never write either field. Their give-up state lives on
+ * their own marker rows and in the operator alert.
  */
 export const hasAbandonedDelete = (message: MessageSettlementFields): boolean =>
 	message.status === MessageStatus.active &&
-	message.syncStatus === MessageSyncStatus.failed;
+	message.syncStatus === MessageSyncStatus.abandoned;

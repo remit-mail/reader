@@ -276,10 +276,10 @@ describe("enrichThreadRows — the mutation pair", () => {
 	test("projects the pair an abandoned delete leaves behind", async () => {
 		const result = await project({
 			status: MessageStatus.active,
-			syncStatus: MessageSyncStatus.failed,
+			syncStatus: MessageSyncStatus.abandoned,
 		});
 		assert.equal(result?.status, MessageStatus.active);
-		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(result?.syncStatus, MessageSyncStatus.abandoned);
 		assert.equal(
 			hasAbandonedDelete({
 				status: result?.status,

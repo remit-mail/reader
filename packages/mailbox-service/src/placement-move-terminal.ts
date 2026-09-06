@@ -1,13 +1,21 @@
+import { MessageSyncStatus } from "@remit/domain-enums";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveLogger } from "./placement-move.js";
+import {
+	type RestoreSourcePlacementDeps,
+	restoreSourcePlacement,
+} from "./restore-source-placement.js";
 import {
 	reconcileStaleMessage,
 	type StaleMessageReconcileDeps,
 } from "./stale-message-reconcile.js";
 import type { IImapConnection } from "./types.js";
 
-export interface ResolveExhaustedPlacementMoveDeps
-	extends StaleMessageReconcileDeps {
+export interface ResolveExhaustedPlacementMoveDeps {
+	messageService: StaleMessageReconcileDeps["messageService"] &
+		RestoreSourcePlacementDeps["messageService"];
+	threadMessageService: StaleMessageReconcileDeps["threadMessageService"] &
+		RestoreSourcePlacementDeps["threadMessageService"];
 	markerService: { delete(messageId: string): Promise<void> };
 	log: PlacementMoveLogger;
 }
@@ -17,6 +25,7 @@ export interface ResolveExhaustedPlacementMoveInput {
 	accountConfigId: string;
 	messageId: string;
 	uid: number;
+	sourceMailboxId: string;
 	sourceMailboxPath: string;
 	getConnection: () => Promise<IImapConnection>;
 }
@@ -45,22 +54,26 @@ export interface ResolveExhaustedPlacementMoveResult {
  *    only, no alarm — routine.
  * 2. BROKEN — the message still exists at the source, but the move keeps
  *    failing. This indicates broken code or a broken account (issue #1271),
- *    not a transient blip. The marker is left in place (not cleared) so a
- *    later resync can never "correct" the message back to its server
- *    location out from under an operator's investigation — dropping it here
- *    would remove the very lock rule 3 depends on. Logged with an
- *    `alert`-shaped entry for an operator alarm; never re-thrown (terminal —
- *    the caller acks either way, since retrying a stale or permanently-broken
- *    move can never succeed).
+ *    not a transient blip. The row is put back on the source pair the server
+ *    has just confirmed, exactly as the move and delete resolvers do, and the
+ *    marker goes with it: an auto-file whose push gave up must not leave
+ *    `moving` plus the destination folder plus the source's uid standing
+ *    forever, because that pair refuses every later delete and move with a
+ *    409, blocks the sighting repair, and nothing else clears it. The failure
+ *    is an operator's to read, so it lives in the `alert`-shaped log entry and
+ *    the alarm on it — not in a row the user's own mail is stuck behind.
+ *    Never re-thrown (terminal — the caller acks either way, since retrying a
+ *    stale or permanently-broken move can never succeed).
  *
  * An operator reading `placement_move_failed` should know one case where the
  * message is not actually at the source: a message another client expunged
  * mid-session can answer an empty FETCH while the server still lists its UID
  * in SEARCH, until it is allowed to send the untagged EXPUNGE. That message
- * lands in BROKEN, and BROKEN is terminal — the marker stays pending and the
- * alert stands until someone clears it. The reverse mistake deletes live
- * mail, so the cost is paid deliberately: a stale alert is recoverable, a
- * deleted message is not.
+ * lands in BROKEN, and BROKEN is terminal — the alert stands until someone
+ * clears it, and the row goes back to a source the message may already have
+ * left. The reverse mistake deletes live mail, so the cost is paid
+ * deliberately: a stale alert over a row the next sync re-points is
+ * recoverable, a deleted message is not.
  */
 export const resolveExhaustedPlacementMoveFailure = async (
 	deps: ResolveExhaustedPlacementMoveDeps,
@@ -71,6 +84,7 @@ export const resolveExhaustedPlacementMoveFailure = async (
 		accountConfigId,
 		messageId,
 		uid,
+		sourceMailboxId,
 		sourceMailboxPath,
 		getConnection,
 	} = input;
@@ -100,6 +114,15 @@ export const resolveExhaustedPlacementMoveFailure = async (
 		return { outcome: "reconciled" };
 	}
 
+	await deps.markerService.delete(messageId);
+	await restoreSourcePlacement(deps, {
+		accountConfigId,
+		messageId,
+		sourceMailboxId,
+		uid,
+		syncStatus: MessageSyncStatus.synced,
+	});
+
 	deps.log.error(
 		{
 			alert: "placement_move_failed",
@@ -107,9 +130,10 @@ export const resolveExhaustedPlacementMoveFailure = async (
 			accountConfigId,
 			messageId,
 			uid,
+			sourceMailboxId,
 			sourceMailboxPath,
 		},
-		"Placement move could not be pushed to IMAP after retry exhaustion; message still exists at its source — marker left pending for operator investigation",
+		"Placement move could not be pushed to IMAP after retry exhaustion; message still exists at its source — row restored to the source pair, marker dropped, alert left for operator investigation",
 	);
 	return { outcome: "broken" };
 };

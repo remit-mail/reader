@@ -1,10 +1,12 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
+	buildThreadMessageUndelete,
 	carriesForeignUid,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
@@ -13,10 +15,8 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { EmptyTrashEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { buildThreadMessageUndelete } from "./thread-message-rows.js";
 
 export interface EmptyTrashDeps {
 	getClient: typeof getClient;
@@ -89,7 +89,10 @@ export const handleEmptyTrash = async (
 	// an unsettled move is rewritten by its own MESSAGE_DELETE. Not `failed`:
 	// the mail is intact, and saying otherwise about a whole folder is a lie.
 	const handBackMarkedRows = async (
-		rows: readonly { messageId: string; status: MessageItem["status"] }[],
+		rows: readonly Pick<
+			MessageItem,
+			"messageId" | "status" | "mailboxId" | "uid"
+		>[],
 	): Promise<number> => {
 		let revertedCount = 0;
 		for (const message of rows) {
@@ -105,10 +108,30 @@ export const handleEmptyTrash = async (
 			);
 			if (threadMessages.length === 0) continue;
 
-			await messageService.update(message.messageId, {
-				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.synced,
-			});
+			// The hand-back is a transition off the row as this sweep read it
+			// (imap-mutations R3), because the snapshot it walks holds nothing:
+			// between the listing and here another lane can settle the row onto a
+			// placement of its own, and writing `active` + `synced` over that would
+			// declare a mutation settled that nobody confirmed.
+			const restored = await messageService.transitionPlacement(
+				message.messageId,
+				{
+					status: MessageStatus.deleting,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.synced,
+				},
+			);
+			if (!restored) {
+				log.info(
+					{ accountId, messageId: message.messageId },
+					"Empty Trash left a row alone: its placement changed after the sweep read it",
+				);
+				continue;
+			}
 			for (const threadMessage of threadMessages) {
 				const args = buildThreadMessageUndelete(threadMessage);
 				await threadMessageService.update(
@@ -255,15 +278,19 @@ export const handleEmptyTrash = async (
 					// carrying the SOURCE folder's uid, so matching it against the
 					// expunge answers for whatever Trash held at that uid — another
 					// message, deleted here in both its rows. Waiting is not open to
-					// this handler the way it is to the API-side mutators: every event
-					// of an account shares one FIFO group, so the move that would
-					// settle the row cannot run until this returns, and the ceiling
-					// would be spent to reach the same answer.
+					// this handler the way it is to the API-side mutators: a move on
+					// this account's own FIFO group cannot run until this returns, so
+					// the ceiling would be spent to reach the same answer. It buys
+					// nothing against the other lane either — PLACEMENT_MOVE_PUSH
+					// rides a standard queue with no group at all
+					// (`deploy/vps/queues.json`), so it is ordered against nothing
+					// here and can settle a row mid-sweep. That is why the writes
+					// below are transitions rather than snapshot writes (R3).
 					//
 					// `carriesForeignUid`, not the placement binding: the binding reads
 					// `status`, and `status` is exactly what an operation marking this
-					// folder overwrites. This is the second half of the gate
-					// `emptyTrash` applies before it marks anything.
+					// folder overwrites. This is the same predicate `emptyTrash`
+					// applies before it marks anything — one gate, one answer.
 					const swept = localMessages.filter(
 						(message) =>
 							!carriesForeignUid(message) && expunged.has(message.uid),
