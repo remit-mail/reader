@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { categoryTone, isThreadCategory } from "../category-presentation.js";
+import {
+	categoryLabels,
+	categoryTone,
+	isThreadCategory,
+} from "../category-presentation.js";
 import type { IntelligenceCalendarActions } from "./intelligence-calendar.js";
 import { inviteWithClash } from "./intelligence-calendar-fixtures.js";
 import type {
@@ -34,9 +38,10 @@ const vipWithFailingAuthenticity: IntelligenceData = {
 /** The rendered chip in the Category section. */
 function categoryChip(data: IntelligenceData): string {
 	const html = renderToString(createElement(IntelligencePanel, { data }));
-	const marker = `>${data.category.value}</span>`;
+	const label = categoryLabels[data.category.value];
+	const marker = `>${label}</span>`;
 	const end = html.indexOf(marker);
-	assert.notEqual(end, -1, `expected a chip reading '${data.category.value}'`);
+	assert.notEqual(end, -1, `expected a chip reading '${label}'`);
 	const start = html.lastIndexOf("<span", end);
 	return html.slice(start, end + marker.length);
 }
@@ -81,6 +86,19 @@ describe("IntelligencePanel category chip", () => {
 		});
 		assert.match(chip, /text-fg-muted/);
 		assert.doesNotMatch(chip, /danger/);
+	});
+
+	// The panel is where a reader inspects and overrides a classification, so it
+	// has to name the category with the same word the row badge showed them.
+	it("names the category the way every other surface does", () => {
+		assert.match(
+			categoryChip({
+				...vipWithFailingAuthenticity,
+				category: { value: "uncategorized" },
+			}),
+			/>Unclassified</,
+		);
+		assert.match(categoryChip(vipWithFailingAuthenticity), />Personal</);
 	});
 });
 

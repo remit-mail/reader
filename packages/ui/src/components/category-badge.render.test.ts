@@ -18,10 +18,19 @@ describe("getCategoryLabel", () => {
 	});
 
 	it("gives every other category the word every surface shows", () => {
-		for (const { category, label } of CATEGORY_PRESENTATION) {
-			if (category === "personal") continue;
-			assert.equal(getCategoryLabel(category), label);
-		}
+		assert.deepEqual(
+			CATEGORY_PRESENTATION.filter(
+				({ category }) => category !== "personal",
+			).map(({ category }) => getCategoryLabel(category)),
+			[
+				"Unclassified",
+				"Transactional",
+				"Newsletter",
+				"Marketing",
+				"Social",
+				"Automated",
+			],
+		);
 	});
 });
 
