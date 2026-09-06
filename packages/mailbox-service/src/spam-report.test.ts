@@ -10,6 +10,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
+import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { AddressRole } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
@@ -279,6 +280,8 @@ const buildWorld = (
 		threadMessageService,
 		addressService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/message-mgmt",
+		moveSettleTimeoutMs: 30,
+		moveSettlePollMs: 5,
 	});
 	(
 		messageMoveService as unknown as {
@@ -394,13 +397,14 @@ describe("SpamReportService.reportSpam", () => {
 	});
 
 	it("is idempotent under a double press", async () => {
-		const { service, sent } = buildWorld();
+		const { service, messages, sent } = buildWorld();
 
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
 			messageId: MESSAGE_ID,
 		});
+		settleMove(messages);
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
@@ -409,6 +413,37 @@ describe("SpamReportService.reportSpam", () => {
 
 		// The second call's move is a no-op: MessageMoveService.moveMessage sees
 		// the local mailboxId already equals Junk and skips without enqueueing.
+		// The skip is read off the settled row — a press inside the first move's
+		// flight waits for it rather than answering from the folder that move
+		// wrote optimistically (#665).
+		assert.equal(moveEvents(sent).length, 1);
+	});
+
+	it("refuses a second press inside the first move's flight", async () => {
+		// No settleMove between the presses: the row names Junk while still
+		// carrying the inbox's uid, so acting on it would address whatever Junk
+		// holds at that uid — somebody else's message (#665).
+		const { service, sent } = buildWorld();
+
+		await service.reportSpam({
+			accountConfigId: ACCOUNT_CONFIG,
+			accountId: ACCOUNT,
+			messageId: MESSAGE_ID,
+		});
+
+		await assert.rejects(
+			() =>
+				service.reportSpam({
+					accountConfigId: ACCOUNT_CONFIG,
+					accountId: ACCOUNT,
+					messageId: MESSAGE_ID,
+				}),
+			(error: unknown) =>
+				error instanceof MessagePlacementUnsettledError &&
+				error.statusCode === 409 &&
+				error.publicApiError?.details?.reason === "in_flight",
+		);
+
 		assert.equal(moveEvents(sent).length, 1);
 	});
 

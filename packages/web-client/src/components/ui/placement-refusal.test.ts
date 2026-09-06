@@ -50,6 +50,7 @@ describe("placementRefusalBanner", () => {
 		const banner = placementRefusalBanner(
 			{ reason: "in_flight", messageId: "msg-1" },
 			1,
+			"delete",
 		);
 		assert.equal(banner.severity, "warning");
 		assert.match(banner.detail ?? "", /try again in a moment/i);
@@ -59,6 +60,7 @@ describe("placementRefusalBanner", () => {
 		const banner = placementRefusalBanner(
 			{ reason: "unverified", messageId: "msg-1" },
 			1,
+			"delete",
 		);
 		assert.match(banner.detail ?? "", /sync the folder/i);
 		assert.doesNotMatch(banner.detail ?? "", /try again in a moment/i);
@@ -66,14 +68,43 @@ describe("placementRefusalBanner", () => {
 
 	it("counts the selection in the title", () => {
 		assert.match(
-			placementRefusalBanner({ reason: "in_flight", messageId: "m" }, 4).title,
+			placementRefusalBanner(
+				{ reason: "in_flight", messageId: "m" },
+				4,
+				"delete",
+			).title,
 			/4 messages/,
 		);
 	});
 
+	// A move refused mid-flight told the user their delete failed — an action
+	// they never took, and a remedy pointing at the wrong verb.
+	it("names the action the user pressed, not the delete", () => {
+		const title = placementRefusalBanner(
+			{ reason: "in_flight", messageId: "msg-1" },
+			1,
+			"move",
+		).title;
+		assert.match(title, /move this message/i);
+		assert.doesNotMatch(title, /delete/i);
+
+		const detail =
+			placementRefusalBanner(
+				{ reason: "unverified", messageId: "msg-1" },
+				1,
+				"move",
+			).detail ?? "";
+		assert.match(detail, /move it again/i);
+		assert.doesNotMatch(detail, /delete/i);
+	});
+
 	it("never repeats the server's uuid at the user", () => {
 		for (const reason of ["in_flight", "unverified"] as const) {
-			const banner = placementRefusalBanner({ reason, messageId: "msg-1" }, 1);
+			const banner = placementRefusalBanner(
+				{ reason, messageId: "msg-1" },
+				1,
+				"delete",
+			);
 			assert.doesNotMatch(`${banner.title} ${banner.detail}`, /msg-1/);
 		}
 	});

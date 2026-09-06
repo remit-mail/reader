@@ -1027,7 +1027,9 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/move")
-    op moveMessages(@body input: MoveMessagesInput): MessageBulkOperationResult;
+    op moveMessages(
+      @body input: MoveMessagesInput,
+    ): MessageBulkOperationResult | MessagePlacementConflict;
 
     @doc("Copy messages to a destination mailbox")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)

@@ -521,6 +521,12 @@ export class MessageMoveService {
 	/**
 	 * Move a message to another mailbox.
 	 *
+	 * Waits, never reconciles (imap-mutations R2): the folder and uid go to the
+	 * server as one pair, and once the worker has moved the destination's own
+	 * message at that uid there is no reference left to repair. The person is
+	 * looking at the result, so blocking for the sub-second a move takes is the
+	 * cheap half; on timeout the move refuses ahead of any local write.
+	 *
 	 * @param messageId - Message to move
 	 * @param destinationMailboxId - Destination mailbox ID
 	 * @param accountId - Account ID
@@ -531,13 +537,32 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
-		const message = await this.messageService.get(messageId);
+		await this.moveSettledMessage(
+			accountConfigId,
+			await this.settledPlacement(
+				await this.messageService.get(messageId),
+				accountId,
+			),
+			destinationMailboxId,
+			accountId,
+		);
+	};
+
+	private moveSettledMessage = async (
+		accountConfigId: string,
+		message: MessageItem,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<void> => {
+		const messageId = message.messageId;
 
 		// IMAP has no same-mailbox MOVE: the server copies the message, expunges
 		// the original and hands back a fresh UID, so a request that asks for the
 		// mailbox the message is already in destroys its identity to reach the
 		// state it was already in. The requested end state holds, so there is
-		// nothing to record as pending and nothing to enqueue.
+		// nothing to record as pending and nothing to enqueue. The row is settled
+		// by the time this compares, so the folder it names is one the message has
+		// actually reached rather than one an in-flight move wrote optimistically.
 		if (message.mailboxId === destinationMailboxId) {
 			this.log.info(
 				{ messageId, mailboxId: destinationMailboxId },
@@ -633,10 +658,18 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
-		for (const messageId of messageIds) {
-			await this.moveMessage(
+		// Every row is settled before the first move is written, so the batch's
+		// wait is one row's ceiling rather than the sum across it, and a refusal
+		// lands before any part of the batch has committed.
+		const sources = await this.settledPlacements(
+			await this.messageService.get(messageIds),
+			accountId,
+		);
+
+		for (const source of sources) {
+			await this.moveSettledMessage(
 				accountConfigId,
-				messageId,
+				source,
 				destinationMailboxId,
 				accountId,
 			);

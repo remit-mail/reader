@@ -48,7 +48,8 @@ const buildWorld = () => {
 	]);
 
 	const messageService = {
-		get: async () => message,
+		get: async (ids: string | string[]) =>
+			Array.isArray(ids) ? [message] : message,
 		update: async (_id: string, patch: Record<string, unknown>) =>
 			Object.assign(message, patch),
 		updateForMove: async (_id: string, patch: Record<string, unknown>) =>
