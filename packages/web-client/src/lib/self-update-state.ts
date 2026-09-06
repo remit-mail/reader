@@ -164,6 +164,22 @@ export function isSurfaceAbsent(error: unknown): boolean {
 }
 
 /**
+ * The run the server last reported as still going, or null when it reported
+ * none. The last answer outlives the failed requests that follow it, which is
+ * what lets any tab — not only the one that pressed install — know it is inside
+ * a restart rather than looking at an unreachable service (#468). A run the user
+ * has dismissed is not one either surface still speaks for.
+ */
+export function runInFlight(
+	data: RemitImapSystemUpdateResponse | undefined,
+	dismissedRunId: string | null,
+): RemitImapSystemUpdateRun | null {
+	const run = data?.run ?? null;
+	if (run === null || run.outcome !== null) return null;
+	return run.runId === dismissedRunId ? null : run;
+}
+
+/**
  * The available release from the check block, or undefined when the check
  * reports none. Independent of what the pane is currently showing, so a retry
  * offered from a failed run can still open consent.
@@ -344,28 +360,74 @@ function ready(
 }
 
 /**
+ * The wait every tab is in while the server it is polling is not answering: the
+ * run is known to be in flight, and the phase is the only one the client can
+ * claim from a dead connection.
+ */
+function reconnectingSurface(
+	runId: string,
+	previousVersion: string,
+	attemptedVersion: string,
+	elapsedSeconds: number,
+): UpdateSurface {
+	return {
+		status: "ready",
+		section: applyingSection(
+			runId,
+			previousVersion,
+			attemptedVersion,
+			"reconnecting",
+			elapsedSeconds,
+		),
+		overlay: {
+			kind: "applying",
+			target: attemptedVersion,
+			phase: "reconnecting",
+			elapsedSeconds,
+		},
+	};
+}
+
+/** The client gave up waiting, and says so without claiming the rollback ran. */
+function neverCameBackSurface(
+	runId: string,
+	previousVersion: string,
+	attemptedVersion: string,
+	elapsedSeconds: number,
+	logsCommand: string,
+): UpdateSurface {
+	return {
+		status: "ready",
+		section: applyingSection(
+			runId,
+			previousVersion,
+			attemptedVersion,
+			"reconnecting",
+			elapsedSeconds,
+		),
+		overlay: {
+			kind: "neverCameBack",
+			attemptedVersion,
+			previousVersion,
+			elapsedSeconds,
+			logsCommand,
+		},
+	};
+}
+
+/**
  * The client gave up waiting. The hold stays: the screen has to sit still, and
  * its retry has to keep polling, until the server answers for itself.
  */
 function neverCameBack(held: HeldRun, elapsedSeconds: number): DeriveResult {
 	return {
-		surface: {
-			status: "ready",
-			section: applyingSection(
-				held.runId,
-				held.previousVersion,
-				held.attemptedVersion,
-				"reconnecting",
-				elapsedSeconds,
-			),
-			overlay: {
-				kind: "neverCameBack",
-				attemptedVersion: held.attemptedVersion,
-				previousVersion: held.previousVersion,
-				elapsedSeconds,
-				logsCommand: FALLBACK_LOGS_COMMAND,
-			},
-		},
+		surface: neverCameBackSurface(
+			held.runId,
+			held.previousVersion,
+			held.attemptedVersion,
+			elapsedSeconds,
+			FALLBACK_LOGS_COMMAND,
+		),
 		releaseHeld: false,
 	};
 }
@@ -408,22 +470,15 @@ function deriveHeld(
 		if (elapsedSeconds > budgetLimitSeconds()) {
 			return neverCameBack(held, elapsedSeconds);
 		}
-		return ready(
-			applyingSection(
+		return {
+			surface: reconnectingSurface(
 				held.runId,
 				held.previousVersion,
 				held.attemptedVersion,
-				"reconnecting",
 				elapsedSeconds,
 			),
-			{
-				kind: "applying",
-				target: held.attemptedVersion,
-				phase: "reconnecting",
-				elapsedSeconds,
-			},
-			false,
-		);
+			releaseHeld: false,
+		};
 	}
 
 	// Nothing has come back yet. Silence is not a phase, so the surface waits
@@ -478,6 +533,32 @@ function displayFromData(input: DeriveInput): UpdateSurface {
 		input;
 
 	if (isError) {
+		const stopped = runInFlight(data, dismissedRunId);
+		// A tab that never pressed install is in the same restart as the one that
+		// did: the run the server last reported is still going, and the server
+		// stopping is how it goes. It waits on the run's own start, so the budget
+		// is the same one the initiating tab keeps and the give-up stays reachable.
+		if (stopped !== null) {
+			const elapsedSeconds = elapsedSince(
+				parseIso(stopped.startedAt) ?? now,
+				now,
+			);
+			if (elapsedSeconds > budgetLimitSeconds()) {
+				return neverCameBackSurface(
+					stopped.runId,
+					stopped.fromVersion,
+					stopped.targetVersion,
+					elapsedSeconds,
+					stopped.logCommand,
+				);
+			}
+			return reconnectingSurface(
+				stopped.runId,
+				stopped.fromVersion,
+				stopped.targetVersion,
+				elapsedSeconds,
+			);
+		}
 		return {
 			status: "ready",
 			section: {

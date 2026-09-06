@@ -80,6 +80,15 @@ const accepted = {
 	},
 };
 
+/**
+ * The run as a tab that never pressed install finds it: reported by the server,
+ * started just now, so the wait is measured from a start the page did not see.
+ */
+const reportedRunning = () => ({
+	...accepted,
+	run: { ...accepted.run, startedAt: new Date().toISOString() },
+});
+
 /** The client `shell/index.tsx` builds: the real global escalation sink. */
 const appQueryClient = (): QueryClient =>
 	new QueryClient({
@@ -178,6 +187,32 @@ describe("the update poll across the restart it asked for (#468)", () => {
 		assert.equal(getCurrentFatalError()?.error !== undefined, true);
 	});
 
+	test("a 502 with no run known from either source escalates", async () => {
+		// The server has answered, and what it said was that nothing is running.
+		let restarting = false;
+		await mount(() => (restarting ? httpError(502) : available));
+
+		restarting = true;
+		await repoll();
+
+		assert.equal(getCurrentFatalError()?.error !== undefined, true);
+	});
+
+	test("a connection refused inside the window stays soft, as any transport failure does", async () => {
+		let restarting = false;
+		await mount(() => {
+			if (restarting) throw new Error("connection refused");
+			return available;
+		});
+		await install();
+
+		restarting = true;
+		await repoll();
+
+		assert.equal(getCurrentFatalError(), null);
+		assert.match(dom().html(), /Installing Remit 0\.9\.4/);
+	});
+
 	test("a 500 while a run is held escalates — the server answered", async () => {
 		let broken = false;
 		await mount(() => (broken ? httpError(500) : available));
@@ -207,5 +242,66 @@ describe("the update poll across the restart it asked for (#468)", () => {
 		} finally {
 			Date.now = realNow;
 		}
+	});
+});
+
+/**
+ * The overlay speaks for a run in any tab the server tells about it, so the
+ * restart has to be ridden there too — a second tab, or the initiating one after
+ * a reload, holds nothing of its own.
+ */
+describe("a tab that never pressed install (#468)", () => {
+	test("holds the applying overlay across a 502", async () => {
+		let restarting = false;
+		await mount(() => (restarting ? httpError(502) : reportedRunning()));
+		assert.match(dom().html(), /Installing Remit 0\.9\.4/);
+
+		restarting = true;
+		await repoll();
+
+		assert.equal(getCurrentFatalError(), null);
+		assert.match(dom().html(), /Installing Remit 0\.9\.4/);
+	});
+
+	test("gives up loudly past the same apply budget, measured from the run's own start", async () => {
+		let restarting = false;
+		await mount(() => (restarting ? httpError(502) : reportedRunning()));
+
+		restarting = true;
+		const realNow = Date.now;
+		Date.now = () => realNow() + BUDGET_MS + 60_000;
+		try {
+			await repoll();
+
+			assert.equal(getCurrentFatalError(), null);
+			assert.match(dom().html(), /has not answered since the restart/);
+			assert.match(dom().html(), /remit logs/);
+			assert.doesNotMatch(dom().html(), /Installing Remit 0\.9\.4/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("says the service is unreachable once the run it knew about is finished", async () => {
+		let restarting = false;
+		await mount(() =>
+			restarting
+				? httpError(502)
+				: {
+						currentVersion: "0.9.4",
+						check: { status: "ok", updateAvailable: false },
+						run: { ...accepted.run, outcome: "succeeded" },
+					},
+		);
+
+		restarting = true;
+		await repoll();
+
+		const surface = hook().surface;
+		assert.equal(
+			surface.status === "ready" && surface.section.status,
+			"checkFailed",
+		);
+		assert.equal(getCurrentFatalError()?.error !== undefined, true);
 	});
 });

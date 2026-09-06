@@ -144,10 +144,11 @@ const isSoftErrorMeta = (
 };
 
 /**
- * The statuses a proxy answers for the seconds an upstream it fronts is not
- * there. Caddy turns a failed dial into a 502 once its retry window is out
- * (`deploy/vps/caddy/routes.caddy`); 503 and 504 are the same gap seen through
- * a different hop.
+ * The statuses answered for the seconds a service is not there. Every `/api/*`
+ * request is proxied to apisix, which stays up while the backend behind it
+ * restarts and refuses in milliseconds — the 29ms 502 in #468, not a dial Caddy
+ * waited out. 503 and 504 are the same gap through a hop that answers
+ * differently.
  */
 const RESTART_GAP_STATUSES = [502, 503, 504];
 
@@ -239,14 +240,16 @@ export const softErrorStatuses = (
 ): { softErrorStatuses: number[] } => ({ softErrorStatuses: statuses });
 
 /**
- * The one opt-out from rule 2, for a request watching a restart its own call
- * site asked for. Set it only while that restart is in flight — the update poll
- * carries it while it holds a run it started, and drops it the moment the run is
- * accounted for — because a 502 outside that window is the API being broken,
- * which is exactly what rule 2 is for.
+ * The one opt-out from rule 2, for a request watching a restart the run it is
+ * following performs. Set it only while a run is known to be in flight — the
+ * update poll carries it while it holds a run it started or the server's last
+ * answer reported one going — because a 502 outside that window is the API being
+ * broken, which is exactly what rule 2 is for.
  *
- * A call site that sets this owns the whole wait: the phase it shows while the
- * backend is gone, and the loud give-up when it never comes back.
+ * A call site that sets this owns the whole wait, so the window outlives the
+ * budget: the give-up screen keeps polling a server it has stopped expecting,
+ * and a fatal page thrown over that verdict would replace the one screen that
+ * names the run and the log to read. A 500 from that same poll still escalates.
  */
 export const restartExpectedMeta: { restartExpected: true } = {
 	restartExpected: true,

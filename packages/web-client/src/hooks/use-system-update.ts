@@ -53,6 +53,7 @@ import {
 	isSurfaceAbsent,
 	mapUpdatePhase,
 	releaseFromCheck,
+	runInFlight,
 	type UpdateSurface,
 } from "@/lib/self-update-state";
 
@@ -60,11 +61,16 @@ const IDLE_POLL_MS = 30_000;
 const RUN_POLL_MS = 5_000;
 
 /**
- * The poll's own error UX, and — only while this page holds a run it started —
- * the restart that run performs. Stopping and starting the backend is what the
- * user pressed for, so the gateway statuses answered while it is down belong to
- * the surface below, which shows the phase and gives up loudly if the server
- * never comes back (#468). Outside that window the poll carries no such claim.
+ * The poll's own error UX, and — while a run is known to be in flight — the
+ * restart that run performs. Stopping and starting the backend is what the run
+ * is, so the gateway statuses answered while it is down belong to the surface
+ * below, which shows the phase and gives up loudly if the server never comes
+ * back (#468). Outside that window the poll carries no such claim.
+ *
+ * "Known" is either source: the run this page started and holds, or the run the
+ * server last reported as going. The overlay speaks for a run in any tab, so the
+ * window it rides has to open in any tab too — a second tab, or this one after a
+ * reload, holds nothing and would otherwise meet the restart with no claim on it.
  */
 const POLL_META = softErrorMeta;
 const POLL_ACROSS_RESTART_META = { ...softErrorMeta, ...restartExpectedMeta };
@@ -125,10 +131,18 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const pressRef = useRef(checkPress);
 	pressRef.current = checkPress;
 
+	// The last answer, which outlives the failed requests after it: a tab that
+	// never pressed install learns from here that it is inside a restart.
+	const lastKnown = queryClient.getQueryData<RemitImapSystemUpdateResponse>(
+		systemOperationsGetSystemUpdateQueryKey(),
+	);
+	const insideRestart =
+		held !== null || runInFlight(lastKnown, dismissedRunId) !== null;
+
 	const query = useQuery({
 		...systemOperationsGetSystemUpdateOptions(),
 		retry: false,
-		meta: held === null ? POLL_META : POLL_ACROSS_RESTART_META,
+		meta: insideRestart ? POLL_ACROSS_RESTART_META : POLL_META,
 		refetchInterval: (query) =>
 			pollInterval(
 				query.state.error,
