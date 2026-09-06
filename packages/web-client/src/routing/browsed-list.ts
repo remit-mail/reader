@@ -4,7 +4,7 @@ import {
 	useParams,
 	useRouterState,
 } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
 	type BrowsedList,
 	locationOpensDetail,
@@ -19,13 +19,16 @@ export type { BrowsedList };
  *
  * Every surface a list can open — compose, a reply, a conversation — reads the
  * same answer, so the four lists cannot disagree about which one is underneath.
+ *
+ * The same object until the address moves, so a caller can memoize on it.
  */
 export function useBrowsedList(): BrowsedList {
 	const list = useRouterState({
 		select: (state) => mailListRoute(state.matches)?.list,
 	});
 	const mailbox = useParams({ from: "/mail/$mailboxId", shouldThrow: false });
-	return { list, mailboxId: mailbox?.mailboxId };
+	const mailboxId = mailbox?.mailboxId;
+	return useMemo(() => ({ list, mailboxId }), [list, mailboxId]);
 }
 
 /**

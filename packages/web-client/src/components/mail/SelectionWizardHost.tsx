@@ -57,7 +57,6 @@ import type {
 	BulkRunOutcome,
 } from "@/lib/bulk-actions";
 import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
-import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import {
@@ -73,6 +72,7 @@ import {
 } from "@/lib/organize/rule-model";
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
+import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useWizardEntryValue, useWizardStep } from "@/routing";
 import { organizeRunState } from "./organize-run-state";
@@ -1105,7 +1105,7 @@ function SelectionWizardSession({
  */
 export function SelectionWizardHost(props: SelectionWizardHostProps) {
 	const fromSearch = useWizardEntryValue() === "search";
-	const { searchConversion } = useListHeaderChrome();
+	const searchConversion = useSearchConversion();
 	const { accounts } = useMailContext();
 	const { step, goToStep, goBack, closeWizard } = useWizardStep(
 		fromSearch ? "properties" : "match",
