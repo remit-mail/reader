@@ -2,7 +2,7 @@
  * What an operator can tell from the log when the Microsoft OAuth start fails.
  *
  * Every credential failure answers the same 500 with the same body, so the
- * backend log for that request is the only place the three are told apart: an
+ * backend log for that request is the only place the four are told apart: an
  * instance with no Microsoft app registered must not read like a live outage.
  * Driven through the real handler so what is asserted is the line a deployment
  * actually writes, correlation id and all.
@@ -13,29 +13,12 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 
 const WEB_ORIGIN = "https://mail.example.com";
 const START_PATH = "/accounts/oauth/microsoft/start";
 const SECRET_ARN =
 	"arn:aws:secretsmanager:eu-west-1:000000000000:secret:msoauth-AbCdEf";
-
-// pino writes through `process.stdout` once its `write` is replaced, so the hook
-// has to be installed before the logger is imported; it passes writes through
-// whenever a test is not capturing so the runner's own output still shows up.
-const originalWrite = process.stdout.write.bind(process.stdout);
-const written: string[] = [];
-let capturing = false;
-
-process.stdout.write = ((
-	chunk: string | Uint8Array,
-	...rest: unknown[]
-): boolean => {
-	if (capturing && typeof chunk === "string") {
-		written.push(chunk);
-		return true;
-	}
-	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
-}) as typeof process.stdout.write;
 
 let handler: (
 	event: APIGatewayProxyEvent,
@@ -48,6 +31,7 @@ let secretString: string | undefined;
 interface Outcome {
 	response: APIGatewayProxyResult;
 	log: string;
+	logged: string;
 }
 
 const headerOf = (
@@ -62,11 +46,8 @@ const headerOf = (
 
 const start = async (): Promise<Outcome> => {
 	const awsRequestId = `req-${randomUUID()}`;
-	written.length = 0;
-	capturing = true;
-	let response: APIGatewayProxyResult;
-	try {
-		response = await handler(
+	const { result: response, logged } = await captureStdout(() =>
+		handler(
 			{
 				httpMethod: "POST",
 				path: START_PATH,
@@ -76,10 +57,8 @@ const start = async (): Promise<Outcome> => {
 				requestContext: { authorizer: { claims: { sub: "cognito-sub" } } },
 			} as unknown as APIGatewayProxyEvent,
 			{ awsRequestId, functionName: "test" },
-		);
-	} finally {
-		capturing = false;
-	}
+		),
+	);
 
 	assert.equal(
 		headerOf(response, "x-correlation-id"),
@@ -87,8 +66,7 @@ const start = async (): Promise<Outcome> => {
 		"the id the client reports has to be the id the log lines carry",
 	);
 
-	const forThisRequest = written
-		.join("")
+	const forThisRequest = logged
 		.split("\n")
 		.filter((line) => line.length > 0)
 		.map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -99,18 +77,20 @@ const start = async (): Promise<Outcome> => {
 		"the failure left no line carrying the correlation id the client was handed",
 	);
 
-	return { response, log: JSON.stringify(forThisRequest) };
+	return { response, log: JSON.stringify(forThisRequest), logged };
 };
 
 /** The name each condition, and only that condition, puts in the log. */
 const NO_APP_REGISTERED = "MicrosoftOAuthNotConfigured";
 const SECRET_HAS_NO_STRING = "MicrosoftOAuthSecretEmpty";
 const SECRET_MISSING_FIELDS = "MicrosoftOAuthSecretIncomplete";
+const SECRET_IS_NOT_JSON = "MicrosoftOAuthSecretUnparseable";
 
 const CONDITIONS = [
 	NO_APP_REGISTERED,
 	SECRET_HAS_NO_STRING,
 	SECRET_MISSING_FIELDS,
+	SECRET_IS_NOT_JSON,
 ];
 
 const assertNamesOnly = (log: string, condition: string): void => {
@@ -151,7 +131,7 @@ before(async () => {
 
 after(() => {
 	SecretsManagerClient.prototype.send = originalSend;
-	process.stdout.write = originalWrite as typeof process.stdout.write;
+	restoreStdout();
 });
 
 describe("a Microsoft OAuth start that cannot load its credentials", () => {
@@ -188,5 +168,23 @@ describe("a Microsoft OAuth start that cannot load its credentials", () => {
 
 		assertGenericFiveHundred(response);
 		assertNamesOnly(log, SECRET_MISSING_FIELDS);
+	});
+
+	it("names a secret that is not JSON without quoting what it holds", async () => {
+		const secretMaterial = "s3cr3t-not-json-9d41c0b7";
+		delete process.env.MSOAUTH_CLIENT_ID;
+		delete process.env.MSOAUTH_CLIENT_SECRET;
+		process.env.MSOAUTH_SECRET_ARN = SECRET_ARN;
+		secretString = secretMaterial;
+
+		const { response, log, logged } = await start();
+
+		assertGenericFiveHundred(response);
+		assertNamesOnly(log, SECRET_IS_NOT_JSON);
+		assert.equal(
+			logged.includes(secretMaterial),
+			false,
+			"a parse failure quoting the secret into the log turns a misconfiguration into a leak",
+		);
 	});
 });

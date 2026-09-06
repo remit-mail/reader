@@ -126,12 +126,9 @@ function getSecretsManagerClient(): SecretsManagerClient {
 type MsOAuthCredentialFailure =
 	| "MicrosoftOAuthNotConfigured"
 	| "MicrosoftOAuthSecretEmpty"
-	| "MicrosoftOAuthSecretIncomplete";
+	| "MicrosoftOAuthSecretIncomplete"
+	| "MicrosoftOAuthSecretUnparseable";
 
-// The start endpoint answers a generic 500 whichever of these fires, so the
-// backend log is where they are told apart: `name` is the field an operator's
-// log rule keys on, and it survives a rewording of the sentence beside it.
-// An instance with no Microsoft app registered must not read like an outage.
 function credentialFailure(
 	name: MsOAuthCredentialFailure,
 	message: string,
@@ -169,7 +166,16 @@ async function getMsOAuthCredentials(): Promise<MsOAuthCredentials> {
 		);
 	}
 
-	const parsed = JSON.parse(result.SecretString) as MsOAuthCredentials;
+	const parsed = await safeJsonParse<MsOAuthCredentials>(
+		result.SecretString,
+	).catch(() => null);
+	if (!parsed) {
+		throw credentialFailure(
+			"MicrosoftOAuthSecretUnparseable",
+			"The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN does not hold a JSON object",
+		);
+	}
+
 	const absent = (["clientId", "clientSecret"] as const).filter(
 		(field) => !parsed[field],
 	);

@@ -11,25 +11,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-
-// pino writes to `process.stdout` only when its `write` has been replaced, so
-// the hook goes in before the logger is imported — which every import below
-// does transitively. Writes pass through whenever nothing is capturing, so the
-// test runner's own output still reaches the terminal.
-const originalWrite = process.stdout.write.bind(process.stdout);
-const written: string[] = [];
-let capturing = false;
-
-process.stdout.write = ((
-	chunk: string | Uint8Array,
-	...rest: unknown[]
-): boolean => {
-	if (capturing && typeof chunk === "string") {
-		written.push(chunk);
-		return true;
-	}
-	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
-}) as typeof process.stdout.write;
+import { captureStdout, restoreStdout } from "./stdout-capture-fixture.js";
 
 process.env.LOG_LEVEL = "trace";
 
@@ -44,19 +26,6 @@ let handler: (
 	context: unknown,
 ) => Promise<APIGatewayProxyResult>;
 let cleanup: () => void;
-
-const capture = async (
-	run: () => Promise<APIGatewayProxyResult>,
-): Promise<{ response: APIGatewayProxyResult; logged: string }> => {
-	written.length = 0;
-	capturing = true;
-	try {
-		const response = await run();
-		return { response, logged: written.join("") };
-	} finally {
-		capturing = false;
-	}
-};
 
 const send = (
 	event: Partial<APIGatewayProxyEvent> & { httpMethod: string; path: string },
@@ -85,7 +54,7 @@ before(async () => {
 
 after(() => {
 	_resetForTest();
-	process.stdout.write = originalWrite as typeof process.stdout.write;
+	restoreStdout();
 	cleanup();
 });
 
@@ -93,7 +62,7 @@ describe("what a request leaves in the log", () => {
 	it("never writes the feed token a subscriber polls with", async () => {
 		const { token } = mintCalendarFeedToken();
 
-		const { response, logged } = await capture(() =>
+		const { result: response, logged } = await captureStdout(() =>
 			send({ httpMethod: "GET", path: `/feeds/calendar/${token}.ics` }),
 		);
 
@@ -119,7 +88,7 @@ describe("what a request leaves in the log", () => {
 		// request reaches validation — where the whole parsed request, headers and
 		// all, used to be logged. The delete refuses because it declares
 		// `calendarId` as a required query parameter and none was sent.
-		const { response, logged } = await capture(() =>
+		const { result: response, logged } = await captureStdout(() =>
 			send({
 				httpMethod: "DELETE",
 				path: "/calendar-events/8f14e45f-ceea-467a-9c9e-9c9e9c9e9c9e",
