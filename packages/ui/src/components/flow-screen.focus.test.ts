@@ -35,6 +35,12 @@ const screen = (anchor: FlowScreenProps["anchor"]) => {
 	);
 };
 
+const surface = (): HTMLElement => {
+	const element = document.querySelector<HTMLElement>("#root > *");
+	assert.ok(element, "no screen rendered");
+	return element;
+};
+
 const tab = (): KeyboardEvent => {
 	const event = new KeyboardEvent("keydown", {
 		key: "Tab",
@@ -70,5 +76,32 @@ describe("FlowScreen focus", () => {
 		assert.equal(event.defaultPrevented, false);
 		assert.equal(document.activeElement, outside);
 		outside.remove();
+	});
+});
+
+/**
+ * What the screen claims and what it does have to be the same statement: a
+ * surface that says the rest of the page is gone while Tab walks into it tells a
+ * screen-reader user the opposite of what the keyboard does (#1204).
+ */
+describe("FlowScreen semantics", () => {
+	it("is a modal dialog when it covers the window", () => {
+		act(() => root.render(screen("viewport")));
+
+		const element = surface();
+		assert.equal(element.getAttribute("role"), "dialog");
+		assert.equal(element.getAttribute("aria-modal"), "true");
+		assert.equal(element.getAttribute("aria-label"), "Pick a calendar");
+	});
+
+	/** A labelled `section` is a region, which is what a pane's content is. */
+	it("is a labelled region when it fills a pane", () => {
+		act(() => root.render(screen("container")));
+
+		const element = surface();
+		assert.equal(element.tagName, "SECTION");
+		assert.equal(element.getAttribute("role"), null);
+		assert.equal(element.getAttribute("aria-modal"), null);
+		assert.equal(element.getAttribute("aria-label"), "Pick a calendar");
 	});
 });
