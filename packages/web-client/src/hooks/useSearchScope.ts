@@ -1,5 +1,5 @@
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useMailContext } from "@/lib/mail-context";
 import {
 	SEARCH_SCOPE_CHIP_ID,
@@ -26,7 +26,10 @@ export function useSearchScope(accounts: RemitImapAccountResponse[]): {
 	const { searchInput } = useMailContext();
 	const mailboxName = useCurrentMailboxName({ accounts });
 	const browsed = useBrowsedList();
-	const scope = searchScopeForRoute(browsed, mailboxName);
+	const scope = useMemo(
+		() => searchScopeForRoute(browsed, mailboxName),
+		[browsed, mailboxName],
+	);
 
 	// Takes the chip id the field removed rather than assuming which chip that
 	// was. The bar owns one chip today; keying on the id means a second one

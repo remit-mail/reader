@@ -4,6 +4,7 @@ import {
 	useEffect,
 	useId,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { suggestKeyAction } from "./suggest-keys.js";
@@ -41,7 +42,10 @@ export interface SuggestListState {
 	dismiss: () => void;
 	/** Offer the list again — what a fresh keystroke does after a dismissal. */
 	reopen: () => void;
-	/** Returns true when the list consumed the key and the caller should stop. */
+	/**
+	 * Returns true when the list consumed the key and the caller should stop.
+	 * The same function for the life of the field, whatever the list is showing.
+	 */
 	handleKeyDown: (event: KeyboardEvent) => boolean;
 	listId: string;
 	optionId: (index: number) => string;
@@ -83,24 +87,29 @@ export function useSuggestList({
 
 	const open = count > 0 && !dismissed;
 
-	const handleKeyDown = useCallback(
-		(event: KeyboardEvent): boolean => {
-			const action = suggestKeyAction({
-				key: event.key,
-				open,
-				count,
-				activeIndex,
-				acceptKeys,
-			});
-			if (action.type === "none") return false;
-			event.preventDefault();
-			if (action.type === "move") setActiveIndex(action.index);
-			if (action.type === "dismiss") setDismissed(true);
-			if (action.type === "accept") onAccept(action.index);
-			return true;
-		},
-		[open, count, activeIndex, acceptKeys, onAccept],
-	);
+	// What the handler reads when a key arrives, rather than what it closed over
+	// when it was bound. Every call site passes an inline `onAccept`, so a handler
+	// listing it as a dependency is a new function on every render, and that
+	// defeats every memo the props it sits in belong to (#506).
+	const latest = useRef({ open, count, activeIndex, acceptKeys, onAccept });
+	latest.current = { open, count, activeIndex, acceptKeys, onAccept };
+
+	const handleKeyDown = useCallback((event: KeyboardEvent): boolean => {
+		const current = latest.current;
+		const action = suggestKeyAction({
+			key: event.key,
+			open: current.open,
+			count: current.count,
+			activeIndex: current.activeIndex,
+			acceptKeys: current.acceptKeys,
+		});
+		if (action.type === "none") return false;
+		event.preventDefault();
+		if (action.type === "move") setActiveIndex(action.index);
+		if (action.type === "dismiss") setDismissed(true);
+		if (action.type === "accept") current.onAccept(action.index);
+		return true;
+	}, []);
 
 	// Stable while open, listId and activeIndex don't change: this is spread onto
 	// the field on every render, and a fresh object here would defeat every memo
