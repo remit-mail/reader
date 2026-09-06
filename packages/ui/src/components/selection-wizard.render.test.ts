@@ -641,7 +641,7 @@ describe("RunStepBody", () => {
 		assert.match(html, /The rule itself is saved/);
 	});
 
-	it("says a stopped run was never sent rather than rejected", () => {
+	it("says a stopped run went unconfirmed rather than rejected", () => {
 		const html = renderToString(
 			createElement(RunStepBody, {
 				...runProps,
@@ -653,8 +653,8 @@ describe("RunStepBody", () => {
 			}),
 		);
 		assert.match(html, /Stopped after 2/);
-		assert.match(html, /nothing was sent for them/);
-		assert.match(html, /Never sent/);
+		assert.match(html, /The rest were not sent/);
+		assert.match(html, /Not confirmed/);
 		assert.doesNotMatch(html, /Server rejected/);
 	});
 

@@ -75,6 +75,7 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useWizardEntryValue, useWizardStep } from "@/routing";
+import { bulkRunReport } from "./bulk-run-state";
 import { organizeRunState } from "./organize-run-state";
 import {
 	retryIntent,
@@ -823,57 +824,21 @@ function SelectionWizardSession({
 
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
-		const { matched, outcome, failureReason } = bulkRun;
-		// Nothing was sent, and nothing about sending it again resolves what was
-		// missing — so the screen carries why rather than the generic ending (#522).
-		if (failureReason !== undefined) {
-			return { ...NOT_STARTED, state: "commitFailed", failureReason };
-		}
-		if (!outcome) {
-			const applied = runProgress?.done ?? 0;
-			// A predicate matches more by the time the run re-pages it than the count
-			// saw, so what it has covered can overtake what it was offered against.
-			// The bar never reads more done than out of, and neither does this.
-			return {
-				state: "backApplyRunning",
-				matched: Math.max(matched, applied),
-				applied,
-				failed: 0,
-				failures: [],
-			};
-		}
-		const stopped = outcome.cancelled || outcome.error !== undefined;
-		if (!stopped) {
-			return {
-				state: "backApplyComplete",
-				matched: Math.max(matched, outcome.done),
-				applied: outcome.done,
-				failed: 0,
-				failures: [],
-			};
-		}
-		if (outcome.done === 0) {
-			return { ...NOT_STARTED, state: "commitFailed" };
-		}
-		// The run stopped part-way. Nothing here was rejected: a returned bulk call
-		// accepts every id in it, so the only failure this layer sees is a call that
-		// threw, and everything after it was never sent. A bounded run hands back
-		// exactly those ids; a predicate run re-resolves its match on every pass and
-		// has no remainder to hand back, so what is left is the difference between
-		// the count and what the run covered.
-		const failures = outcome.failedIds
-			.map((id) => rowsById.get(id))
-			.filter((message): message is WizardMessage => message !== undefined);
-		const unreached =
-			outcome.failedIds.length > 0
-				? outcome.failedIds.length
-				: Math.max(matched - outcome.done, 1);
+		const report = bulkRunReport({
+			matched: bulkRun.matched,
+			outcome: bulkRun.outcome,
+			failureReason: bulkRun.failureReason,
+			progressDone: runProgress?.done ?? 0,
+		});
 		return {
-			state: "runStopped",
-			matched: Math.max(matched, outcome.done),
-			applied: outcome.done,
-			failed: unreached,
-			failures,
+			state: report.state,
+			matched: report.matched,
+			applied: report.applied,
+			failed: report.failed,
+			failures: report.failedIds
+				.map((id) => rowsById.get(id))
+				.filter((message): message is WizardMessage => message !== undefined),
+			failureReason: report.failureReason,
 		};
 	}, [bulkRun, runProgress, rowsById]);
 

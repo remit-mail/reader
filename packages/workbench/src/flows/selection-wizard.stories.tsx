@@ -1780,10 +1780,11 @@ export const EscalatedRunning: Story = {
 };
 
 /**
- * The run stopped part-way. The batches it never reached were never sent, so
- * nothing rejected them and nothing has happened to them — which is what the
- * screen says, rather than reporting a mail server that refused them. Retry
- * re-resolves the predicate; every verb it carries is idempotent.
+ * The run stopped part-way. Nothing rejected what it left behind: most of it was
+ * never sent, and the batch already on its way when Stop landed may have gone
+ * through anyway — which is what the screen says, rather than reporting a mail
+ * server that refused them. Retry re-resolves the predicate; every verb it
+ * carries is idempotent.
  */
 export const EscalatedStopped: Story = {
 	name: "Select all matching — stopped part-way",

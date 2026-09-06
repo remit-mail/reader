@@ -63,7 +63,7 @@ describe("reporting how a run ended", () => {
 		);
 		assert.equal(stopped?.title, "Stopped after 100");
 		assert.match(stopped?.detail ?? "", /100 of 3,000 moved to Trash\./);
-		assert.match(stopped?.detail ?? "", /Nothing was sent for the rest/);
+		assert.match(stopped?.detail ?? "", /The rest were not sent/);
 
 		const covered = runEndingBanner("delete", 100, ended(), "trash");
 		assert.match(covered?.title ?? "", /^100 moved to Trash\./);
