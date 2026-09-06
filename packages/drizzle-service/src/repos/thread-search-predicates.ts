@@ -36,6 +36,7 @@ const ftsRowidMatch = (matchExpr: string): SQL =>
 
 const SUBJECT_FOLDED = sql`lower(coalesce(subject, ''))`;
 const FROM_FOLDED = sql`lower(coalesce(from_name, '') || ' ' || coalesce(from_email, ''))`;
+const LIST_ID_FOLDED = sql`lower(coalesce(list_id, ''))`;
 
 const likePattern = (term: string): SQL =>
 	sql`'%' || lower(${escapeLike(term)}) || '%'`;
@@ -49,3 +50,9 @@ export const fromMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
 		? ftsRowidMatch(`sender : ${ftsPhrase(term)}`)
 		: sql`${FROM_FOLDED} like ${likePattern(term)} escape '\\'`;
+
+// The FTS index carries subject and sender only, so a List-Id term is always
+// the folded LIKE scan. It is the narrowing half of a rule back-apply, where a
+// scan of one config's rows beats reading them all into the service (#459).
+export const listIdMatch = (term: string): SQL =>
+	sql`${LIST_ID_FOLDED} like ${likePattern(term)} escape '\\'`;

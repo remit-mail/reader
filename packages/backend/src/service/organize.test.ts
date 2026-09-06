@@ -18,6 +18,7 @@ import {
 	applyOrganize,
 	BODY_CONTENT_REJECTION_MESSAGE,
 	matchOrganize,
+	ORGANIZE_MATCH_LIMIT,
 	type OrganizeCandidate,
 	type OrganizeMatchDeps,
 	type OrganizeMatched,
@@ -285,7 +286,7 @@ const matchDeps = (
 				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
-		listAccountFilterMessages: async () => corpus,
+		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
 			listByAccountConfig: async () => filterAnchorRows,
 			put: async () => {
@@ -326,7 +327,7 @@ const vectorlessDeps = (
 				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
-		listAccountFilterMessages: async () => corpus,
+		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
 			listByAccountConfig: async () => [],
 			put: async () => {
@@ -467,7 +468,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 				embed: async () => ANCHOR_VECTOR,
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [persistedAnchor],
 				put: async () => {
@@ -652,7 +653,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 				},
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [drifted],
 				put: async () => {
@@ -693,7 +694,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 				embed: async () => [],
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [],
 				put: async () => {
@@ -1015,7 +1016,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 				embed,
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => anchors,
 				put: async (input: CreateFilterAnchorInput) => {
@@ -1165,5 +1166,177 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			"msg-1",
 			"msg-2",
 		]);
+	});
+});
+
+/**
+ * The corpus read a real deployment gets: the store evaluates the terms and
+ * the caller pages the MATCHES. Modelled here rather than stubbed with a fixed
+ * array so a matcher that reads only the newest page cannot pass.
+ */
+const storeBackedDeps = (
+	rows: readonly OrganizeCandidate[],
+): OrganizeMatchDeps & { pagesRead: () => number } => {
+	let pagesRead = 0;
+	const termMatches = (
+		term: { field: string; contains: string },
+		row: OrganizeCandidate,
+	): boolean => {
+		const needle = term.contains.toLowerCase();
+		if (term.field === "subject") {
+			return row.message.subject.toLowerCase().includes(needle);
+		}
+		if (term.field === "listId") {
+			return row.message.listId.toLowerCase().includes(needle);
+		}
+		return `${row.message.fromName} ${row.message.from}`
+			.toLowerCase()
+			.includes(needle);
+	};
+	return {
+		semantic: () => {
+			throw moduleNotFound();
+		},
+		listAccountFilterMessages: async (_accountConfigId, query) => {
+			pagesRead += 1;
+			const narrowed = rows.filter((row) =>
+				query.terms.length === 0
+					? true
+					: query.operator === "or"
+						? query.terms.some((term) => termMatches(term, row))
+						: query.terms.every((term) => termMatches(term, row)),
+			);
+			const offset = query.continuationToken
+				? Number(query.continuationToken)
+				: 0;
+			const items = narrowed.slice(offset, offset + query.limit);
+			const next = offset + items.length;
+			return {
+				items,
+				continuationToken: next < narrowed.length ? String(next) : undefined,
+			};
+		},
+		filterAnchors: {
+			listByAccountConfig: async () => [],
+			put: async () => {
+				throw new Error("unreachable");
+			},
+		},
+		pagesRead: () => pagesRead,
+	};
+};
+
+describe("literal matching bounds the result, not the corpus (reader #459)", () => {
+	const quietSender = candidate("quiet-sender", {
+		from: "noreply@bank.example",
+		fromName: "Statements",
+		subject: "Your March statement",
+	});
+	const newerNoise = Array.from({ length: ORGANIZE_MATCH_LIMIT + 1 }, (_, i) =>
+		candidate(`noise-${i}`, {
+			from: "digest@other.example",
+			fromName: "Digest",
+			subject: `Daily digest ${i}`,
+		}),
+	);
+
+	it("matches a domain rule against mail older than a whole page of newer misses", async () => {
+		const deps = storeBackedDeps([...newerNoise, quietSender]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["quiet-sender"]);
+	});
+
+	it("reads one narrowed page rather than paging the whole mailbox", async () => {
+		const deps = storeBackedDeps([...newerNoise, quietSender]);
+
+		await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "From", value: "noreply@bank.example" }],
+			}),
+		);
+
+		assert.equal(deps.pagesRead(), 1);
+	});
+
+	it("still refines what the store returned: a term is a narrowing, not the verdict", async () => {
+		const deps = storeBackedDeps([
+			candidate("spoofed", { from: "billing@bank.example.evil.test" }),
+			quietSender,
+		]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["quiet-sender"]);
+	});
+
+	it("caps the matches at the limit when more of the corpus matches", async () => {
+		const matching = Array.from({ length: ORGANIZE_MATCH_LIMIT * 2 }, (_, i) =>
+			candidate(`hit-${i}`, { from: "noreply@bank.example" }),
+		);
+		const deps = storeBackedDeps(matching);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
+	});
+
+	it("never queries for clauses nothing can satisfy", async () => {
+		const deps = storeBackedDeps([quietSender]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "From", value: "   " }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(deps.pagesRead(), 0);
+	});
+
+	it("counts one match for mail filed in two folders", async () => {
+		const deps = storeBackedDeps([
+			candidate("filed-twice", { from: "noreply@bank.example" }),
+			candidate("filed-twice", { from: "noreply@bank.example" }),
+		]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["filed-twice"]);
 	});
 });

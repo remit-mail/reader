@@ -3,6 +3,7 @@ import type {
 	IThreadMessageRepository,
 	ResultList,
 	SearchOptions,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
@@ -24,7 +25,11 @@ import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
+import {
+	fromMatch,
+	listIdMatch,
+	subjectMatch,
+} from "./thread-search-predicates.js";
 
 export const deriveThreadMessageId = (
 	threadId: string,
@@ -156,6 +161,23 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	}
 
 	return conditions;
+}
+
+const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
+	if (term.field === "subject") return subjectMatch(term.contains);
+	if (term.field === "listId") return listIdMatch(term.contains);
+	return fromMatch(term.contains);
+};
+
+// Combine the caller's terms into one condition, or `undefined` when there are
+// none — an empty set narrows nothing, which is what both operators mean here.
+function buildFieldTermCondition(
+	terms: readonly ThreadMessageFieldTerm[],
+	operator: "and" | "or",
+): SQL | undefined {
+	const conditions = terms.map(fieldTermCondition);
+	if (conditions.length === 0) return undefined;
+	return operator === "or" ? or(...conditions) : and(...conditions);
 }
 
 // Keyset cursor over (sent_date, thread_message_id). `desc` walks newest→oldest,
@@ -509,6 +531,62 @@ export class DrizzleThreadMessageRepository
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
 					...buildSearchConditions(search),
+					sentDateCursorCond(order, cursor),
+				),
+			)
+			.orderBy(
+				order === "desc"
+					? desc(threadMessageTable.sentDate)
+					: asc(threadMessageTable.sentDate),
+				asc(threadMessageTable.threadMessageId),
+			)
+			.limit(limit);
+
+		const lastRow = rows[rows.length - 1];
+		return {
+			items: rows.map(toItem),
+			continuationToken:
+				rows.length === limit && lastRow
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					: undefined,
+		};
+	}
+
+	/**
+	 * Cross-mailbox narrowing for a rule back-apply. Same keyset cursor and
+	 * ordering as `searchByDate`, with the terms combined under the caller's
+	 * operator instead of the AND-only `SearchOptions` shape a search box needs.
+	 * The terms run in SQL over the whole config, so a page is a page of
+	 * narrowed rows and a rule for a sender that has been quiet for a month
+	 * reaches its mail (#459).
+	 */
+	async listByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options?: {
+			operator?: "and" | "or";
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>> {
+		const order = options?.order ?? "desc";
+		const limit = clampThreadSearchLimit(options?.limit);
+		const cursor = options?.continuationToken
+			? decodeDateCursor(options.continuationToken)
+			: null;
+
+		const rows = await this.db
+			.select()
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					buildFieldTermCondition(terms, options?.operator ?? "and"),
 					sentDateCursorCond(order, cursor),
 				),
 			)
