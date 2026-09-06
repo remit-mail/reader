@@ -279,6 +279,8 @@ const buildWorld = (
 		threadMessageService,
 		addressService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/message-mgmt",
+		moveSettleTimeoutMs: 30,
+		moveSettlePollMs: 5,
 	});
 	(
 		messageMoveService as unknown as {
@@ -394,13 +396,14 @@ describe("SpamReportService.reportSpam", () => {
 	});
 
 	it("is idempotent under a double press", async () => {
-		const { service, sent } = buildWorld();
+		const { service, messages, sent } = buildWorld();
 
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
 			messageId: MESSAGE_ID,
 		});
+		settleMove(messages);
 		await service.reportSpam({
 			accountConfigId: ACCOUNT_CONFIG,
 			accountId: ACCOUNT,
@@ -409,6 +412,9 @@ describe("SpamReportService.reportSpam", () => {
 
 		// The second call's move is a no-op: MessageMoveService.moveMessage sees
 		// the local mailboxId already equals Junk and skips without enqueueing.
+		// The skip is read off the settled row — a press inside the first move's
+		// flight waits for it rather than answering from the folder that move
+		// wrote optimistically (#665).
 		assert.equal(moveEvents(sent).length, 1);
 	});
 
