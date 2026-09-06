@@ -75,8 +75,8 @@ interface ThreadRow {
  * The move's pending state IS the Message row, so these fakes hold real rows
  * and the assertions read the rows back — a resolver that settled the row on
  * anything but the server's own answer shows up here as a changed row, not as
- * an uncalled mock. `updateUid` writes what the repository writes: the settled
- * pair AND the `active`/`synced` that clears `moving`.
+ * an uncalled mock. `updateForMove` writes what the repository writes: whatever
+ * fields the caller set, and nothing it left out.
  */
 const buildRepositories = (row: MessageRow) => {
 	const messages = new Map<string, MessageRow>([[row.messageId, row]]);
@@ -104,22 +104,11 @@ const buildRepositories = (row: MessageRow) => {
 				const current = messages.get(messageId);
 				if (current) messages.set(messageId, { ...current, ...input });
 			},
-			updateUid: async (
-				messageId: string,
-				newUid: number,
-				newMailboxId: string,
-			) => {
+			updateForMove: async (messageId: string, set: Partial<MessageRow>) => {
 				const current = messages.get(messageId);
-				if (current)
-					messages.set(messageId, {
-						...current,
-						uid: newUid,
-						mailboxId: newMailboxId,
-						status: "active",
-						syncStatus: "synced",
-					});
+				if (current) messages.set(messageId, { ...current, ...set });
 			},
-		} as unknown as Pick<IMessageRepository, "delete" | "updateUid">,
+		} as unknown as Pick<IMessageRepository, "delete" | "updateForMove">,
 		threadMessageService: {
 			findAllByMessageId: async () => [...threadMessages.values()],
 			deleteMany: async (
@@ -215,10 +204,9 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		assert.ok(errors.some((e) => e.obj.alert === "message_move_failed"));
 	});
 
-	// Issue #1005: only `updateUid` clears `moving`, so a give-up that returned
-	// without calling it left the row naming the destination with the source's
-	// uid — a pair `bindsForeignUid` refuses, which made the message
-	// undeletable and unmovable for good.
+	// Issue #1005: a give-up that never writes `status` leaves the row naming
+	// the destination with the source's uid — a pair `bindsForeignUid` refuses,
+	// which made the message undeletable and unmovable for good.
 	it("BROKEN: the settled row is no longer refused by the placement guard (#1005)", async () => {
 		const repos = buildRepositories(pendingMoveRow());
 		const { log } = buildLogger();
@@ -281,7 +269,7 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateUid: async () => {
+				updateForMove: async () => {
 					throw notFound;
 				},
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
@@ -332,7 +320,7 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateUid: async () => {
+				updateForMove: async () => {
 					throw new Error("ProvisionedThroughputExceeded");
 				},
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
