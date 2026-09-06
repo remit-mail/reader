@@ -37,7 +37,11 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { shouldEscalate, softErrorMeta } from "@/lib/error-classifier";
+import {
+	restartExpectedMeta,
+	shouldEscalate,
+	softErrorMeta,
+} from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import {
 	appliesSchemaMigration,
@@ -48,12 +52,29 @@ import {
 	type HeldRun,
 	isSurfaceAbsent,
 	mapUpdatePhase,
+	type RunSighting,
 	releaseFromCheck,
+	runInFlight,
 	type UpdateSurface,
 } from "@/lib/self-update-state";
 
 const IDLE_POLL_MS = 30_000;
 const RUN_POLL_MS = 5_000;
+
+/**
+ * The poll's own error UX, and — while a run is known to be in flight — the
+ * restart that run performs. Stopping and starting the backend is what the run
+ * is, so the gateway statuses answered while it is down belong to the surface
+ * below, which shows the phase and gives up loudly if the server never comes
+ * back (#468). Outside that window the poll carries no such claim.
+ *
+ * "Known" is either source: the run this page started and holds, or the run the
+ * server last reported as going. The overlay speaks for a run in any tab, so the
+ * window it rides has to open in any tab too — a second tab, or this one after a
+ * reload, holds nothing and would otherwise meet the restart with no claim on it.
+ */
+const POLL_META = softErrorMeta;
+const POLL_ACROSS_RESTART_META = { ...softErrorMeta, ...restartExpectedMeta };
 
 /**
  * How long a pressed check waits for the updater before the pane calls it a
@@ -105,16 +126,25 @@ export function useSystemUpdate(): SelfUpdateApi {
 	const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
 	const [checkPress, setCheckPress] = useState<CheckPress | null>(null);
 	const [checkFailure, setCheckFailure] = useState<string | null>(null);
+	const [sighting, setSighting] = useState<RunSighting | null>(null);
 
 	const heldRef = useRef(held);
 	heldRef.current = held;
 	const pressRef = useRef(checkPress);
 	pressRef.current = checkPress;
 
+	// The last answer, which outlives the failed requests after it: a tab that
+	// never pressed install learns from here that it is inside a restart.
+	const lastKnown = queryClient.getQueryData<RemitImapSystemUpdateResponse>(
+		systemOperationsGetSystemUpdateQueryKey(),
+	);
+	const insideRestart =
+		held !== null || runInFlight(lastKnown, dismissedRunId) !== null;
+
 	const query = useQuery({
 		...systemOperationsGetSystemUpdateOptions(),
 		retry: false,
-		meta: { softError: true },
+		meta: insideRestart ? POLL_ACROSS_RESTART_META : POLL_META,
 		refetchInterval: (query) =>
 			pollInterval(
 				query.state.error,
@@ -135,8 +165,25 @@ export function useSystemUpdate(): SelfUpdateApi {
 		dismissedRunId,
 		checkPress,
 		checkFailure,
+		sighting,
 		now: Date.now(),
 	});
+
+	// Stamp the run the server reports, once, off this tab's clock. The stamp is
+	// what the give-up is measured against, so it must not move while the server
+	// is unreachable — and it must not carry over to the next run.
+	const reported = runInFlight(query.data, dismissedRunId);
+	useEffect(() => {
+		if (reported === null) {
+			setSighting((current) => (current === null ? current : null));
+			return;
+		}
+		setSighting((current) =>
+			current !== null && current.runId === reported.runId
+				? current
+				: { runId: reported.runId, observedAt: Date.now() },
+		);
+	}, [reported]);
 
 	const shownRunIdRef = useRef<string | null>(null);
 	shownRunIdRef.current =
