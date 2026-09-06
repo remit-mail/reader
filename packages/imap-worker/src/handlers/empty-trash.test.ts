@@ -33,6 +33,10 @@ interface LocalMessage {
 	messageId: string;
 	uid: number;
 	status: string;
+	syncStatus?: string;
+	mailboxId?: string;
+	originalMailboxId?: string;
+	originalUid?: number;
 }
 
 type TrashMailbox = { mailboxId: string; fullPath: string };
@@ -74,6 +78,29 @@ const buildConnection = (): Connection => ({
 const deleting = (messageId: string, uid: number): LocalMessage => ({
 	messageId,
 	uid,
+	status: "deleting",
+});
+
+/** Mid-move into Trash: the folder is written, the uid is still the source's. */
+const movingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
+	messageId,
+	uid,
+	status: "moving",
+	syncStatus: "pending",
+	mailboxId: "trash-mbx",
+	originalMailboxId: "inbox-mbx",
+	originalUid: uid,
+});
+
+/** The same row between a failed attempt and its redelivery. */
+const retryingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
+	...movingIntoTrash(messageId, uid),
+	syncStatus: "failed",
+});
+
+/** The same row after an empty marked the folder, `status` overwritten. */
+const markedMidMove = (messageId: string, uid: number): LocalMessage => ({
+	...movingIntoTrash(messageId, uid),
 	status: "deleting",
 });
 
@@ -415,5 +442,116 @@ describe("handleEmptyTrash", () => {
 		);
 
 		assert.equal(h.disconnectCount, 1);
+	});
+});
+
+/**
+ * Issue #1217. The sweep matched every row the Trash listing returned against
+ * the expunged uids. A row whose move into Trash has not settled carries the
+ * SOURCE folder's uid, so that match answers for whatever Trash holds at that
+ * uid — a different message, whose Message and thread rows the sweep then
+ * deletes while the mail it named is still sitting in the folder it never left.
+ */
+describe("handleEmptyTrash and an unsettled placement", () => {
+	beforeEach(() => {
+		h = fresh();
+	});
+
+	it("deletes no row of a message whose move into Trash has not settled", async () => {
+		h.localMessages = [
+			deleting("msg-1", 10),
+			movingIntoTrash("msg-moving", 10),
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+			"uid 10 is msg-1's; the in-flight row only borrows it from the inbox",
+		);
+		assert.equal(called("threadMessage.delete").length, 1);
+	});
+
+	it("leaves a row whose move is mid-retry rather than sweeping it", async () => {
+		// `syncStatus: failed` under `status: moving` is an ordinary transient
+		// attempt about to be redelivered (`data-ports/message-settlement.ts`),
+		// not a give-up. Either way the pair is a lie while it stands, and the
+		// uid is somebody else's.
+		h.localMessages = [retryingIntoTrash("msg-retrying", 11)];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("message.delete").length, 0);
+		assert.equal(called("threadMessage.delete").length, 0);
+		assert.deepEqual(revertedMessageIds(), []);
+	});
+
+	it("hands back, rather than binds, a mid-move row an earlier mark rewrote", async () => {
+		// Defence in depth for the shape `emptyTrash` used to write: the mark
+		// overwrote `status` and the row reached here reading settled while its
+		// uid still belonged to the inbox. The uid is not bound — but the mark is
+		// cleared, because nothing else is coming to clear it and a row left
+		// `deleting` is hidden from every listing for good.
+		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-marked", 11)];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
+		assert.deepEqual(revertedMessageIds(), ["msg-marked"]);
+		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-marked"]);
+	});
+
+	it("sweeps a settled row whose Trash uid matches the one it left behind", async () => {
+		// Two folders count uids independently, so a move can land on the same
+		// number it started from. `updateUid` drops `originalUid` when it settles,
+		// which is what keeps this row apart from one still mid-move — without it
+		// the sweep would expunge the message on the server and then refuse its
+		// rows, leaving mail that no longer exists hidden in Trash for good.
+		h.localMessages = [
+			{
+				messageId: "msg-collided",
+				uid: 10,
+				status: "deleting",
+				syncStatus: "pending",
+				mailboxId: "trash-mbx",
+				originalMailboxId: "inbox-mbx",
+			},
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-collided"],
+		);
+		assert.deepEqual(revertedMessageIds(), []);
+	});
+
+	it("sweeps a settled row that reached Trash by a move", async () => {
+		// The confirmed pair: `updateUid` wrote Trash's own uid over the
+		// source's, leaving `originalUid` behind as history. Refusing this would
+		// leave the folder marked for a deletion that already happened.
+		h.localMessages = [
+			{
+				messageId: "msg-settled",
+				uid: 11,
+				status: "deleting",
+				syncStatus: "pending",
+				mailboxId: "trash-mbx",
+				originalMailboxId: "inbox-mbx",
+				originalUid: 42,
+			},
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-settled"],
+		);
 	});
 });

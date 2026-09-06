@@ -252,6 +252,7 @@ export {
 	resolveExhaustedPlacementMoveFailure,
 } from "./placement-move-terminal.js";
 export {
+	carriesForeignUid,
 	isPlacementUnsettled,
 	type PlacementBinding,
 	placementBindingOf,
