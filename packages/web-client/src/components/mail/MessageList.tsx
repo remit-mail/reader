@@ -39,7 +39,7 @@ import {
 	bulkActionProgressTone,
 	runEndingBanner,
 } from "@/lib/bulk-action-copy";
-import type { BulkRunOutcome, EscalatedAction } from "@/lib/bulk-actions";
+import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import {
 	describeSearchScope,
 	escalatedStatusLabel,
@@ -374,6 +374,7 @@ export const MessageList = ({
 	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
 	const escalation = useEscalatedActions({
 		mailboxId,
+		mailboxLabel: listTitle,
 		accountId,
 		enabled: escalationEnabled,
 		predicateKey,
@@ -691,7 +692,8 @@ export const MessageList = ({
 					scope: describeSearchScope(searchPredicate ?? {}),
 					total: escalation.phase.total,
 					searchQuery: searchPredicate ?? {},
-					run: (action: EscalatedAction) => escalation.runAction(action),
+					run: (action, claimEnding) =>
+						escalation.runAction(action, undefined, claimEnding),
 					stop: escalation.stop,
 				}
 			: undefined;
@@ -1355,6 +1357,7 @@ export const MessageList = ({
 				verb={wizardVerb}
 				accountId={accountId}
 				mailboxId={mailboxId}
+				mailboxLabel={listTitle}
 				selection={wizardSelection}
 				selectionRestriction={moveDisabledHint ? "spansAccounts" : undefined}
 				escalated={escalatedSelection}

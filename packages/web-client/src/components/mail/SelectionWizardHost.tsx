@@ -54,6 +54,7 @@ import type {
 	BulkActionProgress,
 	BulkActionTarget,
 	BulkRunOutcome,
+	BulkRunStart,
 	EscalatedAction,
 } from "@/lib/bulk-actions";
 import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
@@ -75,7 +76,6 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useWizardEntryValue, useWizardStep } from "@/routing";
-import { useBulkRun } from "./BulkRunProvider";
 import { bulkRunReport } from "./bulk-run-state";
 import { organizeRunState } from "./organize-run-state";
 import {
@@ -123,7 +123,15 @@ export interface EscalatedSelection {
 	 * screen is what now stands in front of it. The run belongs to the list, so
 	 * it survives the wizard closing over it — as the run screen promises.
 	 */
-	run: (action: EscalatedAction) => Promise<BulkRunOutcome>;
+	run: (
+		action: EscalatedAction,
+		/**
+		 * Handed the release for the ending of the run it starts, so the wizard's
+		 * run screen states that ending in place and the list does not banner it a
+		 * second time (#112).
+		 */
+		claimEnding: (release: () => void) => void,
+	) => Promise<BulkRunStart>;
 	/** Ends that run at the next page boundary, which leaving the wizard does not. */
 	stop: () => void;
 }
@@ -135,6 +143,8 @@ export interface SelectionWizardHostProps {
 	accountId?: string;
 	/** Where the selection was made, so a run invalidates the listing it changed. */
 	mailboxId?: string;
+	/** That mailbox in the user's words, for a commit refused while it runs. */
+	mailboxLabel?: string;
 	selection: readonly WizardSelectionMessage[];
 	/**
 	 * Which scope the ticked rows span more of than the folder and rule steps can
@@ -300,6 +310,7 @@ function SelectionWizardSession({
 	verb,
 	accountId,
 	mailboxId,
+	mailboxLabel,
 	selection,
 	selectionRestriction,
 	escalated: escalatedSelection,
@@ -488,27 +499,18 @@ function SelectionWizardSession({
 		senders,
 	);
 
-	const organizeJob = useOrganizeJob(accountId);
-	const createFilter = useCreateFilter(accountId);
-	const bulk = useEscalatedActions({
-		mailboxId: mailboxId ?? "",
-		accountId,
-		enabled: false,
-		predicateKey: "selection-wizard",
-		searchQuery: {},
-		reportEnding: onRunEnded,
-	});
-	const { runAction } = bulk;
-
 	// While this screen is up it states the ending itself, so the run's owner
-	// holds its banner back. The claim is taken by the press that sends the
-	// commit rather than by the step landing in the URL: a run over a small
-	// selection can be back before the navigation is, and an ending said twice is
-	// as wrong as one said not at all. Leaving — closing the wizard, or leaving
+	// holds its banner back. The claim is over the run this screen starts and no
+	// other: a commit that starts none — a filter, a back-apply job — has no
+	// ending of its own to hold, and holding one anyway swallowed the banner of
+	// whatever run was going elsewhere. Leaving — closing the wizard, or leaving
 	// the mailbox altogether — unmounts this and releases it, and the ending is
 	// bannered where the user now is (#112, #521).
-	const { claimReport } = useBulkRun();
 	const releaseReport = useRef<(() => void) | undefined>(undefined);
+	const claimEnding = useCallback((release: () => void) => {
+		releaseReport.current?.();
+		releaseReport.current = release;
+	}, []);
 	useEffect(
 		() => () => {
 			releaseReport.current?.();
@@ -516,6 +518,19 @@ function SelectionWizardSession({
 		},
 		[],
 	);
+
+	const organizeJob = useOrganizeJob(accountId);
+	const createFilter = useCreateFilter(accountId);
+	const bulk = useEscalatedActions({
+		mailboxId: mailboxId ?? "",
+		mailboxLabel,
+		accountId,
+		enabled: false,
+		predicateKey: "selection-wizard",
+		searchQuery: {},
+		reportEnding: onRunEnded,
+	});
+	const { runAction } = bulk;
 
 	const steps = stepsFor({ verb, mode, scope: draft.scope, fromSearch });
 	// The step the screens are on, which is the held one only while the answers
@@ -676,10 +691,15 @@ function SelectionWizardSession({
 				return;
 			}
 			setBulkRun({ matched: targets.length, sent: targets });
-			const outcome = await runAction(action, targets);
-			setBulkRun({ matched: targets.length, sent: targets, outcome });
+			const started = await runAction(action, targets, claimEnding);
+			setBulkRun({
+				matched: targets.length,
+				sent: targets,
+				outcome: started.kind === "ran" ? started.outcome : undefined,
+				failureReason: started.kind === "refused" ? started.reason : undefined,
+			});
 		},
-		[verb, named.moveMailboxId, junkMailboxId, runAction],
+		[verb, named.moveMailboxId, junkMailboxId, runAction, claimEnding],
 	);
 
 	// The escalated predicate, run by the chunked runner the list already owns.
@@ -697,9 +717,14 @@ function SelectionWizardSession({
 			return;
 		}
 		setBulkRun({ matched: escalated.total, sent: [] });
-		const outcome = await escalated.run(action);
-		setBulkRun({ matched: escalated.total, sent: [], outcome });
-	}, [escalated, verb, named.moveMailboxId, junkMailboxId]);
+		const started = await escalated.run(action, claimEnding);
+		setBulkRun({
+			matched: escalated.total,
+			sent: [],
+			outcome: started.kind === "ran" ? started.outcome : undefined,
+			failureReason: started.kind === "refused" ? started.reason : undefined,
+		});
+	}, [escalated, verb, named.moveMailboxId, junkMailboxId, claimEnding]);
 
 	const { start: startJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
@@ -779,10 +804,9 @@ function SelectionWizardSession({
 		}
 		if (commitSent.current) return;
 		commitSent.current = true;
-		releaseReport.current = claimReport();
 		goToStep("run");
 		sendCommit();
-	}, [blockedReason, current, goToStep, sendCommit, claimReport]);
+	}, [blockedReason, current, goToStep, sendCommit]);
 
 	const jobSnapshot = useCallback(
 		(ruleSaved: boolean): RunSnapshot => {

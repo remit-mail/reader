@@ -21,6 +21,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import type { BulkActionTarget, EscalatedAction } from "../lib/bulk-actions";
+import { ranOutcome } from "../test-support/bulk-run";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../test-support/http";
 import {
@@ -79,7 +80,7 @@ const run = async (
 	});
 	await settle();
 	if (!started) throw new Error("the run never started");
-	return started;
+	return ranOutcome(await started);
 };
 
 /** The message-id list of every bulk request that left, in order. */

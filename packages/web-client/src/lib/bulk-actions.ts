@@ -345,3 +345,13 @@ export interface BulkRunOutcome {
 	cancelled: boolean;
 	error?: unknown;
 }
+
+/**
+ * What asking for a run got: the run itself, or the reason there is none. One
+ * run at a time is the design — a second one would page a second predicate
+ * behind the same bar and the same Stop — so a commit pressed while one is
+ * going is answered with what is going rather than with a run that replaces it.
+ */
+export type BulkRunStart =
+	| { kind: "ran"; outcome: BulkRunOutcome }
+	| { kind: "refused"; reason: string };

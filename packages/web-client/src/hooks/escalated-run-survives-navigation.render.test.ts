@@ -16,8 +16,19 @@
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { act, createElement } from "react";
-import type { BulkRunOutcome, EscalatedAction } from "../lib/bulk-actions";
+import {
+	act,
+	createElement,
+	type FunctionComponent,
+	useEffect,
+	useRef,
+} from "react";
+import type {
+	BulkRunOutcome,
+	BulkRunStart,
+	EscalatedAction,
+} from "../lib/bulk-actions";
+import { ranOutcome } from "../test-support/bulk-run";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import {
 	type EscalationSearchQuery,
@@ -140,15 +151,53 @@ let endings: Array<{
 
 const SEARCH: EscalationSearchQuery = { query: "npm" };
 
+interface ScreenSpec {
+	mailboxId: string;
+	/** The mailbox in the user's words, which a refusal names. */
+	label?: string;
+	/**
+	 * The screen states the ending of a run it starts, the way the wizard's run
+	 * screen does — so the owner holds that run's banner back while it is up.
+	 */
+	reportsInPlace?: boolean;
+}
+
+interface MountedScreen {
+	hook: UseEscalatedActionsResult;
+	/** Passed to the run this screen starts, when it reports in place. */
+	claimEnding: ((release: () => void) => void) | undefined;
+}
+
+const screens = new Map<string, MountedScreen>();
+/**
+ * One component type per screen, so re-rendering the same set of mailboxes is a
+ * re-render rather than a remount — a fresh type would unmount the screen the
+ * test is holding a run open on.
+ */
+const probes = new Map<string, FunctionComponent>();
+
 /**
  * The mailbox screen, mounted and unmounted the way a route change does it.
  * The providers above it stay mounted throughout — they are the app shell, not
  * the route.
  */
-const mailboxScreen = (mailboxId: string) => {
+const mailboxScreen = ({ mailboxId, label, reportsInPlace }: ScreenSpec) => {
+	const key = `${mailboxId}|${reportsInPlace ? "in-place" : "bannered"}`;
+	const held = probes.get(key);
+	if (held) return createElement(held, { key });
 	const Probe = () => {
-		value = useEscalatedActions({
+		const release = useRef<(() => void) | undefined>(undefined);
+		useEffect(
+			() => () => {
+				release.current?.();
+				release.current = undefined;
+				screens.delete(mailboxId);
+			},
+			[],
+		);
+		const hook = useEscalatedActions({
 			mailboxId,
+			mailboxLabel: label,
 			enabled: true,
 			predicateKey: `${mailboxId}|npm`,
 			searchQuery: SEARCH,
@@ -156,26 +205,38 @@ const mailboxScreen = (mailboxId: string) => {
 				endings.push({ kind, matched, outcome });
 			},
 		});
+		screens.set(mailboxId, {
+			hook,
+			claimEnding: reportsInPlace
+				? (next) => {
+						release.current?.();
+						release.current = next;
+					}
+				: undefined,
+		});
 		return null;
 	};
-	return createElement(Probe);
+	probes.set(key, Probe);
+	return createElement(Probe, { key });
 };
 
-let value: UseEscalatedActionsResult | undefined;
-
-const hook = (): UseEscalatedActionsResult => {
-	if (!value) throw new Error("no mailbox screen is mounted");
-	return value;
+const screen = (mailboxId = INBOX): MountedScreen => {
+	const mounted = screens.get(mailboxId);
+	if (!mounted) throw new Error(`no screen is mounted for ${mailboxId}`);
+	return mounted;
 };
+
+const hook = (mailboxId = INBOX): UseEscalatedActionsResult =>
+	screen(mailboxId).hook;
 
 /** Leave the mailbox: the screen goes, the app shell stays. */
 const leaveMailbox = (): void => {
-	value = undefined;
 	harness?.renderApp(createElement("div", null, "somewhere else"));
 };
 
-const openMailbox = (mailboxId = INBOX): void => {
-	harness?.renderApp(mailboxScreen(mailboxId));
+const openMailbox = (...specs: ScreenSpec[]): void => {
+	const mounted = specs.length > 0 ? specs : [{ mailboxId: INBOX }];
+	harness?.renderApp(createElement("div", null, ...mounted.map(mailboxScreen)));
 };
 
 /** A press: the state it sets belongs to the same commit React would batch. */
@@ -209,11 +270,19 @@ const parkAtBoundary = async (): Promise<void> => {
  * bare promise would be unwrapped by the caller's own `await`, which would wait
  * out the very run the test is about to walk away from.
  */
-const startRun = async (): Promise<{ run: Promise<BulkRunOutcome> }> => {
-	press(() => hook().escalate());
+const startRun = async (
+	mailboxId = INBOX,
+): Promise<{ run: Promise<BulkRunStart> }> => {
+	press(() => hook(mailboxId).escalate());
 	await settle();
-	assert.deepEqual(hook().phase, { kind: "escalated", total: TOTAL });
-	const run = press(() => hook().runAction({ kind: "delete" }));
+	assert.deepEqual(hook(mailboxId).phase, { kind: "escalated", total: TOTAL });
+	const run = press(() =>
+		hook(mailboxId).runAction(
+			{ kind: "delete" },
+			undefined,
+			screen(mailboxId).claimEnding,
+		),
+	);
 	await parkAtBoundary();
 	return { run };
 };
@@ -221,7 +290,8 @@ const startRun = async (): Promise<{ run: Promise<BulkRunOutcome> }> => {
 beforeEach(() => {
 	server = startMailServer();
 	endings = [];
-	value = undefined;
+	screens.clear();
+	probes.clear();
 	harness = createDomHarness();
 });
 
@@ -231,7 +301,8 @@ afterEach(() => {
 	server?.release();
 	server?.restore();
 	server = undefined;
-	value = undefined;
+	screens.clear();
+	probes.clear();
 });
 
 describe("a run the user leaves the mailbox during", () => {
@@ -274,7 +345,7 @@ describe("a run the user leaves the mailbox during", () => {
 		press(() => hook().stop());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(server?.aborted(), 1, "the delete in flight was cancelled");
 		assert.equal(
@@ -298,7 +369,7 @@ describe("a run the user leaves the mailbox during", () => {
 		leaveMailbox();
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.done, TOTAL);
 		assert.deepEqual(endings, [
@@ -315,13 +386,139 @@ describe("another mailbox, while a run is going", () => {
 		const { run } = await startRun();
 
 		leaveMailbox();
-		openMailbox(ELSEWHERE);
+		openMailbox({ mailboxId: ELSEWHERE });
 
-		assert.equal(hook().isRunning, false, "the run belongs to the inbox");
-		assert.equal(hook().progress, undefined);
+		assert.equal(
+			hook(ELSEWHERE).isRunning,
+			false,
+			"the run belongs to the inbox",
+		);
+		assert.equal(hook(ELSEWHERE).progress, undefined);
 
 		press(() => server?.release());
 		await settle();
 		await run;
+	});
+
+	// The Stop on a "Select all N matching" count used to reach the provider
+	// unconditionally, so cancelling a count in one mailbox ended a delete going
+	// in another — with no banner, because a stop is not a failure.
+	it("cancels its own count without touching the run", async () => {
+		openMailbox({ mailboxId: INBOX }, { mailboxId: ELSEWHERE });
+		const { run } = await startRun();
+
+		press(() => hook(ELSEWHERE).escalate());
+		await settle();
+		press(() => hook(ELSEWHERE).stop());
+		await settle();
+
+		assert.equal(server?.aborted(), 0, "no delete was cancelled");
+		assert.equal(hook(INBOX).isRunning, true, "the inbox run is still going");
+
+		press(() => server?.release());
+		await settle();
+		const outcome = ranOutcome(await run);
+
+		assert.equal(outcome.cancelled, false);
+		assert.equal(outcome.done, TOTAL, "the run covered the whole match");
+	});
+
+	it("is refused a run of its own while the first one is going", async () => {
+		openMailbox({ mailboxId: INBOX, label: "Inbox" }, { mailboxId: ELSEWHERE });
+		const { run } = await startRun();
+		const sentBeforeSecond = server?.deleted().length ?? 0;
+
+		press(() => hook(ELSEWHERE).escalate());
+		await settle();
+		const second = await press(() =>
+			hook(ELSEWHERE).runAction({ kind: "delete" }),
+		);
+
+		assert.equal(second.kind, "refused");
+		if (second.kind === "refused") {
+			assert.ok(
+				second.reason.includes("Inbox"),
+				`the refusal names the run in flight: ${second.reason}`,
+			);
+			assert.ok(second.reason.includes(String(TOTAL)));
+		}
+		assert.equal(
+			server?.deleted().length,
+			sentBeforeSecond,
+			"the refused commit sent nothing",
+		);
+		// The selection it was refused for stands, so stopping the other run is
+		// enough to answer it.
+		assert.deepEqual(hook(ELSEWHERE).phase, {
+			kind: "escalated",
+			total: TOTAL,
+		});
+
+		// The first run is untouched by the refusal, and still the one Stop ends.
+		assert.equal(hook(INBOX).isRunning, true);
+		press(() => hook(INBOX).stop());
+		press(() => server?.release());
+		await settle();
+		const outcome = ranOutcome(await run);
+
+		assert.equal(outcome.cancelled, true);
+		assert.equal(hook(INBOX).isRunning, false);
+	});
+});
+
+describe("a commit that starts no run of its own", () => {
+	// An organize or filter commit reports in place too, and used to take a claim
+	// over any ending at all — so the delete still paging in another mailbox
+	// finished in silence.
+	it("does not swallow the ending of the run that is going", async () => {
+		openMailbox(
+			{ mailboxId: INBOX, reportsInPlace: true },
+			{ mailboxId: ELSEWHERE, reportsInPlace: true },
+		);
+		const { run } = await startRun();
+
+		// The run's own screen goes; the one showing an organize commit stays.
+		openMailbox({ mailboxId: ELSEWHERE, reportsInPlace: true });
+		press(() => server?.release());
+		await settle();
+		const outcome = ranOutcome(await run);
+
+		assert.equal(outcome.done, TOTAL);
+		assert.deepEqual(endings, [{ kind: "delete", matched: TOTAL, outcome }]);
+	});
+
+	it("holds the ending back while the screen showing it is up", async () => {
+		openMailbox({ mailboxId: INBOX, reportsInPlace: true });
+		const { run } = await startRun();
+
+		press(() => server?.release());
+		await settle();
+		await run;
+
+		assert.deepEqual(endings, [], "the screen states it in place");
+	});
+});
+
+describe("a run the session ends under", () => {
+	// The whole app tree, this provider included, comes down with the session at
+	// the auth gate. Nothing there ended the run, so it went on deleting mail for
+	// an account nobody was signed in to any more.
+	it("stops when the app is torn down", async () => {
+		openMailbox();
+		const { run } = await startRun();
+		const sentBeforeSignOut = server?.deleted().length ?? 0;
+
+		harness?.unmount();
+		press(() => server?.release());
+		await settle();
+		const outcome = ranOutcome(await run);
+
+		assert.equal(server?.aborted(), 1, "the delete in flight was cancelled");
+		assert.equal(
+			server?.deleted().length,
+			sentBeforeSignOut,
+			"no further ids reached the server",
+		);
+		assert.equal(outcome.cancelled, true);
 	});
 });

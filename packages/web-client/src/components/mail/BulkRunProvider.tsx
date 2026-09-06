@@ -5,6 +5,7 @@ import {
 	type ReactNode,
 	useCallback,
 	useContext,
+	useEffect,
 	useMemo,
 	useRef,
 	useState,
@@ -15,12 +16,14 @@ import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
 import {
 	bulkActionFailureDetail,
 	bulkActionFailureTitle,
+	bulkRunBusyRefusal,
 } from "@/lib/bulk-action-copy";
 import {
 	type ApplyBatch,
 	type BulkActionProgress,
 	type BulkActionTarget,
 	type BulkRunOutcome,
+	type BulkRunStart,
 	type EscalatedAction,
 	type FetchIdsPage,
 	honestProgress,
@@ -47,6 +50,8 @@ export interface BulkRunRequest {
 	action: EscalatedAction;
 	/** The mailbox the run belongs to — where its progress shows on return. */
 	mailboxId: string;
+	/** That mailbox in the user's words, for a refusal that names this run. */
+	mailboxLabel?: string;
 	/** Owning account, for the unseen-count invalidation on completion. */
 	accountId: string | undefined;
 	/** The count the run was offered against, for the bar and for the ending. */
@@ -65,6 +70,13 @@ export interface BulkRunRequest {
 		matched: number,
 		outcome: BulkRunOutcome,
 	) => void;
+	/**
+	 * Handed the release for this run's ending, for a screen that is showing the
+	 * ending itself. The claim is made inside `start`, for the run it starts, so
+	 * a commit that starts no run holds nothing over the ending of one that is
+	 * already going (#112). Released when that screen goes.
+	 */
+	claimEnding?: (release: () => void) => void;
 }
 
 /** A run in flight, as any screen reads it. */
@@ -78,15 +90,19 @@ export interface ActiveBulkRun {
 
 interface BulkRunContextValue {
 	run: ActiveBulkRun | undefined;
-	start: (request: BulkRunRequest) => Promise<BulkRunOutcome>;
-	/** Ends the run: the request on the wire is aborted and nothing more leaves. */
-	stop: () => void;
 	/**
-	 * Held by a screen that is showing the run's ending itself, so the provider
-	 * does not banner it a second time. Released when that screen goes — which is
-	 * what makes leaving mid-run the case the banner exists for.
+	 * Runs `request`, or refuses it because one is already going. There is one
+	 * slot: a second run would page behind the first's bar and answer to the
+	 * first's Stop, so it is refused with the run in flight named rather than
+	 * queued or started alongside.
 	 */
-	claimReport: () => () => void;
+	start: (request: BulkRunRequest) => Promise<BulkRunStart>;
+	/**
+	 * Ends the run `mailboxId` owns: the request on the wire is aborted and
+	 * nothing more leaves. A stop aimed at any other mailbox is not this run's,
+	 * and reaches nothing.
+	 */
+	stop: (mailboxId: string) => void;
 }
 
 const BulkRunContext = createContext<BulkRunContextValue | undefined>(
@@ -117,19 +133,23 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 	// The signal every call of the live run is issued under, so a stop ends the
 	// request on the wire instead of waiting for it to come back (#113).
 	const controllerRef = useRef<AbortController | undefined>(undefined);
-	// Identifies the live run across the awaits below: a second run started over
-	// the first must not have its progress overwritten by the one it replaced.
+	// Identifies the live run across the awaits below, so a run that ended after
+	// the slot was taken from it — by a sign-out — writes nothing back.
 	const liveRunRef = useRef<symbol | undefined>(undefined);
-	const reportersRef = useRef(0);
+	// What is in the slot, read synchronously: two commits landing in one frame
+	// both have to see the first of them.
+	const liveRequestRef = useRef<BulkRunRequest | undefined>(undefined);
+	// The runs a screen is reporting on in place, by token — never a count of
+	// claims over runs in general, which any commit could hold against any run.
+	const claimsRef = useRef(new Set<symbol>());
 	const queryClient = useQueryClient();
 	const { pushError } = useErrorBanners();
 	const { requestAppointment } = useRoleAppointmentPrompt();
 	// The run replays itself once a folder is appointed, so it needs a handle on
 	// itself that does not make `start` its own dependency.
 	const startRef = useRef<BulkRunContextValue["start"]>(async () => ({
-		done: 0,
-		failedIds: [],
-		cancelled: false,
+		kind: "ran",
+		outcome: { done: 0, failedIds: [], cancelled: false },
 	}));
 
 	/**
@@ -164,11 +184,27 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 	);
 
 	const start = useCallback(
-		async (request: BulkRunRequest): Promise<BulkRunOutcome> => {
+		async (request: BulkRunRequest): Promise<BulkRunStart> => {
+			const inFlight = liveRequestRef.current;
+			if (inFlight) {
+				return {
+					kind: "refused",
+					reason: bulkRunBusyRefusal(
+						inFlight.action.kind,
+						inFlight.matched,
+						inFlight.mailboxLabel,
+					),
+				};
+			}
 			const token = Symbol("bulk-run");
 			const controller = new AbortController();
 			controllerRef.current = controller;
 			liveRunRef.current = token;
+			liveRequestRef.current = request;
+			if (request.claimEnding) {
+				claimsRef.current.add(token);
+				request.claimEnding(() => claimsRef.current.delete(token));
+			}
 			setRun({
 				action: request.action,
 				mailboxId: request.mailboxId,
@@ -200,8 +236,10 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 							controller.signal,
 						);
 
+			const reportedInPlace = claimsRef.current.delete(token);
 			if (liveRunRef.current === token) {
 				liveRunRef.current = undefined;
+				liveRequestRef.current = undefined;
 				setRun(undefined);
 			}
 
@@ -234,31 +272,37 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 			}
 			// Nobody is left showing this run, so the ending is said where the user
 			// now is. A screen still reporting on it says it in place instead.
-			if (reportersRef.current === 0) {
+			if (!reportedInPlace) {
 				request.reportEnding?.(request.action.kind, request.matched, outcome);
 			}
 			if (outcome.done > 0) invalidateAfterRun(request);
-			return outcome;
+			return { kind: "ran", outcome };
 		},
 		[invalidateAfterRun, pushError, requestAppointment],
 	);
 	startRef.current = start;
 
-	const stop = useCallback(() => {
+	const stop = useCallback((mailboxId: string) => {
+		if (liveRequestRef.current?.mailboxId !== mailboxId) return;
 		controllerRef.current?.abort();
 	}, []);
 
-	const claimReport = useCallback(() => {
-		reportersRef.current += 1;
+	// A run belongs to the session that started it. Both auth shells gate the
+	// whole app on the session, so signing out or switching accounts takes this
+	// provider down with the router — and a run left paging past that would go on
+	// deleting mail for an account nobody is signed in to.
+	useEffect(() => {
+		const claims = claimsRef.current;
 		return () => {
-			reportersRef.current -= 1;
+			controllerRef.current?.abort();
+			controllerRef.current = undefined;
+			liveRunRef.current = undefined;
+			liveRequestRef.current = undefined;
+			claims.clear();
 		};
 	}, []);
 
-	const value = useMemo(
-		() => ({ run, start, stop, claimReport }),
-		[run, start, stop, claimReport],
-	);
+	const value = useMemo(() => ({ run, start, stop }), [run, start, stop]);
 
 	return (
 		<BulkRunContext.Provider value={value}>{children}</BulkRunContext.Provider>

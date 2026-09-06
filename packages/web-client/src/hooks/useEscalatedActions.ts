@@ -17,7 +17,7 @@ import type {
 	ApplyBatch,
 	BulkActionProgress,
 	BulkActionTarget,
-	BulkRunOutcome,
+	BulkRunStart,
 	EscalatedAction,
 	FetchIdsPage,
 } from "@/lib/bulk-actions";
@@ -48,6 +48,8 @@ export type EscalationPhase =
 
 interface UseEscalatedActionsOptions {
 	mailboxId: string;
+	/** The mailbox in the user's words, for a commit refused while this runs. */
+	mailboxLabel?: string;
 	/** Owning account, forwarded to the unseen-count invalidation on completion. */
 	accountId?: string;
 	/** Disables escalation entirely (e.g. not searching). Resets any in-flight
@@ -71,12 +73,14 @@ export interface UseEscalatedActionsResult {
 	 *  selection to that predicate once it answers. */
 	escalate: () => void;
 	/**
-	 * Stop whatever's running — the count or an action. The request in flight is
-	 * aborted and nothing further leaves (#113); a delete the server has already
-	 * accepted still applies, so the batch on the wire is what a stop is worth.
-	 * A no-op when nothing is running. The only thing that ends a run in
-	 * flight: leaving the selection, the wizard, the search or the mailbox does
-	 * not.
+	 * Stop whatever this mailbox has running — its count, and the run when the
+	 * run is its own. The request in flight is aborted and nothing further leaves
+	 * (#113); a delete the server has already accepted still applies, so the
+	 * batch on the wire is what a stop is worth. A no-op when nothing is running.
+	 * Cancelling a count here never reaches a run in another mailbox: that run is
+	 * not what this screen is offering to stop, and ending it would be silent.
+	 * The only thing that ends a run in flight: leaving the selection, the
+	 * wizard, the search or the mailbox does not.
 	 */
 	stop: () => void;
 	/**
@@ -100,7 +104,8 @@ export interface UseEscalatedActionsResult {
 	 * as one batch the endpoint refuses whole (#872). Resolves once the run ends
 	 * for any reason — cancelled, errored, or complete — with a
 	 * `done`/`failedIds` outcome the caller reads to decide what is still
-	 * outstanding.
+	 * outstanding, or with the refusal of a run that never started because
+	 * another one is still going.
 	 *
 	 * The run itself belongs to `BulkRunProvider`, which outlives every screen
 	 * that can show it: the caches, the refusal replay, the failure banner and
@@ -110,11 +115,13 @@ export interface UseEscalatedActionsResult {
 	runAction: (
 		action: EscalatedAction,
 		targets?: readonly BulkActionTarget[],
-	) => Promise<BulkRunOutcome>;
+		claimEnding?: BulkRunRequest["claimEnding"],
+	) => Promise<BulkRunStart>;
 }
 
 export const useEscalatedActions = ({
 	mailboxId,
+	mailboxLabel,
 	accountId,
 	enabled,
 	predicateKey,
@@ -253,8 +260,8 @@ export const useEscalatedActions = ({
 
 	const stop = useCallback(() => {
 		countAbortRef.current?.abort();
-		stopRun();
-	}, [stopRun]);
+		if (isRunningRef.current) stopRun(mailboxId);
+	}, [stopRun, mailboxId]);
 
 	const clear = useCallback(() => {
 		if (isRunningRef.current) return;
@@ -266,7 +273,8 @@ export const useEscalatedActions = ({
 		async (
 			action: EscalatedAction,
 			targets?: readonly BulkActionTarget[],
-		): Promise<BulkRunOutcome> => {
+			claimEnding?: BulkRunRequest["claimEnding"],
+		): Promise<BulkRunStart> => {
 			// Read before the run clears the phase below, so a refusal can say how
 			// many messages the appointment's replay is about.
 			const matched =
@@ -282,26 +290,31 @@ export const useEscalatedActions = ({
 							fetchPage: fetchPagesOf(searchQueryRef.current),
 						};
 
-			const outcome = await start({
+			const started = await start({
 				action,
 				mailboxId,
+				mailboxLabel,
 				accountId,
 				matched,
 				source,
 				applyBatch: applyBatchFor(action),
 				reportEnding,
+				claimEnding,
 			});
 
 			// The escalated selection was what the run was confirmed from, and the
-			// run has now happened to it.
-			setPhase({ kind: "idle" });
-			return outcome;
+			// run has now happened to it. A refused commit leaves it standing: the
+			// selection is still the question, and stopping the other run is what
+			// makes it answerable.
+			if (started.kind === "ran") setPhase({ kind: "idle" });
+			return started;
 		},
 		[
 			applyBatchFor,
 			fetchPagesOf,
 			phase,
 			mailboxId,
+			mailboxLabel,
 			accountId,
 			reportEnding,
 			start,
