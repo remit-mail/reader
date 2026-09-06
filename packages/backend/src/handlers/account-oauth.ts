@@ -123,6 +123,21 @@ function getSecretsManagerClient(): SecretsManagerClient {
 	return smClient;
 }
 
+type MsOAuthCredentialFailure =
+	| "MicrosoftOAuthNotConfigured"
+	| "MicrosoftOAuthSecretEmpty"
+	| "MicrosoftOAuthSecretIncomplete"
+	| "MicrosoftOAuthSecretUnparseable";
+
+function credentialFailure(
+	name: MsOAuthCredentialFailure,
+	message: string,
+): Error {
+	const error = new Error(message);
+	error.name = name;
+	return error;
+}
+
 async function getMsOAuthCredentials(): Promise<MsOAuthCredentials> {
 	const config = getMsOAuthConfig();
 
@@ -133,8 +148,9 @@ async function getMsOAuthCredentials(): Promise<MsOAuthCredentials> {
 
 	// Production: fetch from Secrets Manager
 	if (!config.secretArn) {
-		throw new Error(
-			"MSOAUTH_SECRET_ARN is required when MSOAUTH_CLIENT_ID/MSOAUTH_CLIENT_SECRET are not set",
+		throw credentialFailure(
+			"MicrosoftOAuthNotConfigured",
+			"No Microsoft OAuth credentials are configured on this instance: set MSOAUTH_CLIENT_ID and MSOAUTH_CLIENT_SECRET, or MSOAUTH_SECRET_ARN",
 		);
 	}
 
@@ -144,13 +160,29 @@ async function getMsOAuthCredentials(): Promise<MsOAuthCredentials> {
 	);
 
 	if (!result.SecretString) {
-		throw new Error("MSOAUTH secret has no SecretString value");
+		throw credentialFailure(
+			"MicrosoftOAuthSecretEmpty",
+			"The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN holds no SecretString",
+		);
 	}
 
-	const parsed = JSON.parse(result.SecretString) as MsOAuthCredentials;
-	if (!parsed.clientId || !parsed.clientSecret) {
-		throw new Error(
-			"MSOAUTH secret must contain clientId and clientSecret fields",
+	const parsed = await safeJsonParse<MsOAuthCredentials>(
+		result.SecretString,
+	).catch(() => null);
+	if (!parsed) {
+		throw credentialFailure(
+			"MicrosoftOAuthSecretUnparseable",
+			"The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN does not hold a JSON object",
+		);
+	}
+
+	const absent = (["clientId", "clientSecret"] as const).filter(
+		(field) => !parsed[field],
+	);
+	if (absent.length > 0) {
+		throw credentialFailure(
+			"MicrosoftOAuthSecretIncomplete",
+			`The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN is missing ${absent.join(" and ")}`,
 		);
 	}
 
