@@ -159,6 +159,32 @@ describe("useModalFocus", () => {
 		outside.remove();
 	});
 
+	/**
+	 * Clicking the title of a dialog — a region no control owns — leaves focus on
+	 * the body, and the next Tab has to land back inside the surface rather than
+	 * on whatever sits behind it (#1204).
+	 */
+	it("pulls focus back in when it is resting on nothing", () => {
+		act(() => root.render(createElement(Panel, { open: true })));
+		(document.activeElement as HTMLElement).blur();
+		assert.equal(document.activeElement, document.body);
+
+		const event = tab();
+
+		assert.equal(event.defaultPrevented, true);
+		assert.equal(document.activeElement, buttonNamed("First action"));
+	});
+
+	it("pulls focus resting on nothing back to the last control on Shift+Tab", () => {
+		act(() => root.render(createElement(Panel, { open: true })));
+		(document.activeElement as HTMLElement).blur();
+
+		const event = tab(true);
+
+		assert.equal(event.defaultPrevented, true);
+		assert.equal(document.activeElement, buttonNamed("Second action"));
+	});
+
 	it("stops trapping once the panel closes", () => {
 		const outside = document.createElement("button");
 		outside.textContent = "Behind the panel";
@@ -196,6 +222,72 @@ describe("useModalFocus", () => {
 
 		assert.equal(event.defaultPrevented, true);
 		assert.equal(document.activeElement?.textContent, "nothing focusable here");
+	});
+
+	it("takes focus resting on nothing onto a panel with no control of its own", () => {
+		function Empty() {
+			const ref = useRef<HTMLDivElement>(null);
+			useModalFocus(ref, true);
+			return createElement(
+				"div",
+				{ ref, tabIndex: -1 },
+				"nothing focusable here",
+			);
+		}
+		act(() => root.render(createElement(Empty)));
+		(document.activeElement as HTMLElement).blur();
+		assert.equal(document.activeElement, document.body);
+
+		const event = tab();
+
+		assert.equal(event.defaultPrevented, true);
+		assert.equal(document.activeElement?.textContent, "nothing focusable here");
+	});
+
+	/**
+	 * A browser reports `tabIndex` -1 for an editing host and for an iframe, so a
+	 * ring that trusts the property drops them: the control before the editor
+	 * becomes the surface's last stop and Tab wraps away from it.
+	 */
+	it("counts a rich-text body as a stop in the ring", () => {
+		function WithEditor() {
+			const ref = useRef<HTMLDivElement>(null);
+			useModalFocus(ref, true);
+			return createElement(
+				"div",
+				{ ref },
+				createElement("button", { type: "button" }, "First action"),
+				createElement("div", {
+					contentEditable: true,
+					"aria-label": "Message body",
+				}),
+			);
+		}
+		act(() => root.render(createElement(WithEditor)));
+		buttonNamed("First action").focus();
+
+		const event = tab();
+
+		assert.equal(event.defaultPrevented, false);
+	});
+
+	it("counts an embedded frame as a stop in the ring", () => {
+		function WithFrame() {
+			const ref = useRef<HTMLDivElement>(null);
+			useModalFocus(ref, true);
+			return createElement(
+				"div",
+				{ ref },
+				createElement("button", { type: "button" }, "First action"),
+				createElement("iframe", { title: "Message body" }),
+			);
+		}
+		act(() => root.render(createElement(WithFrame)));
+		buttonNamed("First action").focus();
+
+		const event = tab();
+
+		assert.equal(event.defaultPrevented, false);
 	});
 
 	it("skips a disabled control when deciding where the edges are", () => {
@@ -384,6 +476,41 @@ describe("useModalFocus with a second surface above it", () => {
 			);
 		}
 		act(() => root.render(createElement(Nested)));
+		buttonNamed("Inner last").focus();
+
+		tab();
+
+		assert.equal(document.activeElement?.textContent, "Inner first");
+	});
+
+	/**
+	 * The same pair with the mount order reversed: the inner surface is a
+	 * component of its own, so React commits its effect first and the listener
+	 * registered first is the top one's. Depth has to pick the answer either way,
+	 * or the test only ever sees registration order agreeing with it.
+	 */
+	it("answers from the inner surface when that one mounts first", () => {
+		function Inner() {
+			const ref = useRef<HTMLDivElement>(null);
+			useModalFocus(ref, true);
+			return createElement(
+				"div",
+				{ ref },
+				createElement("button", { type: "button" }, "Inner first"),
+				createElement("button", { type: "button" }, "Inner last"),
+			);
+		}
+		function Outer() {
+			const ref = useRef<HTMLDivElement>(null);
+			useModalFocus(ref, true);
+			return createElement(
+				"div",
+				{ ref },
+				createElement("button", { type: "button" }, "Outer action"),
+				createElement(Inner),
+			);
+		}
+		act(() => root.render(createElement(Outer)));
 		buttonNamed("Inner last").focus();
 
 		tab();

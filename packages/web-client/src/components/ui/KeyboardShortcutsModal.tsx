@@ -48,6 +48,7 @@ export const KeyboardShortcutsModal = ({
 				role="dialog"
 				aria-modal="true"
 				aria-label="Keyboard shortcuts"
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto",
 					"rounded-lg border border-line bg-surface shadow-lg",

@@ -2,10 +2,17 @@ import { type RefObject, useEffect } from "react";
 import { useOverlayDepth } from "./overlay-scope.js";
 
 const FOCUSABLE_SELECTOR =
-	"a[href], button, input, select, textarea, [tabindex]";
+	'a[href], button, input, select, textarea, iframe, [tabindex], [contenteditable]:not([contenteditable="false"])';
 
+/**
+ * Everything the selector matches is in the tab order unless it takes itself
+ * out of it. A declared `tabindex` is the only reading of that which holds: a
+ * browser reports `tabIndex` -1 for an editing host and for an iframe, so
+ * trusting the property drops the rich-text body of a compose sheet from the
+ * ring and Tab walks past it.
+ */
 function isTabbable(element: HTMLElement): boolean {
-	if (element.tabIndex < 0) return false;
+	if (Number(element.getAttribute("tabindex") ?? 0) < 0) return false;
 	if (element.hasAttribute("disabled")) return false;
 	if (element.getAttribute("aria-disabled") === "true") return false;
 	if (element.closest("[inert], [hidden], [aria-hidden='true']")) return false;
@@ -53,6 +60,26 @@ function isTopTrap(depth: number): boolean {
 }
 
 /**
+ * Focus another surface is holding, which this one leaves where it is: an error
+ * banner and the fatal-error overlay paint above every modal from outside its
+ * subtree, and a trap that reclaims every Tab strands them (#970).
+ *
+ * Focus resting nowhere is not that. Clicking the title of a dialog — a region
+ * no control owns — leaves it on the body, and a trap that reads that as
+ * somebody else's hands the next Tab to the surface behind the modal (#1204).
+ */
+function heldElsewhere(
+	container: HTMLElement,
+	active: Element | null,
+): boolean {
+	if (!(active instanceof HTMLElement)) return false;
+	if (active === document.body || active === document.documentElement) {
+		return false;
+	}
+	return !container.contains(active);
+}
+
+/**
  * The keyboard contract of an `aria-modal` surface, in one hook: focus moves
  * into `ref` when `open` turns true, Tab stays inside it while it is up, and
  * focus goes back to whatever held it once the surface closes or leaves — the
@@ -61,10 +88,9 @@ function isTopTrap(depth: number): boolean {
  * The trap is a Tab handler rather than `inert` on the background: these
  * surfaces do not portal to the body, so there is no stable set of background
  * nodes to mark. It wraps at the ring's ends and pulls in focus that sits inside
- * the surface but outside the ring, under a nested dialog's backdrop (#973).
- * Focus that is already outside the surface is left alone: an error banner and
- * the fatal-error overlay paint above every modal from outside its subtree, and
- * a trap that reclaims every Tab strands them (#970).
+ * the surface but outside the ring, under a nested dialog's backdrop (#973), or
+ * on nothing at all. Focus another surface holds is the one exemption, and it is
+ * narrow — see {@link heldElsewhere}.
  */
 export function useModalFocus(
 	ref: RefObject<HTMLElement | null>,
@@ -102,18 +128,17 @@ export function useModalFocus(
 			const container = ref.current;
 			if (!container) return;
 			const active = document.activeElement;
-			if (!(active instanceof HTMLElement) || !container.contains(active)) {
-				return;
-			}
+			if (heldElsewhere(container, active)) return;
 
 			const ring = tabRing(container);
 			const first = ring[0];
 			const last = ring.at(-1);
 			if (!first || !last) {
 				event.preventDefault();
+				container.focus();
 				return;
 			}
-			const inside = ring.includes(active);
+			const inside = active instanceof HTMLElement && ring.includes(active);
 			if (event.shiftKey) {
 				if (!inside || active === first) {
 					event.preventDefault();

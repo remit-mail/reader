@@ -84,6 +84,7 @@ export const Drawer = ({
 			{/* Drawer panel */}
 			<div
 				ref={drawerRef}
+				tabIndex={-1}
 				className={cn(
 					"safe-area-frame absolute top-0 bottom-0 bg-canvas border-line shadow-xl flex flex-col",
 					widthClassName,

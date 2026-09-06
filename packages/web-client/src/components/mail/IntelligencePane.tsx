@@ -182,6 +182,7 @@ function ReclassifyDialog({
 				role="dialog"
 				aria-modal="true"
 				aria-label="Reclassify sender"
+				tabIndex={-1}
 				className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg"
 			>
 				<h2 className="text-lg font-semibold">Reclassify this sender</h2>

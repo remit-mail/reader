@@ -69,6 +69,7 @@ export const ConfirmDialog = ({
 				role="dialog"
 				aria-modal="true"
 				aria-label={title}
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 w-full max-w-sm",
 					"bg-surface border border-line rounded-sm shadow-lg",

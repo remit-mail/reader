@@ -81,14 +81,16 @@ export function FlowScreen({
 }: FlowScreenProps) {
 	const contained = anchor === "container";
 	const screenRef = useRef<HTMLDivElement>(null);
-	// On screen for as long as it is mounted, so the trap is open with it.
-	useModalFocus(screenRef, true);
+	// Only the viewport variant is an overlay over the app; the contained one is
+	// a pane's own content, and trapping Tab in it strands the rest of the page.
+	useModalFocus(screenRef, !contained);
 	return (
 		<div
 			ref={screenRef}
 			role="dialog"
 			aria-modal="true"
 			aria-label={title}
+			tabIndex={-1}
 			className={cn(
 				"z-50 flex flex-col font-sans text-fg",
 				contained

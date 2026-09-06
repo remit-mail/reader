@@ -54,6 +54,7 @@ export function Dialog({
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="dialog-title"
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 overflow-hidden border-line bg-surface shadow-xl",
 					// The edge-anchored panels reach the device edges; the centered
