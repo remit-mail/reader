@@ -3,16 +3,13 @@ import type {
 	IFilterRepository,
 	IMessageLabelRepository,
 } from "@remit/data-ports";
-import type {
-	FilterConfig,
-	MessageEmbedder,
-	PlacementMoveService,
-} from "@remit/mailbox-service";
 import {
 	EMBEDDING_PROVIDER_OFF,
 	readEmbeddingProviderFromEnv,
 } from "@remit/search-service/from-env";
+import type { PlacementMoveService } from "../placement-move.js";
 import { getMessageEmbedder } from "./message-embedder.js";
+import type { FilterConfig, MessageEmbedder } from "./pipeline.js";
 
 export interface FilterConfigDeps {
 	filterService: IFilterRepository;
@@ -37,10 +34,10 @@ const embedderFromEnv = (): MessageEmbedder | undefined =>
 		: getMessageEmbedder();
 
 /**
- * Assemble the index-time filter config the body-sync pass runs (RFC 034). The
- * embedder is provisioned from env exactly as the backend read-path and
- * search-index worker provision theirs, so a semantic (anchor-only) filter is
- * evaluated on incoming mail instead of silently skipped.
+ * Assemble the filter config a body-materializing pass runs (RFC 034), shared by
+ * the imap-worker's sync path and the backend's read-path backfill so both embed
+ * under the same model that produced the anchors — a semantic (anchor-only)
+ * filter is evaluated on either path instead of silently skipped.
  *
  * Absent the placement mover there is no move path, so filters stay off — a
  * matched filter's actions reuse the same enqueue plumbing the placement mover

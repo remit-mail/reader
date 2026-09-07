@@ -11,6 +11,7 @@ import {
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 } from "@remit/mailbox-service";
+import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
@@ -20,7 +21,6 @@ import {
 	createConnectionScopeWithCredentials,
 } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
-import { buildFilterConfig } from "../filter-config.js";
 import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";

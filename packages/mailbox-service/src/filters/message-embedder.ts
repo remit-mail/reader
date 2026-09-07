@@ -1,5 +1,5 @@
-import type { MessageEmbedder } from "@remit/mailbox-service";
 import { buildEmbeddingServiceFromEnv } from "@remit/search-service/from-env";
+import type { MessageEmbedder } from "./pipeline.js";
 
 /**
  * Adapt the batch {@link EmbeddingService} the rest of the stack composes from
@@ -7,10 +7,10 @@ import { buildEmbeddingServiceFromEnv } from "@remit/search-service/from-env";
  * incoming message becomes one message-level vector to compare against a filter's
  * persisted anchor (RFC 034 Decision 2.1/2.3).
  *
- * The embedder is selected by the same `SEARCH_EMBEDDING_*` env the backend and
- * search-index worker read, so the worker embeds under the identical model the
- * anchors were built with. The instance is memoized across warm invocations so a
- * local Transformers.js model loads once per container rather than per event.
+ * The embedder is selected by the same `SEARCH_EMBEDDING_*` env the search-index
+ * worker reads, so every filter pass embeds under the identical model the anchors
+ * were built with. The instance is memoized across warm invocations so a local
+ * Transformers.js model loads once per container rather than per event.
  */
 let cached: MessageEmbedder | undefined;
 

@@ -7,15 +7,11 @@ import type {
 	IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
-import {
-	type FilterMessage,
-	FilterPipeline,
-	type MessageEmbedder,
-	NO_ACTION,
-	type PlacementMoveService,
-} from "@remit/mailbox-service";
+import type { PlacementMoveService } from "../placement-move.js";
 import { buildFilterConfig, type FilterConfigDeps } from "./filter-config.js";
+import { type FilterMessage, NO_ACTION } from "./match.js";
 import { _resetMessageEmbedderForTest } from "./message-embedder.js";
+import { FilterPipeline, type MessageEmbedder } from "./pipeline.js";
 
 const anchorOnlyFilter = (destinationMailboxId: string): FilterItem =>
 	({
