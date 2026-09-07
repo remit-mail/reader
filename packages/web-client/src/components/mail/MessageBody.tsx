@@ -47,9 +47,17 @@ interface MessageBodyProps {
 	/**
 	 * Whether the From-address has the `trusted` flag set. Trusted senders
 	 * auto-load images. The "Load images" bar is suppressed entirely for
-	 * trusted senders.
+	 * trusted senders. Ignored when `isBlocked` is set.
 	 */
 	isTrusted?: boolean;
+	/**
+	 * Whether the From-address has the `blocked` flag set. A blocked sender
+	 * never loads images, "even on explicit click" (`BlockedFlag`), so this
+	 * suppresses auto-load and removes the manual load affordances rather than
+	 * greying them out. Blocked outranks trusted: it is the more restrictive
+	 * instruction, and a sender carrying both is still blocked.
+	 */
+	isBlocked?: boolean;
 	/**
 	 * The current message id. Required for the body-content query cache key
 	 * and by `useToggleTrusted` for the optimistic cache patch.
@@ -99,13 +107,23 @@ export const MessageBody = ({
 	html,
 	text,
 	isTrusted = false,
+	isBlocked = false,
 	messageId,
 	fromAddressId,
 	category,
 	className,
 }: MessageBodyProps) => {
+	// "Load once" is a decision about one message. Reset it when the instance is
+	// handed a different message so the grant can't ride along — today every
+	// caller keys this component by message, which makes the leak unreachable,
+	// but the guarantee should hold structurally rather than by a caller's key.
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
-	const allowImages = isTrusted || allowImagesOnce;
+	const [grantedFor, setGrantedFor] = useState(messageId);
+	if (grantedFor !== messageId) {
+		setGrantedFor(messageId);
+		setAllowImagesOnce(false);
+	}
+	const allowImages = !isBlocked && (isTrusted || allowImagesOnce);
 	const isDark = useIsDark();
 	// `useToggleTrusted` surfaces its own failure (banner + rollback) and a fatal
 	// 5xx escalates globally — no consumer-side error effect needed here.
@@ -197,6 +215,7 @@ export const MessageBody = ({
 					blockedImageCount={blockedImageCount}
 					canAlwaysTrust={canAlwaysTrust}
 					isTrustPending={isTrustPending}
+					isSenderBlocked={isBlocked}
 					onLoadOnce={() => setAllowImagesOnce(true)}
 					onAlwaysTrust={handleAlwaysTrust}
 				/>
