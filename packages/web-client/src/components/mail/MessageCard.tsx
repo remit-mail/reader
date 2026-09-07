@@ -200,6 +200,10 @@ const ExpandedCard = ({
 	const isUnread = !threadMessage.isRead;
 	const isTrusted =
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
+	// `BlockedFlag`: never load images, even on explicit click. Read alongside
+	// `trusted` and handed to the body, which lets blocked win over trusted.
+	const isBlocked =
+		messageData?.envelope.from[0]?.flags?.blocked?.value === true;
 	const fromAddressId = messageData?.envelope.from[0]?.addressId;
 	const message = toThreadMessageData(threadMessage, date);
 
@@ -328,6 +332,7 @@ const ExpandedCard = ({
 								messageId={threadMessage.messageId}
 								fromAddressId={messageData?.envelope.from[0]?.addressId}
 								isTrusted={isTrusted}
+								isBlocked={isBlocked}
 								category={toDisplayCategory(threadMessage.category)}
 							/>
 							<MessageAttachments
