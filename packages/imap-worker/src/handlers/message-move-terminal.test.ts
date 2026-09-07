@@ -220,6 +220,39 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		assert.ok(errors.some((e) => e.obj.alert === "message_move_failed"));
 	});
 
+	// Issue #1153: before the give-up had a value of its own, this row settled
+	// on `synced` and read exactly like a move that never happened — nothing on
+	// it said "the move you asked for is not coming". #1229 is why it also has
+	// to say WHICH mutation: a hand-back clears `status`, and `status` was the
+	// only field naming one.
+	it("BROKEN: the row says a move gave up, and says it was a move", async () => {
+		const repos = buildRepositories(pendingMoveRow());
+		const { log } = buildLogger();
+		const deps: ResolveExhaustedMessageMoveDeps = {
+			messageService: repos.messageService,
+			threadMessageService: repos.threadMessageService,
+			log,
+		};
+
+		await resolveExhaustedMessageMoveFailure(deps, {
+			...input,
+			getConnection: async () => buildConnection(new Set([101])),
+		});
+
+		const settled = repos.messages.get("msg-1") as unknown as {
+			syncStatus: string;
+			abandonedMutation: string;
+		};
+		assert.equal(settled.syncStatus, "abandoned");
+		assert.equal(settled.abandonedMutation, "move");
+		assert.equal(
+			hasAbandonedDelete(settled as never),
+			false,
+			"and never reads as a delete that gave up",
+		);
+		assert.equal(hasAbandonedMove(settled as never), true);
+	});
+
 	// Issue #1005: a give-up that never writes `status` leaves the row naming
 	// the destination with the source's uid — a pair every dependent mutation
 	// refuses, which made the message undeletable and unmovable for good.

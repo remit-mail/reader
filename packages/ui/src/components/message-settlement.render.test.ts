@@ -34,11 +34,20 @@ const compactRow = (settlement?: RowSettlement) =>
 		}),
 	);
 
-describe("a row whose delete gave up says so", () => {
+describe("a row whose mutation gave up says so, and says which", () => {
 	it("marks the row", () => {
 		const html = row("delete_failed");
 		assert.match(html, /data-settlement="delete_failed"/);
 		assert.match(html, new RegExp(messageSettlementCopy.delete_failed.label));
+	});
+
+	// Issue #1229: a move that handed back used to render the delete chip, so
+	// the row named an operation the user never asked to fail.
+	it("marks a move that gave up as a move, never as a delete", () => {
+		const html = row("move_failed");
+		assert.match(html, /data-settlement="move_failed"/);
+		assert.match(html, new RegExp(messageSettlementCopy.move_failed.label));
+		assert.doesNotMatch(html, /Not deleted/);
 	});
 
 	it("carries the same mark in compact density", () => {
@@ -46,6 +55,7 @@ describe("a row whose delete gave up says so", () => {
 			compactRow("delete_failed"),
 			/data-settlement="delete_failed"/,
 		);
+		assert.match(compactRow("move_failed"), /data-settlement="move_failed"/);
 	});
 
 	it("leaves every other row exactly as it was", () => {
@@ -71,6 +81,22 @@ describe("the reading-pane notice", () => {
 		);
 		assert.match(html, /Report an issue/);
 		assert.match(html, /https:\/\/example\.test\/new-issue/);
+	});
+
+	// The retry has to repeat the operation that failed. A move cannot: the
+	// destination the give-up discarded is on no row, so its way out is the
+	// caller's folder picker, passed in as the action.
+	it("states a move that failed and takes the caller's retry in place of a button", () => {
+		const html = renderToString(
+			createElement(MessageSettlementNotice, {
+				settlement: "move_failed",
+				action: createElement("button", { type: "button" }, "Move again"),
+				reportHref: "https://example.test/new-issue",
+			}),
+		);
+		assert.match(html, new RegExp(messageSettlementCopy.move_failed.title));
+		assert.match(html, /Move again/);
+		assert.doesNotMatch(html, /Delete again/);
 	});
 
 	it("disables the retry while one is in flight rather than dropping it", () => {

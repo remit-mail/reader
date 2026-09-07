@@ -6,7 +6,11 @@ import type {
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -319,6 +323,12 @@ export const handleMessageDelete = async (
 				sourceMailboxId: mailboxId,
 				uid,
 				syncStatus,
+				// Every hand-back this handler makes is a delete's, so the mutation
+				// follows the give-up rather than being passed in beside it.
+				abandonedMutation:
+					syncStatus === MessageSyncStatus.abandoned
+						? MessageMutation.delete
+						: MessageMutation.none,
 				threadMessages,
 			},
 		);

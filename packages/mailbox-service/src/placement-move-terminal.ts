@@ -1,4 +1,4 @@
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveLogger } from "./placement-move.js";
 import {
@@ -120,7 +120,12 @@ export const resolveExhaustedPlacementMoveFailure = async (
 		messageId,
 		sourceMailboxId,
 		uid,
+		// No give-up marker: this move is Remit's own classification filing, not
+		// something the user asked for, so a per-message "your move failed" would
+		// report a failure against an intent nobody formed. The alert below is the
+		// whole surface, and it is an operator's.
 		syncStatus: MessageSyncStatus.synced,
+		abandonedMutation: MessageMutation.none,
 	});
 
 	deps.log.error(

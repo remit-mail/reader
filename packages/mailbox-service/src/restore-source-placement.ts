@@ -26,12 +26,20 @@ export interface RestoreSourcePlacementInput {
 	uid: number;
 	/**
 	 * What the row records about the mutation that will now never happen.
-	 * `synced` where the row is a faithful projection of the source again — the
-	 * server never received the command, or has just said the message is still
-	 * there. `abandoned` where the product refused an operation the user asked
-	 * for, which is a failure the row has to carry (imap-mutations R3).
+	 * `synced` where the row is a faithful projection of the source again and
+	 * nothing was refused. `abandoned` where a mutation the user asked for gave
+	 * up, which is a failure the row has to carry (imap-mutations R3).
 	 */
 	syncStatus: MessageItem["syncStatus"];
+	/**
+	 * Which mutation gave up, for the row to carry alongside `abandoned`. The
+	 * hand-back is about to set `status` back to `active`, and `status` was the
+	 * only field naming it — without this the client can see that something was
+	 * abandoned and not what, which is how a move that handed back was reported
+	 * as a failed delete (issue #1229). `none` accompanies every other
+	 * `syncStatus`, so the field never outlives its gate.
+	 */
+	abandonedMutation: MessageItem["abandonedMutation"];
 	/**
 	 * The listing rows, where the caller has already read them to pick this
 	 * outcome. Omitted, they are read here.
@@ -98,8 +106,14 @@ export const restoreSourcePlacement = async (
 	deps: RestoreSourcePlacementDeps,
 	input: RestoreSourcePlacementInput,
 ): Promise<RestoreSourcePlacementOutcome> => {
-	const { accountConfigId, messageId, sourceMailboxId, uid, syncStatus } =
-		input;
+	const {
+		accountConfigId,
+		messageId,
+		sourceMailboxId,
+		uid,
+		syncStatus,
+		abandonedMutation,
+	} = input;
 
 	const skipNotFound = (error: unknown): void => {
 		if (isNotFoundError(error)) return;
@@ -114,6 +128,7 @@ export const restoreSourcePlacement = async (
 			uid,
 			status: MessageStatus.active,
 			syncStatus,
+			abandonedMutation,
 		},
 	);
 	if (!restored) return "superseded";

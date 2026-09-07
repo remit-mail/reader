@@ -2,7 +2,7 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
@@ -132,9 +132,13 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		sourceMailboxId,
 		uid,
 		// The probe above just confirmed the pair, so the row is a faithful
-		// projection of the source again. The delete's own failure is the alert,
-		// not a `failed` left on a row nothing is still trying to delete.
-		syncStatus: MessageSyncStatus.synced,
+		// projection of the source again — and the delete the user asked for did
+		// not happen, with nothing left to try it. `abandoned` is the value that
+		// says so without claiming a retry is coming (imap-mutations R3); the
+		// alert stays for the operator, and the mutation names itself so the
+		// reading pane offers the right way out (issue #1229).
+		syncStatus: MessageSyncStatus.abandoned,
+		abandonedMutation: MessageMutation.delete,
 	});
 
 	return { outcome: "broken" };

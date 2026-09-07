@@ -5,7 +5,11 @@ import type {
 	PlacementPredicate,
 	PlacementTransitionInput,
 } from "@remit/data-ports";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { PlacementMoveLogger } from "./placement-move.js";
 import {
 	type ResolveExhaustedPlacementMoveDeps,
@@ -182,6 +186,9 @@ describe("resolveExhaustedPlacementMoveFailure — the two terminal outcomes (mi
 					uid: 202,
 					status: MessageStatus.active,
 					syncStatus: MessageSyncStatus.synced,
+					// Remit's own classification filing, not something the user asked
+					// for, so no per-message give-up marker — the alert is the surface.
+					abandonedMutation: MessageMutation.none,
 				},
 			},
 		]);

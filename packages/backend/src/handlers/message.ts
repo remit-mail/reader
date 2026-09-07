@@ -479,6 +479,7 @@ export const MessageOperations: Record<
 			authenticity: message.authenticity,
 			status: message.status,
 			syncStatus: message.syncStatus,
+			abandonedMutation: message.abandonedMutation,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
 			...(message.spamReport ? { spamReport: message.spamReport } : {}),

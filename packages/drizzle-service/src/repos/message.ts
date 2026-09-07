@@ -58,6 +58,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		envelopeId: row.envelopeId,
 		rootBodyPartId: row.rootBodyPartId,
 		status: row.status,
+		abandonedMutation: row.abandonedMutation,
 		syncStatus: row.syncStatus,
 		category: row.category,
 		classificationState: row.classificationState,
@@ -599,6 +600,9 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(next.uid !== undefined ? { uid: next.uid } : {}),
 			...(next.status !== undefined ? { status: next.status } : {}),
 			...(next.syncStatus !== undefined ? { syncStatus: next.syncStatus } : {}),
+			...(next.abandonedMutation !== undefined
+				? { abandonedMutation: next.abandonedMutation }
+				: {}),
 			...(next.originalMailboxId !== undefined
 				? { originalMailboxId: next.originalMailboxId }
 				: {}),

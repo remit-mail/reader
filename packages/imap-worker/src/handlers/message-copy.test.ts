@@ -112,6 +112,10 @@ const deps = (): MessageCopyDeps =>
 				},
 				updateUid: record("message.updateUid"),
 				update: record("message.update"),
+				transitionPlacement: async (...args: unknown[]) => {
+					h.calls.push({ method: "message.transitionPlacement", args });
+					return { messageId: "new-msg" };
+				},
 				delete: record("message.delete"),
 			},
 			threadMessage: {
@@ -263,12 +267,15 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(copies, 1, "the COPY is issued once");
 		assert.equal(called("search").length, 0, "there is nothing to ask with");
-		const update = called("message.update")[0];
-		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"abandoned",
-			"a copy that gave up carries the give-up value, not the transient one",
+		const [givenUp] = called("message.transitionPlacement");
+		assert.deepEqual(
+			givenUp?.args[2],
+			{
+				status: "deleted",
+				syncStatus: "abandoned",
+				abandonedMutation: "copy",
+			},
+			"a copy that gave up carries the give-up value and names itself",
 		);
 		assert.equal(called("message.delete").length, 0, "no row is thrown away");
 	});
@@ -303,8 +310,8 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(copies, 1, "the redelivery issues no second COPY");
 		assert.equal(called("search").length, 0);
-		const settled = called("message.update").at(-1);
-		assert.equal((settled?.args[1] as { status?: string })?.status, "deleted");
+		const settled = called("message.transitionPlacement").at(-1);
+		assert.equal((settled?.args[2] as { status?: string })?.status, "deleted");
 	});
 
 	it("acks a copy that already settled without touching IMAP", async () => {
@@ -328,6 +335,7 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
 	it("returns early without connecting when the account is soft-deleted", async () => {
@@ -359,6 +367,7 @@ describe("handleMessageCopy", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
 		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
 	// Issue #1203. Both pauses are reached before `copyMessages`, so the COPY

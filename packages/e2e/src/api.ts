@@ -121,8 +121,10 @@ export interface MessageSummary {
 export type MessageStatus = "active" | "deleting" | "deleted" | "moving";
 
 /** Read it with `status`, never alone — every handler writes `failed` on an
- *  ordinary transient attempt before a redelivery that usually succeeds. */
-export type MessageSyncStatus = "synced" | "pending" | "failed";
+ *  ordinary transient attempt before a redelivery that usually succeeds.
+ *  `abandoned` is the give-up value: nothing is coming for that row
+ *  (`docs/architecture/imap-mutations.md` R3). */
+export type MessageSyncStatus = "synced" | "pending" | "failed" | "abandoned";
 
 /**
  * One search hit, narrowed to what a spec reads off it: which message, and

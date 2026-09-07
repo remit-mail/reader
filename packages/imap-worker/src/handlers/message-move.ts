@@ -1,7 +1,7 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -430,6 +430,13 @@ export const handleMessageMove = async (
 						sourceMailboxId,
 						uid,
 						syncStatus,
+						// Every hand-back this handler makes is a move's. Naming it on
+						// the row is what stops the reading pane calling a move that
+						// gave up a failed delete (issue #1229).
+						abandonedMutation:
+							syncStatus === MessageSyncStatus.abandoned
+								? MessageMutation.move
+								: MessageMutation.none,
 					},
 				);
 			};

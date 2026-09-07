@@ -94,6 +94,7 @@ const describeMessage: RemitImapDescribeMessageResponse = {
 		internalDate: LATEST_SENT,
 		status: "active",
 		syncStatus: "pending",
+		abandonedMutation: "none",
 	},
 	envelope: {
 		messageId: MESSAGE_ID,

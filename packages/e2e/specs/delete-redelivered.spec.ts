@@ -132,10 +132,16 @@ test.describe("A redelivered delete (#845)", () => {
 			"the redelivery neither expunged the Trash copy nor made a second one",
 		).toEqual([SUBJECT]);
 
-		const trashThreads = await api.listThreads(trash.mailboxId);
+		// `GET /messages/{id}`, not the Trash listing: every thread listing
+		// hardcodes `excludeDeleted` (#212), so a row correctly marked deleted is
+		// absent from it whether it exists or not. The Message row is what carries
+		// the spam report, the classification, the category and the Undo target,
+		// and reading it directly is what tells "still there" from "reconciled
+		// away" — a redelivery that ran would have deleted it, and this 404s.
+		const survived = await api.describeMessage(messageId);
 		expect(
-			trashThreads.map((thread) => thread.messageId),
-			"the local row survives, with the metadata only it holds",
-		).toContain(messageId);
+			survived.mailboxId,
+			"the local row survives, still naming the folder the server has it in",
+		).toBe(trash.mailboxId);
 	});
 });

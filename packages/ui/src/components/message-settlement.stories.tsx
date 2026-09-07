@@ -16,15 +16,15 @@ const reportHref =
 	"https://github.com/remit-mail/reader/issues/new?title=This+message+was+not+deleted";
 
 /**
- * The one unsettled state the wire can prove (issue #1002): a delete Remit
- * abandoned before it reached the server — most often because the Trash folder
- * the event named is gone — which handed the row back to the folder the server
- * still holds the message in.
+ * A mutation Remit gave up on (issue #1002), named by the row itself (#1229).
  *
- * It gets a real Retry, not a report-only dead end: abandoning puts `status`
- * back to `active`, so the ordinary delete endpoint accepts the row and
- * re-drives it. A move that gave up leaves exactly the fields a move mid-retry
- * leaves, so it gets no treatment at all — no chip, no notice, no promise.
+ * A delete gets a real Retry, not a report-only dead end: giving up puts
+ * `status` back to `active`, so the ordinary delete endpoint accepts the row
+ * and re-drives it. A move cannot retry that way — the destination the give-up
+ * discarded is recorded nowhere — so its way out is the same folder picker
+ * every other move goes through, passed in as `action`. Naming the wrong one
+ * is the defect this replaces: a move that handed back rendered the delete
+ * copy, under a button that deleted the message.
  */
 export const Notice: Story = {
 	render: () => (
@@ -38,6 +38,15 @@ export const Notice: Story = {
 				settlement="delete_failed"
 				onRetry={() => undefined}
 				retryPending
+				reportHref={reportHref}
+			/>
+			<MessageSettlementNotice
+				settlement="move_failed"
+				action={
+					<button type="button" className="font-medium text-accent">
+						Move again
+					</button>
+				}
 				reportHref={reportHref}
 			/>
 		</div>
@@ -64,6 +73,7 @@ export const Badge: Story = {
 	render: () => (
 		<div className="flex items-center gap-2">
 			<MessageSettlementBadge settlement="delete_failed" />
+			<MessageSettlementBadge settlement="move_failed" />
 		</div>
 	),
 };

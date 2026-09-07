@@ -481,6 +481,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 					uid: 10,
 					status: "active",
 					syncStatus: "synced",
+					abandonedMutation: "none",
 				},
 			],
 			"the row goes back to the source pair, which is the set the rebuild adjudicates",
@@ -537,6 +538,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			uid: 10,
 			status: "active",
 			syncStatus: "abandoned",
+			abandonedMutation: "move",
 		});
 		assert.equal(
 			logLines.filter(
@@ -611,6 +613,7 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			uid: 10,
 			status: "active",
 			syncStatus: "synced",
+			abandonedMutation: "none",
 		});
 	});
 

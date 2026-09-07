@@ -80,6 +80,7 @@ const describeMessage: RemitImapDescribeMessageResponse = {
 		internalDate: 1_767_225_600_000,
 		status: "active",
 		syncStatus: "pending",
+		abandonedMutation: "none",
 	},
 	envelope: {
 		messageId: MESSAGE_ID,

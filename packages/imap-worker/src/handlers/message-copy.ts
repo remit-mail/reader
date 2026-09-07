@@ -1,6 +1,10 @@
 import { getClient } from "@remit/backend/client";
 import { isNotFoundError } from "@remit/data-ports/errors";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
@@ -293,10 +297,20 @@ export const handleMessageCopy = async (
 			// that turns out to be there. Silence buys the safer half of one pair
 			// and the worse half of the other.
 			const settleBroken = async (reason: string): Promise<void> => {
-				await messageService.update(newMessageId, {
-					status: MessageStatus.deleted,
-					syncStatus: MessageSyncStatus.abandoned,
-				});
+				// A transition, not a plain update (imap-mutations R3): the copy row
+				// is only this handler's to settle while its own placement is still
+				// unsettled. The row it leaves is `deleted`, so no listing carries it
+				// and the marker is read by nothing — it is written anyway, because a
+				// give-up that does not name itself is the gap #1229 came from.
+				await messageService.transitionPlacement(
+					newMessageId,
+					{ status: MessageStatus.moving },
+					{
+						status: MessageStatus.deleted,
+						syncStatus: MessageSyncStatus.abandoned,
+						abandonedMutation: MessageMutation.copy,
+					},
+				);
 				log.error(
 					{
 						alert: "message_copy_unconfirmed",
@@ -495,10 +509,15 @@ export const handleMessageCopy = async (
 							{ sourceMessageId, uid },
 							"Source message not found on IMAP, marking copy as failed",
 						);
-						await messageService.update(newMessageId, {
-							status: MessageStatus.deleted,
-							syncStatus: MessageSyncStatus.abandoned,
-						});
+						await messageService.transitionPlacement(
+							newMessageId,
+							{ status: MessageStatus.moving },
+							{
+								status: MessageStatus.deleted,
+								syncStatus: MessageSyncStatus.abandoned,
+								abandonedMutation: MessageMutation.copy,
+							},
+						);
 						return;
 					}
 

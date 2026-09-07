@@ -26,6 +26,7 @@ function threadMessage(
 		senderTrust: "unknown",
 		status: "active",
 		syncStatus: "pending",
+		abandonedMutation: "none",
 		muted: false,
 		createdAt: 0,
 		updatedAt: 0,

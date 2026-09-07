@@ -257,22 +257,14 @@ export const handleEmptyTrash = async (
 						return;
 					}
 
-					const uids = await connection.search(["ALL"]);
-
-					if (uids.length > 0) {
-						await connection.deleteMessages(uids);
-						log.info(
-							{ count: uids.length },
-							"Deleted messages from IMAP trash",
-						);
-					}
-
-					// Local cleanup follows the expunge, uid by uid. What was expunged
-					// is a fact this connection observed, and only those rows go.
-					const expunged = new Set(uids);
-					const localMessages =
-						await messageService.listAllByMailbox(trashMailboxId);
-
+					// One read, before the expunge, decides both what is destroyed on
+					// the server and what is removed locally — so the two sets are the
+					// same set by construction and no message can be expunged that the
+					// sweep then declines to remove (issue #1230). Reading afterwards
+					// put the exclusion downstream of the destruction: a refused row
+					// had already lost its server copy, could not be refused into
+					// existence again, and nothing routine repaired it.
+					//
 					// Reconciles, never waits (imap-mutations R2). A row whose move
 					// into Trash has not settled names this folder while still
 					// carrying the SOURCE folder's uid, so matching it against the
@@ -290,7 +282,31 @@ export const handleEmptyTrash = async (
 					// `carriesForeignUid`, not the placement binding: the binding reads
 					// `status`, and `status` is exactly what an operation marking this
 					// folder overwrites. This is the same predicate `emptyTrash`
-					// applies before it marks anything — one gate, one answer.
+					// applies before it marks anything — one gate, one answer, now
+					// asked once and honoured on both sides of the expunge.
+					const localMessages =
+						await messageService.listAllByMailbox(trashMailboxId);
+					const refusedUids = new Set(
+						localMessages
+							.filter((message) => carriesForeignUid(message))
+							.map((message) => message.uid),
+					);
+
+					const uids = (await connection.search(["ALL"])).filter(
+						(uid) => !refusedUids.has(uid),
+					);
+
+					if (uids.length > 0) {
+						await connection.deleteMessages(uids);
+						log.info(
+							{ count: uids.length, refused: refusedUids.size },
+							"Deleted messages from IMAP trash",
+						);
+					}
+
+					// What was expunged is a fact this connection observed, and only
+					// those rows go.
+					const expunged = new Set(uids);
 					const swept = localMessages.filter(
 						(message) =>
 							!carriesForeignUid(message) && expunged.has(message.uid),

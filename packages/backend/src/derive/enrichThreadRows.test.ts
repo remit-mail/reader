@@ -284,6 +284,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			true,
 		);
@@ -300,6 +301,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			false,
 		);
@@ -324,6 +326,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			false,
 		);

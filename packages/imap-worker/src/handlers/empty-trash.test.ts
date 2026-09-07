@@ -90,6 +90,25 @@ const retryingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
 	syncStatus: "failed",
 });
 
+/**
+ * A row whose move into Trash SETTLED, on a database written before #1217
+ * taught `updateUid` to clear `originalUid`. Two folders count uids
+ * independently, so Trash handing back the source's own number is ordinary —
+ * and the pair it leaves is indistinguishable from a move still in flight.
+ */
+const settledWithStaleOriginalUid = (
+	messageId: string,
+	uid: number,
+): LocalMessage => ({
+	messageId,
+	uid,
+	status: "deleting",
+	syncStatus: "pending",
+	mailboxId: "trash-mbx",
+	originalMailboxId: "inbox-mbx",
+	originalUid: uid,
+});
+
 /** The same row after an empty marked the folder, `status` overwritten. */
 const markedMidMove = (messageId: string, uid: number): LocalMessage => ({
 	...movingIntoTrash(messageId, uid),
@@ -552,6 +571,46 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			mailboxId: "trash-mbx",
 			uid: 11,
 		});
+	});
+
+	// Issue #1230. The exclusion used to run after `deleteMessages`, so a row
+	// the sweep refused had already lost its server copy: mail that no longer
+	// exists, visible in Trash, with nothing able to clear it — pressing Empty
+	// Trash again skips it too, because the server no longer lists the uid.
+	it("never expunges a uid whose row it will refuse to remove", async () => {
+		h.localMessages = [
+			deleting("msg-1", 10),
+			settledWithStaleOriginalUid("msg-stale", 11),
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.deepEqual(
+			called("connection.deleteMessages")[0]?.args,
+			[[10]],
+			"uid 11 survives on the server, because its row survives locally",
+		);
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
+		assert.deepEqual(
+			revertedMessageIds(),
+			["msg-stale"],
+			"and the refused row is handed back rather than left marked",
+		);
+	});
+
+	it("issues no expunge at all when every uid in the folder is refused", async () => {
+		h.localMessages = [
+			settledWithStaleOriginalUid("msg-stale-a", 10),
+			settledWithStaleOriginalUid("msg-stale-b", 11),
+		];
+
+		await handleEmptyTrash(event, noopLog, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.equal(called("message.delete").length, 0);
 	});
 
 	it("sweeps a settled row whose Trash uid matches the one it left behind", async () => {

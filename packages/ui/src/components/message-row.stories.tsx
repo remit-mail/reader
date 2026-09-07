@@ -165,7 +165,19 @@ const deleteFailedWithLabels: ThreadRowData = {
 	labels: [{ labelId: "l1", name: "Receipts", color: "Blue" }],
 };
 
-const unsettled = [deleteFailed, deleteFailedWithLabels, read];
+const moveFailed: ThreadRowData = {
+	id: "r-move-failed",
+	accountId: "a1",
+	fromName: "Wren Adeyemi",
+	fromEmail: "wren@example.com",
+	subject: "Q3 filing, countersigned",
+	snippet: "Filed here; Remit stopped trying to finish the move on the server.",
+	timeLabel: "Fri",
+	isRead: false,
+	settlement: "move_failed",
+};
+
+const unsettled = [deleteFailed, deleteFailedWithLabels, moveFailed, read];
 
 const labeled = [noLabel, oneLabel, twoLabels, severalLabels, longLabelName];
 

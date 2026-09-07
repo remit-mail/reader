@@ -519,7 +519,16 @@ const called = (method: string): Call[] =>
 const restoredToSource = (syncStatus: string): unknown[] => [
 	"msg-1",
 	{ status: ["moving", "deleting"] },
-	{ mailboxId: "src-mbx", uid: 10, status: "active", syncStatus },
+	{
+		mailboxId: "src-mbx",
+		uid: 10,
+		status: "active",
+		syncStatus,
+		// A give-up names the mutation it gave up on, so the reading pane can
+		// offer the way out for THAT one (#1229). `none` rides along with every
+		// other sync status, so the field never outlives its gate.
+		abandonedMutation: syncStatus === "abandoned" ? "delete" : "none",
+	},
 ];
 
 // Label order in the rendered text is prom-client's, not ours.
