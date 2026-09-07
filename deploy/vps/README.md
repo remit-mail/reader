@@ -68,7 +68,7 @@ remit doctor              # whether anything is wrong; non-zero when it is
 remit logs [service…]     # follow the logs
 remit restart             # apply an edit to .env
 remit update              # install the current release, atomically
-remit update --check      # what is available, changing nothing
+remit update --check      # what is available, changing nothing (stack must be up)
 remit down                # stop serving; remit restart brings it back
 remit semantic            # whether semantic search is on, and how
 remit semantic on         # turn it on (downloads a model image; see Search)
@@ -455,6 +455,11 @@ remit update --recover          # finish an update that was interrupted
 The app path goes through the `updater` container, which watches a private
 volume the app writes a version string onto and runs this same `remit`. Every
 image reference comes from the manifest the updater fetches itself.
+
+`--check` at a shell goes through that container too. Its answer is kept on the
+updater's volumes — the same ones `remit status` and the app read — so a check
+run beside `.env` would report success and change nothing anyone looks at. The
+stack has to be up for it; `remit update --check` says so when it is not.
 
 The updater also checks the manifest on its own, once at startup and every six
 hours after. Override the cadence with `REMIT_UPDATE_CHECK_INTERVAL` (seconds);

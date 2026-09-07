@@ -2666,6 +2666,16 @@ describe("remit status from a host shell, with a stale record beside .env", () =
 		assert.match(status.stdout, /Update:\s+rollbackFailed/);
 		assert.match(status.stdout, /up to date \(v0\.2\.0/);
 	});
+
+	// A daemon that answers nothing is not a box without a volume. Reading it
+	// that way renders the stale directory copy as the current record, which is
+	// the reader#573 wrong answer with the daemon as its cause.
+	it("says the record is unknown when the daemon does not answer", () => {
+		const status = box({ updater_volume: "unreachable" }).run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Updates:\s+unknown/);
+		assert.ok(!status.stdout.includes("rollbackFailed"), status.stdout);
+	});
 });
 
 // reader#1158. A check run in the operator's shell writes check.json and
@@ -2748,6 +2758,39 @@ describe("remit update --check from a host shell", () => {
 			readFileSync(join(b.deployment, ".update", "check.json"), "utf8"),
 		);
 		assert.equal(check.latestVersion, "v1.5.0");
+	});
+
+	// A daemon that did not answer has not said this box has no updater volume,
+	// and taking the failure for that answer is how a check reports success and
+	// writes where nothing reads (reader#573).
+	it("stops rather than guess where the answer goes when the daemon is silent", () => {
+		const b = box({ updater_volume: "unreachable" });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the docker daemon did not answer/);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+	});
+
+	// `compose exec` does not run an entrypoint, so what the delegated wrapper
+	// knows about its own container is what the image set. The helper image is
+	// the one thing it has to get right: alpine reaches the schema read only
+	// through an apk install over the network, and on a box without that route
+	// the read fails, currentSchemaVersion is cleared, and the app renders a
+	// blank until the six-hourly cadence writes over it.
+	it("runs its helpers off the updater image rather than alpine", () => {
+		const b = box({ current_schema: "8" });
+		assert.equal(b.run(["update", "--check"]).status, 0);
+		assert.match(
+			b.log(),
+			/^run schema-read image=ghcr\.io\/remit-mail\/reader\/updater:v1\.0\.0$/m,
+		);
+		const state = JSON.parse(
+			readFileSync(join(b.updaterControl, "state.json"), "utf8"),
+		);
+		assert.equal(state.currentSchemaVersion, 8);
 	});
 });
 
