@@ -7,7 +7,10 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
-import { shippedTableDdl } from "../test-shipped-sqlite-schema.js";
+import {
+	applyMigration,
+	shippedTableDdl,
+} from "../test-shipped-sqlite-schema.js";
 import {
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -197,6 +200,9 @@ describe("addresses standing only on mail in Junk", () => {
 		]) {
 			sqlite.exec(shippedTableDdl(DDL_TAG, table));
 		}
+		// `mailbox` is read through the repo, which selects every column the
+		// entity declares — including the rename target added after this DDL.
+		applyMigration(sqlite, "0028_mailbox_pending_path");
 		sqlite.exec(
 			readFileSync(
 				new URL(

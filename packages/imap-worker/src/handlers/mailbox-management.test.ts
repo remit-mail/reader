@@ -42,6 +42,7 @@ interface Harness {
 	} | null;
 	connection: Connection;
 	mailboxUpdateError?: Error;
+	mailboxRowGone?: boolean;
 	disconnectCount: number;
 }
 
@@ -96,6 +97,13 @@ const deps = (): MailboxManagementDeps =>
 					h.calls.push({ method: "mailbox.update", args });
 					if (h.mailboxUpdateError) throw h.mailboxUpdateError;
 				},
+				// The conditional write the folder state now goes through: a row
+				// that is gone matches nothing, so the loser gets a null rather
+				// than a throw and the handler raises the NotFoundError itself.
+				transition: async (...args: unknown[]) => {
+					h.calls.push({ method: "mailbox.transition", args });
+					return h.mailboxRowGone ? null : {};
+				},
 				findByPathPrefix: async (...args: unknown[]) => {
 					h.calls.push({ method: "mailbox.findByPathPrefix", args });
 					return [];
@@ -147,6 +155,12 @@ const called = (method: string): Call[] =>
 const lastUpdate = (): Record<string, unknown> =>
 	(called("mailbox.update").at(-1)?.args[2] ?? {}) as Record<string, unknown>;
 
+const lastSettle = (): { to?: string; set?: Record<string, unknown> } =>
+	(called("mailbox.transition").at(-1)?.args[2] ?? {}) as {
+		to?: string;
+		set?: Record<string, unknown>;
+	};
+
 describe("processMailboxManagement — MAILBOX_CREATE", () => {
 	beforeEach(() => {
 		h = fresh();
@@ -160,8 +174,8 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 			uidValidity: 7,
 			uidNext: 42,
 			messageCount: 3,
-			syncStatus: "synced",
 		});
+		assert.equal(lastSettle().to, "synced");
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
 
@@ -183,7 +197,8 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 
 		await processMailboxManagement(createEvent, noopLogger, deps());
 
-		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
+		assert.equal(called("mailbox.update").length, 0);
+		assert.equal(lastSettle().to, "synced");
 	});
 
 	it("treats an already-existing folder as success rather than a failure", async () => {
@@ -193,7 +208,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 
 		await processMailboxManagement(createEvent, noopLogger, deps());
 
-		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
+		assert.equal(lastSettle().to, "synced");
 	});
 
 	it("marks the mailbox failed and rethrows on any other create error", async () => {
@@ -206,14 +221,14 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 			/server exploded/,
 		);
 
-		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+		assert.equal(lastSettle().to, "failed");
 		assert.equal(h.disconnectCount, 1);
 	});
 
 	it("acks terminally without rethrowing when the mailbox row was deleted mid-create (#289)", async () => {
-		// The status write-back throws NotFoundError because the row is gone; the
-		// create is moot and must not poison the account's FIFO.
-		h.mailboxUpdateError = notFoundError();
+		// The settle matches no row because the row is gone; the create is moot
+		// and must not poison the account's FIFO.
+		h.mailboxRowGone = true;
 
 		await processMailboxManagement(createEvent, noopLogger, deps());
 
@@ -247,17 +262,14 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		h = fresh();
 	});
 
-	it("renames on the server and clears the pending oldPath", async () => {
+	it("renames on the server and settles the row", async () => {
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.deepEqual(called("connection.renameMailbox")[0]?.args, [
 			"Archive",
 			"Archive 2024",
 		]);
-		assert.deepEqual(lastUpdate(), {
-			oldPath: undefined,
-			syncStatus: "synced",
-		});
+		assert.equal(lastSettle().to, "synced");
 	});
 
 	it("drops the local row when the source folder is gone on the server", async () => {
@@ -268,14 +280,14 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
-		assert.equal(called("mailbox.update").length, 0);
+		assert.equal(called("mailbox.transition").length, 0);
 	});
 
 	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
 		h.connection.renameMailbox = async () => {
 			throw new Error("server exploded");
 		};
-		h.mailboxUpdateError = notFoundError();
+		h.mailboxRowGone = true;
 
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
@@ -292,11 +304,8 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 			/server exploded/,
 		);
 
-		assert.deepEqual(lastUpdate(), {
-			fullPath: "Archive",
-			oldPath: undefined,
-			syncStatus: "failed",
-		});
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(lastSettle().set?.fullPath, "Archive");
 	});
 });
 
@@ -329,7 +338,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
-		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
+		assert.equal(lastSettle().to, "synced");
 		assert.equal(called("mailbox.delete").length, 0);
 	});
 
@@ -343,14 +352,14 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 			/server exploded/,
 		);
 
-		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+		assert.equal(lastSettle().to, "failed");
 	});
 
 	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
 		h.connection.deleteMailbox = async () => {
 			throw new Error("server exploded");
 		};
-		h.mailboxUpdateError = notFoundError();
+		h.mailboxRowGone = true;
 
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
@@ -381,7 +390,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 			processMailboxManagement(deleteEvent, noopLogger, deps()),
 		);
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
-		assert.equal(called("mailbox.update").length, 0);
+		assert.equal(called("mailbox.transition").length, 0);
 	});
 
 	it("still marks failed and rethrows when the server fails for any other reason", async () => {
@@ -396,7 +405,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 			processMailboxManagement(deleteEvent, noopLogger, deps()),
 			/Command failed/,
 		);
-		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+		assert.equal(lastSettle().to, "failed");
 	});
 
 	/**
@@ -416,7 +425,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		await assert.doesNotReject(
 			processMailboxManagement(createEvent, noopLogger, deps()),
 		);
-		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
+		assert.equal(lastSettle().to, "synced");
 	});
 
 	it("still marks failed and rethrows when a CREATE fails for any other reason", async () => {
@@ -431,7 +440,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 			processMailboxManagement(createEvent, noopLogger, deps()),
 			/Command failed/,
 		);
-		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
+		assert.equal(lastSettle().to, "failed");
 	});
 
 	it("reads NONEXISTENT on a RENAME as the source folder being gone", async () => {
@@ -460,6 +469,6 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 			processMailboxManagement(renameEvent, noopLogger, deps()),
 			/Command failed/,
 		);
-		assert.equal(lastUpdate()?.syncStatus, "failed");
+		assert.equal(lastSettle().to, "failed");
 	});
 });
