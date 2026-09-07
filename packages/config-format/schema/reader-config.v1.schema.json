@@ -795,32 +795,11 @@
 				},
 				"density": {
 					"type": "string"
-				},
-				"savedSearches": {
-					"type": "array",
-					"items": {
-						"type": "object",
-						"properties": {
-							"name": {
-								"type": "string",
-								"minLength": 1
-							},
-							"query": {
-								"type": "string"
-							}
-						},
-						"required": [
-							"name",
-							"query"
-						],
-						"additionalProperties": false
-					}
 				}
 			},
 			"required": [
 				"theme",
-				"density",
-				"savedSearches"
+				"density"
 			],
 			"additionalProperties": false
 		},

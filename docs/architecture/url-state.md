@@ -26,7 +26,7 @@ If it is in the path it is not in the query, and anything derivable from the pat
 
 ## R5. Path for exclusive state, blob for the last mile
 
-Anything mutually exclusive is a path segment, because sibling routes cannot both match. Fine-grained sub-state that genuinely combines may travel as a zod-validated JSON blob in the query, such as a saved search's filter set. The blob never names the surface on screen; the moment it decides what gets mounted, the arbiter is back.
+Anything mutually exclusive is a path segment, because sibling routes cannot both match. Fine-grained sub-state that genuinely combines may travel as a zod-validated JSON blob in the query, such as a list view's filter set. The blob never names the surface on screen; the moment it decides what gets mounted, the arbiter is back.
 
 ## R6. A transient selection is never URL state
 

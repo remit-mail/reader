@@ -249,8 +249,7 @@ test("the document schema refuses an unknown top-level section", () => {
 	const source = readGoldenConfigDocument() as Record<string, unknown>;
 
 	assert.equal(
-		ReaderConfigDocumentSchema.safeParse({ ...source, savedSearches: [] })
-			.success,
+		ReaderConfigDocumentSchema.safeParse({ ...source, signatures: [] }).success,
 		false,
 	);
 });

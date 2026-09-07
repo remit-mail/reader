@@ -162,8 +162,7 @@
 	],
 	"clientPreferences": {
 		"theme": "dark",
-		"density": "comfortable",
-		"savedSearches": [{ "name": "Unpaid invoices", "query": "label:Facturen is:unread" }]
+		"density": "comfortable"
 	},
 	"messageDecisions": []
 }
