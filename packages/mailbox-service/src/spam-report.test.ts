@@ -180,20 +180,19 @@ const buildWorld = (
 			patch: Record<string, unknown>,
 		) => {
 			const m = messages.get(id);
-			if (m) Object.assign(m, patch);
+			if (!m) return undefined;
+			for (const [field, value] of Object.entries(patch)) {
+				if (value === null) {
+					delete m[field as keyof typeof m];
+					continue;
+				}
+				Object.assign(m, { [field]: value });
+			}
 			return m;
 		},
 		clearSpamReport: async (id: string) => {
 			const m = messages.get(id);
 			if (m) delete m.spamReport;
-			return m;
-		},
-		clearOriginalMailboxId: async (id: string) => {
-			const m = messages.get(id);
-			if (m) {
-				delete m.originalMailboxId;
-				delete m.originalUid;
-			}
 			return m;
 		},
 	} as unknown as IMessageRepository;

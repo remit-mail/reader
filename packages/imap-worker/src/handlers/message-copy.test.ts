@@ -522,6 +522,24 @@ describe("handleMessageCopy", () => {
 		assert.equal(called("createMailbox").length, 0);
 	});
 
+	// The guard asks whether THIS copy is still outstanding, not whether anything
+	// is. A row a delete has claimed is `deleting`, and reading that as unsettled
+	// let a redelivery COPY the message a second time — COPY has no source-side
+	// effect to make that a no-op, so the duplicate is permanent.
+	it("skips a redelivered copy whose row a delete has claimed", async () => {
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			return { uidMap: new Map([[10, 20]]) };
+		};
+		h.copyRow = { ...unsettledCopyRow(), status: "deleting" };
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(copies, 0, "no second copy is issued");
+		assert.equal(called("message.updateUid").length, 0);
+	});
+
 	it("marks failed and rethrows on an unclassified IMAP error within the budget", async () => {
 		h.connection.copyMessages = async () => {
 			throw new Error("server exploded");
@@ -532,11 +550,12 @@ describe("handleMessageCopy", () => {
 			/server exploded/,
 		);
 
-		const update = called("message.update")[0];
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
-		);
+		// The attempt marker is a transition too, predicated on this copy still
+		// being outstanding: a row another mutation has claimed keeps its own
+		// placement rather than picking up this attempt's failure.
+		const [marker] = called("message.transitionPlacement");
+		assert.deepEqual(marker?.args[1], { status: "moving" });
+		assert.deepEqual(marker?.args[2], { syncStatus: "failed" });
 	});
 
 	it("settles on the destination UID instead of dead-lettering the last attempt", async () => {

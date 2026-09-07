@@ -167,11 +167,30 @@ export class PlacementMoveService {
 		// to the settled row (docs/architecture/imap-mutations.md R2). Blocking is
 		// cheap — a move settles in well under a second — and on timeout the
 		// dependent write is simply not made.
+		// A delete in flight is not a move to wait out: the user has asked for the
+		// message to go, and a classification filing behind it has nothing left to
+		// file. Skipping is the answer, and it is a clean one — throwing would
+		// burn the ceiling and then drive an ordinary sequence toward the DLQ.
+		if (message.status === MessageStatus.deleting) {
+			this.log.info(
+				{ messageId, accountId, destinationMailboxId },
+				"Placement move not applied: this message is being deleted",
+			);
+			return;
+		}
+
 		if (isPlacementUnsettled(message)) {
 			message = await waitForPlacementToSettle(this.messageService, messageId, {
 				timeoutMs: this.moveSettleTimeoutMs,
 				pollMs: this.moveSettlePollMs,
 			});
+			if (message.status === MessageStatus.deleting) {
+				this.log.info(
+					{ messageId, accountId, destinationMailboxId },
+					"Placement move not applied: a delete claimed this message while the earlier move settled",
+				);
+				return;
+			}
 			if (isPlacementUnsettled(message)) {
 				throw new Error(
 					`Placement move for ${messageId} to ${destinationMailboxId} not applied: an earlier move has not settled`,
@@ -199,22 +218,22 @@ export class PlacementMoveService {
 			destinationMailboxId,
 		});
 
-		await this.updateThreadMessageMailbox(
-			accountConfigId,
-			messageId,
-			destinationMailboxId,
-		);
-
-		// A transition off the row the wait above settled on (imap-mutations R3).
-		// This lane rides a standard queue that the account's FIFO group does not
-		// order, so a user's own move or delete can claim the row between that
-		// read and this write; writing anyway would stamp Remit's classification
-		// over a folder the user just chose, with the old uid attached.
+		// The Message row first, the listing row after it — the order the user
+		// move and the delete already use. A transition off the row the wait above
+		// settled on (imap-mutations R3): this lane rides a standard queue that
+		// the account's FIFO group does not order, so a user's own move or delete
+		// can claim the row between that read and this write, and writing anyway
+		// would stamp Remit's classification over a folder the user just chose,
+		// with the old uid attached.
 		//
-		// The marker goes with it. It is the record that a move owes IMAP a push,
-		// and this move is not happening, so leaving it would send the reconciler
-		// after a placement nobody wrote and would inflate the folder counts it
-		// predicts.
+		// Writing the listing row first meant a loser left the two disagreeing —
+		// the listing showing the classification folder while the Message row sat
+		// where the winner put it — and nothing routine reconciles that.
+		//
+		// The marker goes with the loss. It is the record that a move owes IMAP a
+		// push, and this move is not happening, so leaving it would send the
+		// reconciler after a placement nobody wrote and would inflate the folder
+		// counts it predicts.
 		const filed = await this.messageService.transitionPlacement(
 			messageId,
 			{
@@ -239,6 +258,12 @@ export class PlacementMoveService {
 			);
 			return;
 		}
+
+		await this.updateThreadMessageMailbox(
+			accountConfigId,
+			messageId,
+			destinationMailboxId,
+		);
 
 		await this.addressService.reconcileJunkOnlyForMessage(
 			messageId,

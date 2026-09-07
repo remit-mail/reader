@@ -130,6 +130,19 @@ const buildWorld = () => {
 			if (m) Object.assign(m, patch);
 			return m;
 		},
+		transitionPlacement: async (
+			id: string,
+			expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
+			const m = messages.get(id) as Record<string, unknown> | undefined;
+			if (!m) return undefined;
+			for (const [field, want] of Object.entries(expected)) {
+				if (want !== undefined && m[field] !== want) return undefined;
+			}
+			Object.assign(m, patch);
+			return m;
+		},
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {

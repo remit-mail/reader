@@ -898,7 +898,7 @@ export const MessageBulkOperations: Record<
 		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(
+		const { refusedMessageIds } = await client.messageMove.deleteMessages(
 			accountConfigId,
 			messageIds,
 			accountId,
@@ -907,9 +907,14 @@ export const MessageBulkOperations: Record<
 			},
 		);
 
+		// A row whose placement changed under the batch is reported, not dropped.
+		// The response already carries per-row counts, which is the honest shape
+		// for a batch that partly applied — a 409 over it would deny the deletes
+		// that did happen, and silence leaves the client's optimistic removal to
+		// reappear with nothing said (imap-mutations R3).
 		return {
-			successCount: messageIds.length,
-			failureCount: 0,
+			successCount: messageIds.length - refusedMessageIds.length,
+			failureCount: refusedMessageIds.length,
 		};
 	},
 

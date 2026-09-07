@@ -39,11 +39,6 @@ export function MessageSettlementAlert({
 	accountId: string | undefined;
 	className?: string;
 }) {
-	const { accountId: mailboxAccountId } = useMailboxAccount(
-		accountId ? undefined : threadMessage.mailboxId,
-	);
-	const scopedAccountId = accountId ?? mailboxAccountId;
-
 	const abandoned = abandonedMutationOf(threadMessage);
 	const settlement =
 		abandoned === MessageMutation.delete
@@ -51,6 +46,17 @@ export function MessageSettlementAlert({
 			: abandoned === MessageMutation.move
 				? ("move_failed" as const)
 				: undefined;
+
+	// Only a move that gave up, and only where the caller has no account of its
+	// own, has anything to resolve — so every other row subscribes to nothing.
+	// Asking unconditionally would pull `/config` and every account's mailbox
+	// list into each expanded message, for a case almost none of them are.
+	const { accountId: mailboxAccountId } = useMailboxAccount(
+		settlement === "move_failed" && !accountId
+			? threadMessage.mailboxId
+			: undefined,
+	);
+	const scopedAccountId = accountId ?? mailboxAccountId;
 
 	const { deleteMessages, isPending: isDeleting } = useDeleteMessages({
 		mailboxId: threadMessage.mailboxId,

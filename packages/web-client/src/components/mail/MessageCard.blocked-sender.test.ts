@@ -160,6 +160,13 @@ const mount = async (flags: RemitImapAddressFlags): Promise<DomHarness> => {
 		if (call.path.endsWith(`/messages/${MESSAGE_ID}`)) {
 			return describeMessage(flags);
 		}
+		// `/config` answers its own shape. `accounts` is required by the contract,
+		// so a mock that hands back `{items: []}` for it is a body the API cannot
+		// produce, and anything reading it faithfully throws on a fixture rather
+		// than on a fault.
+		if (call.path.endsWith("/config")) {
+			return { accountConfig: {}, accounts: [] };
+		}
 		return { items: [] };
 	});
 

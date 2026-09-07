@@ -90,6 +90,8 @@ interface World {
 	row: Row;
 	events: CapturedEvent[];
 	writes: PlacementTransitionInput[];
+	/** Destination folders the listing row was actually moved to. */
+	threadMoves: string[];
 	/** Stand in for the push settling the row onto Archive with Archive's uid. */
 	settleElsewhere: () => void;
 	messageService: IMessageRepository;
@@ -104,7 +106,8 @@ const buildWorld = (onLookup?: (world: World) => void): World => {
 	const events: CapturedEvent[] = [];
 	const writes: PlacementTransitionInput[] = [];
 
-	const world = { row, events, writes } as World;
+	const threadMoves: string[] = [];
+	const world = { row, events, writes, threadMoves } as World;
 
 	world.settleElsewhere = () => {
 		row.mailboxId = ARCHIVE;
@@ -157,7 +160,13 @@ const buildWorld = (onLookup?: (world: World) => void): World => {
 			hasAttachment: false,
 		}),
 		findAllByMessageId: async () => [],
-		update: async () => {},
+		update: async (
+			_accountConfigId: string,
+			_threadMessageId: string,
+			patch: { mailboxId?: string },
+		) => {
+			if (patch.mailboxId) threadMoves.push(patch.mailboxId);
+		},
 	} as unknown as IThreadMessageRepository;
 
 	// Every writer resolves folders between reading the row and writing it, so
@@ -274,8 +283,17 @@ describe("a delete writes only against the placement it read (R3)", () => {
 		});
 		const service = buildMoveService(world);
 
-		await service.deleteMessages(ACCOUNT_CONFIG, [MESSAGE_ID], ACCOUNT);
+		const { refusedMessageIds } = await service.deleteMessages(
+			ACCOUNT_CONFIG,
+			[MESSAGE_ID],
+			ACCOUNT,
+		);
 
+		assert.deepEqual(
+			refusedMessageIds,
+			[MESSAGE_ID],
+			"the caller is told which rows this delete never claimed",
+		);
 		assert.deepEqual(world.writes, [], "no placement was written");
 		assert.deepEqual(
 			world.events,
@@ -287,13 +305,72 @@ describe("a delete writes only against the placement it read (R3)", () => {
 	});
 });
 
+describe("a permanent delete writes only against the placement it read (R3)", () => {
+	// The row is already in Trash, so the batch takes the expunge path rather
+	// than the move-to-Trash one — a different writer, and the fourth of the
+	// four. Its event names one uid in one folder, so a row that has moved since
+	// the read must not be marked for it: a restore out of Trash settling in
+	// between was overwritten with `deleting`, and the expunge went after the
+	// uid Trash no longer holds.
+	const inTrash = (world: World): void => {
+		world.row.mailboxId = TRASH;
+	};
+
+	it("marks the message when nothing else touched the row", async () => {
+		const world = buildWorld();
+		inTrash(world);
+		const service = buildMoveService(world);
+
+		const { refusedMessageIds } = await service.deleteMessages(
+			ACCOUNT_CONFIG,
+			[MESSAGE_ID],
+			ACCOUNT,
+			{ permanent: true },
+		);
+
+		assert.deepEqual(refusedMessageIds, []);
+		assert.equal(world.row.status, "deleting");
+		assert.equal(world.events.length, 1);
+	});
+
+	it("reports the message, and enqueues nothing, when the row settles elsewhere", async () => {
+		let settled = false;
+		const world = buildWorld((w) => {
+			if (settled) return;
+			settled = true;
+			w.settleElsewhere();
+		});
+		inTrash(world);
+		const service = buildMoveService(world);
+
+		const { refusedMessageIds } = await service.deleteMessages(
+			ACCOUNT_CONFIG,
+			[MESSAGE_ID],
+			ACCOUNT,
+			{ permanent: true },
+		);
+
+		// Reported, never silent: the client removed the row optimistically, and
+		// one that reappears with nothing said is a failure the user cannot act
+		// on — the same class as a button that does nothing (#1229).
+		assert.deepEqual(refusedMessageIds, [MESSAGE_ID]);
+		assert.deepEqual(world.writes, [], "no placement was written");
+		assert.deepEqual(world.events, [], "and no expunge was enqueued");
+		assert.equal(world.row.mailboxId, ARCHIVE);
+		assert.equal(world.row.status, "active");
+	});
+});
+
 describe("a classification filing writes only against the placement it read (R3)", () => {
-	const buildPlacementService = (world: World) => {
+	const buildPlacementService = (world: World, onPut?: () => void) => {
 		const markers = new Map<string, unknown>();
 		const pushed: string[] = [];
 		const markerService = {
 			find: async () => markers.get(MESSAGE_ID) ?? null,
+			// The last step between reading the row and writing it, so this is
+			// where a concurrent settle is staged.
 			put: async (input: Record<string, unknown>) => {
+				onPut?.();
 				const marker = { ...input, state: "pending", createdAt: Date.now() };
 				markers.set(MESSAGE_ID, marker);
 				return marker;
@@ -328,24 +405,33 @@ describe("a classification filing writes only against the placement it read (R3)
 		await service.moveMessage(ACCOUNT_CONFIG, MESSAGE_ID, JUNK, ACCOUNT);
 
 		assert.equal(world.row.mailboxId, JUNK);
+		assert.deepEqual(
+			world.threadMoves,
+			[JUNK],
+			"and the listing row follows the message it describes",
+		);
 		assert.deepEqual(pushed, [MESSAGE_ID]);
 		assert.ok(markers.get(MESSAGE_ID));
 	});
 
-	it("drops its marker and pushes nothing when the row settles elsewhere", async () => {
+	// The Message row is written first, so a loser leaves nothing behind. Moving
+	// the listing row ahead of the transition made the loser diverge instead: the
+	// listing showed the classification folder while the Message row sat where
+	// the winner put it, and nothing routine reconciles that.
+	it("leaves the listing row alone too when the row settles elsewhere", async () => {
 		const world = buildWorld();
-		const { service, markers, pushed } = buildPlacementService(world);
-
-		// The row settles between this call's read and its write. Nothing in the
-		// filing path opens a mailbox, so the settle is staged on the thread-row
-		// write that stands between the two.
-		world.threadMessageService.update = (async () => {
-			world.settleElsewhere();
-		}) as unknown as IThreadMessageRepository["update"];
+		const { service, markers, pushed } = buildPlacementService(world, () =>
+			world.settleElsewhere(),
+		);
 
 		await service.moveMessage(ACCOUNT_CONFIG, MESSAGE_ID, JUNK, ACCOUNT);
 
 		assert.deepEqual(world.writes, [], "no placement was written");
+		assert.deepEqual(
+			world.threadMoves,
+			[],
+			"and the listing row never claimed a folder the message is not in",
+		);
 		assert.deepEqual(pushed, [], "and no push was enqueued");
 		assert.equal(
 			markers.get(MESSAGE_ID),
@@ -353,5 +439,22 @@ describe("a classification filing writes only against the placement it read (R3)
 			"the marker goes with it: nothing owes IMAP this move",
 		);
 		assert.equal(world.row.mailboxId, ARCHIVE);
+	});
+
+	// A permanent delete has already claimed the row. Waiting the ceiling out and
+	// then throwing drove an ordinary sequence toward the DLQ; there is nothing
+	// left to file, so this skips.
+	it("skips a message a delete has claimed, rather than burning the ceiling", async () => {
+		const world = buildWorld();
+		world.row.status = "deleting";
+		const { service, markers, pushed } = buildPlacementService(world);
+
+		const startedAt = Date.now();
+		await service.moveMessage(ACCOUNT_CONFIG, MESSAGE_ID, JUNK, ACCOUNT);
+
+		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
+		assert.deepEqual(world.writes, []);
+		assert.deepEqual(pushed, []);
+		assert.equal(markers.get(MESSAGE_ID), undefined);
 	});
 });

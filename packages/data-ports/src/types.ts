@@ -402,8 +402,26 @@ export type CreateMessageInput = Omit<
 	movedByRemit?: MessageItem["movedByRemit"];
 };
 
+/**
+ * Everything about a message that is not its placement.
+ *
+ * The six placement fields are omitted rather than merely discouraged
+ * (docs/architecture/imap-mutations.md R3): where they are gone from the only
+ * general-purpose writer, a placement written without a predicate is a type
+ * error rather than a convention someone has to remember. `transitionPlacement`
+ * and the settle in `updateUid` are the two doors, and they are the whole set.
+ */
 export type UpdateMessageInput = Partial<
-	Omit<CreateMessageInput, "mailboxId" | "uid">
+	Omit<
+		CreateMessageInput,
+		| "mailboxId"
+		| "uid"
+		| "status"
+		| "syncStatus"
+		| "abandonedMutation"
+		| "originalMailboxId"
+		| "originalUid"
+	>
 >;
 
 /**

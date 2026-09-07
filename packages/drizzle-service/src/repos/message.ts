@@ -389,10 +389,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(input.bodyStorageKey !== undefined
 				? { bodyStorageKey: input.bodyStorageKey }
 				: {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
-				: {}),
 			...(input.category !== undefined ? { category: input.category } : {}),
 			...(input.classificationState !== undefined
 				? { classificationState: input.classificationState }
@@ -481,17 +477,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		await this.db
 			.update(messageTable)
 			.set({ spamReport: null, updatedAt: now })
-			.where(eq(messageTable.messageId, messageId));
-		return this.get(messageId);
-	}
-
-	async clearOriginalMailboxId(
-		messageId: string,
-	): ReturnType<IMessageRepository["clearOriginalMailboxId"]> {
-		const now = Date.now();
-		await this.db
-			.update(messageTable)
-			.set({ originalMailboxId: null, originalUid: null, updatedAt: now })
 			.where(eq(messageTable.messageId, messageId));
 		return this.get(messageId);
 	}

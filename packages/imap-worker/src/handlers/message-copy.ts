@@ -10,7 +10,6 @@ import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
-	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	reconcileStaleMessage,
 } from "@remit/mailbox-service";
@@ -151,7 +150,12 @@ export const handleMessageCopy = async (
 	// This copy already settled — `updateUid` cleared `status: moving` when the
 	// server confirmed it. A redelivery reaching here would COPY the message a
 	// second time, and COPY has no source-side effect to make that a no-op.
-	if (!isPlacementUnsettled(copyRow)) {
+	//
+	// `moving` specifically, not the shared unsettled predicate: the question is
+	// whether THIS copy is still outstanding, and a `deleting` row is somebody
+	// else's work — reading it as unsettled is what would let the second COPY
+	// through.
+	if (copyRow.status !== MessageStatus.moving) {
 		log.info(
 			{ accountId, newMessageId, uid: copyRow.uid, status: copyRow.status },
 			"Skipping MESSAGE_COPY: the copy already settled against confirmed IMAP state",
@@ -523,9 +527,11 @@ export const handleMessageCopy = async (
 						// Transient copy failure — expected (connections drop). Queue
 						// redelivery retries, and the probe above keeps the retry from
 						// copying the message twice.
-						await messageService.update(newMessageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							newMessageId,
+							{ status: MessageStatus.moving },
+							{ syncStatus: MessageSyncStatus.failed },
+						);
 						throw error;
 					}
 

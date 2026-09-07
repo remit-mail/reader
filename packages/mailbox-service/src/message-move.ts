@@ -41,6 +41,17 @@ import {
 } from "./placement-settled.js";
 
 /**
+ * What a delete batch did not claim. A row whose placement changed between the
+ * read that decided this delete and the mark that recorded it belongs to
+ * whoever changed it (docs/architecture/imap-mutations.md R3), so this delete
+ * leaves it alone — and says which, because the client removed it optimistically
+ * and a row that reappears unexplained is a failure the user cannot act on.
+ */
+export interface DeleteMessagesOutcome {
+	refusedMessageIds: string[];
+}
+
+/**
  * Event types for message move/delete operations.
  * These match the worker event types in remit-imap-worker/events.ts.
  */
@@ -288,9 +299,8 @@ export class MessageMoveService {
 		messageId: string,
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
-	): Promise<void> => {
-		await this.deleteMessages(accountConfigId, [messageId], accountId, options);
-	};
+	): Promise<DeleteMessagesOutcome> =>
+		this.deleteMessages(accountConfigId, [messageId], accountId, options);
 
 	/**
 	 * Delete multiple messages using batch operations.
@@ -305,12 +315,12 @@ export class MessageMoveService {
 		messageIds: string[],
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
-	): Promise<void> => {
-		if (messageIds.length === 0) return;
+	): Promise<DeleteMessagesOutcome> => {
+		if (messageIds.length === 0) return { refusedMessageIds: [] };
 
 		// Batch get all messages
 		const rows = await this.messageService.get(messageIds);
-		if (rows.length === 0) return;
+		if (rows.length === 0) return { refusedMessageIds: [] };
 
 		// Ahead of the Trash gates below, which compare `mailboxId` against the
 		// Trash folder: an in-flight move makes that comparison answer for a
@@ -381,16 +391,23 @@ export class MessageMoveService {
 		}
 
 		// Group messages by operation type
-		const moveToTrashMessages: Array<{
+		type DeleteEntry = {
 			messageId: string;
-			message: { mailboxId: string; uid: number };
+			message: {
+				mailboxId: string;
+				uid: number;
+				status: MessageItem["status"];
+			};
 			sourceMailbox: { mailboxId: string; fullPath: string };
-		}> = [];
-		const permanentDeleteMessages: Array<{
-			messageId: string;
-			message: { mailboxId: string; uid: number };
-			sourceMailbox: { mailboxId: string; fullPath: string };
-		}> = [];
+		};
+		const moveToTrashMessages: DeleteEntry[] = [];
+		const permanentDeleteMessages: DeleteEntry[] = [];
+
+		// Rows whose placement changed between the read above and the mark below,
+		// so this delete never claimed them. Reported rather than skipped in
+		// silence: the client removed them optimistically, and a row that
+		// reappears with nothing said is the dead-button failure again (#1229).
+		const refused: string[] = [];
 
 		for (const message of messages) {
 			const sourceMailbox = mailboxMap.get(message.mailboxId);
@@ -402,7 +419,11 @@ export class MessageMoveService {
 
 			const entry = {
 				messageId: message.messageId,
-				message: { mailboxId: message.mailboxId, uid: message.uid },
+				message: {
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+					status: message.status,
+				},
 				sourceMailbox: {
 					mailboxId: sourceMailbox.mailboxId,
 					fullPath: sourceMailbox.fullPath,
@@ -439,7 +460,7 @@ export class MessageMoveService {
 				const marked = await this.messageService.transitionPlacement(
 					messageId,
 					{
-						status: MessageStatus.active,
+						status: message.status,
 						mailboxId: message.mailboxId,
 						uid: message.uid,
 					},
@@ -453,9 +474,10 @@ export class MessageMoveService {
 					},
 				);
 				if (!marked) {
+					refused.push(messageId);
 					this.log.info(
 						{ accountId, messageId },
-						"Skipped delete: this message's placement changed after it was read",
+						"Refused delete: this message's placement changed after it was read",
 					);
 					continue;
 				}
@@ -504,11 +526,33 @@ export class MessageMoveService {
 			message,
 			sourceMailbox,
 		} of permanentDeleteMessages) {
-			// Update local state optimistically
-			await this.messageService.update(messageId, {
-				status: MessageStatus.deleting,
-				syncStatus: MessageSyncStatus.pending,
-			});
+			// A transition off the row this call read, like the trash path above
+			// (imap-mutations R3). The expunge below is aimed at a specific uid in
+			// a specific folder, so a row that has moved since the read must not be
+			// marked for it: a restore out of Trash settling in between would be
+			// overwritten with `deleting`, and the event would carry the uid Trash
+			// no longer holds.
+			const marked = await this.messageService.transitionPlacement(
+				messageId,
+				{
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.deleting,
+					syncStatus: MessageSyncStatus.pending,
+					abandonedMutation: MessageMutation.none,
+				},
+			);
+			if (!marked) {
+				refused.push(messageId);
+				this.log.info(
+					{ accountId, messageId },
+					"Refused permanent delete: this message's placement changed after it was read",
+				);
+				continue;
+			}
 
 			// Delete ThreadMessage rows up-front (one row per mailbox copy).
 			// The IMAP worker also deletes them once the IMAP DELETE succeeds —
@@ -540,6 +584,8 @@ export class MessageMoveService {
 
 		// Batch send events to SQS
 		await this.enqueueEventsBatch(events);
+
+		return { refusedMessageIds: refused };
 	};
 
 	/**

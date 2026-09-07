@@ -19,7 +19,6 @@ import {
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
-	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
@@ -213,11 +212,11 @@ export const handleMessageDelete = async (
 		return;
 	}
 
-	// This delete already settled — the same guard, and the same predicate,
-	// that MESSAGE_MOVE, MESSAGE_COPY and FLAG_PUSH carry. `deleting` is an
-	// in-flight state exactly as `moving` is (imap-mutations R3), so asking
-	// the shared question rather than `status === active` is what keeps a
-	// delete redelivered behind a move from reading its own work as finished.
+	// This delete already settled. The guard asks for the state THIS delete
+	// wrote, the way MESSAGE_MOVE and MESSAGE_COPY ask for theirs: a move to
+	// Trash records `moving`, a permanent delete records `deleting`, and a row
+	// in the other one is a different mutation's work that this handler must
+	// not read as its own to finish.
 	//
 	// Without it a lost SQS acknowledgement re-runs the delete against a uid
 	// the source no longer holds, exhausts, and lets the terminal resolver
@@ -225,16 +224,27 @@ export const handleMessageDelete = async (
 	// correct — taking spamReport, classificationState, category and the Undo
 	// target's `originalMailboxId` with them, none of which the resync
 	// re-projection can rebuild.
-	if (!isPlacementUnsettled(message)) {
+	// An operation this build does not recognise gets no verdict here: it falls
+	// through to `abandonDelete` below, which is the designed refusal. Skipping
+	// it as "already settled" would swallow the very event the refusal exists to
+	// report.
+	const outstandingStatus =
+		operation === "move_to_trash"
+			? MessageStatus.moving
+			: operation === "permanent_delete"
+				? MessageStatus.deleting
+				: undefined;
+	if (outstandingStatus !== undefined && message.status !== outstandingStatus) {
 		log.info(
 			{
 				accountId,
 				messageId,
 				operation,
 				uid: message.uid,
+				status: message.status,
 				syncStatus: message.syncStatus,
 			},
-			"Skipping MESSAGE_DELETE: the delete already settled against confirmed IMAP state",
+			"Skipping MESSAGE_DELETE: the row no longer carries the mutation this event was enqueued for",
 		);
 		return;
 	}
@@ -801,9 +811,11 @@ export const handleMessageDelete = async (
 						// Transient failure — connections drop. No alarm; redelivery
 						// retries, and `failed` marks the row unsettled meanwhile. It is
 						// not a terminal signal: only the resolver below settles anything.
-						await messageService.update(messageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							messageId,
+							{ status: [MessageStatus.moving, MessageStatus.deleting] },
+							{ syncStatus: MessageSyncStatus.failed },
+						);
 						throw error;
 					}
 

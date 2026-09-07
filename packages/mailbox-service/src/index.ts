@@ -193,6 +193,7 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	type DeleteMessagesOutcome,
 	type DeleteOptions,
 	type MessageMoveConfig,
 	type MessageMoveLogger,

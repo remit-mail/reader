@@ -26,7 +26,7 @@ import {
 
 const STALE_ORIGINAL_UID = "msg-stale-original-uid";
 const IN_FLIGHT = "msg-in-flight";
-const ABANDONED_DELETE = "msg-abandoned-delete";
+const GAVE_UP = "msg-gave-up";
 const RETRYING_DELETE = "msg-retrying-delete";
 
 /** The migration that clears a settled row's stale `original_uid`. */
@@ -102,14 +102,16 @@ describe("the placement backfills carry a pre-upgrade database forward", () => {
 			42,
 		);
 
-		// The pair the old `abandonDelete` wrote, and the client's whole signal
-		// for "Remit gave up on your delete".
+		// The pair a give-up wrote before this release. Two writers produced it —
+		// `abandonDelete` and the paused-cursor hand-back for an unproven MOVE —
+		// through the identical `restoreSourcePlacement` call, so the row cannot
+		// say which.
 		insert.run(
-			ABANDONED_DELETE,
+			GAVE_UP,
 			"mbx-inbox",
 			7,
-			`env-${ABANDONED_DELETE}`,
-			`bp-${ABANDONED_DELETE}`,
+			`env-${GAVE_UP}`,
+			`bp-${GAVE_UP}`,
 			"active",
 			"failed",
 			"mbx-inbox",
@@ -162,11 +164,21 @@ describe("the placement backfills carry a pre-upgrade database forward", () => {
 		assert.equal(rowFor(IN_FLIGHT).original_uid, 42);
 	});
 
-	test("an abandoned delete keeps its chip, on the value the client now reads", () => {
-		const row = rowFor(ABANDONED_DELETE);
+	test("a give-up keeps its chip, on the value the client now reads", () => {
+		const row = rowFor(GAVE_UP);
 		assert.equal(row.sync_status, "abandoned");
-		assert.equal(row.abandoned_mutation, "delete");
 		assert.equal(row.status, "active");
+	});
+
+	/**
+	 * The two pre-upgrade writers are indistinguishable in the row, so the
+	 * backfill has to pick one label for both. It picks the survivable mistake:
+	 * a wrongly-labelled move offers a folder picker the user can dismiss, while
+	 * a wrongly-labelled delete offers a button that destroys the message — the
+	 * #1229 defect, on a press the user believed was a repair.
+	 */
+	test("and is never labelled a delete, which would offer to destroy it", () => {
+		assert.equal(rowFor(GAVE_UP).abandoned_mutation, "move");
 	});
 
 	test("a delete mid-retry is left exactly as it was", () => {

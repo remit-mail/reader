@@ -98,11 +98,7 @@ export const RoleAppointmentPromptProvider = ({
 		meta: softErrorStatuses(409),
 	});
 
-	// `accounts` is optional-chained on the response, not just on `config`: a
-	// `/config` answer with no accounts array is a real shape — a partial or
-	// errored body — and it reaches here as a defined object, so guarding the
-	// wrapper alone throws on the read rather than rendering nothing.
-	const account = config?.accounts?.find((one) => one.accountId === accountId);
+	const account = config?.accounts.find((one) => one.accountId === accountId);
 	const mailboxes = useMemo(() => mailboxData?.items ?? [], [mailboxData]);
 	const appointments = useMemo(
 		() => account?.folderAppointments ?? [],

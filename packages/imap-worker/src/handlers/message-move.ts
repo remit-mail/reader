@@ -1,14 +1,17 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
-import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
-	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
@@ -323,7 +326,12 @@ export const handleMessageMove = async (
 	// "gone" as grounds to reconcile away a row that is correct. There is no
 	// marker to find missing (unlike FLAG_PUSH and PLACEMENT_MOVE_PUSH), so the
 	// row's own pending marker is what stands in for one.
-	if (!isPlacementUnsettled(message)) {
+	//
+	// `moving` specifically, not the shared unsettled predicate: the question is
+	// whether THIS move is still outstanding, and a row a delete has since
+	// claimed is `deleting` — work that belongs to MESSAGE_DELETE, and a state
+	// this move must not read as its own to finish.
+	if (message.status !== MessageStatus.moving) {
 		log.info(
 			{ accountId, messageId, uid: message.uid, status: message.status },
 			"Skipping MESSAGE_MOVE: the move already settled against confirmed IMAP state",
@@ -644,9 +652,11 @@ export const handleMessageMove = async (
 						// alarm; queue redelivery retries, and `failed` marks the row
 						// as unsettled meanwhile. It is not a terminal signal: only the
 						// resolver below settles anything.
-						await messageService.update(messageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							messageId,
+							{ status: MessageStatus.moving },
+							{ syncStatus: MessageSyncStatus.failed },
+						);
 						throw error;
 					}
 
