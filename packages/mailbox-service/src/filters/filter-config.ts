@@ -3,6 +3,7 @@ import type {
 	IFilterRepository,
 	IMessageLabelRepository,
 } from "@remit/data-ports";
+import { isEmbeddingCapabilityUnavailable } from "@remit/search-service/capability";
 import {
 	EMBEDDING_PROVIDER_OFF,
 	readEmbeddingProviderFromEnv,
@@ -19,7 +20,7 @@ export interface FilterConfigDeps {
 }
 
 /**
- * The env-selected embedder, or none on an instance with semantic search off.
+ * The env-selected embedder, or none on an instance that cannot embed.
  *
  * `off` embeds nothing by design, and its embedder says so by throwing
  * (EmbeddingDisabledError). The pipeline has a designed skip for a *missing*
@@ -27,9 +28,17 @@ export interface FilterConfigDeps {
  * present embedder that throws lands in the per-filter catch instead, which is
  * an error-level `filter_anchor_match_failed` for every semantic filter on
  * every synced message. Same outcome, a log nobody can read.
+ *
+ * `local` on the self-host profiles reaches the same place by a different road:
+ * the backend and imap-worker images ship without `@huggingface/transformers`,
+ * so the first embed throws ERR_MODULE_NOT_FOUND. The pipeline classifies that
+ * one throw through `@remit/search-service/capability` and remembers it, and
+ * from then on the config here wires no embedder either — one probe per process,
+ * not one per filter per message.
  */
 const embedderFromEnv = (): MessageEmbedder | undefined =>
-	readEmbeddingProviderFromEnv() === EMBEDDING_PROVIDER_OFF
+	readEmbeddingProviderFromEnv() === EMBEDDING_PROVIDER_OFF ||
+	isEmbeddingCapabilityUnavailable()
 		? undefined
 		: getMessageEmbedder();
 

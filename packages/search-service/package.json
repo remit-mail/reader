@@ -9,6 +9,10 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
+		"./capability": {
+			"types": "./src/capability.ts",
+			"default": "./src/capability.ts"
+		},
 		"./from-env": {
 			"types": "./src/from-env.ts",
 			"default": "./src/from-env.ts"

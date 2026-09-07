@@ -42,7 +42,6 @@ import {
 	FlagQueueService,
 	type IImapConnection,
 	MailboxQueueService,
-	type MessageEmbedder,
 	MessageMoveService,
 	OutboxAttachmentService,
 	OutboxQueueService,
@@ -356,27 +355,23 @@ export const buildSharedDeps = (): RemitClientSharedDeps => {
 // local-first PlacementMoveService; filters stay off when that queue is unset.
 export const buildReadPathFilterConfig = (
 	repositories: RemitClientRepositories,
-	embedder?: MessageEmbedder,
 ): FilterConfig | undefined => {
 	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-	return buildFilterConfig(
-		{
-			filterService: repositories.filter,
-			filterAnchorService: repositories.filterAnchor,
-			messageLabelService: repositories.messageLabel,
-			placementMoveService: placementMoveQueueUrl
-				? new PlacementMoveService({
-						messageService: repositories.message,
-						threadMessageService: repositories.threadMessage,
-						markerService: repositories.placementMove,
-						addressService: repositories.address,
-						mailboxSpecialUseService: repositories.mailboxSpecialUse,
-						sqsQueueUrl: placementMoveQueueUrl,
-					})
-				: undefined,
-		},
-		embedder,
-	);
+	return buildFilterConfig({
+		filterService: repositories.filter,
+		filterAnchorService: repositories.filterAnchor,
+		messageLabelService: repositories.messageLabel,
+		placementMoveService: placementMoveQueueUrl
+			? new PlacementMoveService({
+					messageService: repositories.message,
+					threadMessageService: repositories.threadMessage,
+					markerService: repositories.placementMove,
+					addressService: repositories.address,
+					mailboxSpecialUseService: repositories.mailboxSpecialUse,
+					sqsQueueUrl: placementMoveQueueUrl,
+				})
+			: undefined,
+	});
 };
 
 // Backend-neutral composition root: given repositories (from any data-ports
