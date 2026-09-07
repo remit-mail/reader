@@ -689,6 +689,18 @@ remit logs | jq -r 'select(.accountId=="…") | "\(.time) \(.service) \(.msg)"'
 remit logs imap-worker | jq -r 'select(.error) | .error.stack // .stack // .error'
 ```
 
+An auth request the rate limiter turned away writes one `warn` line,
+`Auth request rate limited`, carrying `endpoint`, `method`, `clientIp` and
+`retryAfterSeconds`. The limits are per address, so `clientIp` says whether one
+caller is looping or a whole office behind one NAT is sharing a budget; a
+`clientIp` of `unresolved` means the edge did not set `x-remit-client-ip` and
+every caller is on one bucket. The `BETTER_AUTH_RATE_LIMIT_*` variables set the
+ceilings.
+
+```bash
+remit logs backend | jq -c 'select(.msg=="Auth request rate limited")'
+```
+
 ## Is anything wrong: `remit doctor`
 
 `remit status` answers what is running. `remit doctor` answers whether anything
