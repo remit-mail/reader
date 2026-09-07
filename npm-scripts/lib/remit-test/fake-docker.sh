@@ -32,6 +32,12 @@
 #   current_schema=N          what the schema read returns (non-real mode)
 #   target_schema=N           the running schema after this run's migrate applies
 #   target_schema2=N          the same after a restore (rollback re-runs migrate)
+#   exec_mode=run|hang|updater  what `compose exec` does: answer from exec-out,
+#                             never return, or run the command for real under a
+#                             scrubbed updater-container environment
+#   updater_volume=present|absent|unreachable
+#                             whether this deployment has an updater state
+#                             volume, and whether the daemon says so at all
 #
 # With FAKE_REAL_DB=1 the snapshot, restore and schema read run for real against
 # $FAKE_SQLITE_DIR/remit.db (a host directory standing in for the sqlite volume)
@@ -594,19 +600,32 @@ compose_cmd() {
 		# than one that never refused.
 		_svc=""
 		_wantjson=0
+		_execenv=""
 		while [ $# -gt 0 ]; do
 			case "$1" in
-			-e | --env | -u | --user | -w | --workdir | --index)
+			-e | --env)
+				_execenv="$_execenv $2"
+				shift 2
+				continue
+				;;
+			-u | --user | -w | --workdir | --index)
 				shift 2
 				continue
 				;;
 			--json) _wantjson=1 ;;
 			-*) ;;
 			*)
-				if [ -z "$_svc" ]; then _svc=$1; fi
+				_svc=$1
+				shift
+				break
 				;;
 			esac
 			shift
+		done
+		# What is left is the command the container was handed. The doctor seam's
+		# --json sits in it, and the updater seam below runs it for real.
+		for _a in "$@"; do
+			if [ "$_a" = "--json" ]; then _wantjson=1; fi
 		done
 		# A docker that accepts the exec and never comes back. The wrapper's own
 		# ceiling is what has to end it, so the fake simply becomes the sleep —
@@ -617,6 +636,45 @@ compose_cmd() {
 		if [ ! -f "$S/up-$_svc" ]; then
 			printf 'service "%s" is not running container #1\n' "$_svc" >&2
 			exit 1
+		fi
+		# The updater container is the same wrapper the host runs, and a host-shell
+		# check is delegated to it because of where its two files have to land
+		# (reader#1158). `exec_mode=updater` runs the command for real under the
+		# environment the updater image sets, so the state and control volumes an
+		# assertion reads were written by the wrapper rather than by this stand-in.
+		#
+		# The environment is scrubbed first, because that is the half of `compose
+		# exec` a stand-in most easily gets wrong: what the container sees is the
+		# image's ENV plus the -e flags, and nothing the caller happened to be
+		# holding. An exec that inherits the whole test environment cannot tell a
+		# wrapper that reads a setting from the image from one that only ever saw
+		# it because the host had it too. What survives is the harness's own
+		# plumbing — PATH to reach these fakes, and FAKE_* because this process is
+		# standing in for the daemon, not for the container.
+		if [ "$(val exec_mode run)" = "updater" ]; then
+			for _v in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
+				case "$_v" in
+				PATH | HOME | FAKE_*) continue ;;
+				# The compose service sets these two on the container.
+				REMIT_DIR | REMIT_UPDATE_SQLITE_VOLUME) continue ;;
+				esac
+				unset "$_v" || true
+			done
+			# The updater image's ENV block, verbatim, with the two volume paths
+			# standing in for the mounts the compose service makes.
+			REMIT_UPDATE_STATE_DIR="$FAKE_UPDATER_STATE"
+			REMIT_UPDATE_CONTROL_DIR="$FAKE_UPDATER_CONTROL"
+			REMIT_UPDATE_STATE_MOUNT="$FAKE_UPDATER_STATE"
+			REMIT_UPDATE_SNAPSHOT_LIB=""
+			REMIT_UPDATER_IMAGE_REPO=ghcr.io/remit-mail/reader/updater
+			export REMIT_UPDATE_STATE_DIR REMIT_UPDATE_CONTROL_DIR \
+				REMIT_UPDATE_STATE_MOUNT REMIT_UPDATE_SNAPSHOT_LIB \
+				REMIT_UPDATER_IMAGE_REPO
+			for _kv in $_execenv; do
+				# shellcheck disable=SC2163 # KEY=VALUE, so this is an assignment
+				export "$_kv"
+			done
+			exec "$@"
 		fi
 		_outfile="$S/exec-out"
 		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
@@ -735,6 +793,8 @@ run_cmd() {
 	_probe=0
 	_detached=0
 	_entry=""
+	_image=""
+	_wantimage=0
 	_statesrc=""
 	_bindsrc=""
 	FR_SQLITE=""
@@ -748,7 +808,17 @@ run_cmd() {
 		container:*) _probe=1 ;;
 		-d) _detached=1 ;;
 		esac
-		if [ "$_prev" = "--entrypoint" ]; then _entry=$_a; fi
+		# The image is the operand right after the entrypoint's value, and which
+		# one it is matters: alpine has to apk-install sqlite over the network,
+		# the updater's own image bakes it in (reader#1158).
+		if [ "$_wantimage" = "1" ]; then
+			_image=$_a
+			_wantimage=0
+		fi
+		if [ "$_prev" = "--entrypoint" ]; then
+			_entry=$_a
+			_wantimage=1
+		fi
 		if [ "$_prev" = "-v" ]; then
 			_bindsrc=${_a%%:*}
 			_cpath=${_a#*:}
@@ -846,7 +916,7 @@ run_cmd() {
 		exit 3
 		;;
 	*__drizzle_migrations*)
-		log "run schema-read"
+		log "run schema-read image=$_image"
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
 			exec_real "$_script"
 			exit $?
@@ -904,11 +974,15 @@ run)
 	run_cmd "$@"
 	;;
 volume)
-	# How the wrapper asks whether this deployment has an updater volume at all.
-	# `updater_volume=absent` is the box that never had one, where the record
-	# beside .env is the only one there is.
+	# How the wrapper asks whether this deployment has an updater volume at all,
+	# and then whether the daemon answered at all. `updater_volume=absent` is the
+	# box that never had one, where the record beside .env is the only one there
+	# is; `unreachable` is a daemon that refuses both, which is not an answer
+	# either way and must not read as "no volume".
 	shift
 	log "volume $*"
+	if [ "$(val updater_volume present)" = "unreachable" ]; then exit 1; fi
+	if [ "${1:-}" = "ls" ]; then exit 0; fi
 	if [ "$(val updater_volume present)" = "absent" ]; then exit 1; fi
 	exit 0
 	;;

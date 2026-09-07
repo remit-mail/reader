@@ -164,7 +164,16 @@ const CASES = {
 		// Not the bare form: it would run an update.
 		refusal: /^remit: update: unknown option/m,
 		takes: [
-			{ args: ["--check"], proof: /^Updates: /m },
+			// A check is delegated to the updater container, because beside .env is
+			// neither store anything reads (reader#1158). The stand-in answers
+			// `volume inspect` yes and lists nothing running, so this box has the
+			// volume and a stopped updater — and what a taken `--check` does here is
+			// say so, loudly, rather than write where nothing looks. Not a parse-time
+			// refusal: the parser recognised the option and the command ran.
+			{
+				args: ["--check"],
+				proof: /^remit: update: the updater is not running/m,
+			},
 			{ args: ["--recover"], proof: /No interrupted update to recover\./ },
 			{ args: ["--preflight"], proof: /--entrypoint sh /m },
 			{ args: ["--tag"], proof: /^remit: update: --tag needs a value$/m },

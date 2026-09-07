@@ -251,6 +251,9 @@ function sandbox({
 	// A host directory standing in for the updater_state volume, the way sqlite
 	// stands in for sqlite_data.
 	const updaterState = join(dir, "updater-state");
+	// And one for the updater_control volume — the seam the backend reads
+	// state.json off, which is a second volume and never the state one.
+	const updaterControl = join(dir, "updater-control");
 	for (const d of [
 		deployment,
 		join(deployment, "backup"),
@@ -259,6 +262,7 @@ function sandbox({
 		bin,
 		sqlite,
 		updaterState,
+		updaterControl,
 	]) {
 		mkdirSync(d, { recursive: true });
 	}
@@ -343,6 +347,11 @@ function sandbox({
 		spawnSync("chmod", ["+x", dest]);
 	}
 
+	// `remit` on PATH, the way the updater image bakes it: unstamped, because the
+	// container reads the deployment out of REMIT_DIR. It is what the delegated
+	// check runs as.
+	writeExecutable(join(bin, "remit"), `#!/bin/sh\nexec sh "${REMIT}" "$@"\n`);
+
 	// Real-database mode: the helper containers run their scripts for real, so
 	// the tools they call inside the container are shimmed onto PATH — sqlite3 is
 	// node:sqlite, su-exec drops its uid argument and execs, apk and chown are
@@ -365,6 +374,11 @@ function sandbox({
 		REMIT_DIR: deployment,
 		...(operatorShell ? {} : { REMIT_UPDATE_STATE_DIR: state }),
 		REMIT_UPDATE_STATE_VOLUME: updaterState,
+		// The two volumes as the updater container sees them, for the stand-in's
+		// `exec_mode=updater`: a command it runs for real writes where the compose
+		// service's mounts would have put it.
+		FAKE_UPDATER_STATE: updaterState,
+		FAKE_UPDATER_CONTROL: updaterControl,
 		// The asset base shares the manifest URL's origin, which is what a
 		// deployment that has not gone out of its way to say otherwise is held to.
 		REMIT_UPDATE_ASSET_BASE:
@@ -387,6 +401,7 @@ function sandbox({
 		deployment,
 		state,
 		updaterState,
+		updaterControl,
 		fake,
 		sqlite,
 		liveDb,
@@ -2650,6 +2665,132 @@ describe("remit status from a host shell, with a stale record beside .env", () =
 		assert.equal(status.status, 0, status.stderr);
 		assert.match(status.stdout, /Update:\s+rollbackFailed/);
 		assert.match(status.stdout, /up to date \(v0\.2\.0/);
+	});
+
+	// A daemon that answers nothing is not a box without a volume. Reading it
+	// that way renders the stale directory copy as the current record, which is
+	// the reader#573 wrong answer with the daemon as its cause.
+	it("says the record is unknown when the daemon does not answer", () => {
+		const status = box({ updater_volume: "unreachable" }).run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Updates:\s+unknown/);
+		assert.ok(!status.stdout.includes("rollbackFailed"), status.stdout);
+	});
+});
+
+// reader#1158. A check run in the operator's shell writes check.json and
+// state.json beside .env, and neither store is read from there: the app reads
+// state.json off the control volume and `remit status` reads check.json off the
+// updater's state volume (reader#573). So `remit update --check` runs in the
+// updater container, which is this same wrapper pointed at both.
+describe("remit update --check from a host shell", () => {
+	function box(scenario = {}) {
+		return sandbox({
+			operatorShell: true,
+			scenario: {
+				probe: "ok",
+				exec_mode: "updater",
+				services: `${ALL_SERVICES} updater`,
+				...scenario,
+			},
+		});
+	}
+
+	it("lands the verdict on the volumes the app and status read", () => {
+		const b = box();
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /Updates:\s+v1\.5\.0 is available/);
+
+		const check = JSON.parse(
+			readFileSync(join(b.updaterState, "check.json"), "utf8"),
+		);
+		assert.equal(check.status, "ok");
+		assert.equal(check.latestVersion, "v1.5.0");
+		const state = JSON.parse(
+			readFileSync(join(b.updaterControl, "state.json"), "utf8"),
+		);
+		assert.equal(state.check.lastCheckedAt, check.lastCheckedAt);
+	});
+
+	it("leaves the deployment directory alone", () => {
+		const b = box();
+		assert.equal(b.run(["update", "--check"]).status, 0);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "state.json")),
+			false,
+		);
+	});
+
+	it("is what the next status reports", () => {
+		const b = box();
+		b.run(["update", "--check"]);
+		const status = b.run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Updates:\s+v1\.5\.0 is available/);
+	});
+
+	// Without a container to run it in there is nowhere the answer could land, and
+	// a check that writes beside .env is the silent no-op this fixes.
+	it("says so when the updater is not running", () => {
+		const b = box({ services: ALL_SERVICES });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the updater is not running/);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory beside .env is the only store there is.
+	it("checks in place where there is no updater volume", () => {
+		const b = box({ updater_volume: "absent" });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /Updates:\s+v1\.5\.0 is available/);
+		const check = JSON.parse(
+			readFileSync(join(b.deployment, ".update", "check.json"), "utf8"),
+		);
+		assert.equal(check.latestVersion, "v1.5.0");
+	});
+
+	// A daemon that did not answer has not said this box has no updater volume,
+	// and taking the failure for that answer is how a check reports success and
+	// writes where nothing reads (reader#573).
+	it("stops rather than guess where the answer goes when the daemon is silent", () => {
+		const b = box({ updater_volume: "unreachable" });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the docker daemon did not answer/);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+	});
+
+	// `compose exec` does not run an entrypoint, so what the delegated wrapper
+	// knows about its own container is what the image set. The helper image is
+	// the one thing it has to get right: alpine reaches the schema read only
+	// through an apk install over the network, and on a box without that route
+	// the read fails, currentSchemaVersion is cleared, and the app renders a
+	// blank until the six-hourly cadence writes over it.
+	it("runs its helpers off the updater image rather than alpine", () => {
+		const b = box({ current_schema: "8" });
+		assert.equal(b.run(["update", "--check"]).status, 0);
+		assert.match(
+			b.log(),
+			/^run schema-read image=ghcr\.io\/remit-mail\/reader\/updater:v1\.0\.0$/m,
+		);
+		const state = JSON.parse(
+			readFileSync(join(b.updaterControl, "state.json"), "utf8"),
+		);
+		assert.equal(state.currentSchemaVersion, 8);
 	});
 });
 
