@@ -384,6 +384,7 @@ export type CreateMessageInput = Omit<
 	| "updatedAt"
 	| "status"
 	| "syncStatus"
+	| "abandonedMutation"
 	| "category"
 	| "classificationState"
 	| "authenticityVerdict"
@@ -393,6 +394,7 @@ export type CreateMessageInput = Omit<
 	messageId: string;
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
 	category?: MessageItem["category"];
 	classificationState?: MessageItem["classificationState"];
 	authenticityVerdict?: MessageItem["authenticityVerdict"];
@@ -437,6 +439,7 @@ export type PlacementPredicate = {
 export type PlacementTransitionInput = {
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
 	mailboxId?: string;
 	uid?: number;
 	originalMailboxId?: string | null;

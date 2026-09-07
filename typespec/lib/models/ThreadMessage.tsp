@@ -2,6 +2,7 @@ import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/MessageCategory.tsp";
+import "../enums/MessageMutation.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
 import "../enums/SenderTrust.tsp";
@@ -259,6 +260,9 @@ model ThreadMessageResponse {
 
   @doc("Sync status of the underlying Message, projected at read time. Read it WITH `status`, never alone (imap-mutations R3): `message-move`, `message-delete` and `message-copy` all write `failed` on an ordinary transient attempt before a redelivery that usually succeeds, so `failed` never means a mutation gave up. Give-up is `active` + `abandoned`, and that pair is decidable on its own — the row has been put back on a placement the server holds and nothing else is coming for it. A mutation that exhausted its retries and was repaired against IMAP settles to `active` + `synced` and reads as settled.")
   syncStatus: MessageSyncStatus;
+
+  @doc("Which mutation gave up on the underlying Message, projected at read time. Read it only where `syncStatus` is `abandoned`; `none` otherwise. This is what lets a surface name the operation that actually failed — before it existed, a move that handed back and a delete that was refused were the same two values on the wire, and the client called both a failed delete.")
+  abandonedMutation: MessageMutation;
 
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
   accountId?: UUID;

@@ -52,7 +52,11 @@ export type {
 	UnitOfWorkRepositories,
 } from "./interfaces/unit-of-work.js";
 export type { MessageSettlementFields } from "./message-settlement.js";
-export { hasAbandonedDelete } from "./message-settlement.js";
+export {
+	abandonedMutationOf,
+	hasAbandonedDelete,
+	hasAbandonedMove,
+} from "./message-settlement.js";
 export {
 	FILTER_NO_ACTION,
 	isSenderMuted,

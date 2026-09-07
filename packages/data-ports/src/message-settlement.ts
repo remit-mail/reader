@@ -1,31 +1,47 @@
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import type { MessageItem } from "./types.js";
 
 export type MessageSettlementFields = Pick<
 	MessageItem,
-	"status" | "syncStatus"
+	"status" | "syncStatus" | "abandonedMutation"
 >;
 
 /**
- * A delete Remit refused to run, having already removed the message locally.
- * `abandonDelete` reaches this from four checks, all of them made before any
- * expunge: the Trash folder the event names is not on the server (TRYCREATE),
- * the event carries no destination, it names an operation this build does not
- * recognise, or it was minted under an unknown contract. The row is handed back
- * to the folder the server still holds the message in, and only then marked.
+ * Which mutation gave up on this row, and `none` where none did.
  *
- * `status: active` alongside `syncStatus: abandoned` is the whole signal, and
- * `abandonDelete` (`imap-worker/src/handlers/message-delete.ts`) is its only
- * writer. `abandoned` is the give-up value of the placement state model
- * (docs/architecture/imap-mutations.md R3) and it is unambiguous by
- * construction: a transient attempt writes `failed` and re-throws for
- * redelivery, so `failed` never reaches here, and a mutation that exhausted its
- * retries is repaired against IMAP to `active` + `synced` and reads as settled.
+ * `syncStatus: abandoned` is the gate and the only gate: it is the give-up
+ * value of the placement state model (docs/architecture/imap-mutations.md R3),
+ * written only after the row has been put back on a placement the mail server
+ * confirmed, and overwritten by every settle. A transient attempt writes
+ * `failed` and re-throws for redelivery, so `failed` never reaches here.
  *
- * One give-up this cannot see, and must not pretend to: `flag-push` and
- * `placement-move-push` never write either field. Their give-up state lives on
- * their own marker rows and in the operator alert.
+ * `abandonedMutation` behind that gate says WHICH mutation, which the row
+ * otherwise cannot say: the hand-back sets `status` back to `active`, and
+ * `status` was the field naming the mutation that was outstanding. Reading the
+ * pair without it is how a move that handed back came to be reported to the
+ * user as a failed delete, under a "Delete again" button (issue #1229).
+ *
+ * Outside the gate the field is `none` and says nothing, exactly as
+ * `originalUid` says nothing once a placement has settled. Reading it
+ * unconditionally would resurrect a give-up a later mutation has settled.
+ *
+ * Two give-ups this deliberately does not name. `flag-push` and
+ * `placement-move-push` never write a placement at all — their give-up lives
+ * on their own marker rows and in an operator alert — and Remit's own
+ * classification move is not a mutation the user asked for, so a per-message
+ * treatment for it would report a failure against an intent nobody formed.
  */
+export const abandonedMutationOf = (
+	message: MessageSettlementFields,
+): MessageItem["abandonedMutation"] =>
+	message.syncStatus === MessageSyncStatus.abandoned
+		? message.abandonedMutation
+		: MessageMutation.none;
+
+/** A delete Remit refused to run or gave up on, having removed it locally first. */
 export const hasAbandonedDelete = (message: MessageSettlementFields): boolean =>
-	message.status === MessageStatus.active &&
-	message.syncStatus === MessageSyncStatus.abandoned;
+	abandonedMutationOf(message) === MessageMutation.delete;
+
+/** A move Remit gave up on, having already pointed the row at the destination. */
+export const hasAbandonedMove = (message: MessageSettlementFields): boolean =>
+	abandonedMutationOf(message) === MessageMutation.move;

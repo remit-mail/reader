@@ -43,9 +43,13 @@ The lanes are genuinely concurrent, which is what makes this load-bearing. User 
 | moving | `moving` + `synced` or `pending` | a move or copy is in flight |
 | deleting | `deleting` + `synced` or `pending` | a delete or Empty Trash is in flight |
 | retrying | `moving` or `deleting`, + `failed` | an attempt failed; a redelivery is coming |
-| abandoned | `active` + `abandoned` | the mutation gave up, and the row was put back on a placement the server holds |
+| abandoned | `active` + `abandoned`, plus `abandonedMutation` | the named mutation gave up, and the row was put back on a placement the server holds |
 
 `syncStatus: pending` on an `active` row means nothing: an ordinary inbound sync writes it and nothing later promotes it. `failed` is a transient attempt marker — the move, delete and copy handlers write it and re-throw for redelivery — so it never means give-up on its own. Give-up is `abandoned`, written only after the row has been restored to a placement the server confirmed, and only by a caller holding the server's own answer rather than an inference.
+
+**A give-up names the mutation it gave up on.** `abandonedMutation` carries it, and is read only while `syncStatus` is `abandoned` — outside that gate it is `none` and says nothing, the way `originalUid` says nothing once a placement has settled. It exists because the hand-back erases the evidence: restoring the row sets `status` back to `active`, and `status` was the only field naming the mutation that was outstanding. Without it a surface can see that something was abandoned and not what, which is how a move that handed back came to be reported to the user as a failed delete, under a button that deleted the message.
+
+Two give-ups deliberately carry no marker. `flag-push` and `placement-move-push` never write a placement at all — their give-up lives on their own marker rows and in an operator alert — and Remit's own classification filing is not a mutation the user asked for, so a per-message treatment would report a failure against an intent nobody formed.
 
 Two consequences every reader gets from this:
 

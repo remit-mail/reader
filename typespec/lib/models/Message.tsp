@@ -7,6 +7,7 @@ import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageClassificationState.tsp";
 import "../enums/MessageFlag.tsp";
+import "../enums/MessageMutation.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
 import "../enums/PlacementAction.tsp";
@@ -211,6 +212,10 @@ model Message {
   @visibility(Lifecycle.Read)
   syncStatus: MessageSyncStatus = MessageSyncStatus.synced;
 
+  @doc("Which mutation gave up on this message. Meaningful only while `syncStatus` is `abandoned`; `none` everywhere else, so the absent state is a named value rather than a missing attribute. Written by the same transition that writes `abandoned`, because a hand-back sets `status` back to `active` and that is the field which named the mutation.")
+  @visibility(Lifecycle.Read)
+  abandonedMutation: MessageMutation = MessageMutation.none;
+
   @doc("Original mailbox ID before move (for restore from trash)")
   @visibility(Lifecycle.Read)
   originalMailboxId?: UUID;
@@ -338,6 +343,7 @@ model MessageSummaryResponse {
       | "authenticity"
       | "status"
       | "syncStatus"
+      | "abandonedMutation"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
