@@ -34,6 +34,28 @@
 
 export const BULK_ACTION_CHUNK_SIZE = 100;
 
+/**
+ * What a bulk run applies to every batch it reaches (#114). Delete, move and
+ * mark-read differ only in the bulk call they issue and the caches that call
+ * invalidates; the paging, chunking, progress and cancellation are the same.
+ */
+export type EscalatedAction =
+	| { kind: "delete" }
+	| { kind: "move"; destinationMailboxId: string }
+	| { kind: "markRead" };
+
+/**
+ * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
+ * over, plus a move's destination, which gains the messages the source loses.
+ */
+export const mailboxesTouchedBy = (
+	action: EscalatedAction,
+	mailboxId: string,
+): string[] =>
+	action.kind === "move"
+		? [mailboxId, action.destinationMailboxId]
+		: [mailboxId];
+
 /** For a run with no Stop control to wire a signal to. */
 const NEVER_ABORTED = new AbortController().signal;
 
@@ -323,3 +345,13 @@ export interface BulkRunOutcome {
 	cancelled: boolean;
 	error?: unknown;
 }
+
+/**
+ * What asking for a run got: the run itself, or the reason there is none. One
+ * run at a time is the design — a second one would page a second predicate
+ * behind the same bar and the same Stop — so a commit pressed while one is
+ * going is answered with what is going rather than with a run that replaces it.
+ */
+export type BulkRunStart =
+	| { kind: "ran"; outcome: BulkRunOutcome }
+	| { kind: "refused"; reason: string };

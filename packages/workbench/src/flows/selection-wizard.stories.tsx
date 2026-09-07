@@ -1471,6 +1471,29 @@ export const RunNoDestination: Story = {
 	),
 };
 
+/**
+ * The commit pressed while another run is still paging. There is one run at a
+ * time, so this one never started: the screen names the one that is going and
+ * where to stop it, and offers no retry — sending the same commit again meets
+ * the same run (#112).
+ */
+export const RunAnotherIsGoing: Story = {
+	name: "Run — another run is still going",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "delete",
+				startAt: "run",
+				scope: "once",
+				runState: "commitFailed",
+				runFailureReason:
+					"A delete of 1,284 messages in Inbox is still running — stop it first.",
+			}}
+		/>
+	),
+};
+
 /** A one-off run ends on its own count, not on a rule. */
 export const RunOnceDone: Story = {
 	name: "Run — one-off done",

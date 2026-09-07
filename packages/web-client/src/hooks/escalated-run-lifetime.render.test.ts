@@ -14,6 +14,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
+import { ranOutcome } from "../test-support/bulk-run";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import {
 	type EscalationSearchQuery,
@@ -222,7 +223,7 @@ describe("an escalated run the user walks away from", () => {
 		press(() => hook().clear());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.cancelled, false);
 		assert.equal(outcome.done, TOTAL);
@@ -238,7 +239,7 @@ describe("an escalated run the user walks away from", () => {
 		setQuery({ query: "invoices" });
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.done, TOTAL);
 		assert.deepEqual(
@@ -280,7 +281,7 @@ describe("stopping a run with a delete already on the wire", () => {
 		press(() => hook().stop());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(server?.aborted(), 1, "the delete in flight was cancelled");
 		assert.equal(
@@ -326,7 +327,7 @@ describe("stopping the run, which is a different press", () => {
 		press(() => hook().stop());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.cancelled, true);
 		assert.ok(outcome.done > 0, "the batches already sent still count");

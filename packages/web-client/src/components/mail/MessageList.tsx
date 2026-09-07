@@ -24,7 +24,6 @@ import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import {
-	type EscalatedAction,
 	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
@@ -355,21 +354,12 @@ export const MessageList = ({
 	// are loaded. `orderedIds` below feeds `allLoadedSelected`; declared after
 	// this hook so its callback deps stay simple — see the
 	// `orderedIds`/`handleRowSelect` block.
-	const escalationEnabled = isSearching && !!searchPredicate;
-	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
-	const escalation = useEscalatedActions({
-		mailboxId,
-		accountId,
-		enabled: escalationEnabled,
-		predicateKey,
-		searchQuery: searchPredicate ?? {},
-	});
-
-	// How a run ended, for the user who is no longer looking at the run screen.
-	// Closing the wizard mid-run is a movement the screen invites, and the run
-	// keeps going past it — so the list is what states the ending, whether the
-	// run covered everything or stopped short of it. The wizard calls this only
-	// once the user has left it, so an ending is never said twice.
+	// How a run ended, for the user who is no longer looking at any screen that
+	// could show it. Closing the wizard mid-run is a movement the screen invites,
+	// and leaving the mailbox on top of that is one nothing prevents — the run
+	// keeps going past both, so this states the ending, whether the run covered
+	// everything or stopped short of it. The run's owner calls it only once no
+	// screen is left reporting in place, so an ending is never said twice.
 	const reportRunOutcome = useCallback(
 		(kind: BulkActionKind, matched: number, outcome: BulkRunOutcome) => {
 			const banner = runEndingBanner(kind, matched, outcome, deleteOutcome);
@@ -379,6 +369,18 @@ export const MessageList = ({
 		},
 		[pushError, deleteOutcome],
 	);
+
+	const escalationEnabled = isSearching && !!searchPredicate;
+	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
+	const escalation = useEscalatedActions({
+		mailboxId,
+		mailboxLabel: listTitle,
+		accountId,
+		enabled: escalationEnabled,
+		predicateKey,
+		searchQuery: searchPredicate ?? {},
+		reportEnding: reportRunOutcome,
+	});
 
 	// The one way selection mode ends (#115): cancel, a completed delete or
 	// move, a plain click that collapses a range, switching mailboxes, the back
@@ -690,7 +692,8 @@ export const MessageList = ({
 					scope: describeSearchScope(searchPredicate ?? {}),
 					total: escalation.phase.total,
 					searchQuery: searchPredicate ?? {},
-					run: (action: EscalatedAction) => escalation.runAction(action),
+					run: (action, claimEnding) =>
+						escalation.runAction(action, undefined, claimEnding),
 					stop: escalation.stop,
 				}
 			: undefined;
@@ -1086,10 +1089,16 @@ export const MessageList = ({
 	// The escalation-derived surface state — viewport-independent, fed to both
 	// the mobile sheet and the desktop toolbar so the two never diverge (#212).
 	const selectionIsBusy = isDeleting || isMoving || escalation.isRunning;
+	// A run outlives the selection it came from, and leaving the mailbox and
+	// coming back leaves no selection at all — so while one is in flight the run's
+	// own count is what the bar is about, or the bar would be an empty header over
+	// mail that is still being deleted (#112).
 	const selectionCount =
 		escalation.phase.kind === "escalated"
 			? escalation.phase.total
-			: selectedCount;
+			: escalation.progress
+				? escalation.progress.total
+				: selectedCount;
 
 	// A run reports on the bar from the moment it starts, not from its first
 	// finished batch: the wizard invites the user back here mid-run, and a run
@@ -1128,17 +1137,22 @@ export const MessageList = ({
 		: undefined;
 
 	// At most one escalation notice at a time, ranked by how actionable it is:
-	// an in-progress counting/escalated state and its own action always wins;
-	// otherwise a fresh escalation offer. The (rare) cross-account move hint is
-	// layered on behind them below.
+	// a run in flight and a count both carry Stop, and that always wins; then an
+	// escalated selection's way out; otherwise a fresh escalation offer. The
+	// (rare) cross-account move hint is layered on behind them below.
+	//
+	// Stop rides on the bar rather than only on the wizard's run screen because
+	// the run outlives both the wizard and the route: a user who comes back to
+	// the mailbox mid-run finds the progress there, and has to be able to end it
+	// from the same place (#112).
 	const escalationNotice =
-		escalation.phase.kind === "counting"
+		escalation.isRunning || escalation.phase.kind === "counting"
 			? {
 					tone: "info" as const,
 					text: "",
 					action: { label: "Stop", onClick: escalation.stop },
 				}
-			: escalation.phase.kind === "escalated" && !escalation.isRunning
+			: escalation.phase.kind === "escalated"
 				? {
 						tone: "info" as const,
 						text: "",
@@ -1343,6 +1357,7 @@ export const MessageList = ({
 				verb={wizardVerb}
 				accountId={accountId}
 				mailboxId={mailboxId}
+				mailboxLabel={listTitle}
 				selection={wizardSelection}
 				selectionRestriction={moveDisabledHint ? "spansAccounts" : undefined}
 				escalated={escalatedSelection}

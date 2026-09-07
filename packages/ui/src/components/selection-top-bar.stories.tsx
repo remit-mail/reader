@@ -280,6 +280,8 @@ export const Counting: Story = {
  * A bulk delete in progress reports a running total via `statusLabel` and a
  * determinate `ProgressBar`; the delete button shows its busy spinner (never
  * disables) and the overflow verbs drop out — nothing here can act mid-delete.
+ * Stop rides on the notice, the way it does while counting: the run outlives
+ * the wizard's run screen, so the bar has to be able to end it too.
  */
 export const DeletingWithProgress: Story = {
 	args: {
@@ -287,6 +289,37 @@ export const DeletingWithProgress: Story = {
 		statusLabel: "Deleting 1,200 of 3,412…",
 		isBusy: true,
 		progress: { value: 1200, max: 3412 },
+		notice: {
+			tone: "info",
+			text: "",
+			action: { label: "Stop", onClick: () => undefined },
+		},
+	},
+};
+
+/**
+ * The same run, as the user finds it after leaving the mailbox and coming back.
+ * The selection did not survive the route and nothing is ticked, so the count
+ * and the label are the run's own: an idle header over mail that is still being
+ * deleted would be the lie this replaces. Stop is the same press it was before
+ * they left.
+ */
+export const RunResumedAfterLeaving: Story = {
+	args: {
+		count: 3412,
+		statusLabel: "Deleting 2,100 of 3,412…",
+		isBusy: true,
+		progress: { value: 2100, max: 3412 },
+		selectAll: {
+			checked: false,
+			indeterminate: false,
+			onChange: () => undefined,
+		},
+		notice: {
+			tone: "info",
+			text: "",
+			action: { label: "Stop", onClick: () => undefined },
+		},
 	},
 };
 

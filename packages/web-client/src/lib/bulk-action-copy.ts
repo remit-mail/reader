@@ -115,6 +115,27 @@ export const bulkActionFailureTitle = (
 export const bulkActionFailureDetail = (kind: BulkActionKind): string =>
 	failureDetail[kind];
 
+const busyPhrase: Record<BulkActionKind, (count: string) => string> = {
+	delete: (count) => `A delete of ${count} messages`,
+	move: (count) => `A move of ${count} messages`,
+	markRead: (count) => `Marking ${count} messages as read`,
+};
+
+/**
+ * The commit that could not start, because the one still going owns the bar and
+ * the Stop it would need. It names the run in flight and where it is, so the
+ * user knows which screen to end it from rather than pressing a commit that
+ * silently does nothing.
+ */
+export const bulkRunBusyRefusal = (
+	kind: BulkActionKind,
+	matched: number,
+	mailboxLabel: string | undefined,
+): string =>
+	`${busyPhrase[kind](formatNumber(matched))}${
+		mailboxLabel ? ` in ${mailboxLabel}` : ""
+	} is still running — stop it first.`;
+
 /** Progress-bar tone: only delete is destructive. */
 export const bulkActionProgressTone = (
 	kind: BulkActionKind,
