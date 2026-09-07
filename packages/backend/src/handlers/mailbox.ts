@@ -268,6 +268,11 @@ const toMailboxResponse = (
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
 	syncStatus: mailbox.syncStatus,
+	// The row is the only thing that knows what a rename is aiming at, and
+	// `fullPath` stays the confirmed one throughout (D2), so without this a
+	// client cannot tell a create in flight from a rename in flight, name the
+	// target of a failed rename, or offer the right retry.
+	pendingPath: mailbox.pendingPath,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
 	createdAt: mailbox.createdAt,
