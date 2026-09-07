@@ -9,6 +9,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./filter-config": {
+      "types": "./src/filters/filter-config.ts",
+      "default": "./src/filters/filter-config.ts"
+    },
     "./body-sync-queue": {
       "types": "./src/body-sync-queue.ts",
       "default": "./src/body-sync-queue.ts"
@@ -42,6 +46,7 @@
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/mail-oauth-service": "*",
+    "@remit/search-service": "*",
     "@remit/secrets-service": "*",
     "@remit/sqs-client": "*",
     "@remit/storage-service": "*",
