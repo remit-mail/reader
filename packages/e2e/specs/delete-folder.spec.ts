@@ -8,18 +8,41 @@
  * annotated defect in `sync.spec.ts`), and the pre-seeded mail lives only in
  * role-appointed INBOX/Junk/Sent folders, which the wizard guards from deletion
  * — so the batched-move path is exercised by the unit and render tests instead.
+ *
+ * Runs as its own throwaway user (see `src/provision.ts`), not the shared
+ * onboarded account. Mailbox management and `SYNC_MAILBOXES` share one FIFO
+ * group per account, so a delete queued behind the shared account's own sync
+ * traffic — and behind however many folders the rest of the suite has created
+ * there by the time this spec runs — can take longer than the assertion's
+ * window to reach the worker (#347). A fresh account's FIFO group carries only
+ * this spec's own create and delete, so the wait is bounded by this spec alone.
  */
+import type { BrowserContext } from "@playwright/test";
+import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
+import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
 test.describe("Delete folder from settings", () => {
-	test.use({ viewport: DESKTOP });
+	let run: IsolatedRun;
+	let context: BrowserContext;
 
-	test("an empty folder created from settings can be deleted again", async ({
-		page,
-		run,
-	}) => {
+	test.beforeAll(async ({ browser }) => {
+		run = await provisionIsolatedRun("E2E Delete Folder");
+		context = await browser.newContext({
+			storageState: run.storageState,
+			baseURL: baseUrl,
+			viewport: DESKTOP,
+		});
+	});
+
+	test.afterAll(async () => {
+		await context.close();
+	});
+
+	test("an empty folder created from settings can be deleted again", async () => {
+		const page = await context.newPage();
 		await page.goto("/settings/folders");
 
 		await expect(
