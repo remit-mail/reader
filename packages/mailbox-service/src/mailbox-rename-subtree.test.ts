@@ -21,7 +21,10 @@ const row = (
 const store = (rows: MailboxItem[], vanishAfterSweep: string[] = []) => {
 	const byId = new Map(rows.map((r) => [r.mailboxId, { ...r }]));
 
-	const repo: Pick<IMailboxRepository, "update" | "findByPathPrefix"> = {
+	const repo: Pick<
+		IMailboxRepository,
+		"update" | "transition" | "findByPathPrefix"
+	> = {
 		update: async (_accountId, mailboxId, patch) => {
 			const existing = byId.get(mailboxId);
 			if (!existing) {
@@ -30,6 +33,24 @@ const store = (rows: MailboxItem[], vanishAfterSweep: string[] = []) => {
 				});
 			}
 			const next = { ...existing, ...patch } as MailboxItem;
+			byId.set(mailboxId, next);
+			return next;
+		},
+		transition: async (_accountId, mailboxId, intent) => {
+			const existing = byId.get(mailboxId);
+			if (!existing) return null;
+			if (!intent.from.includes(existing.syncStatus)) return null;
+			if (
+				intent.wherePendingPath !== undefined &&
+				(intent.wherePendingPath ?? undefined) !== existing.pendingPath
+			) {
+				return null;
+			}
+			const next = {
+				...existing,
+				...intent.set,
+				syncStatus: intent.to,
+			} as MailboxItem;
 			byId.set(mailboxId, next);
 			return next;
 		},

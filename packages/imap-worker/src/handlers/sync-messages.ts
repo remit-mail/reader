@@ -19,7 +19,7 @@ import { type Logger, recordImapFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
-	isMailboxNotOnServer,
+	isMailboxMutationInFlight,
 	MailConnectionError,
 	type MailCredentials,
 	MessageSyncService,
@@ -143,7 +143,11 @@ export const syncMessages = async (
 	// deleted — is an expected terminal outcome, not an infra failure: ack the
 	// event with a WARN.
 	if (
-		await isMailboxNotOnServer(mailboxService, event.accountId, event.mailboxId)
+		await isMailboxMutationInFlight(
+			mailboxService,
+			event.accountId,
+			event.mailboxId,
+		)
 	) {
 		log.warn(
 			{
@@ -214,7 +218,7 @@ export const syncMessages = async (
 						// never become the failure that is reported. A read that cannot answer
 						// leaves the round on the loud path below, with the real error and the
 						// state write that goes with it intact.
-						const folderIsGone = await isMailboxNotOnServer(
+						const folderIsGone = await isMailboxMutationInFlight(
 							mailboxService,
 							event.accountId,
 							event.mailboxId,

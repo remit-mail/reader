@@ -90,6 +90,7 @@ export const makeMailbox = (
 	highWaterMarkUid: 0,
 	lastMessageSyncAt: NOW,
 	parentMailboxId: "",
+	syncStatus: "synced",
 	cursorState: "normal",
 	createdAt: NOW,
 	updatedAt: NOW,

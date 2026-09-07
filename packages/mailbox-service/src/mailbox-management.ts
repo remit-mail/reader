@@ -1,6 +1,7 @@
 import type { IMailboxRepository } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { isNotFoundError } from "./mailbox-presence.js";
+import { EVERY_MAILBOX_STATE, isNotFoundError } from "./mailbox-presence.js";
 import type { IImapConnection } from "./types.js";
 
 /**
@@ -116,6 +117,30 @@ export class MailboxManagementService {
 	}
 
 	/**
+	 * Write the settled state back, as the conditional write that is now the
+	 * only way to write it at all (D3). The from-set is every state because that
+	 * is what this settle decides against today — it is the unconditional write
+	 * it replaces, moved onto the door; #363 narrows it to the state its intent
+	 * recorded and gives a lost predicate its `already-settled` outcome.
+	 *
+	 * A null means the row is gone, which is what the unconditional write raised
+	 * a NotFoundError for, and what the handlers' #289-class terminal guards
+	 * classify as the user having deleted the folder mid-sync.
+	 */
+	private settle = async (
+		accountId: string,
+		mailboxId: string,
+		confirmedPath?: string,
+	): Promise<void> => {
+		const settled = await this.mailboxService.transition(accountId, mailboxId, {
+			from: EVERY_MAILBOX_STATE,
+			to: MailboxSyncStatus.synced,
+			set: confirmedPath !== undefined ? { fullPath: confirmedPath } : {},
+		});
+		if (!settled) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+	};
+
+	/**
 	 * Sync a CREATE operation to IMAP.
 	 * Called by worker after dequeuing MAILBOX_CREATE event.
 	 *
@@ -149,7 +174,7 @@ export class MailboxManagementService {
 			typeof result.path === "string" && result.path.length > 0
 				? result.path
 				: path;
-		const pathUpdate = serverPath !== path ? { fullPath: serverPath } : {};
+		const confirmedPath = serverPath !== path ? serverPath : undefined;
 
 		this.log.info(
 			{ mailboxId, path, serverPath, created: result.created },
@@ -170,20 +195,16 @@ export class MailboxManagementService {
 			const status = await connection.openBox(serverPath, true);
 
 			await this.mailboxService.update(accountId, mailboxId, {
-				...pathUpdate,
 				uidValidity: status.uidvalidity,
 				uidNext: status.uidnext,
 				messageCount: status.messages.total,
-				syncStatus: MailboxSyncStatus.synced,
 			});
+			await this.settle(accountId, mailboxId, confirmedPath);
 
 			await connection.closeBox();
 		} else {
 			// Mark as synced even if we couldn't get full info
-			await this.mailboxService.update(accountId, mailboxId, {
-				...pathUpdate,
-				syncStatus: MailboxSyncStatus.synced,
-			});
+			await this.settle(accountId, mailboxId, confirmedPath);
 		}
 
 		return { success: true };
@@ -215,11 +236,7 @@ export class MailboxManagementService {
 			"Renamed mailbox on IMAP server",
 		);
 
-		// Clear oldPath and mark as synced
-		await this.mailboxService.update(accountId, mailboxId, {
-			oldPath: undefined,
-			syncStatus: MailboxSyncStatus.synced,
-		});
+		await this.settle(accountId, mailboxId);
 
 		// The server rename is done and the row records it. The settle is repair
 		// work on top of that, so nothing it hits — the listing included — may reach
@@ -268,16 +285,17 @@ export class MailboxManagementService {
 		);
 
 		for (const descendant of descendants) {
-			if (descendant.syncStatus !== MailboxSyncStatus.pending) continue;
 			if (!onServer.has(descendant.fullPath)) continue;
-			await this.mailboxService
-				.update(accountId, descendant.mailboxId, {
-					syncStatus: MailboxSyncStatus.synced,
-				})
-				.catch((error: unknown) => {
-					if (isNotFoundError(error)) return;
-					throw error;
-				});
+			// The per-row settle of D15: `pending` is the state that carries the
+			// intent, and the predicate is on the UPDATE, so a row another client
+			// moved in between is skipped rather than overwritten. A row that is
+			// gone is skipped for free — a null is not an error here, which is what
+			// keeps a descendant deleted mid-settle out of the handler's
+			// whole-chain NotFoundError guard.
+			await this.mailboxService.transition(accountId, descendant.mailboxId, {
+				from: [MailboxSyncStatus.pending],
+				to: MailboxSyncStatus.synced,
+			});
 		}
 	};
 

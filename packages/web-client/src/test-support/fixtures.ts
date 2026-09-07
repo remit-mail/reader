@@ -27,6 +27,7 @@ export const makeMailbox = (
 	lastSyncUid: 0,
 	highWaterMarkUid: 0,
 	lastMessageSyncAt: 0,
+	syncStatus: "synced",
 	createdAt: 0,
 	updatedAt: 0,
 	...overrides,

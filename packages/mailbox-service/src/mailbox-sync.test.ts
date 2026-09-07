@@ -216,19 +216,23 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 		shared: [],
 	};
 
-	// The server lists only INBOX: neither user folder is on it yet.
-	const serverConnection = (): IImapConnection =>
+	// The server lists only INBOX unless a test says otherwise: neither user
+	// folder is on it yet.
+	const serverConnection = (
+		folders: Array<{ fullPath: string; attributes?: string[] }> = [
+			{ fullPath: "INBOX" },
+		],
+	): IImapConnection =>
 		({
 			getNamespaces: async () => namespaces,
-			listMailboxes: async () => [
-				{
-					fullPath: "INBOX",
-					name: "INBOX",
+			listMailboxes: async () =>
+				folders.map((folder) => ({
+					fullPath: folder.fullPath,
+					name: folder.fullPath.split("/").pop() ?? folder.fullPath,
 					delimiter: "/",
-					attributes: [],
+					attributes: folder.attributes ?? [],
 					parentPath: null,
-				},
-			],
+				})),
 			getMailboxStatus: async () => ({
 				messages: 0,
 				recent: 0,
@@ -238,6 +242,12 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 				highestModseq: "0",
 				deletedCount: 0,
 			}),
+			openBox: async () => ({
+				uidvalidity: 1,
+				uidnext: 1,
+				messages: { total: 0 },
+			}),
+			closeBox: async () => undefined,
 		}) as unknown as IImapConnection;
 
 	const buildServices = (
@@ -245,9 +255,11 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 			mailboxId: string;
 			fullPath: string;
 			syncStatus?: string;
+			pendingPath?: string;
 		}>,
 	) => {
 		const deleted: string[] = [];
+		const created: Array<Record<string, unknown>> = [];
 		const mailboxService = {
 			listByAccount: async () => ({
 				items: existing.map((m) => ({
@@ -261,6 +273,7 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 					highestModseq: "0",
 					specialUse: undefined,
 					syncStatus: m.syncStatus,
+					pendingPath: m.pendingPath,
 				})),
 				continuationToken: undefined,
 			}),
@@ -268,7 +281,10 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 			delete: async (_accountId: string, mailboxId: string) => {
 				deleted.push(mailboxId);
 			},
-			create: async () => ({}),
+			create: async (input: Record<string, unknown>) => {
+				created.push(input);
+				return { ...input, mailboxId: `new-${created.length}` };
+			},
 		} as unknown as IMailboxRepository;
 
 		const specialUseService = {
@@ -277,25 +293,98 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 			createMany: async () => undefined,
 		} as unknown as IMailboxSpecialUseRepository;
 
-		return { mailboxService, specialUseService, deleted };
+		return { mailboxService, specialUseService, deleted, created };
 	};
 
-	it("keeps a pending folder the server has not listed yet", async () => {
-		// The folder was just created locally; MAILBOX_CREATE has not reached the
-		// server, so the LIST omits it. Deleting the row here races the create and
-		// wedges the account's mailbox-sync FIFO group for a full visibility window.
-		const { mailboxService, specialUseService, deleted } = buildServices([
-			{
-				mailboxId: "inbox",
-				fullPath: "INBOX",
-				syncStatus: MailboxSyncStatus.synced,
-			},
-			{
-				mailboxId: "pending-folder",
-				fullPath: "New Folder",
-				syncStatus: MailboxSyncStatus.pending,
-			},
-		]);
+	for (const syncStatus of [
+		MailboxSyncStatus.pending,
+		MailboxSyncStatus.deleting,
+	]) {
+		it(`keeps a \`${syncStatus}\` folder the server has not listed`, async () => {
+			// `pending`: the folder was just created locally and MAILBOX_CREATE has
+			// not reached the server, so the LIST omits it — deleting the row races
+			// the create and wedges the account's FIFO group for a visibility
+			// window (#290).
+			//
+			// `deleting`: the delete has landed on the server and the worker has not
+			// written back. Hard-deleting the row removes it under the client
+			// holding its id — the "Mailbox not found" of #333 — and removes it
+			// without the folder's mail, which the worker owns (D8).
+			const { mailboxService, specialUseService, deleted } = buildServices([
+				{
+					mailboxId: "inbox",
+					fullPath: "INBOX",
+					syncStatus: MailboxSyncStatus.synced,
+				},
+				{
+					mailboxId: "in-flight",
+					fullPath: "New Folder",
+					syncStatus,
+				},
+			]);
+			const service = new MailboxSyncService(
+				mailboxService,
+				specialUseService,
+				silentLogger,
+			);
+
+			const result = await service.syncMailboxes(
+				{ accountId: "acc-1" },
+				serverConnection(),
+			);
+
+			assert.deepEqual(deleted, []);
+			assert.equal(result.deleted, 0);
+		});
+
+		it(`keeps a \`${syncStatus}\` folder the server lists as \\Noselect`, async () => {
+			// A folder mid-create can transiently LIST as `\Noselect`, and the
+			// non-selectable branch deleted the row before looking at its state.
+			const { mailboxService, specialUseService, deleted } = buildServices([
+				{
+					mailboxId: "in-flight",
+					fullPath: "New Folder",
+					syncStatus,
+				},
+			]);
+			const service = new MailboxSyncService(
+				mailboxService,
+				specialUseService,
+				silentLogger,
+			);
+
+			await service.syncMailboxes(
+				{ accountId: "acc-1" },
+				serverConnection([
+					{ fullPath: "INBOX" },
+					{ fullPath: "New Folder", attributes: ["\\Noselect"] },
+				]),
+			);
+
+			assert.deepEqual(deleted, []);
+		});
+	}
+
+	it("does not insert a second row for a path a recorded rename claims", async () => {
+		// D14. `fullPath` stays the path the server held when the intent was
+		// recorded, so once the server executes RENAME the LIST returns a path no
+		// row is keyed to. Without the pendingPath index the insert branch makes a
+		// second row under a fresh mailboxId and initial-syncs the folder's mail
+		// into it, leaving the original as a permanent phantom.
+		const { mailboxService, specialUseService, deleted, created } =
+			buildServices([
+				{
+					mailboxId: "inbox",
+					fullPath: "INBOX",
+					syncStatus: MailboxSyncStatus.synced,
+				},
+				{
+					mailboxId: "renaming",
+					fullPath: "Archive/2025",
+					syncStatus: MailboxSyncStatus.pending,
+					pendingPath: "Records/2025",
+				},
+			]);
 		const service = new MailboxSyncService(
 			mailboxService,
 			specialUseService,
@@ -304,11 +393,29 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 
 		const result = await service.syncMailboxes(
 			{ accountId: "acc-1" },
-			serverConnection(),
+			serverConnection([{ fullPath: "INBOX" }, { fullPath: "Records/2025" }]),
 		);
 
+		assert.deepEqual(created, []);
+		assert.equal(result.created, 0);
 		assert.deepEqual(deleted, []);
-		assert.equal(result.deleted, 0);
+	});
+
+	it("writes syncStatus synced on the row it discovers", async () => {
+		const { mailboxService, specialUseService, created } = buildServices([]);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
+
+		await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection([{ fullPath: "INBOX" }]),
+		);
+
+		assert.equal(created.length, 1);
+		assert.equal(created[0].syncStatus, MailboxSyncStatus.synced);
 	});
 
 	it("still deletes a synced folder that has left the server", async () => {

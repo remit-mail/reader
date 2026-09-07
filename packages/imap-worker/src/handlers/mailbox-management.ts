@@ -1,8 +1,12 @@
 import { getClient } from "@remit/backend/client";
-import { isNotFoundError } from "@remit/data-ports/errors";
+import type { IMailboxRepository } from "@remit/data-ports";
+import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
-import { MailboxManagementService } from "@remit/mailbox-service";
+import {
+	EVERY_MAILBOX_STATE,
+	MailboxManagementService,
+} from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type {
@@ -57,6 +61,36 @@ const isMailboxAbsentUpstream = (error: unknown): boolean => {
 	if (!(error instanceof Error)) return false;
 	if (stringField(error, "serverResponseCode") === "NONEXISTENT") return true;
 	return /not found|does ?n.?t exist/i.test(saidByServer(error));
+};
+
+/**
+ * Write the outcome of a folder operation back, as the conditional write that
+ * is the only way to write a folder's state
+ * (docs/architecture/folder-rename-and-delete.md D3).
+ *
+ * The from-set is every state because that is what these write-backs decide
+ * against today — they are the unconditional writes they replace, moved onto
+ * the door. #363 narrows each to the state its intent recorded, and gives a
+ * lost predicate its `superseded` outcome. A null means the row is gone, which
+ * is the NotFoundError the whole-chain guards below classify as the user having
+ * deleted the folder mid-sync.
+ */
+const recordOutcome = async (
+	mailboxService: Pick<IMailboxRepository, "transition">,
+	accountId: string,
+	mailboxId: string,
+	to: (typeof MailboxSyncStatus)[keyof typeof MailboxSyncStatus],
+	confirmedPath?: string,
+): Promise<void> => {
+	const written = await mailboxService.transition(accountId, mailboxId, {
+		from: EVERY_MAILBOX_STATE,
+		to,
+		// `failed` keeps whatever rename target the row carries, so the UI can
+		// name what the rename was aiming at (T6); every other outcome drops it,
+		// which the transition does on its own.
+		set: confirmedPath !== undefined ? { fullPath: confirmedPath } : {},
+	});
+	if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 };
 
 /** The folder is already on the server: a create has nothing left to do. */
@@ -158,13 +192,19 @@ const handleCreate = async (
 								{ accountId, mailboxId, path },
 								"Mailbox already exists, marking as synced",
 							);
-							await mailboxService.update(accountId, mailboxId, {
-								syncStatus: MailboxSyncStatus.synced,
-							});
+							await recordOutcome(
+								mailboxService,
+								accountId,
+								mailboxId,
+								MailboxSyncStatus.synced,
+							);
 						} else {
-							await mailboxService.update(accountId, mailboxId, {
-								syncStatus: MailboxSyncStatus.failed,
-							});
+							await recordOutcome(
+								mailboxService,
+								accountId,
+								mailboxId,
+								MailboxSyncStatus.failed,
+							);
 							throw error;
 						}
 					})
@@ -269,11 +309,13 @@ const handleRename = async (
 							await mailboxService.delete(accountId, mailboxId);
 						} else {
 							// Rollback local rename by restoring old path
-							await mailboxService.update(accountId, mailboxId, {
-								fullPath: oldPath,
-								oldPath: undefined,
-								syncStatus: MailboxSyncStatus.failed,
-							});
+							await recordOutcome(
+								mailboxService,
+								accountId,
+								mailboxId,
+								MailboxSyncStatus.failed,
+								oldPath,
+							);
 							throw error;
 						}
 					})
@@ -370,9 +412,12 @@ const handleDelete = async (
 							error.message.includes("Cannot delete INBOX")
 						) {
 							// Restore the mailbox
-							await mailboxService.update(accountId, mailboxId, {
-								syncStatus: MailboxSyncStatus.synced,
-							});
+							await recordOutcome(
+								mailboxService,
+								accountId,
+								mailboxId,
+								MailboxSyncStatus.synced,
+							);
 							log.error(
 								{ accountId, mailboxId, path },
 								"Cannot delete INBOX, restoring mailbox",
@@ -380,9 +425,12 @@ const handleDelete = async (
 							// Don't rethrow - this is an expected error
 						} else {
 							// Restore the mailbox on other errors
-							await mailboxService.update(accountId, mailboxId, {
-								syncStatus: MailboxSyncStatus.failed,
-							});
+							await recordOutcome(
+								mailboxService,
+								accountId,
+								mailboxId,
+								MailboxSyncStatus.failed,
+							);
 							throw error;
 						}
 					})
