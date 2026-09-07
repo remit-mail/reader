@@ -765,7 +765,7 @@ describe("handleMessageDelete", () => {
 		it("skips a redelivery of a delete that already settled, rather than re-running it", async () => {
 			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
 
-			await handleMessageDelete(moveEvent, noopLog, 1, deps());
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
 			assert.equal(h.getConnectionCount, 0, "no IMAP command is issued");
 			assert.equal(called("message.updateUid").length, 0);
@@ -779,7 +779,7 @@ describe("handleMessageDelete", () => {
 		it("skips a redelivered permanent delete the same way", async () => {
 			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
 
-			await handleMessageDelete(permanentEvent, noopLog, 1, deps());
+			await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
 
 			assert.equal(h.getConnectionCount, 0);
 			assert.equal(called("message.delete").length, 0);

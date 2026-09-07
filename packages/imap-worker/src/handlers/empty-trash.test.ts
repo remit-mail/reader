@@ -545,7 +545,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-raced", 11)];
 		h.transitionsLost = ["msg-raced"];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("message.transitionPlacement").map((c) => c.args[0]),
@@ -563,7 +563,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 	it("predicates the hand-back on the placement the sweep actually read", async () => {
 		h.localMessages = [markedMidMove("msg-marked", 11)];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		const [call] = called("message.transitionPlacement");
 		assert.deepEqual(call?.args[1], {
@@ -583,7 +583,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			settledWithStaleOriginalUid("msg-stale", 11),
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.deepEqual(
 			called("connection.deleteMessages")[0]?.args,
@@ -607,7 +607,7 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			settledWithStaleOriginalUid("msg-stale-b", 11),
 		];
 
-		await handleEmptyTrash(event, noopLog, deps());
+		await handleEmptyTrash(event, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
