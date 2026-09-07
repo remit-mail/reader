@@ -2000,6 +2000,27 @@ updater_state_file() {
 		-c "cat /state/$1 2>/dev/null || true" 2>/dev/null
 }
 
+# The write side of that same reach. A check asked for at a host shell has to
+# happen where its answer is read — check.json on the state volume, state.json
+# on the control seam the backend reads — and neither of those is the directory
+# beside .env, so a check run here would land where nothing reads it and
+# `remit status` would keep reporting the previous answer (reader#1158). The
+# updater container is this same wrapper with the image's own STATE_DIR and
+# CONTROL_DIR, so the check runs there and prints its verdict back here.
+#
+# timeout(1) needs a real command and `compose` is a shell function, so the
+# capped call spells the argv out, the way doctor_exec does.
+updater_check() {
+	if ! compose ps --services --status running 2>/dev/null | grep -qx updater; then
+		die "update: the updater is not running, so a check asked for here would land where nothing reads it. Start the stack with '$PROG restart', then run '$PROG update --check' again."
+	fi
+	capped_run "$HELPER_RUN_TIMEOUT" docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
+		--env-file "$REMIT_DIR/.env" \
+		exec -T updater remit update --check
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
@@ -3098,6 +3119,16 @@ cmd_update() {
 		lock_acquire
 		recover_run
 		verify_updater_handoff
+		return 0
+	fi
+
+	# A shell on a deployment that has an updater is not where a check can happen:
+	# its two files would land beside .env, which is neither store anything reads
+	# (reader#1158). state_dir_is_record is false only there — inside the updater
+	# the volume is already STATE_DIR, and a deployment with no updater volume has
+	# nowhere else its record could go.
+	if [ "$_mode" = "check" ] && ! state_dir_is_record; then
+		updater_check
 		return 0
 	fi
 

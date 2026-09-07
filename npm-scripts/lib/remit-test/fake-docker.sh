@@ -603,10 +603,17 @@ compose_cmd() {
 			--json) _wantjson=1 ;;
 			-*) ;;
 			*)
-				if [ -z "$_svc" ]; then _svc=$1; fi
+				_svc=$1
+				shift
+				break
 				;;
 			esac
 			shift
+		done
+		# What is left is the command the container was handed. The doctor seam's
+		# --json sits in it, and the updater seam below runs it for real.
+		for _a in "$@"; do
+			if [ "$_a" = "--json" ]; then _wantjson=1; fi
 		done
 		# A docker that accepts the exec and never comes back. The wrapper's own
 		# ceiling is what has to end it, so the fake simply becomes the sleep —
@@ -617,6 +624,17 @@ compose_cmd() {
 		if [ ! -f "$S/up-$_svc" ]; then
 			printf 'service "%s" is not running container #1\n' "$_svc" >&2
 			exit 1
+		fi
+		# The updater container is the same wrapper the host runs, and a host-shell
+		# check is delegated to it because of where its two files have to land
+		# (reader#1158). `exec_mode=updater` runs the command for real under the
+		# environment the updater image sets, so the state and control volumes an
+		# assertion reads were written by the wrapper rather than by this stand-in.
+		if [ "$(val exec_mode run)" = "updater" ]; then
+			REMIT_UPDATE_STATE_DIR="$FAKE_UPDATER_STATE"
+			REMIT_UPDATE_CONTROL_DIR="$FAKE_UPDATER_CONTROL"
+			export REMIT_UPDATE_STATE_DIR REMIT_UPDATE_CONTROL_DIR
+			exec "$@"
 		fi
 		_outfile="$S/exec-out"
 		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
