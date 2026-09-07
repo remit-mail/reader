@@ -9,12 +9,16 @@ import { reportFatalError } from "@/lib/fatal-error";
  *  - "validation" — an expected, user-correctable rejection the server
  *                   described (email already registered, weak password, wrong
  *                   credentials). Inline, surfacing the server's own message.
+ *  - "rateLimited" — a 429. Nothing is wrong with the credentials or the
+ *                   deployment; the address has spent its budget and the same
+ *                   attempt works after a wait. Inline, and named as its own
+ *                   thing so it is never read as a rejection (#441).
  *  - "fatal"      — a 404, or any other unexpected 4xx/5xx from our own API. The
  *                   deployment or the client/server contract is broken and there
  *                   is nothing the user can retry their way out of. Escalates to
  *                   the full-screen fatal page with a bug-report link.
  */
-export type AuthErrorClass = "network" | "validation" | "fatal";
+export type AuthErrorClass = "network" | "validation" | "rateLimited" | "fatal";
 
 /** The request being attempted, for a fatal report that names method and path. */
 export interface AuthRequest {
@@ -24,6 +28,8 @@ export interface AuthRequest {
 
 /** better-auth's client sentinel for a fetch that never got an HTTP response. */
 const FETCH_ERROR_STATUS_TEXT = "Fetch Error";
+
+const TOO_MANY_REQUESTS = 429;
 
 const readString = (error: unknown, key: string): string | undefined => {
 	if (error && typeof error === "object" && key in error) {
@@ -53,6 +59,7 @@ export const classifyAuthError = (error: unknown): AuthErrorClass => {
 	if (isNetworkFailure(error)) return "network";
 	const status = getErrorStatus(error);
 	if (status === undefined) return "fatal";
+	if (status === TOO_MANY_REQUESTS) return "rateLimited";
 	if (status === 404 || status >= 500) return "fatal";
 	if (authServerMessage(error)) return "validation";
 	return "fatal";
@@ -61,12 +68,18 @@ export const classifyAuthError = (error: unknown): AuthErrorClass => {
 const NETWORK_MESSAGE =
 	"Can't reach the server. You may be offline — check your connection and try again.";
 
-/** The inline banner text for a network or validation failure. */
+// The server's own 429 body says only "Too many requests"; it cannot say what
+// the budget is shared with, and that is the part a single user needs to hear.
+const RATE_LIMITED_MESSAGE =
+	"Too many requests from this address. Everyone behind the same address — other people on this network, and every tab you have open — shares one limit. Wait a minute and try again.";
+
+/** The inline banner text for a network, rate-limited or validation failure. */
 export const authInlineMessage = (
 	error: unknown,
 	kind: AuthErrorClass,
 ): string => {
 	if (kind === "network") return NETWORK_MESSAGE;
+	if (kind === "rateLimited") return RATE_LIMITED_MESSAGE;
 	return authServerMessage(error) ?? "Please check your details and try again.";
 };
 
