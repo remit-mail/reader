@@ -2,14 +2,14 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
 	reconcileStaleMessage,
+	restoreSourcePlacement,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export interface MessageDeleteTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -18,7 +18,7 @@ export interface MessageDeleteTerminalLogger {
 
 export interface ResolveExhaustedMessageDeleteDeps
 	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "updateForMove">;
+	messageService: Pick<IMessageRepository, "delete" | "transitionPlacement">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"
@@ -60,7 +60,7 @@ export interface ResolveExhaustedMessageDeleteResult {
  *    effect, but it keeps failing: broken code or a broken account, not a
  *    transient blip. The row is put back where the server has just said the
  *    message is: `mailboxId` and `uid` return to the delete's source pair, and
- *    the thread rows lose the deletion mark the optimistic `updateForMove`
+ *    the thread rows lose the deletion mark the optimistic transition
  *    wrote (issue #1098).
  *
  *    Settling `status` to `active` while leaving `mailboxId` on Trash is what
@@ -132,9 +132,13 @@ export const resolveExhaustedMessageDeleteFailure = async (
 		sourceMailboxId,
 		uid,
 		// The probe above just confirmed the pair, so the row is a faithful
-		// projection of the source again. The delete's own failure is the alert,
-		// not a `failed` left on a row nothing is still trying to delete.
-		syncStatus: MessageSyncStatus.synced,
+		// projection of the source again — and the delete the user asked for did
+		// not happen, with nothing left to try it. `abandoned` is the value that
+		// says so without claiming a retry is coming (imap-mutations R3); the
+		// alert stays for the operator, and the mutation names itself so the
+		// reading pane offers the right way out (issue #1229).
+		syncStatus: MessageSyncStatus.abandoned,
+		abandonedMutation: MessageMutation.delete,
 	});
 
 	return { outcome: "broken" };

@@ -30,8 +30,11 @@ const buildWorld = (trashExists: boolean) => {
 		get: async () => [message],
 		update: async (_id: string, patch: Record<string, unknown>) =>
 			Object.assign(message, patch),
-		updateForMove: async (_id: string, patch: Record<string, unknown>) =>
-			Object.assign(message, patch),
+		transitionPlacement: async (
+			_id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => Object.assign(message, patch),
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {

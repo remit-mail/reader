@@ -25,9 +25,14 @@ interface MailboxAccountResolution {
 export const useMailboxAccount = (
 	mailboxId: string | undefined,
 ): MailboxAccountResolution => {
+	// Disabled where there is no mailbox to resolve, the way the fan-out below
+	// already is. A caller that already knows its account passes `undefined` and
+	// this subscribes to nothing — which keeps the hook from pulling `/config`
+	// into trees that never asked for it.
 	const { data: config, isLoading: isConfigLoading } = useQuery({
 		...configOperationsGetConfigOptions(),
 		staleTime: Infinity,
+		enabled: !!mailboxId,
 	});
 
 	const accountIds = useMemo(

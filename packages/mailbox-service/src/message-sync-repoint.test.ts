@@ -336,13 +336,33 @@ describe("repointsOnSighting", () => {
 		);
 	});
 
-	it("refuses a row whose move failed and has not been re-tried", () => {
+	/**
+	 * The row `abandonDelete` hands back: reader refused the delete, put the
+	 * message back where the server still has it, and nothing else is coming
+	 * for the row. Reader shares its mailboxes, so the user moving that same
+	 * message in another client is ordinary — and before R3 the sighting was
+	 * refused on `syncStatus` alone and the row never followed the move.
+	 */
+	it("accepts a row whose delete was abandoned, so a move made elsewhere still lands", () => {
+		assert.equal(
+			repointsOnSighting(
+				JUNK,
+				storedIn(INBOX, {
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.abandoned,
+				}),
+			),
+			true,
+		);
+	});
+
+	it("accepts a row left `failed` by a transient attempt that has since settled", () => {
 		assert.equal(
 			repointsOnSighting(
 				JUNK,
 				storedIn(INBOX, { syncStatus: MessageSyncStatus.failed }),
 			),
-			false,
+			true,
 		);
 	});
 

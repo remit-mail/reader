@@ -79,9 +79,12 @@ const buildWorld = (
 	trashContents: TrashMessage[] = [
 		{ messageId: "junk-1", syncStatus: "synced" },
 	],
+	/** Message ids whose placement another lane changed after the read. */
+	transitionsLost: string[] = [],
 ) => {
 	const emptied: string[] = [];
 	const markedDeleting: string[] = [];
+	const markPredicates = new Map<string, unknown>();
 	const events: EnqueuedEvent[] = [];
 	const messagesByMailbox = new Map<string, TrashMessage[]>([
 		[DELETED_FOLDER, [{ messageId: "keepsake-1", syncStatus: "synced" }]],
@@ -95,6 +98,12 @@ const buildWorld = (
 		},
 		update: async (messageId: string) => {
 			markedDeleting.push(messageId);
+		},
+		transitionPlacement: async (messageId: string, expected: unknown) => {
+			markPredicates.set(messageId, expected);
+			if (transitionsLost.includes(messageId)) return undefined;
+			markedDeleting.push(messageId);
+			return { messageId };
 		},
 	} as unknown as IMessageRepository;
 
@@ -135,7 +144,7 @@ const buildWorld = (
 		events.push(event);
 	};
 
-	return { service, emptied, markedDeleting, events };
+	return { service, emptied, markedDeleting, markPredicates, events };
 };
 
 describe("MessageMoveService.emptyTrash", () => {
@@ -243,6 +252,44 @@ describe("MessageMoveService.emptyTrash", () => {
 
 		assert.deepEqual(markedDeleting, ["settled-1"]);
 		assert.equal(deletedCount, 1);
+	});
+
+	it("predicates each mark on the row it just read, and drops the ones it loses", async () => {
+		// The rows are held by nothing between the listing and the mark, and
+		// PLACEMENT_MOVE_PUSH rides a standard queue this account's FIFO group
+		// does not order (imap-mutations R3). A row that moved under the sweep
+		// must not be marked `deleting` for an expunge that would bind a uid it
+		// no longer has.
+		const { service, markedDeleting, markPredicates } = buildWorld(
+			appointedTrash,
+			[
+				{
+					messageId: "settled-1",
+					syncStatus: "synced",
+					status: "active",
+					mailboxId: REAL_TRASH,
+					uid: 10,
+				},
+				{
+					messageId: "raced-1",
+					syncStatus: "synced",
+					status: "active",
+					mailboxId: REAL_TRASH,
+					uid: 11,
+				},
+			],
+			["raced-1"],
+		);
+
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.deepEqual(markedDeleting, ["settled-1"]);
+		assert.equal(deletedCount, 1, "a row that lost is not counted either");
+		assert.deepEqual(markPredicates.get("settled-1"), {
+			status: "active",
+			mailboxId: REAL_TRASH,
+			uid: 10,
+		});
 	});
 
 	it("reports the same count when pressed twice before the worker runs", async () => {

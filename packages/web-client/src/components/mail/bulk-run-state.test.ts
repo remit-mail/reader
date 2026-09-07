@@ -6,6 +6,7 @@ import { bulkRunReport } from "./bulk-run-state";
 const ended = (over: Partial<BulkRunOutcome> = {}): BulkRunOutcome => ({
 	done: 0,
 	failedIds: [],
+	refused: 0,
 	cancelled: false,
 	...over,
 });

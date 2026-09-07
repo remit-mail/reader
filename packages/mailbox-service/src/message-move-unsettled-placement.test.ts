@@ -28,6 +28,7 @@ const ARCHIVE = "mbx-archive";
 const MOVING_ID = "msg-moving";
 const SETTLED_ID = "msg-settled";
 const STRANDED_ID = "msg-stranded";
+const DELETING_ID = "msg-deleting";
 const COPY_ID = "msg-copy";
 
 const INBOX_UID = 42;
@@ -58,11 +59,36 @@ const movingRow = () => ({
 	originalUid: INBOX_UID,
 });
 
-/** The same row after the mover gave up without confirming. */
+/**
+ * A row a mutation gave up on. R3 defines the give-up as a hand-back: the row
+ * goes back on the placement the mail server confirmed, and only then carries
+ * `abandoned`. The pair is honest, so nothing downstream refuses it — the
+ * failure is a statement the reading pane makes, never a gate.
+ */
 const strandedRow = () => ({
-	...movingRow(),
 	messageId: STRANDED_ID,
-	syncStatus: "failed",
+	mailboxId: INBOX,
+	uid: INBOX_UID,
+	status: "active",
+	syncStatus: "abandoned",
+	abandonedMutation: "move",
+	originalMailboxId: INBOX,
+});
+
+/**
+ * The same shape a delete leaves: Trash is already written, the uid is still
+ * INBOX's, and `deleting` is what says so. R3 calls this in flight exactly as
+ * `moving` is — reading only `moving` let a move enqueued behind a delete bind
+ * this pair and be dropped when the delete settled.
+ */
+const deletingRow = () => ({
+	messageId: DELETING_ID,
+	mailboxId: ARCHIVE,
+	uid: INBOX_UID,
+	status: "deleting",
+	syncStatus: "pending",
+	originalMailboxId: INBOX,
+	originalUid: INBOX_UID,
 });
 
 /** An ordinary settled row. */
@@ -118,7 +144,11 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 			patches.push({ messageId: id, patch });
 			return Object.assign(rows.get(id) ?? {}, patch);
 		},
-		updateForMove: async (id: string, patch: Record<string, unknown>) => {
+		transitionPlacement: async (
+			id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
 			patches.push({ messageId: id, patch });
 			return Object.assign(rows.get(id) ?? {}, patch);
 		},
@@ -318,22 +348,31 @@ describe("the move gate refuses only a uid that names somebody else (#665)", () 
 		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
 	});
 
-	it("refuses a row stranded by a move that gave up, without spending the ceiling", async () => {
-		// `syncStatus: failed` with `status: moving` is what every handler's
-		// give-up path leaves behind, and only `updateUid` clears it. The pair is
-		// still a lie, so the move is still refused — under a reason whose remedy
-		// is a resync, and without a wait that could never succeed.
+	it("waits out a delete in flight rather than binding its borrowed uid", async () => {
+		const { service, events, patches } = buildWorld([deletingRow()]);
+
+		await assert.rejects(
+			() => service.moveMessage(ACCOUNT_CONFIG, DELETING_ID, INBOX, ACCOUNT),
+			(error: unknown) => error instanceof MessagePlacementUnsettledError,
+		);
+
+		assert.deepEqual(events, [], "nothing was enqueued");
+		assert.deepEqual(patches, [], "and no local write was made");
+	});
+
+	it("acts on a row a move gave up on, rather than refusing it", async () => {
+		// A give-up hands the row back to the placement the server confirmed
+		// before it stops (R3), so the folder and uid name the same message and
+		// the user's next move is an ordinary one. Refusing it — which is what a
+		// give-up left `moving` used to earn — made the message unmovable for
+		// good, with nothing routine to repair it.
 		const { service, events } = buildWorld([strandedRow()]);
 
 		const startedAt = Date.now();
-		await assert.rejects(
-			() => service.moveMessage(ACCOUNT_CONFIG, STRANDED_ID, INBOX, ACCOUNT),
-			(error: unknown) =>
-				error instanceof MessagePlacementUnsettledError &&
-				error.publicApiError?.details?.reason === "unverified",
-		);
+		await service.moveMessage(ACCOUNT_CONFIG, STRANDED_ID, ARCHIVE, ACCOUNT);
 
-		assert.deepEqual(events, []);
-		assert.ok(Date.now() - startedAt < 100, "refused without waiting");
+		assert.equal(events.length, 1);
+		assert.equal(events[0].type, "MESSAGE_MOVE");
+		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
 	});
 });

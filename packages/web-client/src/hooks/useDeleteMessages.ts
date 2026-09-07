@@ -161,6 +161,25 @@ export const useDeleteMessages = ({
 				previousThreadsList,
 			};
 		},
+		// A batch that partly applied answers 200 with a non-zero `failureCount`:
+		// the rows whose placement changed under it were never claimed
+		// (imap-mutations R3). `onSettled` invalidates, so those rows come back on
+		// their own — this is what stops them coming back unexplained, which is
+		// the dead-button failure wearing a different face (#1229).
+		onSuccess: (data, vars) => {
+			const refused = data?.failureCount ?? 0;
+			if (refused === 0) return;
+			const asked = vars.body.messageIds?.length ?? 0;
+			pushError({
+				severity: "warning",
+				title:
+					refused > 1
+						? `Couldn't delete ${refused} of ${asked} messages yet`
+						: "Couldn't delete this message yet",
+				detail:
+					"Something else moved it while the delete was being prepared. It is back where it now sits — try again.",
+			});
+		},
 		onError: (err, vars, context) => {
 			if (context) {
 				for (const entry of context.previousThreadMessages) {

@@ -4,8 +4,9 @@ import type {
 	IMessageRepository,
 	MessageDescription,
 	MessageItem,
+	PlacementPredicate,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, type SQL } from "drizzle-orm";
 
 import type { Db } from "../db.js";
 import {
@@ -57,6 +58,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		envelopeId: row.envelopeId,
 		rootBodyPartId: row.rootBodyPartId,
 		status: row.status,
+		abandonedMutation: row.abandonedMutation,
 		syncStatus: row.syncStatus,
 		category: row.category,
 		classificationState: row.classificationState,
@@ -168,6 +170,34 @@ export async function deleteMessageSubtree(
 		})),
 	);
 }
+
+/**
+ * The WHERE terms of a placement transition (imap-mutations R3). A field the
+ * caller left out is a field it did not read, so it constrains nothing; a field
+ * given as a list matches any of the states that share one column value.
+ */
+const isList = <T>(value: T | readonly T[]): value is readonly T[] =>
+	Array.isArray(value);
+
+const oneOf = <T>(value: T | readonly T[]): T[] =>
+	isList(value) ? [...value] : [value];
+
+const placementTerms = (expected: PlacementPredicate): SQL[] => {
+	const terms: SQL[] = [];
+	if (expected.status !== undefined) {
+		terms.push(inArray(messageTable.status, oneOf(expected.status)));
+	}
+	if (expected.syncStatus !== undefined) {
+		terms.push(inArray(messageTable.syncStatus, oneOf(expected.syncStatus)));
+	}
+	if (expected.mailboxId !== undefined) {
+		terms.push(eq(messageTable.mailboxId, expected.mailboxId));
+	}
+	if (expected.uid !== undefined) {
+		terms.push(eq(messageTable.uid, expected.uid));
+	}
+	return terms;
+};
 
 export class DrizzleMessageRepository implements IMessageRepository {
 	constructor(private db: DB) {}
@@ -359,10 +389,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(input.bodyStorageKey !== undefined
 				? { bodyStorageKey: input.bodyStorageKey }
 				: {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
-				: {}),
 			...(input.category !== undefined ? { category: input.category } : {}),
 			...(input.classificationState !== undefined
 				? { classificationState: input.classificationState }
@@ -455,17 +481,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return this.get(messageId);
 	}
 
-	async clearOriginalMailboxId(
-		messageId: string,
-	): ReturnType<IMessageRepository["clearOriginalMailboxId"]> {
-		const now = Date.now();
-		await this.db
-			.update(messageTable)
-			.set({ originalMailboxId: null, originalUid: null, updatedAt: now })
-			.where(eq(messageTable.messageId, messageId));
-		return this.get(messageId);
-	}
-
 	async delete(messageId: string): Promise<void> {
 		await this.deleteMany([messageId]);
 	}
@@ -532,22 +547,24 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return rows.map(toMessageItem);
 	}
 
-	async updateForMove(
+	async transitionPlacement(
 		messageId: string,
-		input: Parameters<IMessageRepository["updateForMove"]>[1],
-	): ReturnType<IMessageRepository["updateForMove"]> {
+		expected: PlacementPredicate,
+		next: Parameters<IMessageRepository["transitionPlacement"]>[2],
+	): ReturnType<IMessageRepository["transitionPlacement"]> {
 		const setValues = {
-			...(input.mailboxId !== undefined ? { mailboxId: input.mailboxId } : {}),
-			...(input.uid !== undefined ? { uid: input.uid } : {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
+			...(next.mailboxId !== undefined ? { mailboxId: next.mailboxId } : {}),
+			...(next.uid !== undefined ? { uid: next.uid } : {}),
+			...(next.status !== undefined ? { status: next.status } : {}),
+			...(next.syncStatus !== undefined ? { syncStatus: next.syncStatus } : {}),
+			...(next.abandonedMutation !== undefined
+				? { abandonedMutation: next.abandonedMutation }
 				: {}),
-			...(input.originalMailboxId !== undefined
-				? { originalMailboxId: input.originalMailboxId }
+			...(next.originalMailboxId !== undefined
+				? { originalMailboxId: next.originalMailboxId }
 				: {}),
-			...(input.originalUid !== undefined
-				? { originalUid: input.originalUid }
+			...(next.originalUid !== undefined
+				? { originalUid: next.originalUid }
 				: {}),
 			updatedAt: Date.now(),
 		};
@@ -555,11 +572,11 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		const rows = await this.db
 			.update(messageTable)
 			.set(setValues)
-			.where(eq(messageTable.messageId, messageId))
+			.where(
+				and(eq(messageTable.messageId, messageId), ...placementTerms(expected)),
+			)
 			.returning();
-		if (rows.length === 0) {
-			throw new NotFoundError(`Message not found: ${messageId}`);
-		}
+		if (rows.length === 0) return undefined;
 		return toMessageItem(rows[0]);
 	}
 
@@ -590,6 +607,12 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					originalUid: null,
 					status: "active",
 					syncStatus: "synced",
+					// The settle clears the epitaph as well as the pair. `syncStatus`
+					// alone already gates every reader of it, so this is tidiness
+					// rather than correctness — but a row that has just settled has
+					// nothing it gave up on, and leaving a value there invites a
+					// reader that forgets the gate.
+					abandonedMutation: "none",
 					updatedAt: Date.now(),
 				})
 				.where(eq(messageTable.messageId, messageId))

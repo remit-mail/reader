@@ -8,6 +8,7 @@ import type {
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
+	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 	SenderTrust,
@@ -63,6 +64,7 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	muted: false,
 	status: MessageStatus.active,
 	syncStatus: MessageSyncStatus.pending,
+	abandonedMutation: MessageMutation.none,
 });
 
 /**
@@ -110,7 +112,8 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
  * derived from the From Address's flags map), `authenticity`, `autoMoved` and
  * `spamReport`, and the `status`/`syncStatus` pair an IMAP mutation leaves
- * behind (all projected straight from the Message row — no ThreadMessage
+ * behind together with the mutation an abandoned one names (all projected
+ * straight from the Message row — no ThreadMessage
  * column of their own, see `deriveAutoMoved`). `toResponse` seeds that pair
  * with the ordinary inbound values, which the projection then overwrites; a
  * ThreadMessage row whose Message row is missing from the batch is broken in a
@@ -189,7 +192,11 @@ export const enrichThreadRows = async (
 	const settlementByMessageId = new Map(
 		messages.map((m) => [
 			m.messageId,
-			{ status: m.status, syncStatus: m.syncStatus },
+			{
+				status: m.status,
+				syncStatus: m.syncStatus,
+				abandonedMutation: m.abandonedMutation,
+			},
 		]),
 	);
 	const trustByAddressId = new Map(

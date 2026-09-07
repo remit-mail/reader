@@ -1,47 +1,50 @@
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import type { MessageItem } from "./types.js";
 
 export type MessageSettlementFields = Pick<
 	MessageItem,
-	"status" | "syncStatus"
+	"status" | "syncStatus" | "abandonedMutation"
 >;
 
 /**
- * A delete Remit refused to run, having already removed the message locally.
- * `abandonDelete` reaches this from four checks, all of them made before any
- * expunge: the Trash folder the event names is not on the server (TRYCREATE),
- * the event carries no destination, it names an operation this build does not
- * recognise, or it was minted under an unknown contract. The row is handed back
- * to the folder the server still holds the message in.
+ * Which mutation gave up on this row, and `none` where none did.
  *
- * `status: active` alongside `syncStatus: failed` is the whole signal, and
- * `abandonDelete` (`imap-worker/src/handlers/message-delete.ts`) is its ONLY
- * writer. Every other writer of either value writes the other along with it:
+ * `syncStatus: abandoned` is the gate and the only gate: it is the give-up
+ * value of the placement state model (docs/architecture/imap-mutations.md R3),
+ * written only after the row has been put back on a placement the mail server
+ * confirmed. Every settle overwrites it, and the settle in `updateUid` clears
+ * `abandonedMutation` alongside it. A transient attempt writes
+ * `failed` and re-throws for redelivery, so `failed` never reaches here.
  *
- * - `updateUid` (`drizzle-service/src/repos/message.ts`) settles a confirmed
- *   move by writing `active` and `synced` in the same statement, so a move that
- *   worked after a failed attempt cannot leave `failed` behind.
- * - `empty-trash` and `message-copy`'s `settleCopied` both hand a row back as
- *   `active` + `synced`.
- * - `upsertWithStatus` leaves an existing row alone, so no inbound sync writes
- *   either value onto a row that already has them.
+ * `abandonedMutation` behind that gate says WHICH mutation, which the row
+ * otherwise cannot say: the hand-back sets `status` back to `active`, and
+ * `status` was the field naming the mutation that was outstanding. Reading the
+ * pair without it is how a move that handed back came to be reported to the
+ * user as a failed delete, under a "Delete again" button (issue #1229).
  *
- * `syncStatus: failed` ON ITS OWN is NOT a give-up marker, whatever
- * `placement-settled.ts`'s docstring says. `message-move.ts`, `message-delete.ts`
- * and `message-copy.ts` each write it on an ORDINARY TRANSIENT attempt and then
- * re-throw for queue redelivery — the row is mid-retry and about to succeed. In
- * those handlers `status` stays at its in-flight value (`moving`, `deleting`),
- * which is what separates them from the pair above.
+ * Outside the gate the field is `none` and says nothing, exactly as
+ * `originalUid` says nothing once a placement has settled. Reading it
+ * unconditionally would resurrect a give-up a later mutation has settled.
  *
- * Two give-ups this cannot see, and must not pretend to:
- *
- * - A MOVE or a DELETE that exhausted its retries settles `active` + `synced`
- *   (`resolveExhaustedMessageMoveFailure` and
- *   `resolveExhaustedMessageDeleteFailure` repair the row to where the message
- *   actually is — #1098, #1005), so both read as fully settled here.
- * - `flag-push` and `placement-move-push` never write either field at all.
- *   Their give-up state lives on their own marker rows.
+ * Two give-ups this deliberately does not name. `flag-push` never writes a
+ * placement at all — its give-up lives on its own marker row and in an
+ * operator alert. `placement-move-push` does restore the row when its push is
+ * exhausted, and drops its marker with it, but leaves this field at `none`:
+ * Remit's own classification move is not a mutation the user asked for, so a
+ * per-message treatment for it would report a failure against an intent nobody
+ * formed.
  */
+export const abandonedMutationOf = (
+	message: MessageSettlementFields,
+): MessageItem["abandonedMutation"] =>
+	message.syncStatus === MessageSyncStatus.abandoned
+		? message.abandonedMutation
+		: MessageMutation.none;
+
+/** A delete Remit refused to run or gave up on, having removed it locally first. */
 export const hasAbandonedDelete = (message: MessageSettlementFields): boolean =>
-	message.status === MessageStatus.active &&
-	message.syncStatus === MessageSyncStatus.failed;
+	abandonedMutationOf(message) === MessageMutation.delete;
+
+/** A move Remit gave up on, having already pointed the row at the destination. */
+export const hasAbandonedMove = (message: MessageSettlementFields): boolean =>
+	abandonedMutationOf(message) === MessageMutation.move;

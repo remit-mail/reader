@@ -7,6 +7,7 @@ import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
 import "../enums/MessageClassificationState.tsp";
 import "../enums/MessageFlag.tsp";
+import "../enums/MessageMutation.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
 import "../enums/PlacementAction.tsp";
@@ -207,9 +208,13 @@ model Message {
   @visibility(Lifecycle.Read)
   status: MessageStatus = MessageStatus.active;
 
-  @doc("Sync status for move/delete operations. The `synced` column default only applies to a row written without the field: the repository always supplies one, and an ordinary inbound sync writes `pending`, which nothing later promotes. So `pending` here does not mean an outstanding move or delete — `status` names that, and `failed` marks a mutation that gave up.")
+  @doc("Sync status for move/delete operations, read as a pair with `status` (imap-mutations R3). The `synced` column default only applies to a row written without the field: the repository always supplies one, and an ordinary inbound sync writes `pending`, which nothing later promotes. So `pending` here does not mean an outstanding move or delete — `status` names that, `failed` marks an attempt about to be redelivered, and `abandoned` marks a mutation that gave up.")
   @visibility(Lifecycle.Read)
   syncStatus: MessageSyncStatus = MessageSyncStatus.synced;
+
+  @doc("Which mutation gave up on this message. Meaningful only while `syncStatus` is `abandoned`; `none` everywhere else, so the absent state is a named value rather than a missing attribute. Written by the same transition that writes `abandoned`, because a hand-back sets `status` back to `active` and that is the field which named the mutation.")
+  @visibility(Lifecycle.Read)
+  abandonedMutation: MessageMutation = MessageMutation.none;
 
   @doc("Original mailbox ID before move (for restore from trash)")
   @visibility(Lifecycle.Read)
@@ -338,6 +343,7 @@ model MessageSummaryResponse {
       | "authenticity"
       | "status"
       | "syncStatus"
+      | "abandonedMutation"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")

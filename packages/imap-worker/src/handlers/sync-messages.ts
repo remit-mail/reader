@@ -13,6 +13,7 @@ import type {
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
 import { type Logger, recordImapFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -33,7 +34,6 @@ import type {
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";

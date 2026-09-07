@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { ThreadMessageResponse } from "@remit/api-openapi-types";
 import {
 	MessageCategory,
+	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 	SenderTrust,
@@ -38,6 +39,7 @@ const row = (
 	muted: false,
 	status: MessageStatus.active,
 	syncStatus: MessageSyncStatus.pending,
+	abandonedMutation: MessageMutation.none,
 	...overrides,
 });
 

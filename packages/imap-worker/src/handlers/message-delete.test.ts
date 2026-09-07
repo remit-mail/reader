@@ -4,6 +4,10 @@ import type { ThreadMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import { renderMetrics, resetMetrics } from "@remit/logger-lambda";
 import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import {
+	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
+} from "@remit/mailbox-service";
 import type { MessageDeleteEvent } from "../events.js";
 import {
 	deleteAllThreadMessagesForMessage,
@@ -12,10 +16,6 @@ import {
 	MESSAGE_DELETE_MAX_ATTEMPTS,
 	type MessageDeleteDeps,
 } from "./message-delete.js";
-import {
-	buildThreadMessageTrashUpdate,
-	buildThreadMessageUndelete,
-} from "./thread-message-rows.js";
 
 describe("getMessageDeleteMaxAttempts — env-derived threshold (#980)", () => {
 	it("parses the injected env var", () => {
@@ -293,7 +293,9 @@ interface Harness {
 	mailboxError?: Error;
 	connection: Connection;
 	threadMessageUpdateError?: Error;
-	messageRow: { messageIdHeader?: string } | undefined;
+	messageRow: { messageIdHeader?: string; status?: string } | undefined;
+	/** The row was settled by another lane, so every transition loses. */
+	transitionLost?: boolean;
 	destinationSearchUids: number[];
 	// A Message-ID SEARCH is answered by whichever folder was opened last, so a
 	// case can put the same header in both. Default: the source still holds it,
@@ -396,7 +398,10 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
-	messageRow: { messageIdHeader: MESSAGE_ID_HEADER },
+	// What the API writes before it enqueues: a move to Trash records `moving`,
+	// a permanent delete records `deleting`, and the handler's guard asks one
+	// question of both — is a mutation still outstanding on this row.
+	messageRow: { messageIdHeader: MESSAGE_ID_HEADER, status: "moving" },
 	destinationSearchUids: [],
 	sourceSearchUids: [10],
 	openBoxPath: "INBOX",
@@ -431,7 +436,10 @@ const deps = (): MessageDeleteDeps =>
 					return h.messageRow ? [h.messageRow] : [];
 				},
 				updateUid: record("message.updateUid"),
-				updateForMove: record("message.updateForMove"),
+				transitionPlacement: async (...args: unknown[]) => {
+					h.calls.push({ method: "message.transitionPlacement", args });
+					return h.transitionLost ? undefined : { messageId: "msg-1" };
+				},
 				update: record("message.update"),
 				delete: record("message.delete"),
 			},
@@ -502,17 +510,60 @@ const permanentEvent: MessageDeleteEvent = {
 	operation: "permanent_delete",
 } as MessageDeleteEvent;
 
+/**
+ * A permanent delete's row carries `deleting`, which is the state its own guard
+ * asks for — the move to Trash's is `moving`, and the default fixture is that.
+ * Called at the point of the handler call so the row is right for the event.
+ */
+const permanent = (): MessageDeleteEvent => {
+	if (h.messageRow) h.messageRow.status = "deleting";
+	return permanentEvent;
+};
+
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+/**
+ * The transient attempt marker: the one transition that writes nothing but the
+ * attempt's own sync status, predicated on this delete still being outstanding.
+ * Told apart from the hand-back transitions, which write a whole placement.
+ */
+/**
+ * The hand-back transitions: the ones that write a whole placement back onto
+ * the row. Told apart from the attempt marker, which writes only a sync status,
+ * and from the claim that precedes a removal, which writes only a status.
+ */
+const restoreCalls = (): Call[] =>
+	called("message.transitionPlacement").filter(
+		(candidate) =>
+			(candidate.args[2] as { mailboxId?: string }).mailboxId !== undefined,
+	);
+
+const attemptMarkerSyncStatus = (): string | undefined => {
+	const call = called("message.transitionPlacement").find(
+		(candidate) => Object.keys(candidate.args[2] as object).length === 1,
+	);
+	return (call?.args[2] as { syncStatus?: string })?.syncStatus;
+};
+
 // The one write that puts a given-up delete back on its source pair. It clears
 // `moving` in the same write as the pair, which is what keeps a later delete
-// from waiting on a mutation that has terminated (#1005), and it goes through
-// `updateForMove` rather than `updateUid` so a row that never moved does not
-// enqueue a search re-index.
+// from waiting on a mutation that has terminated (#1005), and it is a
+// transition rather than a plain update so a row another lane already settled
+// keeps its own placement (imap-mutations R3).
 const restoredToSource = (syncStatus: string): unknown[] => [
 	"msg-1",
-	{ mailboxId: "src-mbx", uid: 10, status: "active", syncStatus },
+	{ status: ["moving", "deleting"] },
+	{
+		mailboxId: "src-mbx",
+		uid: 10,
+		status: "active",
+		syncStatus,
+		// A give-up names the mutation it gave up on, so the reading pane can
+		// offer the way out for THAT one (#1229). `none` rides along with every
+		// other sync status, so the field never outlives its gate.
+		abandonedMutation: syncStatus === "abandoned" ? "delete" : "none",
+	},
 ];
 
 // Label order in the rendered text is prom-client's, not ours.
@@ -661,11 +712,7 @@ describe("handleMessageDelete", () => {
 				0,
 				"an unconfirmed move must never revert the listing row to the source",
 			);
-			assert.equal(
-				(called("message.update")[0]?.args[1] as { syncStatus?: string })
-					?.syncStatus,
-				"failed",
-			);
+			assert.equal(attemptMarkerSyncStatus(), "failed");
 			assert.equal(h.disconnectCount, 1);
 		});
 
@@ -699,7 +746,7 @@ describe("handleMessageDelete", () => {
 		it("settles on the first attempt when the row carries no Message-ID header", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			sourceNoLongerHoldsTheUid();
-			h.messageRow = {};
+			h.messageRow = { status: "moving" };
 
 			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
@@ -738,6 +785,79 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("emitEvent").length, 0);
 		});
 
+		// A lost SQS acknowledgement is the ordinary way this happens: the delete
+		// ran, `settleTrashMoveConfirmed` wrote the Trash uid, and the record came
+		// back anyway. Without the guard its three siblings carry (MESSAGE_MOVE,
+		// MESSAGE_COPY, FLAG_PUSH) the redelivery MOVEs a uid the source no longer
+		// holds, exhausts, and the terminal resolver reads the source's honest
+		// "gone" as grounds to delete rows that are correct — taking spamReport,
+		// classificationState, category and the Undo target's `originalMailboxId`
+		// with them, none of which the resync re-projection can rebuild.
+		it("skips a redelivery of a delete that already settled, rather than re-running it", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0, "no IMAP command is issued");
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("threadMessage.delete").length, 0);
+			assert.equal(called("threadMessage.deleteMany").length, 0);
+			assert.equal(called("message.transitionPlacement").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
+		// The guard asks for the state THIS delete wrote, not for "is anything
+		// outstanding". A move to Trash records `moving`, a permanent delete
+		// records `deleting`, and a row in the other one belongs to a different
+		// mutation — reading it as unsettled is what would let a redelivery
+		// finish somebody else's work against a uid it never owned.
+		it("proceeds on a move-to-trash row still marked moving, which is its own work", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "moving" };
+
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 1, "the delete runs");
+		});
+
+		it("skips a move-to-trash whose row a permanent delete has claimed", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "deleting" };
+
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0, "no IMAP command is issued");
+			assert.equal(called("message.updateUid").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
+		it("proceeds on a permanent delete's own deleting row", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "deleting" };
+
+			await handleMessageDelete(permanent(), noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 1, "the expunge runs");
+		});
+
+		it("skips a permanent delete whose row a move has claimed", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "moving" };
+
+			await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0, "no expunge is issued");
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
+		it("skips a redelivered permanent delete the same way", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+
+			await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 0);
+			assert.equal(called("message.delete").length, 0);
+			assert.equal(called("emitEvent").length, 0);
+		});
+
 		// One Message-ID can have several server copies in one account while
 		// `deriveMessageId` gives them one local row. A source that still holds
 		// the uid proves the MOVE did not happen, so any hit at the destination
@@ -759,16 +879,12 @@ describe("handleMessageDelete", () => {
 			);
 			assert.equal(called("threadMessage.update").length, 0);
 			assert.equal(called("message.delete").length, 0);
-			assert.equal(
-				(called("message.update")[0]?.args[1] as { syncStatus?: string })
-					?.syncStatus,
-				"failed",
-			);
+			assert.equal(attemptMarkerSyncStatus(), "failed");
 		});
 
 		// Issue #1098. A source that still holds the uid at the ceiling means the
 		// MOVE never took effect, so the row goes back to the source folder: the
-		// optimistic `updateForMove` left `mailboxId` on Trash while `uid` still
+		// optimistic transition left `mailboxId` on Trash while `uid` still
 		// named the source's message, and settling `status` to `active` on top of
 		// that pair switched off every guard that reads `status === "moving"`.
 		// The UI then resolved a Trash `mailboxId` to "Delete permanently", an
@@ -795,10 +911,12 @@ describe("handleMessageDelete", () => {
 
 			// `mailboxId` and `uid` name the same message again, and the same write
 			// settles `status` out of `moving`, so no later delete of this message
-			// waits on a mutation that has terminated.
+			// waits on a mutation that has terminated. It also carries the give-up
+			// (#1153) and names it a delete (#1229): the user asked for one, it did
+			// not happen, and nothing is coming to try again.
 			assert.deepEqual(
-				called("message.updateForMove").at(-1)?.args,
-				restoredToSource("synced"),
+				called("message.transitionPlacement").at(-1)?.args,
+				restoredToSource("abandoned"),
 			);
 			assert.equal(
 				called("message.update").length,
@@ -827,7 +945,7 @@ describe("handleMessageDelete", () => {
 			assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 		});
 
-		// The optimistic `updateForMove` already pointed the row at Trash. The
+		// The optimistic transition already pointed the row at Trash. The
 		// server has now confirmed the message never left the source, so the row
 		// and the server disagree about where the mail is, and only a resync of
 		// both folders settles that. Without it the user is shown the message in
@@ -871,11 +989,7 @@ describe("handleMessageDelete", () => {
 
 				assert.equal(called("message.delete").length, 0);
 				assert.equal(called("threadMessage.deleteMany").length, 0);
-				assert.equal(
-					(called("message.update")[0]?.args[1] as { syncStatus?: string })
-						?.syncStatus,
-					"failed",
-				);
+				assert.equal(attemptMarkerSyncStatus(), "failed");
 			});
 
 			it("settles at the ceiling instead of dead-lettering undiagnosed", async () => {
@@ -899,8 +1013,8 @@ describe("handleMessageDelete", () => {
 				await handleMessageDelete(moveEvent, noopLogger, 3, deps());
 
 				assert.deepEqual(
-					called("message.updateForMove").at(-1)?.args,
-					restoredToSource("synced"),
+					called("message.transitionPlacement").at(-1)?.args,
+					restoredToSource("abandoned"),
 				);
 				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 			});
@@ -926,11 +1040,7 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("message.delete").length, 0);
 			assert.equal(called("threadMessage.deleteMany").length, 0);
 			assert.equal(called("threadMessage.update").length, 0);
-			assert.equal(
-				(called("message.update")[0]?.args[1] as { syncStatus?: string })
-					?.syncStatus,
-				"failed",
-			);
+			assert.equal(attemptMarkerSyncStatus(), "failed");
 			assert.equal(h.disconnectCount, 1);
 		});
 	});
@@ -964,8 +1074,8 @@ describe("handleMessageDelete", () => {
 			// invisible syncStatus on a row that claims Trash. A refusal keeps
 			// `failed`: the product turned down something the user asked for.
 			assert.deepEqual(
-				called("message.updateForMove")[0]?.args,
-				restoredToSource("failed"),
+				called("message.transitionPlacement")[0]?.args,
+				restoredToSource("abandoned"),
 			);
 			assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 				uid: 10,
@@ -987,13 +1097,13 @@ describe("handleMessageDelete", () => {
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.equal(called("message.delete").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 	});
 
 	it("expunges on the server and removes every thread row before the message row", async () => {
-		await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
+		await handleMessageDelete(permanent(), noopLogger, 1, deps());
 
 		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10]]);
 		assert.equal(called("threadMessage.delete").length, 2);
@@ -1012,7 +1122,7 @@ describe("handleMessageDelete", () => {
 		};
 		sourceNoLongerHoldsTheUid();
 
-		await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
+		await handleMessageDelete(permanent(), noopLogger, 1, deps());
 
 		assert.equal(called("message.delete").length, 1);
 		assert.equal(called("threadMessage.delete").length, 2);
@@ -1048,11 +1158,7 @@ describe("handleMessageDelete", () => {
 			0,
 			"a move-to-trash never probes: absence from the source is its success signature",
 		);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+		assert.equal(attemptMarkerSyncStatus(), "failed");
 	});
 
 	it("keeps the rows on a NONEXISTENT move-to-trash whose source still holds the uid", async () => {
@@ -1067,11 +1173,7 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("message.delete").length, 0);
 		assert.equal(called("threadMessage.delete").length, 0);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+		assert.equal(attemptMarkerSyncStatus(), "failed");
 	});
 
 	it("keeps the rows when a permanent delete's source still holds the uid", async () => {
@@ -1083,7 +1185,7 @@ describe("handleMessageDelete", () => {
 		h.connection.fetchMessages = async () => [];
 
 		await assert.rejects(
-			handleMessageDelete(permanentEvent, noopLogger, 1, deps()),
+			handleMessageDelete(permanent(), noopLogger, 1, deps()),
 			/NONEXISTENT/,
 		);
 
@@ -1108,17 +1210,13 @@ describe("handleMessageDelete", () => {
 		};
 
 		await assert.rejects(
-			handleMessageDelete(permanentEvent, noopLogger, 1, deps()),
+			handleMessageDelete(permanent(), noopLogger, 1, deps()),
 			/NONEXISTENT mailbox does not exist/,
 		);
 
 		assert.equal(called("message.delete").length, 0);
 		assert.equal(called("threadMessage.delete").length, 0);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+		assert.equal(attemptMarkerSyncStatus(), "failed");
 	});
 
 	it("abandons rather than creating the destination on TRYCREATE", async () => {
@@ -1133,14 +1231,57 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("connection.createMailbox").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
 			mailboxId: "src-mbx",
 			isDeleted: false,
 		});
+	});
+
+	// Removing the Message row is destructive, and the refusal paths reach it on
+	// whatever the row happens to be — an unrecognised operation is answered on
+	// an `active` row as readily as on a `deleting` one. So the removal is
+	// claimed first, and a row with no delete outstanding is left alone.
+	it("never removes a row no delete is outstanding on", async () => {
+		h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+		h.allThreadMessages = [];
+		h.transitionLost = true;
+		const malformed = {
+			...moveEvent,
+			operation: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(malformed, noopLogger, 1, deps());
+
+		assert.deepEqual(
+			called("message.transitionPlacement")[0]?.args[1],
+			{ status: ["moving", "deleting"] },
+			"the removal is claimed off a placement this delete owns",
+		);
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"and a lost claim removes nothing",
+		);
+	});
+
+	it("removes the row once the claim on it wins", async () => {
+		h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "deleting" };
+		h.allThreadMessages = [];
+		const malformed = {
+			...moveEvent,
+			operation: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(malformed, noopLogger, 1, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
 	});
 
 	it("abandons an event minted under an unknown contract, before connecting", async () => {
@@ -1154,8 +1295,8 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("connection.deleteMessages").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.deepEqual(called("threadMessage.update")[0]?.args[2], {
 			uid: 10,
@@ -1185,7 +1326,7 @@ describe("handleMessageDelete", () => {
 		// and a full sync brings it back.
 		h.allThreadMessages = [];
 		const unversioned = {
-			...permanentEvent,
+			...permanent(),
 			schemaVersion: undefined,
 		} as unknown as MessageDeleteEvent;
 
@@ -1210,11 +1351,7 @@ describe("handleMessageDelete", () => {
 			/server exploded/,
 		);
 
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"failed",
-		);
+		assert.equal(attemptMarkerSyncStatus(), "failed");
 	});
 
 	// Issue #1203. The pause is thrown by the openBox guard before the MOVE is
@@ -1233,7 +1370,7 @@ describe("handleMessageDelete", () => {
 			"cursor_invalid",
 		);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 			"the row goes back to the source pair, which is the set the rebuild adjudicates",
 		);
@@ -1288,7 +1425,7 @@ describe("handleMessageDelete", () => {
 		// the server has just confirmed on the axis a UIDVALIDITY change leaves
 		// intact.
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1320,8 +1457,8 @@ describe("handleMessageDelete", () => {
 		// The source pair is the set its own cursor rebuild walks and adjudicates
 		// by Message-ID, so handing the row back there is the reconcile path.
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 		);
 		assert.equal(
 			loggedWith("alert", "message_delete_paused_placement_unproven").length,
@@ -1339,7 +1476,7 @@ describe("handleMessageDelete", () => {
 	it("settles a paused delete broken when the MOVE was issued and neither folder can be asked", async () => {
 		h.connection.moveMessages = async () => ({ uidMap: new Map() });
 		sourceNoLongerHoldsTheUid();
-		h.messageRow = {};
+		h.messageRow = { status: "moving" };
 		let opened = 0;
 		h.connection.openBox = async (path: string) => {
 			h.openBoxPath = path;
@@ -1353,8 +1490,8 @@ describe("handleMessageDelete", () => {
 		await handleMessageDelete(moveEvent, capturingLog(), 1, deps());
 
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
-			restoredToSource("failed"),
+			called("message.transitionPlacement")[0]?.args,
+			restoredToSource("abandoned"),
 			"the first attempt reaches this settle with the MOVE already issued, so `synced` claims what nothing confirmed",
 		);
 		assert.equal(
@@ -1379,7 +1516,7 @@ describe("handleMessageDelete", () => {
 		assert.equal(dropped.length, 1);
 		assert.equal(dropped[0]?.level, "warn");
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1412,7 +1549,7 @@ describe("handleMessageDelete", () => {
 		};
 		h.allThreadMessages = [];
 
-		await handleMessageDelete(permanentEvent, capturingLog(), 1, deps());
+		await handleMessageDelete(permanent(), capturingLog(), 1, deps());
 
 		assert.deepEqual(
 			called("emitEvent").map((c) => c.args[0]),
@@ -1432,7 +1569,7 @@ describe("handleMessageDelete", () => {
 		};
 		h.allThreadMessages = [];
 
-		await handleMessageDelete(permanentEvent, capturingLog(), 1, deps());
+		await handleMessageDelete(permanent(), capturingLog(), 1, deps());
 
 		assert.deepEqual(
 			h.logs.filter((line) => line.level === "error"),
@@ -1453,7 +1590,7 @@ describe("handleMessageDelete", () => {
 	it("keeps alerting when a refused delete removed the last listing rows", async () => {
 		h.allThreadMessages = [];
 		const unversioned = {
-			...permanentEvent,
+			...permanent(),
 			schemaVersion: undefined,
 		} as unknown as MessageDeleteEvent;
 
@@ -1482,7 +1619,7 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(called("message.updateUid").length, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1520,7 +1657,7 @@ describe("handleMessageDelete", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(
-			called("message.updateForMove")[0]?.args,
+			called("message.transitionPlacement")[0]?.args,
 			restoredToSource("synced"),
 		);
 	});
@@ -1540,12 +1677,12 @@ describe("handleMessageDelete", () => {
 		};
 		h.allThreadMessages = [];
 
-		await handleMessageDelete(permanentEvent, noopLogger, 1, deps());
+		await handleMessageDelete(permanent(), noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateForMove").length,
+			restoreCalls().length,
 			0,
 			"a row no listing can reach is never restored",
 		);
@@ -1563,7 +1700,7 @@ describe("handleMessageDelete", () => {
 
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.updateForMove").length,
+			restoreCalls().length,
 			0,
 			"restoring a Message no listing can reach is the silent vanish, not a hand-back",
 		);

@@ -5,6 +5,10 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import {
+	hasAbandonedDelete,
+	hasAbandonedMove,
+} from "@remit/data-ports/message-settlement";
+import {
 	type IImapConnection,
 	placementBindingOf,
 } from "@remit/mailbox-service";
@@ -75,8 +79,10 @@ interface ThreadRow {
  * The move's pending state IS the Message row, so these fakes hold real rows
  * and the assertions read the rows back — a resolver that settled the row on
  * anything but the server's own answer shows up here as a changed row, not as
- * an uncalled mock. `updateForMove` writes what the repository writes: whatever
- * fields the caller set, and nothing it left out.
+ * an uncalled mock. `transitionPlacement` honours its predicate the way the
+ * repository does: the write lands only while the row is still in one of the
+ * from-states the caller named (imap-mutations R3), and answers `undefined`
+ * otherwise.
  */
 const buildRepositories = (row: MessageRow) => {
 	const messages = new Map<string, MessageRow>([[row.messageId, row]]);
@@ -104,11 +110,21 @@ const buildRepositories = (row: MessageRow) => {
 				const current = messages.get(messageId);
 				if (current) messages.set(messageId, { ...current, ...input });
 			},
-			updateForMove: async (messageId: string, set: Partial<MessageRow>) => {
+			transitionPlacement: async (
+				messageId: string,
+				expected: { status?: string[] },
+				next: Partial<MessageRow>,
+			) => {
 				const current = messages.get(messageId);
-				if (current) messages.set(messageId, { ...current, ...set });
+				if (!current) return undefined;
+				if (expected.status && !expected.status.includes(current.status)) {
+					return undefined;
+				}
+				const written = { ...current, ...next };
+				messages.set(messageId, written);
+				return written;
 			},
-		} as unknown as Pick<IMessageRepository, "delete" | "updateForMove">,
+		} as unknown as Pick<IMessageRepository, "delete" | "transitionPlacement">,
 		threadMessageService: {
 			findAllByMessageId: async () => [...threadMessages.values()],
 			deleteMany: async (
@@ -204,9 +220,42 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		assert.ok(errors.some((e) => e.obj.alert === "message_move_failed"));
 	});
 
+	// Issue #1153: before the give-up had a value of its own, this row settled
+	// on `synced` and read exactly like a move that never happened — nothing on
+	// it said "the move you asked for is not coming". #1229 is why it also has
+	// to say WHICH mutation: a hand-back clears `status`, and `status` was the
+	// only field naming one.
+	it("BROKEN: the row says a move gave up, and says it was a move", async () => {
+		const repos = buildRepositories(pendingMoveRow());
+		const { log } = buildLogger();
+		const deps: ResolveExhaustedMessageMoveDeps = {
+			messageService: repos.messageService,
+			threadMessageService: repos.threadMessageService,
+			log,
+		};
+
+		await resolveExhaustedMessageMoveFailure(deps, {
+			...input,
+			getConnection: async () => buildConnection(new Set([101])),
+		});
+
+		const settled = repos.messages.get("msg-1") as unknown as {
+			syncStatus: string;
+			abandonedMutation: string;
+		};
+		assert.equal(settled.syncStatus, "abandoned");
+		assert.equal(settled.abandonedMutation, "move");
+		assert.equal(
+			hasAbandonedDelete(settled as never),
+			false,
+			"and never reads as a delete that gave up",
+		);
+		assert.equal(hasAbandonedMove(settled as never), true);
+	});
+
 	// Issue #1005: a give-up that never writes `status` leaves the row naming
-	// the destination with the source's uid — a pair `bindsForeignUid` refuses,
-	// which made the message undeletable and unmovable for good.
+	// the destination with the source's uid — a pair every dependent mutation
+	// refuses, which made the message undeletable and unmovable for good.
 	it("BROKEN: the settled row is no longer refused by the placement guard (#1005)", async () => {
 		const repos = buildRepositories(pendingMoveRow());
 		const { log } = buildLogger();
@@ -218,8 +267,8 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 
 		assert.equal(
 			placementBindingOf(pendingMoveRow() as never),
-			"abandoned",
-			"the row starts in the state the delete route refuses as unverified",
+			"in_flight",
+			"the row starts on a pair the delete route will not act on",
 		);
 
 		await resolveExhaustedMessageMoveFailure(deps, {
@@ -257,21 +306,17 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 	});
 
 	// The resolver's contract is that it is never re-thrown, so the caller can
-	// ack the record and emit its resync. A row another path deleted while the
-	// probe was in flight has nothing left to restore, and the same NotFound
-	// wraps an ElectroDB composites miss on the listing row.
-	it("BROKEN: a row deleted underneath the probe settles instead of throwing", async () => {
+	// ack the record and emit its resync. A row another path deleted or settled
+	// while the probe was in flight has nothing left to restore, and it loses
+	// the transition's predicate rather than raising; a NotFound still wraps an
+	// ElectroDB composites miss on the listing row.
+	it("BROKEN: a row settled underneath the probe loses the predicate instead of throwing", async () => {
 		const repos = buildRepositories(pendingMoveRow());
-		const notFound = Object.assign(new Error("Message not found: msg-1"), {
-			name: "NotFoundError",
-		});
 		const { log } = buildLogger();
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateForMove: async () => {
-					throw notFound;
-				},
+				transitionPlacement: async () => undefined,
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],
 			threadMessageService: repos.threadMessageService,
 			log,
@@ -320,7 +365,7 @@ describe("resolveExhaustedMessageMoveFailure — the two terminal outcomes (issu
 		const deps: ResolveExhaustedMessageMoveDeps = {
 			messageService: {
 				...repos.messageService,
-				updateForMove: async () => {
+				transitionPlacement: async () => {
 					throw new Error("ProvisionedThroughputExceeded");
 				},
 			} as unknown as ResolveExhaustedMessageMoveDeps["messageService"],

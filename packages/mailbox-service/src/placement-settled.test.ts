@@ -9,10 +9,10 @@ import { carriesForeignUid, placementBindingOf } from "./placement-settled.js";
  * only end-to-end specs covered it, so a change made for the client's benefit
  * could have moved it without anything going red.
  *
- * Note what these cases say about `syncStatus: failed`: it answers `abandoned`
- * here for a row that may well be mid-retry. That is correct for a guard whose
- * consequence is a temporary refusal, and it is exactly why no user-facing
- * statement may be derived from that field alone.
+ * Note what these cases say about `syncStatus`: `failed` is a transient attempt
+ * with a redelivery behind it, so a foreign-uid row carrying it is `in_flight`
+ * and gets the settle ceiling. Only `abandoned` — the give-up value of the
+ * placement state model (imap-mutations R3) — refuses outright.
  */
 const row = (over: Partial<MessageItem>): MessageItem =>
 	({
@@ -38,10 +38,40 @@ describe("placementBindingOf", () => {
 		assert.equal(placementBindingOf(row({})), "in_flight");
 	});
 
-	test("`failed` on a foreign-uid row is refused as abandoned", () => {
+	/**
+	 * A give-up cannot reach this pair. `abandoned` is written only alongside
+	 * `active` or `deleted`, on a row already put back on a placement the server
+	 * confirmed, so the binding it produces is `consistent` — there is no
+	 * give-up member here to return, and no dependent mutation is refused on
+	 * account of one.
+	 */
+	test("a give-up never presents as a foreign-uid row at all", () => {
+		assert.equal(
+			placementBindingOf(
+				row({
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.abandoned,
+					mailboxId: "mbx-src",
+				}),
+			),
+			"consistent",
+		);
+	});
+
+	test("`failed` on a foreign-uid row is mid-retry, so it waits rather than refusing", () => {
 		assert.equal(
 			placementBindingOf(row({ syncStatus: MessageSyncStatus.failed })),
-			"abandoned",
+			"in_flight",
+		);
+	});
+
+	// R3's state table calls `deleting` in flight exactly as `moving` is: a
+	// delete points the row at Trash with the source's uid, so a dependent
+	// mutation reading it resolves the same mismatched pair.
+	test("a delete in flight is unsettled, not settled", () => {
+		assert.equal(
+			placementBindingOf(row({ status: MessageStatus.deleting })),
+			"in_flight",
 		);
 	});
 

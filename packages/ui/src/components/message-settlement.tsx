@@ -1,20 +1,20 @@
 import { CloudOff } from "lucide-react";
+import type { ReactNode } from "react";
 import { cn } from "../lib/cn.js";
 import { Badge } from "./badge.js";
 
 /**
- * The one unsettled state a message row can prove from the wire: a delete Remit
- * abandoned before running it, which handed the row back to the folder the mail
- * server still holds the message in (`hasAbandonedDelete` in @remit/data-ports,
- * which enumerates what this can and cannot see).
+ * What a message row can prove from the wire about a mutation that gave up: the
+ * operation it gave up on, and nothing else. `abandonedMutationOf` in
+ * @remit/data-ports owns which values prove it and enumerates the give-ups it
+ * cannot see.
  *
- * A one-member union on purpose. A move that gave up leaves exactly the state a
- * move mid-retry leaves, so it is not derivable and gets no treatment here —
- * saying "Remit stopped retrying" over a push about to succeed would be a
- * louder lie than the silence this replaces. Adding a member is what a new
- * persisted signal would earn.
+ * One member per operation the user can watch fail, because naming the wrong
+ * one is worse than naming none: a move that handed back used to render the
+ * delete copy, under a button that deleted the message (issue #1229). A copy
+ * that gave up has no member — its row is `deleted`, so no listing carries it.
  */
-export type RowSettlement = "delete_failed";
+export type RowSettlement = "delete_failed" | "move_failed";
 
 export const messageSettlementCopy = {
 	delete_failed: {
@@ -23,6 +23,15 @@ export const messageSettlementCopy = {
 		detail:
 			"Remit removed it here first, then refused to finish the delete on the mail server — most often because the Trash folder it was headed for is not there any more. The message is back in this folder because that is where the server still has it.",
 		retryLabel: "Delete again",
+		retryPendingLabel: "Deleting…",
+	},
+	move_failed: {
+		label: "Not moved",
+		title: "This message was not moved",
+		detail:
+			"Remit filed it here first, then could not finish the move on the mail server and stopped trying. The message is back in this folder because that is where the server still has it. The folder you picked is not recorded, so moving it again means choosing one.",
+		retryLabel: "Move again",
+		retryPendingLabel: "Moving…",
 	},
 } as const;
 
@@ -57,11 +66,19 @@ export function MessageSettlementBadge({
 export interface MessageSettlementNoticeProps {
 	settlement: RowSettlement;
 	/**
-	 * Re-drives the delete through the ordinary delete endpoint, which accepts
-	 * this row: the give-up put `status` back to `active`, so the placement
-	 * guard passes it through. Omit only where no delete action is available.
+	 * Repeats the operation that failed, and only that one. For a delete that
+	 * is the ordinary delete endpoint, which accepts this row: the give-up put
+	 * `status` back to `active`, so the placement guard passes it through.
+	 * Omit where the retry needs input from the user, and pass {@link action}
+	 * instead.
 	 */
 	onRetry?: () => void;
+	/**
+	 * The retry, where repeating the operation needs the user to say more than
+	 * "again" — a move has to be told which folder, because the destination the
+	 * give-up discarded is not on the row. Rendered in place of the button.
+	 */
+	action?: ReactNode;
 	retryPending?: boolean;
 	/** Prefilled issue link, for a retry that keeps failing. */
 	reportHref?: string;
@@ -69,12 +86,14 @@ export interface MessageSettlementNoticeProps {
 }
 
 /**
- * Reading-pane notice for a delete that gave up: what failed, where the message
- * actually is, and the two ways out — delete it again, or report it.
+ * Reading-pane notice for a mutation that gave up: which operation failed,
+ * where the message actually is, and the two ways out — repeat that same
+ * operation, or report it.
  */
 export function MessageSettlementNotice({
 	settlement,
 	onRetry,
+	action,
 	retryPending,
 	reportHref,
 	className,
@@ -95,6 +114,7 @@ export function MessageSettlementNotice({
 				<p className="font-medium text-danger">{copy.title}</p>
 				<p className="mt-1 break-words text-fg-muted">{copy.detail}</p>
 				<div className="mt-1 flex flex-wrap items-center gap-3">
+					{action}
 					{onRetry && (
 						<button
 							type="button"
@@ -102,7 +122,7 @@ export function MessageSettlementNotice({
 							disabled={retryPending}
 							className="font-medium text-accent hover:underline disabled:opacity-50"
 						>
-							{retryPending ? "Deleting…" : copy.retryLabel}
+							{retryPending ? copy.retryPendingLabel : copy.retryLabel}
 						</button>
 					)}
 					{reportHref && (

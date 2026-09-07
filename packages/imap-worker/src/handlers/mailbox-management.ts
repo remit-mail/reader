@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { MailboxManagementService } from "@remit/mailbox-service";
@@ -10,7 +11,6 @@ import type {
 	MailboxManagementEvent,
 	MailboxRenameEvent,
 } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 

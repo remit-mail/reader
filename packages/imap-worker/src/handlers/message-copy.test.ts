@@ -112,6 +112,10 @@ const deps = (): MessageCopyDeps =>
 				},
 				updateUid: record("message.updateUid"),
 				update: record("message.update"),
+				transitionPlacement: async (...args: unknown[]) => {
+					h.calls.push({ method: "message.transitionPlacement", args });
+					return { messageId: "new-msg" };
+				},
 				delete: record("message.delete"),
 			},
 			threadMessage: {
@@ -191,11 +195,9 @@ describe("handleMessageCopy", () => {
 			20,
 			"dst-mbx",
 		]);
-		const statusUpdate = called("message.update")[0];
-		assert.equal(
-			(statusUpdate?.args[1] as { syncStatus?: string })?.syncStatus,
-			"synced",
-		);
+		// `updateUid` writes the confirmed uid, `active` and `synced` in one
+		// statement, so there is no second, unpredicated write behind it.
+		assert.equal(called("message.update").length, 0);
 		assert.equal(called("threadMessage.update").length, 1);
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
@@ -212,11 +214,7 @@ describe("handleMessageCopy", () => {
 			42,
 			"dst-mbx",
 		]);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"synced",
-		);
+		assert.equal(called("message.update").length, 0);
 		assert.equal(called("threadMessage.update").length, 1);
 	});
 
@@ -263,11 +261,15 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(copies, 1, "the COPY is issued once");
 		assert.equal(called("search").length, 0, "there is nothing to ask with");
-		const update = called("message.update")[0];
-		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
+		const [givenUp] = called("message.transitionPlacement");
+		assert.deepEqual(
+			givenUp?.args[2],
+			{
+				status: "deleted",
+				syncStatus: "abandoned",
+				abandonedMutation: "copy",
+			},
+			"a copy that gave up carries the give-up value and names itself",
 		);
 		assert.equal(called("message.delete").length, 0, "no row is thrown away");
 	});
@@ -302,8 +304,8 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(copies, 1, "the redelivery issues no second COPY");
 		assert.equal(called("search").length, 0);
-		const settled = called("message.update").at(-1);
-		assert.equal((settled?.args[1] as { status?: string })?.status, "deleted");
+		const settled = called("message.transitionPlacement").at(-1);
+		assert.equal((settled?.args[2] as { status?: string })?.status, "deleted");
 	});
 
 	it("acks a copy that already settled without touching IMAP", async () => {
@@ -327,6 +329,7 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
 	it("returns early without connecting when the account is soft-deleted", async () => {
@@ -358,6 +361,7 @@ describe("handleMessageCopy", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
 		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
 	// Issue #1203. Both pauses are reached before `copyMessages`, so the COPY
@@ -427,7 +431,11 @@ describe("handleMessageCopy", () => {
 			"silence is never grounds to delete a row that may describe real mail",
 		);
 		assert.equal(
-			(called("message.update")[0]?.args[1] as { status?: string })?.status,
+			(
+				called("message.transitionPlacement")[0]?.args[2] as {
+					status?: string;
+				}
+			)?.status,
 			"deleted",
 		);
 	});
@@ -505,9 +513,31 @@ describe("handleMessageCopy", () => {
 
 		await handleMessageCopy(event, noopLogger, 1, deps());
 
-		const update = called("message.update")[0];
-		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
+		const [givenUp] = called("message.transitionPlacement");
+		assert.equal((givenUp?.args[2] as { status?: string })?.status, "deleted");
+		assert.equal(
+			(givenUp?.args[2] as { abandonedMutation?: string })?.abandonedMutation,
+			"copy",
+		);
 		assert.equal(called("createMailbox").length, 0);
+	});
+
+	// The guard asks whether THIS copy is still outstanding, not whether anything
+	// is. A row a delete has claimed is `deleting`, and reading that as unsettled
+	// let a redelivery COPY the message a second time — COPY has no source-side
+	// effect to make that a no-op, so the duplicate is permanent.
+	it("skips a redelivered copy whose row a delete has claimed", async () => {
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			return { uidMap: new Map([[10, 20]]) };
+		};
+		h.copyRow = { ...unsettledCopyRow(), status: "deleting" };
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(copies, 0, "no second copy is issued");
+		assert.equal(called("message.updateUid").length, 0);
 	});
 
 	it("marks failed and rethrows on an unclassified IMAP error within the budget", async () => {
@@ -520,11 +550,12 @@ describe("handleMessageCopy", () => {
 			/server exploded/,
 		);
 
-		const update = called("message.update")[0];
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
-		);
+		// The attempt marker is a transition too, predicated on this copy still
+		// being outstanding: a row another mutation has claimed keeps its own
+		// placement rather than picking up this attempt's failure.
+		const [marker] = called("message.transitionPlacement");
+		assert.deepEqual(marker?.args[1], { status: "moving" });
+		assert.deepEqual(marker?.args[2], { syncStatus: "failed" });
 	});
 
 	it("settles on the destination UID instead of dead-lettering the last attempt", async () => {

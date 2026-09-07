@@ -34,6 +34,7 @@ const expunging: DeleteOutcome[] = ["permanent", "unconfirmed"];
 const ended = (over: Partial<BulkRunOutcome> = {}): BulkRunOutcome => ({
 	done: 100,
 	failedIds: [],
+	refused: 0,
 	cancelled: false,
 	...over,
 });

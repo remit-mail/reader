@@ -45,6 +45,8 @@ interface Harness {
 	localMessages: LocalMessage[];
 	threadMessage: boolean;
 	messagesWithoutListingRow: string[];
+	/** Message ids whose placement another lane has changed under the sweep. */
+	transitionsLost: string[];
 	getConnectionCount: number;
 	disconnectCount: number;
 }
@@ -88,6 +90,25 @@ const retryingIntoTrash = (messageId: string, uid: number): LocalMessage => ({
 	syncStatus: "failed",
 });
 
+/**
+ * A row whose move into Trash SETTLED, on a database written before #1217
+ * taught `updateUid` to clear `originalUid`. Two folders count uids
+ * independently, so Trash handing back the source's own number is ordinary —
+ * and the pair it leaves is indistinguishable from a move still in flight.
+ */
+const settledWithStaleOriginalUid = (
+	messageId: string,
+	uid: number,
+): LocalMessage => ({
+	messageId,
+	uid,
+	status: "deleting",
+	syncStatus: "pending",
+	mailboxId: "trash-mbx",
+	originalMailboxId: "inbox-mbx",
+	originalUid: uid,
+});
+
 /** The same row after an empty marked the folder, `status` overwritten. */
 const markedMidMove = (messageId: string, uid: number): LocalMessage => ({
 	...movingIntoTrash(messageId, uid),
@@ -106,6 +127,7 @@ const fresh = (): Harness => ({
 	localMessages: [deleting("msg-1", 10), deleting("msg-2", 11)],
 	threadMessage: true,
 	messagesWithoutListingRow: [],
+	transitionsLost: [],
 	getConnectionCount: 0,
 	disconnectCount: 0,
 });
@@ -140,6 +162,18 @@ const deps = (): EmptyTrashDeps =>
 				listAllByMailbox: async () => h.localMessages,
 				delete: record("message.delete"),
 				update: record("message.update"),
+				transitionPlacement: async (
+					messageId: string,
+					expected: unknown,
+					next: unknown,
+				) => {
+					const won = !h.transitionsLost.includes(messageId);
+					h.calls.push({
+						method: "message.transitionPlacement",
+						args: [messageId, expected, next, won],
+					});
+					return won ? { messageId } : undefined;
+				},
 			},
 			threadMessage: {
 				findByMessageId: async (_cfg: string, messageId: string) =>
@@ -193,13 +227,16 @@ const event: EmptyTrashEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+// Only a transition that WON reverted anything; a lost predicate is an offered
+// write that the row refused.
 const revertedMessageIds = (): string[] =>
-	called("message.update")
+	called("message.transitionPlacement")
 		.filter(
 			(c) =>
-				(c.args[1] as { status?: string; syncStatus?: string }).status ===
+				c.args[3] === true &&
+				(c.args[2] as { status?: string; syncStatus?: string }).status ===
 					"active" &&
-				(c.args[1] as { syncStatus?: string }).syncStatus === "synced",
+				(c.args[2] as { syncStatus?: string }).syncStatus === "synced",
 		)
 		.map((c) => c.args[0] as string);
 
@@ -496,6 +533,84 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 		);
 		assert.deepEqual(revertedMessageIds(), ["msg-marked"]);
 		assert.deepEqual(undeletedThreadMessageIds(), ["tm-msg-marked"]);
+	});
+
+	it("hands nothing back for a row another lane settled after the sweep read it", async () => {
+		// The hand-back is a transition off the row as this sweep read it
+		// (imap-mutations R3). PLACEMENT_MOVE_PUSH rides a standard queue that
+		// this account's FIFO group does not order, so it can settle a row
+		// mid-sweep; writing `active` + `synced` over that would declare a
+		// mutation settled that nobody confirmed, and take the listing row with
+		// it.
+		h.localMessages = [deleting("msg-1", 10), markedMidMove("msg-raced", 11)];
+		h.transitionsLost = ["msg-raced"];
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		assert.deepEqual(
+			called("message.transitionPlacement").map((c) => c.args[0]),
+			["msg-raced"],
+			"the predicate was still offered — the row just lost it",
+		);
+		assert.deepEqual(revertedMessageIds(), []);
+		assert.deepEqual(
+			undeletedThreadMessageIds(),
+			[],
+			"a lost predicate writes nothing at all, listing rows included",
+		);
+	});
+
+	it("predicates the hand-back on the placement the sweep actually read", async () => {
+		h.localMessages = [markedMidMove("msg-marked", 11)];
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		const [call] = called("message.transitionPlacement");
+		assert.deepEqual(call?.args[1], {
+			status: "deleting",
+			mailboxId: "trash-mbx",
+			uid: 11,
+		});
+	});
+
+	// Issue #1230. The exclusion used to run after `deleteMessages`, so a row
+	// the sweep refused had already lost its server copy: mail that no longer
+	// exists, visible in Trash, with nothing able to clear it — pressing Empty
+	// Trash again skips it too, because the server no longer lists the uid.
+	it("never expunges a uid whose row it will refuse to remove", async () => {
+		h.localMessages = [
+			deleting("msg-1", 10),
+			settledWithStaleOriginalUid("msg-stale", 11),
+		];
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		assert.deepEqual(
+			called("connection.deleteMessages")[0]?.args,
+			[[10]],
+			"uid 11 survives on the server, because its row survives locally",
+		);
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
+		assert.deepEqual(
+			revertedMessageIds(),
+			["msg-stale"],
+			"and the refused row is handed back rather than left marked",
+		);
+	});
+
+	it("issues no expunge at all when every uid in the folder is refused", async () => {
+		h.localMessages = [
+			settledWithStaleOriginalUid("msg-stale-a", 10),
+			settledWithStaleOriginalUid("msg-stale-b", 11),
+		];
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.equal(called("message.delete").length, 0);
 	});
 
 	it("sweeps a settled row whose Trash uid matches the one it left behind", async () => {

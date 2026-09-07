@@ -1,25 +1,28 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { isNotFoundError } from "@remit/data-ports/errors";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
-	isPlacementUnsettled,
 	MailboxCursorPausedError,
+	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export const getMessageMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -323,7 +326,12 @@ export const handleMessageMove = async (
 	// "gone" as grounds to reconcile away a row that is correct. There is no
 	// marker to find missing (unlike FLAG_PUSH and PLACEMENT_MOVE_PUSH), so the
 	// row's own pending marker is what stands in for one.
-	if (!isPlacementUnsettled(message)) {
+	//
+	// `moving` specifically, not the shared unsettled predicate: the question is
+	// whether THIS move is still outstanding, and a row a delete has since
+	// claimed is `deleting` — work that belongs to MESSAGE_DELETE, and a state
+	// this move must not read as its own to finish.
+	if (message.status !== MessageStatus.moving) {
 		log.info(
 			{ accountId, messageId, uid: message.uid, status: message.status },
 			"Skipping MESSAGE_MOVE: the move already settled against confirmed IMAP state",
@@ -430,6 +438,13 @@ export const handleMessageMove = async (
 						sourceMailboxId,
 						uid,
 						syncStatus,
+						// Every hand-back this handler makes is a move's. Naming it on
+						// the row is what stops the reading pane calling a move that
+						// gave up a failed delete (issue #1229).
+						abandonedMutation:
+							syncStatus === MessageSyncStatus.abandoned
+								? MessageMutation.move
+								: MessageMutation.none,
 					},
 				);
 			};
@@ -451,7 +466,7 @@ export const handleMessageMove = async (
 					mailbox,
 				);
 
-			// A paused cursor is never acked on the optimistic row: `updateForMove`
+			// A paused cursor is never acked on the optimistic row: the transition
 			// has pointed it at the destination while `uid` still names the source,
 			// and that pair strands the row for good — the cursor rebuild matches
 			// rows by `(accountConfigId, mailboxId)`, so a row naming the
@@ -499,7 +514,7 @@ export const handleMessageMove = async (
 
 				if (unproven) {
 					await handBackToSource(
-						MessageSyncStatus.failed,
+						MessageSyncStatus.abandoned,
 						{ alert: "message_move_paused_placement_unproven" },
 						placement.kind === "at-destination"
 							? "destination holds this Message-ID but the source's uid axis has moved, so the sighting does not prove this move ran"
@@ -637,9 +652,11 @@ export const handleMessageMove = async (
 						// alarm; queue redelivery retries, and `failed` marks the row
 						// as unsettled meanwhile. It is not a terminal signal: only the
 						// resolver below settles anything.
-						await messageService.update(messageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							messageId,
+							{ status: MessageStatus.moving },
+							{ syncStatus: MessageSyncStatus.failed },
+						);
 						throw error;
 					}
 

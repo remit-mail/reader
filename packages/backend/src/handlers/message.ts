@@ -368,17 +368,15 @@ const isDesignedFailure = (reason: unknown): reason is Error =>
 
 /**
  * The placement refusal is the one designed outcome whose own message is not
- * the text to ship: it names a uuid and no remedy, and the two reasons do not
- * share a remedy — an in-flight move settles on its own, an abandoned one only
- * clears once the folder is resynced. Worded here off `details.reason`, the way
- * the delete path words the same refusal for the client.
+ * the text to ship: it names a uuid and no remedy. One remedy answers it, and
+ * only one refusal reaches it — a mutation still in flight, which settles on
+ * its own (imap-mutations R3). Worded here, the way the delete path words the
+ * same refusal for the client.
  */
 const placementRefusalReason = (
-	error: MessagePlacementUnsettledError,
+	_error: MessagePlacementUnsettledError,
 ): string =>
-	error.publicApiError?.details?.reason === "unverified"
-		? "An earlier move of this message never finished, so where it sits is unknown. Sync the folder, then report it again."
-		: "This message is still being moved on the mail server. Try again in a moment.";
+	"This message is still being moved on the mail server. Try again in a moment.";
 
 const failureReason = (reason: unknown): string => {
 	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
@@ -479,6 +477,7 @@ export const MessageOperations: Record<
 			authenticity: message.authenticity,
 			status: message.status,
 			syncStatus: message.syncStatus,
+			abandonedMutation: message.abandonedMutation,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
 			...(message.spamReport ? { spamReport: message.spamReport } : {}),
@@ -899,7 +898,7 @@ export const MessageBulkOperations: Record<
 		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(
+		const { refusedMessageIds } = await client.messageMove.deleteMessages(
 			accountConfigId,
 			messageIds,
 			accountId,
@@ -908,9 +907,14 @@ export const MessageBulkOperations: Record<
 			},
 		);
 
+		// A row whose placement changed under the batch is reported, not dropped.
+		// The response already carries per-row counts, which is the honest shape
+		// for a batch that partly applied — a 409 over it would deny the deletes
+		// that did happen, and silence leaves the client's optimistic removal to
+		// reappear with nothing said (imap-mutations R3).
 		return {
-			successCount: messageIds.length,
-			failureCount: 0,
+			successCount: messageIds.length - refusedMessageIds.length,
+			failureCount: refusedMessageIds.length,
 		};
 	},
 

@@ -70,6 +70,7 @@ describe("patchDescribeMessage", () => {
 				internalDate: 1,
 				status: "active",
 				syncStatus: "pending",
+				abandonedMutation: "none",
 			},
 			envelope: {
 				messageId: "m",

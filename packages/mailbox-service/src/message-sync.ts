@@ -30,7 +30,6 @@ import {
 	MailboxCursorState,
 	MessageKeywordFlag,
 	MessageStatus,
-	MessageSyncStatus,
 	MessageSystemFlag,
 	StarColor,
 } from "@remit/domain-enums";
@@ -149,22 +148,22 @@ export const addressSightingIn = (
  * reconciles rather than waits (imap-mutations R2): it never blocks on a
  * mutation, it re-reads the row on the next sighting after the move settles.
  *
- * In flight is read off `status`, never off `syncStatus` (#1096). Every
+ * In flight is `status`, and `status` alone (#1096, imap-mutations R3). Every
  * outbound mutation writes `moving` or `deleting` and only settling returns the
- * row to `active`, while an ordinary inbound row stays `pending` for its whole
- * life because nothing on the sync path promotes it — so demanding `synced`
- * here meant ordinary mail never re-pointed at all. `failed` is still refused:
- * a mutation that gave up leaves it set on a row put back to `active`, and
- * nothing routine settles that row afterwards.
+ * row to `active`, so `active` is precisely the set nothing is coming for —
+ * whatever `syncStatus` says about how the row got there. A row put back by
+ * `abandonDelete` carries `abandoned`, and it needs this repair more than any
+ * other row does: nothing routine settles it, and reader shares its mailboxes,
+ * so refusing it left a message whose delete was refused unable to follow a
+ * move the user then made in another client.
  */
 export const repointsOnSighting = (
 	mailbox: MailboxItem,
-	message: Pick<MessageItem, "mailboxId" | "status" | "syncStatus">,
+	message: Pick<MessageItem, "mailboxId" | "status">,
 ): boolean => {
 	if (message.mailboxId === mailbox.mailboxId) return false;
 	if (isVirtualCopyMailbox(mailbox)) return false;
-	if (message.status !== MessageStatus.active) return false;
-	return message.syncStatus !== MessageSyncStatus.failed;
+	return message.status === MessageStatus.active;
 };
 
 /**

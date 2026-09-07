@@ -1,11 +1,15 @@
 import { getClient } from "@remit/backend/client";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import { isNotFoundError } from "@remit/data-ports/errors";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
-	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	reconcileStaleMessage,
 } from "@remit/mailbox-service";
@@ -14,7 +18,6 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageCopyEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -147,7 +150,12 @@ export const handleMessageCopy = async (
 	// This copy already settled — `updateUid` cleared `status: moving` when the
 	// server confirmed it. A redelivery reaching here would COPY the message a
 	// second time, and COPY has no source-side effect to make that a no-op.
-	if (!isPlacementUnsettled(copyRow)) {
+	//
+	// `moving` specifically, not the shared unsettled predicate: the question is
+	// whether THIS copy is still outstanding, and a `deleting` row is somebody
+	// else's work — reading it as unsettled is what would let the second COPY
+	// through.
+	if (copyRow.status !== MessageStatus.moving) {
 		log.info(
 			{ accountId, newMessageId, uid: copyRow.uid, status: copyRow.status },
 			"Skipping MESSAGE_COPY: the copy already settled against confirmed IMAP state",
@@ -206,16 +214,14 @@ export const handleMessageCopy = async (
 			};
 
 			const settleCopied = async (newUid: number): Promise<void> => {
+				// `updateUid` writes the confirmed uid, `active` and `synced` in one
+				// statement, so the second write this used to make said nothing the
+				// first had not — and said it without a predicate.
 				await messageService.updateUid(
 					newMessageId,
 					newUid,
 					destinationMailboxId,
 				);
-
-				await messageService.update(newMessageId, {
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.synced,
-				});
 
 				const threadMessage = await threadMessageService.findByMessageId(
 					account.accountConfigId,
@@ -293,10 +299,20 @@ export const handleMessageCopy = async (
 			// that turns out to be there. Silence buys the safer half of one pair
 			// and the worse half of the other.
 			const settleBroken = async (reason: string): Promise<void> => {
-				await messageService.update(newMessageId, {
-					status: MessageStatus.deleted,
-					syncStatus: MessageSyncStatus.failed,
-				});
+				// A transition, not a plain update (imap-mutations R3): the copy row
+				// is only this handler's to settle while its own placement is still
+				// unsettled. The row it leaves is `deleted`, so no listing carries it
+				// and the marker is read by nothing — it is written anyway, because a
+				// give-up that does not name itself is the gap #1229 came from.
+				await messageService.transitionPlacement(
+					newMessageId,
+					{ status: MessageStatus.moving },
+					{
+						status: MessageStatus.deleted,
+						syncStatus: MessageSyncStatus.abandoned,
+						abandonedMutation: MessageMutation.copy,
+					},
+				);
 				log.error(
 					{
 						alert: "message_copy_unconfirmed",
@@ -495,10 +511,15 @@ export const handleMessageCopy = async (
 							{ sourceMessageId, uid },
 							"Source message not found on IMAP, marking copy as failed",
 						);
-						await messageService.update(newMessageId, {
-							status: MessageStatus.deleted,
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							newMessageId,
+							{ status: MessageStatus.moving },
+							{
+								status: MessageStatus.deleted,
+								syncStatus: MessageSyncStatus.abandoned,
+								abandonedMutation: MessageMutation.copy,
+							},
+						);
 						return;
 					}
 
@@ -506,9 +527,11 @@ export const handleMessageCopy = async (
 						// Transient copy failure — expected (connections drop). Queue
 						// redelivery retries, and the probe above keeps the retry from
 						// copying the message twice.
-						await messageService.update(newMessageId, {
-							syncStatus: MessageSyncStatus.failed,
-						});
+						await messageService.transitionPlacement(
+							newMessageId,
+							{ status: MessageStatus.moving },
+							{ syncStatus: MessageSyncStatus.failed },
+						);
 						throw error;
 					}
 

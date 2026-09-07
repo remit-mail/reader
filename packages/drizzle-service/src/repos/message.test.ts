@@ -195,13 +195,18 @@ describe("DrizzleMessageRepository", () => {
 		});
 
 		test("returns the moved message with new mailbox and pending status", async () => {
-			const moved = await messageRepo.updateForMove(MOVE_MESSAGE_ID, {
-				mailboxId: DEST_MAILBOX_ID,
-				status: "moving",
-				syncStatus: "pending",
-				originalMailboxId: SOURCE_MAILBOX_ID,
-				originalUid: 7,
-			});
+			const moved = await messageRepo.transitionPlacement(
+				MOVE_MESSAGE_ID,
+				{ status: "active", mailboxId: SOURCE_MAILBOX_ID, uid: 7 },
+				{
+					mailboxId: DEST_MAILBOX_ID,
+					status: "moving",
+					syncStatus: "pending",
+					originalMailboxId: SOURCE_MAILBOX_ID,
+					originalUid: 7,
+				},
+			);
+			assert.ok(moved);
 			assert.equal(moved.mailboxId, DEST_MAILBOX_ID);
 			assert.equal(moved.status, "moving");
 			assert.equal(moved.syncStatus, "pending");
@@ -288,16 +293,14 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(read.originalMailboxId, SOURCE_MAILBOX_ID);
 		});
 
-		test("updateForMove throws NotFoundError for unknown messageId", async () => {
-			await assert.rejects(
-				() =>
-					messageRepo.updateForMove("00000000-0000-0000-9999-000000000001", {
-						mailboxId: DEST_MAILBOX_ID,
-					}),
-				(err: Error) => {
-					assert.equal(err.name, "NotFoundError");
-					return true;
-				},
+		test("the optimistic move answers undefined for an unknown messageId", async () => {
+			assert.equal(
+				await messageRepo.transitionPlacement(
+					"00000000-0000-0000-9999-000000000001",
+					{ status: "active" },
+					{ mailboxId: DEST_MAILBOX_ID },
+				),
+				undefined,
 			);
 		});
 

@@ -9,7 +9,11 @@ import type {
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
 import { hasAbandonedDelete } from "@remit/data-ports/message-settlement";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import { type EnrichClient, enrichThreadRows } from "./enrichThreadRows.js";
 
 const threadRow = (
@@ -273,19 +277,42 @@ describe("enrichThreadRows — the mutation pair", () => {
 		return result;
 	};
 
-	test("projects the pair an abandoned delete leaves behind", async () => {
+	test("projects the pair an abandoned delete leaves behind, and what it gave up on", async () => {
 		const result = await project({
 			status: MessageStatus.active,
-			syncStatus: MessageSyncStatus.failed,
+			syncStatus: MessageSyncStatus.abandoned,
+			abandonedMutation: MessageMutation.delete,
 		});
 		assert.equal(result?.status, MessageStatus.active);
-		assert.equal(result?.syncStatus, MessageSyncStatus.failed);
+		assert.equal(result?.syncStatus, MessageSyncStatus.abandoned);
+		assert.equal(result?.abandonedMutation, MessageMutation.delete);
 		assert.equal(
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			true,
+		);
+	});
+
+	// Issue #1229. Both give-ups leave the same `status`/`syncStatus` pair, so
+	// the projection has to carry the third field or the client cannot tell a
+	// move that handed back from a delete that was refused.
+	test("projects a move that gave up as a move, never as a delete", async () => {
+		const result = await project({
+			status: MessageStatus.active,
+			syncStatus: MessageSyncStatus.abandoned,
+			abandonedMutation: MessageMutation.move,
+		});
+		assert.equal(result?.abandonedMutation, MessageMutation.move);
+		assert.equal(
+			hasAbandonedDelete({
+				status: result?.status,
+				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
+			}),
+			false,
 		);
 	});
 
@@ -300,6 +327,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			false,
 		);
@@ -324,6 +352,7 @@ describe("enrichThreadRows — the mutation pair", () => {
 			hasAbandonedDelete({
 				status: result?.status,
 				syncStatus: result?.syncStatus,
+				abandonedMutation: result?.abandonedMutation,
 			}),
 			false,
 		);

@@ -384,6 +384,7 @@ export type CreateMessageInput = Omit<
 	| "updatedAt"
 	| "status"
 	| "syncStatus"
+	| "abandonedMutation"
 	| "category"
 	| "classificationState"
 	| "authenticityVerdict"
@@ -393,6 +394,7 @@ export type CreateMessageInput = Omit<
 	messageId: string;
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
 	category?: MessageItem["category"];
 	classificationState?: MessageItem["classificationState"];
 	authenticityVerdict?: MessageItem["authenticityVerdict"];
@@ -400,21 +402,55 @@ export type CreateMessageInput = Omit<
 	movedByRemit?: MessageItem["movedByRemit"];
 };
 
+/**
+ * Everything about a message that is not its placement.
+ *
+ * The six placement fields are omitted rather than merely discouraged
+ * (docs/architecture/imap-mutations.md R3): where they are gone from the only
+ * general-purpose writer, a placement written without a predicate is a type
+ * error rather than a convention someone has to remember. `transitionPlacement`
+ * and the settle in `updateUid` are the two doors, and they are the whole set.
+ */
 export type UpdateMessageInput = Partial<
-	Omit<CreateMessageInput, "mailboxId" | "uid">
->;
-
-export type UpdateMessageMoveInput = Partial<
-	Pick<
+	Omit<
 		CreateMessageInput,
 		| "mailboxId"
 		| "uid"
 		| "status"
 		| "syncStatus"
+		| "abandonedMutation"
 		| "originalMailboxId"
 		| "originalUid"
 	>
 >;
+
+/**
+ * The placement a transition expects to find, as the caller read it
+ * (docs/architecture/imap-mutations.md R3). Every field named here becomes a
+ * term of the UPDATE's WHERE clause; what the caller did not read, it does not
+ * supply. `syncStatus` takes a set because several of the six placement states
+ * share one `status`.
+ */
+export type PlacementPredicate = {
+	status?: MessageItem["status"] | readonly MessageItem["status"][];
+	syncStatus?: MessageItem["syncStatus"] | readonly MessageItem["syncStatus"][];
+	mailboxId?: string;
+	uid?: number;
+};
+
+/**
+ * What a winning transition writes. `originalMailboxId` and `originalUid` take
+ * `null` to clear, which is how a settle spells a dropped pre-move pair.
+ */
+export type PlacementTransitionInput = {
+	status?: MessageItem["status"];
+	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
+	mailboxId?: string;
+	uid?: number;
+	originalMailboxId?: string | null;
+	originalUid?: number | null;
+};
 
 export type MessageIdSource = {
 	messageId?: string;

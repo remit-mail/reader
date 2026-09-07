@@ -80,6 +80,7 @@ export const makeThreadMessage = (
 	isDeleted: false,
 	status: "active",
 	syncStatus: "pending",
+	abandonedMutation: "none",
 	senderTrust: "unknown",
 	muted: false,
 	createdAt: 0,

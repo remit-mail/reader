@@ -2,14 +2,14 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { MessageSyncStatus } from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
 	reconcileStaleMessage,
+	restoreSourcePlacement,
 	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
-import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 export interface MessageMoveTerminalLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -18,7 +18,7 @@ export interface MessageMoveTerminalLogger {
 
 export interface ResolveExhaustedMessageMoveDeps
 	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "updateForMove">;
+	messageService: Pick<IMessageRepository, "delete" | "transitionPlacement">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"
@@ -149,9 +149,13 @@ export const resolveExhaustedMessageMoveFailure = async (
 		sourceMailboxId,
 		uid,
 		// The probe above just confirmed the pair, so the row is a faithful
-		// projection of the source again. The move's own failure is the alert, not
-		// a `failed` left on a row nothing is still trying to move.
-		syncStatus: MessageSyncStatus.synced,
+		// projection of the source again — and the move the user asked for did
+		// not happen, with nothing left to try it. `abandoned` is the value that
+		// says so without claiming a retry is coming (imap-mutations R3); the
+		// alert stays for the operator, and the mutation names itself so the
+		// reading pane offers the right way out (issue #1229).
+		syncStatus: MessageSyncStatus.abandoned,
+		abandonedMutation: MessageMutation.move,
 	});
 
 	return { outcome: "broken" };

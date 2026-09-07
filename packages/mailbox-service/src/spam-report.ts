@@ -239,7 +239,19 @@ export class SpamReportService {
 			// originalMailboxId, so a stale value left by some earlier, unrelated
 			// move would otherwise survive and send a later notSpam to the wrong
 			// folder. This report-spam action established no move of its own.
-			await this.messageService.clearOriginalMailboxId(messageId);
+			//
+			// A transition off the row this call read (imap-mutations R3): the pair
+			// being cleared belongs to a placement, and a lane that has claimed the
+			// row since keeps its own — its settle manages the pair.
+			await this.messageService.transitionPlacement(
+				messageId,
+				{
+					status: before.status,
+					mailboxId: before.mailboxId,
+					uid: before.uid,
+				},
+				{ originalMailboxId: null, originalUid: null },
+			);
 		}
 
 		await this.flagPushService.flip({
@@ -299,7 +311,21 @@ export class SpamReportService {
 				messageId,
 				accountId,
 			);
-			await this.messageService.clearOriginalMailboxId(messageId);
+
+			// Re-read, then clear against what was read. The restore just wrote a
+			// placement, so the row here is not the one above; predicating on it is
+			// what keeps this from erasing a pair some other lane is relying on
+			// (imap-mutations R3).
+			const restored = await this.messageService.get(messageId);
+			await this.messageService.transitionPlacement(
+				messageId,
+				{
+					status: restored.status,
+					mailboxId: restored.mailboxId,
+					uid: restored.uid,
+				},
+				{ originalMailboxId: null, originalUid: null },
+			);
 		}
 
 		const current = await this.messageService.get(messageId);
