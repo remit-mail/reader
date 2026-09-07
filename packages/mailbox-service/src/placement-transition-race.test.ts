@@ -305,6 +305,28 @@ describe("a delete writes only against the placement it read (R3)", () => {
 	});
 });
 
+// The folder lookup is scoped to one account. The daily brief lists every
+// account's mail, so a selection made there carries rows this lookup cannot
+// resolve — and dropping them silently answered "deleted" over messages still
+// sitting where they were.
+describe("a delete reports a row whose folder it could not resolve", () => {
+	it("refuses it rather than counting it as deleted", async () => {
+		const world = buildWorld();
+		world.row.mailboxId = "mbx-another-account";
+		const service = buildMoveService(world);
+
+		const { refusedMessageIds } = await service.deleteMessages(
+			ACCOUNT_CONFIG,
+			[MESSAGE_ID],
+			ACCOUNT,
+		);
+
+		assert.deepEqual(refusedMessageIds, [MESSAGE_ID]);
+		assert.deepEqual(world.writes, [], "nothing was written");
+		assert.deepEqual(world.events, [], "and nothing was enqueued");
+	});
+});
+
 describe("a permanent delete writes only against the placement it read (R3)", () => {
 	// The row is already in Trash, so the batch takes the expunge path rather
 	// than the move-to-Trash one — a different writer, and the fourth of the

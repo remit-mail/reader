@@ -110,10 +110,6 @@ const buildRepositories = (row: MessageRow) => {
 				const current = messages.get(messageId);
 				if (current) messages.set(messageId, { ...current, ...input });
 			},
-			updateForMove: async (messageId: string, set: Partial<MessageRow>) => {
-				const current = messages.get(messageId);
-				if (current) messages.set(messageId, { ...current, ...set });
-			},
 			transitionPlacement: async (
 				messageId: string,
 				expected: { status?: string[] },

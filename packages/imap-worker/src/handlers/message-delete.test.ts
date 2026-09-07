@@ -436,7 +436,6 @@ const deps = (): MessageDeleteDeps =>
 					return h.messageRow ? [h.messageRow] : [];
 				},
 				updateUid: record("message.updateUid"),
-				updateForMove: record("message.updateForMove"),
 				transitionPlacement: async (...args: unknown[]) => {
 					h.calls.push({ method: "message.transitionPlacement", args });
 					return h.transitionLost ? undefined : { messageId: "msg-1" };
@@ -529,6 +528,17 @@ const called = (method: string): Call[] =>
  * attempt's own sync status, predicated on this delete still being outstanding.
  * Told apart from the hand-back transitions, which write a whole placement.
  */
+/**
+ * The hand-back transitions: the ones that write a whole placement back onto
+ * the row. Told apart from the attempt marker, which writes only a sync status,
+ * and from the claim that precedes a removal, which writes only a status.
+ */
+const restoreCalls = (): Call[] =>
+	called("message.transitionPlacement").filter(
+		(candidate) =>
+			(candidate.args[2] as { mailboxId?: string }).mailboxId !== undefined,
+	);
+
 const attemptMarkerSyncStatus = (): string | undefined => {
 	const call = called("message.transitionPlacement").find(
 		(candidate) => Object.keys(candidate.args[2] as object).length === 1,
@@ -874,7 +884,7 @@ describe("handleMessageDelete", () => {
 
 		// Issue #1098. A source that still holds the uid at the ceiling means the
 		// MOVE never took effect, so the row goes back to the source folder: the
-		// optimistic `updateForMove` left `mailboxId` on Trash while `uid` still
+		// optimistic transition left `mailboxId` on Trash while `uid` still
 		// named the source's message, and settling `status` to `active` on top of
 		// that pair switched off every guard that reads `status === "moving"`.
 		// The UI then resolved a Trash `mailboxId` to "Delete permanently", an
@@ -935,7 +945,7 @@ describe("handleMessageDelete", () => {
 			assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 		});
 
-		// The optimistic `updateForMove` already pointed the row at Trash. The
+		// The optimistic transition already pointed the row at Trash. The
 		// server has now confirmed the message never left the source, so the row
 		// and the server disagree about where the mail is, and only a resync of
 		// both folders settles that. Without it the user is shown the message in
@@ -1229,6 +1239,49 @@ describe("handleMessageDelete", () => {
 			mailboxId: "src-mbx",
 			isDeleted: false,
 		});
+	});
+
+	// Removing the Message row is destructive, and the refusal paths reach it on
+	// whatever the row happens to be — an unrecognised operation is answered on
+	// an `active` row as readily as on a `deleting` one. So the removal is
+	// claimed first, and a row with no delete outstanding is left alone.
+	it("never removes a row no delete is outstanding on", async () => {
+		h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "active" };
+		h.allThreadMessages = [];
+		h.transitionLost = true;
+		const malformed = {
+			...moveEvent,
+			operation: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(malformed, noopLogger, 1, deps());
+
+		assert.deepEqual(
+			called("message.transitionPlacement")[0]?.args[1],
+			{ status: ["moving", "deleting"] },
+			"the removal is claimed off a placement this delete owns",
+		);
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"and a lost claim removes nothing",
+		);
+	});
+
+	it("removes the row once the claim on it wins", async () => {
+		h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "deleting" };
+		h.allThreadMessages = [];
+		const malformed = {
+			...moveEvent,
+			operation: undefined,
+		} as unknown as MessageDeleteEvent;
+
+		await handleMessageDelete(malformed, noopLogger, 1, deps());
+
+		assert.deepEqual(
+			called("message.delete").map((c) => c.args[0]),
+			["msg-1"],
+		);
 	});
 
 	it("abandons an event minted under an unknown contract, before connecting", async () => {
@@ -1629,7 +1682,7 @@ describe("handleMessageDelete", () => {
 		assert.equal(h.getConnectionCount, 0);
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.transitionPlacement").length,
+			restoreCalls().length,
 			0,
 			"a row no listing can reach is never restored",
 		);
@@ -1647,7 +1700,7 @@ describe("handleMessageDelete", () => {
 
 		assert.deepEqual(called("message.delete")[0]?.args, ["msg-1"]);
 		assert.equal(
-			called("message.transitionPlacement").length,
+			restoreCalls().length,
 			0,
 			"restoring a Message no listing can reach is the silent vanish, not a hand-back",
 		);

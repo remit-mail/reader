@@ -277,7 +277,6 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 				get: async () => [],
 				update: async () => undefined,
 				updateUid: async () => undefined,
-				updateForMove: async () => undefined,
 				transitionPlacement: async () => undefined,
 			},
 			threadMessage: {

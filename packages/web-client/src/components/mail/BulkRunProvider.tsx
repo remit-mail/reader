@@ -149,7 +149,7 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 	// itself that does not make `start` its own dependency.
 	const startRef = useRef<BulkRunContextValue["start"]>(async () => ({
 		kind: "ran",
-		outcome: { done: 0, failedIds: [], cancelled: false },
+		outcome: { done: 0, failedIds: [], refused: 0, cancelled: false },
 	}));
 
 	/**
@@ -282,6 +282,19 @@ export const BulkRunProvider = ({ children }: { children: ReactNode }) => {
 						outcome.error,
 					),
 				);
+			} else if (outcome.refused > 0) {
+				// One banner for the run, not one per chunk: a select-all is walked a
+				// hundred ids at a time, and a refusal in each would stack banners
+				// until the surface caps them. The count is the run's own total.
+				pushError({
+					severity: "warning",
+					title:
+						outcome.refused > 1
+							? `Couldn't delete ${outcome.refused} of ${request.matched} messages yet`
+							: "Couldn't delete this message yet",
+					detail:
+						"Something else moved them while the delete was being prepared. They are back where they now sit — try again.",
+				});
 			}
 			// Nobody is left showing this run, so the ending is said where the user
 			// now is. A screen still reporting on it says it in place instead.

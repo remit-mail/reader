@@ -69,6 +69,11 @@ const buildWorld = () => {
 				category: "primary",
 				classificationState: "Examined",
 				hasListUnsubscribe: false,
+				// Settled, which is what a delete's predicate asks for: a row every
+				// repository read carries a status, and leaving it off made the
+				// fixture answer for a state no row is ever in.
+				status: "active",
+				syncStatus: "synced",
 			},
 		],
 	]);
@@ -470,7 +475,7 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 	});
 
 	it("copy then delete of the copy removes the copy row and leaves the original", async () => {
-		const { service, threadRows } = buildWorld();
+		const { service, threadRows, messages } = buildWorld();
 
 		await service.copyMessages(
 			ACCOUNT_CONFIG,
@@ -479,6 +484,15 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 			ACCOUNT,
 		);
 		const copyId = deriveCopyMessageId(SOURCE_ID, DEST_MAILBOX);
+
+		// A fresh copy row is `moving` until the server hands back its COPYUID, and
+		// a delete against it would name uid 0. Settle it the way `updateUid`
+		// does, which is also the only state in which a user can see it to delete.
+		Object.assign(messages.get(copyId) ?? {}, {
+			uid: 77,
+			status: "active",
+			syncStatus: "synced",
+		});
 
 		await service.deleteMessages(ACCOUNT_CONFIG, [copyId], ACCOUNT, {
 			permanent: true,

@@ -324,6 +324,24 @@ export const handleMessageDelete = async (
 		}
 
 		if (localRowsRemoved) {
+			// Removing the Message row is destructive and unpredicated on its own,
+			// so it is claimed first: the row is transitioned to `deleted` from a
+			// placement this delete actually owns, and removed only if that claim
+			// wins (imap-mutations R3). A row nothing is deleting — an unrecognised
+			// operation reaches this refusal on whatever the row happens to be —
+			// is left where it is rather than destroyed on the way past.
+			const claimed = await messageService.transitionPlacement(
+				messageId,
+				{ status: [MessageStatus.moving, MessageStatus.deleting] },
+				{ status: MessageStatus.deleted },
+			);
+			if (!claimed) {
+				log.warn(
+					{ ...context, status: message.status },
+					"Delete given up with no listing rows left, and no delete outstanding on the row; the local row was left alone",
+				);
+				return;
+			}
 			await messageService.delete(messageId);
 			return;
 		}

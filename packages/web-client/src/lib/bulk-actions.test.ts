@@ -132,6 +132,28 @@ describe("chunkTargets", () => {
 describe("runChunkedAction", () => {
 	const noopProgress = () => undefined;
 
+	// A select-all is walked a hundred ids at a time. Summed here so the caller
+	// states the refusals once for the run, rather than pushing a banner per
+	// chunk until the surface caps them.
+	test("sums the rows the server refused across every chunk", async () => {
+		const outcome = await runChunkedAction(
+			Array.from({ length: 250 }, (_, i) => ({
+				id: `m${i}`,
+				accountId: "acc-1",
+			})),
+			async (chunk) => ({
+				successCount: chunk.length - 1,
+				failureCount: 1,
+			}),
+			noopProgress,
+			neverAborted(),
+		);
+
+		assert.equal(outcome.refused, 3, "one per chunk, over three chunks");
+		assert.equal(outcome.done, 250, "every id was reached");
+		assert.deepEqual(outcome.failedIds, [], "and none was left unattempted");
+	});
+
 	test("zero ids does nothing and reports done=0", async () => {
 		const calls: string[][] = [];
 		const outcome = await runChunkedAction(
@@ -146,6 +168,7 @@ describe("runChunkedAction", () => {
 		assert.deepEqual(outcome, {
 			done: 0,
 			failedIds: [],
+			refused: 0,
 			cancelled: false,
 		});
 		assert.equal(calls.length, 0);
@@ -356,7 +379,12 @@ describe("runPredicateAction", () => {
 			noopProgress,
 			neverAborted(),
 		);
-		assert.deepEqual(outcome, { done: 0, failedIds: [], cancelled: false });
+		assert.deepEqual(outcome, {
+			done: 0,
+			failedIds: [],
+			refused: 0,
+			cancelled: false,
+		});
 	});
 
 	test("exactly 100 matches — a page size's worth — resolves in a single page with no continuation", async () => {

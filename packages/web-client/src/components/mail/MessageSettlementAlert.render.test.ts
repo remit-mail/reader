@@ -140,6 +140,27 @@ describe("MessageSettlementAlert", () => {
 		assert.ok(labels().some((label) => /delete again/i.test(label)));
 	});
 
+	/**
+	 * The account lookup fans out to `/config` and then to every account's
+	 * mailbox list. Asking for it from each expanded message put that behind
+	 * every open row in the product — and it did, until it was scoped to the one
+	 * case that needs it. Pinned on the wire, because the cost is a request and
+	 * only the request proves it is not being made.
+	 */
+	it("asks for no configuration at all unless a move gave up", async () => {
+		mount(thread({ abandonedMutation: "delete" }), ACCOUNT);
+		await settle();
+
+		assert.deepEqual(http.to("/config"), []);
+	});
+
+	it("asks for none on a healthy row either", async () => {
+		mount(thread({ syncStatus: "synced" }), undefined);
+		await settle();
+
+		assert.deepEqual(http.to("/config"), []);
+	});
+
 	it("offers a folder picker for a move that gave up, never Delete again", async () => {
 		mount(thread({ abandonedMutation: "move" }), ACCOUNT);
 		await settle(() => labels().some((label) => /move again/i.test(label)));

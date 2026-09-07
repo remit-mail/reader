@@ -393,11 +393,7 @@ export class MessageMoveService {
 		// Group messages by operation type
 		type DeleteEntry = {
 			messageId: string;
-			message: {
-				mailboxId: string;
-				uid: number;
-				status: MessageItem["status"];
-			};
+			message: { mailboxId: string; uid: number };
 			sourceMailbox: { mailboxId: string; fullPath: string };
 		};
 		const moveToTrashMessages: DeleteEntry[] = [];
@@ -411,7 +407,20 @@ export class MessageMoveService {
 
 		for (const message of messages) {
 			const sourceMailbox = mailboxMap.get(message.mailboxId);
-			if (!sourceMailbox) continue;
+			if (!sourceMailbox) {
+				// The folder lookup is scoped to one account, so a selection that
+				// spans accounts — the daily brief lists every account's mail —
+				// leaves this row's mailbox unresolved. Nothing about it was
+				// written and no event was enqueued, so it is a refusal like any
+				// other; dropping it silently answered "deleted" over a message
+				// still sitting where it was.
+				refused.push(message.messageId);
+				this.log.info(
+					{ accountId, messageId: message.messageId },
+					"Refused delete: this message's folder does not belong to this account",
+				);
+				continue;
+			}
 
 			const isInTrash =
 				trashMailbox !== null && message.mailboxId === trashMailbox.mailboxId;
@@ -419,11 +428,7 @@ export class MessageMoveService {
 
 			const entry = {
 				messageId: message.messageId,
-				message: {
-					mailboxId: message.mailboxId,
-					uid: message.uid,
-					status: message.status,
-				},
+				message: { mailboxId: message.mailboxId, uid: message.uid },
 				sourceMailbox: {
 					mailboxId: sourceMailbox.mailboxId,
 					fullPath: sourceMailbox.fullPath,
@@ -460,7 +465,10 @@ export class MessageMoveService {
 				const marked = await this.messageService.transitionPlacement(
 					messageId,
 					{
-						status: message.status,
+						// `active`, not whatever the row was read as: a row already
+						// `moving` or `deleting` is mid-mutation, and marking it again
+						// would enqueue a second event against the same uid.
+						status: MessageStatus.active,
 						mailboxId: message.mailboxId,
 						uid: message.uid,
 					},
@@ -535,7 +543,10 @@ export class MessageMoveService {
 			const marked = await this.messageService.transitionPlacement(
 				messageId,
 				{
-					status: message.status,
+					// `active` for the same reason as the trash path above: a second
+					// press on a row already `deleting` would enqueue a duplicate
+					// expunge rather than refusing.
+					status: MessageStatus.active,
 					mailboxId: message.mailboxId,
 					uid: message.uid,
 				},

@@ -10,10 +10,13 @@
  *
  * The endpoints enqueue the IMAP write and return; they do not apply it. So a
  * returned call means every id in it was accepted, not that the mail server
- * applied it — there is no per-id success/failure in the response to read. The
- * only failure this layer can observe is a thrown call: an infrastructure
- * failure (auth, the write, or the enqueue) that takes out the whole batch and
- * stops the run.
+ * applied it. Delete is the one action that can accept some of a batch and not
+ * the rest — a row whose placement changed under it is refused and counted in
+ * the response (imap-mutations R3) — and it reports that itself, on the call,
+ * rather than here: this layer only ever hands ids back, and an id this run did
+ * reach is not one it should re-offer. The only failure it observes is a thrown
+ * call: an infrastructure failure (auth, the write, or the enqueue) that takes
+ * out the whole batch and stops the run.
  *
  * Cancellation is an `AbortSignal` the caller owns, handed to every call the run
  * makes (#113). Aborting ends the request in flight rather than waiting for it,
@@ -165,10 +168,19 @@ export interface BulkActionOutcome {
 	 * An aborted batch is counted here too: aborting the request does not
 	 * un-send what the server already accepted, so its ids are "may not have
 	 * landed" rather than "did not", and every action here is idempotent.
-	 * There is no per-id failure source: a returned batch call counts every id in
-	 * it as accepted (see the module header).
+	 * A returned batch call counts every id in it as reached. Delete's own
+	 * per-row refusals ride its response and are surfaced by the caller, not
+	 * folded in here (see the module header).
 	 */
 	failedIds: string[];
+	/**
+	 * Rows the server reached and refused: their placement changed under the
+	 * run, so the action never claimed them (imap-mutations R3). Summed across
+	 * every chunk so the caller states it once for the whole run rather than
+	 * once per hundred ids. Not folded into `failedIds` — those were never
+	 * reached, and these were.
+	 */
+	refused: number;
 	cancelled: boolean;
 	/** Set when a batch call threw — an infrastructure failure, not a
 	 *  per-item failure. The run stops at the point it was raised. */
@@ -198,26 +210,34 @@ export const runChunkedAction = async (
 	const chunks = chunkTargets(targets);
 	const total = targets.length;
 	let done = 0;
+	let refused = 0;
 	const failedIds: string[] = [];
 
 	for (let i = 0; i < chunks.length; i++) {
 		if (signal.aborted) {
 			failedIds.push(...chunks.slice(i).flat());
-			return { done, failedIds, cancelled: true };
+			return { done, failedIds, refused, cancelled: true };
 		}
 		const chunk = chunks[i];
 		const attempted = await attempt(applyBatch(chunk, signal));
 		if (!attempted.ok) {
 			failedIds.push(...chunks.slice(i).flat());
-			if (signal.aborted) return { done, failedIds, cancelled: true };
+			if (signal.aborted) return { done, failedIds, refused, cancelled: true };
 			onProgress({ done, total });
-			return { done, failedIds, cancelled: false, error: attempted.error };
+			return {
+				done,
+				failedIds,
+				refused,
+				cancelled: false,
+				error: attempted.error,
+			};
 		}
+		refused += attempted.value?.failureCount ?? 0;
 		done += chunk.length;
 		onProgress({ done, total });
 	}
 
-	return { done, failedIds, cancelled: false };
+	return { done, failedIds, refused, cancelled: false };
 };
 
 /**
@@ -290,27 +310,42 @@ export const runPredicateAction = async (
 	signal: AbortSignal,
 ): Promise<BulkActionOutcome> => {
 	let done = 0;
+	let refused = 0;
 	const failedIds: string[] = [];
 	let token: string | undefined;
 
 	do {
 		if (signal.aborted) {
-			return { done, failedIds, cancelled: true };
+			return { done, failedIds, refused, cancelled: true };
 		}
 
 		const fetched = await attempt(fetchIdsPage(token, signal));
 		if (!fetched.ok) {
-			if (signal.aborted) return { done, failedIds, cancelled: true };
-			return { done, failedIds, cancelled: false, error: fetched.error };
+			if (signal.aborted) return { done, failedIds, refused, cancelled: true };
+			return {
+				done,
+				failedIds,
+				refused,
+				cancelled: false,
+				error: fetched.error,
+			};
 		}
 		const page = fetched.value;
 
 		if (page.ids.length > 0) {
 			const attempted = await attempt(applyBatch(page.ids, signal));
 			if (!attempted.ok) {
-				if (signal.aborted) return { done, failedIds, cancelled: true };
-				return { done, failedIds, cancelled: false, error: attempted.error };
+				if (signal.aborted)
+					return { done, failedIds, refused, cancelled: true };
+				return {
+					done,
+					failedIds,
+					refused,
+					cancelled: false,
+					error: attempted.error,
+				};
 			}
+			refused += attempted.value?.failureCount ?? 0;
 			done += page.ids.length;
 			onProgress({ done, total });
 		}
@@ -318,7 +353,7 @@ export const runPredicateAction = async (
 		token = page.continuationToken;
 	} while (token);
 
-	return { done, failedIds, cancelled: false };
+	return { done, failedIds, refused, cancelled: false };
 };
 
 /**
@@ -342,6 +377,14 @@ export const honestProgress = (
 export interface BulkRunOutcome {
 	done: number;
 	failedIds: string[];
+	/**
+	 * Rows the server reached and refused: their placement changed under the
+	 * run, so the action never claimed them (imap-mutations R3). Summed across
+	 * every chunk so the caller states it once for the whole run rather than
+	 * once per hundred ids. Not folded into `failedIds` — those were never
+	 * reached, and these were.
+	 */
+	refused: number;
 	cancelled: boolean;
 	error?: unknown;
 }
