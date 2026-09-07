@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type {
 	MailboxCreateEvent,
 	MailboxDeleteEvent,
@@ -10,16 +10,6 @@ import {
 	type MailboxManagementDeps,
 	processMailboxManagement,
 } from "./mailbox-management.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Call {
 	method: string;
@@ -163,7 +153,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 	});
 
 	it("creates the folder and writes back the server's UIDVALIDITY and counts", async () => {
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 
 		assert.equal(called("connection.createMailbox")[0]?.args[0], "Archive");
 		assert.deepEqual(lastUpdate(), {
@@ -176,13 +166,13 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 	});
 
 	it("subscribes only when the event asks for it", async () => {
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 		assert.equal(called("connection.subscribeMailbox").length, 0);
 
 		h = fresh();
 		await processMailboxManagement(
 			{ ...createEvent, subscribe: true },
-			noopLog,
+			noopLogger,
 			deps(),
 		);
 		assert.equal(called("connection.subscribeMailbox")[0]?.args[0], "Archive");
@@ -191,7 +181,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 	it("still marks the mailbox synced when the server does not list the new folder", async () => {
 		h.connection.listMailboxes = async () => [];
 
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 
 		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
 	});
@@ -201,7 +191,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 			throw new Error("Mailbox already exists");
 		};
 
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 
 		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
 	});
@@ -212,7 +202,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 		};
 
 		await assert.rejects(
-			processMailboxManagement(createEvent, noopLog, deps()),
+			processMailboxManagement(createEvent, noopLogger, deps()),
 			/server exploded/,
 		);
 
@@ -225,7 +215,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 		// create is moot and must not poison the account's FIFO.
 		h.mailboxUpdateError = notFoundError();
 
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 
 		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
@@ -237,7 +227,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 			deletedAt: Date.now(),
 		};
 
-		await processMailboxManagement(createEvent, noopLog, deps());
+		await processMailboxManagement(createEvent, noopLogger, deps());
 
 		assert.equal(called("connection.createMailbox").length, 0);
 	});
@@ -246,7 +236,7 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 		h.account = null;
 
 		await assert.rejects(
-			processMailboxManagement(createEvent, noopLog, deps()),
+			processMailboxManagement(createEvent, noopLogger, deps()),
 			/not found/,
 		);
 	});
@@ -258,7 +248,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 	});
 
 	it("renames on the server and clears the pending oldPath", async () => {
-		await processMailboxManagement(renameEvent, noopLog, deps());
+		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.deepEqual(called("connection.renameMailbox")[0]?.args, [
 			"Archive",
@@ -275,7 +265,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 			throw new Error("Mailbox not found");
 		};
 
-		await processMailboxManagement(renameEvent, noopLog, deps());
+		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
 		assert.equal(called("mailbox.update").length, 0);
@@ -287,7 +277,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		};
 		h.mailboxUpdateError = notFoundError();
 
-		await processMailboxManagement(renameEvent, noopLog, deps());
+		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
@@ -298,7 +288,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		};
 
 		await assert.rejects(
-			processMailboxManagement(renameEvent, noopLog, deps()),
+			processMailboxManagement(renameEvent, noopLogger, deps()),
 			/server exploded/,
 		);
 
@@ -316,7 +306,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 	});
 
 	it("deletes on the server and drops the local row", async () => {
-		await processMailboxManagement(deleteEvent, noopLog, deps());
+		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMailbox")[0]?.args[0], "Archive");
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
@@ -327,7 +317,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 			throw new Error("Mailbox not found");
 		};
 
-		await processMailboxManagement(deleteEvent, noopLog, deps());
+		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
 		assert.equal(called("mailbox.delete").length, 1);
 	});
@@ -337,7 +327,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 			throw new Error("Cannot delete INBOX");
 		};
 
-		await processMailboxManagement(deleteEvent, noopLog, deps());
+		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
 		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
 		assert.equal(called("mailbox.delete").length, 0);
@@ -349,7 +339,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 		};
 
 		await assert.rejects(
-			processMailboxManagement(deleteEvent, noopLog, deps()),
+			processMailboxManagement(deleteEvent, noopLogger, deps()),
 			/server exploded/,
 		);
 
@@ -362,7 +352,7 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 		};
 		h.mailboxUpdateError = notFoundError();
 
-		await processMailboxManagement(deleteEvent, noopLog, deps());
+		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
 		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
@@ -388,7 +378,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.doesNotReject(
-			processMailboxManagement(deleteEvent, noopLog, deps()),
+			processMailboxManagement(deleteEvent, noopLogger, deps()),
 		);
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
 		assert.equal(called("mailbox.update").length, 0);
@@ -403,7 +393,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.rejects(
-			processMailboxManagement(deleteEvent, noopLog, deps()),
+			processMailboxManagement(deleteEvent, noopLogger, deps()),
 			/Command failed/,
 		);
 		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
@@ -424,7 +414,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.doesNotReject(
-			processMailboxManagement(createEvent, noopLog, deps()),
+			processMailboxManagement(createEvent, noopLogger, deps()),
 		);
 		assert.deepEqual(lastUpdate(), { syncStatus: "synced" });
 	});
@@ -438,7 +428,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.rejects(
-			processMailboxManagement(createEvent, noopLog, deps()),
+			processMailboxManagement(createEvent, noopLogger, deps()),
 			/Command failed/,
 		);
 		assert.deepEqual(lastUpdate(), { syncStatus: "failed" });
@@ -453,7 +443,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.doesNotReject(
-			processMailboxManagement(renameEvent, noopLog, deps()),
+			processMailboxManagement(renameEvent, noopLogger, deps()),
 		);
 		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
 	});
@@ -467,7 +457,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		};
 
 		await assert.rejects(
-			processMailboxManagement(renameEvent, noopLog, deps()),
+			processMailboxManagement(renameEvent, noopLogger, deps()),
 			/Command failed/,
 		);
 		assert.equal(lastUpdate()?.syncStatus, "failed");

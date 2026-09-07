@@ -2,19 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import type { OrganizeMatchDeps } from "@remit/backend/organize";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { OrganizeJobEvent } from "../events.js";
 import { processOrganizeJob } from "./organize-job.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Update {
 	state: string;
@@ -77,7 +67,7 @@ describe("processOrganizeJob (reader #463)", () => {
 	it("fails the job on a refused rule and acknowledges the record", async () => {
 		const updates: Update[] = [];
 
-		await processOrganizeJob(event, noopLog, {
+		await processOrganizeJob(event, noopLogger, {
 			client: jobClient(updates, [{ field: "HasWords", value: "invoice" }]),
 			matchDeps: explodingMatchDeps(),
 		});
@@ -97,7 +87,7 @@ describe("processOrganizeJob (reader #463)", () => {
 		const updates: Update[] = [];
 
 		await assert.rejects(
-			processOrganizeJob(event, noopLog, {
+			processOrganizeJob(event, noopLogger, {
 				client: jobClient(updates, [
 					{ field: "Subject", value: "reservation" },
 				]),
