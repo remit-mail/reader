@@ -56,16 +56,6 @@ describe("placementRefusalBanner", () => {
 		assert.match(banner.detail ?? "", /try again in a moment/i);
 	});
 
-	it("tells an abandoned move to resync, not to wait", () => {
-		const banner = placementRefusalBanner(
-			{ reason: "unverified", messageId: "msg-1" },
-			1,
-			"delete",
-		);
-		assert.match(banner.detail ?? "", /sync the folder/i);
-		assert.doesNotMatch(banner.detail ?? "", /try again in a moment/i);
-	});
-
 	it("counts the selection in the title", () => {
 		assert.match(
 			placementRefusalBanner(
@@ -90,22 +80,19 @@ describe("placementRefusalBanner", () => {
 
 		const detail =
 			placementRefusalBanner(
-				{ reason: "unverified", messageId: "msg-1" },
+				{ reason: "in_flight", messageId: "msg-1" },
 				1,
 				"move",
 			).detail ?? "";
-		assert.match(detail, /move it again/i);
 		assert.doesNotMatch(detail, /delete/i);
 	});
 
 	it("never repeats the server's uuid at the user", () => {
-		for (const reason of ["in_flight", "unverified"] as const) {
-			const banner = placementRefusalBanner(
-				{ reason, messageId: "msg-1" },
-				1,
-				"delete",
-			);
-			assert.doesNotMatch(`${banner.title} ${banner.detail}`, /msg-1/);
-		}
+		const banner = placementRefusalBanner(
+			{ reason: "in_flight", messageId: "msg-1" },
+			1,
+			"delete",
+		);
+		assert.doesNotMatch(`${banner.title} ${banner.detail}`, /msg-1/);
 	});
 });

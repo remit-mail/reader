@@ -406,18 +406,6 @@ export type UpdateMessageInput = Partial<
 	Omit<CreateMessageInput, "mailboxId" | "uid">
 >;
 
-export type UpdateMessageMoveInput = Partial<
-	Pick<
-		CreateMessageInput,
-		| "mailboxId"
-		| "uid"
-		| "status"
-		| "syncStatus"
-		| "originalMailboxId"
-		| "originalUid"
-	>
->;
-
 /**
  * The placement a transition expects to find, as the caller read it
  * (docs/architecture/imap-mutations.md R3). Every field named here becomes a
@@ -434,7 +422,7 @@ export type PlacementPredicate = {
 
 /**
  * What a winning transition writes. `originalMailboxId` and `originalUid` take
- * `null` to clear, the way `updateForMove` already spells a cleared pair.
+ * `null` to clear, which is how a settle spells a dropped pre-move pair.
  */
 export type PlacementTransitionInput = {
 	status?: MessageItem["status"];

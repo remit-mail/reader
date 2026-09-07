@@ -19,6 +19,7 @@ import {
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
+	isPlacementUnsettled,
 	MailboxCursorPausedError,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
@@ -212,17 +213,19 @@ export const handleMessageDelete = async (
 		return;
 	}
 
-	// This delete already settled, which for both operations means the row is
-	// back to `active`: `settleTrashMoveConfirmed` writes it with the Trash
-	// uid the server confirmed, and `abandonDelete` writes it on a row handed
-	// back. MESSAGE_MOVE, MESSAGE_COPY and FLAG_PUSH each carry this guard
-	// already; without it a lost SQS acknowledgement re-runs the delete
-	// against a uid the source no longer holds, exhausts, and lets the
-	// terminal resolver read the source's honest "gone" as grounds to delete
-	// rows that are correct — taking spamReport, classificationState,
-	// category and the Undo target's `originalMailboxId` with them, none of
-	// which the resync re-projection can rebuild.
-	if (message.status === MessageStatus.active) {
+	// This delete already settled — the same guard, and the same predicate,
+	// that MESSAGE_MOVE, MESSAGE_COPY and FLAG_PUSH carry. `deleting` is an
+	// in-flight state exactly as `moving` is (imap-mutations R3), so asking
+	// the shared question rather than `status === active` is what keeps a
+	// delete redelivered behind a move from reading its own work as finished.
+	//
+	// Without it a lost SQS acknowledgement re-runs the delete against a uid
+	// the source no longer holds, exhausts, and lets the terminal resolver
+	// read the source's honest "gone" as grounds to delete rows that are
+	// correct — taking spamReport, classificationState, category and the Undo
+	// target's `originalMailboxId` with them, none of which the resync
+	// re-projection can rebuild.
+	if (!isPlacementUnsettled(message)) {
 		log.info(
 			{
 				accountId,

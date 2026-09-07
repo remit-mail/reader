@@ -12,7 +12,8 @@ export type MessageSettlementFields = Pick<
  * `syncStatus: abandoned` is the gate and the only gate: it is the give-up
  * value of the placement state model (docs/architecture/imap-mutations.md R3),
  * written only after the row has been put back on a placement the mail server
- * confirmed, and overwritten by every settle. A transient attempt writes
+ * confirmed. Every settle overwrites it, and the settle in `updateUid` clears
+ * `abandonedMutation` alongside it. A transient attempt writes
  * `failed` and re-throws for redelivery, so `failed` never reaches here.
  *
  * `abandonedMutation` behind that gate says WHICH mutation, which the row
@@ -25,11 +26,13 @@ export type MessageSettlementFields = Pick<
  * `originalUid` says nothing once a placement has settled. Reading it
  * unconditionally would resurrect a give-up a later mutation has settled.
  *
- * Two give-ups this deliberately does not name. `flag-push` and
- * `placement-move-push` never write a placement at all — their give-up lives
- * on their own marker rows and in an operator alert — and Remit's own
- * classification move is not a mutation the user asked for, so a per-message
- * treatment for it would report a failure against an intent nobody formed.
+ * Two give-ups this deliberately does not name. `flag-push` never writes a
+ * placement at all — its give-up lives on its own marker row and in an
+ * operator alert. `placement-move-push` does restore the row when its push is
+ * exhausted, and drops its marker with it, but leaves this field at `none`:
+ * Remit's own classification move is not a mutation the user asked for, so a
+ * per-message treatment for it would report a failure against an intent nobody
+ * formed.
  */
 export const abandonedMutationOf = (
 	message: MessageSettlementFields,

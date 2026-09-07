@@ -7,7 +7,11 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	isPlacementUnsettled,
@@ -201,13 +205,40 @@ export class PlacementMoveService {
 			destinationMailboxId,
 		);
 
-		await this.messageService.updateForMove(messageId, {
-			mailboxId: destinationMailboxId,
-			status: MessageStatus.moving,
-			syncStatus: MessageSyncStatus.pending,
-			originalMailboxId: sourceMailboxId,
-			originalUid: message.uid,
-		});
+		// A transition off the row the wait above settled on (imap-mutations R3).
+		// This lane rides a standard queue that the account's FIFO group does not
+		// order, so a user's own move or delete can claim the row between that
+		// read and this write; writing anyway would stamp Remit's classification
+		// over a folder the user just chose, with the old uid attached.
+		//
+		// The marker goes with it. It is the record that a move owes IMAP a push,
+		// and this move is not happening, so leaving it would send the reconciler
+		// after a placement nobody wrote and would inflate the folder counts it
+		// predicts.
+		const filed = await this.messageService.transitionPlacement(
+			messageId,
+			{
+				status: MessageStatus.active,
+				mailboxId: sourceMailboxId,
+				uid: message.uid,
+			},
+			{
+				mailboxId: destinationMailboxId,
+				status: MessageStatus.moving,
+				syncStatus: MessageSyncStatus.pending,
+				abandonedMutation: MessageMutation.none,
+				originalMailboxId: sourceMailboxId,
+				originalUid: message.uid,
+			},
+		);
+		if (!filed) {
+			await this.markerService.delete(messageId);
+			this.log.info(
+				{ messageId, accountId, sourceMailboxId, destinationMailboxId },
+				"Placement move not applied: something else claimed this message's placement first",
+			);
+			return;
+		}
 
 		await this.addressService.reconcileJunkOnlyForMessage(
 			messageId,

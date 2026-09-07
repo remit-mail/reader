@@ -49,7 +49,7 @@ The lanes are genuinely concurrent, which is what makes this load-bearing. User 
 
 **A give-up names the mutation it gave up on.** `abandonedMutation` carries it, and is read only while `syncStatus` is `abandoned` — outside that gate it is `none` and says nothing, the way `originalUid` says nothing once a placement has settled. It exists because the hand-back erases the evidence: restoring the row sets `status` back to `active`, and `status` was the only field naming the mutation that was outstanding. Without it a surface can see that something was abandoned and not what, which is how a move that handed back came to be reported to the user as a failed delete, under a button that deleted the message.
 
-Two give-ups deliberately carry no marker. `flag-push` and `placement-move-push` never write a placement at all — their give-up lives on their own marker rows and in an operator alert — and Remit's own classification filing is not a mutation the user asked for, so a per-message treatment would report a failure against an intent nobody formed.
+Two give-ups deliberately carry no marker. `flag-push` never writes a placement at all — its give-up lives on its own marker row and in an operator alert. `placement-move-push` does write one: an exhausted push restores the row to the source the server confirmed and drops its marker, so the message stops being stuck. It leaves `abandonedMutation` at `none` all the same, because Remit's own classification filing is not a mutation the user asked for, and a per-message treatment would report a failure against an intent nobody formed. The alert is that give-up's whole surface.
 
 Two consequences every reader gets from this:
 

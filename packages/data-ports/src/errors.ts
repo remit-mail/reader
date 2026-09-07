@@ -99,11 +99,14 @@ export class MailboxNotSettledError extends ConflictError {
 }
 
 /**
- * Why the row's folder and uid do not name the same message. `in_flight` clears
- * on its own, so the client words a wait; `unverified` does not, so it words a
- * resync instead.
+ * Why the row's folder and uid do not name the same message. One value, because
+ * one state produces it: a mutation is still in flight and the pair clears on
+ * its own, so the client words a wait rather than a repair. A mutation that
+ * gave up does not reach here — it hands the row back to a placement the server
+ * confirmed first (docs/architecture/imap-mutations.md R3), which is a pair
+ * every dependent mutation can act on.
  */
-export type MessagePlacementUnsettledReason = "in_flight" | "unverified";
+export type MessagePlacementUnsettledReason = "in_flight";
 
 export class MessagePlacementUnsettledError extends ConflictError {
 	name = "MessagePlacementUnsettledError";

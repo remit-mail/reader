@@ -43,7 +43,8 @@ describe("settleSpamReportBulk", () => {
 	});
 
 	// A refusal the move gate raises used to collapse to the generic retry copy,
-	// which is a dead end for the reason no retry clears (#665).
+	// which is a dead end (#665). One reason reaches it now — a mutation still in
+	// flight — and it words the wait rather than the server's sentence.
 	it("words a placement refusal from its reason, never from the server's sentence", async () => {
 		const outcome = await settleSpamReportBulk(
 			["msg-1", "msg-2"],
@@ -52,16 +53,15 @@ describe("settleSpamReportBulk", () => {
 					`Message ${messageId} was not acted on: its folder and uid do not name the same message`,
 					"acc-1",
 					messageId,
-					messageId === "msg-1" ? "in_flight" : "unverified",
+					"in_flight",
 				);
 			},
 		);
 
-		const [inFlight, unverified] = outcome.failures?.map((f) => f.reason) ?? [];
-		assert.match(inFlight ?? "", /try again in a moment/i);
-		assert.match(unverified ?? "", /sync the folder/i);
-		assert.doesNotMatch(unverified ?? "", /try again in a moment/i);
-		for (const reason of [inFlight, unverified]) {
+		const reasons = outcome.failures?.map((f) => f.reason) ?? [];
+		assert.equal(reasons.length, 2);
+		for (const reason of reasons) {
+			assert.match(reason ?? "", /try again in a moment/i);
 			assert.notEqual(reason, GENERIC_FAILURE_REASON);
 			assert.doesNotMatch(reason ?? "", /folder and uid/);
 			assert.doesNotMatch(reason ?? "", /acc-1/);

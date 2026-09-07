@@ -7,7 +7,6 @@ import type {
 	PlacementTransitionInput,
 	ResultList,
 	UpdateMessageInput,
-	UpdateMessageMoveInput,
 } from "../types.js";
 
 export interface IMessageRepository {
@@ -30,10 +29,6 @@ export interface IMessageRepository {
 	): Promise<ResultList<MessageItem>>;
 	listAllByMailbox(mailboxId: string): Promise<MessageItem[]>;
 	describe(messageId: string): Promise<MessageDescription>;
-	updateForMove(
-		messageId: string,
-		input: UpdateMessageMoveInput,
-	): Promise<MessageItem>;
 	updateUid(
 		messageId: string,
 		newUid: number,
@@ -41,7 +36,11 @@ export interface IMessageRepository {
 	): Promise<MessageItem>;
 	/**
 	 * Move the row's placement from the state the caller read to the state it
-	 * decided on, as one conditional write (imap-mutations R3).
+	 * decided on, as one conditional write (imap-mutations R3). The only writer
+	 * of `mailboxId`, `status`, `syncStatus`, `abandonedMutation`,
+	 * `originalMailboxId` and `originalUid`, apart from the settle in
+	 * {@link updateUid} — so a placement written without a predicate is a type
+	 * error rather than a convention.
 	 *
 	 * Resolves with the written row when the predicate matched, and with
 	 * `undefined` when it did not — someone else won, or the row is gone. The

@@ -210,16 +210,14 @@ export const handleMessageCopy = async (
 			};
 
 			const settleCopied = async (newUid: number): Promise<void> => {
+				// `updateUid` writes the confirmed uid, `active` and `synced` in one
+				// statement, so the second write this used to make said nothing the
+				// first had not — and said it without a predicate.
 				await messageService.updateUid(
 					newMessageId,
 					newUid,
 					destinationMailboxId,
 				);
-
-				await messageService.update(newMessageId, {
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.synced,
-				});
 
 				const threadMessage = await threadMessageService.findByMessageId(
 					account.accountConfigId,

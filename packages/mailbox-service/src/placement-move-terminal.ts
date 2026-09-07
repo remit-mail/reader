@@ -114,7 +114,10 @@ export const resolveExhaustedPlacementMoveFailure = async (
 		return { outcome: "reconciled" };
 	}
 
-	await deps.markerService.delete(messageId);
+	// The row first, the marker second. The marker is the operator's evidence
+	// that this move still owed IMAP a push; dropping it before the restore
+	// means a restore that throws leaves the row stuck `moving` with nothing
+	// left to say why.
 	await restoreSourcePlacement(deps, {
 		accountConfigId,
 		messageId,
@@ -127,6 +130,7 @@ export const resolveExhaustedPlacementMoveFailure = async (
 		syncStatus: MessageSyncStatus.synced,
 		abandonedMutation: MessageMutation.none,
 	});
+	await deps.markerService.delete(messageId);
 
 	deps.log.error(
 		{

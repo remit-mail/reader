@@ -68,11 +68,20 @@ const movingRow = () => ({
 	originalUid: INBOX_UID,
 });
 
-/** The same row after the trash-move handler gave up without confirming. */
+/**
+ * A row a delete gave up on. R3 defines the give-up as a hand-back: the row
+ * goes back on the placement the mail server confirmed, and only then carries
+ * `abandoned`. The pair is honest, so nothing downstream refuses it — the
+ * failure is a statement the reading pane makes, never a gate.
+ */
 const strandedRow = () => ({
-	...movingRow(),
 	messageId: STRANDED_ID,
+	mailboxId: INBOX,
+	uid: INBOX_UID,
+	status: "active",
 	syncStatus: "abandoned",
+	abandonedMutation: "delete",
+	originalMailboxId: INBOX,
 });
 
 /** An ordinary settled row. */
@@ -127,7 +136,11 @@ const buildWorld = (seed: Array<Record<string, unknown>>) => {
 			patches.push({ messageId: id, patch });
 			return Object.assign(rows.get(id) ?? {}, patch);
 		},
-		updateForMove: async (id: string, patch: Record<string, unknown>) => {
+		transitionPlacement: async (
+			id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
 			patches.push({ messageId: id, patch });
 			return Object.assign(rows.get(id) ?? {}, patch);
 		},
@@ -329,23 +342,18 @@ describe("the gate refuses only a uid that names somebody else (#845.3)", () => 
 		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
 	});
 
-	it("refuses a row stranded by a move that gave up, without spending the ceiling", async () => {
-		// `syncStatus: abandoned` with `status: moving` is the shape a handler's
-		// give-up path leaves behind, and only `updateUid` clears it. The pair is
-		// still a lie, so the delete is still refused — but under a reason whose
-		// remedy is a resync, and without a wait that could never succeed.
+	it("acts on a row a delete gave up on, rather than refusing it", async () => {
+		// A give-up hands the row back to the placement the server confirmed
+		// before it stops (R3), so the "Delete again" the reading pane offers is
+		// an ordinary delete. Refusing it — which is what a give-up left `moving`
+		// used to earn — made that button a dead end.
 		const { service, events } = buildWorld([strandedRow()]);
 
 		const startedAt = Date.now();
-		await assert.rejects(
-			() => service.deleteMessages(ACCOUNT_CONFIG, [STRANDED_ID], ACCOUNT),
-			(error: unknown) =>
-				error instanceof MessagePlacementUnsettledError &&
-				error.publicApiError?.details?.reason === "unverified",
-		);
+		await service.deleteMessages(ACCOUNT_CONFIG, [STRANDED_ID], ACCOUNT);
 
-		assert.deepEqual(events, []);
-		assert.ok(Date.now() - startedAt < 100, "refused without waiting");
+		assert.equal(events.length, 1);
+		assert.ok(Date.now() - startedAt < 100, "and never entered the wait");
 	});
 });
 

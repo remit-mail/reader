@@ -174,7 +174,11 @@ const buildWorld = (
 			if (m) Object.assign(m, patch);
 			return m;
 		},
-		updateForMove: async (id: string, patch: Record<string, unknown>) => {
+		transitionPlacement: async (
+			id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
 			const m = messages.get(id);
 			if (m) Object.assign(m, patch);
 			return m;

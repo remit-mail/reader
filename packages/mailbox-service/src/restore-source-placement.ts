@@ -95,12 +95,11 @@ export interface RestoreSourcePlacementInput {
  *
  * A row another path deleted while the probe was in flight has nothing left to
  * restore, and it fails the predicate like any other row that is no longer
- * owed one. A thread row whose composites have moved on is being rewritten by
- * that other path anyway; it surfaces as `NotFoundError` — ElectroDB wraps the
- * conditional-check miss as one — and that is a settled state here, not a
- * fault. Throwing on it would escape the caller's `.catch()` and cost the
- * record its ack and its resync, which is the contract the terminal resolvers
- * state: never re-thrown.
+ * owed one. A listing row that other path has already rewritten is its to
+ * finish; the update for it comes back `NotFoundError`, and that is a settled
+ * state here rather than a fault. Throwing on it would escape the caller's
+ * `.catch()` and cost the record its ack and its resync, which is the contract
+ * the terminal resolvers state: never re-thrown.
  */
 export const restoreSourcePlacement = async (
 	deps: RestoreSourcePlacementDeps,

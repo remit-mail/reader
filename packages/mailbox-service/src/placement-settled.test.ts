@@ -38,16 +38,39 @@ describe("placementBindingOf", () => {
 		assert.equal(placementBindingOf(row({})), "in_flight");
 	});
 
-	test("`abandoned` on a foreign-uid row is refused outright", () => {
+	/**
+	 * A give-up cannot reach this pair. `abandoned` is written only alongside
+	 * `active` or `deleted`, on a row already put back on a placement the server
+	 * confirmed, so the binding it produces is `consistent` — there is no
+	 * give-up member here to return, and no dependent mutation is refused on
+	 * account of one.
+	 */
+	test("a give-up never presents as a foreign-uid row at all", () => {
 		assert.equal(
-			placementBindingOf(row({ syncStatus: MessageSyncStatus.abandoned })),
-			"abandoned",
+			placementBindingOf(
+				row({
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.abandoned,
+					mailboxId: "mbx-src",
+				}),
+			),
+			"consistent",
 		);
 	});
 
 	test("`failed` on a foreign-uid row is mid-retry, so it waits rather than refusing", () => {
 		assert.equal(
 			placementBindingOf(row({ syncStatus: MessageSyncStatus.failed })),
+			"in_flight",
+		);
+	});
+
+	// R3's state table calls `deleting` in flight exactly as `moving` is: a
+	// delete points the row at Trash with the source's uid, so a dependent
+	// mutation reading it resolves the same mismatched pair.
+	test("a delete in flight is unsettled, not settled", () => {
+		assert.equal(
+			placementBindingOf(row({ status: MessageStatus.deleting })),
 			"in_flight",
 		);
 	});

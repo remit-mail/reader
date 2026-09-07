@@ -458,7 +458,7 @@ export const handleMessageMove = async (
 					mailbox,
 				);
 
-			// A paused cursor is never acked on the optimistic row: `updateForMove`
+			// A paused cursor is never acked on the optimistic row: the transition
 			// has pointed it at the destination while `uid` still names the source,
 			// and that pair strands the row for good — the cursor rebuild matches
 			// rows by `(accountConfigId, mailboxId)`, so a row naming the

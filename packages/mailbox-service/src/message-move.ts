@@ -29,13 +29,13 @@ import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
+	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	carriesForeignUid,
-	type PlacementBinding,
 	placementBindingOf,
 	waitForPlacementToSettle,
 } from "./placement-settled.js";
@@ -428,14 +428,37 @@ export class MessageMoveService {
 					accountConfigId,
 				);
 			for (const { messageId, message, sourceMailbox } of moveToTrashMessages) {
-				// Update local state optimistically
-				await this.messageService.updateForMove(messageId, {
-					mailboxId: trashMailbox.mailboxId,
-					status: MessageStatus.moving,
-					syncStatus: MessageSyncStatus.pending,
-					originalMailboxId: sourceMailbox.mailboxId,
-					originalUid: message.uid,
-				});
+				// The optimistic write is a transition off the row this call read
+				// (imap-mutations R3). Several folder lookups stand between the read
+				// and here, and PLACEMENT_MOVE_PUSH runs on a queue this account's
+				// FIFO group does not order, so the row can settle onto a different
+				// folder and uid in between. Writing anyway would stamp `moving` and
+				// the OLD uid over the new placement, and the event enqueued below
+				// would name a uid the source no longer holds — a delete aimed at
+				// whatever message has since taken that number.
+				const marked = await this.messageService.transitionPlacement(
+					messageId,
+					{
+						status: MessageStatus.active,
+						mailboxId: message.mailboxId,
+						uid: message.uid,
+					},
+					{
+						mailboxId: trashMailbox.mailboxId,
+						status: MessageStatus.moving,
+						syncStatus: MessageSyncStatus.pending,
+						abandonedMutation: MessageMutation.none,
+						originalMailboxId: sourceMailbox.mailboxId,
+						originalUid: message.uid,
+					},
+				);
+				if (!marked) {
+					this.log.info(
+						{ accountId, messageId },
+						"Skipped delete: this message's placement changed after it was read",
+					);
+					continue;
+				}
 
 				// Update ThreadMessage
 				await this.updateThreadMessageForMove(
@@ -591,14 +614,41 @@ export class MessageMoveService {
 			trashMailbox && message.mailboxId === trashMailbox.mailboxId,
 		);
 
-		// Update local state optimistically
-		await this.messageService.updateForMove(messageId, {
-			mailboxId: destinationMailboxId,
-			status: MessageStatus.moving,
-			syncStatus: MessageSyncStatus.pending,
-			originalMailboxId: sourceMailbox.mailboxId,
-			originalUid: message.uid,
-		});
+		// The optimistic write is a transition off the row this call read
+		// (imap-mutations R3). Three mailbox lookups stand between the read and
+		// here, and PLACEMENT_MOVE_PUSH runs on a queue this account's FIFO group
+		// does not order, so the row can settle onto a different folder and uid in
+		// between. A blind write would stamp `moving` and the OLD uid over that
+		// placement, leaving a pair `carriesForeignUid` calls consistent, and the
+		// event below would send the worker after whatever now holds the old uid.
+		const moved = await this.messageService.transitionPlacement(
+			messageId,
+			{
+				status: MessageStatus.active,
+				mailboxId: message.mailboxId,
+				uid: message.uid,
+			},
+			{
+				mailboxId: destinationMailboxId,
+				status: MessageStatus.moving,
+				syncStatus: MessageSyncStatus.pending,
+				abandonedMutation: MessageMutation.none,
+				originalMailboxId: sourceMailbox.mailboxId,
+				originalUid: message.uid,
+			},
+		);
+		if (!moved) {
+			this.log.error(
+				{ accountId, messageId, destinationMailboxId },
+				"Refused: this message's placement changed while the move was being prepared",
+			);
+			throw new MessagePlacementUnsettledError(
+				`Message ${messageId} was not moved: something else changed where it is while this move was being prepared`,
+				accountId,
+				messageId,
+				"in_flight",
+			);
+		}
 
 		// Update ThreadMessage
 		await this.updateThreadMessageForMove(
@@ -1004,17 +1054,16 @@ export class MessageMoveService {
 	private refusePlacement = (
 		message: MessageItem,
 		accountId: string,
-		binding: Exclude<PlacementBinding, "consistent">,
 	): never => {
 		this.log.error(
-			{ accountId, messageId: message.messageId, binding },
+			{ accountId, messageId: message.messageId },
 			"Refused: this message's folder and uid do not name the same message",
 		);
 		throw new MessagePlacementUnsettledError(
 			`Message ${message.messageId} was not acted on: its folder and uid do not name the same message`,
 			accountId,
 			message.messageId,
-			binding === "abandoned" ? "unverified" : "in_flight",
+			"in_flight",
 		);
 	};
 
@@ -1022,13 +1071,7 @@ export class MessageMoveService {
 		message: MessageItem,
 		accountId: string,
 	): Promise<MessageItem> => {
-		const binding = placementBindingOf(message);
-		if (binding === "consistent") return message;
-
-		// An abandoned move is never coming back, so the ceiling would be spent
-		// only to reach the same answer.
-		if (binding === "abandoned")
-			return this.refusePlacement(message, accountId, binding);
+		if (placementBindingOf(message) === "consistent") return message;
 
 		const settled = await waitForPlacementToSettle(
 			this.messageService,
@@ -1038,9 +1081,8 @@ export class MessageMoveService {
 				pollMs: this.moveSettlePollMs,
 			},
 		);
-		const settledBinding = placementBindingOf(settled);
-		if (settledBinding === "consistent") return settled;
-		return this.refusePlacement(settled, accountId, settledBinding);
+		if (placementBindingOf(settled) === "consistent") return settled;
+		return this.refusePlacement(settled, accountId);
 	};
 
 	/**

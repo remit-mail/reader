@@ -52,7 +52,11 @@ const buildWorld = (
 			patches.push(patch);
 			return Object.assign(message, patch);
 		},
-		updateForMove: async (_id: string, patch: Record<string, unknown>) => {
+		transitionPlacement: async (
+			_id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
 			patches.push(patch);
 			return Object.assign(message, patch);
 		},

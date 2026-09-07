@@ -2,7 +2,7 @@
  * Removing a run's scratch mail once the mutations the run made have settled.
  *
  * A spec that moved its fixtures cannot delete them the moment they show up in
- * the destination. `updateForMove` points the row at the destination and leaves
+ * the destination. the optimistic transition points the row at the destination and leaves
  * `status: moving` until the IMAP copy confirms and `updateUid` writes the
  * destination's COPYUID, and the search answers off that row — so the matches
  * are readable in the destination while the pair is still the source folder's

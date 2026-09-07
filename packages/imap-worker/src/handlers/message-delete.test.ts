@@ -398,7 +398,10 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
-	messageRow: { messageIdHeader: MESSAGE_ID_HEADER },
+	// What the API writes before it enqueues: a move to Trash records `moving`,
+	// a permanent delete records `deleting`, and the handler's guard asks one
+	// question of both — is a mutation still outstanding on this row.
+	messageRow: { messageIdHeader: MESSAGE_ID_HEADER, status: "moving" },
 	destinationSearchUids: [],
 	sourceSearchUids: [10],
 	openBoxPath: "INBOX",
@@ -715,7 +718,7 @@ describe("handleMessageDelete", () => {
 		it("settles on the first attempt when the row carries no Message-ID header", async () => {
 			h.connection.moveMessages = async () => ({ uidMap: new Map() });
 			sourceNoLongerHoldsTheUid();
-			h.messageRow = {};
+			h.messageRow = { status: "moving" };
 
 			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
 
@@ -774,6 +777,26 @@ describe("handleMessageDelete", () => {
 			assert.equal(called("threadMessage.deleteMany").length, 0);
 			assert.equal(called("message.transitionPlacement").length, 0);
 			assert.equal(called("emitEvent").length, 0);
+		});
+
+		// The guard asks the shared question, so `deleting` and `moving` both count
+		// as work still outstanding. Reading `status === active` instead let a
+		// delete redelivered behind a move treat the move's row as its own to
+		// finish, and MESSAGE_MOVE already refused the mirror of it.
+		it("proceeds on a row still marked deleting, which is this delete's own work", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "deleting" };
+
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 1, "the delete runs");
+		});
+
+		it("skips a row another mutation is moving, rather than finishing it", async () => {
+			h.messageRow = { messageIdHeader: MESSAGE_ID_HEADER, status: "moving" };
+
+			await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+			assert.equal(h.getConnectionCount, 1, "a move in flight is still work");
 		});
 
 		it("skips a redelivered permanent delete the same way", async () => {
@@ -1389,7 +1412,7 @@ describe("handleMessageDelete", () => {
 	it("settles a paused delete broken when the MOVE was issued and neither folder can be asked", async () => {
 		h.connection.moveMessages = async () => ({ uidMap: new Map() });
 		sourceNoLongerHoldsTheUid();
-		h.messageRow = {};
+		h.messageRow = { status: "moving" };
 		let opened = 0;
 		h.connection.openBox = async (path: string) => {
 			h.openBoxPath = path;

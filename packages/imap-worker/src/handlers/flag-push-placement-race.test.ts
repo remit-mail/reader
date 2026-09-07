@@ -26,7 +26,8 @@ import type {
 	MessageFlagPushItem,
 	MessageItem,
 	MessagePlacementMoveItem,
-	UpdateMessageMoveInput,
+	PlacementPredicate,
+	PlacementTransitionInput,
 } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -87,11 +88,24 @@ const buildHarness = (): Harness => {
 			assert.equal(messageId, MESSAGE_ID);
 			return row;
 		},
-		updateForMove: async (
+		transitionPlacement: async (
 			_messageId: string,
-			input: UpdateMessageMoveInput,
+			expected: PlacementPredicate,
+			next: PlacementTransitionInput,
 		) => {
-			Object.assign(row, input);
+			if (expected.status !== undefined && expected.status !== row.status) {
+				return undefined;
+			}
+			if (expected.uid !== undefined && expected.uid !== row.uid) {
+				return undefined;
+			}
+			if (
+				expected.mailboxId !== undefined &&
+				expected.mailboxId !== row.mailboxId
+			) {
+				return undefined;
+			}
+			Object.assign(row, next);
 			return row;
 		},
 	} as unknown as IMessageRepository;

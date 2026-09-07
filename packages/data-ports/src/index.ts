@@ -157,7 +157,6 @@ export type {
 	UpdateLabelInput,
 	UpdateMailboxInput,
 	UpdateMessageInput,
-	UpdateMessageMoveInput,
 	UpdateOrganizeJobRequestInput,
 	UpdateOutboxMessageInput,
 	UpdateThreadMessageInput,

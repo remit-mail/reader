@@ -203,6 +203,38 @@ describe("resolveExhaustedPlacementMoveFailure — the two terminal outcomes (mi
 		);
 	});
 
+	// The marker is the operator's evidence that this move still owed IMAP a
+	// push. Dropping it first meant a restore that threw left the row stuck
+	// `moving` with nothing left to say why.
+	it("BROKEN: a restore that throws leaves the marker standing", async () => {
+		const rec = buildRecorder([
+			{ accountConfigId: "cfg-1", threadMessageId: "tm-msg-broken" },
+		]);
+		rec.deps.messageService.transitionPlacement = async () => {
+			throw new Error("ProvisionedThroughputExceeded");
+		};
+
+		await assert.rejects(
+			() =>
+				resolveExhaustedPlacementMoveFailure(rec.deps, {
+					accountId: "acc-1",
+					accountConfigId: "cfg-1",
+					messageId: "msg-broken",
+					uid: 202,
+					sourceMailboxId: "mbx-inbox",
+					sourceMailboxPath: "INBOX",
+					getConnection: async () => buildConnection(new Set([202])),
+				}),
+			/ProvisionedThroughputExceeded/,
+		);
+
+		assert.deepEqual(
+			rec.markerDeletes,
+			[],
+			"the record of the owed push outlives a failed restore",
+		);
+	});
+
 	it("BROKEN with another lane already settled: the restore loses its predicate and writes nothing", async () => {
 		const rec = buildRecorder(
 			[{ accountConfigId: "cfg-1", threadMessageId: "tm-msg-raced" }],

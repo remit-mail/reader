@@ -176,8 +176,11 @@ export async function deleteMessageSubtree(
  * caller left out is a field it did not read, so it constrains nothing; a field
  * given as a list matches any of the states that share one column value.
  */
+const isList = <T>(value: T | readonly T[]): value is readonly T[] =>
+	Array.isArray(value);
+
 const oneOf = <T>(value: T | readonly T[]): T[] =>
-	Array.isArray(value) ? [...(value as readonly T[])] : [value as T];
+	isList(value) ? [...value] : [value];
 
 const placementTerms = (expected: PlacementPredicate): SQL[] => {
 	const terms: SQL[] = [];
@@ -559,37 +562,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return rows.map(toMessageItem);
 	}
 
-	async updateForMove(
-		messageId: string,
-		input: Parameters<IMessageRepository["updateForMove"]>[1],
-	): ReturnType<IMessageRepository["updateForMove"]> {
-		const setValues = {
-			...(input.mailboxId !== undefined ? { mailboxId: input.mailboxId } : {}),
-			...(input.uid !== undefined ? { uid: input.uid } : {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
-				: {}),
-			...(input.originalMailboxId !== undefined
-				? { originalMailboxId: input.originalMailboxId }
-				: {}),
-			...(input.originalUid !== undefined
-				? { originalUid: input.originalUid }
-				: {}),
-			updatedAt: Date.now(),
-		};
-
-		const rows = await this.db
-			.update(messageTable)
-			.set(setValues)
-			.where(eq(messageTable.messageId, messageId))
-			.returning();
-		if (rows.length === 0) {
-			throw new NotFoundError(`Message not found: ${messageId}`);
-		}
-		return toMessageItem(rows[0]);
-	}
-
 	async transitionPlacement(
 		messageId: string,
 		expected: PlacementPredicate,
@@ -650,6 +622,12 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					originalUid: null,
 					status: "active",
 					syncStatus: "synced",
+					// The settle clears the epitaph as well as the pair. `syncStatus`
+					// alone already gates every reader of it, so this is tidiness
+					// rather than correctness — but a row that has just settled has
+					// nothing it gave up on, and leaving a value there invites a
+					// reader that forgets the gate.
+					abandonedMutation: "none",
 					updatedAt: Date.now(),
 				})
 				.where(eq(messageTable.messageId, messageId))

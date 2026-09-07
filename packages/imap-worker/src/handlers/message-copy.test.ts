@@ -195,11 +195,9 @@ describe("handleMessageCopy", () => {
 			20,
 			"dst-mbx",
 		]);
-		const statusUpdate = called("message.update")[0];
-		assert.equal(
-			(statusUpdate?.args[1] as { syncStatus?: string })?.syncStatus,
-			"synced",
-		);
+		// `updateUid` writes the confirmed uid, `active` and `synced` in one
+		// statement, so there is no second, unpredicated write behind it.
+		assert.equal(called("message.update").length, 0);
 		assert.equal(called("threadMessage.update").length, 1);
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
@@ -216,11 +214,7 @@ describe("handleMessageCopy", () => {
 			42,
 			"dst-mbx",
 		]);
-		assert.equal(
-			(called("message.update")[0]?.args[1] as { syncStatus?: string })
-				?.syncStatus,
-			"synced",
-		);
+		assert.equal(called("message.update").length, 0);
 		assert.equal(called("threadMessage.update").length, 1);
 	});
 

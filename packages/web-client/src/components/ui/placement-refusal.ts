@@ -9,11 +9,13 @@ import type { PushErrorInput } from "@/components/ui/error-banners";
 import { type CodedApiErrorBody, codedApiErrorBody } from "@/lib/api";
 
 /**
- * `in_flight` clears on its own once the mail server confirms the move;
- * `unverified` does not, because the move gave up without confirming and
- * nothing routine repairs the row.
+ * One reason, because one state produces the refusal: a mutation is still in
+ * flight and the pair clears on its own, so the copy words a wait. A mutation
+ * that gave up hands the row back to a placement the mail server confirmed
+ * before it stops (imap-mutations R3), and that row is acted on rather than
+ * refused — there is no second reason left to word.
  */
-export type PlacementRefusalReason = "in_flight" | "unverified";
+export type PlacementRefusalReason = "in_flight";
 
 export interface PlacementRefusal {
 	reason: PlacementRefusalReason;
@@ -22,7 +24,6 @@ export interface PlacementRefusal {
 
 const REASONS: ReadonlySet<string> = new Set<PlacementRefusalReason>([
 	"in_flight",
-	"unverified",
 ]);
 
 const stringAt = (
@@ -53,11 +54,11 @@ export const isPlacementRefusal = (
 export type PlacementRefusalAction = "delete" | "move";
 
 /**
- * The banner copy. Both reasons say what happened and what to do; neither is a
- * dead end, and neither repeats the server's uuid at the user.
+ * The banner copy. It says what happened and what to do, is not a dead end, and
+ * does not repeat the server's uuid at the user.
  */
 export const placementRefusalBanner = (
-	refusal: PlacementRefusal,
+	_refusal: PlacementRefusal,
 	count: number,
 	action: PlacementRefusalAction,
 ): PushErrorInput => ({
@@ -66,8 +67,5 @@ export const placementRefusalBanner = (
 		count > 1
 			? `Couldn't ${action} ${count} messages yet`
 			: `Couldn't ${action} this message yet`,
-	detail:
-		refusal.reason === "in_flight"
-			? "It is still being moved on the mail server. Try again in a moment."
-			: `An earlier move never finished, so where this message sits is unknown. Sync the folder, then ${action} it again.`,
+	detail: "It is still being moved on the mail server. Try again in a moment.",
 });

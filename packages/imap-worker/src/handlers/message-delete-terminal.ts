@@ -60,7 +60,7 @@ export interface ResolveExhaustedMessageDeleteResult {
  *    effect, but it keeps failing: broken code or a broken account, not a
  *    transient blip. The row is put back where the server has just said the
  *    message is: `mailboxId` and `uid` return to the delete's source pair, and
- *    the thread rows lose the deletion mark the optimistic `updateForMove`
+ *    the thread rows lose the deletion mark the optimistic transition
  *    wrote (issue #1098).
  *
  *    Settling `status` to `active` while leaving `mailboxId` on Trash is what

@@ -4,6 +4,7 @@ import { MessageMutation } from "@remit/domain-enums";
 import { MessageSettlementNotice, messageSettlementCopy } from "@remit/ui";
 import { useCallback, useMemo } from "react";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
+import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { MoveToTrigger } from "./MoveToTrigger";
@@ -20,6 +21,14 @@ import { MoveToTrigger } from "./MoveToTrigger";
  * discarded is on no row — so its retry is the same folder picker every other
  * move goes through, which asks for one. Every other give-up gets no treatment;
  * `abandonedMutationOf` says which and why.
+ *
+ * The picker needs an account to scope its folder list to, and the caller's
+ * `accountId` is absent on every row that came from a per-mailbox endpoint and
+ * for as long as the conversation's own lookup is in flight. It is resolved
+ * from the row's mailbox here rather than left out, because a notice that names
+ * a failure and offers no way to undo it is the same defect as one that offers
+ * the wrong way (#1229) — the resolver is the one `MessageActionMenu` already
+ * uses for exactly this.
  */
 export function MessageSettlementAlert({
 	threadMessage,
@@ -30,6 +39,11 @@ export function MessageSettlementAlert({
 	accountId: string | undefined;
 	className?: string;
 }) {
+	const { accountId: mailboxAccountId } = useMailboxAccount(
+		accountId ? undefined : threadMessage.mailboxId,
+	);
+	const scopedAccountId = accountId ?? mailboxAccountId;
+
 	const abandoned = abandonedMutationOf(threadMessage);
 	const settlement =
 		abandoned === MessageMutation.delete
@@ -41,13 +55,13 @@ export function MessageSettlementAlert({
 	const { deleteMessages, isPending: isDeleting } = useDeleteMessages({
 		mailboxId: threadMessage.mailboxId,
 		threadId: threadMessage.threadId,
-		accountId,
+		accountId: scopedAccountId,
 		messages: [threadMessage],
 	});
 	const { moveMessages, isPending: isMoving } = useMoveMessages({
 		mailboxId: threadMessage.mailboxId,
 		threadId: threadMessage.threadId,
-		accountId,
+		accountId: scopedAccountId,
 	});
 
 	const onDeleteAgain = useCallback(() => {
@@ -87,9 +101,9 @@ export function MessageSettlementAlert({
 			settlement={settlement}
 			onRetry={settlement === "delete_failed" ? onDeleteAgain : undefined}
 			action={
-				settlement === "move_failed" && accountId ? (
+				settlement === "move_failed" && scopedAccountId ? (
 					<MoveToTrigger
-						accountId={accountId}
+						accountId={scopedAccountId}
 						currentMailboxId={threadMessage.mailboxId}
 						onMove={onMoveAgain}
 						disabled={isMoving}

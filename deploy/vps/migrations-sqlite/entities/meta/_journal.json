@@ -169,6 +169,13 @@
       "when": 1788778886843,
       "tag": "0024_orange_daimon_hellstrom",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "6",
+      "when": 1788787180441,
+      "tag": "0025_goofy_night_nurse",
+      "breakpoints": true
     }
   ]
 }

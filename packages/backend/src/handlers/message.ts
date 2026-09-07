@@ -368,17 +368,15 @@ const isDesignedFailure = (reason: unknown): reason is Error =>
 
 /**
  * The placement refusal is the one designed outcome whose own message is not
- * the text to ship: it names a uuid and no remedy, and the two reasons do not
- * share a remedy — an in-flight move settles on its own, an abandoned one only
- * clears once the folder is resynced. Worded here off `details.reason`, the way
- * the delete path words the same refusal for the client.
+ * the text to ship: it names a uuid and no remedy. One remedy answers it, and
+ * only one refusal reaches it — a mutation still in flight, which settles on
+ * its own (imap-mutations R3). Worded here, the way the delete path words the
+ * same refusal for the client.
  */
 const placementRefusalReason = (
-	error: MessagePlacementUnsettledError,
+	_error: MessagePlacementUnsettledError,
 ): string =>
-	error.publicApiError?.details?.reason === "unverified"
-		? "An earlier move of this message never finished, so where it sits is unknown. Sync the folder, then report it again."
-		: "This message is still being moved on the mail server. Try again in a moment.";
+	"This message is still being moved on the mail server. Try again in a moment.";
 
 const failureReason = (reason: unknown): string => {
 	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
