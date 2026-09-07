@@ -302,6 +302,9 @@ model MailboxSyncProgress {
   @doc("Approximate number of messages synced. Computed as highWaterMarkUid − lastSyncUid (UID-range approximation; UIDs are sparse so this may undercount). Clamped to messagesTotal.")
   messagesSynced: int32;
 
+  @doc("The highest UID ever seen in this mailbox. An arrival is a UID above the highest one seen; a total is not, because one message in and one out nets to zero. A mailbox that has never synced carries the sentinel 0 rather than an absent field.")
+  highWaterMarkUid: int64;
+
   @doc("Timestamp of the last successful message sync for this mailbox")
   lastSyncedAt?: int64;
 }
