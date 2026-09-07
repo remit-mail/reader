@@ -25,9 +25,12 @@
  * over the rows. `FilterPanelProvider` shares that panel's open state between
  * the caret and the sheet, the same shape `MailViewChrome` gives the mailbox and
  * Starred views. The list draws those controls but applies none of them: the
- * category and every chip a parameter can express travel with the section
- * requests, and the two that cannot ("From contacts", "Today") are applied here
- * alongside the residual tokens (#314). The phone search takeover reads the same
+ * category, the account pill and every chip a parameter can express travel with
+ * the section requests, and the two that cannot ("From contacts", "Today") are
+ * applied here alongside the residual tokens (#314). The account pill is a
+ * parameter rather than a pass over the rows because a count taken over every
+ * account is not the size of a list showing one, which is what used to take the
+ * number off every header (#1136). The phone search takeover reads the same
  * selection and the same rows, so a filter set on one surface holds on the
  * other. Under a query the chips are terms of that query — see
  * `briefChipFilters` — so what narrows the list is readable and editable in the
@@ -112,8 +115,6 @@ import {
 	BRIEF_CATEGORIES,
 	type BriefCategoryResult,
 	briefSections,
-	briefSectionTotal,
-	excludeMutedSenders,
 	matchesSearchTokens,
 	toThreadRowData,
 } from "@/lib/brief";
@@ -606,8 +607,14 @@ export function DailyBrief({
 	// chip decides which sections are on screen rather than narrowing a shared
 	// one.
 	const { criteria: chipCriteria, residual: residualTokens } = useMemo(
-		() => briefCriteria(requestCategory, requestFilters, queryTokens),
-		[requestCategory, requestFilters, queryTokens],
+		() =>
+			briefCriteria(
+				requestCategory,
+				requestFilters,
+				queryTokens,
+				selectedAccountId === "all" ? undefined : selectedAccountId,
+			),
+		[requestCategory, requestFilters, queryTokens, selectedAccountId],
 	);
 	const shownCategories = useMemo<RemitImapMessageCategory[]>(
 		() =>
@@ -624,13 +631,13 @@ export function DailyBrief({
 		}),
 		[chipCriteria, sq, requestCategory],
 	);
-	// The account pills and the tokens no parameter carries narrow the rows after
-	// they arrive, so while either is active the count is of a wider set than the
-	// list and the sections show no number at all.
+	// The tokens no parameter carries narrow the rows after they arrive, so while
+	// one is active the count is of a wider set than the list and the sections
+	// show no number at all. The account pills are no longer among them: the
+	// request carries the account, so the count narrows with the list (#1136).
 	const counted = briefCountsMatchRows({
 		residual: residualTokens,
 		attributes: requestFilters,
-		accountScoped: selectedAccountId !== "all",
 	});
 
 	const {
@@ -666,12 +673,12 @@ export function DailyBrief({
 		refetchSections();
 	}, [underQuery, refetchSearch, refetchSections]);
 
-	// What the request could not carry: muted senders, the account pill, the two
-	// chips no endpoint takes a parameter for ("From contacts", "Today"), and the
-	// residual tokens (`from:`, `subject:`, `before:`, `after:`, `in:`,
-	// `account:`) that `listAllThreads` has no parameter for. Everything else was
-	// answered over the whole scope by the request itself, and the order the rows
-	// arrived in is kept — narrowing never re-sorts.
+	// What the request could not carry: the two chips no endpoint takes a
+	// parameter for ("From contacts", "Today"), and the residual tokens
+	// (`before:`, `after:`, `in:`, `account:`). Everything else — the account
+	// pill, mute, the free text, `from:` and `subject:` — was answered over the
+	// whole scope by the request itself, and the order the rows arrived in is
+	// kept: narrowing never re-sorts.
 	const clientOnlyFilters = useMemo(
 		() => briefClientOnlyFilters(requestFilters),
 		[requestFilters],
@@ -682,23 +689,21 @@ export function DailyBrief({
 			// `count` is thread-distinct, and a list keying on messageId puts twelve
 			// rows under a header reading one. Collapsed before anything reads a
 			// length, so the rows and the number are the same unit.
-			dedupeByThread(excludeMutedSenders(rows))
+			dedupeByThread(rows)
 				.map(toThreadRowData)
 				.filter(
 					(t) =>
-						(selectedAccountId === "all" ||
-							t.accountId === selectedAccountId) &&
 						matchesBriefFilters(t, clientOnlyFilters) &&
 						matchesSearchTokens(t, residualTokens),
 				),
-		[selectedAccountId, clientOnlyFilters, residualTokens],
+		[clientOnlyFilters, residualTokens],
 	);
 
 	const briefRows = useMemo<BriefCategoryResult[]>(
 		() =>
 			sectionRows.map((section) => ({
 				category: section.category,
-				total: briefSectionTotal(section.total, section.rows),
+				total: section.total,
 				atCap: section.atCap,
 				loading: section.loading,
 				failed: section.failed,

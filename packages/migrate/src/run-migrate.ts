@@ -32,6 +32,7 @@ import {
 	repairThreadMessageCategory,
 } from "../../drizzle-service/src/repair/thread-message-category.js";
 import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
+import { searchIndexShapeIsCurrent } from "../../drizzle-service/src/repos/search-index-shape.js";
 // Reached by module path rather than through either package's entry point: this
 // entrypoint is bundled by esbuild, and everything reached this way is pure
 // TypeScript over the drizzle query builder, so bundling it drags in no native
@@ -321,20 +322,38 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// every row. An external-content index cannot be scanned bare (its
 		// computed `sender` has no content-table column), so the guard, not a
 		// NOT-IN diff, is what keeps this from double-indexing.
+		//
+		// An index installed by an earlier build carries the columns that build
+		// asked for, and `CREATE ... IF NOT EXISTS` leaves it exactly as it is.
+		// A predicate naming a column it does not have then fails every search
+		// outright, so a stale shape is dropped and rebuilt rather than left in
+		// place: the documented recovery above, taken automatically because the
+		// alternative is a search that raises on every keystroke.
 		logStep({}, "installing FTS5 search index objects (sqlite)");
 		const installSearchIndex = sqlite.transaction(() => {
-			const ftsExisted = sqlite
+			const existing = sqlite
 				.prepare(
-					"SELECT 1 FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
 				)
-				.get();
+				.get() as { sql: string } | undefined;
+			const ftsUsable =
+				existing !== undefined &&
+				searchIndexShapeIsCurrent(existing.sql, sqliteSearchIndexSql);
+			if (existing !== undefined && !ftsUsable) {
+				logStep({}, "dropping stale FTS5 index (missing indexed columns)");
+				sqlite.exec("DROP TABLE thread_message_fts");
+				for (const suffix of ["ai", "ad", "au"]) {
+					sqlite.exec(`DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`);
+				}
+			}
 			sqlite.exec(sqliteSearchIndexSql);
-			if (!ftsExisted) {
+			if (!ftsUsable) {
 				logStep({}, "backfilling FTS5 index from existing threads");
 				sqlite.exec(
-					`INSERT INTO thread_message_fts(rowid, subject, sender)
+					`INSERT INTO thread_message_fts(rowid, subject, sender, body)
 					 SELECT rowid, coalesce(subject, ''),
-					        coalesce(from_name, '') || ' ' || coalesce(from_email, '')
+					        coalesce(from_name, '') || ' ' || coalesce(from_email, ''),
+					        coalesce(snippet, '')
 					 FROM thread_message`,
 				);
 			}

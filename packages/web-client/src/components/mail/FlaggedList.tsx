@@ -37,12 +37,7 @@ import {
 	useStarredUnreadCount,
 } from "@/hooks/useStarredThreads";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
-import {
-	matchesBriefSearch,
-	matchesSearchTokens,
-	mergeSearchRows,
-	toThreadRowData,
-} from "@/lib/brief";
+import { matchesSearchTokens, toThreadRowData } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { flaggedCriteria } from "@/lib/flagged-criteria";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
@@ -198,22 +193,15 @@ export function FlaggedList({
 	const textMatches = useStarredTextSearch(textCriteria, TEXT_SEARCH_PAGE_SIZE);
 
 	const rows = useMemo<ThreadRowData[]>(() => {
-		const listed = dedupeByThread(threads).map(toThreadRowData);
-		// No free text: the server-filtered listing as it comes.
-		const matched = sq
-			? mergeSearchRows(
-					// The snippet half, over the rows already loaded. It only ever adds
-					// to the server's set — it is never what decides membership.
-					listed.filter((t) => matchesBriefSearch(t, sq)),
-					dedupeByThread(textMatches).map(toThreadRowData),
-				)
-			: listed;
+		// Under free text the search request is the list: it matches subject, From
+		// and the body preview over the whole collection, so there is no second
+		// half to merge in and nothing here re-reads the text (#1135).
+		const matched = sq ? textMatches : threads;
 		// What is left is what no parameter can carry: `before:`, `after:`, `in:`,
-		// `account:`, and a token the chips overruled. The collapse runs last so
-		// the two halves of a text search cannot land one conversation twice.
-		return dedupeByThread(matched).filter((t) =>
-			matchesSearchTokens(t, residualTokens),
-		);
+		// `account:`, and a token the chips overruled.
+		return dedupeByThread(matched)
+			.map(toThreadRowData)
+			.filter((t) => matchesSearchTokens(t, residualTokens));
 	}, [threads, textMatches, sq, residualTokens]);
 
 	const openRow = useCallback(
@@ -250,9 +238,9 @@ export function FlaggedList({
 	const unreadCount = useStarredUnreadCount(textCriteria) ?? null;
 
 	// An empty list has to say how much was looked at, and the answer comes off
-	// the request. Every chip and every carried token is a column on the row, so
-	// the server answered over the whole collection; a residual token, or the
-	// snippet half of a free-text search, only ever saw the pages loaded so far.
+	// the request. Every chip, the free text and every carried token is a field
+	// on the row, so the server answered each over the whole collection; only a
+	// residual token — a date, a mailbox, an account — saw the loaded pages.
 	//
 	// `is:starred` is dropped: this view is starred mail, so the token restates
 	// the collection rather than narrowing it.
@@ -263,7 +251,7 @@ export function FlaggedList({
 	const listFilter: MessageListFilter | undefined = listNarrowing({
 		chips: { category: selectedCategory, attributes: activeFilters },
 		tokens: narrowingTokens,
-		reach: residualTokens.length > 0 || sq ? "loaded-pages" : "whole-folder",
+		reach: residualTokens.length > 0 ? "loaded-pages" : "whole-folder",
 		onClear: clearNarrowing,
 	});
 

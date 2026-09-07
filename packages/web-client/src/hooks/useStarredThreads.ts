@@ -20,11 +20,14 @@ import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sd
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import type { InboxFilterParams } from "@/lib/inbox-filters";
+import type { ThreadSearchTokenParams } from "@/lib/thread-search-tokens";
 
 /** The criteria the Flagged view narrows its listing by, all server-applied. */
-export interface StarredCriteria extends InboxFilterParams {
-	/** Free text, matched against subject and From over the whole collection. */
+export interface StarredCriteria extends ThreadSearchTokenParams {
+	/**
+	 * Free text, matched against subject, From and the body preview over the
+	 * whole collection.
+	 */
 	query?: string;
 	/** Page size, set only by the single-page text search. */
 	limit?: number;
@@ -104,12 +107,10 @@ export function useStarredThreads(
 /**
  * The server's own text match over the whole starred collection, as one page.
  *
- * The free-text filter has two halves that no single request covers: the server
- * matches subject and From over every starred message, and the client can also
- * match a snippet, but only on rows it has already loaded. The server's set is
- * the filter — it is the half that sees the mail below the newest page — and
- * the snippet pass complements it (#308). Same shape as the daily brief's
- * unscoped search, which merges the same two halves.
+ * The whole filter, not half of one. The server matches subject, From and the
+ * body preview over every starred message, so there is nothing left for a pass
+ * over the rows a client happens to have loaded to add — and such a pass could
+ * only ever answer for the pages fetched so far (#1135).
  */
 export function useStarredTextSearch(
 	criteria: StarredCriteria,

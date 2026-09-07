@@ -89,11 +89,28 @@ export const filterReach = (query: ThreadSearchQuery): FilterReach =>
 		? "loaded-pages"
 		: "whole-folder";
 
+/**
+ * A list request's narrowing parameters, as far as the previous-data guard
+ * reads them. The chips, plus the two scopes a view sets for itself: the
+ * account the pills name, and whether muted senders are in.
+ *
+ * The text parameters are deliberately absent, `from` and `subject` with the
+ * free text: all three are typed in one field, and a query being refined is the
+ * one change that may keep the previous answer on screen while the next is in
+ * flight.
+ */
+export type ListFilterParams = InboxFilterParams & {
+	accountId?: string;
+	muted?: boolean;
+};
+
 const FILTER_PARAM_NAMES = [
 	"category",
 	"unread",
 	"starred",
 	"attachments",
+	"accountId",
+	"muted",
 ] as const;
 
 const filterIdentity = (query: Record<string, unknown> | undefined): string =>
@@ -121,7 +138,7 @@ const queryOf = (queryKey: unknown): Record<string, unknown> | undefined => {
  */
 export const sameInboxFilter = (
 	queryKey: unknown,
-	params: InboxFilterParams,
+	params: ListFilterParams,
 ): boolean => {
 	const previous = queryOf(queryKey);
 	if (!previous) return false;

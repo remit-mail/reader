@@ -335,22 +335,61 @@ export const attachAccountIds = (
  * (#308). `starred` and `query` are in here too so one `SearchOptions` says
  * what the whole request narrows by, which is what lets the count run the same
  * predicate as the listing.
+ *
+ * `from` and `subject` name one field each, which `query` cannot — it matches
+ * both at once, so neither token could be asked for on its own and both were
+ * applied over the loaded pages instead (#1128). `muted` is the one criterion
+ * that is not a column at all: it is read from the sender's address, and it is
+ * here because a caller that hides muted mail has to be able to count what it
+ * renders (#1137).
  */
 export const buildUnifiedThreadSearch = (params: {
 	starredOnly: boolean;
 	searchText?: string;
+	from?: string;
+	subject?: string;
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
+	muted?: boolean;
 }): SearchOptions => ({
 	...(params.searchText ? { query: params.searchText } : {}),
+	...(params.from ? { from: params.from } : {}),
+	...(params.subject ? { subject: params.subject } : {}),
 	...(params.starredOnly ? { starred: true } : {}),
 	...(params.category?.length ? { category: params.category } : {}),
 	...(params.unread !== undefined ? { unread: params.unread } : {}),
 	...(params.attachments !== undefined
 		? { attachments: params.attachments }
 		: {}),
+	...(params.muted !== undefined ? { muted: params.muted } : {}),
 });
+
+/**
+ * Narrow a mailbox scope to one account's mailboxes.
+ *
+ * The account pill used to narrow the rows a page returned, which took the
+ * number off every section header: a count over every account is not the size
+ * of a list showing one, so the brief withheld it rather than overstate (#1136).
+ * The scope is where the answer belongs — the listing, the search and the count
+ * all read it, so all three agree.
+ *
+ * An account with no mailboxes in the map — one that is muted, or one belonging
+ * to another config — narrows to the empty set, which matches nothing. That is
+ * the honest answer: the caller asked for an account this config does not read.
+ */
+export const scopeToAccount = (
+	mailboxIds: Set<string>,
+	mailboxIdToAccountId: Map<string, string>,
+	accountId: string | undefined,
+): Set<string> => {
+	if (accountId === undefined) return mailboxIds;
+	return new Set(
+		[...mailboxIds].filter(
+			(mailboxId) => mailboxIdToAccountId.get(mailboxId) === accountId,
+		),
+	);
+};
 
 /**
  * Minimal client surface `executeUnifiedThreadListing` needs, declared
@@ -386,9 +425,13 @@ export type UnifiedThreadParams = {
 	limit?: number;
 	starredOnly: boolean;
 	searchText?: string;
+	from?: string;
+	subject?: string;
+	accountId?: string;
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
+	muted?: boolean;
 	count: boolean;
 	results: boolean;
 };
@@ -413,11 +456,19 @@ export const executeUnifiedThreadListing = async (
 		params.searchText !== undefined && params.searchText.length > 0;
 	const {
 		mailboxIdToAccountId,
-		inboxMailboxIds,
-		starredMailboxIds,
-		searchMailboxIds,
+		inboxMailboxIds: everyInboxMailboxId,
+		starredMailboxIds: everyStarredMailboxId,
+		searchMailboxIds: everySearchMailboxId,
 		virtualCopyMailboxIds,
 	} = await buildInboxMailboxMap(accountConfigId, client);
+
+	// The account scope applies before the mode picks a set, so the listing, the
+	// search and the count all narrow by the same rule.
+	const narrow = (mailboxIds: Set<string>): Set<string> =>
+		scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId);
+	const inboxMailboxIds = narrow(everyInboxMailboxId);
+	const starredMailboxIds = narrow(everyStarredMailboxId);
+	const searchMailboxIds = narrow(everySearchMailboxId);
 
 	// Search widens past INBOX to every folder it may reach; `starred=true`
 	// still narrows it to the starred scope, so the two compose.
@@ -527,9 +578,13 @@ export const UnifiedThreadOperations: Record<
 			limit,
 			starred,
 			query,
+			from,
+			subject,
+			accountId,
 			category,
 			unread,
 			attachments,
+			muted,
 			count,
 			results,
 		} = context.request.query as {
@@ -538,29 +593,41 @@ export const UnifiedThreadOperations: Record<
 			limit?: number;
 			starred?: boolean | string;
 			query?: string;
+			from?: string;
+			subject?: string;
+			accountId?: string;
 			category?: MessageCategory | MessageCategory[];
 			unread?: boolean | string;
 			attachments?: boolean | string;
+			muted?: boolean | string;
 			count?: boolean | string;
 			results?: boolean | string;
 		};
 
 		// Whitespace-only text is not a search: it would widen the scope to every
-		// folder while matching nothing in particular.
+		// folder while matching nothing in particular. The two field parameters
+		// are trimmed on the same rule, and neither widens the scope at all.
 		const searchText = query?.trim();
+		const fromText = from?.trim();
+		const subjectText = subject?.trim();
 
 		return executeUnifiedThreadListing(await getClient(), accountConfigId, {
 			continuationToken,
 			order,
 			limit,
-			// Absent means unstated for all five, and each says what it does with
-			// that: the three filters drop out of the predicate, `count` is off
-			// unless it is asked for, and `results` is on unless it is refused.
+			// Absent means unstated for all of them, and each says what it does with
+			// that: the row filters drop out of the predicate, the account scope
+			// stays the cross-account aggregate, `count` is off unless it is asked
+			// for, and `results` is on unless it is refused.
 			starredOnly: toBoolean(starred) === true,
 			searchText: searchText || undefined,
+			from: fromText || undefined,
+			subject: subjectText || undefined,
+			accountId: accountId || undefined,
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),
+			muted: toBoolean(muted),
 			count: toBoolean(count) === true,
 			results: toBoolean(results) !== false,
 		});

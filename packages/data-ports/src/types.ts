@@ -548,6 +548,17 @@ export type SearchOptions = {
 	starred?: boolean;
 	attachments?: boolean;
 	/**
+	 * Whether the From address is muted, as a three-state filter: `false`
+	 * excludes muted senders, `true` keeps only them, absent filters nothing.
+	 *
+	 * The one criterion here that is not a column on the ThreadMessage row —
+	 * muting is a flag on the Address, reached through the row's `fromEmail` —
+	 * and it is a predicate rather than a pass over a page for the same reason
+	 * every other criterion is: a caller that hides muted mail while counting
+	 * with it in states a number larger than the list it renders (#1137).
+	 */
+	muted?: boolean;
+	/**
 	 * Any-of set over the denormalized `category` column on the ThreadMessage
 	 * row. An empty or absent set means no category filter. `uncategorized` is
 	 * a member like any other — the column is NOT NULL with that default, so it

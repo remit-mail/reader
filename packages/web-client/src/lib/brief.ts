@@ -28,11 +28,11 @@
  * a high-volume mailbox read≠handled and unread≠important; unread is a
  * user-selectable filter chip instead.
  *
- * Muted senders and categories the scope holds none of are excluded. Mute
- * filtering happens in `excludeMutedSenders`, applied by the caller to the raw
- * thread rows before `toThreadRowData` — the server denormalizes `muted` onto
- * each row from the From address's flags (RFC 039 Decision 3, issue #301), so no
- * client-side Address lookup is needed.
+ * Muted senders and categories the scope holds none of are excluded. Mute is
+ * `muted=false` on each section's request, so the rows and the count answer the
+ * same predicate — dropping muted rows here instead left a header stating a
+ * number larger than the list under it, and a "Show all" that opened mail the
+ * brief would not render (#1137).
  */
 
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
@@ -78,71 +78,6 @@ export function toThreadRowData(
 		suspicious,
 		...rowSettlement(thread),
 	};
-}
-
-/**
- * Excludes rows whose From address is muted (`thread.muted === true`,
- * denormalized server-side from `Address.flags.muted`). Muting hides a
- * sender from the brief only — it never deletes, marks read, or moves their
- * mail, so callers outside the brief (mailbox listings, search) must not
- * apply this filter.
- */
-/**
- * The section's count, or no number, once mute is taken into account.
- *
- * Mute is the one criterion the request cannot be asked about: `listAllThreads`
- * has no `muted` parameter, so a scope holding a muted sender is counted with
- * that sender's mail in it while the list renders without it. The header would
- * overstate, and "Show all" would offer rows the brief will not show.
- *
- * Withheld per section rather than for the whole brief — one muted marketer must
- * not take the number off Personal — and only where a mute is visible in the
- * rows on hand. A muted sender below a section's page is not visible, so this
- * suppresses a number known to be wrong rather than certifying the rest.
- */
-export function briefSectionTotal(
-	total: ResultCount,
-	rows: RemitImapThreadMessageResponse[],
-): ResultCount {
-	return rows.some((row) => row.muted === true) ? { kind: "unknown" } : total;
-}
-
-export function excludeMutedSenders(
-	threads: RemitImapThreadMessageResponse[],
-): RemitImapThreadMessageResponse[] {
-	return threads.filter((t) => t.muted !== true);
-}
-
-/**
- * Union of a complete server-filtered listing with the rows the server's
- * cross-folder text search returned, newest first.
- *
- * Both lists are needed where the listing itself is complete under its criteria
- * — the Flagged collection is, and pages to its end. The server matches subject
- * and From only, so a row whose snippet carries the term is found only by the
- * client-side pass; the server pass is the only one that reaches Archive, Sent,
- * Spam and custom folders. The two overlap, so rows are deduped by id, the first
- * occurrence winning.
- *
- * Not for a paginated prefix. The brief's sections are per-category pages, so
- * merging one with a search window and re-sorting would order two truncated
- * lists against each other and call the result newest-first (#312).
- *
- * Rows without a `sentDate` sort last; the brief's own list is already newest
- * first, so this only has to re-interleave the two sources.
- */
-export function mergeSearchRows(
-	briefRows: ThreadRowData[],
-	searchRows: ThreadRowData[],
-): ThreadRowData[] {
-	const seen = new Set<string>();
-	const merged: ThreadRowData[] = [];
-	for (const row of [...briefRows, ...searchRows]) {
-		if (seen.has(row.id)) continue;
-		seen.add(row.id);
-		merged.push(row);
-	}
-	return merged.sort((a, b) => (b.sentDate ?? 0) - (a.sentDate ?? 0));
 }
 
 /**
@@ -211,19 +146,6 @@ export function briefSections(
 }
 
 /**
- * Returns true when `t` matches the free-text `query` (lower-cased).
- * Checked against fromName, fromEmail, subject, and snippet.
- */
-export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
-	return (
-		t.fromName.toLowerCase().includes(query) ||
-		t.fromEmail.toLowerCase().includes(query) ||
-		t.subject.toLowerCase().includes(query) ||
-		t.snippet.toLowerCase().includes(query)
-	);
-}
-
-/**
  * Returns true when `t` satisfies every token handed to it.
  *
  * The residue applier: callers pass the tokens their request could not carry —
@@ -234,10 +156,12 @@ export function matchesBriefSearch(t: ThreadRowData, query: string): boolean {
  * the rows fetched so far" (#312).
  *
  * Every token is implemented so that a request carrying fewer parameters still
- * has somewhere to put the rest: `listAllThreads` has no `from` or `subject` of
- * its own, and no endpoint has `before:`, `after:`, `in:` or `account:`. A row
- * without the data a token needs (no `sentDate` for `before:`/`after:`) never
- * matches it, so it drops out rather than showing under an unverifiable filter.
+ * has somewhere to put the rest: no endpoint has `before:`, `after:`, `in:` or
+ * `account:` in the set these tokens are split against, and each takes one
+ * `from` and one `subject`, so a second of either — or one a chip overruled —
+ * lands here. A row without the data a token needs (no `sentDate` for
+ * `before:`/`after:`) never matches it, so it drops out rather than showing
+ * under an unverifiable filter.
  */
 export function matchesSearchTokens(
 	t: ThreadRowData,

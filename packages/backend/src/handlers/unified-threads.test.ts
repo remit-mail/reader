@@ -442,22 +442,32 @@ describe("buildSearchAllThreadsOptions", () => {
 // the pages a client happened to have loaded. Both are the query's job now.
 describe("executeUnifiedThreadListing", () => {
 	interface Call {
-		mode: "listByDate" | "listByStarred" | "searchByDate";
+		mode: "listByDate" | "listByStarred" | "searchByDate" | "count";
 		search?: SearchOptions;
 		limit?: number;
 		continuationToken?: string;
+		inboxMailboxIds?: Set<string>;
+		mailboxIds?: Set<string>;
 	}
 
 	const emptyPage = { items: [], continuationToken: undefined };
 
 	const buildListingClient = (calls: Call[], count = 0) =>
 		({
-			account: { listAllByAccountConfig: async () => [account("a1")] },
+			account: {
+				listAllByAccountConfig: async () => [account("a1"), account("a2")],
+			},
 			mailbox: {
-				listAllByAccount: async () => [
-					mailbox("m-inbox", "a1", "INBOX"),
-					mailbox("m-archive", "a1", "Archive"),
-				],
+				listAllByAccount: async (accountId: string) =>
+					accountId === "a1"
+						? [
+								mailbox("m-inbox", "a1", "INBOX"),
+								mailbox("m-archive", "a1", "Archive"),
+							]
+						: [
+								mailbox("m2-inbox", "a2", "INBOX"),
+								mailbox("m2-archive", "a2", "Archive"),
+							],
 			},
 			accountSetting: { listByAccountConfig: async () => [] },
 			message: { get: async () => [] },
@@ -487,7 +497,14 @@ describe("executeUnifiedThreadListing", () => {
 					calls.push({ mode: "searchByDate", search, ...options });
 					return emptyPage;
 				},
-				countThreadsInScope: async () => count,
+				countThreadsInScope: async (
+					_config: string,
+					search: SearchOptions,
+					options?: { mailboxIds?: Set<string> },
+				) => {
+					calls.push({ mode: "count", search, ...options });
+					return count;
+				},
 			},
 		}) as unknown as UnifiedThreadClient;
 
@@ -579,7 +596,10 @@ describe("executeUnifiedThreadListing", () => {
 			params({ starredOnly: true, count: true, results: false }),
 		);
 
-		assert.deepEqual(calls, []);
+		assert.deepEqual(
+			calls.map((call) => call.mode),
+			["count"],
+		);
 		assert.equal(response.items, undefined);
 		assert.equal(response.count, 7);
 	});
@@ -594,5 +614,120 @@ describe("executeUnifiedThreadListing", () => {
 
 		assert.equal(response.count, undefined);
 		assert.deepEqual(response.items, []);
+	});
+
+	// #1128: the one free-text parameter matches subject and From at once, so
+	// `from:` and `subject:` could not be asked for separately and the Flagged
+	// view applied both over the pages it had already fetched.
+	test("sends from and subject as their own terms", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			from: "alice",
+			subject: "invoice",
+		});
+
+		assert.deepEqual(calls[0].search, {
+			from: "alice",
+			subject: "invoice",
+			starred: true,
+		});
+	});
+
+	test("blank field text asks for nothing", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params(),
+			from: "",
+			subject: "",
+		});
+
+		assert.deepEqual(calls[0].search, {});
+	});
+
+	// #1137: the count answered a wider set than the list, because the browser
+	// dropped muted senders after the rows arrived and nothing told the server.
+	test("the muted term reaches the listing and the count alike", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ count: true }),
+			muted: false,
+		});
+
+		const listing = calls.find((call) => call.mode === "listByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual(listing?.search, { muted: false });
+		assert.deepEqual(counting?.search, { muted: false });
+	});
+
+	test("an unstated muted term filters nothing", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls),
+			CONFIG_ID,
+			params(),
+		);
+
+		assert.equal(Object.hasOwn(calls[0].search ?? {}, "muted"), false);
+	});
+
+	// #1136: the account pill narrowed the rows after they arrived, so a count
+	// over every account was not the size of a list showing one and the brief
+	// withheld every number rather than overstate.
+	test("an account scope narrows the listing and the count to that account", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls, 3),
+			CONFIG_ID,
+			params({ accountId: "a2", count: true }),
+		);
+
+		const listing = calls.find((call) => call.mode === "listByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual([...(listing?.inboxMailboxIds ?? [])], ["m2-inbox"]);
+		assert.deepEqual([...(counting?.mailboxIds ?? [])].sort(), ["m2-inbox"]);
+	});
+
+	test("an account scope narrows the search scope too", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ accountId: "a2" }),
+			searchText: "invoice",
+		});
+
+		assert.equal(calls[0].mode, "searchByDate");
+		assert.deepEqual([...(calls[0].mailboxIds ?? [])].sort(), [
+			"m2-archive",
+			"m2-inbox",
+		]);
+	});
+
+	test("no account scope leaves the cross-account aggregate", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls),
+			CONFIG_ID,
+			params(),
+		);
+
+		assert.deepEqual([...(calls[0].inboxMailboxIds ?? [])].sort(), [
+			"m-inbox",
+			"m2-inbox",
+		]);
+	});
+
+	// An account the config does not read narrows to nothing, which is the
+	// honest answer — never the whole aggregate under another account's name.
+	test("an unknown account matches nothing", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			params({ accountId: "a-other", count: true }),
+		);
+
+		assert.deepEqual(calls, []);
+		assert.deepEqual(response.items, []);
+		assert.equal(response.count, 0);
 	});
 });

@@ -698,7 +698,9 @@ namespace RemitApi {
       
       Starred mode (`starred=true`): served by the `byStarred` LSI4 instead. A star is a marker on the mail rather than on its placement, so the INBOX scope does not apply and a starred thread in Archive is still returned. Excluded are muted and soft-deleted rows as usual, plus the folders a star never surfaces from: Junk, Trash, and Gmail's All Mail (a second copy of everything, whose rows would otherwise double every starred message). All filtering happens in the query, so a page is short only when the results are exhausted. Rows are per mailbox: the same mail filed in two folders is two rows sharing a `threadId`, and a client rendering one row per conversation collapses by `threadId` across the pages it has accumulated.
       
-      Search mode (`query=<text>`): the listing widens past the INBOX scope to every non-muted mailbox of every non-muted account, and returns only rows whose subject or From address matches the text. This is the unscoped search of the daily brief: one query reaching every folder of every account. Whitespace splits the text into terms and every term must match (AND), each against subject OR From. Matching is case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.
+      Search mode (`query=<text>`): the listing widens past the INBOX scope to every non-muted mailbox of every non-muted account, and returns only rows whose subject, From address or body text matches the text. This is the unscoped search of the daily brief: one query reaching every folder of every account. Whitespace splits the text into terms and every term must match (AND), each against subject OR From OR body. Matching is case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.
+      
+      Body text is the stored preview the row carries — the first prose of the message with quoted replies removed, which is the same text the row renders under its subject. A term further into a long message is not reached; a term the reader can see on the row is.
       
       Search scope: every non-muted mailbox EXCEPT Trash. The scope is defined by what it excludes, so anything a server offers that is not on that list is searched — Spam, Drafts and Gmail's virtual folders (All Mail, Starred, Important) included. Spam is deliberately in scope: the point of an unscoped search is that it reaches the folders the user did not think to look in. Combining `query` with `starred=true` searches the starred scope instead.
       
@@ -711,6 +713,12 @@ namespace RemitApi {
       Callers that omit `query` are unaffected: the INBOX (and starred) listings behave exactly as before.
       
       Row filters: `category`, `unread` and `attachments` are columns on the ThreadMessage row, so each is a predicate inside the query rather than a pass over what a page returned. They compose with every mode above — INBOX, starred and search alike — and a page therefore comes back full of matches however rare the criterion is. This is what the cross-account collections need: filtering the pages a client happens to have loaded shows an empty list whenever the matching mail sits below the newest page (#308).
+      
+      Field filters: `from` and `subject` each match one field, which the single `query` cannot express — it matches both at once. They compose with `query` and with each other as further AND terms.
+      
+      Account scope: `accountId` narrows every mode to the mailboxes of one account. The scope is built from the account's own mailboxes, so the listing, the count and the search all answer over the same set. Without it the listing is the cross-account aggregate.
+      
+      Muted senders: `muted=false` excludes rows whose From address is muted, `muted=true` returns only those, and omitting it filters nothing. Muting is a property of the address rather than a column on the row, so this is the one predicate that reaches outside the ThreadMessage table; it applies to the listing and the `count` alike, which is what lets a caller that hides muted mail state a number that is the size of what it renders.
       
       Counting: `count=true` answers how many CONVERSATIONS match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. Conversations rather than rows because that is what this listing renders: a row is per mailbox, so the same mail filed in two folders is two rows sharing a `threadId`, and clients collapse by it. Counting rows would put a third number beside a list that shows a second one.
       """)
@@ -731,9 +739,25 @@ namespace RemitApi {
       @query(#{ explode: true })
       starred?: boolean,
 
-      @doc("Free text to match against subject and From address. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
+      @doc("Free text to match against subject, From address and body text. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
       @query(#{ explode: true })
       query?: string,
+
+      @doc("Match the From address or display name against this text. One field, where `query` matches subject and From at once, so `from:` can be asked for on its own. Applied as a SQL predicate over the whole scope; it does not widen the scope the way `query` does.")
+      @query(#{ explode: true })
+      from?: string,
+
+      @doc("Match the subject against this text. One field, where `query` matches subject and From at once, so `subject:` can be asked for on its own. Applied as a SQL predicate over the whole scope; it does not widen the scope the way `query` does.")
+      @query(#{ explode: true })
+      subject?: string,
+
+      @doc("Narrow every mode to one account's mailboxes. The listing, the search and the `count` all read the same narrowed scope, so a count is the size of what the caller renders rather than of the cross-account aggregate. An account the caller does not own, or one that is muted, holds no mailboxes here and matches nothing.")
+      @query(#{ explode: true })
+      accountId?: UUID,
+
+      @doc("Filter by whether the From address is muted. `false` excludes muted senders, `true` returns only them, and omitting it filters nothing. Muting lives on the Address rather than on the row, so this is evaluated against the sender's flags; it narrows the `count` exactly as it narrows the listing.")
+      @query(#{ explode: true })
+      muted?: boolean,
 
       @doc("Filter to messages with one of these header-derived categories, as a union over the values given. Applied as a SQL predicate over the whole scope, so a page comes back full of matches however rare the category is. `uncategorized` is one of them — the pending state's name, never the absence of one.")
       @query(#{ explode: true })

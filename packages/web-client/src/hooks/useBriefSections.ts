@@ -47,7 +47,7 @@ import type { ResultCount } from "@remit/ui";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import type { BriefSectionParams } from "@/lib/brief-criteria";
-import { type InboxFilterParams, sameInboxFilter } from "@/lib/inbox-filters";
+import { type ListFilterParams, sameInboxFilter } from "@/lib/inbox-filters";
 import { toResultCount } from "@/lib/result-count";
 
 /** A minute: a brief reopened straight away costs nothing. */
@@ -66,7 +66,7 @@ const UNCOUNTED: ResultCount = { kind: "unknown" };
  * is what `sameInboxFilter` was written to stop (design D18).
  */
 const keepUnderSameFilter =
-	(filter: InboxFilterParams) =>
+	(filter: ListFilterParams) =>
 	(
 		previous: RemitImapThreadSearchResponse | undefined,
 		previousQuery: { queryKey: readonly unknown[] } | undefined,
@@ -75,7 +75,10 @@ const keepUnderSameFilter =
 
 /** The criteria every section request carries, its own category aside. */
 export interface BriefSectionsCriteria extends BriefSectionParams {
-	/** Committed free text, matched against subject and From across folders. */
+	/**
+	 * Committed free text, matched against subject, From and the body preview
+	 * across folders.
+	 */
 	query?: string;
 }
 
@@ -111,13 +114,19 @@ const sectionCountQuery = (
 const sectionFilter = (
 	criteria: BriefSectionsCriteria,
 	category: RemitImapMessageCategory,
-): InboxFilterParams => ({
+): ListFilterParams => ({
 	category: [category],
 	...(criteria.unread !== undefined ? { unread: criteria.unread } : {}),
 	...(criteria.starred !== undefined ? { starred: criteria.starred } : {}),
 	...(criteria.attachments !== undefined
 		? { attachments: criteria.attachments }
 		: {}),
+	// The account pill is a scope, not text: switching it must take the previous
+	// account's rows off screen rather than render them for one round trip.
+	...(criteria.accountId !== undefined
+		? { accountId: criteria.accountId }
+		: {}),
+	...(criteria.muted !== undefined ? { muted: criteria.muted } : {}),
 });
 
 export interface BriefSectionRows {
