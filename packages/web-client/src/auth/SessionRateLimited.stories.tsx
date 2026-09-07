@@ -7,7 +7,7 @@ import { SessionRateLimited } from "./SessionRateLimited";
  * told everyone behind the address that they had been logged out.
  */
 const meta: Meta<typeof SessionRateLimited> = {
-	title: "Auth/SessionRateLimited",
+	title: "Screens/SessionRateLimited",
 	component: SessionRateLimited,
 	parameters: { layout: "fullscreen" },
 	args: {
