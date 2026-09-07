@@ -90,7 +90,11 @@ describe("BlockedImagesNotice — a blocked sender gets no way in (#352)", () =>
 
 	it("offers nothing to disable — absence, not a dead control", () => {
 		const html = render({ isSenderBlocked: true });
-		assert.doesNotMatch(html, /\bdisabled\b/);
+		assert.doesNotMatch(
+			html,
+			/<(?:button|a|input|select|textarea)\b|\brole="button"|\btabindex=/,
+			"a greyed-out control still reads as 'try again'; the bar carries no interactive element at all",
+		);
 		assert.doesNotMatch(html, /Load once/);
 		assert.doesNotMatch(html, /Always trust/);
 	});

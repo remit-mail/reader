@@ -185,6 +185,11 @@ const REMOTE_SRC = /\ssrc="https:\/\/tracker\.example\/hero\.png"/;
 const notice = (dom: DomHarness) =>
 	dom.query('[data-testid="blocked-images-notice"]');
 
+// A boolean, not the node: an assertion that fails on a jsdom element makes the
+// runner serialize the whole tree and the process dies on memory, not on a diff.
+const hasTrustedBadge = (dom: DomHarness): boolean =>
+	dom.query('[data-testid="trusted-sender-badge"]') !== null;
+
 describe("MessageCard reads flags.blocked on the render path (#352)", () => {
 	it("keeps a blocked sender's images out and offers no way to load them", async () => {
 		const dom = await mount({ blocked: { value: true, setAt: 1 } });
@@ -207,6 +212,11 @@ describe("MessageCard reads flags.blocked on the render path (#352)", () => {
 
 		assert.doesNotMatch(frameHtml(dom), REMOTE_SRC);
 		assert.match(notice(dom)?.textContent ?? "", /you blocked this sender/);
+		assert.equal(
+			hasTrustedBadge(dom),
+			false,
+			"a trusted badge beside 'you blocked this sender' tells the user two opposite things",
+		);
 	});
 
 	it("still auto-loads a trusted sender's images", async () => {
@@ -214,6 +224,7 @@ describe("MessageCard reads flags.blocked on the render path (#352)", () => {
 
 		assert.match(frameHtml(dom), REMOTE_SRC);
 		assert.equal(notice(dom), null);
+		assert.equal(hasTrustedBadge(dom), true);
 	});
 
 	it("still offers the load affordances to a merely untrusted sender", async () => {

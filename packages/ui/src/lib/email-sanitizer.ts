@@ -372,6 +372,28 @@ export const createEmailSanitizer = (options: SanitizeOptions = {}) => {
 
 	// Hook: Process elements after attribute sanitization
 	purify.addHook("afterSanitizeAttributes", (node) => {
+		// `src` is not the only way to name a remote image. DOMPurify keeps
+		// `srcset` on `<img>`, `<source srcset>` inside `<picture>`, and
+		// `<video poster>`, and every one of them fetches without a click —
+		// a `<source>` outranks the `<img>` it wraps, and a bare `srcset`
+		// wins on any 2x screen. Blocking a sender's images has to close all
+		// of them, so these are stripped rather than parked in
+		// `data-blocked-src`: there is no per-candidate "load once" to
+		// restore them with. Turning `allowExternalImages` on re-sanitizes
+		// the original HTML, which is how the images come back.
+		if (!options.allowExternalImages) {
+			if (node.tagName === "IMG") {
+				node.removeAttribute("srcset");
+			}
+			if (node.tagName === "SOURCE") {
+				node.removeAttribute("srcset");
+				node.removeAttribute("src");
+			}
+			if (node.tagName === "VIDEO") {
+				node.removeAttribute("poster");
+			}
+		}
+
 		// Handle images
 		if (node.tagName === "IMG") {
 			const src = node.getAttribute("src") || "";

@@ -38,7 +38,22 @@ const MARKETING_HTML = `
 </div>
 `;
 
-const mount = (flags: { isTrusted?: boolean; isBlocked?: boolean }) => {
+// Every remote-image vector an email can reach for, not just `img src`.
+const MULTI_VECTOR_HTML = `
+<div>
+	<img src="https://tracker.example/hero.png" srcset="https://tracker.example/hero@2x.png 2x" alt="Hero" />
+	<picture>
+		<source srcset="https://tracker.example/wide.png" type="image/png" />
+		<img src="https://tracker.example/narrow.png" alt="Deal" />
+	</picture>
+	<video poster="https://tracker.example/poster.jpg"><source src="https://tracker.example/clip.mp4" type="video/mp4" /></video>
+</div>
+`;
+
+const mount = (
+	flags: { isTrusted?: boolean; isBlocked?: boolean },
+	overrides: { html?: string; messageId?: string } = {},
+) => {
 	harness = createDomHarness();
 	harness.renderApp(
 		createElement(MessageBody, {
@@ -47,9 +62,27 @@ const mount = (flags: { isTrusted?: boolean; isBlocked?: boolean }) => {
 			fromAddressId: "addr-1",
 			category: "marketing",
 			...flags,
+			...overrides,
 		}),
 	);
 	return harness;
+};
+
+const rerender = (
+	dom: DomHarness,
+	flags: { isTrusted?: boolean; isBlocked?: boolean },
+	overrides: { html?: string; messageId?: string } = {},
+) => {
+	dom.renderApp(
+		createElement(MessageBody, {
+			html: MARKETING_HTML,
+			messageId: "msg-1",
+			fromAddressId: "addr-1",
+			category: "marketing",
+			...flags,
+			...overrides,
+		}),
+	);
 };
 
 const frameHtml = (dom: DomHarness): string =>
@@ -91,6 +124,48 @@ describe("MessageBody image gating — blocked senders (#352)", () => {
 		assert.match(frameHtml(dom), /data-blocked-src/);
 		assert.equal(dom.queryAll("button").length, 0);
 		assert.match(dom.text(), /you blocked this sender/);
+	});
+
+	it("emits no fetchable tracker URL through srcset, picture or poster either", () => {
+		const dom = mount({ isBlocked: true }, { html: MULTI_VECTOR_HTML });
+		// The placeholder swap parks the original `img src` in
+		// `data-blocked-src` for "load once"; anywhere else in the srcdoc, a
+		// tracker URL is a request the frame will make.
+		const live = frameHtml(dom).replace(/data-blocked-src="[^"]*"/g, "");
+		assert.doesNotMatch(
+			live,
+			/tracker\.example/,
+			"blocked means no remote image request, whichever attribute names it",
+		);
+		assert.match(
+			frameHtml(dom),
+			/data-blocked-src="https:\/\/tracker\.example/,
+		);
+	});
+});
+
+describe("MessageBody load-once is scoped to one message (#352)", () => {
+	it("drops the grant when the same instance is handed a different message", () => {
+		const dom = mount({});
+		dom.click(dom.byText("button", "Load once"));
+		assert.match(frameHtml(dom), REMOTE_SRC);
+
+		rerender(dom, {}, { messageId: "msg-2" });
+
+		assert.doesNotMatch(
+			frameHtml(dom),
+			REMOTE_SRC,
+			"a load-once decision belongs to the message it was taken on",
+		);
+		assert.match(frameHtml(dom), /data-blocked-src/);
+		assert.ok(dom.byText("button", "Load once"));
+	});
+
+	it("keeps the grant while the message stays the same", () => {
+		const dom = mount({});
+		dom.click(dom.byText("button", "Load once"));
+		rerender(dom, { isTrusted: false });
+		assert.match(frameHtml(dom), REMOTE_SRC);
 	});
 });
 

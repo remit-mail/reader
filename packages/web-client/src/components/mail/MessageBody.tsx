@@ -113,7 +113,16 @@ export const MessageBody = ({
 	category,
 	className,
 }: MessageBodyProps) => {
+	// "Load once" is a decision about one message. Reset it when the instance is
+	// handed a different message so the grant can't ride along — today every
+	// caller keys this component by message, which makes the leak unreachable,
+	// but the guarantee should hold structurally rather than by a caller's key.
 	const [allowImagesOnce, setAllowImagesOnce] = useState(false);
+	const [grantedFor, setGrantedFor] = useState(messageId);
+	if (grantedFor !== messageId) {
+		setGrantedFor(messageId);
+		setAllowImagesOnce(false);
+	}
 	const allowImages = !isBlocked && (isTrusted || allowImagesOnce);
 	const isDark = useIsDark();
 	// `useToggleTrusted` surfaces its own failure (banner + rollback) and a fatal
