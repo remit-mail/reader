@@ -437,7 +437,11 @@ describe("handleMessageCopy", () => {
 			"silence is never grounds to delete a row that may describe real mail",
 		);
 		assert.equal(
-			(called("message.update")[0]?.args[1] as { status?: string })?.status,
+			(
+				called("message.transitionPlacement")[0]?.args[2] as {
+					status?: string;
+				}
+			)?.status,
 			"deleted",
 		);
 	});
@@ -515,8 +519,12 @@ describe("handleMessageCopy", () => {
 
 		await handleMessageCopy(event, noopLogger, 1, deps());
 
-		const update = called("message.update")[0];
-		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
+		const [givenUp] = called("message.transitionPlacement");
+		assert.equal((givenUp?.args[2] as { status?: string })?.status, "deleted");
+		assert.equal(
+			(givenUp?.args[2] as { abandonedMutation?: string })?.abandonedMutation,
+			"copy",
+		);
 		assert.equal(called("createMailbox").length, 0);
 	});
 

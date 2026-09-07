@@ -843,10 +843,12 @@ describe("handleMessageDelete", () => {
 
 			// `mailboxId` and `uid` name the same message again, and the same write
 			// settles `status` out of `moving`, so no later delete of this message
-			// waits on a mutation that has terminated.
+			// waits on a mutation that has terminated. It also carries the give-up
+			// (#1153) and names it a delete (#1229): the user asked for one, it did
+			// not happen, and nothing is coming to try again.
 			assert.deepEqual(
 				called("message.transitionPlacement").at(-1)?.args,
-				restoredToSource("synced"),
+				restoredToSource("abandoned"),
 			);
 			assert.equal(
 				called("message.update").length,
@@ -948,7 +950,7 @@ describe("handleMessageDelete", () => {
 
 				assert.deepEqual(
 					called("message.transitionPlacement").at(-1)?.args,
-					restoredToSource("synced"),
+					restoredToSource("abandoned"),
 				);
 				assert.equal(await imapFailures("MESSAGE_DELETE_EXHAUSTED"), 1);
 			});

@@ -286,9 +286,26 @@ export const handleEmptyTrash = async (
 					// asked once and honoured on both sides of the expunge.
 					const localMessages =
 						await messageService.listAllByMailbox(trashMailboxId);
+					const sweepable = localMessages.filter(
+						(message) => !carriesForeignUid(message),
+					);
+
+					// A refused row spares its uid only where no row the sweep will
+					// carry claims the same number. The two cases the predicate cannot
+					// tell apart part here: a row genuinely mid-move borrows a uid that
+					// belongs to a different message in this folder, and sparing that
+					// number would strand the message that owns it; a settled row whose
+					// `originalUid` a pre-#1217 build left behind owns its uid outright,
+					// and expunging it destroys mail the sweep then refuses to remove.
+					const sweepableUids = new Set(
+						sweepable.map((message) => message.uid),
+					);
 					const refusedUids = new Set(
 						localMessages
-							.filter((message) => carriesForeignUid(message))
+							.filter(
+								(message) =>
+									carriesForeignUid(message) && !sweepableUids.has(message.uid),
+							)
 							.map((message) => message.uid),
 					);
 
@@ -307,9 +324,8 @@ export const handleEmptyTrash = async (
 					// What was expunged is a fact this connection observed, and only
 					// those rows go.
 					const expunged = new Set(uids);
-					const swept = localMessages.filter(
-						(message) =>
-							!carriesForeignUid(message) && expunged.has(message.uid),
+					const swept = sweepable.filter((message) =>
+						expunged.has(message.uid),
 					);
 					const sweptIds = new Set(swept.map((message) => message.messageId));
 					const deletedCount = swept.length;

@@ -5,6 +5,10 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import {
+	hasAbandonedDelete,
+	hasAbandonedMove,
+} from "@remit/data-ports/message-settlement";
+import {
 	type IImapConnection,
 	placementBindingOf,
 } from "@remit/mailbox-service";
