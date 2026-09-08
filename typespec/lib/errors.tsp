@@ -11,7 +11,9 @@ using TypeSpec.Http;
   stable snake_case token — the refusal's own where it has one
   (`folder_role_unresolved`, `config_not_empty`), and otherwise the status
   class's: `invalid_request`, `unauthorized`, `forbidden`, `not_found`,
-  `conflict`, `precondition_failed`, `unprocessable_entity`, `internal_error`.
+  `conflict`, `precondition_failed`, `payload_too_large`,
+  `unprocessable_entity`, `internal_error`, and `request_refused` for a 4xx no
+  operation declares (405, 408, 415, 429).
   
   `message` is a sentence for a person and is free to change; nothing may parse
   it. `details` carries the strings a client words its own prompt from, and a
@@ -29,10 +31,42 @@ model ApiError {
   details?: Record<string>;
 }
 
-@doc("The request was refused as malformed or contradictory. `code` is `invalid_request` unless the refusal names its own.")
+@doc("One reason a request was refused, as the validator read it. Named fields only — nothing here echoes the value that was submitted.")
+model RequestValidationDetail {
+  @doc("JSON Pointer to the offending value; empty for the document itself")
+  path: string;
+
+  @doc("The rule that refused it, e.g. `required`, `type`, `format`")
+  rule: string;
+
+  @doc("What the validator said")
+  message: string;
+}
+
+@doc("""
+  The request was refused as malformed or contradictory. `code` is
+  `invalid_request` where nothing more specific is known, and the refusal's own
+  token where there is one.
+  
+  The calendar surface answers with the reason it read the request by:
+  `invalid_window`, `invalid_scope`, `invalid_url_segment`, `url_segment_taken`,
+  `unknown_time_zone` and `default_calendar_undeletable` on the collection and
+  the query, and, for a VCALENDAR it could not accept,
+  `malformed_icalendar`, `not_a_calendar`, `unsupported_component`, `no_event`,
+  `no_master_event`, `multiple_master_events`, `missing_uid`, `mismatched_uid`,
+  `missing_dt_start`, `backwards_end`, `invalid_date_time`,
+  `invalid_recurrence_rule`, `missing_recurrence_id`, `not_recurring` and
+  `unknown_occurrence`.
+  
+  `errors` is present only when the request failed schema validation before any
+  handler ran, and names every field that was refused.
+  """)
 model ValidationError {
   @statusCode statusCode: 400;
   ...ApiError;
+
+  @doc("Every field the schema refused, when the refusal came from schema validation")
+  errors?: RequestValidationDetail[];
 }
 
 @doc("The request carried no usable credential. `code` is `unauthorized`.")

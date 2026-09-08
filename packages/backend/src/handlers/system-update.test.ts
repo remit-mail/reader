@@ -13,6 +13,7 @@ import { fileURLToPath } from "node:url";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { normalizeRequest } from "../request.js";
+import { formatResponse } from "../response.js";
 import { SystemOperations } from "./system-update.js";
 
 const tmpRoot = join(
@@ -446,5 +447,51 @@ describe("GET /system/update through the whole request pipeline", () => {
 			{},
 		);
 		assert.deepEqual(JSON.parse(result.body), okState);
+	});
+});
+
+// A refusal here is the object `formatResponse` unwraps, never one that has
+// already been serialized: handing it a `body` string publishes the envelope
+// itself — `{"statusCode":…,"headers":…,"body":"{…}"}` — and what the caller
+// then parses is not an ApiError at all. Only the status was ever asserted, so
+// the shape went unguarded (issue #371).
+describe("the wire body of a self-update refusal", () => {
+	it("answers an unconfigured seam with a flat not_found", async () => {
+		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+
+		const result = await getUpdate(buildEvent(USER));
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 404);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "not_found",
+			message: "Not found",
+		});
+	});
+
+	it("answers an unauthenticated caller with a flat unauthorized", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent());
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 401);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "unauthorized",
+			message: "Unauthorized",
+		});
+	});
+
+	it("answers an unauthenticated install request the same way", async () => {
+		writeState(okState);
+
+		const result = await applyUpdate("v1.5.0", buildEvent());
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 401);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "unauthorized",
+			message: "Unauthorized",
+		});
 	});
 });

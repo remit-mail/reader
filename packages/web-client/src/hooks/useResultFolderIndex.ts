@@ -25,8 +25,10 @@ type MailboxItems = RemitImapMailboxResponse[];
 interface MailboxListsState {
 	items: MailboxItems[];
 	isPending: boolean;
-	// A refusal body (`{ code, message }`) or a transport `Error` — see
-	// `formatErrorMessage`, which reads a message off either.
+	// Typed as the generated wire body by TanStack now that the operation
+	// declares its failures, but always an `ApiError` or a `NetworkError` by the
+	// time it arrives — `client.ts` re-wraps every HTTP failure.
+	// `formatErrorMessage` reads a message off any of them.
 	error: unknown;
 }
 

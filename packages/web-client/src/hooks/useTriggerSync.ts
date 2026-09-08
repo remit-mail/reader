@@ -9,9 +9,12 @@ interface UseTriggerSyncResult {
 	trigger: () => void;
 	triggerAsync: () => Promise<unknown>;
 	isPending: boolean;
-	// Whatever the API answered with: a flat `{ code, message }` refusal body
-	// (issue #371), or a transport `Error`. Readers take it through
-	// `formatErrorMessage`, which handles both.
+	// TanStack types this as the generated wire body now that the operation
+	// declares its failures; by the time it arrives, `client.ts`'s error
+	// interceptor has re-wrapped it as an `ApiError` and `taggedFetch` a
+	// transport failure as a `NetworkError`. `unknown` is what the declared type
+	// and the real one agree on, and every reader goes through
+	// `formatErrorMessage`.
 	error: unknown;
 	reset: () => void;
 }

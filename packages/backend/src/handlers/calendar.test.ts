@@ -805,7 +805,7 @@ describe("the calendar collection wrappers", () => {
 		);
 
 		assert.equal(second.statusCode, 400);
-		assert.equal((second.body as { code: string }).code, "UrlSegmentTaken");
+		assert.equal((second.body as { code: string }).code, "url_segment_taken");
 	});
 
 	it("refuses a rename that names a zone this server cannot resolve", async () => {
@@ -826,7 +826,7 @@ describe("the calendar collection wrappers", () => {
 		);
 
 		assert.equal(updated.statusCode, 400);
-		assert.equal((updated.body as { code: string }).code, "UnknownTimeZone");
+		assert.equal((updated.body as { code: string }).code, "unknown_time_zone");
 	});
 
 	it("answers 204 for a calendar it removed and 400 for the default one", async () => {
@@ -858,7 +858,7 @@ describe("the calendar collection wrappers", () => {
 		assert.equal(refused.statusCode, 400);
 		assert.equal(
 			(refused.body as { code: string }).code,
-			"DefaultCalendarUndeletable",
+			"default_calendar_undeletable",
 		);
 	});
 });

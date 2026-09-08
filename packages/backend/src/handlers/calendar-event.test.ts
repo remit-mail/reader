@@ -259,7 +259,7 @@ describe("GET /calendar-events", () => {
 		);
 
 		assert.equal(backwards.statusCode, 400);
-		assert.equal((backwards.body as { code: string }).code, "InvalidWindow");
+		assert.equal((backwards.body as { code: string }).code, "invalid_window");
 		assert.equal(tooWide.statusCode, 400);
 	});
 });
@@ -285,7 +285,7 @@ describe("POST /calendar-events", () => {
 		assert.equal(created.statusCode, 400);
 		assert.equal(
 			(created.body as { code: string }).code,
-			"InvalidRecurrenceRule",
+			"invalid_recurrence_rule",
 		);
 		assert.deepEqual(
 			await client.calendarObject.listByCalendar(calendarId),
@@ -314,7 +314,7 @@ describe("POST /calendar-events", () => {
 		);
 
 		assert.equal(created.statusCode, 400);
-		assert.equal((created.body as { code: string }).code, "UnknownTimeZone");
+		assert.equal((created.body as { code: string }).code, "unknown_time_zone");
 		assert.deepEqual(
 			await client.calendarObject.listByCalendar(calendarId),
 			[],
@@ -548,9 +548,9 @@ describe("GET /calendar-free-busy", () => {
 		);
 
 		assert.equal(missing.statusCode, 400);
-		assert.equal((missing.body as { code: string }).code, "InvalidWindow");
+		assert.equal((missing.body as { code: string }).code, "invalid_window");
 		assert.equal(tooWide.statusCode, 400);
-		assert.equal((tooWide.body as { code: string }).code, "InvalidWindow");
+		assert.equal((tooWide.body as { code: string }).code, "invalid_window");
 	});
 });
 

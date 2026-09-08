@@ -63,14 +63,24 @@ export const refuseCalendar = <T>(
 ): CalendarOutcome<T> => ({ ok: false, error: { code, message } });
 
 /**
- * `CalendarRefusal.code` is this module's own routing token — it decides which
- * status a refusal becomes. What goes on the wire is the API's `code`
- * vocabulary (issue #371), which is one vocabulary for every endpoint; the
- * refusal's sentence travels in `message`.
+ * `CalendarRefusal.code` is this module's and `@remit/calendar-service`'s own
+ * routing token, in PascalCase; the API's `code` vocabulary is snake_case
+ * (issue #371). Derived rather than mapped by hand, so a refusal added to
+ * either producer reaches the wire under its own name instead of silently
+ * collapsing into the status-class code.
+ */
+const wireCode = (code: string): string =>
+	code.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+
+/**
+ * A 400 keeps the refusal's own code — `unknown_time_zone` and
+ * `url_segment_taken` are what a client branches on, and the status class alone
+ * would not distinguish them. A 404 and a 412 have nothing to add to their
+ * status, so they take the shared token.
  */
 export const badRequest = (error: CalendarRefusal) => ({
 	statusCode: 400,
-	body: { code: defaultErrorCode(400), message: error.message },
+	body: { code: wireCode(error.code), message: error.message },
 });
 
 export const notFound = (message: string) => ({

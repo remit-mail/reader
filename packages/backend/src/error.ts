@@ -15,6 +15,14 @@ import { formatResponse } from "./response.js";
  */
 export const INTERNAL_ERROR_CODE = "internal_error";
 
+/**
+ * The one sentence any 5xx answers with. A thrown message is written for a log
+ * line, not for a stranger — it names hosts, queries and ids — so it is
+ * replaced rather than trusted. The real message is already on the error log
+ * beside the correlation id the response carries.
+ */
+export const INTERNAL_ERROR_MESSAGE = "Internal server error";
+
 const CODE_BY_STATUS: Record<number, string> = {
 	400: "invalid_request",
 	401: "unauthorized",
@@ -48,13 +56,18 @@ export const handleError = async (
 			// 500: the status bound keeps a coded 5xx from reaching a client rather
 			// than trusting every future thrower to leave `publicApiError` alone.
 			// Everything else takes the status class's code, so no response goes out
-			// without one.
+			// without one. A 5xx keeps neither the thrower's code nor its message —
+			// one status, one code, one sentence, whatever failed.
 			const statusCode =
 				typeof error.statusCode === "number" ? error.statusCode : 500;
+			if (statusCode >= 500) {
+				return formatResponse(
+					{ code: INTERNAL_ERROR_CODE, message: INTERNAL_ERROR_MESSAGE },
+					statusCode,
+				);
+			}
 			const publicApiError =
-				statusCode < 500 &&
-				"publicApiError" in error &&
-				isPublicApiError(error.publicApiError)
+				"publicApiError" in error && isPublicApiError(error.publicApiError)
 					? error.publicApiError
 					: undefined;
 			return formatResponse(
@@ -97,14 +110,14 @@ export const handleError = async (
 			"Unhandled Error",
 		);
 		return formatResponse(
-			{ code: INTERNAL_ERROR_CODE, message: "Internal server error" },
+			{ code: INTERNAL_ERROR_CODE, message: INTERNAL_ERROR_MESSAGE },
 			500,
 		);
 	}
 
 	logger.error({ error: JSON.stringify(error) }, "Unknown error type");
 	return formatResponse(
-		{ code: INTERNAL_ERROR_CODE, message: "Internal server error" },
+		{ code: INTERNAL_ERROR_CODE, message: INTERNAL_ERROR_MESSAGE },
 		500,
 	);
 };

@@ -45,7 +45,6 @@ describe("the wire shape of a refusal, per status class", () => {
 			422,
 			"unprocessable_entity",
 		],
-		["500", new UnhandledError("Something went wrong"), 500, "internal_error"],
 	];
 
 	for (const [name, error, statusCode, code] of cases) {
@@ -59,6 +58,23 @@ describe("the wire shape of a refusal, per status class", () => {
 			});
 		});
 	}
+
+	// A 5xx is the one class whose message is not the thrower's. Those sentences
+	// are written for a log line and name hosts, queries and ids; the correlation
+	// id on the response is how the real one is found.
+	it("answers 500 with one code and one sentence, never the thrower's", async () => {
+		const response = await handleError(
+			new UnhandledError(
+				"pg://reader@db-3.internal:5432 timed out on SELECT * FROM message",
+			),
+		);
+
+		assert.equal(response.statusCode, 500);
+		assert.deepEqual(parseBody(response.body), {
+			code: "internal_error",
+			message: "Internal server error",
+		});
+	});
 
 	it("types every one of those bodies as the declared ApiError", async () => {
 		const response = await handleError(new NotFoundError("Gone"));
@@ -107,7 +123,7 @@ describe("handleError coded refusals", () => {
 		assert.equal(response.statusCode, 500);
 		assert.deepEqual(parseBody(response.body), {
 			code: "internal_error",
-			message: "Something went wrong",
+			message: "Internal server error",
 		});
 	});
 
@@ -123,7 +139,7 @@ describe("handleError coded refusals", () => {
 		assert.equal(response.statusCode, 500);
 		assert.deepEqual(parseBody(response.body), {
 			code: "internal_error",
-			message: "Something went wrong",
+			message: "Internal server error",
 		});
 	});
 
