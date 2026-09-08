@@ -106,17 +106,15 @@ test.describe("Renaming a folder", () => {
 		await appendMessages(run.imapUser, [{ subject }], before);
 		await api.triggerSync(run.accountId);
 
-		const withMail = await waitFor(
-			() => api.listMailboxes(run.accountId),
-			(list) =>
-				list.some(
-					(box) => box.mailboxId === folder.mailboxId && box.messageCount === 1,
-				),
-			{ timeoutMs: 120_000, what: `"${before}" to hold its message` },
+		// The account's own rows, not the folder's `messageCount`: that figure is
+		// what the mail server reported at the last sweep, so it reads 1 while the
+		// message rows this test is about may not have arrived yet. Waiting on the
+		// listing is what makes the assertion after the rename mean anything.
+		await waitFor(
+			() => api.listThreads(folder.mailboxId),
+			(threads) => threads.length > 0,
+			{ timeoutMs: 120_000, what: `"${before}" to hold its message locally` },
 		);
-		expect(
-			withMail.find((box) => box.mailboxId === folder.mailboxId)?.messageCount,
-		).toBe(1);
 
 		await api.renameMailbox(run.accountId, folder.mailboxId, after);
 		// A sync round mid-rename is the window D14 closes: Dovecot may already
@@ -142,7 +140,6 @@ test.describe("Renaming a folder", () => {
 
 		// The mail travelled with the row rather than being initial-synced into a
 		// duplicate the sweep inserted.
-		const threads = await api.listThreads(folder.mailboxId);
-		expect(threads.length).toBeGreaterThan(0);
+		expect((await api.listThreads(folder.mailboxId)).length).toBeGreaterThan(0);
 	});
 });
