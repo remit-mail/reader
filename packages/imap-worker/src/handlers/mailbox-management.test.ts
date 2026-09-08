@@ -406,6 +406,30 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		assert.equal(called("mailbox.delete").length, 0);
 	});
 
+	it("takes every descendant's mail with it too, not just the renamed folder's", async () => {
+		// The whole subtree recorded this rename's intent (D6); dropping the
+		// root alone strands each descendant `pending` at a path the server
+		// never held, with nothing left to revisit it.
+		h.rows.set(
+			"mbx-2",
+			row({
+				mailboxId: "mbx-2",
+				fullPath: "Archive/Sub",
+				pendingPath: "Archive 2024/Sub",
+			}),
+		);
+		h.connection.renameMailbox = async () => {
+			throw new Error("Mailbox not found");
+		};
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		const deleted = called("mailbox.deleteMailboxWithMail").map(
+			(c) => c.args[1],
+		);
+		assert.deepEqual(new Set(deleted), new Set(["mbx-1", "mbx-2"]));
+	});
+
 	it("acks terminally without connecting when the folder row is gone", async () => {
 		h.mailboxRowGone = true;
 

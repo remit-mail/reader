@@ -324,15 +324,21 @@ const handleRename = async (
 						}
 						// The folder the rename was to move is gone from the server, and
 						// the target is not there either, so it was deleted under us.
-						// Removing the row on its own is the orphaning bug: the folder's
-						// mail stays keyed to a dead mailboxId, out of every reader and
-						// still in the search index (D8).
+						// Removing the root row alone is the orphaning bug: every
+						// descendant recorded the same intent (D6) and would be left
+						// `pending` at a path that does not exist, with its mail stranded
+						// out of every reader and still in the search index (D8).
 						if (isMailboxAbsentUpstream(error)) {
 							log.info(
 								{ accountId, mailboxId, oldPath, intent: "rename" },
 								"Source mailbox not found, deleting local folder and its mail",
 							);
-							await mailboxService.deleteMailboxWithMail(accountId, mailboxId);
+							await managementService.abandonRenameSubtree(
+								accountId,
+								mailboxId,
+								oldPath,
+								newPath,
+							);
 							return;
 						}
 						// T6. Nothing is restored — `fullPath` was never written, and

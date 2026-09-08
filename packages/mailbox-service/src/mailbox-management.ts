@@ -562,6 +562,53 @@ export class MailboxManagementService {
 	};
 
 	/**
+	 * The folder the rename was to move was found gone from the server, and
+	 * the target was not there either, so it was deleted by another client
+	 * mid-rename (D8). Every row that recorded this rename's intent — the
+	 * root and each descendant — goes with its mail, the same walk `failRename`
+	 * uses: deleting the root alone strands every descendant `pending` with
+	 * nothing left to revisit it, which is the orphaning bug this closes.
+	 */
+	abandonRenameSubtree = async (
+		accountId: string,
+		mailboxId: string,
+		oldPath: string,
+		newPath: string,
+	): Promise<void> => {
+		const root = await this.mailboxService
+			.get(accountId, mailboxId)
+			.catch((error: unknown) => {
+				if (isNotFoundError(error)) return undefined;
+				throw error;
+			});
+		if (!root) return;
+
+		const carrying = await this.intentCarryingRows(
+			accountId,
+			oldPath,
+			newPath,
+			newPath,
+			root.hierarchyDelimiter,
+		);
+		for (const { row } of carrying) {
+			await this.mailboxService.deleteMailboxWithMail(
+				accountId,
+				row.mailboxId,
+			);
+			this.log.info(
+				{
+					accountId,
+					mailboxId: row.mailboxId,
+					intent: "rename",
+					from: MailboxSyncStatus.pending,
+					to: "deleted",
+				},
+				"Source mailbox not found, deleted local folder and its mail",
+			);
+		}
+	};
+
+	/**
 	 * Sync a DELETE operation to IMAP.
 	 * Called by worker after dequeuing MAILBOX_DELETE event.
 	 *
