@@ -809,12 +809,15 @@ namespace RemitApi {
       @query(#{ explode: true })
       order?: SortOrder,
 
+      @doc("Free text to match against subject, From address and body text. Whitespace splits it into terms and every term must match, each against any one of the three. Body text is the stored preview the row carries — the first prose of the message with quoted replies removed — so a term further into a long message is not reached; a term the reader can see on the row is. Matching is accent- and case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.")
       @query(#{ explode: true })
       query?: string,
 
+      @doc("Match the subject alone, where `query` matches all three fields at once.")
       @query(#{ explode: true })
       subject?: string,
 
+      @doc("Match the From address or display name alone, where `query` matches all three fields at once.")
       @query(#{ explode: true })
       from?: string,
 

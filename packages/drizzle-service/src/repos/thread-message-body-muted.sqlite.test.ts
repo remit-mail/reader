@@ -8,12 +8,23 @@
  * each case, which is exactly what such a pass cannot see (#1135, #1137).
  */
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { DrizzleThreadMessageRepository } from "./thread-message.js";
+
+// The index the migrator installs for this predicate, read from the one
+// committed source so the plan assertion below is about the real object.
+const mutedIndexDdl = readFileSync(
+	new URL(
+		"../../../../npm-scripts/sqlite-address-muted-index.sql",
+		import.meta.url,
+	),
+	"utf8",
+);
 
 const ACCOUNT = "acct-seam";
 const MAILBOX = "mbx-seam";
@@ -45,14 +56,16 @@ const makeInput = (
 
 describe("thread-message body and muted-sender predicates (sqlite)", () => {
 	let db: Awaited<ReturnType<typeof createSqliteTestDb>>["db"];
+	let sqlite: Awaited<ReturnType<typeof createSqliteTestDb>>["sqlite"];
 	let close: () => Promise<void>;
 	let repo: DrizzleThreadMessageRepository;
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(
+		({ db, sqlite, close } = await createSqliteTestDb(
 			{ threadMessage: threadMessageTable, address: addressTable },
 			{ searchIndex: true },
 		));
+		sqlite.exec(mutedIndexDdl);
 		repo = new DrizzleThreadMessageRepository(db);
 	});
 
@@ -291,6 +304,50 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			);
 
 			assert.equal(counted, 4);
+		});
+
+		// The subquery runs once per candidate row, and the generated schema's
+		// only address index is on `normalized_compound`, which it cannot use. A
+		// brief counts seven sections, so an unindexed lookup here is seven scans
+		// of every address the config has ever seen.
+		test("the muted lookup is served by an index, never a scan", async () => {
+			const captured: string[] = [];
+			const original = sqlite.prepare.bind(sqlite);
+			sqlite.prepare = ((source: string) => {
+				captured.push(source);
+				return original(source);
+			}) as typeof sqlite.prepare;
+			try {
+				await repo.countThreadsInScope(
+					MUTED_ACCOUNT,
+					{ muted: false },
+					{ mailboxIds: MUTED_SCOPE },
+				);
+			} finally {
+				sqlite.prepare = original as typeof sqlite.prepare;
+			}
+
+			const selects = captured.filter((source) => /^\s*select/i.test(source));
+			assert.ok(selects.length > 0, "the repo issued a select");
+			const plan = selects.flatMap((source) => {
+				const parameters = new Array((source.match(/\?/g) ?? []).length).fill(
+					"",
+				);
+				return (
+					sqlite
+						.prepare(`EXPLAIN QUERY PLAN ${source}`)
+						.all(...parameters) as Array<{ detail: string }>
+				).map((row) => row.detail);
+			});
+
+			assert.ok(
+				plan.some((detail) => detail.includes("address_by_normalized_email")),
+				`the address lookup was not served by its index: ${plan.join(" | ")}`,
+			);
+			assert.ok(
+				!plan.some((detail) => /scan address/i.test(detail)),
+				`the address lookup fell back to a scan: ${plan.join(" | ")}`,
+			);
 		});
 	});
 });

@@ -18,6 +18,13 @@
  * pages the user happened to have loaded, so a category whose mail sat below
  * the newest page showed an empty list, and the count grew with every press of
  * "load more" while being presented as a total.
+ *
+ * The free text and the `from:` / `subject:` tokens are parameters too (#1128,
+ * #1135), so a search is one listing request rather than a second query merged
+ * into it. That is what keeps a search's failure loud, its pages continuable
+ * and its loading state its own — a separate search query had none of the
+ * three, so an expired session read as "no matches", "Load more" did nothing,
+ * and a cached listing flashed the empty state.
  */
 import {
 	flaggedFilterConfig,
@@ -32,7 +39,6 @@ import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import {
-	useStarredTextSearch,
 	useStarredThreads,
 	useStarredUnreadCount,
 } from "@/hooks/useStarredThreads";
@@ -59,9 +65,6 @@ import {
 	ThreadListSelectionBar,
 	useThreadListSelection,
 } from "./ThreadListInteraction";
-
-/** One page of the server-filtered text search, merged with the listing below. */
-const TEXT_SEARCH_PAGE_SIZE = 200;
 
 /**
  * The wizard this view's verbs walk, and the one its search entry lands on.
@@ -180,6 +183,10 @@ export function FlaggedList({
 		[criteria, sq],
 	);
 
+	// One request, free text included. The text is a parameter like every other
+	// criterion, so a search is this listing narrowed rather than a second query
+	// beside it — which is what gives a search the same error state, the same
+	// pagination and the same loading state as the unsearched list.
 	const {
 		threads,
 		isLoading,
@@ -189,20 +196,17 @@ export function FlaggedList({
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
-	} = useStarredThreads(criteria);
-	const textMatches = useStarredTextSearch(textCriteria, TEXT_SEARCH_PAGE_SIZE);
+	} = useStarredThreads(textCriteria);
 
-	const rows = useMemo<ThreadRowData[]>(() => {
-		// Under free text the search request is the list: it matches subject, From
-		// and the body preview over the whole collection, so there is no second
-		// half to merge in and nothing here re-reads the text (#1135).
-		const matched = sq ? textMatches : threads;
-		// What is left is what no parameter can carry: `before:`, `after:`, `in:`,
-		// `account:`, and a token the chips overruled.
-		return dedupeByThread(matched)
-			.map(toThreadRowData)
-			.filter((t) => matchesSearchTokens(t, residualTokens));
-	}, [threads, textMatches, sq, residualTokens]);
+	const rows = useMemo<ThreadRowData[]>(
+		() =>
+			// What is left is what no parameter can carry: `before:`, `after:`,
+			// `in:`, `account:`, and a token the chips overruled.
+			dedupeByThread(threads)
+				.map(toThreadRowData)
+				.filter((t) => matchesSearchTokens(t, residualTokens)),
+		[threads, residualTokens],
+	);
 
 	const openRow = useCallback(
 		(id: string, options?: OpenMessageOptions) => {

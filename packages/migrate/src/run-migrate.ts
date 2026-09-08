@@ -1,6 +1,7 @@
 // esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
 // loader) so the migrate step runs the exact SQL the test harness applies —
 // one source of truth, two consumers.
+import sqliteAddressMutedIndexSql from "../../../npm-scripts/sqlite-address-muted-index.sql";
 import sqliteAddressSightingsIndexSql from "../../../npm-scripts/sqlite-address-sightings-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
@@ -303,6 +304,9 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
+
+		logStep({}, "installing address normalized-email index (sqlite)");
+		sqlite.exec(sqliteAddressMutedIndexSql);
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
 
