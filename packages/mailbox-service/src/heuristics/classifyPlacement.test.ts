@@ -137,6 +137,50 @@ describe("classifyPlacement", () => {
 			assert.equal(verdict.action, "leave");
 		});
 
+		// The demote branch is reached only from `inbox`, so a spoof already in
+		// Junk never meets it. Without the guard on the rescue, the grant would
+		// carry mail impersonating the granted address out of Junk.
+		it("refuses to rescue a dkim-mismatch + dmarc-fail spoof sitting in junk", () => {
+			const verdict = classifyPlacement(
+				baseMessage({
+					providerSpam: { classified: true },
+					authResult: { dmarc: "Fail" },
+					authenticity: { fromDomain: "example.com", dkimMismatch: true },
+				}),
+				"junk",
+				SenderTrust.Unknown,
+				SenderOverride.NeverSpam,
+			);
+			assert.notEqual(verdict.action, "move-to-inbox");
+		});
+
+		it("refuses to rescue on a hard DMARC failure even with DKIM aligned", () => {
+			const verdict = classifyPlacement(
+				baseMessage({
+					providerSpam: { classified: true },
+					authResult: { dmarc: "Fail" },
+				}),
+				"junk",
+				SenderTrust.Unknown,
+				SenderOverride.NeverSpam,
+			);
+			assert.notEqual(verdict.action, "move-to-inbox");
+		});
+
+		it("refuses to rescue on a DKIM mismatch even where DMARC did not fail", () => {
+			const verdict = classifyPlacement(
+				baseMessage({
+					providerSpam: { classified: true },
+					authResult: { dmarc: "None" },
+					authenticity: { fromDomain: "example.com", dkimMismatch: true },
+				}),
+				"junk",
+				SenderTrust.Unknown,
+				SenderOverride.NeverSpam,
+			);
+			assert.notEqual(verdict.action, "move-to-inbox");
+		});
+
 		it("still demotes a never-spam sender's inbox mail on dkim-mismatch + dmarc-fail", () => {
 			const verdict = classifyPlacement(
 				baseMessage({

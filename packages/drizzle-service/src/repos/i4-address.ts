@@ -78,9 +78,15 @@ type MergeAttempt =
  * and the merge fold is the read-modify-write of the whole map.
  *
  * The flag the patch just raised wins, so the instruction the user gave last is
- * the one that stands. A patch raising both, or a stored row that already
- * carried both, resolves to `blocked` — the same direction the `blocked`/`vip`
- * same-second tie already breaks in.
+ * the one that stands. A patch raising both resolves to `blocked` — the same
+ * direction the `blocked`/`vip` same-second tie already breaks in.
+ *
+ * Only a patch that raises one of the two is allowed to drop the other. A row
+ * that somehow already carries both survives a patch about anything else
+ * untouched: dropping a placement instruction as a side effect of writing
+ * `muted` would be a silent revocation the user never asked for. Such a row is
+ * resolved on read — `resolveSenderPlacement` reads it as `Blocked` — and
+ * healed the next time either key is written.
  */
 const dropContradictedPlacementFlag = (
 	next: AddressFlags,
@@ -88,12 +94,15 @@ const dropContradictedPlacementFlag = (
 ): AddressFlags => {
 	if (next.blocked?.value !== true || next.neverSpam?.value !== true)
 		return next;
-	if (patch.neverSpam?.value === true && patch.blocked?.value !== true) {
+	if (patch.blocked?.value === true) {
+		const { neverSpam: _neverSpam, ...rest } = next;
+		return rest;
+	}
+	if (patch.neverSpam?.value === true) {
 		const { blocked: _blocked, ...rest } = next;
 		return rest;
 	}
-	const { neverSpam: _neverSpam, ...rest } = next;
-	return rest;
+	return next;
 };
 
 /**

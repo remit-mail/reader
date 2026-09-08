@@ -109,8 +109,14 @@ export const resolveSenderPlacement = (
  * the ones the provider rated clean and whose domain publishes no DMARC record,
  * so a check inside the rescue branch below would never fire for them. It
  * rescues only from `junk` — a message a standing filter put in a user folder
- * is not a spam question — and it does not exempt the sender from the
- * hard-DMARC-failure demote, which is the branch that catches impersonation.
+ * is not a spam question.
+ *
+ * It refuses outright on a `dmarc === "Fail"` or a DKIM mismatch. The demote
+ * branch below is reached only from `inbox`, so a spoof already sitting in Junk
+ * would never meet it: without this guard the grant would launder mail out of
+ * Junk on exactly the two signals that identify someone impersonating the
+ * address the user granted. A domain that publishes no DMARC record never
+ * scores `Fail`, so the case the grant exists for is untouched.
  */
 export const classifyPlacement = (
 	message: MessageItem,
@@ -134,7 +140,12 @@ export const classifyPlacement = (
 		};
 	}
 
-	if (senderOverride === SenderOverride.NeverSpam && placement === "junk") {
+	if (
+		senderOverride === SenderOverride.NeverSpam &&
+		placement === "junk" &&
+		message.authResult?.dmarc !== "Fail" &&
+		message.authenticity?.dkimMismatch !== true
+	) {
 		return {
 			action: "move-to-inbox",
 			confidence: "confident",
