@@ -4,7 +4,14 @@ import {
 	projectsOf,
 	strayFiles,
 	uncoveredFiles,
+	workspaceDirsFrom,
 } from "./typecheck-coverage.mjs";
+
+const TREE = {
+	packages: ["backend", "ui"],
+	doc: ["remit.email"],
+};
+const listChildren = (parent) => TREE[parent] ?? [];
 
 describe("projectsOf", () => {
 	it("defaults to tsconfig.json for a bare tsgo run", () => {
@@ -46,20 +53,62 @@ describe("projectsOf", () => {
 	});
 });
 
+describe("workspaceDirsFrom", () => {
+	it("expands a trailing star against the tree", () => {
+		assert.deepEqual(workspaceDirsFrom(["packages/*"], listChildren), [
+			"packages/backend",
+			"packages/ui",
+		]);
+	});
+
+	it("reads every glob the root manifest lists, not just the first", () => {
+		assert.deepEqual(workspaceDirsFrom(["packages/*", "doc/*"], listChildren), [
+			"doc/remit.email",
+			"packages/backend",
+			"packages/ui",
+		]);
+	});
+
+	it("takes a literal path as its own workspace", () => {
+		assert.deepEqual(workspaceDirsFrom(["e2e"], listChildren), ["e2e"]);
+	});
+
+	// Resolving it to nothing would drop every workspace under it from the guard
+	// and still report success, which is the one direction this must not fail in.
+	it("refuses a glob it cannot read rather than matching nothing", () => {
+		assert.throws(() => workspaceDirsFrom(["packages/**"], listChildren));
+		assert.throws(() => workspaceDirsFrom(["*/pkg"], listChildren));
+	});
+});
+
 describe("strayFiles", () => {
-	it("names files outside packages/, which no workspace script reaches", () => {
+	const workspaces = ["packages/backend", "packages/ui", "doc/remit.email"];
+
+	it("names files in no workspace, which no workspace script reaches", () => {
 		assert.deepEqual(
-			strayFiles([
-				"packages/backend/src/index.ts",
-				"apisix/generate-config.ts",
-				"e2e/src/api.ts",
-			]),
+			strayFiles(
+				[
+					"packages/backend/src/index.ts",
+					"apisix/generate-config.ts",
+					"e2e/src/api.ts",
+				],
+				workspaces,
+			),
 			["apisix/generate-config.ts", "e2e/src/api.ts"],
 		);
 	});
 
-	it("passes a tree with everything under packages/", () => {
-		assert.deepEqual(strayFiles(["packages/ui/src/button.tsx"]), []);
+	it("counts a workspace outside packages/ as covered", () => {
+		assert.deepEqual(
+			strayFiles(["doc/remit.email/docs/template.tsx"], workspaces),
+			[],
+		);
+	});
+
+	it("names a file under a workspace root but in no workspace", () => {
+		assert.deepEqual(strayFiles(["packages/stray.ts"], workspaces), [
+			"packages/stray.ts",
+		]);
 	});
 });
 

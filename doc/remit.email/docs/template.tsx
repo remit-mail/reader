@@ -1,5 +1,5 @@
 import type { Page, TemplateProps } from "create-tinyss/src/core/types.ts";
-import { h, type VNode } from "preact";
+import { h, type JSX } from "preact";
 
 interface NavGroup {
 	section: string;
@@ -271,7 +271,7 @@ const findBySource = (pages: Page[], item: string): Page | undefined =>
 		(page) => page.source === item || page.source.endsWith(`/${item}`),
 	);
 
-const NavLink = (page: Page, prefix: string, current: string): VNode =>
+const NavLink = (page: Page, prefix: string, current: string): JSX.Element =>
 	h(
 		"li",
 		null,
@@ -290,7 +290,7 @@ const NavGroupView = (
 	pages: Page[],
 	prefix: string,
 	current: string,
-): VNode =>
+): JSX.Element =>
 	h(
 		"div",
 		{ class: "nav-group" },
@@ -308,7 +308,7 @@ const NavGroupView = (
 // The Storybook is published to `storybook/` on the same Pages branch this
 // site's root is published to, so a relative href from the current page's depth
 // reaches it whatever prefix the site is served under.
-const ElsewhereView = (prefix: string, repository: string): VNode =>
+const ElsewhereView = (prefix: string, repository: string): JSX.Element =>
 	h(
 		"div",
 		{ class: "nav-group nav-group-elsewhere" },
@@ -326,7 +326,7 @@ export default function ReaderDocsTemplate({
 	body,
 	config,
 	pages,
-}: TemplateProps): VNode {
+}: TemplateProps): JSX.Element {
 	const siteTitle = typeof config.title === "string" ? config.title : "Reader";
 	const repository =
 		typeof config.repository === "string" ? config.repository : "";

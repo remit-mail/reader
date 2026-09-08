@@ -17,10 +17,28 @@ import {
 	projectsOf,
 	strayFiles,
 	uncoveredFiles,
+	workspaceDirsFrom,
 } from "./lib/typecheck-coverage.mjs";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const PACKAGES_DIR = join(ROOT, "packages");
+
+// The directories `npm run typecheck` enters, from the root manifest's own
+// globs — the docs site is a workspace under `doc/`, not under `packages/`.
+const childDirectories = (parent) => {
+	const dir = join(ROOT, parent);
+	if (!existsSync(dir)) return [];
+	return readdirSync(dir, { withFileTypes: true })
+		.filter((entry) => entry.isDirectory())
+		.map((entry) => entry.name);
+};
+
+const rootManifest = JSON.parse(
+	readFileSync(join(ROOT, "package.json"), "utf8"),
+);
+const workspaceDirs = workspaceDirsFrom(
+	rootManifest.workspaces ?? [],
+	childDirectories,
+).sort();
 
 const posix = (path) => path.split(sep).join("/");
 
@@ -66,33 +84,30 @@ if (files.length === 0) {
 	process.exit(1);
 }
 
-const stray = strayFiles(files);
+const stray = strayFiles(files, workspaceDirs);
 if (stray.length > 0) {
 	fail(
-		"in no workspace, so `npm run typecheck` never compiles them. Each one is a package: give it a directory under packages/, a manifest with test:typecheck, and a tsconfig.json.",
+		`in no workspace, so \`npm run typecheck\` never compiles them. Each one is a package: give it a directory under one of ${rootManifest.workspaces.join(", ")}, a manifest with test:typecheck, and a tsconfig.json.`,
 		stray,
 	);
 }
 
 const covered = new Set();
 const unchecked = [];
-for (const entry of readdirSync(PACKAGES_DIR, { withFileTypes: true }).sort(
-	(a, b) => a.name.localeCompare(b.name),
-)) {
-	if (!entry.isDirectory()) continue;
-	const manifestPath = join(PACKAGES_DIR, entry.name, "package.json");
+for (const workspace of workspaceDirs) {
+	const manifestPath = join(ROOT, workspace, "package.json");
 	if (!existsSync(manifestPath)) continue;
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 	const script = manifest.scripts?.["test:typecheck"];
 	if (!script) {
-		unchecked.push(`packages/${entry.name}`);
+		unchecked.push(workspace);
 		continue;
 	}
 	for (const config of projectsOf(script)) {
-		const configPath = join(PACKAGES_DIR, entry.name, config);
+		const configPath = join(ROOT, workspace, config);
 		if (!existsSync(configPath)) {
 			fail("named on a test:typecheck command but absent", [
-				`packages/${entry.name}/${config}`,
+				`${workspace}/${config}`,
 			]);
 		}
 		for (const file of compiledFiles(configPath)) covered.add(file);
