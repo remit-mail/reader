@@ -177,6 +177,7 @@ export const OrganizeOperations: Record<
 			messageIds: result.messageIds,
 		};
 		if (result.semanticUnavailable) response.semanticUnavailable = true;
+		if (result.semanticIndexEmpty) response.semanticIndexEmpty = true;
 		return response;
 	},
 };

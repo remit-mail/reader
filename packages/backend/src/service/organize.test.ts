@@ -512,6 +512,105 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 	});
 });
 
+/**
+ * A zero from the widen has two meanings and the preview could not tell them
+ * apart (issue #452): no mail resembles the anchor, or the index holds nothing
+ * to compare it against. Only the second is a reason to keep the rule.
+ */
+describe("matchOrganize reporting an empty semantic index", () => {
+	it("flags a widen answered by an index with no vectors at all", async () => {
+		const { messageIds, semanticIndexEmpty, semanticUnavailable } =
+			await matchAccepted(
+				matchDeps(createMemoryVectorStore()),
+				ACCOUNT_CONFIG_ID,
+				predicate(),
+			);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(semanticIndexEmpty, true);
+		assert.equal(
+			semanticUnavailable,
+			false,
+			"an empty index is not a missing vector pipeline",
+		);
+	});
+
+	it("flags a widen whose anchor message has no chunk vectors to pool", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const deps: OrganizeMatchDeps = {
+			...matchDeps(store),
+			semantic: () => ({
+				buildAnchor: async () => null,
+				vectorStore: store,
+				embed: async () => ANCHOR_VECTOR,
+				embeddingId: CURRENT_EMBEDDING_ID,
+			}),
+		};
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(semanticIndexEmpty, true);
+	});
+
+	it("does not flag a populated index that simply holds nothing similar enough", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ORTHOGONAL_VECTOR)]);
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(
+			messageIds,
+			[],
+			"the one indexed message is below threshold",
+		);
+		assert.equal(
+			semanticIndexEmpty,
+			false,
+			"the index answered; the rule is what matched nothing",
+		);
+	});
+
+	it("does not flag a widen that matched", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+		assert.equal(semanticIndexEmpty, false);
+	});
+
+	it("does not flag a literal-only predicate, which never consults the index", async () => {
+		const { semanticIndexEmpty } = await matchAccepted(
+			matchDeps(createMemoryVectorStore(), [
+				candidate("msg-1", { subject: "Weekly newsletter" }),
+			]),
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				anchorMessageId: "None",
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			},
+		);
+
+		assert.equal(semanticIndexEmpty, false);
+	});
+});
+
 describe("matchOrganize on a deployment without the vector pipeline", () => {
 	const ORIGINAL = process.env.DATA_BACKEND;
 	beforeEach(() => {
@@ -610,14 +709,16 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 	it("degrades an anchor-only widen to an empty flagged result instead of crashing", async () => {
 		const deps = vectorlessDeps([candidate("msg-1"), candidate("msg-2")]);
 
-		const { messageIds, semanticUnavailable } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
+		const { messageIds, semanticUnavailable, semanticIndexEmpty } =
+			await matchAccepted(deps, ACCOUNT_CONFIG_ID, predicate());
 
 		assert.deepEqual(messageIds, []);
 		assert.equal(semanticUnavailable, true);
+		assert.equal(
+			semanticIndexEmpty,
+			false,
+			"a deployment with no vector pipeline has no index to call empty",
+		);
 	});
 
 	it("keeps widening from a drifted persisted anchor when no embedding model is available", async () => {

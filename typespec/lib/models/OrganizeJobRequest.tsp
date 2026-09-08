@@ -183,4 +183,7 @@ model OrganizePreviewResponse {
 
   @doc("True when the semantic widen could not run because this deployment ships no vector pipeline (self-host without sqlite-vec / the embedding model). The matched set is then the literal matches only, or empty for an anchor-only predicate; literal search is unaffected. Absent on deployments where the widen ran.")
   semanticUnavailable?: boolean;
+
+  @doc("True when the widen ran but this account's semantic index held nothing to answer with — no vectors at all, or none yet for the anchor message. A zero count is then a fact about the index, which is still filling, rather than about the rule. Absent when the index answered.")
+  semanticIndexEmpty?: boolean;
 }

@@ -183,11 +183,21 @@ export interface OrganizeRejection {
 	message: string;
 }
 
-/** The matched ids plus whether the semantic widen was skipped as unavailable. */
+/** The matched ids plus what the semantic side had to say about the zero it may have returned. */
 export interface OrganizeMatched {
 	rejected: null;
 	messageIds: string[];
 	semanticUnavailable: boolean;
+	/**
+	 * The widen ran and the index had nothing to answer with (issue #452): the
+	 * account holds no vectors at all, or none yet for the anchor message. It is
+	 * the difference between "this rule matches nothing" and "nothing is indexed
+	 * yet", which a bare zero collapses into one wrong sentence. Distinct from
+	 * {@link OrganizeMatched.semanticUnavailable}, which is the deployment
+	 * shipping no vector pipeline at all; an empty index is not an error, so it
+	 * cannot be inferred from a throw.
+	 */
+	semanticIndexEmpty: boolean;
 }
 
 /** The predicate was refused: nothing matched, and nothing may be applied. */
@@ -307,16 +317,21 @@ const anchorForWiden = async (
  * Fan out with a k-NN query gated on the cosine threshold, then refine by
  * literal clauses reconstructed from the same chunk vectors. Every read here
  * goes through the vector store; a deployment without the vector pipeline
- * fails on the first call, which {@link matchOrganize} catches. Returns null
- * when neither a persisted anchor nor the message's own chunk vectors exist
- * to pool.
+ * fails on the first call, which {@link matchOrganize} catches.
+ *
+ * `indexEmpty` separates the two ways this arm returns nothing (issue #452):
+ * neither a persisted anchor nor the anchor message's own chunk vectors exist
+ * to pool from, or the k-NN read came back with no rows at all for the account.
+ * Both mean the index has nothing to answer with — it is empty or still
+ * building — rather than that no mail resembles the anchor. A thresholded-away
+ * result set is a real answer and is not flagged.
  */
 const matchSemantic = async (
 	deps: OrganizeMatchDeps,
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
-): Promise<string[] | null> => {
+): Promise<{ messageIds: string[]; indexEmpty: boolean }> => {
 	const semantic = deps.semantic();
 	const persisted = await findPersistedAnchor(
 		deps.filterAnchors,
@@ -326,7 +341,7 @@ const matchSemantic = async (
 	const anchor: AnchorPayload | null = persisted
 		? await anchorForWiden(deps, semantic, persisted)
 		: await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId);
-	if (!anchor) return null;
+	if (!anchor) return { messageIds: [], indexEmpty: true };
 	const threshold =
 		predicate.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
 	const matches = await semantic.vectorStore.query({
@@ -334,6 +349,7 @@ const matchSemantic = async (
 		topK: limit * VECTOR_CHUNK_FACTOR,
 		filter: { accountConfigId },
 	});
+	if (matches.length === 0) return { messageIds: [], indexEmpty: true };
 	const bestScore = new Map<string, number>();
 	for (const match of matches) {
 		const messageId = match.metadata.messageId;
@@ -347,7 +363,8 @@ const matchSemantic = async (
 		.map(([messageId]) => messageId);
 
 	const clauses = predicate.literalClauses;
-	if (clauses.length === 0) return base.slice(0, limit);
+	if (clauses.length === 0)
+		return { messageIds: base.slice(0, limit), indexEmpty: false };
 
 	const matched: string[] = [];
 	for (const messageId of base) {
@@ -359,7 +376,7 @@ const matchSemantic = async (
 			matched.push(messageId);
 		}
 	}
-	return matched;
+	return { messageIds: matched, indexEmpty: false };
 };
 
 /**
@@ -475,7 +492,12 @@ export const matchOrganize = async (
 	const anchored = hasAnchor(predicate);
 	const clauses = predicate.literalClauses;
 	if (!anchored && clauses.length === 0) {
-		return { rejected: null, messageIds: [], semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds: [],
+			semanticUnavailable: false,
+			semanticIndexEmpty: false,
+		};
 	}
 
 	if (!anchored) {
@@ -487,11 +509,16 @@ export const matchOrganize = async (
 			predicate,
 			limit,
 		);
-		return { rejected: null, messageIds, semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds,
+			semanticUnavailable: false,
+			semanticIndexEmpty: false,
+		};
 	}
 
 	try {
-		const semanticIds = await matchSemantic(
+		const semantic = await matchSemantic(
 			deps,
 			accountConfigId,
 			predicate,
@@ -499,8 +526,9 @@ export const matchOrganize = async (
 		);
 		return {
 			rejected: null,
-			messageIds: semanticIds ?? [],
+			messageIds: semantic.messageIds,
 			semanticUnavailable: false,
+			semanticIndexEmpty: semantic.indexEmpty,
 		};
 	} catch (error) {
 		if (!noteSemanticCapabilityAbsence(error)) throw error;
@@ -508,7 +536,12 @@ export const matchOrganize = async (
 		// clauses over the corpus — nothing when the predicate is anchor-only —
 		// and flag the absence so the client can say so.
 		if (clauses.length === 0) {
-			return { rejected: null, messageIds: [], semanticUnavailable: true };
+			return {
+				rejected: null,
+				messageIds: [],
+				semanticUnavailable: true,
+				semanticIndexEmpty: false,
+			};
 		}
 		const rejection = bodyContentRejection(clauses);
 		if (rejection) return { rejected: rejection };
@@ -518,7 +551,12 @@ export const matchOrganize = async (
 			predicate,
 			limit,
 		);
-		return { rejected: null, messageIds, semanticUnavailable: true };
+		return {
+			rejected: null,
+			messageIds,
+			semanticUnavailable: true,
+			semanticIndexEmpty: false,
+		};
 	}
 };
 
