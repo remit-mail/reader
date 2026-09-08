@@ -17,13 +17,14 @@
  * window to reach the worker (#347). A fresh account's FIFO group carries only
  * this spec's own create and delete, so the wait is bounded by this spec alone.
  *
- * Two waits are the mail server's, not the browser's. The folder is deletable
- * once its own create has settled — one intent at a time, so a delete asked for
- * while the create is in flight is refused — and it leaves the tree when the
- * delete is confirmed rather than when the confirm is pressed, because a
- * `deleting` row is listed now (`folder-rename-and-delete.md` D11). Hiding it
- * made a delete that never settled look like a folder that silently vanished
- * while the server still held it.
+ * Two waits here are the mail server's, not the browser's. The folder is
+ * deletable once its own create has settled — one intent at a time, so a delete
+ * asked for while the create is in flight is refused — and it is gone when the
+ * worker has removed the row, not when the confirm is pressed. A `deleting` row
+ * is listed now (`folder-rename-and-delete.md` D11): hiding it made a delete
+ * that never settled look like a folder that silently vanished while the server
+ * still held it, so the tree goes on showing the folder until the listing is
+ * read again.
  */
 import type { BrowserContext } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
@@ -102,6 +103,21 @@ test.describe("Delete folder from settings", () => {
 		await confirm.click();
 
 		await expect(confirm).toBeHidden({ timeout: 20_000 });
-		await expect(row).toHaveCount(0, { timeout: 120_000 });
+
+		// The folder is gone when the mail server says so. A `deleting` row is
+		// listed now, so the tree keeps showing it — labelled — from the refetch
+		// the mutation triggers until the worker removes the row, and nothing
+		// refetches again on its own. The surface that renders and refreshes that
+		// state is #366-#369; what this spec can still prove is that the delete
+		// settled and the folder does not come back.
+		await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) => !list.some((box) => box.fullPath === name),
+			{ timeoutMs: 120_000, what: `"${name}" to leave the account` },
+		);
+
+		await page.reload();
+		await expect(tree).toBeVisible({ timeout: 30_000 });
+		await expect(row).toHaveCount(0, { timeout: 30_000 });
 	});
 });
