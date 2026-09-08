@@ -11,10 +11,8 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import {
-	CANONICAL_ROLES,
-	type CanonicalMailboxRoleValue,
-	ROLE_NAME_HINTS,
 	ROLE_SPECIAL_USE,
+	roleForFolderName,
 } from "@remit/data-ports/folder-role";
 import {
 	MailboxCursorState,
@@ -57,30 +55,6 @@ const areSpecialUseSetsEqual = (
 		if (!aSet.has(value)) return false;
 	}
 	return true;
-};
-
-/**
- * The role a folder's own leaf name is most conventionally for, read from the
- * one hint table every special-folder lookup shares (`@remit/data-ports`,
- * #837). A name that several roles list goes to the role that ranks it highest,
- * so `All Mail` is an All folder rather than a lookalike of Archive.
- *
- * A second copy of these names lived here, and it is the one that could destroy
- * something: it still called `Deleted` and `Bin` Trash names, which #843 dropped
- * precisely because they are ordinary folders a user keeps mail in — and this
- * lookup does not merely skip a folder, it deletes the row and everything the
- * client can see in it.
- */
-const roleForFolderName = (
-	name: string,
-): CanonicalMailboxRoleValue | undefined => {
-	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
-	for (const role of CANONICAL_ROLES) {
-		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
-		if (rank < 0) continue;
-		if (!best || rank < best.rank) best = { role, rank };
-	}
-	return best?.role;
 };
 
 /**

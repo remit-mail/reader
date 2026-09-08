@@ -9,6 +9,10 @@ import { NotFoundError } from "@remit/data-ports/errors";
 import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	INTENT_RECORDABLE_FROM,
+	refuseContestedIntent,
+} from "./mailbox-intent.js";
 import { EVERY_MAILBOX_STATE } from "./mailbox-presence.js";
 
 /**
@@ -149,13 +153,19 @@ export class MailboxQueueService {
 	};
 
 	/**
-	 * Rename a mailbox.
-	 * Updates local state (including children) and enqueues IMAP RENAME.
+	 * Record a rename intent over the folder and every descendant, then enqueue
+	 * IMAP RENAME.
+	 *
+	 * The target is recorded, not the path (D2): every row keeps the `fullPath`
+	 * the server holds and takes its own rewritten target in `pendingPath`, so a
+	 * rename that never lands needs no unwinding — dropping `pendingPath` is the
+	 * whole revert — and nothing that resolves a folder path from a row can
+	 * resolve one the server does not have.
 	 *
 	 * @param mailboxId - The mailbox to rename
-	 * @param newPath - The new path for the mailbox
+	 * @param newPath - The path the rename is aiming at
 	 * @param accountId - The account ID for the IMAP sync event
-	 * @returns The updated mailbox
+	 * @returns The folder that was named, carrying its recorded target
 	 */
 	renameMailbox = async (
 		mailboxId: string,
@@ -168,32 +178,58 @@ export class MailboxQueueService {
 
 		// One intent over the folder and every descendant, in one transaction:
 		// IMAP RENAME moves the subtree in one command, so a partially recorded
-		// rename is the state that produced today's phantom rows (D6). Each
-		// descendant's new path is equally absent from the server until
-		// MAILBOX_RENAME lands, so each is `pending` too — otherwise a reconcile
-		// in that window reaps it as server-deleted (#290).
+		// rename is the state that produced today's phantom rows (D6). A
+		// descendant already mid-mutation refuses the whole rename.
 		const written = await this.mailboxService.transitionSubtree(
 			accountId,
 			mailboxId,
 			{
-				from: EVERY_MAILBOX_STATE,
+				from: INTENT_RECORDABLE_FROM,
 				to: MailboxSyncStatus.pending,
 				rowSet: (row) => {
-					const moved = rebaseMailboxPath(
+					const target = rebaseMailboxPath(
 						row.fullPath,
 						oldPath,
 						newPath,
 						mailbox.hierarchyDelimiter,
 					);
-					return moved === undefined ? {} : { fullPath: moved };
+					// The subtree is the folder and the rows under its own prefix, so
+					// every one of them rebases. A row that does not is a resolution
+					// bug, and recording an intent with no target for it would strand
+					// it `pending` with nothing able to settle it.
+					if (target === undefined) {
+						throw new Error(
+							`Mailbox ${row.mailboxId} at "${row.fullPath}" is not under "${oldPath}"`,
+						);
+					}
+					return { pendingPath: target };
 				},
 			},
 		);
-		if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+		if (!written) {
+			return refuseContestedIntent(
+				this.mailboxService,
+				accountId,
+				mailboxId,
+				"subtree",
+			);
+		}
 		const updated = written.find((row) => row.mailboxId === mailboxId);
 		if (!updated) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 
-		this.log.info({ mailboxId, oldPath, newPath }, "Renamed mailbox (local)");
+		this.log.info(
+			{
+				accountId,
+				mailboxId,
+				intent: "rename",
+				from: mailbox.syncStatus,
+				to: MailboxSyncStatus.pending,
+				oldPath,
+				newPath,
+				subtreeSize: written.length,
+			},
+			"Recorded rename intent",
+		);
 
 		// Enqueue IMAP sync
 		await this.enqueueEvent({
@@ -207,6 +243,50 @@ export class MailboxQueueService {
 		});
 
 		return updated;
+	};
+
+	/**
+	 * The route out of a failed rename or a failed delete that keeps the folder
+	 * as it is (T10, T11): the recorded target is dropped and the row settles
+	 * back to `synced`. Nothing is enqueued — `fullPath` was never written, so
+	 * the server has nothing to undo.
+	 *
+	 * Reached without new API surface, from a PATCH whose `fullPath` equals the
+	 * row's confirmed one. From `synced` it is a no-op; from a state with a
+	 * mutation in flight it is a 409, because dismissing an intent that is still
+	 * running would leave the settle with no row to write.
+	 */
+	dismissMailboxIntent = async (
+		mailboxId: string,
+		accountId: string,
+	): Promise<MailboxItem> => {
+		const dismissed = await this.mailboxService.transition(
+			accountId,
+			mailboxId,
+			{ from: [MailboxSyncStatus.failed], to: MailboxSyncStatus.synced },
+		);
+		if (dismissed) {
+			this.log.info(
+				{
+					accountId,
+					mailboxId,
+					intent: "dismiss",
+					from: MailboxSyncStatus.failed,
+					to: MailboxSyncStatus.synced,
+				},
+				"Dismissed folder intent",
+			);
+			return dismissed;
+		}
+
+		const current = await this.mailboxService.get(accountId, mailboxId);
+		if (current.syncStatus === MailboxSyncStatus.synced) return current;
+		return refuseContestedIntent(
+			this.mailboxService,
+			accountId,
+			mailboxId,
+			"folder",
+		);
 	};
 
 	/**

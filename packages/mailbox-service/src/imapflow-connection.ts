@@ -1053,6 +1053,15 @@ export class ImapFlowConnection {
 		}
 
 		const result = await client.mailboxRename(oldPath, newPath);
+		// `mailboxRename` resolves `undefined` when the connection is not
+		// AUTHENTICATED or SELECTED — RENAME was never issued. Dereferencing it
+		// raised a `TypeError` where the settle now reads the resolved path, and a
+		// `TypeError` is not an outcome the rename settle can classify.
+		if (!result) {
+			throw new Error(
+				`Rename of "${oldPath}" was not issued: the IMAP connection is not ready`,
+			);
+		}
 		return {
 			path: result.path,
 			newPath: result.newPath,

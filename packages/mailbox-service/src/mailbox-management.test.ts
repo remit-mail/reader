@@ -256,6 +256,27 @@ describe("MailboxManagementService.syncCreate — server path normalization", ()
 		assert.deepStrictEqual(settles[0].intent.set, {});
 		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
 	});
+
+	it("settles only a row with no rename target on it", async () => {
+		// The predicate the seventh state turns on (D3). A create redelivered
+		// after a lost acknowledgement, against a row a rename has since claimed,
+		// passes a `pending`-only guard, gets `{created: false}` — which #346
+		// correctly reads as success — and would settle `synced` with the rename
+		// target still on it, killing the rename silently.
+		const { repo, settles } = recordingRepo();
+		const { connection } = stubConnection("Archive", ["Archive"]);
+		const service = new MailboxManagementService(repo);
+
+		await service.syncCreate(
+			"acc-1",
+			"mbx-5",
+			"Archive",
+			async () => connection,
+		);
+
+		assert.strictEqual(settles[0].intent.wherePendingPath, null);
+		assert.deepStrictEqual(settles[0].intent.from, [MailboxSyncStatus.pending]);
+	});
 });
 
 describe("validateMailboxOperation", () => {
@@ -275,8 +296,13 @@ describe("validateMailboxOperation", () => {
 		assert.doesNotThrow(() => validateMailboxOperation("delete", "Archive"));
 	});
 
-	it("allows renaming INBOX", () => {
-		assert.doesNotThrow(() => validateMailboxOperation("rename", "INBOX"));
+	it("throws when renaming INBOX", () => {
+		// The server would move INBOX's mail to the new name and leave an empty
+		// INBOX behind — a bulk move, not a path update (D5). The API refuses it;
+		// this is the worker's backstop.
+		assert.throws(() => validateMailboxOperation("rename", "INBOX"), {
+			message: "Cannot rename INBOX",
+		});
 	});
 
 	it("allows renaming other mailboxes", () => {

@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { refreshFolderAppointmentLabels } from "@remit/backend/folder-role-appointments";
 import type { IMailboxRepository } from "@remit/data-ports";
 import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
@@ -70,25 +71,41 @@ const isMailboxAbsentUpstream = (error: unknown): boolean => {
  *
  * The from-set is every state because that is what these write-backs decide
  * against today — they are the unconditional writes they replace, moved onto
- * the door. #363 narrows each to the state its intent recorded, and gives a
- * lost predicate its `superseded` outcome. A null means the row is gone, which
- * is the NotFoundError the whole-chain guards below classify as the user having
- * deleted the folder mid-sync.
+ * the door. #362 narrows the delete's to the state its intent recorded. A null
+ * means the row is gone, which is the NotFoundError the whole-chain guards
+ * below classify as the user having deleted the folder mid-sync.
  */
 const recordOutcome = async (
 	mailboxService: Pick<IMailboxRepository, "transition">,
 	accountId: string,
 	mailboxId: string,
 	to: (typeof MailboxSyncStatus)[keyof typeof MailboxSyncStatus],
-	confirmedPath?: string,
 ): Promise<void> => {
 	const written = await mailboxService.transition(accountId, mailboxId, {
 		from: EVERY_MAILBOX_STATE,
 		to,
-		// `failed` keeps whatever rename target the row carries, so the UI can
-		// name what the rename was aiming at (T6); every other outcome drops it,
-		// which the transition does on its own.
-		set: confirmedPath !== undefined ? { fullPath: confirmedPath } : {},
+		set: {},
+	});
+	if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+};
+
+/**
+ * The outcome of a create, written against the state a create in flight is:
+ * `pending` with no recorded rename target (D3, D10). Without the absence
+ * check, a create redelivered after a lost acknowledgement settles a row a
+ * rename has since claimed and kills the rename silently.
+ */
+const recordCreateOutcome = async (
+	mailboxService: Pick<IMailboxRepository, "transition">,
+	accountId: string,
+	mailboxId: string,
+	to: (typeof MailboxSyncStatus)[keyof typeof MailboxSyncStatus],
+): Promise<void> => {
+	const written = await mailboxService.transition(accountId, mailboxId, {
+		from: [MailboxSyncStatus.pending],
+		wherePendingPath: null,
+		to,
+		set: {},
 	});
 	if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 };
@@ -110,12 +127,13 @@ const isMailboxPresentUpstream = (error: unknown): boolean => {
  * never an unrelated missing entity that should have been retried.
  *
  * `syncCreate` and `syncDelete` hold to that by touching nothing but the target
- * row. `syncRename` also writes the renamed subtree's descendant rows, and keeps
- * the invariant by absorbing their NotFoundErrors itself: a descendant deleted
- * mid-settle never reaches these catches. Any sync method that reads or writes a
- * second entity owes the same, or these catches must be narrowed (match the
- * mailboxId / re-check existence) before a NotFoundError from elsewhere is
- * silently acked.
+ * row. `syncRename` also writes every other row that recorded the same intent,
+ * and keeps the invariant by treating a lost predicate as an outcome rather than
+ * an error: a descendant deleted mid-settle is skipped, never raised. The
+ * appointment-label refresh writes `account_setting` rows, whose reads answer
+ * absent rather than throwing. Any sync method that reads or writes a second
+ * entity owes the same, or these catches must be narrowed (match the mailboxId /
+ * re-check existence) before a NotFoundError from elsewhere is silently acked.
  */
 
 /**
@@ -192,14 +210,14 @@ const handleCreate = async (
 								{ accountId, mailboxId, path },
 								"Mailbox already exists, marking as synced",
 							);
-							await recordOutcome(
+							await recordCreateOutcome(
 								mailboxService,
 								accountId,
 								mailboxId,
 								MailboxSyncStatus.synced,
 							);
 						} else {
-							await recordOutcome(
+							await recordCreateOutcome(
 								mailboxService,
 								accountId,
 								mailboxId,
@@ -246,6 +264,7 @@ const handleRename = async (
 
 	const {
 		account: accountService,
+		accountSetting: accountSettingService,
 		mailbox: mailboxService,
 		secrets,
 	} = await getClient();
@@ -286,36 +305,51 @@ const handleRename = async (
 						newPath,
 						scope.getConnection,
 					)
-					.then((result) => {
-						if (result.success) {
-							log.info(
-								{ accountId, mailboxId, oldPath, newPath },
-								"Mailbox renamed on IMAP",
-							);
-						} else {
+					.then(async (result) => {
+						if (!result.success) {
 							log.error(
 								{ accountId, mailboxId, oldPath, newPath, error: result.error },
 								"Failed to rename mailbox on IMAP",
 							);
+							return;
 						}
+						log.info(
+							{ accountId, mailboxId, oldPath, newPath },
+							"Mailbox renamed on IMAP",
+						);
+						if (!result.renamed) return;
+						// The path recorded beside each role appointment (#887) moves with
+						// the settle, because under D2 that is the first moment the new
+						// path is one the server holds.
+						await refreshFolderAppointmentLabels(
+							accountSettingService,
+							account.accountConfigId,
+							accountId,
+							{
+								mailboxId,
+								oldPath: result.renamed.oldPath,
+								newPath: result.renamed.newPath,
+							},
+							result.renamed.delimiter,
+						);
 					})
 					.catch(async (error) => {
-						// If source not found, delete local mailbox
+						// The folder the rename was to move is gone from the server, so it
+						// was deleted under us. Removing the row on its own is the
+						// orphaning bug: the folder's mail stays keyed to a dead
+						// mailboxId, out of every reader and still in the search index
+						// (D8).
 						if (isMailboxAbsentUpstream(error)) {
 							log.info(
-								{ accountId, mailboxId, oldPath },
-								"Source mailbox not found, deleting local",
+								{ accountId, mailboxId, oldPath, intent: "rename" },
+								"Source mailbox not found, deleting local folder and its mail",
 							);
-							await mailboxService.delete(accountId, mailboxId);
+							await mailboxService.deleteMailboxWithMail(accountId, mailboxId);
 						} else {
-							// Rollback local rename by restoring old path
-							await recordOutcome(
-								mailboxService,
-								accountId,
-								mailboxId,
-								MailboxSyncStatus.failed,
-								oldPath,
-							);
+							// T6. Nothing is restored — `fullPath` was never written, and
+							// each intent-carrying row keeps its target so the client can
+							// name what the rename was aiming at and offer a retry.
+							await managementService.failRename(accountId, mailboxId, newPath);
 							throw error;
 						}
 					})

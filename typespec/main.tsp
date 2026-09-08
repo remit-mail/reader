@@ -162,13 +162,20 @@ namespace RemitApi {
       @path mailboxId: UUID,
     ): MailboxResponse | NotFoundError | UnauthorizedError;
 
+    @doc("Rename a folder, or dismiss a folder mutation that failed. `fullPath` records the rename target over the folder and everything under it; the folder keeps the path the mail server holds until the rename lands. A `fullPath` equal to the folder's current one is a dismissal: it clears a failed rename or delete and enqueues nothing. Refused with 400 for INBOX at either end, a name reserved for a system folder, and a name another folder already has; with 409 when a mutation is already in flight on the folder or on anything inside it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
     op renameMailbox(
       @path accountId: UUID,
       @path mailboxId: UUID,
       @body input: RenameMailboxInput,
-    ): MailboxResponse | NotFoundError | ForbiddenError | UnauthorizedError;
+    ):
+      | MailboxResponse
+      | ValidationError
+      | ConflictError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete

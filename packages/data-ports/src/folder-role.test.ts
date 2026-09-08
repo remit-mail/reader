@@ -9,6 +9,7 @@ import {
 import {
 	composeFolderRoleAppointmentLabelName,
 	composeFolderRoleAppointmentName,
+	isReservedFolderName,
 	meetsTrashAssurance,
 	parseFolderRoleAppointmentLabelName,
 	parseFolderRoleAppointmentName,
@@ -381,4 +382,41 @@ describe("the appointment name and its label sibling", () => {
 			role: CanonicalMailboxRole.Trash,
 		});
 	});
+});
+
+describe("isReservedFolderName", () => {
+	/**
+	 * The sweep's own predicate. A folder whose leaf name is a role's
+	 * conventional name but which lacks the server's flag is read as a duplicate
+	 * and its row is deleted — under D8, with the folder's mail — as soon as
+	 * another folder holds the flag. A rename to one of these settles `synced`
+	 * and is then reaped, which is why the API refuses it (D5).
+	 */
+	for (const name of [
+		"archive",
+		"Archive",
+		"ARCHIVES",
+		"trash",
+		"Deleted Items",
+		"drafts",
+		"Sent Mail",
+		"junk",
+		"Spam",
+		"All Mail",
+	]) {
+		it(`reserves "${name}"`, () => {
+			assert.equal(isReservedFolderName(name), true);
+		});
+	}
+
+	/**
+	 * #843 dropped a bare "Deleted" and "Bin" from the Trash hints precisely
+	 * because they are ordinary folder names a user keeps mail in. Reserving
+	 * them here would refuse a rename nothing would ever have reaped.
+	 */
+	for (const name of ["Deleted", "Bin", "Receipts", "Work", "Inbox 2024"]) {
+		it(`leaves "${name}" alone`, () => {
+			assert.equal(isReservedFolderName(name), false);
+		});
+	}
 });

@@ -29,8 +29,21 @@ interface Connection {
 		messages: { total: number };
 	}>;
 	closeBox: () => Promise<void>;
-	renameMailbox: (oldPath: string, newPath: string) => Promise<void>;
+	renameMailbox: (
+		oldPath: string,
+		newPath: string,
+	) => Promise<{ path: string; newPath: string }>;
 	deleteMailbox: (path: string) => Promise<void>;
+}
+
+/** The folder rows the handler reads its guards and its settle row-set from. */
+interface Row {
+	mailboxId: string;
+	accountId: string;
+	fullPath: string;
+	hierarchyDelimiter: string;
+	syncStatus: string;
+	pendingPath?: string;
 }
 
 interface Harness {
@@ -41,6 +54,7 @@ interface Harness {
 		deletedAt?: number;
 	} | null;
 	connection: Connection;
+	rows: Map<string, Row>;
 	mailboxUpdateError?: Error;
 	mailboxRowGone?: boolean;
 	disconnectCount: number;
@@ -72,14 +86,31 @@ const buildConnection = (): Connection => ({
 		messages: { total: 3 },
 	}),
 	closeBox: record("connection.closeBox"),
-	renameMailbox: record("connection.renameMailbox"),
+	renameMailbox: async (oldPath: string, newPath: string) => {
+		h.calls.push({
+			method: "connection.renameMailbox",
+			args: [oldPath, newPath],
+		});
+		return { path: oldPath, newPath };
+	},
 	deleteMailbox: record("connection.deleteMailbox"),
+});
+
+const row = (over: Partial<Row> & { mailboxId: string }): Row => ({
+	accountId: "acc-1",
+	fullPath: "Archive",
+	hierarchyDelimiter: "/",
+	syncStatus: "pending",
+	...over,
 });
 
 const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	connection: buildConnection(),
+	// A create in flight: `pending` with no recorded rename target, which is
+	// what tells it apart from a rename in flight (D3).
+	rows: new Map([["mbx-1", row({ mailboxId: "mbx-1" })]]),
 	disconnectCount: 0,
 });
 
@@ -92,23 +123,80 @@ const deps = (): MailboxManagementDeps =>
 					return h.account;
 				},
 			},
+			accountSetting: {
+				get: async () => undefined,
+				upsert: record("accountSetting.upsert"),
+				delete: record("accountSetting.delete"),
+			},
 			mailbox: {
+				get: async (accountId: string, mailboxId: string) => {
+					h.calls.push({ method: "mailbox.get", args: [accountId, mailboxId] });
+					const found = h.mailboxRowGone
+						? undefined
+						: h.rows.get(mailboxId as string);
+					if (!found) {
+						throw Object.assign(new Error(`Mailbox not found: ${mailboxId}`), {
+							name: "NotFoundError",
+						});
+					}
+					return found;
+				},
 				update: async (...args: unknown[]) => {
 					h.calls.push({ method: "mailbox.update", args });
 					if (h.mailboxUpdateError) throw h.mailboxUpdateError;
 				},
-				// The conditional write the folder state now goes through: a row
-				// that is gone matches nothing, so the loser gets a null rather
-				// than a throw and the handler raises the NotFoundError itself.
+				// The conditional write the folder state now goes through, with the
+				// predicate honoured: a row that is gone or that somebody else moved
+				// matches nothing, so the loser gets a null rather than a throw and
+				// the handler raises the NotFoundError itself.
 				transition: async (...args: unknown[]) => {
 					h.calls.push({ method: "mailbox.transition", args });
-					return h.mailboxRowGone ? null : {};
+					if (h.mailboxRowGone) return null;
+					const mailboxId = args[1] as string;
+					const intent = args[2] as {
+						from: readonly string[];
+						wherePendingPath?: string | null;
+						to: string;
+						set?: { fullPath?: string };
+					};
+					const current = h.rows.get(mailboxId);
+					if (!current) return null;
+					if (!intent.from.includes(current.syncStatus)) return null;
+					if (
+						intent.wherePendingPath !== undefined &&
+						(intent.wherePendingPath ?? undefined) !== current.pendingPath
+					) {
+						return null;
+					}
+					const next: Row = {
+						...current,
+						...(intent.set?.fullPath !== undefined
+							? { fullPath: intent.set.fullPath }
+							: {}),
+						syncStatus: intent.to,
+					};
+					if (intent.to !== "pending" && intent.to !== "failed") {
+						next.pendingPath = undefined;
+					}
+					h.rows.set(mailboxId, next);
+					return next;
 				},
 				findByPathPrefix: async (...args: unknown[]) => {
 					h.calls.push({ method: "mailbox.findByPathPrefix", args });
 					return [];
 				},
+				findBySyncStatus: async (accountId: string, syncStatus: string) => {
+					h.calls.push({
+						method: "mailbox.findBySyncStatus",
+						args: [accountId, syncStatus],
+					});
+					if (h.mailboxRowGone) return [];
+					return [...h.rows.values()].filter(
+						(r) => r.syncStatus === syncStatus,
+					);
+				},
 				delete: record("mailbox.delete"),
+				deleteMailboxWithMail: record("mailbox.deleteMailboxWithMail"),
 			},
 			secrets: {},
 		}),
@@ -155,10 +243,15 @@ const called = (method: string): Call[] =>
 const lastUpdate = (): Record<string, unknown> =>
 	(called("mailbox.update").at(-1)?.args[2] ?? {}) as Record<string, unknown>;
 
-const lastSettle = (): { to?: string; set?: Record<string, unknown> } =>
+const lastSettle = (): {
+	to?: string;
+	set?: Record<string, unknown>;
+	wherePendingPath?: string | null;
+} =>
 	(called("mailbox.transition").at(-1)?.args[2] ?? {}) as {
 		to?: string;
 		set?: Record<string, unknown>;
+		wherePendingPath?: string | null;
 	};
 
 describe("processMailboxManagement — MAILBOX_CREATE", () => {
@@ -257,12 +350,24 @@ describe("processMailboxManagement — MAILBOX_CREATE", () => {
 	});
 });
 
+/**
+ * The rename intent a MAILBOX_RENAME is settled against: the folder keeps the
+ * path the server holds, and carries the target the intent recorded (D2).
+ */
+const recordRenameIntent = (pendingPath = "Archive 2024"): void => {
+	h.rows.set(
+		"mbx-1",
+		row({ mailboxId: "mbx-1", fullPath: "Archive", pendingPath }),
+	);
+};
+
 describe("processMailboxManagement — MAILBOX_RENAME", () => {
 	beforeEach(() => {
 		h = fresh();
+		recordRenameIntent();
 	});
 
-	it("renames on the server and settles the row", async () => {
+	it("renames on the server and settles the row onto the confirmed path", async () => {
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
 		assert.deepEqual(called("connection.renameMailbox")[0]?.args, [
@@ -270,31 +375,49 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 			"Archive 2024",
 		]);
 		assert.equal(lastSettle().to, "synced");
+		assert.equal(lastSettle().set?.fullPath, "Archive 2024");
 	});
 
-	it("drops the local row when the source folder is gone on the server", async () => {
+	it("settles onto the path ImapFlow resolved, not the one that was asked for", async () => {
+		h.connection.renameMailbox = async (oldPath: string) => {
+			h.calls.push({ method: "connection.renameMailbox", args: [oldPath] });
+			return { path: oldPath, newPath: "INBOX/Archive 2024" };
+		};
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		assert.equal(lastSettle().set?.fullPath, "INBOX/Archive 2024");
+	});
+
+	it("takes the folder's mail with it when the source is gone on the server", async () => {
+		// The folder was deleted under us. Dropping the row on its own is the
+		// orphaning bug: its mail stays keyed to a dead mailboxId, out of every
+		// reader and still in the search index (D8).
 		h.connection.renameMailbox = async () => {
 			throw new Error("Mailbox not found");
 		};
 
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
-		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
-		assert.equal(called("mailbox.transition").length, 0);
+		assert.deepEqual(called("mailbox.deleteMailboxWithMail")[0]?.args, [
+			"acc-1",
+			"mbx-1",
+		]);
+		assert.equal(called("mailbox.delete").length, 0);
 	});
 
-	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
-		h.connection.renameMailbox = async () => {
-			throw new Error("server exploded");
-		};
+	it("acks terminally without connecting when the folder row is gone", async () => {
 		h.mailboxRowGone = true;
 
 		await processMailboxManagement(renameEvent, noopLogger, deps());
 
+		assert.equal(called("connection.renameMailbox").length, 0);
 		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
 
-	it("rolls the local path back and rethrows on any other rename error", async () => {
+	it("keeps the confirmed path and the target on a refused rename", async () => {
+		// T6. `fullPath` was never written, so there is nothing to restore; the
+		// target is kept so the client can name what the rename was aiming at.
 		h.connection.renameMailbox = async () => {
 			throw new Error("server exploded");
 		};
@@ -305,7 +428,78 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		);
 
 		assert.equal(lastSettle().to, "failed");
-		assert.equal(lastSettle().set?.fullPath, "Archive");
+		assert.equal(
+			lastSettle().set?.fullPath,
+			undefined,
+			"nothing is restored: the row never left the path the server holds",
+		);
+		assert.equal(lastSettle().wherePendingPath, "Archive 2024");
+	});
+
+	it("issues no RENAME when the row has already settled", async () => {
+		h.rows.set(
+			"mbx-1",
+			row({
+				mailboxId: "mbx-1",
+				fullPath: "Archive 2024",
+				syncStatus: "synced",
+			}),
+		);
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		assert.equal(called("connection.renameMailbox").length, 0);
+		assert.equal(called("mailbox.transition").length, 0);
+	});
+
+	it("issues no RENAME when the row is pending for a different target", async () => {
+		h.rows.set("mbx-1", row({ mailboxId: "mbx-1", pendingPath: "Archief" }));
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		assert.equal(called("connection.renameMailbox").length, 0);
+		assert.equal(called("mailbox.transition").length, 0);
+	});
+});
+
+describe("processMailboxManagement — the seventh state (#363, D3)", () => {
+	beforeEach(() => {
+		h = fresh();
+		recordRenameIntent();
+	});
+
+	/**
+	 * A settled create whose acknowledgement was lost, redelivered against a row
+	 * this rename has since claimed. A `pending`-only guard passes it; CREATE
+	 * collides and ImapFlow reports `{created: false}`, which #346 correctly
+	 * reads as success; the settle then writes `synced` with the rename target
+	 * still on the row — and the rename's own settle no longer matches, so the
+	 * RENAME never runs and nothing is ever marked failed.
+	 */
+	it("lets a redelivered create settle nothing on a row a rename has claimed", async () => {
+		await processMailboxManagement(createEvent, noopLogger, deps());
+
+		const settle = called("mailbox.transition").at(-1)?.args[2] as {
+			wherePendingPath?: string | null;
+			to?: string;
+		};
+		assert.equal(
+			settle?.wherePendingPath,
+			null,
+			"the create settle requires the row to carry no rename target",
+		);
+		assert.equal(h.rows.get("mbx-1")?.pendingPath, "Archive 2024");
+	});
+
+	it("then settles the rename normally", async () => {
+		await processMailboxManagement(createEvent, noopLogger, deps());
+		h.calls = [];
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		assert.equal(called("connection.renameMailbox").length, 1);
+		assert.equal(lastSettle().to, "synced");
+		assert.equal(lastSettle().set?.fullPath, "Archive 2024");
 	});
 });
 
@@ -443,7 +637,8 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		assert.equal(lastSettle().to, "failed");
 	});
 
-	it("reads NONEXISTENT on a RENAME as the source folder being gone", async () => {
+	it("reads NONEXISTENT on a RENAME as the source folder being gone, mail and all", async () => {
+		recordRenameIntent();
 		h.connection.renameMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
 				serverResponseCode: "NONEXISTENT",
@@ -454,10 +649,14 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		await assert.doesNotReject(
 			processMailboxManagement(renameEvent, noopLogger, deps()),
 		);
-		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
+		assert.deepEqual(called("mailbox.deleteMailboxWithMail")[0]?.args, [
+			"acc-1",
+			"mbx-1",
+		]);
 	});
 
-	it("still rolls back and rethrows when a RENAME fails for any other reason", async () => {
+	it("still refuses the intent and rethrows when a RENAME fails for any other reason", async () => {
+		recordRenameIntent();
 		h.connection.renameMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
 				serverResponseCode: "SERVERBUG",
