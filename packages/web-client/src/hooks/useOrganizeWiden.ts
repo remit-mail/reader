@@ -1,5 +1,5 @@
 import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { deriveSenderClauses, distinctSenders } from "@remit/ui";
+import { derivePropertyClauses, distinctSenders } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildOrganizeInput } from "@/lib/organize/organize-model";
@@ -9,16 +9,17 @@ import {
 } from "@/lib/organize/sender-fallback";
 
 /**
- * "Select similar messages" (the widen step) with a sender-derived fallback for
- * deployments without the vector pipeline.
+ * "Select similar messages" (the widen step) with a selection-agreement
+ * fallback for deployments without the vector pipeline.
  *
  * The first preview runs the semantic anchor (POST /organize/preview). When the
  * server reports `semanticUnavailable` — no vector pipeline on this deployment
  * (semantic-capability.ts) — the widen re-previews with the literal vocabulary
- * that matches vector-free: one `From` clause per distinct sender in the
- * selection, combined with `Or`, no anchor. The counts shown, the one-time
- * back-apply, and any standing filter then all carry that same literal
- * predicate, so the previewed set equals the set every commit scope acts on.
+ * that matches vector-free: what the whole selection agrees on (#458) — one
+ * sender/domain clause, or the subject the selection shares when senders don't
+ * — combined with `Or`, no anchor. The counts shown, the one-time back-apply,
+ * and any standing filter then all carry that same literal predicate, so the
+ * previewed set equals the set every commit scope acts on.
  *
  * A semantic-capable deployment never fires the second preview and keeps exactly
  * the anchor behaviour.
@@ -27,6 +28,7 @@ export const useOrganizeWiden = (
 	accountId: string | undefined,
 	anchorMessageId: string | undefined,
 	senders: readonly string[],
+	subjects: readonly string[],
 ) => {
 	const mutation = useMutation(organizeOperationsPreviewOrganizeMutation());
 	const { mutate, reset: mutationReset } = mutation;
@@ -65,9 +67,9 @@ export const useOrganizeWiden = (
 		setFellBack(true);
 		mutate({
 			path: { accountId },
-			body: buildOrganizeInput(buildSenderFallbackDraft(distinct)),
+			body: buildOrganizeInput(buildSenderFallbackDraft(distinct, subjects)),
 		});
-	}, [willFallBack, accountId, distinct, mutate]);
+	}, [willFallBack, accountId, distinct, subjects, mutate]);
 
 	// The literal re-preview has no anchor, so its response reports
 	// `semanticUnavailable: false`; `fellBack` is what remembers the capability
@@ -76,7 +78,10 @@ export const useOrganizeWiden = (
 	const isPending = mutation.isPending || willFallBack;
 
 	const matchPredicate: OrganizeMatchPredicate = fellBack
-		? { matchOperator: "Or", literalClauses: deriveSenderClauses(distinct) }
+		? {
+				matchOperator: "Or",
+				literalClauses: derivePropertyClauses(distinct, subjects),
+			}
 		: {
 				...(anchorMessageId ? { anchorMessageId } : {}),
 				matchOperator: "And",
