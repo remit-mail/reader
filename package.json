@@ -30,6 +30,7 @@
     "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
+    "check:sqlite-vec-version": "node npm-scripts/check-sqlite-vec-version.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
@@ -62,6 +63,7 @@
   },
   "ciCoverage": {
     "allowUnreachable": {
+      "check:sqlite-vec-version": "the equality it checks is asserted against the shipped Dockerfile and worker manifest by npm-scripts/lib/sqlite-vec-lockstep.test.mjs, which test:scripts already runs; the script is the operator's entry point to the same comparison",
       "packages/mailbox-service#test:integ": "speaks IMAP to a mokapi server on localhost:143, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites",
       "packages/mailbox-service#test:e2e": "reads a mailfuzz corpus already delivered to INBOX. Run against the e2e Dovecot 19 of its 22 tests pass and 3 fail on an empty search(ALL) — that Dovecot hands every user an empty maildir on purpose (docker-compose.dovecot.yml), so wiring it needs the suite to APPEND the mail it reads",
       "packages/search-service#test:integ:model": "fetches 87MB of MiniLM weights from huggingface.co on first run, which is a third-party dependency taken mid-test rather than declared in the lockfile",
