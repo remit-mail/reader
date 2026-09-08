@@ -186,4 +186,32 @@ describe("useOrganizeWiden — no vector pipeline, no senders", () => {
 		assert.deepEqual(widen?.senders, []);
 		assert.equal(widen?.matchPredicate.anchorMessageId, "msg-1");
 	});
+
+	it("still re-previews on a shared subject alone (#458)", async () => {
+		const holder = mount(
+			[],
+			(call) =>
+				call.body?.anchorMessageId
+					? { matchedCount: 0, messageIds: [], semanticUnavailable: true }
+					: {
+							matchedCount: 12,
+							messageIds: ["m"],
+							semanticUnavailable: false,
+						},
+			["Invoice 1841", "Invoice 1902"],
+		);
+		await settle(2);
+
+		const calls = http?.to(PREVIEW_PATH) ?? [];
+		assert.equal(calls.length, 2);
+		const second = calls[1];
+		assert.equal(second.body?.anchorMessageId, undefined);
+		assert.deepEqual(second.body?.literalClauses, [
+			{ field: "Subject", value: "Invoice" },
+		]);
+
+		const widen = holder.current;
+		assert.equal(widen?.semanticUnavailable, true);
+		assert.equal(widen?.senderFallback, true);
+	});
 });

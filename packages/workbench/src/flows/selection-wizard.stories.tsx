@@ -2,7 +2,6 @@ import {
 	type ClauseEditState,
 	demoClauseSuggestions,
 	derivePropertyClauses,
-	deriveSenderClauses,
 	dominantSender,
 	type EnvelopeAddress,
 	type FolderTreeNode,
@@ -334,7 +333,7 @@ function WizardDriver({
 
 	const fallBackToProperties = () => {
 		setSemanticFallbackTaken(true);
-		setClauses(withIds(deriveSenderClauses(senders), "sender"));
+		setClauses(seedPropertyClauses());
 		setMode("properties");
 	};
 

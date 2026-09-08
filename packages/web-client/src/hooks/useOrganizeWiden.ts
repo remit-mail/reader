@@ -35,6 +35,10 @@ export const useOrganizeWiden = (
 	const [fellBack, setFellBack] = useState(false);
 
 	const distinct = useMemo(() => distinctSenders(senders), [senders]);
+	const agreementClauses = useMemo(
+		() => derivePropertyClauses(distinct, subjects),
+		[distinct, subjects],
+	);
 
 	const preview = useCallback(() => {
 		if (!accountId || !anchorMessageId) return;
@@ -55,12 +59,15 @@ export const useOrganizeWiden = (
 	}, [mutationReset]);
 
 	const data = mutation.data;
-	// The first preview came back capability-absent and there are senders to
-	// match on: re-preview with the literal clauses before showing any count, so
-	// the count the user sees is the sender-match count, never a flash of the
-	// empty semantic result.
+	// The first preview came back capability-absent and the selection agrees on
+	// something to match on — a sender, a domain, or just a shared subject, not
+	// senders alone (#458): re-preview with the literal clauses before showing
+	// any count, so the count the user sees is the agreement's match count,
+	// never a flash of the empty semantic result.
 	const willFallBack =
-		data?.semanticUnavailable === true && !fellBack && distinct.length > 0;
+		data?.semanticUnavailable === true &&
+		!fellBack &&
+		agreementClauses.length > 0;
 
 	useEffect(() => {
 		if (!willFallBack || !accountId) return;
@@ -78,10 +85,7 @@ export const useOrganizeWiden = (
 	const isPending = mutation.isPending || willFallBack;
 
 	const matchPredicate: OrganizeMatchPredicate = fellBack
-		? {
-				matchOperator: "Or",
-				literalClauses: derivePropertyClauses(distinct, subjects),
-			}
+		? { matchOperator: "Or", literalClauses: agreementClauses }
 		: {
 				...(anchorMessageId ? { anchorMessageId } : {}),
 				matchOperator: "And",
