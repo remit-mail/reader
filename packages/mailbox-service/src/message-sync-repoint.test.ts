@@ -11,13 +11,11 @@ import type {
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { deriveMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import {
-	type AccountFolderRoles,
-	MessageSyncService,
-	repointsOnSighting,
-} from "./message-sync.js";
+import { placementKey } from "./external-move.js";
+import { type AccountFolderRoles, MessageSyncService } from "./message-sync.js";
 import { folderRoles, NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope, ImapMessage } from "./types.js";
 
@@ -91,12 +89,18 @@ interface Observed {
  * Sync one message out of `sighting`, against a database that already holds it
  * under `stored`. The account's Junk folder is `JUNK` and its Trash is `TRASH`,
  * so the sighting's own role follows from which mailbox it is.
+ *
+ * `stillInSource` is the answer `confirmDepartures` reached before the batch was
+ * saved (#1146). The default is a message the source folder no longer holds,
+ * which is what a move made in another client looks like; `true` is the labelled
+ * message that is in both folders at once.
  */
 const sync = async (
 	sighting: MailboxItem,
 	stored: MessageItem,
 	threadRow: ThreadMessageItem | null = threadRowIn(INBOX),
 	copiesHere: MessageItem[] = [],
+	stillInSource = false,
 ): Promise<Observed> => {
 	const observed: Observed = {
 		repointedTo: [],
@@ -164,6 +168,16 @@ const sync = async (
 		envelope,
 	} as unknown as ImapMessage;
 
+	const departed = stillInSource
+		? new Set<string>()
+		: new Set([
+				placementKey(
+					deriveMessageId("acct-1", envelope.messageId),
+					stored.mailboxId,
+					stored.uid,
+				),
+			]);
+
 	const result = (await (
 		service as unknown as {
 			saveMessage: (
@@ -172,13 +186,21 @@ const sync = async (
 				accountConfigId: string,
 				msg: ImapMessage,
 				roles: AccountFolderRoles,
+				departed: Set<string>,
 			) => Promise<{ owned: boolean }>;
 		}
-	).saveMessage(sighting, "acct-1", "cfg-1", msg, {
-		junkMailboxId: JUNK.mailboxId,
-		trashMailboxId: TRASH.mailboxId,
-		configJunkRoles: NO_JUNK_ROLES,
-	})) as { owned: boolean };
+	).saveMessage(
+		sighting,
+		"acct-1",
+		"cfg-1",
+		msg,
+		{
+			junkMailboxId: JUNK.mailboxId,
+			trashMailboxId: TRASH.mailboxId,
+			configJunkRoles: NO_JUNK_ROLES,
+		},
+		departed,
+	)) as { owned: boolean };
 
 	observed.owned = result.owned;
 	return observed;
@@ -224,6 +246,26 @@ describe("which folder a message the database already holds lives in", () => {
 		);
 
 		assert.deepEqual(observed.repointedTo, []);
+		assert.equal(observed.owned, false);
+	});
+
+	/**
+	 * The reported bug (#1146): a message that legitimately sits in two real
+	 * folders — a Gmail user label, a Sieve `fileinto` beside a `keep`, a Sent
+	 * copy a list echoes back — was re-pointed out of the Inbox by whichever
+	 * folder the round enumerated last.
+	 */
+	it("leaves a labelled message in the folder that still holds it", async () => {
+		const observed = await sync(
+			mailboxAt("Receipts"),
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			true,
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.deepEqual(observed.threadUpdates, []);
 		assert.equal(observed.owned, false);
 	});
 
@@ -298,97 +340,5 @@ describe("what a re-pointed message does to its sender's standing", () => {
 		const observed = await sync(INBOX, storedIn(INBOX));
 
 		assert.deepEqual(observed.reconciled, []);
-	});
-});
-
-describe("repointsOnSighting", () => {
-	it("refuses a Gmail virtual folder the server never flagged", () => {
-		assert.equal(
-			repointsOnSighting(mailboxAt("[Gmail]/All Mail"), storedIn(INBOX)),
-			false,
-		);
-	});
-
-	it("accepts a folder the user named after a virtual one", () => {
-		assert.equal(
-			repointsOnSighting(mailboxAt("Starred ideas"), storedIn(INBOX)),
-			true,
-		);
-	});
-
-	it("accepts an ordinary inbound row the sync path left pending", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.pending }),
-			),
-			true,
-		);
-	});
-
-	it("accepts a row a settled mutation marked synced", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.synced }),
-			),
-			true,
-		);
-	});
-
-	/**
-	 * The row `abandonDelete` hands back: reader refused the delete, put the
-	 * message back where the server still has it, and nothing else is coming
-	 * for the row. Reader shares its mailboxes, so the user moving that same
-	 * message in another client is ordinary — and before R3 the sighting was
-	 * refused on `syncStatus` alone and the row never followed the move.
-	 */
-	it("accepts a row whose delete was abandoned, so a move made elsewhere still lands", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.abandoned,
-				}),
-			),
-			true,
-		);
-	});
-
-	it("accepts a row left `failed` by a transient attempt that has since settled", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.failed }),
-			),
-			true,
-		);
-	});
-
-	it("refuses a row whose own move is still in flight", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.moving,
-					syncStatus: MessageSyncStatus.pending,
-				}),
-			),
-			false,
-		);
-	});
-
-	it("refuses a row whose own delete is still in flight", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.deleting,
-					syncStatus: MessageSyncStatus.pending,
-				}),
-			),
-			false,
-		);
 	});
 });
