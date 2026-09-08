@@ -401,6 +401,41 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 		assert.deepEqual(deleted, []);
 	});
 
+	it("lets a failed rename's target be discovered as a folder of its own", async () => {
+		// A failed rename keeps its target so the UI can name what it was aiming
+		// at (T6), and nothing clears it until the user retries or dismisses. If
+		// the guard honoured that claim, one stuck folder would block the sweep
+		// from ever seeing a real folder another client later created at that
+		// path — permanently, and silently.
+		const { mailboxService, specialUseService, created } = buildServices([
+			{
+				mailboxId: "stuck",
+				fullPath: "Archive/2025",
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Records/2025",
+			},
+		]);
+		const service = new MailboxSyncService(
+			mailboxService,
+			specialUseService,
+			silentLogger,
+		);
+
+		await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection([
+				{ fullPath: "INBOX" },
+				{ fullPath: "Archive/2025" },
+				{ fullPath: "Records/2025" },
+			]),
+		);
+
+		assert.deepEqual(
+			created.map((input) => input.fullPath),
+			["INBOX", "Records/2025"],
+		);
+	});
+
 	it("writes syncStatus synced on the row it discovers", async () => {
 		const { mailboxService, specialUseService, created } = buildServices([]);
 		const service = new MailboxSyncService(

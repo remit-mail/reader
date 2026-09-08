@@ -62,7 +62,9 @@ export interface IMailboxRepository {
 	 *
 	 * Resolves with every written row, or with `null` when any row in the
 	 * subtree was not in an accepted from-state — in which case nothing was
-	 * written. This serves the intent only: a settle is per-row (D15).
+	 * written. The named folder comes first and its descendants follow, but a
+	 * caller wanting one row should find it by `mailboxId` rather than lean on
+	 * that. This serves the intent only: a settle is per-row (D15).
 	 */
 	transitionSubtree(
 		accountId: string,
@@ -76,6 +78,11 @@ export interface IMailboxRepository {
 	 * `deleteMessageSubtree`, so the nine per-message child tables go and one
 	 * `message.removed` outbox row per message clears the search index; then the
 	 * mailbox's own child rows; then, last, the mailbox row itself.
+	 *
+	 * "Its own child rows" includes a `message_placement_move` marker naming this
+	 * folder as a move's *destination*, not only as its source. The folder it
+	 * points at is gone, so the move it records can never land, and leaving the
+	 * marker behind holds a message elsewhere in the account unsettled forever.
 	 *
 	 * Ordered, batched and resumable rather than one transaction — the caller
 	 * keeps the row `deleting` until this returns, so a redelivery re-enters and

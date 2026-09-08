@@ -6,6 +6,7 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { EVERY_MAILBOX_STATE } from "./mailbox-presence.js";
@@ -177,13 +178,20 @@ export class MailboxQueueService {
 			{
 				from: EVERY_MAILBOX_STATE,
 				to: MailboxSyncStatus.pending,
-				rowSet: (row) => ({
-					fullPath: row.fullPath.replace(oldPath, newPath),
-				}),
+				rowSet: (row) => {
+					const moved = rebaseMailboxPath(
+						row.fullPath,
+						oldPath,
+						newPath,
+						mailbox.hierarchyDelimiter,
+					);
+					return moved === undefined ? {} : { fullPath: moved };
+				},
 			},
 		);
 		if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
-		const updated = written[0];
+		const updated = written.find((row) => row.mailboxId === mailboxId);
+		if (!updated) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 
 		this.log.info({ mailboxId, oldPath, newPath }, "Renamed mailbox (local)");
 

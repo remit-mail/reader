@@ -180,9 +180,9 @@ describe("resolveConfirmedMailboxForRole", () => {
 
 describe("resolveRoleForAccount", () => {
 	it("resolves an appointment naming a mailbox whose last sync failed", () => {
-		// `failed` has three writers (imap-worker mailbox-management: create :166
-		// rolls nothing back, rename :275 restores oldPath, delete :384 leaves the
-		// folder) and in two the folder is really at the path the row names.
+		// `failed` means the folder exists at `fullPath` and the last rename or
+		// delete intent did not land (folder-rename-and-delete.md D7), so the row
+		// names a path the server really holds.
 		const failed: RoleMailboxCandidate & { syncStatus: string } = {
 			...mailbox("mb-trash", "INBOX/Prullenbak"),
 			syncStatus: MailboxSyncStatus.failed,

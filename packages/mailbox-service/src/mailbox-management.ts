@@ -194,6 +194,13 @@ export class MailboxManagementService {
 			// Open the mailbox to get UIDVALIDITY and other status info
 			const status = await connection.openBox(serverPath, true);
 
+			// Two writes where there was one, and the settle is deliberately the
+			// second: counters are ordinary metadata and stay off the transition,
+			// whose whole point is that its write-set is the state (D3). A crash in
+			// between leaves the row `pending` with fresh counters, and the row not
+			// yet settled is what keeps the queue message unacked — the redelivery
+			// re-issues CREATE, the server answers ALREADYEXISTS, and #339's
+			// classification settles it. Settling first would be the unsafe order.
 			await this.mailboxService.update(accountId, mailboxId, {
 				uidValidity: status.uidvalidity,
 				uidNext: status.uidnext,

@@ -152,20 +152,26 @@ export class MailboxSyncService {
 		const existingByPath = new Map(
 			existingMailboxes.map((m) => [m.fullPath, m]),
 		);
-		// The same rows a second time, keyed by the path a recorded rename is
-		// moving them to (D14). Under D2 `fullPath` stays the path the server held
-		// when the intent was recorded, so between the server executing RENAME and
-		// the settle, LIST returns a path no row is keyed to — and the insert
-		// branch below has no state guard at all. Without this it inserts a second
-		// row under a fresh mailboxId and initial-syncs the folder's mail into it,
-		// leaving the original as a permanent phantom still holding that folder's
-		// messages, filters and role appointments. No unique index on
-		// (accountId, fullPath) exists to catch it; #386 adds one.
-		const claimedByPendingRename = new Map(
+		// The paths a rename is on its way to (D14). Under D2 `fullPath` stays the
+		// path the server held when the intent was recorded, so between the server
+		// executing RENAME and the settle, LIST returns a path no row is keyed to
+		// — and the insert branch below has no state guard at all. Without this it
+		// inserts a second row under a fresh mailboxId and initial-syncs the
+		// folder's mail into it, leaving the original as a permanent phantom still
+		// holding that folder's messages, filters and role appointments. No unique
+		// index on (accountId, fullPath) exists to catch it; #386 adds one.
+		//
+		// `pending` only. A failed rename keeps its target so the UI can name what
+		// it was aiming at (T6), and nothing clears it until the user retries or
+		// dismisses — so honouring a `failed` row's claim would let one stuck
+		// folder block the sweep from ever discovering a real folder another
+		// client later creates at that path.
+		const claimedByPendingRename = new Set(
 			existingMailboxes.flatMap((m) =>
-				m.pendingPath === undefined
-					? []
-					: ([[m.pendingPath, m]] as [string, MailboxItem][]),
+				m.syncStatus === MailboxSyncStatus.pending &&
+				m.pendingPath !== undefined
+					? [m.pendingPath]
+					: [],
 			),
 		);
 
