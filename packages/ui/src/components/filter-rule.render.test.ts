@@ -445,6 +445,16 @@ describe("FilterPreviewCount", () => {
 		assert.doesNotMatch(html, /role="alert"/);
 	});
 
+	it("does not mark the empty-index line as recounting", () => {
+		const html = render(
+			createElement(FilterPreviewCount, {
+				preview: { status: "ready", count: 0, stale: true, indexEmpty: true },
+			}),
+		);
+		assert.match(html, /Still indexing/);
+		assert.doesNotMatch(html, /recounting/);
+	});
+
 	it("counts many matches", () => {
 		const html = render(
 			createElement(FilterPreviewCount, {

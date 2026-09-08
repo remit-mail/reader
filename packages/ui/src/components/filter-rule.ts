@@ -230,10 +230,12 @@ export function matchJoinWord(operator: MatchOperator): string {
 export function previewCountSummary(preview: PreviewCount): string {
 	if (preview.status === "loading") return "Counting matches…";
 	if (preview.status === "error") return preview.reason;
-	if (preview.count === 0)
-		return preview.indexEmpty
-			? "Still indexing — nothing to match against yet"
-			: "No mail matches yet";
+	// An index with nothing in it counted nothing, so there is no count to mark
+	// as recounting. The sentence is about the index, not about the rule, and it
+	// reads the same whichever predicate is on screen.
+	if (preview.indexEmpty)
+		return "Still indexing — nothing to match against yet";
+	if (preview.count === 0) return "No mail matches yet";
 	const noun = preview.count === 1 ? "message" : "messages";
 	const base = `${preview.count} ${noun} match`;
 	return preview.stale ? `${base} — recounting` : base;
