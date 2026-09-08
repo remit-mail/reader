@@ -5,19 +5,19 @@
  * mailing list echoes back all leave the same RFC 5322 Message-ID in two of an
  * account's folders. Sync resolves both sightings to one row, and reading the
  * second folder's sighting as a move took the mail out of the Inbox on whichever
- * round enumerated the label last. Dovecot reproduces the shape exactly: append
- * the same message twice, to INBOX and to a folder beside it.
+ * round enumerated the label. Dovecot reproduces the shape exactly: APPEND the
+ * same message twice, to INBOX and to a folder beside it.
+ *
+ * Seeded in the order a label is really applied — the mail arrives, syncs, and
+ * is labelled after — so which folder the row starts in is established rather
+ * than left to the order the fan-out happens to sync folders in.
  *
  * Its own throwaway user: the spec creates a folder and seeds the same message
  * into two places, neither of which may leak into the shared account.
  */
 import { type AccountSyncStatus, ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import {
-	appendMessages,
-	createServerMailbox,
-	listServerSubjects,
-} from "../src/imap.js";
+import { appendMessages, listServerSubjects } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const STAMP = Date.now();
@@ -30,25 +30,41 @@ const lastSyncedAt = (status: AccountSyncStatus, fullPath: string): number =>
 		?.lastSyncedAt ?? 0;
 
 /**
- * Trigger a sync and wait for the label folder's own message-sync round to
- * finish. The re-point this spec is about happens while that folder is being
- * enumerated, so the Inbox listing only answers for anything once it has run —
- * and `lastSyncedAt` moves on every round for a folder, empty ones included.
+ * Sync until the label folder's own message-sync round has run again.
+ *
+ * The re-point this spec is about happens while that folder is being
+ * enumerated, so the Inbox listing only answers for anything once it has run.
+ * `lastSyncedAt` moves on every round for a folder, empty ones included, which
+ * makes an advance of it the exact barrier; and the trigger is re-issued rather
+ * than issued once, because a trigger that arrives while a round is already
+ * running is discarded as a duplicate (#37).
  */
 const syncPastTheLabel = async (
 	api: ApiClient,
 	accountId: string,
 ): Promise<void> => {
 	const cursor = lastSyncedAt(await api.getSyncStatus(accountId), LABEL_PATH);
-	await api.triggerSync(accountId);
-	await waitFor(
-		() => api.getSyncStatus(accountId),
-		(status) => lastSyncedAt(status, LABEL_PATH) > cursor,
-		{
-			timeoutMs: 60_000,
-			intervalMs: 1_000,
-			what: `a message-sync round over "${LABEL_PATH}"`,
-		},
+	const deadline = Date.now() + 120_000;
+
+	while (Date.now() < deadline) {
+		await api.triggerSync(accountId).catch(() => undefined);
+		const advanced = await waitFor(
+			() => api.getSyncStatus(accountId),
+			(status) => lastSyncedAt(status, LABEL_PATH) > cursor,
+			{
+				timeoutMs: 20_000,
+				intervalMs: 1_000,
+				what: `a message-sync round over "${LABEL_PATH}"`,
+			},
+		).then(
+			() => true,
+			() => false,
+		);
+		if (advanced) return;
+	}
+
+	throw new Error(
+		`"${LABEL_PATH}" ran no message-sync round within 120000ms of being asked`,
 	);
 };
 
@@ -58,38 +74,44 @@ test.describe("A message in two folders at once", () => {
 
 	// Set inside the hook, which is what `test.setTimeout` extends when called
 	// from one: sign-up, an account connect, a folder create and two APPENDs run
-	// here before the folder even has to sync, and the default 60s hook budget
-	// does not cover that plus the wait below.
+	// here, each behind a sync the deployment has to get to.
 	test.beforeAll(async () => {
-		test.setTimeout(180_000);
+		test.setTimeout(240_000);
 
 		run = await provisionIsolatedRun("E2E Labelled Message");
 		api = new ApiClient(run);
 
-		await createServerMailbox(run.imapUser, LABEL_PATH);
-		for (const mailbox of ["INBOX", LABEL_PATH]) {
-			await appendMessages(
-				run.imapUser,
-				[
-					{
-						subject: SUBJECT,
-						messageIdHeader: MESSAGE_ID,
-						body: `Body of ${SUBJECT}.`,
-					},
-				],
-				mailbox,
-			);
-		}
+		// The mail arrives first and the row settles on the Inbox, exactly as it
+		// would before anyone labels anything.
+		await appendMessages(run.imapUser, [
+			{
+				subject: SUBJECT,
+				messageIdHeader: MESSAGE_ID,
+				body: `Body of ${SUBJECT}.`,
+			},
+		]);
+		await api.triggerSync(run.accountId);
+		await api.messageIdForSubject(run.inboxId, SUBJECT);
 
-		await waitFor(
-			() => api.listMailboxes(run.accountId),
-			(list) => list.some((box) => box.fullPath === LABEL_PATH),
-			{ timeoutMs: 60_000, what: `"${LABEL_PATH}" to sync` },
+		// Then the label: the folder through the API, so the spec never waits on
+		// folder discovery, and the second copy straight onto the server, which is
+		// what a label or a `fileinto` leaves behind.
+		await api.createSettledMailbox(run.accountId, LABEL_PATH);
+		await appendMessages(
+			run.imapUser,
+			[
+				{
+					subject: SUBJECT,
+					messageIdHeader: MESSAGE_ID,
+					body: `Body of ${SUBJECT}.`,
+				},
+			],
+			LABEL_PATH,
 		);
 	});
 
 	test("stays in the inbox after the folder beside it has synced", async () => {
-		test.setTimeout(180_000);
+		test.setTimeout(300_000);
 
 		// Both copies are on the server, and both stay there: nothing in this
 		// spec asks for a mutation, so a listing that loses the message lost it
@@ -100,14 +122,16 @@ test.describe("A message in two folders at once", () => {
 		);
 
 		await syncPastTheLabel(api, run.accountId);
-		await api.messageIdForSubject(run.inboxId, SUBJECT);
 
-		// "The next sync": a second full round over the label folder, which is
-		// where the re-point was observed.
+		const afterLabel = await api.listThreads(run.inboxId);
+		expect(afterLabel.map((thread) => thread.subject)).toContain(SUBJECT);
+
+		// "The next sync": a second round over the label folder, which is where
+		// the re-point was reported.
 		await syncPastTheLabel(api, run.accountId);
 
-		const threads = await api.listThreads(run.inboxId);
-		expect(threads.map((thread) => thread.subject)).toContain(SUBJECT);
+		const afterNextSync = await api.listThreads(run.inboxId);
+		expect(afterNextSync.map((thread) => thread.subject)).toContain(SUBJECT);
 
 		expect(await listServerSubjects(run.imapUser, "INBOX")).toContain(SUBJECT);
 		expect(await listServerSubjects(run.imapUser, LABEL_PATH)).toContain(
