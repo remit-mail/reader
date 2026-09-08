@@ -89,7 +89,7 @@ import {
 	removeSearchToken,
 	searchTokenLabel,
 } from "@/lib/search-tokens";
-import { spamOfferForResults } from "@/lib/spam-offer";
+import type { SpamOffer } from "@/lib/spam-offer";
 import {
 	useBrowsedList,
 	useOpenWizard,
@@ -152,6 +152,13 @@ export interface MailListHeaderProps {
 	 * leaves this unset and keeps the panel for every query.
 	 */
 	searchResultsInBody?: boolean;
+	/**
+	 * The Spam offer this view is making, if any: where "Go to Spam" lands and
+	 * how much of the search sits there, counted by the server over every junk
+	 * folder it reached. Only the global scope holds spam out, so only the brief
+	 * passes one; every other view leaves it unset and no offer is made.
+	 */
+	spamOffer?: SpamOffer;
 	/**
 	 * The refresh control for this view — the mailbox route and the brief pass
 	 * one, scoped to the account(s) they show; a view with nothing account-scoped
@@ -230,6 +237,7 @@ export function MailListHeader({
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
 	searchResultsInBody = false,
+	spamOffer,
 	refreshControl,
 }: MailListHeaderProps) {
 	const {
@@ -393,26 +401,23 @@ export function MailListHeader({
 		[browsed, scope, scopedRole],
 	);
 
-	// The offer counts results for the *committed* query, so that is the query it
-	// carries into Spam. The count the banner states is the results list's own,
-	// over every row it held out; the app supplies only where "Go to Spam" goes.
-	const spamOffer = useMemo(
-		() =>
-			routeScope.kind === "global"
-				? spamOfferForResults([...topMatches, ...related])
-				: undefined,
-		[routeScope, topMatches, related],
-	);
+	// The offer is made for the *committed* query, so that is the query it carries
+	// into Spam. Both halves come from the view that owns the search: the number
+	// is the server's count of every junk folder it reached, and the destination
+	// the folder holding most of them. Counting the rows this panel happens to
+	// hold would count a page and call it a folder (#313).
+	const offer = routeScope.kind === "global" ? spamOffer : undefined;
 	const resultsScope = useMemo<SearchScope>(
 		() =>
-			spamOffer
+			offer
 				? {
 						kind: "global",
+						spamCount: offer.count,
 						onScopeToSpam: () =>
-							scopeSearchToMailbox(spamOffer.mailboxId, searchQuery),
+							scopeSearchToMailbox(offer.mailboxId, searchQuery),
 					}
 				: routeScope,
-		[spamOffer, routeScope, scopeSearchToMailbox, searchQuery],
+		[offer, routeScope, scopeSearchToMailbox, searchQuery],
 	);
 
 	// Make-this-a-filter (#477 clause 1.8): the search is the wizard's second

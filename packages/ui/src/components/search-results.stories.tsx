@@ -225,13 +225,19 @@ export const Idle: Story = {
  * nothing scoping the search the folder is the only thing placing the result.
  *
  * The two spam matches in the same data are not in this list. They are held out
- * and offered above it as a count.
+ * and offered above it under the count the app supplies — the server's, over
+ * every junk folder the search reached, which is larger than what this page
+ * holds.
  */
 export const GlobalAcrossFolders: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			scope={{
+				kind: "global",
+				onScopeToSpam: () => {},
+				spamCount: { kind: "exact", value: 9 },
+			}}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
 				{ id: "related", label: "Related", results: related },
@@ -242,14 +248,18 @@ export const GlobalAcrossFolders: Story = {
 
 /**
  * The same global search over an account whose Spam folder holds nothing
- * matching. No spam rows to hold out, so no offer — the offer only ever appears
- * because there is something behind it.
+ * matching. The count answers zero over the whole junk scope, so there is no
+ * offer — it only ever appears because there is something behind it.
  */
 export const GlobalWithoutSpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			scope={{
+				kind: "global",
+				onScopeToSpam: () => {},
+				spamCount: { kind: "exact", value: 0 },
+			}}
 			sections={[
 				{
 					id: "top",
@@ -290,8 +300,31 @@ export const GlobalOnlySpamMatches: Story = {
 	render: () => (
 		<Harness
 			value="invoice"
-			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			scope={{
+				kind: "global",
+				onScopeToSpam: () => {},
+				spamCount: { kind: "exact", value: 2 },
+			}}
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
+		/>
+	),
+};
+
+/**
+ * The same search while a junk folder's count has not come back — one account
+ * of several is still answering, or the criteria carry a term no predicate
+ * counts. The offer stands and names no figure, rather than stating the junk
+ * rows this page happens to hold as if they were the folder's total (#313).
+ */
+export const GlobalSpamWithoutCount: Story = {
+	render: () => (
+		<Harness
+			value="invoice"
+			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			sections={[
+				{ id: "top", label: "Top matches", results: globalTopMatches },
+				{ id: "related", label: "Related", results: related },
+			]}
 		/>
 	),
 };

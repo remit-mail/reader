@@ -109,6 +109,7 @@ import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
+import { useSpamMatchCounts } from "@/hooks/useSpamMatchCounts";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
 import {
@@ -128,11 +129,12 @@ import { junkDestination } from "@/lib/junk-destination";
 import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
+import { junkMailboxIds } from "@/lib/result-folder";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
-import { spamOfferForResults } from "@/lib/spam-offer";
+import { spamOfferFromCounts } from "@/lib/spam-offer";
 import { dedupeByThread } from "@/lib/starred-rows";
 import { wizardSelectionFrom } from "@/lib/wizard-selection";
 import {
@@ -738,6 +740,21 @@ export function DailyBrief({
 	// same, or a committed search surfaces junk mail inline and drops the way back
 	// to it. A bare token query (e.g. `is:unread`) never reaches search mode, so
 	// there is nothing to hold out.
+	// What the offer states is the server's count of every junk folder the search
+	// reached, one request each, summed — not the junk share of the page below
+	// it, which is a page length wearing a folder total's clothes (#313). The
+	// page's own junk rows are still what gets held out of the list, and still
+	// the evidence that spam was reached when no count came back.
+	const junkIds = useMemo(
+		() => junkMailboxIds(resultFolderIndex),
+		[resultFolderIndex],
+	);
+	const spamCounts = useSpamMatchCounts({
+		criteria: searchCriteria,
+		junkMailboxIds: junkIds,
+		enabled: underQuery && counted,
+	});
+
 	const { spamIds, briefSpamOffer } = useMemo(() => {
 		const none = { spamIds: undefined, briefSpamOffer: undefined };
 		if (!sq) return none;
@@ -745,12 +762,16 @@ export function DailyBrief({
 			rowToSearchResult(row, resultFolderIndex),
 		);
 		const { spam } = partitionSpamResults(asResults);
-		if (spam.length === 0) return none;
+		const offer = spamOfferFromCounts(spamCounts, {
+			pageHeldSpam: spam.length > 0,
+		});
+		if (spam.length === 0 && !offer) return none;
 		return {
-			spamIds: new Set(spam.map((result) => result.id)),
-			briefSpamOffer: spamOfferForResults(asResults),
+			spamIds:
+				spam.length > 0 ? new Set(spam.map((result) => result.id)) : undefined,
+			briefSpamOffer: offer,
 		};
-	}, [filteredRows, sq, resultFolderIndex]);
+	}, [filteredRows, sq, resultFolderIndex, spamCounts]);
 
 	const sections = useMemo<ThreadSection[]>(() => {
 		const keep = (rows: ThreadRowData[]): ThreadRowData[] =>
@@ -1045,6 +1066,10 @@ export function DailyBrief({
 						relatedResults,
 						relatedLoading,
 						onSelectSearchResult: openResult,
+						// The read-only results panel holds spam out of the same
+						// committed search this body does, so it states the same
+						// server-counted number rather than counting its own page.
+						spamOffer: briefSpamOffer,
 						// The body already narrows to the committed query (the server
 						// `query` on every section request, plus `matchesSearchTokens` for
 						// the residue), so a committed search is a selectable list here

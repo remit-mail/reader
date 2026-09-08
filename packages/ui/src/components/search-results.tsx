@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { BlockedReason } from "./blocked-reason.js";
 import type { FolderRole } from "./folder-role.js";
+import type { ResultCount } from "./list-result-header.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
 import { SearchTokenChips } from "./search-token-chip.js";
 import { SpamResultsOffer } from "./spam-results-offer.js";
@@ -24,7 +25,10 @@ export interface SearchResultSection {
  * - `global` — the unscoped search the daily brief runs: every account, every
  *   folder, no chip in the bar. It is the only scope that holds spam out, so it
  *   is the only one that carries a way back to it: without `onScopeToSpam` there
- *   is nowhere to send the user and no offer is made.
+ *   is nowhere to send the user and no offer is made. `spamCount` is the number
+ *   that offer states, counted by the server over every junk folder the search
+ *   reached — the rows this component holds out are a page's share of them and
+ *   were never a total (#313).
  * - `folder` — narrowed to one place by the sidebar, which the bar shows as a
  *   chip.
  * - `collection` — narrowed by something that is not a folder, `is:starred`
@@ -33,11 +37,14 @@ export interface SearchResultSection {
  *   mail), spam is not held back from them.
  */
 export type SearchScope =
-	| { kind: "global"; onScopeToSpam?: () => void }
+	| { kind: "global"; onScopeToSpam?: () => void; spamCount?: ResultCount }
 	| { kind: "collection" }
 	| { kind: "folder"; role?: FolderRole };
 
 const GLOBAL_SCOPE: SearchScope = { kind: "global" };
+
+/** Nobody counted the junk folders, so the offer names no figure. */
+const UNCOUNTED_SPAM: ResultCount = { kind: "unknown" };
 
 const isSpamScope = (scope: SearchScope): boolean =>
 	scope.kind === "folder" && scope.role === "junk";
@@ -341,14 +348,20 @@ export function SearchResults({
 		(total, entry) => total + entry.spam.length,
 		0,
 	);
+	// The count decides whether there is an offer, because it is the answer over
+	// the whole junk scope: an exact zero means the search reaches no spam even
+	// where this page happens to hold a stale row. Only when nobody counted do
+	// the held-out rows stand in — as evidence that spam was reached, never as
+	// the number stated (#313).
+	const spamCount = scope.kind === "global" ? scope.spamCount : undefined;
+	const spamTotal = spamCount ?? UNCOUNTED_SPAM;
+	const hasSpamToOffer =
+		spamTotal.kind === "exact" ? spamTotal.value > 0 : heldOutSpamCount > 0;
 	const spamOffer =
 		scope.kind === "global" &&
-		heldOutSpamCount > 0 &&
+		hasSpamToOffer &&
 		scope.onScopeToSpam !== undefined ? (
-			<SpamResultsOffer
-				count={heldOutSpamCount}
-				onScopeToSpam={scope.onScopeToSpam}
-			/>
+			<SpamResultsOffer count={spamTotal} onScopeToSpam={scope.onScopeToSpam} />
 		) : undefined;
 
 	const hasResults = visibleSections.some(
