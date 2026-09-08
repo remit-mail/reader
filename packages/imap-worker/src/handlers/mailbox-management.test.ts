@@ -42,6 +42,7 @@ interface Row {
 	accountId: string;
 	fullPath: string;
 	hierarchyDelimiter: string;
+	namespacePrefix: string;
 	syncStatus: string;
 	pendingPath?: string;
 }
