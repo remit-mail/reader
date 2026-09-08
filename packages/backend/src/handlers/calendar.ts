@@ -22,6 +22,7 @@ import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
 import { CalendarSource } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { defaultErrorCode } from "../error.js";
 import type { RemitClient } from "../service/data-client.js";
 import { getClient } from "../service/data-client.js";
 import type {
@@ -61,19 +62,35 @@ export const refuseCalendar = <T>(
 	message: string,
 ): CalendarOutcome<T> => ({ ok: false, error: { code, message } });
 
+/**
+ * `CalendarRefusal.code` is this module's and `@remit/calendar-service`'s own
+ * routing token, in PascalCase; the API's `code` vocabulary is snake_case
+ * (issue #371). Derived rather than mapped by hand, so a refusal added to
+ * either producer reaches the wire under its own name instead of silently
+ * collapsing into the status-class code.
+ */
+const wireCode = (code: string): string =>
+	code.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+
+/**
+ * A 400 keeps the refusal's own code — `unknown_time_zone` and
+ * `url_segment_taken` are what a client branches on, and the status class alone
+ * would not distinguish them. A 404 and a 412 have nothing to add to their
+ * status, so they take the shared token.
+ */
 export const badRequest = (error: CalendarRefusal) => ({
 	statusCode: 400,
-	body: error,
+	body: { code: wireCode(error.code), message: error.message },
 });
 
 export const notFound = (message: string) => ({
 	statusCode: 404,
-	body: { code: "NotFound", message },
+	body: { code: defaultErrorCode(404), message },
 });
 
 export const preconditionFailed = (message: string) => ({
 	statusCode: 412,
-	body: { code: "EtagMismatch", message },
+	body: { code: defaultErrorCode(412), message },
 });
 
 /** The calendar half of the client, named so a handler takes only what it uses. */

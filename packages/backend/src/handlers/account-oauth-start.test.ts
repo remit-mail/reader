@@ -110,6 +110,7 @@ const assertNamesOnly = (log: string, condition: string): void => {
 const assertGenericFiveHundred = (response: APIGatewayProxyResult): void => {
 	assert.equal(response.statusCode, 500);
 	assert.deepEqual(JSON.parse(response.body), {
+		code: "internal_error",
 		message: "Internal server error",
 	});
 };

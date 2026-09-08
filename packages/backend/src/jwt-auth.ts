@@ -7,6 +7,7 @@ import {
 import { readCalendarFeedToken } from "@remit/calendar-service";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { defaultErrorCode } from "./error.js";
 
 let verifier: JwtVerifier | null = null;
 
@@ -33,7 +34,7 @@ const readHeader = (
 const unauthorized = (message: string): APIGatewayProxyResult => ({
 	statusCode: 401,
 	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message }),
+	body: JSON.stringify({ code: defaultErrorCode(401), message }),
 });
 
 const injectClaims = (

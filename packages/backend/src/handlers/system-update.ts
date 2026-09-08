@@ -9,6 +9,7 @@ import { ConflictError, HTTPError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getSubFromEvent } from "../auth.js";
+import { defaultErrorCode } from "../error.js";
 import type { OperationHandler, SystemOperationIds } from "../types.js";
 
 class TargetVersionMismatchError extends HTTPError {
@@ -36,17 +37,21 @@ const manifestUrl = (): string | undefined =>
  */
 const UNKNOWN_VERSION = "unknown";
 
-const notFound = (): APIGatewayProxyResult => ({
-	statusCode: 404,
-	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message: "Not found" }),
-});
+/**
+ * A refusal in the shape `formatResponse` unwraps: the status, and the body as
+ * an object it serializes. Handing it an already-serialized `body` string
+ * instead publishes the whole envelope — `{"statusCode":…,"headers":…}` with
+ * the real body escaped inside it — which is not an `ApiError` at all.
+ */
+const refuse = (statusCode: number, message: string): APIGatewayProxyResult =>
+	({
+		statusCode,
+		body: { code: defaultErrorCode(statusCode), message },
+	}) as unknown as APIGatewayProxyResult;
 
-const unauthorized = (): APIGatewayProxyResult => ({
-	statusCode: 401,
-	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message: "Unauthorized" }),
-});
+const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
+
+const unauthorized = (): APIGatewayProxyResult => refuse(401, "Unauthorized");
 
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),

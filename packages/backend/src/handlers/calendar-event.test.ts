@@ -239,7 +239,7 @@ describe("GET /calendar-events", () => {
 		);
 
 		assert.equal(listed.statusCode, 404);
-		assert.equal((listed.body as { code: string }).code, "NotFound");
+		assert.equal((listed.body as { code: string }).code, "not_found");
 	});
 
 	it("refuses a window that runs backwards or covers more than a year", async () => {
@@ -259,7 +259,7 @@ describe("GET /calendar-events", () => {
 		);
 
 		assert.equal(backwards.statusCode, 400);
-		assert.equal((backwards.body as { code: string }).code, "InvalidWindow");
+		assert.equal((backwards.body as { code: string }).code, "invalid_window");
 		assert.equal(tooWide.statusCode, 400);
 	});
 });
@@ -285,7 +285,7 @@ describe("POST /calendar-events", () => {
 		assert.equal(created.statusCode, 400);
 		assert.equal(
 			(created.body as { code: string }).code,
-			"InvalidRecurrenceRule",
+			"invalid_recurrence_rule",
 		);
 		assert.deepEqual(
 			await client.calendarObject.listByCalendar(calendarId),
@@ -314,7 +314,7 @@ describe("POST /calendar-events", () => {
 		);
 
 		assert.equal(created.statusCode, 400);
-		assert.equal((created.body as { code: string }).code, "UnknownTimeZone");
+		assert.equal((created.body as { code: string }).code, "unknown_time_zone");
 		assert.deepEqual(
 			await client.calendarObject.listByCalendar(calendarId),
 			[],
@@ -403,7 +403,10 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 		);
 
 		assert.equal(removed.statusCode, 412);
-		assert.equal((removed.body as { code: string }).code, "EtagMismatch");
+		assert.equal(
+			(removed.body as { code: string }).code,
+			"precondition_failed",
+		);
 		const survivor = await client.calendarObject.find(
 			calendarId,
 			created.calendarObjectId,
@@ -545,9 +548,9 @@ describe("GET /calendar-free-busy", () => {
 		);
 
 		assert.equal(missing.statusCode, 400);
-		assert.equal((missing.body as { code: string }).code, "InvalidWindow");
+		assert.equal((missing.body as { code: string }).code, "invalid_window");
 		assert.equal(tooWide.statusCode, 400);
-		assert.equal((tooWide.body as { code: string }).code, "InvalidWindow");
+		assert.equal((tooWide.body as { code: string }).code, "invalid_window");
 	});
 });
 

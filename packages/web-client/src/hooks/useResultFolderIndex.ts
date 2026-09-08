@@ -25,13 +25,17 @@ type MailboxItems = RemitImapMailboxResponse[];
 interface MailboxListsState {
 	items: MailboxItems[];
 	isPending: boolean;
-	error: Error | null;
+	// Typed as the generated wire body by TanStack now that the operation
+	// declares its failures, but always an `ApiError` or a `NetworkError` by the
+	// time it arrives — `client.ts` re-wraps every HTTP failure.
+	// `formatErrorMessage` reads a message off any of them.
+	error: unknown;
 }
 
 export interface ResultFolderIndexState {
 	index: ResultFolderIndex;
 	isPending: boolean;
-	error: Error | null;
+	error: unknown;
 }
 
 /**
@@ -44,7 +48,7 @@ const combineMailboxLists = (
 	results: {
 		data?: { items: MailboxItems };
 		isPending: boolean;
-		error: Error | null;
+		error: unknown;
 	}[],
 ): MailboxListsState => ({
 	items: results.map((result) => result.data?.items ?? []),

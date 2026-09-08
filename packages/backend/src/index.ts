@@ -13,7 +13,7 @@ import {
 } from "openapi-backend";
 import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
-import { handleError } from "./error.js";
+import { defaultErrorCode, handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
@@ -90,6 +90,22 @@ const api = new OpenAPIBackend({
 
 api.register("postResponseHandler", postResponseHandler);
 
+/**
+ * The validator's findings, narrowed to the three fields `RequestValidationDetail`
+ * declares. Copied field by field rather than passed through: an AJV error also
+ * carries `params`, and under `verbose` the rejected `data` itself — which for a
+ * refused request body is whatever the caller sent, a password among the
+ * possibilities. Naming the fields is what keeps that off the wire.
+ */
+const validationDetails = (
+	errors: OpenAPIContext["validation"]["errors"],
+): Array<{ path: string; rule: string; message: string }> =>
+	(errors ?? []).map((error) => ({
+		path: error.instancePath,
+		rule: error.keyword,
+		message: error.message ?? "refused",
+	}));
+
 // The errors and the operation, and nothing that came off the wire. A request
 // that fails validation is logged at error level, and the request it carries
 // holds the caller's headers and cookies — an Authorization bearer among them,
@@ -107,13 +123,17 @@ api.register("validationFail", (c: OpenAPIContext, req: Request) => {
 	return {
 		statusCode: 400,
 		body: {
+			code: defaultErrorCode(400),
 			message: "Invalid request",
-			errors: c.validation.errors,
+			errors: validationDetails(c.validation.errors),
 		},
 	};
 });
 
-api.register("notFound", () => ({ statusCode: 404 }));
+api.register("notFound", () => ({
+	statusCode: 404,
+	body: { code: defaultErrorCode(404), message: "Not found" },
+}));
 
 api.register("notImplemented", async (c: OpenAPIContext) => {
 	const { status, mock } = api.mockResponseForOperation(

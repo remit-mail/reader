@@ -2,9 +2,26 @@ import "@typespec/http";
 
 using TypeSpec.Http;
 
-@doc("API error response")
+@doc("""
+  Every error the API answers with, whatever the status. The body is flat:
+  `code`, `message` and `details` sit at the top level, with no envelope around
+  them.
+  
+  `code` is always present and is the only field a client branches on. It is a
+  stable snake_case token — the refusal's own where it has one
+  (`folder_role_unresolved`, `config_not_empty`), and otherwise the status
+  class's: `invalid_request`, `unauthorized`, `forbidden`, `not_found`,
+  `conflict`, `precondition_failed`, `payload_too_large`,
+  `unprocessable_entity`, `internal_error`, and `request_refused` for a 4xx no
+  operation declares (405, 408, 415, 429).
+  
+  `message` is a sentence for a person and is free to change; nothing may parse
+  it. `details` carries the strings a client words its own prompt from, and a
+  5xx never carries one — an internal failure answers with its status code and
+  message and nothing else.
+  """)
 model ApiError {
-  @doc("Error code")
+  @doc("Stable token naming the refusal. Branch on this, never on `message`.")
   code: string;
 
   @doc("Human-readable error message")
@@ -14,16 +31,70 @@ model ApiError {
   details?: Record<string>;
 }
 
-@doc("Not found error response")
-model NotFoundError {
-  @statusCode statusCode: 404;
-  @body error: ApiError;
+@doc("One reason a request was refused, as the validator read it. Named fields only — nothing here echoes the value that was submitted.")
+model RequestValidationDetail {
+  @doc("JSON Pointer to the offending value; empty for the document itself")
+  path: string;
+
+  @doc("The rule that refused it, e.g. `required`, `type`, `format`")
+  rule: string;
+
+  @doc("What the validator said")
+  message: string;
 }
 
-@doc("Validation error response")
+@doc("""
+  The request was refused as malformed or contradictory. `code` is
+  `invalid_request` where nothing more specific is known, and the refusal's own
+  token where there is one.
+  
+  The calendar surface answers with the reason it read the request by:
+  `invalid_window`, `invalid_scope`, `invalid_url_segment`, `url_segment_taken`,
+  `unknown_time_zone` and `default_calendar_undeletable` on the collection and
+  the query, and, for a VCALENDAR it could not accept,
+  `malformed_icalendar`, `not_a_calendar`, `unsupported_component`, `no_event`,
+  `no_master_event`, `multiple_master_events`, `missing_uid`, `mismatched_uid`,
+  `missing_dt_start`, `backwards_end`, `invalid_date_time`,
+  `invalid_recurrence_rule`, `missing_recurrence_id`, `not_recurring` and
+  `unknown_occurrence`.
+  
+  `errors` is present only when the request failed schema validation before any
+  handler ran, and names every field that was refused.
+  """)
 model ValidationError {
   @statusCode statusCode: 400;
-  @body error: ApiError;
+  ...ApiError;
+
+  @doc("Every field the schema refused, when the refusal came from schema validation")
+  errors?: RequestValidationDetail[];
+}
+
+@doc("The request carried no usable credential. `code` is `unauthorized`.")
+model UnauthorizedError {
+  @statusCode statusCode: 401;
+  ...ApiError;
+}
+
+@doc("The caller is known and may not do this. `code` is `forbidden`.")
+model ForbiddenError {
+  @statusCode statusCode: 403;
+  ...ApiError;
+}
+
+@doc("Nothing answers to this address, or the caller may not learn that something does. `code` is `not_found`.")
+model NotFoundError {
+  @statusCode statusCode: 404;
+  ...ApiError;
+}
+
+@doc("""
+  The request contradicts the state the resource is in. `code` is `conflict`
+  unless the refusal names its own — see `FolderRoleConflict`,
+  `MessagePlacementConflict` and `ConfigImportConflict`.
+  """)
+model ConflictError {
+  @statusCode statusCode: 409;
+  ...ApiError;
 }
 
 @doc("""
@@ -31,29 +102,23 @@ model ValidationError {
   `If-Match` names an etag the stored resource no longer carries: somebody else
   wrote it in between, so applying this request would silently discard their
   change. The client re-reads the resource and decides what to do with the
-  version it now has.
+  version it now has. `code` is `precondition_failed`.
   """)
 model PreconditionFailedError {
   @statusCode statusCode: 412;
-  @body error: ApiError;
+  ...ApiError;
 }
 
-@doc("Internal server error response")
+@doc("The request is well-formed but the thing it names cannot be produced. `code` is `unprocessable_entity`.")
+model UnprocessableEntityError {
+  @statusCode statusCode: 422;
+  ...ApiError;
+}
+
+@doc("The server failed. `code` is `internal_error` and `details` is never present — nothing about the failure leaves the process beyond its message.")
 model InternalServerError {
   @statusCode statusCode: 500;
-  @body error: ApiError;
-}
-
-@doc("Unauthorized error response")
-model UnauthorizedError {
-  @statusCode statusCode: 401;
-  @body error: ApiError;
-}
-
-@doc("Forbidden error response")
-model ForbiddenError {
-  @statusCode statusCode: 403;
-  @body error: ApiError;
+  ...ApiError;
 }
 
 @doc("""

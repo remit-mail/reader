@@ -14,6 +14,10 @@ import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 
+// Every error body the API emits carries a `code` (issue #371). A refusal here
+// is one kind, so the code is one value and `reason` says which refusal it was.
+const ATTACHMENT_REJECTED_CODE = "attachment_rejected";
+
 const TOO_LARGE: ReadonlySet<OutboxAttachmentRejectionReasonValue> = new Set([
 	OutboxAttachmentRejectionReason.FileTooLarge,
 	OutboxAttachmentRejectionReason.MessageTooLarge,
@@ -30,6 +34,7 @@ const refuse = (
 ): RejectionResponse => ({
 	statusCode: TOO_LARGE.has(detail.reason) ? 413 : 400,
 	body: {
+		code: ATTACHMENT_REJECTED_CODE,
 		reason: detail.reason,
 		message: detail.message,
 		limitBytes: detail.limitBytes,
