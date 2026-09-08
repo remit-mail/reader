@@ -38,7 +38,7 @@ describe("searchInputForView", () => {
 		);
 	});
 
-	it("seeds from the destination's own query (deep link, saved search)", () => {
+	it("seeds from the destination's own query (deep link)", () => {
 		assert.equal(
 			searchInputForView(
 				"/mail/$mailboxId:inbox-1",

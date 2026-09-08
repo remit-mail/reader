@@ -1316,9 +1316,3 @@ export const recentSearches: string[] = [
 	"from:stripe invoice",
 	"has:attachment contract",
 ];
-
-/** Queries the user kept; the nav sidebar lists them under Saved searches. */
-export const savedSearches: string[] = [
-	"is:starred from:dana",
-	"in:archive tax",
-];

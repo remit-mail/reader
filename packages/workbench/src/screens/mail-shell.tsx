@@ -208,7 +208,6 @@ export interface MailShellProps {
 	 */
 	makeFilterBlockedReason?: string;
 	recentSearches?: string[];
-	savedSearches?: string[];
 	/**
 	 * Completions offered for the term being typed. The app derives these from
 	 * the caret and the search vocabulary; a story states the offer directly.
@@ -742,7 +741,6 @@ export function MailShell({
 	searchTokens = [],
 	makeFilterBlockedReason,
 	recentSearches,
-	savedSearches = [],
 	searchSuggestions,
 	readingPane = "default",
 	listBias,
@@ -790,12 +788,6 @@ export function MailShell({
 			selectedNavId={selectedNavId}
 			briefUnseen={unreadCount ?? 0}
 			calendarNav={calendarNav}
-			savedSearches={savedSearches}
-			saveableQuery={
-				trimmed.length > 0 && !savedSearches.includes(trimmed)
-					? trimmed
-					: undefined
-			}
 		/>
 	);
 

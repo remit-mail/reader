@@ -184,7 +184,7 @@ describe("an address that drifts from the settled query", () => {
 	});
 
 	it("does not fight a query arriving mid-debounce", async () => {
-		// A deep link or a saved search lands while the field is still catching
+		// A deep link lands while the field is still catching
 		// up. The committed query is the previous one, so the mirror has nothing
 		// settled to write and must not strip what just arrived.
 		const router = buildRouter(`${LIST_PATH}?q=receipts`);

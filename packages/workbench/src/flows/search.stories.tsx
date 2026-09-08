@@ -34,7 +34,6 @@ import {
 	briefSections,
 	briefUnseen,
 	recentSearches,
-	savedSearches,
 	searchQuery,
 	searchSections,
 	searchSectionsWithoutSpam,
@@ -109,7 +108,6 @@ export const Global: Story = {
 			query={searchQuery}
 			searchSections={searchSections}
 			searchScope={globalScope}
-			savedSearches={savedSearches}
 		/>
 	),
 };

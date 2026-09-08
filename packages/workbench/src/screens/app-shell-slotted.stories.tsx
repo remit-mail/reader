@@ -21,7 +21,6 @@ import {
 	flaggedThreads,
 	q3Intelligence,
 	q3Thread,
-	savedSearches,
 } from "../fixtures/workspace.js";
 import { MailShell } from "./mail-shell.js";
 
@@ -75,7 +74,6 @@ export const Default: Story = {
 			thread={q3Thread}
 			selectedThreadId="thr_q3"
 			intelligence={q3Intelligence}
-			savedSearches={savedSearches}
 		/>
 	),
 };

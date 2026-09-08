@@ -234,11 +234,6 @@ export const FilterSchema = z.strictObject({
 	anchor: FilterAnchorSchema.nullable(),
 });
 
-export const SavedSearchSchema = z.strictObject({
-	name: NonEmpty,
-	query: z.string(),
-});
-
 /**
  * Preferences the browser holds, not the server. They survive a database drop
  * already; they ride along so they also survive a change of browser. The server
@@ -247,7 +242,6 @@ export const SavedSearchSchema = z.strictObject({
 export const ClientPreferencesSchema = z.strictObject({
 	theme: z.string(),
 	density: z.string(),
-	savedSearches: z.array(SavedSearchSchema),
 });
 
 /**
