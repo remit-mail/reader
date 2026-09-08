@@ -596,37 +596,57 @@ describe("processMailboxManagement — the seventh state (#363, D3)", () => {
 	});
 });
 
+/** The delete intent a MAILBOX_DELETE is settled against. */
+const recordDeleteIntent = (): void => {
+	h.rows.set(
+		"mbx-1",
+		row({ mailboxId: "mbx-1", fullPath: "Archive", syncStatus: "deleting" }),
+	);
+};
+
 describe("processMailboxManagement — MAILBOX_DELETE", () => {
 	beforeEach(() => {
 		h = fresh();
+		recordDeleteIntent();
 	});
 
-	it("deletes on the server and drops the local row", async () => {
+	it("deletes on the server and takes the folder's mail with it", async () => {
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
 		assert.equal(called("connection.deleteMailbox")[0]?.args[0], "Archive");
-		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
+		assert.deepEqual(called("mailbox.deleteMailboxWithMail")[0]?.args, [
+			"acc-1",
+			"mbx-1",
+		]);
+		assert.equal(
+			called("mailbox.delete").length,
+			0,
+			"the bare row delete is what orphaned the folder's mail",
+		);
 	});
 
-	it("drops the local row when the folder is already gone on the server", async () => {
+	it("removes the folder's mail when the folder is already gone on the server", async () => {
 		h.connection.deleteMailbox = async () => {
 			throw new Error("Mailbox not found");
 		};
 
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
-		assert.equal(called("mailbox.delete").length, 1);
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 1);
 	});
 
-	it("restores the mailbox and swallows the error when the server refuses to delete INBOX", async () => {
+	it("marks the delete failed rather than synced when the server refuses INBOX", async () => {
+		// The API refuses a delete of INBOX, so this backstop is unreachable from
+		// it. Reached another way, the honest outcome is `failed`: the folder was
+		// never deleted, and nothing was undone.
 		h.connection.deleteMailbox = async () => {
 			throw new Error("Cannot delete INBOX");
 		};
 
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
-		assert.equal(lastSettle().to, "synced");
-		assert.equal(called("mailbox.delete").length, 0);
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
 	});
 
 	it("marks the mailbox failed and rethrows on any other delete error", async () => {
@@ -642,14 +662,21 @@ describe("processMailboxManagement — MAILBOX_DELETE", () => {
 		assert.equal(lastSettle().to, "failed");
 	});
 
-	it("acks terminally without rethrowing when the rollback write finds the row gone", async () => {
-		h.connection.deleteMailbox = async () => {
-			throw new Error("server exploded");
-		};
+	it("issues no DELETE when the row is not deleting", async () => {
+		h.rows.set("mbx-1", row({ mailboxId: "mbx-1", syncStatus: "synced" }));
+
+		await processMailboxManagement(deleteEvent, noopLogger, deps());
+
+		assert.equal(called("connection.deleteMailbox").length, 0);
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
+	});
+
+	it("acks terminally without connecting when the folder row is gone", async () => {
 		h.mailboxRowGone = true;
 
 		await processMailboxManagement(deleteEvent, noopLogger, deps());
 
+		assert.equal(called("connection.deleteMailbox").length, 0);
 		assert.equal(h.disconnectCount, 1, "the scope is still disconnected");
 	});
 });
@@ -665,7 +692,8 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 	 * only the message treated an already-absent folder as a failure: the row was
 	 * marked failed and the event left poisoning the account's queue.
 	 */
-	it("treats it as the delete already having happened, and drops the local row", async () => {
+	it("treats it as the delete already having happened, mail and all", async () => {
+		recordDeleteIntent();
 		h.connection.deleteMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
 				serverResponseCode: "NONEXISTENT",
@@ -676,11 +704,15 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		await assert.doesNotReject(
 			processMailboxManagement(deleteEvent, noopLogger, deps()),
 		);
-		assert.deepEqual(called("mailbox.delete")[0]?.args, ["acc-1", "mbx-1"]);
+		assert.deepEqual(called("mailbox.deleteMailboxWithMail")[0]?.args, [
+			"acc-1",
+			"mbx-1",
+		]);
 		assert.equal(called("mailbox.transition").length, 0);
 	});
 
 	it("still marks failed and rethrows when the server fails for any other reason", async () => {
+		recordDeleteIntent();
 		h.connection.deleteMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
 				serverResponseCode: "SERVERBUG",

@@ -132,13 +132,23 @@ model FolderRoleConflict {
 }
 
 @doc("""
-  The same flat 409 body as `FolderRoleConflict`, with one code only this endpoint can answer with.
+  The same flat 409 body as `FolderRoleConflict`, with the codes only this endpoint can answer with.
   
   `code: "folder_role_unresolved"` — as everywhere else, with `details` carrying `role`, `accountId` and `reason`.
-  
-  `code: "mailbox_not_settled"` — the mailbox being appointed is still being created or deleted on the mail server, so it cannot yet hold a role. `details` carries `mailboxId` and `syncStatus`. Clearing a role is never refused this way.
   """)
 model AppointFolderRoleConflict is FolderRoleConflict;
+
+@doc("""
+  The write binds a durable reference — a role appointment, a filter's move target, a message's destination — to a folder whose own mutation has not settled, so the reference would point at something that may never exist.
+  
+  `code: "mailbox_not_settled"` — `details` carries `mailboxId` and `syncStatus`, one of `pending` (the mail server has not confirmed the folder yet), `deleting` (it is on its way out) or `failed` (its last rename or delete did not land, and the user has a retry or a dismissal to make first). Clearing a reference is never refused this way, and neither is moving mail *out of* such a folder.
+  
+  422 rather than a second 409: 409 means somebody else is changing this folder right now and the client should refresh, which is different copy and a different remedy.
+  """)
+model MailboxNotSettled {
+  @statusCode statusCode: 422;
+  ...ApiError;
+}
 
 @doc("""
   The same flat 409 body, for a message whose folder and uid do not name the same message.

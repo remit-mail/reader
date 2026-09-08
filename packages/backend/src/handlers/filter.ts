@@ -5,8 +5,10 @@ import type {
 } from "@remit/api-openapi-types";
 import {
 	deriveFilterTtl,
+	FILTER_NO_ACTION,
 	type FilterItem,
 	type IFilterAnchorTransaction,
+	type IMailboxRepository,
 	type UpdateFilterInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
@@ -22,6 +24,7 @@ import type {
 	OperationHandler,
 } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+import { assertMailboxInAccount, assertMailboxSettled } from "./mailbox.js";
 
 /**
  * Minimal filter-service surface the create handler needs — declared as a
@@ -222,6 +225,25 @@ export const createFilterWithAnchor = async (
 	);
 };
 
+/**
+ * A filter's `actionMailboxId` is a durable reference, so its target has to be
+ * a folder the mail server has settled (D12, first row) — 422 otherwise. The
+ * sentinel means "no move action" and binds to nothing, so it is not gated,
+ * and neither is a filter that touches the field at all.
+ */
+const assertActionMailboxSettled = async (
+	client: { mailbox: Pick<IMailboxRepository, "get"> },
+	accountId: string,
+	actionMailboxId: string | undefined,
+): Promise<void> => {
+	if (actionMailboxId === undefined || actionMailboxId === FILTER_NO_ACTION) {
+		return;
+	}
+	const target = await client.mailbox.get(accountId, actionMailboxId);
+	assertMailboxInAccount(target, accountId, "act");
+	assertMailboxSettled(target);
+};
+
 export const FilterOperations: Record<
 	FilterOperationIds,
 	OperationHandler<FilterOperationIds>
@@ -265,6 +287,7 @@ export const FilterOperations: Record<
 		const client = await getClient();
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
+		await assertActionMailboxSettled(client, accountId, input.actionMailboxId);
 
 		const filter = await createFilterWithAnchor(
 			{
@@ -316,6 +339,7 @@ export const FilterDetailOperations: Record<
 
 		const { filter } = client;
 		const patch = pickFilterUpdate(body as Partial<UpdateFilterRequestBody>);
+		await assertActionMailboxSettled(client, accountId, patch.actionMailboxId);
 		const touchesScopeOrExpiry =
 			Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
 		const resolvedPatch: Partial<UpdateFilterInput> = touchesScopeOrExpiry

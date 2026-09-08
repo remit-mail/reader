@@ -705,15 +705,103 @@ export class MailboxManagementService {
 		path: string,
 		getConnection: () => Promise<IImapConnection>,
 	): Promise<MailboxManagementSyncResult> => {
+		if (!(await this.deleteIntentStanding(accountId, mailboxId))) {
+			return { success: true };
+		}
+
 		const connection = await getConnection();
 
 		await connection.deleteMailbox(path);
 
-		this.log.info({ mailboxId, path }, "Deleted mailbox on IMAP server");
+		this.log.info(
+			{ accountId, mailboxId, intent: "delete", path },
+			"Deleted mailbox on IMAP server",
+		);
 
-		// Delete the mailbox entity from the local store
-		await this.mailboxService.delete(accountId, mailboxId);
+		await this.settleDelete(accountId, mailboxId);
 
 		return { success: true };
+	};
+
+	/**
+	 * Whether the delete this event was enqueued for is still the folder's live
+	 * intent (D10). Anything else resolves the job with no IMAP call — never a
+	 * throw, which would hold back every later job in the account's FIFO group
+	 * (#339).
+	 */
+	private deleteIntentStanding = async (
+		accountId: string,
+		mailboxId: string,
+	): Promise<boolean> => {
+		const row = await this.mailboxService
+			.get(accountId, mailboxId)
+			.catch((error: unknown) => {
+				if (isNotFoundError(error)) return undefined;
+				throw error;
+			});
+		if (row?.syncStatus === MailboxSyncStatus.deleting) return true;
+		this.log.info(
+			{
+				accountId,
+				mailboxId,
+				intent: "delete",
+				from: row?.syncStatus,
+				outcome: row ? "superseded" : "already-settled",
+			},
+			"Skipping MAILBOX_DELETE: the recorded intent has moved on",
+		);
+		return false;
+	};
+
+	/**
+	 * T8: the confirmed delete takes the folder's local mail with it (D8).
+	 * Removing the row alone leaves every `message` and `thread_message` row
+	 * keyed to a dead mailboxId — out of every reader, and still in the search
+	 * index, because nothing writes the `message.removed` outbox event.
+	 *
+	 * The removal is batched and the mailbox row goes last, so the row stays
+	 * `deleting` throughout and an SQS redelivery re-enters the handler, passes
+	 * the guard above, and resumes where it stopped.
+	 */
+	settleDelete = async (
+		accountId: string,
+		mailboxId: string,
+	): Promise<void> => {
+		await this.mailboxService.deleteMailboxWithMail(accountId, mailboxId);
+		this.log.info(
+			{
+				accountId,
+				mailboxId,
+				intent: "delete",
+				from: MailboxSyncStatus.deleting,
+				outcome: "settled",
+			},
+			"Removed folder and its mail",
+		);
+	};
+
+	/**
+	 * T9: the server refused the delete. Nothing is unwound — DELETE is
+	 * all-or-nothing, so `fullPath` is still what the server holds, and no rename
+	 * target is written, which is how the client tells a failed delete from a
+	 * failed rename.
+	 */
+	failDelete = async (accountId: string, mailboxId: string): Promise<void> => {
+		const failed = await this.mailboxService.transition(accountId, mailboxId, {
+			from: [MailboxSyncStatus.deleting],
+			to: MailboxSyncStatus.failed,
+		});
+		if (!failed) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+		this.log.info(
+			{
+				accountId,
+				mailboxId,
+				intent: "delete",
+				from: MailboxSyncStatus.deleting,
+				to: MailboxSyncStatus.failed,
+				outcome: "refused",
+			},
+			"Recorded a refused delete",
+		);
 	};
 }

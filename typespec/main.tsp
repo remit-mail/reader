@@ -177,10 +177,13 @@ namespace RemitApi {
       | ForbiddenError
       | UnauthorizedError;
 
+    @doc("Record a delete intent for a folder. The folder stays listed, marked as being deleted, until the mail server confirms it and its mail goes with it. Refused with 400 for INBOX, for a folder with folders inside it, and for a folder a filter or a canonical role is bound to — the message names each binding; with 409 when a mutation is already in flight on it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
     op deleteMailbox(@path accountId: UUID, @path mailboxId: UUID):
       | NoContent
+      | ValidationError
+      | ConflictError
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
@@ -202,6 +205,7 @@ namespace RemitApi {
     ):
       | AccountResponse
       | AppointFolderRoleConflict
+      | MailboxNotSettled
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
@@ -232,6 +236,7 @@ namespace RemitApi {
     op createFilter(@path accountId: UUID, @body input: CreateFilterInput):
       | FilterResponse
       | ValidationError
+      | MailboxNotSettled
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
@@ -252,7 +257,12 @@ namespace RemitApi {
       @path accountId: UUID,
       @path filterId: UUID,
       @body input: UpdateFilterInput,
-    ): FilterResponse | NotFoundError | ForbiddenError | UnauthorizedError;
+    ):
+      | FilterResponse
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
@@ -1189,6 +1199,7 @@ namespace RemitApi {
     op moveMessages(@body input: MoveMessagesInput):
       | MessageBulkOperationResult
       | MessagePlacementConflict
+      | MailboxNotSettled
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
@@ -1200,6 +1211,7 @@ namespace RemitApi {
     op copyMessages(@body input: CopyMessagesInput):
       | MessageBulkOperationResult
       | MessagePlacementConflict
+      | MailboxNotSettled
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;

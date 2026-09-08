@@ -5,7 +5,6 @@ import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
-	EVERY_MAILBOX_STATE,
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
@@ -35,31 +34,6 @@ const defaultDeps: MailboxManagementDeps = {
 	buildLifecycleDeps,
 	withOAuthLifecycle,
 	createConnectionScope: createConnectionScopeWithCredentials,
-};
-
-/**
- * Write the outcome of a folder operation back, as the conditional write that
- * is the only way to write a folder's state
- * (docs/architecture/folder-rename-and-delete.md D3).
- *
- * The from-set is every state because that is what this write-back decides
- * against today — it is the unconditional write it replaces, moved onto the
- * door. #362 narrows the delete's to the state its intent recorded. A null
- * means the row is gone, which is the NotFoundError the whole-chain guards
- * below classify as the user having deleted the folder mid-sync.
- */
-const recordOutcome = async (
-	mailboxService: Pick<IMailboxRepository, "transition">,
-	accountId: string,
-	mailboxId: string,
-	to: (typeof MailboxSyncStatus)[keyof typeof MailboxSyncStatus],
-): Promise<void> => {
-	const written = await mailboxService.transition(accountId, mailboxId, {
-		from: EVERY_MAILBOX_STATE,
-		to,
-		set: {},
-	});
-	if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 };
 
 /**
@@ -438,37 +412,32 @@ const handleDelete = async (
 						}
 					})
 					.catch(async (error) => {
-						// If mailbox not found, it's already deleted (idempotent)
+						// The folder is already gone from the server, so the delete has
+						// happened. Its mail still goes with it (D8), which is the whole
+						// point of the settle.
 						if (isMailboxAbsentUpstream(error)) {
 							log.info(
-								{ accountId, mailboxId, path },
-								"Mailbox not found on IMAP, deleting local",
+								{ accountId, mailboxId, path, intent: "delete" },
+								"Mailbox not found on IMAP, removing the local folder and its mail",
 							);
-							await mailboxService.delete(accountId, mailboxId);
-						} else if (
-							error instanceof Error &&
-							error.message.includes("Cannot delete INBOX")
-						) {
-							// Restore the mailbox
-							await recordOutcome(
-								mailboxService,
-								accountId,
-								mailboxId,
-								MailboxSyncStatus.synced,
-							);
-							log.error(
-								{ accountId, mailboxId, path },
-								"Cannot delete INBOX, restoring mailbox",
-							);
-							// Don't rethrow - this is an expected error
+							await managementService.settleDelete(accountId, mailboxId);
 						} else {
-							// Restore the mailbox on other errors
-							await recordOutcome(
-								mailboxService,
-								accountId,
-								mailboxId,
-								MailboxSyncStatus.failed,
-							);
+							// T9, INBOX included. The API refuses a delete of INBOX, so the
+							// worker's backstop is unreachable from it; if something else
+							// reaches it, the honest outcome is `failed`, not `synced` —
+							// the folder was never deleted and nothing was undone.
+							await managementService.failDelete(accountId, mailboxId);
+							if (
+								error instanceof Error &&
+								error.message.includes("Cannot delete INBOX")
+							) {
+								log.error(
+									{ accountId, mailboxId, path, intent: "delete" },
+									"Cannot delete INBOX",
+								);
+								// Don't rethrow — no retry can make this succeed.
+								return;
+							}
 							throw error;
 						}
 					})

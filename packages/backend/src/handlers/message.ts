@@ -50,6 +50,7 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { assertMailboxSettled } from "./mailbox.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
@@ -939,7 +940,10 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
-		// Destination must belong to the same (caller-owned) account.
+		// Destination must belong to the same (caller-owned) account, and must be
+		// a folder the mail server has settled: the row records the destination
+		// before the move confirms, so binding to a folder that may never exist
+		// leaves the message pointing at nothing (D12, first row).
 		const destination = await client.mailbox.get(
 			accountId,
 			destinationMailboxId,
@@ -949,6 +953,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
+		assertMailboxSettled(destination);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
@@ -985,7 +990,10 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
-		// Destination must belong to the same (caller-owned) account.
+		// Destination must belong to the same (caller-owned) account, and must be
+		// a folder the mail server has settled: the row records the destination
+		// before the move confirms, so binding to a folder that may never exist
+		// leaves the message pointing at nothing (D12, first row).
 		const destination = await client.mailbox.get(
 			accountId,
 			destinationMailboxId,
@@ -995,6 +1003,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
+		assertMailboxSettled(destination);
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(

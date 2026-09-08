@@ -4,8 +4,8 @@ import type { AccountSettingItem, MailboxItem } from "@remit/data-ports";
 import { isPublicApiError } from "@remit/data-ports/errors";
 import { composeFolderRoleAppointmentLabelName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
-import { assertMailboxSettled } from "./folder-role.js";
 import { refreshFolderAppointmentLabels } from "./folder-role-labels.js";
+import { assertMailboxSettled } from "./mailbox.js";
 
 const mailbox = (over: Partial<MailboxItem>): MailboxItem =>
 	({
@@ -57,14 +57,41 @@ describe("assertMailboxSettled", () => {
 		});
 	});
 
-	it("allows a settled folder, and one whose delete failed", () => {
+	it("refuses a folder whose last change failed", () => {
+		// `failed` means the folder exists at `fullPath` and the last rename or
+		// delete did not land, so it is exactly as unready to be bound to as a
+		// folder mid-mutation — and the user has a retry or a dismissal to make
+		// before anything should point at it.
+		const error = caught(() =>
+			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.failed })),
+		);
+		assert.equal(publicErrorOf(error)?.code, "mailbox_not_settled");
+	});
+
+	it("answers 422, not 409", () => {
+		// 409 already means "this folder is being changed right now, refresh".
+		// This means "the folder you are pointing at has not settled yet", which
+		// is different copy and a different remedy (D4).
+		const error = caught(() =>
+			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.pending })),
+		);
+		assert.equal((error as { statusCode?: number }).statusCode, 422);
+	});
+
+	it("words each state differently, because each has its own remedy", () => {
+		const messageFor = (syncStatus: MailboxItem["syncStatus"]) =>
+			(caught(() => assertMailboxSettled(mailbox({ syncStatus }))) as Error)
+				.message;
+
+		assert.match(messageFor(MailboxSyncStatus.pending), /hasn.t confirmed it/);
+		assert.match(messageFor(MailboxSyncStatus.deleting), /being deleted/);
+		assert.match(messageFor(MailboxSyncStatus.failed), /Retry or dismiss/);
+	});
+
+	it("allows a settled folder", () => {
 		assert.doesNotThrow(() =>
 			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.synced })),
 		);
-		assert.doesNotThrow(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.failed })),
-		);
-		assert.doesNotThrow(() => assertMailboxSettled(mailbox({})));
 	});
 });
 
