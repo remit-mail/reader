@@ -29,9 +29,9 @@ import {
 export const FRESHNESS_POLL_MS = 60_000;
 
 /**
- * Roles whose own total growing is the user's doing, not an arrival: sending
- * grows Sent, deleting or archiving grows Trash/Archive, and a Drafts count is
- * autosaves. Counting any of these as "new mail" would light the dot on a
+ * Roles whose own new messages are the user's doing, not an arrival: sending
+ * appends to Sent, deleting or archiving appends to Trash/Archive, and a Draft
+ * is an autosave. Counting any of these as "new mail" would light the dot on a
  * message the user just moved themselves. Junk is kept in — spam is still an
  * arrival, just an unwanted one — and a mailbox with no resolved role (a
  * custom folder, or one a filter files mail into directly) is never excluded.
@@ -43,43 +43,51 @@ const EXCLUDED_GROWTH_ROLES: ReadonlySet<NavMailboxRole> = new Set([
 	"archive",
 ]);
 
-type MailboxTotals = ReadonlyMap<string, number>;
+/**
+ * Each watched mailbox's highest UID. A total cannot answer "did mail arrive":
+ * a message landing in the round that another one leaves nets to zero, so the
+ * arrival was invisible (#771). The read model widens that window, because a
+ * local delete does not decrement the stored count — only the next sync does,
+ * and that same sync carries the arrival. The highest UID only moves up, so it
+ * names the arrival on its own.
+ */
+type MailboxHighWaterMarks = ReadonlyMap<string, number>;
 
-export const totalsFrom = (
+export const highWaterMarksFrom = (
 	mailboxes: readonly RemitImapMailboxSyncProgress[],
 	resultFolderIndex: ResultFolderIndex,
-): MailboxTotals => {
-	const totals = new Map<string, number>();
+): MailboxHighWaterMarks => {
+	const marks = new Map<string, number>();
 	for (const mailbox of mailboxes) {
 		const role = resultFolderIndex.get(mailbox.mailboxId)?.role;
 		if (role && EXCLUDED_GROWTH_ROLES.has(role)) continue;
-		totals.set(mailbox.mailboxId, mailbox.messagesTotal);
+		marks.set(mailbox.mailboxId, mailbox.highWaterMarkUid);
 	}
-	return totals;
+	return marks;
 };
 
 /**
- * Which mailboxes' totals grew since the baseline. Pure so the "did mail
- * arrive" call is unit-testable without a DOM or a QueryClient. A mailbox
- * missing from the baseline (new folder, first-ever reading) counts from zero
- * rather than being skipped, so mail landing in a folder created since the last
- * look still counts as an arrival.
+ * Which mailboxes took a UID above the highest one in the baseline. Pure so the
+ * "did mail arrive" call is unit-testable without a DOM or a QueryClient. A
+ * mailbox missing from the baseline (new folder, first-ever reading) counts
+ * from zero rather than being skipped, so mail landing in a folder created
+ * since the last look still counts as an arrival.
  */
 export const grownMailboxIds = (
-	baseline: MailboxTotals,
-	current: MailboxTotals,
+	baseline: MailboxHighWaterMarks,
+	current: MailboxHighWaterMarks,
 ): string[] => {
 	const grown: string[] = [];
-	for (const [mailboxId, total] of current) {
-		if (total > (baseline.get(mailboxId) ?? 0)) grown.push(mailboxId);
+	for (const [mailboxId, uid] of current) {
+		if (uid > (baseline.get(mailboxId) ?? 0)) grown.push(mailboxId);
 	}
 	return grown;
 };
 
-/** Whether any mailbox grew at all — the dot's own question. */
+/** Whether any mailbox took a new message at all — the dot's own question. */
 export const hasGrown = (
-	baseline: MailboxTotals,
-	current: MailboxTotals,
+	baseline: MailboxHighWaterMarks,
+	current: MailboxHighWaterMarks,
 ): boolean => grownMailboxIds(baseline, current).length > 0;
 
 interface MailFreshnessContextValue {
@@ -116,10 +124,10 @@ interface MailFreshnessProviderProps {
  * 4). The flag is sticky until acknowledged: it lights the dot on whichever
  * `RefreshButton` reads this context and stays lit until a refresh clears it.
  *
- * A tick that sees a folder's total move also invalidates that folder's thread
- * listing. It reorders nothing and asks the mail server for nothing — the
- * message is already on our side, so an open list showing it is a cache read,
- * not IMAP work. The dot is still the account-level signal.
+ * A tick that sees a folder take a new highest UID also invalidates that
+ * folder's thread listing. It reorders nothing and asks the mail server for
+ * nothing — the message is already on our side, so an open list showing it is a
+ * cache read, not IMAP work. The dot is still the account-level signal.
  */
 export function MailFreshnessProvider({
 	accountIds,
@@ -127,12 +135,12 @@ export function MailFreshnessProvider({
 }: MailFreshnessProviderProps) {
 	const queryClient = useQueryClient();
 	const { resultFolderIndex } = useMailContext();
-	const baselineRef = useRef(new Map<string, MailboxTotals>());
+	const baselineRef = useRef(new Map<string, MailboxHighWaterMarks>());
 	const seededRef = useRef(new Set<string>());
 	// The previous tick's reading, distinct from the dot's baseline: the dot's
 	// baseline is sticky until acknowledged, so comparing against it would
 	// re-invalidate on every tick for as long as the dot stays lit.
-	const previousTotalsRef = useRef(new Map<string, MailboxTotals>());
+	const previousMarksRef = useRef(new Map<string, MailboxHighWaterMarks>());
 	const [newMail, setNewMail] = useState<ReadonlySet<string>>(new Set());
 
 	const queries = useQueries({
@@ -153,14 +161,17 @@ export function MailFreshnessProvider({
 		accountIds.forEach((accountId, index) => {
 			const data = queries[index]?.data;
 			if (!data) return;
-			const current = totalsFrom(data.mailboxes ?? [], resultFolderIndex);
+			const current = highWaterMarksFrom(
+				data.mailboxes ?? [],
+				resultFolderIndex,
+			);
 
 			// Mail that has already landed on the server costs nothing more to
-			// show, so a folder whose total moved since the last tick reloads
+			// show, so a folder that took a UID above the last tick's reloads
 			// its listing here. That caps how stale an open tab's list can get
 			// at this poll's own interval, without a single extra IMAP round.
-			const previous = previousTotalsRef.current.get(accountId);
-			previousTotalsRef.current.set(accountId, current);
+			const previous = previousMarksRef.current.get(accountId);
+			previousMarksRef.current.set(accountId, current);
 			if (previous) {
 				const grown = grownMailboxIds(previous, current);
 				if (grown.length > 0) {
@@ -208,7 +219,7 @@ export function MailFreshnessProvider({
 					| undefined;
 				baselineRef.current.set(
 					accountId,
-					totalsFrom(data?.mailboxes ?? [], resultFolderIndex),
+					highWaterMarksFrom(data?.mailboxes ?? [], resultFolderIndex),
 				);
 				seededRef.current.add(accountId);
 			}

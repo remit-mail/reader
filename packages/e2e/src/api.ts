@@ -34,6 +34,7 @@ export interface MailboxSyncProgress {
 	phase: string;
 	messagesTotal: number;
 	messagesSynced: number;
+	highWaterMarkUid: number;
 	lastSyncedAt?: number;
 }
 

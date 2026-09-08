@@ -12,7 +12,7 @@ import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
-import { computeMessagesSynced, deriveMailboxPhase } from "./sync-progress.js";
+import { toMailboxSyncProgress } from "./sync-progress.js";
 
 interface SyncTriggerDeps {
 	sqsClient: SQSClient;
@@ -114,14 +114,7 @@ export const SyncOperations: Record<
 			mailboxCountTotal: account.mailboxCountTotal,
 			mailboxCountSynced: account.mailboxCountSynced,
 			lastSyncAt: account.lastSyncAt,
-			mailboxes: mailboxes.map((mailbox) => ({
-				mailboxId: mailbox.mailboxId,
-				fullPath: mailbox.fullPath,
-				phase: deriveMailboxPhase(mailbox),
-				messagesTotal: mailbox.messageCount ?? 0,
-				messagesSynced: computeMessagesSynced(mailbox),
-				lastSyncedAt: mailbox.lastMessageSyncAt || undefined,
-			})),
+			mailboxes: mailboxes.map(toMailboxSyncProgress),
 		};
 	},
 };
