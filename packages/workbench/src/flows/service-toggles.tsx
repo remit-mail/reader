@@ -14,6 +14,7 @@
  * stops, and only then does the screen move.
  */
 import {
+	ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE,
 	AccountHealthCard,
 	type AccountService,
 	type AccountServiceChange,
@@ -89,7 +90,7 @@ export function AccountServiceSettings({
 	consented = BOTH_SERVICES,
 	pending,
 }: AccountServiceSettingsProps) {
-	const providerName = connector === "microsoft" ? "Microsoft" : "Fastmail";
+	const providerName = connector === "microsoft" ? "Microsoft" : "IMAP";
 	const offered: AccountService[] =
 		connector === "microsoft" ? BOTH_SERVICES : ["Mail"];
 
@@ -152,7 +153,7 @@ export function AccountServiceSettings({
 			<AccountHealthCard
 				label={label}
 				email={email}
-				connector={connector === "microsoft" ? "Microsoft" : "IMAP"}
+				connector={providerName}
 				syncLabel={mailOff ? "mail paused, synced 3h ago" : "synced 2m ago"}
 				state="healthy"
 				trailing={
@@ -170,8 +171,7 @@ export function AccountServiceSettings({
 				/>
 				{offered.length < 2 && (
 					<p className="text-sm text-fg-muted">
-						This account connects over IMAP, which carries mail and nothing
-						else. There is nothing to switch.
+						{ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE}
 					</p>
 				)}
 			</section>

@@ -32,6 +32,7 @@ export {
 	type AccountServiceRow,
 } from "./components/account-service-choice.js";
 export {
+	ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE,
 	ACCOUNT_SERVICE_OFF_LABEL,
 	ACCOUNT_SERVICE_OFF_MESSAGE,
 	AccountServiceOffBadge,

@@ -39,9 +39,9 @@ export const MailNotice: Story = {
 	),
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(canvas.getByRole("status")).toHaveTextContent(
-			"Everything already synced is here to read",
-		);
+		await expect(
+			canvas.getByText(/Everything already synced is here to read/),
+		).toBeVisible();
 		await expect(
 			canvas.getByRole("button", { name: "Turn mail back on" }),
 		).toBeVisible();

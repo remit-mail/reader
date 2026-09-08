@@ -6,9 +6,10 @@ import {
 } from "./account-service-choice.js";
 
 /**
- * A service switch on the account settings screen. The host never flips one on
- * its own: every press asks, because switching mail off stops a sync and
- * switching a service on the consent never covered leaves for the provider.
+ * A service switch on the account settings screen. Switching off always asks,
+ * because it stops a sync. Switching on asks only when the grant does not cover
+ * the service yet, because granting it leaves for the provider; a service the
+ * consent already covers comes back on without a question.
  */
 export type AccountServiceIntent = "on" | "off";
 
@@ -21,7 +22,7 @@ export interface AccountServiceTogglesProps {
 	enabled: AccountService[];
 	/** Services the account's grant already covers. The rest cost a sign-in. */
 	consented: AccountService[];
-	/** Asks the host for a change. The host confirms before it commits. */
+	/** Asks the host for a change. The host owns the question and the commit. */
 	onRequestChange: (
 		service: AccountService,
 		intent: AccountServiceIntent,

@@ -170,6 +170,38 @@ export const SingleCalendar: Story = {
 };
 
 /**
+ * A paused provider calendar. Sync stopped; the calendar is still listed, still
+ * coloured and still tickable, so the pause icon is decoration and the words
+ * that carry it sit beside the row rather than inside the tick's name.
+ */
+export const Paused: Story = {
+	render: () => {
+		const paused = calendars.map((calendar) =>
+			calendar.id === "c1"
+				? { ...calendar, sync: "paused" as const }
+				: calendar,
+		);
+		return (
+			<CalendarList
+				calendars={paused}
+				visible={new Set(calendars.map((c) => c.id))}
+				onToggle={() => {}}
+				onToggleAccount={() => {}}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("checkbox", { name: "Northwind" }),
+		).toBeChecked();
+		await expect(
+			canvas.getByText("Northwind: calendar sync off"),
+		).toBeInTheDocument();
+	},
+};
+
+/**
  * The same control on a surface with no room for a rail: a scrolling row of
  * chips at thumb size. It is laid out differently and it is not a popover —
  * turning a calendar off stays one press away from the grid.

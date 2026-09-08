@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
 import type { AccountService } from "./account-service-choice.js";
+import { ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE } from "./account-service-status.js";
 import {
 	type AccountServiceIntent,
 	AccountServiceToggles,
@@ -113,7 +114,7 @@ export const ImapAccount: Story = {
 				onRequestChange={() => {}}
 			/>
 			<p className="border-t border-line pt-2 text-2xs text-fg-subtle">
-				Nothing above this line: an IMAP account syncs mail and is not asked.
+				{ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE}
 			</p>
 		</>
 	),

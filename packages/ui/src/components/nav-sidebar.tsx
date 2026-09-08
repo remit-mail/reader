@@ -276,8 +276,6 @@ function AccountNav({
 	const hiddenCount = folders.length - visibleFolders.length;
 
 	const status = account.status ?? "ready";
-	// An account that no longer syncs mail keeps every mailbox it already has.
-	// The nav says so where the account is named, and drops nothing (#1179).
 	const mailOff =
 		account.syncedServices !== undefined &&
 		!account.syncedServices.includes("Mail");

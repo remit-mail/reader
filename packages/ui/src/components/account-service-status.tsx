@@ -25,6 +25,14 @@ export const ACCOUNT_SERVICE_OFF_MESSAGE: Record<AccountService, string> = {
 		"Calendar sync is off for this account. Its events stay on your calendar; nothing new arrives until you turn calendar back on.",
 };
 
+/**
+ * Why an account is offered no switches at all. An IMAP connector carries mail
+ * alone, so the screen says that rather than showing a control that can never
+ * move.
+ */
+export const ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE =
+	"This account connects over IMAP, which carries mail and nothing else. There is nothing to switch.";
+
 export interface AccountServiceOffBadgeProps {
 	service: AccountService;
 	className?: string;

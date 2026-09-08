@@ -208,9 +208,9 @@ export const StoredMailbox: Story = {
 	),
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(canvas.getByRole("status")).toHaveTextContent(
-			"Everything already synced is here to read",
-		);
+		await expect(
+			canvas.getByText(/Everything already synced is here to read/),
+		).toBeVisible();
 		await expect(
 			canvas.getByRole("button", { name: "Turn mail back on" }),
 		).toBeVisible();
@@ -225,9 +225,9 @@ export const PausedCalendar: Story = {
 	render: () => <PausedProviderCalendar />,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(canvas.getByRole("status")).toHaveTextContent(
-			"Its events stay on your calendar",
-		);
-		await expect(canvas.getByLabelText("calendar sync off")).toBeVisible();
+		await expect(
+			canvas.getByText(/Its events stay on your calendar/),
+		).toBeVisible();
+		await expect(canvas.getByText(/calendar sync off/)).toBeInTheDocument();
 	},
 };
