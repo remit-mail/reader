@@ -5,7 +5,7 @@ namespace RemitImap;
   `syncStatus` is `abandoned` — outside that it is `none` and says nothing,
   the way `originalUid` says nothing once a placement has settled
   (`docs/architecture/imap-mutations.md` R3).
-
+  
   It exists because a hand-back erases the evidence: the give-up puts `status`
   back to `active`, and `status` was the only field naming the mutation that
   was outstanding. Without this the client can see that something was

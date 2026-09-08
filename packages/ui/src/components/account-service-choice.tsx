@@ -82,7 +82,7 @@ export function AccountServiceChoice({
 				))}
 			</div>
 			<p id={noteId} className="mt-1.5 text-2xs text-fg-subtle">
-				Changing this later means signing in with {providerName} again.
+				{`Changing this later means signing in with ${providerName} again.`}
 			</p>
 			{error && (
 				<Banner tone="danger" variant="soft" className="mt-2 text-xs">
