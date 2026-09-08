@@ -98,15 +98,53 @@ afterEach(() => {
 const paramsOf = (call: HttpCall): URLSearchParams =>
 	new URL(call.url, "http://localhost").searchParams;
 
+const threadCalls = (): HttpCall[] =>
+	(http?.calls ?? []).filter(
+		(call) => new URL(call.url, "http://localhost").pathname === "/threads",
+	);
+
+/**
+ * Params that say WHICH mail is being asked about, with everything about paging
+ * and response shape taken out. A count is right only if these match the rows
+ * request's exactly — same query, same account, same chips — because a count
+ * over a wider set than the list shows is a wrong number, not a rounded one.
+ */
+const CRITERIA_FREE_PARAMS = new Set([
+	"limit",
+	"continuationToken",
+	"mailboxId",
+	"count",
+	"results",
+	"order",
+]);
+
+const criteriaOf = (call: HttpCall): string => {
+	const criteria = [...paramsOf(call).entries()]
+		.filter(([name]) => !CRITERIA_FREE_PARAMS.has(name))
+		.map(([name, value]) => `${name}=${value}`)
+		.sort();
+	return criteria.join("&");
+};
+
 /** The count requests this render issued, by the folder each one scoped to. */
-const spamCountRequests = (): string[] =>
-	(http?.calls ?? [])
-		.filter(
-			(call) => new URL(call.url, "http://localhost").pathname === "/threads",
-		)
+const spamCountRequests = (): HttpCall[] =>
+	threadCalls()
 		.filter((call) => paramsOf(call).get("count") === "true")
-		.map((call) => paramsOf(call).get("mailboxId") ?? "")
-		.filter((mailboxId) => mailboxId === JUNK_A || mailboxId === JUNK_B);
+		.filter((call) => {
+			const mailboxId = paramsOf(call).get("mailboxId");
+			return mailboxId === JUNK_A || mailboxId === JUNK_B;
+		});
+
+const spamCountFolders = (): string[] =>
+	spamCountRequests().map((call) => paramsOf(call).get("mailboxId") ?? "");
+
+/** The request that fetched the rows the offer sits above. */
+const searchRowsRequest = (): HttpCall | undefined =>
+	threadCalls().find(
+		(call) =>
+			paramsOf(call).get("count") !== "true" &&
+			paramsOf(call).get("query") !== null,
+	);
 
 const context = (): MailContextValue => ({
 	accounts,
@@ -193,6 +231,12 @@ const mount = async (junk: JunkCounts): Promise<DomHarness> => {
 		if (params.get("count") === "true") {
 			const mailboxId = params.get("mailboxId");
 			if (mailboxId === null) return { count: 0 };
+			// The server counts what it was asked about. A count request carrying
+			// different criteria from the rows request is answering a different
+			// question, so this one answers nothing rather than lending it a number
+			// — which is what fails the assertions below if the criteria stop being
+			// forwarded.
+			if (params.get("query") !== QUERY) return {};
 			const count = junk[mailboxId];
 			// A folder the server declines to count answers with no `count` at all,
 			// never with a zero — the distinction the offer has to keep.
@@ -248,10 +292,22 @@ describe("the Spam offer's count comes from the server (#313)", () => {
 		);
 
 		assert.deepEqual(
-			[...new Set(spamCountRequests())].sort(),
+			[...new Set(spamCountFolders())].sort(),
 			[JUNK_A, JUNK_B].sort(),
 			"the offer did not ask every junk folder for its own count",
 		);
+		// The invariant the whole fix rests on: each folder is counted under the
+		// search's own criteria, so the number is the size of what the reader is
+		// looking at rather than of every message that folder holds.
+		const rows = searchRowsRequest();
+		assert.ok(rows, "the brief never asked for the search's rows");
+		for (const call of spamCountRequests()) {
+			assert.equal(
+				criteriaOf(call),
+				criteriaOf(rows),
+				"a count asked about different mail from the list it sits above",
+			);
+		}
 		assert.match(
 			mounted.text(),
 			new RegExp(`${SPAM_IN_A + SPAM_IN_B}\\s*results from Spam`),

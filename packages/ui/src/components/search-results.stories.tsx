@@ -248,8 +248,9 @@ export const GlobalAcrossFolders: Story = {
 
 /**
  * The same global search over an account whose Spam folder holds nothing
- * matching. The count answers zero over the whole junk scope, so there is no
- * offer — it only ever appears because there is something behind it.
+ * matching. No junk rows to hold out and a count of zero over the whole junk
+ * scope, so there is no offer — it only ever appears because there is something
+ * behind it.
  */
 export const GlobalWithoutSpamMatches: Story = {
 	render: () => (

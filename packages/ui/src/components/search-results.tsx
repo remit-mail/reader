@@ -348,15 +348,22 @@ export function SearchResults({
 		(total, entry) => total + entry.spam.length,
 		0,
 	);
-	// The count decides whether there is an offer, because it is the answer over
-	// the whole junk scope: an exact zero means the search reaches no spam even
-	// where this page happens to hold a stale row. Only when nobody counted do
-	// the held-out rows stand in — as evidence that spam was reached, never as
-	// the number stated (#313).
+	// Rows this component held out are always offered a way back. Holding mail
+	// out of a list AND withholding the offer leaves it hidden with nothing on
+	// screen saying so — a worse outcome than any wrong number, and reachable
+	// whenever a cached count says zero over a page that is holding junk rows.
+	// The count decides the figure and can add an offer of its own (matches below
+	// the loaded page, which is the defect this exists to fix); it never takes
+	// one away (#313).
 	const spamCount = scope.kind === "global" ? scope.spamCount : undefined;
-	const spamTotal = spamCount ?? UNCOUNTED_SPAM;
+	const counted = spamCount ?? UNCOUNTED_SPAM;
 	const hasSpamToOffer =
-		spamTotal.kind === "exact" ? spamTotal.value > 0 : heldOutSpamCount > 0;
+		heldOutSpamCount > 0 || (counted.kind === "exact" && counted.value > 0);
+	// The count and the rows disagree. Neither is stated: the rows are on screen
+	// and the count is the older of the two.
+	const contradicted =
+		counted.kind === "exact" && counted.value === 0 && heldOutSpamCount > 0;
+	const spamTotal = contradicted ? UNCOUNTED_SPAM : counted;
 	const spamOffer =
 		scope.kind === "global" &&
 		hasSpamToOffer &&

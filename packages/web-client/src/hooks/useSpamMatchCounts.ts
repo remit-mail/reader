@@ -18,6 +18,14 @@
  * that folder, and `spamOfferFromCounts` turns any one of those into an unknown
  * total. Nothing here substitutes a page length for a count the server did not
  * give (#313).
+ *
+ * A failure is reported apart from the rest, because the three are not the same
+ * answer: a folder that could not be counted has not said it holds nothing, and
+ * an offer that vanished on a failed request is indistinguishable from a search
+ * that reaches no spam. These queries carry no `meta.softError` and must not:
+ * a 401 or 403 here escalates on the fail-fast contract (`shouldEscalate`,
+ * #1059) and puts the reader in front of the signed-out surface, which is the
+ * one thing a read must never answer with an empty result.
  */
 import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sdk.gen.ts";
@@ -87,6 +95,7 @@ export function useSpamMatchCounts({
 				count: enabled
 					? toResultCount(countQueries[index]?.data?.count)
 					: UNCOUNTED,
+				failed: enabled ? (countQueries[index]?.isError ?? false) : false,
 			})),
 		[junkMailboxIds, countQueries, enabled],
 	);

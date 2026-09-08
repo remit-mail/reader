@@ -129,6 +129,7 @@ import { junkDestination } from "@/lib/junk-destination";
 import type { ListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
+import { shouldRequestResultCount } from "@/lib/result-count";
 import { junkMailboxIds } from "@/lib/result-folder";
 import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
 import { showInlineSearchResults } from "@/lib/search-surface";
@@ -743,8 +744,8 @@ export function DailyBrief({
 	// What the offer states is the server's count of every junk folder the search
 	// reached, one request each, summed — not the junk share of the page below
 	// it, which is a page length wearing a folder total's clothes (#313). The
-	// page's own junk rows are still what gets held out of the list, and still
-	// the evidence that spam was reached when no count came back.
+	// page's own junk rows still decide what is held out of the list, and where
+	// "Go to Spam" lands whenever no count ranks the folders.
 	const junkIds = useMemo(
 		() => junkMailboxIds(resultFolderIndex),
 		[resultFolderIndex],
@@ -752,7 +753,16 @@ export function DailyBrief({
 	const spamCounts = useSpamMatchCounts({
 		criteria: searchCriteria,
 		junkMailboxIds: junkIds,
-		enabled: underQuery && counted,
+		// The same two gates the mailbox list counts under: criteria the request
+		// carried in full, and free text long enough for the index to answer
+		// without a folder scan per character.
+		enabled:
+			counted &&
+			shouldRequestResultCount({
+				hasSearchQuery: underQuery,
+				freeText: sq,
+				residualTokenCount: residualTokens.length,
+			}),
 	});
 
 	const { spamIds, briefSpamOffer } = useMemo(() => {
@@ -762,9 +772,18 @@ export function DailyBrief({
 			rowToSearchResult(row, resultFolderIndex),
 		);
 		const { spam } = partitionSpamResults(asResults);
-		const offer = spamOfferFromCounts(spamCounts, {
-			pageHeldSpam: spam.length > 0,
-		});
+		// Per folder, not a total: with no count to rank them by, this is the only
+		// evidence of which account's Spam holds the mail, and a button landing on
+		// the wrong one shows "No matches" over rows this page is holding out.
+		const pageRowsByMailbox = new Map<string, number>();
+		for (const result of spam) {
+			if (!result.mailboxId) continue;
+			pageRowsByMailbox.set(
+				result.mailboxId,
+				(pageRowsByMailbox.get(result.mailboxId) ?? 0) + 1,
+			);
+		}
+		const offer = spamOfferFromCounts(spamCounts, { pageRowsByMailbox });
 		if (spam.length === 0 && !offer) return none;
 		return {
 			spamIds:

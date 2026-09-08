@@ -408,13 +408,33 @@ describe("SearchResults spam count", () => {
 		assert.doesNotMatch(html, /results from Spam/);
 	});
 
-	// The count answers over the whole junk scope, so an exact zero settles it
-	// even where a stale row on this page says otherwise.
-	it("makes no offer when the count is an exact zero", () => {
+	// Rows held out are always offered a way back. A stale count reading zero over
+	// junk rows this component is hiding would otherwise take the mail off screen
+	// with nothing saying where it went — and, where spam is the only match, put
+	// "No matches" above rows that exist.
+	it("keeps the offer when an exact zero contradicts the rows it held out", () => {
 		const html = renderToString(
 			createElement(SearchResults, {
 				value: "invoice",
 				sections: withSpamRows,
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 0 },
+				},
+			}),
+		);
+		assert.match(html, /Results from Spam/);
+		// Neither number is stated: the rows are on screen and the count is older.
+		assert.doesNotMatch(html, /results from Spam/);
+		assert.match(html, /Go to Spam/);
+	});
+
+	it("makes no offer when an exact zero has no rows to contradict it", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: [{ id: "results", label: "Results", results: [result] }],
 				scope: {
 					kind: "global",
 					onScopeToSpam: noop,
