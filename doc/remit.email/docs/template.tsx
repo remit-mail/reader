@@ -126,6 +126,11 @@ a { color: var(--link); }
 	font-weight: 600;
 }
 
+.nav-group-elsewhere {
+	padding-top: 1rem;
+	border-top: 1px solid var(--rule);
+}
+
 .main {
 	flex: 1 1 auto;
 	min-width: 0;
@@ -300,6 +305,22 @@ const NavGroupView = (
 		),
 	);
 
+// The Storybook is published to `storybook/` on the same Pages branch this
+// site's root is published to, so a relative href from the current page's depth
+// reaches it whatever prefix the site is served under.
+const ElsewhereView = (prefix: string, repository: string): VNode =>
+	h(
+		"div",
+		{ class: "nav-group nav-group-elsewhere" },
+		h("h2", { class: "nav-heading" }, "Elsewhere"),
+		h(
+			"ul",
+			{ class: "nav-list" },
+			h("li", null, h("a", { href: `${prefix}storybook/` }, "Storybook")),
+			repository ? h("li", null, h("a", { href: repository }, "GitHub")) : null,
+		),
+	);
+
 export default function ReaderDocsTemplate({
 	title,
 	body,
@@ -357,6 +378,7 @@ export default function ReaderDocsTemplate({
 					...readNav(config).map((group) =>
 						NavGroupView(group, pages, prefix, currentHref),
 					),
+					ElsewhereView(prefix, repository),
 				),
 				h(
 					"main",

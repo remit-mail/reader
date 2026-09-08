@@ -1,9 +1,9 @@
 {
-	"name": "@remit/website",
+	"name": "@remit/docs-site",
 	"version": "0.0.0",
 	"private": true,
 	"type": "module",
-	"description": "Reader documentation site.",
+	"description": "The remit.email documentation site.",
 	"scripts": {
 		"build": "tinyss docs/* docs/*/* --outputDir output",
 		"dev": "tinyss serve docs/* docs/*/* --port 3100"

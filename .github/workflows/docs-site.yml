@@ -4,15 +4,12 @@ on:
   push:
     branches: [main]
     paths:
-      - "website/**"
+      - "doc/remit.email/**"
+      - ".github/workflows/docs-site.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   build:
@@ -25,27 +22,62 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: website/package-lock.json
+          cache-dependency-path: doc/remit.email/package-lock.json
       - name: Install
         run: npm ci --no-audit --no-fund --loglevel=error
-        working-directory: website
+        working-directory: doc/remit.email
       - name: Build
         run: npm run build
-        working-directory: website
-      - uses: actions/configure-pages@v6
-      - uses: actions/upload-pages-artifact@v5
+        working-directory: doc/remit.email
+      - uses: actions/upload-artifact@v4
         with:
-          path: website/output
+          name: docs-site
+          path: doc/remit.email/output
+          retention-days: 1
 
-  deploy:
+  # Its own job so this is the only place that pushes to gh-pages carry the
+  # shared cross-workflow concurrency group below -- the build above stays
+  # cheap to re-run and never blocks on another push in flight.
+  publish:
     needs: build
     runs-on: ubuntu-latest
+    # An optimization, not the correctness guarantee: shared with
+    # storybook-pages.yml, storybook-preview.yml and
+    # storybook-preview-cleanup.yml so the four producers usually serialize
+    # instead of piling up. It cannot be relied on for correctness by itself --
+    # GitHub holds at most one running and one pending job per group, so a
+    # third simultaneous producer can still bump a pending one.
+    # gh-pages-publish.mjs is what actually protects the branch, via a leased
+    # push that is rejected rather than silently overwritten if it loses a
+    # race, and retried against the branch's new tip. All four files must
+    # spell this group the same way; a test asserts they do.
+    concurrency:
+      group: gh-pages-branch-push
+      cancel-in-progress: false
     permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      contents: write
     steps:
-      - id: deployment
-        uses: actions/deploy-pages@v5
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          name: docs-site
+          path: docs-site-download
+
+      # The docs site owns the branch root, so this publish replaces every
+      # root entry -- except the two subtrees the Storybook publishers own.
+      # `storybook/` is the Storybook built from main; `pr/` holds the
+      # per-pull-request previews. Dropping either from --preserve deletes a
+      # live site the next time main's prose changes.
+      - name: Publish the site to the gh-pages branch root
+        run: >-
+          node npm-scripts/gh-pages-publish.mjs publish
+          --source docs-site-download
+          --dest .
+          --preserve storybook
+          --preserve pr
+          --message "Publish the docs site from ${{ github.sha }}"
