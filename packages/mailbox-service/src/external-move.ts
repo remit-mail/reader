@@ -47,16 +47,33 @@ export const sightingContestsPlacement = (
 };
 
 /**
- * The exact placement a departure was confirmed against. The probe reads the row
- * outside the transaction that acts on it, so the verdict names the mailbox and
- * uid it was reached for; a row that moved in between no longer matches and is
- * left for the next round.
+ * The exact placement a verdict was reached for. The probe reads the row outside
+ * the transaction that acts on it, so the verdict names the mailbox and uid it
+ * was reached for; a row that moved in between matches no verdict and is left
+ * unsettled.
  */
 export const placementKey = (
 	messageId: string,
 	mailboxId: string,
 	uid: number,
 ): string => `${messageId}:${mailboxId}:${uid}`;
+
+export interface DepartureVerdicts {
+	/**
+	 * Placements the source folder no longer holds. A sighting elsewhere of one
+	 * of these is a move, and re-points the row.
+	 */
+	departed: Set<string>;
+	/**
+	 * Placements a verdict was reached for at all, departed or still held. A
+	 * contested sighting outside this set was not decided — the source could not
+	 * be asked, or the row has moved since it was — and its uid is held back from
+	 * the watermark so the next round serves the sighting again. Without that a
+	 * single unanswerable round would leave the row mispointed until a cursor
+	 * rebuild, which is the silent never-repair this whole change is about.
+	 */
+	settled: Set<string>;
+}
 
 export interface DepartureProbeDeps {
 	connection: Pick<IImapConnection, "openBox" | "search">;
@@ -86,7 +103,9 @@ export interface DepartureProbeDeps {
  * `isMessageGoneFromOpenMailbox` documents: imapflow drops rows on back-to-back
  * FETCHes (#408), and absence read off a FETCH would file live mail as departed.
  * `IImapConnection.search` throws on a failed SEARCH, so an empty answer means
- * the server matched nothing.
+ * the server matched nothing. The SEARCH names the contested uids rather than
+ * ALL: the answer needed is about those uids, and a folder's whole uid set is a
+ * page of traffic per batch for an account with a large Inbox.
  *
  * One SEARCH per source folder per batch, and no IMAP at all when nothing is
  * contested — which is every round on an account whose folders do not overlap.
@@ -96,15 +115,23 @@ export const confirmDepartures = async (
 	accountId: string,
 	sightedIn: MailboxItem,
 	messageIds: string[],
-): Promise<Set<string>> => {
-	const departed = new Set<string>();
-	if (messageIds.length === 0) return departed;
+): Promise<DepartureVerdicts> => {
+	const verdicts: DepartureVerdicts = {
+		departed: new Set<string>(),
+		settled: new Set<string>(),
+	};
+	if (messageIds.length === 0) return verdicts;
 
 	const stored = await deps.messageService.get(messageIds);
+	// A row carrying no uid names no placement the source can be asked about, so
+	// it reaches no verdict here and its sighting is served again next round. It
+	// is not reachable from a sync — `upsertWithStatus` writes the uid the FETCH
+	// returned — and a folder that somehow produces one stalls its cursor and
+	// raises the alert rather than repairing a row against nothing.
 	const contested = stored.filter(
 		(row) => row.uid > 0 && sightingContestsPlacement(sightedIn, row),
 	);
-	if (contested.length === 0) return departed;
+	if (contested.length === 0) return verdicts;
 
 	const bySource = new Map<string, MessageItem[]>();
 	for (const row of contested) {
@@ -117,44 +144,129 @@ export const confirmDepartures = async (
 	}
 
 	for (const [sourceMailboxId, rows] of bySource) {
-		const source = await deps.mailboxService.get(accountId, sourceMailboxId);
-		const box = await deps.connection.openBox(source.fullPath, true);
-
-		// A source folder on a different UIDVALIDITY axis holds no uid these rows
-		// can be compared against, so its message set is evidence of nothing (RFC
-		// 9051 2.3.1.1). The cursor rebuild re-keys that folder; until it has, a
-		// sighting elsewhere waits rather than being read as a move.
-		if (box.uidvalidity !== source.uidValidity) {
-			deps.log.warn(
-				{
-					sourceMailboxId,
-					sourceMailboxPath: source.fullPath,
-					storedUidValidity: source.uidValidity,
-					servedUidValidity: box.uidvalidity,
-					contested: rows.length,
-				},
-				"Source folder is on a different UIDVALIDITY axis; leaving these sightings unfollowed this round",
-			);
-			continue;
-		}
-
-		const held = new Set(await deps.connection.search(["ALL"]));
-		for (const row of rows) {
-			if (held.has(row.uid)) {
-				deps.log.info(
-					{
-						messageId: row.messageId,
-						sourceMailboxId,
-						sourceUid: row.uid,
-						sightedMailboxId: sightedIn.mailboxId,
-					},
-					"Message is still in the folder its row points at; the sighting is a second copy, not a move",
-				);
-				continue;
-			}
-			departed.add(placementKey(row.messageId, row.mailboxId, row.uid));
-		}
+		await askSource(
+			deps,
+			accountId,
+			sightedIn,
+			sourceMailboxId,
+			rows,
+			verdicts,
+		);
 	}
 
-	return departed;
+	return verdicts;
+};
+
+/**
+ * What one source folder said about the rows pointed at it. Only `holds` decides
+ * anything; the other three are the folder declining to be evidence, each for
+ * its own reason and each leaving the sightings to come back next round.
+ */
+type SourceAnswer =
+	| { kind: "holds"; path: string; held: Set<number> }
+	| { kind: "copiesEverything"; path: string }
+	| { kind: "rekeyed"; path: string; stored: number; served: number }
+	| { kind: "unreachable"; reason: string };
+
+const readSource = async (
+	deps: DepartureProbeDeps,
+	accountId: string,
+	sourceMailboxId: string,
+	rows: MessageItem[],
+): Promise<SourceAnswer> => {
+	const source = await deps.mailboxService.get(accountId, sourceMailboxId);
+
+	// A row whose source is All Mail, Starred or Important is not filed there:
+	// those folders hold a copy of everything and never release anything, so
+	// asking them would answer "still here" forever and freeze the row on a view.
+	if (isVirtualCopyMailbox(source)) {
+		return { kind: "copiesEverything", path: source.fullPath };
+	}
+
+	const box = await deps.connection.openBox(source.fullPath, true);
+
+	// A source folder on a different UIDVALIDITY axis holds no uid these rows can
+	// be compared against, so its message set is evidence of nothing (RFC 9051
+	// 2.3.1.1). The cursor rebuild re-keys that folder; until it has, the
+	// sightings stay unsettled and come back next round.
+	if (box.uidvalidity !== source.uidValidity) {
+		return {
+			kind: "rekeyed",
+			path: source.fullPath,
+			stored: source.uidValidity,
+			served: box.uidvalidity,
+		};
+	}
+
+	const held = await deps.connection.search([
+		["UID", rows.map((row) => row.uid).join(",")],
+	]);
+	return { kind: "holds", path: source.fullPath, held: new Set(held) };
+};
+
+const askSource = async (
+	deps: DepartureProbeDeps,
+	accountId: string,
+	sightedIn: MailboxItem,
+	sourceMailboxId: string,
+	rows: MessageItem[],
+	verdicts: DepartureVerdicts,
+): Promise<void> => {
+	const settle = (row: MessageItem, departed: boolean): void => {
+		const key = placementKey(row.messageId, row.mailboxId, row.uid);
+		verdicts.settled.add(key);
+		if (departed) verdicts.departed.add(key);
+	};
+
+	// A source folder reader cannot reach decides nothing, and does not fail the
+	// round either. Another client renaming or deleting it between the row being
+	// written and now is ordinary — reader shares its mailboxes — and the sync of
+	// the unrelated folder that sighted these messages must survive it.
+	const answer = await readSource(
+		deps,
+		accountId,
+		sourceMailboxId,
+		rows,
+	).catch<SourceAnswer>((error: unknown) => ({
+		kind: "unreachable",
+		reason: error instanceof Error ? error.message : String(error),
+	}));
+
+	const observed = {
+		sourceMailboxId,
+		sightedMailboxId: sightedIn.mailboxId,
+		contested: rows.length,
+	};
+
+	if (answer.kind === "unreachable") {
+		deps.log.warn(
+			{ ...observed, error: answer.reason },
+			"Could not ask the source folder whether it still holds these messages; leaving the sightings unsettled this round",
+		);
+		return;
+	}
+
+	if (answer.kind === "rekeyed") {
+		deps.log.warn(
+			{
+				...observed,
+				sourceMailboxPath: answer.path,
+				storedUidValidity: answer.stored,
+				servedUidValidity: answer.served,
+			},
+			"Source folder is on a different UIDVALIDITY axis; leaving these sightings unsettled this round",
+		);
+		return;
+	}
+
+	if (answer.kind === "copiesEverything") {
+		for (const row of rows) settle(row, true);
+		deps.log.info(
+			{ ...observed, sourceMailboxPath: answer.path },
+			"Row points at a folder that copies every message; the sighting in a real folder is where it lives",
+		);
+		return;
+	}
+
+	for (const row of rows) settle(row, !answer.held.has(row.uid));
 };

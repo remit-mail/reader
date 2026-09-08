@@ -14,7 +14,7 @@ import type {
 import { deriveMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import { placementKey } from "./external-move.js";
+import { type DepartureVerdicts, placementKey } from "./external-move.js";
 import { type AccountFolderRoles, MessageSyncService } from "./message-sync.js";
 import { folderRoles, NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope, ImapMessage } from "./types.js";
@@ -83,30 +83,40 @@ interface Observed {
 	threadUpdates: UpdateThreadMessageInput[];
 	reconciled: string[];
 	owned: boolean;
+	unresolved: boolean;
 }
+
+/**
+ * What `confirmDepartures` had answered about the stored placement by the time
+ * the batch was saved (#1146).
+ *
+ * - `departed` — the source folder no longer holds it: a move another client made.
+ * - `held` — the source folder still holds it: the labelled message, in two
+ *   folders at once.
+ * - `none` — no verdict at all: the source could not be asked this round.
+ * - `stale` — a verdict, but for a placement this row no longer has, because it
+ *   moved between the probe and the save.
+ */
+type Verdict = "departed" | "held" | "none" | "stale";
 
 /**
  * Sync one message out of `sighting`, against a database that already holds it
  * under `stored`. The account's Junk folder is `JUNK` and its Trash is `TRASH`,
  * so the sighting's own role follows from which mailbox it is.
- *
- * `stillInSource` is the answer `confirmDepartures` reached before the batch was
- * saved (#1146). The default is a message the source folder no longer holds,
- * which is what a move made in another client looks like; `true` is the labelled
- * message that is in both folders at once.
  */
 const sync = async (
 	sighting: MailboxItem,
 	stored: MessageItem,
 	threadRow: ThreadMessageItem | null = threadRowIn(INBOX),
 	copiesHere: MessageItem[] = [],
-	stillInSource = false,
+	verdict: Verdict = "departed",
 ): Promise<Observed> => {
 	const observed: Observed = {
 		repointedTo: [],
 		threadUpdates: [],
 		reconciled: [],
 		owned: false,
+		unresolved: false,
 	};
 
 	const messageService = {
@@ -168,15 +178,18 @@ const sync = async (
 		envelope,
 	} as unknown as ImapMessage;
 
-	const departed = stillInSource
-		? new Set<string>()
-		: new Set([
-				placementKey(
-					deriveMessageId("acct-1", envelope.messageId),
-					stored.mailboxId,
-					stored.uid,
-				),
-			]);
+	const answeredFor = placementKey(
+		deriveMessageId("acct-1", envelope.messageId),
+		stored.mailboxId,
+		verdict === "stale" ? stored.uid + 1 : stored.uid,
+	);
+	const departures: DepartureVerdicts = {
+		departed:
+			verdict === "held" || verdict === "none"
+				? new Set()
+				: new Set([answeredFor]),
+		settled: verdict === "none" ? new Set() : new Set([answeredFor]),
+	};
 
 	const result = (await (
 		service as unknown as {
@@ -186,8 +199,8 @@ const sync = async (
 				accountConfigId: string,
 				msg: ImapMessage,
 				roles: AccountFolderRoles,
-				departed: Set<string>,
-			) => Promise<{ owned: boolean }>;
+				departures: DepartureVerdicts,
+			) => Promise<{ owned: boolean; unresolvedSighting: boolean }>;
 		}
 	).saveMessage(
 		sighting,
@@ -199,10 +212,11 @@ const sync = async (
 			trashMailboxId: TRASH.mailboxId,
 			configJunkRoles: NO_JUNK_ROLES,
 		},
-		departed,
-	)) as { owned: boolean };
+		departures,
+	)) as { owned: boolean; unresolvedSighting: boolean };
 
 	observed.owned = result.owned;
+	observed.unresolved = result.unresolvedSighting;
 	return observed;
 };
 
@@ -261,12 +275,73 @@ describe("which folder a message the database already holds lives in", () => {
 			storedIn(INBOX),
 			threadRowIn(INBOX),
 			[],
-			true,
+			"held",
 		);
 
 		assert.deepEqual(observed.repointedTo, []);
 		assert.deepEqual(observed.threadUpdates, []);
 		assert.equal(observed.owned, false);
+	});
+
+	/**
+	 * A decided sighting is decided for good: the message is in two folders and
+	 * asking again next round would get the same answer. Only an UNDECIDED one
+	 * comes back, so a settled decline must not hold the watermark.
+	 */
+	it("finishes with a labelled message rather than holding the watermark for it", async () => {
+		const observed = await sync(
+			mailboxAt("Receipts"),
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"held",
+		);
+
+		assert.equal(observed.unresolved, false);
+	});
+
+	it("holds the watermark when the source folder could not be asked", async () => {
+		const observed = await sync(
+			JUNK,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"none",
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.equal(observed.unresolved, true);
+	});
+
+	/**
+	 * The probe reads the row outside the transaction that acts on it, so a user
+	 * move landing in between leaves a verdict about a placement this row no
+	 * longer has. Spending it would re-point the row against an answer reached
+	 * for somewhere else.
+	 */
+	it("spends no verdict reached for a placement the row has since left", async () => {
+		const observed = await sync(
+			JUNK,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"stale",
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.equal(observed.unresolved, true);
+	});
+
+	it("holds the watermark for nothing when the row is already ours", async () => {
+		const observed = await sync(
+			INBOX,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"none",
+		);
+
+		assert.equal(observed.unresolved, false);
 	});
 
 	it("declines a sighting in a folder that copies every message", async () => {

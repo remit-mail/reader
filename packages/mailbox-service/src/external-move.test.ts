@@ -47,8 +47,9 @@ const storedIn = (
 
 interface Probe {
 	opened: string[];
-	searches: number;
+	searched: string[];
 	departed: Set<string>;
+	settled: Set<string>;
 }
 
 /**
@@ -62,24 +63,30 @@ const probe = async (
 	held: Record<string, number[]>,
 	served: Record<string, number> = {},
 	sources: MailboxItem[] = [INBOX],
+	unreachable: string[] = [],
 ): Promise<Probe> => {
 	const opened: string[] = [];
-	let searches = 0;
+	const searched: string[] = [];
 
 	const connection = {
 		openBox: async (fullPath: string) => {
+			if (unreachable.includes(fullPath)) {
+				throw new Error(`no such mailbox on the server: ${fullPath}`);
+			}
 			opened.push(fullPath);
 			const source = sources.find((box) => box.fullPath === fullPath);
 			return { uidvalidity: served[fullPath] ?? source?.uidValidity ?? 1 };
 		},
-		search: async () => {
-			searches += 1;
+		search: async (criteria: unknown[]) => {
+			const [[, uids]] = criteria as Array<[string, string]>;
+			searched.push(uids);
 			const current = opened[opened.length - 1];
-			return held[current] ?? [];
+			const asked = uids.split(",").map(Number);
+			return (held[current] ?? []).filter((uid) => asked.includes(uid));
 		},
 	} as unknown as Pick<IImapConnection, "openBox" | "search">;
 
-	const departed = await confirmDepartures(
+	const verdicts = await confirmDepartures(
 		{
 			connection,
 			mailboxService: {
@@ -99,7 +106,7 @@ const probe = async (
 		rows.map((row) => row.messageId),
 	);
 
-	return { opened, searches, departed };
+	return { opened, searched, ...verdicts };
 };
 
 describe("whether a sighting in a second folder is a move", () => {
@@ -155,7 +162,22 @@ describe("whether a sighting in a second folder is a move", () => {
 		);
 
 		assert.deepEqual(observed.opened, ["INBOX"]);
-		assert.equal(observed.searches, 1);
+		assert.deepEqual(observed.searched, ["7,8,9"]);
+	});
+
+	/**
+	 * The answer needed is about the contested uids. A SEARCH ALL would pull a
+	 * page of uids per batch out of every source folder an account has, which on
+	 * a large Inbox is traffic proportional to the mailbox rather than to the
+	 * question.
+	 */
+	it("asks about the contested uids, not the whole source folder", async () => {
+		const observed = await probe(LABEL, [storedIn(INBOX, { uid: 42 })], {
+			INBOX: [1, 2, 42],
+		});
+
+		assert.deepEqual(observed.searched, ["42"]);
+		assert.deepEqual([...observed.departed], []);
 	});
 
 	it("asks nothing at all when no row is contested", async () => {
@@ -184,6 +206,57 @@ describe("whether a sighting in a second folder is a move", () => {
 	});
 
 	/**
+	 * All Mail, Starred and Important hold a copy of every message and release
+	 * nothing, so a row that landed on one — its sync ran before the real
+	 * folder's — would answer "still here" forever and freeze there. Reachable on
+	 * any Gmail account whose mail takes more than one batch.
+	 */
+	it("frees a row whose source is a folder that copies every message", async () => {
+		const observed = await probe(
+			LABEL,
+			[storedIn(ALL_MAIL)],
+			{ "[Gmail]/All Mail": [7] },
+			{},
+			[ALL_MAIL],
+		);
+
+		assert.deepEqual(observed.opened, []);
+		assert.deepEqual(
+			[...observed.departed],
+			[placementKey("msg-1", ALL_MAIL.mailboxId, 7)],
+		);
+	});
+
+	/**
+	 * Reader shares its mailboxes, so another client renaming or deleting the
+	 * source folder between the row being written and this round is ordinary. It
+	 * decides nothing about these rows, and it may not fail the sync of the
+	 * unrelated folder that happened to sight them.
+	 */
+	it("leaves a source folder it cannot reach undecided rather than failing the round", async () => {
+		const observed = await probe(
+			LABEL,
+			[storedIn(INBOX)],
+			{ INBOX: [] },
+			{},
+			[INBOX],
+			["INBOX"],
+		);
+
+		assert.deepEqual([...observed.departed], []);
+		assert.deepEqual([...observed.settled], []);
+	});
+
+	it("settles a decided sighting, so nothing holds the watermark for it", async () => {
+		const observed = await probe(LABEL, [storedIn(INBOX)], { INBOX: [7] });
+
+		assert.deepEqual(
+			[...observed.settled],
+			[placementKey("msg-1", INBOX.mailboxId, 7)],
+		);
+	});
+
+	/**
 	 * A uid means nothing without the axis it was issued on (RFC 9051 2.3.1.1),
 	 * so a source that answers a different UIDVALIDITY is evidence of nothing.
 	 * The cursor rebuild re-keys that folder; until it has, the sighting waits.
@@ -199,6 +272,7 @@ describe("whether a sighting in a second folder is a move", () => {
 		);
 
 		assert.deepEqual([...observed.departed], []);
+		assert.deepEqual([...observed.settled], []);
 	});
 });
 

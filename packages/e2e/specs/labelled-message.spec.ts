@@ -56,7 +56,13 @@ test.describe("A message in two folders at once", () => {
 	let run: IsolatedRun;
 	let api: ApiClient;
 
+	// Set inside the hook, which is what `test.setTimeout` extends when called
+	// from one: sign-up, an account connect, a folder create and two APPENDs run
+	// here before the folder even has to sync, and the default 60s hook budget
+	// does not cover that plus the wait below.
 	test.beforeAll(async () => {
+		test.setTimeout(180_000);
+
 		run = await provisionIsolatedRun("E2E Labelled Message");
 		api = new ApiClient(run);
 
