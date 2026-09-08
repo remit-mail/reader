@@ -17,6 +17,10 @@ export {
 	type VerifierConfig,
 } from "./config.js";
 export {
+	type AuthFetchHandler,
+	withRateLimitLogging,
+} from "./rate-limit-log.js";
+export {
 	createJwtVerifier,
 	extractBearerToken,
 	type JwtClaims,

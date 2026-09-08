@@ -29,6 +29,7 @@
     "tsx": "*"
   },
   "dependencies": {
+    "@remit/logger-lambda": "*",
     "better-auth": "^1.6.23",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
