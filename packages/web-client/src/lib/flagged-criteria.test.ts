@@ -71,14 +71,29 @@ describe("flaggedCriteria", () => {
 		assert.deepEqual(residualTypes("is:starred"), []);
 	});
 
-	// No `from`/`subject` parameter on this endpoint: its one text parameter
-	// matches both at once, so these stay a pass over the returned rows rather
-	// than being dropped from a request that never carried them.
+	// #1128: the free-text parameter matches subject and From at once, so
+	// neither token could be asked for on its own. Both applied over the pages
+	// already fetched, and a starred collection is paged — a match below them
+	// never appeared. Each has its own parameter now.
+	test("from: and subject: travel as parameters", () => {
+		assert.deepEqual(criteriaOf("from:alice"), { from: "alice" });
+		assert.deepEqual(residualTypes("from:alice"), []);
+		assert.deepEqual(criteriaOf("subject:invoice"), { subject: "invoice" });
+		assert.deepEqual(residualTypes("subject:invoice"), []);
+	});
+
 	test("keeps the tokens no parameter carries", () => {
-		assert.deepEqual(residualTypes("from:alice"), ["from"]);
 		assert.deepEqual(residualTypes("before:2026-01-01"), ["before"]);
 		assert.deepEqual(residualTypes("in:sent"), ["in"]);
 		assert.deepEqual(residualTypes("account:alice"), ["account"]);
+	});
+
+	// One parameter per field, so only the first value can be expressed.
+	test("a second subject: stays residue", () => {
+		assert.deepEqual(criteriaOf("subject:one subject:two"), {
+			subject: "one",
+		});
+		assert.deepEqual(residualTypes("subject:one subject:two"), ["subject"]);
 	});
 
 	test("the chip wins over a token that contradicts it", () => {

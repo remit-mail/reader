@@ -14,20 +14,28 @@
  * below the newest page rendered an empty list however much of it the
  * collection held (#308); the server answers the predicate over the whole
  * collection instead, and a page comes back full of matches.
+ *
+ * Free text is one of those parameters, so a search is this same paginated
+ * query rather than a second, single-page one beside it. The separate one had
+ * no error state of its own — an expired session read as "nothing matched" —
+ * no continuation, so "Load more" was a dead button under a query, and its own
+ * loading state, so a cached listing flashed the empty state while it was in
+ * flight.
  */
 import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import { unifiedThreadOperationsListAllThreads } from "@remit/api-http-client/sdk.gen.ts";
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import type { InboxFilterParams } from "@/lib/inbox-filters";
+import type { ThreadSearchTokenParams } from "@/lib/thread-search-tokens";
 
 /** The criteria the Flagged view narrows its listing by, all server-applied. */
-export interface StarredCriteria extends InboxFilterParams {
-	/** Free text, matched against subject and From over the whole collection. */
+export interface StarredCriteria extends ThreadSearchTokenParams {
+	/**
+	 * Free text, matched against subject, From and the body preview over the
+	 * whole collection.
+	 */
 	query?: string;
-	/** Page size, set only by the single-page text search. */
-	limit?: number;
 }
 
 // `starred` and `order` are the view itself, not a criterion, so they are set
@@ -99,37 +107,6 @@ export function useStarredThreads(
 		hasNextPage,
 		isFetchingNextPage,
 	};
-}
-
-/**
- * The server's own text match over the whole starred collection, as one page.
- *
- * The free-text filter has two halves that no single request covers: the server
- * matches subject and From over every starred message, and the client can also
- * match a snippet, but only on rows it has already loaded. The server's set is
- * the filter — it is the half that sees the mail below the newest page — and
- * the snippet pass complements it (#308). Same shape as the daily brief's
- * unscoped search, which merges the same two halves.
- */
-export function useStarredTextSearch(
-	criteria: StarredCriteria,
-	limit: number,
-): RemitImapThreadMessageResponse[] {
-	const text = criteria.query ?? "";
-	const query = { ...starredQuery(criteria), limit };
-	const { data } = useQuery({
-		queryKey: unifiedThreadOperationsListAllThreadsQueryKey({ query }),
-		queryFn: async () => {
-			const { data: page } = await unifiedThreadOperationsListAllThreads({
-				query,
-				throwOnError: true,
-			});
-			return page;
-		},
-		enabled: text.length > 0,
-		staleTime: 30_000,
-	});
-	return useMemo(() => data?.items ?? [], [data]);
 }
 
 /**

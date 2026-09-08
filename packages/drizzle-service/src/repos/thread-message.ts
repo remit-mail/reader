@@ -24,8 +24,10 @@ import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
+import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import {
+	bodyMatch,
 	fromMatch,
 	isNarrowableTerm,
 	listIdMatch,
@@ -127,10 +129,27 @@ function toItem(row: Row): ThreadMessageItem {
 // text-search seam; they live in ./thread-search-predicates.ts (the FTS5 trigram
 // index, with a folded LIKE fallback below three characters, RFC 036 D4).
 
+/**
+ * Whether the row's From address is muted, as a correlated subquery over the
+ * Address table.
+ *
+ * Muting is a flag on the address rather than a column on the row, so this is
+ * the one criterion that reaches outside `thread_message` — the read path
+ * denormalizes it onto the response afterwards, which is too late to count by.
+ * `normalized_email` is written folded, on the same rule the fold here applies,
+ * so the two meet. Both sides are already scoped to one account config, and
+ * correlating on that rather than binding it keeps the predicate usable from
+ * every caller without threading the id through.
+ */
+const mutedSender = (): SQL =>
+	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
+
 // Translate SearchOptions into SQL conditions: subject/from/query as indexed
-// text predicates, the rest as plain column equalities. A multi-word `query`
-// matches rows where every token appears in the subject or the from fields
-// (AND across tokens, OR across fields) — the same shape as the DynamoDB model.
+// text predicates, muted as a subquery over the sender's address, the rest as
+// plain column equalities. A multi-word `query`
+// matches rows where every token appears in the subject, the from fields or the
+// body preview (AND across tokens, OR across fields) — the same shape as the
+// DynamoDB model.
 function buildSearchConditions(search: SearchOptions): SQL[] {
 	const conditions: SQL[] = [];
 
@@ -140,8 +159,14 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	if (search.query) {
 		const tokens = search.query.split(/\s+/).filter(Boolean);
 		for (const token of tokens) {
-			conditions.push(sql`(${subjectMatch(token)} or ${fromMatch(token)})`);
+			conditions.push(
+				sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
+			);
 		}
+	}
+
+	if (search.muted !== undefined) {
+		conditions.push(search.muted ? mutedSender() : sql`not ${mutedSender()}`);
 	}
 
 	if (search.unread !== undefined) {

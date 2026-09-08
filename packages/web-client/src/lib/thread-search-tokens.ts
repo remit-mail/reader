@@ -39,9 +39,10 @@ export type ThreadSearchTokenParamName = keyof ThreadSearchTokenParams;
 /**
  * Every parameter `searchThreads` takes, the default set.
  *
- * `listAllThreads` takes all of these except `from` and `subject`, so a caller
- * on that endpoint names its own set and the two tokens come back as residue
- * rather than being silently dropped from a request that never carried them.
+ * `listAllThreads` takes all six as well (#1128), so both callers carry the
+ * same tokens. A caller still names its own set rather than inheriting this
+ * one: the set is what decides which tokens come back as residue, and an
+ * endpoint that grows or loses a parameter has to say so where it is called.
  */
 export const THREAD_SEARCH_TOKEN_PARAMS: readonly ThreadSearchTokenParamName[] =
 	["from", "subject", "category", "unread", "starred", "attachments"];

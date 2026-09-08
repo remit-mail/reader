@@ -21,8 +21,13 @@ const tokensOf = (query: string): SearchToken[] =>
 		mailboxesByName: new Map([["sent", "mb2"]]),
 	}).tokens;
 
-const criteriaOf = (query: string, attributes: string[] = []) =>
-	briefCriteria("all", new Set(attributes), tokensOf(query)).criteria;
+const criteriaOf = (
+	query: string,
+	attributes: string[] = [],
+	accountId?: string,
+) =>
+	briefCriteria("all", new Set(attributes), tokensOf(query), accountId)
+		.criteria;
 
 const residualTypes = (query: string, attributes: string[] = []) =>
 	briefCriteria("all", new Set(attributes), tokensOf(query)).residual.map(
@@ -30,13 +35,16 @@ const residualTypes = (query: string, attributes: string[] = []) =>
 	);
 
 describe("briefCriteria", () => {
-	test("an unnarrowed brief asks for nothing in particular", () => {
-		assert.deepEqual(criteriaOf(""), {});
+	// The brief renders no muted sender's mail, so every request it makes says
+	// so — the alternative is a header counting mail the list drops (#1137).
+	test("an unnarrowed brief still refuses muted senders", () => {
+		assert.deepEqual(criteriaOf(""), { muted: false });
 		assert.deepEqual(residualTypes(""), []);
 	});
 
 	test("the chips travel as parameters", () => {
 		assert.deepEqual(criteriaOf("", ["unread", "attachment"]), {
+			muted: false,
 			unread: true,
 			attachments: true,
 		});
@@ -44,6 +52,7 @@ describe("briefCriteria", () => {
 
 	test("a typed token asks for exactly what its chip asks for", () => {
 		assert.deepEqual(criteriaOf("is:unread has:attachment"), {
+			muted: false,
 			unread: true,
 			attachments: true,
 		});
@@ -51,20 +60,36 @@ describe("briefCriteria", () => {
 	});
 
 	test("is:read narrows the request rather than the rows", () => {
-		assert.deepEqual(criteriaOf("is:read"), { unread: false });
+		assert.deepEqual(criteriaOf("is:read"), { muted: false, unread: false });
 		assert.deepEqual(residualTypes("is:read"), []);
 	});
 
 	test("is:starred travels too", () => {
-		assert.deepEqual(criteriaOf("is:starred"), { starred: true });
+		assert.deepEqual(criteriaOf("is:starred"), { muted: false, starred: true });
 		assert.deepEqual(residualTypes("is:starred"), []);
+	});
+
+	// #1136: the pill used to narrow the rows after they arrived, so a count
+	// taken over every account was not the size of the list showing one.
+	test("the account pill travels as a parameter", () => {
+		assert.deepEqual(criteriaOf("", [], "acc_1"), {
+			muted: false,
+			accountId: "acc_1",
+		});
+	});
+
+	test("the cross-account brief names no account", () => {
+		assert.equal(Object.hasOwn(criteriaOf(""), "accountId"), false);
 	});
 
 	// The section supplies its own category, so the shared criteria must not
 	// carry one — two categories on one request is a request for neither.
 	test("the category never travels in the shared criteria", () => {
-		assert.deepEqual(criteriaOf("category:personal"), {});
-		assert.deepEqual(criteriaOf("", ["unread"]), { unread: true });
+		assert.deepEqual(criteriaOf("category:personal"), { muted: false });
+		assert.deepEqual(criteriaOf("", ["unread"]), {
+			muted: false,
+			unread: true,
+		});
 		assert.equal(
 			Object.hasOwn(
 				briefCriteria("personal", new Set(), []).criteria,
@@ -74,13 +99,32 @@ describe("briefCriteria", () => {
 		);
 	});
 
-	// `listAllThreads` has one text parameter matching subject and From at once,
-	// so neither token can be asked for on its own and both stay residue.
-	test("from: and subject: have no parameter here and come back as residue", () => {
-		assert.deepEqual(criteriaOf("from:alice"), {});
-		assert.deepEqual(residualTypes("from:alice"), ["from"]);
-		assert.deepEqual(residualTypes("subject:invoice"), ["subject"]);
-		assert.deepEqual(BRIEF_TOKEN_PARAMS.includes("from"), false);
+	// #1128: the free-text parameter matches subject and From at once, so
+	// neither token could be asked for on its own and both were applied over the
+	// rows a section had fetched. Each has its own parameter now.
+	test("from: and subject: travel as parameters", () => {
+		assert.deepEqual(criteriaOf("from:alice"), {
+			muted: false,
+			from: "alice",
+		});
+		assert.deepEqual(residualTypes("from:alice"), []);
+		assert.deepEqual(criteriaOf("subject:invoice"), {
+			muted: false,
+			subject: "invoice",
+		});
+		assert.deepEqual(residualTypes("subject:invoice"), []);
+		assert.equal(BRIEF_TOKEN_PARAMS.includes("from"), true);
+		assert.equal(BRIEF_TOKEN_PARAMS.includes("subject"), true);
+	});
+
+	// One parameter per field, so a second value cannot be expressed; it drops
+	// to the residue rather than being silently lost.
+	test("a second from: stays residue", () => {
+		assert.deepEqual(criteriaOf("from:alice from:bob"), {
+			muted: false,
+			from: "alice",
+		});
+		assert.deepEqual(residualTypes("from:alice from:bob"), ["from"]);
 	});
 
 	test("dates, the mailbox and the account stay residue", () => {
@@ -92,7 +136,10 @@ describe("briefCriteria", () => {
 	});
 
 	test("a chip beats the token that contradicts it", () => {
-		assert.deepEqual(criteriaOf("is:read", ["unread"]), { unread: true });
+		assert.deepEqual(criteriaOf("is:read", ["unread"]), {
+			muted: false,
+			unread: true,
+		});
 		assert.deepEqual(residualTypes("is:read", ["unread"]), ["isRead"]);
 	});
 });
@@ -102,7 +149,6 @@ describe("briefCountsMatchRows", () => {
 		briefCountsMatchRows({
 			residual: [],
 			attributes: new Set<string>(),
-			accountScoped: false,
 			...over,
 		});
 
@@ -112,11 +158,7 @@ describe("briefCountsMatchRows", () => {
 	});
 
 	test("a residual token makes the count wider than the list", () => {
-		assert.equal(reach({ residual: tokensOf("from:alice") }), false);
-	});
-
-	test("the account pills scope the rows and nothing else", () => {
-		assert.equal(reach({ accountScoped: true }), false);
+		assert.equal(reach({ residual: tokensOf("before:2024-01-01") }), false);
 	});
 
 	test("a chip with no parameter makes the count wider than the list", () => {

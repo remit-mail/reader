@@ -546,33 +546,38 @@ describe("the brief's sections come from the server (#312)", () => {
 		);
 	});
 
-	// A total is withheld whenever something narrows the rows after they arrive —
-	// here a muted sender. The number goes; the way out of the section must not,
-	// or the rest of the category is unreachable.
-	it("keeps the way to the whole category when the total is withheld", async () => {
-		const dom = await mountWith((call) => {
-			const params = new URL(call.url, "http://localhost").searchParams;
-			if (params.get("count") === "true") return undefined;
-			if (!params.getAll("category").includes("marketing")) return undefined;
-			const page = (ROWS.marketing ?? []).slice(0, SECTION_ROW_CAP);
-			return {
-				items: page.map((row, index) =>
-					index === 0 ? { ...row, muted: true } : row,
-				),
-			};
-		});
-		await settled(dom, renderedSubjects("marketing", SECTION_ROW_CAP)[1]);
+	// #1137: mute used to be applied after the rows arrived, so a header counted
+	// mail the list dropped and "Show all" opened rows the brief would not
+	// render. The brief asks the server to leave muted senders out instead, of
+	// the rows and of the count alike.
+	it("asks every section and every count to leave muted senders out", async () => {
+		const mounted = await mount();
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
 
-		const marketing = dom.byText("button", "Marketing");
-		assert.doesNotMatch(
+		const asked = threadRequests();
+		assert.ok(asked.length > 0, "the brief issued no request");
+		for (const call of asked) {
+			assert.equal(
+				paramsOf(call).get("muted"),
+				"false",
+				"a brief request counted or listed muted senders",
+			);
+		}
+	});
+
+	// The number is the server's, and it now answers the same predicate the list
+	// does, so it is stated rather than withheld.
+	it("states the section's size with mute already taken off it", async () => {
+		const mounted = await mount();
+		await settled(mounted, renderedSubjects("marketing", SECTION_ROW_CAP)[0]);
+
+		const marketing = mounted.byText("button", "Marketing");
+		assert.match(
 			marketing.textContent ?? "",
 			new RegExp(String(countOf("marketing"))),
-			"a count taken with a muted sender in it was stated as the section's size",
+			"the section withheld a number the request had narrowed",
 		);
-		assert.ok(
-			dom.text().includes("Show all"),
-			"withholding the number stranded the reader in the section",
-		);
+		assert.ok(mounted.text().includes("Show all"));
 	});
 
 	// The requests are built from committed state. Typing is not committing: a
