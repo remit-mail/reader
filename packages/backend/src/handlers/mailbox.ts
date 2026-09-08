@@ -3,12 +3,13 @@ import type {
 	RenameMailboxInput,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
-import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
 import {
-	type CanonicalMailboxRoleValue,
-	composeFolderRoleAppointmentLabelName,
-} from "@remit/data-ports/folder-role";
-import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
+	BadRequestError,
+	ForbiddenError,
+	NotFoundError,
+} from "@remit/data-ports/errors";
+import { isReservedFolderName } from "@remit/data-ports/folder-role";
+import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -30,7 +31,6 @@ import {
 	type MailboxOverrides,
 } from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
-import { loadFolderAppointmentsForAccount } from "./folder-role-appointments.js";
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -66,6 +66,7 @@ export const pickMailboxOverrideChanges = (
 export interface MailboxPatchClient {
 	mailbox: {
 		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
+		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
 	};
 	mailboxQueue: {
 		renameMailbox(
@@ -73,53 +74,80 @@ export interface MailboxPatchClient {
 			newPath: string,
 			accountId: string,
 		): Promise<MailboxItem>;
+		dismissMailboxIntent(
+			mailboxId: string,
+			accountId: string,
+		): Promise<MailboxItem>;
 	};
 	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert" | "delete">;
 }
 
 /**
- * A reader-side rename keeps every mailboxId, so the appointments survive it —
- * but the paths recorded beside them (#887) would still name where the folders
- * were before. Move the labels with the branch, or a later third-party delete
- * names a path the user has not seen since the rename.
+ * Refuse a rename that no retry of the same request could ever satisfy (D4).
  *
- * The renamed folder is matched by id; its descendants are matched by the path
- * each label already holds, which is the path their rows carried until the
- * rename intent rewrote them.
+ * `INBOX` is refused at both ends: renaming it moves its mail to the new name
+ * and leaves an empty INBOX behind, and renaming anything *to* it collides with
+ * the one name RFC 3501 reserves (D5).
+ *
+ * A reserved leaf name is refused for a different reason. The mailbox sweep
+ * reads a folder whose leaf name is a role's conventional name but which lacks
+ * the server's flag as a duplicate, and deletes its row — under D8, with the
+ * folder's mail — as soon as another folder holds the flag. A rename to such a
+ * name settles `synced` and is then reaped. Refusing at the API is the same
+ * class of check as the rest of D4 and does not require teaching that heuristic
+ * about renames.
  */
-const refreshAppointmentLabels = async (
-	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert">,
-	accountConfigId: string,
+const assertRenameTargetAllowed = async (
+	client: Pick<MailboxPatchClient, "mailbox">,
 	accountId: string,
-	renamed: { mailboxId: string; oldPath: string; newPath: string },
-	delimiter: string,
+	before: MailboxItem,
+	target: string,
 ): Promise<void> => {
-	const persisted = await loadFolderAppointmentsForAccount(
-		accountSetting,
-		accountConfigId,
-		accountId,
-	);
-	for (const [role, appointment] of persisted) {
-		const moved =
-			appointment.mailboxId === renamed.mailboxId
-				? renamed.newPath
-				: appointment.lastKnownPath === undefined
-					? undefined
-					: rebaseMailboxPath(
-							appointment.lastKnownPath,
-							renamed.oldPath,
-							renamed.newPath,
-							delimiter,
-						);
-		if (moved === undefined || moved === appointment.lastKnownPath) continue;
-		await accountSetting.upsert({
-			accountConfigId,
-			name: composeFolderRoleAppointmentLabelName(
-				accountId,
-				role as CanonicalMailboxRoleValue,
-			),
-			value: { kind: "String", value: moved },
-		});
+	if (before.fullPath.toUpperCase() === "INBOX") {
+		throw new BadRequestError("The inbox can't be renamed.");
+	}
+	if (target.trim().length === 0) {
+		throw new BadRequestError("A folder needs a name.");
+	}
+	if (target.toUpperCase() === "INBOX") {
+		throw new BadRequestError("“INBOX” is reserved for the inbox.");
+	}
+
+	const leaf = mailboxLeafName({
+		fullPath: target,
+		hierarchyDelimiter: before.hierarchyDelimiter,
+	});
+	if (isReservedFolderName(leaf)) {
+		throw new BadRequestError(
+			`“${leaf}” is reserved for a system folder. Pick another name.`,
+		);
+	}
+
+	// A path a rename is on its way to is as taken as one a folder already sits
+	// at (D2). Reading `fullPath` alone accepts a second rename onto a target
+	// another is already recorded for: both settle, both write the same path,
+	// and the sweep then reaps one row — with its mail — and inserts a duplicate
+	// for the survivor's path. The account's folders are few and the sweep
+	// already reads them all, so one pass answers both questions.
+	const folders = await client.mailbox.listAllByAccount(accountId);
+	for (const folder of folders) {
+		if (folder.mailboxId === before.mailboxId) continue;
+		if (folder.fullPath === target) {
+			throw new BadRequestError(`A folder named “${target}” is already there.`);
+		}
+		// `pending` only. A failed rename keeps its target so the client can name
+		// what it was aiming at and offer a retry (T6), and nothing clears it
+		// until the user retries or dismisses — so honouring a `failed` row's
+		// claim would tell everyone else the path is taken by a rename that is
+		// not happening, with no way to find that out and nothing to wait for.
+		if (
+			folder.syncStatus === MailboxSyncStatus.pending &&
+			folder.pendingPath === target
+		) {
+			throw new BadRequestError(
+				`“${folder.fullPath}” is already being renamed to “${target}”.`,
+			);
+		}
 	}
 };
 
@@ -130,6 +158,11 @@ const refreshAppointmentLabels = async (
  * (the recorded subtree intent + MAILBOX_RENAME event) — only when `fullPath`
  * is present. An override-only PATCH therefore never calls
  * `mailboxQueue.renameMailbox`.
+ *
+ * A `fullPath` equal to the row's confirmed one is not a rename: it is the
+ * dismissal of a failed intent (T10, T11), which is how a user keeps the name
+ * the folder already has without new API surface. It is checked first, because
+ * from `failed` it is the one route out that enqueues nothing.
  */
 export const applyMailboxPatch = async (
 	client: MailboxPatchClient,
@@ -161,26 +194,17 @@ export const applyMailboxPatch = async (
 		return client.mailbox.get(accountId, mailboxId);
 	}
 
-	// Read before the rename: the labels of the folders under this one are
-	// rebased off the path it is leaving, which the row no longer carries after.
 	const before = await client.mailbox.get(accountId, mailboxId);
-	const renamed = await client.mailboxQueue.renameMailbox(
-		mailboxId,
-		fullPath,
-		accountId,
-	);
-	await refreshAppointmentLabels(
-		client.accountSetting,
-		accountConfigId,
-		accountId,
-		{
-			mailboxId,
-			oldPath: before.fullPath,
-			newPath: renamed.fullPath,
-		},
-		before.hierarchyDelimiter,
-	);
-	return renamed;
+	if (fullPath === before.fullPath) {
+		return client.mailboxQueue.dismissMailboxIntent(mailboxId, accountId);
+	}
+
+	await assertRenameTargetAllowed(client, accountId, before, fullPath);
+
+	// The row keeps the path the server holds until the rename settles (D2), so
+	// nothing that names a folder by path moves here — the appointment labels
+	// recorded beside each role (#887) included. They move with the settle.
+	return client.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId);
 };
 
 /**

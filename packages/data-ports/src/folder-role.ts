@@ -135,6 +135,41 @@ export const ROLE_NAME_HINTS: Partial<
 };
 
 /**
+ * The role a folder's own leaf name is most conventionally for. A name that
+ * several roles list goes to the role that ranks it highest, so `All Mail` is
+ * an All folder rather than a lookalike of Archive.
+ *
+ * `name` is the leaf segment, lower case.
+ */
+export const roleForFolderName = (
+	name: string,
+): CanonicalMailboxRoleValue | undefined => {
+	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
+	for (const role of CANONICAL_ROLES) {
+		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
+		if (rank < 0) continue;
+		if (!best || rank < best.rank) best = { role, rank };
+	}
+	return best?.role;
+};
+
+/**
+ * Whether the mailbox sweep would read a folder with this leaf name as a
+ * duplicate of a role's canonical folder — and so delete its row, and under D8
+ * the mail in it, as soon as another folder carries the role's SPECIAL-USE
+ * flag. It is the sweep's own predicate, so a rename refused on it and a folder
+ * reaped by it can never disagree (docs/architecture/folder-rename-and-delete.md
+ * D5).
+ *
+ * A role with no flag to be a duplicate of is not reserved: nothing reaps a
+ * folder for it.
+ */
+export const isReservedFolderName = (name: string): boolean => {
+	const role = roleForFolderName(name.toLowerCase());
+	return role !== undefined && ROLE_SPECIAL_USE[role] !== undefined;
+};
+
+/**
  * The pane where a user appoints a folder to a role, named as it is labelled.
  * Every refusal that asks for an appointment points here, in one wording — the
  * settings screen is titled "Folder roles", and copies of this sentence had

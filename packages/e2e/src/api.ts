@@ -19,6 +19,12 @@ export interface Mailbox {
 	messageCount?: number;
 	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
 	syncStatus?: "synced" | "pending" | "failed" | "deleting";
+	/**
+	 * Where a rename is aiming. The folder keeps `fullPath` — the path the mail
+	 * server holds — until the RENAME lands, so this is the only field that says
+	 * a rename is in flight rather than a create.
+	 */
+	pendingPath?: string;
 }
 
 /**
@@ -796,6 +802,21 @@ export class ApiClient {
 	): Promise<unknown> {
 		return this.json("PUT", `/accounts/${accountId}/folder-roles/${role}`, {
 			mailboxId,
+		});
+	}
+
+	/**
+	 * Rename a folder — the same PATCH the rename control makes. Records the
+	 * target over the folder and everything under it; the rows keep the paths
+	 * the mail server holds until the RENAME lands.
+	 */
+	renameMailbox(
+		accountId: string,
+		mailboxId: string,
+		fullPath: string,
+	): Promise<Mailbox> {
+		return this.json("PATCH", `/accounts/${accountId}/mailboxes/${mailboxId}`, {
+			fullPath,
 		});
 	}
 

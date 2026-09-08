@@ -194,6 +194,12 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	FolderGoneUpstreamError,
+	FolderRenameSettleError,
+	isMailboxAbsentUpstream,
+	isMailboxPresentUpstream,
+} from "./mailbox-upstream.js";
+export {
 	denormalizeMessageCategory,
 	type MessageCategoryDenormalizeDeps,
 	type MessageCategoryDenormalizeInput,

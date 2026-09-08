@@ -9,12 +9,13 @@ export const isNotFoundError = (error: unknown): boolean =>
  * against none of them.
  *
  * A transition predicate is supposed to name the state the caller read
- * (docs/architecture/folder-rename-and-delete.md D3), and the intent recorders
- * and settles that use this one name nothing yet: they are today's
+ * (docs/architecture/folder-rename-and-delete.md D3). What still uses this one
+ * is the delete path — its intent recorder and its settle are today's
  * unconditional writes, moved onto the only door that can write a folder state
- * at all. Each is narrowed to the from-set its transition-table row allows when
- * the intents themselves land (#362, #363), which is also where a loser gets
- * its 409.
+ * at all, and #362 narrows each to the from-set its transition-table row
+ * allows, which is also where its loser gets a 409. The rename path is already
+ * narrowed: `INTENT_RECORDABLE_FROM` for the intent, and `pending` plus the
+ * recorded target for the settle.
  */
 export const EVERY_MAILBOX_STATE = [
 	MailboxSyncStatus.synced,
