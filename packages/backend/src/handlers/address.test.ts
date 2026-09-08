@@ -1,6 +1,14 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import type { AddressItem, ResultList } from "@remit/data-ports";
+import type {
+	AddressResponse,
+	UpdateAddressInput,
+} from "@remit/api-openapi-types";
+import type {
+	AddressItem,
+	FlagsMergePatch,
+	ResultList,
+} from "@remit/data-ports";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -9,13 +17,19 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { AddressOperations } from "./address.js";
+import { AddressDetailOperations, AddressOperations } from "./address.js";
 
 const searchAddresses =
 	AddressOperations.AddressOperations_searchAddresses as unknown as (
 		context: Context,
 		event: APIGatewayProxyEvent,
 	) => Promise<ResultList<AddressItem>>;
+
+const updateAddress =
+	AddressDetailOperations.AddressDetailOperations_updateAddress as unknown as (
+		context: Context,
+		event: APIGatewayProxyEvent,
+	) => Promise<AddressResponse>;
 
 const SUB = "cognito-sub-704";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -128,5 +142,104 @@ describe("AddressOperations_searchAddresses", () => {
 		await searchAddresses(contextFor({ q: "po" }), eventFor(SUB));
 
 		assert.equal(seen[0].limit, 10);
+	});
+});
+
+const updateContextFor = (body: UpdateAddressInput): Context =>
+	({
+		request: { params: { addressId: "addr-1" }, requestBody: body },
+	}) as unknown as Context;
+
+/**
+ * Fake data client that applies the same merge semantics the repo does:
+ * a `null` in the patch deletes the key, anything else writes it.
+ */
+const clientHolding = (
+	stored: AddressItem,
+	seen: FlagsMergePatch[],
+): RemitClient =>
+	({
+		address: {
+			getAddress: async (): Promise<AddressItem> => stored,
+			mergeFlags: async (
+				_accountConfigId: string,
+				_addressId: string,
+				patch: FlagsMergePatch,
+			): Promise<AddressItem> => {
+				seen.push(patch);
+				const flags: Record<string, unknown> = { ...(stored.flags ?? {}) };
+				for (const [key, value] of Object.entries(patch)) {
+					if (value === undefined) continue;
+					if (value === null) delete flags[key];
+					else flags[key] = value;
+				}
+				return { ...stored, flags } as AddressItem;
+			},
+		},
+	}) as unknown as RemitClient;
+
+describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
+	it("clears the category override, which has no false-equivalent value to send", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({
+					flags: { category: { value: "newsletter", setAt: 10 } },
+				}),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["category"] }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ category: null }]);
+		assert.equal(response.flags.category, undefined);
+	});
+
+	it("clears a boolean flag by the same route, leaving the untouched ones alone", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({
+					flags: {
+						muted: { value: true, setAt: 10 },
+						vip: { value: true, setAt: 11 },
+					},
+				}),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["muted"] }),
+			eventFor(SUB),
+		);
+
+		assert.equal(response.flags.muted, undefined);
+		assert.deepEqual(response.flags.vip, { value: true, setAt: 11 });
+	});
+
+	it("removes a key named in both halves, because clearFlags is applied last", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({ flags: { muted: { value: true, setAt: 10 } } }),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({
+				flags: { muted: { value: true, setAt: 20 } },
+				clearFlags: ["muted"],
+			}),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ muted: null }]);
+		assert.equal(response.flags.muted, undefined);
 	});
 });

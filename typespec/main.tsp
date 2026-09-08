@@ -968,7 +968,7 @@ namespace RemitApi {
 
   @route("/addresses/{addressId}")
   namespace AddressDetailOperations {
-    @doc("Update an address (currently: per-sender flags). Pass `flags: { <name>: null }` to remove a flag. Other flags are untouched.")
+    @doc("Update an address (currently: per-sender flags). Pass `flags` to set flags and `clearFlags: [\"<name>\"]` to remove them. Other flags are untouched.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
     op updateAddress(

@@ -130,6 +130,12 @@ function ReclassifyOverlay() {
 							)}
 						</button>
 					))}
+					<button
+						type="button"
+						className="mt-1 flex min-h-11 items-center rounded border-t border-line px-3 text-left text-sm text-fg hover:bg-surface-raised"
+					>
+						Remove override — classify automatically again
+					</button>
 				</div>
 				<div className="mt-6 flex justify-end">
 					<Button variant="secondary" size="md">
