@@ -16,6 +16,13 @@
  * there by the time this spec runs — can take longer than the assertion's
  * window to reach the worker (#347). A fresh account's FIFO group carries only
  * this spec's own create and delete, so the wait is bounded by this spec alone.
+ *
+ * The folder leaves the tree when the mail server has confirmed the delete, not
+ * when the confirm is pressed. The listing used to hide a `deleting` row, which
+ * made a delete that never settled look like a folder that silently vanished
+ * while the server still held it; it is listed until the worker removes it
+ * (`folder-rename-and-delete.md` D11). So the wait here is a worker round trip
+ * rather than a re-render, and it is sized like the other server-truth specs.
  */
 import type { BrowserContext } from "@playwright/test";
 import { baseUrl } from "../src/env.js";
@@ -42,6 +49,7 @@ test.describe("Delete folder from settings", () => {
 	});
 
 	test("an empty folder created from settings can be deleted again", async () => {
+		test.setTimeout(240_000);
 		const page = await context.newPage();
 		await page.goto("/settings/folders");
 
@@ -75,6 +83,6 @@ test.describe("Delete folder from settings", () => {
 		await confirm.click();
 
 		await expect(confirm).toBeHidden({ timeout: 20_000 });
-		await expect(row).toHaveCount(0, { timeout: 30_000 });
+		await expect(row).toHaveCount(0, { timeout: 120_000 });
 	});
 });
