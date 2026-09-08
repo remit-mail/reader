@@ -33,7 +33,11 @@ const store = (rows: MailboxItem[]) => {
 
 	const repo: Pick<
 		IMailboxRepository,
-		"get" | "transition" | "transitionSubtree" | "findByPathPrefix"
+		| "get"
+		| "transition"
+		| "transitionSubtree"
+		| "findByPathPrefix"
+		| "findBySyncStatus"
 	> = {
 		get: (async (_accountId: string, mailboxId: string) => {
 			const found = byId.get(mailboxId as string);
@@ -48,10 +52,18 @@ const store = (rows: MailboxItem[]) => {
 			const root = [...byId.values()].find((r) => r.fullPath === pathPrefix);
 			return root ? subtreeOf(root) : [];
 		},
+		findBySyncStatus: async (_accountId, syncStatus) =>
+			[...byId.values()].filter((r) => r.syncStatus === syncStatus),
 		transition: async (_accountId, mailboxId, intent) => {
 			const current = byId.get(mailboxId);
 			if (!current) return null;
 			if (!intent.from.includes(current.syncStatus)) return null;
+			if (
+				intent.wherePendingPath !== undefined &&
+				(intent.wherePendingPath ?? undefined) !== current.pendingPath
+			) {
+				return null;
+			}
 			const keepsTarget =
 				intent.to === MailboxSyncStatus.pending ||
 				intent.to === MailboxSyncStatus.failed;
@@ -289,6 +301,64 @@ describe("MailboxQueueService.dismissMailboxIntent", () => {
 		assert.equal(rowOf("mbx-1")?.pendingPath, undefined);
 		assert.equal(rowOf("mbx-1")?.fullPath, "Work");
 		assert.equal(sent.length, 0);
+	});
+
+	it("clears the whole subtree the failed rename was recorded over", async () => {
+		// The refusal marks every row the intent recorded, so dismissing the named
+		// folder alone leaves each descendant `failed` with a stale target on it,
+		// offering a retry of a rename the user has already dropped and with
+		// nothing left that would ever clear it.
+		const { repo, rowOf } = store([
+			row("mbx-parent", "Work", {
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects",
+			}),
+			row("mbx-child", "Work/2026", {
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects/2026",
+			}),
+		]);
+		const { service } = queueOver(repo);
+
+		await service.dismissMailboxIntent("mbx-parent", "acc-1");
+
+		for (const id of ["mbx-parent", "mbx-child"]) {
+			assert.equal(rowOf(id)?.syncStatus, MailboxSyncStatus.synced);
+			assert.equal(rowOf(id)?.pendingPath, undefined);
+		}
+	});
+
+	it("leaves a failed folder a different rename recorded alone", async () => {
+		const { repo, rowOf } = store([
+			row("mbx-parent", "Work", {
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects",
+			}),
+			row("mbx-other", "Other", {
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects/Old",
+			}),
+		]);
+		const { service } = queueOver(repo);
+
+		await service.dismissMailboxIntent("mbx-parent", "acc-1");
+
+		assert.equal(rowOf("mbx-other")?.syncStatus, MailboxSyncStatus.failed);
+		assert.equal(rowOf("mbx-other")?.pendingPath, "Projects/Old");
+	});
+
+	it("dismisses a failed delete on the named folder alone", async () => {
+		// No recorded target, so there is no subtree the intent was written over.
+		const { repo, rowOf } = store([
+			row("mbx-parent", "Work", { syncStatus: MailboxSyncStatus.failed }),
+			row("mbx-child", "Work/2026", { syncStatus: MailboxSyncStatus.failed }),
+		]);
+		const { service } = queueOver(repo);
+
+		await service.dismissMailboxIntent("mbx-parent", "acc-1");
+
+		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.synced);
+		assert.equal(rowOf("mbx-child")?.syncStatus, MailboxSyncStatus.failed);
 	});
 
 	it("is a no-op on a folder with nothing to dismiss", async () => {

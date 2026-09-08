@@ -11,6 +11,7 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	INTENT_RECORDABLE_FROM,
+	recordedByRename,
 	refuseContestedIntent,
 } from "./mailbox-intent.js";
 import { EVERY_MAILBOX_STATE } from "./mailbox-presence.js";
@@ -260,33 +261,72 @@ export class MailboxQueueService {
 		mailboxId: string,
 		accountId: string,
 	): Promise<MailboxItem> => {
-		const dismissed = await this.mailboxService.transition(
-			accountId,
-			mailboxId,
-			{ from: [MailboxSyncStatus.failed], to: MailboxSyncStatus.synced },
-		);
-		if (dismissed) {
+		const current = await this.mailboxService.get(accountId, mailboxId);
+		if (current.syncStatus === MailboxSyncStatus.synced) return current;
+		if (current.syncStatus !== MailboxSyncStatus.failed) {
+			return refuseContestedIntent(
+				this.mailboxService,
+				accountId,
+				mailboxId,
+				"folder",
+			);
+		}
+
+		// A failed rename was recorded over a subtree, so it is dismissed over the
+		// same one. A failed delete carries no target and was recorded on the
+		// folder alone, so there is nothing else to clear.
+		const target = current.pendingPath;
+		const alsoRecorded =
+			target === undefined
+				? []
+				: (
+						await this.mailboxService.findBySyncStatus(
+							accountId,
+							MailboxSyncStatus.failed,
+						)
+					).filter(
+						(row) =>
+							row.mailboxId !== mailboxId &&
+							recordedByRename(
+								row,
+								current.fullPath,
+								target,
+								current.hierarchyDelimiter,
+							),
+					);
+
+		let dismissed: MailboxItem | undefined;
+		// The named folder first, so a caller always gets back the row it asked
+		// about. Each write carries its own predicate, so a row somebody else
+		// moved between the read and the write is skipped, not overwritten (D3).
+		for (const row of [current, ...alsoRecorded]) {
+			const written = await this.mailboxService.transition(
+				accountId,
+				row.mailboxId,
+				{
+					from: [MailboxSyncStatus.failed],
+					wherePendingPath: row.pendingPath ?? null,
+					to: MailboxSyncStatus.synced,
+				},
+			);
+			if (row.mailboxId === mailboxId) dismissed = written ?? undefined;
 			this.log.info(
 				{
 					accountId,
-					mailboxId,
+					mailboxId: row.mailboxId,
 					intent: "dismiss",
 					from: MailboxSyncStatus.failed,
 					to: MailboxSyncStatus.synced,
+					outcome: written ? "settled" : "superseded",
 				},
 				"Dismissed folder intent",
 			);
-			return dismissed;
 		}
 
-		const current = await this.mailboxService.get(accountId, mailboxId);
-		if (current.syncStatus === MailboxSyncStatus.synced) return current;
-		return refuseContestedIntent(
-			this.mailboxService,
-			accountId,
-			mailboxId,
-			"folder",
-		);
+		if (dismissed) return dismissed;
+		// The row moved between the read and its write. Re-read rather than
+		// reporting a dismissal that did not happen.
+		return this.mailboxService.get(accountId, mailboxId);
 	};
 
 	/**

@@ -66,10 +66,7 @@ export const pickMailboxOverrideChanges = (
 export interface MailboxPatchClient {
 	mailbox: {
 		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
-		findByPath(
-			accountId: string,
-			fullPath: string,
-		): Promise<MailboxItem | null>;
+		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
 	};
 	mailboxQueue: {
 		renameMailbox(
@@ -126,9 +123,23 @@ const assertRenameTargetAllowed = async (
 		);
 	}
 
-	const taken = await client.mailbox.findByPath(accountId, target);
-	if (taken && taken.mailboxId !== before.mailboxId) {
-		throw new BadRequestError(`A folder named “${target}” is already there.`);
+	// A path a rename is on its way to is as taken as one a folder already sits
+	// at (D2). Reading `fullPath` alone accepts a second rename onto a target
+	// another is already recorded for: both settle, both write the same path,
+	// and the sweep then reaps one row — with its mail — and inserts a duplicate
+	// for the survivor's path. The account's folders are few and the sweep
+	// already reads them all, so one pass answers both questions.
+	const folders = await client.mailbox.listAllByAccount(accountId);
+	for (const folder of folders) {
+		if (folder.mailboxId === before.mailboxId) continue;
+		if (folder.fullPath === target) {
+			throw new BadRequestError(`A folder named “${target}” is already there.`);
+		}
+		if (folder.pendingPath === target) {
+			throw new BadRequestError(
+				`“${folder.fullPath}” is already being renamed to “${target}”.`,
+			);
+		}
 	}
 };
 

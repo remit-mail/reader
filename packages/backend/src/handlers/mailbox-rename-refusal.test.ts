@@ -32,8 +32,7 @@ const clientOver = (
 	const client: MailboxPatchClient = {
 		mailbox: {
 			get: async () => row,
-			findByPath: async (_accountId, fullPath) =>
-				[row, ...others].find((m) => m.fullPath === fullPath) ?? null,
+			listAllByAccount: async () => [row, ...others],
 		},
 		mailboxQueue: {
 			renameMailbox: async (mailboxId, newPath) => {
@@ -137,6 +136,39 @@ describe("applyMailboxPatch — renames that can never succeed (D4, D5)", () => 
 			assert.equal(renames.length, 0);
 		});
 	}
+
+	it("refuses a target another rename is already on its way to", async () => {
+		// A path a rename is aiming at is as taken as one a folder sits at (D2).
+		// Two renames onto one target both settle, both write it, and the sweep
+		// then reaps one row — with its mail — and inserts a duplicate.
+		const { client, renames } = clientOver(mailbox(), [
+			mailbox({
+				mailboxId: "mbx-2",
+				fullPath: "Admin",
+				syncStatus: MailboxSyncStatus.pending,
+				pendingPath: "Projects",
+			}),
+		]);
+
+		await assert.rejects(
+			patch(client, { fullPath: "Projects" }),
+			refusedWith("“Admin” is already being renamed to “Projects”."),
+		);
+		assert.equal(renames.length, 0);
+	});
+
+	it("lets a retry aim at the target its own failed rename recorded", async () => {
+		const { client, renames } = clientOver(
+			mailbox({
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects",
+			}),
+		);
+
+		await patch(client, { fullPath: "Projects" });
+
+		assert.deepEqual(renames, [{ mailboxId: "mbx-1", newPath: "Projects" }]);
+	});
 
 	it("records the intent for an ordinary target", async () => {
 		const { client, renames } = clientOver(mailbox());

@@ -2,7 +2,12 @@ import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
+import { recordedByRename } from "./mailbox-intent.js";
 import { isNotFoundError } from "./mailbox-presence.js";
+import {
+	FolderRenameSettleError,
+	isMailboxAbsentUpstream,
+} from "./mailbox-upstream.js";
 import type { IImapConnection } from "./types.js";
 
 /**
@@ -180,7 +185,7 @@ export class MailboxManagementService {
 	};
 
 	/**
-	 * The rows that carry one rename intent, each with the path it settles to.
+	 * The rows one rename intent recorded, each with the path it settles to.
 	 *
 	 * The settle deliberately does not re-resolve the subtree (D15): membership
 	 * changes between the intent and the settle — the sweep inserts a row,
@@ -189,31 +194,36 @@ export class MailboxManagementService {
 	 * leaving every row `pending` forever with no route out, because `failed` is
 	 * only reachable from a settle that ran.
 	 *
-	 * So the rows identify themselves: `pending`, with a recorded target equal to
-	 * the rename's target or beneath it. A row that appeared afterwards carries
-	 * no such target and is not touched.
+	 * So the rows identify themselves, by the pair `recordedByRename` tests: a
+	 * target at or under the rename's target is not on its own enough, because a
+	 * second folder renamed under the same branch would be claimed by a rename
+	 * that never touched it. A row that appeared afterwards carries no such pair
+	 * and is not touched.
 	 *
 	 * `confirmedPath` re-prefixes each recorded target off the path the rename
 	 * actually resolved to, so a normalization the requested string did not carry
 	 * moves the whole branch rather than the folder alone.
+	 *
+	 * `delimiter` is the renamed folder's own, read from the row the caller
+	 * already holds — deriving one from whatever the listing happens to contain
+	 * strands every descendant when that row has gone.
 	 */
 	private intentCarryingRows = async (
 		accountId: string,
+		oldPath: string,
 		target: string,
 		confirmed: string,
+		delimiter: string,
 	): Promise<{ row: MailboxItem; confirmedPath: string }[]> => {
 		const pending = await this.mailboxService.findBySyncStatus(
 			accountId,
 			MailboxSyncStatus.pending,
 		);
-		const delimiter =
-			pending.find((row) => row.pendingPath === target)?.hierarchyDelimiter ??
-			"";
 		const carrying: { row: MailboxItem; confirmedPath: string }[] = [];
 		for (const row of pending) {
-			if (row.pendingPath === undefined) continue;
+			if (!recordedByRename(row, oldPath, target, delimiter)) continue;
 			const confirmedPath = rebaseMailboxPath(
-				row.pendingPath,
+				row.pendingPath as string,
 				target,
 				confirmed,
 				delimiter,
@@ -331,8 +341,75 @@ export class MailboxManagementService {
 		if (!standing) return { success: true };
 
 		const connection = await getConnection();
+		const delimiter = standing.hierarchyDelimiter;
 
-		const result = await connection.renameMailbox(oldPath, newPath);
+		const confirmed = await this.issueRename(
+			connection,
+			accountId,
+			mailboxId,
+			oldPath,
+			newPath,
+		);
+
+		this.log.info(
+			{ accountId, mailboxId, intent: "rename", oldPath, newPath, confirmed },
+			"Renamed mailbox on IMAP server",
+		);
+
+		// The server has executed the rename. Nothing after this point may reach
+		// the caller's failure path: `failRename` would mark the rows refused for
+		// a rename that landed, and the folder would sit at `failed` offering a
+		// retry of something already done. A settle that cannot finish is wrapped
+		// so the caller can tell the two apart, and rethrown so SQS redelivers —
+		// the rows are still `pending` with their targets, so the redelivery's
+		// guard passes and the settle runs again.
+		await this.settleRenameIntent(
+			accountId,
+			oldPath,
+			newPath,
+			confirmed,
+			delimiter,
+		).catch((error: unknown) => {
+			throw new FolderRenameSettleError(mailboxId, confirmed, error);
+		});
+
+		return {
+			success: true,
+			renamed: { oldPath, newPath: confirmed, delimiter },
+		};
+	};
+
+	/**
+	 * Issue the RENAME and read back the path it resolved to.
+	 *
+	 * A `NONEXISTENT` here has two readings and they call for opposite actions.
+	 * Either another client deleted the folder — the source really is gone, and
+	 * the caller removes the row with its mail — or this rename already landed
+	 * and only its settle was lost, in which case the folder is alive at the
+	 * target and deleting it would destroy the user's mail. The server itself
+	 * separates them: ask whether the target is there.
+	 */
+	private issueRename = async (
+		connection: IImapConnection,
+		accountId: string,
+		mailboxId: string,
+		oldPath: string,
+		newPath: string,
+	): Promise<string> => {
+		const result = await connection
+			.renameMailbox(oldPath, newPath)
+			.catch(async (error: unknown) => {
+				if (!isMailboxAbsentUpstream(error)) throw error;
+				const listed = await connection.listMailboxes();
+				if (!listed.some((mailbox) => mailbox.fullPath === newPath)) {
+					throw error;
+				}
+				this.log.info(
+					{ accountId, mailboxId, intent: "rename", oldPath, newPath },
+					"Source folder gone and the target is on the server: this rename already landed",
+				);
+				return undefined;
+			});
 
 		// ImapFlow's own normalization of the requested path — namespace prefix
 		// applied, special names resolved, delimiter joined. IMAP's RENAME reply
@@ -340,26 +417,9 @@ export class MailboxManagementService {
 		// cannot detect a server that stored a different one; adopting it is still
 		// right, because it fixes the prefix and delimiter drift the requested
 		// string carries (D2).
-		const confirmed =
-			typeof result.newPath === "string" && result.newPath.length > 0
-				? result.newPath
-				: newPath;
-
-		this.log.info(
-			{ accountId, mailboxId, intent: "rename", oldPath, newPath, confirmed },
-			"Renamed mailbox on IMAP server",
-		);
-
-		await this.settleRenameIntent(accountId, newPath, confirmed);
-
-		return {
-			success: true,
-			renamed: {
-				oldPath,
-				newPath: confirmed,
-				delimiter: standing.hierarchyDelimiter,
-			},
-		};
+		return typeof result?.newPath === "string" && result.newPath.length > 0
+			? result.newPath
+			: newPath;
 	};
 
 	/**
@@ -409,13 +469,17 @@ export class MailboxManagementService {
 	 */
 	private settleRenameIntent = async (
 		accountId: string,
+		oldPath: string,
 		target: string,
 		confirmed: string,
+		delimiter: string,
 	): Promise<void> => {
 		const carrying = await this.intentCarryingRows(
 			accountId,
+			oldPath,
 			target,
 			confirmed,
+			delimiter,
 		);
 		for (const { row, confirmedPath } of carrying) {
 			const settled = await this.mailboxService.transition(
@@ -452,9 +516,24 @@ export class MailboxManagementService {
 	failRename = async (
 		accountId: string,
 		mailboxId: string,
+		oldPath: string,
 		newPath: string,
 	): Promise<void> => {
-		const carrying = await this.intentCarryingRows(accountId, newPath, newPath);
+		const root = await this.mailboxService
+			.get(accountId, mailboxId)
+			.catch((error: unknown) => {
+				if (isNotFoundError(error)) return undefined;
+				throw error;
+			});
+		if (!root) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+
+		const carrying = await this.intentCarryingRows(
+			accountId,
+			oldPath,
+			newPath,
+			newPath,
+			root.hierarchyDelimiter,
+		);
 		if (carrying.length === 0) {
 			throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 		}

@@ -5,7 +5,7 @@ import { isPublicApiError } from "@remit/data-ports/errors";
 import { composeFolderRoleAppointmentLabelName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import { assertMailboxSettled } from "./folder-role.js";
-import { refreshFolderAppointmentLabels } from "./folder-role-appointments.js";
+import { refreshFolderAppointmentLabels } from "./folder-role-labels.js";
 
 const mailbox = (over: Partial<MailboxItem>): MailboxItem =>
 	({

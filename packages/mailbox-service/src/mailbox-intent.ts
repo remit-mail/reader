@@ -1,5 +1,6 @@
 import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
 import { ConflictError, NotFoundError } from "@remit/data-ports/errors";
+import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { isNotFoundError } from "./mailbox-presence.js";
 
@@ -16,6 +17,33 @@ export const INTENT_RECORDABLE_FROM = [
 
 const carriesIntent = (row: Pick<MailboxItem, "syncStatus">): boolean =>
 	(INTENT_RECORDABLE_FROM as readonly string[]).includes(row.syncStatus);
+
+/**
+ * Whether a row was written by one particular rename intent
+ * (docs/architecture/folder-rename-and-delete.md D15).
+ *
+ * A recorded target that merely sits at or under the rename's target is not
+ * enough to identify one. Two folders can hold targets under the same path —
+ * `Work → Projects` in flight while `Other → Projects/Old` is recorded — and a
+ * settle that claimed both would stamp a row this rename never touched onto a
+ * path it never asked for, leaving that folder's own rename unrepresented and
+ * two rows claiming one path for the sweep to reap and re-insert.
+ *
+ * The identity is the pair: the row sits at or under the path the rename is
+ * leaving, **and** the target it recorded is exactly what this rename's own
+ * rebase would have written for it. Nothing but this intent writes that pair,
+ * because the intent is recorded over one subtree in one transaction (D6) and
+ * the transition is the only writer of either field (D3).
+ */
+export const recordedByRename = (
+	row: Pick<MailboxItem, "fullPath" | "pendingPath">,
+	oldPath: string,
+	newPath: string,
+	delimiter: string,
+): boolean =>
+	row.pendingPath !== undefined &&
+	rebaseMailboxPath(row.fullPath, oldPath, newPath, delimiter) ===
+		row.pendingPath;
 
 /**
  * What is already happening to a folder, as a clause naming the folder. The

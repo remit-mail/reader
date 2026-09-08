@@ -436,6 +436,54 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		assert.equal(lastSettle().wherePendingPath, "Archive 2024");
 	});
 
+	it("settles instead of deleting when NONEXISTENT means the rename already landed", async () => {
+		// A redelivery after a lost settle re-issues RENAME from a path that has
+		// moved. Reading that as an upstream delete drops the folder and its mail
+		// while the folder is alive at the target.
+		h.connection.renameMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NONEXISTENT",
+				responseText: "Mailbox doesn't exist: Archive",
+			});
+		};
+		h.connection.listMailboxes = async () => [{ fullPath: "Archive 2024" }];
+
+		await processMailboxManagement(renameEvent, noopLogger, deps());
+
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
+		assert.equal(lastSettle().to, "synced");
+		assert.equal(lastSettle().set?.fullPath, "Archive 2024");
+	});
+
+	it("rethrows a settle failure without marking the rename refused", async () => {
+		// The server executed the rename. Marking the rows failed would offer a
+		// retry of work already done, on a path the server no longer holds.
+		let settles = 0;
+		const broken = deps();
+		const inner = broken.getClient as unknown as () => Promise<
+			Record<string, unknown>
+		>;
+		broken.getClient = (async () => {
+			const client = await inner();
+			return {
+				...client,
+				mailbox: {
+					...(client.mailbox as Record<string, unknown>),
+					transition: async () => {
+						settles += 1;
+						throw new Error("database is locked");
+					},
+				},
+			};
+		}) as unknown as MailboxManagementDeps["getClient"];
+
+		await assert.rejects(
+			processMailboxManagement(renameEvent, noopLogger, broken),
+			/local settle did not finish/,
+		);
+		assert.equal(settles, 1, "the refusal path never ran a second write");
+	});
+
 	it("issues no RENAME when the row has already settled", async () => {
 		h.rows.set(
 			"mbx-1",
