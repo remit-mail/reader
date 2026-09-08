@@ -10,10 +10,16 @@
  *   npm run test:integ:local -w packages/search-service
  */
 import assert from "node:assert";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
 import type { ChunkMetadata, VectorRecord } from "../types.js";
 import type { VectorStoreService } from "./memory.js";
-import { createSqliteVectorStore } from "./sqlite-vec.js";
+import {
+	createSqliteVectorStore,
+	readSqliteIndexProvenance,
+} from "./sqlite-vec.js";
 
 const RUN = process.env.RUN_INTEG_TESTS === "1";
 const DIMENSIONS = 4;
@@ -195,5 +201,65 @@ describe("sqlite-vec store — SQLITE_VEC_EXTENSION_PATH override (integration)"
 			["o-x", "o-z", "o-y"],
 		);
 		assert.ok(matches[0].score > 0.99);
+	});
+});
+
+// #455. The report reads the stored index rather than the store's query path,
+// so it has to be proved against a real vec0 table on disk: an in-memory store
+// would never show that a report can read a file it did not create.
+describe("index provenance (integration)", { skip: !RUN }, () => {
+	const dir = mkdtempSync(join(tmpdir(), "remit-index-report-"));
+	const path = join(dir, "vec.db");
+	let store: VectorStoreService;
+
+	before(async () => {
+		store = createSqliteVectorStore({ path, dimensions: DIMENSIONS });
+		await store.upsert([
+			record("p-1", [1, 0, 0, 0], {
+				messageId: "m-1",
+				embeddingId: "current@4",
+			}),
+			record("p-2", [0, 1, 0, 0], {
+				messageId: "m-1",
+				embeddingId: "current@4",
+			}),
+			record("p-3", [0, 0, 1, 0], {
+				messageId: "m-2",
+				embeddingId: "older@4",
+			}),
+			record("p-4", [0, 0, 0, 1], { messageId: "m-3" }),
+		]);
+	});
+
+	after(async () => {
+		await store.close?.();
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("counts the stored vectors by the embedder that wrote them", async () => {
+		const report = await readSqliteIndexProvenance({
+			path,
+			configuredEmbeddingId: "current@4",
+		});
+		assert.equal(report.chunks, 4);
+		assert.equal(report.messages, 3);
+		assert.deepEqual(report.groups, [
+			{ embeddingId: "current@4", chunks: 2, messages: 1, current: true },
+			{ embeddingId: "older@4", chunks: 1, messages: 1, current: false },
+			{ embeddingId: "unknown", chunks: 1, messages: 1, current: false },
+		]);
+	});
+
+	// A box that has never indexed anything must not grow a vector database from
+	// being asked about one.
+	test("reports an empty index without creating the database", async () => {
+		const absent = join(dir, "missing.db");
+		const report = await readSqliteIndexProvenance({
+			path: absent,
+			configuredEmbeddingId: "current@4",
+		});
+		assert.deepEqual(report.groups, []);
+		assert.equal(report.chunks, 0);
+		assert.equal(existsSync(absent), false);
 	});
 });

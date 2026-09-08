@@ -432,6 +432,12 @@ RUN MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2 && \
 # code runs, crash-looping the container. Keeping it is the correct,
 # verified call, not an oversight.
 COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/server.mjs ./server.mjs
+# The index provenance report `remit check-index` runs (#455): an alternate
+# entrypoint in this image, the same shape migrate.mjs has in the backend one.
+# It is here rather than in the backend image because SEARCH_EMBEDDING_DTYPE
+# below is part of the embedding identity and is set only here — read anywhere
+# else, the same environment names an embedder that never wrote a vector.
+COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/index-report.mjs ./index-report.mjs
 ENV SEARCH_EMBEDDING_PROVIDER=local
 ENV SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2
 ENV SEARCH_EMBEDDING_DTYPE=q8

@@ -344,6 +344,48 @@ up_refuses() {
 	return 1
 }
 
+# The updater container is the same wrapper the host runs, and a host-shell
+# check (reader#1158) or recovery (#275) is delegated to it because of where the
+# state it reads and writes lives. `exec_mode=updater` runs the command for real
+# under the environment the updater image sets, so the volumes an assertion
+# reads were written by the wrapper rather than by this stand-in. Reached from
+# `exec` and from `run`, because the two seams differ only in whether the
+# container has to be already running.
+#
+# The environment is scrubbed first, because that is the half of `compose exec`
+# a stand-in most easily gets wrong: what the container sees is the image's ENV
+# plus the -e flags, and nothing the caller happened to be holding. An exec that
+# inherits the whole test environment cannot tell a wrapper that reads a setting
+# from the image from one that only ever saw it because the host had it too.
+# What survives is the harness's own plumbing — PATH to reach these fakes, and
+# FAKE_* because this process is standing in for the daemon, not for the
+# container.
+become_updater() {
+	for _v in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
+		case "$_v" in
+		PATH | HOME | FAKE_*) continue ;;
+		# The compose service sets these two on the container.
+		REMIT_DIR | REMIT_UPDATE_SQLITE_VOLUME) continue ;;
+		esac
+		unset "$_v" || true
+	done
+	# The updater image's ENV block, verbatim, with the two volume paths
+	# standing in for the mounts the compose service makes.
+	REMIT_UPDATE_STATE_DIR="$FAKE_UPDATER_STATE"
+	REMIT_UPDATE_CONTROL_DIR="$FAKE_UPDATER_CONTROL"
+	REMIT_UPDATE_STATE_MOUNT="$FAKE_UPDATER_STATE"
+	REMIT_UPDATE_SNAPSHOT_LIB=""
+	REMIT_UPDATER_IMAGE_REPO=ghcr.io/remit-mail/reader/updater
+	export REMIT_UPDATE_STATE_DIR REMIT_UPDATE_CONTROL_DIR \
+		REMIT_UPDATE_STATE_MOUNT REMIT_UPDATE_SNAPSHOT_LIB \
+		REMIT_UPDATER_IMAGE_REPO
+	for _kv in $_execenv; do
+		# shellcheck disable=SC2163 # KEY=VALUE, so this is an assignment
+		export "$_kv"
+	done
+	exec "$@"
+}
+
 compose_cmd() {
 	_all_profiles=0
 	_env_file=""
@@ -652,29 +694,7 @@ compose_cmd() {
 		# plumbing — PATH to reach these fakes, and FAKE_* because this process is
 		# standing in for the daemon, not for the container.
 		if [ "$(val exec_mode run)" = "updater" ]; then
-			for _v in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
-				case "$_v" in
-				PATH | HOME | FAKE_*) continue ;;
-				# The compose service sets these two on the container.
-				REMIT_DIR | REMIT_UPDATE_SQLITE_VOLUME) continue ;;
-				esac
-				unset "$_v" || true
-			done
-			# The updater image's ENV block, verbatim, with the two volume paths
-			# standing in for the mounts the compose service makes.
-			REMIT_UPDATE_STATE_DIR="$FAKE_UPDATER_STATE"
-			REMIT_UPDATE_CONTROL_DIR="$FAKE_UPDATER_CONTROL"
-			REMIT_UPDATE_STATE_MOUNT="$FAKE_UPDATER_STATE"
-			REMIT_UPDATE_SNAPSHOT_LIB=""
-			REMIT_UPDATER_IMAGE_REPO=ghcr.io/remit-mail/reader/updater
-			export REMIT_UPDATE_STATE_DIR REMIT_UPDATE_CONTROL_DIR \
-				REMIT_UPDATE_STATE_MOUNT REMIT_UPDATE_SNAPSHOT_LIB \
-				REMIT_UPDATER_IMAGE_REPO
-			for _kv in $_execenv; do
-				# shellcheck disable=SC2163 # KEY=VALUE, so this is an assignment
-				export "$_kv"
-			done
-			exec "$@"
+			become_updater "$@"
 		fi
 		_outfile="$S/exec-out"
 		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
@@ -689,9 +709,15 @@ compose_cmd() {
 	# container's parser is the entire point of that step, and a stand-in
 	# answering "valid" from a scenario key would prove nothing about it.
 	run)
+		_execenv=""
 		while [ $# -gt 0 ]; do
 			case "$1" in
-			-e | --env | -u | --user | -w | --workdir | -v | --volume | --name | --label | -l | -p | --publish)
+			-e | --env)
+				_execenv="$_execenv $2"
+				shift 2
+				continue
+				;;
+			-u | --user | -w | --workdir | -v | --volume | --name | --label | -l | -p | --publish)
 				shift 2
 				continue
 				;;
@@ -711,6 +737,13 @@ compose_cmd() {
 				exit 125
 			fi
 			exec node -e "$3"
+		fi
+		# A one-shot off the updater image, which is where a host-shell recovery
+		# has to happen (#275). Unlike `exec` this starts its own container, so
+		# it does not need the service to be running — which is the whole reason
+		# the recovery takes this seam.
+		if [ "${1:-}" = "remit" ] && [ "$(val exec_mode run)" = "updater" ]; then
+			become_updater "$@"
 		fi
 		if [ -f "$S/run-out" ]; then cat "$S/run-out"; fi
 		if [ -f "$S/run-err" ]; then cat "$S/run-err" >&2; fi

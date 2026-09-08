@@ -2794,6 +2794,98 @@ describe("remit update --check from a host shell", () => {
 	});
 });
 
+// #275. The same split the check has, on the command that acts. A run started
+// by the updater leaves its breadcrumb, its lock and its snapshots on the
+// updater's volume; a recovery driven from a host shell read the directory
+// beside .env, found nothing, and told the operator there was nothing to
+// recover while the interrupted run sat there. The recovery has to happen where
+// that state is.
+describe("remit update --recover from a host shell", () => {
+	function box(scenario = {}) {
+		const b = sandbox({
+			operatorShell: true,
+			scenario: {
+				probe: "ok",
+				exec_mode: "updater",
+				services: `${ALL_SERVICES} updater`,
+				...scenario,
+			},
+		});
+		writeFileSync(
+			join(b.updaterState, "breadcrumb"),
+			[
+				"runId=run-1",
+				"fromVersion=v1.0.0",
+				"targetVersion=v1.5.0",
+				"startedAt=2026-07-20T08:00:00Z",
+				`snapshot=${join(b.updaterState, "snapshots", "run-1")}`,
+				`services=${ALL_SERVICES}`,
+				"migrateBefore=cmigrate-old",
+				"phase=snapshotting",
+				"",
+			].join("\n"),
+		);
+		return b;
+	}
+
+	it("finishes the run the updater left on its volume", () => {
+		const b = box();
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			!result.stdout.includes("No interrupted update to recover"),
+			result.stdout,
+		);
+		const run = JSON.parse(
+			readFileSync(join(b.updaterState, "run.json"), "utf8"),
+		);
+		assert.equal(run.runId, "run-1");
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(existsSync(join(b.updaterState, "breadcrumb")), false);
+	});
+
+	// The one-shot seam, not an exec: the run being recovered is most often the
+	// one whose updater died, and a recovery that needs that container alive is
+	// no recovery.
+	it("runs in a container of its own, starting no dependency", () => {
+		const b = box({ services: ALL_SERVICES });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			b
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line.startsWith("compose run --rm --no-deps") &&
+						line.includes("updater remit update --recover"),
+				),
+			`no updater one-shot in:\n${b.log()}`,
+		);
+		assert.ok(!b.log().includes("compose up"), b.log());
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory beside .env is the only place a run could have been recorded.
+	it("recovers in place where there is no updater volume", () => {
+		const b = box({ updater_volume: "absent" });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /No interrupted update to recover/);
+		assert.equal(existsSync(join(b.updaterState, "run.json")), false);
+	});
+
+	// A daemon that answered nothing has not said this box has no volume, and
+	// reading it that way is exactly the false "nothing to recover" of #275.
+	it("stops rather than guess where the run is when the daemon is silent", () => {
+		const b = box({ updater_volume: "unreachable" });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the docker daemon did not answer/);
+		assert.equal(existsSync(join(b.updaterState, "run.json")), false);
+	});
+});
+
 describe("a box with nothing running and nothing on the volume", () => {
 	it("takes the plain path — there is nothing to snapshot or roll back to", () => {
 		const box = sandbox({ scenario: { probe: "ok", services: "" } });
@@ -3107,6 +3199,42 @@ describe("remit check-categories", () => {
 
 	it("takes no arguments", () => {
 		const rejected = box.run(["check-categories", "--repair"]);
+		assert.equal(rejected.status, 1);
+		assert.match(rejected.stderr, /takes no arguments/);
+	});
+});
+
+// `remit check-index` (#455). Which embedder wrote the vectors that are in the
+// index is only answerable in the worker's own image: the weight precision is
+// part of the embedding identity and is set there, so the same environment read
+// from the backend image names an embedder that never wrote a vector here.
+describe("remit check-index", () => {
+	const box = sandbox({ scenario: { probe: "ok" } });
+	const result = box.run(["check-index"]);
+
+	it("runs the report in the worker's image, behind its own profile", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line ===
+						"compose run --rm --no-deps search-index-worker node index-report.mjs",
+				),
+			`no index report run in:\n${box.log()}`,
+		);
+	});
+
+	it("starts no dependency, so a report writes nothing", () => {
+		const log = box.log();
+		assert.ok(!log.includes("compose up"), log);
+		assert.ok(!log.includes("volume-init"), log);
+	});
+
+	it("takes no arguments", () => {
+		const rejected = box.run(["check-index", "--repair"]);
 		assert.equal(rejected.status, 1);
 		assert.match(rejected.stderr, /takes no arguments/);
 	});
