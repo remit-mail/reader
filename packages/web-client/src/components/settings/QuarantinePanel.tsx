@@ -44,7 +44,7 @@ function issueUrlFor(entry: QuarantineEntry): string {
 	);
 }
 
-function QuarantineReadFailure({ error }: { error: Error }) {
+function QuarantineReadFailure({ error }: { error: unknown }) {
 	return (
 		<section role="alert" className="space-y-3">
 			<h2 className="text-sm font-semibold text-fg">Messages set aside</h2>
@@ -77,7 +77,7 @@ function QuarantineReadFailure({ error }: { error: Error }) {
 export interface QuarantinePanelViewProps {
 	entries: readonly QuarantineEntry[];
 	isPending: boolean;
-	error: Error | null;
+	error: unknown;
 }
 
 export function QuarantinePanelView({

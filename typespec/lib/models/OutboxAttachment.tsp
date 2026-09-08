@@ -145,6 +145,9 @@ model OutboxAttachmentResponse
 
 @doc("A file the server refused, with everything the composer needs to say why")
 model OutboxAttachmentRejection {
+  @doc("`attachment_rejected`, the code every refusal here carries. `reason` says which one.")
+  code: string;
+
   @doc("Machine-readable reason")
   reason: OutboxAttachmentRejectionReason;
 
@@ -160,8 +163,8 @@ model OutboxAttachmentRejection {
   usedBytes: int64;
 }
 
-@doc("Refusal response for an attachment")
+@doc("Refusal response for an attachment. Flat, like every other error body.")
 model OutboxAttachmentRejected {
   @statusCode statusCode: 400 | 413;
-  @body error: OutboxAttachmentRejection;
+  ...OutboxAttachmentRejection;
 }

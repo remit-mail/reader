@@ -22,6 +22,7 @@ import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
 import { CalendarSource } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { defaultErrorCode } from "../error.js";
 import type { RemitClient } from "../service/data-client.js";
 import { getClient } from "../service/data-client.js";
 import type {
@@ -61,19 +62,25 @@ export const refuseCalendar = <T>(
 	message: string,
 ): CalendarOutcome<T> => ({ ok: false, error: { code, message } });
 
+/**
+ * `CalendarRefusal.code` is this module's own routing token — it decides which
+ * status a refusal becomes. What goes on the wire is the API's `code`
+ * vocabulary (issue #371), which is one vocabulary for every endpoint; the
+ * refusal's sentence travels in `message`.
+ */
 export const badRequest = (error: CalendarRefusal) => ({
 	statusCode: 400,
-	body: error,
+	body: { code: defaultErrorCode(400), message: error.message },
 });
 
 export const notFound = (message: string) => ({
 	statusCode: 404,
-	body: { code: "NotFound", message },
+	body: { code: defaultErrorCode(404), message },
 });
 
 export const preconditionFailed = (message: string) => ({
 	statusCode: 412,
-	body: { code: "EtagMismatch", message },
+	body: { code: defaultErrorCode(412), message },
 });
 
 /** The calendar half of the client, named so a handler takes only what it uses. */

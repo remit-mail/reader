@@ -787,7 +787,7 @@ describe("the calendar collection wrappers", () => {
 		);
 
 		assert.equal(read.statusCode, 404);
-		assert.equal((read.body as { code: string }).code, "NotFound");
+		assert.equal((read.body as { code: string }).code, "not_found");
 	});
 
 	it("refuses a second calendar under a segment the account already uses", async () => {

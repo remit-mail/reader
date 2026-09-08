@@ -17,7 +17,7 @@ import { QuarantinePanelView } from "./QuarantinePanel";
 const render = (props: {
 	entries: readonly QuarantineEntry[];
 	isPending: boolean;
-	error: Error | null;
+	error: unknown;
 }): string =>
 	renderToString(createElement(QuarantinePanelView, props) as never);
 

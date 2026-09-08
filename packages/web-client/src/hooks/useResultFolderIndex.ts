@@ -25,13 +25,15 @@ type MailboxItems = RemitImapMailboxResponse[];
 interface MailboxListsState {
 	items: MailboxItems[];
 	isPending: boolean;
-	error: Error | null;
+	// A refusal body (`{ code, message }`) or a transport `Error` — see
+	// `formatErrorMessage`, which reads a message off either.
+	error: unknown;
 }
 
 export interface ResultFolderIndexState {
 	index: ResultFolderIndex;
 	isPending: boolean;
-	error: Error | null;
+	error: unknown;
 }
 
 /**
@@ -44,7 +46,7 @@ const combineMailboxLists = (
 	results: {
 		data?: { items: MailboxItems };
 		isPending: boolean;
-		error: Error | null;
+		error: unknown;
 	}[],
 ): MailboxListsState => ({
 	items: results.map((result) => result.data?.items ?? []),

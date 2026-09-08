@@ -9,7 +9,10 @@ interface UseTriggerSyncResult {
 	trigger: () => void;
 	triggerAsync: () => Promise<unknown>;
 	isPending: boolean;
-	error: Error | null;
+	// Whatever the API answered with: a flat `{ code, message }` refusal body
+	// (issue #371), or a transport `Error`. Readers take it through
+	// `formatErrorMessage`, which handles both.
+	error: unknown;
 	reset: () => void;
 }
 

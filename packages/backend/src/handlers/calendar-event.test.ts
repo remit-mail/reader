@@ -239,7 +239,7 @@ describe("GET /calendar-events", () => {
 		);
 
 		assert.equal(listed.statusCode, 404);
-		assert.equal((listed.body as { code: string }).code, "NotFound");
+		assert.equal((listed.body as { code: string }).code, "not_found");
 	});
 
 	it("refuses a window that runs backwards or covers more than a year", async () => {
@@ -403,7 +403,10 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 		);
 
 		assert.equal(removed.statusCode, 412);
-		assert.equal((removed.body as { code: string }).code, "EtagMismatch");
+		assert.equal(
+			(removed.body as { code: string }).code,
+			"precondition_failed",
+		);
 		const survivor = await client.calendarObject.find(
 			calendarId,
 			created.calendarObjectId,

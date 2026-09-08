@@ -1,11 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { FolderRoleConflict } from "@remit/api-openapi-types";
+import type { ApiError, FolderRoleConflict } from "@remit/api-openapi-types";
 import {
+	BadRequestError,
 	ClientError,
+	ConflictError,
 	FolderRoleUnresolvedError,
 	ForbiddenError,
+	NotFoundError,
 	UnhandledError,
+	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
 import { NO_TRASH_FOLDER_REASON } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
@@ -14,6 +18,56 @@ import { handleError } from "./error.js";
 
 const parseBody = (body: string): Record<string, unknown> =>
 	JSON.parse(body) as Record<string, unknown>;
+
+// One shape for every error the API answers with (issue #371): flat, always a
+// `code`, always a `message`. A status class that reaches a client without a
+// code leaves it branching on prose.
+describe("the wire shape of a refusal, per status class", () => {
+	const cases: ReadonlyArray<[string, Error, number, string]> = [
+		[
+			"400",
+			new BadRequestError("confirmEmail is required"),
+			400,
+			"invalid_request",
+		],
+		["401", new ClientError("Session expired"), 401, "unauthorized"],
+		["403", new ForbiddenError("Not your account"), 403, "forbidden"],
+		["404", new NotFoundError("Mailbox not found: mb-1"), 404, "not_found"],
+		[
+			"409",
+			new ConflictError("An update is already in progress."),
+			409,
+			"conflict",
+		],
+		[
+			"422",
+			new UnrecoverableBodyError("This message's body could not be read."),
+			422,
+			"unprocessable_entity",
+		],
+		["500", new UnhandledError("Something went wrong"), 500, "internal_error"],
+	];
+
+	for (const [name, error, statusCode, code] of cases) {
+		it(`answers ${name} with a flat code and message`, async () => {
+			const response = await handleError(error);
+
+			assert.equal(response.statusCode, statusCode);
+			assert.deepEqual(parseBody(response.body), {
+				code,
+				message: error.message,
+			});
+		});
+	}
+
+	it("types every one of those bodies as the declared ApiError", async () => {
+		const response = await handleError(new NotFoundError("Gone"));
+		const body: ApiError = JSON.parse(response.body);
+
+		assert.equal(body.code, "not_found");
+		assert.equal(body.message, "Gone");
+	});
+});
 
 describe("handleError coded refusals", () => {
 	it("puts the code and every detail of a folder-role 409 on the wire", async () => {
@@ -45,18 +99,19 @@ describe("handleError coded refusals", () => {
 		});
 	});
 
-	it("keeps an unhandled 500 to a message — no stack, no cause, no code", async () => {
+	it("keeps an unhandled 500 to a code and a message — no stack, no cause, no details", async () => {
 		const response = await handleError(
 			new UnhandledError("Something went wrong", new Error("connection reset")),
 		);
 
 		assert.equal(response.statusCode, 500);
 		assert.deepEqual(parseBody(response.body), {
+			code: "internal_error",
 			message: "Something went wrong",
 		});
 	});
 
-	it("strips a code a 5xx should never have carried", async () => {
+	it("replaces a code a 5xx should never have carried, and drops its details", async () => {
 		const error = new UnhandledError("Something went wrong");
 		error.publicApiError = {
 			code: "folder_role_unresolved",
@@ -67,22 +122,38 @@ describe("handleError coded refusals", () => {
 
 		assert.equal(response.statusCode, 500);
 		assert.deepEqual(parseBody(response.body), {
+			code: "internal_error",
 			message: "Something went wrong",
 		});
 	});
 
-	it("answers an unauthenticated request with a 401 and an error body", async () => {
-		const response = await handleError(new ClientError("Session expired"));
+	it("keeps an infrastructure failure to the generic message and code", async () => {
+		const error = Object.assign(
+			new Error("aws-error: ProvisionedThroughputExceeded on remit-main"),
+			{ name: "ElectroError" },
+		);
 
-		assert.equal(response.statusCode, 401);
-		assert.deepEqual(parseBody(response.body), { message: "Session expired" });
+		const response = await handleError(error);
+
+		assert.equal(response.statusCode, 500);
+		assert.deepEqual(parseBody(response.body), {
+			code: "internal_error",
+			message: "Database temporarily unavailable",
+		});
 	});
 
-	it("answers a forbidden request with a 403 and an error body", async () => {
-		const response = await handleError(new ForbiddenError("Not your account"));
+	it("answers a malformed query as a 400 with the query's own message", async () => {
+		const error = Object.assign(new Error("Invalid attribute: sentDate"), {
+			name: "ElectroError",
+		});
 
-		assert.equal(response.statusCode, 403);
-		assert.deepEqual(parseBody(response.body), { message: "Not your account" });
+		const response = await handleError(error);
+
+		assert.equal(response.statusCode, 400);
+		assert.deepEqual(parseBody(response.body), {
+			code: "invalid_request",
+			message: "Invalid attribute: sentDate",
+		});
 	});
 
 	// The contract and the emitter cannot drift apart: this asserts the response

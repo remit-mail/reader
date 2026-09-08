@@ -60,7 +60,9 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/export/{exportId}")
-    op getExport(@path exportId: string): AccountExportRequestResponse;
+    op getExport(
+      @path exportId: string,
+    ): AccountExportRequestResponse | NotFoundError;
 
     @doc("List every message the sync path could not read, for the current user across all of their mail accounts (issue #72). Backs the quarantine section in settings. Unpaginated: the list is small by design, and an entry is a defect waiting to be reported rather than a page of mail.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -107,12 +109,17 @@ namespace RemitApi {
     op getSystemUpdate(
       @query(#{ explode: true })
       refresh?: boolean,
-    ): SystemUpdateResponse;
+    ): SystemUpdateResponse | UnauthorizedError | NotFoundError;
 
     @doc("Request installation of a specific release. Writes the request to the control seam and returns 202 with the same resource, including a runId. 409 when a run is in flight, 422 when the target is not the manifest's version. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op applySystemUpdate(@body body: ApplyUpdateInput): SystemUpdateResponse;
+    op applySystemUpdate(@body body: ApplyUpdateInput):
+      | SystemUpdateResponse
+      | UnauthorizedError
+      | NotFoundError
+      | ConflictError
+      | UnprocessableEntityError;
   }
 
   // ============================================
@@ -129,14 +136,14 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<MailboxResponse>;
+    ): ResultList<MailboxResponse> | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createMailbox(
       @path accountId: UUID,
       @body input: CreateMailboxInput,
-    ): MailboxResponse;
+    ): MailboxResponse | NotFoundError | ForbiddenError;
   }
 
   @route("/accounts/{accountId}/mailboxes/{mailboxId}")
@@ -146,7 +153,7 @@ namespace RemitApi {
     op getMailbox(
       @path accountId: UUID,
       @path mailboxId: UUID,
-    ): MailboxResponse;
+    ): MailboxResponse | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -154,11 +161,14 @@ namespace RemitApi {
       @path accountId: UUID,
       @path mailboxId: UUID,
       @body input: RenameMailboxInput,
-    ): MailboxResponse;
+    ): MailboxResponse | NotFoundError | ForbiddenError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteMailbox(@path accountId: UUID, @path mailboxId: UUID): void;
+    op deleteMailbox(
+      @path accountId: UUID,
+      @path mailboxId: UUID,
+    ): NoContent | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -174,7 +184,11 @@ namespace RemitApi {
       @path accountId: UUID,
       @path role: CanonicalMailboxRole,
       @body input: AppointFolderRoleInput,
-    ): AccountResponse | AppointFolderRoleConflict;
+    ):
+      | AccountResponse
+      | AppointFolderRoleConflict
+      | NotFoundError
+      | ForbiddenError;
   }
 
   // ============================================
@@ -191,21 +205,25 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<FilterResponse>;
+    ): ResultList<FilterResponse> | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createFilter(
-      @path accountId: UUID,
-      @body input: CreateFilterInput,
-    ): FilterResponse | ValidationError;
+    op createFilter(@path accountId: UUID, @body input: CreateFilterInput):
+      | FilterResponse
+      | ValidationError
+      | NotFoundError
+      | ForbiddenError;
   }
 
   @route("/accounts/{accountId}/filters/{filterId}")
   namespace FilterDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getFilter(@path accountId: UUID, @path filterId: UUID): FilterResponse;
+    op getFilter(
+      @path accountId: UUID,
+      @path filterId: UUID,
+    ): FilterResponse | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -213,11 +231,14 @@ namespace RemitApi {
       @path accountId: UUID,
       @path filterId: UUID,
       @body input: UpdateFilterInput,
-    ): FilterResponse;
+    ): FilterResponse | NotFoundError | ForbiddenError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteFilter(@path accountId: UUID, @path filterId: UUID): void;
+    op deleteFilter(
+      @path accountId: UUID,
+      @path filterId: UUID,
+    ): NoContent | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -234,21 +255,24 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<LabelResponse>;
+    ): ResultList<LabelResponse> | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createLabel(
       @path accountId: UUID,
       @body input: CreateLabelInput,
-    ): LabelResponse;
+    ): LabelResponse | NotFoundError | ForbiddenError;
   }
 
   @route("/accounts/{accountId}/labels/{labelId}")
   namespace LabelDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getLabel(@path accountId: UUID, @path labelId: UUID): LabelResponse;
+    op getLabel(
+      @path accountId: UUID,
+      @path labelId: UUID,
+    ): LabelResponse | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -256,12 +280,15 @@ namespace RemitApi {
       @path accountId: UUID,
       @path labelId: UUID,
       @body input: UpdateLabelInput,
-    ): LabelResponse;
+    ): LabelResponse | NotFoundError | ForbiddenError;
 
     @doc("Delete a label. Cascades in both directions (issue #26): every `MessageLabel` row for it is removed, and every filter whose `actionLabelId` is this label is deleted outright — never left dangling, never blocking the delete. The client is expected to confirm first, naming `LabelResponse.filterCount` as the number of filters that will go with it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteLabel(@path accountId: UUID, @path labelId: UUID): void;
+    op deleteLabel(
+      @path accountId: UUID,
+      @path labelId: UUID,
+    ): NoContent | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -273,10 +300,11 @@ namespace RemitApi {
     @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter or FilterAnchor row (RFC 034 recap).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createOrganizeJob(
-      @path accountId: UUID,
-      @body input: OrganizeInput,
-    ): CreateOrganizeJobResponse | ValidationError;
+    op createOrganizeJob(@path accountId: UUID, @body input: OrganizeInput):
+      | CreateOrganizeJobResponse
+      | ValidationError
+      | NotFoundError
+      | ForbiddenError;
 
     @doc("Preview an \"all like these\" back-apply: run the exact same matcher read-only and return the messages the action would be applied to, without applying it. The previewed set equals the set a job with the same input would apply to.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -285,7 +313,7 @@ namespace RemitApi {
     op previewOrganize(
       @path accountId: UUID,
       @body input: OrganizeInput,
-    ): OrganizePreviewResponse | ValidationError;
+    ): OrganizePreviewResponse | ValidationError | NotFoundError;
   }
 
   @route("/accounts/{accountId}/organize/{organizeJobId}")
@@ -296,7 +324,7 @@ namespace RemitApi {
     op getOrganizeJob(
       @path accountId: UUID,
       @path organizeJobId: UUID,
-    ): OrganizeJobResponse;
+    ): OrganizeJobResponse | NotFoundError;
   }
 
   // ============================================
@@ -562,9 +590,11 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/empty")
-    op emptyTrash(
-      @path accountId: UUID,
-    ): EmptyTrashResponse | FolderRoleConflict;
+    op emptyTrash(@path accountId: UUID):
+      | EmptyTrashResponse
+      | FolderRoleConflict
+      | NotFoundError
+      | ForbiddenError;
   }
 
   // ============================================
@@ -575,13 +605,17 @@ namespace RemitApi {
   namespace SyncOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op triggerSync(@path accountId: UUID): SyncTriggerResponse;
+    op triggerSync(
+      @path accountId: UUID,
+    ): SyncTriggerResponse | NotFoundError | ForbiddenError;
 
     @doc("Get the current sync status for an account, including per-mailbox progress computed from watermarks. Read-only — does not write or contend with the mailbox sync lock (RFC 023).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/status")
-    op getSyncStatus(@path accountId: UUID): AccountSyncStatusResponse;
+    op getSyncStatus(
+      @path accountId: UUID,
+    ): AccountSyncStatusResponse | NotFoundError;
   }
 
   // ============================================
@@ -593,13 +627,17 @@ namespace RemitApi {
     @doc("Create a new email account")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createAccount(@body input: CreateAccountInput): AccountResponse;
+    op createAccount(
+      @body input: CreateAccountInput,
+    ): AccountResponse | ValidationError | ConflictError;
 
     @doc("Test IMAP/SMTP connection without saving")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/test-connection")
-    op testConnection(@body input: TestConnectionInput): TestConnectionResponse;
+    op testConnection(
+      @body input: TestConnectionInput,
+    ): TestConnectionResponse | NotFoundError;
   }
 
   // ============================================
@@ -654,12 +692,14 @@ namespace RemitApi {
     op updateAccount(
       @path accountId: UUID,
       @body input: UpdateAccountInput,
-    ): AccountResponse;
+    ): AccountResponse | NotFoundError | ForbiddenError;
 
     @doc("Delete an account and all associated data")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteAccount(@path accountId: UUID): DeleteAccountResponse;
+    op deleteAccount(
+      @path accountId: UUID,
+    ): DeleteAccountResponse | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -682,7 +722,7 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
-    ): ResultList<ThreadMessageResponse>;
+    ): ResultList<ThreadMessageResponse> | NotFoundError;
   }
 
   @route("/threads")
@@ -917,7 +957,7 @@ namespace RemitApi {
     @post
     op createOutboxMessage(
       @body input: CreateOutboxMessageInput,
-    ): OutboxMessageResponse;
+    ): OutboxMessageResponse | NotFoundError | ForbiddenError;
 
     @doc("List outbox messages for the current account")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -934,7 +974,9 @@ namespace RemitApi {
     @doc("Get an outbox message by ID")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+    op getOutboxMessage(
+      @path outboxMessageId: UUID,
+    ): OutboxMessageResponse | NotFoundError;
 
     @doc("Update a draft outbox message")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -942,18 +984,22 @@ namespace RemitApi {
     op updateOutboxMessage(
       @path outboxMessageId: UUID,
       @body input: UpdateOutboxMessageInput,
-    ): OutboxMessageResponse;
+    ): OutboxMessageResponse | NotFoundError | ForbiddenError;
 
     @doc("Delete a draft or failed outbox message")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteOutboxMessage(@path outboxMessageId: UUID): void;
+    op deleteOutboxMessage(
+      @path outboxMessageId: UUID,
+    ): NoContent | NotFoundError | ForbiddenError;
 
     @doc("Queue a draft message for sending")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/send")
-    op sendOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+    op sendOutboxMessage(
+      @path outboxMessageId: UUID,
+    ): OutboxMessageResponse | NotFoundError | ForbiddenError;
 
     @doc("Reserve room on a draft for a file, and get somewhere to put it")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1001,7 +1047,7 @@ namespace RemitApi {
     op updateAddress(
       @path addressId: UUID,
       @body input: UpdateAddressInput,
-    ): AddressResponse;
+    ): AddressResponse | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -1012,13 +1058,15 @@ namespace RemitApi {
   namespace MessageOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op describeMessage(@path messageId: UUID): DescribeMessageResponse;
+    op describeMessage(
+      @path messageId: UUID,
+    ): DescribeMessageResponse | NotFoundError | UnprocessableEntityError;
 
     @doc("Get the raw RFC822/MIME source of a message (headers and body) for inspection.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/raw")
-    op getRawMessage(@path messageId: UUID): RawMessageResponse;
+    op getRawMessage(@path messageId: UUID): RawMessageResponse | NotFoundError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -1041,30 +1089,36 @@ namespace RemitApi {
     @route("/flags")
     op updateFlags(
       @body input: BulkUpdateFlagsInput,
-    ): MessageBulkOperationResult;
+    ): MessageBulkOperationResult | NotFoundError | ForbiddenError;
 
     @doc("Delete messages (move to Trash or permanent delete)")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/delete")
-    op deleteMessages(
-      @body input: DeleteMessagesInput,
-    ): MessageBulkOperationResult | DeleteMessagesConflict;
+    op deleteMessages(@body input: DeleteMessagesInput):
+      | MessageBulkOperationResult
+      | DeleteMessagesConflict
+      | NotFoundError
+      | ForbiddenError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/move")
-    op moveMessages(
-      @body input: MoveMessagesInput,
-    ): MessageBulkOperationResult | MessagePlacementConflict;
+    op moveMessages(@body input: MoveMessagesInput):
+      | MessageBulkOperationResult
+      | MessagePlacementConflict
+      | NotFoundError
+      | ForbiddenError;
 
     @doc("Copy messages to a destination mailbox")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/copy")
-    op copyMessages(
-      @body input: CopyMessagesInput,
-    ): MessageBulkOperationResult | MessagePlacementConflict;
+    op copyMessages(@body input: CopyMessagesInput):
+      | MessageBulkOperationResult
+      | MessagePlacementConflict
+      | NotFoundError
+      | ForbiddenError;
 
     @doc("Apply or remove a label on multiple messages — the manual \"just these\" scope (RFC 034 recap, issue #26). `appliedByFilterId` stays absent on the resulting `MessageLabel` rows; that provenance is reserved for filter/organize applies.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1072,19 +1126,23 @@ namespace RemitApi {
     @route("/labels")
     op updateMessageLabels(
       @body input: UpdateMessageLabelsInput,
-    ): MessageBulkOperationResult;
+    ): MessageBulkOperationResult | NotFoundError | ForbiddenError;
 
     @doc("Report messages as spam: block the sender (Address.flags.blocked) and move each message to the account's Junk folder. Skips the block (but still moves the message) when the sender is the account's own address. One call replaces composing the old separate `Block` and `Mark spam` actions — a single user intent, a single failure story. The sender block is written first and does not wait on the move; a failed move never rolls it back. Idempotent under a repeated call.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/report-spam")
-    op reportSpam(@body input: BulkMessageInput): SpamReportBulkResult;
+    op reportSpam(
+      @body input: BulkMessageInput,
+    ): SpamReportBulkResult | NotFoundError | ForbiddenError;
 
     @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call. Each message is processed independently and concurrently, so the request's total wait is bounded by one message's settle timeout rather than accumulating across the batch.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/not-spam")
-    op notSpam(@body input: BulkMessageInput): SpamReportBulkResult;
+    op notSpam(
+      @body input: BulkMessageInput,
+    ): SpamReportBulkResult | NotFoundError | ForbiddenError;
   }
 
   // ============================================
@@ -1141,7 +1199,7 @@ namespace RemitApi {
     op acceptCalendarSuggestion(
       @path suggestionId: UUID,
       @body input: AcceptCalendarSuggestionInput,
-    ): CalendarSuggestionResponse | ValidationError;
+    ): CalendarSuggestionResponse | ValidationError | NotFoundError;
 
     @doc("Say no. Writes no calendar object and sends no reply to the organizer. Idempotent; 400 when the suggestion was already accepted, since a resource exists and declining would not remove it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1149,7 +1207,7 @@ namespace RemitApi {
     @route("/decline")
     op declineCalendarSuggestion(
       @path suggestionId: UUID,
-    ): CalendarSuggestionResponse | ValidationError;
+    ): CalendarSuggestionResponse | ValidationError | NotFoundError;
 
     @doc("Wave the card away. Writes no calendar object. With `muteSender`, also writes a standing `Filter` rule on the message's sender so their invitations stop being offered. Idempotent; 400 when the suggestion was already accepted.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1158,6 +1216,6 @@ namespace RemitApi {
     op dismissCalendarSuggestion(
       @path suggestionId: UUID,
       @body input: DismissCalendarSuggestionInput,
-    ): CalendarSuggestionResponse | ValidationError;
+    ): CalendarSuggestionResponse | ValidationError | NotFoundError;
   }
 }

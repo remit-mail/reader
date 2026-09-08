@@ -13,7 +13,7 @@ import {
 } from "openapi-backend";
 import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
-import { handleError } from "./error.js";
+import { defaultErrorCode, handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
@@ -107,13 +107,17 @@ api.register("validationFail", (c: OpenAPIContext, req: Request) => {
 	return {
 		statusCode: 400,
 		body: {
+			code: defaultErrorCode(400),
 			message: "Invalid request",
 			errors: c.validation.errors,
 		},
 	};
 });
 
-api.register("notFound", () => ({ statusCode: 404 }));
+api.register("notFound", () => ({
+	statusCode: 404,
+	body: { code: defaultErrorCode(404), message: "Not found" },
+}));
 
 api.register("notImplemented", async (c: OpenAPIContext) => {
 	const { status, mock } = api.mockResponseForOperation(
