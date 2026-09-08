@@ -263,7 +263,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 		});
 	};
 
-	it("enqueues a back-apply naming the sender and the category just set", async () => {
+	it("enqueues a back-apply naming the sender and the set it was fired for", async () => {
 		const enqueued: SendMessageCommand[] = [];
 		withStubbedQueue(enqueued);
 		setClient(clientHolding(address({ flags: {} }), []));
@@ -282,7 +282,31 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 			addressId: "addr-1",
 			normalizedEmail: "amsterdam@pocahondas.nl",
 			category: "newsletter",
+			categorySetAt: 20,
 		});
+	});
+
+	it("says the override is saved and names the retry when the queue refuses", async () => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		mock.method(sqsClient, "send", async () => {
+			throw new Error("AWS.SimpleQueueService.NonExistentQueue");
+		});
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await assert.rejects(
+			updateAddress(
+				updateContextFor({
+					flags: { category: { value: "newsletter", setAt: 20 } },
+				}),
+				eventFor(SUB),
+			),
+			(error: Error) => {
+				assert.match(error.message, /saved/);
+				assert.match(error.message, /same category again/);
+				return true;
+			},
+		);
 	});
 
 	it("enqueues nothing when the override is cleared back to auto", async () => {

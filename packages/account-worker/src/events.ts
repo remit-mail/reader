@@ -42,12 +42,17 @@ export type OrganizeJobEvent = {
  * Rides the same account-fanout queue as the organize back-apply: the API
  * enqueues one when `Address.flags.category` is SET, and the fanout worker
  * re-labels a bounded recent batch of that sender's already-classified mail.
+ * A CLEAR never enqueues one: reverting to auto-classification says nothing
+ * about what the classifier would have answered, and re-deriving it would need
+ * every message's body back.
  *
- * Carries the category it was set to rather than re-reading the flag, so a
- * later change cannot silently retarget a job already in flight. A CLEAR never
- * enqueues one: reverting to auto-classification says nothing about what the
- * classifier would have answered, and re-deriving it would need every
- * message's body back.
+ * `category` and `categorySetAt` together name WHICH set this job was fired
+ * for, and the worker refuses a job whose set no longer stands on the Address.
+ * That check is what the standard queue's semantics make necessary rather than
+ * merely tidy: delivery is at-least-once and unordered, so without it a job
+ * that fails and redelivers after the user has corrected the category re-labels
+ * those 500 messages back to the superseded one, leaving the flag and the mail
+ * permanently disagreeing with nothing to reconcile them.
  */
 export type SenderCategoryBackApplyEvent = {
 	type: "SenderCategoryBackApply";
@@ -55,6 +60,7 @@ export type SenderCategoryBackApplyEvent = {
 	addressId: string;
 	normalizedEmail: string;
 	category: MessageCategoryValue;
+	categorySetAt: number;
 };
 
 export type AccountFanoutEvent =

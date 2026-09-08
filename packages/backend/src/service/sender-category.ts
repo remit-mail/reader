@@ -90,7 +90,9 @@ const listSenderMessageIds = async (
  *
  * Per-message isolation, exactly as `applyOrganize` has it: one poisoned
  * message is counted as failed and the pass continues, so a single missing
- * thread row never costs the other 499 their re-label.
+ * thread row never costs the other 499 their re-label. Unlike a job row, this
+ * count is not the end of the story — the caller is expected to leave a pass
+ * with failures unacknowledged so redelivery converges the rest.
  */
 export const backApplySenderCategory = async (
 	deps: SenderCategoryBackApplyDeps,

@@ -81,8 +81,8 @@ export const buildFlagsPatch = (
 };
 
 /**
- * The category a back-apply should be enqueued for, or `undefined` when this
- * patch asks for none (issue #415).
+ * The category flag a back-apply should be enqueued for, or `undefined` when
+ * this patch asks for none (issue #415).
  *
  * A SET fires one; a CLEAR — `null` in the patch, whether it came from
  * `clearFlags` or from the nullable flag value — never does. Reverting a sender
@@ -91,16 +91,16 @@ export const buildFlagsPatch = (
  * message's body back; the revert takes effect on the sender's next message,
  * exactly as the override itself did before this.
  *
- * Read from the patch rather than compared against the stored flag, so
- * re-sending the same category is a deliberate re-run of the back-apply — the
- * only retry a user has for one that failed midway.
+ * The whole flag, not just its value: `setAt` identifies WHICH set the job was
+ * fired for, and the worker refuses to apply a job whose set is no longer the
+ * one standing on the Address.
  */
-export const backApplyCategory = (
+export const backApplyCategoryFlag = (
 	patch: FlagsMergePatch,
-): NonNullable<AddressFlags["category"]>["value"] | undefined => {
+): NonNullable<AddressFlags["category"]> | undefined => {
 	const flag = patch.category;
-	if (!flag) return undefined;
-	return flag.value;
+	if (flag === null || flag === undefined) return undefined;
+	return flag;
 };
 
 export const AddressOperations: Record<
@@ -168,20 +168,31 @@ export const AddressDetailOperations: Record<
 			patch,
 		);
 
-		const category = backApplyCategory(patch);
-		if (category) {
-			await sqsClient.send(
-				new SendMessageCommand({
-					QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-					MessageBody: JSON.stringify({
-						type: "SenderCategoryBackApply",
-						accountConfigId,
-						addressId,
-						normalizedEmail: updated.normalizedEmail,
-						category,
+		const flag = backApplyCategoryFlag(patch);
+		if (flag) {
+			// The flag itself is already durable. A queue failure here costs the
+			// user the retroactive pass and nothing else, so the 500 says so and
+			// names the retry — re-sending the same category enqueues a fresh job.
+			await sqsClient
+				.send(
+					new SendMessageCommand({
+						QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+						MessageBody: JSON.stringify({
+							type: "SenderCategoryBackApply",
+							accountConfigId,
+							addressId,
+							normalizedEmail: updated.normalizedEmail,
+							category: flag.value,
+							categorySetAt: flag.setAt,
+						}),
 					}),
-				}),
-			);
+				)
+				.catch((cause: unknown) => {
+					throw new Error(
+						`The ${flag.value} override is saved and applies to this sender's next message, but the pass over their existing mail could not be started. Setting the same category again retries it.`,
+						{ cause },
+					);
+				});
 		}
 
 		return toAddressResponse(updated);
