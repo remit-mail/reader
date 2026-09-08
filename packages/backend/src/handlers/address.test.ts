@@ -181,6 +181,44 @@ const clientHolding = (
 		},
 	}) as unknown as RemitClient;
 
+/**
+ * The never-spam grant (#605) travels the same route every other flag does. The
+ * exclusivity against `blocked` is not asserted here: it lives in the repo's
+ * merge fold, the only place that sees both keys at once.
+ */
+describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
+	it("forwards the grant to the merge patch and hands it back on the address", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(clientHolding(address({ flags: {} }), seen));
+
+		const response = await updateAddress(
+			updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ neverSpam: { value: true, setAt: 20 } }]);
+		assert.deepEqual(response.flags.neverSpam, { value: true, setAt: 20 });
+	});
+
+	it("clears the grant by naming the key, the removal form every flag shares", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({ flags: { neverSpam: { value: true, setAt: 10 } } }),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["neverSpam"] }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ neverSpam: null }]);
+		assert.equal(response.flags.neverSpam, undefined);
+	});
+});
+
 describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 	it("clears the category override, which has no false-equivalent value to send", async () => {
 		const seen: FlagsMergePatch[] = [];

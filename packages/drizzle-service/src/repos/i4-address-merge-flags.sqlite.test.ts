@@ -75,6 +75,81 @@ describe("concurrent flag merges on one address", () => {
 		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
 	});
 
+	test("marking a blocked sender never-spam drops the block", async () => {
+		const addr = await address();
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			blocked: { value: true, setAt: 1 },
+			muted: { value: true, setAt: 1 },
+		});
+
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			neverSpam: { value: true, setAt: 2 },
+		});
+
+		const merged = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(merged.flags?.neverSpam?.value, true);
+		assert.equal(merged.flags?.blocked, undefined);
+		assert.equal(
+			merged.flags?.muted?.value,
+			true,
+			"a flag on another axis is untouched",
+		);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
+	test("blocking a never-spam sender drops the grant", async () => {
+		const addr = await address();
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			neverSpam: { value: true, setAt: 1 },
+		});
+
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			blocked: { value: true, setAt: 2 },
+		});
+
+		const merged = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(merged.flags?.blocked?.value, true);
+		assert.equal(merged.flags?.neverSpam, undefined);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
+	test("a never-spam grant turned off leaves a later block alone", async () => {
+		const addr = await address();
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			neverSpam: { value: false, setAt: 1 },
+		});
+
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			blocked: { value: true, setAt: 2 },
+		});
+
+		const merged = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(merged.flags?.blocked?.value, true);
+		assert.equal(
+			merged.flags?.neverSpam?.value,
+			false,
+			"an explicit false is not a contradiction and keeps its audit trail",
+		);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
+	test("one patch naming both contradictory flags settles on the block", async () => {
+		const addr = await address();
+		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {
+			blocked: { value: true, setAt: 1 },
+			neverSpam: { value: true, setAt: 1 },
+		});
+
+		const merged = await repo.getAddress(addr.accountConfigId, addr.addressId);
+		assert.equal(merged.flags?.blocked?.value, true);
+		assert.equal(merged.flags?.neverSpam, undefined);
+
+		await repo.deleteAddress(addr.accountConfigId, addr.addressId);
+	});
+
 	test("a concurrent merge does not resurrect a deleted flag", async () => {
 		const addr = await address();
 		await repo.mergeFlags(addr.accountConfigId, addr.addressId, {

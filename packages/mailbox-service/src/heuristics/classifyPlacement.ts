@@ -1,7 +1,9 @@
 import type { MessageItem } from "@remit/data-ports";
-import { SenderTrust } from "@remit/domain-enums";
+import { SenderOverride, SenderTrust } from "@remit/domain-enums";
 
 type SenderTrustValue = (typeof SenderTrust)[keyof typeof SenderTrust];
+
+type SenderOverrideValue = (typeof SenderOverride)[keyof typeof SenderOverride];
 
 export type FolderPlacement = "inbox" | "junk" | "other";
 
@@ -39,7 +41,7 @@ export interface SenderBlockedSignal {
  * fixed, arbitrary order: `blocked` before `vip` before `wellknown` — a
  * determinism backstop, not a meaningful signal.
  */
-export const resolveBlockedVsTrust = (
+const resolveBlockedVsTrust = (
 	trust: SenderTrustSignal,
 	blocked: SenderBlockedSignal,
 ): { senderTrust: SenderTrustValue; senderBlocked: boolean } => {
@@ -61,6 +63,32 @@ export const resolveBlockedVsTrust = (
 };
 
 /**
+ * Resolve the two axes {@link classifyPlacement} takes: the trust signal, and
+ * the user's standing instruction about placement.
+ *
+ * `blocked` and `neverSpam` are two directly contradictory instructions and
+ * cannot both stand — `AddressRepository.mergeFlags` drops the loser at write
+ * time. Reading a row that carries both anyway (written before that invariant)
+ * resolves to `Blocked`, the same direction the `blocked`/`vip` same-second tie
+ * already breaks in: the demote is the recoverable mistake.
+ */
+export const resolveSenderPlacement = (
+	trust: SenderTrustSignal,
+	blocked: SenderBlockedSignal,
+	neverSpam: boolean,
+): {
+	senderTrust: SenderTrustValue;
+	senderOverride: SenderOverrideValue;
+} => {
+	const { senderTrust, senderBlocked } = resolveBlockedVsTrust(trust, blocked);
+	if (senderBlocked)
+		return { senderTrust, senderOverride: SenderOverride.Blocked };
+	if (neverSpam)
+		return { senderTrust, senderOverride: SenderOverride.NeverSpam };
+	return { senderTrust, senderOverride: SenderOverride.None };
+};
+
+/**
  * Tier 0 deterministic placement verdict (RFC 031, "Confident moves").
  *
  * Pure: the caller resolves the message's current folder placement and the
@@ -69,17 +97,26 @@ export const resolveBlockedVsTrust = (
  * recall-biased — a confident move only fires when cheap, deterministic signals
  * agree; everything else is left in place for a later LLM tier.
  *
- * `senderBlocked` (RFC 039 Decision 3) is a confident demote independent of
- * every DKIM/DMARC/provider signal below — a user's explicit block is not a
- * heuristic. Already-tie-broken against `vip`/`wellknown` by
- * {@link resolveBlockedVsTrust} in the caller; this function itself does not
+ * `senderOverride` (RFC 039 Decision 3, issue #605) is the user's standing
+ * instruction about this sender's placement, and it outranks every
+ * DKIM/DMARC/provider signal below — an explicit block or never-spam grant is
+ * not a heuristic. Already-tie-broken against `vip`/`wellknown` by
+ * {@link resolveSenderPlacement} in the caller; this function itself does not
  * compare `setAt`.
+ *
+ * `NeverSpam` is checked above the `missing-signals` return and above the
+ * `providerSpam.classified` gate on purpose: the senders who need the grant are
+ * the ones the provider rated clean and whose domain publishes no DMARC record,
+ * so a check inside the rescue branch below would never fire for them. It
+ * rescues only from `junk` — a message a standing filter put in a user folder
+ * is not a spam question — and it does not exempt the sender from the
+ * hard-DMARC-failure demote, which is the branch that catches impersonation.
  */
 export const classifyPlacement = (
 	message: MessageItem,
 	placement: FolderPlacement,
 	senderTrust: SenderTrustValue,
-	senderBlocked: boolean,
+	senderOverride: SenderOverrideValue,
 ): PlacementVerdict => {
 	if (message.movedByRemit === true) {
 		return {
@@ -89,11 +126,19 @@ export const classifyPlacement = (
 		};
 	}
 
-	if (senderBlocked && placement !== "junk") {
+	if (senderOverride === SenderOverride.Blocked && placement !== "junk") {
 		return {
 			action: "move-to-junk",
 			confidence: "confident",
 			reasons: ["sender=blocked"],
+		};
+	}
+
+	if (senderOverride === SenderOverride.NeverSpam && placement === "junk") {
+		return {
+			action: "move-to-inbox",
+			confidence: "confident",
+			reasons: ["sender=never-spam"],
 		};
 	}
 

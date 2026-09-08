@@ -35,6 +35,7 @@ import "./OutboxAttachmentState.tsp";
 import "./MessageCategory.tsp";
 import "./MessageClassificationState.tsp";
 import "./SenderTrust.tsp";
+import "./SenderOverride.tsp";
 
 // Account Enums
 import "./AccountAuthType.tsp";

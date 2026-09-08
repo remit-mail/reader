@@ -297,6 +297,7 @@ const userFlagsOf = (flags: AddressFlags | undefined): ConfigAddressFlags => {
 	const user: ConfigAddressFlags = {};
 	if (stored.trusted) user.trusted = carriedFlag(stored.trusted);
 	if (stored.blocked) user.blocked = carriedFlag(stored.blocked);
+	if (stored.neverSpam) user.neverSpam = carriedFlag(stored.neverSpam);
 	if (stored.muted) user.muted = carriedFlag(stored.muted);
 	if (stored.vip) user.vip = carriedFlag(stored.vip);
 	if (stored.category) user.category = carriedFlag(stored.category);
