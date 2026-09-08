@@ -42,14 +42,14 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     # An optimization, not the correctness guarantee: shared with
-    # storybook-preview.yml and storybook-preview-cleanup.yml so the three
-    # producers usually serialize instead of piling up. It cannot be relied on
-    # for correctness by itself -- GitHub holds at most one running and one
-    # pending job per group, so a third simultaneous producer can still bump a
-    # pending one. gh-pages-publish.mjs is what actually protects the branch,
-    # via a leased push that is rejected rather than silently overwritten if
-    # it loses a race, and retried against the branch's new tip. All three
-    # files must spell this group the same way; a test asserts they do.
+    # docs-site.yml, storybook-preview.yml and storybook-preview-cleanup.yml so
+    # the four producers usually serialize instead of piling up. It cannot be
+    # relied on for correctness by itself -- GitHub holds at most one running
+    # and one pending job per group, so a third simultaneous producer can still
+    # bump a pending one. gh-pages-publish.mjs is what actually protects the
+    # branch, via a leased push that is rejected rather than silently
+    # overwritten if it loses a race, and retried against the branch's new tip.
+    # All four files must spell this group the same way; a test asserts they do.
     concurrency:
       group: gh-pages-branch-push
       cancel-in-progress: false
@@ -66,10 +66,13 @@ jobs:
         with:
           name: storybook-main
           path: storybook-main-download
-      - name: Publish to the gh-pages branch root
+      # The branch root belongs to the docs site (docs-site.yml), so the
+      # Storybook lives one level down. A subtree publish rewrites only
+      # `storybook/` and leaves the root and the `pr/` previews alone, which is
+      # why no --preserve is needed here.
+      - name: Publish Storybook to the gh-pages branch
         run: >-
           node npm-scripts/gh-pages-publish.mjs publish
           --source storybook-main-download
-          --dest .
-          --preserve pr
+          --dest storybook
           --message "Publish Storybook from ${{ github.sha }}"
