@@ -1,0 +1,25 @@
+title: Reader
+repository: https://github.com/remit-mail/reader
+nav:
+  - items:
+      - index.md
+  - section: Getting started
+    items:
+      - getting-started/install.md
+      - getting-started/first-account.md
+      - getting-started/updating.md
+  - section: Architecture
+    items:
+      - architecture/overview.md
+      - architecture/sync.md
+      - architecture/mutations.md
+      - architecture/search-and-classification.md
+  - section: Operations
+    items:
+      - operations/deployment.md
+      - operations/updating.md
+      - operations/backup.md
+  - items:
+      - security.md
+      - roadmap.md
+      - contributing.md
