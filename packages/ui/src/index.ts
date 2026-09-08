@@ -17,6 +17,12 @@ export {
 	type ThreadCategory,
 } from "./category-presentation.js";
 export {
+	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	AccountServiceChoice,
+	type AccountServiceChoiceProps,
+	type AccountServiceId,
+} from "./components/account-service-choice.js";
+export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,

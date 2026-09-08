@@ -1,4 +1,7 @@
 import {
+	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	AccountServiceChoice,
+	type AccountServiceId,
 	AppPasswordHint,
 	Banner,
 	Button,
@@ -13,6 +16,7 @@ import {
 	WizardShell,
 } from "@remit/ui";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
+import { useState } from "react";
 
 /**
  * Onboarding wizard steps as static compositions (doc/design/flows/
@@ -29,7 +33,7 @@ export const steps = [
 	"Sync",
 ];
 
-interface StepNav {
+export interface StepNav {
 	onBack?: () => void;
 	onNext?: () => void;
 }
@@ -124,29 +128,70 @@ export function StepConnector({
 	);
 }
 
+const BOTH_SERVICES: AccountServiceId[] = ["Mail", "Calendar"];
+
+export interface StepMicrosoftEmailProps extends StepNav {
+	/** Services the chosen connector carries. Under two, no choice appears. */
+	offered?: AccountServiceId[];
+	initialServices?: AccountServiceId[];
+	host?: "first-run" | "settings";
+	error?: string;
+}
+
 export function StepMicrosoftEmail({
+	offered = BOTH_SERVICES,
+	initialServices,
+	host = "first-run",
 	error,
 	onBack,
 	onNext,
-}: { error?: string } & StepNav = {}) {
+}: StepMicrosoftEmailProps) {
+	const [selected, setSelected] = useState(initialServices ?? offered);
+	const [refused, setRefused] = useState(false);
+	const empty = selected.length === 0;
+
+	const handleContinue = () => {
+		if (empty) {
+			setRefused(true);
+			return;
+		}
+		onNext?.();
+	};
+
 	return (
 		<WizardShell
 			steps={steps}
 			activeStep={0}
 			title="Sign in with Microsoft"
-			subtitle="You'll be redirected to Microsoft to sign in securely."
+			subtitle="Microsoft is asked for exactly what you pick here, and nothing else."
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
-						Back
+						{host === "settings" ? "Cancel" : "Back"}
 					</Button>
-					<Button variant="primary" onClick={onNext}>
+					<Button variant="primary" onClick={handleContinue}>
 						Sign in with Microsoft
 					</Button>
 				</>
 			}
 		>
-			<div className="space-y-3">
+			<div className="space-y-4">
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					<ConnectorTile
+						name="Outlook / Microsoft 365"
+						description="Sign in with Microsoft. Works with Outlook.com and work accounts."
+						icon={<Inbox className="size-5" />}
+						selected
+						onSelect={onBack}
+					/>
+				</div>
+				<AccountServiceChoice
+					providerName="Microsoft"
+					offered={offered}
+					selected={selected}
+					onChange={setSelected}
+					error={refused && empty ? ACCOUNT_SERVICE_EMPTY_MESSAGE : undefined}
+				/>
 				<div>
 					<FieldLabel htmlFor="ms-email">Email address (optional)</FieldLabel>
 					<Input
