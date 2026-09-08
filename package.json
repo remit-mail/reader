@@ -30,6 +30,7 @@
     "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
+    "check:sqlite-vec-version": "node npm-scripts/check-sqlite-vec-version.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
