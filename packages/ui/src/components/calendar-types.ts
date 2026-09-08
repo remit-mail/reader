@@ -39,6 +39,13 @@ export interface CalendarDescriptor {
 	accountLabel: string;
 	name: string;
 	color: CalendarColorId;
+	/**
+	 * Whether the provider still fills this calendar. `paused` is a provider
+	 * calendar whose account has calendar sync off: its stored events stay on the
+	 * grid and its tick keeps working, and only new changes have stopped.
+	 * Defaults to `live`.
+	 */
+	sync?: "live" | "paused";
 }
 
 /**

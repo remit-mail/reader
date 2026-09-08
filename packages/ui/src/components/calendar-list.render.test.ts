@@ -75,3 +75,37 @@ describe("CalendarList", () => {
 		assert.match(html, /Family/);
 	});
 });
+
+/**
+ * A provider calendar whose account has calendar sync off. Nothing was deleted,
+ * so the row stays, its tick keeps drawing the stored events, and the pause is
+ * a label on the row (#1179).
+ */
+describe("CalendarList with a paused calendar", () => {
+	const paused: CalendarDescriptor[] = calendars.map((calendar) =>
+		calendar.id === "c1" ? { ...calendar, sync: "paused" } : calendar,
+	);
+
+	const renderPaused = (visible: string[]) =>
+		renderToString(
+			createElement(CalendarList, {
+				calendars: paused,
+				visible: new Set(visible),
+				onToggle: () => undefined,
+			}),
+		);
+
+	it("keeps the row and labels the pause", () => {
+		const html = renderPaused(["c1"]);
+		assert.match(html, /Northwind/);
+		assert.match(html, /calendar sync off/);
+	});
+
+	it("leaves a live calendar unlabelled", () => {
+		assert.doesNotMatch(render(["c1"]), /calendar sync off/);
+	});
+
+	it("keeps a paused calendar tickable, so its events stay drawable", () => {
+		assert.match(renderPaused(["c1"]), /checked=""/);
+	});
+});

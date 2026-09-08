@@ -1,7 +1,8 @@
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, PauseCircle } from "lucide-react";
 import { useState } from "react";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
+import { ACCOUNT_SERVICE_OFF_LABEL } from "./account-service-status.js";
 import type { CalendarDescriptor } from "./calendar-types.js";
 
 export interface CalendarListProps {
@@ -220,6 +221,12 @@ function CalendarListRow({
 			>
 				{calendar.name}
 			</span>
+			{calendar.sync === "paused" && (
+				<PauseCircle
+					className="size-3.5 shrink-0 text-fg-subtle"
+					aria-label={ACCOUNT_SERVICE_OFF_LABEL.Calendar}
+				/>
+			)}
 		</label>
 	);
 }

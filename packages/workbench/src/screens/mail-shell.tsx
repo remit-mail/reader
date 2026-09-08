@@ -62,6 +62,7 @@ import {
 	MessageListPane,
 	MobileSearchView,
 	matchesBriefFilters,
+	type NavAccount,
 	NavSidebar,
 	ReadingPane,
 	RefreshButton,
@@ -102,6 +103,11 @@ export interface MailShellProps {
 	 * layout tier.
 	 */
 	width?: number;
+	/**
+	 * The accounts the nav lists. Defaults to the three fixture accounts; a
+	 * story about one account's state passes its own.
+	 */
+	accounts?: NavAccount[];
 	selectedNavId?: string;
 	listTitle?: string;
 	/**
@@ -147,6 +153,12 @@ export interface MailShellProps {
 	 * and the one a story uses to put something below the rows.
 	 */
 	listBody?: ReactNode;
+	/**
+	 * Sits between the pane header and the rows, for a fact about the whole list
+	 * rather than about any row in it — a mailbox whose account stopped syncing
+	 * mail states that above the mail it still holds.
+	 */
+	listNotice?: ReactNode;
 	/**
 	 * Replaces the list pane whole — a view that brings its own header and body,
 	 * the way Drafts and the Outbox do in the app.
@@ -375,6 +387,7 @@ function ListPane({
 	listState,
 	listFilter,
 	listBody,
+	listNotice,
 	selectedIds,
 	onVerb,
 	preset,
@@ -398,6 +411,7 @@ function ListPane({
 	listState?: ListState;
 	listFilter?: MessageListFilter;
 	listBody?: ReactNode;
+	listNotice?: ReactNode;
 	selectedIds?: string[];
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 	preset?: FilterPreset;
@@ -696,6 +710,9 @@ function ListPane({
 					}
 				/>
 				{suggest.list}
+				{listNotice && (
+					<div className="shrink-0 px-row-inset py-2">{listNotice}</div>
+				)}
 				<div className="min-h-0 flex-1">{body}</div>
 			</section>
 		</FilterPanelProvider>
@@ -704,6 +721,7 @@ function ListPane({
 
 export function MailShell({
 	width = 1440,
+	accounts = navAccounts,
 	selectedNavId = "brief",
 	listTitle = "Daily brief",
 	unreadCount = 12,
@@ -718,6 +736,7 @@ export function MailShell({
 	listState,
 	listFilter,
 	listBody,
+	listNotice,
 	list: listOverride,
 	reading,
 	onCompose,
@@ -784,7 +803,7 @@ export function MailShell({
 
 	const nav = (
 		<NavSidebar
-			accounts={navAccounts}
+			accounts={accounts}
 			selectedNavId={selectedNavId}
 			briefUnseen={unreadCount ?? 0}
 			calendarNav={calendarNav}
@@ -803,6 +822,7 @@ export function MailShell({
 			listState={listState}
 			listFilter={listFilter}
 			listBody={listBody}
+			listNotice={listNotice}
 			selectedIds={selectedIds}
 			onVerb={onVerb}
 			preset={preset}
