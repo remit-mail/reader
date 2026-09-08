@@ -591,10 +591,7 @@ export class MailboxManagementService {
 			root.hierarchyDelimiter,
 		);
 		for (const { row } of carrying) {
-			await this.mailboxService.deleteMailboxWithMail(
-				accountId,
-				row.mailboxId,
-			);
+			await this.mailboxService.deleteMailboxWithMail(accountId, row.mailboxId);
 			this.log.info(
 				{
 					accountId,

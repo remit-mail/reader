@@ -62,11 +62,6 @@ interface Harness {
 
 let h: Harness;
 
-const notFoundError = (): Error =>
-	Object.assign(new Error("Mailbox not found: mbx-1"), {
-		name: "NotFoundError",
-	});
-
 const record =
 	(method: string) =>
 	async (...args: unknown[]) => {
