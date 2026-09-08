@@ -173,6 +173,11 @@ Usage: $PROG <command> [args]
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
                        every start; this is how to look without waiting for one.
+  check-index          Report which embedding model the search index's vectors
+                       came from, counted per model and against the one this
+                       deployment is configured with. Reads the index and
+                       writes nothing. Vectors under an older model still
+                       answer queries, in a vector space of their own.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -866,6 +871,24 @@ cmd_semantic() {
 	esac
 }
 
+# Which embedder wrote the vectors that are in the index (#455). Changing the
+# model re-embeds a message only when something touches it, so an index quietly
+# comes to hold two vector spaces that are compared against each other and rank
+# worse for it. From outside, "indexed with the current model", "indexed with an
+# older one" and "not indexed yet" are the same empty result; this is how to tell
+# them apart.
+#
+# It runs in the worker's own image because that is where the configured
+# embedder resolves: the weight precision is part of the embedding identity and
+# is set in that image, so the same environment read anywhere else names a model
+# nothing wrote. --no-deps for the reason check-categories has it — this reads
+# and writes nothing, and `compose run` would otherwise start the queue and run
+# the migrate one-shot on the operator's behalf.
+cmd_check_index() {
+	require_deployment
+	[ $# -eq 0 ] || die "check-index: takes no arguments"
+	semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-report.mjs
+}
 
 # What the operator wants after a command that leaves the stack serving is the
 # address, so it leads. A deployment part-way through configuration may not have
@@ -2059,6 +2082,27 @@ updater_check() {
 		exec -T -e REMIT_QUIET="${REMIT_QUIET:-0}" updater remit update --check
 }
 
+# The other half of that reach, for the command that acts rather than reports.
+# A run the updater started left its breadcrumb, its lock and its pre-update
+# snapshots on the updater's volume, so a recovery driven from a host shell
+# would read an empty directory beside .env, report that there was nothing to
+# recover, and leave the interrupted run sitting there (#275). It has to run
+# where that state is, and the updater image is this same wrapper.
+#
+# A one-shot container rather than an exec into the running one: the run this is
+# recovering is most often the one whose updater died, and a recovery command
+# that needs the wedged container alive is no recovery. `--no-deps` for the
+# reason check-categories has it — `compose run` otherwise starts the service's
+# dependencies, and this command changes nothing on the operator's behalf beyond
+# the update it is finishing.
+#
+# REMIT_QUIET rides along because the container's stdout is this shell's, the
+# same way the check's does.
+updater_recover() {
+	printf 'This deployment keeps its update state on the updater'\''s volume, so the recovery runs there.\n'
+	compose run --rm --no-deps -e REMIT_QUIET="${REMIT_QUIET:-0}" updater remit update --recover
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
@@ -3153,7 +3197,23 @@ cmd_update() {
 
 	require_deployment
 
+	# The same split the check has (reader#1158), on the command that acts rather
+	# than reports: an interrupted run's breadcrumb, lock and snapshots are on
+	# whichever store this deployment records to, and a recovery driven anywhere
+	# else finds an empty directory and reports that there is nothing to recover
+	# (#275). A daemon that did not say which of the two this box is stops the
+	# command rather than guessing, because guessing wrong is exactly the false
+	# "nothing to recover" that sent the operator looking.
 	if [ "$_mode" = "recover" ]; then
+		_record=0
+		state_dir_is_record || _record=$?
+		if [ "$_record" = "2" ]; then
+			die "update: the docker daemon did not answer, so where an interrupted update would be recorded could not be told and nothing was recovered. Check that the daemon is responding, then run '$PROG update --recover' again."
+		fi
+		if [ "$_record" = "1" ]; then
+			updater_recover
+			return 0
+		fi
 		lock_acquire
 		recover_run
 		verify_updater_handoff
@@ -3846,6 +3906,7 @@ main() {
 	semantic) cmd_semantic "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
+	check-index) cmd_check_index "$@" ;;
 	cert) cmd_cert "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"

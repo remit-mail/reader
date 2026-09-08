@@ -174,7 +174,13 @@ const CASES = {
 				args: ["--check"],
 				proof: /^remit: update: the updater is not running/m,
 			},
-			{ args: ["--recover"], proof: /No interrupted update to recover\./ },
+			// And a recovery for the same reason (#275): the run's breadcrumb, lock
+			// and snapshots are on the volume this box has, so the wrapper that
+			// finishes the run is the one in the updater image.
+			{
+				args: ["--recover"],
+				proof: /run --rm --no-deps .*updater remit update --recover/m,
+			},
 			{ args: ["--preflight"], proof: /--entrypoint sh /m },
 			{ args: ["--tag"], proof: /^remit: update: --tag needs a value$/m },
 		],
@@ -262,6 +268,18 @@ const CASES = {
 			{
 				args: ["zzz"],
 				message: /^remit: check-categories: takes no arguments/m,
+			},
+		],
+	},
+	"check-index": {
+		refusal: /^remit: check-index: takes no arguments/m,
+		takes: [
+			{ args: [], proof: /search-index-worker node index-report\.mjs$/m },
+		],
+		refuses: [
+			{
+				args: ["zzz"],
+				message: /^remit: check-index: takes no arguments/m,
 			},
 		],
 	},

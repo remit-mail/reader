@@ -45,6 +45,13 @@ export {
 	LocalEmbeddingService,
 } from "./embeddings.js";
 export {
+	formatIndexProvenance,
+	type IndexedChunkProvenance,
+	type IndexProvenance,
+	type IndexProvenanceGroup,
+	summarizeIndexProvenance,
+} from "./index-report.js";
+export {
 	createSearchService,
 	DefaultSearchService,
 	literalMatchScore,
