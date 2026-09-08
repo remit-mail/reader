@@ -343,8 +343,9 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 		);
 
 		// The harness's default `retrieve` throws, so a storage read would fail
-		// this outright. Issue #415 is where applying the override to this message
-		// deliberately belongs; a sync pass is not it.
+		// this outright. Reaching back is the back-apply job's work (#415,
+		// `backApplySenderCategory`), fired by the flag PATCH; a sync pass is
+		// still not it.
 		assert.equal(result.skippedCount, 1);
 		assert.deepEqual(result.failedMessageIds, []);
 		assert.deepEqual(harness.messageUpdates, []);

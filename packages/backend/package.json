@@ -27,6 +27,10 @@
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
     },
+    "./sender-category": {
+      "types": "./src/service/sender-category.ts",
+      "default": "./src/service/sender-category.ts"
+    },
     "./trigger-sync": {
       "types": "./src/service/trigger-sync.ts",
       "default": "./src/service/trigger-sync.ts"

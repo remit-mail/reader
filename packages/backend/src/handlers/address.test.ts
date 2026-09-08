@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
+import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
@@ -17,6 +18,7 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 
 const searchAddresses =
@@ -81,6 +83,7 @@ const clientReturning = (items: AddressItem[], seen: Listing[]): RemitClient =>
 	}) as unknown as RemitClient;
 
 afterEach(() => {
+	mock.restoreAll();
 	_resetForTest();
 });
 
@@ -241,5 +244,100 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 
 		assert.deepEqual(seen, [{ muted: null }]);
 		assert.equal(response.flags.muted, undefined);
+	});
+});
+
+/**
+ * The retroactive half of a sender-category override (#415). Setting the flag
+ * enqueues one back-apply carrying the category it was set to; clearing it —
+ * the revert-to-auto route — enqueues nothing, because the classifier's own
+ * answer for mail already filed cannot be re-derived without every body.
+ */
+describe("AddressDetailOperations_updateAddress category back-apply (#415)", () => {
+	const withStubbedQueue = (enqueued: SendMessageCommand[]): void => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
+			enqueued.push(command);
+			return {};
+		});
+	};
+
+	it("enqueues a back-apply naming the sender and the set it was fired for", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await updateAddress(
+			updateContextFor({
+				flags: { category: { value: "newsletter", setAt: 20 } },
+			}),
+			eventFor(SUB),
+		);
+
+		assert.equal(enqueued.length, 1);
+		assert.deepEqual(JSON.parse(String(enqueued[0]?.input.MessageBody)), {
+			type: "SenderCategoryBackApply",
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			addressId: "addr-1",
+			normalizedEmail: "amsterdam@pocahondas.nl",
+			category: "newsletter",
+			categorySetAt: 20,
+		});
+	});
+
+	it("says the override is saved and names the retry when the queue refuses", async () => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		mock.method(sqsClient, "send", async () => {
+			throw new Error("AWS.SimpleQueueService.NonExistentQueue");
+		});
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await assert.rejects(
+			updateAddress(
+				updateContextFor({
+					flags: { category: { value: "newsletter", setAt: 20 } },
+				}),
+				eventFor(SUB),
+			),
+			(error: Error) => {
+				assert.match(error.message, /saved/);
+				assert.match(error.message, /same category again/);
+				return true;
+			},
+		);
+	});
+
+	it("enqueues nothing when the override is cleared back to auto", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(
+			clientHolding(
+				address({ flags: { category: { value: "newsletter", setAt: 10 } } }),
+				[],
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["category"] }),
+			eventFor(SUB),
+		);
+
+		assert.equal(response.flags.category, undefined);
+		assert.deepEqual(enqueued, []);
+	});
+
+	it("enqueues nothing for a flag that has no bearing on classification", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await updateAddress(
+			updateContextFor({ flags: { muted: { value: true, setAt: 20 } } }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(enqueued, []);
 	});
 });
