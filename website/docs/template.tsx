@@ -333,7 +333,7 @@ export default function ReaderDocsTemplate({
 			typeof description === "string"
 				? h("meta", { name: "description", content: description })
 				: null,
-			h("style", null, CSS),
+			h("style", { dangerouslySetInnerHTML: { __html: CSS } }),
 		),
 		h(
 			"body",
@@ -345,7 +345,15 @@ export default function ReaderDocsTemplate({
 				h(
 					"nav",
 					{ class: "sidebar", "aria-label": "Documentation" },
-					h("a", { class: "brand", href: prefix || "./" }, siteTitle),
+					h(
+						"a",
+						{
+							class: "brand",
+							href: prefix || "./",
+							"aria-current": prefix === "" ? "page" : undefined,
+						},
+						siteTitle,
+					),
 					...readNav(config).map((group) =>
 						NavGroupView(group, pages, prefix, currentHref),
 					),
