@@ -165,11 +165,14 @@ describe("a bulk delete refused for its folder role", () => {
 		await mount((path) => {
 			if (path.endsWith("/config")) return CONFIG;
 			if (path.endsWith("/messages/delete"))
+				// A conflict with no code this prompt knows: the status class's own,
+				// which is what every refusal that names nothing more specific
+				// answers with.
 				return new Response(
 					JSON.stringify({
 						status: 409,
 						message: "boom",
-						code: "mailbox_not_settled",
+						code: "conflict",
 					}),
 					{ status: 409, headers: { "content-type": "application/json" } },
 				);

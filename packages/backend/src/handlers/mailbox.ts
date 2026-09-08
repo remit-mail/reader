@@ -6,6 +6,7 @@ import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
 	ForbiddenError,
+	MailboxNotSettledError,
 	NotFoundError,
 } from "@remit/data-ports/errors";
 import { isReservedFolderName } from "@remit/data-ports/folder-role";
@@ -31,6 +32,7 @@ import {
 	type MailboxOverrides,
 } from "./account-overrides.js";
 import { assertAccountOwnership } from "./account-ownership.js";
+import { assertNoBindings, loadMailboxBindings } from "./mailbox-bindings.js";
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -228,6 +230,51 @@ export const assertMailboxInAccount = (
 };
 
 /**
+ * Why a folder cannot be bound to yet, per state — one wording in one place,
+ * because the remedy differs and the client has only the sentence to show.
+ */
+const UNSETTLED_REASON: Record<string, (path: string) => string> = {
+	[MailboxSyncStatus.pending]: (path) =>
+		`“${path}” isn’t ready yet — the mail server hasn’t confirmed it.`,
+	[MailboxSyncStatus.deleting]: (path) => `“${path}” is being deleted.`,
+	[MailboxSyncStatus.failed]: (path) =>
+		`The last change to “${path}” failed. Retry or dismiss it first.`,
+};
+
+/**
+ * Every API write that binds a durable reference to a mailbox requires that
+ * mailbox to be `synced` (D12, first row; imap-mutations R2: wait). A dangling
+ * reference is permanent; blocking costs seconds.
+ *
+ * This is the server-side floor under the client-side wait, and it is not
+ * redundant with it: there is more than one client, and a script hitting the
+ * API directly gets no wait at all.
+ *
+ * It is the other half of D16. A binding is only ever created against a settled
+ * folder (here) and only ever removed by the user (the delete refusal below),
+ * so a `mailboxId` that names nothing never exists — which is what lets every
+ * reader of a filter's `actionMailboxId` or a role appointment treat the
+ * reference as resolvable, with no missing-target branch.
+ *
+ * A `\Noselect` container is refused by construction — mailbox-sync keeps no
+ * row for one — so there is nothing to bind to. Clearing a reference is not a
+ * bind and is never gated, and neither is a move *out of* a folder: a
+ * `deleting` folder still holds its mail until the DELETE lands, which is the
+ * delete-with-move flow (D13).
+ */
+export const assertMailboxSettled = (
+	target: Pick<MailboxItem, "mailboxId" | "fullPath" | "syncStatus">,
+): void => {
+	const reason = UNSETTLED_REASON[target.syncStatus];
+	if (!reason) return;
+	throw new MailboxNotSettledError(
+		reason(target.fullPath),
+		target.mailboxId,
+		target.syncStatus,
+	);
+};
+
+/**
  * Every pending placement move (issue #1271) for an account, on whichever
  * backend is active (`RemitClient.placementMove` is present on both — see
  * `create-remit-client.ts`). Read-only; feeds
@@ -286,24 +333,6 @@ const toMailboxResponse = (
 	updatedAt: mailbox.updatedAt,
 });
 
-/**
- * Drop folders the user has deleted but the imap-worker has not yet reaped.
- *
- * A delete is a soft delete: the row lives on with syncStatus=deleting until the
- * worker confirms the IMAP delete and removes it (mailbox-queue.deleteMailbox).
- * The list is the settings view a client refetches right after confirming, so a
- * still-`deleting` row here would keep a deleted folder on screen until the
- * worker finishes. Hiding it makes the folder leave the list the moment the
- * delete is confirmed; a delete that fails restores the row off `deleting`,
- * which brings the folder back on the next read.
- */
-export const excludeDeletingMailboxes = (
-	mailboxes: readonly MailboxItem[],
-): MailboxItem[] =>
-	mailboxes.filter(
-		(mailbox) => mailbox.syncStatus !== MailboxSyncStatus.deleting,
-	);
-
 export const MailboxOperations: Record<
 	MailboxOperationIds,
 	OperationHandler<MailboxOperationIds>
@@ -324,8 +353,6 @@ export const MailboxOperations: Record<
 			continuationToken,
 		});
 
-		const visibleItems = excludeDeletingMailboxes(result.items);
-
 		// Overrides (mute / display-name / role) live in per-mailbox AccountSetting
 		// rows (RFC 032). Load the whole config's set in one query and key it by
 		// mailboxId so each mailbox surfaces its overrides without an N+1.
@@ -342,8 +369,11 @@ export const MailboxOperations: Record<
 			client,
 			accountId,
 		);
+		// A folder mid-mutation is listed, labelled (D11). Hiding a `deleting` one
+		// made a delete that does not settle look like a folder that silently
+		// vanished, while the server still held it.
 		const items = applyPendingMoveCountPrediction(
-			visibleItems,
+			result.items,
 			pendingMoves,
 			pendingUnseenFlagPushes,
 		);
@@ -491,6 +521,31 @@ export const MailboxDetailOperations: Record<
 
 		const mailbox = await client.mailbox.get(accountId, mailboxId);
 		assertMailboxInAccount(mailbox, accountId, "act");
+
+		// Cheapest first (D4, D13). None of the three becomes possible by
+		// retrying the same request, so all three are 400 and all three run
+		// before anything is recorded.
+		if (mailbox.fullPath.toUpperCase() === "INBOX") {
+			throw new BadRequestError("The inbox can't be deleted.");
+		}
+
+		const children = await client.mailbox.findByPathPrefix(
+			accountId,
+			mailbox.fullPath,
+			mailbox.hierarchyDelimiter,
+		);
+		if (children.length > 0) {
+			// The server would keep the parent's name as a placeholder and leave the
+			// children untouched — an outcome no local row describes (D9).
+			throw new BadRequestError(
+				`“${mailbox.fullPath}” has folders inside it. Delete those first.`,
+			);
+		}
+
+		assertNoBindings(
+			mailbox,
+			await loadMailboxBindings(client, accountConfigId, accountId, mailboxId),
+		);
 
 		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
 		return { statusCode: 204 };

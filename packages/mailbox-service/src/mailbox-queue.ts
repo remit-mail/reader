@@ -14,7 +14,6 @@ import {
 	recordedByRename,
 	refuseContestedIntent,
 } from "./mailbox-intent.js";
-import { EVERY_MAILBOX_STATE } from "./mailbox-presence.js";
 
 /**
  * MAILBOX_CREATE event structure (matches remit-imap-worker/events.ts)
@@ -330,8 +329,12 @@ export class MailboxQueueService {
 	};
 
 	/**
-	 * Delete a mailbox.
-	 * Marks for deletion (syncStatus=deleting) and enqueues IMAP DELETE.
+	 * Record a delete intent (T7) and enqueue IMAP DELETE.
+	 *
+	 * The row stays at `deleting` and stays visible until the worker confirms the
+	 * server delete and removes it with the folder's mail (D8, D11). The enqueue
+	 * happens only after the transition wins, and an enqueue failure stays thrown
+	 * — a 500 to the caller, loud — rather than being swallowed or rolled back.
 	 *
 	 * @param mailboxId - The mailbox to delete
 	 * @param accountId - The account ID for the IMAP sync event
@@ -343,17 +346,30 @@ export class MailboxQueueService {
 		// Get current mailbox to capture path
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 
-		// Mark as deleting (soft delete - worker will do actual delete after IMAP sync)
 		const recorded = await this.mailboxService.transition(
 			accountId,
 			mailboxId,
-			{ from: EVERY_MAILBOX_STATE, to: MailboxSyncStatus.deleting },
+			{ from: INTENT_RECORDABLE_FROM, to: MailboxSyncStatus.deleting },
 		);
-		if (!recorded) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+		if (!recorded) {
+			await refuseContestedIntent(
+				this.mailboxService,
+				accountId,
+				mailboxId,
+				"folder",
+			);
+		}
 
 		this.log.info(
-			{ mailboxId, path: mailbox.fullPath },
-			"Marked mailbox for deletion (local)",
+			{
+				accountId,
+				mailboxId,
+				intent: "delete",
+				from: mailbox.syncStatus,
+				to: MailboxSyncStatus.deleting,
+				path: mailbox.fullPath,
+			},
+			"Recorded delete intent",
 		);
 
 		// Enqueue IMAP sync

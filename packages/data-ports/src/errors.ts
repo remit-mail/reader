@@ -81,13 +81,19 @@ export class FolderRoleUnresolvedError extends ConflictError {
 }
 
 /**
- * A role cannot be appointed to a mailbox the mail server has not settled yet
- * (imap-mutations R2: wait). Its own code, because the role is not unresolved —
- * the target is: the client words a wait, not a retry. Clearing a role is never
- * refused this way.
+ * A durable reference cannot be bound to a mailbox whose own mutation has not
+ * settled (folder-rename-and-delete.md D12, imap-mutations R2: wait). Its own
+ * code, because the role is not unresolved — the target is: the client words a
+ * wait, not a retry. Clearing a role is never refused this way.
+ *
+ * **422, not 409** (D4). 409 already means "this folder is being changed right
+ * now, refresh"; this means "the folder you are pointing at has not settled
+ * yet", which is a different sentence and a different remedy. The status is
+ * what separates them for a client that reads no further.
  */
-export class MailboxNotSettledError extends ConflictError {
+export class MailboxNotSettledError extends HTTPError {
 	name = "MailboxNotSettledError";
+	public statusCode = 422;
 
 	constructor(message: string, mailboxId: string, syncStatus: string) {
 		super(message);
