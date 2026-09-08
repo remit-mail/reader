@@ -116,10 +116,15 @@ export interface LabelOption {
  * The live match count (RFC 038 D1). `stale` marks a count the editor already
  * moved past — a clause changed after it was counted, so the number on screen
  * is the previous rule's until the next preview lands.
+ *
+ * `indexEmpty` is the server saying the semantic index had nothing to answer
+ * with (issue #452). A zero counted against an empty index is a fact about the
+ * index, not about the rule, and reading it as "no mail matches" talks a user
+ * out of a rule that will match plenty once indexing catches up.
  */
 export type PreviewCount =
 	| { status: "loading" }
-	| { status: "ready"; count: number; stale?: boolean }
+	| { status: "ready"; count: number; stale?: boolean; indexEmpty?: boolean }
 	| { status: "error"; reason: string };
 
 const clauseFieldLabels: Record<ClauseField, string> = {
@@ -225,7 +230,10 @@ export function matchJoinWord(operator: MatchOperator): string {
 export function previewCountSummary(preview: PreviewCount): string {
 	if (preview.status === "loading") return "Counting matches…";
 	if (preview.status === "error") return preview.reason;
-	if (preview.count === 0) return "No mail matches yet";
+	if (preview.count === 0)
+		return preview.indexEmpty
+			? "Still indexing — nothing to match against yet"
+			: "No mail matches yet";
 	const noun = preview.count === 1 ? "message" : "messages";
 	const base = `${preview.count} ${noun} match`;
 	return preview.stale ? `${base} — recounting` : base;

@@ -922,6 +922,9 @@ export const ChipGallery: ChipStory = {
 				<div className="space-y-2">
 					<FilterPreviewCount preview={{ status: "loading" }} />
 					<FilterPreviewCount preview={READY(0)} />
+					<FilterPreviewCount
+						preview={{ status: "ready", count: 0, indexEmpty: true }}
+					/>
 					<FilterPreviewCount preview={READY(412)} />
 					<FilterPreviewCount preview={READY(47, true)} />
 					<FilterPreviewCount
