@@ -182,7 +182,7 @@ export const syncMessageBody = async (
 			if (!mailbox || isFolderMutationInFlight(mailbox)) {
 				log.warn(
 					{ accountId, mailboxId, eventId: event.eventId },
-					"Skipping SYNC_MESSAGE_BODY: the server does not hold this folder",
+					"Skipping SYNC_MESSAGE_BODY: a folder mutation is in flight",
 				);
 				return;
 			}
