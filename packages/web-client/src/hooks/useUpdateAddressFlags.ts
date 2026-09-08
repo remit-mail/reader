@@ -4,6 +4,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	AddressOperationsSearchAddressesResponse,
+	RemitImapAddressFlagKey,
 	RemitImapAddressFlags,
 	RemitImapUpdateAddressFlagsInput,
 } from "@remit/api-http-client/types.gen.ts";
@@ -25,15 +26,17 @@ interface MutationContext {
 }
 
 /**
- * Apply a flag-update patch onto an existing AddressFlags object. Each key in
- * `patch` is a flag update object (set) or `null` (remove). Mirrors the
- * server-side merge semantics so the optimistic cache matches what the API
- * returns. Typed loosely (the per-key flag value types differ — boolean for
- * most, a category enum for `category`) and re-narrowed at the return.
+ * Apply a flag update onto an existing AddressFlags object. Each key in
+ * `patch` is a flag update object; each key in `clear` is removed outright,
+ * after the patch, matching the server's ordering. Mirrors the server-side
+ * merge semantics so the optimistic cache matches what the API returns. Typed
+ * loosely (the per-key flag value types differ — boolean for most, a category
+ * enum for `category`) and re-narrowed at the return.
  */
 function applyFlagPatch(
 	current: RemitImapAddressFlags | undefined,
 	patch: RemitImapUpdateAddressFlagsInput,
+	clear: readonly RemitImapAddressFlagKey[] = [],
 ): RemitImapAddressFlags {
 	const next: Record<string, unknown> = { ...(current ?? {}) };
 	for (const [key, update] of Object.entries(patch)) {
@@ -44,6 +47,9 @@ function applyFlagPatch(
 			// shape matches what the server writes back.
 			next[key] = { ...update, setAt: update.setAt ?? Date.now() };
 		}
+	}
+	for (const key of clear) {
+		delete next[key];
 	}
 	return next as RemitImapAddressFlags;
 }
@@ -69,6 +75,7 @@ export function useUpdateAddressFlags({
 		...addressDetailOperationsUpdateAddressMutation(),
 		onMutate: async (vars): Promise<MutationContext> => {
 			const patch = vars.body.flags ?? {};
+			const clear = vars.body.clearFlags ?? [];
 			await queryClient.cancelQueries({ queryKey: addressCacheKey });
 
 			const previous =
@@ -84,7 +91,7 @@ export function useUpdateAddressFlags({
 						...old,
 						items: old.items.map((addr) =>
 							addr.addressId === vars.path.addressId
-								? { ...addr, flags: applyFlagPatch(addr.flags, patch) }
+								? { ...addr, flags: applyFlagPatch(addr.flags, patch, clear) }
 								: addr,
 						),
 					};
@@ -108,8 +115,11 @@ export function useUpdateAddressFlags({
 		},
 	});
 
-	const updateFlags = useCallback(
-		(flags: RemitImapUpdateAddressFlagsInput) => {
+	const submit = useCallback(
+		(body: {
+			flags?: RemitImapUpdateAddressFlagsInput;
+			clearFlags?: RemitImapAddressFlagKey[];
+		}) => {
 			if (!addressId) {
 				reportFatalError(
 					new Error(
@@ -118,10 +128,25 @@ export function useUpdateAddressFlags({
 				);
 				return;
 			}
-			mutate({ path: { addressId }, body: { flags } });
+			mutate({ path: { addressId }, body });
 		},
 		[addressId, mutate, senderEmail],
 	);
 
-	return { updateFlags, isPending };
+	const updateFlags = useCallback(
+		(flags: RemitImapUpdateAddressFlagsInput) => submit({ flags }),
+		[submit],
+	);
+
+	/**
+	 * Remove flags outright. This is the removal form for every flag whatever
+	 * its value type: `category` holds an enum with no false-equivalent member,
+	 * so `{ value: false }` cannot express "no override" for it.
+	 */
+	const clearFlags = useCallback(
+		(keys: RemitImapAddressFlagKey[]) => submit({ clearFlags: keys }),
+		[submit],
+	);
+
+	return { updateFlags, clearFlags, isPending };
 }

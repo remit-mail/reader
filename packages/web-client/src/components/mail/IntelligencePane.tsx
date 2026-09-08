@@ -159,16 +159,25 @@ function IntelligenceSkeleton() {
 /**
  * Reclassify picker: a small modal listing the category-override options. On
  * selection it PATCHes `AddressFlags.category` for the sender.
+ *
+ * A sender that already carries an override also gets the way back out. The
+ * override is an enum with no false-equivalent member, so removal is not a
+ * value to send — it is `clearFlags: ["category"]`, the contract's removal
+ * form for every flag (#615).
  */
 function ReclassifyDialog({
 	isOpen,
 	current,
+	hasOverride,
 	onSelect,
+	onClear,
 	onCancel,
 }: {
 	isOpen: boolean;
 	current: string;
+	hasOverride: boolean;
 	onSelect: (category: CategoryOverride) => void;
+	onClear: () => void;
 	onCancel: () => void;
 }) {
 	const dialogRef = useRef<HTMLDivElement>(null);
@@ -210,6 +219,15 @@ function ReclassifyDialog({
 							)}
 						</button>
 					))}
+					{hasOverride && (
+						<button
+							type="button"
+							onClick={onClear}
+							className="mt-1 flex min-h-11 items-center rounded border-t border-line px-3 text-left text-sm text-fg transition-colors hover:bg-surface-raised"
+						>
+							Remove override — classify automatically again
+						</button>
+					)}
 				</div>
 				<div className="mt-6 flex justify-end">
 					<button
@@ -247,6 +265,7 @@ function WiredPanel({
 }: WiredPanelProps) {
 	const {
 		data,
+		address,
 		addressId,
 		isSimilarLoading,
 		similarError,
@@ -256,7 +275,7 @@ function WiredPanel({
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
-	const { updateFlags } = useUpdateAddressFlags({
+	const { updateFlags, clearFlags } = useUpdateAddressFlags({
 		addressId,
 		senderEmail,
 	});
@@ -314,6 +333,11 @@ function WiredPanel({
 		},
 		[updateFlags],
 	);
+
+	const handleReclassifyClear = useCallback(() => {
+		setReclassifyOpen(false);
+		clearFlags(["category"]);
+	}, [clearFlags]);
 
 	// Every per-sender flag toggle PATCHes the sender's address row, so none of
 	// them can be serviced until that row resolves. Leave them unwired until it
@@ -383,7 +407,9 @@ function WiredPanel({
 			<ReclassifyDialog
 				isOpen={reclassifyOpen}
 				current={data.category.value}
+				hasOverride={address?.flags?.category?.value != null}
 				onSelect={handleReclassifySelect}
+				onClear={handleReclassifyClear}
 				onCancel={() => setReclassifyOpen(false)}
 			/>
 		</>

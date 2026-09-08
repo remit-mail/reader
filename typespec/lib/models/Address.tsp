@@ -1,5 +1,6 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/AddressFlagKey.tsp";
 import "../enums/AddressRole.tsp";
 import "../enums/MessageCategory.tsp";
 import "../scalars/string.tsp";
@@ -54,7 +55,7 @@ model WellknownFlag extends AddressFlagBase {
   value: boolean;
 }
 
-@doc("Address was only ever seen on mail in a Junk folder: withheld from autocomplete suggestions until the account corresponds with it, flags it, or meets it on live mail. Written by sync and by the boot-time repair; clear it by patching this key to null.")
+@doc("Address was only ever seen on mail in a Junk folder: withheld from autocomplete suggestions until the account corresponds with it, flags it, or meets it on live mail. Written by sync and by the boot-time repair; clear it by naming this key in `UpdateAddressInput.clearFlags`.")
 model JunkOnlyFlag extends AddressFlagBase {
   value: boolean;
 }
@@ -259,7 +260,7 @@ model EnvelopeAddressResponse {
 // API Input Models
 // ============================================
 
-@doc("Patch payload for a single AddressFlags entry. Pass `null` for a flag key to remove that flag while leaving the others untouched.")
+@doc("Patch payload for AddressFlags entries. Sets the flags named here and leaves the others untouched. Removal travels in `UpdateAddressInput.clearFlags`, not here: the `null` alternative below is unreachable over OAS 3.0, where a nullable `$ref` emits as `allOf` and the request validator drops the `nullable` — and no `null` form exists at all for `category`, whose value is an enum with no false-equivalent member.")
 model UpdateAddressFlagsInput {
   trusted?: TrustedFlag | null;
   blocked?: BlockedFlag | null;
@@ -267,7 +268,7 @@ model UpdateAddressFlagsInput {
   vip?: VipFlag | null;
   wellknown?: WellknownFlag | null;
 
-  @doc("Set to `null` to offer this address in autocomplete again")
+  @doc("Name this key in `clearFlags` to offer the address in autocomplete again")
   junkOnly?: JunkOnlyFlag | null;
 
   category?: CategoryFlag | null;
@@ -277,8 +278,11 @@ model UpdateAddressFlagsInput {
 
 @doc("Input for updating an Address (currently flag updates only)")
 model UpdateAddressInput {
-  @doc("Per-flag merge update; omitted flags are untouched, `null` removes the flag")
+  @doc("Per-flag merge update; omitted flags are untouched")
   flags?: UpdateAddressFlagsInput;
+
+  @doc("Flag keys to remove from the sparse map, leaving the rest untouched. This is the removal form for every flag, whatever its value type — clearing `category` reverts the sender to automatic classification. Applied after `flags`, so a key named in both ends up removed. Removing an absent flag succeeds and changes nothing.")
+  clearFlags?: AddressFlagKey[];
 }
 
 // ============================================

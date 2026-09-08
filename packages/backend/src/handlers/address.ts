@@ -4,6 +4,7 @@ import type {
 } from "@remit/api-openapi-types";
 import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
+import { AddressFlagKey } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -31,39 +32,43 @@ export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	updatedAt: item.updatedAt,
 });
 
-const FLAG_KEYS = [
-	"trusted",
-	"blocked",
-	"muted",
-	"vip",
-	"junkOnly",
-	"category",
-	"autoArchive",
-	"unsubscribed",
-] as const;
+type FlagKey = (typeof AddressFlagKey)[keyof typeof AddressFlagKey];
 
-type FlagKey = (typeof FLAG_KEYS)[number];
+const FLAG_KEYS = Object.values(AddressFlagKey) as readonly FlagKey[];
 
 /**
- * Translate the wire-format `UpdateAddressFlagsInput` into a service-level
+ * Translate the wire-format `UpdateAddressInput` into a service-level
  * `FlagsMergePatch`. Only known flag keys are forwarded; unknown keys are
  * silently dropped (a TypeSpec-only schema means unknown keys are a client
- * bug, not a security risk). `null` becomes the explicit "remove" signal.
+ * bug, not a security risk).
+ *
+ * `clearFlags` is the removal form for every flag whatever its value type, and
+ * is applied after `flags`, so a key named in both ends up removed. The `null`
+ * alternative on a flag key stays honoured for callers that can express it,
+ * but it is unreachable over OAS 3.0: TypeSpec emits a nullable `$ref` as
+ * `allOf`, and the request validator drops the `nullable` there.
  */
 export const buildFlagsPatch = (
-	input: UpdateAddressInput["flags"] | undefined,
+	input: UpdateAddressInput | undefined,
 ): FlagsMergePatch => {
 	if (!input) return {};
 	const patch = {} as Record<FlagKey, unknown>;
-	for (const key of FLAG_KEYS) {
-		if (!(key in input)) continue;
-		const value = (input as Record<FlagKey, unknown>)[key];
-		if (value === null) {
-			patch[key] = null;
-			continue;
+	const flags = input.flags;
+	if (flags) {
+		for (const key of FLAG_KEYS) {
+			if (!(key in flags)) continue;
+			const value = (flags as Record<FlagKey, unknown>)[key];
+			if (value === null) {
+				patch[key] = null;
+				continue;
+			}
+			if (value === undefined) continue;
+			patch[key] = value;
 		}
-		if (value === undefined) continue;
-		patch[key] = value;
+	}
+	for (const key of input.clearFlags ?? []) {
+		if (!FLAG_KEYS.includes(key)) continue;
+		patch[key] = null;
 	}
 	return patch as FlagsMergePatch;
 };
@@ -122,7 +127,7 @@ export const AddressDetailOperations: Record<
 			throw new ForbiddenError(`Address ${addressId} not in account config`);
 		}
 
-		const patch = buildFlagsPatch(body.flags);
+		const patch = buildFlagsPatch(body);
 		if (Object.keys(patch).length === 0) {
 			return toAddressResponse(existing);
 		}
