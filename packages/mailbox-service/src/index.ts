@@ -193,6 +193,12 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	denormalizeMessageCategory,
+	type MessageCategoryDenormalizeDeps,
+	type MessageCategoryDenormalizeInput,
+	type MessageCategoryValue,
+} from "./message-category.js";
+export {
 	type DeleteMessagesOutcome,
 	type DeleteOptions,
 	type MessageMoveConfig,

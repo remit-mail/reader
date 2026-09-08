@@ -1,14 +1,21 @@
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
 } from "@remit/api-openapi-types";
-import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
+import type {
+	AddressFlags,
+	AddressItem,
+	FlagsMergePatch,
+} from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import type {
 	AddressDetailOperationIds,
 	AddressOperationIds,
@@ -71,6 +78,29 @@ export const buildFlagsPatch = (
 		patch[key] = null;
 	}
 	return patch as FlagsMergePatch;
+};
+
+/**
+ * The category a back-apply should be enqueued for, or `undefined` when this
+ * patch asks for none (issue #415).
+ *
+ * A SET fires one; a CLEAR — `null` in the patch, whether it came from
+ * `clearFlags` or from the nullable flag value — never does. Reverting a sender
+ * to auto-classification says nothing about what the classifier would have
+ * answered on mail already filed, and re-deriving that would need every
+ * message's body back; the revert takes effect on the sender's next message,
+ * exactly as the override itself did before this.
+ *
+ * Read from the patch rather than compared against the stored flag, so
+ * re-sending the same category is a deliberate re-run of the back-apply — the
+ * only retry a user has for one that failed midway.
+ */
+export const backApplyCategory = (
+	patch: FlagsMergePatch,
+): NonNullable<AddressFlags["category"]>["value"] | undefined => {
+	const flag = patch.category;
+	if (!flag) return undefined;
+	return flag.value;
 };
 
 export const AddressOperations: Record<
@@ -137,6 +167,23 @@ export const AddressDetailOperations: Record<
 			addressId,
 			patch,
 		);
+
+		const category = backApplyCategory(patch);
+		if (category) {
+			await sqsClient.send(
+				new SendMessageCommand({
+					QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+					MessageBody: JSON.stringify({
+						type: "SenderCategoryBackApply",
+						accountConfigId,
+						addressId,
+						normalizedEmail: updated.normalizedEmail,
+						category,
+					}),
+				}),
+			);
+		}
+
 		return toAddressResponse(updated);
 	},
 };

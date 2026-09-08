@@ -1,3 +1,7 @@
+import type { ThreadMessageItem } from "@remit/data-ports";
+
+type MessageCategoryValue = ThreadMessageItem["category"];
+
 export type AccountDeleteEvent = {
 	type: "AccountDelete";
 	accountConfigId: string;
@@ -33,11 +37,32 @@ export type OrganizeJobEvent = {
 	organizeJobId: string;
 };
 
+/**
+ * Retroactive half of a sender-category override (#415, RFC 039 Decision 3).
+ * Rides the same account-fanout queue as the organize back-apply: the API
+ * enqueues one when `Address.flags.category` is SET, and the fanout worker
+ * re-labels a bounded recent batch of that sender's already-classified mail.
+ *
+ * Carries the category it was set to rather than re-reading the flag, so a
+ * later change cannot silently retarget a job already in flight. A CLEAR never
+ * enqueues one: reverting to auto-classification says nothing about what the
+ * classifier would have answered, and re-deriving it would need every
+ * message's body back.
+ */
+export type SenderCategoryBackApplyEvent = {
+	type: "SenderCategoryBackApply";
+	accountConfigId: string;
+	addressId: string;
+	normalizedEmail: string;
+	category: MessageCategoryValue;
+};
+
 export type AccountFanoutEvent =
 	| AccountDeleteEvent
 	| AccountDataPurgeEvent
 	| AccountExportEvent
-	| OrganizeJobEvent;
+	| OrganizeJobEvent
+	| SenderCategoryBackApplyEvent;
 
 export type AccountDeleteFinalizeEvent = {
 	type: "FinalizeAccountDelete";
