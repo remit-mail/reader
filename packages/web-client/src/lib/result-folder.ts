@@ -60,6 +60,22 @@ export function buildResultFolderIndex(
 	return index;
 }
 
+/**
+ * Every junk folder the index knows, in index order.
+ *
+ * The same `\Junk` appointment that holds a row out of a global search, read
+ * the other way round: these are the folders whose contents the Spam offer
+ * counts. Order is the accounts' own, so the offer's destination does not move
+ * between renders (#313).
+ */
+export function junkMailboxIds(folders: ResultFolderIndex): string[] {
+	const ids: string[] = [];
+	for (const [mailboxId, folder] of folders) {
+		if (folder.role === "junk") ids.push(mailboxId);
+	}
+	return ids;
+}
+
 export interface ResolvedResultFolder {
 	mailboxId?: string;
 	folder?: ResultFolder;

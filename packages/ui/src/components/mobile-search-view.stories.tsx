@@ -446,7 +446,11 @@ export const GlobalAcrossFolders: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={acrossFoldersSections}
-			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			scope={{
+				kind: "global",
+				onScopeToSpam: () => {},
+				spamCount: { kind: "exact", value: 9 },
+			}}
 			preset="brief"
 		/>
 	),
@@ -478,7 +482,11 @@ export const GlobalOnlySpamMatches: Story = {
 		<Harness
 			initialValue="invoice"
 			sections={[{ id: "top", label: "Top matches", results: spamMatches }]}
-			scope={{ kind: "global", onScopeToSpam: () => {} }}
+			scope={{
+				kind: "global",
+				onScopeToSpam: () => {},
+				spamCount: { kind: "exact", value: 2 },
+			}}
 			preset="brief"
 		/>
 	),

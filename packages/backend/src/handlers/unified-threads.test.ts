@@ -467,6 +467,7 @@ describe("executeUnifiedThreadListing", () => {
 						: [
 								mailbox("m2-inbox", "a2", "INBOX"),
 								mailbox("m2-archive", "a2", "Archive"),
+								mailbox("m2-trash", "a2", "Trash", ["Trash"]),
 							],
 			},
 			accountSetting: { listByAccountConfig: async () => [] },
@@ -728,6 +729,54 @@ describe("executeUnifiedThreadListing", () => {
 
 		assert.deepEqual(calls, []);
 		assert.deepEqual(response.items, []);
+		assert.equal(response.count, 0);
+	});
+
+	// #313: the Spam offer stated the junk share of the page the client had
+	// loaded, offered as a folder total. A count of one folder under the search's
+	// own criteria is what makes that number the folder's.
+	test("a folder scope narrows the search and the count to that folder", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 12),
+			CONFIG_ID,
+			{ ...params({ mailboxId: "m2-archive", count: true }), searchText: "x" },
+		);
+
+		const searching = calls.find((call) => call.mode === "searchByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual([...(searching?.mailboxIds ?? [])], ["m2-archive"]);
+		assert.deepEqual([...(counting?.mailboxIds ?? [])], ["m2-archive"]);
+		assert.equal(response.count, 12);
+	});
+
+	test("a folder scope intersects the account scope rather than replacing it", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			{
+				...params({ accountId: "a1", mailboxId: "m2-archive", count: true }),
+				searchText: "x",
+			},
+		);
+
+		assert.deepEqual(calls, []);
+		assert.equal(response.count, 0);
+	});
+
+	// Trash is the one folder the unscoped search never reaches, so a caller
+	// asking what it holds of a search is asking about mail the search does not
+	// see. Answering with the folder's own contents would widen the scope.
+	test("a folder the search scope excludes matches nothing", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			{ ...params({ mailboxId: "m2-trash", count: true }), searchText: "x" },
+		);
+
+		assert.deepEqual(calls, []);
 		assert.equal(response.count, 0);
 	});
 });

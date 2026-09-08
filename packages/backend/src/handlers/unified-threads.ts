@@ -392,6 +392,29 @@ export const scopeToAccount = (
 };
 
 /**
+ * Narrow a mailbox scope to one folder.
+ *
+ * Intersects rather than replaces: a folder the mode's own scope does not hold —
+ * Trash, a muted folder, one of a muted account, one of another account when
+ * `accountId` narrowed first — leaves the empty set and matches nothing. A
+ * caller asking what one folder holds of a search must not be handed a folder
+ * the search itself does not reach.
+ *
+ * This is what makes a per-folder count of a cross-account search exact. The
+ * spam offer states how much of the search sits in a junk folder; before the
+ * parameter existed the only number available was the junk share of the page
+ * the client had loaded, which is a page length presented as a folder total
+ * (#313).
+ */
+export const scopeToMailbox = (
+	mailboxIds: Set<string>,
+	mailboxId: string | undefined,
+): Set<string> => {
+	if (mailboxId === undefined) return mailboxIds;
+	return new Set(mailboxIds.has(mailboxId) ? [mailboxId] : []);
+};
+
+/**
  * Minimal client surface `executeUnifiedThreadListing` needs, declared
  * structurally (like `ThreadSearchClient`) so the mode selection, the row
  * filters and the count are testable with an in-memory fake.
@@ -428,6 +451,7 @@ export type UnifiedThreadParams = {
 	from?: string;
 	subject?: string;
 	accountId?: string;
+	mailboxId?: string;
 	category?: MessageCategory[];
 	unread?: boolean;
 	attachments?: boolean;
@@ -462,10 +486,15 @@ export const executeUnifiedThreadListing = async (
 		virtualCopyMailboxIds,
 	} = await buildInboxMailboxMap(accountConfigId, client);
 
-	// The account scope applies before the mode picks a set, so the listing, the
-	// search and the count all narrow by the same rule.
+	// The account and folder scopes apply before the mode picks a set, so the
+	// listing, the search and the count all narrow by the same rule. Account
+	// first, folder second: the folder intersects what the account left, so a
+	// folder of another account narrows to nothing rather than reinstating one.
 	const narrow = (mailboxIds: Set<string>): Set<string> =>
-		scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId);
+		scopeToMailbox(
+			scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId),
+			params.mailboxId,
+		);
 	const inboxMailboxIds = narrow(everyInboxMailboxId);
 	const starredMailboxIds = narrow(everyStarredMailboxId);
 	const searchMailboxIds = narrow(everySearchMailboxId);
@@ -581,6 +610,7 @@ export const UnifiedThreadOperations: Record<
 			from,
 			subject,
 			accountId,
+			mailboxId,
 			category,
 			unread,
 			attachments,
@@ -596,6 +626,7 @@ export const UnifiedThreadOperations: Record<
 			from?: string;
 			subject?: string;
 			accountId?: string;
+			mailboxId?: string;
 			category?: MessageCategory | MessageCategory[];
 			unread?: boolean | string;
 			attachments?: boolean | string;
@@ -624,6 +655,7 @@ export const UnifiedThreadOperations: Record<
 			from: fromText || undefined,
 			subject: subjectText || undefined,
 			accountId: accountId || undefined,
+			mailboxId: mailboxId || undefined,
 			category: toArray(category),
 			unread: toBoolean(unread),
 			attachments: toBoolean(attachments),
