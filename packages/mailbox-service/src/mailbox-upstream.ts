@@ -47,6 +47,29 @@ export const isMailboxPresentUpstream = (error: unknown): boolean => {
  * swallowing it would ack the message and leave the subtree `pending` forever,
  * skipped by message sync with no route out.
  */
+/**
+ * The folder a rename was to move is confirmed gone: the server refused the
+ * RENAME as non-existent, and its own listing holds neither the path being left
+ * nor the path being aimed at.
+ *
+ * It is a distinct kind because it is the only answer that may remove a folder
+ * and its mail. Re-reading the server's response code at the call site would
+ * make every unclassifiable `NONEXISTENT` — a listing that could not be read, a
+ * path the comparison normalized wrongly — destroy the user's mail; here the
+ * decision is made once, where the evidence is.
+ */
+export class FolderGoneUpstreamError extends Error {
+	name = "FolderGoneUpstreamError";
+	readonly cause: unknown;
+
+	constructor(mailboxId: string, oldPath: string, cause: unknown) {
+		super(
+			`Folder ${mailboxId} is gone from the mail server: neither "${oldPath}" nor its rename target is listed`,
+		);
+		this.cause = cause;
+	}
+}
+
 export class FolderRenameSettleError extends Error {
 	name = "FolderRenameSettleError";
 	readonly cause: unknown;

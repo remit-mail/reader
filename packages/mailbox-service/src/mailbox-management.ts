@@ -5,10 +5,11 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { recordedByRename } from "./mailbox-intent.js";
 import { isNotFoundError } from "./mailbox-presence.js";
 import {
+	FolderGoneUpstreamError,
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
 } from "./mailbox-upstream.js";
-import type { IImapConnection } from "./types.js";
+import type { FlatMailboxInfo, IImapConnection } from "./types.js";
 
 /**
  * Input for creating a mailbox
@@ -114,6 +115,29 @@ export const validateMailboxOperation = (
 	throw new Error(
 		operation === "delete" ? "Cannot delete INBOX" : "Cannot rename INBOX",
 	);
+};
+
+/**
+ * Whether the server's own listing holds a path this code named.
+ *
+ * The requested string and the path the server keeps are not the same thing.
+ * Under a namespace prefix a Dovecot INBOX namespace stores `Projects` as
+ * `INBOX.Projects`, which is why the settle adopts the path ImapFlow resolved
+ * rather than the one that was asked for (D2) — and a probe comparing the raw
+ * request against the listing would read a folder that is plainly there as
+ * absent. There is no resolved path to adopt on the failure path, so the
+ * account's own prefix stands in for the normalization.
+ */
+const holdsPath = (
+	onServer: ReadonlySet<string>,
+	mailbox: Pick<MailboxItem, "namespacePrefix">,
+	path: string,
+): boolean => {
+	if (onServer.has(path)) return true;
+	const { namespacePrefix } = mailbox;
+	if (namespacePrefix.length === 0) return false;
+	if (path.startsWith(namespacePrefix)) return false;
+	return onServer.has(`${namespacePrefix}${path}`);
 };
 
 /**
@@ -345,6 +369,7 @@ export class MailboxManagementService {
 
 		const confirmed = await this.issueRename(
 			connection,
+			standing,
 			accountId,
 			mailboxId,
 			oldPath,
@@ -365,6 +390,7 @@ export class MailboxManagementService {
 		// guard passes and the settle runs again.
 		await this.settleRenameIntent(
 			accountId,
+			mailboxId,
 			oldPath,
 			newPath,
 			confirmed,
@@ -382,15 +408,21 @@ export class MailboxManagementService {
 	/**
 	 * Issue the RENAME and read back the path it resolved to.
 	 *
-	 * A `NONEXISTENT` here has two readings and they call for opposite actions.
-	 * Either another client deleted the folder — the source really is gone, and
-	 * the caller removes the row with its mail — or this rename already landed
-	 * and only its settle was lost, in which case the folder is alive at the
-	 * target and deleting it would destroy the user's mail. The server itself
-	 * separates them: ask whether the target is there.
+	 * A `NONEXISTENT` here has three readings, and only one of them may destroy
+	 * anything. Either another client deleted the folder; or this rename already
+	 * landed and only its settle was lost, in which case the folder is alive at
+	 * the target; or the server is saying something this code cannot classify.
+	 * The listing separates the first two, and everything it cannot answer is a
+	 * refused rename (T6) — a rename that failed costs the user a retry, while
+	 * reading an unclear answer as a delete costs them the folder's mail.
+	 *
+	 * So the caller is told which of the two it is by the *kind* of error, never
+	 * by re-reading the server's code: only `FolderGoneUpstreamError` removes a
+	 * folder, and it is raised exactly where the listing held neither path.
 	 */
 	private issueRename = async (
 		connection: IImapConnection,
+		standing: MailboxItem,
 		accountId: string,
 		mailboxId: string,
 		oldPath: string,
@@ -400,15 +432,24 @@ export class MailboxManagementService {
 			.renameMailbox(oldPath, newPath)
 			.catch(async (error: unknown) => {
 				if (!isMailboxAbsentUpstream(error)) throw error;
-				const listed = await connection.listMailboxes();
-				if (!listed.some((mailbox) => mailbox.fullPath === newPath)) {
-					throw error;
+				const listed = await connection
+					.listMailboxes()
+					.catch((): FlatMailboxInfo[] | undefined => undefined);
+				// A listing that cannot be read answers nothing, so it decides
+				// nothing: the rename is refused and the folder is left alone.
+				if (!listed) throw error;
+
+				const onServer = new Set(listed.map((mailbox) => mailbox.fullPath));
+				if (holdsPath(onServer, standing, newPath)) {
+					this.log.info(
+						{ accountId, mailboxId, intent: "rename", oldPath, newPath },
+						"Source folder gone and the target is on the server: this rename already landed",
+					);
+					return undefined;
 				}
-				this.log.info(
-					{ accountId, mailboxId, intent: "rename", oldPath, newPath },
-					"Source folder gone and the target is on the server: this rename already landed",
-				);
-				return undefined;
+				if (holdsPath(onServer, standing, oldPath)) throw error;
+
+				throw new FolderGoneUpstreamError(mailboxId, oldPath, error);
 			});
 
 		// ImapFlow's own normalization of the requested path — namespace prefix
@@ -466,9 +507,19 @@ export class MailboxManagementService {
 	 * drops the recorded target and settles `synced`, on its own conditional
 	 * write. A row another client moved in between fails its predicate and is
 	 * skipped rather than overwritten; a row that is gone is skipped for free.
+	 *
+	 * **The named folder is written last, and that ordering is load-bearing.**
+	 * The redelivery's guard reads that row and nothing else, so it is the
+	 * witness for the whole settle: while it still carries the intent, a
+	 * redelivery re-enters and finishes whatever the last attempt left. Settling
+	 * it first would ack a run that died part-way through its descendants, and
+	 * those rows would stay `pending` forever — invisible to message sync, and
+	 * with no route out, because an intent may only be recorded from `synced` or
+	 * `failed`, so neither a retry nor a dismissal can reach them.
 	 */
 	private settleRenameIntent = async (
 		accountId: string,
+		mailboxId: string,
 		oldPath: string,
 		target: string,
 		confirmed: string,
@@ -481,7 +532,11 @@ export class MailboxManagementService {
 			confirmed,
 			delimiter,
 		);
-		for (const { row, confirmedPath } of carrying) {
+		const ordered = [
+			...carrying.filter((entry) => entry.row.mailboxId !== mailboxId),
+			...carrying.filter((entry) => entry.row.mailboxId === mailboxId),
+		];
+		for (const { row, confirmedPath } of ordered) {
 			const settled = await this.mailboxService.transition(
 				accountId,
 				row.mailboxId,
@@ -534,8 +589,26 @@ export class MailboxManagementService {
 			newPath,
 			root.hierarchyDelimiter,
 		);
+		// The row is there and no row carries the intent, so this refusal has
+		// nothing to record. It must not be reported as a missing mailbox: the
+		// caller's #289-class guard reads a NotFoundError as the user having
+		// deleted the folder and acks the message, which would swallow the IMAP
+		// error that brought us here and leave the subtree `pending`. Say so and
+		// let the caller rethrow what actually failed.
 		if (carrying.length === 0) {
-			throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+			this.log.error(
+				{
+					accountId,
+					mailboxId,
+					intent: "rename",
+					from: root.syncStatus,
+					oldPath,
+					newPath,
+					outcome: "superseded",
+				},
+				"Refused rename recorded nothing: no row carries this intent",
+			);
+			return;
 		}
 		for (const { row } of carrying) {
 			const failed = await this.mailboxService.transition(
@@ -581,7 +654,13 @@ export class MailboxManagementService {
 				if (isNotFoundError(error)) return undefined;
 				throw error;
 			});
-		if (!root) return;
+		if (!root) {
+			this.log.info(
+				{ accountId, mailboxId, intent: "rename", outcome: "already-settled" },
+				"Nothing to abandon: the folder row is already gone",
+			);
+			return;
+		}
 
 		const carrying = await this.intentCarryingRows(
 			accountId,
@@ -590,6 +669,12 @@ export class MailboxManagementService {
 			newPath,
 			root.hierarchyDelimiter,
 		);
+		// A removal that throws part-way abandons the rest into a redelivery, and
+		// that is safe rather than merely tolerable: `deleteMailboxWithMail` is
+		// idempotent — it returns without touching anything when the row is gone,
+		// and resumes from whatever is left when it is not, because the mailbox
+		// row is removed last. The rows still standing carry the intent, so the
+		// next attempt resolves the same set and finishes it.
 		for (const { row } of carrying) {
 			await this.mailboxService.deleteMailboxWithMail(accountId, row.mailboxId);
 			this.log.info(

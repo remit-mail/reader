@@ -95,9 +95,15 @@ const row = (over: Partial<Row> & { mailboxId: string }): Row => ({
 	accountId: "acc-1",
 	fullPath: "Archive",
 	hierarchyDelimiter: "/",
+	namespacePrefix: "",
 	syncStatus: "pending",
 	...over,
 });
+
+/** The server holding neither path is what confirms the folder is gone. */
+const listsNeitherPath = (): void => {
+	h.connection.listMailboxes = async () => [{ fullPath: "Iets anders" }];
+};
 
 const fresh = (): Harness => ({
 	calls: [],
@@ -388,6 +394,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 		// The folder was deleted under us. Dropping the row on its own is the
 		// orphaning bug: its mail stays keyed to a dead mailboxId, out of every
 		// reader and still in the search index (D8).
+		listsNeitherPath();
 		h.connection.renameMailbox = async () => {
 			throw new Error("Mailbox not found");
 		};
@@ -413,6 +420,7 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 				pendingPath: "Archive 2024/Sub",
 			}),
 		);
+		listsNeitherPath();
 		h.connection.renameMailbox = async () => {
 			throw new Error("Mailbox not found");
 		};
@@ -423,6 +431,23 @@ describe("processMailboxManagement — MAILBOX_RENAME", () => {
 			(c) => c.args[1],
 		);
 		assert.deepEqual(new Set(deleted), new Set(["mbx-1", "mbx-2"]));
+	});
+
+	it("refuses the rename rather than deleting when the source is still on the server", async () => {
+		// The server said NONEXISTENT and its own listing still holds the folder,
+		// so it was talking about something else. Reading that as an upstream
+		// delete would destroy the folder's mail over an answer nothing confirms.
+		h.connection.renameMailbox = async () => {
+			throw new Error("Mailbox not found");
+		};
+
+		await assert.rejects(
+			processMailboxManagement(renameEvent, noopLogger, deps()),
+			/Mailbox not found/,
+		);
+
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
+		assert.equal(lastSettle().to, "failed");
 	});
 
 	it("acks terminally without connecting when the folder row is gone", async () => {
@@ -706,6 +731,7 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 
 	it("reads NONEXISTENT on a RENAME as the source folder being gone, mail and all", async () => {
 		recordRenameIntent();
+		listsNeitherPath();
 		h.connection.renameMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
 				serverResponseCode: "NONEXISTENT",

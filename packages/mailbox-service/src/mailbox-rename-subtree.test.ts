@@ -3,7 +3,10 @@ import { describe, it } from "node:test";
 import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { MailboxManagementService } from "./mailbox-management.js";
-import { FolderRenameSettleError } from "./mailbox-upstream.js";
+import {
+	FolderGoneUpstreamError,
+	FolderRenameSettleError,
+} from "./mailbox-upstream.js";
 import type { IImapConnection } from "./types.js";
 
 /**
@@ -22,6 +25,7 @@ const renaming = (
 		accountId: "acc-1",
 		fullPath,
 		hierarchyDelimiter: "/",
+		namespacePrefix: "",
 		syncStatus: MailboxSyncStatus.pending,
 		pendingPath,
 	}) as MailboxItem;
@@ -36,6 +40,7 @@ const settled = (
 		accountId: "acc-1",
 		fullPath,
 		hierarchyDelimiter: "/",
+		namespacePrefix: "",
 		syncStatus,
 	}) as MailboxItem;
 
@@ -114,13 +119,18 @@ const connection = (newPath?: string): IImapConnection =>
 		listMailboxes: async () => [],
 	}) as unknown as IImapConnection;
 
-const refusing = (error: Error, listed: string[] = []): IImapConnection =>
+const refusing = (
+	error: Error,
+	listed: string[] | "unreadable" = [],
+): IImapConnection =>
 	({
 		renameMailbox: async () => {
 			throw error;
 		},
-		listMailboxes: async () =>
-			listed.map((fullPath) => ({ fullPath, delimiter: "/" })),
+		listMailboxes: async () => {
+			if (listed === "unreadable") throw new Error("IMAP connection lost");
+			return listed.map((fullPath) => ({ fullPath, delimiter: "/" }));
+		},
 	}) as unknown as IImapConnection;
 
 const nonexistent = (): Error =>
@@ -379,7 +389,7 @@ describe("MailboxManagementService.syncRename — a rename that already landed",
 		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.synced);
 	});
 
-	it("still raises NONEXISTENT when the target is not on the server either", async () => {
+	it("reports the folder as gone, carrying what the server said, when neither path is listed", async () => {
 		const { repo } = store([renaming("mbx-parent", "Work", "Projects")]);
 		const service = new MailboxManagementService(repo);
 
@@ -388,8 +398,9 @@ describe("MailboxManagementService.syncRename — a rename that already landed",
 				refusing(nonexistent(), ["Andere"]),
 			),
 			(error: unknown) =>
-				(error as { serverResponseCode?: string }).serverResponseCode ===
-				"NONEXISTENT",
+				error instanceof FolderGoneUpstreamError &&
+				(error.cause as { serverResponseCode?: string })?.serverResponseCode ===
+					"NONEXISTENT",
 		);
 	});
 
@@ -421,6 +432,138 @@ describe("MailboxManagementService.syncRename — a rename that already landed",
 	});
 });
 
+describe("MailboxManagementService.syncRename — a settle that dies part-way", () => {
+	/**
+	 * The named folder's row is the redelivery's only witness: the guard reads
+	 * it and nothing else. Settling it before its descendants would ack a run
+	 * that stopped half way, and those rows would stay `pending` forever —
+	 * skipped by message sync, and with no route out, because an intent may only
+	 * be recorded from `synced` or `failed`.
+	 */
+	it("leaves the named folder carrying the intent when a descendant's write fails", async () => {
+		const { repo, rowOf } = store([
+			renaming("mbx-parent", "Work", "Projects"),
+			renaming("mbx-child", "Work/2026", "Projects/2026"),
+		]);
+		let broken = true;
+		const flaky = {
+			...repo,
+			transition: async (
+				accountId: string,
+				mailboxId: string,
+				intent: Parameters<IMailboxRepository["transition"]>[2],
+			) => {
+				if (broken && mailboxId === "mbx-child") {
+					throw new Error("database is locked");
+				}
+				return repo.transition(accountId, mailboxId, intent);
+			},
+		} as unknown as IMailboxRepository;
+		const service = new MailboxManagementService(flaky);
+
+		await assert.rejects(
+			service.syncRename("acc-1", "mbx-parent", "Work", "Projects", async () =>
+				connection(),
+			),
+			(error: unknown) => error instanceof FolderRenameSettleError,
+		);
+
+		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.pending);
+		assert.equal(rowOf("mbx-parent")?.pendingPath, "Projects");
+		assert.equal(rowOf("mbx-child")?.syncStatus, MailboxSyncStatus.pending);
+
+		// The redelivery re-enters against an intent still standing and finishes.
+		broken = false;
+		const redelivered = new MailboxManagementService(flaky);
+		const result = await redelivered.syncRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			async () => connection(),
+		);
+
+		assert.equal(result.success, true);
+		assert.equal(rowOf("mbx-parent")?.fullPath, "Projects");
+		assert.equal(rowOf("mbx-child")?.fullPath, "Projects/2026");
+		assert.equal(rowOf("mbx-child")?.syncStatus, MailboxSyncStatus.synced);
+	});
+});
+
+describe("MailboxManagementService.syncRename — reading NONEXISTENT", () => {
+	const prefixed = (): MailboxItem =>
+		({
+			mailboxId: "mbx-parent",
+			accountId: "acc-1",
+			fullPath: "Work",
+			hierarchyDelimiter: ".",
+			namespacePrefix: "INBOX.",
+			syncStatus: MailboxSyncStatus.pending,
+			pendingPath: "Projects",
+		}) as MailboxItem;
+
+	it("reads the target through the account's namespace prefix", async () => {
+		// The requested string and the path the server keeps are not the same:
+		// a Dovecot INBOX namespace stores `Projects` as `INBOX.Projects`.
+		// Comparing the raw request against the listing reads a folder that is
+		// plainly there as absent — and that answer deletes the user's mail.
+		const { repo, rowOf } = store([prefixed()]);
+		const service = new MailboxManagementService(repo);
+
+		const result = await service.syncRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			async () => refusing(nonexistent(), ["INBOX.Projects"]),
+		);
+
+		assert.equal(result.success, true);
+		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("raises the confirmed kind only when the listing holds neither path", async () => {
+		const { repo } = store([renaming("mbx-parent", "Work", "Projects")]);
+		const service = new MailboxManagementService(repo);
+
+		await assert.rejects(
+			service.syncRename("acc-1", "mbx-parent", "Work", "Projects", async () =>
+				refusing(nonexistent(), ["Andere"]),
+			),
+			(error: unknown) => error instanceof FolderGoneUpstreamError,
+		);
+	});
+
+	it("refuses the rename rather than confirming a delete when the source is still listed", async () => {
+		const { repo } = store([renaming("mbx-parent", "Work", "Projects")]);
+		const service = new MailboxManagementService(repo);
+
+		await assert.rejects(
+			service.syncRename("acc-1", "mbx-parent", "Work", "Projects", async () =>
+				refusing(nonexistent(), ["Work"]),
+			),
+			(error: unknown) =>
+				!(error instanceof FolderGoneUpstreamError) &&
+				(error as { serverResponseCode?: string }).serverResponseCode ===
+					"NONEXISTENT",
+		);
+	});
+
+	it("refuses the rename when the listing cannot be read at all", async () => {
+		// A probe that answers nothing decides nothing. A refused rename costs a
+		// retry; reading an unclear answer as a delete costs the folder's mail.
+		const { repo } = store([renaming("mbx-parent", "Work", "Projects")]);
+		const service = new MailboxManagementService(repo);
+
+		await assert.rejects(
+			service.syncRename("acc-1", "mbx-parent", "Work", "Projects", async () =>
+				refusing(nonexistent(), "unreadable"),
+			),
+			(error: unknown) => !(error instanceof FolderGoneUpstreamError),
+		);
+	});
+});
+
 describe("MailboxManagementService.failRename", () => {
 	it("marks every intent-carrying row failed, keeping its path and its target", async () => {
 		const { repo, rowOf } = store([
@@ -445,13 +588,25 @@ describe("MailboxManagementService.failRename", () => {
 		}
 	});
 
-	it("raises a NotFoundError when no row carries the intent any more", async () => {
-		const { repo } = store([settled("mbx-parent", "Work")]);
+	it("raises a NotFoundError when the folder row itself is gone", async () => {
+		const { repo } = store([]);
 		const service = new MailboxManagementService(repo);
 
 		await assert.rejects(
 			service.failRename("acc-1", "mbx-parent", "Work", "Projects"),
 			(error: unknown) => (error as Error).name === "NotFoundError",
+		);
+	});
+
+	it("records nothing, quietly, when the row is there but carries no intent", async () => {
+		// Never a NotFoundError: the caller reads that as the user having deleted
+		// the folder and acks the message, which would swallow the IMAP failure
+		// that brought us here and leave the subtree `pending` with no retry.
+		const { repo } = store([settled("mbx-parent", "Work")]);
+		const service = new MailboxManagementService(repo);
+
+		await assert.doesNotReject(
+			service.failRename("acc-1", "mbx-parent", "Work", "Projects"),
 		);
 	});
 

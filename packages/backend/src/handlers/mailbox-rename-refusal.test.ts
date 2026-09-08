@@ -157,6 +157,26 @@ describe("applyMailboxPatch — renames that can never succeed (D4, D5)", () => 
 		assert.equal(renames.length, 0);
 	});
 
+	it("lets a failed rename's stale target go to somebody else", async () => {
+		// `failed` keeps its target so the client can name what the rename was
+		// aiming at and offer a retry (T6), and nothing clears it until the user
+		// retries or dismisses. Honouring that claim would tell everyone else the
+		// path is taken by a rename that is not happening, with nothing to wait
+		// for and no way to find out.
+		const { client, renames } = clientOver(mailbox(), [
+			mailbox({
+				mailboxId: "mbx-2",
+				fullPath: "Admin",
+				syncStatus: MailboxSyncStatus.failed,
+				pendingPath: "Projects",
+			}),
+		]);
+
+		await patch(client, { fullPath: "Projects" });
+
+		assert.deepEqual(renames, [{ mailboxId: "mbx-1", newPath: "Projects" }]);
+	});
+
 	it("lets a retry aim at the target its own failed rename recorded", async () => {
 		const { client, renames } = clientOver(
 			mailbox({

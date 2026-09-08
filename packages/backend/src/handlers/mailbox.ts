@@ -135,7 +135,15 @@ const assertRenameTargetAllowed = async (
 		if (folder.fullPath === target) {
 			throw new BadRequestError(`A folder named “${target}” is already there.`);
 		}
-		if (folder.pendingPath === target) {
+		// `pending` only. A failed rename keeps its target so the client can name
+		// what it was aiming at and offer a retry (T6), and nothing clears it
+		// until the user retries or dismisses — so honouring a `failed` row's
+		// claim would tell everyone else the path is taken by a rename that is
+		// not happening, with no way to find that out and nothing to wait for.
+		if (
+			folder.syncStatus === MailboxSyncStatus.pending &&
+			folder.pendingPath === target
+		) {
 			throw new BadRequestError(
 				`“${folder.fullPath}” is already being renamed to “${target}”.`,
 			);
