@@ -5,43 +5,65 @@ export const isNotFoundError = (error: unknown): boolean =>
 	error instanceof Error && error.name === "NotFoundError";
 
 /**
- * Whether the IMAP server is not known to hold this folder — the row is gone,
- * its creation has not reached the server yet, or its deletion has been asked
- * for and not finished. Folders are written locally first and reconciled to the
- * server by the worker, so both ends of that lifecycle are states in which
- * syncing the folder can only fail.
+ * Every state a mailbox row can carry, for a transition whose caller decided
+ * against none of them.
  *
- * This is the terminal test for a sync event whose folder is not there. The
- * row's absence alone does not decide it, at either end: on the way out the row
- * is removed only after the IMAP folder is, so an event that fails against the
- * server still sees a live row for as long as that write takes; on the way in
- * the row exists before the folder does. `pending` and `deleting` are written by
- * the request itself, before the event that resolves it is enqueued, which is
- * what makes them sound proxies for presence: neither can be observed unless a
- * create has yet to land or a delete has been asked for.
+ * A transition predicate is supposed to name the state the caller read
+ * (docs/architecture/folder-rename-and-delete.md D3), and the intent recorders
+ * and settles that use this one name nothing yet: they are today's
+ * unconditional writes, moved onto the only door that can write a folder state
+ * at all. Each is narrowed to the from-set its transition-table row allows when
+ * the intents themselves land (#362, #363), which is also where a loser gets
+ * its 409.
+ */
+export const EVERY_MAILBOX_STATE = [
+	MailboxSyncStatus.synced,
+	MailboxSyncStatus.pending,
+	MailboxSyncStatus.failed,
+	MailboxSyncStatus.deleting,
+] as const;
+
+/**
+ * Whether a folder mutation is in flight, so nothing else may touch the folder
+ * over IMAP.
  *
- * `failed` is deliberately not one of them, though it is the fourth state a
- * mailbox row can carry. It records that the last management operation failed
- * and says nothing about whether the folder is on the server: `handleDelete` and
- * `handleRename` set it on folders that exist and hold the user's mail, and
- * nothing ever clears it — `syncStatus` returns to `synced` only from a
- * subsequent successful create or rename, never from the sweep. Treating it as
- * off-server would stop syncing such a folder permanently and silently, which is
- * worse than the bounded stall it would remove. A `failed` row whose folder is
- * genuinely absent is reaped by the sweep's own cleanup, which runs before the
- * fan-out that would enqueue work for it.
+ * It used to be spelled as a presence test — is the folder off the server —
+ * and that is no longer what it asks. Under D2 `fullPath` is always a path the
+ * server holds, rename target and all, so a rename-pending folder *is* on the
+ * server; what the two states share is that a worker owns the folder until its
+ * mutation settles. `pending` and `deleting` are written by the request itself,
+ * before the event that resolves it is enqueued, so neither can be observed
+ * unless a create or rename has yet to land or a delete has been asked for.
+ *
+ * This is the terminal test for a sync event whose folder is not the sync's to
+ * touch. The row's absence alone does not decide it, at either end: on the way
+ * out the row is removed only after the IMAP folder is, so an event that fails
+ * against the server still sees a live row for as long as that write takes; on
+ * the way in the row exists before the folder does.
+ *
+ * `failed` is deliberately not one of them. The invariant is that a `failed`
+ * row's folder exists at `fullPath` and the last rename or delete intent did
+ * not land — so the folder holds the user's mail and syncing it is right.
+ * D7 is what upholds that: a create the server refuses leaves no row at all,
+ * rather than a `failed` one standing for a folder that was never made. Reading
+ * `failed` as off-server would stop syncing a live folder permanently and
+ * silently, which is worse than the bounded stall it would remove.
+ *
+ * A rename-pending folder is skipped even though its `fullPath` is live. That
+ * is conservative rather than necessary (D12): it keeps this a single
+ * expression and costs a few seconds of sync for one folder.
  *
  * Mailbox management is judged differently — it is what establishes and removes
  * the folder, so it terminates on a not-found row alone.
  */
-export const isFolderOffServer = (
+export const isFolderMutationInFlight = (
 	mailbox: Pick<MailboxItem, "syncStatus">,
 ): boolean =>
 	mailbox.syncStatus === MailboxSyncStatus.pending ||
 	mailbox.syncStatus === MailboxSyncStatus.deleting;
 
-/** {@link isFolderOffServer} for a mailbox that has to be read first, an absent row included. */
-export const isMailboxNotOnServer = async (
+/** {@link isFolderMutationInFlight} for a mailbox that has to be read first, an absent row included. */
+export const isMailboxMutationInFlight = async (
 	mailboxService: Pick<IMailboxRepository, "get">,
 	accountId: string,
 	mailboxId: string,
@@ -53,5 +75,5 @@ export const isMailboxNotOnServer = async (
 			throw error;
 		});
 	if (!mailbox) return true;
-	return isFolderOffServer(mailbox);
+	return isFolderMutationInFlight(mailbox);
 };

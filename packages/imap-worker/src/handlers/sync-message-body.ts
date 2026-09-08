@@ -6,7 +6,7 @@ import {
 	BodySyncService,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
-	isFolderOffServer,
+	isFolderMutationInFlight,
 	MailboxCursorPausedError,
 	PlacementMoveService,
 	QuarantineService,
@@ -179,10 +179,10 @@ export const syncMessageBody = async (
 			// A folder still `pending` is terminal for the same reason: the batch
 			// was cut before the folder reached the server, so there is nothing
 			// there to fetch from and no retry that changes it.
-			if (!mailbox || isFolderOffServer(mailbox)) {
+			if (!mailbox || isFolderMutationInFlight(mailbox)) {
 				log.warn(
 					{ accountId, mailboxId, eventId: event.eventId },
-					"Skipping SYNC_MESSAGE_BODY: the server does not hold this folder",
+					"Skipping SYNC_MESSAGE_BODY: a folder mutation is in flight",
 				);
 				return;
 			}

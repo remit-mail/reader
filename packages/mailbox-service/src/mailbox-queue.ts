@@ -5,8 +5,11 @@ import type {
 	IMailboxRepository,
 	MailboxItem,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import { EVERY_MAILBOX_STATE } from "./mailbox-presence.js";
 
 /**
  * MAILBOX_CREATE event structure (matches remit-imap-worker/events.ts)
@@ -163,19 +166,32 @@ export class MailboxQueueService {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const oldPath = mailbox.fullPath;
 
-		// Update the mailbox path and set syncStatus to pending
-		const updated = await this.mailboxService.update(accountId, mailboxId, {
-			fullPath: newPath,
-			syncStatus: MailboxSyncStatus.pending,
-		});
-
-		// Update child mailbox paths
-		await this.mailboxService.renameChildPaths(
-			mailbox.accountId,
-			oldPath,
-			newPath,
-			mailbox.hierarchyDelimiter,
+		// One intent over the folder and every descendant, in one transaction:
+		// IMAP RENAME moves the subtree in one command, so a partially recorded
+		// rename is the state that produced today's phantom rows (D6). Each
+		// descendant's new path is equally absent from the server until
+		// MAILBOX_RENAME lands, so each is `pending` too — otherwise a reconcile
+		// in that window reaps it as server-deleted (#290).
+		const written = await this.mailboxService.transitionSubtree(
+			accountId,
+			mailboxId,
+			{
+				from: EVERY_MAILBOX_STATE,
+				to: MailboxSyncStatus.pending,
+				rowSet: (row) => {
+					const moved = rebaseMailboxPath(
+						row.fullPath,
+						oldPath,
+						newPath,
+						mailbox.hierarchyDelimiter,
+					);
+					return moved === undefined ? {} : { fullPath: moved };
+				},
+			},
 		);
+		if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
+		const updated = written.find((row) => row.mailboxId === mailboxId);
+		if (!updated) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 
 		this.log.info({ mailboxId, oldPath, newPath }, "Renamed mailbox (local)");
 
@@ -208,9 +224,12 @@ export class MailboxQueueService {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 
 		// Mark as deleting (soft delete - worker will do actual delete after IMAP sync)
-		await this.mailboxService.update(accountId, mailboxId, {
-			syncStatus: MailboxSyncStatus.deleting,
-		});
+		const recorded = await this.mailboxService.transition(
+			accountId,
+			mailboxId,
+			{ from: EVERY_MAILBOX_STATE, to: MailboxSyncStatus.deleting },
+		);
+		if (!recorded) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 
 		this.log.info(
 			{ mailboxId, path: mailbox.fullPath },

@@ -179,8 +179,9 @@ export {
 	validateMailboxPath,
 } from "./mailbox-management.js";
 export {
-	isFolderOffServer,
-	isMailboxNotOnServer,
+	EVERY_MAILBOX_STATE,
+	isFolderMutationInFlight,
+	isMailboxMutationInFlight,
 } from "./mailbox-presence.js";
 export {
 	type CreateMailboxQueueInput,

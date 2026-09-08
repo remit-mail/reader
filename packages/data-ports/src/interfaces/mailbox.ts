@@ -1,6 +1,8 @@
 import type {
 	CreateMailboxInput,
 	MailboxItem,
+	MailboxSubtreeTransitionIntent,
+	MailboxTransitionIntent,
 	ResultList,
 	UpdateMailboxInput,
 } from "../types.js";
@@ -28,8 +30,67 @@ export interface IMailboxRepository {
 		input: UpdateMailboxInput,
 		remove?: string[],
 	): Promise<MailboxItem>;
+	/**
+	 * Move one folder's mutation state from the state the caller read to the
+	 * state it decided on, as one conditional write
+	 * (docs/architecture/folder-rename-and-delete.md D3). The only writer of
+	 * `syncStatus` and `pendingPath` — so a folder state written without a
+	 * predicate is a type error rather than a convention.
+	 *
+	 * The predicate names one of the six states, not one of the four enum
+	 * values: `wherePendingPath` as a string requires equality, `null` requires
+	 * the column to be NULL, and omitting it predicates on `syncStatus` alone.
+	 * A create settle that leaves it out matches a row a rename has claimed and
+	 * strands it `synced` with a target on it, which is the seventh combination
+	 * the invariant forbids.
+	 *
+	 * Resolves with the written row when the predicate matched, and with `null`
+	 * when it did not — the row is absent, or somebody else won. The loser
+	 * re-reads and re-decides; it never blind-retries and never writes anyway.
+	 */
+	transition(
+		accountId: string,
+		mailboxId: string,
+		intent: MailboxTransitionIntent,
+	): Promise<MailboxItem | null>;
+	/**
+	 * Record one intent across a folder and every descendant, all-or-nothing, in
+	 * one transaction (D6). Each row's UPDATE carries the from-state predicate
+	 * and the affected-row count is compared to the resolved subtree, so a
+	 * concurrent single-row transition rolls the whole thing back rather than
+	 * being missed by a prior read.
+	 *
+	 * Resolves with every written row, or with `null` when any row in the
+	 * subtree was not in an accepted from-state — in which case nothing was
+	 * written. The named folder comes first and its descendants follow, but a
+	 * caller wanting one row should find it by `mailboxId` rather than lean on
+	 * that. This serves the intent only: a settle is per-row (D15).
+	 */
+	transitionSubtree(
+		accountId: string,
+		mailboxId: string,
+		intent: MailboxSubtreeTransitionIntent,
+	): Promise<MailboxItem[] | null>;
 	delete(accountId: string, mailboxId: string): Promise<void>;
 	deleteMany(accountId: string, mailboxIds: string[]): Promise<void>;
+	/**
+	 * Remove a folder along with the mail it holds (D8): the messages through
+	 * `deleteMessageSubtree`, so the nine per-message child tables go and one
+	 * `message.removed` outbox row per message clears the search index; then the
+	 * mailbox's own child rows; then, last, the mailbox row itself.
+	 *
+	 * "Its own child rows" includes a `message_placement_move` marker naming this
+	 * folder as a move's *destination*, not only as its source. The folder it
+	 * points at is gone, so the move it records can never land, and leaving the
+	 * marker behind holds a message elsewhere in the account unsettled forever.
+	 *
+	 * Ordered, batched and resumable rather than one transaction — the caller
+	 * keeps the row `deleting` until this returns, so a redelivery re-enters and
+	 * continues. `filter` rows bound to this mailbox are never touched: D16
+	 * refuses the delete while any binding stands, so there is nothing to unbind
+	 * and deleting a user's filters is not a folder delete's decision.
+	 */
+	deleteMailboxWithMail(accountId: string, mailboxId: string): Promise<void>;
 	listByAccount(
 		accountId: string,
 		options?: { limit?: number; continuationToken?: string },
@@ -48,12 +109,6 @@ export interface IMailboxRepository {
 	): Promise<MailboxItem[]>;
 	findBySyncStatus(
 		accountId: string,
-		syncStatus: NonNullable<MailboxItem["syncStatus"]>,
+		syncStatus: MailboxItem["syncStatus"],
 	): Promise<MailboxItem[]>;
-	renameChildPaths(
-		accountId: string,
-		oldPath: string,
-		newPath: string,
-		delimiter?: string,
-	): Promise<void>;
 }

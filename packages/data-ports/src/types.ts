@@ -360,6 +360,11 @@ export type BodyPartContentUpsertInput = {
 	content: string;
 };
 
+/**
+ * A mailbox row as an insert states it. `pendingPath` is absent: a create
+ * records no rename target (folder-rename-and-delete.md T1), and the transition
+ * is the only writer of it.
+ */
 export type CreateMailboxInput = Omit<
 	MailboxItem,
 	| "mailboxId"
@@ -368,14 +373,70 @@ export type CreateMailboxInput = Omit<
 	| "namespaceType"
 	| "parentMailboxId"
 	| "cursorState"
+	| "syncStatus"
+	| "pendingPath"
 > & {
 	namespaceType?: MailboxItem["namespaceType"];
 	parentMailboxId?: MailboxItem["parentMailboxId"];
 	/** Total per RFC 032 (defaults to `normal`) — optional at the input boundary, callers rarely set it explicitly. */
 	cursorState?: MailboxItem["cursorState"];
+	/** Total per D1 (defaults to `synced`) — the insert paths that record an intent say so; the sweep's discovery insert does not have to. */
+	syncStatus?: MailboxItem["syncStatus"];
 };
 
-export type UpdateMailboxInput = Partial<Omit<CreateMailboxInput, "accountId">>;
+/**
+ * Everything about a mailbox that is not its mutation state.
+ *
+ * `syncStatus` and `pendingPath` are omitted rather than merely discouraged
+ * (docs/architecture/folder-rename-and-delete.md D3): where they are gone from
+ * the only general-purpose writer, a folder state written without a predicate
+ * is a type error rather than a convention someone has to remember. The two
+ * doors are `transition` and `transitionSubtree`, and they are the whole set.
+ */
+export type UpdateMailboxInput = Partial<
+	Omit<CreateMailboxInput, "accountId" | "syncStatus">
+>;
+
+/**
+ * The state a mailbox transition expects to find, as the six states this design
+ * defines rather than as the four enum values
+ * (docs/architecture/folder-rename-and-delete.md D3). `from` becomes an
+ * `IN (…)` term; `wherePendingPath` becomes an equality or an `IS NULL` term,
+ * and is omitted only by a caller that genuinely does not care which of the two
+ * states sharing a `syncStatus` it is looking at.
+ */
+export type MailboxStatePredicate = {
+	from: readonly MailboxItem["syncStatus"][];
+	wherePendingPath?: string | null;
+};
+
+/**
+ * What a winning mailbox transition writes. `pendingPath` takes `null` to
+ * clear, and is only honoured at all when the state being written is one that
+ * may carry a rename target — a transition to `synced` or `deleting` drops it
+ * whatever the caller passes, which is what makes the invariant hold by
+ * construction rather than by convention.
+ */
+export type MailboxTransitionWrite = {
+	fullPath?: string;
+	pendingPath?: string | null;
+};
+
+export type MailboxTransitionIntent = MailboxStatePredicate & {
+	to: MailboxItem["syncStatus"];
+	set?: MailboxTransitionWrite;
+};
+
+/**
+ * A subtree intent recorded all-or-nothing (D6). It carries no
+ * `wherePendingPath`: its accepted from-states are `synced` and the two failed
+ * variants, and both failed variants are legal starting points.
+ */
+export type MailboxSubtreeTransitionIntent = {
+	from: readonly MailboxItem["syncStatus"][];
+	to: MailboxItem["syncStatus"];
+	rowSet: (row: MailboxItem) => MailboxTransitionWrite;
+};
 
 export type CreateMessageInput = Omit<
 	MessageItem,

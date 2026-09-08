@@ -8,6 +8,7 @@ import {
 	type CanonicalMailboxRoleValue,
 	composeFolderRoleAppointmentLabelName,
 } from "@remit/data-ports/folder-role";
+import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus, MessageSystemFlag } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -77,32 +78,14 @@ export interface MailboxPatchClient {
 }
 
 /**
- * Where a recorded path lands after the rename, or `undefined` when the rename
- * did not move it. IMAP RENAME moves the whole subtree in one command and
- * `renameChildPaths` rewrites every descendant row with it, so a label under
- * the renamed branch moves exactly as far as its prefix does.
- */
-const rebasePath = (
-	recorded: string,
-	oldPath: string,
-	newPath: string,
-	delimiter: string,
-): string | undefined => {
-	if (recorded === oldPath) return newPath;
-	const branch = `${oldPath}${delimiter}`;
-	if (!recorded.startsWith(branch)) return undefined;
-	return `${newPath}${recorded.slice(oldPath.length)}`;
-};
-
-/**
  * A reader-side rename keeps every mailboxId, so the appointments survive it —
  * but the paths recorded beside them (#887) would still name where the folders
  * were before. Move the labels with the branch, or a later third-party delete
  * names a path the user has not seen since the rename.
  *
  * The renamed folder is matched by id; its descendants are matched by the path
- * each label already holds, which is the path their rows carried until this
- * rename rewrote them.
+ * each label already holds, which is the path their rows carried until the
+ * rename intent rewrote them.
  */
 const refreshAppointmentLabels = async (
 	accountSetting: Pick<IAccountSettingRepository, "get" | "upsert">,
@@ -122,7 +105,7 @@ const refreshAppointmentLabels = async (
 				? renamed.newPath
 				: appointment.lastKnownPath === undefined
 					? undefined
-					: rebasePath(
+					: rebaseMailboxPath(
 							appointment.lastKnownPath,
 							renamed.oldPath,
 							renamed.newPath,
@@ -144,8 +127,8 @@ const refreshAppointmentLabels = async (
  * Apply a mailbox PATCH body: override changes first (mute flag + display-name/
  * role overrides — written to per-mailbox AccountSetting rows, no IMAP
  * machinery), then rename — which triggers the IMAP rename machinery
- * (syncStatus/oldPath + MAILBOX_RENAME event) — only when `fullPath` is
- * present. An override-only PATCH therefore never calls
+ * (the recorded subtree intent + MAILBOX_RENAME event) — only when `fullPath`
+ * is present. An override-only PATCH therefore never calls
  * `mailboxQueue.renameMailbox`.
  */
 export const applyMailboxPatch = async (
@@ -160,8 +143,8 @@ export const applyMailboxPatch = async (
 	// --- Override settings (mute flag + display-name/role overrides) ---
 	// Written to per-mailbox AccountSetting rows (RFC 032) with the same
 	// null→remove semantics as UpdateAddressFlagsInput. Applied before (and
-	// independent of) any rename so an override-only PATCH never touches
-	// syncStatus/oldPath.
+	// independent of) any rename so an override-only PATCH never touches the
+	// row's mutation state.
 	const changes = pickMailboxOverrideChanges(body);
 	if (Object.keys(changes).length > 0) {
 		await applyMailboxOverrideChanges(
@@ -268,6 +251,11 @@ const toMailboxResponse = (
 	highWaterMarkUid: mailbox.highWaterMarkUid,
 	lastMessageSyncAt: mailbox.lastMessageSyncAt,
 	syncStatus: mailbox.syncStatus,
+	// The row is the only thing that knows what a rename is aiming at, and
+	// `fullPath` stays the confirmed one throughout (D2), so without this a
+	// client cannot tell a create in flight from a rename in flight, name the
+	// target of a failed rename, or offer the right retry.
+	pendingPath: mailbox.pendingPath,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
 	createdAt: mailbox.createdAt,
