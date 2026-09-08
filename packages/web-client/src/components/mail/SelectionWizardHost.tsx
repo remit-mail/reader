@@ -4,7 +4,6 @@ import {
 	type ClauseDraft,
 	type ClauseEditState,
 	derivePropertyClauses,
-	deriveSenderClauses,
 	dominantSender,
 	type FolderTreeNode,
 	type MatchCount,
@@ -403,6 +402,7 @@ function SelectionWizardSession({
 		escalated ? undefined : accountId,
 		anchorMessageId,
 		senders,
+		subjects,
 	);
 	const { preview: probeWiden } = widen;
 	// The similar door has to know before it is pressed whether it can run, so
@@ -581,20 +581,22 @@ function SelectionWizardSession({
 		[anchorMessageId, selection.length, seedPropertyClauses],
 	);
 
-	// The dimmed similar door, pressed. The senders the widen would have fallen
-	// back to are filled in on the property step instead of standing in for the
-	// semantic match without saying so (#477 3.6).
+	// The dimmed similar door, pressed. What the widen would have fallen back to
+	// is filled in on the property step instead of standing in for the semantic
+	// match without saying so (#477 3.6) — the same agreement the property step
+	// itself seeds from (#458), not senders alone: a selection with nothing in
+	// common on sender still shares a subject worth matching on.
 	const takeSemanticFallback = useCallback(() => {
 		setSemanticFallbackTaken(true);
 		setDoor("properties");
 		setDraft((held) => ({
 			...held,
 			widen: undefined,
-			clauses: withIds(deriveSenderClauses(senders), "sender"),
+			clauses: seedPropertyClauses(),
 			matchOperator: "any",
 		}));
 		goToStep("properties");
-	}, [senders, goToStep]);
+	}, [seedPropertyClauses, goToStep]);
 
 	// The probe lands after the door is on screen, so it can report the widen
 	// unavailable while the user is already holding it. The fallback is taken then
