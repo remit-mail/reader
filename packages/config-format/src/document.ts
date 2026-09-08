@@ -98,6 +98,7 @@ const CategoryFlagSchema = z.strictObject({
 export const AddressFlagsSchema = z.strictObject({
 	trusted: FlagMetadataSchema.optional(),
 	blocked: FlagMetadataSchema.optional(),
+	neverSpam: FlagMetadataSchema.optional(),
 	muted: FlagMetadataSchema.optional(),
 	vip: FlagMetadataSchema.optional(),
 	category: CategoryFlagSchema.optional(),

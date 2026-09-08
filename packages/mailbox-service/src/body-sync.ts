@@ -59,7 +59,7 @@ import {
 	classifyPlacement,
 	type FolderPlacement,
 	type PlacementVerdict,
-	resolveBlockedVsTrust,
+	resolveSenderPlacement,
 } from "./heuristics/classifyPlacement.js";
 import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
 import { denormalizeMessageCategory } from "./message-category.js";
@@ -1176,7 +1176,7 @@ export class BodySyncService {
 	 * `deriveSenderTrust` always did — `vip → wellknown → unknown`, untouched by
 	 * `blocked` — plus `blocked`/`autoArchive` off the same row. `trustSetAt` is
 	 * the `setAt` of whichever flag produced the trust value, needed by
-	 * {@link resolveBlockedVsTrust}'s tie-break; it stays local to placement and
+	 * {@link resolveSenderPlacement}'s tie-break; it stays local to placement and
 	 * never reaches `deriveSenderTrust`'s own contract (the trust badge).
 	 */
 	private async deriveSenderPlacementSignals(
@@ -1187,11 +1187,13 @@ export class BodySyncService {
 		trustSetAt?: number;
 		blocked: boolean;
 		blockedSetAt?: number;
+		neverSpam: boolean;
 		autoArchive: boolean;
 	}> {
 		const unknown = {
 			trust: SenderTrust.Unknown,
 			blocked: false,
+			neverSpam: false,
 			autoArchive: false,
 		} as const;
 		try {
@@ -1207,6 +1209,7 @@ export class BodySyncService {
 					trustSetAt: flags.vip.setAt,
 					blocked: flags.blocked?.value === true,
 					blockedSetAt: flags.blocked?.setAt,
+					neverSpam: flags.neverSpam?.value === true,
 					autoArchive: flags.autoArchive?.value === true,
 				};
 			}
@@ -1216,6 +1219,7 @@ export class BodySyncService {
 					trustSetAt: flags.wellknown.setAt,
 					blocked: flags.blocked?.value === true,
 					blockedSetAt: flags.blocked?.setAt,
+					neverSpam: flags.neverSpam?.value === true,
 					autoArchive: flags.autoArchive?.value === true,
 				};
 			}
@@ -1223,6 +1227,7 @@ export class BodySyncService {
 				...unknown,
 				blocked: flags?.blocked?.value === true,
 				blockedSetAt: flags?.blocked?.setAt,
+				neverSpam: flags?.neverSpam?.value === true,
 				autoArchive: flags?.autoArchive?.value === true,
 			};
 		} catch (err) {
@@ -1514,12 +1519,14 @@ export class BodySyncService {
 			: {
 					trust: SenderTrust.Unknown,
 					blocked: false,
+					neverSpam: false,
 					autoArchive: false,
 				};
 
-		const { senderTrust, senderBlocked } = resolveBlockedVsTrust(
+		const { senderTrust, senderOverride } = resolveSenderPlacement(
 			{ trust: signals.trust, setAt: signals.trustSetAt },
 			{ blocked: signals.blocked, setAt: signals.blockedSetAt },
+			signals.neverSpam,
 		);
 
 		// The verdict needs the classification signals (providerSpam,
@@ -1530,7 +1537,7 @@ export class BodySyncService {
 			candidate,
 			placement,
 			senderTrust,
-			senderBlocked,
+			senderOverride,
 		);
 
 		// A `leave` verdict — including "nothing confident to say" — carries no

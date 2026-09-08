@@ -71,6 +71,41 @@ type MergeAttempt =
 	| { outcome: "contended" };
 
 /**
+ * `blocked` and `neverSpam` are two directly contradictory statements about
+ * where a sender's mail belongs (issue #605), so a row asserting both is not a
+ * tie to break — it is a row that should not exist. This is the only place that
+ * sees both keys at once: `buildFlagsPatch` stays a pure per-key translation,
+ * and the merge fold is the read-modify-write of the whole map.
+ *
+ * The flag the patch just raised wins, so the instruction the user gave last is
+ * the one that stands. A patch raising both resolves to `blocked` — the same
+ * direction the `blocked`/`vip` same-second tie already breaks in.
+ *
+ * Only a patch that raises one of the two is allowed to drop the other. A row
+ * that somehow already carries both survives a patch about anything else
+ * untouched: dropping a placement instruction as a side effect of writing
+ * `muted` would be a silent revocation the user never asked for. Such a row is
+ * resolved on read — `resolveSenderPlacement` reads it as `Blocked` — and
+ * healed the next time either key is written.
+ */
+const dropContradictedPlacementFlag = (
+	next: AddressFlags,
+	patch: FlagsMergePatch,
+): AddressFlags => {
+	if (next.blocked?.value !== true || next.neverSpam?.value !== true)
+		return next;
+	if (patch.blocked?.value === true) {
+		const { neverSpam: _neverSpam, ...rest } = next;
+		return rest;
+	}
+	if (patch.neverSpam?.value === true) {
+		const { blocked: _blocked, ...rest } = next;
+		return rest;
+	}
+	return next;
+};
+
+/**
  * The stored `"<display name> <email>"` compound, folded in JavaScript exactly
  * as message sync folds it — SQL `lower()` stops at ASCII, and the search reads
  * this column expecting a full fold.
@@ -496,7 +531,7 @@ export class AddressRepo implements IAddressRepository {
 				}
 				(next[key] as AddressFlags[keyof AddressFlags]) = value;
 			}
-			return next;
+			return dropContradictedPlacementFlag(next, patch);
 		});
 	}
 

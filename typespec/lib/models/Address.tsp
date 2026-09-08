@@ -40,6 +40,11 @@ model BlockedFlag extends AddressFlagBase {
   value: boolean;
 }
 
+@doc("Sender is never spam: their mail is rescued from Junk whatever the authentication signals say. Mutually exclusive with `blocked` — the flag written last removes the other.")
+model NeverSpamFlag extends AddressFlagBase {
+  value: boolean;
+}
+
 @doc("Sender is muted: do not notify on new mail")
 model MutedFlag extends AddressFlagBase {
   value: boolean;
@@ -79,6 +84,7 @@ model UnsubscribedFlag extends AddressFlagBase {
 model AddressFlags {
   trusted?: TrustedFlag;
   blocked?: BlockedFlag;
+  neverSpam?: NeverSpamFlag;
   muted?: MutedFlag;
   vip?: VipFlag;
   wellknown?: WellknownFlag;
@@ -264,6 +270,10 @@ model EnvelopeAddressResponse {
 model UpdateAddressFlagsInput {
   trusted?: TrustedFlag | null;
   blocked?: BlockedFlag | null;
+
+  @doc("Setting this to `value: true` removes `blocked`, and setting `blocked` removes this one; the two cannot both stand")
+  neverSpam?: NeverSpamFlag | null;
+
   muted?: MutedFlag | null;
   vip?: VipFlag | null;
   wellknown?: WellknownFlag | null;

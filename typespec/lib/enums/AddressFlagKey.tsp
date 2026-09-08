@@ -25,4 +25,7 @@ enum AddressFlagKey {
 
   @doc("AddressFlags.unsubscribed")
   Unsubscribed: "unsubscribed",
+
+  @doc("AddressFlags.neverSpam")
+  NeverSpam: "neverSpam",
 }
