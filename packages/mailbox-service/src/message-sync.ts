@@ -10,7 +10,6 @@ import type {
 	IThreadMessageRepository,
 	IUnitOfWork,
 	MailboxItem,
-	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { storedDisplayName } from "@remit/data-ports/display-name";
@@ -24,17 +23,21 @@ import {
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
-import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import {
 	AddressRole,
 	MailboxCursorState,
 	MessageKeywordFlag,
-	MessageStatus,
 	MessageSystemFlag,
 	StarColor,
 } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
+import {
+	confirmDepartures,
+	type DepartureVerdicts,
+	placementKey,
+	sightingContestsPlacement,
+} from "./external-move.js";
 import { guardMailboxCursor, isCursorRebuildNeeded } from "./mailbox-cursor.js";
 import {
 	type CursorRebuildRow,
@@ -133,40 +136,6 @@ export const addressSightingIn = (
 };
 
 /**
- * Whether a sighting of an already-stored message in this mailbox re-points the
- * row at this folder (#859). A message lives in one folder and the model never
- * holds it in two, so a sighting somewhere else is not a rival claim to the
- * row — it is a move another client made under reader. The last move wins, in
- * both directions, and junk withholding derives from the pointer that results.
- *
- * Two sightings are not moves. Gmail's All Mail, Starred and Important hold
- * every message that also lives in a real folder, so they are views rather than
- * filing locations; following one would empty every other folder's listing. And
- * a row whose own mutation has not settled is in flight, not stale
- * (imap-mutations R1): the server's answer predates the move reader is still
- * waiting on, so taking it would undo the optimistic write. The sync path
- * reconciles rather than waits (imap-mutations R2): it never blocks on a
- * mutation, it re-reads the row on the next sighting after the move settles.
- *
- * In flight is `status`, and `status` alone (#1096, imap-mutations R3). Every
- * outbound mutation writes `moving` or `deleting` and only settling returns the
- * row to `active`, so `active` is precisely the set nothing is coming for —
- * whatever `syncStatus` says about how the row got there. A row put back by
- * `abandonDelete` carries `abandoned`, and it needs this repair more than any
- * other row does: nothing routine settles it, and reader shares its mailboxes,
- * so refusing it left a message whose delete was refused unable to follow a
- * move the user then made in another client.
- */
-export const repointsOnSighting = (
-	mailbox: MailboxItem,
-	message: Pick<MessageItem, "mailboxId" | "status">,
-): boolean => {
-	if (message.mailboxId === mailbox.mailboxId) return false;
-	if (isVirtualCopyMailbox(mailbox)) return false;
-	return message.status === MessageStatus.active;
-};
-
-/**
  * The name an envelope carries for an address, as it should be stored: any
  * claim to be some other address removed (issue #826), the rest of the name
  * kept. Refused wherever a name lands — the address book, the envelope the
@@ -238,6 +207,15 @@ export interface SyncedMessage {
  */
 interface SaveMessageResult extends SyncedMessage {
 	owned: boolean;
+	/**
+	 * The sighting contested the placement the row holds and no verdict about
+	 * the source folder covered it (#1146): the source could not be asked, or
+	 * the row moved between the probe and this save. The UID holds the watermark
+	 * so the next round serves the sighting again — nothing else ever will, and
+	 * a row left mispointed until a cursor rebuild is the silent never-repair
+	 * this change exists to end.
+	 */
+	unresolvedSighting: boolean;
 }
 
 /**
@@ -267,6 +245,22 @@ export interface SyncMessagesResult {
 	 */
 	cursorStalled: boolean;
 }
+
+/**
+ * The UIDs of this batch's undecided sightings (#1146). They join `failedUids`
+ * for the same reason a save that threw does: the watermark is the only thing
+ * that brings a UID back, and a sighting the round could not settle has to come
+ * back. A round that keeps failing to settle one trips the stalled-cursor alert,
+ * which is the surface for a source folder that has become unaskable.
+ */
+const unresolvedSightingUids = (outcomes: BatchOutcome[]): number[] =>
+	outcomes.flatMap((outcome) =>
+		outcome.kind === "saved" &&
+		outcome.result !== null &&
+		outcome.result.unresolvedSighting
+			? [outcome.uid]
+			: [],
+	);
 
 const emptySyncResult = (): SyncMessagesResult => ({
 	syncedCount: 0,
@@ -299,6 +293,32 @@ export const selectUidsToSync = (
 	return uidsToSync.sort((a, b) => b - a);
 };
 
+/** A FETCH row that names a message: everything downstream needs the envelope. */
+const hasEnvelope = (
+	msg: ImapMessage,
+): msg is ImapMessage & { envelope: ImapEnvelope } =>
+	msg.envelope !== undefined;
+
+/**
+ * The row identity a sighting resolves to. Folder-independent whenever the
+ * message carries a usable `Message-ID` header, which is what lets the same
+ * mail in two of an account's folders meet on one row.
+ */
+const messageIdForSighting = (
+	accountId: string,
+	mailboxId: string,
+	msg: ImapMessage & { envelope: ImapEnvelope },
+): string =>
+	deriveMessageIdFromSource(accountId, {
+		messageId: msg.envelope.messageId,
+		uid: msg.uid,
+		mailboxId,
+		date: msg.envelope.date,
+		subject: msg.envelope.subject,
+		fromMailbox: msg.envelope.from?.[0]?.mailbox,
+		fromHost: msg.envelope.from?.[0]?.host,
+	});
+
 export class MessageSyncService {
 	private log: SyncLogger;
 	private unitOfWork: IUnitOfWork;
@@ -313,7 +333,7 @@ export class MessageSyncService {
 		 * spammers as correspondents.
 		 */
 		private mailboxSpecialUseService: IMailboxSpecialUseRepository,
-		messageService: IMessageRepository,
+		private messageService: IMessageRepository,
 		envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
@@ -492,7 +512,7 @@ export class MessageSyncService {
 		// stepped straight over — [23, 22, 21] with 22 missing still advances to
 		// 23 and loses 22 for good. A failure is the one thing a watermark is
 		// built to stop below.
-		const applicable = messages.filter((msg) => msg.envelope !== undefined);
+		const applicable = messages.filter(hasEnvelope);
 		const unusableUids = batchUids.filter(
 			(uid) =>
 				!applicable.some((msg) => msg.uid === uid) &&
@@ -511,10 +531,22 @@ export class MessageSyncService {
 		// rejecting. So one bad message can no longer abort the whole batch (the
 		// poison pill that previously froze the mailbox, #817).
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
+		const departures = await this.probeDepartures(
+			mailbox,
+			accountId,
+			applicable,
+		);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
-				this.trySaveMessage(mailbox, accountId, accountConfigId, msg, roles),
+				this.trySaveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					roles,
+					departures,
+				),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -543,7 +575,18 @@ export class MessageSyncService {
 				"Some messages failed to save; holding watermark below them for retry",
 			);
 		}
-		const failedUids = new Set([...saveFailedUids, ...unusableUids]);
+		const unresolvedUids = unresolvedSightingUids(outcomes);
+		if (unresolvedUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unresolvedUids },
+				"Some sightings reached no verdict about the folder their row points at; holding the watermark below them",
+			);
+		}
+		const failedUids = new Set([
+			...saveFailedUids,
+			...unusableUids,
+			...unresolvedUids,
+		]);
 
 		// Watermarks advance over every SUCCESSFULLY-consumed UID in the batch,
 		// independent of ownership. `selectUidsToSync` reselects work purely by UID
@@ -744,12 +787,24 @@ export class MessageSyncService {
 
 		const newMessages =
 			newUids.length > 0 ? await this.fetchMessageBatch(newUids) : [];
-		const applicable = newMessages.filter((msg) => msg.envelope !== undefined);
+		const applicable = newMessages.filter(hasEnvelope);
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
+		const departures = await this.probeDepartures(
+			mailbox,
+			accountId,
+			applicable,
+		);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
-				this.trySaveMessage(mailbox, accountId, accountConfigId, msg, roles),
+				this.trySaveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					roles,
+					departures,
+				),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 		const syncedMessages: SyncedMessage[] = outcomes.flatMap((o) =>
@@ -795,6 +850,7 @@ export class MessageSyncService {
 		const failedUids = new Set([
 			...outcomes.flatMap((o) => (o.kind === "failed" ? [o.uid] : [])),
 			...unusableUids,
+			...unresolvedSightingUids(outcomes),
 		]);
 		const lowestFailure = failedUids.size
 			? Math.min(...failedUids)
@@ -945,11 +1001,9 @@ export class MessageSyncService {
 		// A quarantined UID stays in `batch`, so the cursor still advances over
 		// it; only the work of re-applying it is skipped.
 		const quarantined = await this.quarantineService?.load(accountConfigId);
-		const applicable = batch.filter(
-			(msg) =>
-				!quarantined?.has(mailboxId, box.uidvalidity, msg.uid) &&
-				msg.envelope !== undefined,
-		);
+		const applicable = batch
+			.filter((msg) => !quarantined?.has(mailboxId, box.uidvalidity, msg.uid))
+			.filter(hasEnvelope);
 
 		// A change row carrying no ENVELOPE holds the cursor and is retried; it
 		// is never set aside. On this path the message is usually one already
@@ -974,10 +1028,22 @@ export class MessageSyncService {
 		}
 
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
+		const departures = await this.probeDepartures(
+			mailbox,
+			accountId,
+			applicable,
+		);
 		const outcomes = await pMap(
 			applicable,
 			(msg) =>
-				this.tryApplyChange(mailbox, accountId, accountConfigId, msg, roles),
+				this.tryApplyChange(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					roles,
+					departures,
+				),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -990,7 +1056,18 @@ export class MessageSyncService {
 				"Some changes failed to apply; holding the sync cursor below them for retry",
 			);
 		}
-		const failedUids = new Set([...saveFailedUids, ...unusableUids]);
+		const unresolvedUids = unresolvedSightingUids(outcomes);
+		if (unresolvedUids.length > 0) {
+			this.log.warn(
+				{ mailboxId, mailboxPath, unresolvedUids },
+				"Some sightings reached no verdict about the folder their row points at; holding the sync cursor below them",
+			);
+		}
+		const failedUids = new Set([
+			...saveFailedUids,
+			...unusableUids,
+			...unresolvedUids,
+		]);
 
 		// Body sync only concerns messages this round created — a metadata
 		// change has no new body to fetch.
@@ -1087,9 +1164,17 @@ export class MessageSyncService {
 		accountConfigId: string,
 		msg: ImapMessage,
 		roles: AccountFolderRoles,
+		departures: DepartureVerdicts,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.applyChange(mailbox, accountId, accountConfigId, msg, roles)
+		return this.applyChange(
+			mailbox,
+			accountId,
+			accountConfigId,
+			msg,
+			roles,
+			departures,
+		)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1111,25 +1196,25 @@ export class MessageSyncService {
 		accountConfigId: string,
 		msg: ImapMessage,
 		roles: AccountFolderRoles,
+		departures: DepartureVerdicts,
 	): Promise<SaveMessageResult | null> {
-		if (!msg.envelope) return null;
+		if (!hasEnvelope(msg)) return null;
 
-		const messageId = deriveMessageIdFromSource(accountId, {
-			messageId: msg.envelope.messageId,
-			uid: msg.uid,
-			mailboxId: mailbox.mailboxId,
-			date: msg.envelope.date,
-			subject: msg.envelope.subject,
-			fromMailbox: msg.envelope.from?.[0]?.mailbox,
-			fromHost: msg.envelope.from?.[0]?.host,
-		});
+		const messageId = messageIdForSighting(accountId, mailbox.mailboxId, msg);
 
 		const existing = await this.threadMessageService.findByMessageId(
 			accountConfigId,
 			messageId,
 		);
 		if (!existing) {
-			return this.saveMessage(mailbox, accountId, accountConfigId, msg, roles);
+			return this.saveMessage(
+				mailbox,
+				accountId,
+				accountConfigId,
+				msg,
+				roles,
+				departures,
+			);
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
@@ -1344,15 +1429,55 @@ export class MessageSyncService {
 		};
 	}
 
+	/**
+	 * Ask the folders this batch's rows point at whether they still hold them
+	 * (#1146).
+	 *
+	 * Between the batch FETCH and the save pass, in all three rounds, and in that
+	 * position on purpose. It SELECTs another folder on the one connection this
+	 * sync has, so it may not run while this mailbox's own fetches are still
+	 * outstanding; and the save pass has to have the answer already, because the
+	 * transaction that re-points a row is where the answer is spent. Nothing
+	 * after the save pass touches IMAP, so leaving another folder selected costs
+	 * the round nothing.
+	 */
+	private async probeDepartures(
+		mailbox: MailboxItem,
+		accountId: string,
+		applicable: Array<ImapMessage & { envelope: ImapEnvelope }>,
+	): Promise<DepartureVerdicts> {
+		return confirmDepartures(
+			{
+				connection: this.connectionFactory.getConnection(),
+				mailboxService: this.mailboxService,
+				messageService: this.messageService,
+				log: this.log,
+			},
+			accountId,
+			mailbox,
+			applicable.map((msg) =>
+				messageIdForSighting(accountId, mailbox.mailboxId, msg),
+			),
+		);
+	}
+
 	private async trySaveMessage(
 		mailbox: MailboxItem,
 		accountId: string,
 		accountConfigId: string,
 		msg: ImapMessage,
 		roles: AccountFolderRoles,
+		departures: DepartureVerdicts,
 	): Promise<BatchOutcome> {
 		const mailboxId = mailbox.mailboxId;
-		return this.saveMessage(mailbox, accountId, accountConfigId, msg, roles)
+		return this.saveMessage(
+			mailbox,
+			accountId,
+			accountConfigId,
+			msg,
+			roles,
+			departures,
+		)
 			.then((result): BatchOutcome => ({ kind: "saved", uid: msg.uid, result }))
 			.catch((error): BatchOutcome => {
 				this.log.warn(
@@ -1374,8 +1499,9 @@ export class MessageSyncService {
 		accountConfigId: string,
 		msg: ImapMessage,
 		roles: AccountFolderRoles,
+		departures: DepartureVerdicts,
 	): Promise<SaveMessageResult | null> {
-		if (!msg.envelope) return null;
+		if (!hasEnvelope(msg)) return null;
 
 		const mailboxId = mailbox.mailboxId;
 		const sighting = addressSightingIn(mailboxId, roles);
@@ -1383,15 +1509,7 @@ export class MessageSyncService {
 		// Store envelope to preserve narrowing in closures
 		const envelope = msg.envelope;
 
-		const messageId = deriveMessageIdFromSource(accountId, {
-			messageId: envelope.messageId,
-			uid: msg.uid,
-			mailboxId,
-			date: envelope.date,
-			subject: envelope.subject,
-			fromMailbox: envelope.from?.[0]?.mailbox,
-			fromHost: envelope.from?.[0]?.host,
-		});
+		const messageId = messageIdForSighting(accountId, mailboxId, msg);
 		const envelopeId = deriveEnvelopeId(messageId);
 		const rootBodyPartId = deriveBodyPartId(messageId, ROOT_PART_PATH);
 
@@ -1435,6 +1553,7 @@ export class MessageSyncService {
 		// conflict whose stored row points at a different mailbox is foreign-owned
 		// and must not feed this mailbox's watermark / body-sync (#634).
 		let owned = false;
+		let unresolvedSighting = false;
 
 		// One unit of work for the whole message: on Postgres these repos are
 		// transaction-bound, so the Envelope, addresses, Message, BodyParts and
@@ -1487,9 +1606,22 @@ export class MessageSyncService {
 			// database holds under another folder. `upsertWithStatus` left the row
 			// alone, so the pointer is repaired here — mailbox and UID together,
 			// because a UID only means anything inside the folder that issued it.
+			//
+			// Only when the message has really left the folder the row points at
+			// (#1146). A sighting alone does not say that: a Gmail label, a Sieve
+			// `fileinto` beside a `keep` and an echoed Sent copy all put the same
+			// message in a second real folder while the first still holds it, and
+			// following those took the mail out of the Inbox. `confirmDepartures`
+			// asked the source before this batch was saved, and its verdict names
+			// the placement it was reached for — so a row that has moved since
+			// matches nothing, and `unresolvedSighting` holds this UID back for
+			// the next round rather than repairing the row against a stale answer.
+			const contested = !created && sightingContestsPlacement(mailbox, item);
+			const verdict = placementKey(messageId, item.mailboxId, item.uid);
+			unresolvedSighting = contested && !departures.settled.has(verdict);
 			const repointed =
-				!created &&
-				repointsOnSighting(mailbox, item) &&
+				contested &&
+				departures.departed.has(verdict) &&
 				!(await this.holdsCopyOf(repos.message, messageId, mailboxId));
 			if (repointed) {
 				await repos.message.updateUid(messageId, msg.uid, mailboxId);
@@ -1541,7 +1673,7 @@ export class MessageSyncService {
 			);
 		});
 
-		return { messageId, uid: msg.uid, owned };
+		return { messageId, uid: msg.uid, owned, unresolvedSighting };
 	}
 
 	/**

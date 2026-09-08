@@ -11,13 +11,11 @@ import type {
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { deriveMessageId } from "@remit/data-ports/id";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
-import {
-	type AccountFolderRoles,
-	MessageSyncService,
-	repointsOnSighting,
-} from "./message-sync.js";
+import { type DepartureVerdicts, placementKey } from "./external-move.js";
+import { type AccountFolderRoles, MessageSyncService } from "./message-sync.js";
 import { folderRoles, NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope, ImapMessage } from "./types.js";
 
@@ -85,7 +83,21 @@ interface Observed {
 	threadUpdates: UpdateThreadMessageInput[];
 	reconciled: string[];
 	owned: boolean;
+	unresolved: boolean;
 }
+
+/**
+ * What `confirmDepartures` had answered about the stored placement by the time
+ * the batch was saved (#1146).
+ *
+ * - `departed` — the source folder no longer holds it: a move another client made.
+ * - `held` — the source folder still holds it: the labelled message, in two
+ *   folders at once.
+ * - `none` — no verdict at all: the source could not be asked this round.
+ * - `stale` — a verdict, but for a placement this row no longer has, because it
+ *   moved between the probe and the save.
+ */
+type Verdict = "departed" | "held" | "none" | "stale";
 
 /**
  * Sync one message out of `sighting`, against a database that already holds it
@@ -97,12 +109,14 @@ const sync = async (
 	stored: MessageItem,
 	threadRow: ThreadMessageItem | null = threadRowIn(INBOX),
 	copiesHere: MessageItem[] = [],
+	verdict: Verdict = "departed",
 ): Promise<Observed> => {
 	const observed: Observed = {
 		repointedTo: [],
 		threadUpdates: [],
 		reconciled: [],
 		owned: false,
+		unresolved: false,
 	};
 
 	const messageService = {
@@ -164,6 +178,19 @@ const sync = async (
 		envelope,
 	} as unknown as ImapMessage;
 
+	const answeredFor = placementKey(
+		deriveMessageId("acct-1", envelope.messageId),
+		stored.mailboxId,
+		verdict === "stale" ? stored.uid + 1 : stored.uid,
+	);
+	const departures: DepartureVerdicts = {
+		departed:
+			verdict === "held" || verdict === "none"
+				? new Set()
+				: new Set([answeredFor]),
+		settled: verdict === "none" ? new Set() : new Set([answeredFor]),
+	};
+
 	const result = (await (
 		service as unknown as {
 			saveMessage: (
@@ -172,15 +199,24 @@ const sync = async (
 				accountConfigId: string,
 				msg: ImapMessage,
 				roles: AccountFolderRoles,
-			) => Promise<{ owned: boolean }>;
+				departures: DepartureVerdicts,
+			) => Promise<{ owned: boolean; unresolvedSighting: boolean }>;
 		}
-	).saveMessage(sighting, "acct-1", "cfg-1", msg, {
-		junkMailboxId: JUNK.mailboxId,
-		trashMailboxId: TRASH.mailboxId,
-		configJunkRoles: NO_JUNK_ROLES,
-	})) as { owned: boolean };
+	).saveMessage(
+		sighting,
+		"acct-1",
+		"cfg-1",
+		msg,
+		{
+			junkMailboxId: JUNK.mailboxId,
+			trashMailboxId: TRASH.mailboxId,
+			configJunkRoles: NO_JUNK_ROLES,
+		},
+		departures,
+	)) as { owned: boolean; unresolvedSighting: boolean };
 
 	observed.owned = result.owned;
+	observed.unresolved = result.unresolvedSighting;
 	return observed;
 };
 
@@ -225,6 +261,87 @@ describe("which folder a message the database already holds lives in", () => {
 
 		assert.deepEqual(observed.repointedTo, []);
 		assert.equal(observed.owned, false);
+	});
+
+	/**
+	 * The reported bug (#1146): a message that legitimately sits in two real
+	 * folders — a Gmail user label, a Sieve `fileinto` beside a `keep`, a Sent
+	 * copy a list echoes back — was re-pointed out of the Inbox by whichever
+	 * folder the round enumerated last.
+	 */
+	it("leaves a labelled message in the folder that still holds it", async () => {
+		const observed = await sync(
+			mailboxAt("Receipts"),
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"held",
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.deepEqual(observed.threadUpdates, []);
+		assert.equal(observed.owned, false);
+	});
+
+	/**
+	 * A decided sighting is decided for good: the message is in two folders and
+	 * asking again next round would get the same answer. Only an UNDECIDED one
+	 * comes back, so a settled decline must not hold the watermark.
+	 */
+	it("finishes with a labelled message rather than holding the watermark for it", async () => {
+		const observed = await sync(
+			mailboxAt("Receipts"),
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"held",
+		);
+
+		assert.equal(observed.unresolved, false);
+	});
+
+	it("holds the watermark when the source folder could not be asked", async () => {
+		const observed = await sync(
+			JUNK,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"none",
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.equal(observed.unresolved, true);
+	});
+
+	/**
+	 * The probe reads the row outside the transaction that acts on it, so a user
+	 * move landing in between leaves a verdict about a placement this row no
+	 * longer has. Spending it would re-point the row against an answer reached
+	 * for somewhere else.
+	 */
+	it("spends no verdict reached for a placement the row has since left", async () => {
+		const observed = await sync(
+			JUNK,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"stale",
+		);
+
+		assert.deepEqual(observed.repointedTo, []);
+		assert.equal(observed.unresolved, true);
+	});
+
+	it("holds the watermark for nothing when the row is already ours", async () => {
+		const observed = await sync(
+			INBOX,
+			storedIn(INBOX),
+			threadRowIn(INBOX),
+			[],
+			"none",
+		);
+
+		assert.equal(observed.unresolved, false);
 	});
 
 	it("declines a sighting in a folder that copies every message", async () => {
@@ -298,97 +415,5 @@ describe("what a re-pointed message does to its sender's standing", () => {
 		const observed = await sync(INBOX, storedIn(INBOX));
 
 		assert.deepEqual(observed.reconciled, []);
-	});
-});
-
-describe("repointsOnSighting", () => {
-	it("refuses a Gmail virtual folder the server never flagged", () => {
-		assert.equal(
-			repointsOnSighting(mailboxAt("[Gmail]/All Mail"), storedIn(INBOX)),
-			false,
-		);
-	});
-
-	it("accepts a folder the user named after a virtual one", () => {
-		assert.equal(
-			repointsOnSighting(mailboxAt("Starred ideas"), storedIn(INBOX)),
-			true,
-		);
-	});
-
-	it("accepts an ordinary inbound row the sync path left pending", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.pending }),
-			),
-			true,
-		);
-	});
-
-	it("accepts a row a settled mutation marked synced", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.synced }),
-			),
-			true,
-		);
-	});
-
-	/**
-	 * The row `abandonDelete` hands back: reader refused the delete, put the
-	 * message back where the server still has it, and nothing else is coming
-	 * for the row. Reader shares its mailboxes, so the user moving that same
-	 * message in another client is ordinary — and before R3 the sighting was
-	 * refused on `syncStatus` alone and the row never followed the move.
-	 */
-	it("accepts a row whose delete was abandoned, so a move made elsewhere still lands", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.active,
-					syncStatus: MessageSyncStatus.abandoned,
-				}),
-			),
-			true,
-		);
-	});
-
-	it("accepts a row left `failed` by a transient attempt that has since settled", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, { syncStatus: MessageSyncStatus.failed }),
-			),
-			true,
-		);
-	});
-
-	it("refuses a row whose own move is still in flight", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.moving,
-					syncStatus: MessageSyncStatus.pending,
-				}),
-			),
-			false,
-		);
-	});
-
-	it("refuses a row whose own delete is still in flight", () => {
-		assert.equal(
-			repointsOnSighting(
-				JUNK,
-				storedIn(INBOX, {
-					status: MessageStatus.deleting,
-					syncStatus: MessageSyncStatus.pending,
-				}),
-			),
-			false,
-		);
 	});
 });
