@@ -1,7 +1,7 @@
 import {
 	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	type AccountService,
 	AccountServiceChoice,
-	type AccountServiceId,
 	AppPasswordHint,
 	Banner,
 	Button,
@@ -37,6 +37,9 @@ export interface StepNav {
 	onBack?: () => void;
 	onNext?: () => void;
 }
+
+/** Where the wizard is mounted: the first run, or Settings → Accounts. */
+export type OnboardingHost = "first-run" | "settings";
 
 function RawError({ children }: { children: string }) {
 	return (
@@ -81,9 +84,10 @@ export function StepWelcome({ onNext }: StepNav = {}) {
 
 export function StepConnector({
 	selected = "imap",
+	host = "first-run",
 	onBack,
 	onNext,
-}: { selected?: "imap" | "microsoft" } & StepNav) {
+}: { selected?: "imap" | "microsoft"; host?: OnboardingHost } & StepNav) {
 	const microsoft = selected === "microsoft";
 	return (
 		<WizardShell
@@ -94,7 +98,7 @@ export function StepConnector({
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
-						Back
+						{host === "settings" ? "Cancel" : "Back"}
 					</Button>
 					<Button variant="primary" onClick={onNext}>
 						{microsoft ? "Continue with Microsoft" : "Continue with IMAP"}
@@ -128,20 +132,18 @@ export function StepConnector({
 	);
 }
 
-const BOTH_SERVICES: AccountServiceId[] = ["Mail", "Calendar"];
+const BOTH_SERVICES: AccountService[] = ["Mail", "Calendar"];
 
 export interface StepMicrosoftEmailProps extends StepNav {
-	/** Services the chosen connector carries. Under two, no choice appears. */
-	offered?: AccountServiceId[];
-	initialServices?: AccountServiceId[];
-	host?: "first-run" | "settings";
+	/** Services the chosen connector carries. Under two, no rows appear. */
+	offered?: AccountService[];
+	initialServices?: AccountService[];
 	error?: string;
 }
 
 export function StepMicrosoftEmail({
 	offered = BOTH_SERVICES,
 	initialServices,
-	host = "first-run",
 	error,
 	onBack,
 	onNext,
@@ -163,11 +165,11 @@ export function StepMicrosoftEmail({
 			steps={steps}
 			activeStep={0}
 			title="Sign in with Microsoft"
-			subtitle="Microsoft is asked for exactly what you pick here, and nothing else."
+			subtitle="Microsoft is asked for the mail and calendar access you pick here."
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
-						{host === "settings" ? "Cancel" : "Back"}
+						Back
 					</Button>
 					<Button variant="primary" onClick={handleContinue}>
 						Sign in with Microsoft
@@ -182,7 +184,7 @@ export function StepMicrosoftEmail({
 						description="Sign in with Microsoft. Works with Outlook.com and work accounts."
 						icon={<Inbox className="size-5" />}
 						selected
-						onSelect={onBack}
+						onSelect={() => {}}
 					/>
 				</div>
 				<AccountServiceChoice

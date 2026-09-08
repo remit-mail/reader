@@ -12,12 +12,12 @@ import { createRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import {
 	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	type AccountService,
 	AccountServiceChoice,
 	type AccountServiceChoiceProps,
-	type AccountServiceId,
 } from "./account-service-choice.js";
 
-const bothServices: AccountServiceId[] = ["Mail", "Calendar"];
+const bothServices: AccountService[] = ["Mail", "Calendar"];
 
 const render = (props: Partial<AccountServiceChoiceProps> = {}): string =>
 	renderToString(
@@ -47,15 +47,26 @@ describe("AccountServiceChoice", () => {
 		assert.equal(render().match(/checked=""/g)?.length, 2);
 	});
 
-	it("names the provider a later change sends you back to", () => {
+	it("names the provider adding a service sends you back to", () => {
 		assert.match(
 			render(),
-			/Changing this later means signing in with Microsoft again\./,
+			/Adding a service later means signing in with Microsoft again\./,
 		);
 	});
 
 	it("renders nothing for a provider that only syncs mail", () => {
 		assert.equal(render({ offered: ["Mail"], selected: ["Mail"] }), "");
+	});
+
+	it("still shows the refusal when there are no rows to show", () => {
+		assert.match(
+			render({
+				offered: ["Mail"],
+				selected: [],
+				error: ACCOUNT_SERVICE_EMPTY_MESSAGE,
+			}),
+			/Pick at least one/,
+		);
 	});
 
 	it("shows a refusal only when it is given one", () => {
@@ -77,7 +88,7 @@ describe("AccountServiceChoice", () => {
 		const container = document.createElement("div");
 		document.body.appendChild(container);
 		const root = createRoot(container);
-		const changes: AccountServiceId[][] = [];
+		const changes: AccountService[][] = [];
 
 		act(() => {
 			root.render(
@@ -112,7 +123,7 @@ describe("AccountServiceChoice", () => {
 		const container = document.createElement("div");
 		document.body.appendChild(container);
 		const root = createRoot(container);
-		const changes: AccountServiceId[][] = [];
+		const changes: AccountService[][] = [];
 
 		act(() => {
 			root.render(

@@ -114,9 +114,33 @@ describe("onboarding service choice", () => {
 		assert.ok(container.querySelector("#ms-email"));
 	});
 
-	it("offers Cancel instead of Back inside the settings embedding", () => {
-		mount({ host: "settings" });
-		assert.ok(button("Cancel"));
-		assert.equal(button("Back"), undefined);
+	it("still says why it refuses when there are no rows to show", () => {
+		let advanced = 0;
+		mount({ offered: ["Mail"], initialServices: [], onNext: () => advanced++ });
+
+		click(button("Sign in with Microsoft"));
+
+		assert.equal(advanced, 0);
+		assert.match(
+			container.querySelector('[role="alert"]')?.textContent ?? "",
+			/Pick at least one/,
+		);
+	});
+
+	it("goes back to the connector rather than out of the flow", () => {
+		let backs = 0;
+		let advanced = 0;
+		mount({ onBack: () => backs++, onNext: () => advanced++ });
+
+		click(button("Back"));
+		assert.equal(backs, 1);
+
+		click(
+			Array.from(container.querySelectorAll("button")).find((candidate) =>
+				candidate.textContent?.includes("Outlook / Microsoft 365"),
+			),
+		);
+		assert.equal(backs, 1);
+		assert.equal(advanced, 0);
 	});
 });
