@@ -19,17 +19,16 @@
 
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "node:test";
 import type {
-	AddressItem,
 	FilterItem,
 	IAddressRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
 	IFilterRepository,
+	IMailboxSpecialUseRepository,
 	IMessageLabelRepository,
 	IMessageRepository,
-	IMailboxSpecialUseRepository,
 	IThreadMessageRepository,
 	MessageItem,
 	UpdateMessageInput,
@@ -42,10 +41,10 @@ import {
 	MessageCategory,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
+import type { PlacementConfig } from "./body-sync.js";
 import { BodySyncService } from "./body-sync.js";
 import { NO_ACTION } from "./filters/match.js";
 import type { FilterConfig } from "./filters/pipeline.js";
-import type { PlacementConfig } from "./body-sync.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import type { IImapConnection } from "./types.js";
 
@@ -89,9 +88,7 @@ const buildInvitationFilter = (destinationMailboxId: string): FilterItem =>
 		hasAnchor: false,
 		ruleChangedAt: 1,
 		matchOperator: FilterMatchOperator.And,
-		literalClauses: [
-			{ field: FilterClauseField.Subject, value: "invitation" },
-		],
+		literalClauses: [{ field: FilterClauseField.Subject, value: "invitation" }],
 		actionLabelId: NO_ACTION,
 		actionMailboxId: destinationMailboxId,
 		createdAt: 1,
@@ -453,7 +450,8 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			messageId: string;
 			input: UpdateMessageInput;
 		}> = [];
-		const moves: Array<{ messageId: string; destinationMailboxId: string }> = [];
+		const moves: Array<{ messageId: string; destinationMailboxId: string }> =
+			[];
 
 		const messageService = {
 			get: async (messageId: string) =>
@@ -475,7 +473,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 				messageId: string,
 			) => [
 				{
-					threadMessageId: "tm-" + messageId,
+					threadMessageId: `tm-${messageId}`,
 					messageId,
 					mailboxId:
 						messageId === "m-stored"

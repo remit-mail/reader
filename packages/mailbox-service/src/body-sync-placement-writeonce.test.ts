@@ -200,7 +200,10 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 		assert.equal(harness.messageUpdates[0]?.input.movedByRemit, undefined);
 		assert.equal(harness.messageUpdates[0]?.input.placementVerdict, undefined);
 		// The re-store wrote only bodyStorageKey — no placement fields.
-		assert.equal(harness.messageUpdates[0]?.input.placementDecidedAt, undefined);
+		assert.equal(
+			harness.messageUpdates[0]?.input.placementDecidedAt,
+			undefined,
+		);
 	});
 
 	it("keeps a user-rescued message in Inbox when syncBodies re-fetches with force", async () => {
@@ -318,7 +321,10 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 		// The re-store wrote only bodyStorageKey — no placement fields were
 		// re-decided or backfilled.
 		assert.equal(harness.message.mailboxId, MAILBOXES.inbox.mailboxId);
-		assert.equal(harness.messageUpdates[0]?.input.placementDecidedAt, undefined);
+		assert.equal(
+			harness.messageUpdates[0]?.input.placementDecidedAt,
+			undefined,
+		);
 		assert.equal(harness.messageUpdates[0]?.input.movedByRemit, undefined);
 		assert.equal(harness.messageUpdates[0]?.input.placementVerdict, undefined);
 		// The only field written is bodyStorageKey.

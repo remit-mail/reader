@@ -767,11 +767,11 @@ export class BodySyncService {
 			);
 			if (!isBodyPartDeferralEnabled()) {
 				await this.storeBodyPartContents(
-						accountConfigId,
-						accountId,
-						messageId,
-						parsed,
-					);
+					accountConfigId,
+					accountId,
+					messageId,
+					parsed,
+				);
 			}
 			await this.messageService.update(messageId, {
 				bodyStorageKey: bodyRef.uri,

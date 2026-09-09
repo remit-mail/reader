@@ -157,10 +157,9 @@ describe("Message.category survives a re-entrant classification pass", () => {
 		assert.equal(harness.messageUpdates.length, 1);
 		// Re-store writes only bodyStorageKey — category is untouched on the row.
 		assert.equal(harness.messageUpdates[0].input.category, undefined);
-		assert.deepEqual(
-			Object.keys(harness.messageUpdates[0].input).sort(),
-			["bodyStorageKey"],
-		);
+		assert.deepEqual(Object.keys(harness.messageUpdates[0].input).sort(), [
+			"bodyStorageKey",
+		]);
 		assert.equal(harness.message.category, MessageCategory.marketing);
 	});
 
@@ -198,10 +197,9 @@ describe("Message.category survives a re-entrant classification pass", () => {
 		assert.equal(harness.messageUpdates.length, 1);
 		// Re-store writes only bodyStorageKey — category is untouched on the row.
 		assert.equal(harness.messageUpdates[0].input.category, undefined);
-		assert.deepEqual(
-			Object.keys(harness.messageUpdates[0].input).sort(),
-			["bodyStorageKey"],
-		);
+		assert.deepEqual(Object.keys(harness.messageUpdates[0].input).sort(), [
+			"bodyStorageKey",
+		]);
 		assert.equal(harness.message.category, MessageCategory.marketing);
 	});
 
