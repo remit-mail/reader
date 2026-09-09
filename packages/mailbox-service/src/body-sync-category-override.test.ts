@@ -381,10 +381,8 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			);
 
 			assert.equal(harness.messageUpdates.length, 1);
-			assert.equal(
-				harness.messageUpdates[0].input.category,
-				MessageCategory.marketing,
-			);
+			// Re-store writes only bodyStorageKey — category untouched on row + thread.
+			assert.equal(harness.messageUpdates[0].input.category, undefined);
 			assert.equal(harness.message.category, MessageCategory.marketing);
 			assert.equal(harness.rows[0].category, MessageCategory.marketing);
 		});
@@ -422,10 +420,8 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 			assert.deepEqual(result.syncedMessageIds, ["m-1"]);
 			assert.equal(harness.messageUpdates.length, 1);
-			assert.equal(
-				harness.messageUpdates[0].input.category,
-				MessageCategory.marketing,
-			);
+			// Re-store writes only bodyStorageKey — category untouched on row + thread.
+			assert.equal(harness.messageUpdates[0].input.category, undefined);
 			assert.equal(harness.message.category, MessageCategory.marketing);
 			assert.equal(harness.rows[0].category, MessageCategory.marketing);
 		});
