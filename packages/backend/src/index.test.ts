@@ -13,8 +13,8 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import { logger } from "@remit/logger-lambda";
-import { handler } from "./index.js";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
+import { handler } from "./index.js";
 
 const buildEvent = (
 	overrides: Partial<APIGatewayProxyEvent> = {},
@@ -37,7 +37,7 @@ const buildContext = (correlationId = "ctx-test-1"): Context =>
 	}) as unknown as Context;
 
 describe("issue #1054: per-request access log", () => {
-	it("emits one \"Request completed\" line at info level with method, path, status, duration and correlation id", async () => {
+	it('emits one "Request completed" line at info level with method, path, status, duration and correlation id', async () => {
 		delete process.env.LOCAL_ACCOUNT_CONFIG_ID;
 
 		// Spy on logger.info — the real logger passes (fields, message) in
@@ -52,13 +52,17 @@ describe("issue #1054: per-request access log", () => {
 				// 404s are expected; we only care about the log line.
 			});
 
+			// `logger.info` is overloaded ((obj, msg?) and (msg, obj?)), so the
+			// mock types `call.arguments` by a single overload. Read the
+			// arguments positionally through an unknown[] view instead.
 			const accessCalls = infoSpy.mock.calls.filter((call) => {
 				// pino calls logger.info(fields, message)
-				return call.arguments[1] === "Request completed";
+				const args = call.arguments as unknown[];
+				return args[1] === "Request completed";
 			});
 
 			assert.ok(accessCalls.length >= 1, "expected an access log line");
-			const fields = accessCalls[0].arguments[0] as Record<
+			const fields = (accessCalls[0].arguments as unknown[])[0] as Record<
 				string,
 				unknown
 			>;
