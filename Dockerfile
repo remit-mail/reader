@@ -164,10 +164,14 @@ RUN mkdir -p dist-docker/backend-migrations \
 # ~140KB stripped `vec0.so` into the backend image — no model, no npm package,
 # no base-image switch.
 #
-# Pinned to the same version the search-index-worker image installs from npm
-# (docker/runtime/search-index-worker/package.json: sqlite-vec 0.1.9). The
-# GitHub release tarball is checksum-verified, so a moved or tampered asset
-# fails the build loudly instead of baking an unknown binary.
+# The version is NOT an ARG: it is derived from the same manifest the
+# search-index-worker image installs (docker/runtime/
+# search-index-worker/package.json), so the musl amalgamation cannot drift
+# from the npm package that writes vec.db. The sha256 below stays hand-pinned:
+# a version bump changes the download URL and tarball, so a bumped manifest
+# without a matching sha256 update fails this checksum and fails the build
+# loudly — the same review gate docker/hunspell/pin.env keeps for the
+# spellcheck engine.
 #
 # `-D__COSMOPOLITAN__` disables one platform-guarded typedef block
 # (`typedef u_int8_t uint8_t;`) that assumes a glibc/BSD `u_int8_t` musl does not
@@ -180,11 +184,23 @@ RUN mkdir -p dist-docker/backend-migrations \
 # filename (it copies only alphabetic characters, dropping the `0`).
 ########################################################################
 FROM docker.io/library/alpine:3.23 AS sqlite-vec-musl
-ARG SQLITE_VEC_VERSION=0.1.9
 ARG SQLITE_VEC_SHA256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61
-RUN apk add --no-cache build-base sqlite-dev sqlite curl
+# The search-index-worker image `npm ci`s this exact manifest (see its install
+# stage below); copy it here too and read the pin out of it, so the musl
+# amalgamation is always built from the same version that writes vec.db.
+COPY docker/runtime/search-index-worker/package.json ./worker-package.json
+RUN apk add --no-cache build-base sqlite-dev sqlite curl jq
 WORKDIR /build
-RUN curl -fsSL -o amalgamation.tar.gz \
+# Read the exact sqlite-vec pin straight out of the worker's install manifest.
+# Deriving it here (rather than a second ARG) means the musl amalgamation is
+# always built from the same version that writes vec.db. The guard rejects a
+# loose manifest (caret/tilde/blank) so a drifted range fails the build before
+# a wrong-version tarball downloads — the sha256 checksum then catches any
+# real version move without a matching update.
+RUN SQLITE_VEC_VERSION="$(jq -r '.dependencies["sqlite-vec"]' /worker-package.json)" \
+	&& test -n "$SQLITE_VEC_VERSION" \
+	&& test "${SQLITE_VEC_VERSION#[^0-9]}" = "$SQLITE_VEC_VERSION" || { echo "FATAL: expected an exact sqlite-vec pin in worker manifest, got '$SQLITE_VEC_VERSION'" >&2; exit 1; } \
+	&& curl -fsSL -o amalgamation.tar.gz \
 		"https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-amalgamation.tar.gz" \
 	&& echo "${SQLITE_VEC_SHA256}  amalgamation.tar.gz" | sha256sum -c - \
 	&& tar xzf amalgamation.tar.gz \
