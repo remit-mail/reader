@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Fail when the two sqlite-vec pins have drifted apart. See
- * `lib/sqlite-vec-lockstep.mjs` for what a divergence does to vec.db.
+ * Fail when the sqlite-vec pin stops being one version across the two builds.
+ * See `lib/sqlite-vec-lockstep.mjs` for what a divergence does to vec.db.
  */
 
 import { readFileSync } from "node:fs";
@@ -9,21 +9,18 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
 	findVersionDivergence,
-	readDockerfileVersion,
+	readDockerfilePinSource,
 	readWorkerLockVersion,
 	readWorkerVersion,
 } from "./lib/sqlite-vec-lockstep.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
-const dockerfileVersion = readDockerfileVersion(
+const manifestPath = readDockerfilePinSource(
 	readFileSync(join(repoRoot, "Dockerfile"), "utf8"),
 );
 const workerPin = readWorkerVersion(
-	readFileSync(
-		join(repoRoot, "docker/runtime/search-index-worker/package.json"),
-		"utf8",
-	),
+	readFileSync(join(repoRoot, manifestPath), "utf8"),
 );
 
 const workerLockVersion = readWorkerLockVersion(
@@ -34,7 +31,6 @@ const workerLockVersion = readWorkerLockVersion(
 );
 
 const divergence = findVersionDivergence({
-	dockerfileVersion,
 	workerPin,
 	workerLockVersion,
 });
@@ -43,4 +39,6 @@ if (divergence) {
 	process.exit(1);
 }
 
-console.log(`sqlite-vec: ${dockerfileVersion} in both images`);
+console.log(
+	`sqlite-vec: ${workerPin} in both images (the musl build compiles the worker manifest's pin)`,
+);

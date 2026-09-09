@@ -188,7 +188,9 @@ ARG SQLITE_VEC_SHA256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab12
 # The search-index-worker image `npm ci`s this exact manifest (see its install
 # stage below); copy it here too and read the pin out of it, so the musl
 # amalgamation is always built from the same version that writes vec.db.
-COPY docker/runtime/search-index-worker/package.json ./worker-package.json
+# The destination is absolute so the read below does not depend on the
+# stage's implicit default WORKDIR.
+COPY docker/runtime/search-index-worker/package.json /worker-package.json
 RUN apk add --no-cache build-base sqlite-dev sqlite curl jq
 WORKDIR /build
 # Read the exact sqlite-vec pin straight out of the worker's install manifest.
