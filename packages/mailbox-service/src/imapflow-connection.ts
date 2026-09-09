@@ -1053,6 +1053,15 @@ export class ImapFlowConnection {
 		}
 
 		const result = await client.mailboxRename(oldPath, newPath);
+		// `mailboxRename` resolves `undefined` when the connection is not
+		// AUTHENTICATED or SELECTED — RENAME was never issued. Dereferencing it
+		// raised a `TypeError` where the settle now reads the resolved path, and a
+		// `TypeError` is not an outcome the rename settle can classify.
+		if (!result) {
+			throw new Error(
+				`Rename of "${oldPath}" was not issued: the IMAP connection is not ready`,
+			);
+		}
 		return {
 			path: result.path,
 			newPath: result.newPath,
@@ -1392,6 +1401,20 @@ const buildImapAuth = (
 };
 
 /**
+ * The server's own words for the failure: the text of the tagged NO/BAD, which
+ * imapflow hangs off the error as `responseText`. It is the server's side of
+ * the exchange only — never the command we sent, so no credential can ride out
+ * on it. "SmtpClientAuthentication is disabled" and "User is authenticated but
+ * not connected" arrive this way, and neither is fixed by re-authenticating, so
+ * dropping the text leaves the account card telling the user to do the one
+ * thing that cannot help.
+ */
+const serverResponseText = (error: Error): string => {
+	const text = (error as { responseText?: unknown }).responseText;
+	return typeof text === "string" ? text.trim() : "";
+};
+
+/**
  * Classify a raw IMAP error into a MailConnectionError, or return null if
  * the error is not recognisable (let it bubble as-is).
  *
@@ -1416,7 +1439,13 @@ const classifyImapError = (
 		msg.includes("AUTHENTICATE") ||
 		(error as { authenticationFailed?: boolean }).authenticationFailed === true
 	) {
-		return new MailConnectionError("auth", "IMAP authentication failed");
+		const serverText = serverResponseText(error);
+		return new MailConnectionError(
+			"auth",
+			serverText
+				? `IMAP authentication failed: ${serverText}`
+				: "IMAP authentication failed",
+		);
 	}
 
 	// Network-level failures — NEVER include the original message as it may

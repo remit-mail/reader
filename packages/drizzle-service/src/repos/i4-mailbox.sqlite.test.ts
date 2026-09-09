@@ -68,31 +68,39 @@ describe("MailboxRepo (sqlite)", () => {
 		assert.equal(reread.highestModseq, "9007199254740993");
 	});
 
-	test("renameChildPaths marks each child pending along with its new path (#290)", async () => {
-		// A renamed parent is set pending by the caller; its children's new paths
-		// are equally absent from the server until MAILBOX_RENAME lands, so they
-		// must be pending too — otherwise a reconcile in that window reaps the
-		// child as server-deleted.
+	test("a row written without a state reads back synced (D1)", async () => {
 		const accountId = randomUUID();
-		const parent = await repo.create({
-			...makeMailboxInput(accountId, "Work"),
-			syncStatus: MailboxSyncStatus.pending,
+		const created = await repo.create(
+			makeMailboxInput(accountId, "Discovered"),
+		);
+		assert.equal(created.syncStatus, MailboxSyncStatus.synced);
+		const fetched = await repo.get(accountId, created.mailboxId);
+		assert.equal(fetched.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	test("pendingPath round-trips and clears", async () => {
+		const accountId = randomUUID();
+		const created = await repo.create(makeMailboxInput(accountId, "Archive"));
+		assert.equal(created.pendingPath, undefined);
+
+		const claimed = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.synced],
+			to: MailboxSyncStatus.pending,
+			set: { pendingPath: "Records" },
 		});
-		const child = await repo.create({
-			...makeMailboxInput(accountId, "Work/sub"),
-			syncStatus: MailboxSyncStatus.synced,
+		assert.equal(claimed?.pendingPath, "Records");
+		assert.equal(
+			(await repo.get(accountId, created.mailboxId)).pendingPath,
+			"Records",
+		);
+
+		const settled = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.pending],
+			to: MailboxSyncStatus.synced,
+			set: { fullPath: "Records", pendingPath: null },
 		});
-
-		await repo.renameChildPaths(accountId, "Work", "Projects", "/");
-
-		const renamedChild = await repo.get(accountId, child.mailboxId);
-		assert.equal(renamedChild.fullPath, "Projects/sub");
-		assert.equal(renamedChild.syncStatus, MailboxSyncStatus.pending);
-
-		// The parent row is untouched by this call (its own path/status is the
-		// caller's job).
-		const parentRow = await repo.get(accountId, parent.mailboxId);
-		assert.equal(parentRow.fullPath, "Work");
+		assert.equal(settled?.pendingPath, undefined);
+		assert.equal(settled?.fullPath, "Records");
 	});
 });
 
@@ -115,6 +123,9 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		const sqlite = new Database(":memory:");
 		sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "mailbox"));
 		applyMigration(sqlite, "0002_highest_modseq_text");
+		applyMigration(sqlite, "0026_mailbox_sync_status_backfill");
+		applyMigration(sqlite, "0027_mailbox_sync_status_total");
+		applyMigration(sqlite, "0028_mailbox_pending_path");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {
@@ -155,6 +166,31 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 		const fetched = await repo.get(accountId, created.mailboxId);
 		assert.strictEqual(fetched.highestModseq, "900:149");
+	});
+
+	test("a row inserted without a state reads back synced", async () => {
+		const accountId = randomUUID();
+		const created = await repo.create(makeMailboxInput(accountId, "Notes"));
+		assert.equal(created.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	test("pendingPath round-trips and clears on the shipped shape", async () => {
+		const accountId = randomUUID();
+		const created = await repo.create(makeMailboxInput(accountId, "Receipts"));
+
+		const claimed = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.synced],
+			to: MailboxSyncStatus.pending,
+			set: { pendingPath: "Invoices" },
+		});
+		assert.equal(claimed?.pendingPath, "Invoices");
+
+		const cleared = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.pending],
+			to: MailboxSyncStatus.synced,
+			set: { pendingPath: null },
+		});
+		assert.equal(cleared?.pendingPath, undefined);
 	});
 
 	test("round-trips a cursor above 2^53 with its exact digits", async () => {

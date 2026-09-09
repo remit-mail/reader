@@ -3,7 +3,6 @@ import {
 	AlertOctagon,
 	Archive,
 	BellOff,
-	BookmarkPlus,
 	CalendarDays,
 	ChevronDown,
 	ChevronRight,
@@ -11,17 +10,17 @@ import {
 	Folder,
 	Inbox,
 	Mails,
-	Search,
+	PauseCircle,
 	Send,
 	Sparkles,
 	Star,
 	Trash2,
-	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { useRovingFocus } from "../lib/roving-focus.js";
+import { ACCOUNT_SERVICE_OFF_LABEL } from "./account-service-status.js";
 import type {
 	AppShellProps,
 	NavAccount,
@@ -231,104 +230,6 @@ export function writeOpen(prefix: string, id: string, open: boolean): void {
 export const NAV_FOLDER_OPEN_KEY = FOLDER_OPEN_KEY;
 export const NAV_ACCOUNT_OPEN_KEY = ACCOUNT_OPEN_KEY;
 
-/**
- * One row in the "Saved searches" group: a plain query string (local-only MVP
- * — no separate label, see doc/design/flows/06-search.md). Hover reveals a
- * remove control, mirroring `SearchTokenChip`'s dismiss affordance.
- */
-function SavedSearchRow({
-	query,
-	onSelect,
-	onRemove,
-}: {
-	query: string;
-	onSelect?: () => void;
-	onRemove?: () => void;
-}) {
-	return (
-		<div className="group flex w-full items-center gap-1 rounded-md pr-1 hover:bg-surface">
-			<button
-				type="button"
-				onClick={onSelect}
-				className={cn(
-					"flex min-w-0 flex-1 items-center gap-2 px-2 py-1 text-left text-sm text-fg-muted transition-colors hover:text-fg",
-					FOCUS_RING,
-				)}
-			>
-				<Search className="size-4 shrink-0 text-fg-subtle" />
-				<span className="min-w-0 flex-1 truncate">{query}</span>
-			</button>
-			{onRemove && (
-				<button
-					type="button"
-					onClick={onRemove}
-					aria-label={`Remove saved search: ${query}`}
-					className={cn(
-						"shrink-0 rounded-full p-1 text-fg-subtle opacity-0 transition-opacity hover:bg-surface-sunken hover:text-fg group-hover:opacity-100 focus-visible:opacity-100",
-						FOCUS_RING,
-					)}
-				>
-					<X className="size-3.5" />
-				</button>
-			)}
-		</div>
-	);
-}
-
-/**
- * The reserved "Saved searches" group (#428 follow-up): a "Save «query»" row
- * when the active search isn't saved yet, then every saved query as a
- * removable row. Renders nothing when there is neither an active query to
- * save nor any saved searches — an always-empty group would just be noise.
- */
-function SavedSearchesGroup({
-	savedSearches,
-	saveableQuery,
-	onSelectSavedSearch,
-	onRemoveSavedSearch,
-	onSaveCurrentSearch,
-}: {
-	savedSearches: string[];
-	saveableQuery?: string;
-	onSelectSavedSearch?: (query: string) => void;
-	onRemoveSavedSearch?: (query: string) => void;
-	onSaveCurrentSearch?: () => void;
-}) {
-	if (savedSearches.length === 0 && !saveableQuery) return null;
-	return (
-		<div className="mt-3">
-			<div className="px-2 pb-1 text-2xs font-semibold uppercase tracking-wider text-fg-subtle">
-				Saved searches
-			</div>
-			{saveableQuery && (
-				<button
-					type="button"
-					onClick={onSaveCurrentSearch}
-					className={cn(
-						"flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm text-accent transition-colors hover:bg-surface",
-						FOCUS_RING,
-					)}
-				>
-					<BookmarkPlus className="size-4 shrink-0" />
-					<span className="min-w-0 flex-1 truncate">
-						Save &ldquo;{saveableQuery}&rdquo;
-					</span>
-				</button>
-			)}
-			{savedSearches.map((query) => (
-				<SavedSearchRow
-					key={query}
-					query={query}
-					onSelect={() => onSelectSavedSearch?.(query)}
-					onRemove={
-						onRemoveSavedSearch ? () => onRemoveSavedSearch(query) : undefined
-					}
-				/>
-			))}
-		</div>
-	);
-}
-
 function AccountNav({
 	account,
 	selectedNavId,
@@ -375,6 +276,9 @@ function AccountNav({
 	const hiddenCount = folders.length - visibleFolders.length;
 
 	const status = account.status ?? "ready";
+	const mailOff =
+		account.syncedServices !== undefined &&
+		!account.syncedServices.includes("Mail");
 	const isEmpty =
 		status === "ready" && system.length === 0 && folders.length === 0;
 
@@ -402,6 +306,14 @@ function AccountNav({
 					<>
 						<BellOff className="size-3 shrink-0 text-fg-subtle" />
 						<span className="text-2xs text-fg-subtle">muted</span>
+					</>
+				)}
+				{mailOff && (
+					<>
+						<PauseCircle className="size-3 shrink-0 text-fg-subtle" />
+						<span className="text-2xs text-fg-subtle">
+							{ACCOUNT_SERVICE_OFF_LABEL.Mail}
+						</span>
 					</>
 				)}
 			</button>
@@ -560,21 +472,11 @@ export interface NavSidebarProps
 	 */
 	linkComponent?: NavLinkComponent;
 	/**
-	 * Whether the calendar destination sits under the daily brief. It is
-	 * "hidden" until the app has a route behind it — the prototype turns it on,
-	 * the shipping nav does not offer an entry that leads nowhere.
+	 * Whether the calendar destination sits under the daily brief. Hidden by
+	 * default so a host with no calendar route behind it does not offer an entry
+	 * that leads nowhere.
 	 */
 	calendarNav?: "hidden" | "shown";
-	/** Every saved query, most recently saved first. See `SavedSearchesGroup`. */
-	savedSearches?: string[];
-	/**
-	 * The active search query, when it's non-empty and not already saved — shows
-	 * the "Save «query»" row. Omit (or pass an already-saved query) to hide it.
-	 */
-	saveableQuery?: string;
-	onSelectSavedSearch?: (query: string) => void;
-	onRemoveSavedSearch?: (query: string) => void;
-	onSaveCurrentSearch?: () => void;
 }
 
 export function NavSidebar({
@@ -585,11 +487,6 @@ export function NavSidebar({
 	variant = "desktop",
 	linkComponent,
 	calendarNav = "hidden",
-	savedSearches = [],
-	saveableQuery,
-	onSelectSavedSearch,
-	onRemoveSavedSearch,
-	onSaveCurrentSearch,
 }: NavSidebarProps) {
 	const containerRef = useRef<HTMLElement>(null);
 	useRovingFocus({ containerRef, itemSelector: NAV_ITEM_SELECTOR });
@@ -632,14 +529,6 @@ export function NavSidebar({
 				ariaLabel="Starred"
 				active={selectedNavId === "flagged"}
 				onClick={() => onSelectNav?.("flagged")}
-			/>
-
-			<SavedSearchesGroup
-				savedSearches={savedSearches}
-				saveableQuery={saveableQuery}
-				onSelectSavedSearch={onSelectSavedSearch}
-				onRemoveSavedSearch={onRemoveSavedSearch}
-				onSaveCurrentSearch={onSaveCurrentSearch}
 			/>
 
 			{accounts.length === 0 ? (

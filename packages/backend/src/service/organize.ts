@@ -5,20 +5,17 @@ import type {
 	IFilterAnchorRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { FilterClauseField, FilterState } from "@remit/domain-enums";
+import { FilterClauseField } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
-	type AnchorEmbedder,
-	buildMatchText,
-	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
+	type LiteralClauseNarrowing,
 	literalClausesMatch,
+	literalClauseTerms,
 	NO_ACTION,
 	PlacementMoveService,
 	refreshAnchorForEmbedder,
-	selectMoveWinner,
 } from "@remit/mailbox-service";
 import {
 	type AnchorPayload,
@@ -39,8 +36,10 @@ import {
 /**
  * Hard cap on both the previewed and the applied set. A back-apply is a
  * data-heavy corpus pass (remit-data-heavy: frugal): the semantic side is
- * bounded by the vector query's `topK`, the literal-only side by a paginated
- * message scan, and the final match set never exceeds this.
+ * bounded by the vector query's `topK`, the literal-only side by counting
+ * MATCHES as it pages a store-side narrowed listing, and the final match set
+ * never exceeds this. It bounds the answer, never the corpus the question is
+ * asked of (#459).
  */
 export const ORGANIZE_MATCH_LIMIT = 500;
 
@@ -96,12 +95,11 @@ export interface OrganizeSemanticDeps {
 	) => Promise<AnchorPayload | null>;
 	vectorStore: Pick<VectorStoreService, "query" | "getByMessage">;
 	/**
-	 * Embed one candidate message's text — used only by the cross-filter
-	 * precedence check ({@link findCurrentMoveWinner}) to compare a message
-	 * against a *different* Active filter's persisted anchor, the same
-	 * comparison `FilterPipeline.filterMatches` runs at index time. Never
-	 * called by the anchor widen itself, which only ever runs a vector-store
-	 * kNN read (see `semantic-capability.ts`).
+	 * Embed one text — the `AnchorEmbedder` half of these deps, used to
+	 * re-embed a drifted persisted anchor in place ({@link
+	 * refreshAnchorForEmbedder}). Never called by the anchor widen itself,
+	 * which only ever runs a vector-store kNN read (see
+	 * `semantic-capability.ts`).
 	 */
 	embed: (text: string) => Promise<number[]>;
 	/**
@@ -123,6 +121,22 @@ export interface OrganizeCandidate {
 	message: FilterMessage;
 }
 
+/**
+ * One page of the narrowed corpus, cursored exactly as the underlying listing
+ * is: an absent `continuationToken` means the store has no more rows matching
+ * the terms, never that a read window ran out.
+ */
+export interface OrganizeCandidatePage {
+	items: OrganizeCandidate[];
+	continuationToken?: string;
+}
+
+/** What to ask the store for, and where to resume. */
+export interface OrganizeCandidateQuery extends LiteralClauseNarrowing {
+	limit: number;
+	continuationToken?: string;
+}
+
 export interface OrganizeMatchDeps {
 	/**
 	 * Build the semantic side on demand. Invoked only for an anchored predicate,
@@ -132,13 +146,16 @@ export interface OrganizeMatchDeps {
 	 */
 	semantic: () => OrganizeSemanticDeps;
 	/**
-	 * The account's messages as literal-match candidates, bounded and vector-free
-	 * — the corpus slice a purely-literal (or degraded) pass scans.
+	 * One page of the account's messages as literal-match candidates,
+	 * vector-free, with the clause terms evaluated by the store — the corpus a
+	 * purely-literal (or degraded) pass reads. Paged rather than capped, so the
+	 * caller's bound falls on matches instead of on how far back the read
+	 * reached (#459).
 	 */
 	listAccountFilterMessages: (
 		accountConfigId: string,
-		limit: number,
-	) => Promise<OrganizeCandidate[]>;
+		query: OrganizeCandidateQuery,
+	) => Promise<OrganizeCandidatePage>;
 	/**
 	 * Every persisted FilterAnchor for the account — read-only, always
 	 * available (never gated behind {@link semantic}, since it never touches
@@ -154,11 +171,41 @@ export interface OrganizeMatchDeps {
 	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig" | "put">;
 }
 
-/** The matched ids plus whether the semantic widen was skipped as unavailable. */
-export interface OrganizeMatchResult {
+/**
+ * Why the matcher refused a predicate. A refusal is an expected outcome of
+ * asking for a rule this deployment cannot evaluate, not a fault: the HTTP
+ * boundary words it as a 400 and the back-apply worker fails the job row on it,
+ * neither of which may treat it as the infrastructure failure a throw would
+ * make it (reader #463).
+ */
+export interface OrganizeRejection {
+	reason: "BodyContentWithoutVectorPipeline";
+	message: string;
+}
+
+/** The matched ids plus what the semantic side had to say about the zero it may have returned. */
+export interface OrganizeMatched {
+	rejected: null;
 	messageIds: string[];
 	semanticUnavailable: boolean;
+	/**
+	 * The widen ran and the index had nothing to answer with (issue #452): the
+	 * account holds no vectors at all, or none yet for the anchor message. It is
+	 * the difference between "this rule matches nothing" and "nothing is indexed
+	 * yet", which a bare zero collapses into one wrong sentence. Distinct from
+	 * {@link OrganizeMatched.semanticUnavailable}, which is the deployment
+	 * shipping no vector pipeline at all; an empty index is not an error, so it
+	 * cannot be inferred from a throw.
+	 */
+	semanticIndexEmpty: boolean;
 }
+
+/** The predicate was refused: nothing matched, and nothing may be applied. */
+export interface OrganizeMatchRejected {
+	rejected: OrganizeRejection;
+}
+
+export type OrganizeMatchResult = OrganizeMatched | OrganizeMatchRejected;
 
 const hasAnchor = (predicate: OrganizePredicate): boolean =>
 	predicate.anchorMessageId !== NO_ACTION && predicate.anchorMessageId !== "";
@@ -270,16 +317,21 @@ const anchorForWiden = async (
  * Fan out with a k-NN query gated on the cosine threshold, then refine by
  * literal clauses reconstructed from the same chunk vectors. Every read here
  * goes through the vector store; a deployment without the vector pipeline
- * fails on the first call, which {@link matchOrganize} catches. Returns null
- * when neither a persisted anchor nor the message's own chunk vectors exist
- * to pool.
+ * fails on the first call, which {@link matchOrganize} catches.
+ *
+ * `indexEmpty` separates the two ways this arm returns nothing (issue #452):
+ * neither a persisted anchor nor the anchor message's own chunk vectors exist
+ * to pool from, or the k-NN read came back with no rows at all for the account.
+ * Both mean the index has nothing to answer with — it is empty or still
+ * building — rather than that no mail resembles the anchor. A thresholded-away
+ * result set is a real answer and is not flagged.
  */
 const matchSemantic = async (
 	deps: OrganizeMatchDeps,
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
-): Promise<string[] | null> => {
+): Promise<{ messageIds: string[]; indexEmpty: boolean }> => {
 	const semantic = deps.semantic();
 	const persisted = await findPersistedAnchor(
 		deps.filterAnchors,
@@ -289,7 +341,7 @@ const matchSemantic = async (
 	const anchor: AnchorPayload | null = persisted
 		? await anchorForWiden(deps, semantic, persisted)
 		: await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId);
-	if (!anchor) return null;
+	if (!anchor) return { messageIds: [], indexEmpty: true };
 	const threshold =
 		predicate.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
 	const matches = await semantic.vectorStore.query({
@@ -297,6 +349,7 @@ const matchSemantic = async (
 		topK: limit * VECTOR_CHUNK_FACTOR,
 		filter: { accountConfigId },
 	});
+	if (matches.length === 0) return { messageIds: [], indexEmpty: true };
 	const bestScore = new Map<string, number>();
 	for (const match of matches) {
 		const messageId = match.metadata.messageId;
@@ -310,7 +363,8 @@ const matchSemantic = async (
 		.map(([messageId]) => messageId);
 
 	const clauses = predicate.literalClauses;
-	if (clauses.length === 0) return base.slice(0, limit);
+	if (clauses.length === 0)
+		return { messageIds: base.slice(0, limit), indexEmpty: false };
 
 	const matched: string[] = [];
 	for (const messageId of base) {
@@ -322,7 +376,7 @@ const matchSemantic = async (
 			matched.push(messageId);
 		}
 	}
-	return matched;
+	return { messageIds: matched, indexEmpty: false };
 };
 
 /**
@@ -334,26 +388,48 @@ const matchSemantic = async (
  * happened to be indexed. Body-content matching therefore requires the widen
  * (vector) path — {@link matchSemantic} reconstructs body text from chunk
  * previews there. This guard keeps the two matchers from diverging silently: a
- * body-content clause reaching the vector-free path is rejected instead of
+ * body-content clause reaching the vector-free path is refused instead of
  * returning a wrong set.
  */
-const assertNoBodyContentClause = (
+export const BODY_CONTENT_REJECTION_MESSAGE =
+	"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path";
+
+const bodyContentRejection = (
 	clauses: OrganizePredicate["literalClauses"],
-): void => {
-	if (clauses.some((clause) => clause.field === FilterClauseField.HasWords)) {
-		throw new BadRequestError(
-			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
-		);
-	}
-};
+): OrganizeRejection | null =>
+	clauses.some((clause) => clause.field === FilterClauseField.HasWords)
+		? {
+				reason: "BodyContentWithoutVectorPipeline",
+				message: BODY_CONTENT_REJECTION_MESSAGE,
+			}
+		: null;
 
 /**
- * The literal-only arm: scan a bounded, vector-free slice of the corpus and keep
- * the messages whose literal clauses match. Used both for a purely-literal
+ * The refusal a predicate carries on its own, decidable without reading the
+ * corpus: an anchorless predicate can only ever take the vector-free literal
+ * path, so a body-content clause on it is refused up front. `createOrganizeJob`
+ * runs this before enqueueing and {@link matchOrganize} runs it on the
+ * anchorless arm, so preview, the worker and the request boundary all refuse the
+ * same rule (reader #463).
+ */
+export const organizePredicateRejection = (
+	predicate: OrganizePredicate,
+): OrganizeRejection | null =>
+	hasAnchor(predicate) ? null : bodyContentRejection(predicate.literalClauses);
+
+/**
+ * The literal-only arm: the store selects on the clause terms, this refines
+ * what it returned and stops at `limit` MATCHES. Used both for a purely-literal
  * predicate and as the degraded fallback when a widen is requested on a
  * deployment without the vector pipeline. Serves `From`/`Subject` clauses at
  * full fidelity from the core thread rows; body-content (`HasWords`) clauses are
- * rejected up front (see {@link assertNoBodyContentClause}).
+ * refused before this runs (see {@link bodyContentRejection}).
+ *
+ * The terms are a narrowing, not the verdict ({@link literalClauseTerms}), so
+ * every page is still run through {@link literalClausesMatch} — and paging
+ * continues until the cap fills or the store runs out, which is what makes the
+ * bound a bound on results rather than on the newest `limit` rows (#459).
+ * Deduped by message id: the same mail filed in two folders is one match.
  */
 const matchLiteral = async (
 	deps: OrganizeMatchDeps,
@@ -362,21 +438,29 @@ const matchLiteral = async (
 	limit: number,
 ): Promise<string[]> => {
 	const clauses = predicate.literalClauses;
-	assertNoBodyContentClause(clauses);
-	const candidates = await deps.listAccountFilterMessages(
-		accountConfigId,
-		limit,
-	);
-	if (clauses.length === 0) {
-		return candidates.slice(0, limit).map((c) => c.messageId);
-	}
+	const narrowing = literalClauseTerms(clauses, predicate.matchOperator);
+	if (!narrowing) return [];
+
 	const matched: string[] = [];
-	for (const { messageId, message } of candidates) {
-		if (matched.length >= limit) break;
-		if (literalClausesMatch(clauses, predicate.matchOperator, message)) {
+	const seen = new Set<string>();
+	let continuationToken: string | undefined;
+	do {
+		const page = await deps.listAccountFilterMessages(accountConfigId, {
+			...narrowing,
+			limit,
+			continuationToken,
+		});
+		for (const { messageId, message } of page.items) {
+			if (seen.has(messageId)) continue;
+			seen.add(messageId);
+			if (!literalClausesMatch(clauses, predicate.matchOperator, message)) {
+				continue;
+			}
 			matched.push(messageId);
+			if (matched.length >= limit) return matched;
 		}
-	}
+		continuationToken = page.continuationToken;
+	} while (continuationToken);
 	return matched;
 };
 
@@ -395,6 +479,9 @@ const matchLiteral = async (
  *   capability-absence is absorbed exactly as `/search/semantic` absorbs it:
  *   the literal matches are returned (empty for an anchor-only predicate) with
  *   `semanticUnavailable` set, never a 500. Any other failure propagates.
+ * - A predicate the vector-free path cannot evaluate (a body-content clause,
+ *   see {@link bodyContentRejection}) comes back as a rejection, so a caller
+ *   can tell a refused rule from a broken deployment (reader #463).
  */
 export const matchOrganize = async (
 	deps: OrganizeMatchDeps,
@@ -405,42 +492,71 @@ export const matchOrganize = async (
 	const anchored = hasAnchor(predicate);
 	const clauses = predicate.literalClauses;
 	if (!anchored && clauses.length === 0) {
-		return { messageIds: [], semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds: [],
+			semanticUnavailable: false,
+			semanticIndexEmpty: false,
+		};
 	}
 
 	if (!anchored) {
+		const rejection = organizePredicateRejection(predicate);
+		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
 		);
-		return { messageIds, semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds,
+			semanticUnavailable: false,
+			semanticIndexEmpty: false,
+		};
 	}
 
 	try {
-		const semanticIds = await matchSemantic(
+		const semantic = await matchSemantic(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
 		);
-		return { messageIds: semanticIds ?? [], semanticUnavailable: false };
+		return {
+			rejected: null,
+			messageIds: semantic.messageIds,
+			semanticUnavailable: false,
+			semanticIndexEmpty: semantic.indexEmpty,
+		};
 	} catch (error) {
 		if (!noteSemanticCapabilityAbsence(error)) throw error;
 		// The widen cannot run on this deployment. Fall back to the literal
 		// clauses over the corpus — nothing when the predicate is anchor-only —
 		// and flag the absence so the client can say so.
 		if (clauses.length === 0) {
-			return { messageIds: [], semanticUnavailable: true };
+			return {
+				rejected: null,
+				messageIds: [],
+				semanticUnavailable: true,
+				semanticIndexEmpty: false,
+			};
 		}
+		const rejection = bodyContentRejection(clauses);
+		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
 		);
-		return { messageIds, semanticUnavailable: true };
+		return {
+			rejected: null,
+			messageIds,
+			semanticUnavailable: true,
+			semanticIndexEmpty: false,
+		};
 	}
 };
 
@@ -468,11 +584,10 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
 };
 
 /**
- * A bounded, vector-free corpus slice for a literal back-apply: the account's
- * messages projected onto the literal-match fields, gathered newest-first across
- * every mailbox and capped. Reads the core thread rows, so it runs on a
- * deployment that ships no vector pipeline. Deduped by message id — the same
- * mail filed in two folders is one candidate.
+ * The vector-free corpus read for a literal back-apply: one page of the
+ * account's messages, newest-first across every mailbox, with the clause terms
+ * evaluated in the query. Reads the core thread rows, so it runs on a
+ * deployment that ships no vector pipeline.
  *
  * `From`/`Subject`/`listId` come from the row verbatim (full fidelity), so a
  * `From`, `Subject`, `FromDomain` or `ListId` clause matches here exactly as it
@@ -480,39 +595,35 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
  * only a truncated `snippet`, and matching
  * a body-content clause against a preview would silently diverge from the live
  * index-time filter's full-body match. Body-content (`HasWords`) clauses are
- * rejected before this is read (see {@link assertNoBodyContentClause}), so the
+ * rejected before this is read (see {@link bodyContentRejection}), so the
  * empty `text` is never matched against.
  */
 const listAccountFilterMessagesFromClient =
 	(client: RemitClient): OrganizeMatchDeps["listAccountFilterMessages"] =>
-	async (accountConfigId, limit) => {
-		const candidates: OrganizeCandidate[] = [];
-		const seen = new Set<string>();
-		let continuationToken: string | undefined;
-		do {
-			const page = await client.threadMessage.listByDate(accountConfigId, {
-				limit,
-				continuationToken,
+	async (accountConfigId, query) => {
+		const page = await client.threadMessage.listByFieldTerms(
+			accountConfigId,
+			query.terms,
+			{
+				operator: query.operator,
+				limit: query.limit,
+				continuationToken: query.continuationToken,
 				excludeDeleted: true,
-			});
-			for (const row of page.items) {
-				if (seen.has(row.messageId)) continue;
-				seen.add(row.messageId);
-				candidates.push({
-					messageId: row.messageId,
-					message: {
-						from: row.fromEmail ?? "",
-						fromName: row.fromName ?? "",
-						subject: row.subject ?? "",
-						text: "",
-						listId: row.listId ?? "",
-					},
-				});
-				if (candidates.length >= limit) return candidates;
-			}
-			continuationToken = page.continuationToken;
-		} while (continuationToken);
-		return candidates;
+			},
+		);
+		return {
+			items: page.items.map((row) => ({
+				messageId: row.messageId,
+				message: {
+					from: row.fromEmail ?? "",
+					fromName: row.fromName ?? "",
+					subject: row.subject ?? "",
+					text: "",
+					listId: row.listId ?? "",
+				},
+			})),
+			continuationToken: page.continuationToken,
+		};
 	};
 
 /**
@@ -548,6 +659,7 @@ export const buildOrganizeMoveService = (
 		threadMessageService: client.threadMessage,
 		markerService: client.placementMove,
 		addressService: client.address,
+		mailboxSpecialUseService: client.mailboxSpecialUse,
 		sqsQueueUrl: queueUrl,
 	});
 };
@@ -555,194 +667,12 @@ export const buildOrganizeMoveService = (
 export interface ApplyOrganizeDeps {
 	client: RemitClient;
 	moveService?: PlacementMoveService;
-	/**
-	 * The same matcher deps {@link matchOrganize} uses — reused here only for
-	 * their vector-store/embedder access, to compare a candidate message
-	 * against a *different* filter's persisted anchor when checking exclusive-
-	 * move precedence (RFC 039 Decision 2, reader #350).
-	 */
-	match: OrganizeMatchDeps;
 }
 
 export interface ApplyOrganizeResult {
 	applied: number;
 	failed: number;
 }
-
-/**
- * The vector-free literal-match projection of one already-stored message,
- * read from its ThreadMessage row — the same fields and the same fidelity
- * tradeoff {@link listAccountFilterMessagesFromClient} accepts for the
- * back-apply predicate's own literal clauses (full-fidelity From/Subject/
- * ListId, empty body text, so a `HasWords` clause on a *different* filter
- * cannot be proven to currently match here). `undefined` when the message no
- * longer exists.
- */
-const findFilterMessageForPrecedence = async (
-	client: Pick<RemitClient, "threadMessage">,
-	accountConfigId: string,
-	messageId: string,
-): Promise<FilterMessage | undefined> => {
-	const row = await client.threadMessage
-		.get(accountConfigId, messageId)
-		.catch((error: unknown) => {
-			if (error instanceof NotFoundError) return undefined;
-			throw error;
-		});
-	if (!row) return undefined;
-	return {
-		from: row.fromEmail ?? "",
-		fromName: row.fromName ?? "",
-		subject: row.subject ?? "",
-		text: "",
-		listId: row.listId ?? "",
-	};
-};
-
-/**
- * Whether one *other* Active filter with a move action currently matches this
- * message — mirrors `FilterPipeline.filterMatches` (mailbox-service
- * filters/pipeline.ts) exactly: literal clauses first, then, for a filter
- * with a semantic anchor, its own persisted `FilterAnchor` — re-embedded in
- * place through the same {@link refreshAnchorForEmbedder} the pipeline calls
- * when the model has drifted since the anchor was written — compared against
- * the candidate's embedding. A stale/incompatible anchor on the *other*
- * filter is isolated to that filter (skipped, not thrown) — the same
- * resilience `filterMatches` gives index-time matching, so one bad anchor,
- * or one anchor that cannot be re-embedded, never breaks this back-apply's
- * move.
- */
-const filterCurrentlyMatches = async (
-	filterAnchorService: Pick<IFilterAnchorRepository, "get" | "put">,
-	embedder: () => AnchorEmbedder,
-	accountConfigId: string,
-	filter: FilterItem,
-	msg: FilterMessage,
-	embed: () => Promise<number[] | null>,
-): Promise<boolean> => {
-	if (!literalClausesMatch(filter.literalClauses, filter.matchOperator, msg)) {
-		return false;
-	}
-	if (!filter.hasAnchor) {
-		return filter.literalClauses.length > 0;
-	}
-	const stored = await filterAnchorService.get(
-		accountConfigId,
-		filter.filterId,
-	);
-	if (!stored) return false;
-	const vector = await embed();
-	if (!vector) return false;
-	const repairAnchor = async (): Promise<FilterAnchorItem> =>
-		refreshAnchorForEmbedder(
-			{ anchorRepository: filterAnchorService, embedder: embedder() },
-			stored,
-		);
-	return repairAnchor()
-		.then(
-			(anchor) =>
-				cosineSimilarity(vector, anchor.anchorEmbedding) >=
-				DEFAULT_SEMANTIC_MATCH_THRESHOLD,
-		)
-		.catch((error: unknown) => {
-			logger.error(
-				{
-					alert: "filter_anchor_match_failed",
-					filterId: filter.filterId,
-					accountConfigId,
-					errorName: (error as { name?: string })?.name,
-					error: inspect(error),
-				},
-				"Filter anchor comparison failed during back-apply precedence; skipping this filter, the rest still arbitrate (bad/stale anchor vector or a failed repair, non-fatal)",
-			);
-			return false;
-		});
-};
-
-/**
- * The filter that currently wins this message's exclusive move, evaluated
- * fresh against every Active filter with a move action — the same
- * cross-filter arbitration index-time matching runs
- * (`FilterPipeline`/`selectMoveWinner`), never the back-apply job's own
- * snapshotted predicate (RFC 039 Decision 2, reader #350). This is what lets
- * back-apply defer to a filter created or edited *after* the job was
- * requested. `movers` is fetched once per {@link applyOrganize} call, not
- * once per message — a back-apply pass runs in one short burst, so the
- * account's Active filter set does not need re-reading per message.
- *
- * Returns `undefined` — meaning "nothing else contests this move" — whenever
- * there are no other Active mover filters, or the message's own projection
- * cannot be built (deleted between match and apply). Both are the common
- * case and the safe default: proceed with the requested move exactly as
- * before this check existed.
- */
-const findCurrentMoveWinner = async (
-	deps: {
-		client: Pick<RemitClient, "threadMessage" | "filterAnchor">;
-		match: OrganizeMatchDeps;
-	},
-	movers: readonly FilterItem[],
-	accountConfigId: string,
-	messageId: string,
-): Promise<FilterItem | undefined> => {
-	if (movers.length === 0) return undefined;
-	const msg = await findFilterMessageForPrecedence(
-		deps.client,
-		accountConfigId,
-		messageId,
-	);
-	if (!msg) return undefined;
-
-	let messageEmbedding: number[] | null | undefined;
-	const embed = async (): Promise<number[] | null> => {
-		if (messageEmbedding !== undefined) return messageEmbedding;
-		try {
-			messageEmbedding = await deps.match.semantic().embed(buildMatchText(msg));
-		} catch (error) {
-			if (!noteSemanticCapabilityAbsence(error)) throw error;
-			messageEmbedding = null;
-		}
-		return messageEmbedding;
-	};
-
-	const matched: FilterItem[] = [];
-	for (const filter of movers) {
-		const isMatch = await filterCurrentlyMatches(
-			deps.client.filterAnchor,
-			() => deps.match.semantic(),
-			accountConfigId,
-			filter,
-			msg,
-			embed,
-		);
-		if (isMatch) matched.push(filter);
-	}
-	return selectMoveWinner(matched);
-};
-
-/**
- * Every currently-Active filter with a move action, its lazy Temporary-expiry
- * check already applied — the fixed candidate set {@link findCurrentMoveWinner}
- * arbitrates against for every message in this pass. Empty (and read exactly
- * once) when no move action was requested, so a label-only back-apply never
- * pays for this at all.
- */
-const listCurrentMovers = async (
-	client: Pick<RemitClient, "filter">,
-	accountConfigId: string,
-): Promise<FilterItem[]> => {
-	const active = await client.filter.listByAccountAndState(
-		accountConfigId,
-		FilterState.Active,
-	);
-	const movers: FilterItem[] = [];
-	for (const filter of active) {
-		if (filter.actionMailboxId === NO_ACTION) continue;
-		const usable = await client.filter.refreshExpiry(filter);
-		if (usable.state === FilterState.Active) movers.push(usable);
-	}
-	return movers;
-};
 
 /**
  * Apply the back-apply action to every matched message, reusing the index-time
@@ -752,12 +682,13 @@ const listCurrentMovers = async (
  * folder move (exclusive). One poisoned message never fails the batch; it is
  * counted as failed and the pass continues.
  *
- * Before an exclusive move, resolves whether a *different* Active filter
- * currently wins that message (RFC 039 Decision 2, reader #350): if so, the
- * move is skipped for that message — the label action above, if requested,
- * still applies, since labels are additive and always safe. A message with no
- * contesting filter, or whose own back-applied filter is still the current
- * winner, moves exactly as before this check existed.
+ * Every requested move happens. A standing filter acts at exactly two moments —
+ * when a message is first seen, and when the user presses "run rules now" — and
+ * holds no claim on that message afterwards, so it never arbitrates against a
+ * later user-initiated apply (reader #497). Cross-filter precedence stays where
+ * two filters collide over the same message at the same trigger
+ * (`FilterPipeline`/`selectMoveWinner`), and `applied` therefore counts moves
+ * that actually happened.
  */
 export const applyOrganize = async (
 	deps: ApplyOrganizeDeps,
@@ -765,15 +696,11 @@ export const applyOrganize = async (
 	messageIds: readonly string[],
 	predicate: OrganizePredicate,
 ): Promise<ApplyOrganizeResult> => {
-	const { client, moveService, match } = deps;
+	const { client, moveService } = deps;
 	const applyLabel =
 		predicate.actionLabelId !== NO_ACTION && predicate.actionLabelId !== "";
 	const applyMove =
 		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
-
-	const movers = applyMove
-		? await listCurrentMovers(client, accountConfigId)
-		: [];
 
 	const applyToMessage = async (messageId: string): Promise<void> => {
 		if (applyLabel) {
@@ -784,18 +711,6 @@ export const applyOrganize = async (
 			});
 		}
 		if (applyMove) {
-			const winner = await findCurrentMoveWinner(
-				{ client, match },
-				movers,
-				accountConfigId,
-				messageId,
-			);
-			if (winner && winner.actionMailboxId !== predicate.actionMailboxId) {
-				// A more-recently-changed filter currently claims this message's
-				// move (RFC 034 Decision 3.2) — defer to it. The label above, if
-				// requested, has already applied; only the move is suppressed.
-				return;
-			}
 			if (!moveService) {
 				// An exclusive move was requested but this caller wired no move
 				// service. Never silently pretend it applied — surface it as a

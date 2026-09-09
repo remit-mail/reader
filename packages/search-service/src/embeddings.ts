@@ -164,6 +164,15 @@ export class LocalEmbeddingService implements EmbeddingService {
 		try {
 			return await pipeline("feature-extraction", this.modelId, {
 				dtype: this.dtype,
+				// onnxruntime's CPU arena is a high-water mark: it sizes itself to the
+				// largest batch the session has ever run and never returns that memory
+				// to the OS. On a shared 4 GB box that makes one wide batch permanent
+				// resident memory, so the search-index worker's throttle (#585) could
+				// only ever stop the growth, never walk it back. Off, allocations go
+				// through the ordinary allocator and freed tensors are actually
+				// released; the cost is per-inference malloc traffic, which is noise
+				// next to the model's own work.
+				session_options: { enableCpuMemArena: false },
 			});
 		} catch (error) {
 			throw new EmbeddingModelUnavailableError(this.modelId, { cause: error });
@@ -177,10 +186,69 @@ export class LocalEmbeddingService implements EmbeddingService {
 			pooling: "mean",
 			normalize: true,
 		});
-		return tensor.tolist() as number[][];
+		try {
+			return tensor.tolist() as number[][];
+		} finally {
+			// The pooled, normalized output — one vector per text, not the
+			// per-token hidden states, which the pipeline drops itself. Small per
+			// call, and its buffer is a native allocation outside the V8 heap
+			// (#585), so it is released here rather than whenever GC gets to a JS
+			// wrapper that looks cheap. `tolist` has already copied what the caller
+			// needs. The arena setting above is what bounds the large allocations.
+			tensor.dispose();
+		}
 	};
 }
 
 export const createLocalEmbeddingService = (
 	config?: LocalEmbeddingConfig,
 ): EmbeddingService => new LocalEmbeddingService(config);
+
+/**
+ * Semantic search is off on this instance (`SEARCH_EMBEDDING_PROVIDER=off`).
+ *
+ * It carries the same `code` a missing model raises, because it is the same
+ * capability absence from every caller's point of view: the backend's semantic
+ * paths classify it through `noteSemanticCapabilityAbsence` and take the route
+ * they already have for a deployment that cannot embed
+ * (packages/backend/src/service/semantic-capability.ts). Returning empty
+ * results from the embedder instead would report an unavailable pipeline as a
+ * search that found nothing.
+ */
+export class EmbeddingDisabledError extends Error {
+	readonly code = "ERR_EMBEDDING_MODEL_UNAVAILABLE";
+	constructor() {
+		super(
+			"Semantic search is off on this instance (SEARCH_EMBEDDING_PROVIDER=off)",
+		);
+		this.name = "EmbeddingDisabledError";
+	}
+}
+
+/**
+ * The embedder for `SEARCH_EMBEDDING_PROVIDER=off`: nothing is embedded, and
+ * the first caller that asks gets the typed absence above.
+ *
+ * It still reports a dimension count, because the vector store's column is
+ * created from it (`buildVectorStoreFromEnv`) and the stored vectors outlive
+ * the setting — turning semantic search off keeps `vec.db` as it is, and
+ * turning it back on must find the same 384-wide column rather than a store
+ * that disagrees with the embedder.
+ */
+export class DisabledEmbeddingService implements EmbeddingService {
+	readonly dimensions: number;
+	readonly embeddingId: string;
+
+	constructor(dimensions: number = DEFAULT_LOCAL_DIMENSIONS) {
+		this.dimensions = dimensions;
+		this.embeddingId = `off@${this.dimensions}`;
+	}
+
+	embed = async (): Promise<number[][]> => {
+		throw new EmbeddingDisabledError();
+	};
+}
+
+export const createDisabledEmbeddingService = (
+	dimensions?: number,
+): EmbeddingService => new DisabledEmbeddingService(dimensions);

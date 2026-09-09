@@ -13,12 +13,13 @@ import type {
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
 import { type Logger, recordImapFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,
-	isMailboxNotOnServer,
+	isMailboxMutationInFlight,
 	MailConnectionError,
 	type MailCredentials,
 	MessageSyncService,
@@ -33,7 +34,6 @@ import type {
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -133,17 +133,23 @@ export const syncMessages = async (
 		return;
 	}
 
-	// A SYNC_MESSAGES trigger can address a folder the server does not hold: the
-	// fan-out enqueues one for a folder whose own create has not landed yet, and
-	// a `hasMore` next-batch or a periodic tick outlives a folder the user
-	// deleted. Such an event can never succeed on retry, and the account's
-	// per-group FIFO ordering lets that one poison message stall the
-	// whole account's message pipeline for the full visibility window (issue
-	// #287, #339). A folder the server does not hold — not yet created, or being
-	// deleted — is an expected terminal outcome, not an infra failure: ack the
-	// event with a WARN.
+	// A SYNC_MESSAGES trigger can address a folder a mutation still owns: the
+	// fan-out enqueues one for a folder whose own create has not landed yet, a
+	// `hasMore` next-batch or a periodic tick outlives a folder the user
+	// deleted, and a rename in flight leaves the folder on the server but under
+	// the worker that is moving it. Such an event can never succeed on retry,
+	// and the account's per-group FIFO ordering lets that one poison message
+	// stall the whole account's message pipeline for the full visibility window
+	// (issue #287, #339). A folder with a create, rename or delete outstanding
+	// is an expected terminal outcome, not an infra failure: ack the event with
+	// a WARN. The rename case is conservative rather than necessary — syncing it
+	// would be safe — and keeps the guard a single expression (D12).
 	if (
-		await isMailboxNotOnServer(mailboxService, event.accountId, event.mailboxId)
+		await isMailboxMutationInFlight(
+			mailboxService,
+			event.accountId,
+			event.mailboxId,
+		)
 	) {
 		log.warn(
 			{
@@ -152,7 +158,7 @@ export const syncMessages = async (
 				eventId: event.eventId,
 				event: event.type,
 			},
-			"Skipping SYNC_MESSAGES: the server does not hold this folder",
+			"Skipping SYNC_MESSAGES: a folder mutation is in flight",
 		);
 		return;
 	}
@@ -214,7 +220,7 @@ export const syncMessages = async (
 						// never become the failure that is reported. A read that cannot answer
 						// leaves the round on the loud path below, with the real error and the
 						// state write that goes with it intact.
-						const folderIsGone = await isMailboxNotOnServer(
+						const folderIsGone = await isMailboxMutationInFlight(
 							mailboxService,
 							event.accountId,
 							event.mailboxId,

@@ -2,9 +2,6 @@ import type {
 	AppointFolderRoleInput,
 	CanonicalMailboxRole,
 } from "@remit/api-openapi-types";
-import type { MailboxItem } from "@remit/data-ports";
-import { MailboxNotSettledError } from "@remit/data-ports/errors";
-import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
@@ -17,31 +14,7 @@ import {
 	resolveAccountFolderAppointments,
 	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
-import { assertMailboxInAccount } from "./mailbox.js";
-
-/** Mailbox states in which the mail server has not settled the folder yet. */
-const UNSETTLED: ReadonlySet<string> = new Set([
-	MailboxSyncStatus.pending,
-	MailboxSyncStatus.deleting,
-]);
-
-/**
- * Appointing a role to a folder the mail server is still creating or deleting
- * would bind the account's Trash to a folder that may never exist (D16 item 3,
- * imap-mutations R2: wait). A `\Noselect` container is refused by construction
- * — mailbox-sync keeps no row for one — so there is nothing to appoint.
- */
-export const assertMailboxSettled = (
-	target: Pick<MailboxItem, "mailboxId" | "fullPath" | "syncStatus">,
-): void => {
-	const syncStatus = target.syncStatus;
-	if (!syncStatus || !UNSETTLED.has(syncStatus)) return;
-	throw new MailboxNotSettledError(
-		`Mailbox ${target.fullPath} is not settled on the mail server yet`,
-		target.mailboxId,
-		syncStatus,
-	);
-};
+import { assertMailboxInAccount, assertMailboxSettled } from "./mailbox.js";
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): the single write operation for

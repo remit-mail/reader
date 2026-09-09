@@ -12,9 +12,23 @@
  * the `MailHeader` + filter expando; the kit `MessageListPane` (flat, no
  * `briefFilters`) owns the loading / empty / error chrome and keyboard hints,
  * with a consumer-supplied `listBody` so the real rows render at every width.
+ *
+ * The category and attribute chips are query parameters, and the header's
+ * unread count is the server's own (#308). Both used to be computed over the
+ * pages the user happened to have loaded, so a category whose mail sat below
+ * the newest page showed an empty list, and the count grew with every press of
+ * "load more" while being presented as a total.
+ *
+ * The free text and the `from:` / `subject:` tokens are parameters too (#1128,
+ * #1135), so a search is one listing request rather than a second query merged
+ * into it. That is what keeps a search's failure loud, its pages continuable
+ * and its loading state its own — a separate search query had none of the
+ * three, so an expired session read as "no matches", "Load more" did nothing,
+ * and a cached listing flashed the empty state.
  */
 import {
 	flaggedFilterConfig,
+	type MessageListFilter,
 	MessageListPane,
 	type SearchResult,
 	type ThreadRowData,
@@ -24,22 +38,23 @@ import { type RefObject, useCallback, useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
-import { useStarredThreads } from "@/hooks/useStarredThreads";
-import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import {
-	matchesBriefSearch,
-	matchesSearchTokens,
-	toThreadRowData,
-} from "@/lib/brief";
+	useStarredThreads,
+	useStarredUnreadCount,
+} from "@/hooks/useStarredThreads";
+import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
+import { matchesSearchTokens, toThreadRowData } from "@/lib/brief";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
+import { flaggedCriteria } from "@/lib/flagged-criteria";
 import { useListHeaderChrome } from "@/lib/list-header-chrome";
+import { listNarrowing } from "@/lib/list-narrowing";
 import { useMailContext } from "@/lib/mail-context";
 import { rowToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { dedupeByThread } from "@/lib/starred-rows";
-import { useSelectionWizard } from "@/lib/wizard-history";
 import { wizardSelectionFrom } from "@/lib/wizard-selection";
 import type { OpenThreadTarget } from "@/routing";
+import { useSelectionWizard } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 import type { MessageListCommands } from "./MessageList";
 import { MessageRow } from "./MessageRow";
@@ -50,11 +65,6 @@ import {
 	ThreadListSelectionBar,
 	useThreadListSelection,
 } from "./ThreadListInteraction";
-
-const FILTER_PREDICATES: Record<string, (t: ThreadRowData) => boolean> = {
-	unread: (t) => !t.isRead,
-	attachment: (t) => t.hasAttachment === true,
-};
 
 /**
  * The wizard this view's verbs walk, and the one its search entry lands on.
@@ -114,7 +124,8 @@ export function FlaggedList({
 	onTriageContextChange,
 	onDeleteMessages,
 }: FlaggedListProps) {
-	const { searchQuery, resultFolderIndex } = useMailContext();
+	const { searchQuery, resultFolderIndex, onSearchClearQuery } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
@@ -138,6 +149,44 @@ export function FlaggedList({
 		setActiveFilters(new Set());
 	}, []);
 
+	// The empty state's way out has to clear everything its headline names, or
+	// it is a button that leaves the list exactly as narrowed as it found it.
+	const clearNarrowing = useCallback(() => {
+		clearFilters();
+		onSearchClearQuery();
+	}, [clearFilters, onSearchClearQuery]);
+
+	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
+		searchQuery.trim().toLowerCase(),
+		tokenContext,
+	);
+	// The same free text in the reader's own casing. The request's copy is folded
+	// to lowercase so equivalent searches share a cache entry; a sentence quoting
+	// the query back to the reader must not be.
+	const typedFreeText = parseSearchTokens(
+		searchQuery.trim(),
+		tokenContext,
+	).freeText;
+
+	// The chips and the tokens together, as query parameters: a category typed as
+	// `category:personal` narrows the request exactly as the chip does.
+	const { criteria, residual: residualTokens } = useMemo(
+		() =>
+			flaggedCriteria(
+				{ category: selectedCategory, attributes: activeFilters },
+				queryTokens,
+			),
+		[selectedCategory, activeFilters, queryTokens],
+	);
+	const textCriteria = useMemo(
+		() => (sq ? { ...criteria, query: sq } : criteria),
+		[criteria, sq],
+	);
+
+	// One request, free text included. The text is a parameter like every other
+	// criterion, so a search is this listing narrowed rather than a second query
+	// beside it — which is what gives a search the same error state, the same
+	// pagination and the same loading state as the unsearched list.
 	const {
 		threads,
 		isLoading,
@@ -147,27 +196,17 @@ export function FlaggedList({
 		fetchNextPage,
 		hasNextPage,
 		isFetchingNextPage,
-	} = useStarredThreads();
+	} = useStarredThreads(textCriteria);
 
-	const { freeText: sq, tokens: queryTokens } = parseSearchTokens(
-		searchQuery.trim().toLowerCase(),
-		tokenContext,
+	const rows = useMemo<ThreadRowData[]>(
+		() =>
+			// What is left is what no parameter can carry: `before:`, `after:`,
+			// `in:`, `account:`, and a token the chips overruled.
+			dedupeByThread(threads)
+				.map(toThreadRowData)
+				.filter((t) => matchesSearchTokens(t, residualTokens)),
+		[threads, residualTokens],
 	);
-
-	const rows = useMemo<ThreadRowData[]>(() => {
-		const predicates = Array.from(activeFilters)
-			.map((id) => FILTER_PREDICATES[id])
-			.filter((p): p is (t: ThreadRowData) => boolean => p != null);
-		return dedupeByThread(threads)
-			.map(toThreadRowData)
-			.filter(
-				(t) =>
-					(selectedCategory === "all" || t.category === selectedCategory) &&
-					predicates.every((p) => p(t)) &&
-					(!sq || matchesBriefSearch(t, sq)) &&
-					matchesSearchTokens(t, queryTokens),
-			);
-	}, [threads, selectedCategory, activeFilters, sq, queryTokens]);
 
 	const openRow = useCallback(
 		(id: string, options?: OpenMessageOptions) => {
@@ -197,10 +236,28 @@ export function FlaggedList({
 		[rows, resultFolderIndex],
 	);
 
-	const unreadCount = useMemo(
-		() => rows.filter((t) => !t.isRead).length,
-		[rows],
+	// The server's count over the whole collection under the active criteria.
+	// `null` while it is in flight and `null` when it cannot be had, and the
+	// header then shows no number — never a page length dressed as a total.
+	const unreadCount = useStarredUnreadCount(textCriteria) ?? null;
+
+	// An empty list has to say how much was looked at, and the answer comes off
+	// the request. Every chip, the free text and every carried token is a field
+	// on the row, so the server answered each over the whole collection; only a
+	// residual token — a date, a mailbox, an account — saw the loaded pages.
+	//
+	// `is:starred` is dropped: this view is starred mail, so the token restates
+	// the collection rather than narrowing it.
+	const narrowingTokens = useMemo(
+		() => queryTokens.filter((token) => token.type !== "isStarred"),
+		[queryTokens],
 	);
+	const listFilter: MessageListFilter | undefined = listNarrowing({
+		chips: { category: selectedCategory, attributes: activeFilters },
+		tokens: narrowingTokens,
+		reach: residualTokens.length > 0 ? "loaded-pages" : "whole-folder",
+		onClear: clearNarrowing,
+	});
 
 	const listState = isLoading
 		? "loading"
@@ -268,7 +325,6 @@ export function FlaggedList({
 				onOpen={openRow}
 				onDeleteMessages={onDeleteMessages}
 				onSelectionVerb={wizard.start}
-				wizardOpen={wizard.isOpen}
 				commandsRef={commandsRef}
 				onTriageContextChange={onTriageContextChange}
 			>
@@ -278,7 +334,13 @@ export function FlaggedList({
 					flatList
 					hideHeader
 					listState={chrome.searchResults ? "ready" : listState}
-					searchQuery={sq ? searchQuery : undefined}
+					listFilter={listFilter}
+					// Flagged spans accounts and folders, so it is a collection and
+					// never "this mailbox". It names itself.
+					listScopeLabel="Starred"
+					// The typed tokens narrow the list too, but `listFilter` already
+					// names them, and a headline saying one narrowing twice reads as two.
+					searchQuery={typedFreeText || undefined}
 					errorMessage={isError ? formatErrorMessage(error) : undefined}
 					onRetry={() => refetch()}
 					onReportError={handleReportError}

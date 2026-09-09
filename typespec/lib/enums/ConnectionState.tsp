@@ -16,4 +16,7 @@ enum ConnectionState {
 
   @doc("OAuth token expired or revoked — user must re-authenticate via the OAuth connect flow")
   ReauthRequired: "reauth_required",
+
+  @doc("The account was imported from a configuration file, which never carries a credential — the user must supply this account's password before it can sync. The OAuth counterpart is `reauth_required`.")
+  CredentialsMissing: "credentials_missing",
 }

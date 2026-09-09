@@ -33,14 +33,24 @@ export {
 export { computeContentHash } from "./content-hash.js";
 export {
 	createDeterministicEmbeddingService,
+	createDisabledEmbeddingService,
 	createLocalEmbeddingService,
 	type DeterministicEmbeddingConfig,
 	DeterministicEmbeddingService,
+	DisabledEmbeddingService,
+	EmbeddingDisabledError,
 	EmbeddingModelUnavailableError,
 	type EmbeddingService,
 	type LocalEmbeddingConfig,
 	LocalEmbeddingService,
 } from "./embeddings.js";
+export {
+	formatIndexProvenance,
+	type IndexedChunkProvenance,
+	type IndexProvenance,
+	type IndexProvenanceGroup,
+	summarizeIndexProvenance,
+} from "./index-report.js";
 export {
 	createSearchService,
 	DefaultSearchService,

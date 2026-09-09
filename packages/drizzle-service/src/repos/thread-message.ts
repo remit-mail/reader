@@ -3,6 +3,7 @@ import type {
 	IThreadMessageRepository,
 	ResultList,
 	SearchOptions,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
@@ -19,26 +20,24 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import shortUuid from "short-uuid";
-import { v5 as uuidv5 } from "uuid";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
+import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
+import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { fromMatch, subjectMatch } from "./thread-search-predicates.js";
-
-// ─── ID generation (mirrors remit-electrodb-service/src/id.ts) ───────────────
-
-const REMIT_NAMESPACE = "9e89694d-214b-4d9b-99f5-214b4d9b99f5";
-const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
-
-const base36uuidv5 = (name: string): string =>
-	translator.fromUUID(uuidv5(name, REMIT_NAMESPACE));
+import {
+	bodyMatch,
+	fromMatch,
+	isNarrowableTerm,
+	listIdMatch,
+	subjectMatch,
+} from "./thread-search-predicates.js";
 
 export const deriveThreadMessageId = (
 	threadId: string,
 	messageId: string,
-): string => base36uuidv5(`threadmsg:${threadId}:${messageId}`);
+): string => deterministicBase36Id(`threadmsg:${threadId}:${messageId}`);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -130,10 +129,27 @@ function toItem(row: Row): ThreadMessageItem {
 // text-search seam; they live in ./thread-search-predicates.ts (the FTS5 trigram
 // index, with a folded LIKE fallback below three characters, RFC 036 D4).
 
+/**
+ * Whether the row's From address is muted, as a correlated subquery over the
+ * Address table.
+ *
+ * Muting is a flag on the address rather than a column on the row, so this is
+ * the one criterion that reaches outside `thread_message` — the read path
+ * denormalizes it onto the response afterwards, which is too late to count by.
+ * `normalized_email` is written folded, on the same rule the fold here applies,
+ * so the two meet. Both sides are already scoped to one account config, and
+ * correlating on that rather than binding it keeps the predicate usable from
+ * every caller without threading the id through.
+ */
+const mutedSender = (): SQL =>
+	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
+
 // Translate SearchOptions into SQL conditions: subject/from/query as indexed
-// text predicates, the rest as plain column equalities. A multi-word `query`
-// matches rows where every token appears in the subject or the from fields
-// (AND across tokens, OR across fields) — the same shape as the DynamoDB model.
+// text predicates, muted as a subquery over the sender's address, the rest as
+// plain column equalities. A multi-word `query`
+// matches rows where every token appears in the subject, the from fields or the
+// body preview (AND across tokens, OR across fields) — the same shape as the
+// DynamoDB model.
 function buildSearchConditions(search: SearchOptions): SQL[] {
 	const conditions: SQL[] = [];
 
@@ -143,8 +159,14 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	if (search.query) {
 		const tokens = search.query.split(/\s+/).filter(Boolean);
 		for (const token of tokens) {
-			conditions.push(sql`(${subjectMatch(token)} or ${fromMatch(token)})`);
+			conditions.push(
+				sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
+			);
 		}
+	}
+
+	if (search.muted !== undefined) {
+		conditions.push(search.muted ? mutedSender() : sql`not ${mutedSender()}`);
 	}
 
 	if (search.unread !== undefined) {
@@ -165,6 +187,30 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	}
 
 	return conditions;
+}
+
+const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
+	if (term.field === "subject") return subjectMatch(term.contains);
+	if (term.field === "listId") return listIdMatch(term.contains);
+	return fromMatch(term.contains);
+};
+
+// Combine the caller's terms into one condition, or `undefined` when there are
+// none — an empty set narrows nothing, which is what both operators mean here.
+//
+// A term this engine cannot evaluate faithfully ({@link isNarrowableTerm}) is
+// left out rather than emitted: under `and` a missing conjunct only widens the
+// candidate set, which the caller refines anyway, but under `or` a missing
+// branch loses matches outright, so the whole narrowing goes.
+function buildFieldTermCondition(
+	terms: readonly ThreadMessageFieldTerm[],
+	operator: "and" | "or",
+): SQL | undefined {
+	const narrowable = terms.filter((term) => isNarrowableTerm(term.contains));
+	if (operator === "or" && narrowable.length !== terms.length) return undefined;
+	const conditions = narrowable.map(fieldTermCondition);
+	if (conditions.length === 0) return undefined;
+	return operator === "or" ? or(...conditions) : and(...conditions);
 }
 
 // Keyset cursor over (sent_date, thread_message_id). `desc` walks newest→oldest,
@@ -416,6 +462,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			inboxMailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
@@ -455,6 +502,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
+					...(options?.search ? buildSearchConditions(options.search) : []),
 					cursorCond,
 				),
 			)
@@ -537,6 +585,106 @@ export class DrizzleThreadMessageRepository
 		};
 	}
 
+	/**
+	 * Cross-mailbox narrowing for a rule back-apply. Same keyset cursor and
+	 * ordering as `searchByDate`, with the terms combined under the caller's
+	 * operator instead of the AND-only `SearchOptions` shape a search box needs.
+	 * The terms run in SQL over the whole config, so a page is a page of
+	 * narrowed rows and a rule for a sender that has been quiet for a month
+	 * reaches its mail (#459).
+	 */
+	async listByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options?: {
+			operator?: "and" | "or";
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>> {
+		const order = options?.order ?? "desc";
+		const limit = clampThreadSearchLimit(options?.limit);
+		const cursor = options?.continuationToken
+			? decodeDateCursor(options.continuationToken)
+			: null;
+
+		const rows = await this.db
+			.select()
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					buildFieldTermCondition(terms, options?.operator ?? "and"),
+					sentDateCursorCond(order, cursor),
+				),
+			)
+			.orderBy(
+				order === "desc"
+					? desc(threadMessageTable.sentDate)
+					: asc(threadMessageTable.sentDate),
+				asc(threadMessageTable.threadMessageId),
+			)
+			.limit(limit);
+
+		const lastRow = rows[rows.length - 1];
+		return {
+			items: rows.map(toItem),
+			continuationToken:
+				rows.length === limit && lastRow
+					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					: undefined,
+		};
+	}
+
+	/**
+	 * COUNT of matching CONVERSATIONS over the SAME predicate as the
+	 * cross-account listings, across the caller's mailbox scope.
+	 *
+	 * Distinct on `threadId` because that is the unit the listing renders: a row
+	 * is per mailbox, so one message reachable through a real folder and a
+	 * virtual copy of it is several rows, and two matching messages of one
+	 * conversation are two more. Both collapse in the list, and a count that did
+	 * not collapse with them would name a different set than the rows it sits
+	 * above.
+	 *
+	 * `hasStars` is not special-cased: the starred mode passes `starred: true` in
+	 * `search`, so one method counts what any of the three modes lists.
+	 */
+	async countThreadsInScope(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<number> {
+		const mailboxCond = options?.mailboxIds?.size
+			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
+			: undefined;
+
+		const [{ count }] = await this.db
+			.select({
+				count: sql<number>`cast(count(distinct ${threadMessageTable.threadId}) as int)`,
+			})
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					mailboxCond,
+					options?.excludeDeleted
+						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					...buildSearchConditions(search),
+				),
+			);
+		return count;
+	}
+
 	async listByStarred(
 		accountConfigId: string,
 		options?: {
@@ -545,6 +693,7 @@ export class DrizzleThreadMessageRepository
 			continuationToken?: string;
 			mailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
@@ -570,6 +719,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
+					...(options?.search ? buildSearchConditions(options.search) : []),
 					sentDateCursorCond(order, cursor),
 				),
 			)

@@ -81,13 +81,19 @@ export class FolderRoleUnresolvedError extends ConflictError {
 }
 
 /**
- * A role cannot be appointed to a mailbox the mail server has not settled yet
- * (imap-mutations R2: wait). Its own code, because the role is not unresolved —
- * the target is: the client words a wait, not a retry. Clearing a role is never
- * refused this way.
+ * A durable reference cannot be bound to a mailbox whose own mutation has not
+ * settled (folder-rename-and-delete.md D12, imap-mutations R2: wait). Its own
+ * code, because the role is not unresolved — the target is: the client words a
+ * wait, not a retry. Clearing a role is never refused this way.
+ *
+ * **422, not 409** (D4). 409 already means "this folder is being changed right
+ * now, refresh"; this means "the folder you are pointing at has not settled
+ * yet", which is a different sentence and a different remedy. The status is
+ * what separates them for a client that reads no further.
  */
-export class MailboxNotSettledError extends ConflictError {
+export class MailboxNotSettledError extends HTTPError {
 	name = "MailboxNotSettledError";
+	public statusCode = 422;
 
 	constructor(message: string, mailboxId: string, syncStatus: string) {
 		super(message);
@@ -95,6 +101,50 @@ export class MailboxNotSettledError extends ConflictError {
 			code: "mailbox_not_settled",
 			details: { mailboxId, syncStatus },
 		};
+	}
+}
+
+/**
+ * Why the row's folder and uid do not name the same message. One value, because
+ * one state produces it: a mutation is still in flight and the pair clears on
+ * its own, so the client words a wait rather than a repair. A mutation that
+ * gave up does not reach here — it hands the row back to a placement the server
+ * confirmed first (docs/architecture/imap-mutations.md R3), which is a pair
+ * every dependent mutation can act on.
+ */
+export type MessagePlacementUnsettledReason = "in_flight";
+
+export class MessagePlacementUnsettledError extends ConflictError {
+	name = "MessagePlacementUnsettledError";
+
+	constructor(
+		message: string,
+		accountId: string,
+		messageId: string,
+		reason: MessagePlacementUnsettledReason,
+	) {
+		super(message);
+		this.publicApiError = {
+			code: "message_placement_unsettled",
+			details: { accountId, messageId, reason },
+		};
+	}
+}
+
+/**
+ * A configuration import refused because this configuration is not empty
+ * (#1021). The default is to refuse rather than to fold the file in: a person
+ * importing over a configuration they forgot they had should hear about it
+ * before anything moves. `details` counts what is already here, so the client
+ * can say what would be merged, and the same request with `onExisting: merge`
+ * goes through.
+ */
+export class ConfigNotEmptyError extends ConflictError {
+	name = "ConfigNotEmptyError";
+
+	constructor(message: string, details: Record<string, string>) {
+		super(message);
+		this.publicApiError = { code: "config_not_empty", details };
 	}
 }
 
@@ -144,3 +194,21 @@ export class InternalServerError extends UnhandledError {
 	name = "InternalServerError";
 	public statusCode = 500;
 }
+
+/**
+ * A repository lookup or write for a row that no longer exists rejects with a
+ * `NotFoundError`, name-matched rather than by `instanceof`: the class crosses
+ * the adapter boundary and an adapter may throw its own.
+ *
+ * A worker event that references a deliberately-deleted mailbox is completed or
+ * moot work, never a transient fault: every redelivery re-throws the same
+ * `NotFoundError`, and because the sync queues carry `MessageGroupId=accountId`
+ * that permanently-failing head message stalls the whole account's per-group
+ * FIFO. Handlers use this predicate to resolve such an event terminally (ack
+ * with a WARN) instead of retrying forever (issues #287, #289, #290).
+ *
+ * The guard is narrow on purpose: only a genuine not-found terminates. Real
+ * IMAP/infra failures carry other errors and must still propagate to be retried.
+ */
+export const isNotFoundError = (error: unknown): boolean =>
+	(error as { name?: string })?.name === "NotFoundError";

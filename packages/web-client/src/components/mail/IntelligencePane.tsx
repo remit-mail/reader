@@ -1,13 +1,17 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	CATEGORY_PRESENTATION,
+	categoryLabels,
 	DialogBackdrop,
 	IntelligencePanel,
 	type IntelligenceQuickActions,
 	type SimilarMessageLinkComponent,
 	type SimilarState,
+	type ThreadCategory,
+	useModalFocus,
 } from "@remit/ui";
 import { Sparkles } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -52,18 +56,20 @@ export interface IntelligencePaneProps {
 
 /**
  * Category-override values accepted by the `AddressFlags.category` override
- * (PATCH /addresses/{id}). Matches `MessageCategory` — the full taxonomy the
- * user can assign as a sender-level override.
+ * (PATCH /addresses/{id}), in the kit's chip-row order and named with the kit's
+ * words. `uncategorized` is left out: it names the classifier not having reached
+ * a message yet, which is not something a reader chooses for a sender.
  */
-const CATEGORY_OVERRIDES = [
-	"personal",
-	"newsletter",
-	"marketing",
-	"automated",
-	"transactional",
-	"social",
-] as const;
-type CategoryOverride = (typeof CATEGORY_OVERRIDES)[number];
+type CategoryOverride = Exclude<ThreadCategory, "uncategorized">;
+
+const isCategoryOverride = (
+	category: ThreadCategory,
+): category is CategoryOverride => category !== "uncategorized";
+
+const CATEGORY_OVERRIDES: readonly CategoryOverride[] =
+	CATEGORY_PRESENTATION.map((entry) => entry.category).filter(
+		isCategoryOverride,
+	);
 
 /**
  * Decide which spam quick-action to offer for the current message (issue #648).
@@ -82,6 +88,11 @@ export const resolveSpamAction = (thread: {
 /**
  * Decide the "Similar messages" section state from the semantic-search query.
  *
+ * An instance with semantic search off leads, before any error or in-flight
+ * state: nothing is embedded, no query was sent, and the section states the
+ * setting (#1068). Only `false` counts — the config read has not answered yet
+ * while it is `undefined`, and an off state shown then would be a guess.
+ *
  * The fail-fast rule: a fatal first-party 5xx must NEVER degrade to the benign
  * grey "Similarity search unavailable" label — it escalates to the global red
  * overlay instead, so this returns `"ready"` for it (the section then renders
@@ -93,8 +104,15 @@ export const resolveSimilarState = (input: {
 	similarError: unknown;
 	similarErrorIsFatal: boolean;
 	isSimilarLoading: boolean;
+	semanticEnabled: boolean | undefined;
 }): SimilarState => {
-	const { similarError, similarErrorIsFatal, isSimilarLoading } = input;
+	const {
+		similarError,
+		similarErrorIsFatal,
+		isSimilarLoading,
+		semanticEnabled,
+	} = input;
+	if (semanticEnabled === false) return "off";
 	if (similarError && !similarErrorIsFatal) return "error";
 	if (isSimilarLoading) return "loading";
 	return "ready";
@@ -141,18 +159,30 @@ function IntelligenceSkeleton() {
 /**
  * Reclassify picker: a small modal listing the category-override options. On
  * selection it PATCHes `AddressFlags.category` for the sender.
+ *
+ * A sender that already carries an override also gets the way back out. The
+ * override is an enum with no false-equivalent member, so removal is not a
+ * value to send — it is `clearFlags: ["category"]`, the contract's removal
+ * form for every flag (#615).
  */
 function ReclassifyDialog({
 	isOpen,
 	current,
+	hasOverride,
 	onSelect,
+	onClear,
 	onCancel,
 }: {
 	isOpen: boolean;
 	current: string;
+	hasOverride: boolean;
 	onSelect: (category: CategoryOverride) => void;
+	onClear: () => void;
 	onCancel: () => void;
 }) {
+	const dialogRef = useRef<HTMLDivElement>(null);
+	useModalFocus(dialogRef, isOpen);
+
 	if (!isOpen) return null;
 	return (
 		<div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -162,9 +192,11 @@ function ReclassifyDialog({
 				className="backdrop-blur-sm"
 			/>
 			<div
+				ref={dialogRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Reclassify sender"
+				tabIndex={-1}
 				className="relative z-10 w-full max-w-sm rounded-sm border border-line bg-surface p-6 shadow-lg"
 			>
 				<h2 className="text-lg font-semibold">Reclassify this sender</h2>
@@ -177,16 +209,25 @@ function ReclassifyDialog({
 							key={cat}
 							type="button"
 							onClick={() => onSelect(cat)}
-							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm capitalize transition-colors hover:bg-surface-raised ${
+							className={`flex min-h-11 items-center justify-between rounded px-3 text-left text-sm transition-colors hover:bg-surface-raised ${
 								cat === current ? "font-semibold text-accent" : "text-fg"
 							}`}
 						>
-							{cat}
+							{categoryLabels[cat]}
 							{cat === current && (
 								<span className="text-2xs text-fg-subtle">current</span>
 							)}
 						</button>
 					))}
+					{hasOverride && (
+						<button
+							type="button"
+							onClick={onClear}
+							className="mt-1 flex min-h-11 items-center rounded border-t border-line px-3 text-left text-sm text-fg transition-colors hover:bg-surface-raised"
+						>
+							Remove override — classify automatically again
+						</button>
+					)}
 				</div>
 				<div className="mt-6 flex justify-end">
 					<button
@@ -224,15 +265,17 @@ function WiredPanel({
 }: WiredPanelProps) {
 	const {
 		data,
+		address,
 		addressId,
 		isSimilarLoading,
 		similarError,
 		similarErrorIsFatal,
+		semanticEnabled,
 	} = useIntelligenceData(thread, mailboxId);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
-	const { updateFlags } = useUpdateAddressFlags({
+	const { updateFlags, clearFlags } = useUpdateAddressFlags({
 		addressId,
 		senderEmail,
 	});
@@ -291,6 +334,11 @@ function WiredPanel({
 		[updateFlags],
 	);
 
+	const handleReclassifyClear = useCallback(() => {
+		setReclassifyOpen(false);
+		clearFlags(["category"]);
+	}, [clearFlags]);
+
 	// Every per-sender flag toggle PATCHes the sender's address row, so none of
 	// them can be serviced until that row resolves. Leave them unwired until it
 	// does: the panel renders an unwired quick action as disabled, so the flow is
@@ -336,6 +384,7 @@ function WiredPanel({
 		similarError,
 		similarErrorIsFatal,
 		isSimilarLoading,
+		semanticEnabled,
 	});
 
 	return (
@@ -358,7 +407,9 @@ function WiredPanel({
 			<ReclassifyDialog
 				isOpen={reclassifyOpen}
 				current={data.category.value}
+				hasOverride={address?.flags?.category?.value != null}
 				onSelect={handleReclassifySelect}
+				onClear={handleReclassifyClear}
 				onCancel={() => setReclassifyOpen(false)}
 			/>
 		</>

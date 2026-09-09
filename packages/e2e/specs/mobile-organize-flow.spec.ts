@@ -8,11 +8,14 @@
  *
  * The semantic widen is a vector query and the index is deliberately not built
  * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts), so the
- * scenarios here take the ticked-list door, whose count is the selection itself
- * and needs no index. Downstream of the review screen, the back-apply job and
- * the filter create both re-run that absent index server-side, so they are
- * stubbed per scenario and the run screen's states are exercised
- * deterministically. Real filter CRUD is covered by
+ * one-off scenarios take the ticked-list door, whose count is the selection
+ * itself and needs no index. The two that save a rule take the properties door
+ * instead: a rule needs a predicate to keep matching on, and the ticked rows are
+ * a list of ids rather than one (#1193). Its count comes from the vector-free
+ * preview, which this lane answers. Downstream of the review screen, the
+ * back-apply job and the filter create both re-run that absent index
+ * server-side, so they are stubbed per scenario and the run screen's states are
+ * exercised deterministically. Real filter CRUD is covered by
  * organize-standing-filter.spec.ts, and a real folder create against Dovecot by
  * organize-standing-back-apply.spec.ts.
  *
@@ -23,6 +26,7 @@ import type { Locator, Page } from "@playwright/test";
 import { type ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import { deleteSettledMatchesEverywhere } from "../src/sweep.js";
 import {
 	advanceTo,
 	barOrganize,
@@ -30,6 +34,7 @@ import {
 	dismissRun,
 	expectBlockedReason,
 	pickFolder,
+	pickMatchDoor,
 	wizardContinue,
 	wizardStep,
 } from "../src/wizard.js";
@@ -108,11 +113,12 @@ const seedScratch = async (
 	const first = rows(page).filter({ hasText: subjects[0] });
 	const second = rows(page).filter({ hasText: subjects[1] });
 
+	// A scenario that filed its scratch leaves it in the destination, so the
+	// sweep covers every mailbox — and waits out the move it follows: the rows
+	// read as filed while the IMAP copy is still in flight, and the delete is
+	// refused against one of those (#1155).
 	const cleanup = async () => {
-		for (const mailbox of await api.listMailboxes(run.accountId)) {
-			const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, tag);
-			if (ids.length > 0) await api.deleteMessages(ids);
-		}
+		await deleteSettledMatchesEverywhere(api, run.accountId, tag);
 	};
 
 	return { first, second, cleanup };
@@ -222,7 +228,12 @@ test.describe("Organize through the selection wizard", () => {
 
 		// Every create the flow sends, so "exactly one" is assertable rather than
 		// assumed. Real filter CRUD is covered elsewhere; this pins the body.
-		const creates: { scope?: string; expiresAt?: string; name?: string }[] = [];
+		const creates: {
+			scope?: string;
+			expiresAt?: string;
+			name?: string;
+			literalClauses?: unknown[];
+		}[] = [];
 		await page.route(/\/filters$/, async (route) => {
 			if (route.request().method() !== "POST") return route.continue();
 			creates.push(route.request().postDataJSON());
@@ -245,6 +256,11 @@ test.describe("Organize through the selection wizard", () => {
 				timeout: 20_000,
 			});
 
+			// A saved rule matches on what the mail has in common, so the walk goes
+			// through the properties door. The ticked rows carry no predicate for a
+			// rule to keep matching on (#1193), and the door adds an editor step.
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
 			await advanceTo(page, "Folder");
 			await pickFolder(page, "Archive");
 			await advanceTo(page, "Rule");
@@ -252,7 +268,7 @@ test.describe("Organize through the selection wizard", () => {
 			// The scope is the second branching answer: it adds the naming step
 			// after the step it is given on.
 			await page.getByText("Until a date", { exact: true }).click();
-			await expect(wizardStep(page)).toHaveText(/^Step 3 of 6 · Rule$/);
+			await expect(wizardStep(page)).toHaveText(/^Step 4 of 7 · Rule$/);
 			await page.getByLabel("Stops on").fill("2030-06-30");
 
 			await advanceTo(page, "Name");
@@ -268,6 +284,9 @@ test.describe("Organize through the selection wizard", () => {
 			expect(creates).toHaveLength(1);
 			expect(creates[0].scope).toBe("Temporary");
 			expect(creates[0].name).toBe(tag);
+			// The rule went out with something to match on, which is the whole
+			// point of taking the properties door (#1193).
+			expect(creates[0].literalClauses?.length ?? 0).toBeGreaterThan(0);
 			// The wizard collects a civil date; the draft carries the instant it
 			// means, with the zone offset it was picked in (#477 5.4).
 			expect(creates[0].expiresAt).toMatch(
@@ -329,6 +348,8 @@ test.describe("Organize through the selection wizard", () => {
 			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
 				timeout: 20_000,
 			});
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
 			await advanceTo(page, "Folder");
 			await pickFolder(page, "Archive");
 			await advanceTo(page, "Rule");
@@ -377,6 +398,52 @@ test.describe("Organize through the selection wizard", () => {
 			await wizardContinue(page).click();
 			await expectBlockedReason(page, "Pick a destination first.");
 			await expect(wizardStep(page)).toHaveText(/· Folder$/);
+		} finally {
+			await cleanup();
+		}
+	});
+
+	test("the ticked rows cannot be saved as a rule that matches nothing", async ({
+		page,
+		run,
+		api,
+	}) => {
+		const { first, second, cleanup } = await seedScratch(
+			page,
+			run,
+			api,
+			`wizard-no-predicate ${Date.now()}`,
+		);
+
+		// Every create the walk could send, so "none" is asserted rather than
+		// assumed.
+		const creates: string[] = [];
+		await page.route(/\/filters$/, (route) => {
+			if (route.request().method() === "POST") {
+				creates.push(route.request().url());
+			}
+			return route.continue();
+		});
+
+		try {
+			await selectTwo(page, first, second);
+			await barOrganize(page).click();
+			await advanceTo(page, "Folder");
+			await pickFolder(page, "Archive");
+			await advanceTo(page, "Rule");
+
+			// The ticked rows are a list of ids and no predicate, so a rule saved
+			// through this door would match nothing — the mail already here and the
+			// mail still to come. The step refuses it in the rule editor's words
+			// (#1193) rather than reporting a rule saved.
+			await page.getByText("Keep doing this", { exact: true }).click();
+			await wizardContinue(page).click();
+			await expectBlockedReason(
+				page,
+				"Add a clause so the rule has something to match.",
+			);
+			await expect(wizardStep(page)).toHaveText(/· Rule$/);
+			expect(creates).toHaveLength(0);
 		} finally {
 			await cleanup();
 		}

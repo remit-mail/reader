@@ -146,12 +146,16 @@ const mixed: SearchResultSection[] = [
 ];
 
 describe("SearchResults spam handling", () => {
-	it("holds spam out of a global search and offers it as a count", () => {
+	it("holds spam out of a global search and offers the caller's count", () => {
 		const html = renderToString(
 			createElement(SearchResults, {
 				value: "invoice",
 				sections: mixed,
-				scope: { kind: "global", onScopeToSpam: noop },
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 1 },
+				},
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -177,7 +181,11 @@ describe("SearchResults spam handling", () => {
 			createElement(SearchResults, {
 				value: "invoice",
 				sections: [{ id: "results", label: "Results", results: [spamResult] }],
-				scope: { kind: "global", onScopeToSpam: noop },
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 1 },
+				},
 			}),
 		);
 		assert.match(html, /No matches for/);
@@ -235,7 +243,10 @@ describe("SearchResults provenance labels", () => {
 							{
 								...result,
 								id: "c1",
-								folder: { providerPath: "Projects/Books" },
+								folder: {
+									providerPath: "Projects/Books",
+									hierarchyDelimiter: "/",
+								},
 							},
 						],
 					},
@@ -274,7 +285,10 @@ describe("SearchResults provenance labels", () => {
 							{
 								...result,
 								id: "v3",
-								folder: { providerPath: "[Gmail]/Important" },
+								folder: {
+									providerPath: "[Gmail]/Important",
+									hierarchyDelimiter: "/",
+								},
 							},
 						],
 					},
@@ -342,6 +356,9 @@ describe("SearchResults scoped to a collection", () => {
 	});
 });
 
+// #313: the figure used to be the junk rows in `sections` — a count of the page
+// the caller had loaded, stated as a count of a mailbox. The caller supplies the
+// server's count now, and this component never invents one.
 describe("SearchResults spam count", () => {
 	const spamIn = (id: string): SearchResult => ({
 		id,
@@ -352,21 +369,79 @@ describe("SearchResults spam count", () => {
 		folder: { role: "junk" },
 	});
 
-	it("counts every held-out row, not just one account's", () => {
+	const withSpamRows = [
+		{
+			id: "results",
+			label: "Results",
+			results: [result, spamIn("a1"), spamIn("b1"), spamIn("b2")],
+		},
+	];
+
+	it("states the count it was given, not the rows it held out", () => {
 		const html = renderToString(
 			createElement(SearchResults, {
 				value: "invoice",
-				sections: [
-					{
-						id: "results",
-						label: "Results",
-						results: [result, spamIn("a1"), spamIn("b1"), spamIn("b2")],
-					},
-				],
+				sections: withSpamRows,
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 41 },
+				},
+			}),
+		);
+		assert.match(html, />41</);
+		assert.match(html, /results from Spam/);
+		assert.doesNotMatch(html, />3</);
+	});
+
+	it("names no figure when the caller has no count", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: withSpamRows,
 				scope: { kind: "global", onScopeToSpam: noop },
 			}),
 		);
-		assert.match(html, />3</);
-		assert.match(html, /results from Spam/);
+		assert.match(html, /Results from Spam/);
+		// The counted form is lower-case ("3 results from Spam"), so its absence is
+		// the absence of a figure rather than of one particular value.
+		assert.doesNotMatch(html, /results from Spam/);
+	});
+
+	// Rows held out are always offered a way back. A stale count reading zero over
+	// junk rows this component is hiding would otherwise take the mail off screen
+	// with nothing saying where it went — and, where spam is the only match, put
+	// "No matches" above rows that exist.
+	it("keeps the offer when an exact zero contradicts the rows it held out", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: withSpamRows,
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 0 },
+				},
+			}),
+		);
+		assert.match(html, /Results from Spam/);
+		// Neither number is stated: the rows are on screen and the count is older.
+		assert.doesNotMatch(html, /results from Spam/);
+		assert.match(html, /Go to Spam/);
+	});
+
+	it("makes no offer when an exact zero has no rows to contradict it", () => {
+		const html = renderToString(
+			createElement(SearchResults, {
+				value: "invoice",
+				sections: [{ id: "results", label: "Results", results: [result] }],
+				scope: {
+					kind: "global",
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact", value: 0 },
+				},
+			}),
+		);
+		assert.doesNotMatch(html, /from Spam/);
 	});
 });

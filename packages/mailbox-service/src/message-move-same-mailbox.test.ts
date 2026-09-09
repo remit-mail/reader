@@ -8,7 +8,7 @@ import type {
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
-import { trashRole } from "./test-helpers/folder-roles.js";
+import { NO_JUNK_ROLES, trashRole } from "./test-helpers/folder-roles.js";
 
 const stubAddressService = (): IAddressRepository =>
 	({
@@ -48,11 +48,15 @@ const buildWorld = () => {
 	]);
 
 	const messageService = {
-		get: async () => message,
+		get: async (ids: string | string[]) =>
+			Array.isArray(ids) ? [message] : message,
 		update: async (_id: string, patch: Record<string, unknown>) =>
 			Object.assign(message, patch),
-		updateForMove: async (_id: string, patch: Record<string, unknown>) =>
-			Object.assign(message, patch),
+		transitionPlacement: async (
+			_id: string,
+			_expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => Object.assign(message, patch),
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {
@@ -68,6 +72,7 @@ const buildWorld = () => {
 	const mailboxSpecialUseService = {
 		findTrashMailbox: async () => null,
 		resolveTrashRole: async () => trashRole(null),
+		resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const config: MessageMoveConfig = {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	type BrowsedList,
 	MAIL_BRIEF_ROUTE_ID,
 	MAIL_FLAGGED_ROUTE_ID,
 	MAIL_MAILBOX_ROUTE_ID,
@@ -15,18 +16,28 @@ import {
 	semanticMailboxScope,
 } from "./search-scope";
 
-const matches = (routeId: string) => [{ routeId: "/mail" }, { routeId }];
+const listFor: Record<string, BrowsedList["list"]> = {
+	[MAIL_BRIEF_ROUTE_ID]: "brief",
+	[MAIL_FLAGGED_ROUTE_ID]: "flagged",
+	[MAIL_OUTBOX_ROUTE_ID]: "outbox",
+	[MAIL_MAILBOX_ROUTE_ID]: "mailbox",
+};
+
+const browsing = (routeId: string): BrowsedList => ({
+	list: listFor[routeId],
+	mailboxId: undefined,
+});
 
 describe("searchScopeForRoute", () => {
 	it("gives the daily brief no scope — it is the global view", () => {
-		assert.deepEqual(searchScopeForRoute(matches(MAIL_BRIEF_ROUTE_ID)), {
+		assert.deepEqual(searchScopeForRoute(browsing(MAIL_BRIEF_ROUTE_ID)), {
 			kind: "global",
 		});
 	});
 
 	it("scopes a mailbox route to its sidebar label", () => {
 		assert.deepEqual(
-			searchScopeForRoute(matches(MAIL_MAILBOX_ROUTE_ID), "Spam"),
+			searchScopeForRoute(browsing(MAIL_MAILBOX_ROUTE_ID), "Spam"),
 			{
 				kind: "scoped",
 				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:spam" },
@@ -39,23 +50,23 @@ describe("searchScopeForRoute", () => {
 		// uuid is worse than no chip, but the field must not claim to search
 		// everything either.
 		assert.deepEqual(
-			searchScopeForRoute(matches(MAIL_MAILBOX_ROUTE_ID), null),
+			searchScopeForRoute(browsing(MAIL_MAILBOX_ROUTE_ID), null),
 			{ kind: "pending" },
 		);
 	});
 
 	it("scopes the starred view", () => {
-		const scope = searchScopeForRoute(matches(MAIL_FLAGGED_ROUTE_ID));
+		const scope = searchScopeForRoute(browsing(MAIL_FLAGGED_ROUTE_ID));
 		assert.equal(scope.kind === "scoped" && scope.chip.label, "is:starred");
 	});
 
 	it("scopes the outbox", () => {
-		const scope = searchScopeForRoute(matches(MAIL_OUTBOX_ROUTE_ID));
+		const scope = searchScopeForRoute(browsing(MAIL_OUTBOX_ROUTE_ID));
 		assert.equal(scope.kind === "scoped" && scope.chip.label, "in:outbox");
 	});
 
 	it("prefers the virtual views over a lingering mailbox name", () => {
-		const scope = searchScopeForRoute(matches(MAIL_OUTBOX_ROUTE_ID), "Spam");
+		const scope = searchScopeForRoute(browsing(MAIL_OUTBOX_ROUTE_ID), "Spam");
 		assert.equal(scope.kind === "scoped" && scope.chip.label, "in:outbox");
 	});
 });
@@ -70,12 +81,12 @@ describe("isScopedRoute", () => {
 		MAIL_OUTBOX_ROUTE_ID,
 	]) {
 		it(`${routeId} carries a scope`, () => {
-			assert.equal(isScopedRoute(matches(routeId)), true);
+			assert.equal(isScopedRoute(browsing(routeId)), true);
 		});
 	}
 
 	it("the daily brief carries none", () => {
-		assert.equal(isScopedRoute(matches(MAIL_BRIEF_ROUTE_ID)), false);
+		assert.equal(isScopedRoute(browsing(MAIL_BRIEF_ROUTE_ID)), false);
 	});
 
 	it("agrees with the chip on every route", () => {
@@ -85,9 +96,9 @@ describe("isScopedRoute", () => {
 			MAIL_FLAGGED_ROUTE_ID,
 			MAIL_OUTBOX_ROUTE_ID,
 		]) {
-			const scope = searchScopeForRoute(matches(routeId), "Spam");
+			const scope = searchScopeForRoute(browsing(routeId), "Spam");
 			assert.equal(
-				isScopedRoute(matches(routeId)),
+				isScopedRoute(browsing(routeId)),
 				scope.kind === "scoped",
 				`${routeId} disagrees about whether it has a scope`,
 			);
@@ -109,14 +120,14 @@ describe("scopeLabelForMailboxName", () => {
 // respects it. The semantic engine used to run unscoped inside a mailbox under
 // an "Everywhere" heading, contradicting the `in:` chip the same bar showed.
 describe("semanticMailboxScope — a chip binds every engine on the route", () => {
-	const mailbox = (mailboxId: string) => [
-		{ routeId: "/mail" },
-		{ routeId: MAIL_MAILBOX_ROUTE_ID, params: { mailboxId } },
-	];
+	const mailbox = (mailboxId: string): BrowsedList => ({
+		list: "mailbox",
+		mailboxId,
+	});
 
 	it("pins a mailbox route to its own mailbox", () => {
 		assert.equal(
-			semanticMailboxScope({ matches: mailbox("mbx-spam") }),
+			semanticMailboxScope({ browsed: mailbox("mbx-spam") }),
 			"mbx-spam",
 		);
 	});
@@ -124,7 +135,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 	it("a mailbox route ignores a caller asking for somewhere else", () => {
 		assert.equal(
 			semanticMailboxScope({
-				matches: mailbox("mbx-spam"),
+				browsed: mailbox("mbx-spam"),
 				callerMailboxId: "mbx-archive",
 			}),
 			"mbx-spam",
@@ -134,7 +145,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 	it("a mailbox route ignores a typed in: term", () => {
 		assert.equal(
 			semanticMailboxScope({
-				matches: mailbox("mbx-spam"),
+				browsed: mailbox("mbx-spam"),
 				inTokenMailboxId: "mbx-archive",
 			}),
 			"mbx-spam",
@@ -142,7 +153,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 	});
 
 	it("a mailbox route never widens to global", () => {
-		const scope = semanticMailboxScope({ matches: mailbox("mbx-spam") });
+		const scope = semanticMailboxScope({ browsed: mailbox("mbx-spam") });
 		assert.notEqual(scope, undefined, "a scoped route must carry a scope");
 	});
 
@@ -153,7 +164,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 		it(`${routeId} never honours a typed in: term`, () => {
 			assert.equal(
 				semanticMailboxScope({
-					matches: matches(routeId),
+					browsed: browsing(routeId),
 					inTokenMailboxId: "mbx-archive",
 				}),
 				undefined,
@@ -163,7 +174,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 
 	it("the daily brief is global — no route scope, no chip", () => {
 		assert.equal(
-			semanticMailboxScope({ matches: matches(MAIL_BRIEF_ROUTE_ID) }),
+			semanticMailboxScope({ browsed: browsing(MAIL_BRIEF_ROUTE_ID) }),
 			undefined,
 		);
 	});
@@ -171,7 +182,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 	it("the daily brief is the one route a typed in: narrows", () => {
 		assert.equal(
 			semanticMailboxScope({
-				matches: matches(MAIL_BRIEF_ROUTE_ID),
+				browsed: browsing(MAIL_BRIEF_ROUTE_ID),
 				inTokenMailboxId: "mbx-archive",
 			}),
 			"mbx-archive",
@@ -183,14 +194,14 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 		// time: on a scoped route the resolved scope is either the route's own
 		// mailbox, or nothing that came from the typed query.
 		const scoped = [
-			{ matches: mailbox("mbx-spam"), expected: "mbx-spam" },
-			{ matches: matches(MAIL_FLAGGED_ROUTE_ID), expected: undefined },
-			{ matches: matches(MAIL_OUTBOX_ROUTE_ID), expected: undefined },
+			{ browsed: mailbox("mbx-spam"), expected: "mbx-spam" },
+			{ browsed: browsing(MAIL_FLAGGED_ROUTE_ID), expected: undefined },
+			{ browsed: browsing(MAIL_OUTBOX_ROUTE_ID), expected: undefined },
 		];
-		for (const { matches: m, expected } of scoped) {
+		for (const { browsed: m, expected } of scoped) {
 			assert.equal(isScopedRoute(m), true);
 			assert.equal(
-				semanticMailboxScope({ matches: m, inTokenMailboxId: "mbx-elsewhere" }),
+				semanticMailboxScope({ browsed: m, inTokenMailboxId: "mbx-elsewhere" }),
 				expected,
 			);
 		}
@@ -200,7 +211,7 @@ describe("semanticMailboxScope — a chip binds every engine on the route", () =
 describe("resultsScopeForRoute", () => {
 	it("passes the global search through as global", () => {
 		assert.deepEqual(
-			resultsScopeForRoute(matches(MAIL_BRIEF_ROUTE_ID), { kind: "global" }),
+			resultsScopeForRoute(browsing(MAIL_BRIEF_ROUTE_ID), { kind: "global" }),
 			{
 				kind: "global",
 			},
@@ -209,7 +220,9 @@ describe("resultsScopeForRoute", () => {
 
 	it("treats a mailbox whose name has not loaded as a folder, not global", () => {
 		assert.deepEqual(
-			resultsScopeForRoute(matches(MAIL_MAILBOX_ROUTE_ID), { kind: "pending" }),
+			resultsScopeForRoute(browsing(MAIL_MAILBOX_ROUTE_ID), {
+				kind: "pending",
+			}),
 			{
 				kind: "folder",
 			},
@@ -219,7 +232,7 @@ describe("resultsScopeForRoute", () => {
 	it("carries the mailbox's role so a Spam search shows its rows", () => {
 		assert.deepEqual(
 			resultsScopeForRoute(
-				matches(MAIL_MAILBOX_ROUTE_ID),
+				browsing(MAIL_MAILBOX_ROUTE_ID),
 				{
 					kind: "scoped",
 					chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:spam" },
@@ -232,7 +245,7 @@ describe("resultsScopeForRoute", () => {
 
 	it("calls starred a collection, so its spam is not dropped", () => {
 		assert.deepEqual(
-			resultsScopeForRoute(matches(MAIL_FLAGGED_ROUTE_ID), {
+			resultsScopeForRoute(browsing(MAIL_FLAGGED_ROUTE_ID), {
 				kind: "scoped",
 				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "is:starred" },
 			}),
@@ -242,7 +255,7 @@ describe("resultsScopeForRoute", () => {
 
 	it("keeps the outbox a folder — it is one queue, and never holds spam", () => {
 		assert.deepEqual(
-			resultsScopeForRoute(matches(MAIL_OUTBOX_ROUTE_ID), {
+			resultsScopeForRoute(browsing(MAIL_OUTBOX_ROUTE_ID), {
 				kind: "scoped",
 				chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:outbox" },
 			}),

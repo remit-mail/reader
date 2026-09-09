@@ -5,7 +5,7 @@ import type {
 	IAccountSettingRepository,
 	UpsertAccountSettingInput,
 } from "@remit/data-ports";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 
@@ -46,6 +46,28 @@ export class AccountSettingRepo implements IAccountSettingRepository {
 			.from(accountSettingTable)
 			.where(eq(accountSettingTable.accountSettingId, accountSettingId));
 		return row ? rowToAccountSetting(row) : null;
+	}
+
+	/**
+	 * The named settings of several configs in one read, for callers that would
+	 * otherwise `get` once per account. Missing rows are simply absent from the
+	 * result rather than an error.
+	 */
+	async getMany(
+		accountConfigIds: readonly string[],
+		names: readonly string[],
+	): Promise<AccountSettingItem[]> {
+		if (accountConfigIds.length === 0 || names.length === 0) return [];
+		const rows = await this.db
+			.select()
+			.from(accountSettingTable)
+			.where(
+				and(
+					inArray(accountSettingTable.accountConfigId, [...accountConfigIds]),
+					inArray(accountSettingTable.name, [...names]),
+				),
+			);
+		return rows.map(rowToAccountSetting);
 	}
 
 	async listByAccountConfig(

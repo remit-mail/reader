@@ -6,7 +6,8 @@
   "type": "module",
   "license": "MIT",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "doc/*"
   ],
   "engines": {
     "node": ">=22"
@@ -27,8 +28,10 @@
     "release:dry-run": "node npm-scripts/publish-packages.mjs --dry-run",
     "check:publish-closure": "node npm-scripts/check-publish-closure.mjs",
     "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
+    "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
     "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
+    "check:sqlite-vec-version": "node npm-scripts/check-sqlite-vec-version.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
@@ -56,10 +59,12 @@
     "dev:sqlite": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml up -d --wait",
     "dev:sqlite:down": "REMIT_DEV_UID=$(id -u) REMIT_DEV_GID=$(id -g) docker compose -f docker-compose.localhost-dev-sqlite.yml down",
     "dev:sqlite:logs": "docker compose -f docker-compose.localhost-dev-sqlite.yml logs -f",
+    "dev:sqlite:health": "bash npm-scripts/dev-sqlite-health.sh",
     "build:hunspell": "node npm-scripts/build-hunspell.mjs"
   },
   "ciCoverage": {
     "allowUnreachable": {
+      "check:sqlite-vec-version": "the equality it checks is asserted against the shipped Dockerfile and worker manifest by npm-scripts/lib/sqlite-vec-lockstep.test.mjs, which test:scripts already runs; the script is the operator's entry point to the same comparison",
       "packages/mailbox-service#test:integ": "speaks IMAP to a mokapi server on localhost:143, and this repository has no mokapi: no compose service, no image, and no start:mokapi script for the one its header cites",
       "packages/mailbox-service#test:e2e": "reads a mailfuzz corpus already delivered to INBOX. Run against the e2e Dovecot 19 of its 22 tests pass and 3 fail on an empty search(ALL) — that Dovecot hands every user an empty maildir on purpose (docker-compose.dovecot.yml), so wiring it needs the suite to APPEND the mail it reads",
       "packages/search-service#test:integ:model": "fetches 87MB of MiniLM weights from huggingface.co on first run, which is a third-party dependency taken mid-test rather than declared in the lockfile",
@@ -97,19 +102,23 @@
     "typespec-electrodb-emitter": "^3.2.2"
   },
   "overrides": {
+    "@xmldom/xmldom": "^0.8.15",
     "adm-zip": "^0.6.0",
     "ajv": "^8.18.0",
     "brace-expansion@^2": "^2.1.4",
     "brace-expansion@^5": "^5.0.9",
+    "browserslist": "^4.28.8",
     "deepmerge-ts": "^8.0.1",
     "esbuild": "^0.28.1",
-    "fast-uri": "^3.1.5",
+    "fast-uri": "^3.1.6",
     "ip-address": "^10.4.0",
     "js-yaml": "^4.3.1",
     "nanoid@^3": "^3.3.18",
     "postcss": "^8.5.26",
+    "qs": "^6.16.0",
     "sharp": "^0.35.3",
     "tar": "^7.5.21",
+    "toml": "^4.2.0",
     "undici": "^7.29.0",
     "uuid": "^13.0.2"
   }

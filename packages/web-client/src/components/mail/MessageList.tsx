@@ -4,18 +4,19 @@ import {
 	cn,
 	type Density,
 	deriveIsMultiSelectMode,
+	ListResultHeader,
 	type MessageListFilter,
 	MessageListLoadingMore,
 	MessageListPane,
 	nextFocusId,
+	type ResultCount,
 	type SelectionModifiers,
 	SelectionTopBar,
 	useSelection,
 	type Verb,
 } from "@remit/ui";
-import { useBlocker, useNavigate } from "@tanstack/react-router";
+import { useBlocker } from "@tanstack/react-router";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Search } from "lucide-react";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
@@ -23,7 +24,6 @@ import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import {
-	type EscalatedAction,
 	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
@@ -52,9 +52,12 @@ import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { listVerbRequest } from "@/lib/list-verb-request";
 import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
 import { shouldExitSelectionOnNavigate } from "@/lib/selection-mode";
-import { useSelectionWizard, useWizardStepValue } from "@/lib/wizard-history";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
-import { useRetainOpenPanels } from "@/routing";
+import {
+	useOpenThread,
+	useSelectionWizard,
+	useWizardStepValue,
+} from "@/routing";
 import { DeleteConfirmDialog } from "./DeleteConfirmDialog";
 import { LabelApplyTrigger } from "./LabelApplyTrigger";
 import {
@@ -110,6 +113,12 @@ interface MessageListProps {
 	 * only the display string.
 	 */
 	searchPredicate?: EscalationSearchQuery;
+	/**
+	 * How many messages the search matches, as the server counted them — the
+	 * whole match set, not the pages loaded. Omitted where the count was never
+	 * asked for, which renders the header without a number.
+	 */
+	resultCount?: ResultCount;
 	onDeleteMessages?: (messageIds: string[]) => void;
 	isDeleting?: boolean;
 	isMoving?: boolean;
@@ -132,12 +141,18 @@ interface MessageListProps {
 	 */
 	listMeta?: string;
 	/**
-	 * The active category filter, when the view has one. The empty state needs
-	 * it to say it is filtered and how much of the collection the request
-	 * reached; without it a narrowed list renders as an empty mailbox, which is
-	 * the shape #315's bug hid behind.
+	 * What narrows the list, when anything does. The empty state needs it to say
+	 * it is filtered and how much of the collection the request reached; without
+	 * it a narrowed list renders as an empty mailbox, which is the shape #315's
+	 * bug hid behind.
 	 */
 	listFilter?: MessageListFilter;
+	/**
+	 * The free text the empty state names, which is `searchQuery` with the typed
+	 * filter tokens taken out: `listFilter` already names those, and a headline
+	 * saying one narrowing twice reads as two.
+	 */
+	listSearchText?: string;
 	/** Name of the collection being listed, e.g. "Inbox", for the empty state. */
 	listScopeLabel?: string;
 	/**
@@ -157,14 +172,6 @@ interface MessageListProps {
 		 * owns (Enter, Space, ⌘A) are left to the browser everywhere else.
 		 */
 		hasList: boolean;
-		/**
-		 * Whether the list has a modal open that owns the keyboard — the delete
-		 * confirmation, or the wizard. The route suspends the whole triage layer
-		 * while it does, so no shortcut can act behind it: a second Delete press
-		 * must not reach a delete, and none may start a second flow behind the
-		 * screen already asking about one.
-		 */
-		blocksKeyboard: boolean;
 	}) => void;
 	/**
 	 * Ref the list publishes its {@link MessageListCommands} into, so the route's
@@ -194,21 +201,6 @@ const readStoredDensity = (): Density => {
 };
 
 /**
- * Names what the list is showing. No number: the only figure available here is
- * the length of the loaded pages, and a page length presented as a result total
- * contradicts the completeness the filtered empty state states in the same view
- * (#306). The exact count is #307's.
- */
-const SearchResultsHeader = ({ query }: { query: string }) => (
-	<div className="flex items-center gap-2 px-3 py-2 border-b border-line bg-surface-sunken/30">
-		<Search className="size-4 text-fg-muted" />
-		<span className="text-sm text-fg-muted">
-			Results for &ldquo;{query}&rdquo;
-		</span>
-	</div>
-);
-
-/**
  * Why Move is withheld from a selection, in the toolbar's own words. Rows from
  * a per-mailbox endpoint carry no account of their own, so the list's own
  * account stands in for them and a row that does carry one is still compared
@@ -235,6 +227,7 @@ export const MessageList = ({
 	onRetry,
 	searchQuery,
 	searchPredicate,
+	resultCount = { kind: "unknown" },
 	onDeleteMessages,
 	isDeleting = false,
 	isMoving = false,
@@ -245,14 +238,14 @@ export const MessageList = ({
 	listTitle,
 	listMeta,
 	listFilter,
+	listSearchText,
 	listScopeLabel,
 	onTriageContextChange,
 	commandsRef,
 	hideHeader = false,
 }: MessageListProps) => {
 	const parentRef = useRef<HTMLDivElement>(null);
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 	const isDesktop = useIsDesktop();
 	const wizard = useSelectionWizard();
 	const { verb: wizardVerb, start: startWizard, startFromSearch } = wizard;
@@ -324,8 +317,8 @@ export const MessageList = ({
 	);
 	const {
 		outcome: deleteOutcome,
-		trashIsUnconfirmed,
 		staleFolderLabel,
+		guessedMailboxId,
 	} = useDeleteOutcome(deleteScope);
 
 	// Selection state
@@ -361,21 +354,12 @@ export const MessageList = ({
 	// are loaded. `orderedIds` below feeds `allLoadedSelected`; declared after
 	// this hook so its callback deps stay simple — see the
 	// `orderedIds`/`handleRowSelect` block.
-	const escalationEnabled = isSearching && !!searchPredicate;
-	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
-	const escalation = useEscalatedActions({
-		mailboxId,
-		accountId,
-		enabled: escalationEnabled,
-		predicateKey,
-		searchQuery: searchPredicate ?? {},
-	});
-
-	// How a run ended, for the user who is no longer looking at the run screen.
-	// Closing the wizard mid-run is a movement the screen invites, and the run
-	// keeps going past it — so the list is what states the ending, whether the
-	// run covered everything or stopped short of it. The wizard calls this only
-	// once the user has left it, so an ending is never said twice.
+	// How a run ended, for the user who is no longer looking at any screen that
+	// could show it. Closing the wizard mid-run is a movement the screen invites,
+	// and leaving the mailbox on top of that is one nothing prevents — the run
+	// keeps going past both, so this states the ending, whether the run covered
+	// everything or stopped short of it. The run's owner calls it only once no
+	// screen is left reporting in place, so an ending is never said twice.
 	const reportRunOutcome = useCallback(
 		(kind: BulkActionKind, matched: number, outcome: BulkRunOutcome) => {
 			const banner = runEndingBanner(kind, matched, outcome, deleteOutcome);
@@ -385,6 +369,18 @@ export const MessageList = ({
 		},
 		[pushError, deleteOutcome],
 	);
+
+	const escalationEnabled = isSearching && !!searchPredicate;
+	const predicateKey = `${mailboxId}|${JSON.stringify(searchPredicate ?? {})}`;
+	const escalation = useEscalatedActions({
+		mailboxId,
+		mailboxLabel: listTitle,
+		accountId,
+		enabled: escalationEnabled,
+		predicateKey,
+		searchQuery: searchPredicate ?? {},
+		reportEnding: reportRunOutcome,
+	});
 
 	// The one way selection mode ends (#115): cancel, a completed delete or
 	// move, a plain click that collapses a range, switching mailboxes, the back
@@ -430,9 +426,8 @@ export const MessageList = ({
 	// Whether the list can serve keyboard commands at all. It stays true while
 	// the delete confirmation is open — withdrawing the commands there would let
 	// the route fall through to its own unconfirmed delete on a second Delete
-	// press. The route suspends the whole keyboard layer for the dialog instead.
+	// press. The dialog is on the overlay stack, which suspends every layer.
 	const commandsAvailable = !isLoading && threads.length > 0;
-	const confirmOpen = pendingDelete !== null;
 
 	const virtualizer = useVirtualizer({
 		count: threads.length,
@@ -655,15 +650,9 @@ export const MessageList = ({
 				(thread) => thread.messageId === messageId,
 			)?.threadId;
 			if (!threadId) return;
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				params: { mailboxId, threadId, messageId },
-				search: (prev) => prev,
-				hash: retainPanels,
-				replace: options?.replace,
-			});
+			openThread({ threadId, messageId }, { replace: options?.replace });
 		},
-		[navigate, retainPanels, mailboxId, threads],
+		[openThread, threads],
 	);
 
 	// Enter: open the focused row in the reading pane. This is the focus→open
@@ -703,7 +692,8 @@ export const MessageList = ({
 					scope: describeSearchScope(searchPredicate ?? {}),
 					total: escalation.phase.total,
 					searchQuery: searchPredicate ?? {},
-					run: (action: EscalatedAction) => escalation.runAction(action),
+					run: (action, claimEnding) =>
+						escalation.runAction(action, undefined, claimEnding),
 					stop: escalation.stop,
 				}
 			: undefined;
@@ -912,16 +902,8 @@ export const MessageList = ({
 			focusedMessageId,
 			selectedIds: Array.from(selectedIds),
 			hasList: commandsAvailable,
-			blocksKeyboard: confirmOpen || wizard.isOpen,
 		});
-	}, [
-		focusedMessageId,
-		selectedIds,
-		commandsAvailable,
-		confirmOpen,
-		wizard.isOpen,
-		onTriageContextChange,
-	]);
+	}, [focusedMessageId, selectedIds, commandsAvailable, onTriageContextChange]);
 
 	// Retract the context when the list goes away (drafts view, phone reading
 	// view). Without this the route keeps its list key handlers registered
@@ -935,7 +917,6 @@ export const MessageList = ({
 				focusedMessageId: undefined,
 				selectedIds: [],
 				hasList: false,
-				blocksKeyboard: false,
 			}),
 		[],
 	);
@@ -1108,10 +1089,16 @@ export const MessageList = ({
 	// The escalation-derived surface state — viewport-independent, fed to both
 	// the mobile sheet and the desktop toolbar so the two never diverge (#212).
 	const selectionIsBusy = isDeleting || isMoving || escalation.isRunning;
+	// A run outlives the selection it came from, and leaving the mailbox and
+	// coming back leaves no selection at all — so while one is in flight the run's
+	// own count is what the bar is about, or the bar would be an empty header over
+	// mail that is still being deleted (#112).
 	const selectionCount =
 		escalation.phase.kind === "escalated"
 			? escalation.phase.total
-			: selectedCount;
+			: escalation.progress
+				? escalation.progress.total
+				: selectedCount;
 
 	// A run reports on the bar from the moment it starts, not from its first
 	// finished batch: the wizard invites the user back here mid-run, and a run
@@ -1150,17 +1137,22 @@ export const MessageList = ({
 		: undefined;
 
 	// At most one escalation notice at a time, ranked by how actionable it is:
-	// an in-progress counting/escalated state and its own action always wins;
-	// otherwise a fresh escalation offer. The (rare) cross-account move hint is
-	// layered on behind them below.
+	// a run in flight and a count both carry Stop, and that always wins; then an
+	// escalated selection's way out; otherwise a fresh escalation offer. The
+	// (rare) cross-account move hint is layered on behind them below.
+	//
+	// Stop rides on the bar rather than only on the wizard's run screen because
+	// the run outlives both the wizard and the route: a user who comes back to
+	// the mailbox mid-run finds the progress there, and has to be able to end it
+	// from the same place (#112).
 	const escalationNotice =
-		escalation.phase.kind === "counting"
+		escalation.isRunning || escalation.phase.kind === "counting"
 			? {
 					tone: "info" as const,
 					text: "",
 					action: { label: "Stop", onClick: escalation.stop },
 				}
-			: escalation.phase.kind === "escalated" && !escalation.isRunning
+			: escalation.phase.kind === "escalated"
 				? {
 						tone: "info" as const,
 						text: "",
@@ -1249,7 +1241,7 @@ export const MessageList = ({
 	const virtualBody = (
 		<>
 			{isSearching && searchQuery && (
-				<SearchResultsHeader query={searchQuery} />
+				<ListResultHeader query={searchQuery} count={resultCount} />
 			)}
 			<div
 				ref={parentRef}
@@ -1330,7 +1322,7 @@ export const MessageList = ({
 				// The results panel is a body, not a list state: it stands in for the
 				// rows and must not fall behind a skeleton while the query re-keys.
 				listState={listHeaderChrome.searchResults ? "ready" : listState}
-				searchQuery={isSearching ? searchQuery : undefined}
+				searchQuery={listSearchText}
 				listFilter={listFilter}
 				listScopeLabel={listScopeLabel}
 				errorMessage={errorMessage}
@@ -1356,7 +1348,7 @@ export const MessageList = ({
 				// mailbox is the Trash the copy has to name.
 				trashFolderLabel={listTitle}
 				staleFolderLabel={staleFolderLabel}
-				trashIsUnconfirmed={trashIsUnconfirmed}
+				guessedMailboxId={guessedMailboxId}
 				isDeleting={isDeleting}
 				onConfirm={handleConfirmDelete}
 				onCancel={handleCancelDelete}
@@ -1365,6 +1357,7 @@ export const MessageList = ({
 				verb={wizardVerb}
 				accountId={accountId}
 				mailboxId={mailboxId}
+				mailboxLabel={listTitle}
 				selection={wizardSelection}
 				selectionRestriction={moveDisabledHint ? "spansAccounts" : undefined}
 				escalated={escalatedSelection}

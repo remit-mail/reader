@@ -2,10 +2,17 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import { ApiError } from "../lib/api.js";
 import { __resetFatalError, subscribeFatalError } from "../lib/fatal-error.js";
+import {
+	__resetHotSyncWindow,
+	HOT_POLL_INTERVAL_MS,
+	HOT_WINDOW_MS,
+	startHotSyncWindow,
+} from "../lib/hot-sync-window.js";
 import { NetworkError } from "../lib/network-error.js";
 import {
 	__peekStaleAccountSyncGuard,
 	__resetStaleAccountSyncGuard,
+	currentPollIntervalMs,
 	handleBackgroundSyncFailure,
 	hasPollIntervalElapsed,
 	MIN_POLL_INTERVAL_MS,
@@ -102,8 +109,9 @@ describe("selectStaleAccountIds", () => {
 });
 
 describe("POLL_INTERVAL_MS", () => {
-	test("defaults to 5 minutes when mailboxPollIntervalSeconds is unset in this test run", () => {
-		assert.equal(POLL_INTERVAL_MS, 5 * 60 * 1000);
+	// How stale an open tab's mail may be with nobody touching anything.
+	test("defaults to 30 seconds when mailboxPollIntervalSeconds is unset in this test run", () => {
+		assert.equal(POLL_INTERVAL_MS, 30 * 1000);
 	});
 });
 
@@ -111,19 +119,13 @@ describe("resolvePollIntervalMs", () => {
 	// This poll shares POST /sync with the refresh control, and that endpoint's
 	// triggers skip the server's per-mailbox freshness gate
 	// (MAILBOX_FRESHNESS_MS in imap-worker's sync-mailboxes fan-out). A timer is
-	// not a person: without this floor, configuring a sub-window interval turns
-	// every tick into a full folder-by-folder re-enumeration for every open
-	// account, which is exactly the fan-out storm the gate prevents. The floor
-	// is what stops a config value from reintroducing it.
-	test("never returns less than the server's freshness window", () => {
+	// not a person: every tick is a full folder-by-folder re-enumeration for
+	// every open account, so the floor is what bounds that work against a config
+	// value.
+	test("never returns less than the floor", () => {
 		assert.equal(resolvePollIntervalMs("10"), MIN_POLL_INTERVAL_MS);
-		assert.equal(resolvePollIntervalMs("59"), MIN_POLL_INTERVAL_MS);
-	});
-
-	test("matches the freshness window the fan-out gate uses", () => {
-		// Keep in step with MAILBOX_FRESHNESS_MS in
-		// packages/imap-worker/src/handlers/sync-mailboxes.ts.
-		assert.equal(MIN_POLL_INTERVAL_MS, 60_000);
+		assert.equal(resolvePollIntervalMs("29"), MIN_POLL_INTERVAL_MS);
+		assert.equal(MIN_POLL_INTERVAL_MS, 30_000);
 	});
 
 	test("honours a configured interval above the floor", () => {
@@ -131,8 +133,45 @@ describe("resolvePollIntervalMs", () => {
 	});
 
 	test("falls back to the default when unset or unparseable", () => {
-		assert.equal(resolvePollIntervalMs(undefined), 5 * 60 * 1000);
-		assert.equal(resolvePollIntervalMs("not-a-number"), 5 * 60 * 1000);
+		assert.equal(resolvePollIntervalMs(undefined), 30 * 1000);
+		assert.equal(resolvePollIntervalMs("not-a-number"), 30 * 1000);
+	});
+});
+
+describe("currentPollIntervalMs", () => {
+	afterEach(__resetHotSyncWindow);
+
+	test("is the configured ambient interval with no recent press", () => {
+		assert.equal(currentPollIntervalMs(NOW, 900_000), 900_000);
+	});
+
+	// Pressing refresh means "and keep looking": the next few minutes run on the
+	// hot cadence even where the deployment has lengthened the ambient one.
+	test("drops to the hot cadence for the whole window after a press", () => {
+		startHotSyncWindow(NOW);
+
+		assert.equal(currentPollIntervalMs(NOW, 900_000), HOT_POLL_INTERVAL_MS);
+		assert.equal(
+			currentPollIntervalMs(NOW + HOT_WINDOW_MS - 1, 900_000),
+			HOT_POLL_INTERVAL_MS,
+		);
+	});
+
+	test("falls back to ambient once the window expires", () => {
+		startHotSyncWindow(NOW);
+
+		assert.equal(currentPollIntervalMs(NOW + HOT_WINDOW_MS, 900_000), 900_000);
+		assert.equal(
+			currentPollIntervalMs(NOW + HOT_WINDOW_MS + 60_000, 900_000),
+			900_000,
+		);
+	});
+
+	// A deployment already polling faster than the hot cadence keeps its own.
+	test("never lengthens an ambient interval shorter than the hot one", () => {
+		startHotSyncWindow(NOW);
+
+		assert.equal(currentPollIntervalMs(NOW, 10_000), 10_000);
 	});
 });
 

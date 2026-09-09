@@ -1,3 +1,4 @@
+import { useOverlayScope } from "@remit/ui";
 import { AlertOctagon } from "lucide-react";
 import { useEffect, useState } from "react";
 import {
@@ -65,6 +66,9 @@ const seedFromFatal = (fatal: FatalError): BugReportSeed => ({
  * by the route-level error boundary without going through the subscription.
  */
 export const FatalErrorScreen = ({ fatal, onRetry }: FatalErrorScreenProps) => {
+	// Nothing under it is in a state to act, and there is no dismissal to offer:
+	// the screen's own controls are the only way out.
+	useOverlayScope({ id: "fatal-error", open: true });
 	const [copied, setCopied] = useState(false);
 
 	const handleReload = () => {

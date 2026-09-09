@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback } from "react";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { completeOnboarding } from "@/lib/onboarding-completion";
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/onboarding")({
 function OnboardingPage() {
 	const telemetry = useTelemetry();
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
 
 	// A client-side navigation carries the query cache with it, and the /mail
 	// first-run guard reads config from that cache — a stale zero-account entry
@@ -36,5 +37,11 @@ function OnboardingPage() {
 		[telemetry, queryClient],
 	);
 
-	return <OnboardingWizard skipWelcome={false} onComplete={handleComplete} />;
+	return (
+		<OnboardingWizard
+			skipWelcome={false}
+			onComplete={handleComplete}
+			onImportConfig={() => void navigate({ to: "/import" })}
+		/>
+	);
 }

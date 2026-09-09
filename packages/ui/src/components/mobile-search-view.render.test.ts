@@ -94,7 +94,11 @@ describe("MobileSearchView search scope", () => {
 		const html = renderToString(
 			createElement(MobileSearchView, {
 				...base,
-				scope: { kind: "global" as const, onScopeToSpam: noop },
+				scope: {
+					kind: "global" as const,
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact" as const, value: 1 },
+				},
 			}),
 		);
 		assert.doesNotMatch(html, /unknown-vendor/);
@@ -114,14 +118,19 @@ describe("MobileSearchView search scope", () => {
 		assert.doesNotMatch(html, /Archive/);
 	});
 
-	it("counts the spam it held out, on the phone tier too", () => {
+	it("carries the server's spam count to the phone tier too", () => {
 		const html = renderToString(
 			createElement(MobileSearchView, {
 				...base,
-				scope: { kind: "global" as const, onScopeToSpam: noop },
+				scope: {
+					kind: "global" as const,
+					onScopeToSpam: noop,
+					spamCount: { kind: "exact" as const, value: 17 },
+				},
 			}),
 		);
-		assert.match(html, /from Spam/);
+		assert.match(html, />17</);
+		assert.match(html, /results from Spam/);
 		assert.match(html, /Go to Spam/);
 	});
 });

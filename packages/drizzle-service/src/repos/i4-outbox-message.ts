@@ -129,6 +129,40 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		outboxMessageId: string,
 		input: UpdateOutboxMessageInput,
 	): Promise<OutboxMessageItem> {
+		const [row] = await this.applyUpdate(
+			accountConfigId,
+			outboxMessageId,
+			input,
+		);
+		if (!row)
+			throw new NotFoundError(`OutboxMessage not found: ${outboxMessageId}`);
+		return rowToOutboxMessage(row);
+	}
+
+	async updateIfStatus(
+		accountConfigId: string,
+		outboxMessageId: string,
+		expected: OutboxMessageItem["status"],
+		input: UpdateOutboxMessageInput,
+	): Promise<OutboxMessageItem | null> {
+		const [row] = await this.applyUpdate(
+			accountConfigId,
+			outboxMessageId,
+			input,
+			expected,
+		);
+		// No row means the status moved or the row went away — both say another
+		// writer got there first, which is the caller's answer rather than an
+		// error here.
+		return row ? rowToOutboxMessage(row) : null;
+	}
+
+	private async applyUpdate(
+		accountConfigId: string,
+		outboxMessageId: string,
+		input: UpdateOutboxMessageInput,
+		expected?: OutboxMessageItem["status"],
+	): Promise<(typeof outboxMessageTable.$inferSelect)[]> {
 		const now = Date.now();
 		const updates: Partial<typeof outboxMessageTable.$inferInsert> = {
 			updatedAt: now,
@@ -154,19 +188,20 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		if (input.inReplyTo !== undefined) updates.inReplyTo = input.inReplyTo;
 		if (input.references !== undefined) updates.references = input.references;
 
-		const [row] = await this.db
+		const rows = await this.db
 			.update(outboxMessageTable)
 			.set(updates)
 			.where(
 				and(
 					eq(outboxMessageTable.accountConfigId, accountConfigId),
 					eq(outboxMessageTable.outboxMessageId, outboxMessageId),
+					expected === undefined
+						? undefined
+						: eq(outboxMessageTable.status, expected),
 				),
 			)
 			.returning();
-		if (!row)
-			throw new NotFoundError(`OutboxMessage not found: ${outboxMessageId}`);
-		return rowToOutboxMessage(row);
+		return rows;
 	}
 
 	async updateStatus(
@@ -238,7 +273,16 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 		accountId: string,
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<OutboxMessageItem>> {
+		return this.listByAccounts([accountId], options);
+	}
+
+	async listByAccounts(
+		accountIds: string[],
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<OutboxMessageItem>> {
 		const limit = options?.limit ?? 100;
+		if (accountIds.length === 0) return resultList([], limit);
+
 		const cursor = options?.continuationToken
 			? decodeToken(options.continuationToken)
 			: undefined;
@@ -254,7 +298,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 			.from(outboxMessageTable)
 			.where(
 				and(
-					eq(outboxMessageTable.accountId, accountId),
+					inArray(outboxMessageTable.accountId, accountIds),
 					after
 						? or(
 								lt(outboxMessageTable.createdAt, after.createdAt),

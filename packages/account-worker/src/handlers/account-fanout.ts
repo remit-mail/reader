@@ -28,6 +28,7 @@ import type {
 import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
 import { processOrganizeJob } from "./organize-job.js";
+import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
 
 export interface ProcessAccountFanoutDeps {
 	services?: CascadeServices;
@@ -71,6 +72,11 @@ export const processAccountFanout = async (
 
 	if (event.type === "OrganizeJob") {
 		await processOrganizeJob(event, log);
+		return;
+	}
+
+	if (event.type === "SenderCategoryBackApply") {
+		await processSenderCategoryBackApply(event, log);
 		return;
 	}
 

@@ -1,7 +1,8 @@
 import { Bug } from "lucide-react";
+import { folderLeaf } from "../lib/folder-tree.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
-import { canonicalRoleLabel, providerLeaf } from "./folder-role.js";
+import { canonicalRoleLabel } from "./folder-role.js";
 import {
 	type QuarantineEntry,
 	quarantineSummary,
@@ -47,7 +48,7 @@ export function QuarantineEntryRow({
 						</Badge>
 					)}
 					<span className="truncate" title={entry.mailboxPath}>
-						{providerLeaf(entry.mailboxPath)}
+						{folderLeaf(entry.mailboxPath, entry.mailboxDelimiter)}
 					</span>
 					<span aria-hidden>·</span>
 					<span>{`uid ${entry.uid}`}</span>

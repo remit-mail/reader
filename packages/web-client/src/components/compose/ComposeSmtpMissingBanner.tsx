@@ -1,6 +1,6 @@
 import { ComposeSmtpMissingBanner as Banner } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
 import type { Ref } from "react";
+import { useConfigureAccountSmtp } from "@/routing";
 
 interface ComposeSmtpMissingBannerProps {
 	accountId: string;
@@ -12,16 +12,13 @@ export const ComposeSmtpMissingBanner = ({
 	accountId,
 	configureRef,
 }: ComposeSmtpMissingBannerProps) => {
-	const navigate = useNavigate();
+	const configureSmtp = useConfigureAccountSmtp();
 
 	return (
 		<Banner
 			configureRef={configureRef}
 			onConfigure={() => {
-				navigate({
-					to: "/settings/accounts",
-					search: { editAccountId: accountId, focusSmtp: true },
-				});
+				configureSmtp(accountId);
 			}}
 		/>
 	);

@@ -7,9 +7,16 @@ import { CANONICAL_TO_NAV_ROLE } from "./folder-roles";
  * the settings surface has no use for, and spells the folder role in the
  * canonical PascalCase the API uses everywhere. Both differences are resolved
  * here rather than by widening the kit's entry type.
+ *
+ * The record carries no hierarchy delimiter either, so the caller joins the
+ * mailbox id against the account's own mailbox list and hands the delimiter in
+ * — the row shows a folder name, and a path cannot be cut into one without it.
+ * An empty delimiter means no account lists that mailbox, and the row keeps its
+ * whole path rather than being cut on a guess.
  */
 export function toQuarantineEntry(
 	wire: RemitImapQuarantineResponse,
+	mailboxDelimiter: string,
 ): QuarantineEntry {
 	return {
 		quarantineId: wire.quarantineId,
@@ -21,6 +28,7 @@ export function toQuarantineEntry(
 			? CANONICAL_TO_NAV_ROLE[wire.mailboxRole]
 			: undefined,
 		mailboxPath: wire.mailboxPath,
+		mailboxDelimiter,
 		failureStage: wire.failureStage,
 		failureCode: wire.failureCode,
 		failureMessage: wire.failureMessage,

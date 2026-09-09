@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { CategoryBadge, type MessageCategory } from "./category-badge.js";
+import type { ThreadCategory } from "../category-presentation.js";
+import { CategoryBadge } from "./category-badge.js";
 
 const meta: Meta<typeof CategoryBadge> = {
 	title: "Mail/CategoryBadge",
@@ -10,7 +11,7 @@ export default meta;
 
 type Story = StoryObj<typeof CategoryBadge>;
 
-const categories: MessageCategory[] = [
+const categories: ThreadCategory[] = [
 	"newsletter",
 	"marketing",
 	"automated",

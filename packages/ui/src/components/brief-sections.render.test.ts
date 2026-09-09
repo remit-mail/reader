@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type { BriefCategoryFilter, ThreadSection } from "./app-shell-types.js";
+import type { BriefCategoryFilter } from "../category-presentation.js";
+import type { BriefFilterId } from "../lib/brief-filters.js";
+import type { ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
 import { ComfortableRow } from "./message-row.js";
 
@@ -43,6 +45,14 @@ const sections: ThreadSection[] = [
 	},
 ];
 
+const NO_CHIPS: ReadonlySet<BriefFilterId> = new Set();
+
+const chipControl = {
+	activeFilters: NO_CHIPS,
+	onToggleFilter: () => undefined,
+	onClearFilters: () => undefined,
+};
+
 function render(briefCategory: BriefCategoryFilter) {
 	return renderToString(
 		createElement(BriefSections, {
@@ -51,6 +61,7 @@ function render(briefCategory: BriefCategoryFilter) {
 			briefCategory,
 			onSelectThread: () => undefined,
 			onSelectBriefCategory: () => undefined,
+			...chipControl,
 		}),
 	);
 }
@@ -64,9 +75,98 @@ describe("BriefSections", () => {
 		assert.match(html, /Weekly Brief/);
 	});
 
-	it("filters rows by briefCategory", () => {
-		const html = render("newsletter");
+	// #314: membership is the host's answer, and in the app it is the server's.
+	// A list that drops a row it was handed is a second filter layer under the
+	// first, narrowing one page by a criterion the request applied to the whole
+	// scope (#312).
+	it("renders every row it is given, whatever the chips and the category say", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections,
+				Row: ComfortableRow,
+				briefCategory: "newsletter",
+				activeFilters: new Set<BriefFilterId>([
+					"unread",
+					"attachment",
+					"contacts",
+					"today",
+				]),
+				onToggleFilter: () => undefined,
+				onClearFilters: () => undefined,
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+			}),
+		);
+		assert.match(html, /Priya Nair/);
 		assert.match(html, /Weekly Brief/);
-		assert.doesNotMatch(html, /Priya Nair/);
+	});
+
+	// #312: a section the server answered for is a section, rows or not. Dropping
+	// it would leave the reader unable to tell a chip that matched nothing from a
+	// category the brief never asked about.
+	it("keeps a counted section a chip narrowed to nothing", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections: [
+					{
+						id: "personal",
+						label: "Personal",
+						threads: [],
+						total: { kind: "exact", value: 4753 },
+					},
+				],
+				Row: ComfortableRow,
+				briefCategory: "all",
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+				...chipControl,
+			}),
+		);
+		assert.match(html, /No Personal mail in this brief\./);
+	});
+
+	// A search is answered by one ordered list. Sectioning the matches would put
+	// an old newsletter above a newer match, which is what the sections do (#312).
+	it("renders no headers at all under `flat`, keeping the given row order", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections,
+				Row: ComfortableRow,
+				briefCategory: "all",
+				flat: true,
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+				...chipControl,
+			}),
+		);
+		assert.doesNotMatch(html, /data-section-header/);
+		assert.ok(
+			html.indexOf("Priya Nair") < html.indexOf("Weekly Brief"),
+			"the flat list reordered its rows",
+		);
+	});
+
+	// Narrowed to one category the label repeats the chip, but the total does
+	// not: it is the only statement of how much mail that category holds.
+	it("keeps the header at a single-category scope once it carries a total", () => {
+		const html = renderToString(
+			createElement(BriefSections, {
+				sections: [
+					{
+						id: "newsletter",
+						label: "Newsletter",
+						threads: sections[1].threads,
+						total: { kind: "exact", value: 2295 },
+					},
+				],
+				Row: ComfortableRow,
+				briefCategory: "newsletter",
+				onSelectThread: () => undefined,
+				onSelectBriefCategory: () => undefined,
+				...chipControl,
+			}),
+		);
+		assert.match(html, /Newsletter/);
+		assert.match(html, />2,295</);
 	});
 });

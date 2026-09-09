@@ -47,13 +47,8 @@ STATE_MOUNT="${REMIT_UPDATE_STATE_MOUNT:-$STATE_DIR}"
 # to STATE_DIR and the two are one directory.
 CONTROL_DIR="${REMIT_UPDATE_CONTROL_DIR:-$STATE_DIR}"
 
-# The database lives on a named volume, so reading and writing it means a
-# container either way. alpine is what the backup sidecar already uses, and the
-# restore path deliberately needs nothing installed into it — a rollback must
-# not depend on the network that just failed. The updater container overrides
-# this with its own image, which bakes sqlite3 in so a snapshot never waits on
-# an apk install (#133).
-HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-alpine:3.23}"
+# HELPER_IMAGE — the image every helper container runs — is derived further
+# down, below get_var: inside the updater it is read from the running tag.
 
 # The host docker socket, for the one helper that drives compose rather than a
 # volume: the detached container that recreates the updater service (reader#291).
@@ -83,6 +78,11 @@ LOCK_STALE_CEILING="${REMIT_UPDATE_LOCK_STALE:-3600}"
 # path would not resolve against the host daemon the helper `docker run` talks
 # to. Unset falls back to the install-directory copy; empty skips the mount.
 SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh}"
+
+# The two host-side files a release owns, under the names it serves them by. The
+# compose file is installed under $COMPOSE_FILE instead, which install.sh stamps
+# as a basename and a second deployment may have set to its own.
+HOST_ASSETS="remit docker-compose.sqlite.yml"
 
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
 # migrates a large mailbox index is the normal slow case, and rolling back a
@@ -133,6 +133,9 @@ Usage: $PROG <command> [args]
                        restores the snapshot and the previous tag. A stopped
                        stack is started to be gated.
   update --check       Check for a newer release and report, changing nothing.
+                       Runs in the updater container, because that is where the
+                       answer 'status' and the app read is kept, so the stack
+                       has to be up.
   update --recover     Finish an update that was interrupted, committing or
                        rolling back on the gate's verdict. Runs at the
                        updater's start; safe to run by hand.
@@ -150,11 +153,31 @@ Usage: $PROG <command> [args]
                        failing. Exits 0 healthy, 1 degraded, 2 when no verdict
                        could be produced, so cron or an external monitor can
                        call it directly.
+  semantic [on|off]    Store a vector for every message, or stop. That is what
+                       the Organize semantic widen and semantic filters read.
+                       With no argument it only prints the state. Text search
+                       works on every install and is not this setting, and the
+                       "Similar messages" panel needs a query embedder no image
+                       here carries, so it stays empty either way. What turning
+                       it on costs, and the remote-provider alternative: the
+                       Search section of README.md.
   config               Print the effective configuration, secrets redacted.
+  config save <file>   Write every setting — accounts, filters, labels, folder
+    [--user <email>]   roles, signatures, flagged senders — to <file> as one
+                       versioned JSON document. No password and no OAuth token
+                       goes in it, so importing it asks for each account's
+                       credentials again. Run it before anything that drops the
+                       database. --user picks the sign-in on an instance that
+                       holds more than one.
   check-categories     Report whether the mail list's category column agrees
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
                        every start; this is how to look without waiting for one.
+  check-index          Report which embedding model the search index's vectors
+                       came from, counted per model and against the one this
+                       deployment is configured with. Reads the index and
+                       writes nothing. Vectors under an older model still
+                       answer queries, in a vector space of their own.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -238,13 +261,85 @@ stopped_profile_services() {
 	done
 }
 
+# The profiles a set of services sits behind, out of the compose file rather
+# than written out here: the line that tells an operator how to bring a service
+# back has to name the profile that service actually declares, and a second copy
+# of that mapping goes stale the moment a profile is added (reader#786). Each
+# profile once, in file order.
+#
+# Service keys sit at two spaces of indent and their properties at four, so the
+# two-space rule is a service name and nothing else. Both spellings of the key
+# are read — the inline `profiles: ["x"]` and the block list — because the
+# compose file uses the first and nothing stops it using the second.
+profiles_of_services() {
+	_pos=" $1 " awk '
+		function note(text,   i, k, parts) {
+			if (!(svc in want)) return
+			gsub(/[][",]/, " ", text)
+			k = split(text, parts, /[ \t]+/)
+			for (i = 1; i <= k; i++) {
+				if (parts[i] != "" && !(parts[i] in seen)) {
+					seen[parts[i]] = 1
+					printf "%s ", parts[i]
+				}
+			}
+		}
+		BEGIN {
+			k = split(ENVIRON["_pos"], w, /[ \t]+/)
+			for (i = 1; i <= k; i++) { if (w[i] != "") want[w[i]] = 1 }
+		}
+		/^[^ \t#]/ { under = ($0 ~ /^services:[ \t]*$/); svc = ""; inprof = 0; next }
+		!under { next }
+		/^  [^ \t#]/ {
+			inprof = 0
+			svc = ""
+			if ($0 ~ /^  [A-Za-z0-9_.-]+:[ \t]*$/) {
+				svc = $0
+				sub(/^  /, "", svc)
+				sub(/:.*$/, "", svc)
+			}
+			next
+		}
+		svc == "" { next }
+		/^    profiles:/ {
+			inprof = 1
+			rest = $0
+			sub(/^    profiles:/, "", rest)
+			note(rest)
+			next
+		}
+		inprof && /^ *- / {
+			rest = $0
+			sub(/^ *- */, "", rest)
+			note(rest)
+			next
+		}
+		{ inprof = 0 }
+	' "$REMIT_DIR/$COMPOSE_FILE"
+}
+
 # The one incantation that brings an optional profile back. `remit` never starts
 # a profile on its own, so every command that can leave one down owes the
 # operator this line, and there is one copy of it to owe.
+#
+# The semantic profile is named by its verb instead: the profile alone starts a
+# worker that refuses at startup unless SEARCH_EMBEDDING_PROVIDER moved with it,
+# and `semantic on` is the one command that moves both.
 profile_recovery_hint() {
 	printf '  %s\n' "${1% }"
 	printf "Bring them back with:\n"
-	printf "  docker compose -f %s --env-file .env --profile observability up -d\n" "$COMPOSE_FILE"
+	_hinted=$(profiles_of_services "$1")
+	if [ -z "$_hinted" ]; then
+		printf "  docker compose -f %s --env-file .env up -d %s\n" "$COMPOSE_FILE" "${1% }"
+		return 0
+	fi
+	for _prof in $_hinted; do
+		if [ "$_prof" = "$SEMANTIC_PROFILE" ]; then
+			printf "  %s semantic on\n" "$PROG"
+		else
+			printf "  docker compose -f %s --env-file .env --profile %s up -d\n" "$COMPOSE_FILE" "$_prof"
+		fi
+	done
 }
 
 # The profile services a `restart` stopped, written before anything stops.
@@ -365,6 +460,31 @@ get_var() {
 	' "$REMIT_DIR/.env"
 }
 
+# The database lives on a named volume, so reading and writing it means a
+# container either way. alpine is what the backup sidecar already uses, and the
+# restore path deliberately needs nothing installed into it — a rollback must
+# not depend on the network that just failed.
+#
+# Inside the updater it is that container's own image instead, which bakes
+# sqlite3 and su-exec in so a snapshot never waits on an apk install (#133). The
+# entrypoint derives it too, but `docker compose exec` does not run an
+# entrypoint, and a wrapper reached that way falling back to alpine puts an apk
+# install on a box that may have no route to one (reader#1158). The image sets
+# REMIT_UPDATER_IMAGE_REPO, so every remit in that container reaches the same
+# answer from the same two inputs however it was started.
+#
+# It sits here rather than beside the other settings because get_var is what
+# reads the running tag, and it is resolved once per process: an update rewrites
+# REMIT_TAG before the stop, and the helpers that follow have to stay on the
+# image the run began with.
+HELPER_IMAGE="${REMIT_UPDATE_HELPER_IMAGE:-}"
+if [ -z "$HELPER_IMAGE" ] && [ -n "${REMIT_UPDATER_IMAGE_REPO:-}" ]; then
+	_helper_tag=$(get_var REMIT_TAG 2>/dev/null || true)
+	[ -n "$_helper_tag" ] || _helper_tag="${REMIT_TAG:-latest}"
+	HELPER_IMAGE="$REMIT_UPDATER_IMAGE_REPO:$_helper_tag"
+fi
+[ -n "$HELPER_IMAGE" ] || HELPER_IMAGE=alpine:3.23
+
 # The Compose project this deployment is, read from the file Compose reads it
 # from — so the name a helper `docker run` uses to reach a volume is the name
 # Compose gave that volume, whatever else is installed on the box.
@@ -396,15 +516,16 @@ owner_mode_of() {
 
 # Restores a captured "uid gid [mode]" onto a path, before it is renamed into
 # place. Best-effort by design: a chown that cannot run is the unprivileged
-# shell where it is already unnecessary.
+# shell where it is already unnecessary. The local is named for this function
+# and nothing else: a name a caller also uses is a name this overwrites.
 restore_owner_mode() {
-	_target=$1
+	_rom_path=$1
 	# shellcheck disable=SC2086 # "uid gid [mode]" is split into fields on purpose
 	set -- $2
 	[ -n "${1:-}" ] && [ -n "${2:-}" ] || return 0
-	chown "$1:$2" "$_target" 2>/dev/null || true
+	chown "$1:$2" "$_rom_path" 2>/dev/null || true
 	if [ -n "${3:-}" ]; then
-		chmod "$3" "$_target" 2>/dev/null || true
+		chmod "$3" "$_rom_path" 2>/dev/null || true
 	fi
 	return 0
 }
@@ -435,10 +556,10 @@ set_var() {
 # Shared by `update` and by install.sh, which calls this wrapper rather than
 # repeating the pull/up/migrate-gate sequence.
 #
-# The pull moves ~4 GB on a first install (search-index-worker alone is
-# ~1.36 GB), so its progress is streamed rather than buffered for a diagnosis
-# that is usually never needed — buffering makes a working install look hung
-# for minutes. The copy kept on the side is only there to classify a failure,
+# The pull moves gigabytes (README.md, Search), so its progress is streamed
+# rather than buffered for a diagnosis that is usually never needed — buffering
+# makes a working install look hung for minutes. The copy kept on the side is
+# only there to classify a failure,
 # and the pull's own exit status has to be carried out of the pipeline by hand
 # because the pipeline reports tee's.
 pull_images() {
@@ -450,6 +571,14 @@ pull_images() {
 	{
 		_rc=0
 		compose pull 2>&1 || _rc=$?
+		# An unscoped pull never names a service behind an inactive profile, so on
+		# an instance that turned semantic search on the one image carrying the
+		# model is the one image `update` would leave at its old tag. Naming it
+		# enables its profile. Inside the same pipeline, so the same log and the
+		# same failure classification cover it.
+		if [ "$_rc" = "0" ] && ! semantic_is_off; then
+			compose pull "$SEMANTIC_SERVICE" 2>&1 || _rc=$?
+		fi
 		printf '%s' "$_rc" >"$_status"
 	} | tee "$_log"
 	_code=$(cat "$_status" 2>/dev/null || printf 1)
@@ -506,9 +635,14 @@ apply() {
 
 cmd_restart() {
 	require_deployment
-	if [ -n "${1:-}" ] && [ "$1" != "--hard" ]; then
-		die "restart: unknown option '$1'"
-	fi
+	_hard=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--hard) _hard=1 ;;
+		*) die "restart: unknown option '$1'" ;;
+		esac
+		shift
+	done
 	# An unscoped `up` never names a service behind a profile, so without this
 	# the line printed at the end is false for the observability containers: a
 	# raised REMIT_METRICS_RETENTION never reaches VictoriaMetrics and the
@@ -519,7 +653,7 @@ cmd_restart() {
 	# turned on stays off.
 	_profiled=$(uniq_services "$(running_profile_services) $(profile_hold_read)")
 	profile_hold_write "$_profiled"
-	if [ "${1:-}" = "--hard" ]; then
+	if [ "$_hard" = "1" ]; then
 		# All profiles, or --hard stops the always-on services and leaves the
 		# optional ones up on the configuration it just claimed to replace.
 		compose_all stop
@@ -587,6 +721,173 @@ report_profiles_gone() {
 cmd_logs() {
 	require_deployment
 	compose logs -f --tail=100 "$@"
+}
+
+# --- semantic search (issue #1068) ------------------------------------------
+#
+# What this turns on is a stored vector per message, which the Organize semantic
+# widen and semantic (anchor) filters read. Text search (FTS5) is part of the
+# database and unaffected; the "Similar messages" panel needs the typed query
+# embedded and no image here does that. Costs and the remote alternative are in
+# the Search section of README.md.
+#
+# SEARCH_EMBEDDING_PROVIDER decides whether anything embeds and the `semantic`
+# compose profile decides whether the worker that does it runs. Moving one
+# without the other is broken both ways, so this is the only place either moves.
+SEMANTIC_PROFILE=semantic
+SEMANTIC_SERVICE=search-index-worker
+SEMANTIC_VAR=SEARCH_EMBEDDING_PROVIDER
+SEMANTIC_OFF=off
+# What `semantic on` writes. `bedrock` is the one value it leaves alone: an
+# operator who pointed this at a remote provider did not ask for a local model.
+SEMANTIC_LOCAL=local
+SEMANTIC_REMOTE=bedrock
+# The unit-test and e2e embedder, which the setting also accepts. It writes
+# real-looking vectors no query can be matched against, so on a deployment it is
+# off with extra steps — reported as off, and replaced by `semantic on`.
+SEMANTIC_DETERMINISTIC=deterministic
+
+semantic_compose() {
+	docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
+		--env-file "$REMIT_DIR/.env" \
+		--profile "$SEMANTIC_PROFILE" \
+		"$@"
+}
+
+# The provider in .env, or `off` when the line is absent. Absent is off rather
+# than a default: a deployment whose .env never named this variable is one that
+# was never told to embed anything.
+semantic_provider() {
+	_sp=$(get_var "$SEMANTIC_VAR" 2>/dev/null || true)
+	[ -n "$_sp" ] || _sp=$SEMANTIC_OFF
+	printf '%s' "$_sp"
+}
+
+# Whether this deployment embeds nothing. Two values mean that, and every
+# command that branches on the state asks here rather than comparing to `off`.
+semantic_is_off() {
+	case "$(semantic_provider)" in
+	"$SEMANTIC_OFF" | "$SEMANTIC_DETERMINISTIC") return 0 ;;
+	esac
+	return 1
+}
+
+# One line for `remit status`, where every other line is one fact wide. It has
+# to answer the question an empty "Similar messages" panel raises — nothing
+# matched, or nothing indexed — so `off` carries the command that changes it.
+semantic_summary() {
+	case "$(semantic_provider)" in
+	"$SEMANTIC_OFF")
+		printf "off — text search only ('%s semantic on' turns it on)" "$PROG"
+		;;
+	"$SEMANTIC_DETERMINISTIC")
+		printf "off — %s is the test embedder, whose vectors match nothing ('%s semantic on' turns it on)" \
+			"$SEMANTIC_DETERMINISTIC" "$PROG"
+		;;
+	"$SEMANTIC_LOCAL")
+		printf 'on — embedded on this box by %s' "$SEMANTIC_SERVICE"
+		;;
+	*)
+		printf 'on — embedded by %s' "$(semantic_provider)"
+		;;
+	esac
+}
+
+semantic_worker_state() {
+	if [ -n "$(stopped_among "$SEMANTIC_SERVICE")" ]; then
+		printf 'not running'
+		return 0
+	fi
+	printf 'running'
+}
+
+# What the operator gets from every form of the command, the ones that change
+# nothing included. A setting that reports only when it moves is one nobody can
+# check.
+semantic_report() {
+	printf 'Semantic search:  %s\n' "$(semantic_summary)"
+	printf 'Worker:           %s %s\n' "$SEMANTIC_SERVICE" "$(semantic_worker_state)"
+	printf 'Text search:      on — FTS5, on every install, unaffected by this setting\n'
+	printf 'Similar messages: off — no image here embeds a typed query, either way\n'
+	if semantic_is_off; then
+		printf '\nOn, it stores a vector for every message, which is what the Organize\n'
+		printf 'semantic widen and semantic (anchor) filters read. The "Similar messages"\n'
+		printf 'panel needs the typed query embedded and no image here does that, so it\n'
+		printf 'stays empty whichever way this is set.\n'
+		printf '\nIt costs a large image pull and hours of CPU to index an existing mailbox\n'
+		printf 'once — the numbers are in the Search section of README.md. Stored vectors\n'
+		printf 'are kept while it is off.\n'
+	fi
+}
+
+cmd_semantic() {
+	require_deployment
+	[ $# -le 1 ] ||
+		die "semantic: takes one argument — 'on', 'off', or none to print the state"
+	if [ $# -eq 0 ]; then
+		semantic_report
+		return 0
+	fi
+	case "$1" in
+	on)
+		# `bedrock` is the one value left alone. Every other value that is not
+		# already `local` embeds nothing an operator can search — `off`, and the
+		# `deterministic` test embedder — so `on` replaces it.
+		if [ "$(semantic_provider)" != "$SEMANTIC_REMOTE" ]; then
+			set_var "$SEMANTIC_VAR" "$SEMANTIC_LOCAL"
+		fi
+		# The always-on services first, and through `up -d`: they read this
+		# variable too — the backend composes its search service from it — and
+		# `compose restart` reuses existing containers with the environment they
+		# were created with, so the edit reaches them no other way.
+		apply
+		# Then the worker, named rather than reached with --profile: naming a
+		# service on the command line enables its profile, which is how every
+		# other command in here starts one. The image is not on the box yet, so
+		# this is where the model image pull happens; its progress streams rather than
+		# sitting buffered behind a command that looks hung for minutes.
+		compose up -d "$SEMANTIC_SERVICE" || true
+		if [ -n "$(stopped_among "$SEMANTIC_SERVICE")" ]; then
+			die "semantic: $SEMANTIC_SERVICE did not start. $SEMANTIC_VAR is $(semantic_provider) in $REMIT_DIR/.env, so the setting moved and the worker did not — '$PROG logs $SEMANTIC_SERVICE' says why, and '$PROG semantic on' retries."
+		fi
+		semantic_report
+		;;
+	off)
+		set_var "$SEMANTIC_VAR" "$SEMANTIC_OFF"
+		# Removed, not stopped. A stopped container behind a profile is what every
+		# other command reads as "a profile service the operator enabled and
+		# something took down", so `remit restart` would offer to bring back the
+		# worker this command was asked to turn off. The vectors are on a volume
+		# and are not touched.
+		semantic_compose rm --force --stop "$SEMANTIC_SERVICE" >/dev/null || true
+		apply
+		semantic_report
+		;;
+	*)
+		die "semantic: '$1' is not a setting — use 'on', 'off', or no argument to print the state"
+		;;
+	esac
+}
+
+# Which embedder wrote the vectors that are in the index (#455). Changing the
+# model re-embeds a message only when something touches it, so an index quietly
+# comes to hold two vector spaces that are compared against each other and rank
+# worse for it. From outside, "indexed with the current model", "indexed with an
+# older one" and "not indexed yet" are the same empty result; this is how to tell
+# them apart.
+#
+# It runs in the worker's own image because that is where the configured
+# embedder resolves: the weight precision is part of the embedding identity and
+# is set in that image, so the same environment read anywhere else names a model
+# nothing wrote. --no-deps for the reason check-categories has it — this reads
+# and writes nothing, and `compose run` would otherwise start the queue and run
+# the migrate one-shot on the operator's behalf.
+cmd_check_index() {
+	require_deployment
+	[ $# -eq 0 ] || die "check-index: takes no arguments"
+	semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-report.mjs
 }
 
 # What the operator wants after a command that leaves the stack serving is the
@@ -872,13 +1173,21 @@ report_reachability() {
 
 cmd_status() {
 	require_deployment
+	[ $# -eq 0 ] || die "status: unknown argument '$1' — status takes no arguments"
 	_origin=$(get_var PUBLIC_ORIGIN)
 	printf 'Directory: %s\n' "$REMIT_DIR"
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
 	printf 'Origin:    %s\n' "$_origin"
+	printf 'Semantic:  %s\n' "$(semantic_summary)"
 	report_reachability "$_origin"
-	report_check
-	report_last_run
+	read_update_record
+	if [ -n "$UPDATE_RECORD_UNREADABLE" ]; then
+		printf 'Updates:   unknown — the updater state volume (%s) could not be read\n' \
+			"$(updater_state_volume)"
+	else
+		report_check "$UPDATE_CHECK_JSON"
+		report_last_run "$UPDATE_RUN_JSON"
+	fi
 	printf '\n'
 	compose ps
 }
@@ -997,13 +1306,20 @@ fsync_path() {
 	sync "$1" 2>/dev/null || sync
 }
 
+# The temp file carries the writer's pid because two wrappers can be writing the
+# same volume at once: the updater is driving a panel-triggered update while an
+# operator's shell delegates a check into the same container (reader#1158). On a
+# shared "$1.tmp" the second writer's rm -f and mv land in the middle of the
+# first one's write, and the update that was interrupted is the one that had
+# something to lose.
 atomic_write() {
-	rm -f "$1.tmp"
+	_aw_tmp="$1.$$.tmp"
+	rm -f "$_aw_tmp"
 	(
 		umask 077
-		cat >"$1.tmp"
+		cat >"$_aw_tmp"
 	)
-	mv "$1.tmp" "$1"
+	mv "$_aw_tmp" "$1"
 }
 
 # --- breadcrumb -------------------------------------------------------------
@@ -1116,12 +1432,19 @@ phase() {
 	fi
 }
 
-terminate() {
+# Records a terminal outcome and says it. It does not touch the breadcrumb, so a
+# settlement that is not the end of the run the breadcrumb describes cannot
+# erase that run's only recovery record (#906).
+settle() {
 	run_state_write "$RUN_PHASE" "$1" "$2" "$3"
-	breadcrumb_clear
 	if [ "${REMIT_QUIET:-0}" != "1" ]; then
 		printf '%s\n' "$2"
 	fi
+}
+
+terminate() {
+	settle "$1" "$2" "$3"
+	breadcrumb_clear
 }
 
 # --- lock -------------------------------------------------------------------
@@ -1524,21 +1847,34 @@ request_age_seconds() {
 	printf '%s' "$(($(epoch) - _at))"
 }
 
+# Why a request was refused, as the status requested_target returns. The caller
+# runs it in a command substitution, so the status is the only channel back: a
+# variable set here would not survive the subshell. Each one is a different
+# thing to tell the operator, so they are kept apart rather than collapsed into
+# a single failure.
+REQUEST_UNREADABLE=1
+REQUEST_EXPIRED=2
+REQUEST_TOO_LARGE=3
+REQUEST_NOT_FLAT=4
+REQUEST_NO_VERSION=5
+REQUEST_WRONG_VERSION=6
+REQUEST_BAD_RUN_ID=7
+REQUEST_BAD_VERSION=8
+
 # Emits the accepted target version, and the run id the request named on a
 # second line — empty when the request carried none. Both are refused together:
 # a request whose runId is unusable is rejected whole, like every other
 # malformed field, rather than being run under an id of our own.
 #
-# Status 2 is the one refusal the caller reports rather than swallows: the file
-# was well-formed and simply too old. It is tested before the version, because
-# a request left on the seam for days is stale whether or not a newer release
-# has since shipped, and "this is not the published release" is the wrong thing
-# to tell an operator whose real problem is an updater that was not running.
+# Expiry is tested before the version, because a request left on the seam for
+# days is stale whether or not a newer release has since shipped, and "this is
+# not the published release" is the wrong thing to tell an operator whose real
+# problem is an updater that was not running.
 requested_target() {
-	[ -f "$CONTROL_DIR/request.json" ] || return 1
+	[ -f "$CONTROL_DIR/request.json" ] || return "$REQUEST_UNREADABLE"
 	_bytes=$(wc -c <"$CONTROL_DIR/request.json" 2>/dev/null || printf '%s' "$((REQUEST_MAX_BYTES + 1))")
 	if [ "$_bytes" -gt "$REQUEST_MAX_BYTES" ]; then
-		return 1
+		return "$REQUEST_TOO_LARGE"
 	fi
 	_raw=$(cat "$CONTROL_DIR/request.json")
 	_saw_target=0
@@ -1547,50 +1883,51 @@ requested_target() {
 		[ -n "$_k" ] || continue
 		case "$ALLOWED_REQUEST_KEYS" in
 		*" $_k "*) ;;
-		*) return 1 ;;
+		*) return "$REQUEST_NOT_FLAT" ;;
 		esac
 		if [ "$_k" = "targetVersion" ]; then _saw_target=1; fi
 		if [ "$_k" = "runId" ]; then _saw_run=1; fi
 	done <<EOF
 $(request_keys "$_raw")
 EOF
-	[ "$_saw_target" = "1" ] || return 1
+	[ "$_saw_target" = "1" ] || return "$REQUEST_NO_VERSION"
 	# Bounded from below as well as above. A stamp in this instance's future was
 	# not written against this clock, and a box with no RTC is exactly where that
 	# happens: it comes up reading roughly its own shutdown time, so a request
 	# written just before the stop looks minutes old days later. Without the
 	# floor, the surviving-a-`remit stop` case #587 names is the one the window
 	# misses.
-	_age=$(request_age_seconds "$_raw") || return 2
+	_age=$(request_age_seconds "$_raw") || return "$REQUEST_EXPIRED"
 	if [ "$_age" -lt 0 ] || [ "$_age" -gt "$REQUEST_MAX_AGE_SECONDS" ]; then
-		return 2
+		return "$REQUEST_EXPIRED"
 	fi
 	_want=$(json_string "$_raw" targetVersion)
 	if ! version_valid "$_want"; then
-		return 1
+		return "$REQUEST_BAD_VERSION"
 	fi
 	if [ "$_want" != "$CHECK_VERSION" ]; then
-		return 1
+		return "$REQUEST_WRONG_VERSION"
 	fi
 	_run=""
 	if [ "$_saw_run" = "1" ]; then
 		_run=$(json_string "$_raw" runId)
 		if ! request_run_id_valid "$_run"; then
-			return 1
+			return "$REQUEST_BAD_RUN_ID"
 		fi
 	fi
 	printf '%s\n%s' "$_want" "$_run"
 }
 
-# An expired request is discarded, and the discard is recorded as a run that
-# changed nothing. Silence here would trade a surprise install for a surprise
-# no-op: run.json is what `remit status` and the app both read, so it is the
-# only place the operator can learn that an install was asked for and not
-# performed. The run keeps the id the request named, so a page still polling
-# gets a verdict on its own run rather than never hearing back. Nothing out of
-# the file reaches the message unvalidated — the version is rendered only if it
-# is a version, the time only if it is a time.
-discard_expired_request() {
+# A request that is not installed still settles a run. Silence here would trade
+# a surprise install for a surprise no-op: run.json is what `remit status` and
+# the app both read, so it is the only place the operator can learn that an
+# install was asked for and not performed. The run keeps the id the request
+# named, so a page still polling gets a verdict on its own run rather than never
+# hearing back; a file too broken to name a usable id gets a fresh one, because
+# a run under an id nobody is polling still beats no record at all. Nothing out
+# of the file reaches the message unvalidated — the version is rendered only if
+# it is a version, the time only if it is a time.
+settle_unusable_request() {
 	RUN_ID=$(json_string "$1" runId)
 	if ! request_run_id_valid "$RUN_ID"; then
 		RUN_ID=$(new_run_id)
@@ -1600,6 +1937,13 @@ discard_expired_request() {
 	version_valid "$RUN_TARGET" || RUN_TARGET=""
 	RUN_STARTED=$(iso_now)
 	RUN_PHASE=checking
+	mkdir -p "$STATE_DIR"
+	settle abandoned \
+		"The update request on the control volume $2, so it was $3 rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
+		"$PROG update"
+}
+
+discard_expired_request() {
 	_at=$(json_string "$1" requestedAt)
 	_atsec=$(iso_epoch "$_at")
 	if [ -z "$_atsec" ]; then
@@ -1609,10 +1953,46 @@ discard_expired_request() {
 	else
 		_why="was made at $_at, longer ago than the $((REQUEST_MAX_AGE_SECONDS / 60)) minutes a request stays current"
 	fi
-	mkdir -p "$STATE_DIR"
-	terminate abandoned \
-		"The update request on the control volume $_why, so it was discarded rather than installed; this instance is still running $RUN_FROM. Ask for the update again to install it now." \
-		"$PROG update"
+	settle_unusable_request "$1" "$_why" discarded
+	breadcrumb_clear
+}
+
+# Every refusal settles the run, not only the expired one (#906). The backend
+# posts the request and polls the id it minted, so a rejection that writes no
+# run.json leaves `"run":null` on the seam and the app waiting on a verdict that
+# never comes — nothing retries, and the file that would explain it is already
+# deleted. An expired request has its own account of itself; the rest name what
+# about the file could not be used, in terms an operator can act on.
+#
+# Every status has its own arm, so a refusal added later reads as the vague
+# fallback in a test rather than inheriting a sentence that describes a
+# different fault.
+settle_refused_request() {
+	case "$2" in
+	"$REQUEST_EXPIRED")
+		discard_expired_request "$1"
+		return 0
+		;;
+	"$REQUEST_UNREADABLE") _why="could not be read" ;;
+	"$REQUEST_TOO_LARGE") _why="is larger than a request may be" ;;
+	"$REQUEST_NOT_FLAT") _why="is not the flat set of fields a request carries" ;;
+	"$REQUEST_NO_VERSION") _why="names no version to install" ;;
+	"$REQUEST_BAD_VERSION") _why="carries a target version that is not a version number" ;;
+	"$REQUEST_BAD_RUN_ID") _why="names a run id this instance cannot use" ;;
+	"$REQUEST_WRONG_VERSION")
+		# A check that could not read the manifest leaves nothing to compare
+		# against, so the request is refused without this instance knowing which
+		# release it was offered. Saying it names the wrong version asserts a
+		# mismatch nobody established.
+		if [ -n "$CHECK_VERSION" ]; then
+			_why="names a version other than the one this instance was offered"
+		else
+			_why="names a version this instance could not confirm, because the release manifest could not be read"
+		fi
+		;;
+	*) _why="could not be used" ;;
+	esac
+	settle_unusable_request "$1" "$_why" rejected
 }
 
 # --- snapshot and restore (RFC 037 R8, R8a) ---------------------------------
@@ -1650,6 +2030,79 @@ sqlite_volume() {
 	printf '%s_sqlite_data' "$(compose_project)"
 }
 
+# The volume the updater keeps its own state on — the lock, the breadcrumb, the
+# snapshots, check.json and run.json. Compose names it after the project, the
+# same way it names the database volume. Inside the updater this is where
+# STATE_DIR already points; from a host shell it is the only way to reach it.
+updater_state_volume() {
+	if [ -n "${REMIT_UPDATE_STATE_VOLUME:-}" ]; then
+		printf '%s' "$REMIT_UPDATE_STATE_VOLUME"
+		return 0
+	fi
+	printf '%s_updater_state' "$(compose_project)"
+}
+
+# One flat file off that volume, for a shell that cannot reach it directly. The
+# `|| true` runs inside the container so an absent file and a docker that never
+# answered are not the same empty string: only the second one fails, and the
+# caller can say so instead of reporting a box that has never checked.
+updater_state_file() {
+	capped_run "$HELPER_RUN_TIMEOUT" docker run --rm \
+		-v "$(updater_state_volume):/state" \
+		--entrypoint sh "$HELPER_IMAGE" \
+		-c "cat /state/$1 2>/dev/null || true" 2>/dev/null
+}
+
+# The write side of that same reach. A check asked for at a host shell has to
+# happen where its answer is read — check.json on the state volume, state.json
+# on the control seam the backend reads — and neither of those is the directory
+# beside .env, so a check run here would land where nothing reads it and
+# `remit status` would keep reporting the previous answer (reader#1158). The
+# updater container is this same wrapper with the image's own STATE_DIR and
+# CONTROL_DIR, so the check runs there and prints its verdict back here.
+#
+# timeout(1) needs a real command and `compose` is a shell function, so the
+# capped call spells the argv out, the way doctor_exec does. The ceiling is the
+# helper one: a check is a manifest fetch and a schema read, and a daemon that
+# has stopped answering must not leave the operator's shell waiting on it. A hit
+# deadline is a failed command here and nothing written there, which is the same
+# outcome as a check that could not reach the manifest.
+#
+# REMIT_QUIET rides along because the container's stdout is this shell's:
+# install.sh runs quiet and prints its own summary, and a second voice from
+# inside the container is not part of it.
+updater_check() {
+	if ! compose ps --services --status running 2>/dev/null | grep -qx updater; then
+		die "update: the updater is not running, so a check asked for here would land where nothing reads it. Start the stack with '$PROG restart', then run '$PROG update --check' again."
+	fi
+	capped_run "$HELPER_RUN_TIMEOUT" docker compose \
+		--project-directory "$REMIT_DIR" \
+		-f "$REMIT_DIR/$COMPOSE_FILE" \
+		--env-file "$REMIT_DIR/.env" \
+		exec -T -e REMIT_QUIET="${REMIT_QUIET:-0}" updater remit update --check
+}
+
+# The other half of that reach, for the command that acts rather than reports.
+# A run the updater started left its breadcrumb, its lock and its pre-update
+# snapshots on the updater's volume, so a recovery driven from a host shell
+# would read an empty directory beside .env, report that there was nothing to
+# recover, and leave the interrupted run sitting there (#275). It has to run
+# where that state is, and the updater image is this same wrapper.
+#
+# A one-shot container rather than an exec into the running one: the run this is
+# recovering is most often the one whose updater died, and a recovery command
+# that needs the wedged container alive is no recovery. `--no-deps` for the
+# reason check-categories has it — `compose run` otherwise starts the service's
+# dependencies, and this command changes nothing on the operator's behalf beyond
+# the update it is finishing.
+#
+# REMIT_QUIET rides along because the container's stdout is this shell's, the
+# same way the check's does.
+updater_recover() {
+	printf 'This deployment keeps its update state on the updater'\''s volume, so the recovery runs there.\n'
+	compose run --rm --no-deps -e REMIT_QUIET="${REMIT_QUIET:-0}" updater remit update --recover
+}
+
 volume_run() {
 	_vr_script=$1
 	set -- \
@@ -1665,11 +2118,21 @@ volume_run() {
 # apk'd the way the backup sidecar already does; the snapshot runs as uid 1000
 # because opening a WAL database recreates its -shm/-wal sidecars when they are
 # absent, and a root-owned sidecar makes every app writer's next open fail.
+#
+# Only the run's own directory belongs to uid 1000. `snapshots/` is handed to
+# whoever owns the state directory — root on the updater's volume, the operator
+# on a host shell — because unlinking an entry needs write on the parent, and an
+# earlier release that chowned the run directory alone left the parent
+# root-owned and every later prune failing with EACCES (reader#1071). The chown
+# runs on every snapshot, so a directory an older release created wrong is
+# repaired by the next update rather than needing an operator.
 snapshot_databases() {
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null
+own=\$(stat -c %u:%g /state)
 mkdir -p /state/snapshots/$1
+chown \"\$own\" /state/snapshots 2>/dev/null || true
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
 snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db
@@ -1699,13 +2162,268 @@ fi
 chown -R 1000:1000 /data/sqlite"
 }
 
+# --- the release's host-side files (reader#1072) ----------------------------
+#
+# A release is not only its images. This wrapper and the compose file are host
+# files, and an update that moves the images and leaves those two where they
+# were hands the operator a box whose commands and whose service definitions
+# belong to the version before it: a verb the release adds answering `unknown
+# command`, a profile the compose file never declares, and `remit doctor`
+# reporting a subsystem the images are running as unknown.
+#
+# They are fetched with the images, so a release that cannot be obtained whole
+# is abandoned before anything is stopped; installed with the stack down and
+# before the gate starts, so the gate's verdict is about the configuration that
+# will run rather than the one it replaces; and snapshotted beside the databases,
+# so a rollback puts the deployment's files back together with its data.
+
+host_files_dir() { printf '%s/host-files/%s' "$STATE_DIR" "$1"; }
+
+# Where a release's host-side files are read from, on the same terms as the
+# manifest: deployment configuration, so .env is where it lives, and the
+# environment overrides it for a one-off. @TAG@ is the release being installed,
+# so one setting covers every release rather than a base that has to be moved on
+# each one. A fork that serves its own manifest sets this too — otherwise its
+# releases would be installed with this repository's wrapper.
+#
+# What comes back is a shell script this box then runs as root, so a configured
+# base is held to the origin the manifest is already trusted from: a line added
+# to .env cannot move the fetch to a host of its own. A deployment that really
+# does serve its files from a second host names that host in
+# REMIT_UPDATE_ASSET_ORIGIN, which is a statement rather than a side effect. The
+# built-in default is the pair this repository publishes and needs neither.
+host_asset_base() {
+	_b=${REMIT_UPDATE_ASSET_BASE:-}
+	if [ -z "$_b" ]; then
+		_b=$(get_var REMIT_UPDATE_ASSET_BASE 2>/dev/null || true)
+	fi
+	if [ -z "$_b" ]; then
+		printf 'https://raw.githubusercontent.com/remit-mail/reader/@TAG@/deploy/vps'
+		return 0
+	fi
+	_bo=$(https_origin "$_b") || return 1
+	_ao=${REMIT_UPDATE_ASSET_ORIGIN:-}
+	if [ -z "$_ao" ]; then
+		_ao=$(get_var REMIT_UPDATE_ASSET_ORIGIN 2>/dev/null || true)
+	fi
+	if [ -z "$_ao" ]; then
+		_ao=$(https_origin "$(manifest_url)" 2>/dev/null || true)
+	fi
+	[ -n "$_ao" ] && [ "$_bo" = "$_ao" ] || return 1
+	printf '%s' "$_b"
+}
+
+# The scheme and host of an https URL, and nothing at all for anything else: a
+# base that is not https is refused rather than downgraded, because a wrapper
+# fetched over plain HTTP is a wrapper anyone on the path can rewrite.
+https_origin() {
+	case "$1" in
+	https://*) ;;
+	*) return 1 ;;
+	esac
+	_o=${1#https://}
+	[ -n "${_o%%/*}" ] || return 1
+	printf 'https://%s' "${_o%%/*}"
+}
+
+# The name the release serves a file under, mapped to the name this deployment
+# installs it under.
+host_asset_local() {
+	case "$1" in
+	remit) printf 'remit' ;;
+	*) printf '%s' "$(installed_stamp COMPOSE_FILE)" ;;
+	esac
+}
+
+# fetch_manifest's sibling: the same two tools, and the same rule that neither
+# being present is a failure rather than a reason to look elsewhere. It writes a
+# file because the wrapper is far larger than any cap a manifest wants, and an
+# empty body is a failed fetch rather than an asset.
+fetch_asset() {
+	if have curl; then
+		curl -fsSL --max-time 60 -o "$2" "$1" 2>/dev/null || return 1
+	elif have wget; then
+		wget -q -T 60 -O "$2" "$1" 2>/dev/null || return 1
+	else
+		return 1
+	fi
+	[ -s "$2" ]
+}
+
+# install.sh's place_wrapper, and deliberately the same three lines: a wrapper
+# that does not know its deployment directory, its compose file and its own name
+# manages the wrong stack or none at all. The values are read from the wrapper
+# this deployment already has rather than from the running one — inside the
+# updater the running copy is the image's, unstamped, so a second deployment's
+# `remit-<project>` would come back named `remit` and pointed at /opt/remit.
+installed_stamp() {
+	_v=$(sed -n "s#^$1=\(.*\)\$#\1#p" "$REMIT_DIR/remit" 2>/dev/null | sed -n 1p)
+	if [ -n "$_v" ]; then
+		printf '%s' "$_v"
+		return 0
+	fi
+	case "$1" in
+	DEFAULT_DIR) printf '%s' "$REMIT_DIR" ;;
+	COMPOSE_FILE) printf '%s' "$COMPOSE_FILE" ;;
+	*) printf '%s' "$PROG" ;;
+	esac
+}
+
+stamp_wrapper() {
+	sed -e "s#^DEFAULT_DIR=.*#DEFAULT_DIR=$(installed_stamp DEFAULT_DIR)#" \
+		-e "s#^COMPOSE_FILE=.*#COMPOSE_FILE=$(installed_stamp COMPOSE_FILE)#" \
+		-e "s#^PROG=.*#PROG=$(installed_stamp PROG)#" \
+		"$1" >"$1.stamped" || return 1
+	mv "$1.stamped" "$1" || return 1
+	chmod +x "$1"
+}
+
+# Run in the pulling phase, beside the images. The stamped copies land on the
+# updater's own volume, so a run interrupted between here and the install still
+# has them when it recovers, and the install itself is left with nothing to do
+# but rename. Whether the deployment directory can be written at all is settled
+# here too, while a failure still changes nothing.
+stage_host_files() {
+	_dest=$(host_files_dir "$1")/incoming
+	rm -rf "$_dest"
+	mkdir -p "$_dest"
+	_base=$(host_asset_base) || return 1
+	_base=$(printf '%s' "$_base" | sed "s#@TAG@#$2#g")
+	for _a in $HOST_ASSETS; do
+		fetch_asset "$_base/$_a" "$_dest/$(host_asset_local "$_a")" || return 1
+	done
+	stamp_wrapper "$_dest/remit" || return 1
+	validate_host_files "$_dest" || return 1
+	_shf_own=$(owner_mode_of "$REMIT_DIR/.env")
+	touch "$REMIT_DIR/.remit-update-probe" 2>/dev/null || return 1
+	restore_owner_mode "$REMIT_DIR/.remit-update-probe" "$_shf_own"
+	rm -f "$REMIT_DIR/.remit-update-probe"
+}
+
+# A fetch proves that bytes arrived, not that they are a release's. Both files
+# are read next by something with no way to report the failure — the compose
+# file by the stop and the start on either side of the gate, the wrapper by the
+# next shell an operator types it into — so each goes through its own parser
+# here, while nothing has been stopped and abandoning costs nothing.
+validate_host_files() {
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		if [ "$_l" = remit ]; then
+			sh -n "$1/$_l" || return 1
+			continue
+		fi
+		docker compose --project-directory "$REMIT_DIR" -f "$1/$_l" \
+			--env-file "$REMIT_DIR/.env" config >/dev/null || return 1
+	done
+}
+
+snapshot_host_files() {
+	_dest=$(host_files_dir "$1")/installed
+	rm -rf "$_dest"
+	mkdir -p "$_dest"
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		if [ -f "$REMIT_DIR/$_l" ]; then
+			cp "$REMIT_DIR/$_l" "$_dest/$_l" || return 1
+		fi
+	done
+}
+
+# Rename, never a write in place: /bin/sh reads a script as it runs it, so the
+# running copy keeps the inode it was opened on while the directory entry
+# already names the new one (reader#1051). The owner and mode of what is being
+# replaced are carried onto the replacement, the way set_var carries .env's: the
+# updater is root against a bind-mounted deployment, and a wrapper it leaves
+# root:root locks the host user out of their own directory (reader#273).
+install_host_files() {
+	_src=$(host_files_dir "$1")/incoming
+	[ -d "$_src" ] || return 1
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$_src/$_l" ] || return 1
+		_ihf_own=$(owner_mode_of "$REMIT_DIR/$_l")
+		cp "$_src/$_l" "$REMIT_DIR/$_l.incoming" || return 1
+		restore_owner_mode "$REMIT_DIR/$_l.incoming" "$_ihf_own"
+		if [ "$_l" = "remit" ]; then
+			chmod +x "$REMIT_DIR/$_l.incoming"
+		fi
+		mv "$REMIT_DIR/$_l.incoming" "$REMIT_DIR/$_l" || return 1
+	done
+	host_files_current "$1"
+}
+
+# What keeps a release whose wrapper or compose file changed from reporting
+# success while either is still the previous one's.
+host_files_current() {
+	_src=$(host_files_dir "$1")/incoming
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		cmp -s "$_src/$_l" "$REMIT_DIR/$_l" || return 1
+	done
+}
+
+# Recovery's form of the install. A breadcrumb written by a release that staged
+# nothing — an interrupted run started before reader#1072 — has no files to
+# install, and that is not a failure; anything else is the install itself.
+resume_host_files() {
+	[ -d "$(host_files_dir "$1")/incoming" ] || return 0
+	install_host_files "$1"
+}
+
+restore_host_files() {
+	_src=$(host_files_dir "$1")/installed
+	[ -d "$_src" ] || return 0
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$_src/$_l" ] || continue
+		_rhf_own=$(owner_mode_of "$REMIT_DIR/$_l")
+		cp "$_src/$_l" "$REMIT_DIR/$_l.restoring" || return 1
+		restore_owner_mode "$REMIT_DIR/$_l.restoring" "$_rhf_own"
+		if [ "$_l" = "remit" ]; then
+			chmod +x "$REMIT_DIR/$_l.restoring"
+		fi
+		mv "$REMIT_DIR/$_l.restoring" "$REMIT_DIR/$_l" || return 1
+	done
+}
+
+# Housekeeping, never a gate. A snapshot the updater cannot remove — one left
+# root-owned by an older release, on a volume the updater now enters as another
+# uid — used to abort the whole commit under set -eu, before the run reached a
+# terminal outcome and before the updater replaced itself (reader#1048).
+#
+# It runs where the directories were made: in the helper container, as root. The
+# host-side loop this replaces ran as the operator against a root-owned parent,
+# so every removal failed with EACCES and the wrapper told the operator to
+# `sudo rm -rf` inside their own deployment (reader#1071). Nothing here asks for
+# root on the host and nothing claims a size — the entries observed were empty
+# directories. One that survives even the helper is named, and the next
+# successful run tries again.
 prune_snapshots() {
-	[ -d "$STATE_DIR/snapshots" ] || return 0
-	for _d in "$STATE_DIR/snapshots"/*; do
-		[ -d "$_d" ] || continue
-		_name=${_d##*/}
-		if [ "$_name" != "$1" ]; then
-			rm -rf "$_d"
+	_kept=$1
+	_survivors=$(volume_run "# remit-prune-snapshots
+[ -d /state/snapshots ] || exit 0
+for d in /state/snapshots/*; do
+  [ -d \"\$d\" ] || continue
+  n=\${d##*/}
+  [ \"\$n\" = '$_kept' ] && continue
+  rm -rf \"\$d\" 2>/dev/null || printf '%s\n' \"\$n\"
+done" 2>/dev/null) || _survivors=""
+	prune_host_files "$_kept"
+	for _s in $_survivors; do
+		printf '%s: could not remove the snapshot at %s; the next successful update will try again.\n' \
+			"$PROG" "$STATE_DIR/snapshots/$_s" >&2
+	done
+}
+
+# The host-file snapshots (reader#1072) live beside the run's state rather than
+# on the database snapshot's directory, so they are the runner's own to create
+# and to remove — no helper, no uid to hand them to. Retained on the same terms
+# as the databases: this run's copies stay until the next successful update.
+prune_host_files() {
+	[ -d "$STATE_DIR/host-files" ] || return 0
+	for _d in "$STATE_DIR/host-files"/*; do
+		if [ -d "$_d" ] && [ "${_d##*/}" != "$1" ]; then
+			rm -rf "$_d" || true
 		fi
 	done
 }
@@ -2042,7 +2760,7 @@ start_gate_set() {
 	fi
 	breadcrumb_write
 	# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
-	compose up -d $GATE_SET
+	compose up -d $GATE_SET || return 1
 	gate_baseline
 }
 
@@ -2156,11 +2874,15 @@ verify_updater_handoff() {
 commit_run() {
 	phase committing "Starting the rest of the services." "remit logs"
 	start_held_back
-	# This run's snapshot and the previous release's images are retained until
-	# the next successful update; every earlier run's snapshot goes.
-	prune_snapshots "$RUN_ID"
 	recheck_availability
 	terminate succeeded "This instance is now running $RUN_TARGET." "remit logs backend"
+	# Housekeeping, and last of the work: the verdict is durable before a single
+	# byte is deleted. This run's snapshot and the previous release's images are
+	# retained until the next successful update; every earlier run's snapshot
+	# goes. Before the self-replace, not after — the prune drives a helper
+	# container this one starts, and replace_updater recreates the container this
+	# wrapper is running in.
+	prune_snapshots "$RUN_ID"
 	replace_updater
 }
 
@@ -2174,11 +2896,25 @@ roll_back() {
 			"remit logs backend"
 		return 1
 	fi
+	# Before the tag and before the gate: what comes back has to be $RUN_FROM's
+	# services under $RUN_FROM's wrapper, not this release's compose file driving
+	# the previous release's images.
+	if ! restore_host_files "$RUN_ID"; then
+		terminate rollbackFailed \
+			"$_why, and the deployment's own wrapper and compose file could not be put back. Copies from before the update are at $(host_files_dir "$RUN_ID")/installed and the previous version is $RUN_FROM." \
+			"remit logs backend"
+		return 1
+	fi
 	set_var REMIT_TAG "$RUN_FROM"
 	REMIT_TAG=$RUN_FROM
 	export REMIT_TAG
 	recheck_availability
-	start_gate_set
+	if ! start_gate_set; then
+		terminate rollbackFailed \
+			"$_why, and $RUN_FROM's own services could not be started again. The snapshot taken before the update is at $STATE_DIR/snapshots/$RUN_ID." \
+			"remit logs backend"
+		return 1
+	fi
 	if run_gate "$RUN_MIGRATE_BEFORE"; then
 		start_held_back
 		prune_snapshots "$RUN_ID"
@@ -2192,6 +2928,17 @@ roll_back() {
 		"$_why, and $RUN_FROM did not come back either ($GATE_REASON). The snapshot taken before the update is at $STATE_DIR/snapshots/$RUN_ID." \
 		"remit logs backend"
 	return 1
+}
+
+# Every abandonment before the stop is the same three acts: the tag goes back
+# to what is running, the run is recorded, and what was staged for it is
+# dropped. Only the sentence differs, and a caller that names the wrong step is
+# an operator reading about a snapshot when the download is what failed.
+abandon_run() {
+	REMIT_TAG=$RUN_FROM
+	export REMIT_TAG
+	terminate abandoned "$1" "$2"
+	rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 }
 
 run_update() {
@@ -2229,12 +2976,19 @@ run_update() {
 	REMIT_TAG=$_target
 	export REMIT_TAG
 	if ! (pull_images); then
-		REMIT_TAG=$RUN_FROM
-		export REMIT_TAG
-		terminate abandoned \
+		abandon_run \
 			"$_target could not be downloaded, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit update"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		return 1
+	fi
+
+	# The release's wrapper and compose file come down with its images and on the
+	# same terms: a release that cannot be obtained whole is not installed, and
+	# failing here aborts having changed nothing.
+	if ! stage_host_files "$RUN_ID" "$_target"; then
+		abandon_run \
+			"$_target's wrapper and compose file could not be fetched and checked, so nothing was changed and this instance is still running $RUN_FROM." \
+			"remit update"
 		return 1
 	fi
 
@@ -2243,12 +2997,15 @@ run_update() {
 	# and the restore looks clean.
 	phase snapshotting "Taking a snapshot of the database." "remit status"
 	if ! snapshot_databases "$RUN_ID"; then
-		REMIT_TAG=$RUN_FROM
-		export REMIT_TAG
-		terminate abandoned \
+		abandon_run \
 			"The database could not be snapshotted, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit status"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		return 1
+	fi
+	if ! snapshot_host_files "$RUN_ID"; then
+		abandon_run \
+			"This deployment's own wrapper and compose file could not be copied aside, so nothing was changed and this instance is still running $RUN_FROM. A rollback has to be able to put them back." \
+			"remit status"
 		return 1
 	fi
 
@@ -2260,8 +3017,21 @@ run_update() {
 	phase stopping "Stopping services." "remit status"
 	stop_everything
 
+	# With the stack down and before the gate starts: the stop enumerated the
+	# services the previous release declared, and everything from here on — the
+	# gate set, the migrate one-shot, the held-back services — is the release's
+	# own definition. A gate that passed against the file it was about to replace
+	# would be a verdict on a configuration that never runs.
+	if ! install_host_files "$RUN_ID"; then
+		roll_back "$_target's wrapper and compose file could not be installed into $REMIT_DIR"
+		return 1
+	fi
+
 	phase starting "Starting $_target." "remit logs backend"
-	start_gate_set
+	if ! start_gate_set; then
+		roll_back "$_target's services could not be started"
+		return 1
+	fi
 
 	phase verifying "Waiting for $_target to answer." "remit logs backend"
 	if run_gate "$RUN_MIGRATE_BEFORE"; then
@@ -2300,14 +3070,25 @@ recover_run() {
 		terminate abandoned \
 			"The update to $RUN_TARGET was interrupted before anything was changed; this instance is still running $RUN_FROM." \
 			"remit status"
-		rm -rf "$STATE_DIR/snapshots/$RUN_ID"
+		rm -rf "$STATE_DIR/snapshots/$RUN_ID" "$(host_files_dir "$RUN_ID")"
 		;;
 	stopping | starting | verifying)
 		phase verifying "Checking whether $RUN_TARGET came up after an interrupted update." "remit logs backend"
+		# The install may have been what the run died in the middle of, and it is
+		# a rename over files already staged, so re-running it costs nothing and
+		# is what keeps the gate below about the release's own definition. A
+		# breadcrumb from a release that staged nothing has nothing to install.
+		if ! resume_host_files "$RUN_ID"; then
+			roll_back "$RUN_TARGET's wrapper and compose file could not be installed into $REMIT_DIR"
+			return 1
+		fi
 		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
 		# not restart containers that were explicitly stopped, so a host reboot
 		# between the stop and the start leaves the app plane down until this.
-		start_gate_set
+		if ! start_gate_set; then
+			roll_back "$RUN_TARGET's services could not be started"
+			return 1
+		fi
 		if run_gate "$RUN_MIGRATE_BEFORE"; then
 			commit_run
 			return 0
@@ -2321,6 +3102,12 @@ recover_run() {
 		# would destroy those writes, whatever a second gate says about how the
 		# stack is doing now. Bringing the app plane back up is all that is left.
 		phase committing "Finishing the update to $RUN_TARGET." "remit logs backend"
+		if ! resume_host_files "$RUN_ID"; then
+			terminate rollbackFailed \
+				"The update to $RUN_TARGET was interrupted after its gate passed, and its wrapper and compose file could not be installed into $REMIT_DIR. The database is $RUN_TARGET's and must not be rolled back; make $REMIT_DIR writable and run '$PROG update --tag $RUN_TARGET'." \
+				"remit status"
+			return 1
+		fi
 		# shellcheck disable=SC2086 # GATE_SET is a service list, split on purpose
 		compose up -d $GATE_SET
 		commit_run
@@ -2410,17 +3197,52 @@ cmd_update() {
 
 	require_deployment
 
+	# The same split the check has (reader#1158), on the command that acts rather
+	# than reports: an interrupted run's breadcrumb, lock and snapshots are on
+	# whichever store this deployment records to, and a recovery driven anywhere
+	# else finds an empty directory and reports that there is nothing to recover
+	# (#275). A daemon that did not say which of the two this box is stops the
+	# command rather than guessing, because guessing wrong is exactly the false
+	# "nothing to recover" that sent the operator looking.
 	if [ "$_mode" = "recover" ]; then
+		_record=0
+		state_dir_is_record || _record=$?
+		if [ "$_record" = "2" ]; then
+			die "update: the docker daemon did not answer, so where an interrupted update would be recorded could not be told and nothing was recovered. Check that the daemon is responding, then run '$PROG update --recover' again."
+		fi
+		if [ "$_record" = "1" ]; then
+			updater_recover
+			return 0
+		fi
 		lock_acquire
 		recover_run
 		verify_updater_handoff
 		return 0
 	fi
 
+	# A shell on a deployment that has an updater is not where a check can happen:
+	# its two files would land beside .env, which is neither store anything reads
+	# (reader#1158). The volume answers that only there — inside the updater the
+	# volume is already STATE_DIR, and a deployment with no updater volume has
+	# nowhere else its record could go. A daemon that did not say which of the two
+	# this box is stops the check rather than guessing: the wrong guess is a check
+	# that reports success and lands where nothing reads it.
+	if [ "$_mode" = "check" ]; then
+		_record=0
+		state_dir_is_record || _record=$?
+		if [ "$_record" = "2" ]; then
+			die "update: the docker daemon did not answer, so where a check's answer would be read from could not be told and nothing was checked. Check that the daemon is responding, then run '$PROG update --check' again."
+		fi
+		if [ "$_record" = "1" ]; then
+			updater_check
+			return 0
+		fi
+	fi
+
 	do_check || true
 
 	if [ "$_mode" = "check" ]; then
-		report_check
+		report_check "$(cat "$STATE_DIR/check.json" 2>/dev/null || true)"
 		return 0
 	fi
 
@@ -2433,12 +3255,9 @@ cmd_update() {
 		# Consumed either way: a request that was refused must not be retried on
 		# every later run, and one that was taken is now the run's business.
 		rm -f "$CONTROL_DIR/request.json"
-		if [ "$_refusal" = "2" ]; then
-			discard_expired_request "$_raw_request"
+		if [ "$_refusal" != "0" ]; then
+			settle_refused_request "$_raw_request" "$_refusal"
 			return 1
-		fi
-		if [ -z "$_request" ]; then
-			die "update: the update request on the control volume was rejected and discarded — it was oversized, carried a field other than a target version, named an unusable run id, or did not name the published release"
 		fi
 		_tag=$(printf '%s\n' "$_request" | sed -n 1p)
 		REQUESTED_RUN_ID=$(printf '%s\n' "$_request" | sed -n 2p)
@@ -2472,7 +3291,7 @@ cmd_update() {
 	fi
 	if [ -z "$_tag" ]; then
 		if [ -n "$(manifest_url)" ]; then
-			report_check
+			report_check "$(cat "$STATE_DIR/check.json" 2>/dev/null || true)"
 			return 0
 		fi
 		plain_update ""
@@ -2482,12 +3301,68 @@ cmd_update() {
 	run_update "$_tag"
 }
 
+# Where the record `remit status` renders comes from. install.sh's first update
+# is the only one that ever runs in the operator's shell, so the copy it leaves
+# beside .env is an install-time snapshot; every run after it happens in the
+# updater container, whose STATE_DIR is the updater_state volume. Nothing writes
+# the directory copy again, so a shell that reads it reports the install forever
+# while the app reports the run that actually happened (reader#573). The volume
+# is the record wherever there is one; the directory answers only for a
+# deployment that has no updater volume at all.
+#
+# The two flat files, never the composed control/state.json: the check block and
+# the run block there repeat the field names json_string matches, so a read of
+# the document returns whichever of the two sed reached first.
+UPDATE_CHECK_JSON=""
+UPDATE_RUN_JSON=""
+UPDATE_RECORD_UNREADABLE=""
+
+# Inside the updater STATE_DIR is the volume itself, and a deployment with no
+# updater volume has nowhere else its record could be. Three answers, the way
+# deployment_data_state has three: 0 the directory beside .env is the record, 1
+# the updater's volume is, 2 the daemon did not say and neither can be claimed.
+#
+# `inspect` fails for a volume that is not there and for a daemon that never
+# answered, and those are opposite answers — read as "no volume", an unreachable
+# daemon has `remit status` render the install-time copy as the current record
+# and a check write where nothing looks. `volume ls` tells them apart: it
+# succeeds whenever the daemon is reachable at all. Capped like every other
+# daemon call, so a wedged one cannot hang a status.
+state_dir_is_record() {
+	[ -z "${REMIT_UPDATE_STATE_DIR:-}" ] || return 0
+	if capped_run "$PROBE_RUN_TIMEOUT" docker volume inspect "$(updater_state_volume)" >/dev/null 2>&1; then
+		return 1
+	fi
+	capped_run "$PROBE_RUN_TIMEOUT" docker volume ls -q >/dev/null 2>&1 || return 2
+	return 0
+}
+
+read_update_record() {
+	UPDATE_CHECK_JSON=""
+	UPDATE_RUN_JSON=""
+	UPDATE_RECORD_UNREADABLE=""
+	_rec=0
+	state_dir_is_record || _rec=$?
+	if [ "$_rec" = "0" ]; then
+		[ ! -f "$STATE_DIR/check.json" ] || UPDATE_CHECK_JSON=$(cat "$STATE_DIR/check.json")
+		[ ! -f "$STATE_DIR/run.json" ] || UPDATE_RUN_JSON=$(cat "$STATE_DIR/run.json")
+		return 0
+	fi
+	if [ "$_rec" = "2" ]; then
+		UPDATE_RECORD_UNREADABLE=1
+		return 0
+	fi
+	UPDATE_CHECK_JSON=$(updater_state_file check.json) || UPDATE_RECORD_UNREADABLE=1
+	UPDATE_RUN_JSON=$(updater_state_file run.json) || UPDATE_RECORD_UNREADABLE=1
+	return 0
+}
+
 report_check() {
-	if [ ! -f "$STATE_DIR/check.json" ]; then
+	_c=$1
+	if [ -z "$_c" ]; then
 		printf 'Updates:   never checked — run '\''remit update --check'\''\n'
 		return 0
 	fi
-	_c=$(cat "$STATE_DIR/check.json")
 	case "$(json_string "$_c" status)" in
 	disabled)
 		printf 'Updates:   not configured (REMIT_UPDATE_MANIFEST_URL is unset)\n'
@@ -2511,8 +3386,8 @@ report_check() {
 # The last run, as a sentence. message and logCommand are the same strings the
 # app renders, so a shell and a browser never tell the operator two stories.
 report_last_run() {
-	[ -f "$STATE_DIR/run.json" ] || return 0
-	_r=$(cat "$STATE_DIR/run.json")
+	_r=$1
+	[ -n "$_r" ] || return 0
 	_outcome=$(json_string "$_r" outcome)
 	if [ -z "$_outcome" ]; then
 		printf 'Update:    in progress (%s) — %s\n' \
@@ -2525,6 +3400,7 @@ report_last_run() {
 
 cmd_down() {
 	require_deployment
+	[ $# -eq 0 ] || die "down: unknown argument '$1' — down takes no arguments"
 	_profiled=$(running_profile_services)
 	# stop, never `down`: the sqlite_data and message_storage volumes hold every
 	# account, credential and message body on this box. All profiles, or the
@@ -2670,6 +3546,12 @@ shows caddy running, then try again."
 # matched after stripping either.
 cmd_config() {
 	require_deployment
+	if [ "${1:-}" = "save" ]; then
+		shift
+		cmd_config_save "$@"
+		return
+	fi
+	[ $# -eq 0 ] || die "config: unknown argument '$1'"
 	awk '
 		/^[ \t]*#/ { next }
 		/^[ \t]*$/ { next }
@@ -2692,6 +3574,117 @@ cmd_config() {
 			print k "=" v
 		}
 	' "$REMIT_DIR/.env"
+}
+
+# Whether a file holds one JSON document, parsed rather than eyeballed. There is
+# no jq on a self-host box, but the image that wrote the document is already
+# pulled and already carries a parser, so the parse runs in the same place every
+# other read in this command runs. The document arrives on stdin, which the
+# operator's own shell opened, so no mount and no file ownership come into it,
+# and only the exit code is read back — no log line on the container's stdout can
+# move that. 0 it parses, 1 it does not, 2 the parse could not run: a docker that
+# refused has not found a corrupt document and must not be reported as though it
+# had.
+config_json_parses() {
+	_pc=0
+	compose run --rm --no-deps -T migrate node -e \
+		'let d="";process.stdin.setEncoding("utf8").on("data",c=>{d+=c}).on("end",()=>{JSON.parse(d)})' \
+		<"$1" >/dev/null 2>&1 || _pc=$?
+	case "$_pc" in
+	0 | 1) return "$_pc" ;;
+	esac
+	return 2
+}
+
+# `remit config save <file> [--user <email>]` (issue #1021).
+#
+# The document is built inside the backend image, over the same reader the
+# export endpoint uses, and comes back on stdout. It is redirected to a host
+# path here rather than written inside a container: the file exists to outlive
+# the deployment it describes, and this way it lands owned by whoever ran the
+# command instead of root-owned inside a volume.
+#
+# --no-deps is load-bearing for the reason check-categories has it: `compose
+# run` would otherwise start the service's dependencies, and volume-init chowns
+# the data volumes as root — writes, from a command that only reads.
+#
+# Written beside the target and renamed, so an export that dies half way through
+# leaves nothing that looks like a configuration file.
+#
+# Exit 0 is not enough to rename on. The composition this entrypoint builds logs
+# to stdout, and `compose run` merges a container's streams, so one stray line
+# lands in the middle of the document and the command still succeeds. This file
+# is the safety net an operator takes before dropping their database, and a
+# corrupt one is worse than none: it is only discovered on the import that needed
+# it. So what is renamed is what parsed, not what opened and closed: the
+# first-and-last-line test `remit doctor` applies catches a document that stopped
+# arriving, and a line landing inside one passes it.
+cmd_config_save() {
+	_file=""
+	_user=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--user)
+			[ $# -ge 2 ] || die "config save: --user needs an email address"
+			_user=$2
+			shift 2
+			;;
+		-*) die "config save: unknown option '$1'" ;;
+		*)
+			[ -z "$_file" ] || die "config save: takes one file"
+			_file=$1
+			shift
+			;;
+		esac
+	done
+	[ -n "$_file" ] ||
+		die "config save: needs a file to write, e.g. '$PROG config save reader-config.json'"
+
+	_dir=$(dirname "$_file")
+	[ -d "$_dir" ] || die "config save: there is no directory '$_dir'"
+	_tmp="$_dir/.$(basename "$_file").writing.$$"
+	trap 'rm -f "$_tmp"' EXIT
+	trap 'exit 129' HUP
+	trap 'exit 130' INT
+	trap 'exit 143' TERM
+
+	# The saved document carries the address book, filter text, mail excerpts
+	# and signatures (no credentials), so it is written under a 077 umask rather
+	# than chmod'd after the fact — a chmod afterwards leaves it world-readable
+	# for the length of the write, the way set_var reasons about .env (#1095).
+	# The trap covers an interrupted run: without it a compose run killed from
+	# the terminal leaves the .writing.$$ file behind in the operator's out dir.
+	_rc=0
+	(
+		umask 077
+		trap 'rm -f "$_tmp"' HUP INT TERM
+		if [ -n "$_user" ]; then
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs --user "$_user" >"$_tmp"
+		else
+			compose run --rm --no-deps -T migrate \
+				node config-save.mjs >"$_tmp"
+		fi
+	) || _rc=$?
+	if [ "$_rc" != "0" ]; then
+		rm -f "$_tmp"
+		die "config save: the export did not finish, so nothing was written"
+	fi
+	_parsed=0
+	config_json_parses "$_tmp" || _parsed=$?
+	if [ "$_parsed" = "2" ]; then
+		rm -f "$_tmp"
+		die "config save: the export could not be checked for damage, so nothing was written — check that the docker daemon is responding, then run '$PROG config save' again"
+	fi
+	if [ "$_parsed" != "0" ]; then
+		rm -f "$_tmp"
+		die "config save: what came back is not a JSON document, so nothing was written — '$PROG logs backend' may say why"
+	fi
+
+	mv "$_tmp" "$_file"
+	trap - EXIT HUP INT TERM
+	printf 'Wrote %s.\n' "$_file"
+	printf 'It carries no password and no OAuth token — importing it asks for each account again.\n'
 }
 
 # The migrate entrypoint's read-only mode. --no-deps is load-bearing: without it
@@ -2867,7 +3860,35 @@ cmd_doctor() {
 	exit 2
 }
 
+# reader#1082. `remit update` installs the release's wrapper into the
+# deployment directory, so whatever is on PATH has to point at that file rather
+# than be a copy of it: a copy keeps answering with the release it was taken
+# from, and the verb the update added comes back `unknown command` from a file
+# nothing refreshes. install.sh places a one-line exec shim, so an entry that is
+# neither that shim nor the deployment's own wrapper is a copy, and says so.
+unstamped_wrapper() {
+	sed -e 's#^DEFAULT_DIR=.*#DEFAULT_DIR=#' \
+		-e 's#^COMPOSE_FILE=.*#COMPOSE_FILE=#' \
+		-e 's#^PROG=.*#PROG=#' "$1" 2>/dev/null
+}
+
+path_entry_stale() {
+	_pe=${1:-}
+	[ -n "$_pe" ] || return 1
+	[ -r "$_pe" ] || return 1
+	[ -r "$REMIT_DIR/remit" ] || return 1
+	if cmp -s "$_pe" "$REMIT_DIR/remit"; then return 1; fi
+	if grep -q '^exec ".*/remit" "\$@"$' "$_pe" 2>/dev/null; then return 1; fi
+	# The three lines install.sh stamps belong to the deployment rather than to
+	# the release, so an entry differing only there is the same release.
+	[ "$(unstamped_wrapper "$_pe")" != "$(unstamped_wrapper "$REMIT_DIR/remit")" ]
+}
+
 main() {
+	if [ "${REMIT_QUIET:-0}" != "1" ] && path_entry_stale "$0"; then
+		printf '%s: %s is a copy of an older release; %s/remit is the wrapper this deployment updates, and re-running install.sh replaces the copy with a link to it.\n' \
+			"$PROG" "$0" "$REMIT_DIR" >&2
+	fi
 	[ $# -gt 0 ] || {
 		usage >&2
 		exit 2
@@ -2882,14 +3903,19 @@ main() {
 	down) cmd_down "$@" ;;
 	purge) cmd_purge "$@" ;;
 	doctor) cmd_doctor "$@" ;;
+	semantic) cmd_semantic "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
+	check-index) cmd_check_index "$@" ;;
 	cert) cmd_cert "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"
 		;;
-	help | --help | -h) usage ;;
+	help | --help | -h)
+		[ $# -eq 0 ] || die "$_cmd: unknown argument '$1' — $_cmd takes no arguments"
+		usage
+		;;
 	*)
 		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_cmd" >&2
 		usage >&2

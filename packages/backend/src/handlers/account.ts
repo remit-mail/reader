@@ -105,14 +105,6 @@ const testOAuthConnection = async (
 	account: IAccountRepository,
 	secrets: SecretsService,
 ): Promise<TestConnectionResponse> => {
-	if (!existingAccount.oauthRefreshTokenHash) {
-		return {
-			imapSuccess: false,
-			imapError: "oauth_not_configured",
-			smtpSuccess: undefined,
-		};
-	}
-
 	const tokenService = createMailOAuthService(
 		microsoftProviderConfig({
 			clientId: process.env.MSOAUTH_CLIENT_ID ?? "",
@@ -123,9 +115,9 @@ const testOAuthConnection = async (
 		}),
 	);
 
-	let credentials: Awaited<ReturnType<typeof resolveConnectionCredentials>>;
+	let resolution: Awaited<ReturnType<typeof resolveConnectionCredentials>>;
 	try {
-		credentials = await resolveConnectionCredentials(existingAccount, {
+		resolution = await resolveConnectionCredentials(existingAccount, {
 			secrets,
 			tokenService,
 			persistRotatedToken: async (id, encryptedHash, updatedAt) => {
@@ -148,6 +140,15 @@ const testOAuthConnection = async (
 		}
 		throw err;
 	}
+
+	if (resolution.status === "missing") {
+		return {
+			imapSuccess: false,
+			imapError: "oauth_not_configured",
+			smtpSuccess: undefined,
+		};
+	}
+	const credentials = resolution.credentials;
 
 	const result: TestConnectionResponse = {
 		imapSuccess: false,

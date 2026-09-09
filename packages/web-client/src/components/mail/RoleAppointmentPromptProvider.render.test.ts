@@ -214,7 +214,9 @@ describe("the appointment ceremony", () => {
 					message: "not settled",
 					details: { mailboxId: "mbx-trash", syncStatus: "pending" },
 				}),
-				{ status: 409, headers: { "content-type": "application/json" } },
+				// 422: the folder being appointed has not settled, which is a
+				// different answer from a 409's "somebody else is changing it".
+				{ status: 422, headers: { "content-type": "application/json" } },
 			);
 		});
 

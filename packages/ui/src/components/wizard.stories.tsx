@@ -1,8 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { AtSign, Inbox, Server } from "lucide-react";
 import { useState } from "react";
+import { Button } from "./button.js";
 import type { ServerSecurity } from "./security-select.js";
-import { ConnectorTile, ServerFields } from "./wizard.js";
+import { ConnectorTile, ServerFields, WizardShell } from "./wizard.js";
 
 const meta: Meta = {
 	title: "Components/Wizard",
@@ -100,4 +101,54 @@ export const ServerFieldsPhone: Story = {
 	name: "ServerFields — phone",
 	globals: { viewport: { value: "mobile" } },
 	render: () => <ServerFieldsDemo />,
+};
+
+const longStepRows = Array.from(
+	{ length: 60 },
+	(_, index) => `Row ${index + 1} of a report nobody sized the box for`,
+);
+
+function LongStep() {
+	return (
+		<WizardShell
+			steps={["File", "Review", "Credentials", "Folders"]}
+			activeStep={1}
+			title="What this file will change"
+			subtitle="A step whose content runs well past the bottom of the screen."
+			footer={
+				<>
+					<Button variant="ghost">Back</Button>
+					<Button variant="primary">Continue</Button>
+				</>
+			}
+		>
+			<ul className="divide-y divide-line">
+				{longStepRows.map((row) => (
+					<li key={row} className="py-2 text-sm text-fg">
+						{row}
+					</li>
+				))}
+			</ul>
+		</WizardShell>
+	);
+}
+
+/**
+ * A step taller than the viewport, on the 1512×827 laptop the config import
+ * wizard was found unusable on (#1021). The rows scroll inside the card; the
+ * title and the Continue button stay on screen.
+ */
+export const ShellLongStepShortViewport: Story = {
+	name: "WizardShell — long step, short viewport",
+	parameters: { layout: "fullscreen" },
+	globals: { viewport: { value: "laptopShort" } },
+	render: () => <LongStep />,
+};
+
+/** The same step on a phone with the address bar and system nav showing. */
+export const ShellLongStepPhoneShort: Story = {
+	name: "WizardShell — long step, short phone",
+	parameters: { layout: "fullscreen" },
+	globals: { viewport: { value: "mobileShort" } },
+	render: () => <LongStep />,
 };

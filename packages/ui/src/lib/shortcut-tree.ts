@@ -316,6 +316,27 @@ function isRegistered(
 }
 
 /**
+ * The overlay stack's own verdict, independent of everything below it: the top
+ * frame answers the action or contains it, and null means no overlay is up.
+ *
+ * Exported because the runtime stack (`overlay-scope`) needs the same rule from
+ * a keydown listener, where the rest of the tree is not built. One rule, one
+ * place: an overlay that contains a key for the resolver contains it for the
+ * live keyboard too.
+ */
+export function resolveOverlays(
+	action: TriageAction,
+	overlays: readonly OverlayFrame[],
+): Resolution | null {
+	const frame = overlays.at(-1);
+	if (!frame) return null;
+	if (!frame.handles.includes(action)) {
+		return { outcome: "contained", by: { kind: "overlay", frame } };
+	}
+	return { outcome: "act", target: { kind: "overlay", frame } };
+}
+
+/**
  * Resolve an action against the tree. Pure: no DOM, no router, no side effects.
  *
  * The overlay stack and the editing field are leaves that pre-empt the level
@@ -334,13 +355,8 @@ export function resolveShortcut(
 	tree: ShortcutTree,
 	registered: RegisteredActions,
 ): Resolution {
-	const frame = tree.overlays.at(-1);
-	if (frame) {
-		if (!frame.handles.includes(action)) {
-			return { outcome: "contained", by: { kind: "overlay", frame } };
-		}
-		return { outcome: "act", target: { kind: "overlay", frame } };
-	}
+	const overlaid = resolveOverlays(action, tree.overlays);
+	if (overlaid) return overlaid;
 
 	const field = tree.editing;
 	if (field) {

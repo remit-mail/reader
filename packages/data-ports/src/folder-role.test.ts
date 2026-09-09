@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
 	CanonicalMailboxRole,
+	FolderAppointmentSource,
 	MailboxSpecialUse,
 	MailboxSyncStatus,
 } from "@remit/domain-enums";
 import {
 	composeFolderRoleAppointmentLabelName,
 	composeFolderRoleAppointmentName,
+	isReservedFolderName,
 	meetsTrashAssurance,
 	parseFolderRoleAppointmentLabelName,
 	parseFolderRoleAppointmentName,
@@ -15,6 +17,7 @@ import {
 	resolveConfirmedMailboxForRole,
 	resolveMailboxForRole,
 	resolveRoleForAccount,
+	trashSourceMeetsAssurance,
 } from "./folder-role.js";
 
 const mailbox = (
@@ -178,9 +181,9 @@ describe("resolveConfirmedMailboxForRole", () => {
 
 describe("resolveRoleForAccount", () => {
 	it("resolves an appointment naming a mailbox whose last sync failed", () => {
-		// `failed` has three writers (imap-worker mailbox-management: create :166
-		// rolls nothing back, rename :275 restores oldPath, delete :384 leaves the
-		// folder) and in two the folder is really at the path the row names.
+		// `failed` means the folder exists at `fullPath` and the last rename or
+		// delete intent did not land (folder-rename-and-delete.md D7), so the row
+		// names a path the server really holds.
 		const failed: RoleMailboxCandidate & { syncStatus: string } = {
 			...mailbox("mb-trash", "INBOX/Prullenbak"),
 			syncStatus: MailboxSyncStatus.failed,
@@ -328,6 +331,31 @@ describe("the adapters over resolveRoleForAccount", () => {
 	});
 });
 
+describe("trashSourceMeetsAssurance", () => {
+	it("confirms the user's appointment and the server's flag, and nothing else", () => {
+		// The set a client may word an expunge from. `Reserved` reads as
+		// designated and is not: it is the INBOX name rule, which nobody chose.
+		const confirmed = Object.values(FolderAppointmentSource).filter((source) =>
+			trashSourceMeetsAssurance(source, "confirmed"),
+		);
+		assert.deepEqual(confirmed, [
+			FolderAppointmentSource.Appointed,
+			FolderAppointmentSource.Flagged,
+		]);
+	});
+
+	it("adds the name guess at `resolved`, where a wrong guess only misfiles", () => {
+		const resolved = Object.values(FolderAppointmentSource).filter((source) =>
+			trashSourceMeetsAssurance(source, "resolved"),
+		);
+		assert.deepEqual(resolved, [
+			FolderAppointmentSource.Appointed,
+			FolderAppointmentSource.Flagged,
+			FolderAppointmentSource.Proposed,
+		]);
+	});
+});
+
 describe("the appointment name and its label sibling", () => {
 	it("never lets the label row parse as an appointment", () => {
 		// The label is display only. If the appointment parser matched it, a path
@@ -354,4 +382,41 @@ describe("the appointment name and its label sibling", () => {
 			role: CanonicalMailboxRole.Trash,
 		});
 	});
+});
+
+describe("isReservedFolderName", () => {
+	/**
+	 * The sweep's own predicate. A folder whose leaf name is a role's
+	 * conventional name but which lacks the server's flag is read as a duplicate
+	 * and its row is deleted — under D8, with the folder's mail — as soon as
+	 * another folder holds the flag. A rename to one of these settles `synced`
+	 * and is then reaped, which is why the API refuses it (D5).
+	 */
+	for (const name of [
+		"archive",
+		"Archive",
+		"ARCHIVES",
+		"trash",
+		"Deleted Items",
+		"drafts",
+		"Sent Mail",
+		"junk",
+		"Spam",
+		"All Mail",
+	]) {
+		it(`reserves "${name}"`, () => {
+			assert.equal(isReservedFolderName(name), true);
+		});
+	}
+
+	/**
+	 * #843 dropped a bare "Deleted" and "Bin" from the Trash hints precisely
+	 * because they are ordinary folder names a user keeps mail in. Reserving
+	 * them here would refuse a rename nothing would ever have reaped.
+	 */
+	for (const name of ["Deleted", "Bin", "Receipts", "Work", "Inbox 2024"]) {
+		it(`leaves "${name}" alone`, () => {
+			assert.equal(isReservedFolderName(name), false);
+		});
+	}
 });

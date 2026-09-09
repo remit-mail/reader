@@ -102,7 +102,9 @@ export const roleAppointmentPromptCopy = (
 	}
 
 	const irreversible =
-		"Emptying a folder erases everything in it from the mail server, and that cannot be restored.";
+		action.kind === "delete"
+			? `Deleting ${quantified(action.count)} there erases them from the mail server, and that cannot be restored.`
+			: "Emptying a folder erases everything in it from the mail server, and that cannot be restored.";
 	return {
 		title: "Confirm this account's Trash folder",
 		description: trashFolderLabel
@@ -125,6 +127,7 @@ const pendingCopy = (
 	phase: PromptPhase,
 	action: PromptAction,
 	folderLabel: string,
+	inPlace: boolean,
 ): PendingCopy => {
 	if (phase.kind === "appointing") {
 		return { headline: "Setting the Trash folder…", status: folderLabel };
@@ -132,7 +135,9 @@ const pendingCopy = (
 	if (action.kind === "delete") {
 		return {
 			headline: `Deleting ${quantified(action.count)}…`,
-			status: `Moving them to ${folderLabel}`,
+			status: inPlace
+				? `Erasing them from ${folderLabel}. This can't be undone.`
+				: `Moving them to ${folderLabel}`,
 		};
 	}
 	return {
@@ -140,6 +145,24 @@ const pendingCopy = (
 		status: "This can't be undone.",
 	};
 };
+
+/**
+ * The confirm expunges rather than moves. A delete is only refused as
+ * `unconfirmed` because its rows are already inside the folder reader guessed
+ * (#876), so confirming that same folder deletes them where they sit — and
+ * "moving them there" would narrate the opposite of what happens. Any other
+ * folder still moves them.
+ */
+const deletesInPlace = (
+	reason: PromptReason,
+	action: PromptAction,
+	guessedMailboxId: string | undefined,
+	selectedId: string | undefined,
+): boolean =>
+	reason === "unconfirmed" &&
+	action.kind === "delete" &&
+	guessedMailboxId !== undefined &&
+	selectedId === guessedMailboxId;
 
 const failureCopy = (
 	cause: "generic" | "mailbox-pending",
@@ -159,6 +182,11 @@ export interface RoleAppointmentPromptProps {
 	delimiter: string;
 	/** `unconfirmed`: the folder reader guessed from its name. */
 	trashFolderLabel?: string;
+	/**
+	 * `unconfirmed`: that same folder, by id. Confirming it completes a delete of
+	 * rows already inside it, which erases them rather than moving them.
+	 */
+	guessedMailboxId?: string;
 	/** `stale`: the folder that vanished from the mail server. */
 	staleFolderLabel?: string;
 	/** Only on instances holding more than one account. */
@@ -188,6 +216,7 @@ export const RoleAppointmentPrompt = ({
 	folders,
 	delimiter,
 	trashFolderLabel,
+	guessedMailboxId,
 	staleFolderLabel,
 	accountEmail,
 	phase,
@@ -214,12 +243,13 @@ export const RoleAppointmentPrompt = ({
 		staleFolderLabel,
 		selectedCount: selected?.messageCount,
 	});
-	const expunges = action.kind === "emptyTrash";
+	const inPlace = deletesInPlace(reason, action, guessedMailboxId, selectedId);
+	const expunges = action.kind === "emptyTrash" || inPlace;
 
 	if (!open) return null;
 
 	if (pending) {
-		const words = pendingCopy(phase, action, selected?.label ?? "");
+		const words = pendingCopy(phase, action, selected?.label ?? "", inPlace);
 		return (
 			<Dialog open={open} onClose={() => {}} title={copy.title}>
 				<div

@@ -19,7 +19,6 @@ import type { ImapEnvelope } from "./types.js";
 // in another client arrived unstarred and never appeared in Flagged. The
 // server's \Flagged keyword is the star; these cover the mapping on create.
 
-const ACCOUNT_ID = "acct-1";
 const ACCOUNT_CONFIG_ID = "cfg-1";
 const MAILBOX_ID = "mbx-1";
 const MESSAGE_ID = "msg-1";
@@ -66,7 +65,6 @@ type CreateThreadForMessage = (
 	threadMessageService: IThreadMessageRepository,
 	messageId: string,
 	mailboxId: string,
-	accountId: string,
 	accountConfigId: string,
 	uid: number,
 	internalDate: number,
@@ -99,7 +97,6 @@ const createThreadWithFlags = async (
 		repo,
 		MESSAGE_ID,
 		MAILBOX_ID,
-		ACCOUNT_ID,
 		ACCOUNT_CONFIG_ID,
 		42,
 		now,

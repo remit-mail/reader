@@ -1,110 +1,32 @@
 import { useRef, useState } from "react";
+import {
+	type BriefCategoryFilter,
+	categoryChips,
+} from "../category-presentation.js";
+import { type BriefFilterId, briefFilterChips } from "../lib/brief-filters.js";
 import { LIST_ROW_SELECTOR, useRovingFocus } from "../lib/roving-focus.js";
-import type {
-	BriefCategoryFilter,
-	MessageListKeyboard,
-	ThreadRowData,
-	ThreadSection,
-} from "./app-shell-types.js";
-import {
-	briefCategories,
-	categoryTone,
-	keyboardWalksRows,
-} from "./app-shell-types.js";
+import type { MessageListKeyboard, ThreadSection } from "./app-shell-types.js";
+import { keyboardWalksRows } from "./app-shell-types.js";
 import { BriefSection } from "./brief-section.js";
-import {
-	FilterSheet,
-	type FilterSheetCategory,
-	type FilterSheetFilter,
-	type FilterSheetSource,
-} from "./filter-sheet.js";
+import { FilterSheet, type FilterSheetSource } from "./filter-sheet.js";
 import type { BriefRowComponent } from "./message-row.js";
 
-/* Composable brief filters — each is an additive predicate over a thread row. */
-export type BriefFilterId = "unread" | "attachment" | "contacts" | "today";
-
-/* "Today" prefers the real `sentDate` timestamp; it falls back to the fixture
-   convention that same-day rows render a HH:MM timeLabel (fixtures carry no
-   sentDate). */
-function isTodayRow(t: ThreadRowData): boolean {
-	if (t.sentDate != null) {
-		return new Date(t.sentDate).toDateString() === new Date().toDateString();
-	}
-	return /^\d{1,2}:\d{2}$/.test(t.timeLabel);
+/**
+ * The attribute chips are the consumer's, always. Nothing here narrows rows, so
+ * a set held in this component would tick a chip and change nothing — the chip
+ * would be a dead control. The host holds the set, answers it (by its request,
+ * or over the rows for the chips no request carries), and hands back what to
+ * draw; a host narrowing the same rows on a second surface (the phone search
+ * takeover) hands both surfaces the one set, so a chip set on either is set on
+ * both. `onClearFilters` is the whole of Clear, category scope included — one
+ * handler reading one state, rather than two reading the same one and racing to
+ * write it.
+ */
+export interface BriefFilterControl {
+	activeFilters: ReadonlySet<BriefFilterId>;
+	onToggleFilter: (id: BriefFilterId) => void;
+	onClearFilters: () => void;
 }
-
-const briefFilterDefs: ReadonlyArray<{
-	id: BriefFilterId;
-	label: string;
-	match: (t: ThreadRowData) => boolean;
-}> = [
-	{ id: "unread", label: "Unread", match: (t) => !t.isRead },
-	{
-		id: "attachment",
-		label: "Has attachment",
-		match: (t) => !!t.hasAttachment,
-	},
-	{
-		id: "contacts",
-		label: "From contacts",
-		match: (t) => t.trust === "vip" || t.trust === "wellknown",
-	},
-	{ id: "today", label: "Today", match: isTodayRow },
-];
-
-/**
- * The brief's attribute chips as plain `{ id, label }` (no predicates) — the
- * single source the `briefFilterConfig` preset reuses so the live filter row and
- * the preset can never diverge.
- */
-export const briefFilterChips: FilterSheetFilter[] = briefFilterDefs.map(
-	({ id, label }) => ({ id, label }),
-);
-
-/**
- * Whether an id names one of the brief's attribute chips. A consumer holding
- * one filter set across several views — the workbench shell, whose mailbox
- * sheet offers chips of its own — narrows that set to the brief's own with
- * this rather than asserting it.
- */
-export function isBriefFilterId(id: string): id is BriefFilterId {
-	return briefFilterDefs.some((f) => f.id === id);
-}
-
-/**
- * Whether a thread survives a set of attribute chips, as the brief's own list
- * applies them. Exported so a consumer narrowing the same rows on another
- * surface — the phone search takeover — reads one definition of what "Unread" or
- * "Today" means.
- */
-export function matchesBriefFilters(
-	thread: ThreadRowData,
-	activeFilters: ReadonlySet<BriefFilterId>,
-): boolean {
-	return briefFilterDefs.every(
-		(f) => !activeFilters.has(f.id) || f.match(thread),
-	);
-}
-
-/**
- * The attribute chips are either this component's own or entirely the
- * consumer's. A consumer narrowing the same rows on a second surface (the phone
- * search takeover) holds the set so both surfaces answer to one selection, and
- * takes every control over it with the set. `onClearFilters` is then the whole
- * of Clear, category scope included — one handler reading one state, rather
- * than two reading the same one and racing to write it.
- */
-export type BriefFilterControl =
-	| {
-			activeFilters: ReadonlySet<BriefFilterId>;
-			onToggleFilter: (id: BriefFilterId) => void;
-			onClearFilters: () => void;
-	  }
-	| {
-			activeFilters?: never;
-			onToggleFilter?: never;
-			onClearFilters?: never;
-	  };
 
 /** The accounts the aggregate is segmented by, as the FilterSheet draws them. */
 export interface BriefSourceControl {
@@ -151,6 +73,20 @@ interface BriefSectionsBaseProps
 	keyboard?: MessageListKeyboard;
 	onSelectThread?: (id: string) => void;
 	/**
+	 * Sends the reader to the filtered list for one section's category. Given, a
+	 * section holding fewer rows than its total offers the way to the rest — the
+	 * brief itself never grows past its per-section page.
+	 */
+	onShowAllSection?: (sectionId: string) => void;
+	/** Ask one section's own request again, after it failed. */
+	onRetrySection?: (sectionId: string) => void;
+	/**
+	 * Render one list rather than one section per category. A search is answered
+	 * this way: the rows come back in one global order, and a header between them
+	 * would put an old match from an earlier category above a newer one (#312).
+	 */
+	flat?: boolean;
+	/**
 	 * Drop the filter row and its panel, keeping the rows where they are. See
 	 * `FilterSheetProps`.
 	 */
@@ -163,11 +99,17 @@ export type BriefSectionsProps = BriefSectionsBaseProps & BriefFilterControl;
 
 /**
  * The daily-brief list body: category pills (single-select) + attribute chips
- * (additive) + one capped section per category (see {@link BriefSection}). Owns
- * its own filter state; the category axis is controlled via
- * `briefCategory`/`onSelectBriefCategory`. Consumers pre-filter `sections`
- * (e.g. by search) and pass a `Row` renderer; the web client reuses this so the
- * real brief and the Storybook prototype stay in lockstep.
+ * (additive) + one capped section per category (see {@link BriefSection}), or —
+ * under `flat` — one plain list in the order the rows arrived.
+ *
+ * Every row it is handed is rendered. The chips and the category are controls it
+ * draws and reports, never a pass over the rows: in the app both are query
+ * parameters answered over the whole scope, and a second pass here would narrow
+ * a page by a criterion the server already applied to everything (#312, #314).
+ * The host narrows `sections` — by its request, and for the two chips no request
+ * carries, with `matchesBriefFilters` — and passes a `Row` renderer; the web
+ * client reuses this so the real brief and the Storybook prototype stay in
+ * lockstep.
  */
 export function BriefSections({
 	sections,
@@ -176,6 +118,9 @@ export function BriefSections({
 	Row,
 	keyboard,
 	onSelectThread,
+	onShowAllSection,
+	onRetrySection,
+	flat = false,
 	onSelectBriefCategory,
 	sources,
 	sourcesNote,
@@ -186,9 +131,6 @@ export function BriefSections({
 	hideChrome,
 	defaultExpanded = false,
 }: BriefSectionsProps) {
-	const [ownFilters, setOwnFilters] = useState<ReadonlySet<BriefFilterId>>(
-		new Set(),
-	);
 	const [sheetExpanded, setSheetExpanded] = useState(defaultExpanded);
 	const listRef = useRef<HTMLDivElement>(null);
 	useRovingFocus({
@@ -197,67 +139,49 @@ export function BriefSections({
 		enabled: !keyboardWalksRows(keyboard),
 	});
 
-	const active = activeFilters ?? ownFilters;
+	// One section per category earns its keep at the "all" scope, and wherever a
+	// header carries the server's total for its category: narrowed to one
+	// category the label restates the chip, but the total does not — it is the
+	// only statement of how much mail that category holds. A search overrules
+	// both: its answer is one list in one order.
+	const showSections =
+		!flat &&
+		(briefCategory === "all" ||
+			sections.some((section) => section.total !== undefined));
 
-	const toggleFilter = (id: BriefFilterId) => {
-		if (onToggleFilter) {
-			onToggleFilter(id);
-			return;
-		}
-		setOwnFilters((prev) => {
-			const next = new Set(prev);
-			if (next.has(id)) next.delete(id);
-			else next.add(id);
-			return next;
-		});
-	};
+	// A section the server answered for stays on screen with no rows: nothing
+	// matching a chip is a state the section states, and is not the same as a
+	// category the brief never asked about.
+	const shown = sections.filter(
+		(section) =>
+			section.threads.length > 0 ||
+			section.total !== undefined ||
+			section.loading === true ||
+			section.error === true,
+	);
 
-	const matches = (t: ThreadRowData) =>
-		(briefCategory === "all" || t.category === briefCategory) &&
-		matchesBriefFilters(t, active);
-
-	// One section per category only earns its keep at the "all" scope. Narrow to
-	// a single category and the headers are redundant: render a plain flat list.
-	const showSections = briefCategory === "all";
-
-	const filtered = sections
-		.map((section) => ({
-			...section,
-			threads: section.threads.filter(matches),
-		}))
-		.filter((section) => section.threads.length > 0);
-
-	const flatRows = sections.flatMap((s) => s.threads).filter(matches);
-
-	const sheetCategories: FilterSheetCategory[] = briefCategories.map((cat) => ({
-		id: cat.id,
-		label: cat.label,
-		tone: cat.id === "all" ? "neutral" : categoryTone[cat.id],
-	}));
+	const flatRows = sections.flatMap((s) => s.threads);
 
 	const sheetFilters = briefFilterChips;
 
-	const clearFilters = () => {
-		if (onClearFilters) {
-			onClearFilters();
-			return;
-		}
-		onSelectBriefCategory?.("all");
-		setOwnFilters(new Set());
-	};
-
-	const empty = showSections ? filtered.length === 0 : flatRows.length === 0;
+	const empty = showSections ? shown.length === 0 : flatRows.length === 0;
 
 	const listBody = (
 		<div ref={listRef}>
 			{showSections ? (
-				filtered.map((section) => (
+				shown.map((section) => (
 					<BriefSection
 						key={section.id}
 						section={section}
 						Row={Row}
 						selectedThreadId={selectedThreadId}
 						onSelectThread={onSelectThread}
+						onShowAll={
+							onShowAllSection ? () => onShowAllSection(section.id) : undefined
+						}
+						onRetry={
+							onRetrySection ? () => onRetrySection(section.id) : undefined
+						}
 					/>
 				))
 			) : (
@@ -287,20 +211,20 @@ export function BriefSections({
 	// category scope.
 	return (
 		<FilterSheet
-			categories={sheetCategories}
+			categories={[...categoryChips]}
 			filters={sheetFilters}
 			sources={sources}
 			sourcesNote={sourcesNote}
 			selectedCategory={briefCategory}
-			activeFilters={active}
+			activeFilters={activeFilters}
 			expanded={sheetExpanded}
 			onExpandedChange={setSheetExpanded}
 			onSelectCategory={(id) =>
 				onSelectBriefCategory?.(id as BriefCategoryFilter)
 			}
 			onSelectSource={onSelectSource}
-			onToggleFilter={(id) => toggleFilter(id as BriefFilterId)}
-			onClear={clearFilters}
+			onToggleFilter={(id) => onToggleFilter(id as BriefFilterId)}
+			onClear={onClearFilters}
 			hideChrome={hideChrome}
 		>
 			{listBody}

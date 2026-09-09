@@ -8,6 +8,8 @@ export interface HttpCall {
 	method: string;
 	url: string;
 	path: string;
+	/** Every request header, lower-cased — a conditional write is one of these. */
+	headers: Record<string, string>;
 	body: Record<string, unknown> | undefined;
 }
 
@@ -36,10 +38,16 @@ export const mockFetch = (responder: Responder = () => ({})): HttpMock => {
 		const request = input instanceof Request ? input : undefined;
 		const url = request ? request.url : String(input);
 		const rawBody = request ? await request.clone().text() : undefined;
+		const headers: Record<string, string> = {};
+		const sent = request ? request.headers : new Headers(init?.headers);
+		sent.forEach((value, name) => {
+			headers[name.toLowerCase()] = value;
+		});
 		const call: HttpCall = {
 			method: (request?.method ?? init?.method ?? "GET").toUpperCase(),
 			url,
 			path: new URL(url, "http://localhost").pathname,
+			headers,
 			body: rawBody ? JSON.parse(rawBody) : undefined,
 		};
 		calls.push(call);
@@ -63,8 +71,9 @@ export const mockFetch = (responder: Responder = () => ({})): HttpMock => {
 
 /**
  * A failed request. The status travels in the body as well as on the response:
- * the generated client throws the parsed body, and the app's error classifier
- * reads the status off it.
+ * the generated client throws the parsed body, which the error interceptor
+ * re-wraps as an `ApiError` carrying the response status. Anything read off the
+ * body — a `code`, its `details` — sits at `.body`, never at the top level.
  */
 export const httpError = (status: number, message = "boom"): Response =>
 	new Response(JSON.stringify({ status, message }), {

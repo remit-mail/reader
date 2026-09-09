@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import {
 	chmodSync,
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -167,6 +168,36 @@ describe("the updater entrypoint", () => {
 		assert.equal(calls.filter((c) => c.startsWith("update helper=")).length, 0);
 		// The request is left untouched — nothing consumed it.
 		assert.ok(box.calls().length >= 1);
+	});
+
+	it("serves a panel-requested check off the control volume (#599)", async () => {
+		// The boot check runs before the loop ever sees the marker, so waiting on
+		// "a check happened" would pass without the loop doing anything. What is
+		// waited on is the marker being consumed, and what is asserted is a second
+		// check — the one the marker caused — with the cadence far out of reach.
+		const box = sandbox();
+		writeFileSync(join(box.control, "check-request.json"), JSON.stringify({}));
+		const child = spawn("sh", [ENTRYPOINT], {
+			env: { ...box.env, REMIT_UPDATE_CHECK_INTERVAL: "86400" },
+			detached: true,
+			stdio: "ignore",
+		});
+		try {
+			await waitFor(() => !existsSync(join(box.control, "check-request.json")));
+			await waitFor(
+				() =>
+					box.calls().filter((c) => c.startsWith("update --check helper="))
+						.length >= 2,
+			);
+		} finally {
+			process.kill(-child.pid, "SIGKILL");
+		}
+		// Nothing is installed off a check request — it asks for a verdict, not an
+		// update.
+		assert.equal(
+			box.calls().filter((c) => c.startsWith("update helper=")).length,
+			0,
+		);
 	});
 
 	it("runs a check right after recovery, so state lands without a request", async () => {

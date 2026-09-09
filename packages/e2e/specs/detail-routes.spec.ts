@@ -69,7 +69,10 @@ const settledConversation = async (
 ): Promise<Locator> => {
 	const article = conversation(page);
 	await expect(article).toBeVisible({ timeout: 30_000 });
-	await expect(article.locator(".animate-pulse")).toBeHidden({
+	// The article is the whole pane, not one slot per message, so a
+	// multi-message thread renders two `.animate-pulse` skeletons. A strict
+	// `toBeHidden` throws on the second, so wait for the count to hit zero.
+	await expect(article.locator(".animate-pulse")).toHaveCount(0, {
 		timeout: 30_000,
 	});
 	await expect(
@@ -129,10 +132,16 @@ test.describe("A brief conversation deep-links from cold (#718)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: subject, exact: true }),
 		).toBeVisible();
@@ -450,10 +459,16 @@ test.describe("A folder's conversation deep-links from cold (#713)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: subject, exact: true }),
 		).toBeVisible();
@@ -551,10 +566,16 @@ test.describe("A flagged conversation deep-links from cold (#713)", () => {
 		// And the verbs act on it. Move needs the account and the folder the thread
 		// is filed in, which is exactly what a cold address does not carry: the
 		// thread's own rows answer for it, so the button opens a real picker rather
-		// than explaining it has nothing to act on. Left open — Escape is the key
-		// that closes the conversation, so it is not a way to dismiss a popover.
+		// than explaining it has nothing to act on.
 		await page.getByRole("button", { name: "Move to mailbox" }).click();
 		await expect(page.getByText(NO_THREAD_HINT)).toHaveCount(0);
+
+		// One Escape dismisses the popover and leaves the conversation open
+		// (#732); only a second press closes it.
+		await page.keyboard.press("Escape");
+		await expect(
+			page.getByRole("button", { name: "Move to mailbox" }),
+		).toHaveAttribute("aria-expanded", "false");
 		await expect(
 			article.getByRole("heading", { name: target.subject, exact: true }),
 		).toBeVisible();
@@ -642,6 +663,63 @@ test.describe("Compose lives in the address (#719)", () => {
 		await expect(field).toHaveValue("invoice");
 		await expect(recipients(page)).toHaveCount(1);
 		await expect(page).toHaveURL(COMPOSE_URL);
+	});
+
+	// #835: the writing surface loads on its own chunk, and on a cold cache that
+	// chunk lands while the reader is already typing in the search field. The
+	// editor must arrive without claiming the caret — every character goes where
+	// the reader put it, and the body never becomes the active element.
+	test("the editor arriving mid-word leaves the search field alone", async ({
+		page,
+		run,
+	}) => {
+		// Hold the lazy chunk until the reader is mid-word, then release it into
+		// the middle of the query — the exact timing CI hit, made deterministic.
+		// Bounded so a failed expect below can't strand this spinning forever in
+		// a serial suite.
+		let release = false;
+		let interceptions = 0;
+		const deadline = Date.now() + 60_000;
+
+		await openBrief(page, run.seededSubjects[0]);
+		// Registered only once the shell has loaded: its eager modules ride the
+		// same names, and holding those would hold the page itself.
+		await page.route(/rich-text/, async (route) => {
+			interceptions++;
+			while (!release && Date.now() < deadline) {
+				await new Promise((r) => setTimeout(r, 50));
+			}
+			await route.continue();
+		});
+
+		try {
+			await page.getByRole("button", { name: "Compose", exact: true }).click();
+			const field = searchField(page);
+			await expect(recipients(page)).toBeVisible({ timeout: 30_000 });
+
+			await field.click();
+			await field.pressSequentially("invo", { delay: 100 });
+
+			const body = page.locator("[data-testid=compose-body]");
+			// If the built chunk stops matching /rich-text/ (the image lane runs
+			// hashed rollup output) the hold silently no-ops — fail loudly here
+			// instead of degrading into a duplicate of the test above.
+			expect(interceptions).toBeGreaterThan(0);
+			await expect(body).toBeHidden();
+
+			release = true;
+			// Wait for the surface to actually land before typing the rest of the
+			// word, so the steal window provably overlaps typing.
+			await expect(body).toBeVisible({ timeout: 30_000 });
+			await field.pressSequentially("ice", { delay: 100 });
+			await page.waitForURL(/[?&]q=invoice/);
+
+			await expect(field).toHaveValue("invoice");
+			await expect(page).toHaveURL(COMPOSE_URL);
+			await expect(field).toBeFocused();
+		} finally {
+			await page.unroute(/rich-text/);
+		}
 	});
 
 	test("back unwinds one surface per press", async ({ page, run }) => {

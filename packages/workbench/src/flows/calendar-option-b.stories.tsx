@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
 import { CalendarSeam } from "../screens/calendar-seam.js";
+import { CalendarTab } from "../screens/calendar-tab.js";
 
 /**
  * Option B bets that the calendar's advantage is not the grid. Every calendar
@@ -376,4 +377,52 @@ export const PhoneAttendeeContext: Story = {
 			flow="attendee"
 		/>
 	),
+};
+
+/* ------------------------------------------------------------------ */
+/* B.0 — the same bet, folded into the panel that already exists       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The re-prototype. Everything above is Option B as a layout of its own; this
+ * is Option B as a tab in the info panel, which is the version up for review.
+ * The panel already renders whenever a thread is open, so the clash check lands
+ * where the decision is without a second column, and the strip sits on
+ * `IntelligencePanel` itself so the rail and the drawer both get it.
+ *
+ * The invitation states its clash across accounts before it offers the button,
+ * the button reads "Add to calendar" because that is all it does, and the card
+ * says Priya is not notified — this plan sends no reply at all.
+ */
+export const TabInvitationWithTheClash: Story = {
+	name: "Tab — invitation with the clash",
+	render: () => <CalendarTab />,
+};
+
+/**
+ * Answered. The event is on the calendar, the dentist is still under it, and
+ * the panel still says the organiser heard nothing.
+ */
+export const TabInvitationAnswered: Story = {
+	name: "Tab — invitation answered",
+	render: () => <CalendarTab inviteRsvp="accepted" />,
+};
+
+/**
+ * "Can we do Thursday?" — the three hours named in the prose, each checked
+ * against the day, and the free half-hours offered back underneath. Ticking one
+ * books nothing; it goes into the reply as plain text.
+ */
+export const TabTimesProposedInProse: Story = {
+	name: "Tab — times proposed in prose",
+	render: () => <CalendarTab threadId="thr_thursday" />,
+};
+
+/**
+ * The Sender half, untouched. Every section that was in the panel before this
+ * stage is where it was; the strip above it is the only new thing.
+ */
+export const TabSenderHalf: Story = {
+	name: "Tab — the sender half",
+	render: () => <CalendarTab tab="sender" />,
 };

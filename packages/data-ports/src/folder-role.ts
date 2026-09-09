@@ -1,6 +1,7 @@
 import {
 	AccountSettingName,
 	CanonicalMailboxRole,
+	FolderAppointmentSource,
 	MailboxSpecialUse,
 } from "@remit/domain-enums";
 import {
@@ -134,6 +135,41 @@ export const ROLE_NAME_HINTS: Partial<
 };
 
 /**
+ * The role a folder's own leaf name is most conventionally for. A name that
+ * several roles list goes to the role that ranks it highest, so `All Mail` is
+ * an All folder rather than a lookalike of Archive.
+ *
+ * `name` is the leaf segment, lower case.
+ */
+export const roleForFolderName = (
+	name: string,
+): CanonicalMailboxRoleValue | undefined => {
+	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
+	for (const role of CANONICAL_ROLES) {
+		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
+		if (rank < 0) continue;
+		if (!best || rank < best.rank) best = { role, rank };
+	}
+	return best?.role;
+};
+
+/**
+ * Whether the mailbox sweep would read a folder with this leaf name as a
+ * duplicate of a role's canonical folder — and so delete its row, and under D8
+ * the mail in it, as soon as another folder carries the role's SPECIAL-USE
+ * flag. It is the sweep's own predicate, so a rename refused on it and a folder
+ * reaped by it can never disagree (docs/architecture/folder-rename-and-delete.md
+ * D5).
+ *
+ * A role with no flag to be a duplicate of is not reserved: nothing reaps a
+ * folder for it.
+ */
+export const isReservedFolderName = (name: string): boolean => {
+	const role = roleForFolderName(name.toLowerCase());
+	return role !== undefined && ROLE_SPECIAL_USE[role] !== undefined;
+};
+
+/**
  * The pane where a user appoints a folder to a role, named as it is labelled.
  * Every refusal that asks for an appointment points here, in one wording — the
  * settings screen is titled "Folder roles", and copies of this sentence had
@@ -160,9 +196,27 @@ export const STALE_TRASH_FOLDER_REASON = `The folder appointed as this account's
 
 /**
  * A folder matches the Trash name hint and nothing else — enough to file a
- * delete somewhere retrievable, never enough to expunge a whole folder.
+ * delete somewhere retrievable, never enough to erase what is already in it.
+ * Emptying that folder and deleting a message already inside it both land here
+ * (#876), so the sentence names neither verb: "nothing was deleted" is true of
+ * both, the way its two siblings above are.
  */
-export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so it was not emptied. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
+export const UNCONFIRMED_TRASH_FOLDER_REASON = `Nobody has confirmed which folder is this account's Trash, so nothing was deleted. Appoint one under ${FOLDER_ROLES_SETTINGS_PATH}, then try again.`;
+
+/**
+ * The mailboxes holding Junk and Trash across a set of accounts, as ids. The
+ * shape a SQL predicate needs when it must ask "is this message in Junk"
+ * without spelling the rule a second time: resolution happens once, here, and
+ * SQL compares mailbox ids.
+ *
+ * A role resolves to at most one mailbox per account, so each list holds one id
+ * per account that has that folder — and no entry at all for an account that
+ * has none.
+ */
+export interface JunkRoleMailboxes {
+	readonly junkMailboxIds: readonly string[];
+	readonly trashMailboxIds: readonly string[];
+}
 
 /** The minimal mailbox shape role resolution reads. */
 export interface RoleMailboxCandidate extends MailboxNameCandidate {
@@ -306,6 +360,40 @@ export const meetsTrashAssurance = <T>(
 	resolution: RoleResolution<T>,
 	level: TrashAssuranceLevel,
 ): boolean => trashMailboxAt(resolution, level).allowed;
+
+export type FolderAppointmentSourceValue =
+	(typeof FolderAppointmentSource)[keyof typeof FolderAppointmentSource];
+
+/** The resolution each reported source came from (`toFolderAppointment`). */
+const RESOLUTION_FOR_SOURCE: Record<
+	FolderAppointmentSourceValue,
+	RoleResolution<null>
+> = {
+	[FolderAppointmentSource.Appointed]: { kind: "appointed", mailbox: null },
+	[FolderAppointmentSource.Flagged]: { kind: "flagged", mailbox: null },
+	[FolderAppointmentSource.Reserved]: { kind: "reserved", mailbox: null },
+	[FolderAppointmentSource.Proposed]: { kind: "proposed", mailbox: null },
+	[FolderAppointmentSource.Stale]: {
+		kind: "appointment_stale",
+		appointedMailboxId: "",
+		fallback: { kind: "none" },
+	},
+	[FolderAppointmentSource.None]: { kind: "none" },
+};
+
+/**
+ * The same gate as {@link trashMailboxAt}, asked of the source `/config`
+ * reports rather than of the resolution the server computed — so a client can
+ * word a delete from the answer the service will give it.
+ *
+ * It runs that switch rather than restating it. A hand-written mirror gets
+ * `Reserved` wrong: it reads as designated, and the gate accepts only the user's
+ * appointment and the server's flag.
+ */
+export const trashSourceMeetsAssurance = (
+	source: FolderAppointmentSourceValue,
+	level: TrashAssuranceLevel,
+): boolean => meetsTrashAssurance(RESOLUTION_FOR_SOURCE[source], level);
 
 /**
  * The mailbox a role is CONFIRMED to hold: the one the user appointed, or the

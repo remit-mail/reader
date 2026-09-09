@@ -4,8 +4,10 @@ import {
 	type JwtVerifier,
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
+import { readCalendarFeedToken } from "@remit/calendar-service";
 import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { defaultErrorCode } from "./error.js";
 
 let verifier: JwtVerifier | null = null;
 
@@ -32,7 +34,7 @@ const readHeader = (
 const unauthorized = (message: string): APIGatewayProxyResult => ({
 	statusCode: 401,
 	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message }),
+	body: JSON.stringify({ code: defaultErrorCode(401), message }),
 });
 
 const injectClaims = (
@@ -56,6 +58,41 @@ const hasLocalBypass = (): boolean =>
 	Boolean(process.env.LOCAL_ACCOUNT_CONFIG_ID);
 
 /**
+ * The routes that run without a token.
+ *
+ * Microsoft redirects the browser here after consent, so the request carries no
+ * Authorization header and no session to derive one from. The handler takes its
+ * identity from the HMAC-signed `state` parameter and validates it there; that
+ * signature is the gate, not a JWT.
+ *
+ * A calendar feed carries its credential in the path for the same reason: a
+ * subscribed client polls a URL and has no session to present, so the token is
+ * the gate and the handler compares it against a stored hash.
+ *
+ * Hardcoded, matching the edge exemption in packages/apisix/src/route-table.ts.
+ * `@useAuth(NoAuth)` in the spec does not open a path here — a future public
+ * route is added by hand.
+ */
+const PUBLIC_ROUTES: readonly {
+	method: string;
+	matches: (path: string) => boolean;
+}[] = [
+	{
+		method: "GET",
+		matches: (path) => path === "/accounts/oauth/microsoft/callback",
+	},
+	{
+		method: "GET",
+		matches: (path) => readCalendarFeedToken(path) !== null,
+	},
+];
+
+const isPublicRoute = (event: APIGatewayProxyEvent): boolean =>
+	PUBLIC_ROUTES.some(
+		(route) => route.method === event.httpMethod && route.matches(event.path),
+	);
+
+/**
  * Authenticate a self-host request from a better-auth RS256 JWT.
  *
  * On a valid token the verified `sub` is injected into the event's authorizer
@@ -71,6 +108,8 @@ const hasLocalBypass = (): boolean =>
 export const authenticateSelfHostRequest = async (
 	event: APIGatewayProxyEvent,
 ): Promise<APIGatewayProxyResult | null> => {
+	if (isPublicRoute(event)) return null;
+
 	const existingSub = event.requestContext?.authorizer?.claims?.sub;
 	if (typeof existingSub === "string" && existingSub.length > 0) return null;
 

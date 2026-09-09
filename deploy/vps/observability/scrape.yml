@@ -41,6 +41,11 @@ scrape_configs:
       - targets: ["account-worker:9464"]
         labels:
           service: account-worker
+      # Only present on an instance that ran `remit semantic on`: the worker sits
+      # behind the `semantic` compose profile (issue #1068). Left in the list
+      # rather than made conditional — the target reads as down where semantic
+      # search is off, which is the truthful reading of a service that is not
+      # running, and nothing here alerts on a down target.
       - targets: ["search-index-worker:9464"]
         labels:
           service: search-index-worker

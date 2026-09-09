@@ -123,17 +123,22 @@ test.describe("Intelligence where the rail does not fit", () => {
 	});
 
 	// The toolbar's control reaches the same surface the banner does. It is the
-	// only way in for a message with no warning on it, and the scrim covers the
-	// toolbar once the drawer is up, so the drawer's own control is what closes
-	// it again — what the toolbar has to get right is the state it reports on
-	// either side of that.
+	// only way in for a message with no warning on it, and the drawer is modal:
+	// the pane runs to the screen's right edge and the toggle sits at that end of
+	// the toolbar, so the panel itself is what a press aimed at the toggle
+	// reaches. The toggle is the way in and nothing else; getting back out is the
+	// drawer's own job, and the toggle is live again behind it (#747).
 	test("the toolbar's intelligence control opens the same surface", async ({
 		page,
 		run,
 	}) => {
 		await openMessage(page, run.dkimMismatchSubject);
 
-		await page.getByRole("button", { name: SHOW_INFO }).click();
+		const toggle = page.getByRole("button", { name: SHOW_INFO });
+		const box = await toggle.boundingBox();
+		if (!box) throw new Error("expected the intelligence toggle on screen");
+
+		await toggle.click();
 		const drawer = intelligenceDrawer(page);
 		await expect(drawer).toBeVisible({ timeout: 15_000 });
 		await expect(
@@ -144,12 +149,28 @@ test.describe("Intelligence where the rail does not fit", () => {
 			"true",
 		);
 
+		// Named, not just "something of the drawer's": the dialog root is
+		// `fixed inset-0`, so every point on screen answers to it. A panel that
+		// shrank or moved to the other edge has to fail here.
+		const covering = await page.evaluate(
+			({ x, y }) => {
+				const hit = document.elementFromPoint(x, y);
+				if (!hit) return "nothing";
+				const dialog = hit.closest('[role="dialog"]');
+				if (!dialog) return "toolbar";
+				const panel = dialog.querySelector(".safe-area-frame");
+				return panel?.contains(hit) ? "panel" : "scrim";
+			},
+			{ x: box.x + box.width / 2, y: box.y + box.height / 2 },
+		);
+		expect(covering).toBe("panel");
+
 		await closeControl(page).click();
 		await expect(intelligenceDrawer(page)).toHaveCount(0);
-		await expect(page.getByRole("button", { name: SHOW_INFO })).toHaveAttribute(
-			"aria-pressed",
-			"false",
-		);
+		await expect(toggle).toHaveAttribute("aria-pressed", "false");
+
+		await toggle.click();
+		await expect(intelligenceDrawer(page)).toBeVisible({ timeout: 15_000 });
 	});
 });
 

@@ -30,6 +30,9 @@ export function IntelligenceDrawer({
 			onClose={onClose}
 			ariaLabel="Message details"
 			side="right"
+			// The key that raised it takes it away again (#840); every other verb
+			// stays with the list behind the scrim, which is not the subject here.
+			answers={{ toggleIntelligence: onClose }}
 		>
 			<IntelligencePane
 				onClose={onClose}

@@ -34,7 +34,6 @@ import {
 	briefSections,
 	briefUnseen,
 	recentSearches,
-	savedSearches,
 	searchQuery,
 	searchSections,
 	searchSectionsWithoutSpam,
@@ -65,10 +64,15 @@ const inboxScope: SearchChip = {
 	tone: "scope",
 };
 
-/** Global search: spam is held out of the sections and offered back instead. */
+/**
+ * Global search: spam is held out of the sections and offered back instead,
+ * under the count the app supplies — the server's, over every junk folder the
+ * search reached rather than the junk rows this page holds.
+ */
 const globalScope: SearchScope = {
 	kind: "global",
 	onScopeToSpam: () => undefined,
+	spamCount: { kind: "exact", value: 6 },
 };
 const folderScope: SearchScope = { kind: "folder", role: "inbox" };
 
@@ -109,7 +113,6 @@ export const Global: Story = {
 			query={searchQuery}
 			searchSections={searchSections}
 			searchScope={globalScope}
-			savedSearches={savedSearches}
 		/>
 	),
 };

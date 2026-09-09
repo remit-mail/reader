@@ -19,9 +19,21 @@
       "types": "./src/service/create-remit-client.ts",
       "default": "./src/service/create-remit-client.ts"
     },
+    "./folder-role-appointments": {
+      "types": "./src/handlers/folder-role-appointments.ts",
+      "default": "./src/handlers/folder-role-appointments.ts"
+    },
+    "./folder-role-labels": {
+      "types": "./src/handlers/folder-role-labels.ts",
+      "default": "./src/handlers/folder-role-labels.ts"
+    },
     "./organize": {
       "types": "./src/service/organize.ts",
       "default": "./src/service/organize.ts"
+    },
+    "./sender-category": {
+      "types": "./src/service/sender-category.ts",
+      "default": "./src/service/sender-category.ts"
     },
     "./trigger-sync": {
       "types": "./src/service/trigger-sync.ts",
@@ -52,6 +64,9 @@
     "tsx": "*"
   },
   "dependencies": {
+    "@remit/config-format": "*",
+    "@remit/config-transfer": "*",
+    "@remit/calendar-service": "*",
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/api-openapi-types": "*",

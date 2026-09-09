@@ -20,7 +20,12 @@ expected to produce. Most of them are zero. Two are not defects:
 
 - **ahead** counts rows classified while their message is still pending, a
   classification in flight. Those rows are left alone.
-- **not-yet-classified** counts mail the classifier has not reached.
+- **uncategorized** counts mail with no category whose message has none either.
+  It is not the same as "not classified yet": it mixes mail the classifier has
+  not reached with mail it reached and had nothing to say about. To separate
+  them, `SELECT classification_state, count(*) FROM message WHERE category =
+  'uncategorized' GROUP BY 1` — `NotExamined` is the cohort a classifier release
+  could still pick up.
 
 ## ListId backfill for pre-upgrade mail
 

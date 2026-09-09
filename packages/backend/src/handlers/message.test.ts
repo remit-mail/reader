@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
 import {
 	MoveNotSettledError,
 	NoJunkMailboxError,
@@ -39,6 +40,32 @@ describe("settleSpamReportBulk", () => {
 		assert.match(reason, /no Junk folder/);
 		assert.match(reason, /Create one/);
 		assert.notEqual(reason, GENERIC_FAILURE_REASON);
+	});
+
+	// A refusal the move gate raises used to collapse to the generic retry copy,
+	// which is a dead end (#665). One reason reaches it now — a mutation still in
+	// flight — and it words the wait rather than the server's sentence.
+	it("words a placement refusal from its reason, never from the server's sentence", async () => {
+		const outcome = await settleSpamReportBulk(
+			["msg-1", "msg-2"],
+			async (messageId) => {
+				throw new MessagePlacementUnsettledError(
+					`Message ${messageId} was not acted on: its folder and uid do not name the same message`,
+					"acc-1",
+					messageId,
+					"in_flight",
+				);
+			},
+		);
+
+		const reasons = outcome.failures?.map((f) => f.reason) ?? [];
+		assert.equal(reasons.length, 2);
+		for (const reason of reasons) {
+			assert.match(reason ?? "", /try again in a moment/i);
+			assert.notEqual(reason, GENERIC_FAILURE_REASON);
+			assert.doesNotMatch(reason ?? "", /folder and uid/);
+			assert.doesNotMatch(reason ?? "", /acc-1/);
+		}
 	});
 
 	it("omits failures entirely when every message succeeds", async () => {

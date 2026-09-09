@@ -34,12 +34,14 @@ const isInboxPath = (fullPath: string): boolean =>
 /**
  * A folder has children when another mailbox's path is nested under it — the
  * folder's own path followed by the hierarchy delimiter. The delimiter matters:
- * `Work` is not a parent of `Workshop`, only of `Work/Shop`.
+ * `Work` is not a parent of `Workshop`, only of `Work/Shop`. A server that
+ * reports no delimiter has a flat namespace, where nothing nests at all.
  */
 export const hasChildFolders = (
 	folder: Pick<FolderNode, "mailboxId" | "fullPath" | "hierarchyDelimiter">,
 	all: readonly Pick<FolderNode, "mailboxId" | "fullPath">[],
 ): boolean => {
+	if (folder.hierarchyDelimiter.length === 0) return false;
 	const prefix = `${folder.fullPath}${folder.hierarchyDelimiter}`;
 	return all.some(
 		(other) =>

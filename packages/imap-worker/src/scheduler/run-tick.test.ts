@@ -51,6 +51,7 @@ const baseAccount = (overrides: Partial<AccountItem>): AccountItem =>
 		username: "user",
 		email: "user@example.com",
 		authType: "password",
+		passwordHash: '{"ciphertext":"x"}',
 		imapHost: "imap.example.com",
 		imapPort: 993,
 		imapTls: true,
@@ -160,6 +161,36 @@ describe("runSchedulerTick", () => {
 		assert.equal(result.enqueued, 0);
 		assert.equal(result.skipped, 3);
 		assert.equal(sent.length, 0);
+	});
+
+	it("skips an account storing no credential (issue #1120)", async () => {
+		const due = baseAccount({ accountId: "acct_due" });
+		const credentialless = baseAccount({
+			accountId: "acct_no_credential",
+			passwordHash: undefined,
+		});
+
+		const accountService = fakeAccountService([
+			{ items: [due, credentialless], cursor: null },
+		]);
+		const { sqsClient, sent } = fakeSqsClient();
+
+		const result = await runSchedulerTick({
+			accountService,
+			sqsClient,
+			queueUrl:
+				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
+			log: createNoopLogger(),
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+		});
+
+		assert.equal(result.enqueued, 1);
+		assert.equal(result.skipped, 1);
+		assert.equal(sent.length, 1);
+		const body = JSON.parse(sent[0]?.input.MessageBody ?? "{}");
+		assert.equal(body.accountId, "acct_due");
 	});
 
 	it("never logs per-account for ineligible accounts — only the aggregate tick summary (review #1250)", async () => {

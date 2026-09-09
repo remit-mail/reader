@@ -176,3 +176,20 @@ export const AmbiguousZone: Story = {
 		/>
 	),
 };
+
+/**
+ * The state the app itself renders while the calendar has no API to write
+ * through: the facts, the way back to the thread, and no control that would
+ * lead nowhere.
+ */
+export const NoActions: Story = {
+	render: () => (
+		<EventDetail
+			event={base}
+			calendar={calendar}
+			whenText="Wednesday 10 June · 10:00 – 11:30"
+			onClose={() => {}}
+			onOpenThread={() => {}}
+		/>
+	),
+};

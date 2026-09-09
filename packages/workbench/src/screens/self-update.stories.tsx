@@ -151,6 +151,12 @@ export const AdvancedCheckFailed: Story = {
 	),
 };
 
+/**
+ * The pane after an update landed. The banner sits in the flow and pushes the
+ * rest of Advanced down, so the running version and its check control stay on
+ * screen and pressable; checking from there retires the banner and shows the
+ * new verdict in its place.
+ */
 export const AdvancedSucceeded: Story = {
 	render: () => (
 		<AdvancedPage

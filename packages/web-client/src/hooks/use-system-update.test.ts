@@ -16,13 +16,20 @@ import { act, createElement, type ReactNode } from "react";
 import { SelfUpdateOverlay } from "../components/self-update/SelfUpdateOverlay";
 import { AdvancedNavIcon } from "../components/settings/AdvancedNavIcon";
 import { SelfUpdatePanel } from "../components/settings/SelfUpdatePanel";
+import { __resetFatalError, getCurrentFatalError } from "../lib/fatal-error";
 import {
 	APPLY_BUDGET_SECONDS,
 	NEVER_CAME_BACK_MARGIN_SECONDS,
 } from "../lib/self-update-state";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
-import { type HttpMock, httpError, mockFetch } from "../test-support/http";
 import {
+	type HttpCall,
+	type HttpMock,
+	httpError,
+	mockFetch,
+} from "../test-support/http";
+import {
+	CHECK_ANSWER_BUDGET_MS,
 	type SelfUpdateApi,
 	SelfUpdateProvider,
 	useSelfUpdate,
@@ -36,9 +43,11 @@ let http: HttpMock | undefined;
 beforeEach(() => {
 	globalThis.localStorage = globalThis.window.localStorage;
 	localStorage.clear();
+	__resetFatalError();
 });
 
 afterEach(() => {
+	__resetFatalError();
 	http?.restore();
 	http = undefined;
 	harness?.close();
@@ -79,17 +88,23 @@ const updateKey = systemOperationsGetSystemUpdateQueryKey();
 const BUDGET_MS =
 	(APPLY_BUDGET_SECONDS + NEVER_CAME_BACK_MARGIN_SECONDS) * 1000;
 
-async function settle(dom: DomHarness): Promise<void> {
-	for (let attempt = 0; attempt < 40; attempt += 1) {
+/**
+ * Poll `ready` across flushes until it holds. A mocked answer still travels
+ * through the fetch seam's own promise chain — the request body, the responder,
+ * the response stream — so the render an assert reads is an unknown number of
+ * turns out, and a fixed count of them is a race under load. Waiting on the
+ * condition itself is what makes these tests deterministic.
+ */
+async function waitFor(
+	dom: DomHarness,
+	ready: () => boolean,
+	what: string,
+): Promise<void> {
+	for (let attempt = 0; attempt < 200; attempt += 1) {
 		await dom.flush();
-		const state = dom.queryClient.getQueryState(updateKey);
-		const done =
-			state &&
-			state.fetchStatus === "idle" &&
-			(state.data !== undefined || state.error != null);
-		if (done) {
-			// The cache has settled; give React the turns to commit the render it
-			// scheduled off that settle before the assert reads the DOM.
+		if (ready()) {
+			// The state is there; give React the turns to commit the render it
+			// scheduled off it before the assert reads the DOM.
 			await dom.flush();
 			await dom.wait(1);
 			await dom.flush();
@@ -97,6 +112,29 @@ async function settle(dom: DomHarness): Promise<void> {
 		}
 		await dom.wait(1);
 	}
+	throw new Error(`timed out waiting for ${what}`);
+}
+
+/** How many times the poll has answered, either way — it never goes backwards. */
+function answers(dom: DomHarness): number {
+	const state = dom.queryClient.getQueryState(updateKey);
+	if (!state) return 0;
+	return state.dataUpdateCount + state.errorUpdateCount;
+}
+
+async function settle(dom: DomHarness): Promise<void> {
+	await waitFor(
+		dom,
+		() => {
+			const state = dom.queryClient.getQueryState(updateKey);
+			return (
+				state !== undefined &&
+				state.fetchStatus === "idle" &&
+				(state.data !== undefined || state.error != null)
+			);
+		},
+		"the update query to answer",
+	);
 }
 
 /**
@@ -105,12 +143,12 @@ async function settle(dom: DomHarness): Promise<void> {
  * what the real seam returns the moment it accepts the request.
  */
 function mountApi(
-	getResponse: () => unknown,
+	getResponse: (call: HttpCall) => unknown,
 	children: ReactNode = null,
 ): { dom: DomHarness; api: () => SelfUpdateApi } {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/system/update") && call.method === "GET") {
-			return getResponse();
+			return getResponse(call);
 		}
 		return {
 			currentVersion: "0.9.3",
@@ -143,9 +181,55 @@ async function startUpdate(
 	await act(async () => {
 		api().install("0.9.4");
 		await dom.flush();
-		await dom.wait(1);
+	});
+	await waitFor(
+		dom,
+		() => {
+			const surface = api().surface;
+			return surface.status === "ready" && surface.overlay.kind === "applying";
+		},
+		"the install to be accepted",
+	);
+}
+
+/** Re-poll and wait for the answer, whichever way it lands. */
+async function retryConnection(
+	dom: DomHarness,
+	api: () => SelfUpdateApi,
+): Promise<void> {
+	const before = answers(dom);
+	await act(async () => {
+		api().onRetryConnection();
 		await dom.flush();
 	});
+	await waitFor(
+		dom,
+		() =>
+			dom.queryClient.getQueryState(updateKey)?.fetchStatus === "idle" &&
+			answers(dom) > before,
+		"the re-poll to answer",
+	);
+}
+
+async function press(dom: DomHarness, api: () => SelfUpdateApi): Promise<void> {
+	const before = answers(dom);
+	await act(async () => {
+		api().onCheck();
+		await dom.flush();
+	});
+	// The press fires a raw SDK call: on success it refetches, so the poll
+	// answers again; on failure the reason lands on the pane.
+	await waitFor(
+		dom,
+		() => {
+			const surface = api().surface;
+			return (
+				answers(dom) > before ||
+				(surface.status === "ready" && surface.section.status === "checkFailed")
+			);
+		},
+		"the pressed check to be requested",
+	);
 }
 
 async function renderSurface(
@@ -280,12 +364,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		await startUpdate(dom, api);
 
 		failing = true;
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-			await dom.wait(1);
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		const surface = api().surface;
 		assert.equal(
@@ -311,12 +390,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		const realNow = Date.now;
 		Date.now = () => realNow() + BUDGET_MS + 60_000;
 		try {
-			await act(async () => {
-				api().onRetryConnection();
-				await dom.flush();
-				await dom.wait(1);
-				await dom.flush();
-			});
+			await retryConnection(dom, api);
 			assert.doesNotMatch(dom.html(), /Installing Remit 0\.9\.4/);
 			assert.match(dom.html(), /has not answered since the restart/);
 			assert.match(dom.html(), /remit logs/);
@@ -342,12 +416,7 @@ describe("SelfUpdateOverlay — the blocking screen", () => {
 		await startUpdate(dom, api);
 
 		finished = true;
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-			await dom.wait(1);
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		const surface = api().surface;
 		assert.equal(
@@ -428,7 +497,23 @@ describe("useSystemUpdate — actions", () => {
 		assert.equal(after.status === "ready" && after.section.status, "upToDate");
 	});
 
-	test("checking and retrying re-poll the surface", async () => {
+	test("the press asks the updater for a check, not another read of the same file (#599)", async () => {
+		// The whole of #599: a plain re-read answers with the verdict it already
+		// had. Only refresh=true records a request the updater will act on.
+		const { dom, api } = mountApi(() => available);
+		await settle(dom);
+		const before = http?.calls.length ?? 0;
+
+		await press(dom, api);
+
+		const refreshes = (http?.calls ?? [])
+			.slice(before)
+			.filter((call) => call.url.includes("refresh=true"));
+		assert.equal(refreshes.length, 1);
+		assert.equal(refreshes[0].method, "GET");
+	});
+
+	test("retrying the connection re-polls the surface", async () => {
 		let calls = 0;
 		const { dom, api } = mountApi(() => {
 			calls += 1;
@@ -437,15 +522,165 @@ describe("useSystemUpdate — actions", () => {
 		await settle(dom);
 		const afterMount = calls;
 
-		await act(async () => {
-			api().onCheck();
-			await dom.flush();
-		});
-		await act(async () => {
-			api().onRetryConnection();
-			await dom.flush();
-		});
+		await retryConnection(dom, api);
 
 		assert.equal(calls > afterMount, true);
+	});
+
+	test("a press the updater never answers ends loudly, not in a spinner (#599)", async () => {
+		// The poll keeps answering with the same bytes, so nothing the hook reads
+		// changes and no render would notice the wait running out on its own.
+		const { dom, api } = mountApi(
+			() => available,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		const realNow = Date.now;
+		try {
+			await act(async () => {
+				api().onCheck();
+				// The press is stamped off the real clock; the wait it then arms is
+				// measured against one already past the budget, so the deadline the
+				// hook sets for itself lands on the next tick, not in half a minute.
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+				await dom.flush();
+			});
+			// The effects have run and the deadline is armed — let it fire.
+			await dom.wait(5);
+			await dom.flush();
+
+			assert.match(dom.html(), /The updater did not answer/);
+			assert.match(dom.html(), /remit logs updater/);
+			assert.doesNotMatch(dom.html(), /Looking for a newer version/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("checking from the success row reaches the pane, not a dead button (#1015)", async () => {
+		// An undismissed run outcome wins over any check in flight, so a press
+		// made while the success banner holds the pane would leave the screen
+		// exactly as it was. The row's control retires the outcome first.
+		const succeeded = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		const { dom } = mountApi(() => succeeded, createElement(SelfUpdatePanel));
+		await settle(dom);
+		assert.match(dom.html(), /Updated to Remit 0\.9\.4/);
+
+		dom.click(dom.byText("button", "Check for updates"));
+		await waitFor(
+			dom,
+			() => /Looking for a newer version/.test(dom.html()),
+			"the pressed check to reach the pane",
+		);
+		assert.doesNotMatch(dom.html(), /Updated to Remit/);
+	});
+
+	test("a check pressed from the success row fails in the open, not behind the banner (#1015)", async () => {
+		const succeeded = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		const { dom } = mountApi(() => succeeded, createElement(SelfUpdatePanel));
+		await settle(dom);
+
+		const control = dom.byText("button", "Check for updates");
+		const realNow = Date.now;
+		try {
+			await act(async () => {
+				// Dispatched inside this `act` rather than through `dom.click`, so
+				// the press is stamped off the real clock and the wait it arms is
+				// measured against one already past the budget.
+				control.dispatchEvent(
+					new MouseEvent("click", { bubbles: true, cancelable: true }),
+				);
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+				await dom.flush();
+			});
+			await dom.wait(5);
+			await dom.flush();
+
+			assert.match(dom.html(), /The updater did not answer/);
+			assert.doesNotMatch(dom.html(), /Updated to Remit/);
+		} finally {
+			Date.now = realNow;
+		}
+	});
+
+	test("dismissing an outcome does not uncover the check verdict it hid", async () => {
+		// The failure belongs to a press made before the run, on a pane the user
+		// has not been able to see since. Serving it as the current verdict claims
+		// a check failed that may well have succeeded.
+		let response: unknown = available;
+		const { dom, api } = mountApi(
+			() => response,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		const realNow = Date.now;
+		try {
+			await act(async () => {
+				api().onCheck();
+				Date.now = () => realNow() + CHECK_ANSWER_BUDGET_MS + 1_000;
+				await dom.flush();
+			});
+			await dom.wait(5);
+			await dom.flush();
+			assert.match(dom.html(), /The updater did not answer/);
+		} finally {
+			Date.now = realNow;
+		}
+
+		response = {
+			currentVersion: "0.9.4",
+			check: { status: "ok", updateAvailable: false },
+			run: run({ outcome: "succeeded" }),
+		};
+		await retryConnection(dom, api);
+		await waitFor(
+			dom,
+			() => /Updated to Remit 0\.9\.4/.test(dom.html()),
+			"the finished run to reach the pane",
+		);
+
+		await act(async () => {
+			api().onDismissResult();
+			await dom.flush();
+		});
+		await waitFor(
+			dom,
+			() => !/Updated to Remit/.test(dom.html()),
+			"the outcome to be retired",
+		);
+		assert.doesNotMatch(dom.html(), /The updater did not answer/);
+		assert.match(dom.html(), /0\.9\.4 is the latest version/);
+	});
+
+	test("a refused refresh is shown, never swallowed back into the old verdict (#599)", async () => {
+		let refused = false;
+		const { dom, api } = mountApi(
+			(call) =>
+				refused && call.url.includes("refresh=true")
+					? httpError(500)
+					: available,
+			createElement(SelfUpdatePanel),
+		);
+		await settle(dom);
+
+		refused = true;
+		await press(dom, api);
+
+		assert.match(dom.html(), /could not be requested/);
+		assert.match(dom.html(), /answered 500/);
+		assert.doesNotMatch(dom.html(), /Install 0\.9\.4/);
+		// The press is a raw SDK call, outside the cache the global sink watches:
+		// a 5xx escalates from here or from nowhere at all.
+		assert.equal(getCurrentFatalError()?.error !== undefined, true);
 	});
 });

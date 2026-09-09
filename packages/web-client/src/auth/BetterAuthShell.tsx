@@ -10,6 +10,7 @@ import {
 import { type FormEvent, type ReactNode, useState } from "react";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
 import { FatalErrorOverlay } from "@/components/ui/FatalErrorOverlay";
+import { openBugReport } from "@/lib/bug-report";
 import { authFooterNote } from "./account-menu-mode";
 import {
 	type AuthRequest,
@@ -22,6 +23,8 @@ import {
 	isBetterAuthEnabled,
 	isSignUpDisabledError,
 } from "./better-auth-config";
+import { SessionRateLimited } from "./SessionRateLimited";
+import { classifySessionQuery, type SessionQuery } from "./session-state";
 
 type Mode = "signIn" | "signUp";
 
@@ -189,10 +192,42 @@ export const SignInForm = () => {
 	);
 };
 
-export const BetterAuthShell = ({ children }: BetterAuthShellProps) => {
-	const { data: session, isPending } = authClient.useSession();
+interface SessionGateProps {
+	session: SessionQuery;
+	onRetry: () => void;
+	children: ReactNode;
+}
 
-	if (isPending) return <AppShellSkeleton />;
-	if (session) return <>{children}</>;
+/**
+ * What the app shows for each state the session lookup can be in, separated
+ * from the hook that feeds it so every state can be driven directly.
+ */
+export const SessionGate = ({
+	session,
+	onRetry,
+	children,
+}: SessionGateProps) => {
+	const state = classifySessionQuery(session);
+
+	if (state.kind === "active") return <>{children}</>;
+	if (state.kind === "pending") return <AppShellSkeleton />;
+	if (state.kind === "rateLimited") {
+		return <SessionRateLimited onRetry={onRetry} onReport={openBugReport} />;
+	}
 	return <SignInForm />;
+};
+
+export const BetterAuthShell = ({ children }: BetterAuthShellProps) => {
+	const { data, isPending, error, refetch } = authClient.useSession();
+
+	return (
+		<SessionGate
+			session={{ data, isPending, error }}
+			onRetry={() => {
+				void refetch();
+			}}
+		>
+			{children}
+		</SessionGate>
+	);
 };

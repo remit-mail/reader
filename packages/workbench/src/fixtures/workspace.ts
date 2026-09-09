@@ -1,12 +1,14 @@
-import type {
-	IntelligenceData,
-	NavAccount,
-	ResultFolder,
-	SearchResult,
-	SearchResultSection,
-	ThreadData,
-	ThreadRowData,
-	ThreadSection,
+import {
+	categoryLabels,
+	categoryTone,
+	type IntelligenceData,
+	type NavAccount,
+	type ResultFolder,
+	type SearchResult,
+	type SearchResultSection,
+	type ThreadData,
+	type ThreadRowData,
+	type ThreadSection,
 } from "@remit/ui";
 
 /**
@@ -529,8 +531,9 @@ export const flaggedThreads: ThreadRowData[] = allThreads
 /* ------------------------------------------------------------------ */
 
 /**
- * Category-driven brief grouping — mirrors groupBriefSections in the web
- * client so the Storybook prototype stays in lockstep with production logic.
+ * Category-driven brief grouping — the fixture stand-in for the per-category
+ * server queries the live brief issues, so the Storybook prototype renders the
+ * same section set.
  *
  * Each row lands in the section for its category; a row with no category counts
  * as `personal`. Starred mail is not a section — the star is a per-row marker
@@ -817,6 +820,26 @@ export const q3Thread: ThreadData = {
 <ol><li>Do we keep the legacy export path through Q4, or cut it at GA?</li><li>Who owns the dunning emails once self-serve ships?</li></ol>
 <p>Pre-read is in the deck (slides 4–9). 20 min should cover it.</p>
 <p>Thanks,<br/>Priya</p>`,
+		},
+	],
+};
+
+/** The mail the kickoff call is read out of, and the clock it never names. */
+export const lisbonCallThread: ThreadData = {
+	subject: "Kickoff call on Wednesday at 16:00",
+	messages: [
+		{
+			id: "msg_lisbon_call_1",
+			fromName: "Rita Sousa",
+			fromEmail: "rita@aldeia.example",
+			toLabel: "Alice Tan",
+			dateLabel: "Today 08:12",
+			expanded: true,
+			snippet:
+				"Wednesday at 16:00 works on our side for the kickoff — I will send a link.",
+			bodyHtml: `<p>Hi Alice,</p>
+<p>Wednesday at 16:00 works on our side for the kickoff. I will send a link nearer the day.</p>
+<p>Rita</p>`,
 		},
 	],
 };
@@ -1224,19 +1247,20 @@ const resultFolders: Record<string, ResultFolder> = {
 	thr_bol: { role: "inbox" },
 	thr_arch_postnl: { role: "archive" },
 	thr_arch_dhl: { role: "archive" },
-	thr_arch_etsy: { providerPath: "Shopping/Orders" },
+	thr_arch_etsy: { providerPath: "Shopping/Orders", hierarchyDelimiter: "/" },
 	thr_arch_ups: { role: "archive" },
-	thr_arch_coolblue: { providerPath: "Shopping/Orders" },
+	thr_arch_coolblue: {
+		providerPath: "Shopping/Orders",
+		hierarchyDelimiter: "/",
+	},
 };
 
-const categoryLabels: Partial<
-	Record<NonNullable<ThreadRowData["category"]>, SearchResult["category"]>
-> = {
-	transactional: { label: "Transactional", tone: "positive" },
-	personal: { label: "Personal", tone: "accent" },
-	marketing: { label: "Marketing", tone: "warning" },
-	newsletter: { label: "Newsletter", tone: "neutral" },
-};
+const searchResultCategory = (
+	category: NonNullable<ThreadRowData["category"]>,
+): SearchResult["category"] => ({
+	label: categoryLabels[category],
+	tone: categoryTone[category],
+});
 
 function toSearchResult(
 	thread: ThreadRowData,
@@ -1252,7 +1276,9 @@ function toSearchResult(
 		date: thread.timeLabel,
 		unread: thread.isRead === false,
 		flagged: thread.starred,
-		category: thread.category ? categoryLabels[thread.category] : undefined,
+		category: thread.category
+			? searchResultCategory(thread.category)
+			: undefined,
 		folder: resultFolders[thread.id] ?? { role: "inbox" },
 		...overrides,
 	};
@@ -1289,10 +1315,4 @@ export const recentSearches: string[] = [
 	"parcel delivery confirmation",
 	"from:stripe invoice",
 	"has:attachment contract",
-];
-
-/** Queries the user kept; the nav sidebar lists them under Saved searches. */
-export const savedSearches: string[] = [
-	"is:starred from:dana",
-	"in:archive tax",
 ];

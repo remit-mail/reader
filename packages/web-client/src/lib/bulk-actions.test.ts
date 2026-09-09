@@ -11,6 +11,24 @@ import {
 	runPredicateAction,
 } from "./bulk-actions.js";
 
+/** A run nobody stops. */
+const neverAborted = (): AbortSignal => new AbortController().signal;
+
+/**
+ * What an aborted request does: reject with the signal's own reason, whether it
+ * was already aborted when the call was made or aborted while in flight.
+ */
+const abortable = (signal: AbortSignal): Promise<never> =>
+	new Promise((_, reject) => {
+		if (signal.aborted) {
+			reject(signal.reason);
+			return;
+		}
+		signal.addEventListener("abort", () => reject(signal.reason), {
+			once: true,
+		});
+	});
+
 const ids = (count: number, prefix = "m"): string[] =>
 	Array.from({ length: count }, (_, i) => `${prefix}${i}`);
 
@@ -112,8 +130,29 @@ describe("chunkTargets", () => {
 });
 
 describe("runChunkedAction", () => {
-	const neverCancelled = () => false;
 	const noopProgress = () => undefined;
+
+	// A select-all is walked a hundred ids at a time. Summed here so the caller
+	// states the refusals once for the run, rather than pushing a banner per
+	// chunk until the surface caps them.
+	test("sums the rows the server refused across every chunk", async () => {
+		const outcome = await runChunkedAction(
+			Array.from({ length: 250 }, (_, i) => ({
+				id: `m${i}`,
+				accountId: "acc-1",
+			})),
+			async (chunk) => ({
+				successCount: chunk.length - 1,
+				failureCount: 1,
+			}),
+			noopProgress,
+			neverAborted(),
+		);
+
+		assert.equal(outcome.refused, 3, "one per chunk, over three chunks");
+		assert.equal(outcome.done, 250, "every id was reached");
+		assert.deepEqual(outcome.failedIds, [], "and none was left unattempted");
+	});
 
 	test("zero ids does nothing and reports done=0", async () => {
 		const calls: string[][] = [];
@@ -124,11 +163,12 @@ describe("runChunkedAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.deepEqual(outcome, {
 			done: 0,
 			failedIds: [],
+			refused: 0,
 			cancelled: false,
 		});
 		assert.equal(calls.length, 0);
@@ -144,7 +184,7 @@ describe("runChunkedAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(calls.length, 2);
 		assert.equal(calls[0].length, BULK_ACTION_CHUNK_SIZE);
@@ -159,7 +199,7 @@ describe("runChunkedAction", () => {
 			input,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(outcome.done, input.length);
 		assert.deepEqual(outcome.failedIds, []);
@@ -168,16 +208,16 @@ describe("runChunkedAction", () => {
 	test("cancelling mid-run folds every unreached chunk into failedIds", async () => {
 		const input = targets(BULK_ACTION_CHUNK_SIZE * 3);
 		let calls = 0;
-		let cancelled = false;
+		const stop = new AbortController();
 		const outcome = await runChunkedAction(
 			input,
 			async (chunk) => {
 				calls++;
-				if (calls === 1) cancelled = true; // cancel after the first chunk lands
+				if (calls === 1) stop.abort(); // cancel after the first chunk lands
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			() => undefined,
-			() => cancelled,
+			stop.signal,
 		);
 		assert.equal(outcome.cancelled, true);
 		assert.equal(calls, 1);
@@ -195,7 +235,7 @@ describe("runChunkedAction", () => {
 				throw boom;
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(outcome.error, boom);
 		assert.equal(outcome.done, 0);
@@ -215,7 +255,7 @@ describe("runChunkedAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.deepEqual(calls, [["a1", "a2"], ["b1"]]);
 		assert.equal(outcome.done, 3);
@@ -231,7 +271,7 @@ describe("runChunkedAction", () => {
 			],
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			(p) => seen.push(p),
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.deepEqual(seen, [
 			{ done: 1, total: 2 },
@@ -240,7 +280,7 @@ describe("runChunkedAction", () => {
 	});
 
 	test("cancelling at an account boundary hands back the accounts never reached", async () => {
-		let cancelled = false;
+		const stop = new AbortController();
 		const outcome = await runChunkedAction(
 			[
 				{ id: "a1", accountId: "acct-a" },
@@ -248,11 +288,11 @@ describe("runChunkedAction", () => {
 				{ id: "c1", accountId: "acct-c" },
 			],
 			async (chunk) => {
-				cancelled = true;
+				stop.abort();
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			() => undefined,
-			() => cancelled,
+			stop.signal,
 		);
 		assert.equal(outcome.cancelled, true);
 		assert.equal(outcome.done, 1);
@@ -271,7 +311,7 @@ describe("runChunkedAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			() => undefined,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(outcome.error, boom);
 		assert.equal(outcome.done, 1);
@@ -291,7 +331,7 @@ describe("runChunkedAction", () => {
 				throw new Error("auth expired");
 			},
 			() => undefined,
-			neverCancelled,
+			neverAborted(),
 		);
 		// The run stops where it threw rather than trying the accounts behind it:
 		// what it hands back is exactly what is still untouched, which is what a
@@ -308,7 +348,7 @@ describe("runChunkedAction", () => {
 			input,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			(p) => progressCalls.push(p),
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.deepEqual(progressCalls, [
 			{ done: BULK_ACTION_CHUNK_SIZE, total: input.length },
@@ -318,7 +358,6 @@ describe("runChunkedAction", () => {
 });
 
 describe("runPredicateAction", () => {
-	const neverCancelled = () => false;
 	const noopProgress = () => undefined;
 
 	/** Builds a paged fixture: `pages[i]` is what the i-th call returns. */
@@ -338,9 +377,14 @@ describe("runPredicateAction", () => {
 			0,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
-		assert.deepEqual(outcome, { done: 0, failedIds: [], cancelled: false });
+		assert.deepEqual(outcome, {
+			done: 0,
+			failedIds: [],
+			refused: 0,
+			cancelled: false,
+		});
 	});
 
 	test("exactly 100 matches — a page size's worth — resolves in a single page with no continuation", async () => {
@@ -354,7 +398,7 @@ describe("runPredicateAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(deleteCalls.length, 1);
 		assert.equal(outcome.done, BULK_ACTION_CHUNK_SIZE);
@@ -374,7 +418,7 @@ describe("runPredicateAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(deleteCalls.length, 2);
 		assert.equal(outcome.done, 150);
@@ -397,7 +441,7 @@ describe("runPredicateAction", () => {
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.deepEqual(deleteCalls, [
 			["a", "b"],
@@ -408,7 +452,7 @@ describe("runPredicateAction", () => {
 
 	test("cancelling mid-delete stops paging without inventing failedIds for unfetched pages", async () => {
 		let fetchCalls = 0;
-		let cancelled = false;
+		const stop = new AbortController();
 		const fetch = async (): Promise<FetchIdsPageResult> => {
 			fetchCalls++;
 			return { ids: ["a", "b"], continuationToken: "more" };
@@ -417,11 +461,11 @@ describe("runPredicateAction", () => {
 			fetch,
 			1000,
 			async (chunk) => {
-				cancelled = true; // cancel takes effect on the next loop iteration
+				stop.abort(); // cancel takes effect on the next loop iteration
 				return { successCount: chunk.length, failureCount: 0 };
 			},
 			() => undefined,
-			() => cancelled,
+			stop.signal,
 		);
 		assert.equal(outcome.cancelled, true);
 		assert.equal(fetchCalls, 1);
@@ -439,7 +483,7 @@ describe("runPredicateAction", () => {
 			100,
 			async (chunk) => ({ successCount: chunk.length, failureCount: 0 }),
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(outcome.error, boom);
 		assert.equal(outcome.done, 0);
@@ -455,9 +499,82 @@ describe("runPredicateAction", () => {
 				throw boom;
 			},
 			noopProgress,
-			neverCancelled,
+			neverAborted(),
 		);
 		assert.equal(outcome.error, boom);
+	});
+});
+
+// Regression for #113: a stop used to be a flag read between pages, so the
+// search or delete already on the wire ran to completion — up to a hundred
+// messages deleted after the press. The run's signal is now the call's signal.
+describe("stopping a run that has a request in flight", () => {
+	test("a bounded run reports the aborted batch as a clean stop, never an error", async () => {
+		const stop = new AbortController();
+		const calls: string[][] = [];
+		const outcome = await runChunkedAction(
+			targets(BULK_ACTION_CHUNK_SIZE * 3),
+			async (chunk, signal) => {
+				calls.push(chunk);
+				stop.abort();
+				return abortable(signal);
+			},
+			() => undefined,
+			stop.signal,
+		);
+		assert.equal(outcome.cancelled, true);
+		assert.equal(outcome.error, undefined);
+		assert.equal(calls.length, 1, "nothing further left after the stop");
+		assert.equal(outcome.done, 0);
+		// The aborted batch may or may not have been accepted server-side, so it
+		// comes back with the chunks never attempted rather than counted as done.
+		assert.equal(outcome.failedIds.length, BULK_ACTION_CHUNK_SIZE * 3);
+	});
+
+	test("a predicate run whose delete is aborted sends nothing more and reports a clean stop", async () => {
+		const stop = new AbortController();
+		let fetches = 0;
+		let deletes = 0;
+		const outcome = await runPredicateAction(
+			async () => {
+				fetches++;
+				return { ids: ["a", "b"], continuationToken: "more" };
+			},
+			1000,
+			async (_chunk, signal) => {
+				deletes++;
+				stop.abort();
+				return abortable(signal);
+			},
+			() => undefined,
+			stop.signal,
+		);
+		assert.equal(outcome.cancelled, true);
+		assert.equal(outcome.error, undefined);
+		assert.equal(deletes, 1);
+		assert.equal(fetches, 1);
+		assert.equal(outcome.done, 0);
+	});
+
+	test("a predicate run whose search page is aborted deletes nothing", async () => {
+		const stop = new AbortController();
+		let deletes = 0;
+		const outcome = await runPredicateAction(
+			async (_token, signal) => {
+				stop.abort();
+				return abortable(signal);
+			},
+			1000,
+			async (chunk) => {
+				deletes++;
+				return { successCount: chunk.length, failureCount: 0 };
+			},
+			() => undefined,
+			stop.signal,
+		);
+		assert.equal(outcome.cancelled, true);
+		assert.equal(outcome.error, undefined);
+		assert.equal(deletes, 0);
 	});
 });
 

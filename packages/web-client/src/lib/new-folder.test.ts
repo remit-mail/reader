@@ -107,3 +107,21 @@ describe("validateNewFolderName", () => {
 		);
 	});
 });
+
+describe("validateNewFolderName in a flat namespace", () => {
+	const flat = { delimiter: "", existingPaths: ["INBOX", "Archive"] };
+
+	it("accepts a name when the server reports no delimiter", () => {
+		assert.equal(
+			validateNewFolderName({ ...flat, name: "Receipts" }),
+			undefined,
+		);
+	});
+
+	it("still catches a collision", () => {
+		assert.match(
+			validateNewFolderName({ ...flat, name: "inbox" }) ?? "",
+			/already exists/,
+		);
+	});
+});

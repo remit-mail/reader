@@ -12,7 +12,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/e2e-dev-compose.sh"
 tail_lines="${E2E_LOGS_TAIL:-200}"
 services=("$@")
 if [ ${#services[@]} -eq 0 ]; then
-	services=(queue backend imap-worker smtp-worker web dovecot mailpit)
+	services=(queue backend imap-worker smtp-worker account-worker web dovecot mailpit)
 fi
 
 for service in "${services[@]}"; do

@@ -82,6 +82,16 @@ export function SelfUpdateSection({
 		onCheck();
 	};
 
+	// The pane renders one state at a time, and an undismissed run outcome wins
+	// over any check in flight — so a check pressed from the success row would
+	// leave the screen unchanged and surface its verdict, right or wrong, only
+	// once the banner was dismissed. Retiring the outcome is what makes the
+	// press visible, and pressing it is the acknowledgement that retires it.
+	const handleCheckAfterResult = () => {
+		onDismissResult();
+		handleCheck();
+	};
+
 	const handleInstall = () => {
 		if (
 			!installable &&
@@ -281,23 +291,48 @@ export function SelfUpdateSection({
 
 			case "succeeded":
 				return (
-					<Banner tone="success" onDismiss={onDismissResult}>
-						<div className="space-y-1">
-							<p className="font-semibold">Updated to Remit {state.version}.</p>
-							<p>
-								You were on {state.previousVersion}.{" "}
-								<a
-									href={state.releaseNotesUrl}
-									target="_blank"
-									rel="noopener noreferrer"
-									className="underline"
+					<>
+						<Banner tone="success" onDismiss={onDismissResult}>
+							<div className="space-y-1">
+								<p className="font-semibold">
+									Updated to Remit {state.version}.
+								</p>
+								<p>
+									You were on {state.previousVersion}.{" "}
+									<a
+										href={state.releaseNotesUrl}
+										target="_blank"
+										rel="noopener noreferrer"
+										className="underline"
+									>
+										See what changed
+									</a>
+									.
+								</p>
+							</div>
+						</Banner>
+						<SectionRow>
+							<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+								<div className="flex min-w-0 items-center gap-2">
+									<CheckCircle2
+										className="size-4 shrink-0 text-positive"
+										aria-hidden
+									/>
+									<p className="text-sm text-fg">
+										Remit {state.version} is running.
+									</p>
+								</div>
+								<Button
+									variant="secondary"
+									size="sm"
+									className="shrink-0"
+									onClick={handleCheckAfterResult}
 								>
-									See what changed
-								</a>
-								.
-							</p>
-						</div>
-					</Banner>
+									Check for updates
+								</Button>
+							</div>
+						</SectionRow>
+					</>
 				);
 
 			case "rolledBack":

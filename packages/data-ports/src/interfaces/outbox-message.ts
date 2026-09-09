@@ -59,6 +59,25 @@ export interface IOutboxMessageRepository {
 		outboxMessageId: string,
 		status: OutboxMessageItem["status"],
 	): Promise<OutboxMessageItem>;
+	/**
+	 * Write `input` only while the row still holds `expected`, and answer `null`
+	 * when it does not.
+	 *
+	 * Every status transition is a read the caller decided on followed by a
+	 * write, and the SMTP worker or a second request can move the row between
+	 * the two. Naming the status that decision was made against turns the write
+	 * into a compare-and-set: an edit no longer pulls a row back out of `queued`
+	 * while its send event is on the wire, and a settle no longer overwrites a
+	 * status the worker has already reached. `null` is the caller's to read —
+	 * a conflict for an action the user asked for, and nothing to do for a
+	 * settle that has been overtaken.
+	 */
+	updateIfStatus(
+		accountConfigId: string,
+		outboxMessageId: string,
+		expected: OutboxMessageItem["status"],
+		input: UpdateOutboxMessageInput,
+	): Promise<OutboxMessageItem | null>;
 	markSent(
 		accountConfigId: string,
 		outboxMessageId: string,
@@ -71,6 +90,16 @@ export interface IOutboxMessageRepository {
 	): Promise<void>;
 	listByAccount(
 		accountId: string,
+		options?: { limit?: number; continuationToken?: string },
+	): Promise<ResultList<OutboxMessageItem>>;
+	/**
+	 * One keyset scan over several accounts, ordered globally by createdAt then
+	 * outboxMessageId. The continuation token names a position in that single
+	 * ordering rather than one position per account, so a second page stays
+	 * coherent however the accounts' rows interleave.
+	 */
+	listByAccounts(
+		accountIds: string[],
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<OutboxMessageItem>>;
 	listQueued(accountId: string): Promise<OutboxMessageItem[]>;

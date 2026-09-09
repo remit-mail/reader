@@ -2,19 +2,21 @@ import {
 	type ClauseEditState,
 	demoClauseSuggestions,
 	derivePropertyClauses,
-	deriveSenderClauses,
 	dominantSender,
 	type EnvelopeAddress,
 	type FolderTreeNode,
 	inboxFilterConfig,
 	isConvertible,
 	type MatchCount,
+	type MatchDoor,
 	type MatchMode,
 	type MatchOperator,
 	makeFilterBlockedCopy,
 	type RuleClause,
 	type RuleScope,
 	type RunState,
+	ruleBlockedCopy,
+	ruleRestrictionFor,
 	type SampleEmptyReason,
 	type SearchChip,
 	type SearchConversion,
@@ -35,6 +37,7 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, within } from "storybook/test";
 import {
 	FACETS_ONLY_CONVERSION,
 	PLAIN_CONVERSION,
@@ -84,6 +87,11 @@ interface WizardEntry {
 	escalatedTotal?: number;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
+	/**
+	 * Semantic search is off on this instance (#1068). A deployment setting, so
+	 * the door names the command that changes it rather than inviting a retry.
+	 */
+	semanticOff?: boolean;
 	/** What the mail server said when the widen was asked to run and failed. */
 	semanticError?: string;
 	/**
@@ -185,6 +193,14 @@ function WizardDriver({
 		if (entry.startMode) return entry.startMode;
 		return entry.startAt === "properties" ? "properties" : "selected";
 	});
+	const seedPropertyClauses = () =>
+		withIds(
+			derivePropertyClauses(
+				senders,
+				selected.map((message) => message.subject),
+			),
+			"seed",
+		);
 	const [clauses, setClauses] = useState<RuleClause[]>(() => {
 		if (fromSearch && conversion) {
 			return conversion.clauses.map((clause, index) => ({
@@ -195,13 +211,9 @@ function WizardDriver({
 		if (entry.bodyTextClause) {
 			return [{ id: "body-text", field: "HasWords", value: "invoice" }];
 		}
-		return withIds(
-			derivePropertyClauses(
-				senders,
-				selected.map((message) => message.subject),
-			),
-			"seed",
-		);
+		// The ticked-rows door builds no predicate, and the app holds it that way:
+		// clauses are seeded by the property door, when it is taken.
+		return mode === "properties" ? seedPropertyClauses() : [];
 	});
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
 		conversion?.matchOperator ?? "all",
@@ -215,7 +227,7 @@ function WizardDriver({
 	const [until, setUntil] = useState("");
 	const [typedName, setTypedName] = useState<string>();
 	const [semanticFallbackTaken, setSemanticFallbackTaken] = useState(
-		Boolean(entry.semanticUnavailable) &&
+		Boolean(entry.semanticUnavailable || entry.semanticOff) &&
 			(entry.startMode === "properties" || entry.startAt === "properties"),
 	);
 	const [nudged, setNudged] = useState(false);
@@ -275,11 +287,12 @@ function WizardDriver({
 		entry.restriction === "spansAccounts" ? undefined : "acc-personal",
 		entry.restriction,
 	);
+	const ruleRestriction = ruleRestrictionFor(mode, wizardScope);
 	const stepRestriction =
 		current === "folder"
 			? wizardScope.destination
 			: current === "rule" && (scope === "standing" || scope === "until")
-				? wizardScope.rule
+				? ruleRestriction
 				: undefined;
 	const blockedReason =
 		stepRestriction ?? stepBlockedReason(current, draft, count);
@@ -311,9 +324,16 @@ function WizardDriver({
 		setStep(steps[Math.min(steps.length - 1, index + 1)]);
 	};
 
+	const changeMode = (next: MatchDoor) => {
+		setMode(next);
+		if (next === "properties" && clauses.length === 0) {
+			setClauses(seedPropertyClauses());
+		}
+	};
+
 	const fallBackToProperties = () => {
 		setSemanticFallbackTaken(true);
-		setClauses(withIds(deriveSenderClauses(senders), "sender"));
+		setClauses(seedPropertyClauses());
 		setMode("properties");
 	};
 
@@ -373,8 +393,12 @@ function WizardDriver({
 				selectedCount: selected.length,
 				mode,
 				accountId: wizardScope.accountId,
-				onModeChange: setMode,
-				semanticUnavailable: entry.semanticUnavailable || !!entry.semanticError,
+				onModeChange: changeMode,
+				semanticUnavailable:
+					entry.semanticUnavailable ||
+					entry.semanticOff ||
+					!!entry.semanticError,
+				semanticOff: entry.semanticOff,
 				semanticErrorDetail: entry.semanticError,
 				semanticFallbackTaken,
 				onSemanticFallback: fallBackToProperties,
@@ -431,7 +455,7 @@ function WizardDriver({
 				draft,
 				onScopeChange: setScope,
 				onUntilChange: setUntil,
-				restriction: wizardScope.rule,
+				restriction: ruleRestriction,
 			}}
 			name={{ name: ruleName, onNameChange: setTypedName }}
 			review={{
@@ -612,7 +636,10 @@ const typeFolderName = async (root: HTMLElement, name: string) => {
 };
 
 const QUERY = "npm";
-const RESULTS_TITLE = `Results for "${QUERY}"`;
+/** What the server counts this query as matching. The result header and the
+ *  escalated selection render one figure, from one count (#307). */
+const MATCH_TOTAL = 1284;
+const RESULTS_TITLE = `${MATCH_TOTAL.toLocaleString()} results for “${QUERY}”`;
 
 /** The three Booking.com rows — one sender across the whole selection. */
 const ONE_SENDER = ["m1", "m5", "m8"];
@@ -1000,6 +1027,21 @@ export const OrganizeSemanticUnavailable: Story = {
 	),
 };
 
+/**
+ * The same door on an instance that never turned semantic search on (#1068).
+ * The distinction matters: nothing here is going to work on a retry, and the
+ * fix is a command on the server, so that is what the door says.
+ */
+export const OrganizeSemanticOff: Story = {
+	name: "Organize — semantic search off",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "match", semanticOff: true }}
+		/>
+	),
+};
+
 /* ------------------------------------------------------------------ */
 /* Property step — the clauses                                         */
 /* ------------------------------------------------------------------ */
@@ -1140,12 +1182,17 @@ export const OrganizeNothingIndexed: Story = {
 /* Scope step                                                          */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Reached through a widened door, which is what a scope that persists has to
+ * hold: the two saving scopes need a predicate to keep matching on, and the
+ * ticked rows are not one.
+ */
 export const OrganizeScope: Story = {
 	name: "Organize — scope",
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule" }}
+			openAt={{ verb: "organize", startAt: "rule", startMode: "similar" }}
 		/>
 	),
 };
@@ -1156,7 +1203,12 @@ export const OrganizeStanding: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule", scope: "standing" }}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				startMode: "similar",
+				scope: "standing",
+			}}
 		/>
 	),
 };
@@ -1167,9 +1219,40 @@ export const OrganizeUntil: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule", scope: "until" }}
+			openAt={{
+				verb: "organize",
+				startAt: "rule",
+				startMode: "similar",
+				scope: "until",
+			}}
 		/>
 	),
+};
+
+/**
+ * The ticked rows are a bounded list of ids and no predicate at all, so a rule
+ * saved through that door would match nothing — now or later. The step refuses
+ * it in the rule editor's words rather than saving a rule that never fires
+ * (#1193); Back reaches the doors that do carry a predicate.
+ */
+export const OrganizeStandingNoPredicate: Story = {
+	name: "Organize — keep doing this, nothing to match on",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{ verb: "organize", startAt: "rule", scope: "standing" }}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		clickByText(canvasElement, "Continue");
+		await tick();
+		// The live region is empty until the press, so this is the announcement
+		// itself rather than the description that was there all along.
+		const announced = within(canvasElement)
+			.getAllByRole("status")
+			.some((region) => region.textContent === ruleBlockedCopy.noMatch);
+		await expect(announced).toBe(true);
+	},
 };
 
 /**
@@ -1193,7 +1276,7 @@ export const OrganizeName: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "name" }}
+			openAt={{ verb: "organize", startAt: "name", startMode: "similar" }}
 		/>
 	),
 };
@@ -1203,7 +1286,12 @@ export const OrganizeReviewStanding: Story = {
 	render: () => (
 		<SelectionFlow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "review", scope: "standing" }}
+			openAt={{
+				verb: "organize",
+				startAt: "review",
+				startMode: "similar",
+				scope: "standing",
+			}}
 		/>
 	),
 };
@@ -1377,6 +1465,29 @@ export const RunNoDestination: Story = {
 				runState: "commitFailed",
 				runFailureReason:
 					"This account has no Junk folder appointed, so there is nowhere to file these. Appoint one under Settings › Folder roles.",
+			}}
+		/>
+	),
+};
+
+/**
+ * The commit pressed while another run is still paging. There is one run at a
+ * time, so this one never started: the screen names the one that is going and
+ * where to stop it, and offers no retry — sending the same commit again meets
+ * the same run (#112).
+ */
+export const RunAnotherIsGoing: Story = {
+	name: "Run — another run is still going",
+	render: () => (
+		<SelectionFlow
+			preselected={3}
+			openAt={{
+				verb: "delete",
+				startAt: "run",
+				scope: "once",
+				runState: "commitFailed",
+				runFailureReason:
+					"A delete of 1,284 messages in Inbox is still running — stop it first.",
 			}}
 		/>
 	),
@@ -1580,13 +1691,12 @@ export const RunFailedBeyondNamed: Story = {
 /* ------------------------------------------------------------------ */
 
 const ESCALATED_SCOPE = `matching "${QUERY}"`;
-const ESCALATED_TOTAL = 1284;
 
 const escalatedEntry = (verb: Verb, startAt: StepId): WizardEntry => ({
 	verb,
 	startAt,
 	escalatedScope: ESCALATED_SCOPE,
-	escalatedTotal: ESCALATED_TOTAL,
+	escalatedTotal: MATCH_TOTAL,
 });
 
 /**
@@ -1638,6 +1748,26 @@ export const EscalatedReviewDesktop: Story = {
 	),
 };
 
+/**
+ * Organize over the predicate reaches the scope step, and the two that save a
+ * rule are dimmed there. The list resolved this match before the wizard opened,
+ * so there is no clause to build a rule from, no anchor to widen, and no door on
+ * the match step to get either — asking for a clause would name a remedy on no
+ * screen this walk can reach. The step states the one that works instead: the
+ * query's own "Make this a filter" (#1193). Applying once is unaffected.
+ */
+export const EscalatedRuleRestricted: Story = {
+	name: "Select all matching — scope, no rule to save",
+	render: () => (
+		<SelectionFlow
+			messages={SELECTION_SEARCH_SAMPLE}
+			title={RESULTS_TITLE}
+			preselected={4}
+			openAt={escalatedEntry("organize", "rule")}
+		/>
+	),
+};
+
 /** A move over the predicate still asks where, on the step that asks it. */
 export const EscalatedMoveFolder: Story = {
 	name: "Select all matching — move, folder",
@@ -1672,10 +1802,11 @@ export const EscalatedRunning: Story = {
 };
 
 /**
- * The run stopped part-way. The batches it never reached were never sent, so
- * nothing rejected them and nothing has happened to them — which is what the
- * screen says, rather than reporting a mail server that refused them. Retry
- * re-resolves the predicate; every verb it carries is idempotent.
+ * The run stopped part-way. Nothing rejected what it left behind: most of it was
+ * never sent, and the batch already on its way when Stop landed may have gone
+ * through anyway — which is what the screen says, rather than reporting a mail
+ * server that refused them. Retry re-resolves the predicate; every verb it
+ * carries is idempotent.
  */
 export const EscalatedStopped: Story = {
 	name: "Select all matching — stopped part-way",

@@ -1,13 +1,17 @@
-import type {
-	CalendarAttendee,
-	CalendarDescriptor,
-	CalendarEventData,
-	EventSuggestion,
-	ThreadData,
+import {
+	buildCalendarDay,
+	type CalendarAttendee,
+	type CalendarDay,
+	type CalendarDescriptor,
+	type CalendarEventData,
+	type EventSuggestion,
+	type ThreadData,
+	wallSpanOn,
 } from "@remit/ui";
 import {
 	allThreads,
 	hobbyId,
+	lisbonCallThread,
 	personalId,
 	q3Thread,
 	workId,
@@ -32,22 +36,22 @@ import {
 
 /** Alice's own zone; June puts Amsterdam at UTC+2. */
 export const HOME_ZONE = "Europe/Amsterdam";
-const OFFSET = "+02:00";
+export const OFFSET = "+02:00";
 
 /** The Wednesday every relative label in this file is measured from. */
 export const TODAY = "2026-06-10";
 export const NOW_ISO = `${TODAY}T09:30:00${OFFSET}`;
 
-function pad(n: number): string {
+export function pad(n: number): string {
 	return String(n).padStart(2, "0");
 }
 
 /** June day of month → ISO date. The whole fixture lives inside one month. */
-function day(dayOfMonth: number): string {
+export function day(dayOfMonth: number): string {
 	return `2026-06-${pad(dayOfMonth)}`;
 }
 
-function at(dayOfMonth: number, hour: number, minute = 0): string {
+export function at(dayOfMonth: number, hour: number, minute = 0): string {
 	return `${day(dayOfMonth)}T${pad(hour)}:${pad(minute)}:00${OFFSET}`;
 }
 
@@ -166,7 +170,7 @@ const mei = (rsvp: CalendarAttendee["rsvp"], role?: CalendarAttendee["role"]) =>
 type EventSeed = Partial<CalendarEventData> &
 	Pick<CalendarEventData, "id" | "calendarId" | "title" | "start" | "end">;
 
-function event(seed: EventSeed): CalendarEventData {
+export function event(seed: EventSeed): CalendarEventData {
 	return {
 		allDay: false,
 		location: "",
@@ -507,6 +511,41 @@ export const events: CalendarEventData[] = [
 
 export const suggestions: EventSuggestion[] = [
 	{
+		id: "sug_lisbon_call",
+		title: "Kickoff call — Lisbon venue",
+		/**
+		 * The hour the mail printed, on an offset that is a placeholder: which
+		 * clock it is on is exactly what nobody stated, so nothing may be read
+		 * off this until a zone is picked.
+		 */
+		start: at(17, 16),
+		end: at(17, 17),
+		allDay: false,
+		location: "Meet link",
+		threadId: "thr_lisbon_call",
+		threadSubject: "Kickoff call on Wednesday at 16:00",
+		sender: "Rita Sousa",
+		senderAddress: "rita@aldeia.example",
+		confidence: 0.66,
+		ambiguity:
+			"Rita writes from Lisbon and names 16:00 without a clock. Lisbon runs an hour behind Amsterdam, so this is either 16:00 or 17:00 for you.",
+		suggestedCalendarId: workCalendarId,
+		timeZone: "",
+		zoneCertainty: "ambiguous",
+		zoneOptions: [
+			{
+				timeZone: "Europe/Lisbon",
+				label: "16:00 in Lisbon",
+				note: "17:00 on your own clock. The hour she keeps.",
+			},
+			{
+				timeZone: HOME_ZONE,
+				label: "16:00 in Amsterdam",
+				note: "15:00 where she is.",
+			},
+		],
+	},
+	{
 		id: "sug_lisbon_stay",
 		title: "Stay in Lisbon",
 		start: day(19),
@@ -582,102 +621,8 @@ export const suggestions: EventSuggestion[] = [
 /* Derived — computed from the week above, never restated by hand      */
 /* ------------------------------------------------------------------ */
 
-export interface CalendarDay {
-	/** `YYYY-MM-DD`. */
-	date: string;
-	weekdayLabel: string;
-	dayNumber: number;
-	isToday: boolean;
-	timed: CalendarEventData[];
-	allDay: CalendarEventData[];
-	/** Minutes of the day covered by at least one timed event. */
-	busyMinutes: number;
-	/**
-	 * Every pile-up on the day: one group per event that something else runs
-	 * into, holding that event and everything overlapping it. Members all meet
-	 * the event the group is built around, not necessarily each other — which is
-	 * what a grid has to lay out. Empty when the day is clean.
-	 */
-	conflicts: string[][];
-}
-
-function ms(iso: string): number {
-	return new Date(iso).getTime();
-}
-
-/** An all-day range ends on the morning after its last day. */
-function coversDay(event: CalendarEventData, date: string): boolean {
-	if (!event.allDay) return event.start.slice(0, 10) === date;
-	return date >= event.start.slice(0, 10) && date < event.end.slice(0, 10);
-}
-
-function overlaps(a: CalendarEventData, b: CalendarEventData): boolean {
-	return ms(a.start) < ms(b.end) && ms(b.start) < ms(a.end);
-}
-
-export function busyMinutesOf(timed: CalendarEventData[]): number {
-	const spans = timed
-		.map((e) => [ms(e.start), ms(e.end)] as const)
-		.sort((a, b) => a[0] - b[0]);
-	let covered = 0;
-	let openFrom = 0;
-	let openTo = 0;
-	for (const [from, to] of spans) {
-		if (from > openTo) {
-			covered += openTo - openFrom;
-			openFrom = from;
-			openTo = to;
-			continue;
-		}
-		openTo = Math.max(openTo, to);
-	}
-	covered += openTo - openFrom;
-	return Math.round(covered / 60_000);
-}
-
-/** Every event that runs into another, grouped around the one it collides with. */
-export function conflictsOf(timed: CalendarEventData[]): string[][] {
-	const groups: string[][] = [];
-	for (const anchor of timed) {
-		const group = timed
-			.filter((other) => other.id === anchor.id || overlaps(anchor, other))
-			.map((e) => e.id)
-			.sort();
-		if (group.length < 2) continue;
-		const key = group.join("|");
-		if (!groups.some((existing) => existing.join("|") === key))
-			groups.push(group);
-	}
-	return groups.filter(
-		(group) =>
-			!groups.some(
-				(other) => other !== group && group.every((id) => other.includes(id)),
-			),
-	);
-}
-
-function weekdayLabel(date: string): string {
-	const [year, month, dayOfMonth] = date.split("-").map(Number);
-	return new Date(year, month - 1, dayOfMonth).toLocaleDateString("en-GB", {
-		weekday: "short",
-	});
-}
-
 export function buildDay(date: string, source = events): CalendarDay {
-	const onDay = source.filter((e) => coversDay(e, date));
-	const timed = onDay
-		.filter((e) => !e.allDay)
-		.sort((a, b) => ms(a.start) - ms(b.start));
-	return {
-		date,
-		weekdayLabel: weekdayLabel(date),
-		dayNumber: Number(date.slice(8)),
-		isToday: date === TODAY,
-		timed,
-		allDay: onDay.filter((e) => e.allDay),
-		busyMinutes: busyMinutesOf(timed),
-		conflicts: conflictsOf(timed),
-	};
+	return buildCalendarDay(date, source, TODAY);
 }
 
 /** Monday through Sunday of the fixture week, computed off `events`. */
@@ -759,6 +704,7 @@ export function formatSuggestionWhen(suggestion: EventSuggestion): string {
 export function threadFor(threadId: string): ThreadData | undefined {
 	if (threadId === "") return undefined;
 	if (threadId === "thr_q3") return q3Thread;
+	if (threadId === "thr_lisbon_call") return lisbonCallThread;
 	const row = allThreads.find((candidate) => candidate.id === threadId);
 	if (!row) return undefined;
 	return {
@@ -778,17 +724,29 @@ export function threadFor(threadId: string): ThreadData | undefined {
 	};
 }
 
-/** A suggestion, once a person has said yes to it. */
+/**
+ * A suggestion, once a person has said yes to it.
+ *
+ * `settledZone` is the clock the reader picked, empty when the mail stated one
+ * itself. Picking a clock is not a label: the hour the mail printed is read on
+ * that zone and written again on this calendar's, so the event lands on the
+ * instant the answer meant.
+ */
 export function eventFromSuggestion(
 	suggestion: EventSuggestion,
 	id: string,
+	settledZone: string,
 ): CalendarEventData {
+	const settled = settledZone !== "";
+	const span = settled
+		? wallSpanOn(suggestion, settledZone, HOME_ZONE)
+		: { start: suggestion.start, end: suggestion.end };
 	return {
 		id,
 		calendarId: suggestion.suggestedCalendarId,
 		title: suggestion.title,
-		start: suggestion.start,
-		end: suggestion.end,
+		start: span.start,
+		end: span.end,
 		allDay: suggestion.allDay,
 		location: suggestion.location,
 		notes: "",
@@ -796,8 +754,8 @@ export function eventFromSuggestion(
 		myRsvp: "accepted",
 		threadId: suggestion.threadId,
 		threadSubject: suggestion.threadSubject,
-		timeZone: suggestion.timeZone,
-		zoneCertainty: suggestion.zoneCertainty,
+		timeZone: settled ? settledZone : suggestion.timeZone,
+		zoneCertainty: settled ? "explicit" : suggestion.zoneCertainty,
 		recurrenceRule: "",
 		seriesId: "",
 		seriesException: false,

@@ -33,6 +33,20 @@ export type ThreadSearchTokenParams = Pick<
 	"from" | "subject" | "category" | "unread" | "starred" | "attachments"
 >;
 
+/** A parameter name a listing endpoint accepts. */
+export type ThreadSearchTokenParamName = keyof ThreadSearchTokenParams;
+
+/**
+ * Every parameter `searchThreads` takes, the default set.
+ *
+ * `listAllThreads` takes all six as well (#1128), so both callers carry the
+ * same tokens. A caller still names its own set rather than inheriting this
+ * one: the set is what decides which tokens come back as residue, and an
+ * endpoint that grows or loses a parameter has to say so where it is called.
+ */
+export const THREAD_SEARCH_TOKEN_PARAMS: readonly ThreadSearchTokenParamName[] =
+	["from", "subject", "category", "unread", "starred", "attachments"];
+
 export interface ThreadSearchTokens {
 	/** What the tokens add to the request. */
 	params: ThreadSearchTokenParams;
@@ -106,17 +120,32 @@ const isCarried = (
 	}
 };
 
+const narrowTo = (
+	params: ThreadSearchTokenParams,
+	carries: readonly ThreadSearchTokenParamName[],
+): ThreadSearchTokenParams =>
+	Object.fromEntries(
+		Object.entries(params).filter(([name]) =>
+			carries.includes(name as ThreadSearchTokenParamName),
+		),
+	);
+
 /**
- * Split the tokens into the parameters the thread search takes and the residue
+ * Split the tokens into the parameters the thread listing takes and the residue
  * the caller has to apply itself. `chipParams` are the parameters already set
- * by the inbox filter chips, which win where they overlap.
+ * by the filter chips, which win where they overlap; `carries` names the
+ * parameters the endpoint being called actually accepts.
  */
 export function threadSearchTokens(
 	tokens: readonly SearchToken[],
 	chipParams: InboxFilterParams = {},
+	carries: readonly ThreadSearchTokenParamName[] = THREAD_SEARCH_TOKEN_PARAMS,
 ): ThreadSearchTokens {
-	const params = paramsFromTokens(tokens);
-	const request: ThreadSearchTokenParams = { ...params, ...chipParams };
+	const params = narrowTo(paramsFromTokens(tokens), carries);
+	const request: ThreadSearchTokenParams = {
+		...params,
+		...narrowTo(chipParams, carries),
+	};
 	return {
 		params,
 		residual: tokens.filter((token) => !isCarried(request, token)),

@@ -22,6 +22,7 @@ import {
 	StaleTrashAppointmentError,
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
+import { NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 
 const ACCOUNT = "acc-1";
 const ACCOUNT_CONFIG = "cfg-1";
@@ -45,7 +46,26 @@ const proposedDeletedFolder: RoleResolution<TrashMailbox> = {
 interface TrashMessage {
 	messageId: string;
 	syncStatus: string;
+	status?: string;
+	mailboxId?: string;
+	uid?: number;
+	originalMailboxId?: string;
+	originalUid?: number;
 }
+
+/**
+ * A row mid-move into Trash: the folder is already written, the uid is still
+ * the inbox's, and only `status: moving` says so.
+ */
+const movingIntoTrash = (messageId: string, uid: number): TrashMessage => ({
+	messageId,
+	syncStatus: "pending",
+	status: "moving",
+	mailboxId: REAL_TRASH,
+	uid,
+	originalMailboxId: "mbx-inbox",
+	originalUid: uid,
+});
 
 interface EnqueuedEvent {
 	type: string;
@@ -59,9 +79,12 @@ const buildWorld = (
 	trashContents: TrashMessage[] = [
 		{ messageId: "junk-1", syncStatus: "synced" },
 	],
+	/** Message ids whose placement another lane changed after the read. */
+	transitionsLost: string[] = [],
 ) => {
 	const emptied: string[] = [];
 	const markedDeleting: string[] = [];
+	const markPredicates = new Map<string, unknown>();
 	const events: EnqueuedEvent[] = [];
 	const messagesByMailbox = new Map<string, TrashMessage[]>([
 		[DELETED_FOLDER, [{ messageId: "keepsake-1", syncStatus: "synced" }]],
@@ -75,6 +98,12 @@ const buildWorld = (
 		},
 		update: async (messageId: string) => {
 			markedDeleting.push(messageId);
+		},
+		transitionPlacement: async (messageId: string, expected: unknown) => {
+			markPredicates.set(messageId, expected);
+			if (transitionsLost.includes(messageId)) return undefined;
+			markedDeleting.push(messageId);
+			return { messageId };
 		},
 	} as unknown as IMessageRepository;
 
@@ -100,6 +129,7 @@ const buildWorld = (
 		} as unknown as IAddressRepository,
 		mailboxSpecialUseService: {
 			resolveTrashRole: async () => trashResolution,
+			resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 		} as unknown as IMailboxSpecialUseRepository,
 		threadMessageService,
 		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
@@ -114,7 +144,7 @@ const buildWorld = (
 		events.push(event);
 	};
 
-	return { service, emptied, markedDeleting, events };
+	return { service, emptied, markedDeleting, markPredicates, events };
 };
 
 describe("MessageMoveService.emptyTrash", () => {
@@ -192,20 +222,74 @@ describe("MessageMoveService.emptyTrash", () => {
 		assert.equal(deletedCount, 3);
 	});
 
-	it("marks and counts a message whose move to Trash has not settled", async () => {
-		// The user saw the message in Trash and asked for the folder to be
-		// emptied. Skipping it reports a number the folder contradicts, and the
-		// queue is per-account FIFO, so the move has landed on the server before
-		// the expunge is even delivered.
+	it("marks and counts a message whose sync is merely pending", async () => {
+		// `syncStatus: pending` is where every freshly synced inbound row sits
+		// forever; it says nothing about where the message is. The user saw it in
+		// Trash and asked for the folder to be emptied, and skipping it would
+		// report a number the folder contradicts.
 		const { service, markedDeleting } = buildWorld(appointedTrash, [
 			{ messageId: "settled-1", syncStatus: "synced" },
-			{ messageId: "still-moving-1", syncStatus: "pending" },
+			{ messageId: "pending-1", syncStatus: "pending" },
 		]);
 
 		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
 
-		assert.deepEqual(markedDeleting, ["settled-1", "still-moving-1"]);
+		assert.deepEqual(markedDeleting, ["settled-1", "pending-1"]);
 		assert.equal(deletedCount, 2);
+	});
+
+	it("leaves a row whose move into Trash has not settled unmarked and uncounted", async () => {
+		// Issue #1217. Marking it `deleting` overwrites the `moving` its own
+		// MESSAGE_MOVE reads to decide there is still work to do, so that move
+		// returns without touching IMAP and the worker's expunge then binds the
+		// inbox's uid against whatever Trash really holds at it.
+		const { service, markedDeleting } = buildWorld(appointedTrash, [
+			{ messageId: "settled-1", syncStatus: "synced" },
+			movingIntoTrash("moving-1", 10),
+		]);
+
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.deepEqual(markedDeleting, ["settled-1"]);
+		assert.equal(deletedCount, 1);
+	});
+
+	it("predicates each mark on the row it just read, and drops the ones it loses", async () => {
+		// The rows are held by nothing between the listing and the mark, and
+		// PLACEMENT_MOVE_PUSH rides a standard queue this account's FIFO group
+		// does not order (imap-mutations R3). A row that moved under the sweep
+		// must not be marked `deleting` for an expunge that would bind a uid it
+		// no longer has.
+		const { service, markedDeleting, markPredicates } = buildWorld(
+			appointedTrash,
+			[
+				{
+					messageId: "settled-1",
+					syncStatus: "synced",
+					status: "active",
+					mailboxId: REAL_TRASH,
+					uid: 10,
+				},
+				{
+					messageId: "raced-1",
+					syncStatus: "synced",
+					status: "active",
+					mailboxId: REAL_TRASH,
+					uid: 11,
+				},
+			],
+			["raced-1"],
+		);
+
+		const { deletedCount } = await service.emptyTrash(ACCOUNT_CONFIG, ACCOUNT);
+
+		assert.deepEqual(markedDeleting, ["settled-1"]);
+		assert.equal(deletedCount, 1, "a row that lost is not counted either");
+		assert.deepEqual(markPredicates.get("settled-1"), {
+			status: "active",
+			mailboxId: REAL_TRASH,
+			uid: 10,
+		});
 	});
 
 	it("reports the same count when pressed twice before the worker runs", async () => {

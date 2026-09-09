@@ -3,10 +3,11 @@
  *
  * Mail that lands on the server through some path other than this browser tab
  * — another device, the scheduler, an earlier `triggerSync` — must still reach
- * this tab: the background poll notices it and the refresh control surfaces
- * it. Neither loads the heavy message list on its own; the poll only lights
- * the control's "new mail" state, and the list itself only changes once the
- * control is clicked.
+ * this tab. The background poll is what notices, and it does two things with
+ * that: it lights the control's "new mail" state, and it reloads the listing
+ * of the folder whose total moved, since a message already on our side costs
+ * nothing more to show. The press is still what drives a sync round of its own
+ * and what clears the dot.
  */
 import type { Locator, Page } from "@playwright/test";
 import { type AccountSyncStatus, waitFor } from "../src/api.js";
@@ -17,6 +18,13 @@ const DESKTOP = { width: 1512, height: 864 };
 
 const messageRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
+
+/** The phases the worker writes while a sync round is actually running. */
+const SYNC_IN_PROGRESS = new Set([
+	"discovering_mailboxes",
+	"syncing_inbox",
+	"syncing_others",
+]);
 
 const inboxLastSyncedAt = (
 	status: AccountSyncStatus,
@@ -54,6 +62,7 @@ test.describe("Mail refresh (#582)", () => {
 
 	test("clicking the inbox's refresh control drives a real sync round to completion and surfaces the result", async ({
 		page,
+		api,
 		run,
 	}) => {
 		// A first paint, a full sync round and the cleanup's wait on Dovecot all
@@ -66,6 +75,29 @@ test.describe("Mail refresh (#582)", () => {
 			timeout: 20_000,
 		});
 
+		// Two rounds can still be in flight here: the setup's own, whose gate only
+		// waited for the INBOX row to exist rather than for every folder to settle,
+		// and the one the load above triggered off `GET /config`, which the e2e
+		// freshness window is too short to gate. A refresh clicked while either is
+		// mid-flight can be "confirmed" by that round settling instead of by the
+		// one the click enqueued: the control reports done, invalidates the list,
+		// and the list refetch lands before the appended message has synced — the
+		// row never arrives within the window (#761). Waiting here, after the load
+		// and before the append, for the server to report no round in flight makes
+		// the click's round unambiguous; this is the explicit wait half of the
+		// wait-or-reconcile decision (docs/architecture/imap-mutations.md), taken
+		// here rather than in the client because the tab cannot distinguish rounds
+		// from the status endpoint alone.
+		await waitFor(
+			() => api.getSyncStatus(run.accountId),
+			(status: AccountSyncStatus) =>
+				!SYNC_IN_PROGRESS.has(status.syncPhase ?? "idle"),
+			{
+				timeoutMs: 45_000,
+				what: "any earlier sync round to settle before the click",
+			},
+		);
+
 		const subject = `Refresh manual ${tag}`;
 		// Appended on the server only — nothing here calls the sync API first,
 		// so the click below has to do the whole job itself: enqueue the round,
@@ -77,15 +109,18 @@ test.describe("Mail refresh (#582)", () => {
 			{ subject, body: "Arrived through another path." },
 		]);
 
-		// The heavy list query never refetches on its own — the row it would
-		// contain is not on screen until something asks for it.
+		// Checked immediately, before the tab's own poll can have had a tick on
+		// mail appended a moment ago: nothing has asked for this row yet. What
+		// the click has to prove is that it drives the round itself, not that
+		// the row could never have arrived another way — the poll test below
+		// pins that other way.
 		await expect(messageRow(page, subject)).toHaveCount(0);
 
 		await listRefreshButton(page).click();
 		await expect(messageRow(page, subject)).toBeVisible({ timeout: 30_000 });
 	});
 
-	test("the background poll notices mail synced through another path and the refresh control surfaces it", async ({
+	test("mail synced through another path surfaces on its own, and the press acknowledges it", async ({
 		page,
 		api,
 		run,
@@ -138,19 +173,28 @@ test.describe("Mail refresh (#582)", () => {
 		);
 
 		// Nothing in the tab reloaded or was clicked between the append above
-		// and this assertion — the once-a-minute poll is the only thing that
-		// can have noticed the mailbox moved. The window is two of those
-		// periods wide because the tab's poll and the append are unrelated
-		// clocks: mail landing a moment after one tick waits out the whole of
-		// the next, and the tick that lands mid-round can read totals the round
-		// has not written yet. One period holds only when the timing is kind,
-		// which is a coin toss dressed up as an assertion.
-		await expect(listRefreshButton(page)).toHaveAccessibleName(/new mail/, {
-			timeout: 135_000,
-		});
-		await expect(messageRow(page, subject)).toHaveCount(0);
+		// and these assertions — the once-a-minute poll is the only thing that
+		// can have noticed the mailbox moved. A message already synced to our
+		// side costs nothing more to show, so the tick that sees the total move
+		// reloads that folder's listing rather than making the reader ask for
+		// what we already hold.
+		//
+		// The window is two poll periods wide because the tab's poll and the
+		// append are unrelated clocks: mail landing a moment after one tick
+		// waits out the whole of the next, and the tick that lands mid-round can
+		// read totals the round has not written yet. One period holds only when
+		// the timing is kind, which is a coin toss dressed up as an assertion.
+		await expect(messageRow(page, subject)).toBeVisible({ timeout: 135_000 });
+		await expect(listRefreshButton(page)).toHaveAccessibleName(/new mail/);
 
+		// The dot is still the account-level signal and still sticky: showing
+		// the row does not clear it, only the press does. That press is also
+		// still a real sync round — it settles, and leaves the mail it was
+		// pressed for on screen.
 		await listRefreshButton(page).click();
-		await expect(messageRow(page, subject)).toBeVisible({ timeout: 15_000 });
+		await expect(listRefreshButton(page)).not.toHaveAccessibleName(/new mail/, {
+			timeout: 60_000,
+		});
+		await expect(messageRow(page, subject)).toBeVisible();
 	});
 });

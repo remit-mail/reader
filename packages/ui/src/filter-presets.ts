@@ -1,9 +1,10 @@
-import { briefFilterChips } from "./components/brief-sections.js";
+import { categoryChips } from "./category-presentation.js";
 import type {
 	FilterSheetCategory,
 	FilterSheetFilter,
 	FilterSheetSource,
 } from "./components/filter-sheet.js";
+import { briefFilterChips } from "./lib/brief-filters.js";
 
 /**
  * An account as a filter dimension. Accounts segment the unified daily brief
@@ -27,27 +28,6 @@ export interface FilterPreset {
 	sources?: FilterSheetSource[];
 }
 
-/**
- * Content-type categories, mirroring the `MessageCategory` enum
- * (@remit/remit-imap) by value. The leading "all" clears the category. Per
- * message, not per mailbox — so they apply in the brief and an inbox alike.
- *
- * `uncategorized` is a category of its own here, never folded into `personal`
- * (issue #45): mail the classifier has not reached is a pending state with a
- * name, and it carries its own label and tone so the two can never read alike.
- * It sits after `Personal` to match `briefCategories`' order.
- */
-const MESSAGE_CATEGORIES: FilterSheetCategory[] = [
-	{ id: "all", label: "All", tone: "neutral" },
-	{ id: "personal", label: "Personal", tone: "accent" },
-	{ id: "uncategorized", label: "Unclassified", tone: "neutral" },
-	{ id: "transactional", label: "Transactional", tone: "positive" },
-	{ id: "newsletter", label: "Newsletter", tone: "neutral" },
-	{ id: "marketing", label: "Marketing", tone: "warning" },
-	{ id: "social", label: "Social", tone: "warning" },
-	{ id: "automated", label: "Automated", tone: "neutral" },
-];
-
 const UNREAD: FilterSheetFilter = { id: "unread", label: "Unread" };
 // `flagged` is the wire name (IMAP \Flagged); the user-facing label is "Starred".
 const FLAGGED: FilterSheetFilter = { id: "flagged", label: "Starred" };
@@ -70,15 +50,15 @@ function accountSources(
 }
 
 /**
- * Daily-brief filter: categories + the BriefSections chip set (the single source
- * of truth for the brief's attribute chips), plus an account source group when
+ * Daily-brief filter: categories + the brief chip set (the single source of
+ * truth for the brief's attribute chips), plus an account source group when
  * more than one account feeds the brief (the brief aggregates them all).
  */
 export function briefFilterConfig(
 	accounts: FilterAccount[] = [],
 ): FilterPreset {
 	return {
-		categories: [...MESSAGE_CATEGORIES],
+		categories: [...categoryChips],
 		filters: briefFilterChips,
 		sources: accountSources(accounts),
 	};
@@ -90,7 +70,7 @@ export function briefFilterConfig(
  */
 export function inboxFilterConfig(): FilterPreset {
 	return {
-		categories: [...MESSAGE_CATEGORIES],
+		categories: [...categoryChips],
 		filters: [UNREAD, FLAGGED, HAS_ATTACHMENT],
 	};
 }
@@ -102,7 +82,7 @@ export function inboxFilterConfig(): FilterPreset {
  */
 export function flaggedFilterConfig(): FilterPreset {
 	return {
-		categories: [...MESSAGE_CATEGORIES],
+		categories: [...categoryChips],
 		filters: [UNREAD, HAS_ATTACHMENT],
 	};
 }

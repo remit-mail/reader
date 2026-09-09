@@ -7,6 +7,7 @@ import { Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
+import { BulkRunProvider } from "@/components/mail/BulkRunProvider";
 import { RoleAppointmentPromptProvider } from "@/components/mail/RoleAppointmentPromptProvider";
 import { SelfUpdateOverlay } from "@/components/self-update/SelfUpdateOverlay";
 import { ErrorBannerProvider } from "@/components/ui/ErrorBannerProvider";
@@ -59,17 +60,21 @@ function RootLayout() {
 	return (
 		<ErrorBannerProvider>
 			<RoleAppointmentPromptProvider>
-				<SelfUpdateProvider>
-					<ComposeProvider>
-						<SkipLink />
-						<main id="main-content" className="h-dvh overflow-hidden">
-							<Suspense fallback={<AppShellSkeleton />}>
-								<Outlet />
-							</Suspense>
-						</main>
-					</ComposeProvider>
-					<SelfUpdateOverlay />
-				</SelfUpdateProvider>
+				{/* A bulk run outlives the route that started it, so its owner sits
+				    above the router rather than inside the list (#112). */}
+				<BulkRunProvider>
+					<SelfUpdateProvider>
+						<ComposeProvider>
+							<SkipLink />
+							<main id="main-content" className="h-dvh overflow-hidden">
+								<Suspense fallback={<AppShellSkeleton />}>
+									<Outlet />
+								</Suspense>
+							</main>
+						</ComposeProvider>
+						<SelfUpdateOverlay />
+					</SelfUpdateProvider>
+				</BulkRunProvider>
 			</RoleAppointmentPromptProvider>
 			<FatalErrorOverlay />
 		</ErrorBannerProvider>

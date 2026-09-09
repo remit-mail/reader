@@ -10,6 +10,7 @@ import type {
 	UpdateAddressInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
+import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import { shouldPromoteWellknown } from "@remit/data-ports/wellknown";
 import {
 	and,
@@ -17,6 +18,7 @@ import {
 	desc,
 	eq,
 	getTableColumns,
+	gt,
 	inArray,
 	type SQL,
 	sql,
@@ -26,6 +28,7 @@ import { NotFoundError } from "../error.js";
 import { envelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
+	type BoundSql,
 	JUNK_ONLY_FLAG,
 	restoreSql,
 	withholdSql,
@@ -66,6 +69,41 @@ type MergeAttempt =
 	| { outcome: "merged"; address: AddressItem }
 	| { outcome: "missing" }
 	| { outcome: "contended" };
+
+/**
+ * `blocked` and `neverSpam` are two directly contradictory statements about
+ * where a sender's mail belongs (issue #605), so a row asserting both is not a
+ * tie to break — it is a row that should not exist. This is the only place that
+ * sees both keys at once: `buildFlagsPatch` stays a pure per-key translation,
+ * and the merge fold is the read-modify-write of the whole map.
+ *
+ * The flag the patch just raised wins, so the instruction the user gave last is
+ * the one that stands. A patch raising both resolves to `blocked` — the same
+ * direction the `blocked`/`vip` same-second tie already breaks in.
+ *
+ * Only a patch that raises one of the two is allowed to drop the other. A row
+ * that somehow already carries both survives a patch about anything else
+ * untouched: dropping a placement instruction as a side effect of writing
+ * `muted` would be a silent revocation the user never asked for. Such a row is
+ * resolved on read — `resolveSenderPlacement` reads it as `Blocked` — and
+ * healed the next time either key is written.
+ */
+const dropContradictedPlacementFlag = (
+	next: AddressFlags,
+	patch: FlagsMergePatch,
+): AddressFlags => {
+	if (next.blocked?.value !== true || next.neverSpam?.value !== true)
+		return next;
+	if (patch.blocked?.value === true) {
+		const { neverSpam: _neverSpam, ...rest } = next;
+		return rest;
+	}
+	if (patch.neverSpam?.value === true) {
+		const { blocked: _blocked, ...rest } = next;
+		return rest;
+	}
+	return next;
+};
 
 /**
  * The stored `"<display name> <email>"` compound, folded in JavaScript exactly
@@ -331,15 +369,21 @@ export class AddressRepo implements IAddressRepository {
 		return rowToAddress(row);
 	}
 
-	async reconcileJunkOnlyForMessage(messageId: string): Promise<void> {
-		const scope = ` AND address.address_id IN (
+	async reconcileJunkOnlyForMessage(
+		messageId: string,
+		roles: JunkRoleMailboxes,
+	): Promise<void> {
+		const scope: BoundSql = {
+			sql: ` AND address.address_id IN (
 			SELECT address_id FROM envelope_address WHERE message_id = ?
-		)`;
+		)`,
+			params: [messageId],
+		};
 		const now = Date.now();
-		await this.db.run(
-			boundToDrizzle(withholdSql(scope), [now, JUNK_MOVE, now, messageId]),
-		);
-		await this.db.run(boundToDrizzle(restoreSql(scope), [now, messageId]));
+		const withhold = withholdSql(roles, now, JUNK_MOVE, scope);
+		await this.db.run(boundToDrizzle(withhold.sql, withhold.params));
+		const restore = restoreSql(roles, now, scope);
+		await this.db.run(boundToDrizzle(restore.sql, restore.params));
 	}
 
 	async getAddress(
@@ -487,7 +531,7 @@ export class AddressRepo implements IAddressRepository {
 				}
 				(next[key] as AddressFlags[keyof AddressFlags]) = value;
 			}
-			return next;
+			return dropContradictedPlacementFlag(next, patch);
 		});
 	}
 
@@ -737,6 +781,40 @@ export class AddressRepo implements IAddressRepository {
 						addressId: lastRow.addressId,
 					}
 				: undefined,
+		);
+	}
+
+	async listAllByAccountConfigPage(input: {
+		accountConfigId: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>> {
+		const { accountConfigId, cursor, limit = 100 } = input;
+		const afterAddressId = cursor
+			? (decodeToken(cursor).addressId as string)
+			: undefined;
+
+		const rows = await this.db
+			.select()
+			.from(addressTable)
+			.where(
+				and(
+					eq(addressTable.accountConfigId, accountConfigId),
+					afterAddressId
+						? gt(addressTable.addressId, afterAddressId)
+						: undefined,
+				),
+			)
+			.orderBy(asc(addressTable.addressId))
+			.limit(limit + 1);
+
+		const hasMore = rows.length > limit;
+		const items = rows.slice(0, limit).map(rowToAddress);
+		const lastItem = items[items.length - 1];
+		return resultList(
+			items,
+			limit,
+			hasMore && lastItem ? { addressId: lastItem.addressId } : undefined,
 		);
 	}
 

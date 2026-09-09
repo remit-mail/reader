@@ -1,6 +1,6 @@
 import type { ErrorBannerSeverity } from "@/components/ui/error-banners";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
-import { type DeleteOutcome, formatNumber } from "@/lib/format";
+import { type DeleteOutcome, deleteExpunges, formatNumber } from "@/lib/format";
 
 /** A run ending, as the list banners it. */
 export interface RunEndingBanner {
@@ -38,7 +38,7 @@ const pastTense: Record<BulkActionKind, string> = {
  * it does for one that finished — the half that ran is still erased.
  */
 const pastTenseFor = (kind: BulkActionKind, outcome: DeleteOutcome): string =>
-	kind === "delete" && outcome === "permanent"
+	kind === "delete" && deleteExpunges(outcome)
 		? "permanently deleted"
 		: pastTense[kind];
 
@@ -86,9 +86,11 @@ export const bulkActionCompletionText = (
 
 /**
  * Shown when a run ended before it covered what it was started against. The
- * remainder was never sent, so the mail is where it was and only the user can
+ * remainder was never sent, so that mail is where it was and only the user can
  * decide to run it again — which is why this is stated rather than left to a
- * list that quietly stops changing.
+ * list that quietly stops changing. Stopping aborts the request already on the
+ * wire rather than un-sending it (#113), so what the copy can promise about the
+ * remainder stops short of the batch that was in flight.
  */
 export const bulkActionStoppedTitle = (done: number): string =>
 	`Stopped after ${formatNumber(done)}`;
@@ -99,7 +101,7 @@ export const bulkActionStoppedDetail = (
 	total: number,
 	outcome: DeleteOutcome = "trash",
 ): string =>
-	`${formatNumber(done)} of ${formatNumber(total)} ${pastTenseFor(kind, outcome)}. Nothing was sent for the rest, so they are untouched.`;
+	`${formatNumber(done)} of ${formatNumber(total)} ${pastTenseFor(kind, outcome)}. The rest were not sent, apart from the ones already on their way when you stopped — those may still have gone through.`;
 
 /** Error-banner title for a run stopped by an infrastructure failure. */
 export const bulkActionFailureTitle = (
@@ -112,6 +114,27 @@ export const bulkActionFailureTitle = (
 
 export const bulkActionFailureDetail = (kind: BulkActionKind): string =>
 	failureDetail[kind];
+
+const busyPhrase: Record<BulkActionKind, (count: string) => string> = {
+	delete: (count) => `A delete of ${count} messages`,
+	move: (count) => `A move of ${count} messages`,
+	markRead: (count) => `Marking ${count} messages as read`,
+};
+
+/**
+ * The commit that could not start, because the one still going owns the bar and
+ * the Stop it would need. It names the run in flight and where it is, so the
+ * user knows which screen to end it from rather than pressing a commit that
+ * silently does nothing.
+ */
+export const bulkRunBusyRefusal = (
+	kind: BulkActionKind,
+	matched: number,
+	mailboxLabel: string | undefined,
+): string =>
+	`${busyPhrase[kind](formatNumber(matched))}${
+		mailboxLabel ? ` in ${mailboxLabel}` : ""
+	} is still running — stop it first.`;
 
 /** Progress-bar tone: only delete is destructive. */
 export const bulkActionProgressTone = (

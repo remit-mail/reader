@@ -69,12 +69,20 @@
 				"rules": {
 					"style": {
 						"noRestrictedImports": {
-							"level": "warn",
+							"level": "error",
 							"options": {
 								"paths": {
 									"@tanstack/react-router": {
-										"importNames": ["Link"],
-										"message": "Use NavLink from @/routing: it carries the route table's own type inference, so an illegal route or param set fails to compile."
+										"importNames": [
+											"Link",
+											"useLocation",
+											"useNavigate",
+											"useParams",
+											"useRouter",
+											"useRouterState",
+											"useSearch"
+										],
+										"message": "Reach for @/routing. NavLink and the routing hooks carry the route table's own type inference, so an illegal route or param set fails to compile; a hook that names what the caller wants belongs there too."
 									}
 								}
 							}

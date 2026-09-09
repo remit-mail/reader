@@ -8,7 +8,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
+import {
+	isPlacementRefusal,
+	placementRefusalBanner,
+} from "@/components/ui/placement-refusal";
 import { runChunkedMutation } from "@/lib/bulk-actions";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -57,6 +62,10 @@ export const useMoveMessages = ({
 
 	const { mutateAsync, isPending, isError } = useMutation({
 		...messageBulkOperationsMoveMessagesMutation(),
+		// A coded 409 is answered here — a banner — so it must not also take the
+		// whole screen. Only 409: a 401, 403 or 5xx on a move is still the fatal
+		// page's (#1059).
+		meta: softErrorStatuses(409),
 		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 
@@ -136,6 +145,13 @@ export const useMoveMessages = ({
 				restoreThreadListQueries(queryClient, context.previousThreadsList);
 			}
 			const count = vars.body.messageIds?.length ?? 0;
+			// A placement refusal is a wait or a resync, not a failure to report as
+			// one: the move was never made, and the banner says which.
+			const placement = isPlacementRefusal(err);
+			if (placement) {
+				pushError(placementRefusalBanner(placement, count, "move"));
+				return;
+			}
 			pushError({
 				title:
 					count > 1

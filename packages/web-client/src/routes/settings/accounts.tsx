@@ -24,6 +24,10 @@ import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
+import {
+	REDIRECT_STALL_MESSAGE,
+	useRedirectEnded,
+} from "@/hooks/useRedirectEnded";
 import { useReturnFromRedirect } from "@/hooks/useReturnFromRedirect";
 import { formatRelativeTime } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -120,6 +124,17 @@ function deriveState(
 /** True when the account needs re-authentication via the OAuth flow. */
 function needsReauth(account: RemitImapAccountResponse): boolean {
 	return account.connectionState === "reauth_required";
+}
+
+/**
+ * The account arrived from a config file, which never carries a password, so it
+ * has none yet (#1021). It cannot sync until someone enters one, and the import
+ * wizard's "Finish later" leaves exactly these rows behind — so this screen has
+ * to offer the same way in, or the account is stranded with a red dot and no
+ * control that fixes it.
+ */
+function needsPassword(account: RemitImapAccountResponse): boolean {
+	return account.connectionState === "credentials_missing";
 }
 
 /* ------------------------------------------------------------------ */
@@ -270,9 +285,23 @@ function AccountsSettings() {
 		if (!account || !needsReauth(account)) setReconnectingAccountId(null);
 	}, [config, reconnectingAccountId]);
 
+	// A redirect that ends without the reconnect landing — Back out of the
+	// consent screen, or an `assign` that never navigates — leaves an account
+	// that still asks to be re-authenticated, so the watch above has nothing to
+	// clear the latch on and the button would read "Redirecting…" for good. This
+	// window being back is the evidence the redirect is over, whatever it
+	// decided, and the control it left behind is live again. A redirect that
+	// never took the window has no such evidence coming, so the stall says so
+	// rather than handing back a button that looks like nothing happened.
+	const markReconnectStarted = useRedirectEnded((end) => {
+		setReconnectingAccountId(null);
+		if (end === "stalled") setOauthErrorMessage(REDIRECT_STALL_MESSAGE);
+	});
+
 	const reconnectMutation = useMutation({
 		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
 		onSuccess: (data) => {
+			markReconnectStarted();
 			window.location.assign(data.authorizationUrl);
 		},
 		onError: (err) => {
@@ -392,10 +421,14 @@ function AccountsSettings() {
 				<div className="space-y-3">
 					{config.accounts.map((account) => {
 						const isReauth = needsReauth(account);
+						const isMissingPassword = needsPassword(account);
 						const isOAuthAccount = account.authType === "oauthMicrosoft";
-						const isReconnecting =
-							reconnectingAccountId === account.accountId &&
-							reconnectMutation.isPending;
+						// The mutation settling does not mean the window has gone anywhere:
+						// `assign` leaves the page here while the browser fetches Microsoft's
+						// page. The busy state rides the latch instead, which only clears on
+						// evidence — the server saying the account no longer needs re-auth,
+						// or the start call failing.
+						const isReconnecting = reconnectingAccountId === account.accountId;
 
 						const primaryAction: RowAction =
 							isReauth && isOAuthAccount
@@ -411,17 +444,23 @@ function AccountsSettings() {
 											});
 										},
 									}
-								: deriveState(account) === "error"
+								: isMissingPassword
 									? {
-											label: "Reconnect",
+											label: "Enter password",
 											variant: "secondary",
 											onClick: () => setEditingAccountId(account.accountId),
 										}
-									: {
-											label: "Manage",
-											variant: "ghost",
-											onClick: () => setEditingAccountId(account.accountId),
-										};
+									: deriveState(account) === "error"
+										? {
+												label: "Reconnect",
+												variant: "secondary",
+												onClick: () => setEditingAccountId(account.accountId),
+											}
+										: {
+												label: "Manage",
+												variant: "ghost",
+												onClick: () => setEditingAccountId(account.accountId),
+											};
 
 						const trailingButton = (
 							<RowActions
@@ -443,8 +482,16 @@ function AccountsSettings() {
 								connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
 								syncLabel={deriveSyncLabel(account)}
 								state={deriveState(account)}
+								// What the mail server said, when it said anything. Not every
+								// refusal that fences an account is one the Reconnect button
+								// clears — "SmtpClientAuthentication is disabled" is a tenant
+								// setting — so the stored reason outranks the generic prompt.
 								errorDetail={
-									isReauth ? "Re-authentication required" : account.lastError
+									isReauth
+										? (account.lastError ?? "Re-authentication required")
+										: isMissingPassword
+											? "Imported from a config file, which carries no password. Enter one to start syncing."
+											: account.lastError
 								}
 								trailing={trailingButton}
 							/>

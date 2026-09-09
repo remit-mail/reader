@@ -1,6 +1,8 @@
 import { X } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 
 /* ------------------------------------------------------------------ */
 /* SlidePanel: right-edge slide-over for a focused sub-task (editing   */
@@ -28,15 +30,16 @@ export function SlidePanel({
 	footer,
 }: SlidePanelProps) {
 	// Escape closes the panel from anywhere inside it, which is what a dialog
-	// owes the keyboard. The scrim is a pointer affordance only.
-	useEffect(() => {
-		if (!isOpen) return;
-		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") onClose();
-		};
-		document.addEventListener("keydown", onKeyDown);
-		return () => document.removeEventListener("keydown", onKeyDown);
-	}, [isOpen, onClose]);
+	// owes the keyboard, and nothing behind it sees the press. The scrim is a
+	// pointer affordance only.
+	useOverlayScope({
+		id: "slide-panel",
+		open: isOpen,
+		answers: { back: onClose },
+	});
+
+	const panelRef = useRef<HTMLDivElement>(null);
+	useModalFocus(panelRef, isOpen);
 
 	return (
 		<>
@@ -53,6 +56,7 @@ export function SlidePanel({
 			/>
 
 			<div
+				ref={panelRef}
 				className={cn(
 					"safe-area-frame fixed top-0 right-0 z-50 flex h-full w-full flex-col border-l border-line bg-canvas shadow-xl sm:w-[400px] sm:max-w-[90vw]",
 					"transform transition-transform duration-200 ease-out",
@@ -63,6 +67,7 @@ export function SlidePanel({
 				aria-hidden={!isOpen}
 				inert={!isOpen}
 				aria-labelledby="slide-panel-title"
+				tabIndex={-1}
 			>
 				<div className="flex h-14 shrink-0 items-center justify-between border-b border-line px-4">
 					<h2 id="slide-panel-title" className="font-semibold">

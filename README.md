@@ -75,8 +75,14 @@ web client:
 ```
 npm run dev:sqlite         # start
 npm run dev:sqlite:logs    # tail every service
+npm run dev:sqlite:health  # check it is still serving
 npm run dev:sqlite:down    # stop
 ```
+
+The stack degrades a service at a time and nothing else reports it, so
+`dev:sqlite:health` asks the questions no single surface answers together — is
+every service up, is anything crash-looping, does the TLS front answer — and
+exits non-zero naming the one that failed.
 
 It is the shape a real install runs, so what you develop against is what ships.
 Open the URL it serves on 4123, sign up, then add your own mailbox from

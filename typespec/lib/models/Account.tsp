@@ -7,6 +7,7 @@ import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
 import "../scalars/string.tsp";
 import "./Address.tsp";
+import "./ConfigImport.tsp";
 import "./FolderAppointment.tsp";
 
 using TypeSpec.Http;
@@ -301,6 +302,9 @@ model MailboxSyncProgress {
   @doc("Approximate number of messages synced. Computed as highWaterMarkUid − lastSyncUid (UID-range approximation; UIDs are sparse so this may undercount). Clamped to messagesTotal.")
   messagesSynced: int32;
 
+  @doc("The highest UID ever seen in this mailbox. An arrival is a UID above the highest one seen; a total is not, because one message in and one out nets to zero. A mailbox that has never synced carries the sentinel 0 rather than an absent field.")
+  highWaterMarkUid: int64;
+
   @doc("Timestamp of the last successful message sync for this mailbox")
   lastSyncedAt?: int64;
 }
@@ -318,6 +322,9 @@ model AccountSyncStatusResponse {
 
   @doc("Number of mailboxes whose initial message sync has completed")
   mailboxCountSynced?: int32;
+
+  @doc("When the account's most recent sync round started, stamped once per round by the worker. A client that triggered a sync compares this against the reading it took before triggering, so it confirms only on a round of its own rather than one already in flight.")
+  lastSyncAt?: int64;
 
   @doc("Per-mailbox sync progress")
   mailboxes: MailboxSyncProgress[];
@@ -417,6 +424,21 @@ model ConfigDescriptionResponse {
 
   @doc("Associated email accounts")
   accounts: AccountResponse[];
+
+  @doc("Absent unless a configuration import is still waiting on folders IMAP has not produced yet (#1021). Nothing polls a separate route for it.")
+  pendingImport?: PendingConfigImport;
+
+  @doc("Whether this instance stores a vector for every message — SEARCH_EMBEDDING_PROVIDER is anything but `off`. False is a setting an operator turns on (`remit semantic on`), not a failure: the Organize semantic widen and semantic (anchor) filters read stored vectors and have none, so they render an off state rather than an empty result. It rides the config read because it is a property of the deployment, not of a query (#1068).")
+  semanticSearchEnabled: boolean;
+}
+
+@doc("A configuration export: one versioned document carrying every user decision this instance holds, and no credential.")
+model ConfigExportResponse {
+  @doc("Schema version of the document below")
+  schemaVersion: int32;
+
+  @doc("The config document. Opaque here; the JSON Schema for `schemaVersion` is its contract.")
+  document: Record<unknown>;
 }
 
 // ============================================

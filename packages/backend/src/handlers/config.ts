@@ -2,15 +2,33 @@ import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
+	ConfigImportReport,
 } from "@remit/api-openapi-types";
+import type { ReaderConfigDocument } from "@remit/config-format";
+import {
+	importConfig,
+	pendingImportOf,
+	readConfigForExport,
+} from "@remit/config-transfer";
 import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
+import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { logger } from "@remit/logger-lambda";
+import {
+	hasStoredCredential,
+	type StoredCredentialFields,
+} from "@remit/mailbox-service/account-credentials";
+import {
+	EMBEDDING_PROVIDER_OFF,
+	readEmbeddingProviderFromEnv,
+} from "@remit/search-service/from-env";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
+import { embedAnchorText } from "../service/config-import.js";
 import { getClient } from "../service/data-client.js";
+import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
@@ -27,6 +45,7 @@ import {
 import {
 	groupFolderAppointmentsByAccount,
 	resolveFolderAppointments,
+	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
@@ -62,14 +81,20 @@ const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
  * Each failure is logged as a distinct structured error carrying the SDK error
  * name/code on dedicated fields plus a stable `alert: "sync_trigger_failed"`
  * discriminator a CloudWatch metric filter / alarm can key off.
+ *
+ * An account storing no credential is not enqueued at all (issue #1120): the
+ * import wizard lands accounts without a password by design, and the client
+ * polls this read while the user is still typing one. The guard is the stored
+ * credential rather than `connectionState`, which stays `credentials_missing`
+ * until a connect succeeds — see `hasStoredCredential`.
  */
 export const triggerConfigLoadSyncs = async (
 	accountConfigId: string,
-	accountIds: ReadonlyArray<string>,
+	accounts: ReadonlyArray<{ accountId: string } & StoredCredentialFields>,
 	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
 ): Promise<void> => {
 	await Promise.all(
-		accountIds.map((accountId) =>
+		accounts.filter(hasStoredCredential).map(({ accountId }) =>
 			fireAndForget(
 				async () => {
 					const { eventId } = await triggerAccountSync({
@@ -127,8 +152,21 @@ const emptyConfigResponse = (
 			updatedAt: now,
 		},
 		accounts: [],
+		semanticSearchEnabled: semanticSearchEnabled(),
 	};
 };
+
+/**
+ * Whether this instance embeds anything, read from the same
+ * `SEARCH_EMBEDDING_PROVIDER` the search-index worker and the `remit` wrapper
+ * read. It rides GET /config because the semantic surfaces need it before they
+ * have a query to send: an off instance stores no vectors, so the Organize
+ * widen and semantic filters have nothing to read, and a client that learns
+ * that only from an empty result cannot tell it from a mailbox with nothing
+ * similar in it (#1068).
+ */
+const semanticSearchEnabled = (): boolean =>
+	readEmbeddingProviderFromEnv() !== EMBEDDING_PROVIDER_OFF;
 
 export const ConfigOperations: Record<
 	ConfigOperationIds,
@@ -196,13 +234,18 @@ export const ConfigOperations: Record<
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
 		// with an alertable structured field — but it also never rejects, so the
 		// `void` here cannot leak an unhandled rejection into a later request.
-		void triggerConfigLoadSyncs(
-			accountConfigId,
-			activeAccounts.map((acc) => acc.accountId),
+		void triggerConfigLoadSyncs(accountConfigId, activeAccounts);
+
+		// An import that named folders IMAP had not produced yet rides the config
+		// read rather than a route of its own, so nothing has to poll for it.
+		const pendingImport = pendingImportOf(
+			await client.configImport.listByAccountConfig(accountConfigId),
 		);
 
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
+			semanticSearchEnabled: semanticSearchEnabled(),
+			...(pendingImport ? { pendingImport } : {}),
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
 					acc,
@@ -215,5 +258,75 @@ export const ConfigOperations: Record<
 				),
 			),
 		};
+	},
+
+	ConfigOperations_exportConfig: async (
+		_context: Context,
+		...args: unknown[]
+	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const client = await getClient();
+		const document = await readConfigForExport(
+			client,
+			accountConfigId,
+			exportIdentity(),
+		);
+		return { schemaVersion: document.schemaVersion, document };
+	},
+
+	ConfigOperations_importConfig: async (
+		context: Context,
+		...args: unknown[]
+	): Promise<ConfigImportReport> => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const body = (context.request.requestBody ?? {}) as {
+			mode?: "validate" | "apply";
+			onExisting?: "abort" | "merge";
+			document?: unknown;
+		};
+		const client = await getClient();
+
+		const outcome = await importConfig(
+			{
+				repositories: client,
+				// Passed through as-is, undefined included: a backend with no
+				// cross-entity transaction writes without one, and the report words
+				// what survived a failure from whether this is here.
+				transaction: client.writeSet,
+				appointFolderRole: (
+					configId,
+					accountId,
+					role,
+					mailboxId,
+					lastKnownPath,
+				) =>
+					writeFolderRoleAppointment(
+						client.accountSetting,
+						configId,
+						accountId,
+						role as CanonicalMailboxRoleValue,
+						mailboxId,
+						lastKnownPath,
+					),
+				embedAnchor: embedAnchorText,
+			},
+			{
+				accountConfigId,
+				userId: getSubFromEvent(event) ?? accountConfigId,
+				document: body.document,
+				mode: body.mode ?? "validate",
+				onExisting: body.onExisting ?? "abort",
+			},
+		);
+
+		if (outcome.outcome === "conflict") {
+			throw new ConfigNotEmptyError(
+				outcome.conflict.message,
+				outcome.conflict.details,
+			);
+		}
+		return outcome.report;
 	},
 };

@@ -95,6 +95,9 @@ const describeMessage: RemitImapDescribeMessageResponse = {
 		uid: 1,
 		rfc822Size: 512,
 		internalDate: 1_767_225_600_000,
+		status: "active",
+		syncStatus: "pending",
+		abandonedMutation: "none",
 	},
 	envelope: {
 		messageId: MESSAGE_ID,

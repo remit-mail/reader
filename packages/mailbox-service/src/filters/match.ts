@@ -1,4 +1,8 @@
-import type { FilterItem } from "@remit/data-ports";
+import {
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type ThreadMessageFieldTerm,
+} from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
 import { getDomain } from "tldts";
 import { normalizeListId } from "./list-id.js";
@@ -10,7 +14,7 @@ type FilterClause = FilterItem["literalClauses"][number];
  * absent (RFC 034 Decision 3.1) — `actionLabelId`/`actionMailboxId` are never
  * empty/optional strings, so a missing action is this exact value, never `""`.
  */
-export const NO_ACTION = "None";
+export const NO_ACTION = FILTER_NO_ACTION;
 
 /**
  * Default cosine cut-off for a semantic-anchor match (RFC 031 "the semantic
@@ -106,6 +110,87 @@ export const literalClausesMatch = (
 	return operator === FilterMatchOperator.Or
 		? clauses.some((clause) => clauseMatches(clause, msg))
 		: clauses.every((clause) => clauseMatches(clause, msg));
+};
+
+/**
+ * What a store can be asked for on behalf of one clause: a column term, or the
+ * two answers a term cannot express — a clause nothing can satisfy, and a
+ * clause selecting on something no ThreadMessage column carries.
+ */
+type ClauseNarrowing =
+	| { kind: "Term"; term: ThreadMessageFieldTerm }
+	| { kind: "NeverMatches" }
+	| { kind: "Unnarrowable" };
+
+const clauseNarrowing = (clause: FilterClause): ClauseNarrowing => {
+	const value = clause.value.trim();
+	if (value === "") return { kind: "NeverMatches" };
+	switch (clause.field) {
+		case FilterClauseField.From:
+			return { kind: "Term", term: { field: "sender", contains: value } };
+		case FilterClauseField.Subject:
+			return { kind: "Term", term: { field: "subject", contains: value } };
+		case FilterClauseField.ListId: {
+			const target = normalizeListId(value);
+			if (target === "") return { kind: "NeverMatches" };
+			return { kind: "Term", term: { field: "listId", contains: target } };
+		}
+		case FilterClauseField.FromDomain: {
+			const target = registrableDomain(value);
+			if (target === null) return { kind: "NeverMatches" };
+			return { kind: "Term", term: { field: "sender", contains: target } };
+		}
+		default:
+			return { kind: "Unnarrowable" };
+	}
+};
+
+/**
+ * The terms to query with, and how to combine them. Empty terms narrow nothing
+ * — the caller reads the whole corpus and refines it.
+ */
+export interface LiteralClauseNarrowing {
+	terms: ThreadMessageFieldTerm[];
+	operator: "and" | "or";
+}
+
+/**
+ * The store-side half of {@link literalClausesMatch}: the column terms a query
+ * can evaluate on behalf of these clauses, or `null` when they can match
+ * nothing at all and there is no query worth running.
+ *
+ * A term is deliberately WIDER than the clause it stands for — a `FromDomain`
+ * clause narrows to the registrable domain appearing anywhere in the sender,
+ * so `github.com.evil.example` still comes back — and a `HasWords` clause
+ * cannot be narrowed at all, since no row column carries the body. The rows a
+ * term selects are candidates; `literalClausesMatch` still decides. Pushing the
+ * terms down is what makes the caller's bound a bound on RESULTS: filtering a
+ * date-ordered page instead answers "matches among the newest N messages"
+ * (#459).
+ */
+export const literalClauseTerms = (
+	clauses: readonly FilterClause[],
+	operator: FilterItem["matchOperator"],
+): LiteralClauseNarrowing | null => {
+	const combine = operator === FilterMatchOperator.Or ? "or" : "and";
+	if (clauses.length === 0) return { terms: [], operator: combine };
+	const narrowings = clauses.map(clauseNarrowing);
+	const terms = narrowings.flatMap((narrowing) =>
+		narrowing.kind === "Term" ? [narrowing.term] : [],
+	);
+	if (combine === "and") {
+		if (narrowings.some((narrowing) => narrowing.kind === "NeverMatches")) {
+			return null;
+		}
+		return { terms, operator: "and" };
+	}
+	if (narrowings.every((narrowing) => narrowing.kind === "NeverMatches")) {
+		return null;
+	}
+	if (narrowings.some((narrowing) => narrowing.kind === "Unnarrowable")) {
+		return { terms: [], operator: "or" };
+	}
+	return { terms, operator: "or" };
 };
 
 /**

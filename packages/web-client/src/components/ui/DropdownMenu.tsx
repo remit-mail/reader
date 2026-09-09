@@ -1,4 +1,4 @@
-import { cn } from "@remit/ui";
+import { cn, useOverlayScope } from "@remit/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 interface DropdownMenuProps {
@@ -21,22 +21,16 @@ export const DropdownMenu = ({
 		}
 	}, []);
 
-	const handleKeyDown = useCallback((event: KeyboardEvent) => {
-		if (event.key === "Escape") {
-			setIsOpen(false);
-		}
-	}, []);
+	useOverlayScope({
+		id: "dropdown-menu",
+		open: isOpen,
+		answers: { back: () => setIsOpen(false) },
+	});
 
 	useEffect(() => {
-		if (isOpen) {
-			document.addEventListener("mousedown", handleClickOutside);
-			document.addEventListener("keydown", handleKeyDown);
-		}
-		return () => {
-			document.removeEventListener("mousedown", handleClickOutside);
-			document.removeEventListener("keydown", handleKeyDown);
-		};
-	}, [isOpen, handleClickOutside, handleKeyDown]);
+		if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+		return () => document.removeEventListener("mousedown", handleClickOutside);
+	}, [isOpen, handleClickOutside]);
 
 	return (
 		<div ref={menuRef} className="relative">

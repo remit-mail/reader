@@ -52,6 +52,17 @@ describe("classifyAuthError", () => {
 		);
 	});
 
+	it("treats a 429 as rate limited, not as a rejected credential (#441)", () => {
+		assert.equal(
+			classifyAuthError({
+				status: 429,
+				statusText: "Too Many Requests",
+				message: "Too many requests. Please try again later.",
+			}),
+			"rateLimited",
+		);
+	});
+
 	it("treats a statusless failure as network", () => {
 		assert.equal(classifyAuthError(new Error("Failed to fetch")), "network");
 	});
@@ -81,6 +92,15 @@ describe("authInlineMessage", () => {
 
 	it("gives a connection hint for a network error", () => {
 		assert.match(authInlineMessage(new Error("boom"), "network"), /offline/i);
+	});
+
+	it("says the limit is shared by address, over the server's bare wording", () => {
+		const message = authInlineMessage(
+			{ status: 429, message: "Too many requests. Please try again later." },
+			"rateLimited",
+		);
+		assert.match(message, /this address/i);
+		assert.match(message, /wait a minute/i);
 	});
 });
 

@@ -15,7 +15,9 @@ import {
 	type CalendarColorId,
 	CalendarDateNav,
 	type CalendarEventData,
+	CalendarGrid,
 	CalendarList,
+	type CalendarSlotPick,
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type CustomRecurrence,
@@ -56,7 +58,6 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
-import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
 import {
 	EVENT_WIZARD_LAST_STEP,
 	EVENT_WIZARD_STEPS,
@@ -74,6 +75,7 @@ import {
 	formatEventWhen,
 	formatSuggestionWhen,
 	HOME_ZONE,
+	NOW_ISO,
 	events as seedEvents,
 	suggestions as seedSuggestions,
 	TODAY,
@@ -117,7 +119,7 @@ function emptyDraft(): EventDraft {
 	};
 }
 
-function draftFromSlot(pick: SlotPick): EventDraft {
+function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 	return {
 		...emptyDraft(),
 		date: pick.date,
@@ -219,7 +221,7 @@ export interface CalendarDestinationProps {
 	/** Calendars already ticked off, so a story can start filtered. */
 	hiddenCalendarIds?: string[];
 	/** Opens the editor on mount at this slot. */
-	draftAt?: SlotPick;
+	draftAt?: CalendarSlotPick;
 	/** Seeds the quick-entry field and opens the editor with it. */
 	phrase?: string;
 	/** Opens the scope question for this instance of a series. */
@@ -253,6 +255,7 @@ export function CalendarDestination({
 	const [events, setEvents] = useState<CalendarEventData[]>(seedEvents);
 	const [suggestions, setSuggestions] =
 		useState<EventSuggestion[]>(seedSuggestions);
+	const [zones, setZones] = useState<Record<string, string>>({});
 	const [selected, setSelected] = useState(selectedEventId);
 	const [visible, setVisible] = useState(
 		() =>
@@ -300,7 +303,7 @@ export function CalendarDestination({
 			return next;
 		});
 
-	const openSlot = (pick: SlotPick) => {
+	const openSlot = (pick: CalendarSlotPick) => {
 		setPhrase("");
 		setPanel(createPanel(draftFromSlot(pick)));
 		setStep(0);
@@ -312,7 +315,7 @@ export function CalendarDestination({
 	 * grid to that day. Creating stays on the button, which is where a thumb
 	 * expects it and where a mis-tap costs nothing.
 	 */
-	const pickSlot = (pick: SlotPick) => {
+	const pickSlot = (pick: CalendarSlotPick) => {
 		if (isPhone && view === "month") {
 			setDate(pick.date);
 			return;
@@ -384,11 +387,12 @@ export function CalendarDestination({
 		setFlow("none");
 	};
 
-	const acceptSuggestion = (suggestion: EventSuggestion) => {
+	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		setEvents((prev) => [...prev, eventFromSuggestion(suggestion, id)]);
+		const promoted = eventFromSuggestion(suggestion, id, timeZone);
+		setEvents((prev) => [...prev, promoted]);
 		setSuggestions((prev) => prev.filter((item) => item.id !== suggestion.id));
-		setDate(suggestion.start.slice(0, 10));
+		setDate(promoted.start.slice(0, 10));
 		setSelected(id);
 		setFlow("none");
 	};
@@ -398,20 +402,21 @@ export function CalendarDestination({
 	 * thread and zone Add carries, and saving takes the card off the list — a
 	 * suggestion is answered once, by whichever path answered it.
 	 */
-	const reviewSuggestion = (suggestion: EventSuggestion) => {
+	const reviewSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
+		const base = eventFromSuggestion(suggestion, "", timeZone);
 		setPanel({
 			kind: "create",
-			base: eventFromSuggestion(suggestion, ""),
+			base,
 			suggestionId: suggestion.id,
 			draft: {
 				...emptyDraft(),
-				title: suggestion.title,
-				date: suggestion.start.slice(0, 10),
-				startTime: suggestion.allDay ? "" : suggestion.start.slice(11, 16),
-				endTime: suggestion.allDay ? "" : suggestion.end.slice(11, 16),
-				allDay: suggestion.allDay,
-				location: suggestion.location,
-				calendarId: suggestion.suggestedCalendarId,
+				title: base.title,
+				date: base.start.slice(0, 10),
+				startTime: base.allDay ? "" : base.start.slice(11, 16),
+				endTime: base.allDay ? "" : base.end.slice(11, 16),
+				allDay: base.allDay,
+				location: base.location,
+				calendarId: base.calendarId,
 			},
 		});
 		setStep(0);
@@ -429,6 +434,8 @@ export function CalendarDestination({
 			colorByCalendarId={colorByCalendarId}
 			density="comfortable"
 			selectedEventId={selected}
+			timeZone={HOME_ZONE}
+			now={NOW_ISO}
 			onSelectEvent={openEvent}
 			onPickSlot={pickSlot}
 			onRangeChange={setRangeTitle}
@@ -508,6 +515,7 @@ export function CalendarDestination({
 				onCancel={dismissPanel}
 				saveLabel={panel.kind === "edit" ? "Save" : "Add"}
 				repeatEditable={repeatEditable}
+				guestsEditable
 				onCustomRepeat={openCustomRepeat}
 				header={quickEntry(false)}
 			/>
@@ -571,8 +579,12 @@ export function CalendarDestination({
 							key={suggestion.id}
 							suggestion={suggestion}
 							whenText={formatSuggestionWhen(suggestion)}
-							onAdd={() => acceptSuggestion(suggestion)}
-							onReview={() => reviewSuggestion(suggestion)}
+							zoneChoice={zones[suggestion.id] ?? ""}
+							onZoneChoice={(timeZone) =>
+								setZones((prev) => ({ ...prev, [suggestion.id]: timeZone }))
+							}
+							onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
+							onReview={(timeZone) => reviewSuggestion(suggestion, timeZone)}
 							onDismiss={() => dismissSuggestion(suggestion.id)}
 							onOpenThread={() => openThread(suggestion.threadId)}
 							touch={touch}

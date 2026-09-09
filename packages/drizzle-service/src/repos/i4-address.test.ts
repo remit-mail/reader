@@ -1320,4 +1320,105 @@ describe("AddressRepo", () => {
 			});
 		}
 	});
+
+	describe("unicode domains match punycode rows (#905)", () => {
+		test("bücher.de finds a row stored as xn--bcher-kva.de", async () => {
+			const accountConfigId = randomId();
+			const addr = await repo.createAddress({
+				addressId: randomId(),
+				accountConfigId,
+				localPart: "postmaster",
+				domain: "xn--bcher-kva.de",
+				normalizedEmail: "postmaster@xn--bcher-kva.de",
+				normalizedCompound: "postmaster@xn--bcher-kva.de:postmaster",
+				lastInboundAt: Date.now(),
+			});
+
+			try {
+				const { items } = await repo.listByAccountConfig({
+					accountConfigId,
+					search: "bücher.de",
+				});
+				assert.ok(items.some((item) => item.addressId === addr.addressId));
+			} finally {
+				await repo.deleteAddress(accountConfigId, addr.addressId);
+			}
+		});
+
+		test("a partial term still matches while its unicode label is whole", async () => {
+			const accountConfigId = randomId();
+			const addr = await repo.createAddress({
+				addressId: randomId(),
+				accountConfigId,
+				localPart: "postmaster",
+				domain: "xn--bcher-kva.de",
+				normalizedEmail: "postmaster@xn--bcher-kva.de",
+				normalizedCompound: "postmaster@xn--bcher-kva.de:postmaster",
+				lastInboundAt: Date.now(),
+			});
+
+			try {
+				const { items } = await repo.listByAccountConfig({
+					accountConfigId,
+					search: "bücher.d",
+				});
+				assert.ok(items.some((item) => item.addressId === addr.addressId));
+			} finally {
+				await repo.deleteAddress(accountConfigId, addr.addressId);
+			}
+		});
+
+		test("an address met only in Junk answers to the whole address typed", async () => {
+			const accountConfigId = randomId();
+			const withheld = await repo.upsertJunkAddress(
+				makeAddressInput(accountConfigId, "postmaster@xn--bcher-kva.de"),
+			);
+
+			const page = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "postmaster@bücher.de",
+			});
+
+			assert.deepEqual(
+				page.items.map((a) => a.addressId),
+				[withheld.addressId],
+				"the address typed whole reaches the row its punycode spelling hides",
+			);
+
+			await repo.deleteAddress(accountConfigId, withheld.addressId);
+		});
+
+		test("the address a unicode term spells out leads a sibling at its domain", async () => {
+			const accountConfigId = randomId();
+			// The address typed, worn as a display name by the busiest row at the
+			// domain it names.
+			const sibling = await repo.createAddress({
+				...makeAddressInput(accountConfigId, "sales@xn--bcher-kva.de"),
+				displayName: "postmaster@bücher.de",
+				normalizedCompound: "postmaster@bücher.de sales@xn--bcher-kva.de",
+				inboundCount: 900,
+			});
+			const own = await repo.createAddress({
+				...makeAddressInput(accountConfigId, "postmaster@xn--bcher-kva.de"),
+				displayName: "Bücher",
+				normalizedCompound: "bücher postmaster@xn--bcher-kva.de",
+				inboundCount: 1,
+			});
+
+			const found = await repo.listByAccountConfig({
+				accountConfigId,
+				search: "postmaster@bücher.de",
+			});
+			assert.deepEqual(
+				found.items.map((a) => a.normalizedEmail),
+				[own.normalizedEmail, sibling.normalizedEmail],
+				"volume at the domain must not take the top slot from the address typed",
+			);
+
+			await repo.deleteManyAddresses(accountConfigId, [
+				sibling.addressId,
+				own.addressId,
+			]);
+		});
+	});
 });

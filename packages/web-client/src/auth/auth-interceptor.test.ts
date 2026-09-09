@@ -1,15 +1,19 @@
 import assert from "node:assert";
-import { describe, test } from "node:test";
+import { afterEach, describe, test } from "node:test";
+import { client } from "@remit/api-http-client/client.gen.ts";
+import { trashOperationsEmptyTrash } from "@remit/api-http-client/sdk.gen.ts";
+import { type HttpMock, mockFetch } from "../test-support/http";
 import { AuthTokenError } from "./better-auth-config";
 import { type AuthProvider, noneAuthProvider } from "./provider";
 
-type RequestFn = (req: Request) => Promise<Request>;
-
-declare global {
-	var __REMIT_CLIENT_MOCKS__: { requestFns: RequestFn[] } | undefined;
-}
-
 let cacheBust = 1000;
+let http: HttpMock | undefined;
+
+afterEach(() => {
+	http?.restore();
+	http = undefined;
+	client.interceptors.request.clear();
+});
 
 const providerWithToken = (
 	getToken: AuthProvider["getToken"],
@@ -17,15 +21,30 @@ const providerWithToken = (
 
 const loadInterceptor = async () => {
 	cacheBust += 1;
-	globalThis.__REMIT_CLIENT_MOCKS__ = { requestFns: [] };
+	client.interceptors.request.clear();
 	return import(`./auth-interceptor.ts?v=${cacheBust}`);
+};
+
+const send = (headers?: Record<string, string>): Promise<unknown> => {
+	http = mockFetch();
+	return trashOperationsEmptyTrash({
+		path: { accountId: "acc-1" },
+		headers,
+		throwOnError: true,
+	});
+};
+
+const sentHeaders = (): Record<string, string> => {
+	assert.ok(http, "expected a request to have been sent");
+	assert.equal(http.calls.length, 1);
+	return http.calls[0].headers;
 };
 
 describe("installAuthInterceptor", () => {
 	test("registers exactly one request interceptor", async () => {
 		const mod = await loadInterceptor();
 		mod.installAuthInterceptor(providerWithToken(async () => null));
-		assert.equal(globalThis.__REMIT_CLIENT_MOCKS__?.requestFns.length, 1);
+		assert.equal(client.interceptors.request.fns.length, 1);
 	});
 
 	test("is idempotent — subsequent calls do not register additional interceptors", async () => {
@@ -34,17 +53,14 @@ describe("installAuthInterceptor", () => {
 		mod.installAuthInterceptor(provider);
 		mod.installAuthInterceptor(provider);
 		mod.installAuthInterceptor(provider);
-		assert.equal(globalThis.__REMIT_CLIENT_MOCKS__?.requestFns.length, 1);
+		assert.equal(client.interceptors.request.fns.length, 1);
 	});
 
 	test("attaches the provider's Bearer token when one exists", async () => {
 		const mod = await loadInterceptor();
 		mod.installAuthInterceptor(providerWithToken(async () => "ID-TOKEN-123"));
-		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
-		assert.ok(fn, "expected interceptor fn to be registered");
-		const req = new Request("https://api.example.com/thing");
-		const out = await fn(req);
-		assert.equal(out.headers.get("Authorization"), "Bearer ID-TOKEN-123");
+		await send();
+		assert.equal(sentHeaders().authorization, "Bearer ID-TOKEN-123");
 	});
 
 	test("abandons the request when the token cannot be minted — never sends it unauthenticated", async () => {
@@ -54,42 +70,32 @@ describe("installAuthInterceptor", () => {
 				throw new AuthTokenError("Could not mint a session token: 429", 429);
 			}),
 		);
-		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
-		assert.ok(fn);
-		const req = new Request("https://api.example.com/thing");
 		await assert.rejects(
-			() => fn(req),
+			() => send(),
 			(error: unknown) => {
 				assert.ok(error instanceof AuthTokenError);
 				assert.equal(error.status, 429);
 				return true;
 			},
 		);
-		assert.equal(req.headers.get("Authorization"), null);
+		assert.equal(http?.calls.length, 0);
 	});
 
 	test("omits Authorization header when the deployment presents no identity", async () => {
 		const mod = await loadInterceptor();
 		mod.installAuthInterceptor(providerWithToken(async () => null));
-		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
-		assert.ok(fn);
-		const req = new Request("https://api.example.com/thing");
-		const out = await fn(req);
-		assert.equal(out.headers.get("Authorization"), null);
+		await send();
+		assert.equal(sentHeaders().authorization, undefined);
 	});
 
 	test("preserves caller-supplied headers when adding Authorization", async () => {
 		const mod = await loadInterceptor();
 		mod.installAuthInterceptor(providerWithToken(async () => "TOK"));
-		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
-		assert.ok(fn);
-		const req = new Request("https://api.example.com/thing", {
-			headers: { "X-Trace-Id": "abc-123", "Content-Type": "application/json" },
-		});
-		const out = await fn(req);
-		assert.equal(out.headers.get("X-Trace-Id"), "abc-123");
-		assert.equal(out.headers.get("Content-Type"), "application/json");
-		assert.equal(out.headers.get("Authorization"), "Bearer TOK");
+		await send({ "X-Trace-Id": "abc-123", "X-Client": "reader" });
+		const headers = sentHeaders();
+		assert.equal(headers["x-trace-id"], "abc-123");
+		assert.equal(headers["x-client"], "reader");
+		assert.equal(headers.authorization, "Bearer TOK");
 	});
 
 	test("propagates errors when the provider's getToken rejects (let it crash)", async () => {
@@ -99,9 +105,6 @@ describe("installAuthInterceptor", () => {
 				throw new Error("session fetch failed");
 			}),
 		);
-		const fn = globalThis.__REMIT_CLIENT_MOCKS__?.requestFns[0];
-		assert.ok(fn);
-		const req = new Request("https://api.example.com/thing");
-		await assert.rejects(() => fn(req), /session fetch failed/);
+		await assert.rejects(() => send(), /session fetch failed/);
 	});
 });

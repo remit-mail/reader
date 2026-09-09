@@ -3,14 +3,21 @@
 -- harness (packages/drizzle-service/src/test-db-sqlite.ts) so repos run the
 -- exact search path they ship on.
 --
--- An external-content FTS5 table over two folded texts: the subject, and the
--- sender (from_name + from_email). The
+-- An external-content FTS5 table over three folded texts: the subject, the
+-- sender (from_name + from_email), and the body preview the row carries
+-- (snippet). The
 -- trigram tokenizer with remove_diacritics 1 makes MATCH an accent- and
 -- case-insensitive substring search — the same contract the UI has today, with
 -- the one difference D4 accepts: sub-3-character queries fall back to an
 -- unindexed folded LIKE scan in the query predicate, since trigram needs three
 -- characters. Requires SQLite >= 3.45 for the trigram tokenizer's
 -- remove_diacritics support; better-sqlite3 bundles a newer build.
+--
+-- `body` is the stored preview, not the whole message: quoted replies removed
+-- and capped at a couple of hundred characters, which is the text the list
+-- renders under the subject. Indexing it is what makes a body-only match
+-- findable over the whole collection instead of over the pages a client
+-- happened to have loaded (#1135).
 --
 -- content='thread_message' with content_rowid='rowid' links the index to the
 -- base table's implicit rowid; the sender column is a computed concatenation,
@@ -31,6 +38,7 @@
 CREATE VIRTUAL TABLE IF NOT EXISTS thread_message_fts USING fts5(
 	subject,
 	sender,
+	body,
 	content='thread_message',
 	content_rowid='rowid',
 	tokenize='trigram remove_diacritics 1'
@@ -38,40 +46,46 @@ CREATE VIRTUAL TABLE IF NOT EXISTS thread_message_fts USING fts5(
 
 CREATE TRIGGER IF NOT EXISTS thread_message_fts_ai
 AFTER INSERT ON thread_message BEGIN
-	INSERT INTO thread_message_fts(rowid, subject, sender)
+	INSERT INTO thread_message_fts(rowid, subject, sender, body)
 	VALUES (
 		new.rowid,
 		coalesce(new.subject, ''),
-		coalesce(new.from_name, '') || ' ' || coalesce(new.from_email, '')
+		coalesce(new.from_name, '') || ' ' || coalesce(new.from_email, ''),
+		coalesce(new.snippet, '')
 	);
 END;
 
 CREATE TRIGGER IF NOT EXISTS thread_message_fts_ad
 AFTER DELETE ON thread_message BEGIN
-	INSERT INTO thread_message_fts(thread_message_fts, rowid, subject, sender)
+	INSERT INTO thread_message_fts(thread_message_fts, rowid, subject, sender, body)
 	VALUES (
 		'delete',
 		old.rowid,
 		coalesce(old.subject, ''),
-		coalesce(old.from_name, '') || ' ' || coalesce(old.from_email, '')
+		coalesce(old.from_name, '') || ' ' || coalesce(old.from_email, ''),
+		coalesce(old.snippet, '')
 	);
 END;
 
 -- Scoped to the indexed columns only: is_read / star / is_deleted flips are the
 -- hottest thread_message writes and must not re-tokenize two documents each.
+-- `snippet` joins them because it is indexed; it is written once when the body
+-- syncs and never on a flag flip.
 CREATE TRIGGER IF NOT EXISTS thread_message_fts_au
-AFTER UPDATE OF subject, from_name, from_email ON thread_message BEGIN
-	INSERT INTO thread_message_fts(thread_message_fts, rowid, subject, sender)
+AFTER UPDATE OF subject, from_name, from_email, snippet ON thread_message BEGIN
+	INSERT INTO thread_message_fts(thread_message_fts, rowid, subject, sender, body)
 	VALUES (
 		'delete',
 		old.rowid,
 		coalesce(old.subject, ''),
-		coalesce(old.from_name, '') || ' ' || coalesce(old.from_email, '')
+		coalesce(old.from_name, '') || ' ' || coalesce(old.from_email, ''),
+		coalesce(old.snippet, '')
 	);
-	INSERT INTO thread_message_fts(rowid, subject, sender)
+	INSERT INTO thread_message_fts(rowid, subject, sender, body)
 	VALUES (
 		new.rowid,
 		coalesce(new.subject, ''),
-		coalesce(new.from_name, '') || ' ' || coalesce(new.from_email, '')
+		coalesce(new.from_name, '') || ' ' || coalesce(new.from_email, ''),
+		coalesce(new.snippet, '')
 	);
 END;

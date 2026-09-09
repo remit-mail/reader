@@ -1,26 +1,30 @@
 import type { RemitImapOrganizeInput } from "@remit/api-http-client/types.gen.ts";
-import { deriveSenderClauses } from "@remit/ui";
+import { derivePropertyClauses } from "@remit/ui";
 import type { OrganizeDraft } from "./organize-model";
 
 /**
  * The widen fallback for a deployment that ships no vector pipeline (self-host
  * sqlite — semantic-capability.ts). The semantic anchor matches nothing there,
  * so a widen degrades to the literal vocabulary RFC 031 already matches
- * vector-free: the sender clauses `@remit/ui` derives, combined with `Or`, no
- * anchor. The same predicate matches at index time (RFC 034), so a standing
- * filter built from it keeps working on future mail.
+ * vector-free: what the whole selection agrees on, combined with `Or`, no
+ * anchor (#458) — the same evidence order the properties door prefills from,
+ * so a selection with nothing in common on sender still falls back to a
+ * subject it shares rather than one `From` chip per message. The same
+ * predicate matches at index time (RFC 034), so a standing filter built from
+ * it keeps working on future mail.
  */
 
 /**
- * The literal predicate that stands in for the semantic anchor: the sender
- * clauses combined with `Or` and no anchor. The preview, the one-time
- * back-apply, and the standing filter all carry exactly this.
+ * The literal predicate that stands in for the semantic anchor: the clauses
+ * the selection agrees on, combined with `Or` and no anchor. The preview, the
+ * one-time back-apply, and the standing filter all carry exactly this.
  */
 export const buildSenderFallbackDraft = (
 	senders: readonly string[],
+	subjects: readonly string[],
 ): OrganizeDraft => ({
 	matchOperator: "Or",
-	literalClauses: deriveSenderClauses(senders),
+	literalClauses: derivePropertyClauses(senders, subjects),
 });
 
 /**

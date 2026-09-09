@@ -15,7 +15,11 @@ import { MailboxCursorState } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { type MessageMoveConfig, MessageMoveService } from "./message-move.js";
 import { MessageSyncService } from "./message-sync.js";
-import { noFolderRoles, trashRole } from "./test-helpers/folder-roles.js";
+import {
+	NO_JUNK_ROLES,
+	noFolderRoles,
+	trashRole,
+} from "./test-helpers/folder-roles.js";
 import type { IImapConnection, ImapMessage } from "./types.js";
 
 const stubAddressService = (): IAddressRepository =>
@@ -45,6 +49,7 @@ interface ThreadRow {
 	messageIdHeader: string;
 	isRead?: boolean;
 	hasStars?: boolean;
+	listId?: string;
 }
 
 const buildWorld = () => {
@@ -62,7 +67,13 @@ const buildWorld = () => {
 				rootBodyPartId: "body-1",
 				bodyStorageKey: "s3://body-1",
 				category: "primary",
+				classificationState: "Examined",
 				hasListUnsubscribe: false,
+				// Settled, which is what a delete's predicate asks for: a row every
+				// repository read carries a status, and leaving it off made the
+				// fixture answer for a state no row is ever in.
+				status: "active",
+				syncStatus: "synced",
 			},
 		],
 	]);
@@ -77,6 +88,7 @@ const buildWorld = () => {
 			messageIdHeader: HEADER,
 			isRead: false,
 			hasStars: false,
+			listId: "invitations.linkedin.com",
 		},
 	];
 
@@ -123,6 +135,19 @@ const buildWorld = () => {
 			if (m) Object.assign(m, patch);
 			return m;
 		},
+		transitionPlacement: async (
+			id: string,
+			expected: Record<string, unknown>,
+			patch: Record<string, unknown>,
+		) => {
+			const m = messages.get(id) as Record<string, unknown> | undefined;
+			if (!m) return undefined;
+			for (const [field, want] of Object.entries(expected)) {
+				if (want !== undefined && m[field] !== want) return undefined;
+			}
+			Object.assign(m, patch);
+			return m;
+		},
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {
@@ -140,6 +165,7 @@ const buildWorld = () => {
 				messageId,
 				mailboxId: input.mailboxId as string,
 				messageIdHeader: input.messageIdHeader as string,
+				listId: input.listId as string | undefined,
 			};
 			threadRows.push(row);
 			return row;
@@ -176,6 +202,7 @@ const buildWorld = () => {
 	const mailboxSpecialUseService = {
 		findTrashMailbox: async () => null,
 		resolveTrashRole: async () => trashRole(null),
+		resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 	} as unknown as IMailboxSpecialUseRepository;
 
 	const config: MessageMoveConfig = {
@@ -333,6 +360,41 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 		assert.equal(copyRow.messageId, expected);
 	});
 
+	it("carries the source row's list id onto the copy", async () => {
+		// The copy inherits its source's stored body, so no classifying pass ever
+		// runs over it to derive a list id of its own (issue #331).
+		const { service, threadRows } = buildWorld();
+
+		await service.copyMessages(
+			ACCOUNT_CONFIG,
+			[SOURCE_ID],
+			DEST_MAILBOX,
+			ACCOUNT,
+		);
+
+		const copyRow = threadRows.find((r) => r.mailboxId === DEST_MAILBOX);
+		assert.equal(copyRow?.listId, "invitations.linkedin.com");
+	});
+
+	it("carries the source's classification state onto the copy", async () => {
+		// Defaulting the copy to `NotExamined` would put a row no classifier will
+		// ever reach — its body is already stored — into the cohort a backfill
+		// selects as never examined (issue #331).
+		const { service, messages } = buildWorld();
+
+		await service.copyMessages(
+			ACCOUNT_CONFIG,
+			[SOURCE_ID],
+			DEST_MAILBOX,
+			ACCOUNT,
+		);
+
+		const copy = [...messages.values()].find(
+			(m) => m.mailboxId === DEST_MAILBOX,
+		);
+		assert.equal(copy?.classificationState, "Examined");
+	});
+
 	it("a replayed copy converges on one row, no duplicate", async () => {
 		const { service, threadRows, messages } = buildWorld();
 
@@ -413,7 +475,7 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 	});
 
 	it("copy then delete of the copy removes the copy row and leaves the original", async () => {
-		const { service, threadRows } = buildWorld();
+		const { service, threadRows, messages } = buildWorld();
 
 		await service.copyMessages(
 			ACCOUNT_CONFIG,
@@ -422,6 +484,15 @@ describe("MessageMoveService.copyMessage — deterministic per-folder identity (
 			ACCOUNT,
 		);
 		const copyId = deriveCopyMessageId(SOURCE_ID, DEST_MAILBOX);
+
+		// A fresh copy row is `moving` until the server hands back its COPYUID, and
+		// a delete against it would name uid 0. Settle it the way `updateUid`
+		// does, which is also the only state in which a user can see it to delete.
+		Object.assign(messages.get(copyId) ?? {}, {
+			uid: 77,
+			status: "active",
+			syncStatus: "synced",
+		});
 
 		await service.deleteMessages(ACCOUNT_CONFIG, [copyId], ACCOUNT, {
 			permanent: true,

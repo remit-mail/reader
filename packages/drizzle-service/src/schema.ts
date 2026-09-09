@@ -8,6 +8,11 @@
 
 import * as entities from "@remit/drizzle-sqlite-schema";
 
+export const calendarTable = entities.calendarCollections;
+export const calendarObjectTable = entities.calendarObjects;
+export const calendarEventIndexTable = entities.calendarEventIndexes;
+export const calendarFeedTokenTable = entities.calendarFeedTokens;
+export const calendarSuggestionTable = entities.calendarSuggestions;
 export const filterAnchorTable = entities.filterAnchors;
 export const filterTable = entities.filters;
 export const labelTable = entities.labels;
@@ -17,6 +22,7 @@ export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";
 export * from "./schema/i4-address.js";
+export * from "./schema/i4-config-import.js";
 export * from "./schema/i4-mailbox.js";
 export * from "./schema/i4-mailbox-lock.js";
 export * from "./schema/i4-message-flag-push.js";

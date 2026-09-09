@@ -301,6 +301,223 @@ export const ThreadMakesWay: Story = {
 	},
 };
 
+const CALL = "Kickoff call — Lisbon venue";
+const PICK_A_CLOCK = /Pick a clock first/;
+
+/**
+ * The Airbnb mail stated its zone, so nothing is in the way: Add puts the stay
+ * on the calendar and the pane opens on the event it just made. This is the
+ * case the zone gate must leave alone.
+ */
+export const ZoneIsStated: Story = {
+	name: "The zone the mail stated",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(
+			canvas.getByRole("article", { name: "Stay in Lisbon" }),
+		);
+
+		await expect(
+			card.queryByText("Which clock is this on?"),
+		).not.toBeInTheDocument();
+
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(
+				canvas.getByRole("heading", { name: "Stay in Lisbon" }),
+			).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
+ * Rita names 16:00 and never says whose clock. Add is dimmed and pressing it
+ * books nothing — it says what is missing instead. An hour guessed here is a
+ * call joined after it started, so the reader answers or nothing happens.
+ */
+export const ZoneWeCannotDetermine: Story = {
+	name: "The zone we cannot determine",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(canvas.getByRole("article", { name: CALL }));
+
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(
+				canvas
+					.getAllByRole("status")
+					.some((region) => PICK_A_CLOCK.test(region.textContent ?? "")),
+			).toBe(true),
+		);
+		await expect(canvas.queryByRole("heading", { name: CALL })).toBeNull();
+		await expect(canvas.getByRole("article", { name: CALL })).toBeVisible();
+	},
+};
+
+/**
+ * The same card, answered. Picking Lisbon's clock moves the call an hour: the
+ * event lands at 17:00 on the reader's own, which is what 16:00 in Lisbon is.
+ * The answer changes the instant, not the label on it.
+ */
+export const ZonePicked: Story = {
+	name: "The clock is picked",
+	decorators: [framedAt(DESKTOP_WIDTH)],
+	render: () => <CalendarAgenda width={DESKTOP_WIDTH} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const card = within(canvas.getByRole("article", { name: CALL }));
+
+		await userEvent.click(
+			card.getByRole("button", { name: /16:00 in Lisbon/ }),
+		);
+		await userEvent.click(card.getByRole("button", { name: "Add" }));
+
+		await waitFor(() =>
+			expect(canvas.getByRole("heading", { name: CALL })).toBeInTheDocument(),
+		);
+		await expect(
+			canvas.getByText("Wednesday 17 June · 17:00 – 18:00"),
+		).toBeInTheDocument();
+		await expect(canvas.queryByRole("article", { name: CALL })).toBeNull();
+	},
+};
+
+/**
+ * A guest is a correspondent, so their name opens what they have written
+ * lately — the context you were about to go looking for anyway, and it is one
+ * click away only because the mail and the calendar are the same application.
+ * The same click closes it: opening is something you asked for, so is closing.
+ */
+export const AttendeeContext: Story = {
+	name: "What a guest has written",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Priya Natarajan/ });
+
+		await userEvent.click(guest());
+
+		await waitFor(() =>
+			expect(canvas.getByText("Recent mail · 3")).toBeInTheDocument(),
+		);
+		await expect(canvas.getByText("Lunch walk Wednesday?")).toBeInTheDocument();
+
+		await userEvent.click(guest());
+
+		await waitFor(() =>
+			expect(canvas.queryByText("Lunch walk Wednesday?")).toBeNull(),
+		);
+	},
+};
+
+/**
+ * The same guest from the keyboard. Arriving at a row is not asking for
+ * anything, so tabbing to it opens nothing; Enter opens, Escape closes, and
+ * taking focus elsewhere closes too — a reader who tabs past a guest never ends
+ * up with a panel they cannot get rid of.
+ */
+export const KeyboardGuestContext: Story = {
+	name: "A guest opened from the keyboard",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Dana Okafor/ });
+		const offsite = "Offsite logistics — rooms, travel, the dinner";
+
+		guest().focus();
+		await expect(canvas.queryByText(offsite)).toBeNull();
+
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() => expect(canvas.getByText(offsite)).toBeInTheDocument());
+
+		await userEvent.keyboard("{Escape}");
+		await waitFor(() => expect(canvas.queryByText(offsite)).toBeNull());
+
+		guest().focus();
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() => expect(canvas.getByText(offsite)).toBeInTheDocument());
+
+		canvas.getByRole("button", { name: "Edit" }).focus();
+		await waitFor(() => expect(canvas.queryByText(offsite)).toBeNull());
+	},
+};
+
+/**
+ * A guest low in the narrowest pane the desktop has. What opens is part of the
+ * pane rather than a card floating over it, so it pushes the rest of the guest
+ * list down and scrolls with everything else instead of being cut off at the
+ * fold or sitting on top of the guest underneath.
+ */
+export const GuestContextInAShortPane: Story = {
+	name: "The context never covers the guest under it",
+	render: () => (
+		<CalendarAgenda
+			width={1024}
+			date="2026-06-10"
+			selectedEventId="evt_q3_roadmap"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(canvas.getByRole("button", { name: /Aisha Khan/ }));
+
+		const note = await waitFor(() =>
+			canvas.getByText("No mail with this address"),
+		);
+		const below = canvas.getByRole("button", { name: /Sven Larsen/ });
+
+		await expect(note.getBoundingClientRect().bottom).toBeLessThan(
+			below.getBoundingClientRect().top,
+		);
+	},
+};
+
+/**
+ * A guest you have never written to. What opens says so and holds nothing to
+ * click, and reading it is not asking for it to go away: the click that lands on
+ * the words leaves it open, so the only ways out are the guest, Escape, and
+ * going somewhere else.
+ */
+export const EmptyGuestContextSurvivesAClick: Story = {
+	name: "Reading a guest with no mail does not dismiss it",
+	render: () => (
+		<CalendarAgenda date="2026-06-10" selectedEventId="evt_q3_roadmap" />
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const guest = () => canvas.getByRole("button", { name: /Aisha Khan/ });
+
+		await userEvent.click(guest());
+
+		const note = await waitFor(() =>
+			canvas.getByText("No mail with this address"),
+		);
+		await expect(guest()).toHaveAttribute("aria-expanded", "true");
+
+		await userEvent.click(note);
+
+		await waitFor(() => expect(note).toBeInTheDocument());
+		await expect(guest()).toHaveAttribute("aria-expanded", "true");
+
+		await userEvent.click(guest());
+
+		await waitFor(() =>
+			expect(canvas.queryByText("No mail with this address")).toBeNull(),
+		);
+	},
+};
+
 /**
  * Editing one morning's standup asks which instances it is for before the form
  * opens. Answering afterwards would mean typing a change without knowing what it
@@ -693,6 +910,42 @@ export const PhoneEventThread: Story = {
 
 		await waitFor(() =>
 			expect(canvas.getByText("3 messages")).toBeInTheDocument(),
+		);
+
+		await userEvent.click(canvas.getByLabelText("Back"));
+
+		await waitFor(() =>
+			expect(canvas.getByText("From this thread")).toBeInTheDocument(),
+		);
+	},
+};
+
+/**
+ * The same guest, read with a thumb. A tap is the only way in, so it opens a
+ * screen rather than a card sitting under the finger, and back is the event it
+ * was opened from.
+ */
+export const PhoneAttendeeContext: Story = {
+	name: "Phone — what a guest has written",
+	parameters: phoneParams,
+	decorators: [phoneFrame],
+	render: () => (
+		<CalendarAgenda
+			width={PHONE_WIDTH}
+			date="2026-06-10"
+			flow="event"
+			selectedEventId="evt_q3_roadmap"
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+
+		await userEvent.click(canvas.getByRole("button", { name: /Dana Okafor/ }));
+
+		await waitFor(() =>
+			expect(
+				canvas.getByText("Offsite logistics — rooms, travel, the dinner"),
+			).toBeInTheDocument(),
 		);
 
 		await userEvent.click(canvas.getByLabelText("Back"));

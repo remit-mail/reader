@@ -1,4 +1,7 @@
 import {
+	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	type AccountService,
+	AccountServiceChoice,
 	AppPasswordHint,
 	Banner,
 	Button,
@@ -13,6 +16,7 @@ import {
 	WizardShell,
 } from "@remit/ui";
 import { AtSign, Inbox, Loader2, Mail, Server } from "lucide-react";
+import { useState } from "react";
 
 /**
  * Onboarding wizard steps as static compositions (doc/design/flows/
@@ -29,10 +33,13 @@ export const steps = [
 	"Sync",
 ];
 
-interface StepNav {
+export interface StepNav {
 	onBack?: () => void;
 	onNext?: () => void;
 }
+
+/** Where the wizard is mounted: the first run, or Settings → Accounts. */
+export type OnboardingHost = "first-run" | "settings";
 
 function RawError({ children }: { children: string }) {
 	return (
@@ -77,9 +84,10 @@ export function StepWelcome({ onNext }: StepNav = {}) {
 
 export function StepConnector({
 	selected = "imap",
+	host = "first-run",
 	onBack,
 	onNext,
-}: { selected?: "imap" | "microsoft" } & StepNav) {
+}: { selected?: "imap" | "microsoft"; host?: OnboardingHost } & StepNav) {
 	const microsoft = selected === "microsoft";
 	return (
 		<WizardShell
@@ -90,7 +98,7 @@ export function StepConnector({
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
-						Back
+						{host === "settings" ? "Cancel" : "Back"}
 					</Button>
 					<Button variant="primary" onClick={onNext}>
 						{microsoft ? "Continue with Microsoft" : "Continue with IMAP"}
@@ -124,25 +132,68 @@ export function StepConnector({
 	);
 }
 
-export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
+const BOTH_SERVICES: AccountService[] = ["Mail", "Calendar"];
+
+export interface StepMicrosoftEmailProps extends StepNav {
+	/** Services the chosen connector carries. Under two, no rows appear. */
+	offered?: AccountService[];
+	initialServices?: AccountService[];
+	error?: string;
+}
+
+export function StepMicrosoftEmail({
+	offered = BOTH_SERVICES,
+	initialServices,
+	error,
+	onBack,
+	onNext,
+}: StepMicrosoftEmailProps) {
+	const [selected, setSelected] = useState(initialServices ?? offered);
+	const [refused, setRefused] = useState(false);
+	const empty = selected.length === 0;
+
+	const handleContinue = () => {
+		if (empty) {
+			setRefused(true);
+			return;
+		}
+		onNext?.();
+	};
+
 	return (
 		<WizardShell
 			steps={steps}
 			activeStep={0}
 			title="Sign in with Microsoft"
-			subtitle="You'll be redirected to Microsoft to sign in securely."
+			subtitle="Microsoft is asked for the mail and calendar access you pick here."
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
 						Back
 					</Button>
-					<Button variant="primary" onClick={onNext}>
+					<Button variant="primary" onClick={handleContinue}>
 						Sign in with Microsoft
 					</Button>
 				</>
 			}
 		>
-			<div className="space-y-3">
+			<div className="space-y-4">
+				<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+					<ConnectorTile
+						name="Outlook / Microsoft 365"
+						description="Sign in with Microsoft. Works with Outlook.com and work accounts."
+						icon={<Inbox className="size-5" />}
+						selected
+						onSelect={() => {}}
+					/>
+				</div>
+				<AccountServiceChoice
+					providerName="Microsoft"
+					offered={offered}
+					selected={selected}
+					onChange={setSelected}
+					error={refused && empty ? ACCOUNT_SERVICE_EMPTY_MESSAGE : undefined}
+				/>
 				<div>
 					<FieldLabel htmlFor="ms-email">Email address (optional)</FieldLabel>
 					<Input
@@ -155,6 +206,7 @@ export function StepMicrosoftEmail({ onBack, onNext }: StepNav = {}) {
 						Microsoft page.
 					</p>
 				</div>
+				{error && <Banner tone="danger">{error}</Banner>}
 			</div>
 		</WizardShell>
 	);

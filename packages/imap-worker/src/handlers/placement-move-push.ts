@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -10,37 +11,22 @@ import {
 	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
 } from "@remit/mailbox-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
-	searchMailboxByMessageId,
+	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
-
-/**
- * Fallback when `PLACEMENT_MOVE_MAX_ATTEMPTS` is unset (local dev, unit
- * tests). Matches the placement-move queue's own `MAX_RECEIVE_COUNT` default
- * (`infra/stacks/dev/stacks/remit-queue-stack.ts`), same pattern as
- * `BODY_SYNC_MAX_ATTEMPTS` (#1270).
- */
-const DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS = 3;
 
 export const getPlacementMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.PLACEMENT_MOVE_MAX_ATTEMPTS;
-	if (!raw) return DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_PLACEMENT_MOVE_MAX_ATTEMPTS;
-};
+): number => attemptBudget("PLACEMENT_MOVE_MAX_ATTEMPTS", 3, processEnv);
 
 export const PLACEMENT_MOVE_MAX_ATTEMPTS = getPlacementMoveMaxAttempts();
 
@@ -111,9 +97,16 @@ export const attemptMove = async (
 	}
 
 	// Unconfirmed: either no COPYUID entry, or the server explicitly claimed
-	// "not found" — never trust either without independent verification.
+	// "not found" — never trust either without independent verification. A
+	// message this MOVE delivered is the newest copy of that Message-ID at the
+	// destination, so the probe binds to the highest matching uid (#1122).
+	// Unlike `confirmTrashMoveUid`, this probe is ungated: where the MOVE never
+	// ran and an older copy filed there earlier is the only match, the marker
+	// binds to that unrelated mail. Pre-existing, and not narrowed by taking the
+	// highest — the source is not asked first here, so nothing rules the case
+	// out.
 	if (messageIdHeader) {
-		const destinationUid = await searchMailboxByMessageId(
+		const destinationUid = await searchMailboxForHighestMessageIdUid(
 			destinationConnection,
 			destinationMailboxPath,
 			messageIdHeader,
@@ -406,6 +399,7 @@ export const handlePlacementMovePush = async (
 							accountConfigId,
 							messageId,
 							uid: message.uid,
+							sourceMailboxId: marker.sourceMailboxId,
 							sourceMailboxPath: sourceMailbox.fullPath,
 							getConnection: scope.getConnection,
 						},

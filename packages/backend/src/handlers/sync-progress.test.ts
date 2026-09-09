@@ -9,7 +9,9 @@ import { describe, it } from "node:test";
 import {
 	computeMessagesSynced,
 	deriveMailboxPhase,
+	type MailboxProgressFields,
 	type MailboxSyncFields,
+	toMailboxSyncProgress,
 } from "./sync-progress.js";
 
 // ─── deriveMailboxPhase tests ───────────────────────────────────────────────
@@ -154,5 +156,50 @@ describe("computeMessagesSynced", () => {
 			highWaterMarkUid: 100,
 		};
 		assert.equal(computeMessagesSynced(mailbox), 50);
+	});
+});
+
+// ─── toMailboxSyncProgress tests ────────────────────────────────────────────
+
+const mailboxRow = (
+	overrides: Partial<MailboxProgressFields> = {},
+): MailboxProgressFields => ({
+	mailboxId: "mb-1",
+	fullPath: "INBOX",
+	lastMessageSyncAt: 1_700_000_000_000,
+	initialSyncCompletedAt: 1_700_000_000_001,
+	messageCount: 10,
+	lastSyncUid: 1,
+	highWaterMarkUid: 100,
+	...overrides,
+});
+
+describe("toMailboxSyncProgress", () => {
+	// Issue #771: the client cannot tell an arrival from a departure by count —
+	// one message in and one out nets to zero. The highest UID only ever moves
+	// up, so the projection has to carry it or the arrival stays invisible.
+	it("carries the mailbox's highest UID", () => {
+		assert.equal(
+			toMailboxSyncProgress(mailboxRow({ highWaterMarkUid: 4321 }))
+				.highWaterMarkUid,
+			4321,
+		);
+	});
+
+	it("reports the sentinel 0 for a mailbox that has never taken a message", () => {
+		assert.equal(
+			toMailboxSyncProgress(mailboxRow({ highWaterMarkUid: 0 }))
+				.highWaterMarkUid,
+			0,
+		);
+	});
+
+	it("projects identity, phase and totals alongside it", () => {
+		const progress = toMailboxSyncProgress(mailboxRow());
+		assert.equal(progress.mailboxId, "mb-1");
+		assert.equal(progress.fullPath, "INBOX");
+		assert.equal(progress.phase, "complete");
+		assert.equal(progress.messagesTotal, 10);
+		assert.equal(progress.lastSyncedAt, 1_700_000_000_000);
 	});
 });

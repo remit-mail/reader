@@ -4,6 +4,13 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
+	ICalendarCollectionRepository,
+	ICalendarEventIndexRepository,
+	ICalendarFeedTokenRepository,
+	ICalendarObjectRepository,
+	ICalendarSuggestionRepository,
+	ICalendarUnitOfWork,
+	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterAnchorRepository,
 	IFilterAnchorTransaction,
@@ -30,6 +37,7 @@ import {
 	BodySyncQueueService,
 	BodySyncService,
 	createConnection,
+	type FilterConfig,
 	FlagPushService,
 	FlagQueueService,
 	type IImapConnection,
@@ -40,6 +48,7 @@ import {
 	PlacementMoveService,
 	SpamReportService,
 } from "@remit/mailbox-service";
+import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { createSearchService, type SearchService } from "@remit/search-service";
 import {
 	buildEmbeddingServiceFromEnv,
@@ -78,6 +87,11 @@ export interface RemitClient {
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
 
+	// Applied configuration imports (#1021), and the folder references each is
+	// still waiting for. Read by GET /config to surface what a file named but
+	// IMAP has not produced yet, and written by the binder when it does.
+	configImport: IConfigImportRepository;
+
 	// Messages the sync path could not read (issue #72). Read-only from the API
 	// process: the sync worker writes the rows, settings lists them.
 	quarantine: IQuarantineRepository;
@@ -108,6 +122,20 @@ export interface RemitClient {
 	// third-party signer from a first sighting; written once per message by
 	// body-sync, which is its only writer.
 	senderSignerStanding: ISenderSignerStandingRepository;
+
+	// The calendar store (issue #15) and the cards a message offers into it
+	// (issue #1033). Every write goes through `calendarUnitOfWork`: the object,
+	// its occurrence rows, the collection's sequence bump and — when the write
+	// came from accepting a suggestion — that suggestion's own state are one
+	// fact, and the repositories beside it are the read side. A backend that
+	// cannot supply them cannot serve the calendar at all, so they are part of
+	// the client rather than something each handler checks for.
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarFeedToken: ICalendarFeedTokenRepository;
+	calendarSuggestion: ICalendarSuggestionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
 
 	// Atomic write set for a message save. Present on the relational backend (real
 	// transaction); absent on DynamoDB, where callers fall back to per-repo
@@ -163,6 +191,13 @@ export interface RemitClient {
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
+
+	// Runs an arbitrary set of repository writes as one transaction. Absent on a
+	// backend with no cross-entity transaction, where the caller's contract is
+	// instead: validate before the first write, fail fast, and report what
+	// landed. The message-save write set has its own bound repositories and uses
+	// `unitOfWork`; this one takes the repos as they are.
+	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 export interface RemitClientRepositories {
@@ -180,6 +215,7 @@ export interface RemitClientRepositories {
 	threadMessage: IThreadMessageRepository;
 	envelope: IEnvelopeRepository;
 	accountExportRequest: IAccountExportRequestRepository;
+	configImport: IConfigImportRepository;
 	quarantine: IQuarantineRepository;
 	organizeJobRequest: IOrganizeJobRequestRepository;
 	placementMove: IMessagePlacementMoveRepository;
@@ -190,7 +226,14 @@ export interface RemitClientRepositories {
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
+	calendarCollection: ICalendarCollectionRepository;
+	calendarObject: ICalendarObjectRepository;
+	calendarEventIndex: ICalendarEventIndexRepository;
+	calendarFeedToken: ICalendarFeedTokenRepository;
+	calendarSuggestion: ICalendarSuggestionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
 	unitOfWork?: IUnitOfWork;
+	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 export interface RemitClientSharedDeps {
@@ -298,6 +341,39 @@ export const buildSharedDeps = (): RemitClientSharedDeps => {
 	};
 };
 
+// The read-path body backfill (describeMessage / getRawMessage →
+// fetchAndGetBody) materializes a body that was never sync-synced, and must run
+// the account's standing filters the same way the imap-worker's sync path does.
+// Without this, a message a user opens before background body-sync is classified
+// but never filter-evaluated — and once its body is stored the filter-capable
+// sync path skips it, so an explicit standing filter silently never fires (issue
+// #223). Only the explicit user-rule half is wired here; heuristic classifier
+// placement stays on the sync path. It shares `buildFilterConfig` with
+// `sync-message-body.ts`, so both paths embed a candidate message under the same
+// env-selected model that produced the anchors and a semantic (anchor-only)
+// filter fires on either (issue #298). Over the message-management queue's
+// local-first PlacementMoveService; filters stay off when that queue is unset.
+export const buildReadPathFilterConfig = (
+	repositories: RemitClientRepositories,
+): FilterConfig | undefined => {
+	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+	return buildFilterConfig({
+		filterService: repositories.filter,
+		filterAnchorService: repositories.filterAnchor,
+		messageLabelService: repositories.messageLabel,
+		placementMoveService: placementMoveQueueUrl
+			? new PlacementMoveService({
+					messageService: repositories.message,
+					threadMessageService: repositories.threadMessage,
+					markerService: repositories.placementMove,
+					addressService: repositories.address,
+					mailboxSpecialUseService: repositories.mailboxSpecialUse,
+					sqsQueueUrl: placementMoveQueueUrl,
+				})
+			: undefined,
+	});
+};
+
 // Backend-neutral composition root: given repositories (from any data-ports
 // implementation) and the shared services, wire the domain and queue services
 // and assemble a RemitClient. Imports neither ElectroDB nor Drizzle — the
@@ -313,34 +389,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		bodySyncQueue,
 	} = deps;
 
-	// The read-path body backfill (describeMessage / getRawMessage →
-	// fetchAndGetBody) materializes a body that was never sync-synced, and must
-	// run the account's standing filters the same way the imap-worker's sync path
-	// does. Without this, a message a user opens before background body-sync is
-	// classified but never filter-evaluated — and once its body is stored the
-	// filter-capable sync path skips it, so an explicit standing filter silently
-	// never fires (issue #223). Only the explicit user-rule half is wired here;
-	// heuristic classifier placement stays on the sync path. Wired like
-	// `sync-message-body.ts`, over the message-management queue's local-first
-	// PlacementMoveService; filters stay off when that queue is unset.
-	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-	const placementMoveService = placementMoveQueueUrl
-		? new PlacementMoveService({
-				messageService: repositories.message,
-				threadMessageService: repositories.threadMessage,
-				markerService: repositories.placementMove,
-				addressService: repositories.address,
-				sqsQueueUrl: placementMoveQueueUrl,
-			})
-		: undefined;
-	const filterConfig = placementMoveService
-		? {
-				filterService: repositories.filter,
-				filterAnchorService: repositories.filterAnchor,
-				messageLabelService: repositories.messageLabel,
-				placementMoveService,
-			}
-		: undefined;
+	const filterConfig = buildReadPathFilterConfig(repositories);
 
 	const flagPushService = new FlagPushService({
 		markerService: repositories.flagPush,
@@ -390,6 +439,15 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		filterConfig,
 		undefined,
 		{ flagQueueService },
+		// The read-path backfill materializes a body the sync path never got to,
+		// so it is a message's first sight as much as the sync pass is — and an
+		// invitation the user opens before background sync must still get its
+		// card (issue #1033, the same argument as the filter wiring above).
+		{
+			calendarSuggestionService: repositories.calendarSuggestion,
+			calendarUnitOfWork: repositories.calendarUnitOfWork,
+			filterService: repositories.filter,
+		},
 	);
 
 	return {
@@ -406,6 +464,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		threadMessage: repositories.threadMessage,
 		envelope: repositories.envelope,
 		accountExportRequest: repositories.accountExportRequest,
+		configImport: repositories.configImport,
 		quarantine: repositories.quarantine,
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
@@ -414,7 +473,14 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
+		calendarCollection: repositories.calendarCollection,
+		calendarObject: repositories.calendarObject,
+		calendarEventIndex: repositories.calendarEventIndex,
+		calendarFeedToken: repositories.calendarFeedToken,
+		calendarSuggestion: repositories.calendarSuggestion,
+		calendarUnitOfWork: repositories.calendarUnitOfWork,
 		unitOfWork: repositories.unitOfWork,
+		writeSet: repositories.writeSet,
 
 		storage,
 		search,

@@ -11,6 +11,7 @@ import type { Locator, Page } from "@playwright/test";
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages } from "../src/imap.js";
+import { deleteSettledMatches } from "../src/sweep.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";
 import {
 	advanceTo,
@@ -234,8 +235,10 @@ test.describe("Mobile selection bar", () => {
 				(ids) => ids.length === subjects.length,
 				{ timeoutMs: 60_000, what: "the moved scratch to land in Archive" },
 			);
-			const ids = await api.searchMatchingMessageIds(archive.mailboxId, tag);
-			await api.deleteMessages(ids);
+			// The rows read as filed the moment the local write lands, so the sweep
+			// waits out the IMAP copy behind it — a delete against a move still in
+			// flight is refused (#1155).
+			await deleteSettledMatches(api, archive.mailboxId, tag);
 		}
 	});
 });

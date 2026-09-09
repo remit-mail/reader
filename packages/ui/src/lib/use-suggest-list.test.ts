@@ -17,6 +17,8 @@ let container: HTMLElement;
 let root: Root;
 
 const accepted: string[] = [];
+const comboboxPropsRenders: unknown[] = [];
+const handleKeyDownRenders: unknown[] = [];
 
 function Field(props: { options: string[] }) {
 	const [value, setValue] = useState("typed");
@@ -24,6 +26,8 @@ function Field(props: { options: string[] }) {
 		count: props.options.length,
 		onAccept: (index) => accepted.push(props.options[index]),
 	});
+	comboboxPropsRenders.push(suggest.comboboxProps);
+	handleKeyDownRenders.push(suggest.handleKeyDown);
 	return createElement("input", {
 		id: "field",
 		value,
@@ -37,6 +41,17 @@ function Field(props: { options: string[] }) {
 		...suggest.comboboxProps,
 	});
 }
+
+const typeInto = (field: Element, value: string) => {
+	const setter = Object.getOwnPropertyDescriptor(
+		HTMLInputElement.prototype,
+		"value",
+	)?.set;
+	act(() => {
+		setter?.call(field, value);
+		field.dispatchEvent(new Event("input", { bubbles: true }));
+	});
+};
 
 function mount(options: string[]) {
 	act(() => {
@@ -66,6 +81,8 @@ function press(field: Element, key: string) {
 
 beforeEach(() => {
 	accepted.length = 0;
+	comboboxPropsRenders.length = 0;
+	handleKeyDownRenders.length = 0;
 	container = document.getElementById("root") as unknown as HTMLElement;
 	container.innerHTML = "";
 	root = createRoot(container);
@@ -141,5 +158,57 @@ describe("useSuggestList", () => {
 		});
 		assert.equal(field.getAttribute("data-open"), "true");
 		assert.equal(field.getAttribute("data-active"), "-1");
+	});
+
+	it("keeps the same comboboxProps object across a keystroke that changes nothing about the list", () => {
+		const field = mount(OPTIONS);
+		const rendersBefore = comboboxPropsRenders.length;
+		const before = comboboxPropsRenders.at(-1);
+		typeInto(field, "typed!");
+		assert.equal(
+			(field as HTMLInputElement).value,
+			"typed!",
+			"the keystroke landed",
+		);
+		assert.ok(
+			comboboxPropsRenders.length > rendersBefore,
+			"the keystroke did not re-render, so stability was never put to the test",
+		);
+		assert.equal(
+			comboboxPropsRenders.at(-1),
+			before,
+			"comboboxProps should be referentially stable across an idle re-render",
+		);
+	});
+
+	it("keeps the same handleKeyDown across a changed onAccept and a changed list", () => {
+		const field = mount(OPTIONS);
+		const first = handleKeyDownRenders.at(-1);
+		typeInto(field, "typed!");
+		press(field, "ArrowDown");
+		act(() => {
+			root.render(createElement(Field, { options: ["only"] }));
+		});
+		assert.ok(
+			handleKeyDownRenders.length > 1,
+			"nothing re-rendered, so stability was never put to the test",
+		);
+		assert.ok(
+			handleKeyDownRenders.every((handler) => handler === first),
+			"handleKeyDown should be referentially stable, so an inline onAccept at the call site cannot defeat a memo downstream",
+		);
+	});
+
+	// The handler is stable, so it must read the state a key arrives at rather
+	// than the state it was bound in.
+	it("still accepts from the list it is looking at, not the one it was bound to", () => {
+		const field = mount(OPTIONS);
+		act(() => {
+			root.render(createElement(Field, { options: ["alpha", "beta"] }));
+		});
+		press(field, "ArrowDown");
+		press(field, "ArrowDown");
+		press(field, "Enter");
+		assert.deepEqual(accepted, ["beta"]);
 	});
 });

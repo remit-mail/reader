@@ -3,7 +3,7 @@ import type {
 	FolderAppointment,
 } from "@remit/api-openapi-types";
 import type { AccountItem } from "@remit/data-ports";
-import { ConflictError } from "@remit/data-ports/errors";
+import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { AccountAuthType } from "@remit/domain-enums";
 import type { AccountOverrides } from "./account-overrides.js";
 import type { AccountSignature } from "./account-signature.js";
@@ -65,11 +65,9 @@ export const assertNoDuplicateMailbox = (
 /** Rejects OAuth accounts that must go through the dedicated connect flow. */
 export const assertNotOAuthCreate = (authType: string | undefined): void => {
 	if (authType === AccountAuthType.OauthMicrosoft) {
-		throw Object.assign(new Error("Bad Request"), {
-			status: 400,
-			message:
-				"OAuth accounts must be created via the OAuth connect flow (POST /accounts/oauth/microsoft/start)",
-		});
+		throw new BadRequestError(
+			"OAuth accounts must be created via the OAuth connect flow (POST /accounts/oauth/microsoft/start)",
+		);
 	}
 };
 
@@ -80,11 +78,9 @@ export const assertPasswordProvided = (
 ): void => {
 	const isPasswordAuth = authType === AccountAuthType.Password || !authType;
 	if (isPasswordAuth && !password) {
-		throw Object.assign(new Error("Bad Request"), {
-			status: 400,
-			message:
-				"password is required when authType is 'password' (or when authType is omitted)",
-		});
+		throw new BadRequestError(
+			"password is required when authType is 'password' (or when authType is omitted)",
+		);
 	}
 };
 

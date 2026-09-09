@@ -6,6 +6,7 @@ import {
 	isEditableTarget,
 	type SequencePrefix,
 } from "./keymap-dispatch.js";
+import { overlayStack, resolveAgainstOverlays } from "./overlay-scope.js";
 
 interface UseTriageKeyboardOptions {
 	handlers: TriageHandlers;
@@ -47,6 +48,11 @@ interface UseTriageKeyboardOptions {
  * conversation views. They bind disjoint keys; only the list's competing
  * listener was removed.
  *
+ * An open overlay pre-empts the whole layer. Every mounted modal, drawer and
+ * menu declares itself through `overlay-scope`, and each action is resolved
+ * against that stack before a handler runs, so no layer acts through a surface
+ * the reader has on top of it.
+ *
  * Per-action targeting (focused row vs selection) and the actual mutations live
  * in the handlers the caller passes in — this hook only dispatches.
  */
@@ -87,6 +93,17 @@ export function useTriageKeyboard({
 				prefixRef.current,
 			);
 
+			// An overlay is the leaf of the shortcut tree: while one is on screen it
+			// answers what it serves — through `overlay-scope`'s own listener, which
+			// has already run and swallowed the key — and contains the rest. The
+			// pending prefix is contained with it: a `g` pressed over a modal must
+			// not arm a sequence whose second key lands on the surface behind it.
+			if (overlayStack().length > 0) {
+				clearPrefixTimer();
+				prefixRef.current = null;
+				return;
+			}
+
 			// Update the pending prefix and (re)arm / clear its reset timer.
 			clearPrefixTimer();
 			prefixRef.current = result.nextPrefix;
@@ -98,6 +115,10 @@ export function useTriageKeyboard({
 			}
 
 			if (result.action === null) return;
+
+			// The same rule, per action: a contained key is left undefaulted, because
+			// it was never ours to consume.
+			if (resolveAgainstOverlays(result.action) !== null) return;
 
 			const handler = handlersRef.current[result.action];
 			if (!handler) return;

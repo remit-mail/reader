@@ -161,10 +161,16 @@ export type ThreadSearchParams = {
  * `results` toggle omits `items` (count-only) and `count` adds the match count.
  *
  * `count` names the whole match, never the page: a page size bounds the rows a
- * response carries and has no bearing on how many messages match (#509). The
- * one exception is an off-row criterion, which no Select:COUNT can see — those
- * force a window read+enrich even in count-only mode, and the count that comes
- * back is over the enriched window, which the API documents as such.
+ * response carries and has no bearing on how many messages match (#509).
+ *
+ * An off-row criterion is the one shape that has no such number. `senderTrust`
+ * and `dkimMismatch` are resolved by enriching a window, so counting them means
+ * enriching every candidate row in the mailbox. `count` is therefore absent
+ * (#305) — a page's post-filter length labelled `count` is a page length
+ * presented as a total, which is the defect the field exists to avoid. Absence
+ * is the same answer the response already gives for a count nobody asked for,
+ * so no caller needs a second shape to read it. A count-only request under an
+ * off-row criterion therefore reads nothing at all.
  */
 export const executeThreadSearch = async (
 	client: ThreadSearchClient,
@@ -194,6 +200,7 @@ export const executeThreadSearch = async (
 	});
 
 	if (hasOffRowCriteria(offRow)) {
+		if (!wantResults) return {};
 		const window = await client.threadMessage.searchByMailboxWindow(
 			accountConfigId,
 			mailboxId,
@@ -205,12 +212,9 @@ export const executeThreadSearch = async (
 			client,
 			accountConfigId,
 		);
-		const filtered = filterByOffRowCriteria(enriched, offRow);
 		return {
-			...(wantResults
-				? { items: filtered, continuationToken: window.continuationToken }
-				: {}),
-			...(wantCount ? { count: filtered.length } : {}),
+			items: filterByOffRowCriteria(enriched, offRow),
+			continuationToken: window.continuationToken,
 		};
 	}
 

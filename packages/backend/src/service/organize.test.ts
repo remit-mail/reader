@@ -5,7 +5,7 @@ import type {
 	FilterAnchorItem,
 	FilterItem,
 } from "@remit/data-ports";
-import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import type {
 	AnchorPayload,
@@ -16,9 +16,12 @@ import { createMemoryVectorStore } from "@remit/search-service";
 import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
+	BODY_CONTENT_REJECTION_MESSAGE,
 	matchOrganize,
+	ORGANIZE_MATCH_LIMIT,
 	type OrganizeCandidate,
 	type OrganizeMatchDeps,
+	type OrganizeMatched,
 	type OrganizePredicate,
 } from "./organize.js";
 import {
@@ -82,7 +85,24 @@ const predicate = (
 	...over,
 });
 
-/** A standing filter fixture — the "other" filters the precedence check reads. */
+/**
+ * Run the matcher and assert it accepted the predicate, so every test that only
+ * cares about the matched set reads the accepted arm directly. A rejection is a
+ * result, not a throw (reader #463), so without this the two would be silently
+ * interchangeable at the call site.
+ */
+const matchAccepted = async (
+	...args: Parameters<typeof matchOrganize>
+): Promise<OrganizeMatched> => {
+	const result = await matchOrganize(...args);
+	assert.ok(
+		result.rejected === null,
+		`expected an accepted match, got: ${result.rejected?.message}`,
+	);
+	return result;
+};
+
+/** A standing filter fixture — the account's already-existing rules. */
 const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	filterId: "filter-other",
 	accountConfigId: ACCOUNT_CONFIG_ID,
@@ -107,10 +127,9 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
  * persists a standing rule.
  *
  * `activeFilters`/`filterAnchorRows`/`threadMessages` model the account's
- * *other*, already-existing standing filters and message rows the exclusive-
- * move precedence check (reader #350) reads — empty by default, so every
- * existing test (which never seeded a competing filter) is unaffected and the
- * precedence check is a same-length no-op.
+ * *other*, already-existing standing filters and message rows. A back-apply
+ * never arbitrates against them (reader #497), so `filterReads` pins that the
+ * Active filter set is not even consulted.
  */
 const trackingClient = (
 	seed: {
@@ -124,6 +143,7 @@ const trackingClient = (
 ) => {
 	const labeled: Array<{ messageId: string; labelId: string }> = [];
 	let filterWrites = 0;
+	let filterReads = 0;
 	let filterAnchorWrites = 0;
 	const anchorPuts: CreateFilterAnchorInput[] = [];
 	const activeFilters = seed.activeFilters ?? [];
@@ -171,7 +191,10 @@ const trackingClient = (
 				filterWrites += 1;
 				return {} as never;
 			},
-			listByAccountAndState: async () => activeFilters,
+			listByAccountAndState: async () => {
+				filterReads += 1;
+				return activeFilters;
+			},
 			refreshExpiry: async (filter: FilterItem) => filter,
 		},
 		filterAnchor: {
@@ -195,6 +218,7 @@ const trackingClient = (
 		client,
 		labeled,
 		filterWrites: () => filterWrites,
+		filterReads: () => filterReads,
 		filterAnchorWrites: () => filterAnchorWrites,
 		anchorPuts,
 	};
@@ -262,7 +286,7 @@ const matchDeps = (
 				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
-		listAccountFilterMessages: async () => corpus,
+		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
 			listByAccountConfig: async () => filterAnchorRows,
 			put: async () => {
@@ -303,7 +327,7 @@ const vectorlessDeps = (
 				embeddingId: CURRENT_EMBEDDING_ID,
 			};
 		},
-		listAccountFilterMessages: async () => corpus,
+		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
 			listByAccountConfig: async () => [],
 			put: async () => {
@@ -338,7 +362,7 @@ describe("matchOrganize", () => {
 			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			predicate({ actionLabelId: "lbl-1" }),
@@ -352,7 +376,7 @@ describe("matchOrganize", () => {
 		const store = createMemoryVectorStore();
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -377,7 +401,7 @@ describe("matchOrganize", () => {
 			}),
 		]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -396,7 +420,7 @@ describe("matchOrganize", () => {
 			candidate("msg-2", { subject: "Newsletter" }),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
@@ -444,7 +468,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 				embed: async () => ANCHOR_VECTOR,
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [persistedAnchor],
 				put: async () => {
@@ -453,7 +477,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 			},
 		};
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -478,13 +502,112 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 		// No persisted FilterAnchor names this anchorMessageId — an ad hoc "all
 		// like these" widen over a bare message selection, never tied to a
 		// standing filter.
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			predicate(),
 		);
 
 		assert.deepEqual(messageIds, ["msg-1"]);
+	});
+});
+
+/**
+ * A zero from the widen has two meanings and the preview could not tell them
+ * apart (issue #452): no mail resembles the anchor, or the index holds nothing
+ * to compare it against. Only the second is a reason to keep the rule.
+ */
+describe("matchOrganize reporting an empty semantic index", () => {
+	it("flags a widen answered by an index with no vectors at all", async () => {
+		const { messageIds, semanticIndexEmpty, semanticUnavailable } =
+			await matchAccepted(
+				matchDeps(createMemoryVectorStore()),
+				ACCOUNT_CONFIG_ID,
+				predicate(),
+			);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(semanticIndexEmpty, true);
+		assert.equal(
+			semanticUnavailable,
+			false,
+			"an empty index is not a missing vector pipeline",
+		);
+	});
+
+	it("flags a widen whose anchor message has no chunk vectors to pool", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+		const deps: OrganizeMatchDeps = {
+			...matchDeps(store),
+			semantic: () => ({
+				buildAnchor: async () => null,
+				vectorStore: store,
+				embed: async () => ANCHOR_VECTOR,
+				embeddingId: CURRENT_EMBEDDING_ID,
+			}),
+		};
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(semanticIndexEmpty, true);
+	});
+
+	it("does not flag a populated index that simply holds nothing similar enough", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ORTHOGONAL_VECTOR)]);
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(
+			messageIds,
+			[],
+			"the one indexed message is below threshold",
+		);
+		assert.equal(
+			semanticIndexEmpty,
+			false,
+			"the index answered; the rule is what matched nothing",
+		);
+	});
+
+	it("does not flag a widen that matched", async () => {
+		const store = createMemoryVectorStore();
+		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
+
+		const { messageIds, semanticIndexEmpty } = await matchAccepted(
+			matchDeps(store),
+			ACCOUNT_CONFIG_ID,
+			predicate(),
+		);
+
+		assert.deepEqual(messageIds, ["msg-1"]);
+		assert.equal(semanticIndexEmpty, false);
+	});
+
+	it("does not flag a literal-only predicate, which never consults the index", async () => {
+		const { semanticIndexEmpty } = await matchAccepted(
+			matchDeps(createMemoryVectorStore(), [
+				candidate("msg-1", { subject: "Weekly newsletter" }),
+			]),
+			ACCOUNT_CONFIG_ID,
+			{
+				...predicate(),
+				anchorMessageId: "None",
+				literalClauses: [{ field: "Subject", value: "reservation" }],
+			},
+		);
+
+		assert.equal(semanticIndexEmpty, false);
 	});
 });
 
@@ -507,7 +630,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			candidate("msg-3", { subject: "Table reservation confirmed" }),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			{
@@ -526,27 +649,42 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 		);
 	});
 
-	it("rejects a body-content (HasWords) clause as a 400 rather than matching it against a preview", async () => {
+	it("refuses a body-content (HasWords) clause as a result rather than matching it against a preview", async () => {
 		const deps = vectorlessDeps([
 			candidate("msg-1", { subject: "Dinner reservation" }),
 		]);
 
-		await assert.rejects(
-			() =>
-				matchOrganize(deps, ACCOUNT_CONFIG_ID, {
-					...predicate(),
-					anchorMessageId: "None",
-					literalClauses: [{ field: "HasWords", value: "invoice" }],
-				}),
-			(error: unknown) => {
-				assert.ok(error instanceof BadRequestError);
-				assert.equal(error.statusCode, 400);
-				assert.match(error.message, /HasWords/);
-				return true;
+		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			anchorMessageId: "None",
+			literalClauses: [{ field: "HasWords", value: "invoice" }],
+		});
+
+		assert.deepEqual(
+			result.rejected,
+			{
+				reason: "BodyContentWithoutVectorPipeline",
+				message: BODY_CONTENT_REJECTION_MESSAGE,
 			},
 			"the vector-free literal path must not silently narrow a body match to a preview",
 		);
 		assert.equal(deps.semanticUsed(), false);
+	});
+
+	// The refusal is the same whichever way the vector-free path is reached, so
+	// an anchored predicate that degrades onto it cannot land in the corpus scan
+	// with a body clause it can only mis-evaluate (reader #463).
+	it("refuses a body-content clause reached through the degraded widen fallback", async () => {
+		const deps = vectorlessDeps([
+			candidate("msg-1", { subject: "Dinner reservation" }),
+		]);
+
+		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+			...predicate(),
+			literalClauses: [{ field: "HasWords", value: "invoice" }],
+		});
+
+		assert.equal(result.rejected?.reason, "BodyContentWithoutVectorPipeline");
 	});
 
 	it("degrades an anchor+clauses widen to the literal matches, flagged, instead of crashing", async () => {
@@ -555,7 +693,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			candidate("msg-2", { subject: "Weekly newsletter" }),
 		]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			{
@@ -571,14 +709,16 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 	it("degrades an anchor-only widen to an empty flagged result instead of crashing", async () => {
 		const deps = vectorlessDeps([candidate("msg-1"), candidate("msg-2")]);
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
+		const { messageIds, semanticUnavailable, semanticIndexEmpty } =
+			await matchAccepted(deps, ACCOUNT_CONFIG_ID, predicate());
 
 		assert.deepEqual(messageIds, []);
 		assert.equal(semanticUnavailable, true);
+		assert.equal(
+			semanticIndexEmpty,
+			false,
+			"a deployment with no vector pipeline has no index to call empty",
+		);
 	});
 
 	it("keeps widening from a drifted persisted anchor when no embedding model is available", async () => {
@@ -614,7 +754,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 				},
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [drifted],
 				put: async () => {
@@ -623,7 +763,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			},
 		};
 
-		const { messageIds, semanticUnavailable } = await matchOrganize(
+		const { messageIds, semanticUnavailable } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -655,7 +795,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 				embed: async () => [],
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => [],
 				put: async () => {
@@ -684,17 +824,17 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 
 		// The preview and the apply share the same matcher — the previewed set is
 		// exactly what gets applied.
-		const previewed = await matchOrganize(
+		const previewed = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
-		const applied = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const applied = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, p);
 		assert.deepEqual(previewed, applied);
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: matchDeps(store) },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
@@ -723,14 +863,14 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: matchDeps(store) },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -749,7 +889,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		]);
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -760,7 +900,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -799,7 +938,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			actionMailboxId: "mbox-target",
 		});
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -810,7 +949,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -834,7 +972,7 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		await store.upsert(matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
 		const p = predicate({ actionMailboxId: "mbox-target" });
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
@@ -846,7 +984,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -856,7 +993,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			{
 				client: tracked.client,
 				moveService: mover.moveService,
-				match: matchDeps(store),
 			},
 			ACCOUNT_CONFIG_ID,
 			matched,
@@ -878,153 +1014,68 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 	});
 });
 
-describe("applyOrganize resolves move precedence against current Active filters (reader #350)", () => {
-	it("suppresses an out-ranked move but still applies the label", async () => {
+/**
+ * A standing filter acts when a message is first seen and when the user presses
+ * "run rules now", and holds no claim afterwards. A later apply is the newer
+ * event, so it moves the mail — and because nothing is suppressed, `applied`
+ * counts moves that happened rather than moves that were skipped (reader #497).
+ */
+describe("a user-initiated apply outranks every standing filter (reader #497)", () => {
+	it("moves a hand-picked selection a standing filter claims for a different mailbox", async () => {
 		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		// The back-applied filter — "move to mbox-old" — is out-ranked by a
-		// more-recently-changed standing filter that currently claims msg-1 for a
-		// different destination.
-		const p = predicate({
-			actionLabelId: "lbl-1",
-			actionMailboxId: "mbox-old",
-		});
-		const newerFilter = filterItem({
-			filterId: "filter-newer",
+		const picked = ["msg-1", "msg-2", "msg-3"];
+		await store.upsert(picked.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
+		const p = predicate({ actionMailboxId: "mbox-projects" });
+		// The standing rule that filed all three into Archive in the first place —
+		// moving them back out is the whole point of the button.
+		const standing = filterItem({
+			filterId: "filter-github",
 			ruleChangedAt: 1_000,
 			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
+			actionMailboxId: "mbox-archive",
 			literalClauses: [{ field: "Subject", value: "reservation" }],
 		});
 
-		const { messageIds: matched } = await matchOrganize(
+		const { messageIds: matched } = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
 		const tracked = trackingClient({
-			activeFilters: [newerFilter],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
+			activeFilters: [standing],
+			threadMessages: Object.fromEntries(
+				picked.map((id) => [id, { subject: "Dinner reservation" }]),
+			),
 		});
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store),
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
 		);
 
-		assert.equal(result.applied, 1, "a suppressed move is not a failure");
+		assert.deepEqual(
+			mover.moves.map((move) => move.messageId).sort(),
+			picked,
+			"every hand-picked message moves",
+		);
+		assert.ok(
+			mover.moves.every(
+				(move) => move.destinationMailboxId === "mbox-projects",
+			),
+			"the destination is the one the user picked, not the standing filter's",
+		);
+		assert.equal(
+			result.applied,
+			mover.moves.length,
+			"the reported count equals the moves that actually happened",
+		);
 		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			tracked.labeled,
-			[{ messageId: "msg-1", labelId: "lbl-1" }],
-			"the additive label still applies even though the move is suppressed",
-		);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"the exclusive move is skipped in favor of the newer filter's own move",
-		);
-	});
-
-	it("moves the message when no other Active filter currently outranks it", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
-		// A different standing filter matches this message too, but agrees on the
-		// same destination — nothing to defer to.
-		const agreeingFilter = filterItem({
-			filterId: "filter-agrees",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-target",
-			literalClauses: [{ field: "Subject", value: "reservation" }],
-		});
-
-		const { messageIds: matched } = await matchOrganize(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [agreeingFilter],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			mover.moves.map((m) => m.messageId),
-			["msg-1"],
-			"the move proceeds exactly as it would have before this check existed",
-		);
-	});
-
-	it("suppresses an out-ranked move by a newer *semantic* filter's persisted anchor", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-old" });
-		const newerSemanticFilter = filterItem({
-			filterId: "filter-newer-semantic",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
-			hasAnchor: true,
-		});
-		const persistedAnchor: FilterAnchorItem = {
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			filterId: "filter-newer-semantic",
-			anchorEmbedding: ANCHOR_VECTOR,
-			anchorEmbeddingId: CURRENT_EMBEDDING_ID,
-			anchorSourceText: ANCHOR_SOURCE_TEXT,
-			anchorMessageId: "msg-anchor-2",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-
-		const { messageIds: matched } = await matchOrganize(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [newerSemanticFilter],
-			filterAnchorRows: [persistedAnchor],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: matchDeps(store, [], [persistedAnchor]),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"a newer semantic filter's own persisted anchor outranks the move",
+		assert.equal(
+			tracked.filterReads(),
+			0,
+			"the account's standing filters are not consulted at all",
 		);
 	});
 });
@@ -1033,20 +1084,16 @@ describe("applyOrganize resolves move precedence against current Active filters 
  * A same-dimension embedding-model swap leaves every persisted FilterAnchor
  * stamped with the old model's id and its vector in the old model's space.
  * Index-time matching repairs that lazily (RFC 039 Decision 1a); the
- * back-apply paths must do the same, or they score a current-model vector
- * against a stale-model anchor and silently disagree with the pipeline they
- * claim to mirror (reader #399).
+ * back-apply widen must do the same, or it queries with a stale-model vector
+ * and silently disagrees with the pipeline it claims to mirror (reader #399).
  */
 describe("back-apply repairs a drifted anchor the way index-time matching does (reader #399)", () => {
-	const staleAnchor = (
-		filterId: string,
-		// Written under the previous model: same dimensions, different space, so
-		// nothing but the id stamp distinguishes it from a usable anchor.
-		anchorEmbedding: number[] = ORTHOGONAL_VECTOR,
-	): FilterAnchorItem => ({
+	// Written under the previous model: same dimensions, different space, so
+	// nothing but the id stamp distinguishes it from a usable anchor.
+	const staleAnchor = (filterId: string): FilterAnchorItem => ({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		filterId,
-		anchorEmbedding,
+		anchorEmbedding: ORTHOGONAL_VECTOR,
 		anchorEmbeddingId: STALE_EMBEDDING_ID,
 		anchorSourceText: ANCHOR_SOURCE_TEXT,
 		anchorMessageId: "msg-anchor",
@@ -1070,7 +1117,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 				embed,
 				embeddingId: CURRENT_EMBEDDING_ID,
 			}),
-			listAccountFilterMessages: async () => [],
+			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
 				listByAccountConfig: async () => anchors,
 				put: async (input: CreateFilterAnchorInput) => {
@@ -1090,7 +1137,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		]);
 		const deps = currentModelDeps(store, [staleAnchor("filter-a")]);
 
-		const { messageIds } = await matchOrganize(
+		const { messageIds } = await matchAccepted(
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate(),
@@ -1108,104 +1155,6 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 		);
 		assert.deepEqual(deps.anchorPuts[0].anchorEmbedding, ANCHOR_VECTOR);
 		assert.equal(deps.anchorPuts[0].anchorSourceText, ANCHOR_SOURCE_TEXT);
-	});
-
-	it("filterCurrentlyMatches re-embeds a drifted anchor, so the drifted filter still outranks the move", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({
-			actionLabelId: "lbl-1",
-			actionMailboxId: "mbox-old",
-		});
-		const newerSemanticFilter = filterItem({
-			filterId: "filter-newer-semantic",
-			ruleChangedAt: 1_000,
-			actionChangedAt: 1_000,
-			actionMailboxId: "mbox-new",
-			hasAnchor: true,
-		});
-		const drifted = staleAnchor("filter-newer-semantic");
-
-		const { messageIds: matched } = await matchOrganize(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient({
-			activeFilters: [newerSemanticFilter],
-			filterAnchorRows: [drifted],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: currentModelDeps(store, [drifted]),
-			},
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.deepEqual(
-			mover.moves,
-			[],
-			"scored against the re-embedded anchor the newer filter contests the move; against the stale one it would silently lose",
-		);
-		assert.deepEqual(
-			tracked.anchorPuts.map((put) => [put.filterId, put.anchorEmbeddingId]),
-			[["filter-newer-semantic", CURRENT_EMBEDDING_ID]],
-			"the repair is written back in place, not left for the next pass",
-		);
-	});
-
-	it("keeps a failed re-embed isolated to its own filter rather than throwing out of the arbitration", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
-		// The stale vector would score a match, so scoring against it — which is
-		// exactly what this path did before the repair existed — suppresses the
-		// move. A stamp that cannot be honoured is not a match: the filter is
-		// skipped and loudly logged, and the rest of the pass is unaffected.
-		const drifted = staleAnchor("filter-broken-anchor", ANCHOR_VECTOR);
-		const tracked = trackingClient({
-			activeFilters: [
-				filterItem({
-					filterId: "filter-broken-anchor",
-					ruleChangedAt: 1_000,
-					actionChangedAt: 1_000,
-					actionMailboxId: "mbox-elsewhere",
-					hasAnchor: true,
-				}),
-			],
-			filterAnchorRows: [drifted],
-			threadMessages: { "msg-1": { subject: "Dinner reservation" } },
-		});
-		const mover = trackingMoveService();
-
-		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-				match: currentModelDeps(store, [drifted], async (text) => {
-					if (text === ANCHOR_SOURCE_TEXT) throw new Error("embedder refused");
-					return ANCHOR_VECTOR;
-				}),
-			},
-			ACCOUNT_CONFIG_ID,
-			["msg-1"],
-			p,
-		);
-
-		assert.equal(result.applied, 1);
-		assert.equal(result.failed, 0);
-		assert.deepEqual(
-			mover.moves.map((move) => move.destinationMailboxId),
-			["mbox-target"],
-			"an un-repairable anchor skips its own filter — it neither decides the arbitration on a stale score nor aborts the pass",
-		);
 	});
 });
 
@@ -1232,7 +1181,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", {}),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
@@ -1248,7 +1197,7 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			candidate("msg-3", { from: "attacker@github.com.evil.example" }),
 		]);
 
-		const { messageIds } = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
+		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			anchorMessageId: "None",
 			literalClauses: [{ field: "FromDomain", value: "github.com" }],
@@ -1270,13 +1219,13 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			bodyChunk("msg-2", ANCHOR_VECTOR, { listId: "other.list.example" }),
 		]);
 
-		const byListId = await matchOrganize(matchDeps(store), ACCOUNT_CONFIG_ID, {
+		const byListId = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, {
 			...predicate(),
 			literalClauses: [{ field: "ListId", value: "actions.github.com" }],
 		});
 		assert.deepEqual(byListId.messageIds, ["msg-1"]);
 
-		const byFromDomain = await matchOrganize(
+		const byFromDomain = await matchAccepted(
 			matchDeps(store),
 			ACCOUNT_CONFIG_ID,
 			{
@@ -1299,14 +1248,14 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
 		});
 
-		const previewed = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
-		const applied = await matchOrganize(deps, ACCOUNT_CONFIG_ID, p);
+		const previewed = await matchAccepted(deps, ACCOUNT_CONFIG_ID, p);
+		const applied = await matchAccepted(deps, ACCOUNT_CONFIG_ID, p);
 		assert.deepEqual(previewed, applied);
 		assert.deepEqual(previewed.messageIds, ["msg-1", "msg-2"]);
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client, match: deps },
+			{ client: tracked.client },
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
@@ -1318,5 +1267,177 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 			"msg-1",
 			"msg-2",
 		]);
+	});
+});
+
+/**
+ * The corpus read a real deployment gets: the store evaluates the terms and
+ * the caller pages the MATCHES. Modelled here rather than stubbed with a fixed
+ * array so a matcher that reads only the newest page cannot pass.
+ */
+const storeBackedDeps = (
+	rows: readonly OrganizeCandidate[],
+): OrganizeMatchDeps & { pagesRead: () => number } => {
+	let pagesRead = 0;
+	const termMatches = (
+		term: { field: string; contains: string },
+		row: OrganizeCandidate,
+	): boolean => {
+		const needle = term.contains.toLowerCase();
+		if (term.field === "subject") {
+			return row.message.subject.toLowerCase().includes(needle);
+		}
+		if (term.field === "listId") {
+			return row.message.listId.toLowerCase().includes(needle);
+		}
+		return `${row.message.fromName} ${row.message.from}`
+			.toLowerCase()
+			.includes(needle);
+	};
+	return {
+		semantic: () => {
+			throw moduleNotFound();
+		},
+		listAccountFilterMessages: async (_accountConfigId, query) => {
+			pagesRead += 1;
+			const narrowed = rows.filter((row) =>
+				query.terms.length === 0
+					? true
+					: query.operator === "or"
+						? query.terms.some((term) => termMatches(term, row))
+						: query.terms.every((term) => termMatches(term, row)),
+			);
+			const offset = query.continuationToken
+				? Number(query.continuationToken)
+				: 0;
+			const items = narrowed.slice(offset, offset + query.limit);
+			const next = offset + items.length;
+			return {
+				items,
+				continuationToken: next < narrowed.length ? String(next) : undefined,
+			};
+		},
+		filterAnchors: {
+			listByAccountConfig: async () => [],
+			put: async () => {
+				throw new Error("unreachable");
+			},
+		},
+		pagesRead: () => pagesRead,
+	};
+};
+
+describe("literal matching bounds the result, not the corpus (reader #459)", () => {
+	const quietSender = candidate("quiet-sender", {
+		from: "noreply@bank.example",
+		fromName: "Statements",
+		subject: "Your March statement",
+	});
+	const newerNoise = Array.from({ length: ORGANIZE_MATCH_LIMIT + 1 }, (_, i) =>
+		candidate(`noise-${i}`, {
+			from: "digest@other.example",
+			fromName: "Digest",
+			subject: `Daily digest ${i}`,
+		}),
+	);
+
+	it("matches a domain rule against mail older than a whole page of newer misses", async () => {
+		const deps = storeBackedDeps([...newerNoise, quietSender]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["quiet-sender"]);
+	});
+
+	it("reads one narrowed page rather than paging the whole mailbox", async () => {
+		const deps = storeBackedDeps([...newerNoise, quietSender]);
+
+		await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "From", value: "noreply@bank.example" }],
+			}),
+		);
+
+		assert.equal(deps.pagesRead(), 1);
+	});
+
+	it("still refines what the store returned: a term is a narrowing, not the verdict", async () => {
+		const deps = storeBackedDeps([
+			candidate("spoofed", { from: "billing@bank.example.evil.test" }),
+			quietSender,
+		]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["quiet-sender"]);
+	});
+
+	it("caps the matches at the limit when more of the corpus matches", async () => {
+		const matching = Array.from({ length: ORGANIZE_MATCH_LIMIT * 2 }, (_, i) =>
+			candidate(`hit-${i}`, { from: "noreply@bank.example" }),
+		);
+		const deps = storeBackedDeps(matching);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.equal(messageIds.length, ORGANIZE_MATCH_LIMIT);
+	});
+
+	it("never queries for clauses nothing can satisfy", async () => {
+		const deps = storeBackedDeps([quietSender]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "From", value: "   " }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, []);
+		assert.equal(deps.pagesRead(), 0);
+	});
+
+	it("counts one match for mail filed in two folders", async () => {
+		const deps = storeBackedDeps([
+			candidate("filed-twice", { from: "noreply@bank.example" }),
+			candidate("filed-twice", { from: "noreply@bank.example" }),
+		]);
+
+		const { messageIds } = await matchAccepted(
+			deps,
+			ACCOUNT_CONFIG_ID,
+			predicate({
+				anchorMessageId: "None",
+				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
+			}),
+		);
+
+		assert.deepEqual(messageIds, ["filed-twice"]);
 	});
 });

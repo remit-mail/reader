@@ -58,6 +58,21 @@ function render(
 	);
 }
 
+function picker(html: string, roleLabel: string): string {
+	const start = html.indexOf(`aria-label="Folder for ${roleLabel}"`);
+	assert.ok(start >= 0, `${roleLabel} has a picker`);
+	return html.slice(start, html.indexOf("</select>", start));
+}
+
+/** Option texts a user could choose that would leave the role unfilled. */
+function clearingOptions(markup: string): string[] {
+	return [...markup.matchAll(/<option([^>]*)>([^<]*)</g)]
+		.filter(
+			([, attrs]) => attrs.includes('value=""') && !attrs.includes("disabled"),
+		)
+		.map(([, , text]) => text);
+}
+
 describe("RoleAppointmentList", () => {
 	it("titles the section with the account email", () => {
 		const html = render({ inbox: appointed("mb-inbox") });
@@ -83,7 +98,6 @@ describe("RoleAppointmentList", () => {
 		const html = render({});
 		assert.match(html, /Concepten · 340 msgs/);
 		assert.match(html, /Drafts · 0 msgs/);
-		assert.match(html, /None/);
 	});
 
 	it("shows the appointed folder's path and count under the role", () => {
@@ -285,5 +299,41 @@ describe("RoleAppointmentList — the server’s own delimiter (#877)", () => {
 		const other = html.slice(html.indexOf("Other folders"));
 		assert.match(other, />Nieuwsbrieven</);
 		assert.doesNotMatch(other, />INBOX.Projects.Nieuwsbrieven</);
+	});
+});
+
+describe("a canonical role cannot be unset (#873)", () => {
+	it("offers no choice that clears an appointed role", () => {
+		const drafts = picker(
+			render({ drafts: appointed("mb-concepten") }),
+			"Drafts",
+		);
+		assert.deepEqual(clearingOptions(drafts), []);
+		assert.doesNotMatch(drafts, />None</);
+	});
+
+	it("offers no choice that clears an unfilled role either", () => {
+		const archive = picker(
+			render({ archive: { mailboxId: null, source: "None" } }),
+			"Archive",
+		);
+		assert.deepEqual(clearingOptions(archive), []);
+		assert.doesNotMatch(archive, />None</);
+	});
+
+	it("names the unfilled picker with a placeholder nobody can pick", () => {
+		const archive = picker(
+			render({ archive: { mailboxId: null, source: "None" } }),
+			"Archive",
+		);
+		assert.match(archive, /<option[^>]*disabled[^>]*>Choose a folder</);
+	});
+
+	it("drops the placeholder once a folder fills the role", () => {
+		const drafts = picker(
+			render({ drafts: appointed("mb-concepten") }),
+			"Drafts",
+		);
+		assert.doesNotMatch(drafts, /Choose a folder/);
 	});
 });

@@ -12,7 +12,11 @@ parity — this is the local incarnation.
 - `apisix.yaml` — **generated** by `generate-config.ts` from
   `build/remit-openapi3/openapi.json`. One route per OpenAPI path, each guarded
   by the `openid-connect` plugin in `bearer_only` mode. `/api/auth/*` (token
-  minting + JWKS) and `/health` stay public.
+  minting + JWKS) and `/health` stay public, as does each path listed in
+  `PUBLIC_ROUTES` (`src/route-table.ts`) — today only the Microsoft OAuth
+  callback, which Microsoft redirects the browser to with no token to send. A
+  spec operation marked `NoAuth` does not become public here on its own; the
+  list is edited by hand.
 - The `openid-connect` plugin discovers the JWKS via an OIDC discovery document
   and follows key rotation automatically (the capability Kong gates behind
   Enterprise). better-auth does not serve a discovery document, so the dev-server

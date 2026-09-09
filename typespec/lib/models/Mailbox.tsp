@@ -120,17 +120,17 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   parentMailboxId: string = "None";
 
-  @doc("Sync status for mailbox operations (create, rename, delete)")
+  @doc("Which folder mutation is outstanding, read as a pair with `pendingPath` (docs/architecture/folder-rename-and-delete.md D1, D3). Total: a row written without one is `synced`, because a folder the server just told us about is confirmed. Four values carry six states — `pending` covers a create and a rename in flight, `failed` covers a failed rename and a failed delete — so every guard and every transition predicate names the pair, never this field alone.")
   @visibility(Lifecycle.Read)
-  syncStatus?: MailboxSyncStatus;
+  syncStatus: MailboxSyncStatus = MailboxSyncStatus.synced;
+
+  @doc("The path a recorded rename is moving this folder to. Absent unless a rename is in flight or has just failed, which is what tells a create in flight from a rename in flight (D2, D3). `fullPath` stays the path the server holds throughout, so a failed rename is this field cleared rather than a subtree of paths restored. Invariant: non-null only while `syncStatus` is `pending` or `failed`.")
+  @visibility(Lifecycle.Read)
+  pendingPath?: String512;
 
   @doc("Cursor integrity state machine for stored UIDs (epic #1281 invariant 5, issue #1272). Total per RFC 032: defaults to `normal` rather than being absent. A row written before this field existed reads back as `normal` (unset DynamoDB/Postgres attribute deserializes to the schema default).")
   @visibility(Lifecycle.Read)
   cursorState: MailboxCursorState = MailboxCursorState.normal;
-
-  @doc("Previous path before rename (used during RENAME sync)")
-  @visibility(Lifecycle.Read)
-  oldPath?: String512;
 
   @doc("Denormalized list of IMAP SPECIAL-USE designations (RFC 6154). Populated from the same `\\Sent`, `\\Drafts`, etc. attributes the server reports during LIST. Stored on the row to avoid an N+1 join when listing mailboxes.")
   @visibility(Lifecycle.Read)
@@ -288,6 +288,7 @@ model MailboxResponse {
       | "highWaterMarkUid"
       | "lastMessageSyncAt"
       | "syncStatus"
+      | "pendingPath"
       | "createdAt"
       | "updatedAt"
   >;

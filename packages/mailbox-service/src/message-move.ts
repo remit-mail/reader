@@ -10,8 +10,12 @@ import type {
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
-import { FolderRoleUnresolvedError } from "@remit/data-ports/errors";
+import {
+	FolderRoleUnresolvedError,
+	MessagePlacementUnsettledError,
+} from "@remit/data-ports/errors";
 import {
 	type FolderRoleUnresolvedReason,
 	NO_TRASH_FOLDER_REASON,
@@ -25,10 +29,27 @@ import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import {
 	CanonicalMailboxRole,
+	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	carriesForeignUid,
+	placementBindingOf,
+	waitForPlacementToSettle,
+} from "./placement-settled.js";
+
+/**
+ * What a delete batch did not claim. A row whose placement changed between the
+ * read that decided this delete and the mark that recorded it belongs to
+ * whoever changed it (docs/architecture/imap-mutations.md R3), so this delete
+ * leaves it alone — and says which, because the client removed it optimistically
+ * and a row that reappears unexplained is a failure the user cannot act on.
+ */
+export interface DeleteMessagesOutcome {
+	refusedMessageIds: string[];
+}
 
 /**
  * Event types for message move/delete operations.
@@ -120,7 +141,12 @@ export interface MessageMoveConfig {
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: MessageMoveLogger;
+	moveSettleTimeoutMs?: number;
+	moveSettlePollMs?: number;
 }
+
+const DEFAULT_MOVE_SETTLE_TIMEOUT_MS = 5_000;
+const DEFAULT_MOVE_SETTLE_POLL_MS = 250;
 
 /**
  * The account resolves no Trash folder, so a move-to-Trash delete has nowhere
@@ -162,7 +188,8 @@ export class StaleTrashAppointmentError extends FolderRoleUnresolvedError {
 
 /**
  * A folder resolves as Trash by its name alone. Enough to move mail into,
- * never enough to expunge — so only the Empty Trash path raises it.
+ * never enough to expunge — raised by Empty Trash and by a delete that would
+ * expunge a message already sitting in that folder.
  */
 export class UnconfirmedTrashMailboxError extends FolderRoleUnresolvedError {
 	name = "UnconfirmedTrashMailboxError";
@@ -238,6 +265,8 @@ export class MessageMoveService {
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: MessageMoveLogger;
+	private moveSettleTimeoutMs: number;
+	private moveSettlePollMs: number;
 
 	constructor(config: MessageMoveConfig) {
 		this.messageService = config.messageService;
@@ -247,6 +276,10 @@ export class MessageMoveService {
 		this.addressService = config.addressService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
+		this.moveSettleTimeoutMs =
+			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
+		this.moveSettlePollMs =
+			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
 
 		this.sqs = createQueueProducer({
 			queueUrl: config.sqsQueueUrl,
@@ -266,9 +299,8 @@ export class MessageMoveService {
 		messageId: string,
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
-	): Promise<void> => {
-		await this.deleteMessages(accountConfigId, [messageId], accountId, options);
-	};
+	): Promise<DeleteMessagesOutcome> =>
+		this.deleteMessages(accountConfigId, [messageId], accountId, options);
 
 	/**
 	 * Delete multiple messages using batch operations.
@@ -283,12 +315,17 @@ export class MessageMoveService {
 		messageIds: string[],
 		accountId: string,
 		options: DeleteOptions = { toTrash: true },
-	): Promise<void> => {
-		if (messageIds.length === 0) return;
+	): Promise<DeleteMessagesOutcome> => {
+		if (messageIds.length === 0) return { refusedMessageIds: [] };
 
 		// Batch get all messages
-		const messages = await this.messageService.get(messageIds);
-		if (messages.length === 0) return;
+		const rows = await this.messageService.get(messageIds);
+		if (rows.length === 0) return { refusedMessageIds: [] };
+
+		// Ahead of the Trash gates below, which compare `mailboxId` against the
+		// Trash folder: an in-flight move makes that comparison answer for a
+		// folder the message has not reached.
+		const messages = await this.settledPlacements(rows, accountId);
 
 		// Get unique mailbox IDs and batch fetch mailboxes
 		const uniqueMailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
@@ -307,12 +344,13 @@ export class MessageMoveService {
 		const wantsPermanentDelete =
 			options.permanent === true || options.toTrash === false;
 
-		const trashGate = wantsPermanentDelete
+		const trashResolution = wantsPermanentDelete
 			? null
-			: trashMailboxAt(
-					await this.mailboxSpecialUseService.resolveTrashRole(accountId),
-					"resolved",
-				);
+			: await this.mailboxSpecialUseService.resolveTrashRole(accountId);
+
+		const trashGate = trashResolution
+			? trashMailboxAt(trashResolution, "resolved")
+			: null;
 
 		if (trashGate && !trashGate.allowed) {
 			this.log.error(
@@ -324,21 +362,65 @@ export class MessageMoveService {
 
 		const trashMailbox = trashGate ? trashGate.mailbox : null;
 
+		// A message already sitting in the folder resolved as Trash deletes by
+		// expunging it, not by moving it — the same unrecoverable act Empty
+		// Trash performs, so it demands the same confirmed evidence. The name
+		// guess ("resolved") is enough to file mail into; it is never enough to
+		// destroy mail that is already there. Checked once, before any local
+		// write, so a batch that touches such a message is refused whole rather
+		// than partially expunged.
+		if (!wantsPermanentDelete && trashResolution && trashMailbox) {
+			const deletesInPlace = messages.some(
+				(message) => message.mailboxId === trashMailbox.mailboxId,
+			);
+
+			if (deletesInPlace) {
+				const confirmedTrashGate = trashMailboxAt(trashResolution, "confirmed");
+				if (!confirmedTrashGate.allowed) {
+					this.log.error(
+						{
+							accountId,
+							messageCount: messages.length,
+							reason: confirmedTrashGate.reason,
+						},
+						"Refused to delete: this account's Trash is not confirmed",
+					);
+					throw trashRefusal(confirmedTrashGate.reason, accountId);
+				}
+			}
+		}
+
 		// Group messages by operation type
-		const moveToTrashMessages: Array<{
+		type DeleteEntry = {
 			messageId: string;
 			message: { mailboxId: string; uid: number };
 			sourceMailbox: { mailboxId: string; fullPath: string };
-		}> = [];
-		const permanentDeleteMessages: Array<{
-			messageId: string;
-			message: { mailboxId: string; uid: number };
-			sourceMailbox: { mailboxId: string; fullPath: string };
-		}> = [];
+		};
+		const moveToTrashMessages: DeleteEntry[] = [];
+		const permanentDeleteMessages: DeleteEntry[] = [];
+
+		// Rows whose placement changed between the read above and the mark below,
+		// so this delete never claimed them. Reported rather than skipped in
+		// silence: the client removed them optimistically, and a row that
+		// reappears with nothing said is the dead-button failure again (#1229).
+		const refused: string[] = [];
 
 		for (const message of messages) {
 			const sourceMailbox = mailboxMap.get(message.mailboxId);
-			if (!sourceMailbox) continue;
+			if (!sourceMailbox) {
+				// The folder lookup is scoped to one account, so a selection that
+				// spans accounts — the daily brief lists every account's mail —
+				// leaves this row's mailbox unresolved. Nothing about it was
+				// written and no event was enqueued, so it is a refusal like any
+				// other; dropping it silently answered "deleted" over a message
+				// still sitting where it was.
+				refused.push(message.messageId);
+				this.log.info(
+					{ accountId, messageId: message.messageId },
+					"Refused delete: this message's folder does not belong to this account",
+				);
+				continue;
+			}
 
 			const isInTrash =
 				trashMailbox !== null && message.mailboxId === trashMailbox.mailboxId;
@@ -365,15 +447,48 @@ export class MessageMoveService {
 
 		// Process move to trash
 		if (trashMailbox && moveToTrashMessages.length > 0) {
+			// Every message in the batch shares the config, so its Junk and Trash
+			// folders resolve once rather than once per message.
+			const configJunkRoles =
+				await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+					accountConfigId,
+				);
 			for (const { messageId, message, sourceMailbox } of moveToTrashMessages) {
-				// Update local state optimistically
-				await this.messageService.updateForMove(messageId, {
-					mailboxId: trashMailbox.mailboxId,
-					status: MessageStatus.moving,
-					syncStatus: MessageSyncStatus.pending,
-					originalMailboxId: sourceMailbox.mailboxId,
-					originalUid: message.uid,
-				});
+				// The optimistic write is a transition off the row this call read
+				// (imap-mutations R3). Several folder lookups stand between the read
+				// and here, and PLACEMENT_MOVE_PUSH runs on a queue this account's
+				// FIFO group does not order, so the row can settle onto a different
+				// folder and uid in between. Writing anyway would stamp `moving` and
+				// the OLD uid over the new placement, and the event enqueued below
+				// would name a uid the source no longer holds — a delete aimed at
+				// whatever message has since taken that number.
+				const marked = await this.messageService.transitionPlacement(
+					messageId,
+					{
+						// `active`, not whatever the row was read as: a row already
+						// `moving` or `deleting` is mid-mutation, and marking it again
+						// would enqueue a second event against the same uid.
+						status: MessageStatus.active,
+						mailboxId: message.mailboxId,
+						uid: message.uid,
+					},
+					{
+						mailboxId: trashMailbox.mailboxId,
+						status: MessageStatus.moving,
+						syncStatus: MessageSyncStatus.pending,
+						abandonedMutation: MessageMutation.none,
+						originalMailboxId: sourceMailbox.mailboxId,
+						originalUid: message.uid,
+					},
+				);
+				if (!marked) {
+					refused.push(messageId);
+					this.log.info(
+						{ accountId, messageId },
+						"Refused delete: this message's placement changed after it was read",
+					);
+					continue;
+				}
 
 				// Update ThreadMessage
 				await this.updateThreadMessageForMove(
@@ -383,7 +498,10 @@ export class MessageMoveService {
 					true,
 				);
 
-				await this.addressService.reconcileJunkOnlyForMessage(messageId);
+				await this.addressService.reconcileJunkOnlyForMessage(
+					messageId,
+					configJunkRoles,
+				);
 
 				events.push({
 					type: "MESSAGE_DELETE",
@@ -416,11 +534,36 @@ export class MessageMoveService {
 			message,
 			sourceMailbox,
 		} of permanentDeleteMessages) {
-			// Update local state optimistically
-			await this.messageService.update(messageId, {
-				status: MessageStatus.deleting,
-				syncStatus: MessageSyncStatus.pending,
-			});
+			// A transition off the row this call read, like the trash path above
+			// (imap-mutations R3). The expunge below is aimed at a specific uid in
+			// a specific folder, so a row that has moved since the read must not be
+			// marked for it: a restore out of Trash settling in between would be
+			// overwritten with `deleting`, and the event would carry the uid Trash
+			// no longer holds.
+			const marked = await this.messageService.transitionPlacement(
+				messageId,
+				{
+					// `active` for the same reason as the trash path above: a second
+					// press on a row already `deleting` would enqueue a duplicate
+					// expunge rather than refusing.
+					status: MessageStatus.active,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.deleting,
+					syncStatus: MessageSyncStatus.pending,
+					abandonedMutation: MessageMutation.none,
+				},
+			);
+			if (!marked) {
+				refused.push(messageId);
+				this.log.info(
+					{ accountId, messageId },
+					"Refused permanent delete: this message's placement changed after it was read",
+				);
+				continue;
+			}
 
 			// Delete ThreadMessage rows up-front (one row per mailbox copy).
 			// The IMAP worker also deletes them once the IMAP DELETE succeeds —
@@ -452,10 +595,18 @@ export class MessageMoveService {
 
 		// Batch send events to SQS
 		await this.enqueueEventsBatch(events);
+
+		return { refusedMessageIds: refused };
 	};
 
 	/**
 	 * Move a message to another mailbox.
+	 *
+	 * Waits, never reconciles (imap-mutations R2): the folder and uid go to the
+	 * server as one pair, and once the worker has moved the destination's own
+	 * message at that uid there is no reference left to repair. The person is
+	 * looking at the result, so blocking for the sub-second a move takes is the
+	 * cheap half; on timeout the move refuses ahead of any local write.
 	 *
 	 * @param messageId - Message to move
 	 * @param destinationMailboxId - Destination mailbox ID
@@ -467,13 +618,32 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
-		const message = await this.messageService.get(messageId);
+		await this.moveSettledMessage(
+			accountConfigId,
+			await this.settledPlacement(
+				await this.messageService.get(messageId),
+				accountId,
+			),
+			destinationMailboxId,
+			accountId,
+		);
+	};
+
+	private moveSettledMessage = async (
+		accountConfigId: string,
+		message: MessageItem,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<void> => {
+		const messageId = message.messageId;
 
 		// IMAP has no same-mailbox MOVE: the server copies the message, expunges
 		// the original and hands back a fresh UID, so a request that asks for the
 		// mailbox the message is already in destroys its identity to reach the
 		// state it was already in. The requested end state holds, so there is
-		// nothing to record as pending and nothing to enqueue.
+		// nothing to record as pending and nothing to enqueue. The row is settled
+		// by the time this compares, so the folder it names is one the message has
+		// actually reached rather than one an in-flight move wrote optimistically.
 		if (message.mailboxId === destinationMailboxId) {
 			this.log.info(
 				{ messageId, mailboxId: destinationMailboxId },
@@ -501,14 +671,41 @@ export class MessageMoveService {
 			trashMailbox && message.mailboxId === trashMailbox.mailboxId,
 		);
 
-		// Update local state optimistically
-		await this.messageService.updateForMove(messageId, {
-			mailboxId: destinationMailboxId,
-			status: MessageStatus.moving,
-			syncStatus: MessageSyncStatus.pending,
-			originalMailboxId: sourceMailbox.mailboxId,
-			originalUid: message.uid,
-		});
+		// The optimistic write is a transition off the row this call read
+		// (imap-mutations R3). Three mailbox lookups stand between the read and
+		// here, and PLACEMENT_MOVE_PUSH runs on a queue this account's FIFO group
+		// does not order, so the row can settle onto a different folder and uid in
+		// between. A blind write would stamp `moving` and the OLD uid over that
+		// placement, leaving a pair `carriesForeignUid` calls consistent, and the
+		// event below would send the worker after whatever now holds the old uid.
+		const moved = await this.messageService.transitionPlacement(
+			messageId,
+			{
+				status: MessageStatus.active,
+				mailboxId: message.mailboxId,
+				uid: message.uid,
+			},
+			{
+				mailboxId: destinationMailboxId,
+				status: MessageStatus.moving,
+				syncStatus: MessageSyncStatus.pending,
+				abandonedMutation: MessageMutation.none,
+				originalMailboxId: sourceMailbox.mailboxId,
+				originalUid: message.uid,
+			},
+		);
+		if (!moved) {
+			this.log.error(
+				{ accountId, messageId, destinationMailboxId },
+				"Refused: this message's placement changed while the move was being prepared",
+			);
+			throw new MessagePlacementUnsettledError(
+				`Message ${messageId} was not moved: something else changed where it is while this move was being prepared`,
+				accountId,
+				messageId,
+				"in_flight",
+			);
+		}
 
 		// Update ThreadMessage
 		await this.updateThreadMessageForMove(
@@ -518,7 +715,12 @@ export class MessageMoveService {
 			isMovingToTrash,
 		);
 
-		await this.addressService.reconcileJunkOnlyForMessage(messageId);
+		await this.addressService.reconcileJunkOnlyForMessage(
+			messageId,
+			await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+				accountConfigId,
+			),
+		);
 
 		// If moving FROM Trash, clear isDeleted
 		if (isMovingFromTrash) {
@@ -564,10 +766,18 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<void> => {
-		for (const messageId of messageIds) {
-			await this.moveMessage(
+		// Every row is settled before the first move is written, so the batch's
+		// wait is one row's ceiling rather than the sum across it, and a refusal
+		// lands before any part of the batch has committed.
+		const sources = await this.settledPlacements(
+			await this.messageService.get(messageIds),
+			accountId,
+		);
+
+		for (const source of sources) {
+			await this.moveSettledMessage(
 				accountConfigId,
-				messageId,
+				source,
 				destinationMailboxId,
 				accountId,
 			);
@@ -589,7 +799,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string> => {
-		const sourceMessage = await this.messageService.get(messageId);
+		return this.copySettledMessage(
+			accountConfigId,
+			await this.settledPlacement(
+				await this.messageService.get(messageId),
+				accountId,
+			),
+			destinationMailboxId,
+			accountId,
+		);
+	};
+
+	private copySettledMessage = async (
+		accountConfigId: string,
+		sourceMessage: MessageItem,
+		destinationMailboxId: string,
+		accountId: string,
+	): Promise<string> => {
+		const messageId = sourceMessage.messageId;
 		const sourceMailbox = await this.mailboxService.get(
 			accountId,
 			sourceMessage.mailboxId,
@@ -630,6 +857,11 @@ export class MessageMoveService {
 			// permanently `uncategorized` while its body says it is fully synced
 			// (issue #45).
 			category: sourceMessage.category,
+			// The record of whether that category was the classifier's answer travels
+			// with it (issue #331). Defaulting the copy to `NotExamined` would put a
+			// row no classifier will ever reach — its body is already stored — into
+			// the cohort a backfill selects as never examined.
+			classificationState: sourceMessage.classificationState,
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
 
@@ -660,6 +892,10 @@ export class MessageMoveService {
 			isDeleted: false,
 			snippet: sourceThreadMessage.snippet,
 			category: sourceThreadMessage.category,
+			// Same reason as `category` above, and the same source row: the copy
+			// inherits a stored body, so no classifying pass ever runs over it to
+			// derive a `listId` of its own (issue #331).
+			listId: sourceThreadMessage.listId,
 		});
 
 		this.log.info(
@@ -706,15 +942,24 @@ export class MessageMoveService {
 		destinationMailboxId: string,
 		accountId: string,
 	): Promise<string[]> => {
+		// Every row is settled before the first copy is written, so the batch's
+		// wait is one row's ceiling rather than the sum across it, and a refusal
+		// lands before any part of the batch has committed.
+		const sources = await this.settledPlacements(
+			await this.messageService.get(messageIds),
+			accountId,
+		);
+
 		const newMessageIds: string[] = [];
-		for (const messageId of messageIds) {
-			const newId = await this.copyMessage(
-				accountConfigId,
-				messageId,
-				destinationMailboxId,
-				accountId,
+		for (const source of sources) {
+			newMessageIds.push(
+				await this.copySettledMessage(
+					accountConfigId,
+					source,
+					destinationMailboxId,
+					accountId,
+				),
 			);
-			newMessageIds.push(newId);
 		}
 		return newMessageIds;
 	};
@@ -780,16 +1025,55 @@ export class MessageMoveService {
 			trashMailbox.mailboxId,
 		);
 
-		const messages = await this.messageService.listAllByMailbox(
+		const rows = await this.messageService.listAllByMailbox(
 			trashMailbox.mailboxId,
 		);
 
-		// Mark all as deleting locally
-		for (const message of messages) {
-			await this.messageService.update(message.messageId, {
-				status: MessageStatus.deleting,
-				syncStatus: MessageSyncStatus.pending,
-			});
+		// Reconciles, never waits (imap-mutations R2). A row whose move into
+		// Trash has not settled names this folder while still carrying the SOURCE
+		// folder's uid, and marking it `deleting` overwrites the only marker that
+		// says so: its own MESSAGE_MOVE then reads the row as settled and returns
+		// without moving anything, and the worker's expunge binds that borrowed
+		// uid against whatever Trash really holds at it. Left as it stands, that
+		// move settles the row on its own, so the message is in Trash by the time
+		// the sweep reaches it and goes with the rest of this same press — only
+		// the count below is one short of what the sweep ends up removing.
+		//
+		// `carriesForeignUid`, the same predicate the sweep applies (#1217).
+		// The binding form reads `status` too, and `status` is exactly what this
+		// mark is about to overwrite, so the two halves of one gate would have
+		// disagreed the moment the mark landed.
+		const candidates = rows.filter((message) => !carriesForeignUid(message));
+
+		// Each mark is a transition off the row as it was just read
+		// (imap-mutations R3), not a blind write onto a snapshot. The rows are
+		// held by nothing between the listing and here, and PLACEMENT_MOVE_PUSH
+		// runs on a standard queue that this account's FIFO group does not order,
+		// so a row can move out from under the sweep. A lost predicate means
+		// another lane won: the row is left alone and not counted, rather than
+		// marked `deleting` for an expunge that would bind somebody else's uid.
+		const messages: MessageItem[] = [];
+		for (const message of candidates) {
+			const marked = await this.messageService.transitionPlacement(
+				message.messageId,
+				{
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.deleting,
+					syncStatus: MessageSyncStatus.pending,
+				},
+			);
+			if (!marked) {
+				this.log.info(
+					{ accountId, messageId: message.messageId },
+					"Empty Trash skipped a message whose placement changed while the folder was being read",
+				);
+				continue;
+			}
+			messages.push(marked);
 			await this.updateThreadMessageDeleted(
 				accountConfigId,
 				message.messageId,
@@ -802,6 +1086,7 @@ export class MessageMoveService {
 				accountId,
 				trashMailboxId: trashMailbox.mailboxId,
 				count: messages.length,
+				skipped: rows.length - messages.length,
 			},
 			"Marked all trash messages for deletion (local)",
 		);
@@ -822,6 +1107,53 @@ export class MessageMoveService {
 
 		return { deletedCount: messages.length };
 	};
+
+	private refusePlacement = (
+		message: MessageItem,
+		accountId: string,
+	): never => {
+		this.log.error(
+			{ accountId, messageId: message.messageId },
+			"Refused: this message's folder and uid do not name the same message",
+		);
+		throw new MessagePlacementUnsettledError(
+			`Message ${message.messageId} was not acted on: its folder and uid do not name the same message`,
+			accountId,
+			message.messageId,
+			"in_flight",
+		);
+	};
+
+	private settledPlacement = async (
+		message: MessageItem,
+		accountId: string,
+	): Promise<MessageItem> => {
+		if (placementBindingOf(message) === "consistent") return message;
+
+		const settled = await waitForPlacementToSettle(
+			this.messageService,
+			message.messageId,
+			{
+				timeoutMs: this.moveSettleTimeoutMs,
+				pollMs: this.moveSettlePollMs,
+			},
+		);
+		if (placementBindingOf(settled) === "consistent") return settled;
+		return this.refusePlacement(settled, accountId);
+	};
+
+	/**
+	 * Settle a whole batch before any of it is acted on, so one unsettled row
+	 * refuses the batch whole rather than leaving part of it expunged, and the
+	 * batch's total wait is one row's ceiling rather than the sum across it.
+	 */
+	private settledPlacements = async (
+		messages: MessageItem[],
+		accountId: string,
+	): Promise<MessageItem[]> =>
+		Promise.all(
+			messages.map((message) => this.settledPlacement(message, accountId)),
+		);
 
 	/**
 	 * Update ThreadMessage for move operations.

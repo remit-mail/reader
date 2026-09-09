@@ -19,6 +19,12 @@ export interface Mailbox {
 	messageCount?: number;
 	/** `pending` until the imap-worker confirms the folder on the server, then `synced`. */
 	syncStatus?: "synced" | "pending" | "failed" | "deleting";
+	/**
+	 * Where a rename is aiming. The folder keeps `fullPath` — the path the mail
+	 * server holds — until the RENAME lands, so this is the only field that says
+	 * a rename is in flight rather than a create.
+	 */
+	pendingPath?: string;
 }
 
 /**
@@ -34,6 +40,7 @@ export interface MailboxSyncProgress {
 	phase: string;
 	messagesTotal: number;
 	messagesSynced: number;
+	highWaterMarkUid: number;
 	lastSyncedAt?: number;
 }
 
@@ -114,6 +121,29 @@ export interface MessageSummary {
 	spamReport?: { reportedAt: number };
 }
 
+/** Where the row's own lifecycle stands. `moving` is the one a dependent write
+ *  has to wait out: the row carries the destination mailbox with the SOURCE
+ *  folder's uid until the mail server confirms the copy, so its folder and uid
+ *  do not name the same message. */
+export type MessageStatus = "active" | "deleting" | "deleted" | "moving";
+
+/** Read it with `status`, never alone — every handler writes `failed` on an
+ *  ordinary transient attempt before a redelivery that usually succeeds.
+ *  `abandoned` is the give-up value: nothing is coming for that row
+ *  (`docs/architecture/imap-mutations.md` R3). */
+export type MessageSyncStatus = "synced" | "pending" | "failed" | "abandoned";
+
+/**
+ * One search hit, narrowed to what a spec reads off it: which message, and
+ * whether the mutation it is under has settled. The pair is on every message
+ * row of the read model since #1144.
+ */
+export interface MatchingMessage {
+	messageId: string;
+	status: MessageStatus;
+	syncStatus: MessageSyncStatus;
+}
+
 export interface Filter {
 	filterId: string;
 	name: string;
@@ -141,6 +171,124 @@ export interface UpdateFilterInput {
 	literalClauses?: { field: "From" | "Subject" | "HasWords"; value: string }[];
 	actionLabelId?: string;
 	actionMailboxId?: string;
+}
+
+export interface Label {
+	labelId: string;
+	name: string;
+	color: string;
+}
+
+export interface Calendar {
+	calendarId: string;
+	urlSegment: string;
+	displayName: string;
+}
+
+/** One occurrence as the server expanded it. No client ever reads an RRULE. */
+export interface CalendarEventInstance {
+	calendarId: string;
+	calendarObjectId: string;
+	recurrenceId: string;
+	summary: string;
+	start: string;
+	end: string;
+	allDay: boolean;
+	etag: string;
+	hasRecurrence: boolean;
+}
+
+/** A stretch the caller is busy in, merged across every calendar they hold. */
+export interface CalendarFreeBusySpan {
+	start: string;
+	end: string;
+}
+
+/**
+ * An event written straight at the API. A spec whose subject is what the
+ * calendar draws rather than what the composer posts says what it wants here
+ * and reads the drawing back off the screen.
+ */
+export interface CreateCalendarEventInput {
+	calendarId: string;
+	summary: string;
+	/** ISO 8601 with an offset, or a bare `YYYY-MM-DD` when `allDay` is set. */
+	start: string;
+	end: string;
+	allDay?: boolean;
+	timeZone?: string;
+	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
+	recurrenceRule?: string;
+}
+
+/** The fields an edit may carry. Absence means untouched, as on the API. */
+export interface UpdateCalendarEventInput {
+	summary?: string;
+	start?: string;
+	end?: string;
+	allDay?: boolean;
+	recurrenceRule?: string;
+}
+
+/**
+ * Which occurrences a scoped write reaches, and the occurrence it is anchored
+ * at. `All` needs no anchor and is the default.
+ */
+export interface RecurrenceScopeInput {
+	scope: "This" | "Following" | "All";
+	/** The `recurrenceId` a listing returned for the occurrence. */
+	recurrenceId?: string;
+}
+
+/** A collection written straight at the API, for a spec about the tick list. */
+export interface CreateCalendarInput {
+	urlSegment: string;
+	displayName: string;
+}
+
+/** The stored resource a write comes back as, which is what a delete names. */
+export interface CalendarEventResource {
+	calendarObjectId: string;
+	calendarId: string;
+	icalUid: string;
+}
+
+export interface ConfigAccount {
+	accountId: string;
+	email: string;
+	authType: string;
+	isActive: boolean;
+	connectionState: string;
+	imapHost: string;
+	imapPort: number;
+}
+
+export interface ConfigDescription {
+	accounts: ConfigAccount[];
+	pendingImport?: { importId: string; folderPaths: string[] };
+}
+
+export interface ConfigExport {
+	schemaVersion: number;
+	document: Record<string, unknown>;
+}
+
+export interface ConfigImportItem {
+	section: string;
+	key: string;
+	verdict: string;
+	reason?: string;
+}
+
+export interface ConfigImportReport {
+	importId?: string;
+	valid: boolean;
+	schemaVersion: number;
+	applied: boolean;
+	items: ConfigImportItem[];
+	errors: ApiErrorBody[];
+	warnings: ApiErrorBody[];
+	accountsNeedingCredentials: string[];
 }
 
 interface ResultList<T> {
@@ -249,6 +397,22 @@ export interface ApiSession {
 	password: string;
 	token: string;
 }
+
+/**
+ * The query a scoped write is addressed by. `All` is the server's default and
+ * carries no anchor, so it is spelled out only when a caller means it.
+ */
+const calendarEventScopeQuery = (
+	calendarId: string,
+	scope?: RecurrenceScopeInput,
+): string =>
+	new URLSearchParams({
+		calendarId,
+		...(scope === undefined ? {} : { scope: scope.scope }),
+		...(scope?.recurrenceId === undefined
+			? {}
+			: { recurrenceId: scope.recurrenceId }),
+	}).toString();
 
 export class ApiClient {
 	private token: string;
@@ -508,16 +672,18 @@ export class ApiClient {
 	}
 
 	/**
-	 * Every message id currently matching a free-text query in one mailbox,
-	 * paged to exhaustion at the write side's own 100-id cap — the same page
-	 * size `useEscalatedActions` uses, so a spec can compute "how many actually
-	 * match right now" independently of whatever the UI claims.
+	 * Every message currently matching a free-text query in one mailbox, paged
+	 * to exhaustion at the write side's own 100-id cap — the same page size
+	 * `useEscalatedActions` uses, so a spec can compute "what actually matches
+	 * right now" independently of whatever the UI claims. Each hit carries its
+	 * settlement pair, which is what tells a match that has landed apart from
+	 * one whose move the mail server has yet to confirm.
 	 */
-	async searchMatchingMessageIds(
+	async searchMatchingMessages(
 		mailboxId: string,
 		query: string,
-	): Promise<string[]> {
-		const ids: string[] = [];
+	): Promise<MatchingMessage[]> {
+		const messages: MatchingMessage[] = [];
 		let continuationToken: string | undefined;
 		do {
 			const params = new URLSearchParams({
@@ -526,14 +692,24 @@ export class ApiClient {
 				limit: "100",
 			});
 			if (continuationToken) params.set("continuationToken", continuationToken);
-			const result = await this.json<ResultList<{ messageId: string }>>(
+			const result = await this.json<ResultList<MatchingMessage>>(
 				"GET",
 				`/mailboxes/${mailboxId}/threads/search?${params.toString()}`,
 			);
-			ids.push(...(result.items ?? []).map((item) => item.messageId));
+			messages.push(...(result.items ?? []));
 			continuationToken = result.continuationToken;
 		} while (continuationToken);
-		return ids;
+		return messages;
+	}
+
+	/** The same search, taken back as ids alone — what a spec counting or
+	 *  deleting the match set wants. */
+	async searchMatchingMessageIds(
+		mailboxId: string,
+		query: string,
+	): Promise<string[]> {
+		const messages = await this.searchMatchingMessages(mailboxId, query);
+		return messages.map((message) => message.messageId);
 	}
 
 	/**
@@ -629,6 +805,21 @@ export class ApiClient {
 		});
 	}
 
+	/**
+	 * Rename a folder — the same PATCH the rename control makes. Records the
+	 * target over the folder and everything under it; the rows keep the paths
+	 * the mail server holds until the RENAME lands.
+	 */
+	renameMailbox(
+		accountId: string,
+		mailboxId: string,
+		fullPath: string,
+	): Promise<Mailbox> {
+		return this.json("PATCH", `/accounts/${accountId}/mailboxes/${mailboxId}`, {
+			fullPath,
+		});
+	}
+
 	/** Delete a folder by id — the same endpoint the delete wizard calls. Specs use it to sweep scratch folders in cleanup. */
 	deleteMailbox(accountId: string, mailboxId: string): Promise<Response> {
 		return this.request(
@@ -696,6 +887,129 @@ export class ApiClient {
 
 	deleteFilter(accountId: string, filterId: string): Promise<Response> {
 		return this.request("DELETE", `/accounts/${accountId}/filters/${filterId}`);
+	}
+
+	createLabel(accountId: string, name: string, color: string): Promise<Label> {
+		return this.json("POST", `/accounts/${accountId}/labels`, { name, color });
+	}
+
+	async listLabels(accountId: string): Promise<Label[]> {
+		const result = await this.json<ResultList<Label>>(
+			"GET",
+			`/accounts/${accountId}/labels`,
+		);
+		return result.items ?? [];
+	}
+
+	async listCalendars(): Promise<Calendar[]> {
+		const result = await this.json<ResultList<Calendar>>("GET", "/calendars");
+		return result.items ?? [];
+	}
+
+	/**
+	 * The occurrences the server expanded over a window — what the grid draws,
+	 * asked for the way the grid asks for it. A spec asserting an event exists
+	 * reads this rather than the pixels it just clicked: the deployment's own
+	 * account of what is on the calendar is the only thing worth proving.
+	 */
+	async listCalendarEvents(
+		from: string,
+		to: string,
+	): Promise<CalendarEventInstance[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarEventInstance>>(
+			"GET",
+			`/calendar-events?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	createCalendar(input: CreateCalendarInput): Promise<Calendar> {
+		return this.json("POST", "/calendars", input);
+	}
+
+	deleteCalendar(calendarId: string): Promise<Response> {
+		return this.request("DELETE", `/calendars/${calendarId}`);
+	}
+
+	createCalendarEvent(
+		input: CreateCalendarEventInput,
+	): Promise<CalendarEventResource> {
+		return this.json("POST", "/calendar-events", input);
+	}
+
+	/**
+	 * An edit made straight at the API, which is how a spec changes an event
+	 * behind the browser's back: no `If-Match`, because the point is to be the
+	 * writer who got there first and left the reader holding a stale version.
+	 */
+	updateCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+		patch: UpdateCalendarEventInput,
+		scope?: RecurrenceScopeInput,
+	): Promise<CalendarEventResource> {
+		return this.json(
+			"PATCH",
+			`/calendar-events/${calendarObjectId}?${calendarEventScopeQuery(calendarId, scope)}`,
+			patch,
+		);
+	}
+
+	/**
+	 * The busy time the server merged over a window. The strip measures its free
+	 * stretches off this rather than off the rows it drew, so a spec about a free
+	 * band asserts against the same answer the strip was given.
+	 */
+	async listCalendarFreeBusy(
+		from: string,
+		to: string,
+	): Promise<CalendarFreeBusySpan[]> {
+		const query = new URLSearchParams({ from, to });
+		const result = await this.json<ResultList<CalendarFreeBusySpan>>(
+			"GET",
+			`/calendar-free-busy?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	deleteCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+	): Promise<Response> {
+		return this.request(
+			"DELETE",
+			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}&scope=All`,
+		);
+	}
+
+	getConfig(): Promise<ConfigDescription> {
+		return this.json("GET", "/config");
+	}
+
+	/**
+	 * The whole configuration as one versioned document — what the Advanced
+	 * settings card downloads and what `remit config save` writes.
+	 */
+	exportConfig(): Promise<ConfigExport> {
+		return this.json("GET", "/config/export");
+	}
+
+	importConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<ConfigImportReport> {
+		return this.json("POST", "/config/import", input);
+	}
+
+	/** The raw response, for a spec asserting the 409 a non-empty instance answers with. */
+	attemptImportConfig(input: {
+		document: unknown;
+		mode?: "validate" | "apply";
+		onExisting?: "abort" | "merge";
+	}): Promise<Response> {
+		return this.request("POST", "/config/import", input);
 	}
 
 	async listThreads(mailboxId: string): Promise<Thread[]> {

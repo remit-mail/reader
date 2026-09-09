@@ -25,6 +25,7 @@ import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, waitForServerMailbox } from "../src/imap.js";
 import { readRunState } from "../src/state.js";
+import { deleteSettledMatchesEverywhere } from "../src/sweep.js";
 import {
 	advanceTo,
 	commitButton,
@@ -80,11 +81,9 @@ const gotoSearch = async (
 ): Promise<void> => {
 	// Wait for the query's own page to land. The committed search re-keys the
 	// list query and the previous rows stand until it answers, so a select-all
-	// taken before then covers the mailbox's rows instead of the query's. This
-	// used to be waited out through the count in the results header; that number
-	// is gone since #306 — a page length labelled a result total contradicts the
-	// completeness a filtered empty state asserts in the same view — and the
-	// response it stood in for is the exact signal.
+	// taken before then covers the mailbox's rows instead of the query's. The
+	// response is the exact signal; the header's count answers a request of its
+	// own (#307) and settles on its own schedule.
 	const answered = page.waitForResponse(
 		(response) =>
 			isBrowsingSearchRequest(response.url(), query) && response.ok(),
@@ -93,9 +92,11 @@ const gotoSearch = async (
 	await page.goto(`/mail/${mailboxId}?q=${encodeURIComponent(query)}`);
 	await answered;
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
-	await expect(page.getByText(`Results for “${query}”`)).toBeVisible({
-		timeout: 30_000,
-	});
+	// A number, from the server counting the whole match set — never the length
+	// of the page on screen (#307).
+	await expect(
+		page.getByText(new RegExp(`\\d[\\d,.\\s]* results? for “${query}”`)),
+	).toBeVisible({ timeout: 30_000 });
 };
 
 /**
@@ -208,17 +209,11 @@ test.describe("Desktop select-all-matching over search results", () => {
 	test.afterAll(async () => {
 		const run = readRunState();
 		const api = new ApiClient(run);
-		// The move relocates the fixtures out of the inbox, so sweep every mailbox.
-		const mailboxes = await api.listMailboxes(run.accountId);
-		for (const mailbox of mailboxes) {
-			const leftover = await api.searchMatchingMessageIds(
-				mailbox.mailboxId,
-				RUN_TAG,
-			);
-			for (let i = 0; i < leftover.length; i += 100) {
-				await api.deleteMessages(leftover.slice(i, i + 100));
-			}
-		}
+		// The move relocates the fixtures out of the inbox, so sweep every mailbox
+		// — and wait out the move first: the rows read as filed in Archive while
+		// the IMAP copy is still in flight, and the delete is refused against one
+		// of those (#1155).
+		await deleteSettledMatchesEverywhere(api, run.accountId, RUN_TAG);
 		// Dovecot decides what the next sync puts back, so the sweep is not done
 		// until the server's inbox is clear of these fixtures — the read model
 		// drops them the moment the delete is accepted, the IMAP write follows.

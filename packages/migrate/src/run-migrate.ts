@@ -1,6 +1,7 @@
 // esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
 // loader) so the migrate step runs the exact SQL the test harness applies —
 // one source of truth, two consumers.
+import sqliteAddressMutedIndexSql from "../../../npm-scripts/sqlite-address-muted-index.sql";
 import sqliteAddressSightingsIndexSql from "../../../npm-scripts/sqlite-address-sightings-index.sql";
 import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
 import {
@@ -31,9 +32,12 @@ import {
 	readResidual,
 	repairThreadMessageCategory,
 } from "../../drizzle-service/src/repair/thread-message-category.js";
+import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
+import { searchIndexShapeIsCurrent } from "../../drizzle-service/src/repos/search-index-shape.js";
 // Reached by module path rather than through either package's entry point: this
-// entrypoint is bundled by esbuild, and the repair modules import nothing but a
-// pure predicate, so bundling them drags in no schema or driver.
+// entrypoint is bundled by esbuild, and everything reached this way is pure
+// TypeScript over the drizzle query builder, so bundling it drags in no native
+// driver — better-sqlite3 stays external and dynamically imported below.
 import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
@@ -193,11 +197,19 @@ const strandedSentStep = async (
 	}
 };
 
+/**
+ * Which folder holds Junk is decided once, in TypeScript, through the same
+ * repository seam every other special-folder lookup reads — so the sweep
+ * honours a folder-role appointment and cannot disagree with the sync that
+ * harvested the address. The predicate below only compares mailbox ids.
+ */
 const junkOnlyAddressStep = async (
 	client: JunkOnlyRepairClient,
+	specialUse: MailboxSpecialUseRepo,
 	mode: JunkOnlyRepairMode,
 ): Promise<void> => {
-	const report = await sweepJunkOnlyAddresses(client, mode);
+	const roles = await specialUse.resolveJunkRolesForInstance();
+	const report = await sweepJunkOnlyAddresses(client, mode, roles);
 	for (const line of formatJunkOnlyReport(report)) {
 		logStep({ step: "junk-only-address-repair" }, line);
 	}
@@ -235,12 +247,14 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		all: async (sql, params) => sqlite.prepare(sql).all(...params),
 		run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
 	};
+	const db = sqliteDrizzle(sqlite);
+	const specialUse = new MailboxSpecialUseRepo(db);
 	try {
 		if (mode === "check") {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
-			await junkOnlyAddressStep(paramRepairClient, "check");
+			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
 
@@ -250,8 +264,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		sqlite.pragma("journal_mode = WAL");
 		sqlite.pragma("busy_timeout = 5000");
 		sqlite.pragma("foreign_keys = ON");
-
-		const db = sqliteDrizzle(sqlite);
 
 		logStep({}, "applying entity schema migrations (sqlite)");
 		sqliteMigrate(db, {
@@ -293,7 +305,10 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
 
-		await junkOnlyAddressStep(paramRepairClient, "repair");
+		logStep({}, "installing address normalized-email index (sqlite)");
+		sqlite.exec(sqliteAddressMutedIndexSql);
+
+		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
 
 		// The external-content FTS5 trigram table + its thread_message
 		// maintenance triggers, the final idempotent step (RFC 036 D4). The
@@ -311,20 +326,38 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// every row. An external-content index cannot be scanned bare (its
 		// computed `sender` has no content-table column), so the guard, not a
 		// NOT-IN diff, is what keeps this from double-indexing.
+		//
+		// An index installed by an earlier build carries the columns that build
+		// asked for, and `CREATE ... IF NOT EXISTS` leaves it exactly as it is.
+		// A predicate naming a column it does not have then fails every search
+		// outright, so a stale shape is dropped and rebuilt rather than left in
+		// place: the documented recovery above, taken automatically because the
+		// alternative is a search that raises on every keystroke.
 		logStep({}, "installing FTS5 search index objects (sqlite)");
 		const installSearchIndex = sqlite.transaction(() => {
-			const ftsExisted = sqlite
+			const existing = sqlite
 				.prepare(
-					"SELECT 1 FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
+					"SELECT sql FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
 				)
-				.get();
+				.get() as { sql: string } | undefined;
+			const ftsUsable =
+				existing !== undefined &&
+				searchIndexShapeIsCurrent(existing.sql, sqliteSearchIndexSql);
+			if (existing !== undefined && !ftsUsable) {
+				logStep({}, "dropping stale FTS5 index (missing indexed columns)");
+				sqlite.exec("DROP TABLE thread_message_fts");
+				for (const suffix of ["ai", "ad", "au"]) {
+					sqlite.exec(`DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`);
+				}
+			}
 			sqlite.exec(sqliteSearchIndexSql);
-			if (!ftsExisted) {
+			if (!ftsUsable) {
 				logStep({}, "backfilling FTS5 index from existing threads");
 				sqlite.exec(
-					`INSERT INTO thread_message_fts(rowid, subject, sender)
+					`INSERT INTO thread_message_fts(rowid, subject, sender, body)
 					 SELECT rowid, coalesce(subject, ''),
-					        coalesce(from_name, '') || ' ' || coalesce(from_email, '')
+					        coalesce(from_name, '') || ' ' || coalesce(from_email, ''),
+					        coalesce(snippet, '')
 					 FROM thread_message`,
 				);
 			}

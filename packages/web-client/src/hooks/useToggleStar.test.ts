@@ -12,6 +12,9 @@ const make = (
 	hasStars: boolean,
 ): RemitImapThreadMessageResponse => ({
 	senderTrust: "unknown",
+	status: "active",
+	syncStatus: "pending",
+	abandonedMutation: "none",
 	category: "uncategorized",
 	threadId: "t1",
 	threadMessageId: `tm-${messageId}`,

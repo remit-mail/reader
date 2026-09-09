@@ -351,6 +351,12 @@ export const useMessageBodyContent = ({
 
 	const isLoading = query.isLoading && !!picked;
 
+	// `picked` is null for two different reasons, and a caller that treats them
+	// alike is wrong about one of them: the message has not arrived yet, or it
+	// arrived carrying nothing renderable. Only the second is a fact about the
+	// message, and only it may be stated to the reader (#1030).
+	const hasNoRenderablePart = bodyParts !== undefined && picked === null;
+
 	useEffect(() => {
 		if (isLoading) {
 			loadStartRef.current = performance.now();
@@ -374,6 +380,7 @@ export const useMessageBodyContent = ({
 		picked,
 		data,
 		isLoading,
+		hasNoRenderablePart,
 		isError: query.isError,
 		error: query.error,
 		refetch: query.refetch,

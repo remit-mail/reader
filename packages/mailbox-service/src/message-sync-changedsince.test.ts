@@ -265,11 +265,18 @@ const buildHarness = (options: HarnessOptions): Harness => {
 		},
 	) as IAddressRepository;
 
+	// The rows sync reads back before it saves, to ask whether a message sighted
+	// here has left the folder its row points at (#1146). This harness stores
+	// none, so nothing is contested and the probe issues no IMAP.
+	const messageRepository = {
+		get: async () => [],
+	} as unknown as IMessageRepository;
+
 	const service = new MessageSyncService(
 		connectionFactory,
 		mailboxService,
 		noFolderRoles,
-		{} as IMessageRepository,
+		messageRepository,
 		{} as IEnvelopeRepository,
 		addressRepository,
 		threadMessageService,

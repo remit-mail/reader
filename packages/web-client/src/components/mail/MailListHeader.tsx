@@ -58,11 +58,12 @@ import {
 	useAppShellLayout,
 	useSuggestList,
 } from "@remit/ui";
-import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { Menu, Search, X } from "lucide-react";
 import {
+	createContext,
 	type ReactNode,
 	useCallback,
+	useContext,
 	useEffect,
 	useMemo,
 	useRef,
@@ -79,6 +80,7 @@ import {
 import { useMailContext } from "@/lib/mail-context";
 import { convertSearchToRule } from "@/lib/organize/search-to-rule";
 import { loadRecentSearches, saveRecentSearch } from "@/lib/recent-searches";
+import { SearchConversionContext } from "@/lib/search-conversion";
 import { resultsScopeForRoute, routeMailboxId } from "@/lib/search-scope";
 import { applySearchSuggestion } from "@/lib/search-suggestions";
 import { showInlineSearchResults } from "@/lib/search-surface";
@@ -87,12 +89,22 @@ import {
 	removeSearchToken,
 	searchTokenLabel,
 } from "@/lib/search-tokens";
-import { spamOfferForResults } from "@/lib/spam-offer";
-import { useOpenWizard } from "@/lib/wizard-history";
+import type { SpamOffer } from "@/lib/spam-offer";
+import {
+	useBrowsedList,
+	useOpenWizard,
+	useScopeSearchToMailbox,
+} from "@/routing";
 
 export interface MailListHeaderProps {
 	title: string;
-	unreadCount: number;
+	/**
+	 * Unread count beside the title. `null` is the one way to say the number is
+	 * not known, and the header then shows none: a count the server has not
+	 * answered is never replaced by a figure derived from the rows that happen to
+	 * be loaded (#308). Required so a caller that has no number says so.
+	 */
+	unreadCount: number | null;
 	/** The list body (filter sheet / sections / virtualized rows). */
 	children: ReactNode;
 	/**
@@ -141,11 +153,72 @@ export interface MailListHeaderProps {
 	 */
 	searchResultsInBody?: boolean;
 	/**
+	 * The Spam offer this view is making, if any: where "Go to Spam" lands and
+	 * how much of the search sits there, counted by the server over every junk
+	 * folder it reached. Only the global scope holds spam out, so only the brief
+	 * passes one; every other view leaves it unset and no offer is made.
+	 */
+	spamOffer?: SpamOffer;
+	/**
 	 * The refresh control for this view — the mailbox route and the brief pass
 	 * one, scoped to the account(s) they show; a view with nothing account-scoped
 	 * to refresh (Starred) leaves it unset.
 	 */
 	refreshControl?: ReactNode;
+}
+
+interface HeaderSearchState {
+	suggest: SearchFieldSuggest;
+	/** Drop the query and put the field away. */
+	onClose: () => void;
+}
+
+const HeaderSearchContext = createContext<HeaderSearchState | null>(null);
+
+/**
+ * The expanded field, which subscribes to its own state instead of being handed
+ * it (#506).
+ *
+ * What is typed, where the caret is and which suggestion is highlighted change
+ * on every keystroke and belong to the field alone. Building the field into the
+ * chrome object made each of those a new chrome, and the chrome reaches the
+ * virtualized list through context, so the list re-rendered for a character it
+ * does not show. The chrome carries the slot; the slot reads the rest itself.
+ */
+function ListHeaderSearchField() {
+	const search = useContext(HeaderSearchContext);
+	const { searchInput, onSearchChange, onSearchClear } = useMailContext();
+	// Only `MailListHeader` puts this slot on the chrome, and it does so inside
+	// its own provider, so there is no reachable path here without one. Say so
+	// rather than rendering nothing: a search field that silently disappears is
+	// indistinguishable from a view that has no search.
+	if (!search)
+		throw new Error(
+			"ListHeaderSearchField rendered outside MailListHeader's HeaderSearchContext provider",
+		);
+	return (
+		<>
+			<div className="min-w-0 flex-1">
+				<SearchBar
+					value={searchInput}
+					onChange={onSearchChange}
+					onClear={onSearchClear}
+					globalFocusKey={false}
+					showClearButton={false}
+					suggest={search.suggest}
+				/>
+			</div>
+			<Button
+				variant="ghost"
+				size="touch"
+				icon={<X className="size-5" />}
+				onClick={search.onClose}
+				aria-label="Close search"
+				className="shrink-0"
+			/>
+			<FilterToggle />
+		</>
+	);
 }
 
 export function MailListHeader({
@@ -164,6 +237,7 @@ export function MailListHeader({
 	searchResultsLabel = "Top matches",
 	relatedResultsLabel = "Related",
 	searchResultsInBody = false,
+	spamOffer,
 	refreshControl,
 }: MailListHeaderProps) {
 	const {
@@ -176,7 +250,7 @@ export function MailListHeader({
 		searchViewKey,
 	} = useMailContext();
 	const tokenContext = useSearchTokenContext();
-	const navigate = useNavigate();
+	const scopeSearchToMailbox = useScopeSearchToMailbox();
 	const layout = useAppShellLayout();
 	const tier = useLayoutTier();
 	const [searchOpen, setSearchOpen] = useState(false);
@@ -232,9 +306,9 @@ export function MailListHeader({
 			if (suggestion) applySuggestion(suggestion);
 		},
 	});
-	// Stable while nothing about the field changes: it reaches the list through
-	// the header chrome, and a fresh object every render would re-render the
-	// virtualized body for nothing.
+	// Stable while nothing about the field changes: it reaches the field through
+	// its own context rather than the chrome, so moving the highlight repaints
+	// the field and leaves the list under it alone.
 	const { comboboxProps, handleKeyDown } = suggest;
 	const searchSuggest = useMemo<SearchFieldSuggest>(
 		() => ({
@@ -245,6 +319,14 @@ export function MailListHeader({
 			...(caretRequest ? { caret: caretRequest } : {}),
 		}),
 		[comboboxProps, handleKeyDown, caretRequest],
+	);
+	const closeSearch = useCallback(() => {
+		onSearchClear();
+		setSearchOpen(false);
+	}, [onSearchClear]);
+	const headerSearch = useMemo<HeaderSearchState>(
+		() => ({ suggest: searchSuggest, onClose: closeSearch }),
+		[searchSuggest, closeSearch],
 	);
 	// Under the field and in flow, on both tiers: a phone's soft keyboard owns
 	// the lower half of the screen, and a list floating over the field would
@@ -277,21 +359,29 @@ export function MailListHeader({
 		() => parseSearchTokens(searchInput, { mailboxesByName, accountsByName }),
 		[searchInput, mailboxesByName, accountsByName],
 	);
-	const tokenChips = parsed.tokens.map((token) => ({
-		label: searchTokenLabel(token),
-		onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
-	}));
-	const topMatches = searchResults ?? [];
-	const related = relatedResults ?? [];
+	const tokenChips = useMemo(
+		() =>
+			parsed.tokens.map((token) => ({
+				label: searchTokenLabel(token),
+				onRemove: () => onSearchChange(removeSearchToken(searchInput, token)),
+			})),
+		[parsed, searchInput, onSearchChange],
+	);
+	const topMatches = useMemo(() => searchResults ?? [], [searchResults]);
+	const related = useMemo(() => relatedResults ?? [], [relatedResults]);
 	// Always offer both sections while a query is present; the kit drops the empty
 	// ones, so a "Related"-only hit still shows and two empties fall to its empty
 	// state. The empty-query case (recent searches) is the kit's job.
-	const sections: SearchResultSection[] = hasQuery
-		? [
-				{ id: "top", label: searchResultsLabel, results: topMatches },
-				{ id: "related", label: relatedResultsLabel, results: related },
-			]
-		: [];
+	const sections = useMemo<SearchResultSection[]>(
+		() =>
+			hasQuery
+				? [
+						{ id: "top", label: searchResultsLabel, results: topMatches },
+						{ id: "related", label: relatedResultsLabel, results: related },
+					]
+				: [],
+		[hasQuery, searchResultsLabel, relatedResultsLabel, topMatches, related],
+	);
 	// Skeleton only while nothing is in yet — once either section has rows, show
 	// them and let the other arrive (or not). Keeps the two sources independent.
 	const hasAnyResult = topMatches.length + related.length > 0;
@@ -301,39 +391,42 @@ export function MailListHeader({
 	// The mailbox's appointed role is what lets a search scoped to Spam show its
 	// rows rather than drop them.
 	const { scope } = useSearchScope(accounts);
-	const matches = useRouterState({ select: (s) => s.matches });
-	const scopedMailboxId = routeMailboxId(matches);
-	const routeScope = resultsScopeForRoute(
-		matches,
-		scope,
-		scopedMailboxId ? resultFolderIndex.get(scopedMailboxId)?.role : undefined,
+	const browsed = useBrowsedList();
+	const scopedMailboxId = routeMailboxId(browsed);
+	const scopedRole = scopedMailboxId
+		? resultFolderIndex.get(scopedMailboxId)?.role
+		: undefined;
+	const routeScope = useMemo(
+		() => resultsScopeForRoute(browsed, scope, scopedRole),
+		[browsed, scope, scopedRole],
 	);
 
-	// The offer counts results for the *committed* query, so that is the query it
-	// carries into Spam. The count the banner states is the results list's own,
-	// over every row it held out; the app supplies only where "Go to Spam" goes.
-	const spamOffer =
-		routeScope.kind === "global"
-			? spamOfferForResults([...topMatches, ...related])
-			: undefined;
-	const resultsScope: SearchScope = spamOffer
-		? {
-				kind: "global",
-				onScopeToSpam: () =>
-					navigate({
-						to: "/mail/$mailboxId",
-						params: { mailboxId: spamOffer.mailboxId },
-						search: { q: searchQuery || undefined },
-					}),
-			}
-		: routeScope;
+	// The offer is made for the *committed* query, so that is the query it carries
+	// into Spam. Both halves come from the view that owns the search: the number
+	// is the server's count of every junk folder it reached, and the destination
+	// the folder holding most of them. Counting the rows this panel happens to
+	// hold would count a page and call it a folder (#313).
+	const offer = routeScope.kind === "global" ? spamOffer : undefined;
+	const resultsScope = useMemo<SearchScope>(
+		() =>
+			offer
+				? {
+						kind: "global",
+						spamCount: offer.count,
+						onScopeToSpam: () =>
+							scopeSearchToMailbox(offer.mailboxId, searchQuery),
+					}
+				: routeScope,
+		[offer, routeScope, scopeSearchToMailbox, searchQuery],
+	);
 
 	// Make-this-a-filter (#477 clause 1.8): the search is the wizard's second
 	// entry. It opens on the properties step with the clauses `convertSearchToRule`
 	// derives from the query, nothing ticked, and the notice for what the query
-	// could not be turned into. The conversion is computed once, here, and handed
-	// to the wizard through the chrome — the reason the affordance gives and the
-	// clauses the wizard seeds from are the same answer. The literal filter cannot
+	// could not be turned into. The conversion is computed once, here, and reaches
+	// the wizard through its own context — the reason the affordance gives and the
+	// clauses the wizard seeds from are the same answer, without the per-keystroke
+	// object riding on the chrome the list reads. The literal filter cannot
 	// reproduce the search's semantic reach, so the conversion states it whenever
 	// the search surfaced a "Related" section — a direct signal, read here from
 	// the semantic results, never a capability probe.
@@ -353,28 +446,32 @@ export function MailListHeader({
 		[parsed, searchHadSemanticReach],
 	);
 	const searchConversion = hasQuery ? conversion : undefined;
-	const makeFilter = hasQuery
-		? {
-				// The wizard is a full-screen surface, so the phone takeover it was
-				// pressed from stands down rather than sitting under it — and the list
-				// underneath, which hosts the wizard, is mounted again by the time the
-				// step lands.
-				onClick: () => {
-					setSearchOpen(false);
-					openWizard("properties", "search");
-				},
-				blockedReason: isConvertible(conversion)
-					? undefined
-					: makeFilterBlockedCopy(
-							conversion.droppedFacets.map((facet) => facet.label),
-						),
-			}
-		: undefined;
+	// The wizard is a full-screen surface, so the phone takeover it was pressed
+	// from stands down rather than sitting under it — and the list underneath,
+	// which hosts the wizard, is mounted again by the time the step lands.
+	const openFilterWizard = useCallback(() => {
+		setSearchOpen(false);
+		openWizard("properties", "search");
+	}, [openWizard]);
+	// Keyed on the copy the affordance shows, not on the conversion it is derived
+	// from: the conversion is a fresh object for every character typed, while the
+	// reason it yields is the same string for all of them, and this row travels to
+	// the virtualized list on the chrome (#506).
+	const blockedReason = isConvertible(conversion)
+		? undefined
+		: makeFilterBlockedCopy(
+				conversion.droppedFacets.map((facet) => facet.label),
+			);
+	const makeFilter = useMemo(
+		() => (hasQuery ? { onClick: openFilterWizard, blockedReason } : undefined),
+		[hasQuery, blockedReason, openFilterWizard],
+	);
 	// Handed to the bar rather than rendered here: the bar knows whether rows
 	// are ticked, and a selection's own verbs own the surface while they are up.
-	const makeFilterAction = makeFilter ? (
-		<MakeFilterAction {...makeFilter} />
-	) : null;
+	const makeFilterAction = useMemo(
+		() => (makeFilter ? <MakeFilterAction {...makeFilter} /> : null),
+		[makeFilter],
+	);
 
 	// Tablet + desktop keep the inline toolbar search; while a query is being
 	// typed the list-pane body swaps to the same sectioned results the phone
@@ -390,19 +487,32 @@ export function MailListHeader({
 		hasCommittedQuery: searchQuery.trim().length > 0,
 		bodyRendersCommittedResults: searchResultsInBody,
 	});
-	const handleSelectInlineResult = (result: SearchResult) => {
-		setRecentSearches(saveRecentSearch(searchInput));
-		onSelectSearchResult?.(result);
-	};
-	const results = (
-		<SearchResults
-			value={searchInput}
-			sections={sections}
-			loading={resultsLoading}
-			onSelectResult={handleSelectInlineResult}
-			tokens={tokenChips}
-			scope={resultsScope}
-		/>
+	const handleSelectInlineResult = useCallback(
+		(result: SearchResult) => {
+			setRecentSearches(saveRecentSearch(searchInput));
+			onSelectSearchResult?.(result);
+		},
+		[searchInput, onSelectSearchResult],
+	);
+	const results = useMemo(
+		() => (
+			<SearchResults
+				value={searchInput}
+				sections={sections}
+				loading={resultsLoading}
+				onSelectResult={handleSelectInlineResult}
+				tokens={tokenChips}
+				scope={resultsScope}
+			/>
+		),
+		[
+			searchInput,
+			sections,
+			resultsLoading,
+			handleSelectInlineResult,
+			tokenChips,
+			resultsScope,
+		],
 	);
 	// The header lives inside `children` for every view whose selection sits
 	// below this one, so swapping the body out from here would take the header
@@ -411,9 +521,13 @@ export function MailListHeader({
 	// put it where their own rows go; the brief, whose header this component
 	// renders, keeps the plain swap.
 	const bodyOwnsHeader = selectionBar === undefined;
-	const resultsPane = showInlineResults ? (
-		<div className="h-full overflow-y-auto">{results}</div>
-	) : null;
+	const resultsPane = useMemo(
+		() =>
+			showInlineResults ? (
+				<div className="h-full overflow-y-auto">{results}</div>
+			) : null,
+		[showInlineResults, results],
+	);
 	const body = resultsPane && !bodyOwnsHeader ? resultsPane : children;
 	const chromeResults = resultsPane && bodyOwnsHeader ? resultsPane : null;
 
@@ -430,7 +544,6 @@ export function MailListHeader({
 			title,
 			searchResults: chromeResults,
 			makeFilterSlot: makeFilterAction,
-			searchConversion,
 			navSlot: layout && !layout.showNavPane && (
 				<Button
 					variant="ghost"
@@ -443,9 +556,11 @@ export function MailListHeader({
 			),
 			titleMeta: (
 				<>
-					<span className="shrink-0 text-2xs text-fg-subtle">
-						{unreadCount.toLocaleString()} unread
-					</span>
+					{unreadCount === null ? null : (
+						<span className="shrink-0 text-2xs text-fg-subtle">
+							{unreadCount.toLocaleString()} unread
+						</span>
+					)}
 					<FilterToggle />
 					{refreshControl}
 				</>
@@ -460,32 +575,7 @@ export function MailListHeader({
 					className="shrink-0"
 				/>
 			),
-			searchField: searchExpanded && (
-				<>
-					<div className="min-w-0 flex-1">
-						<SearchBar
-							value={searchInput}
-							onChange={onSearchChange}
-							onClear={onSearchClear}
-							globalFocusKey={false}
-							showClearButton={false}
-							suggest={searchSuggest}
-						/>
-					</div>
-					<Button
-						variant="ghost"
-						size="touch"
-						icon={<X className="size-5" />}
-						onClick={() => {
-							onSearchClear();
-							setSearchOpen(false);
-						}}
-						aria-label="Close search"
-						className="shrink-0"
-					/>
-					<FilterToggle />
-				</>
-			),
+			searchField: searchExpanded && <ListHeaderSearchField />,
 		}),
 		[
 			title,
@@ -493,13 +583,8 @@ export function MailListHeader({
 			layout,
 			ownsSearch,
 			searchExpanded,
-			searchInput,
-			onSearchChange,
-			onSearchClear,
-			searchSuggest,
 			chromeResults,
 			makeFilterAction,
-			searchConversion,
 			refreshControl,
 		],
 	);
@@ -511,41 +596,49 @@ export function MailListHeader({
 			onSelectSearchResult?.(result);
 		};
 		return (
-			<ListHeaderChromeContext.Provider value={chrome}>
-				<MobileSearchView
-					value={searchInput}
-					onChange={onSearchChange}
-					onClear={onSearchClear}
-					onCancel={() => {
-						setSearchOpen(false);
-						onSearchClear();
-					}}
-					filter={searchFilter}
-					recentSearches={recentSearches}
-					onPickRecent={onSearchChange}
-					makeFilter={makeFilter}
-					sections={sections}
-					loading={resultsLoading}
-					onSelectResult={handleSelectResult}
-					tokens={tokenChips}
-					scope={resultsScope}
-					suggest={searchSuggest}
-					suggestList={suggestList}
-				/>
-				{paneOverlay}
-			</ListHeaderChromeContext.Provider>
+			<HeaderSearchContext.Provider value={headerSearch}>
+				<SearchConversionContext.Provider value={searchConversion}>
+					<ListHeaderChromeContext.Provider value={chrome}>
+						<MobileSearchView
+							value={searchInput}
+							onChange={onSearchChange}
+							onClear={onSearchClear}
+							onCancel={() => {
+								setSearchOpen(false);
+								onSearchClear();
+							}}
+							filter={searchFilter}
+							recentSearches={recentSearches}
+							onPickRecent={onSearchChange}
+							makeFilter={makeFilter}
+							sections={sections}
+							loading={resultsLoading}
+							onSelectResult={handleSelectResult}
+							tokens={tokenChips}
+							scope={resultsScope}
+							suggest={searchSuggest}
+							suggestList={suggestList}
+						/>
+						{paneOverlay}
+					</ListHeaderChromeContext.Provider>
+				</SearchConversionContext.Provider>
+			</HeaderSearchContext.Provider>
 		);
 	}
 
 	return (
-		<ListHeaderChromeContext.Provider value={chrome}>
-			<section className="relative flex h-full w-full flex-col bg-surface">
-				{selectionBar?.(chrome)}
-				{suggestList}
-				<div className="min-h-0 flex-1">{body}</div>
-				{footer}
-				{paneOverlay}
-			</section>
-		</ListHeaderChromeContext.Provider>
+		<HeaderSearchContext.Provider value={headerSearch}>
+			<SearchConversionContext.Provider value={searchConversion}>
+				<ListHeaderChromeContext.Provider value={chrome}>
+					<section className="relative flex h-full w-full flex-col bg-surface">
+						{selectionBar?.(chrome)}
+						{suggestList}
+						<div className="min-h-0 flex-1">{body}</div>
+						{footer}
+						{paneOverlay}
+					</section>
+				</ListHeaderChromeContext.Provider>
+			</SearchConversionContext.Provider>
+		</HeaderSearchContext.Provider>
 	);
 }

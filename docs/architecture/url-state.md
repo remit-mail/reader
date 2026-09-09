@@ -26,7 +26,7 @@ If it is in the path it is not in the query, and anything derivable from the pat
 
 ## R5. Path for exclusive state, blob for the last mile
 
-Anything mutually exclusive is a path segment, because sibling routes cannot both match. Fine-grained sub-state that genuinely combines may travel as a zod-validated JSON blob in the query, such as a saved search's filter set. The blob never names the surface on screen; the moment it decides what gets mounted, the arbiter is back.
+Anything mutually exclusive is a path segment, because sibling routes cannot both match. Fine-grained sub-state that genuinely combines may travel as a zod-validated JSON blob in the query, such as a list view's filter set. The blob never names the surface on screen; the moment it decides what gets mounted, the arbiter is back.
 
 ## R6. A transient selection is never URL state
 
@@ -70,6 +70,12 @@ Each list is a layout route whose component renders the list plus `AppShellSlott
 `$mode` sits under the message, so a reply cannot exist without a source and the thread stays matched behind it. That is what "the reply at the head of the conversation" is. The mode is validated as a path param rather than written as three literal routes, because the three differ in what the composer opens on and not in what the address mounts. Its draft is an optional segment for the same reason compose's is, and it makes the reply survive a reload: the writing comes back on the draft it was writing to instead of starting a second one beside it.
 
 The message route mounts the reading pane itself rather than handing it to an index route, so opening a reply matches a child without remounting the conversation underneath it. Nothing is mounted by the `$mode` route: the composer belongs inside the thread, and on a phone the thread is the single pane with no reading `Outlet` to fill, so the conversation reads the reply off the address — the move the shell already makes for compose.
+
+## Enforcement
+
+Router imports live in `src/routes/**` and `src/routing/**`. Everywhere else `Link`, `useNavigate`, `useSearch`, `useParams`, `useLocation`, `useRouterState` and `useRouter` are a lint error, so a component cannot grow a second opinion about the address.
+
+What the rest of the app gets instead is a hook per intent — open a conversation, close it, start a message, run a search everywhere or in one folder, go to a section — resolved against the list the address is browsing. A component says what it wants; which route that is, and which params it needs, is one decision in one place, checked against the generated route tree.
 
 ## FAQ
 

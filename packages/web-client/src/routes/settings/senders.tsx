@@ -174,7 +174,7 @@ function VipGroupPane({
 /* Muted / Blocked groups: search-based (backend gap noted)           */
 /* ------------------------------------------------------------------ */
 
-function SearchGroupPane({
+export function SearchGroupPane({
 	group,
 	query,
 	onCount,
@@ -303,7 +303,9 @@ function SearchGroupPane({
 										setRetryId(a.addressId);
 										removeMutation.mutate({
 											path: { addressId: a.addressId },
-											body: { flags: { [group]: null } },
+											body: {
+												flags: { [group]: { value: false, setAt: Date.now() } },
+											},
 										});
 									}}
 								>
@@ -321,7 +323,9 @@ function SearchGroupPane({
 										setRetryId(a.addressId);
 										removeMutation.mutate({
 											path: { addressId: a.addressId },
-											body: { flags: { [group]: null } },
+											body: {
+												flags: { [group]: { value: false, setAt: Date.now() } },
+											},
 										});
 									}}
 								/>

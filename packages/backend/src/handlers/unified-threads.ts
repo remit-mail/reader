@@ -1,14 +1,25 @@
 import type {
+	MessageCategory,
+	ThreadSearchResponse,
+} from "@remit/api-openapi-types";
+import type {
 	AccountItem,
 	IAccountSettingRepository,
 	MailboxItem,
+	ResultList,
+	SearchOptions,
+	ThreadMessageItem,
 } from "@remit/data-ports";
+import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import { MailboxSpecialUse } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
 import { getAccountConfigIdFromEvent } from "../auth.js";
-import { enrichThreadRows } from "../derive/enrichThreadRows.js";
+import {
+	type EnrichClient,
+	enrichThreadRows,
+} from "../derive/enrichThreadRows.js";
 import { getClient } from "../service/data-client.js";
 import type { OperationHandler, UnifiedThreadOperationIds } from "../types.js";
 import {
@@ -80,32 +91,6 @@ const isExcludedFromStarred = (mailbox: MailboxItem): boolean =>
 const SEARCH_EXCLUDED_SPECIAL_USE: readonly string[] = [
 	MailboxSpecialUse.Trash,
 ];
-
-/**
- * Special-use folders that hold a second copy of mail already reachable through
- * the folder it actually lives in — Gmail's All Mail, Starred and Important.
- * Used to pick which duplicate to drop, never to decide what is searched.
- */
-const VIRTUAL_COPY_SPECIAL_USE: readonly string[] = [
-	MailboxSpecialUse.All,
-	MailboxSpecialUse.Flagged,
-	MailboxSpecialUse.Important,
-];
-
-/**
- * Well-known Gmail virtual paths, for servers that do not advertise the
- * special-use attribute. Whole path, never a prefix — a user's own
- * `Starred ideas` folder is real mail.
- */
-const VIRTUAL_COPY_FULL_PATHS: readonly string[] = [
-	"[gmail]/all mail",
-	"[gmail]/starred",
-	"[gmail]/important",
-];
-
-const isVirtualCopy = (mailbox: MailboxItem): boolean =>
-	mailbox.specialUse?.some((use) => VIRTUAL_COPY_SPECIAL_USE.includes(use)) ===
-		true || VIRTUAL_COPY_FULL_PATHS.includes(mailbox.fullPath.toLowerCase());
 
 const isExcludedFromSearch = (mailbox: MailboxItem): boolean =>
 	mailbox.specialUse?.some((use) =>
@@ -202,7 +187,7 @@ export const buildInboxMailboxMap = async (
 		if (!isExcludedFromSearch(mailbox)) {
 			searchMailboxIds.add(mailbox.mailboxId);
 		}
-		if (isVirtualCopy(mailbox)) {
+		if (isVirtualCopyMailbox(mailbox)) {
 			virtualCopyMailboxIds.add(mailbox.mailboxId);
 		}
 		if (mailbox.fullPath.toUpperCase() === "INBOX") {
@@ -234,12 +219,14 @@ export const buildListAllThreadsOptions = (
 		limit?: number;
 	},
 	inboxMailboxIds: Set<string>,
+	search?: SearchOptions,
 ) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	inboxMailboxIds,
 	excludeDeleted: true,
+	search,
 });
 
 /**
@@ -256,12 +243,14 @@ export const buildListStarredThreadsOptions = (
 		limit?: number;
 	},
 	starredMailboxIds: Set<string>,
+	search?: SearchOptions,
 ) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: query.limit ?? DEFAULT_UNIFIED_THREADS_PAGE_SIZE,
 	mailboxIds: starredMailboxIds,
 	excludeDeleted: true,
+	search,
 });
 
 /**
@@ -336,75 +325,220 @@ export const attachAccountIds = (
 		accountId: mailboxIdToAccountId.get(row.mailboxId),
 	}));
 
-export const UnifiedThreadOperations: Record<
-	UnifiedThreadOperationIds,
-	OperationHandler<UnifiedThreadOperationIds>
-> = {
-	UnifiedThreadOperations_listAllThreads: async (
-		context: Context,
-		...args: unknown[]
-	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const { continuationToken, order, limit, starred, query } = context.request
-			.query as {
-			continuationToken?: string;
-			order?: "asc" | "desc";
-			limit?: number;
-			starred?: boolean | string;
-			query?: string;
+/**
+ * The row criteria the listing carries, whichever mode answers it.
+ *
+ * `category`, `unread` and `attachments` are columns on the ThreadMessage row,
+ * so each is a predicate inside the query. Filtering the rows a page returned
+ * instead is the defect this replaces: a category whose mail sits below the
+ * newest page rendered an empty list however much of it the collection held
+ * (#308). `starred` and `query` are in here too so one `SearchOptions` says
+ * what the whole request narrows by, which is what lets the count run the same
+ * predicate as the listing.
+ *
+ * `from` and `subject` name one field each, which `query` cannot — it matches
+ * both at once, so neither token could be asked for on its own and both were
+ * applied over the loaded pages instead (#1128). `muted` is the one criterion
+ * that is not a column at all: it is read from the sender's address, and it is
+ * here because a caller that hides muted mail has to be able to count what it
+ * renders (#1137).
+ */
+export const buildUnifiedThreadSearch = (params: {
+	starredOnly: boolean;
+	searchText?: string;
+	from?: string;
+	subject?: string;
+	category?: MessageCategory[];
+	unread?: boolean;
+	attachments?: boolean;
+	muted?: boolean;
+}): SearchOptions => ({
+	...(params.searchText ? { query: params.searchText } : {}),
+	...(params.from ? { from: params.from } : {}),
+	...(params.subject ? { subject: params.subject } : {}),
+	...(params.starredOnly ? { starred: true } : {}),
+	...(params.category?.length ? { category: params.category } : {}),
+	...(params.unread !== undefined ? { unread: params.unread } : {}),
+	...(params.attachments !== undefined
+		? { attachments: params.attachments }
+		: {}),
+	...(params.muted !== undefined ? { muted: params.muted } : {}),
+});
+
+/**
+ * Narrow a mailbox scope to one account's mailboxes.
+ *
+ * The account pill used to narrow the rows a page returned, which took the
+ * number off every section header: a count over every account is not the size
+ * of a list showing one, so the brief withheld it rather than overstate (#1136).
+ * The scope is where the answer belongs — the listing, the search and the count
+ * all read it, so all three agree.
+ *
+ * An account with no mailboxes in the map — one that is muted, or one belonging
+ * to another config — narrows to the empty set, which matches nothing. That is
+ * the honest answer: the caller asked for an account this config does not read.
+ */
+export const scopeToAccount = (
+	mailboxIds: Set<string>,
+	mailboxIdToAccountId: Map<string, string>,
+	accountId: string | undefined,
+): Set<string> => {
+	if (accountId === undefined) return mailboxIds;
+	return new Set(
+		[...mailboxIds].filter(
+			(mailboxId) => mailboxIdToAccountId.get(mailboxId) === accountId,
+		),
+	);
+};
+
+/**
+ * Narrow a mailbox scope to one folder.
+ *
+ * Intersects rather than replaces: a folder the mode's own scope does not hold —
+ * Trash, a muted folder, one of a muted account, one of another account when
+ * `accountId` narrowed first — leaves the empty set and matches nothing. A
+ * caller asking what one folder holds of a search must not be handed a folder
+ * the search itself does not reach.
+ *
+ * This is what makes a per-folder count of a cross-account search exact. The
+ * spam offer states how much of the search sits in a junk folder; before the
+ * parameter existed the only number available was the junk share of the page
+ * the client had loaded, which is a page length presented as a folder total
+ * (#313).
+ */
+export const scopeToMailbox = (
+	mailboxIds: Set<string>,
+	mailboxId: string | undefined,
+): Set<string> => {
+	if (mailboxId === undefined) return mailboxIds;
+	return new Set(mailboxIds.has(mailboxId) ? [mailboxId] : []);
+};
+
+/**
+ * Minimal client surface `executeUnifiedThreadListing` needs, declared
+ * structurally (like `ThreadSearchClient`) so the mode selection, the row
+ * filters and the count are testable with an in-memory fake.
+ */
+export interface UnifiedThreadClient extends EnrichClient, InboxMapClient {
+	threadMessage: {
+		listByDate(
+			accountConfigId: string,
+			options?: ReturnType<typeof buildListAllThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		listByStarred(
+			accountConfigId: string,
+			options?: ReturnType<typeof buildListStarredThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		searchByDate(
+			accountConfigId: string,
+			search: SearchOptions,
+			options?: ReturnType<typeof buildSearchAllThreadsOptions>,
+		): Promise<ResultList<ThreadMessageItem>>;
+		countThreadsInScope(
+			accountConfigId: string,
+			search: SearchOptions,
+			options?: { mailboxIds?: Set<string>; excludeDeleted?: boolean },
+		): Promise<number>;
+	};
+}
+
+export type UnifiedThreadParams = {
+	continuationToken?: string;
+	order?: "asc" | "desc";
+	limit?: number;
+	starredOnly: boolean;
+	searchText?: string;
+	from?: string;
+	subject?: string;
+	accountId?: string;
+	mailboxId?: string;
+	category?: MessageCategory[];
+	unread?: boolean;
+	attachments?: boolean;
+	muted?: boolean;
+	count: boolean;
+	results: boolean;
+};
+
+/**
+ * Run the cross-account listing: pick the mode, apply the row criteria inside
+ * the query, and optionally count the matches.
+ *
+ * `count` names the whole match, never the page: a page size bounds the rows a
+ * response carries and has no bearing on how much matches, so pressing "load
+ * more" cannot move it. It counts conversations, the unit the listing renders
+ * once its per-mailbox rows are collapsed by `threadId`. `results: false` reads
+ * the count alone, which is how a header total is fetched without also paying
+ * for a page of mail.
+ */
+export const executeUnifiedThreadListing = async (
+	client: UnifiedThreadClient,
+	accountConfigId: string,
+	params: UnifiedThreadParams,
+): Promise<ThreadSearchResponse> => {
+	const searching =
+		params.searchText !== undefined && params.searchText.length > 0;
+	const {
+		mailboxIdToAccountId,
+		inboxMailboxIds: everyInboxMailboxId,
+		starredMailboxIds: everyStarredMailboxId,
+		searchMailboxIds: everySearchMailboxId,
+		virtualCopyMailboxIds,
+	} = await buildInboxMailboxMap(accountConfigId, client);
+
+	// The account and folder scopes apply before the mode picks a set, so the
+	// listing, the search and the count all narrow by the same rule. Account
+	// first, folder second: the folder intersects what the account left, so a
+	// folder of another account narrows to nothing rather than reinstating one.
+	const narrow = (mailboxIds: Set<string>): Set<string> =>
+		scopeToMailbox(
+			scopeToAccount(mailboxIds, mailboxIdToAccountId, params.accountId),
+			params.mailboxId,
+		);
+	const inboxMailboxIds = narrow(everyInboxMailboxId);
+	const starredMailboxIds = narrow(everyStarredMailboxId);
+	const searchMailboxIds = narrow(everySearchMailboxId);
+
+	// Search widens past INBOX to every folder it may reach; `starred=true`
+	// still narrows it to the starred scope, so the two compose.
+	const searchScope = params.starredOnly ? starredMailboxIds : searchMailboxIds;
+	const scope = searching
+		? searchScope
+		: params.starredOnly
+			? starredMailboxIds
+			: inboxMailboxIds;
+
+	const search = buildUnifiedThreadSearch(params);
+	const page = {
+		continuationToken: params.continuationToken,
+		order: params.order,
+		limit: params.limit,
+	};
+
+	if (scope.size === 0) {
+		return {
+			...(params.results ? { items: [] } : {}),
+			...(params.count ? { count: 0 } : {}),
 		};
-		const starredOnly = starred === true || starred === "true";
-		// Whitespace-only text is not a search: it would widen the scope to every
-		// folder while matching nothing in particular.
-		const searchText = query?.trim();
-		const searching = searchText !== undefined && searchText.length > 0;
+	}
 
-		const client = await getClient();
+	const response: ThreadSearchResponse = {};
 
-		const {
-			mailboxIdToAccountId,
-			inboxMailboxIds,
-			starredMailboxIds,
-			searchMailboxIds,
-			virtualCopyMailboxIds,
-		} = await buildInboxMailboxMap(accountConfigId, client);
-
-		// Search widens past INBOX to every folder it may reach; `starred=true`
-		// still narrows it to the starred scope, so the two compose.
-		const searchScope = starredOnly ? starredMailboxIds : searchMailboxIds;
-		const scope = searching
-			? searchScope
-			: starredOnly
-				? starredMailboxIds
-				: inboxMailboxIds;
-		if (scope.size === 0) {
-			return { items: [], continuationToken: undefined };
-		}
-
+	if (params.results) {
 		const result = searching
 			? await client.threadMessage.searchByDate(
 					accountConfigId,
-					{ query: searchText, starred: starredOnly ? true : undefined },
-					buildSearchAllThreadsOptions(
-						{ continuationToken, order, limit },
-						searchScope,
-					),
+					search,
+					buildSearchAllThreadsOptions(page, searchScope),
 				)
-			: starredOnly
+			: params.starredOnly
 				? await client.threadMessage.listByStarred(
 						accountConfigId,
-						buildListStarredThreadsOptions(
-							{ continuationToken, order, limit },
-							starredMailboxIds,
-						),
+						buildListStarredThreadsOptions(page, starredMailboxIds, search),
 					)
 				: await client.threadMessage.listByDate(
 						accountConfigId,
-						buildListAllThreadsOptions(
-							{ continuationToken, order, limit },
-							inboxMailboxIds,
-						),
+						buildListAllThreadsOptions(page, inboxMailboxIds, search),
 					);
 
 		// Search spans folders, so it is the one mode that can see the same mail
@@ -418,11 +552,116 @@ export const UnifiedThreadOperations: Record<
 			: result.items;
 
 		const enriched = await enrichThreadRows(rows, client, accountConfigId);
-		const items = attachAccountIds(enriched, mailboxIdToAccountId);
+		response.items = attachAccountIds(enriched, mailboxIdToAccountId);
+		response.continuationToken = result.continuationToken;
+	}
 
-		return {
-			items,
-			continuationToken: result.continuationToken,
+	if (params.count) {
+		response.count = await client.threadMessage.countThreadsInScope(
+			accountConfigId,
+			search,
+			{ mailboxIds: scope, excludeDeleted: true },
+		);
+	}
+
+	return response;
+};
+
+const toArray = <T>(value: T | T[] | undefined): T[] | undefined => {
+	if (value === undefined) return undefined;
+	return Array.isArray(value) ? value : [value];
+};
+
+/**
+ * A query-string boolean, as three states.
+ *
+ * Query strings carry text; openapi-backend coerces where the schema says
+ * boolean and leaves the raw string where it cannot, so both forms are read.
+ * Anything else — absent, or a value that is neither — is `undefined`, and
+ * every caller below decides what that means for its own parameter. Folding
+ * "not stated" into `false` would turn an absent `unread` into "only read
+ * mail": a filter nobody asked for, and the opposite of the one they might
+ * have meant.
+ */
+const toBoolean = (
+	value: boolean | string | undefined,
+): boolean | undefined => {
+	if (value === true || value === "true") return true;
+	if (value === false || value === "false") return false;
+	return undefined;
+};
+
+export const UnifiedThreadOperations: Record<
+	UnifiedThreadOperationIds,
+	OperationHandler<UnifiedThreadOperationIds>
+> = {
+	UnifiedThreadOperations_listAllThreads: async (
+		context: Context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const {
+			continuationToken,
+			order,
+			limit,
+			starred,
+			query,
+			from,
+			subject,
+			accountId,
+			mailboxId,
+			category,
+			unread,
+			attachments,
+			muted,
+			count,
+			results,
+		} = context.request.query as {
+			continuationToken?: string;
+			order?: "asc" | "desc";
+			limit?: number;
+			starred?: boolean | string;
+			query?: string;
+			from?: string;
+			subject?: string;
+			accountId?: string;
+			mailboxId?: string;
+			category?: MessageCategory | MessageCategory[];
+			unread?: boolean | string;
+			attachments?: boolean | string;
+			muted?: boolean | string;
+			count?: boolean | string;
+			results?: boolean | string;
 		};
+
+		// Whitespace-only text is not a search: it would widen the scope to every
+		// folder while matching nothing in particular. The two field parameters
+		// are trimmed on the same rule, and neither widens the scope at all.
+		const searchText = query?.trim();
+		const fromText = from?.trim();
+		const subjectText = subject?.trim();
+
+		return executeUnifiedThreadListing(await getClient(), accountConfigId, {
+			continuationToken,
+			order,
+			limit,
+			// Absent means unstated for all of them, and each says what it does with
+			// that: the row filters drop out of the predicate, the account scope
+			// stays the cross-account aggregate, `count` is off unless it is asked
+			// for, and `results` is on unless it is refused.
+			starredOnly: toBoolean(starred) === true,
+			searchText: searchText || undefined,
+			from: fromText || undefined,
+			subject: subjectText || undefined,
+			accountId: accountId || undefined,
+			mailboxId: mailboxId || undefined,
+			category: toArray(category),
+			unread: toBoolean(unread),
+			attachments: toBoolean(attachments),
+			muted: toBoolean(muted),
+			count: toBoolean(count) === true,
+			results: toBoolean(results) !== false,
+		});
 	},
 };

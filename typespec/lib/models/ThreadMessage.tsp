@@ -2,6 +2,9 @@ import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/MessageCategory.tsp";
+import "../enums/MessageMutation.tsp";
+import "../enums/MessageStatus.tsp";
+import "../enums/MessageSyncStatus.tsp";
 import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
@@ -199,7 +202,7 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   snippet?: String256;
 
-  @doc("Header-derived category, denormalized from the underlying Message. Defaults to `uncategorized` at metadata-sync and is set to the classified value at body-sync — that pending state is a named value, not absence.")
+  @doc("Header-derived category, denormalized from the underlying Message. Defaults to `uncategorized` at metadata-sync and is set to the classifier's answer at body-sync — `uncategorized` is a named value, not absence, and it is also the answer a classifier with nothing to say gives. Whether the classifier has run at all is `Message.classificationState`; this row has no column for it.")
   @visibility(Lifecycle.Read)
   category: MessageCategory = MessageCategory.uncategorized;
 
@@ -240,7 +243,7 @@ model ThreadMessageResponse {
       | "updatedAt"
   >;
 
-  @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value for the not-yet-classified state, never a stand-in for `personal` (issue #45).")
+  @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value — no category — never a stand-in for `personal` (issue #45).")
   category: MessageCategory;
 
   @doc("Trust level for the From address, derived from AddressFlags at read time. Defaults to `unknown` when no Address row resolves.")
@@ -251,6 +254,15 @@ model ThreadMessageResponse {
 
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time (from the underlying Message). Absent for messages classified before this field was introduced — absence means no signal.")
   authenticity?: MessageAuthenticity;
+
+  @doc("Mutation lifecycle of the underlying Message, projected at read time — the ThreadMessage row has no column of its own. `active` means no move or delete is outstanding; `moving` or `deleting` means one is, and this row's folder is a local write the mail server has not confirmed.")
+  status: MessageStatus;
+
+  @doc("Sync status of the underlying Message, projected at read time. Read it WITH `status`, never alone (imap-mutations R3): `message-move`, `message-delete` and `message-copy` all write `failed` on an ordinary transient attempt before a redelivery that usually succeeds, so `failed` never means a mutation gave up. Give-up is `active` + `abandoned`, and that pair is decidable on its own — the row has been put back on a placement the server holds and nothing else is coming for it. A mutation that exhausted its retries and was repaired against IMAP settles to `active` + `synced` and reads as settled.")
+  syncStatus: MessageSyncStatus;
+
+  @doc("Which mutation gave up on the underlying Message, projected at read time. Read it only where `syncStatus` is `abandoned`; `none` otherwise. This is what lets a surface name the operation that actually failed — before it existed, a move that handed back and a delete that was refused were the same two values on the wire, and the client called both a failed delete.")
+  abandonedMutation: MessageMutation;
 
   @doc("Account identifier attached at read time via a mailboxId→accountId map. Present on rows returned by `GET /threads`; absent on rows from per-mailbox endpoints (clients can resolve from the mailbox cache).")
   accountId?: UUID;
@@ -266,11 +278,18 @@ model ThreadMessageResponse {
 }
 
 @doc("""
-  Aggregate response for `searchThreads`. Carries the matching rows (`items`), a
-  pagination `continuationToken`, and an optional `count` of every message the
-  query matches. `items` is omitted when `results=false` (count-only); `count` is
-  present only when `count=true`. Thread-specific so the shared `ResultList<T>`
-  (7 endpoints) stays untouched.
+  Aggregate response for the filterable thread listings — `searchThreads` and
+  `listAllThreads`. Carries the matching rows (`items`), a pagination
+  `continuationToken`, and an optional `count` of what the query matches.
+  `items` is omitted when `results=false` (count-only); `count` is present only
+  when `count=true`. Thread-specific so the shared `ResultList<T>` (7 endpoints)
+  stays untouched.
+  
+  `listAllThreads` answers with this model rather than `ResultList<T>` for that
+  same reason: it needs the count field and the shared model cannot carry one.
+  One model over both operations rather than a second of the same shape, so a
+  client reading a filtered thread listing reads one response type whether the
+  listing is scoped to a mailbox or spans every account.
   """)
 model ThreadSearchResponse {
   @doc("Matching thread rows for this page. Omitted when `results=false` (count-only mode).")
@@ -280,6 +299,24 @@ model ThreadSearchResponse {
   @continuationToken
   continuationToken?: String800;
 
-  @doc("How many messages the query matches, over the whole mailbox and independent of `limit`. Present only when `count=true`. With `senderTrust` or `dkimMismatch` in the query the count is over the enriched window instead, since those are resolved off the row.")
+  @doc("""
+    How much the query matches, over the whole scope. Exact: no page size bounds
+    it, no cursor narrows it, so it is the same number on the first page and the
+    last. Present only when `count=true`.
+    
+    Each operation counts what it lists. `searchThreads` lists messages of one
+    mailbox and counts messages. `listAllThreads` counts CONVERSATIONS across
+    every non-muted mailbox of every account — a thread holding two matching
+    messages counts once, and so does one message reachable through a real
+    folder and a virtual copy of it — because that is what the cross-account
+    listing renders after collapsing by `threadId`. A count that disagreed with
+    the rows beneath it would be a third number for the same set.
+    
+    Absent when the query carries `senderTrust` or `dkimMismatch`, even with
+    `count=true`. Those are resolved by enriching rows rather than by a
+    predicate, so no exact count exists short of enriching the whole mailbox.
+    Absence says so; a page's post-filter length labelled `count` would be a
+    page length presented as a total. A client with no number renders none.
+    """)
   count?: int32;
 }

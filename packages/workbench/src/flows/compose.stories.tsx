@@ -6,6 +6,8 @@ import {
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	ComposeQuoteMissingBanner,
+	type ComposeQuoteMode,
 	type ComposeSaveState,
 	type ComposeSendState,
 	type ComposeShellLayout,
@@ -14,6 +16,7 @@ import {
 	composeHeaderSummary,
 	ExpandedMessage,
 	inboxFilterConfig,
+	NO_QUOTABLE_BODY_FORWARD_MESSAGE,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
@@ -141,6 +144,12 @@ interface ComposerProps {
 	smtpMissing?: boolean;
 	quoted?: string;
 	quotedSender?: string;
+	/**
+	 * The source is attachments only, so there is no quote to show. Which of the
+	 * two answers is being written decides what the banner says and whether Send
+	 * can act at all.
+	 */
+	quoteMissing?: ComposeQuoteMode;
 	/** Renders the skeleton the app shows while the body's chunk loads. */
 	bodyLoading?: boolean;
 	collapsedHeader?: boolean;
@@ -169,6 +178,7 @@ const Composer = ({
 	smtpMissing = false,
 	quoted,
 	quotedSender,
+	quoteMissing,
 	bodyLoading = false,
 	collapsedHeader = false,
 	layout = "fill",
@@ -235,11 +245,12 @@ const Composer = ({
 		<ComposeFormShell
 			layout={layout}
 			banner={
-				smtpMissing || conversionFailure ? (
+				smtpMissing || conversionFailure || quoteMissing ? (
 					<>
 						{smtpMissing && (
 							<ComposeSmtpMissingBanner onConfigure={configureSmtp} />
 						)}
+						{quoteMissing && <ComposeQuoteMissingBanner mode={quoteMissing} />}
 						{conversionFailure && (
 							<Banner
 								tone="danger"
@@ -512,6 +523,36 @@ export const Inline: Story = {
 				subject="Re: Lunch Thursday?"
 				body="<p>Sounds good. See you at 12:30.</p>"
 				quoted="Are we still on for Thursday? I can do 12:30."
+				quotedSender="Ada Lovelace"
+			/>
+		</div>
+	),
+};
+
+/**
+ * A forward, and what it carries. The block under the editor is the message
+ * being passed on — the header naming who wrote it, when, about what and to
+ * whom, and then the original whole rather than quoted. It is one value with
+ * what the send writes into the body, so what is shown here is what the
+ * recipient reads (#845.5).
+ */
+export const Forward: Story = {
+	render: () => (
+		<div className="mx-auto mt-8 h-[460px] w-[640px] overflow-auto rounded-md border border-line">
+			<Composer
+				layout="flow"
+				to={[]}
+				subject="Fwd: Lunch Thursday?"
+				body="<p>Passing this on — can you make it?</p>"
+				quoted={[
+					"---------- Forwarded message ----------",
+					"From: Ada Lovelace <ada@example.com>",
+					"Date: Jun 24, 2026, 9:14 AM",
+					"Subject: Lunch Thursday?",
+					"To: Me <me@example.com>",
+					"",
+					"Are we still on for Thursday? I can do 12:30.",
+				].join("\n")}
 				quotedSender="Ada Lovelace"
 			/>
 		</div>
@@ -863,4 +904,60 @@ export const SendWithNoRecipient: StoryObj<typeof Composer> = {
 		);
 		await expect(args.onSend).not.toHaveBeenCalled();
 	},
+};
+
+/**
+ * The message being forwarded is attachments and nothing else. The composer
+ * sends a text body and an html body and no attachments, so this forward would
+ * arrive holding only what was typed into it — Send says so and sends nothing,
+ * rather than leaving with none of the original in it (#1030).
+ */
+export const NothingToForward: StoryObj<typeof Composer> = {
+	name: "Forwarding a message with no body to quote",
+	args: {
+		subject: "Fwd: Scans",
+		to: [],
+		quoteMissing: "forward",
+		send: {
+			status: "blocked",
+			reason: NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+		},
+		onBlocked: fn(),
+		onSend: fn(),
+	},
+	render: (args) => (
+		<div className="h-[560px] w-[560px] border border-line bg-canvas">
+			<Composer {...args} />
+		</div>
+	),
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(canvas.getByTestId("compose-quote-missing")).toBeVisible();
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(args.onBlocked).toHaveBeenCalledWith(
+			NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+		);
+		await expect(args.onSend).not.toHaveBeenCalled();
+	},
+};
+
+/**
+ * The same message, answered rather than passed on. A reply carries the answer
+ * and the thread it belongs to whether or not the original can be quoted, so it
+ * sends — and says the original is not in it.
+ */
+export const ReplyWithNothingToQuote: Story = {
+	name: "Replying to a message with no body to quote",
+	render: () => (
+		<MailShell
+			{...mailbox}
+			reading={
+				<Composer
+					subject="Re: Scans"
+					quoteMissing="reply"
+					save={{ status: "saved" }}
+				/>
+			}
+		/>
+	),
 };

@@ -111,6 +111,7 @@ export const sendMail = async (
 					responseCode?: number;
 					code?: string;
 					command?: string;
+					response?: string;
 				},
 			) => {
 				const smtpCode = error.responseCode;
@@ -122,9 +123,15 @@ export const sendMail = async (
 						smtpCode >= 500 &&
 						error.command === "AUTH")
 				) {
+					// The server's own words, when it gave any: a 535 reading
+					// "SmtpClientAuthentication is disabled for the Tenant" is not a
+					// failure signing in again clears, and the account card can only
+					// say so if the text survives the classification.
 					throw new SmtpConnectionError(
 						"auth",
-						"SMTP authentication failed",
+						error.response
+							? `SMTP authentication failed: ${error.response.trim()}`
+							: "SMTP authentication failed",
 						error,
 					);
 				}

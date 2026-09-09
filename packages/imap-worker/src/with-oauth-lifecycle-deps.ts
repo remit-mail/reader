@@ -53,10 +53,19 @@ export const buildLifecycleDeps = (
 			oauthTokenUpdatedAt: updatedAt,
 		});
 	},
+	// A state flip with no reason of its own removes the stored one. Left in
+	// place it would describe a failure the account has moved on from — the
+	// mailbox a sync could not find, still on the card beside a Reconnect
+	// button, after the token was revoked hours later.
 	updateConnectionState: async (
 		accountId: string,
 		state: ConnectionStateValue,
+		lastError?: string,
 	) => {
-		await accountService.update(accountId, { connectionState: state });
+		await accountService.update(
+			accountId,
+			{ connectionState: state, lastError },
+			lastError === undefined ? ["lastError"] : undefined,
+		);
 	},
 });

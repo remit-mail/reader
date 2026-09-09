@@ -1,13 +1,21 @@
+import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
 } from "@remit/api-openapi-types";
-import type { AddressItem, FlagsMergePatch } from "@remit/data-ports";
+import type {
+	AddressFlags,
+	AddressItem,
+	FlagsMergePatch,
+} from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
+import { AddressFlagKey } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import type {
 	AddressDetailOperationIds,
 	AddressOperationIds,
@@ -31,41 +39,68 @@ export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	updatedAt: item.updatedAt,
 });
 
-const FLAG_KEYS = [
-	"trusted",
-	"blocked",
-	"muted",
-	"vip",
-	"junkOnly",
-	"category",
-	"autoArchive",
-	"unsubscribed",
-] as const;
+type FlagKey = (typeof AddressFlagKey)[keyof typeof AddressFlagKey];
 
-type FlagKey = (typeof FLAG_KEYS)[number];
+const FLAG_KEYS = Object.values(AddressFlagKey) as readonly FlagKey[];
 
 /**
- * Translate the wire-format `UpdateAddressFlagsInput` into a service-level
+ * Translate the wire-format `UpdateAddressInput` into a service-level
  * `FlagsMergePatch`. Only known flag keys are forwarded; unknown keys are
  * silently dropped (a TypeSpec-only schema means unknown keys are a client
- * bug, not a security risk). `null` becomes the explicit "remove" signal.
+ * bug, not a security risk).
+ *
+ * `clearFlags` is the removal form for every flag whatever its value type, and
+ * is applied after `flags`, so a key named in both ends up removed. The `null`
+ * alternative on a flag key stays honoured for callers that can express it,
+ * but it is unreachable over OAS 3.0: TypeSpec emits a nullable `$ref` as
+ * `allOf`, and the request validator drops the `nullable` there.
  */
 export const buildFlagsPatch = (
-	input: UpdateAddressInput["flags"] | undefined,
+	input: UpdateAddressInput | undefined,
 ): FlagsMergePatch => {
 	if (!input) return {};
 	const patch = {} as Record<FlagKey, unknown>;
-	for (const key of FLAG_KEYS) {
-		if (!(key in input)) continue;
-		const value = (input as Record<FlagKey, unknown>)[key];
-		if (value === null) {
-			patch[key] = null;
-			continue;
+	const flags = input.flags;
+	if (flags) {
+		for (const key of FLAG_KEYS) {
+			if (!(key in flags)) continue;
+			const value = (flags as Record<FlagKey, unknown>)[key];
+			if (value === null) {
+				patch[key] = null;
+				continue;
+			}
+			if (value === undefined) continue;
+			patch[key] = value;
 		}
-		if (value === undefined) continue;
-		patch[key] = value;
+	}
+	for (const key of input.clearFlags ?? []) {
+		if (!FLAG_KEYS.includes(key)) continue;
+		patch[key] = null;
 	}
 	return patch as FlagsMergePatch;
+};
+
+/**
+ * The category flag a back-apply should be enqueued for, or `undefined` when
+ * this patch asks for none (issue #415).
+ *
+ * A SET fires one; a CLEAR — `null` in the patch, whether it came from
+ * `clearFlags` or from the nullable flag value — never does. Reverting a sender
+ * to auto-classification says nothing about what the classifier would have
+ * answered on mail already filed, and re-deriving that would need every
+ * message's body back; the revert takes effect on the sender's next message,
+ * exactly as the override itself did before this.
+ *
+ * The whole flag, not just its value: `setAt` identifies WHICH set the job was
+ * fired for, and the worker refuses to apply a job whose set is no longer the
+ * one standing on the Address.
+ */
+export const backApplyCategoryFlag = (
+	patch: FlagsMergePatch,
+): NonNullable<AddressFlags["category"]> | undefined => {
+	const flag = patch.category;
+	if (flag === null || flag === undefined) return undefined;
+	return flag;
 };
 
 export const AddressOperations: Record<
@@ -122,7 +157,7 @@ export const AddressDetailOperations: Record<
 			throw new ForbiddenError(`Address ${addressId} not in account config`);
 		}
 
-		const patch = buildFlagsPatch(body.flags);
+		const patch = buildFlagsPatch(body);
 		if (Object.keys(patch).length === 0) {
 			return toAddressResponse(existing);
 		}
@@ -132,6 +167,34 @@ export const AddressDetailOperations: Record<
 			addressId,
 			patch,
 		);
+
+		const flag = backApplyCategoryFlag(patch);
+		if (flag) {
+			// The flag itself is already durable. A queue failure here costs the
+			// user the retroactive pass and nothing else, so the 500 says so and
+			// names the retry — re-sending the same category enqueues a fresh job.
+			await sqsClient
+				.send(
+					new SendMessageCommand({
+						QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+						MessageBody: JSON.stringify({
+							type: "SenderCategoryBackApply",
+							accountConfigId,
+							addressId,
+							normalizedEmail: updated.normalizedEmail,
+							category: flag.value,
+							categorySetAt: flag.setAt,
+						}),
+					}),
+				)
+				.catch((cause: unknown) => {
+					throw new Error(
+						`The ${flag.value} override is saved and applies to this sender's next message, but the pass over their existing mail could not be started. Setting the same category again retries it.`,
+						{ cause },
+					);
+				});
+		}
+
 		return toAddressResponse(updated);
 	},
 };

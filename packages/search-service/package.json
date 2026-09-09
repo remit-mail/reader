@@ -9,6 +9,10 @@
 			"types": "./src/index.ts",
 			"default": "./src/index.ts"
 		},
+		"./capability": {
+			"types": "./src/capability.ts",
+			"default": "./src/capability.ts"
+		},
 		"./from-env": {
 			"types": "./src/from-env.ts",
 			"default": "./src/from-env.ts"
@@ -40,7 +44,7 @@
 		"better-sqlite3": "^12.11.1",
 		"p-limit": "^6.2.0",
 		"sqlite-vec": "^0.1.9",
-		"zod": "*",
+		"zod": "^3.25.0",
 		"@aws-sdk/client-bedrock-runtime": "*",
 		"@aws-sdk/client-s3vectors": "*",
 		"@smithy/types": "^4.16.1",

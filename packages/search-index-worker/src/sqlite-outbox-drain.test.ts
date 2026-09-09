@@ -113,3 +113,38 @@ describe("SqliteOutboxStore", () => {
 		db.close();
 	});
 });
+
+// `remit semantic on` against an existing mailbox makes the first drain pass the
+// whole back catalogue, and the pass re-runs every 2 s. The read is bounded so
+// one tick relays a batch rather than tens of thousands of rows; what it does not
+// take stays unprocessed and is what the next tick selects.
+describe("SqliteOutboxStore, bounded", () => {
+	test("reads at most one batch, and the rest on the next pass", async () => {
+		const db = makeOutboxDb();
+		const total = 620;
+		for (let i = 0; i < total; i++) {
+			insertRow(db, `r${i}`, `m${i}`, "message.body_synced");
+		}
+		const store = new SqliteOutboxStore(db as unknown as never);
+
+		const first = await store.listUnprocessedEvents();
+		assert.equal(first.length, 500);
+
+		const sent: string[] = [];
+		const relay = new OutboxRelay({
+			store,
+			sqs: fakeSqs(sent),
+			queueUrl: "q",
+		});
+
+		assert.equal(await relay.drainPending(), 500);
+		assert.equal(await relay.drainPending(), total - 500);
+		assert.equal(await relay.drainPending(), 0);
+
+		const stillPending = db
+			.prepare("SELECT count(*) AS n FROM outbox WHERE processed_at IS NULL")
+			.get() as { n: number };
+		assert.equal(stillPending.n, 0, "every row was relayed, none skipped");
+		db.close();
+	});
+});

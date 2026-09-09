@@ -34,7 +34,9 @@ const check = async (): Promise<number> => {
 	const result = await runCheck(config, state.counters);
 	await writeVerdict(
 		process.stdout,
-		json ? renderJson(result) : renderLines(result),
+		json
+			? renderJson(result, config.searchEmbeddingProvider)
+			: renderLines(result, config.searchEmbeddingProvider),
 	);
 	return exitCodeFor(result);
 };

@@ -6,13 +6,20 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type {
+	BriefCategoryFilter,
+	ThreadCategory,
+} from "../category-presentation.js";
 import type { TriageHandlers } from "../lib/keymap.js";
 import type { SelectionModifiers } from "../lib/use-selection.js";
+import type { AccountService } from "./account-service-choice.js";
 import type {
 	IntelligenceData,
 	SenderTrustLevel,
 } from "./intelligence-panel.js";
+import type { ResultCount } from "./list-result-header.js";
 import type { ListState } from "./message-list-state.js";
+import type { RowSettlement } from "./message-settlement.js";
 
 /** Pane-count thresholds, aligned to Tailwind `lg`/`xl`. The whole shell reflows
  *  by its own width: a single responsive surface, not per-device variants.
@@ -192,6 +199,12 @@ export interface NavAccount {
 	email: string;
 	/** Muted: excluded from unified views, still syncing. Rendered dimmed. */
 	muted?: boolean;
+	/**
+	 * Services this account syncs. Absent is the account that syncs mail, which
+	 * is every IMAP account. An account without `Mail` keeps its place in the
+	 * nav with every mailbox it already synced, labelled rather than dropped.
+	 */
+	syncedServices?: AccountService[];
 	mailboxes: NavMailbox[];
 	/**
 	 * Number of outbox messages pending send. When provided, an Outbox entry
@@ -224,46 +237,6 @@ export interface NavLinkRenderProps {
 }
 
 export type NavLinkComponent = (props: NavLinkRenderProps) => ReactElement;
-
-export type ThreadCategory =
-	| "uncategorized"
-	| "personal"
-	| "newsletter"
-	| "marketing"
-	| "automated"
-	| "transactional"
-	| "social";
-
-/** "all" (no category narrowing) plus every content-type category. */
-export type BriefCategoryFilter = ThreadCategory | "all";
-
-/**
- * Ordered content-type categories for the brief expando. Mirrors the generated
- * `MessageCategory` enum (@remit/domain-enums); swap this local list for the
- * generated enum's values once that package is importable from the UI build.
- */
-export const briefCategories: ReadonlyArray<{
-	id: BriefCategoryFilter;
-	label: string;
-}> = [
-	{ id: "all", label: "All" },
-	{ id: "personal", label: "Personal" },
-	{ id: "uncategorized", label: "Unclassified" },
-	{ id: "newsletter", label: "Newsletters" },
-	{ id: "marketing", label: "Marketing" },
-	{ id: "automated", label: "Automated" },
-	{ id: "transactional", label: "Transactional" },
-	{ id: "social", label: "Social" },
-];
-
-/**
- * Whether an id names one of the brief's category scopes. A host holding one
- * category across views whose sheets speak plain strings narrows it with this
- * rather than asserting it.
- */
-export function isBriefCategory(id: string): id is BriefCategoryFilter {
-	return briefCategories.some((c) => c.id === id);
-}
 
 export interface ThreadRowLabel {
 	labelId: string;
@@ -307,6 +280,13 @@ export interface ThreadRowData {
 	suspicious?: boolean;
 	/** Labels applied to this message (issue #26) — filter-, organize-, and manually-applied alike. */
 	labels?: ThreadRowLabel[];
+	/**
+	 * A mutation on this row provably gave up — today only a delete Remit
+	 * abandoned before it reached the server (issue #1002). Absent is the
+	 * ordinary case AND every case the two wire fields cannot tell apart, so
+	 * absence never means "settled", only "nothing this row can state".
+	 */
+	settlement?: RowSettlement;
 }
 
 export interface ThreadSection {
@@ -314,6 +294,27 @@ export interface ThreadSection {
 	/** Section label; omit for a flat list. */
 	label?: string;
 	threads: ThreadRowData[];
+	/**
+	 * How much mail the section's category holds, as the server counted it —
+	 * independent of how many rows were fetched. Absent, or `unknown`, renders no
+	 * number: a loaded-row length presented as a category total is the defect this
+	 * replaces (#312).
+	 */
+	total?: ResultCount;
+	/**
+	 * The section's request came back full, so the category holds more than these
+	 * rows whether or not anyone counted it. It is the only thing that keeps a way
+	 * out of a section whose total was withheld.
+	 */
+	atCap?: boolean;
+	/** The section's own request is still in flight, so it has no rows yet. */
+	loading?: boolean;
+	/**
+	 * The section's own request failed. Each section is its own query, so one
+	 * category's failure states itself where that category would have been and
+	 * leaves the rest of the brief standing.
+	 */
+	error?: boolean;
 }
 
 export interface ThreadMessageData {
@@ -421,27 +422,4 @@ export interface AppShellProps {
 	onSelectNav?: (id: string) => void;
 	onSelectThread?: (id: string) => void;
 	onToggleIntelligence?: () => void;
-}
-
-export const categoryTone: Record<
-	ThreadCategory,
-	"neutral" | "accent" | "positive" | "warning"
-> = {
-	uncategorized: "neutral",
-	personal: "accent",
-	newsletter: "neutral",
-	marketing: "neutral",
-	automated: "neutral",
-	transactional: "positive",
-	social: "warning",
-};
-
-/**
- * Whether a string names one of the classifier's categories. A host reading a
- * category off the API narrows it with this rather than asserting it: a value
- * from a newer server that this build has no tone for is a value it cannot
- * render, and it needs to know that rather than find out at lookup time.
- */
-export function isThreadCategory(value: string): value is ThreadCategory {
-	return Object.hasOwn(categoryTone, value);
 }

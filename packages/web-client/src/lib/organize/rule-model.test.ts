@@ -276,6 +276,36 @@ describe("derivePreview", () => {
 		);
 	});
 
+	it("carries the empty-index answer through, so a zero can say why (#452)", () => {
+		assert.deepEqual(
+			derivePreview(
+				{ count: 0, indexEmpty: true, previewedSignature: signature },
+				signature,
+			),
+			{ status: "ready", count: 0, indexEmpty: true },
+		);
+	});
+
+	it("keeps the empty-index answer on a stale count", () => {
+		assert.deepEqual(
+			derivePreview(
+				{ count: 0, indexEmpty: true, previewedSignature: "sig-old" },
+				signature,
+			),
+			{ status: "ready", count: 0, stale: true, indexEmpty: true },
+		);
+	});
+
+	it("leaves the flag off when the index answered", () => {
+		assert.deepEqual(
+			derivePreview(
+				{ count: 0, indexEmpty: false, previewedSignature: signature },
+				signature,
+			),
+			{ status: "ready", count: 0 },
+		);
+	});
+
 	it("surfaces an error raised for the current predicate", () => {
 		assert.deepEqual(
 			derivePreview(

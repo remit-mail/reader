@@ -9,11 +9,20 @@
  * a second account on the shared user: the API has no per-account delete, so a
  * second account would linger in the shared user's account list and change every
  * per-account screen other specs read. A separate user's accounts never appear
- * there. The account rides the same Dovecot (any username with the shared
- * password gets its own empty maildir), so no fixture server is involved.
+ * there. The account rides a Dovecot the whole suite shares (any username with
+ * the shared password gets its own empty maildir), so no fixture server is
+ * involved — and a spec that needs a mail server advertising different
+ * SPECIAL-USE flags names the lane instead of standing one up.
  */
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "./api.js";
-import { imap, imapFromStack, mintImapUser, smtpFromStack } from "./env.js";
+import {
+	defaultImapLane,
+	type ImapLane,
+	imap,
+	mintImapUser,
+	registerImapLane,
+	smtpFromStack,
+} from "./env.js";
 import { appendMessages, type Message } from "./imap.js";
 
 interface StorageStateCookie {
@@ -72,6 +81,14 @@ export interface IsolatedAccountOptions {
 	 * asks for is the lane only that spec's mail goes down.
 	 */
 	smtp?: SmtpTarget;
+	/**
+	 * The mail server this account's mailbox lives on, when it is not the one
+	 * every other account uses. `namedTrashImapLane` is the other one: nothing on
+	 * it advertises \Trash, which is how a spec reaches a Trash role resolved
+	 * from a folder's name and nothing else. The suite's own IMAP helpers follow
+	 * the account there, so a spec reads the server the app writes to.
+	 */
+	imap?: ImapLane;
 }
 
 export interface IsolatedRun {
@@ -129,17 +146,18 @@ export const connectIsolatedAccount = async (
 	api: ApiClient,
 	label: string,
 	seed: Message[] = [],
-	{ smtp }: IsolatedAccountOptions = {},
+	{ smtp, imap: lane = defaultImapLane }: IsolatedAccountOptions = {},
 ): Promise<IsolatedAccount> => {
 	const imapUser = mintImapUser();
+	registerImapLane(imapUser, lane);
 	if (seed.length > 0) await appendMessages(imapUser, seed);
 	const { accountId } = await api.createAccount({
 		email: imapUser,
 		displayName: label,
 		username: imapUser,
 		password: imap.password,
-		imapHost: imapFromStack.host,
-		imapPort: imapFromStack.port,
+		imapHost: lane.stack.host,
+		imapPort: lane.stack.port,
 		imapTls: false,
 		imapStartTls: false,
 		...sendingEnabled,

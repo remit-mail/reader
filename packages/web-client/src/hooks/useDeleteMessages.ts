@@ -10,8 +10,13 @@ import { useRoleAppointmentPrompt } from "@/components/mail/RoleAppointmentPromp
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { isFolderRoleRefusal } from "@/components/ui/folder-role-refusal";
+import {
+	isPlacementRefusal,
+	placementRefusalBanner,
+} from "@/components/ui/placement-refusal";
 import { resolveMailboxesForMessages } from "@/hooks/useMarkAsRead";
 import { runChunkedMutation } from "@/lib/bulk-actions";
+import { softErrorStatuses } from "@/lib/error-classifier";
 import {
 	cancelThreadListQueries,
 	invalidateThreadListQueries,
@@ -88,6 +93,10 @@ export const useDeleteMessages = ({
 
 	const { mutateAsync, isPending } = useMutation({
 		...messageBulkOperationsDeleteMessagesMutation(),
+		// A coded 409 is answered here — the prompt, or a banner — so it must not
+		// also take the whole screen. Only 409: a 401, 403 or 5xx on a delete is
+		// still the fatal page's (#1059).
+		meta: softErrorStatuses(409),
 		onMutate: async (variables): Promise<ThreadMutationContext> => {
 			const messageIds = new Set(variables.body.messageIds ?? []);
 
@@ -152,6 +161,25 @@ export const useDeleteMessages = ({
 				previousThreadsList,
 			};
 		},
+		// A batch that partly applied answers 200 with a non-zero `failureCount`:
+		// the rows whose placement changed under it were never claimed
+		// (imap-mutations R3). `onSettled` invalidates, so those rows come back on
+		// their own — this is what stops them coming back unexplained, which is
+		// the dead-button failure wearing a different face (#1229).
+		onSuccess: (data, vars) => {
+			const refused = data?.failureCount ?? 0;
+			if (refused === 0) return;
+			const asked = vars.body.messageIds?.length ?? 0;
+			pushError({
+				severity: "warning",
+				title:
+					refused > 1
+						? `Couldn't delete ${refused} of ${asked} messages yet`
+						: "Couldn't delete this message yet",
+				detail:
+					"Something else moved it while the delete was being prepared. It is back where it now sits — try again.",
+			});
+		},
 		onError: (err, vars, context) => {
 			if (context) {
 				for (const entry of context.previousThreadMessages) {
@@ -175,6 +203,11 @@ export const useDeleteMessages = ({
 				return;
 			}
 			const count = vars.body.messageIds?.length ?? 0;
+			const placement = isPlacementRefusal(err);
+			if (placement) {
+				pushError(placementRefusalBanner(placement, count, "delete"));
+				return;
+			}
 			pushError({
 				title:
 					count > 1

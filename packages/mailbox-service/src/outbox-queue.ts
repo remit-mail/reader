@@ -9,6 +9,7 @@ import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
+import { isOpenForWork } from "./outbox-status.js";
 
 interface SendMessageEvent {
 	type: "SEND_MESSAGE";
@@ -86,6 +87,38 @@ const hasNowhereToGo = (message: {
 
 const NO_RECIPIENT_MESSAGE =
 	"This message has nobody to send to. Add a recipient before sending it.";
+
+const ENQUEUE_FAILED_MESSAGE =
+	"This message could not be handed to the outgoing queue, so it was not sent. Send it again.";
+
+const MOVED_WHILE_EDITING_MESSAGE =
+	"This message started sending while it was being edited, so the change was not saved. Open the Outbox to see where it stands.";
+
+const MOVED_WHILE_SENDING_MESSAGE =
+	"This message already left the queue and cannot be sent again. Open the Outbox to see where it stands.";
+
+/**
+ * Where a row goes when the enqueue reports a failure — never `draft`, and
+ * never back to `draft` where it came from.
+ *
+ * A throw from `SendMessage` does not prove the broker refused the event. This
+ * queue is not FIFO on the send path and carries no deduplication id, so a
+ * timeout or a lost response leaves an event that may still be delivered. And
+ * `draft` is inside the worker's send fence (`SENDABLE_STATUSES`, smtp-worker
+ * `send-message-core.ts`): a row put back there is sendable by the landed event
+ * and by the user pressing Send, which is two copies of one message. `failed`
+ * is outside that fence, so the landed event is dropped on arrival, and a
+ * `failed` row is editable and sendable by hand (#933) — the recovery survives.
+ *
+ * `blocked` is outside the fence too and names a cause the enqueue did not
+ * change, so a row that came from there goes back to it.
+ */
+const settledStatusFor = (
+	priorStatus: OutboxMessageItem["status"],
+): OutboxMessageItem["status"] =>
+	priorStatus === OutboxMessageStatus.blocked
+		? OutboxMessageStatus.blocked
+		: OutboxMessageStatus.failed;
 
 const generateMessageId = (domain: string): string => {
 	const timestamp = Date.now();
@@ -168,16 +201,30 @@ export class OutboxQueueService {
 			outboxMessageId,
 			"act",
 		);
-		if (existing.status !== OutboxMessageStatus.draft) {
+		if (!isOpenForWork(existing.status)) {
 			throw new ConflictError(
 				`This message is already ${existing.status} and can no longer be edited as a draft. Start a new message to change it.`,
 			);
 		}
 
-		const updated = await this.outboxMessageService.update(
+		// Editing a settled failure returns the row to `draft`: it is no longer the
+		// message that failed, and the Outbox renders a `failed` row with its
+		// `lastError` — a failure reported against text that never went out. The
+		// same row moves to Drafts carrying its content, recipients and
+		// attachments, so there is no copy to reconcile.
+		//
+		// Conditional on the status this decision was read from. A concurrent send
+		// can move the row to `queued` between the two, and an unconditional write
+		// would pull it back to `draft` with its event already on the wire — the
+		// worker's fence takes `draft`, so that row goes out and stays sendable.
+		const updated = await this.outboxMessageService.updateIfStatus(
 			accountConfigId,
 			outboxMessageId,
+			existing.status,
 			{
+				...(existing.status !== OutboxMessageStatus.draft && {
+					status: OutboxMessageStatus.draft,
+				}),
 				...(input.toAddresses !== undefined && {
 					toAddresses: input.toAddresses,
 				}),
@@ -196,6 +243,7 @@ export class OutboxQueueService {
 				}),
 			},
 		);
+		if (!updated) throw new ConflictError(MOVED_WHILE_EDITING_MESSAGE);
 
 		this.log.info({ outboxMessageId }, "Updated draft outbox message");
 
@@ -211,11 +259,7 @@ export class OutboxQueueService {
 			outboxMessageId,
 			"act",
 		);
-		if (
-			existing.status !== OutboxMessageStatus.draft &&
-			existing.status !== OutboxMessageStatus.failed &&
-			existing.status !== OutboxMessageStatus.blocked
-		) {
+		if (!isOpenForWork(existing.status)) {
 			throw new ConflictError(
 				`This message is already ${existing.status} and cannot be sent again. Open the Outbox to see where it stands.`,
 			);
@@ -225,20 +269,25 @@ export class OutboxQueueService {
 			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
 		}
 
-		const updated = await this.outboxMessageService.updateStatus(
+		// Conditional on the status this send was decided against, so two presses —
+		// or a press racing the worker — produce one queued row and one conflict
+		// rather than two events for the same message.
+		const updated = await this.outboxMessageService.updateIfStatus(
 			accountConfigId,
 			outboxMessageId,
-			OutboxMessageStatus.queued,
+			existing.status,
+			{ status: OutboxMessageStatus.queued },
 		);
+		if (!updated) throw new ConflictError(MOVED_WHILE_SENDING_MESSAGE);
 
 		// `queued` is a dead end for a row the queue never accepted: `send` takes
 		// draft, failed and blocked, `deleteDraft` those three plus unfiled, so a
 		// row parked at `queued` by a failed enqueue is neither sendable nor
-		// discardable (#845.8). Put it back where it came from and let the enqueue
-		// failure surface — the row stays reachable, the caller still hears no.
+		// discardable (#845.8). Settle it and let the enqueue failure surface —
+		// the row stays reachable, the caller still hears no.
 		await this.enqueueSend(existing.accountId, outboxMessageId).catch(
 			async (error: unknown) => {
-				await this.outboxMessageService.updateStatus(
+				await this.settleUnqueued(
 					accountConfigId,
 					outboxMessageId,
 					existing.status,
@@ -282,7 +331,21 @@ export class OutboxQueueService {
 			status: OutboxMessageStatus.queued,
 		});
 
-		await this.enqueueSend(input.accountId, outbox.outboxMessageId);
+		// Same dead end as in `send`: a row parked at `queued` by an enqueue that
+		// threw is neither sendable nor discardable (#845.8, #931, #936). This row
+		// is new, so there is no prior status — it settles at `failed`, carrying
+		// the reason, which keeps the composed text editable and sendable while
+		// staying outside the fence a landed event has to pass.
+		await this.enqueueSend(input.accountId, outbox.outboxMessageId).catch(
+			async (error: unknown) => {
+				await this.settleUnqueued(
+					input.accountConfigId,
+					outbox.outboxMessageId,
+					OutboxMessageStatus.failed,
+				);
+				throw error;
+			},
+		);
 
 		this.log.info(
 			{ outboxMessageId: outbox.outboxMessageId, accountId: input.accountId },
@@ -328,6 +391,45 @@ export class OutboxQueueService {
 		await this.outboxMessageService.delete(accountConfigId, outboxMessageId);
 
 		this.log.info({ outboxMessageId }, "Deleted outbox message");
+	};
+
+	/**
+	 * Take a row back out of `queued` after the enqueue reported a failure.
+	 *
+	 * Conditional on `queued`, because the event may have landed regardless — an
+	 * error from `SendMessage` says the response was lost, not that the broker
+	 * refused it. If the worker already has the row, it holds the newer truth and
+	 * this write does nothing.
+	 *
+	 * Never rejects. The enqueue failure is what went wrong and what the caller
+	 * has to hear; a settle that also fails would replace it with the wrong
+	 * cause, so it is logged and the row is left where #936 found it — which the
+	 * caller's error at least names.
+	 */
+	private settleUnqueued = async (
+		accountConfigId: string,
+		outboxMessageId: string,
+		priorStatus: OutboxMessageItem["status"],
+	): Promise<void> => {
+		const status = settledStatusFor(priorStatus);
+		await this.outboxMessageService
+			.updateIfStatus(
+				accountConfigId,
+				outboxMessageId,
+				OutboxMessageStatus.queued,
+				{
+					status,
+					...(status === OutboxMessageStatus.failed && {
+						lastError: ENQUEUE_FAILED_MESSAGE,
+					}),
+				},
+			)
+			.catch((settleError: unknown) => {
+				this.log.error(
+					{ outboxMessageId, settleError: String(settleError) },
+					"Could not settle an outbox message the queue refused",
+				);
+			});
 	};
 
 	private enqueueSend = async (

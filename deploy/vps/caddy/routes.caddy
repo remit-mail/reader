@@ -21,6 +21,13 @@ request_header X-Remit-Client-IP {client_ip}
 #   /api/*       -> apisix, with the /api prefix stripped (business routes,
 #                   matching the openapi-generated apisix route table, which
 #                   has no /api prefix)
+#   /feeds/calendar/* -> apisix, path unchanged. A calendar feed is polled by
+#                   Apple Calendar, Google Calendar and Thunderbird, which sign
+#                   in to nothing: the address they were handed is the whole
+#                   credential, so it is served where it was minted rather than
+#                   under /api. It goes through apisix and not straight to the
+#                   backend because the edge exemption for it is narrow — one
+#                   method, and a uri regex over the token's exact shape.
 #   /content/*   -> backend directly, path unchanged (signed-URL content
 #                   delivery; not part of the openapi/JWT-gated surface, so
 #                   it does not go through apisix's business routes)
@@ -51,6 +58,13 @@ route /api/auth/* {
 
 route /api/* {
 	uri strip_prefix /api
+	reverse_proxy apisix:9080 {
+		lb_try_duration 30s
+		lb_try_interval 250ms
+	}
+}
+
+route /feeds/calendar/* {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms

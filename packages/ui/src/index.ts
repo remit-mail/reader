@@ -4,6 +4,48 @@
 // instead of chaining them) without importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
+	type BriefCategoryFilter,
+	CATEGORY_PRESENTATION,
+	CATEGORY_SECTION_ORDER,
+	type CategoryPresentation,
+	categoryChips,
+	categoryLabels,
+	categoryTone,
+	getCategoryLabel,
+	isBriefCategory,
+	isThreadCategory,
+	type ThreadCategory,
+} from "./category-presentation.js";
+export {
+	type AccountServiceChange,
+	type AccountServiceChangeCopy,
+	AccountServiceChangeDialog,
+	type AccountServiceChangeDialogProps,
+	accountServiceChangeCopy,
+} from "./components/account-service-change-dialog.js";
+export {
+	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	ACCOUNT_SERVICE_ROWS,
+	type AccountService,
+	AccountServiceChoice,
+	type AccountServiceChoiceProps,
+	type AccountServiceRow,
+} from "./components/account-service-choice.js";
+export {
+	ACCOUNT_NO_SERVICE_TOGGLES_MESSAGE,
+	ACCOUNT_SERVICE_OFF_LABEL,
+	ACCOUNT_SERVICE_OFF_MESSAGE,
+	AccountServiceOffBadge,
+	type AccountServiceOffBadgeProps,
+	AccountServiceOffNotice,
+	type AccountServiceOffNoticeProps,
+} from "./components/account-service-status.js";
+export {
+	type AccountServiceIntent,
+	AccountServiceToggles,
+	type AccountServiceTogglesProps,
+} from "./components/account-service-toggles.js";
+export {
 	AddressDisplay,
 	type AddressDisplayProps,
 	AddressList,
@@ -11,6 +53,29 @@ export {
 	type EnvelopeAddress,
 } from "./components/address-display.js";
 export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
+export {
+	AgendaComposer,
+	type AgendaComposerProps,
+	AgendaPhraseField,
+	type AgendaPhraseFieldProps,
+	PhraseReading,
+} from "./components/agenda-composer.js";
+export {
+	type AgendaDensity,
+	AgendaFlow,
+	type AgendaFlowProps,
+	type AgendaScrollTarget,
+} from "./components/agenda-flow.js";
+export {
+	AgendaDensityControl,
+	type AgendaDensityControlProps,
+	FreeTimeList,
+	type FreeTimeListProps,
+	NextUpCard,
+	type NextUpCardProps,
+	PositionMap,
+	type PositionMapProps,
+} from "./components/agenda-panels.js";
 export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
@@ -24,13 +89,8 @@ export {
 } from "./components/app-shell-slotted.js";
 export {
 	type AppShellProps,
-	type BriefCategoryFilter,
-	briefCategories,
-	categoryTone,
 	type Density,
 	INTELLIGENCE_MIN_WIDTH,
-	isBriefCategory,
-	isThreadCategory,
 	type MessageListKeyboard,
 	type MessageListSelection,
 	type NarrowView,
@@ -43,7 +103,6 @@ export {
 	type PaneLayout,
 	READING_PANE_MIN_WIDTH,
 	resolvePaneLayout,
-	type ThreadCategory,
 	type ThreadData,
 	type ThreadMessageData,
 	type ThreadRowData,
@@ -106,13 +165,10 @@ export {
 export {
 	type BriefCategoryControl,
 	type BriefFilterControl,
-	type BriefFilterId,
 	type BriefFilterSurface,
 	BriefSections,
 	type BriefSectionsProps,
 	type BriefSourceControl,
-	isBriefFilterId,
-	matchesBriefFilters,
 } from "./components/brief-sections.js";
 export {
 	Button,
@@ -121,13 +177,43 @@ export {
 	type ButtonProps,
 } from "./components/button.js";
 export {
+	CalendarClashStrip,
+	type CalendarClashStripProps,
+} from "./components/calendar-clash-strip.js";
+export {
 	CalendarEventChip,
 	type CalendarEventChipProps,
 } from "./components/calendar-event-chip.js";
 export {
+	CalendarEventChipContent,
+	type CalendarEventChipContentProps,
+} from "./components/calendar-event-chip-content.js";
+export {
+	CalendarGrid,
+	type CalendarGridProps,
+} from "./components/calendar-grid.js";
+export {
+	CalendarInviteCard,
+	type CalendarInviteCardProps,
+} from "./components/calendar-invite-card.js";
+export {
 	CalendarList,
 	type CalendarListProps,
 } from "./components/calendar-list.js";
+export {
+	CalendarParseBadge,
+	type CalendarParseBadgeProps,
+	calendarParseLabel,
+	calendarParseNote,
+} from "./components/calendar-parse-badge.js";
+export {
+	CalendarSlotOffers,
+	type CalendarSlotOffersProps,
+} from "./components/calendar-slot-offers.js";
+export {
+	CalendarSuggestionDeck,
+	type CalendarSuggestionDeckProps,
+} from "./components/calendar-suggestion-deck.js";
 export {
 	CalendarDateNav,
 	type CalendarDateNavProps,
@@ -137,17 +223,30 @@ export {
 	segmentClassName,
 } from "./components/calendar-toolbar.js";
 export {
+	type AgendaParse,
 	type CalendarAttendee,
+	type CalendarClash,
 	type CalendarColorId,
+	type CalendarDay,
 	type CalendarDescriptor,
 	type CalendarEventData,
+	type CalendarInvite,
+	type CalendarInviteState,
+	type CalendarParseMethod,
+	type CalendarProposal,
+	type CalendarSlotPick,
 	type CalendarViewId,
+	type ChoicePicks,
 	calendarColorIds,
 	type EventDraft,
 	type EventSuggestion,
+	type PhraseChoice,
+	type PhraseChoiceOption,
 	type RecurrenceScope,
 	type RsvpState,
 	type ZoneCertainty,
+	type ZoneOption,
+	type ZoneOptions,
 } from "./components/calendar-types.js";
 export {
 	Card,
@@ -159,8 +258,6 @@ export {
 export {
 	CategoryBadge,
 	type CategoryBadgeProps,
-	getCategoryLabel,
-	type MessageCategory,
 } from "./components/category-badge.js";
 export { Checkbox, type CheckboxProps } from "./components/checkbox.js";
 export {
@@ -192,6 +289,14 @@ export {
 	ComposeLanguageSetting,
 	type ComposeLanguageSettingProps,
 } from "./components/compose-language-setting.js";
+export {
+	ComposeQuoteMissingBanner,
+	type ComposeQuoteMissingBannerProps,
+	type ComposeQuoteMode,
+	composeQuoteMissingMessage,
+	NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+	NO_QUOTABLE_BODY_REPLY_MESSAGE,
+} from "./components/compose-quote-missing-banner.js";
 export {
 	ComposeSmtpMissingBanner,
 	type ComposeSmtpMissingBannerProps,
@@ -254,6 +359,9 @@ export {
 export {
 	EventSuggestionCard,
 	type EventSuggestionCardProps,
+	settleZone,
+	ZONE_UNSETTLED_REASON,
+	type ZoneSettlement,
 } from "./components/event-suggestion-card.js";
 export {
 	FieldLabel,
@@ -290,6 +398,7 @@ export {
 	demoVocabularyRule,
 	type FilterRule,
 	hasActiveWiden,
+	hasMatcher,
 	type LabelOption,
 	type MatchOperator,
 	matchesBodyText,
@@ -349,7 +458,6 @@ export {
 	type FolderRole,
 	isVirtualFolderRole,
 	provenanceFolderLabel,
-	providerLeaf,
 	type ResultFolder,
 	roleIcon,
 } from "./components/folder-role.js";
@@ -370,11 +478,23 @@ export {
 	type InputVariant,
 } from "./components/input.js";
 export {
+	type CalendarDayEntry,
+	type CalendarInviteIntel,
+	type CalendarProseIntel,
+	type CalendarSuggestionIntel,
+	IntelligenceCalendar,
+	type IntelligenceCalendarActions,
+	type IntelligenceCalendarData,
+	type IntelligenceCalendarProps,
+} from "./components/intelligence-calendar.js";
+export {
 	type AuthenticityIntel,
+	type IntelligenceCalendarSurface,
 	type IntelligenceData,
 	IntelligencePanel,
 	type IntelligencePanelProps,
 	type IntelligenceQuickActions,
+	type IntelligenceTabId,
 	type MatchedChunk,
 	type SenderFlagsIntel,
 	type SenderIntel,
@@ -384,6 +504,7 @@ export {
 	type SimilarMessageLinkProps,
 	type SimilarState,
 } from "./components/intelligence-panel.js";
+export { IntelligenceSection } from "./components/intelligence-section.js";
 export {
 	IntelligenceToggle,
 	type IntelligenceToggleProps,
@@ -403,6 +524,11 @@ export {
 	type LabelChipData,
 	type LabelChipProps,
 } from "./components/label-chip.js";
+export {
+	ListResultHeader,
+	type ListResultHeaderProps,
+	type ResultCount,
+} from "./components/list-result-header.js";
 export {
 	type MailAction,
 	MailActionToolbar,
@@ -442,6 +568,14 @@ export {
 	type RowSelection,
 	type RowToggleEvent,
 } from "./components/message-row.js";
+export {
+	MessageSettlementBadge,
+	type MessageSettlementBadgeProps,
+	MessageSettlementNotice,
+	type MessageSettlementNoticeProps,
+	messageSettlementCopy,
+	type RowSettlement,
+} from "./components/message-settlement.js";
 export {
 	type MobileMessageAction,
 	MobileMessageActionBar,
@@ -488,6 +622,7 @@ export {
 	type PopoverMenuItem,
 	PopoverMenuPanel,
 	type PopoverMenuPanelProps,
+	PopoverMenuPortal,
 	type PopoverMenuProps,
 	PopoverMenuRow,
 	type PopoverMenuRowProps,
@@ -585,6 +720,7 @@ export {
 export {
 	APPOINTABLE_ROLES,
 	type CandidateFolder,
+	FolderRolesHelp,
 	type RoleAppointment,
 	RoleAppointmentList,
 	type RoleAppointmentListProps,
@@ -792,6 +928,43 @@ export {
 	sanitizeQuotedHtml,
 } from "./lib/adopted-html.js";
 export {
+	type AgendaRow,
+	addDays,
+	type BusySpan,
+	buildAgendaRows,
+	buildCalendarDay,
+	busyMinutesOf,
+	busySpansOn,
+	type ClashOptions,
+	clashesWith,
+	conflictsOf,
+	DAY_END_MINUTE,
+	DAY_START_MINUTE,
+	datesBetween,
+	FREE_MINUTES,
+	type FreeStretch,
+	formatMinute,
+	formatRunLabel,
+	formatShortDay,
+	formatSpan,
+	freeAhead,
+	freeStretchesFromSpans,
+	freeStretchesOn,
+	groupOverlapping,
+	isClearDay,
+	isEmptyDay,
+	mergeBusySpans,
+	minuteOfDay,
+	monthLabel,
+	type NextUp,
+	readNextUp,
+	shortMonthLabel,
+	type WallSpan,
+	wallSpanOn,
+	weekdayLongLabel,
+	weekdayShortLabel,
+} from "./lib/agenda-time.js";
+export {
 	DEFAULT_ATTACHMENT_FILENAME,
 	formatByteSize,
 	sanitizeAttachmentFilename,
@@ -808,9 +981,25 @@ export {
 	toggleBriefFilterInQuery,
 } from "./lib/brief-filter-query.js";
 export {
+	type BriefFilterId,
+	isBriefFilterId,
+	matchesBriefFilters,
+	narrowBriefSections,
+} from "./lib/brief-filters.js";
+export {
 	type CalendarColorClasses,
 	calendarColorClasses,
 } from "./lib/calendar-color.js";
+export {
+	type CalendarEventShell,
+	calendarEventBodyClasses,
+} from "./lib/calendar-event-shell.js";
+export {
+	DRAFT_MINUTES,
+	isDraggedSelection,
+	pointPick,
+	rangePick,
+} from "./lib/calendar-slot-pick.js";
 export {
 	buildCidResolver,
 	type CidResolvableBodyPart,
@@ -902,6 +1091,13 @@ export {
 	DESKTOP_MIN_WIDTH,
 } from "./lib/layout-breakpoints.js";
 export {
+	type OverlayAnswers,
+	type OverlayScopeOptions,
+	overlayStack,
+	resolveAgainstOverlays,
+	useOverlayScope,
+} from "./lib/overlay-scope.js";
+export {
 	derivePropertyClauses,
 	normalizeSubject,
 	sharedSubjectFragment,
@@ -948,6 +1144,12 @@ export {
 	searchConversionNotice,
 } from "./lib/search-rule.js";
 export {
+	SEMANTIC_OFF_BUYS,
+	SEMANTIC_OFF_COMMAND,
+	SEMANTIC_OFF_TITLE,
+	semanticOffReason,
+} from "./lib/semantic-off.js";
+export {
 	collapsibleDomain,
 	deriveSenderClauses,
 	distinctSenders,
@@ -972,6 +1174,7 @@ export {
 	useLongPress,
 } from "./lib/use-long-press.js";
 export { useMatchMedia } from "./lib/use-match-media.js";
+export { useModalFocus } from "./lib/use-modal-focus.js";
 export {
 	MESSAGE_ROW_SELECTOR,
 	useRenderedRowIds,
@@ -1009,6 +1212,7 @@ export {
 	ESCALATED_REVIEW_WARNING,
 	ESCALATED_SCOPE_FALLBACK,
 	escalatedMatchLabel,
+	escalatedRuleReason,
 	type MatchCount,
 	type MatchDescription,
 	type MatchDoor,
@@ -1020,6 +1224,7 @@ export {
 	type RunCopy,
 	type RunOutcome,
 	type RunState,
+	ruleRestrictionFor,
 	runCopy,
 	type SampleEmptyReason,
 	type SelectionRestriction,

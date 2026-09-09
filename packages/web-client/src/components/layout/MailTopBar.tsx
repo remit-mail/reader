@@ -8,7 +8,7 @@
  */
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import { RefreshButton, ShellTopBar, shortcutHintForAction } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
@@ -16,16 +16,26 @@ import { useSearchScope } from "@/hooks/useSearchScope";
 import { openBugReport } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
-import { useOpenCompose } from "@/routing";
+import {
+	invalidateThreadListQueries,
+	threadListCacheKeys,
+} from "@/lib/thread-list-cache";
+import { useGoToSection, useOpenCompose } from "@/routing";
 
 interface MailTopBarProps {
 	accounts: RemitImapAccountResponse[];
 }
 
 export function MailTopBar({ accounts }: MailTopBarProps) {
-	const { searchInput, onSearchChange, onSearchClear, onSearchClearQuery } =
-		useMailContext();
-	const navigate = useNavigate();
+	const {
+		searchInput,
+		onSearchChange,
+		onSearchClear,
+		onSearchClearQuery,
+		resultFolderIndex,
+	} = useMailContext();
+	const queryClient = useQueryClient();
+	const goToSection = useGoToSection();
 	const compose = useOpenCompose();
 	const { scope, clearScope } = useSearchScope(accounts);
 	const chips =
@@ -44,7 +54,17 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 		state: refreshState,
 		errorMessage: refreshError,
 		refresh,
-	} = useRefreshControl(allAccountIds);
+	} = useRefreshControl(allAccountIds, {
+		// Without this the bar's refresh confirmed against a thread list it
+		// never reloaded: the sync landed, the button ticked, and the mail it
+		// fetched stayed off screen until something else invalidated the list.
+		// Every open account's folders, so whichever list is on screen reloads.
+		onSettled: () =>
+			invalidateThreadListQueries(
+				queryClient,
+				threadListCacheKeys(resultFolderIndex.keys()),
+			),
+	});
 
 	return (
 		<ShellTopBar
@@ -59,7 +79,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			}}
 			onCompose={compose}
 			onReportBug={openBugReport}
-			onOpenSettings={() => navigate({ to: "/settings/accounts" })}
+			onOpenSettings={() => goToSection("accounts")}
 			composeShortcut={shortcutHintForAction("compose")}
 			refreshControl={
 				<RefreshButton

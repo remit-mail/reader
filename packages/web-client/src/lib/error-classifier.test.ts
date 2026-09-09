@@ -9,6 +9,7 @@ import {
 	isNetworkError,
 	isNotFound,
 	isServerError,
+	restartExpectedMeta,
 	shouldEscalate,
 	softErrorStatuses,
 } from "./error-classifier";
@@ -366,10 +367,68 @@ describe("meta.softErrorStatuses (one outcome owned, the rest not)", () => {
 		);
 	});
 
+	it("does not open the restart gap for a call site that never claimed one", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("bad gateway", 502), ownsNotFound, "nobody"),
+			true,
+		);
+	});
+
 	it("names the record's absence, whichever client raised it", () => {
 		assert.equal(isNotFound(new ApiError("gone", 404)), true);
 		assert.equal(isNotFound({ status: 404 }), true);
 		assert.equal(isNotFound(new ApiError("gone", 410)), false);
 		assert.equal(isNotFound(new TypeError("x is undefined")), false);
+	});
+});
+
+/**
+ * A self-update stops and starts the backend, so for those seconds the proxy in
+ * front of it has nothing to dial. That gap belongs to the surface that asked
+ * for the restart; every other 5xx, on that call site and on any other, is still
+ * the API reporting itself broken (#468).
+ */
+describe("meta.restartExpected (the gap in a restart this call site asked for)", () => {
+	it("does NOT escalate the gateway statuses answered while the backend is down", () => {
+		for (const status of [502, 503, 504]) {
+			assert.equal(
+				shouldEscalate(
+					new ApiError("gateway", status),
+					restartExpectedMeta,
+					"nobody",
+				),
+				false,
+				`a ${status} inside the restart window belongs to the update surface`,
+			);
+		}
+	});
+
+	it("escalates a 500 — a server that answered is up, and up and broken is not designed", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("boom", 500), restartExpectedMeta, "nobody"),
+			true,
+		);
+	});
+
+	it("escalates the same 502 without the claim, however soft the call site is", () => {
+		assert.equal(
+			shouldEscalate(new ApiError("gateway", 502), undefined, "nobody"),
+			true,
+		);
+		assert.equal(
+			shouldEscalate(new ApiError("gateway", 502), { softError: true }, "user"),
+			true,
+		);
+	});
+
+	it("escalates a client bug raised inside the window", () => {
+		assert.equal(
+			shouldEscalate(
+				new TypeError("x is undefined"),
+				restartExpectedMeta,
+				"nobody",
+			),
+			true,
+		);
 	});
 });

@@ -1,4 +1,9 @@
-import { cn } from "@remit/ui";
+import {
+	cn,
+	type OverlayAnswers,
+	useModalFocus,
+	useOverlayScope,
+} from "@remit/ui";
 import { X } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
@@ -9,6 +14,13 @@ interface DrawerProps {
 	ariaLabel?: string;
 	side?: "left" | "right";
 	widthClassName?: string;
+	/**
+	 * Shortcuts the drawer keeps serving while it is up, beyond Escape. The key
+	 * that opened it is the one that has to reach it — `i` closes the
+	 * intelligence drawer it opened — and everything left undeclared is
+	 * contained, so no verb acts on the list behind the scrim.
+	 */
+	answers?: OverlayAnswers;
 }
 
 /**
@@ -27,40 +39,26 @@ export const Drawer = ({
 	ariaLabel = "Navigation",
 	side = "left",
 	widthClassName = "w-[80vw] max-w-[320px]",
+	answers,
 }: DrawerProps) => {
 	const drawerRef = useRef<HTMLDivElement>(null);
-	const previouslyFocusedRef = useRef<HTMLElement | null>(null);
+
+	useOverlayScope({
+		id: "drawer",
+		open: isOpen,
+		answers: { back: onClose, ...answers },
+	});
+
+	useModalFocus(drawerRef, isOpen);
 
 	useEffect(() => {
 		if (!isOpen) return;
-
-		previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-
-		const handleKey = (event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				onClose();
-			}
-		};
-
-		document.addEventListener("keydown", handleKey);
-
-		// Move focus into the drawer
-		const focusable = drawerRef.current?.querySelector<HTMLElement>(
-			"button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])",
-		);
-		focusable?.focus();
-
-		// Lock body scroll
 		const previousOverflow = document.body.style.overflow;
 		document.body.style.overflow = "hidden";
-
 		return () => {
-			document.removeEventListener("keydown", handleKey);
 			document.body.style.overflow = previousOverflow;
-			previouslyFocusedRef.current?.focus();
 		};
-	}, [isOpen, onClose]);
+	}, [isOpen]);
 
 	if (!isOpen) return null;
 
@@ -86,6 +84,7 @@ export const Drawer = ({
 			{/* Drawer panel */}
 			<div
 				ref={drawerRef}
+				tabIndex={-1}
 				className={cn(
 					"safe-area-frame absolute top-0 bottom-0 bg-canvas border-line shadow-xl flex flex-col",
 					widthClassName,

@@ -42,10 +42,14 @@ services:
     depends_on:
       dovecot:
         condition: service_healthy
+      dovecot-named-trash:
+        condition: service_healthy
 
   imap-worker:
     depends_on:
       dovecot:
+        condition: service_healthy
+      dovecot-named-trash:
         condition: service_healthy
 
   smtp-worker:

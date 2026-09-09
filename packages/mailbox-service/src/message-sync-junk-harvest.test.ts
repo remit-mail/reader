@@ -19,7 +19,7 @@ import {
 	addressSightingIn,
 	MessageSyncService,
 } from "./message-sync.js";
-import { folderRoles } from "./test-helpers/folder-roles.js";
+import { folderRoles, NO_JUNK_ROLES } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope, ImapMessage } from "./types.js";
 
 const stub = <T>(): T => ({}) as T;
@@ -141,6 +141,7 @@ const save = async (
 	).saveMessage(mailbox, "acct-1", "cfg-1", msg, {
 		junkMailboxId: role === "Junk" ? mailbox.mailboxId : null,
 		trashMailboxId: role === "Trash" ? mailbox.mailboxId : null,
+		configJunkRoles: NO_JUNK_ROLES,
 	});
 
 	return saved;
@@ -155,6 +156,7 @@ describe("what a mailbox says about the addresses on its messages", () => {
 	const ROLES = (junk: string | null, trash: string | null) => ({
 		junkMailboxId: junk,
 		trashMailboxId: trash,
+		configJunkRoles: NO_JUNK_ROLES,
 	});
 
 	it("reads the folder the account appointed, not the folder’s name", () => {

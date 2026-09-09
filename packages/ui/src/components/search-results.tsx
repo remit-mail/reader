@@ -3,6 +3,7 @@ import { useId, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { BlockedReason } from "./blocked-reason.js";
 import type { FolderRole } from "./folder-role.js";
+import type { ResultCount } from "./list-result-header.js";
 import { type SearchResult, SearchResultRow } from "./search-result-row.js";
 import { SearchTokenChips } from "./search-token-chip.js";
 import { SpamResultsOffer } from "./spam-results-offer.js";
@@ -24,7 +25,10 @@ export interface SearchResultSection {
  * - `global` — the unscoped search the daily brief runs: every account, every
  *   folder, no chip in the bar. It is the only scope that holds spam out, so it
  *   is the only one that carries a way back to it: without `onScopeToSpam` there
- *   is nowhere to send the user and no offer is made.
+ *   is nowhere to send the user and no offer is made. `spamCount` is the number
+ *   that offer states, counted by the server over every junk folder the search
+ *   reached — the rows this component holds out are a page's share of them and
+ *   were never a total (#313).
  * - `folder` — narrowed to one place by the sidebar, which the bar shows as a
  *   chip.
  * - `collection` — narrowed by something that is not a folder, `is:starred`
@@ -33,11 +37,14 @@ export interface SearchResultSection {
  *   mail), spam is not held back from them.
  */
 export type SearchScope =
-	| { kind: "global"; onScopeToSpam?: () => void }
+	| { kind: "global"; onScopeToSpam?: () => void; spamCount?: ResultCount }
 	| { kind: "collection" }
 	| { kind: "folder"; role?: FolderRole };
 
 const GLOBAL_SCOPE: SearchScope = { kind: "global" };
+
+/** Nobody counted the junk folders, so the offer names no figure. */
+const UNCOUNTED_SPAM: ResultCount = { kind: "unknown" };
 
 const isSpamScope = (scope: SearchScope): boolean =>
 	scope.kind === "folder" && scope.role === "junk";
@@ -341,14 +348,27 @@ export function SearchResults({
 		(total, entry) => total + entry.spam.length,
 		0,
 	);
+	// Rows this component held out are always offered a way back. Holding mail
+	// out of a list AND withholding the offer leaves it hidden with nothing on
+	// screen saying so — a worse outcome than any wrong number, and reachable
+	// whenever a cached count says zero over a page that is holding junk rows.
+	// The count decides the figure and can add an offer of its own (matches below
+	// the loaded page, which is the defect this exists to fix); it never takes
+	// one away (#313).
+	const spamCount = scope.kind === "global" ? scope.spamCount : undefined;
+	const counted = spamCount ?? UNCOUNTED_SPAM;
+	const hasSpamToOffer =
+		heldOutSpamCount > 0 || (counted.kind === "exact" && counted.value > 0);
+	// The count and the rows disagree. Neither is stated: the rows are on screen
+	// and the count is the older of the two.
+	const contradicted =
+		counted.kind === "exact" && counted.value === 0 && heldOutSpamCount > 0;
+	const spamTotal = contradicted ? UNCOUNTED_SPAM : counted;
 	const spamOffer =
 		scope.kind === "global" &&
-		heldOutSpamCount > 0 &&
+		hasSpamToOffer &&
 		scope.onScopeToSpam !== undefined ? (
-			<SpamResultsOffer
-				count={heldOutSpamCount}
-				onScopeToSpam={scope.onScopeToSpam}
-			/>
+			<SpamResultsOffer count={spamTotal} onScopeToSpam={scope.onScopeToSpam} />
 		) : undefined;
 
 	const hasResults = visibleSections.some(

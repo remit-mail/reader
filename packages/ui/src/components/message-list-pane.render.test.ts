@@ -127,7 +127,7 @@ describe("MessageListPane", () => {
 				isDesktop: true,
 				listState: "empty",
 				listFilter: {
-					label: "Personal",
+					label: "Personal mail",
 					reach: "whole-folder",
 					onClear: () => undefined,
 				},

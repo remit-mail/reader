@@ -1,3 +1,4 @@
+import type { JunkRoleMailboxes } from "../folder-role.js";
 import type {
 	AddressItem,
 	CreateAddressInput,
@@ -13,7 +14,15 @@ export interface IAddressRepository {
 	upsertAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertCorrespondentAddress(input: CreateAddressInput): Promise<AddressItem>;
 	upsertJunkAddress(input: CreateAddressInput): Promise<AddressItem>;
-	reconcileJunkOnlyForMessage(messageId: string): Promise<void>;
+	/**
+	 * `roles` covers every account under the message's config, resolved by the
+	 * caller once per batch: this runs inside the per-message sync loop, and
+	 * role resolution is deliberately uncached.
+	 */
+	reconcileJunkOnlyForMessage(
+		messageId: string,
+		roles: JunkRoleMailboxes,
+	): Promise<void>;
 	getAddress(accountConfigId: string, addressId: string): Promise<AddressItem>;
 	getAddress(
 		accountConfigId: string,
@@ -83,6 +92,18 @@ export interface IAddressRepository {
 		 * ASCII (`Öz` for `Özcan Bakker`) resolves through the folded compound.
 		 */
 		search?: string;
+		cursor?: string;
+		limit?: number;
+	}): Promise<ResultList<AddressItem>>;
+	/**
+	 * Every address stored under the configuration, for a reader that must see
+	 * the whole set: nothing is hidden, so a row the machine marked `junkOnly`
+	 * still comes back with whatever the user decided about it. Ordered by
+	 * `addressId`, which no write moves, so a page boundary cannot skip a row
+	 * while message sync updates counts and timestamps underneath the read.
+	 */
+	listAllByAccountConfigPage(input: {
+		accountConfigId: string;
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
