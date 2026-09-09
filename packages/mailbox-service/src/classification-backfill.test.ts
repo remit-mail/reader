@@ -1,7 +1,8 @@
 /**
  * Tests for the `backfillClassifications` pass (issue #1197) — the resumable,
- * checkpointed full-corpus pass that derives `Message.authenticityVerdict`
- * for rows still carrying the `NotEvaluated` sentinel.
+ * checkpointed full-corpus pass that classifies rows still carrying the
+ * `NotExamined` sentinel on `Message.classificationState`, from their stored
+ * bodies, and marks them `Examined`.
  *
  * Mirrors `list-id-backfill.test.ts`: per-account pages, checkpoint after
  * every page, resume by account-id order, and per-message failure
@@ -12,22 +13,20 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
 	AccountConfigItem,
+	AddressItem,
 	IAccountConfigRepository,
+	IAddressRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
 	MessageItem,
 	ResultList,
 	ThreadMessageItem,
+	UpdateMessageInput,
+	UpdateThreadMessageInput,
 } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
 import type { StorageService } from "@remit/storage-service";
-import {
-	backfillClassifications,
-	type ClassificationBackfillAuthenticityService,
-	type ClassificationBackfillProgress,
-} from "./classification-backfill.js";
-import type { AuthenticityVerdictValue } from "./heuristics/resolveAuthenticityVerdict.js";
-
-const STUB_VERDICT: AuthenticityVerdictValue = "Caution";
+import { backfillClassifications } from "./classification-backfill.js";
 
 const PLAIN_EML = Buffer.from(
 	[
@@ -37,6 +36,19 @@ const PLAIN_EML = Buffer.from(
 		"Content-Type: text/plain",
 		"",
 		"hi",
+	].join("\r\n"),
+);
+
+const LIST_EML = Buffer.from(
+	[
+		"From: Alice <alice@example.com>",
+		"To: me@example.com",
+		"Subject: Newsletter",
+		"List-Id: <news.example.com>",
+		"List-Unsubscribe: <https://example.com/unsub>",
+		"Content-Type: text/plain",
+		"",
+		"this week in news",
 	].join("\r\n"),
 );
 
@@ -70,6 +82,7 @@ const message = (overrides: Partial<MessageItem>): MessageItem =>
 		status: "active",
 		syncStatus: "synced",
 		category: "uncategorized",
+		classificationState: "NotExamined",
 		hasListUnsubscribe: false,
 		movedByRemit: false,
 		bodyStorageKey: "s3://m-1",
@@ -84,13 +97,20 @@ const asAccount = (accountConfigId: string): AccountConfigItem =>
 
 interface Harness {
 	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
-	threadMessageService: Pick<IThreadMessageRepository, "listByAccount">;
+	addressService: Pick<IAddressRepository, "getAddress">;
+	threadMessageService: Pick<
+		IThreadMessageRepository,
+		"listByAccount" | "findAllByMessageId" | "update"
+	>;
 	messageService: Pick<IMessageRepository, "get" | "update">;
 	storageService: Pick<StorageService, "retrieve">;
-	authenticityService: ClassificationBackfillAuthenticityService;
-	updates: Array<{ messageId: string; verdict: AuthenticityVerdictValue }>;
+	messageUpdates: Array<{ messageId: string; input: UpdateMessageInput }>;
+	threadUpdates: Array<{
+		accountConfigId: string;
+		threadMessageId: string;
+		input: UpdateThreadMessageInput;
+	}>;
 	retrieved: string[];
-	observed: number;
 }
 
 const buildHarness = (options: {
@@ -99,47 +119,62 @@ const buildHarness = (options: {
 	messages: MessageItem[];
 	retrieve?: (key: string) => Promise<Buffer>;
 	pageSize?: number;
-	verdict?: AuthenticityVerdictValue;
+	addressFlags?: AddressItem["flags"];
 }): Harness => {
 	const accounts = options.accounts ?? [
 		{ accountConfigId: "acc-1" } as unknown as AccountConfigItem,
 	];
 	const messagesById = new Map(options.messages.map((m) => [m.messageId, m]));
-	const updates: Array<{
-		messageId: string;
-		verdict: AuthenticityVerdictValue;
-	}> = [];
+	const messageUpdates: Harness["messageUpdates"] = [];
+	const threadUpdates: Harness["threadUpdates"] = [];
 	const retrieved: string[] = [];
 	const pageSize = options.pageSize ?? 200;
-	const verdict = options.verdict ?? STUB_VERDICT;
-	const counters = { observed: 0 };
 
 	const accountConfigService: Pick<IAccountConfigRepository, "listAll"> = {
 		listAll: async () => accounts,
 	};
 
-	const threadMessageService: Pick<IThreadMessageRepository, "listByAccount"> =
-		{
-			listByAccount: async (
-				accountConfigId: string,
-				opts?: { limit?: number; continuationToken?: string },
-			): Promise<ResultList<ThreadMessageItem>> => {
-				const scoped = options.rows.filter(
-					(r) => r.accountConfigId === accountConfigId,
-				);
-				const start = opts?.continuationToken
-					? Number(opts.continuationToken)
-					: 0;
-				const limit = opts?.limit ?? pageSize;
-				const page = scoped.slice(start, start + limit);
-				const nextStart = start + page.length;
-				return {
-					items: page,
-					continuationToken:
-						nextStart < scoped.length ? String(nextStart) : undefined,
-				};
-			},
-		};
+	const addressService = {
+		getAddress: (async () => {
+			if (options.addressFlags === undefined)
+				throw new NotFoundError("no Address row for this sender");
+			return { flags: options.addressFlags } as AddressItem;
+		}) as unknown as IAddressRepository["getAddress"],
+	} as Pick<IAddressRepository, "getAddress">;
+
+	const threadMessageService: Pick<
+		IThreadMessageRepository,
+		"listByAccount" | "findAllByMessageId" | "update"
+	> = {
+		listByAccount: async (
+			accountConfigId: string,
+			opts?: { limit?: number; continuationToken?: string },
+		): Promise<ResultList<ThreadMessageItem>> => {
+			const scoped = options.rows.filter(
+				(r) => r.accountConfigId === accountConfigId,
+			);
+			const start = opts?.continuationToken
+				? Number(opts.continuationToken)
+				: 0;
+			const limit = opts?.limit ?? pageSize;
+			const page = scoped.slice(start, start + limit);
+			const nextStart = start + page.length;
+			return {
+				items: page,
+				continuationToken:
+					nextStart < scoped.length ? String(nextStart) : undefined,
+			};
+		},
+		findAllByMessageId: async (_accountConfigId, messageId) =>
+			options.rows.filter((r) => r.messageId === messageId),
+		update: async (accountConfigId, threadMessageId, input) => {
+			threadUpdates.push({ accountConfigId, threadMessageId, input });
+			const existing = options.rows.find(
+				(r) => r.threadMessageId === threadMessageId,
+			);
+			return { ...existing, ...input } as ThreadMessageItem;
+		},
+	};
 
 	const messageService: Pick<IMessageRepository, "get" | "update"> = {
 		get: (async (messageIds: string | string[]) => {
@@ -152,11 +187,8 @@ const buildHarness = (options: {
 			if (!found) throw new Error(`no fixture for ${messageIds}`);
 			return found;
 		}) as IMessageRepository["get"],
-		update: async (messageId: string, input) => {
-			updates.push({
-				messageId,
-				verdict: input.authenticityVerdict as AuthenticityVerdictValue,
-			});
+		update: async (messageId, input) => {
+			messageUpdates.push({ messageId, input });
 			const existing = messagesById.get(messageId);
 			return { ...existing, ...input } as MessageItem;
 		},
@@ -169,29 +201,20 @@ const buildHarness = (options: {
 		},
 	};
 
-	const authenticityService: ClassificationBackfillAuthenticityService = {
-		resolveVerdict: async (_accountConfigId, _parsed) => verdict,
-		observeStanding: async () => {
-			counters.observed++;
-		},
-	};
-
 	return {
 		accountConfigService,
+		addressService,
 		threadMessageService,
 		messageService,
 		storageService,
-		authenticityService,
-		updates,
+		messageUpdates,
+		threadUpdates,
 		retrieved,
-		get observed() {
-			return counters.observed;
-		},
 	};
 };
 
 describe("backfillClassifications", () => {
-	it("writes the derived verdict for a NotEvaluated candidate row", async () => {
+	it("classifies a NotExamined candidate from its stored body and marks it Examined", async () => {
 		const harness = buildHarness({
 			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
 			messages: [message({ messageId: "m-1" })],
@@ -201,26 +224,105 @@ describe("backfillClassifications", () => {
 
 		assert.equal(result.backfilled, 1);
 		assert.equal(result.failed, 0);
-		assert.equal(result.alreadySet, 0);
-		assert.equal(harness.updates.length, 1);
-		assert.equal(harness.updates[0].messageId, "m-1");
-		assert.equal(harness.updates[0].verdict, STUB_VERDICT);
-		assert.equal(harness.observed, 1);
+		assert.equal(result.alreadyExamined, 0);
+		assert.deepEqual(harness.retrieved, ["s3://m-1"]);
+		assert.equal(harness.messageUpdates.length, 1);
+		assert.equal(harness.messageUpdates[0].messageId, "m-1");
+		// The plain fixture carries no bulk markers, so the header rule table
+		// answers `personal`.
+		assert.equal(harness.messageUpdates[0].input.category, "personal");
+		assert.equal(
+			harness.messageUpdates[0].input.classificationState,
+			"Examined",
+		);
 	});
 
-	it("skips a row whose authenticityVerdict is already derived, without reading storage", async () => {
+	it("denormalizes the classifier's answer onto the thread row", async () => {
 		const harness = buildHarness({
 			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1", authenticityVerdict: "Caution" })],
+			messages: [message({ messageId: "m-1" })],
+		});
+
+		await backfillClassifications(harness);
+
+		// The thread row is written BEFORE the Message update, so a failure
+		// between the two leaves both undone for the rerun (issue #320).
+		assert.equal(harness.threadUpdates.length, 1);
+		assert.equal(harness.threadUpdates[0].threadMessageId, "tm-1");
+		assert.equal(harness.threadUpdates[0].input.category, "personal");
+	});
+
+	it("writes the derived bulk fields and the row's List-Id, from the same bytes", async () => {
+		const harness = buildHarness({
+			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
+			messages: [message({ messageId: "m-1", bodyStorageKey: "s3://list" })],
+			retrieve: async () => LIST_EML,
 		});
 
 		const result = await backfillClassifications(harness);
 
-		assert.equal(result.alreadySet, 1);
+		assert.equal(result.backfilled, 1);
+		assert.equal(harness.messageUpdates[0].input.category, "newsletter");
+		assert.equal(harness.messageUpdates[0].input.hasListUnsubscribe, true);
+		assert.equal(harness.threadUpdates[0].input.listId, "news.example.com");
+	});
+
+	it("applies the sender's Address.flags.category override over the header category", async () => {
+		const harness = buildHarness({
+			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
+			messages: [message({ messageId: "m-1" })],
+			addressFlags: {
+				category: { value: "marketing", setAt: 1 },
+			} as AddressItem["flags"],
+		});
+
+		const result = await backfillClassifications(harness);
+
+		assert.equal(result.backfilled, 1);
+		assert.equal(harness.messageUpdates[0].input.category, "marketing");
+		assert.equal(harness.threadUpdates[0].input.category, "marketing");
+	});
+
+	it("marks an already-categorized candidate Examined without re-deriving its category", async () => {
+		const harness = buildHarness({
+			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
+			messages: [
+				message({
+					messageId: "m-1",
+					category: "newsletter",
+					classificationState: "NotExamined",
+				}),
+			],
+		});
+
+		const result = await backfillClassifications(harness);
+
+		// Those rows were classified by a pass that predates the field; the
+		// write-once category is carried forward, never recomputed (#355).
+		assert.equal(result.alreadyCategorized, 1);
 		assert.equal(result.backfilled, 0);
 		assert.deepEqual(harness.retrieved, []);
-		assert.deepEqual(harness.updates, []);
-		assert.equal(harness.observed, 0);
+		assert.equal(harness.messageUpdates.length, 1);
+		assert.deepEqual(harness.messageUpdates[0].input, {
+			classificationState: "Examined",
+		});
+		assert.deepEqual(harness.threadUpdates, []);
+	});
+
+	it("skips a row already Examined, without reading storage", async () => {
+		const harness = buildHarness({
+			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
+			messages: [
+				message({ messageId: "m-1", classificationState: "Examined" }),
+			],
+		});
+
+		const result = await backfillClassifications(harness);
+
+		assert.equal(result.alreadyExamined, 1);
+		assert.equal(result.backfilled, 0);
+		assert.deepEqual(harness.retrieved, []);
+		assert.deepEqual(harness.messageUpdates, []);
 	});
 
 	it("skips a candidate whose body was never synced, without reading storage", async () => {
@@ -233,10 +335,31 @@ describe("backfillClassifications", () => {
 
 		assert.equal(result.skippedNoBody, 1);
 		assert.deepEqual(harness.retrieved, []);
-		assert.deepEqual(harness.updates, []);
+		assert.deepEqual(harness.messageUpdates, []);
 	});
 
-	it("contains a derive failure to the one message and keeps going", async () => {
+	it("examines a message once, however many thread rows index it", async () => {
+		const harness = buildHarness({
+			rows: [
+				row({ threadMessageId: "tm-1", messageId: "m-1" }),
+				row({
+					threadMessageId: "tm-2",
+					messageId: "m-1",
+					threadId: "thread-2",
+				}),
+			],
+			messages: [message({ messageId: "m-1" })],
+		});
+
+		const result = await backfillClassifications(harness);
+
+		assert.equal(result.backfilled, 1);
+		assert.equal(result.alreadyExamined, 1);
+		assert.deepEqual(harness.retrieved, ["s3://m-1"]);
+		assert.equal(harness.messageUpdates.length, 1);
+	});
+
+	it("contains a classify failure to the one message and keeps going", async () => {
 		const harness = buildHarness({
 			rows: [
 				row({ threadMessageId: "tm-bad", messageId: "m-bad" }),
@@ -257,8 +380,8 @@ describe("backfillClassifications", () => {
 		assert.equal(result.failed, 1);
 		assert.deepEqual(result.failedThreadMessageIds, ["tm-bad"]);
 		assert.equal(result.backfilled, 1);
-		assert.equal(harness.updates.length, 1);
-		assert.equal(harness.updates[0].messageId, "m-good");
+		assert.equal(harness.messageUpdates.length, 1);
+		assert.equal(harness.messageUpdates[0].messageId, "m-good");
 	});
 
 	it("reports progress as pages are processed", async () => {
@@ -272,7 +395,7 @@ describe("backfillClassifications", () => {
 			}),
 		);
 		const harness = buildHarness({ rows, messages, pageSize: 2 });
-		const progress: ClassificationBackfillProgress[] = [];
+		const progress: Array<{ accountConfigId: string; scanned: number }> = [];
 
 		const result = await backfillClassifications(harness, {
 			batchSize: 2,
@@ -285,34 +408,7 @@ describe("backfillClassifications", () => {
 		assert.equal(progress[1].scanned, 3);
 	});
 
-	it("scans every account returned by listAll", async () => {
-		const harness = buildHarness({
-			accounts: [
-				{ accountConfigId: "acc-1" } as unknown as AccountConfigItem,
-				{ accountConfigId: "acc-2" } as unknown as AccountConfigItem,
-			],
-			rows: [
-				row({
-					threadMessageId: "tm-1",
-					messageId: "m-1",
-					accountConfigId: "acc-1",
-				}),
-				row({
-					threadMessageId: "tm-2",
-					messageId: "m-2",
-					accountConfigId: "acc-2",
-				}),
-			],
-			messages: [message({ messageId: "m-1" }), message({ messageId: "m-2" })],
-		});
-
-		const result = await backfillClassifications(harness);
-
-		assert.equal(result.backfilled, 2);
-		assert.equal(harness.updates.length, 2);
-	});
-
-	it("scans accounts in account-id order, whatever order listAll returns", async () => {
+	it("scans every account returned by listAll, in account-id order", async () => {
 		const accountIds = ["acc-1", "acc-2", "acc-3"];
 		const rows = accountIds.map((accountConfigId) =>
 			row({
@@ -331,12 +427,13 @@ describe("backfillClassifications", () => {
 				}),
 			),
 		});
-		const progress: ClassificationBackfillProgress[] = [];
+		const progress: Array<{ accountConfigId: string; scanned: number }> = [];
 
-		await backfillClassifications(harness, {
+		const result = await backfillClassifications(harness, {
 			onProgress: (p) => progress.push({ ...p }),
 		});
 
+		assert.equal(result.backfilled, 3);
 		assert.deepEqual(
 			progress.map((p) => p.accountConfigId),
 			accountIds,
@@ -408,7 +505,7 @@ describe("backfillClassifications", () => {
 		assert.equal(result.scanned, 1);
 		assert.equal(result.backfilled, 1);
 		assert.deepEqual(
-			harness.updates.map((u) => u.messageId),
+			harness.messageUpdates.map((u) => u.messageId),
 			["m-2"],
 		);
 	});
@@ -439,7 +536,7 @@ describe("backfillClassifications", () => {
 
 		assert.equal(result.scanned, 3);
 		assert.deepEqual(
-			harness.updates.map((u) => u.messageId),
+			harness.messageUpdates.map((u) => u.messageId),
 			["m-0", "m-1", "m-2"],
 		);
 	});

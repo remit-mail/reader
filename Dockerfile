@@ -277,8 +277,8 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/migrate.mjs ./mig
 # alternate entrypoint, never wired into a compose one-shot — see
 # packages/backend/scripts/backfill-list-id.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-list-id.mjs ./backfill-list-id.mjs
-# Same shape again, for the one-time authenticity-verdict backfill over the
-# stored-body cohort the derivation never ran on (issue #1197): manually-run,
+# Same shape again, for the one-time classification backfill over the
+# stored-body cohort the classifier never examined (issue #1197): manually-run,
 # never a compose one-shot — see packages/backend/scripts/backfill-classification.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-classification.mjs ./backfill-classification.mjs
 # Same shape again, for `remit config save` (issue #1021): the operator exports

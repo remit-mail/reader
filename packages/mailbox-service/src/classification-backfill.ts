@@ -1,17 +1,22 @@
 import type {
 	IAccountConfigRepository,
+	IAddressRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	ThreadMessageItem,
 } from "@remit/data-ports";
+import { MessageClassificationState } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
-import type { ParsedMail } from "mailparser";
 import { parseMessageBody } from "./body-parse.js";
-import type { AuthenticityVerdictValue } from "./heuristics/resolveAuthenticityVerdict.js";
+import { extractSnippet } from "./body-sync.js";
+import { classifyParsedMessage } from "./classify-message.js";
+import { extractListId } from "./filters/list-id.js";
+import {
+	denormalizeMessageCategory,
+	hasDecidedCategory,
+} from "./message-category.js";
 
 const DEFAULT_BATCH_SIZE = 200;
-
-/** The sentinel every message written before the derivation shipped carries. */
-const NOT_EVALUATED = "NotEvaluated";
 
 /**
  * Where the full-corpus pass left off: the identity of the account it was
@@ -37,35 +42,16 @@ export interface ClassificationBackfillCheckpointStore {
 	clear(): Promise<void>;
 }
 
-/**
- * The derivation, behind the two calls the pass makes per message. Injected
- * rather than inlined so the rule table stays pure (`resolveAuthenticityVerdict`)
- * while this pass stays testable with a fake that answers from constants.
- */
-export interface ClassificationBackfillAuthenticityService {
-	/**
-	 * Resolve the verdict for one stored message: look up the applicable
-	 * `(senderKey, signerDomain)` pair's standing and the sender's address
-	 * flags, and delegate to the pure derivation.
-	 */
-	resolveVerdict(
-		accountConfigId: string,
-		parsed: ParsedMail,
-	): Promise<AuthenticityVerdictValue>;
-
-	/**
-	 * Count the message against its pair — the one write this pass makes
-	 * beyond the verdict itself, and the only writer of standing there is.
-	 */
-	observeStanding(accountConfigId: string, parsed: ParsedMail): Promise<void>;
-}
-
 export interface ClassificationBackfillDeps {
 	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
-	threadMessageService: Pick<IThreadMessageRepository, "listByAccount">;
+	/** Reads the sender's `Address.flags.category` override (issue #299). */
+	addressService: Pick<IAddressRepository, "getAddress">;
+	threadMessageService: Pick<
+		IThreadMessageRepository,
+		"listByAccount" | "findAllByMessageId" | "update"
+	>;
 	messageService: Pick<IMessageRepository, "get" | "update">;
 	storageService: Pick<StorageService, "retrieve">;
-	authenticityService: ClassificationBackfillAuthenticityService;
 }
 
 export interface ClassificationBackfillLogger {
@@ -75,7 +61,8 @@ export interface ClassificationBackfillLogger {
 
 export interface ClassificationBackfillTotals {
 	scanned: number;
-	alreadySet: number;
+	alreadyExamined: number;
+	alreadyCategorized: number;
 	skippedNoBody: number;
 	backfilled: number;
 	failed: number;
@@ -102,63 +89,92 @@ export interface ClassificationBackfillOptions {
 
 const emptyTotals = (): ClassificationBackfillTotals => ({
 	scanned: 0,
-	alreadySet: 0,
+	alreadyExamined: 0,
+	alreadyCategorized: 0,
 	skippedNoBody: 0,
 	backfilled: 0,
 	failed: 0,
 });
 
 /**
- * Read the stored raw source, derive the verdict, write it, and count the
- * message against its pair. Kept as its own function (rather than inline in a
- * try/catch) so the caller can contain a failure with `.then(fulfilled,
- * rejected)` instead of a block catch, which keeps the `try` around the one
- * call whose failure this contains.
+ * Read the stored raw source, classify it once, and record that the
+ * classifier ran. Kept as its own function (rather than inline in a try/catch)
+ * so the caller can contain a failure with `.then(fulfilled, rejected)`
+ * instead of a block catch, which keeps the `try` around the one call whose
+ * failure this contains.
  *
- * The verdict is written before the pair is observed, and an observation
- * failure is therefore not undoable: the row is done, a rerun reads it as
- * `alreadySet`, and the lost observation is accepted — standing is a noise
- * filter, not a control, and one missed increment never strands the corpus.
+ * The ThreadMessage rows are denormalized BEFORE the Message update, for the
+ * same reason the deleted in-sync backfill did it that way (issue #320): the
+ * signal this pass selects by — `classificationState` — is written in the
+ * Message update, so a failure between the two writes leaves both undone and
+ * the rerun redoes them. Writing the Message first would strand the
+ * denormalized rows at `uncategorized` forever — the row reads as examined and
+ * the retry returns early.
  */
-const deriveAndApplyVerdict = async (
+const classifyAndApply = async (
 	deps: ClassificationBackfillDeps,
 	accountConfigId: string,
-	messageId: string,
+	row: ThreadMessageItem,
 	bodyStorageKey: string,
-): Promise<AuthenticityVerdictValue> => {
+): Promise<void> => {
 	const body = await deps.storageService.retrieve(bodyStorageKey);
 	const parsed = await parseMessageBody(body);
-
-	const verdict = await deps.authenticityService.resolveVerdict(
+	const classification = await classifyParsedMessage(
+		deps.addressService,
 		accountConfigId,
 		parsed,
 	);
-	await deps.messageService.update(messageId, { authenticityVerdict: verdict });
 
-	await deps.authenticityService.observeStanding(accountConfigId, parsed);
+	// The same denormalized fields the body-store path writes (see
+	// `applyPostStoreSteps`), not just the category: the snippet and `List-Id`
+	// are derived from the same bytes already in hand, and the rows this pass
+	// reaches never got them — the pass that stored the body is the pass that
+	// classifies, and it never ran for this cohort.
+	await denormalizeMessageCategory(
+		{ threadMessageService: deps.threadMessageService },
+		accountConfigId,
+		row.messageId,
+		{
+			category: classification.category,
+			snippet: extractSnippet(parsed),
+			listId: extractListId(parsed),
+		},
+	);
 
-	return verdict;
+	await deps.messageService.update(row.messageId, {
+		...classification,
+		classificationState: MessageClassificationState.Examined,
+	});
 };
 
 /**
- * One-time, resumable pass that derives `Message.authenticityVerdict` for the
- * stored-body cohort the derivation has never run on (issue #1197): rows
- * whose bodies were synced before the tier existed, which carry the
- * `NotEvaluated` sentinel. Read-only against the stored raw source: it never
- * opens IMAP and never touches anything but the single
- * `authenticityVerdict` field (plus the pair observation the derivation
- * counts).
+ * One-time, resumable pass that classifies the stored-body cohort the
+ * classifier has never examined (issue #1197): rows whose bodies were synced
+ * before the classifier reached them, which carry the `NotExamined` sentinel
+ * on `Message.classificationState` and so stay `uncategorized` in the list —
+ * the field is what selects the cohort, and nothing on the sync path selects
+ * it. Read-only against the stored raw source: it never opens IMAP, and it
+ * has no placement or filter side effects — the same bounds the in-sync
+ * backfill #1173 removed had. Index-time moves and filter actions are
+ * decisions that already ran (or were declined) when the body first landed;
+ * re-running them would move mail the user has since filed by hand.
  *
- * A row is a candidate when its Message carries `NotEvaluated` — the named
- * pending state, never inferred from absence — and has a `bodyStorageKey`; a
- * candidate without a stored body has nothing local to read, and the ordinary
- * sync path will derive the verdict for it once the body lands.
+ * A row is a candidate when its Message carries `NotExamined` — the named
+ * pending state, never inferred from `category` or from `bodyStorageKey` —
+ * and has a `bodyStorageKey`; a candidate without a stored body has nothing
+ * local to read, and the ordinary sync path will classify it once the body
+ * lands. A candidate whose category is already decided is marked `Examined`
+ * without re-deriving anything: those rows were classified by a pass that
+ * predates the field, and RFC 034 Decision 3.1's write-once category must not
+ * be recomputed (#355). The classification itself is
+ * {@link classifyParsedMessage} — the same rule table, and the same sender
+ * override, the body-store path classifies with.
  *
  * Chunked by `listByAccount`'s existing keyset pagination, one account at a
- * time in account-id order, so an interrupted run and its resume walk the same
- * sequence. A failure reading, parsing, or deriving one message is contained
- * to that message — logged, counted, and the pass continues: one unreadable
- * object must not strand the rest of the corpus.
+ * time in account-id order, so an interrupted run and its resume walk the
+ * same sequence. A failure reading, parsing, or classifying one message is
+ * contained to that message — logged, counted, and the pass continues: one
+ * unreadable object must not strand the rest of the corpus.
  */
 export const backfillClassifications = async (
 	deps: ClassificationBackfillDeps,
@@ -193,6 +209,11 @@ export const backfillClassifications = async (
 
 	const totals = emptyTotals();
 	const failedThreadMessageIds: string[] = [];
+	// Messages settled this run. More than one ThreadMessage row can index one
+	// Message, and the candidate fact lives on the Message, so without this a
+	// second row would re-read the same body and re-classify it within the
+	// same page — idempotent in outcome, wasteful in storage reads.
+	const examinedMessageIds = new Set<string>();
 
 	for (
 		let accountIndex = startIndex;
@@ -226,22 +247,62 @@ export const backfillClassifications = async (
 						continue;
 					}
 
-					if (message.authenticityVerdict !== NOT_EVALUATED) {
-						totals.alreadySet++;
+					if (
+						message.classificationState !==
+							MessageClassificationState.NotExamined ||
+						examinedMessageIds.has(row.messageId)
+					) {
+						totals.alreadyExamined++;
 						continue;
 					}
 
-					const outcome = await deriveAndApplyVerdict(
+					// Classified by a pass that predates the field: record that it
+					// ran, and touch nothing else — the write-once category is not
+					// recomputed (#355), and the derived fields that pass wrote are
+					// already on the row.
+					if (hasDecidedCategory(message.category)) {
+						const outcome = await deps.messageService
+							.update(row.messageId, {
+								classificationState: MessageClassificationState.Examined,
+							})
+							.then(
+								() => null,
+								(error: unknown) => error,
+							);
+
+						if (outcome !== null) {
+							totals.failed++;
+							failedThreadMessageIds.push(row.threadMessageId);
+							logger?.error?.(
+								{
+									threadMessageId: row.threadMessageId,
+									messageId: row.messageId,
+									error:
+										outcome instanceof Error
+											? outcome.message
+											: String(outcome),
+								},
+								"Classification backfill failed to record an already-categorized message; leaving it for a later pass",
+							);
+							continue;
+						}
+
+						examinedMessageIds.add(row.messageId);
+						totals.alreadyCategorized++;
+						continue;
+					}
+
+					const outcome = await classifyAndApply(
 						deps,
 						account.accountConfigId,
-						row.messageId,
+						row,
 						message.bodyStorageKey,
 					).then(
-						(verdict) => ({ error: null, verdict }) as const,
-						(error: unknown) => ({ error, verdict: null }) as const,
+						() => null,
+						(error: unknown) => error,
 					);
 
-					if (outcome.error !== null) {
+					if (outcome !== null) {
 						totals.failed++;
 						failedThreadMessageIds.push(row.threadMessageId);
 						logger?.error?.(
@@ -249,15 +310,14 @@ export const backfillClassifications = async (
 								threadMessageId: row.threadMessageId,
 								messageId: row.messageId,
 								error:
-									outcome.error instanceof Error
-										? outcome.error.message
-										: String(outcome.error),
+									outcome instanceof Error ? outcome.message : String(outcome),
 							},
 							"Classification backfill failed for a message; leaving it for a later pass",
 						);
 						continue;
 					}
 
+					examinedMessageIds.add(row.messageId);
 					totals.backfilled++;
 				}
 			}

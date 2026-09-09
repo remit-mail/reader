@@ -28,7 +28,7 @@ export {
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
-	extractPrimaryFromEmail,
+	extractSnippet,
 	type FetchBodyResult,
 	type PlacementConfig,
 	type QuarantineConfig,
@@ -50,7 +50,6 @@ export {
 } from "./body-sync-terminal.js";
 export {
 	backfillClassifications,
-	type ClassificationBackfillAuthenticityService,
 	type ClassificationBackfillCheckpoint,
 	type ClassificationBackfillCheckpointStore,
 	type ClassificationBackfillDeps,
@@ -60,6 +59,10 @@ export {
 	type ClassificationBackfillResult,
 	type ClassificationBackfillTotals,
 } from "./classification-backfill.js";
+export {
+	classifyParsedMessage,
+	extractPrimaryFromEmail,
+} from "./classify-message.js";
 // Connection factory
 export {
 	createConnection,
@@ -138,13 +141,6 @@ export {
 	type PlacementAction,
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
-export {
-	type AuthenticityVerdictValue,
-	deriveStandingPair,
-	resolveAuthenticityVerdict,
-	type StandingPairKeys,
-	senderTrusted,
-} from "./heuristics/resolveAuthenticityVerdict.js";
 export {
 	classifyDisplayNameCorrespondence,
 	extractOffDomainLinkDomains,

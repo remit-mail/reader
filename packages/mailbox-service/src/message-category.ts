@@ -3,8 +3,26 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { MessageCategory } from "@remit/domain-enums";
 
 export type MessageCategoryValue = ThreadMessageItem["category"];
+
+/**
+ * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
+ * after — RFC 030's message-list GSI sort key depends on it never churning.
+ * "Already decided" is any real category, so a message that carries one is
+ * never re-categorized by a re-entrant pass.
+ *
+ * `uncategorized` fails this test whether or not the classifier has run, which
+ * is deliberate: this asks what the row holds, not what was done to it. Whether
+ * the classifier has run is {@link Message.classificationState}, and it is the
+ * skip guard in `BodySyncService.syncBodies` — not this one — that keeps a
+ * declined message from being examined twice.
+ */
+export const hasDecidedCategory = (
+	category: MessageCategoryValue | undefined,
+): boolean =>
+	category !== undefined && category !== MessageCategory.uncategorized;
 
 export interface MessageCategoryDenormalizeDeps {
 	threadMessageService: Pick<

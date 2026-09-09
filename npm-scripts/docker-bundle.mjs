@@ -210,8 +210,8 @@ export const TARGETS = [
 		external: [SQLITE],
 	},
 	// Same shape again, for the one-time classification backfill over the
-	// stored-body cohort the authenticity derivation never ran on (issue
-	// #1197) — the same manual, run-once-per-install shape as
+	// stored-body cohort the classifier never examined (issue #1197) — the
+	// same manual, run-once-per-install shape as
 	// backend-backfill-list-id.
 	{
 		name: "backend-backfill-classification",
