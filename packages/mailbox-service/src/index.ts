@@ -6,8 +6,13 @@
 
 export {
 	type AccountCredentialsDeps,
+	type ConnectionStateValue,
+	type CredentialResolution,
 	encryptRefreshToken,
+	hasStoredCredential,
+	type MissingCredential,
 	resolveConnectionCredentials,
+	type StoredCredentialFields,
 } from "./account-credentials.js";
 export {
 	hasChildren,
@@ -71,7 +76,9 @@ export {
 	cosineSimilarity,
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
+	type LiteralClauseNarrowing,
 	literalClausesMatch,
+	literalClauseTerms,
 	NO_ACTION,
 	selectMoveWinner,
 } from "./filters/match.js";
@@ -172,8 +179,9 @@ export {
 	validateMailboxPath,
 } from "./mailbox-management.js";
 export {
-	isFolderOffServer,
-	isMailboxNotOnServer,
+	EVERY_MAILBOX_STATE,
+	isFolderMutationInFlight,
+	isMailboxMutationInFlight,
 } from "./mailbox-presence.js";
 export {
 	type CreateMailboxQueueInput,
@@ -186,6 +194,19 @@ export {
 	type SyncAccountInfo,
 } from "./mailbox-sync.js";
 export {
+	FolderGoneUpstreamError,
+	FolderRenameSettleError,
+	isMailboxAbsentUpstream,
+	isMailboxPresentUpstream,
+} from "./mailbox-upstream.js";
+export {
+	denormalizeMessageCategory,
+	type MessageCategoryDenormalizeDeps,
+	type MessageCategoryDenormalizeInput,
+	type MessageCategoryValue,
+} from "./message-category.js";
+export {
+	type DeleteMessagesOutcome,
 	type DeleteOptions,
 	type MessageMoveConfig,
 	type MessageMoveLogger,
@@ -244,7 +265,12 @@ export {
 	type ResolveExhaustedPlacementMoveResult,
 	resolveExhaustedPlacementMoveFailure,
 } from "./placement-move-terminal.js";
-export { isPlacementUnsettled } from "./placement-settled.js";
+export {
+	carriesForeignUid,
+	isPlacementUnsettled,
+	type PlacementBinding,
+	placementBindingOf,
+} from "./placement-settled.js";
 export {
 	type QuarantineContext,
 	QuarantinedUids,
@@ -255,6 +281,12 @@ export {
 	resolveMailboxRole,
 	shapeFromMessageData,
 } from "./quarantine.js";
+export {
+	type RestoreSourcePlacementDeps,
+	type RestoreSourcePlacementInput,
+	type RestoreSourcePlacementOutcome,
+	restoreSourcePlacement,
+} from "./restore-source-placement.js";
 export {
 	extractSnippetFromEmail,
 	generateSnippet,
@@ -274,6 +306,12 @@ export {
 	type StaleMessageReconcileDeps,
 	type StaleMessageReconcileResult,
 } from "./stale-message-reconcile.js";
+export {
+	buildThreadMessageMoveRevert,
+	buildThreadMessageTrashUpdate,
+	buildThreadMessageUndelete,
+	type ThreadMessageRowState,
+} from "./thread-message-rows.js";
 export type {
 	FlatMailboxInfo,
 	IImapConnection,

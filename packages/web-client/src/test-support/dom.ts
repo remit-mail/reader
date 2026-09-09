@@ -10,6 +10,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { DEFAULT_VIEWPORT, setViewport } from "../../test-support/dom-env.mjs";
+import { BulkRunProvider } from "../components/mail/BulkRunProvider";
 import { RoleAppointmentPromptProvider } from "../components/mail/RoleAppointmentPromptProvider";
 import { ErrorBannerProvider } from "../components/ui/ErrorBannerProvider";
 
@@ -39,6 +40,16 @@ export interface DomHarness {
 	flush: () => Promise<void>;
 	/** Let real timers fire — some flows stage their steps on a delay. */
 	wait: (ms: number) => Promise<void>;
+	/**
+	 * Pump the render until `predicate` holds, then return with the DOM current.
+	 * A drain counted in ticks is a guess about how many awaits a read chain
+	 * takes, and a loaded runner always finds one more; a condition is not.
+	 */
+	waitFor: (
+		predicate: () => boolean,
+		description?: string,
+		timeoutMs?: number,
+	) => Promise<void>;
 }
 
 export interface DomOptions {
@@ -103,7 +114,11 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 					createElement(
 						ErrorBannerProvider,
 						null,
-						createElement(RoleAppointmentPromptProvider, null, element),
+						createElement(
+							RoleAppointmentPromptProvider,
+							null,
+							createElement(BulkRunProvider, null, element),
+						),
 					),
 				),
 			);
@@ -185,6 +200,24 @@ export const createDomHarness = (options: DomOptions = {}): DomHarness => {
 			await act(async () => {
 				await new Promise((resolve) => setTimeout(resolve, ms));
 			});
+		},
+		waitFor: async (
+			predicate,
+			description = "the render to settle",
+			timeoutMs = 2_000,
+		) => {
+			const deadline = Date.now() + timeoutMs;
+			for (;;) {
+				await harness.flush();
+				if (predicate()) return;
+				if (Date.now() > deadline) {
+					const shown = harness.text().trim() || "(nothing rendered)";
+					throw new Error(
+						`waited ${timeoutMs}ms for ${description}; the render shows: ${shown.slice(0, 400)}`,
+					);
+				}
+				await harness.wait(1);
+			}
 		},
 		flush: async () => {
 			// Enough turns for a chain of awaits — form validation, then the

@@ -1,4 +1,3 @@
-import { mailboxOperationsListMailboxesQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import {
 	messageBulkOperationsDeleteMessages,
 	messageBulkOperationsMoveMessages,
@@ -6,28 +5,22 @@ import {
 	threadOperationsSearchThreads,
 } from "@remit/api-http-client/sdk.gen.ts";
 import type { ThreadOperationsSearchThreadsData } from "@remit/api-http-client/types.gen.ts";
-import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+	type BulkRunRequest,
+	type BulkRunSource,
+	useBulkRun,
+} from "@/components/mail/BulkRunProvider";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
 import { buildMutationErrorBanner } from "@/components/ui/error-banners";
-import {
-	bulkActionFailureDetail,
-	bulkActionFailureTitle,
-} from "@/lib/bulk-action-copy";
-import {
-	type ApplyBatch,
-	type BulkActionProgress,
-	type BulkActionTarget,
-	type BulkRunOutcome,
-	type FetchIdsPage,
-	honestProgress,
-	runChunkedAction,
-	runPredicateAction,
+import type {
+	ApplyBatch,
+	BulkActionProgress,
+	BulkActionTarget,
+	BulkRunStart,
+	EscalatedAction,
+	FetchIdsPage,
 } from "@/lib/bulk-actions";
-import {
-	invalidateThreadListQueries,
-	threadListCacheKeys,
-} from "@/lib/thread-list-cache";
 
 /** The predicate a search-scoped run re-issues on every page — the same
  *  filters the visible list is searching with, minus pagination/count knobs. */
@@ -43,16 +36,6 @@ export type EscalationSearchQuery = Pick<
 	| "category"
 >;
 
-/**
- * What a bulk run applies to every batch it reaches (#114). Delete, move and
- * mark-read differ only in the bulk call they issue and the caches that call
- * invalidates; the paging, chunking, progress and cancellation are the same.
- */
-export type EscalatedAction =
-	| { kind: "delete" }
-	| { kind: "move"; destinationMailboxId: string }
-	| { kind: "markRead" };
-
 /** Page size for the execution loop. Set to the write side's own 100-id cap so
  *  an execution page IS a write chunk — no in-memory accumulation step between
  *  reading ids and sending them. */
@@ -65,6 +48,8 @@ export type EscalationPhase =
 
 interface UseEscalatedActionsOptions {
 	mailboxId: string;
+	/** The mailbox in the user's words, for a commit refused while this runs. */
+	mailboxLabel?: string;
 	/** Owning account, forwarded to the unseen-count invalidation on completion. */
 	accountId?: string;
 	/** Disables escalation entirely (e.g. not searching). Resets any in-flight
@@ -74,6 +59,12 @@ interface UseEscalatedActionsOptions {
 	 *  changes (a different search is a different question). */
 	predicateKey: string;
 	searchQuery: EscalationSearchQuery;
+	/**
+	 * States how a run ended, for a user who is no longer looking at any screen
+	 * that could show it. Handed to the run's owner rather than called here, so
+	 * an ending that lands after this hook unmounted is still said (#112).
+	 */
+	reportEnding?: BulkRunRequest["reportEnding"];
 }
 
 export interface UseEscalatedActionsResult {
@@ -82,9 +73,14 @@ export interface UseEscalatedActionsResult {
 	 *  selection to that predicate once it answers. */
 	escalate: () => void;
 	/**
-	 * Stop whatever's running — the count or an action — at the next boundary.
-	 * A no-op when nothing is running. The only thing that ends a run in
-	 * flight: leaving the selection, the wizard or the search does not.
+	 * Stop whatever this mailbox has running — its count, and the run when the
+	 * run is its own. The request in flight is aborted and nothing further leaves
+	 * (#113); a delete the server has already accepted still applies, so the
+	 * batch on the wire is what a stop is worth. A no-op when nothing is running.
+	 * Cancelling a count here never reaches a run in another mailbox: that run is
+	 * not what this screen is offering to stop, and ending it would be silent.
+	 * The only thing that ends a run in flight: leaving the selection, the
+	 * wizard, the search or the mailbox does not.
 	 */
 	stop: () => void;
 	/**
@@ -95,7 +91,7 @@ export interface UseEscalatedActionsResult {
 	 */
 	clear: () => void;
 	/** True while a chunked run (bounded->100 ids, or the escalated predicate)
-	 *  is in flight. */
+	 *  over this mailbox is in flight, whichever screen started it. */
 	isRunning: boolean;
 	/** The action currently in flight, for status and progress wording. */
 	runningAction: EscalatedAction | undefined;
@@ -108,50 +104,44 @@ export interface UseEscalatedActionsResult {
 	 * as one batch the endpoint refuses whole (#872). Resolves once the run ends
 	 * for any reason — cancelled, errored, or complete — with a
 	 * `done`/`failedIds` outcome the caller reads to decide what is still
-	 * outstanding.
-	 * Infrastructure failures are reported through the app's existing
-	 * escalation seam (`pushError`, which itself escalates a 5xx/exception to
-	 * the fatal overlay) — not swallowed here.
+	 * outstanding, or with the refusal of a run that never started because
+	 * another one is still going.
+	 *
+	 * The run itself belongs to `BulkRunProvider`, which outlives every screen
+	 * that can show it: the caches, the refusal replay, the failure banner and
+	 * the ending are its, so none of them are lost when the surface that started
+	 * the run goes (#112).
 	 */
 	runAction: (
 		action: EscalatedAction,
 		targets?: readonly BulkActionTarget[],
-	) => Promise<BulkRunOutcome>;
+		claimEnding?: BulkRunRequest["claimEnding"],
+	) => Promise<BulkRunStart>;
 }
-
-/**
- * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
- * over, plus a move's destination, which gains the messages the source loses.
- */
-export const mailboxesTouchedBy = (
-	action: EscalatedAction,
-	mailboxId: string,
-): string[] =>
-	action.kind === "move"
-		? [mailboxId, action.destinationMailboxId]
-		: [mailboxId];
 
 export const useEscalatedActions = ({
 	mailboxId,
+	mailboxLabel,
 	accountId,
 	enabled,
 	predicateKey,
 	searchQuery,
+	reportEnding,
 }: UseEscalatedActionsOptions): UseEscalatedActionsResult => {
 	const [phase, setPhase] = useState<EscalationPhase>({ kind: "idle" });
-	const [runningAction, setRunningAction] = useState<
-		EscalatedAction | undefined
-	>(undefined);
-	const [progress, setProgress] = useState<BulkActionProgress | undefined>(
-		undefined,
-	);
-	const cancelRef = useRef(false);
-	// True from the moment a run starts until its outcome is in hand. A run is
-	// mail already leaving the mailbox, so nothing that merely changes what the
-	// list is showing gets to end it — only `stop`.
-	const runningRef = useRef(false);
-	const queryClient = useQueryClient();
+	// The count's own signal, which is not the run's: leaving the search ends a
+	// count, and never a run (#112).
+	const countAbortRef = useRef<AbortController | undefined>(undefined);
+	const { run, start, stop: stopRun } = useBulkRun();
 	const { pushError } = useErrorBanners();
+
+	// The live run, when it is this mailbox's. A run is mail leaving one mailbox,
+	// so it reports on that mailbox's list — not on whichever list is on screen.
+	const activeRun = run?.mailboxId === mailboxId ? run : undefined;
+	const isRunning = activeRun !== undefined;
+	// Read by callbacks that must not close over a stale render's answer.
+	const isRunningRef = useRef(false);
+	isRunningRef.current = isRunning;
 
 	// A different search (or leaving search/desktop) makes any in-flight
 	// escalation meaningless — it would otherwise keep counting or offering to
@@ -160,7 +150,7 @@ export const useEscalatedActions = ({
 	// against and reports what it reached, wherever the list moved on to.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: enabled/predicateKey are trigger-only — the reset itself reads neither.
 	useEffect(() => {
-		if (!runningRef.current) cancelRef.current = true;
+		countAbortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, [enabled, predicateKey]);
 
@@ -169,10 +159,11 @@ export const useEscalatedActions = ({
 
 	const fetchPagesOf = useCallback(
 		(query: EscalationSearchQuery): FetchIdsPage =>
-			async (continuationToken) => {
+			async (continuationToken, signal) => {
 				const { data } = await threadOperationsSearchThreads({
 					path: { mailboxId },
 					query: { ...query, continuationToken, limit: PAGE_SIZE },
+					signal,
 					throwOnError: true,
 				});
 				return {
@@ -188,27 +179,32 @@ export const useEscalatedActions = ({
 	 * resolves it (#509). One count-only request: `limit` is a page size and has
 	 * no bearing on the answer, so nothing is paged to arrive at it.
 	 */
-	const fetchMatchCount = useCallback(async (): Promise<number> => {
-		const { data } = await threadOperationsSearchThreads({
-			path: { mailboxId },
-			query: { ...searchQueryRef.current, count: true, results: false },
-			throwOnError: true,
-		});
-		if (data.count === undefined) {
-			throw new Error("the search returned no count for the selection");
-		}
-		return data.count;
-	}, [mailboxId]);
+	const fetchMatchCount = useCallback(
+		async (signal: AbortSignal): Promise<number> => {
+			const { data } = await threadOperationsSearchThreads({
+				path: { mailboxId },
+				query: { ...searchQueryRef.current, count: true, results: false },
+				signal,
+				throwOnError: true,
+			});
+			if (data.count === undefined) {
+				throw new Error("the search returned no count for the selection");
+			}
+			return data.count;
+		},
+		[mailboxId],
+	);
 
 	const applyBatchFor = useCallback(
 		(action: EscalatedAction): ApplyBatch =>
-			async (ids: string[]) => {
+			async (ids: string[], signal: AbortSignal) => {
 				if (action.kind === "move") {
 					const { data } = await messageBulkOperationsMoveMessages({
 						body: {
 							messageIds: ids,
 							destinationMailboxId: action.destinationMailboxId,
 						},
+						signal,
 						throwOnError: true,
 					});
 					return data;
@@ -216,12 +212,14 @@ export const useEscalatedActions = ({
 				if (action.kind === "markRead") {
 					const { data } = await messageBulkOperationsUpdateFlags({
 						body: { messageIds: ids, isRead: true },
+						signal,
 						throwOnError: true,
 					});
 					return data;
 				}
 				const { data } = await messageBulkOperationsDeleteMessages({
 					body: { messageIds: ids },
+					signal,
 					throwOnError: true,
 				});
 				return data;
@@ -229,45 +227,25 @@ export const useEscalatedActions = ({
 		[],
 	);
 
-	/**
-	 * The unseen counts a run moved, per account. A cross-account selection has
-	 * no single owning account — the surface leaves the option undefined exactly
-	 * then — so the run's own targets are what name the accounts to refresh.
-	 */
-	const invalidateAfterRun = useCallback(
-		(action: EscalatedAction, targets: readonly BulkActionTarget[]) => {
-			invalidateThreadListQueries(
-				queryClient,
-				threadListCacheKeys(mailboxesTouchedBy(action, mailboxId)),
-			);
-			const touched = new Set<string>();
-			if (accountId) touched.add(accountId);
-			for (const target of targets) {
-				if (target.accountId) touched.add(target.accountId);
-			}
-			for (const touchedAccountId of touched) {
-				queryClient.invalidateQueries({
-					queryKey: mailboxOperationsListMailboxesQueryKey({
-						path: { accountId: touchedAccountId },
-					}),
-				});
-			}
-		},
-		[queryClient, mailboxId, accountId],
-	);
-
 	const escalate = useCallback(() => {
-		cancelRef.current = false;
+		const controller = new AbortController();
+		countAbortRef.current = controller;
 		setPhase({ kind: "counting" });
-		fetchMatchCount().then(
+		fetchMatchCount(controller.signal).then(
 			(total) => {
-				if (cancelRef.current) {
+				if (controller.signal.aborted) {
 					setPhase({ kind: "idle" });
 					return;
 				}
 				setPhase({ kind: "escalated", total });
 			},
 			(error: unknown) => {
+				// A stopped count rejects with its own abort. That is the press the
+				// user made, not a failure to report back to them.
+				if (controller.signal.aborted) {
+					setPhase({ kind: "idle" });
+					return;
+				}
 				pushError(
 					buildMutationErrorBanner(
 						"Couldn't count matching messages",
@@ -281,12 +259,13 @@ export const useEscalatedActions = ({
 	}, [fetchMatchCount, pushError]);
 
 	const stop = useCallback(() => {
-		cancelRef.current = true;
-	}, []);
+		countAbortRef.current?.abort();
+		if (isRunningRef.current) stopRun(mailboxId);
+	}, [stopRun, mailboxId]);
 
 	const clear = useCallback(() => {
-		if (runningRef.current) return;
-		cancelRef.current = true;
+		if (isRunningRef.current) return;
+		countAbortRef.current?.abort();
 		setPhase({ kind: "idle" });
 	}, []);
 
@@ -294,64 +273,52 @@ export const useEscalatedActions = ({
 		async (
 			action: EscalatedAction,
 			targets?: readonly BulkActionTarget[],
-		): Promise<BulkRunOutcome> => {
-			cancelRef.current = false;
-			runningRef.current = true;
-			setRunningAction(action);
-			// `honestProgress` widens `total` if `done` overtakes it (#109) — the
-			// predicate can match more by the time the run pages it than the count
-			// saw, and the bar must never show more done than out of.
-			const onProgress = (next: BulkActionProgress) =>
-				setProgress(honestProgress(next));
-			const applyBatch = applyBatchFor(action);
+			claimEnding?: BulkRunRequest["claimEnding"],
+		): Promise<BulkRunStart> => {
+			// Read before the run clears the phase below, so a refusal can say how
+			// many messages the appointment's replay is about.
+			const matched =
+				targets?.length ?? (phase.kind === "escalated" ? phase.total : 0);
 			// The predicate as it read when the run was confirmed. The run outlives
 			// the screen that started it, so reading the live query on every page
 			// would let a search typed afterwards redirect what is being deleted.
-			const runPages = fetchPagesOf(searchQueryRef.current);
+			const source: BulkRunSource =
+				targets !== undefined
+					? { kind: "targets", targets }
+					: {
+							kind: "predicate",
+							fetchPage: fetchPagesOf(searchQueryRef.current),
+						};
 
-			// The one invariant nothing may lose: while `runningRef` is up, both
-			// `clear` and the reset effect stand down, so a run that never marked
-			// itself finished would leave an escalated selection nobody can leave.
-			let outcome: BulkRunOutcome;
-			try {
-				outcome =
-					targets !== undefined
-						? await runChunkedAction(
-								targets,
-								applyBatch,
-								onProgress,
-								() => cancelRef.current,
-							)
-						: await runPredicateAction(
-								runPages,
-								phase.kind === "escalated" ? phase.total : 0,
-								applyBatch,
-								onProgress,
-								() => cancelRef.current,
-							);
-			} finally {
-				runningRef.current = false;
-			}
+			const started = await start({
+				action,
+				mailboxId,
+				mailboxLabel,
+				accountId,
+				matched,
+				source,
+				applyBatch: applyBatchFor(action),
+				reportEnding,
+				claimEnding,
+			});
 
-			setRunningAction(undefined);
-			setProgress(undefined);
-			setPhase({ kind: "idle" });
-
-			if (outcome.error) {
-				pushError(
-					buildMutationErrorBanner(
-						bulkActionFailureTitle(action.kind, outcome.done),
-						bulkActionFailureDetail(action.kind),
-						outcome.error,
-					),
-				);
-			}
-			if (outcome.done > 0) {
-				invalidateAfterRun(action, targets ?? []);
-			}
-			return outcome;
+			// The escalated selection was what the run was confirmed from, and the
+			// run has now happened to it. A refused commit leaves it standing: the
+			// selection is still the question, and stopping the other run is what
+			// makes it answerable.
+			if (started.kind === "ran") setPhase({ kind: "idle" });
+			return started;
 		},
-		[applyBatchFor, fetchPagesOf, phase, pushError, invalidateAfterRun],
+		[
+			applyBatchFor,
+			fetchPagesOf,
+			phase,
+			mailboxId,
+			mailboxLabel,
+			accountId,
+			reportEnding,
+			start,
+		],
 	);
 
 	return {
@@ -359,9 +326,9 @@ export const useEscalatedActions = ({
 		escalate,
 		stop,
 		clear,
-		isRunning: runningAction !== undefined,
-		runningAction,
-		progress,
+		isRunning,
+		runningAction: activeRun?.action,
+		progress: activeRun?.progress,
 		runAction,
 	};
 };

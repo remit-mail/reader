@@ -76,25 +76,40 @@ export function WizardShell({
 	hideSteps,
 }: WizardShellProps) {
 	return (
-		// First-run is a focal moment: the wizard column is horizontally
-		// centered with its top edge anchored ~30% down the viewport
-		// (optical center) on larger screens. On phone the top padding is
-		// minimal so taller steps (connector picker, servers) don't push the
-		// CTA bar below the fold — the shell scrolls if content overflows.
-		<div className="flex min-h-dvh w-full flex-col items-center overflow-y-auto bg-canvas pb-[max(2rem,env(safe-area-inset-bottom,0px))] pl-[max(2rem,env(safe-area-inset-left,0px))] pr-[max(2rem,env(safe-area-inset-right,0px))] pt-[max(2rem,env(safe-area-inset-top,0px))] font-sans text-fg sm:pt-[30vh]">
+		// The shell is exactly the viewport, never more: the step's own content
+		// is what scrolls, and the title and the footer actions are pinned
+		// either side of it. A dry-run report or a list of accounts can run to
+		// any length and the primary action stays where the reader can press it
+		// (#1021).
+		//
+		// First-run is still a focal moment, so on larger screens the column
+		// sits with its top edge about 30% down the viewport (optical centre).
+		// That offset is a flex spacer rather than top padding because padding
+		// cannot yield: the spacer collapses first and the card only gives up
+		// height once the offset is gone.
+		<div className="flex h-dvh w-full flex-col items-center overflow-hidden bg-canvas pb-[max(2rem,env(safe-area-inset-bottom,0px))] pl-[max(2rem,env(safe-area-inset-left,0px))] pr-[max(2rem,env(safe-area-inset-right,0px))] pt-[max(2rem,env(safe-area-inset-top,0px))] font-sans text-fg">
+			<div className="hidden shrink-[9999] basis-[30vh] sm:block" />
 			{!hideSteps && (
-				<div className="mb-5 w-full max-w-xl">
+				<div className="mb-5 w-full max-w-xl shrink-0">
 					<StepRail steps={steps} activeStep={activeStep} />
 				</div>
 			)}
-			<Card raised className="w-full max-w-xl">
-				<div className="px-5 pt-5">
+			<Card raised className="flex w-full min-h-0 max-w-xl flex-col">
+				<div className="shrink-0 px-5 pt-5">
 					<h1 className="text-xl font-semibold text-fg">{title}</h1>
 					{subtitle && <p className="mt-1 text-sm text-fg-muted">{subtitle}</p>}
 				</div>
-				<div className="px-5 py-5">{children}</div>
+				<div
+					data-testid="wizard-body"
+					className="min-h-0 overflow-y-auto px-5 py-5"
+				>
+					{children}
+				</div>
 				{footer && (
-					<div className="flex items-center justify-between gap-3 border-t border-line px-5 py-3">
+					<div
+						data-testid="wizard-footer"
+						className="flex shrink-0 items-center justify-between gap-3 border-t border-line px-5 py-3"
+					>
 						{footer}
 					</div>
 				)}

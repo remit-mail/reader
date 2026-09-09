@@ -1,0 +1,418 @@
+import type { EmbeddingService } from "@remit/search-service";
+import { DEFAULT_VISIBILITY_TIMEOUT_SECONDS } from "@remit/sqs-client/poller";
+import type { MemoryReader, MemoryReading } from "./memory.js";
+
+/**
+ * How much work the worker allows itself right now: how many chunk texts go
+ * into one `embed` call, and how many such calls are in flight at once.
+ */
+export interface EmbeddingPlan {
+	readonly batchSize: number;
+	readonly concurrency: number;
+}
+
+export interface AdaptiveEmbeddingConfig {
+	/** The plan the worker starts at and sheds back to. */
+	readonly minBatchSize: number;
+	readonly maxBatchSize: number;
+	readonly maxConcurrency: number;
+	/** Shed below this much free memory on the box. */
+	readonly headroomBytes: number;
+	/** Ramp only above `headroomBytes + rampMarginBytes`. */
+	readonly rampMarginBytes: number;
+	/** Consecutive comfortable readings a ramp costs. */
+	readonly rampAfterReadings: number;
+	/** Shed at or above this much resident memory in this process. */
+	readonly rssCeilingBytes: number;
+	/** Stop and wait while free memory on the box is below this. */
+	readonly criticalBytes: number;
+	/** Wait between batches after shedding, and between reads while stopped. */
+	readonly pauseMs: number;
+	/** Give the message back to the queue after stopping this long. */
+	readonly stallMaxMs: number;
+}
+
+export interface GovernorLog {
+	info(message: string, fields?: Record<string, unknown>): void;
+	warn(message: string, fields?: Record<string, unknown>): void;
+	error(message: string, fields?: Record<string, unknown>): void;
+}
+
+export interface GovernorDeps {
+	readonly readMemory: MemoryReader;
+	readonly sleep: (ms: number) => Promise<void>;
+	readonly now: () => number;
+	readonly log: GovernorLog;
+	/**
+	 * The poll loop's own liveness file. A stop happens inside a handler, which
+	 * is between two receives and so between two beats — without this the
+	 * container's healthcheck reads a stall as a wedged loop.
+	 */
+	readonly beat?: () => Promise<void>;
+	readonly onPlan?: (plan: EmbeddingPlan) => void;
+	readonly onStall?: () => void;
+}
+
+const MB = 1024 * 1024;
+
+export const DEFAULT_ADAPTIVE_EMBEDDING_CONFIG: AdaptiveEmbeddingConfig = {
+	minBatchSize: 4,
+	maxBatchSize: 32,
+	maxConcurrency: 2,
+	headroomBytes: 768 * MB,
+	rampMarginBytes: 256 * MB,
+	rampAfterReadings: 3,
+	rssCeilingBytes: 1536 * MB,
+	criticalBytes: 384 * MB,
+	pauseMs: 2000,
+	stallMaxMs: 240_000,
+};
+
+/**
+ * Raised when the box stayed below the critical floor for the whole stall
+ * budget. The handler already treats any throw from an upsert as a per-message
+ * failure, which is exactly the wanted outcome: the record is reported as a
+ * batch item failure and redelivered, rather than held past the queue's
+ * visibility timeout while the process waits.
+ */
+export class MemoryStallTimeoutError extends Error {
+	readonly code = "ERR_SEARCH_INDEX_MEMORY_STALL";
+	constructor(
+		stallMaxMs: number,
+		readonly waitedMs: number,
+	) {
+		super(
+			`Search index ran out of its ${Math.round(stallMaxMs / 1000)}s budget ` +
+				`for this message with the box below the memory floor for the last ` +
+				`${Math.round(waitedMs / 1000)}s; the message goes back on the queue`,
+		);
+		this.name = "MemoryStallTimeoutError";
+	}
+}
+
+const positiveInt = (name: string, raw: string): number => {
+	const parsed = Number(raw);
+	if (!Number.isInteger(parsed) || parsed <= 0) {
+		throw new Error(`${name} must be a positive integer, got: ${raw}`);
+	}
+	return parsed;
+};
+
+/** `fallback` is already in the target unit; `scale` converts the env value. */
+const fromEnv = (name: string, fallback: number, scale = 1): number => {
+	const raw = process.env[name];
+	if (!raw) return fallback;
+	return positiveInt(name, raw) * scale;
+};
+
+/**
+ * A stall budget that reaches the queue's visibility timeout has the record
+ * redelivered underneath the handler still holding it, which is the redelivery
+ * the budget exists to prevent. The poller's default is the authority: the
+ * search index queue passes no override, so what `deploy/vps/queues.json` sets
+ * on the queue never reaches this code and has to match it by hand.
+ */
+const VISIBILITY_TIMEOUT_MS = DEFAULT_VISIBILITY_TIMEOUT_SECONDS * 1000;
+
+/**
+ * Every threshold is an env var so the same image bounds itself against a 4 GB
+ * VPS and a 32 GB box without a rebuild. A configuration that cannot hold —
+ * a critical floor at or above the ramp headroom, a floor batch above the
+ * ceiling, a stall budget at or above the visibility timeout — is a startup
+ * error, not something to correct silently at runtime.
+ */
+export const readAdaptiveEmbeddingConfigFromEnv =
+	(): AdaptiveEmbeddingConfig => {
+		const d = DEFAULT_ADAPTIVE_EMBEDDING_CONFIG;
+		const config: AdaptiveEmbeddingConfig = {
+			minBatchSize: fromEnv("SEARCH_INDEX_EMBED_BATCH_MIN", d.minBatchSize),
+			maxBatchSize: fromEnv("SEARCH_INDEX_EMBED_BATCH_MAX", d.maxBatchSize),
+			maxConcurrency: fromEnv(
+				"SEARCH_INDEX_EMBED_CONCURRENCY_MAX",
+				d.maxConcurrency,
+			),
+			rampAfterReadings: fromEnv(
+				"SEARCH_INDEX_EMBED_RAMP_AFTER",
+				d.rampAfterReadings,
+			),
+			headroomBytes: fromEnv(
+				"SEARCH_INDEX_MEMORY_HEADROOM_MB",
+				d.headroomBytes,
+				MB,
+			),
+			rampMarginBytes: fromEnv(
+				"SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB",
+				d.rampMarginBytes,
+				MB,
+			),
+			rssCeilingBytes: fromEnv(
+				"SEARCH_INDEX_RSS_CEILING_MB",
+				d.rssCeilingBytes,
+				MB,
+			),
+			criticalBytes: fromEnv(
+				"SEARCH_INDEX_MEMORY_CRITICAL_MB",
+				d.criticalBytes,
+				MB,
+			),
+			pauseMs: fromEnv("SEARCH_INDEX_MEMORY_PAUSE_MS", d.pauseMs),
+			stallMaxMs: fromEnv("SEARCH_INDEX_MEMORY_STALL_MAX_MS", d.stallMaxMs),
+		};
+		if (config.minBatchSize > config.maxBatchSize) {
+			throw new Error(
+				"SEARCH_INDEX_EMBED_BATCH_MIN must not exceed SEARCH_INDEX_EMBED_BATCH_MAX",
+			);
+		}
+		if (config.criticalBytes >= config.headroomBytes) {
+			throw new Error(
+				"SEARCH_INDEX_MEMORY_CRITICAL_MB must be below SEARCH_INDEX_MEMORY_HEADROOM_MB",
+			);
+		}
+		if (config.stallMaxMs >= VISIBILITY_TIMEOUT_MS) {
+			throw new Error(
+				`SEARCH_INDEX_MEMORY_STALL_MAX_MS must be below the queue's ${VISIBILITY_TIMEOUT_MS} ms visibility timeout`,
+			);
+		}
+		return config;
+	};
+
+/**
+ * `waitedMs` is the time this stop actually spent below the floor, which the
+ * budget no longer stands in for: embedding work spends the same budget, so a
+ * message can fail on a two-second dip that arrived late.
+ */
+type Admission =
+	| { readonly status: "admitted" }
+	| { readonly status: "expired"; readonly waitedMs: number };
+
+/**
+ * Bounds the worker's resident memory against the box it shares, which
+ * `--max-old-space-size` cannot: the embedding model, its inference arenas and
+ * its tensors are native allocations outside V8's old space (#585).
+ *
+ * It steers on two numbers, because neither is sufficient alone. The box's
+ * `MemAvailable` says whether the rest of the stack still has room. This
+ * process's own RSS says whether the worker is the reason it does not — and it
+ * is the one a shed cannot walk back: onnxruntime sizes its CPU arena to the
+ * largest batch it has ever run and does not hand that back, so a plan that
+ * ramps on free memory alone raises a floor it can never lower. Above the RSS
+ * ceiling the worker sheds and stays shed.
+ *
+ * Ramping costs several consecutive comfortable readings and needs a margin
+ * above the shed threshold; shedding is immediate at it. Without that gap a box
+ * sitting near the threshold — the ordinary steady state — would ramp and shed
+ * on alternate batches, logging every one of them and halving throughput for
+ * nothing.
+ *
+ * Below the critical floor it stops entirely rather than pushing the host into
+ * swap, where the kernel picks its OOM victim by size and takes the backend
+ * rather than the indexer. That stop is bounded: past the budget the message
+ * goes back on the queue, because a handler that waits longer than the queue's
+ * visibility timeout has its record redelivered underneath it anyway. The
+ * budget belongs to the message, so its deadline is handed in rather than
+ * minted here — one that restarted per stop would bound no handler at all.
+ */
+export class MemoryGovernor {
+	private batchSize: number;
+	private concurrency = 1;
+	private pauseBeforeNextBatch = false;
+	private comfortableReadings = 0;
+
+	constructor(
+		private readonly config: AdaptiveEmbeddingConfig,
+		private readonly deps: GovernorDeps,
+	) {
+		this.batchSize = config.minBatchSize;
+	}
+
+	get plan(): EmbeddingPlan {
+		return { batchSize: this.batchSize, concurrency: this.concurrency };
+	}
+
+	/** The end of one message's stall budget, taken once per governed call. */
+	stallDeadline = (): number => this.deps.now() + this.config.stallMaxMs;
+
+	/** Blocks until the box can afford the next batch, or the budget runs out. */
+	admit = async (stallDeadline: number): Promise<Admission> => {
+		let reading = this.deps.readMemory();
+		if (reading.availableBytes >= this.config.criticalBytes) {
+			if (!this.pauseBeforeNextBatch) return { status: "admitted" };
+			this.pauseBeforeNextBatch = false;
+			await this.deps.sleep(this.config.pauseMs);
+			return { status: "admitted" };
+		}
+
+		this.deps.onStall?.();
+		this.deps.log.warn(
+			"Search index paused: the box is below the critical memory floor",
+			this.fields(reading),
+		);
+		this.reset();
+		const startedAt = this.deps.now();
+		while (reading.availableBytes < this.config.criticalBytes) {
+			const now = this.deps.now();
+			if (now >= stallDeadline) {
+				const waitedMs = now - startedAt;
+				this.deps.log.warn("Search index gave up: its memory budget ran out", {
+					waitedMs,
+					stallMaxMs: this.config.stallMaxMs,
+					...this.fields(reading),
+				});
+				return { status: "expired", waitedMs };
+			}
+			await this.keepAlive();
+			await this.deps.sleep(this.config.pauseMs);
+			reading = this.deps.readMemory();
+		}
+		this.pauseBeforeNextBatch = false;
+		this.deps.log.info(
+			"Search index resumed: memory recovered",
+			this.fields(reading),
+		);
+		return { status: "admitted" };
+	};
+
+	/** Measures what the batch just cost and moves the plan at most one step. */
+	settle = (): void => {
+		const reading = this.deps.readMemory();
+		if (this.underPressure(reading)) {
+			this.comfortableReadings = 0;
+			this.shed(reading);
+			return;
+		}
+		if (!this.roomToGrow(reading)) {
+			this.comfortableReadings = 0;
+			return;
+		}
+		this.comfortableReadings += 1;
+		if (this.comfortableReadings < this.config.rampAfterReadings) return;
+		this.comfortableReadings = 0;
+		this.ramp(reading);
+	};
+
+	private underPressure(reading: MemoryReading): boolean {
+		return (
+			reading.rssBytes >= this.config.rssCeilingBytes ||
+			reading.availableBytes < this.config.headroomBytes
+		);
+	}
+
+	private roomToGrow(reading: MemoryReading): boolean {
+		return (
+			reading.rssBytes < this.config.rssCeilingBytes &&
+			reading.availableBytes >=
+				this.config.headroomBytes + this.config.rampMarginBytes
+		);
+	}
+
+	// A write that fails must not take the worker down with it, for the same
+	// reason the poll loop's own beat does not: a full disk is the likeliest
+	// cause and the moment to stay up. The missed beat is itself the signal.
+	private keepAlive = async (): Promise<void> => {
+		await this.deps.beat?.().catch((error: unknown) => {
+			this.deps.log.error("Search index heartbeat write failed", {
+				error: String(error),
+			});
+		});
+	};
+
+	private shed(reading: MemoryReading): void {
+		// Pacing applies whenever the box is tight, including at the floor, where
+		// there is no smaller batch left to fall back to.
+		this.pauseBeforeNextBatch = true;
+		const batchSize = Math.max(
+			this.config.minBatchSize,
+			Math.floor(this.batchSize / 2),
+		);
+		if (batchSize === this.batchSize && this.concurrency === 1) return;
+		this.batchSize = batchSize;
+		this.concurrency = 1;
+		this.announce("shed", reading);
+	}
+
+	private ramp(reading: MemoryReading): void {
+		if (this.batchSize < this.config.maxBatchSize) {
+			this.batchSize = Math.min(this.config.maxBatchSize, this.batchSize * 2);
+		} else if (this.concurrency < this.config.maxConcurrency) {
+			this.concurrency += 1;
+		} else {
+			return;
+		}
+		this.announce("ramp", reading);
+	}
+
+	private reset(): void {
+		this.batchSize = this.config.minBatchSize;
+		this.concurrency = 1;
+		this.comfortableReadings = 0;
+		this.deps.onPlan?.(this.plan);
+	}
+
+	// One line per change of plan, never one per batch: a first index is
+	// hundreds of thousands of batches and a per-batch line is not a log.
+	private announce(decision: "ramp" | "shed", reading: MemoryReading): void {
+		this.deps.onPlan?.(this.plan);
+		this.deps.log.info(`Search index embedding ${decision}`, {
+			batchSize: this.batchSize,
+			concurrency: this.concurrency,
+			...this.fields(reading),
+		});
+	}
+
+	private fields(reading: MemoryReading): Record<string, unknown> {
+		return {
+			availableMb: Math.round(reading.availableBytes / MB),
+			rssMb: Math.round(reading.rssBytes / MB),
+			headroomMb: Math.round(this.config.headroomBytes / MB),
+			criticalMb: Math.round(this.config.criticalBytes / MB),
+			rssCeilingMb: Math.round(this.config.rssCeilingBytes / MB),
+		};
+	}
+}
+
+/**
+ * Wraps an embedder so its work passes through the governor. The whole text
+ * list arrives as one call today (one email's chunks); this splits it into
+ * governed batches and holds only the current wave's inputs, so the model's
+ * outputs from a finished batch are unreachable before the next one starts.
+ *
+ * The stall budget is taken once here and spans every wave, because what has to
+ * stay inside the queue's visibility timeout is the handler, not one wave of it:
+ * a box that recovers just inside the budget on each wave would otherwise hold
+ * the record for as many budgets as the email has chunks.
+ *
+ * `dimensions` and `embeddingId` pass straight through: `embeddingId` feeds the
+ * content hash that decides what needs re-embedding, so wrapping the embedder
+ * must not invalidate an existing index.
+ */
+export const createAdaptiveEmbeddingService = (
+	inner: EmbeddingService,
+	governor: MemoryGovernor,
+	stallMaxMs: number = DEFAULT_ADAPTIVE_EMBEDDING_CONFIG.stallMaxMs,
+): EmbeddingService => ({
+	dimensions: inner.dimensions,
+	embeddingId: inner.embeddingId,
+	embed: async (texts: string[]): Promise<number[][]> => {
+		const vectors: number[][] = [];
+		const deadline = governor.stallDeadline();
+		let next = 0;
+		while (next < texts.length) {
+			const admission = await governor.admit(deadline);
+			if (admission.status === "expired") {
+				throw new MemoryStallTimeoutError(stallMaxMs, admission.waitedMs);
+			}
+			const { batchSize, concurrency } = governor.plan;
+			const wave: string[][] = [];
+			while (wave.length < concurrency && next < texts.length) {
+				wave.push(texts.slice(next, next + batchSize));
+				next += batchSize;
+			}
+			const embedded = await Promise.all(
+				wave.map((batch) => inner.embed(batch)),
+			);
+			for (const batch of embedded) vectors.push(...batch);
+			governor.settle();
+		}
+		return vectors;
+	},
+});

@@ -17,6 +17,7 @@ import { AutoMovedIndicator } from "./AutoMovedIndicator";
 import { MessageActionMenu } from "./MessageActionMenu";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageBody } from "./MessageBody";
+import { MessageSettlementAlert } from "./MessageSettlementAlert";
 import { MobileMessageBar } from "./MobileMessageBar";
 import { RawMessageView } from "./RawMessageView";
 
@@ -199,6 +200,12 @@ const ExpandedCard = ({
 	const isUnread = !threadMessage.isRead;
 	const isTrusted =
 		messageData?.envelope.from[0]?.flags?.trusted?.value === true;
+	// `BlockedFlag`: never load images, even on explicit click. Read alongside
+	// `trusted` and handed to the body, which lets blocked win over trusted —
+	// including on the header, where a trusted badge beside "you blocked this
+	// sender" would tell the user two opposite things about the same address.
+	const isBlocked =
+		messageData?.envelope.from[0]?.flags?.blocked?.value === true;
 	const fromAddressId = messageData?.envelope.from[0]?.addressId;
 	const message = toThreadMessageData(threadMessage, date);
 
@@ -219,7 +226,7 @@ const ExpandedCard = ({
 			message={message}
 			isFocused={mobile ? false : isFocused}
 			onHeaderClick={onToggle}
-			senderBadge={isTrusted ? <TrustedSenderBadge /> : undefined}
+			senderBadge={isTrusted && !isBlocked ? <TrustedSenderBadge /> : undefined}
 			trailing={
 				<span data-testid="message-date" className="text-2xs text-fg-subtle">
 					{date}
@@ -291,46 +298,54 @@ const ExpandedCard = ({
 				) : undefined
 			}
 			body={
-				isLoading ? (
-					<div className="mt-3 animate-pulse space-y-2">
-						<div className="h-4 bg-surface-sunken rounded w-full" />
-						<div className="h-4 bg-surface-sunken rounded w-3/4" />
-						<div className="h-4 bg-surface-sunken rounded w-1/2" />
-					</div>
-				) : isError && isMessageNotFoundError(error) ? (
-					<div className="mt-3">
-						<EmptyState message="This message has been deleted" />
-					</div>
-				) : isError ? (
-					<div className="mt-3">
-						<ErrorState
-							variant="inline"
-							title="Couldn't load this message"
-							error={error}
-							onRetry={onRetry}
-						/>
-					</div>
-				) : showRaw ? (
-					<div className="mt-3">
-						<RawMessageView messageId={threadMessage.messageId} />
-					</div>
-				) : (
-					<div className="mt-3">
-						<MessageBody
-							bodyParts={messageData?.bodyParts}
-							messageId={threadMessage.messageId}
-							fromAddressId={messageData?.envelope.from[0]?.addressId}
-							isTrusted={isTrusted}
-							category={toDisplayCategory(threadMessage.category)}
-						/>
-						<MessageAttachments
-							messageId={threadMessage.messageId}
-							bodyParts={messageData?.bodyParts}
-							hasAttachment={threadMessage.hasAttachment}
-							className="mt-4"
-						/>
-					</div>
-				)
+				<>
+					<MessageSettlementAlert
+						threadMessage={threadMessage}
+						accountId={accountId}
+						className="mt-3"
+					/>
+					{isLoading ? (
+						<div className="mt-3 animate-pulse space-y-2">
+							<div className="h-4 bg-surface-sunken rounded w-full" />
+							<div className="h-4 bg-surface-sunken rounded w-3/4" />
+							<div className="h-4 bg-surface-sunken rounded w-1/2" />
+						</div>
+					) : isError && isMessageNotFoundError(error) ? (
+						<div className="mt-3">
+							<EmptyState message="This message has been deleted" />
+						</div>
+					) : isError ? (
+						<div className="mt-3">
+							<ErrorState
+								variant="inline"
+								title="Couldn't load this message"
+								error={error}
+								onRetry={onRetry}
+							/>
+						</div>
+					) : showRaw ? (
+						<div className="mt-3">
+							<RawMessageView messageId={threadMessage.messageId} />
+						</div>
+					) : (
+						<div className="mt-3">
+							<MessageBody
+								bodyParts={messageData?.bodyParts}
+								messageId={threadMessage.messageId}
+								fromAddressId={messageData?.envelope.from[0]?.addressId}
+								isTrusted={isTrusted}
+								isBlocked={isBlocked}
+								category={toDisplayCategory(threadMessage.category)}
+							/>
+							<MessageAttachments
+								messageId={threadMessage.messageId}
+								bodyParts={messageData?.bodyParts}
+								hasAttachment={threadMessage.hasAttachment}
+								className="mt-4"
+							/>
+						</div>
+					)}
+				</>
 			}
 		/>
 	);

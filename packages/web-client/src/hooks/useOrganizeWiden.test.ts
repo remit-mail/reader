@@ -2,9 +2,10 @@
  * The widen step's two-phase preview. On a semantic-capable deployment it runs
  * the anchor preview once and stops. On a deployment that reports
  * `semanticUnavailable` (no vector pipeline — semantic-capability.ts) it
- * re-previews with sender-derived literal clauses — one `From` clause per
- * distinct sender, combined with `Or`, no anchor — and reports the literal match
- * count, so every commit scope acts on the sender-matched set.
+ * re-previews with what the whole selection agrees on (#458) — one `From` or
+ * `FromDomain` clause when senders agree, the shared subject when they don't,
+ * combined with `Or`, no anchor — and reports the literal match count, so
+ * every commit scope acts on the same set the fallback derived.
  */
 
 import assert from "node:assert/strict";
@@ -29,12 +30,16 @@ type Responder = Parameters<typeof mockFetch>[0];
 
 const PREVIEW_PATH = "/organize/preview";
 
-const mount = (senders: string[], responder: Responder) => {
+const mount = (
+	senders: string[],
+	responder: Responder,
+	subjects: string[] = [],
+) => {
 	http = mockFetch(responder);
 	harness = createDomHarness();
 	const holder: { current: Widen | undefined } = { current: undefined };
 	function Probe() {
-		const widen = useOrganizeWiden("acc-1", "msg-1", senders);
+		const widen = useOrganizeWiden("acc-1", "msg-1", senders, subjects);
 		holder.current = widen;
 		const { preview } = widen;
 		useEffect(() => {
@@ -130,6 +135,39 @@ describe("useOrganizeWiden — no vector pipeline, senders present", () => {
 	});
 });
 
+describe("useOrganizeWiden — no vector pipeline, mixed senders sharing a subject", () => {
+	it("re-previews with the shared subject rather than one From clause per sender (#458)", async () => {
+		const holder = mount(
+			["billing@acme.test", "accounts@globex.test"],
+			(call) =>
+				call.body?.anchorMessageId
+					? { matchedCount: 0, messageIds: [], semanticUnavailable: true }
+					: {
+							matchedCount: 64,
+							messageIds: ["m"],
+							semanticUnavailable: false,
+						},
+			["Invoice 1841", "Invoice 1902"],
+		);
+		await settle(2);
+
+		const calls = http?.to(PREVIEW_PATH) ?? [];
+		assert.equal(calls.length, 2);
+		const second = calls[1];
+		assert.equal(second.body?.anchorMessageId, undefined);
+		assert.equal(second.body?.matchOperator, "Or");
+		assert.deepEqual(second.body?.literalClauses, [
+			{ field: "Subject", value: "Invoice" },
+		]);
+
+		const widen = holder.current;
+		assert.deepEqual(widen?.matchPredicate, {
+			matchOperator: "Or",
+			literalClauses: [{ field: "Subject", value: "Invoice" }],
+		});
+	});
+});
+
 describe("useOrganizeWiden — no vector pipeline, no senders", () => {
 	it("does not re-preview and stays capability-absent with the anchor predicate", async () => {
 		const holder = mount([], () => ({
@@ -147,5 +185,33 @@ describe("useOrganizeWiden — no vector pipeline, no senders", () => {
 		assert.equal(widen?.senderFallback, false);
 		assert.deepEqual(widen?.senders, []);
 		assert.equal(widen?.matchPredicate.anchorMessageId, "msg-1");
+	});
+
+	it("still re-previews on a shared subject alone (#458)", async () => {
+		const holder = mount(
+			[],
+			(call) =>
+				call.body?.anchorMessageId
+					? { matchedCount: 0, messageIds: [], semanticUnavailable: true }
+					: {
+							matchedCount: 12,
+							messageIds: ["m"],
+							semanticUnavailable: false,
+						},
+			["Invoice 1841", "Invoice 1902"],
+		);
+		await settle(2);
+
+		const calls = http?.to(PREVIEW_PATH) ?? [];
+		assert.equal(calls.length, 2);
+		const second = calls[1];
+		assert.equal(second.body?.anchorMessageId, undefined);
+		assert.deepEqual(second.body?.literalClauses, [
+			{ field: "Subject", value: "Invoice" },
+		]);
+
+		const widen = holder.current;
+		assert.equal(widen?.semanticUnavailable, true);
+		assert.equal(widen?.senderFallback, true);
 	});
 });

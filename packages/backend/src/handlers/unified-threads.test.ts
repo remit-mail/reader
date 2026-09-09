@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
+import type { MessageCategory } from "@remit/api-openapi-types";
 import type {
 	AccountItem,
 	AccountSettingItem,
 	MailboxItem,
+	SearchOptions,
 } from "@remit/data-ports";
 import {
 	buildInboxMailboxMap,
@@ -11,7 +13,10 @@ import {
 	buildListStarredThreadsOptions,
 	buildSearchAllThreadsOptions,
 	dedupeByMessageId,
+	executeUnifiedThreadListing,
 	type InboxMapClient,
+	type UnifiedThreadClient,
+	type UnifiedThreadParams,
 } from "./unified-threads.js";
 
 // #44: Flagged filtered client-side over the newest 50 unified-inbox rows, so a
@@ -430,5 +435,348 @@ describe("buildSearchAllThreadsOptions", () => {
 		const search = buildSearchAllThreadsOptions({}, new Set(["m-inbox"]));
 		const unified = buildListAllThreadsOptions({}, new Set(["m-inbox"]));
 		assert.equal(search.limit, unified.limit);
+	});
+});
+
+// #308: the cross-account collections filtered and counted in the browser, over
+// the pages a client happened to have loaded. Both are the query's job now.
+describe("executeUnifiedThreadListing", () => {
+	interface Call {
+		mode: "listByDate" | "listByStarred" | "searchByDate" | "count";
+		search?: SearchOptions;
+		limit?: number;
+		continuationToken?: string;
+		inboxMailboxIds?: Set<string>;
+		mailboxIds?: Set<string>;
+	}
+
+	const emptyPage = { items: [], continuationToken: undefined };
+
+	const buildListingClient = (calls: Call[], count = 0) =>
+		({
+			account: {
+				listAllByAccountConfig: async () => [account("a1"), account("a2")],
+			},
+			mailbox: {
+				listAllByAccount: async (accountId: string) =>
+					accountId === "a1"
+						? [
+								mailbox("m-inbox", "a1", "INBOX"),
+								mailbox("m-archive", "a1", "Archive"),
+							]
+						: [
+								mailbox("m2-inbox", "a2", "INBOX"),
+								mailbox("m2-archive", "a2", "Archive"),
+								mailbox("m2-trash", "a2", "Trash", ["Trash"]),
+							],
+			},
+			accountSetting: { listByAccountConfig: async () => [] },
+			message: { get: async () => [] },
+			address: { getAddress: async () => [] },
+			messageLabel: { listByMessageIds: async () => [] },
+			label: { listByAccountConfig: async () => [] },
+			threadMessage: {
+				listByDate: async (
+					_config: string,
+					options?: { search?: SearchOptions; limit?: number },
+				) => {
+					calls.push({ mode: "listByDate", ...options });
+					return emptyPage;
+				},
+				listByStarred: async (
+					_config: string,
+					options?: { search?: SearchOptions; limit?: number },
+				) => {
+					calls.push({ mode: "listByStarred", ...options });
+					return emptyPage;
+				},
+				searchByDate: async (
+					_config: string,
+					search: SearchOptions,
+					options?: { limit?: number },
+				) => {
+					calls.push({ mode: "searchByDate", search, ...options });
+					return emptyPage;
+				},
+				countThreadsInScope: async (
+					_config: string,
+					search: SearchOptions,
+					options?: { mailboxIds?: Set<string> },
+				) => {
+					calls.push({ mode: "count", search, ...options });
+					return count;
+				},
+			},
+		}) as unknown as UnifiedThreadClient;
+
+	const params = (
+		overrides: Partial<UnifiedThreadParams> = {},
+	): UnifiedThreadParams => ({
+		starredOnly: false,
+		count: false,
+		results: true,
+		...overrides,
+	});
+
+	test("sends the row filters into the starred query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			category: ["social", "personal"] as MessageCategory[],
+			unread: true,
+			attachments: true,
+		});
+
+		assert.equal(calls.length, 1);
+		assert.equal(calls[0].mode, "listByStarred");
+		assert.deepEqual(calls[0].search, {
+			starred: true,
+			category: ["social", "personal"],
+			unread: true,
+			attachments: true,
+		});
+	});
+
+	test("sends the row filters into the INBOX query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params(),
+			category: ["uncategorized"] as MessageCategory[],
+		});
+
+		assert.equal(calls[0].mode, "listByDate");
+		assert.deepEqual(calls[0].search, { category: ["uncategorized"] });
+	});
+
+	test("sends the row filters into the search query", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			searchText: "invoice",
+			unread: true,
+		});
+
+		assert.equal(calls[0].mode, "searchByDate");
+		assert.deepEqual(calls[0].search, {
+			query: "invoice",
+			starred: true,
+			unread: true,
+		});
+	});
+
+	// The defect the count replaces: a page-length figure grew with every press
+	// of "load more" while the header presented it as a total.
+	test("counts the same however far the caller has paged", async () => {
+		const calls: Call[] = [];
+		const first = await executeUnifiedThreadListing(
+			buildListingClient(calls, 42),
+			CONFIG_ID,
+			params({ starredOnly: true, count: true, unread: true }),
+		);
+		const later = await executeUnifiedThreadListing(
+			buildListingClient(calls, 42),
+			CONFIG_ID,
+			params({
+				starredOnly: true,
+				count: true,
+				unread: true,
+				continuationToken: "page-3",
+				limit: 10,
+			}),
+		);
+
+		assert.equal(first.count, 42);
+		assert.equal(later.count, 42);
+	});
+
+	test("reads the count alone when results are not wanted", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 7),
+			CONFIG_ID,
+			params({ starredOnly: true, count: true, results: false }),
+		);
+
+		assert.deepEqual(
+			calls.map((call) => call.mode),
+			["count"],
+		);
+		assert.equal(response.items, undefined);
+		assert.equal(response.count, 7);
+	});
+
+	test("omits the count when it was not asked for", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 7),
+			CONFIG_ID,
+			params({ starredOnly: true }),
+		);
+
+		assert.equal(response.count, undefined);
+		assert.deepEqual(response.items, []);
+	});
+
+	// #1128: the one free-text parameter matches subject and From at once, so
+	// `from:` and `subject:` could not be asked for separately and the Flagged
+	// view applied both over the pages it had already fetched.
+	test("sends from and subject as their own terms", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ starredOnly: true }),
+			from: "alice",
+			subject: "invoice",
+		});
+
+		assert.deepEqual(calls[0].search, {
+			from: "alice",
+			subject: "invoice",
+			starred: true,
+		});
+	});
+
+	test("blank field text asks for nothing", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params(),
+			from: "",
+			subject: "",
+		});
+
+		assert.deepEqual(calls[0].search, {});
+	});
+
+	// #1137: the count answered a wider set than the list, because the browser
+	// dropped muted senders after the rows arrived and nothing told the server.
+	test("the muted term reaches the listing and the count alike", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ count: true }),
+			muted: false,
+		});
+
+		const listing = calls.find((call) => call.mode === "listByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual(listing?.search, { muted: false });
+		assert.deepEqual(counting?.search, { muted: false });
+	});
+
+	test("an unstated muted term filters nothing", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls),
+			CONFIG_ID,
+			params(),
+		);
+
+		assert.equal(Object.hasOwn(calls[0].search ?? {}, "muted"), false);
+	});
+
+	// #1136: the account pill narrowed the rows after they arrived, so a count
+	// over every account was not the size of a list showing one and the brief
+	// withheld every number rather than overstate.
+	test("an account scope narrows the listing and the count to that account", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls, 3),
+			CONFIG_ID,
+			params({ accountId: "a2", count: true }),
+		);
+
+		const listing = calls.find((call) => call.mode === "listByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual([...(listing?.inboxMailboxIds ?? [])], ["m2-inbox"]);
+		assert.deepEqual([...(counting?.mailboxIds ?? [])].sort(), ["m2-inbox"]);
+	});
+
+	test("an account scope narrows the search scope too", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(buildListingClient(calls), CONFIG_ID, {
+			...params({ accountId: "a2" }),
+			searchText: "invoice",
+		});
+
+		assert.equal(calls[0].mode, "searchByDate");
+		assert.deepEqual([...(calls[0].mailboxIds ?? [])].sort(), [
+			"m2-archive",
+			"m2-inbox",
+		]);
+	});
+
+	test("no account scope leaves the cross-account aggregate", async () => {
+		const calls: Call[] = [];
+		await executeUnifiedThreadListing(
+			buildListingClient(calls),
+			CONFIG_ID,
+			params(),
+		);
+
+		assert.deepEqual([...(calls[0].inboxMailboxIds ?? [])].sort(), [
+			"m-inbox",
+			"m2-inbox",
+		]);
+	});
+
+	// An account the config does not read narrows to nothing, which is the
+	// honest answer — never the whole aggregate under another account's name.
+	test("an unknown account matches nothing", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			params({ accountId: "a-other", count: true }),
+		);
+
+		assert.deepEqual(calls, []);
+		assert.deepEqual(response.items, []);
+		assert.equal(response.count, 0);
+	});
+
+	// #313: the Spam offer stated the junk share of the page the client had
+	// loaded, offered as a folder total. A count of one folder under the search's
+	// own criteria is what makes that number the folder's.
+	test("a folder scope narrows the search and the count to that folder", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 12),
+			CONFIG_ID,
+			{ ...params({ mailboxId: "m2-archive", count: true }), searchText: "x" },
+		);
+
+		const searching = calls.find((call) => call.mode === "searchByDate");
+		const counting = calls.find((call) => call.mode === "count");
+		assert.deepEqual([...(searching?.mailboxIds ?? [])], ["m2-archive"]);
+		assert.deepEqual([...(counting?.mailboxIds ?? [])], ["m2-archive"]);
+		assert.equal(response.count, 12);
+	});
+
+	test("a folder scope intersects the account scope rather than replacing it", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			{
+				...params({ accountId: "a1", mailboxId: "m2-archive", count: true }),
+				searchText: "x",
+			},
+		);
+
+		assert.deepEqual(calls, []);
+		assert.equal(response.count, 0);
+	});
+
+	// Trash is the one folder the unscoped search never reaches, so a caller
+	// asking what it holds of a search is asking about mail the search does not
+	// see. Answering with the folder's own contents would widen the scope.
+	test("a folder the search scope excludes matches nothing", async () => {
+		const calls: Call[] = [];
+		const response = await executeUnifiedThreadListing(
+			buildListingClient(calls, 99),
+			CONFIG_ID,
+			{ ...params({ mailboxId: "m2-trash", count: true }), searchText: "x" },
+		);
+
+		assert.deepEqual(calls, []);
+		assert.equal(response.count, 0);
 	});
 });

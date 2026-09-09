@@ -4,7 +4,14 @@ import {
 	AccountRepo,
 	AccountSettingRepo,
 	AddressRepo,
+	CalendarCollectionRepo,
+	CalendarEventIndexRepo,
+	CalendarFeedTokenRepo,
+	CalendarObjectRepo,
+	CalendarSuggestionRepo,
+	ConfigImportRepo,
 	createSqliteDatabase,
+	DrizzleCalendarUnitOfWork,
 	DrizzleEnvelopeRepository,
 	DrizzleFilterAnchorTransaction,
 	DrizzleMessageFlagRepository,
@@ -25,6 +32,7 @@ import {
 	OutboxAttachmentRepo,
 	OutboxMessageRepo,
 	QuarantineRepo,
+	runInTransaction,
 	SenderSignerStandingRepo,
 } from "@remit/drizzle-service";
 import { env } from "expect-env";
@@ -65,6 +73,7 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		threadMessage: new DrizzleThreadMessageRepository(genericDb),
 		envelope: new DrizzleEnvelopeRepository(messageDataDb),
 		accountExportRequest: new AccountExportRequestRepo(genericDb),
+		configImport: new ConfigImportRepo(genericDb),
 		quarantine: new QuarantineRepo(genericDb),
 		organizeJobRequest: new OrganizeJobRequestRepo(genericDb),
 		placementMove: new MessagePlacementMoveRepo(genericDb),
@@ -75,7 +84,14 @@ export const buildSqliteClient = async (): Promise<RemitClient> => {
 		label: new LabelRepo(genericDb),
 		messageLabel: new MessageLabelRepo(genericDb),
 		senderSignerStanding: new SenderSignerStandingRepo(genericDb),
+		calendarCollection: new CalendarCollectionRepo(genericDb),
+		calendarObject: new CalendarObjectRepo(genericDb),
+		calendarEventIndex: new CalendarEventIndexRepo(genericDb),
+		calendarFeedToken: new CalendarFeedTokenRepo(genericDb),
+		calendarSuggestion: new CalendarSuggestionRepo(genericDb),
+		calendarUnitOfWork: new DrizzleCalendarUnitOfWork(genericDb),
 		unitOfWork: new DrizzleUnitOfWork(messageDataDb),
+		writeSet: (run) => runInTransaction(genericDb, () => run()),
 	};
 
 	return createRemitClient({ repositories, ...buildSharedDeps() });

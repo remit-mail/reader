@@ -85,7 +85,15 @@ _last_check=$(date +%s)
 # either installs the release or records the rejection in state.json; a rejected
 # or failed request must not crash the watcher, so its status is not fatal.
 _request="$REMIT_UPDATE_CONTROL_DIR/request.json"
+_check_request="$REMIT_UPDATE_CONTROL_DIR/check-request.json"
 while :; do
+	# A check asked for from the panel (#599) outranks the cadence: consume it and
+	# restart the clock, the same as a check that fired on its own schedule.
+	if [ -f "$_check_request" ]; then
+		rm -f "$_check_request"
+		remit update --check || true
+		_last_check=$(date +%s)
+	fi
 	if [ -f "$_request" ]; then
 		remit update || true
 		# An update runs a check as its first step, so the cadence clock restarts

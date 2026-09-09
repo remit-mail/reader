@@ -27,6 +27,25 @@ export type OverlayPanel = (typeof overlayPanels)[number];
 export const isOverlayPanel = (panel: PanelFragment): panel is OverlayPanel =>
 	(overlayPanels as readonly PanelFragment[]).includes(panel);
 
+/**
+ * The set an overlay opening or closing leaves behind it.
+ *
+ * A write states the whole set, so raising the nav slide-over has to say what
+ * else is up or it takes it down. The panes stay and the previous overlay goes,
+ * because two overlays cannot both be up — which is how a reader crossing from
+ * their mail into the calendar and reaching for the folders keeps the rail they
+ * arrived with.
+ */
+export function panelsWithOverlay(
+	open: readonly PanelFragment[],
+	overlay: OverlayPanel | undefined,
+): PanelFragment[] {
+	return [
+		...open.filter((panel) => !isOverlayPanel(panel)),
+		...(overlay ? [overlay] : []),
+	];
+}
+
 const panelFragmentSchema = z.enum(panelFragments);
 
 /**

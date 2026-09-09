@@ -198,8 +198,9 @@ export const rulePredicate = (
  * Whether the matcher behind `/organize/preview` can evaluate this predicate at
  * all. Without an anchor it takes the vector-free literal arm, which reads no
  * message body and rejects a `HasWords` clause rather than narrowing the match
- * silently (`assertNoBodyContentClause`, backend/service/organize.ts). Asking it
- * anyway is a 500, so the caller must not ask.
+ * silently (`bodyContentRejection`, backend/service/organize.ts). Asking it
+ * anyway is refused with a 400, on preview and on a back-apply alike, so the
+ * caller must not ask.
  */
 export const isEvaluablePredicate = (
 	predicate: OrganizeMatchPredicate,
@@ -252,6 +253,8 @@ export interface PreviewState {
 	count?: number;
 	/** The ids that count was counted over, as the server bounded them. */
 	matchedIds?: readonly string[];
+	/** The server said the semantic index had nothing to answer with (#452). */
+	indexEmpty?: boolean;
 	/** The signature the {@link count} was counted for. */
 	previewedSignature?: string;
 	/** The signature the last error was raised for. */
@@ -273,10 +276,11 @@ export const derivePreview = (
 		return { status: "error", reason: state.error };
 	}
 	if (state.count === undefined) return { status: "loading" };
+	const indexEmpty = state.indexEmpty === true ? { indexEmpty: true } : {};
 	if (state.previewedSignature === currentSignature) {
-		return { status: "ready", count: state.count };
+		return { status: "ready", count: state.count, ...indexEmpty };
 	}
-	return { status: "ready", count: state.count, stale: true };
+	return { status: "ready", count: state.count, stale: true, ...indexEmpty };
 };
 
 /** How long a rule change settles before the next preview fires. */

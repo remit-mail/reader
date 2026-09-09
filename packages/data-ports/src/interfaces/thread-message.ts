@@ -2,6 +2,7 @@ import type {
 	CreateThreadMessageInput,
 	ResultList,
 	SearchOptions,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateThreadMessageInput,
 } from "../types.js";
@@ -47,6 +48,13 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			inboxMailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			/**
+			 * Row criteria applied inside the query, so a page is a page of
+			 * matches however rare the criterion is. Filtering the rows a page
+			 * returned instead is what makes a listing look empty whenever the
+			 * matching mail sits below the newest page (#308).
+			 */
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
@@ -79,6 +87,42 @@ export interface IThreadMessageRepository {
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
+	 * Rows of a config whose sender, subject or `List-Id` column matches a set
+	 * of substring terms, newest first, across every mailbox — the store-side
+	 * narrowing a rule back-apply reads with.
+	 *
+	 * The terms are evaluated in the query, so `limit` is a page size over
+	 * MATCHES and the scan reaches the whole config however old the matching
+	 * mail is. Paging a date-ordered listing and filtering the rows it returned
+	 * is what makes a rule for a quiet sender report a handful of matches on a
+	 * mailbox holding thousands (#459).
+	 *
+	 * `operator` combines the terms — `"and"` requires every one, `"or"` any.
+	 * An empty `terms` narrows nothing under either operator: the whole config,
+	 * newest first.
+	 *
+	 * A term an implementation cannot evaluate faithfully is IGNORED, never
+	 * approximated: the result may be wider than the terms asked for and never
+	 * narrower, so the caller's own matcher stays the judge.
+	 *
+	 * Matching follows `searchByMailbox`: accent- and case-insensitive
+	 * substring over the same folded columns.
+	 *
+	 * Rows are per mailbox, not per conversation: the same mail filed in two
+	 * folders is two rows sharing a `threadId`.
+	 */
+	listByFieldTerms(
+		accountConfigId: string,
+		terms: readonly ThreadMessageFieldTerm[],
+		options?: {
+			operator?: "and" | "or";
+			order?: "asc" | "desc";
+			limit?: number;
+			continuationToken?: string;
+			excludeDeleted?: boolean;
+		},
+	): Promise<ResultList<ThreadMessageItem>>;
+	/**
 	 * List starred rows for a config, newest first, across every mailbox.
 	 *
 	 * Backed by the `byStarred` index (pk = accountConfigId, sk = hasStars +
@@ -100,8 +144,31 @@ export interface IThreadMessageRepository {
 			continuationToken?: string;
 			mailboxIds?: Set<string>;
 			excludeDeleted?: boolean;
+			/** Row criteria applied inside the query; see `listByDate`. */
+			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * COUNT of matching CONVERSATIONS over the same predicate and the same
+	 * mailbox scope the three cross-account listing modes read with — the scoped
+	 * counterpart of `countByMailbox`.
+	 *
+	 * A page size bounds the rows a response carries and has no bearing on how
+	 * much matches, so a count returns no rows and is answered in full.
+	 *
+	 * Distinct on `threadId`, unlike `countByMailbox`, because the cross-account
+	 * listing is collapsed by thread before it is rendered: a row is per mailbox,
+	 * so one message reachable through a real folder and a virtual copy of it is
+	 * several rows, and two matching messages of one conversation are two more.
+	 */
+	countThreadsInScope(
+		accountConfigId: string,
+		search: SearchOptions,
+		options?: {
+			mailboxIds?: Set<string>;
+			excludeDeleted?: boolean;
+		},
+	): Promise<number>;
 	/**
 	 * Every message of a thread, across all mailboxes of the account. A
 	 * conversation spans INBOX, Sent and any folder its messages were filed
@@ -169,6 +236,17 @@ export interface IThreadMessageRepository {
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
+	/**
+	 * COUNT of matching MESSAGES in one mailbox, under the same predicate
+	 * `searchByMailboxWindow` reads with — the per-mailbox counterpart of
+	 * `countThreadsInScope`, and not distinct on `threadId` because the listing
+	 * it answers for renders a row per message.
+	 *
+	 * The number is over the whole mailbox. No page size bounds it and no cursor
+	 * narrows it, so it does not shrink as the caller pages and does not change
+	 * when the page size does (#305). There is nothing to cap: the count is one
+	 * aggregate read that returns no rows.
+	 */
 	countByMailbox(
 		accountConfigId: string,
 		mailboxId: string,

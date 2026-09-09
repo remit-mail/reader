@@ -4,8 +4,9 @@ import type {
 	IMessageRepository,
 	MessageDescription,
 	MessageItem,
+	PlacementPredicate,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, or, type SQL } from "drizzle-orm";
 
 import type { Db } from "../db.js";
 import {
@@ -57,8 +58,10 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		envelopeId: row.envelopeId,
 		rootBodyPartId: row.rootBodyPartId,
 		status: row.status,
+		abandonedMutation: row.abandonedMutation,
 		syncStatus: row.syncStatus,
 		category: row.category,
+		classificationState: row.classificationState,
 		authenticityVerdict: row.authenticityVerdict,
 		hasListUnsubscribe: row.hasListUnsubscribe,
 		movedByRemit: row.movedByRemit,
@@ -106,7 +109,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
  * the search-index worker relays a search-index REMOVE and the vectors are
  * dropped.
  */
-export const MESSAGE_REMOVED_EVENT = "message.removed";
+export const MESSAGE_REMOVED_EVENT = "message.removed" as const;
 
 export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete" | "insert">;
 
@@ -168,6 +171,34 @@ export async function deleteMessageSubtree(
 	);
 }
 
+/**
+ * The WHERE terms of a placement transition (imap-mutations R3). A field the
+ * caller left out is a field it did not read, so it constrains nothing; a field
+ * given as a list matches any of the states that share one column value.
+ */
+const isList = <T>(value: T | readonly T[]): value is readonly T[] =>
+	Array.isArray(value);
+
+const oneOf = <T>(value: T | readonly T[]): T[] =>
+	isList(value) ? [...value] : [value];
+
+const placementTerms = (expected: PlacementPredicate): SQL[] => {
+	const terms: SQL[] = [];
+	if (expected.status !== undefined) {
+		terms.push(inArray(messageTable.status, oneOf(expected.status)));
+	}
+	if (expected.syncStatus !== undefined) {
+		terms.push(inArray(messageTable.syncStatus, oneOf(expected.syncStatus)));
+	}
+	if (expected.mailboxId !== undefined) {
+		terms.push(eq(messageTable.mailboxId, expected.mailboxId));
+	}
+	if (expected.uid !== undefined) {
+		terms.push(eq(messageTable.uid, expected.uid));
+	}
+	return terms;
+};
+
 export class DrizzleMessageRepository implements IMessageRepository {
 	constructor(private db: DB) {}
 
@@ -185,6 +216,8 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			status: input.status ?? ("active" as const),
 			syncStatus: input.syncStatus ?? ("pending" as const),
 			category: input.category ?? ("uncategorized" as const),
+			classificationState:
+				input.classificationState ?? ("NotExamined" as const),
 			authenticityVerdict:
 				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
@@ -204,22 +237,15 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			updatedAt: now,
 		};
 
-		// Faithful to ElectroDB message.create: a duplicate messageId throws
-		// CreateFailedConflictError. The plain insert raises a unique-constraint
-		// violation, which rolls back the transaction so NO outbox row is
-		// written; we surface it as the domain conflict error.
+		// Faithful to ElectroDB message.create: a duplicate messageId raises a
+		// unique-constraint violation, surfaced as the domain conflict error.
+		//
+		// No outbox event. A freshly created message has neither a body nor a
+		// threadMessage yet, so there is nothing to index — the search-index
+		// relay never drained a creation event, and the rows accumulated forever
+		// (reader#1063). Body-sync appends the event once there is content.
 		try {
-			await runInTransaction(this.db, async (tx) => {
-				await tx.insert(messageTable).values(row);
-
-				await tx.insert(outboxTable).values({
-					id: randomUUID(),
-					messageId: input.messageId,
-					event: "message.created",
-					payload: { messageId: input.messageId },
-					createdAt: new Date(),
-				});
-			});
+			await this.db.insert(messageTable).values(row);
 		} catch (error) {
 			if (isUniqueViolation(error)) {
 				throw new CreateFailedConflictError("Message", input);
@@ -363,11 +389,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...(input.bodyStorageKey !== undefined
 				? { bodyStorageKey: input.bodyStorageKey }
 				: {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
-				: {}),
 			...(input.category !== undefined ? { category: input.category } : {}),
+			...(input.classificationState !== undefined
+				? { classificationState: input.classificationState }
+				: {}),
 			...(input.authenticityVerdict !== undefined
 				? { authenticityVerdict: input.authenticityVerdict }
 				: {}),
@@ -456,17 +481,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return this.get(messageId);
 	}
 
-	async clearOriginalMailboxId(
-		messageId: string,
-	): ReturnType<IMessageRepository["clearOriginalMailboxId"]> {
-		const now = Date.now();
-		await this.db
-			.update(messageTable)
-			.set({ originalMailboxId: null, originalUid: null, updatedAt: now })
-			.where(eq(messageTable.messageId, messageId));
-		return this.get(messageId);
-	}
-
 	async delete(messageId: string): Promise<void> {
 		await this.deleteMany([messageId]);
 	}
@@ -533,22 +547,24 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		return rows.map(toMessageItem);
 	}
 
-	async updateForMove(
+	async transitionPlacement(
 		messageId: string,
-		input: Parameters<IMessageRepository["updateForMove"]>[1],
-	): ReturnType<IMessageRepository["updateForMove"]> {
+		expected: PlacementPredicate,
+		next: Parameters<IMessageRepository["transitionPlacement"]>[2],
+	): ReturnType<IMessageRepository["transitionPlacement"]> {
 		const setValues = {
-			...(input.mailboxId !== undefined ? { mailboxId: input.mailboxId } : {}),
-			...(input.uid !== undefined ? { uid: input.uid } : {}),
-			...(input.status !== undefined ? { status: input.status } : {}),
-			...(input.syncStatus !== undefined
-				? { syncStatus: input.syncStatus }
+			...(next.mailboxId !== undefined ? { mailboxId: next.mailboxId } : {}),
+			...(next.uid !== undefined ? { uid: next.uid } : {}),
+			...(next.status !== undefined ? { status: next.status } : {}),
+			...(next.syncStatus !== undefined ? { syncStatus: next.syncStatus } : {}),
+			...(next.abandonedMutation !== undefined
+				? { abandonedMutation: next.abandonedMutation }
 				: {}),
-			...(input.originalMailboxId !== undefined
-				? { originalMailboxId: input.originalMailboxId }
+			...(next.originalMailboxId !== undefined
+				? { originalMailboxId: next.originalMailboxId }
 				: {}),
-			...(input.originalUid !== undefined
-				? { originalUid: input.originalUid }
+			...(next.originalUid !== undefined
+				? { originalUid: next.originalUid }
 				: {}),
 			updatedAt: Date.now(),
 		};
@@ -556,11 +572,11 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		const rows = await this.db
 			.update(messageTable)
 			.set(setValues)
-			.where(eq(messageTable.messageId, messageId))
+			.where(
+				and(eq(messageTable.messageId, messageId), ...placementTerms(expected)),
+			)
 			.returning();
-		if (rows.length === 0) {
-			throw new NotFoundError(`Message not found: ${messageId}`);
-		}
+		if (rows.length === 0) return undefined;
 		return toMessageItem(rows[0]);
 	}
 
@@ -575,14 +591,28 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// re-index would skip them on content hash. Enqueue a move re-index event
 		// in the same transaction as the update; the search-index worker drains it
 		// with force, refreshing the stored mailbox metadata.
+		//
+		// `originalUid` goes with the settle. It exists to say the row's `uid`
+		// was recorded under `originalMailboxId`, and that stops being true here;
+		// left behind it makes the settled row indistinguishable from an
+		// in-flight one whenever the destination's counter happens to hand back
+		// the source's number, which on a young account is most of them (#1217).
+		// `originalMailboxId` stays: Undo restores the message to it.
 		const rows = await runInTransaction(this.db, async (tx) => {
 			const updated = await tx
 				.update(messageTable)
 				.set({
 					uid: newUid,
 					mailboxId: newMailboxId,
+					originalUid: null,
 					status: "active",
 					syncStatus: "synced",
+					// The settle clears the epitaph as well as the pair. `syncStatus`
+					// alone already gates every reader of it, so this is tidiness
+					// rather than correctness — but a row that has just settled has
+					// nothing it gave up on, and leaving a value there invites a
+					// reader that forgets the gate.
+					abandonedMutation: "none",
 					updatedAt: Date.now(),
 				})
 				.where(eq(messageTable.messageId, messageId))

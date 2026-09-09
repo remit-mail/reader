@@ -36,16 +36,11 @@ import {
 	type ThreadSection,
 } from "@remit/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import { FileText, Inbox, Trash2 } from "lucide-react";
 import { useMemo } from "react";
 
 import { groupDraftSections } from "@/lib/drafts";
-import {
-	useComposeDraftId,
-	useEditDraft,
-	useRetainOpenPanels,
-} from "@/routing";
+import { useComposeDraftId, useEditDraft, useOpenThread } from "@/routing";
 import { NavMenuButton } from "./NavMenuButton";
 
 // ---------------------------------------------------------------------------
@@ -136,8 +131,6 @@ const ImapDraftRow = ({ row, isSelected, onOpen }: ImapDraftRowProps) => {
 // ---------------------------------------------------------------------------
 
 interface DraftsViewProps {
-	/** The mailbox id for the \Drafts mailbox being viewed. */
-	mailboxId: string;
 	/** The accountId that owns this \Drafts mailbox. */
 	accountId: string;
 	/** The currently selected message id (reading pane). */
@@ -151,7 +144,6 @@ interface DraftsViewProps {
 }
 
 export function DraftsView({
-	mailboxId,
 	accountId,
 	selectedMessageId,
 	imapThreads,
@@ -160,8 +152,7 @@ export function DraftsView({
 }: DraftsViewProps) {
 	const openDraftId = useComposeDraftId();
 	const editDraft = useEditDraft();
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 	const queryClient = useQueryClient();
 
 	// Fetch the full outbox list — both sources are already fetched by the
@@ -196,12 +187,7 @@ export function DraftsView({
 			(thread) => thread.messageId === messageId,
 		)?.threadId;
 		if (!threadId) return;
-		navigate({
-			to: "/mail/$mailboxId/$threadId/$messageId",
-			params: { mailboxId, threadId, messageId },
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
+		openThread({ threadId, messageId });
 	};
 
 	const isEmpty = sections.length === 0;

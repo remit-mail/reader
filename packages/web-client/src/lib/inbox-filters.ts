@@ -3,20 +3,26 @@ import type {
 	ThreadOperationsSearchThreadsData,
 } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
-import type { FilterReach } from "@remit/ui";
+import { categoryLabels, type FilterReach, isThreadCategory } from "@remit/ui";
 
 /** The request `threadOperationsSearchThreads` takes, whole. */
 export type ThreadSearchQuery = NonNullable<
 	ThreadOperationsSearchThreadsData["query"]
 >;
 
-/** The parameters the inbox chips set on that request. */
+/**
+ * The parameters the filter chips set on a thread listing.
+ *
+ * Named for the inbox, which had them first, but shared: `listAllThreads` takes
+ * the same four (#308), so the Flagged view sends the chips through this rather
+ * than growing a second translation of the same chip ids.
+ */
 export type InboxFilterParams = Pick<
 	ThreadSearchQuery,
 	"category" | "unread" | "starred" | "attachments"
 >;
 
-/** The chip state the inbox holds: one category, any number of attributes. */
+/** The chip state a filtered list holds: one category, any number of attributes. */
 export interface InboxFilterCriteria {
 	/** A category id, or `"all"` when the category is cleared. */
 	category: string;
@@ -83,11 +89,28 @@ export const filterReach = (query: ThreadSearchQuery): FilterReach =>
 		? "loaded-pages"
 		: "whole-folder";
 
+/**
+ * A list request's narrowing parameters, as far as the previous-data guard
+ * reads them. The chips, plus the two scopes a view sets for itself: the
+ * account the pills name, and whether muted senders are in.
+ *
+ * The text parameters are deliberately absent, `from` and `subject` with the
+ * free text: all three are typed in one field, and a query being refined is the
+ * one change that may keep the previous answer on screen while the next is in
+ * flight.
+ */
+export type ListFilterParams = InboxFilterParams & {
+	accountId?: string;
+	muted?: boolean;
+};
+
 const FILTER_PARAM_NAMES = [
 	"category",
 	"unread",
 	"starred",
 	"attachments",
+	"accountId",
+	"muted",
 ] as const;
 
 const filterIdentity = (query: Record<string, unknown> | undefined): string =>
@@ -115,9 +138,17 @@ const queryOf = (queryKey: unknown): Record<string, unknown> | undefined => {
  */
 export const sameInboxFilter = (
 	queryKey: unknown,
-	params: InboxFilterParams,
+	params: ListFilterParams,
 ): boolean => {
 	const previous = queryOf(queryKey);
 	if (!previous) return false;
 	return filterIdentity(previous) === filterIdentity(params);
 };
+
+/**
+ * The label the empty state names an active category filter by, or undefined
+ * when the id names no category — `"all"` is how the category is cleared, not a
+ * category.
+ */
+export const categoryLabel = (id: string): string | undefined =>
+	isThreadCategory(id) ? categoryLabels[id] : undefined;

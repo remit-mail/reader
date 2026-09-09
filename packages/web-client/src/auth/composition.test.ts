@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
-import { build } from "esbuild";
+import {
+	type AppGraph,
+	AUTH_COMPOSITIONS,
+	bundleAppGraph,
+} from "@/test-support/test-bundle-app";
 
 /**
  * Proves the auth shell is a composition choice, not a runtime toggle inside
@@ -11,89 +13,10 @@ import { build } from "esbuild";
  * app shell and screens are walked from the real entry each time, so this fails
  * the moment any surface reaches back to a specific identity SDK.
  */
-const here = dirname(fileURLToPath(import.meta.url));
-const srcDir = join(here, "..");
-const packageDir = join(srcDir, "..");
-
-interface Variant {
-	specifier: string;
-	name: string;
-}
-
-const VARIANTS: Record<"betterAuth" | "cognito", Variant> = {
-	betterAuth: {
-		specifier: "@/auth/better-auth-provider",
-		name: "betterAuthProvider",
-	},
-	cognito: {
-		specifier: "@/auth/cognito-provider",
-		name: "cognitoAuthProvider",
-	},
-};
-
-interface Graph {
-	inputs: string[];
-	importPaths: string[];
-}
-
-// Externalize third-party packages, but bundle in-repo `@remit/*` workspace
-// source so the walk matches what the real vite build includes. A shared
-// primitive (e.g. `@remit/ui`) that pulled in Amplify would then surface in this
-// graph and fail the test, rather than hiding behind an external edge.
-const externalizeThirdParty = {
-	name: "externalize-third-party",
-	setup(build: import("esbuild").PluginBuild) {
-		build.onResolve({ filter: /.*/ }, (args) => {
-			const path = args.path;
-			if (path.startsWith(".") || path.startsWith("/")) return null;
-			if (path === "@" || path.startsWith("@/")) return null;
-			if (path.startsWith("@remit/")) return null;
-			return { path, external: true };
-		});
-	},
-};
-
-const bundleGraph = async (variant: Variant): Promise<Graph> => {
-	const entry = [
-		'import { mountApp } from "@/shell";',
-		`import { ${variant.name} } from "${variant.specifier}";`,
-		`mountApp({ authProvider: ${variant.name} });`,
-		"",
-	].join("\n");
-
-	const result = await build({
-		stdin: {
-			contents: entry,
-			resolveDir: packageDir,
-			loader: "tsx",
-			sourcefile: "compose-entry.tsx",
-		},
-		bundle: true,
-		write: false,
-		metafile: true,
-		logLevel: "silent",
-		format: "esm",
-		platform: "browser",
-		jsx: "automatic",
-		jsxImportSource: "react",
-		plugins: [externalizeThirdParty],
-		loader: { ".css": "empty", ".png": "empty", ".svg": "empty" },
-		absWorkingDir: packageDir,
-		alias: { "@": srcDir },
-	});
-
-	const inputs = Object.keys(result.metafile.inputs);
-	const importPaths = new Set<string>();
-	for (const input of Object.values(result.metafile.inputs)) {
-		for (const imported of input.imports) importPaths.add(imported.path);
-	}
-	return { inputs, importPaths: [...importPaths] };
-};
-
-const mentionsAmplify = ({ inputs, importPaths }: Graph): boolean =>
+const mentionsAmplify = ({ inputs, importPaths }: AppGraph): boolean =>
 	[...inputs, ...importPaths].some((path) => /aws-amplify/.test(path));
 
-const composesCognitoShell = ({ inputs }: Graph): boolean =>
+const composesCognitoShell = ({ inputs }: AppGraph): boolean =>
 	inputs.some(
 		(path) =>
 			path.includes("auth/cognito/") || path.includes("cognito-provider"),
@@ -101,7 +24,7 @@ const composesCognitoShell = ({ inputs }: Graph): boolean =>
 
 describe("web-client composition", () => {
 	it("omits every Amplify/Cognito module when composing the better-auth provider", async () => {
-		const graph = await bundleGraph(VARIANTS.betterAuth);
+		const graph = await bundleAppGraph(AUTH_COMPOSITIONS.betterAuth);
 
 		assert.ok(
 			graph.inputs.some((path) => path.includes("shell/index")),
@@ -120,7 +43,7 @@ describe("web-client composition", () => {
 	});
 
 	it("includes the Amplify/Cognito modules when composing the cognito provider", async () => {
-		const graph = await bundleGraph(VARIANTS.cognito);
+		const graph = await bundleAppGraph(AUTH_COMPOSITIONS.cognito);
 
 		assert.equal(
 			mentionsAmplify(graph),

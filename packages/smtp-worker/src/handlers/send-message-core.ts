@@ -5,8 +5,9 @@ import type {
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
 import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
+import type { CredentialResolution } from "@remit/mailbox-service/account-credentials";
 import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,
@@ -14,6 +15,7 @@ import {
 	SmtpConnectionError,
 	type sendMail,
 } from "@remit/smtp-service";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import type { SendMessageEvent } from "../events.js";
 import { writeEngagementCounters } from "./engagement-counters.js";
 import {
@@ -62,6 +64,13 @@ export interface SendMessageDeps {
 		id: string,
 		status: OutboxMessageItem["status"],
 	) => Promise<unknown>;
+	/** Write the patch only while the row still holds `expected` (compare-and-set). */
+	updateOutboxIfStatus: (
+		accountConfigId: string,
+		id: string,
+		expected: OutboxMessageItem["status"],
+		patch: UpdateOutboxMessageInput,
+	) => Promise<unknown>;
 	markOutboxSent: (
 		accountConfigId: string,
 		id: string,
@@ -72,16 +81,24 @@ export interface SendMessageDeps {
 	 * Resolve credentials for the account. Called after fetching the account.
 	 * For password accounts this may resolve immediately from the stored hash.
 	 * For OAuth accounts this mints an access token via the token service.
+	 * Returns `{ status: "missing" }` when the account stores no credential.
 	 * Throws RefreshTokenError on OAuth failures — callers should not need to
 	 * handle this here; the caller of sendMessage handles it.
 	 */
-	resolveCredentials: (account: AccountItem) => Promise<SmtpCredentials>;
+	resolveCredentials: (account: AccountItem) => Promise<CredentialResolution>;
 	/**
-	 * Persist the account's connectionState. Called when a terminal OAuth/SMTP
-	 * auth failure is detected so the account is fenced off until the user
-	 * re-auths (mirrors the IMAP withOAuthLifecycle contract).
+	 * Persist the account's connectionState, and with it the sentence the
+	 * account card shows. Called when a terminal OAuth/SMTP auth failure is
+	 * detected so the account is fenced off until the user re-auths (mirrors the
+	 * IMAP withOAuthLifecycle contract). `lastError` carries the server's own
+	 * words when the refusal came with any, and its absence clears the stored
+	 * reason rather than leaving an older failure to describe this one.
 	 */
-	updateConnectionState: (accountId: string, state: string) => Promise<void>;
+	updateConnectionState: (
+		accountId: string,
+		state: string,
+		lastError?: string,
+	) => Promise<void>;
 	send: typeof sendMail;
 	emitAppendSentMessage: (
 		accountId: string,
@@ -93,16 +110,63 @@ export interface SendMessageDeps {
 const UNFILED_NOT_QUEUED =
 	"Sent, but not filed: the copy for the Sent folder could not be queued.";
 
+/**
+ * Every re-auth branch settles the row with this, because the row is the only
+ * place the user learns the send stopped: `blocked` shows its reason and offers
+ * no Retry, and a retry cannot succeed until the account is reconnected.
+ */
+const REAUTH_REQUIRED =
+	"This account needs to be reconnected before it can send. Open Settings → Accounts and choose Reconnect, then send this message again.";
+
+const UNFILED_CONNECTION_LOST =
+	"The connection to the outgoing server dropped during the send, so this message may already have been delivered. Check with the recipient before sending it again.";
+
+/**
+ * The connection failures that prove nothing was submitted: no session ever
+ * opened, so the server holds no copy and `failed` is safe — Retry sends the
+ * only copy there is.
+ *
+ * `ECONNRESET` and `ETIMEDOUT` classify as `network` too and are deliberately
+ * absent. Either can land after DATA, with the message already queued on the
+ * server, and a `failed` row invites a Retry that delivers it twice.
+ */
+const NEVER_SUBMITTED_CODES: ReadonlySet<string> = new Set([
+	"ECONNREFUSED",
+	"ENOTFOUND",
+	"EHOSTUNREACH",
+]);
+
+const errorCode = (cause: unknown): string =>
+	cause instanceof Error && "code" in cause && typeof cause.code === "string"
+		? cause.code
+		: "";
+
+/**
+ * Whether the message can be re-sent without risking a second copy. An auth
+ * rejection is decided before the envelope; a connection failure carries the
+ * code that says how far it got. Anything else counts as possibly delivered,
+ * which is the answer that cannot produce a duplicate.
+ */
+const neverSubmitted = (err: SmtpConnectionError): boolean =>
+	err.kind === "auth" || NEVER_SUBMITTED_CODES.has(errorCode(err.cause));
+
 const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.draft,
 	OutboxMessageStatus.queued,
 	OutboxMessageStatus.sending,
 ]);
 
+export const getSendMessageMaxAttempts = (
+	processEnv: NodeJS.ProcessEnv = process.env,
+): number => attemptBudget("SEND_MESSAGE_MAX_ATTEMPTS", 3, processEnv);
+
+export const SEND_MESSAGE_MAX_ATTEMPTS = getSendMessageMaxAttempts();
+
 export const sendMessage = async (
 	event: SendMessageEvent,
 	log: Logger,
 	deps: SendMessageDeps,
+	receiveCount = 1,
 ): Promise<void> => {
 	const { outboxMessageId, accountId } = event;
 
@@ -127,6 +191,26 @@ export const sendMessage = async (
 		return;
 	}
 
+	// `send` queues a row before it emits, so an event that finds one at `draft`
+	// found a row the user pulled back into the composer after the emit. That is
+	// not a stalled send and it keeps its own state. Every other settle is
+	// conditional on the status the send was decided against, so a row that has
+	// moved on since is not overwritten either.
+	const settleBlockedOnReauth = async (
+		expected: OutboxMessageItem["status"] = outbox.status,
+	): Promise<void> => {
+		if (expected === OutboxMessageStatus.draft) return;
+		await deps.updateOutboxIfStatus(
+			accountConfigId,
+			outboxMessageId,
+			expected,
+			{
+				status: OutboxMessageStatus.blocked,
+				lastError: REAUTH_REQUIRED,
+			},
+		);
+	};
+
 	// Tombstone fence: drop events for deleted accounts (#228)
 	if (account.deletedAt) {
 		log.info(
@@ -139,9 +223,10 @@ export const sendMessage = async (
 	// Reauth fence: skip accounts that need re-authentication. No SMTP traffic
 	// until the user re-auths (mirrors the IMAP reauth/ACK contract, #472).
 	if (account.connectionState === "reauth_required") {
+		await settleBlockedOnReauth();
 		log.info(
 			{ accountId, connectionState: account.connectionState },
-			"Account requires reauth, dropping send event",
+			"Account requires reauth, blocking the message",
 		);
 		return;
 	}
@@ -149,9 +234,26 @@ export const sendMessage = async (
 	// Resolve credentials. On a terminal OAuth auth failure (token revoked),
 	// flip the account to reauth_required and ACK — do not retry. Transient /
 	// config failures rethrow for SQS retry/backoff.
-	let credentials: SmtpCredentials;
+	let credentials: SmtpCredentials | undefined;
 	try {
-		credentials = await deps.resolveCredentials(account);
+		const resolution = await deps.resolveCredentials(account);
+		if (resolution.status === "missing") {
+			// Terminal, never a retry (issue #1120). The account still sends if it
+			// carries an SMTP-specific credential of its own, so this hands
+			// resolveSmtpConfig no credential and lets it decide; where there is
+			// none either, the send settles `blocked` below.
+			log.warn(
+				{
+					accountId,
+					reason: resolution.reason,
+					connectionState: resolution.terminalState,
+				},
+				"Account stores no credential",
+			);
+			await deps.updateConnectionState(accountId, resolution.terminalState);
+		} else {
+			credentials = resolution.credentials;
+		}
 	} catch (err) {
 		if (err instanceof RefreshTokenError) {
 			if (err.error.kind === "reauth-required") {
@@ -160,6 +262,7 @@ export const sendMessage = async (
 					"OAuth token revoked; marking account reauth_required",
 				);
 				await deps.updateConnectionState(accountId, "reauth_required");
+				await settleBlockedOnReauth();
 				return; // ACK — do not retry
 			}
 			// transient or config: let-it-crash (SQS retry / DLQ)
@@ -172,10 +275,15 @@ export const sendMessage = async (
 				throw err;
 			}
 			log.warn(
-				{ accountId, errorKind: err.kind },
+				{ accountId, errorKind: err.kind, error: err.message },
 				"SMTP auth rejected; marking account reauth_required",
 			);
-			await deps.updateConnectionState(accountId, "reauth_required");
+			await deps.updateConnectionState(
+				accountId,
+				"reauth_required",
+				err.message,
+			);
+			await settleBlockedOnReauth();
 			return; // ACK — do not retry
 		}
 		throw err;
@@ -207,18 +315,59 @@ export const sendMessage = async (
 	} catch (err) {
 		// A terminal SMTP auth rejection (e.g. expired OAuth token surfaced at
 		// connect time) flips the account to reauth_required and ACKs.
-		// Only OAuth accounts have a re-auth recovery path. For password
-		// accounts, rethrow to preserve pre-PR batch-item-failure behaviour.
-		if (err instanceof SmtpConnectionError && err.kind === "auth") {
-			if (account.authType !== AccountAuthType.OauthMicrosoft) {
-				throw err;
-			}
+		// Only OAuth accounts have a re-auth recovery path.
+		if (
+			err instanceof SmtpConnectionError &&
+			err.kind === "auth" &&
+			account.authType === AccountAuthType.OauthMicrosoft
+		) {
 			log.warn(
-				{ accountId, errorKind: err.kind },
+				{ accountId, errorKind: err.kind, error: err.message },
 				"SMTP auth rejected during send; marking account reauth_required",
 			);
-			await deps.updateConnectionState(accountId, "reauth_required");
+			await deps.updateConnectionState(
+				accountId,
+				"reauth_required",
+				err.message,
+			);
+			await settleBlockedOnReauth(OutboxMessageStatus.sending);
 			return; // ACK — do not retry
+		}
+		// A password account's auth failure and every network failure retry on
+		// SQS redelivery until the queue's own budget runs out, then settle
+		// here instead of dead-lettering with the row stuck at `sending`
+		// (issue #951). Where it settles is the double-send question:
+		// `neverSubmitted` says the message cannot be on the server, so
+		// `failed` offers the Retry the user needs; anything else settles
+		// `unfiled`, the state that says a copy may be out there and which
+		// Retry is not offered on. Wait-or-reconcile
+		// (docs/architecture/imap-mutations.md R2): neither applies — a
+		// submission leaves no server-side handle to reconcile against, so the
+		// row settles on what the failure itself proves.
+		if (err instanceof SmtpConnectionError) {
+			if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) {
+				throw err;
+			}
+			const settled = neverSubmitted(err)
+				? { status: OutboxMessageStatus.failed, lastError: err.message }
+				: {
+						status: OutboxMessageStatus.unfiled,
+						lastError: `${UNFILED_CONNECTION_LOST} (${err.message})`,
+					};
+			await deps.updateOutbox(accountConfigId, outboxMessageId, settled);
+			// Terminal and never re-thrown, so the handler-outcome series
+			// records this record as a success. Counted here or it is invisible.
+			recordSmtpFailure(err.kind);
+			log.error(
+				{
+					outboxMessageId,
+					errorKind: err.kind,
+					receiveCount,
+					status: settled.status,
+				},
+				"SMTP send retry exhausted; settling the row",
+			);
+			return; // ACK — settled terminal, no more retries
 		}
 		throw err;
 	}
@@ -265,16 +414,41 @@ export const sendMessage = async (
 	}
 
 	if (result.isTransient) {
-		log.warn(
+		// A 4xx from the server is retried on SQS redelivery the same way a
+		// connection failure is above; once the queue's own budget runs out
+		// this settles the row at `failed` rather than leaving it at `queued`
+		// forever once the record dead-letters (issue #951).
+		if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) {
+			log.warn(
+				{
+					outboxMessageId,
+					smtpCode: result.smtpCode,
+					error: result.error?.message,
+				},
+				"Transient failure, will retry",
+			);
+			await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "queued");
+			throw new Error(`SMTP transient error: ${result.error?.message}`);
+		}
+
+		await deps.updateOutbox(accountConfigId, outboxMessageId, {
+			status: "failed",
+			lastError: result.error?.message,
+			lastSmtpCode: result.smtpCode,
+		});
+		// Terminal and never re-thrown, so the handler-outcome series records
+		// this record as a success. Counted here or it is invisible.
+		recordSmtpFailure("other");
+		log.error(
 			{
 				outboxMessageId,
 				smtpCode: result.smtpCode,
 				error: result.error?.message,
+				receiveCount,
 			},
-			"Transient failure, will retry",
+			"Transient failure retry exhausted; settling as failed",
 		);
-		await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "queued");
-		throw new Error(`SMTP transient error: ${result.error?.message}`);
+		return;
 	}
 
 	// Permanent failure - mark as failed, don't throw (no retry)

@@ -8,6 +8,7 @@ import {
 	folderDepth,
 	folderLeaf,
 	folderParent,
+	folderPathSegments,
 	matchesQuery,
 	orderFolderNodes,
 	queryExpandedPaths,
@@ -296,5 +297,52 @@ describe("folderLeaf", () => {
 
 	it("keeps a top-level name that carries no delimiter", () => {
 		assert.equal(folderLeaf("INBOX", "."), "INBOX");
+	});
+});
+
+describe("a flat namespace", () => {
+	const flat: FolderTreeNode[] = [
+		node("work", "Work", "Work"),
+		node("workshop", "Workshop", "Workshop"),
+		node("inbox", "Inbox", "INBOX"),
+	];
+
+	it("keeps a path whole rather than splitting it into characters", () => {
+		assert.deepEqual(folderPathSegments("Projects/Q3", ""), ["Projects/Q3"]);
+		assert.deepEqual(folderPathSegments("Projects/Q3", "/"), [
+			"Projects",
+			"Q3",
+		]);
+	});
+
+	it("makes every folder a root with no parent, depth or ancestors", () => {
+		assert.equal(folderParent("Projects/Q3", ""), "");
+		assert.equal(folderDepth("Projects/Q3", ""), 0);
+		assert.deepEqual(folderAncestors("Projects/Q3", ""), []);
+	});
+
+	it("puts the whole list on screen at the top level", () => {
+		const rows = collapseFolderTree(orderFolderNodes(flat, ""), new Set(), "");
+		assert.deepEqual(paths(rows), ["Work", "Workshop", "INBOX"]);
+		assert.deepEqual(
+			rows.map((row) => row.depth),
+			[0, 0, 0],
+		);
+	});
+
+	it("offers no create action inside a folder, not even a prefix match", () => {
+		const rows = collapseFolderTree(
+			orderFolderNodes(flat, ""),
+			new Set(["Work"]),
+			"",
+		);
+		assert.deepEqual(
+			withCreateRows(rows, "").map((entry) =>
+				entry.kind === "create"
+					? `new inside ${entry.parent.path}`
+					: entry.row.folder.path,
+			),
+			["Work", "Workshop", "INBOX"],
+		);
 	});
 });

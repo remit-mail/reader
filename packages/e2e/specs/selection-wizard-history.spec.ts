@@ -3,7 +3,7 @@
  *
  * The step is a validated `wizard` search param on /mail, so TanStack Router
  * owns the entries and one is pushed per step reached. What this pins is the
- * count: four steps forward is four steps back, and the fifth back leaves the
+ * count: five steps forward is five steps back, and the sixth back leaves the
  * wizard on the mail list with no `wizard` key in the URL. Raw `pushState`
  * entries satisfy the first few and desync the router on the last, which is why
  * the count is asserted through the browser's own back button rather than the
@@ -12,10 +12,13 @@
  * The wizard is walked with rows ticked, because a live selection is what arms
  * the blocker that turns the back gesture into "leave selection". While the
  * wizard is open that blocker stands down, so every one of these backs is a
- * step and the selection is still there on the way out.
+ * step and the selection is still there on the way out. The walk goes through
+ * the properties door, since it ends on a standing rule and the ticked rows
+ * carry no predicate one could keep matching on (#1193).
  */
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
+import { pickMatchDoor } from "../src/wizard.js";
 
 const MOBILE = { width: 390, height: 844 };
 test.use({ viewport: MOBILE });
@@ -76,43 +79,55 @@ test.describe("Selection wizard history", () => {
 		await page.goForward();
 		await expect(stepRail(page)).toHaveText(/^Step 1 of 5 · Apply to$/);
 
+		// The door is the first branching answer, and it adds the editor step
+		// after the step it is given on.
+		await pickMatchDoor(page, "Its properties");
+		await expect(stepRail(page)).toHaveText(/^Step 1 of 6 · Apply to$/);
+
 		await continueButton(page).click();
-		await expect(stepRail(page)).toHaveText(/^Step 2 of 5 · Folder$/);
+		await expect(stepRail(page)).toHaveText(/^Step 2 of 6 · Properties$/);
+		await expect(page).toHaveURL(/[?&]wizard=properties/);
+
+		await continueButton(page).click();
+		await expect(stepRail(page)).toHaveText(/^Step 3 of 6 · Folder$/);
 		await expect(page).toHaveURL(/[?&]wizard=folder/);
 
 		// Archive is a standard destination on this account. A rule with nowhere
 		// to file has nothing to commit, so the step is answered before Continue.
 		await page.getByRole("treeitem", { name: "Move to Archive" }).click();
 		await continueButton(page).click();
-		await expect(stepRail(page)).toHaveText(/^Step 3 of 5 · Rule$/);
+		await expect(stepRail(page)).toHaveText(/^Step 4 of 6 · Rule$/);
 		await expect(page).toHaveURL(/[?&]wizard=rule/);
 
 		// The scope is the second branching answer, and it adds the naming step
 		// after the step it is given on — so the entries already pushed keep
 		// pointing at the steps they were pushed for.
 		await page.getByText("Keep doing this", { exact: true }).click();
-		await expect(stepRail(page)).toHaveText(/^Step 3 of 6 · Rule$/);
+		await expect(stepRail(page)).toHaveText(/^Step 4 of 7 · Rule$/);
 
 		await continueButton(page).click();
-		await expect(stepRail(page)).toHaveText(/^Step 4 of 6 · Name$/);
+		await expect(stepRail(page)).toHaveText(/^Step 5 of 7 · Name$/);
 		await expect(page).toHaveURL(/[?&]wizard=name/);
 
 		await page.getByLabel("Rule name").fill("Wizard history");
 		await continueButton(page).click();
-		await expect(stepRail(page)).toHaveText(/^Step 5 of 6 · Review$/);
+		await expect(stepRail(page)).toHaveText(/^Step 6 of 7 · Review$/);
 		await expect(page).toHaveURL(/[?&]wizard=review/);
 
 		await page.goBack();
-		await expect(stepRail(page)).toHaveText(/^Step 4 of 6 · Name$/);
+		await expect(stepRail(page)).toHaveText(/^Step 5 of 7 · Name$/);
 
 		await page.goBack();
-		await expect(stepRail(page)).toHaveText(/^Step 3 of 6 · Rule$/);
+		await expect(stepRail(page)).toHaveText(/^Step 4 of 7 · Rule$/);
 
 		await page.goBack();
-		await expect(stepRail(page)).toHaveText(/^Step 2 of 6 · Folder$/);
+		await expect(stepRail(page)).toHaveText(/^Step 3 of 7 · Folder$/);
 
 		await page.goBack();
-		await expect(stepRail(page)).toHaveText(/^Step 1 of 6 · Apply to$/);
+		await expect(stepRail(page)).toHaveText(/^Step 2 of 7 · Properties$/);
+
+		await page.goBack();
+		await expect(stepRail(page)).toHaveText(/^Step 1 of 7 · Apply to$/);
 		await expect(page).toHaveURL(/[?&]wizard=match/);
 
 		await page.goBack();

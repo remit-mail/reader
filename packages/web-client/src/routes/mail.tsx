@@ -23,14 +23,18 @@ import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";
 import { useRailPanels } from "@/hooks/useRailPanels";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
-import { useSearchField } from "@/hooks/useSearchField";
 import { useStaleAccountSync } from "@/hooks/useStaleAccountSync";
 import { MailContext } from "@/lib/mail-context";
 import { MailFreshnessProvider } from "@/lib/mail-freshness";
 import { mailListRoute } from "@/lib/mail-route";
 import { buildAccountNameIndex } from "@/lib/search-token-index";
-import { wizardEntryValue, wizardStepValue } from "@/lib/wizard-history";
-import { useIsComposing, useOpenCompose } from "@/routing";
+import {
+	useIsComposing,
+	useOpenCompose,
+	useSearchField,
+	wizardEntryValue,
+	wizardStepValue,
+} from "@/routing";
 import "@/lib/client";
 
 // `MailContext` / `useMailContext` live in `@/lib/mail-context` so the provider
@@ -124,6 +128,7 @@ function MailLayout() {
 		bindings: [
 			{
 				key: "?",
+				action: "help",
 				handler: () => showOverlay("shortcuts"),
 				noModifiers: false, // Allow shift+/
 				preventDefault: true,
@@ -134,7 +139,9 @@ function MailLayout() {
 	// `c` / ⌘N off the mailbox routes — the brief, Flagged, the outbox. On a
 	// mailbox the pane's own triage layer owns the key, so this is disabled there
 	// rather than firing a second compose alongside it, and while the composer is
-	// up the key belongs to whatever is being typed.
+	// up the key belongs to whatever is being typed. An open modal contains the
+	// key through the shared overlay stack, so this layer never opens compose out
+	// from under one (#959).
 	const openCompose = useOpenCompose();
 	const isComposing = useIsComposing();
 	const onMailbox = useRouterState({
@@ -166,7 +173,7 @@ function MailLayout() {
 		[accounts],
 	);
 	const mailboxNameIndex = useMailboxNameIndex(accounts);
-	const resultFolderIndex = useResultFolderIndex(accounts);
+	const resultFolderIndex = useResultFolderIndex(accounts).index;
 	const accountNameIndex = useMemo(
 		() => buildAccountNameIndex(accounts),
 		[accounts],

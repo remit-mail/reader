@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { provenanceFolderLabel } from "@remit/ui";
 import {
 	type AccountMailboxes,
 	buildResultFolderIndex,
@@ -9,10 +10,11 @@ import {
 const account = (
 	appointments: { role: string; mailboxId: string }[],
 	mailboxes: { mailboxId: string; fullPath: string }[],
+	hierarchyDelimiter = "/",
 ): AccountMailboxes =>
 	({
 		folderAppointments: appointments,
-		mailboxes,
+		mailboxes: mailboxes.map((mailbox) => ({ ...mailbox, hierarchyDelimiter })),
 	}) as unknown as AccountMailboxes;
 
 describe("buildResultFolderIndex", () => {
@@ -30,9 +32,11 @@ describe("buildResultFolderIndex", () => {
 		assert.deepEqual(index.get("mb-junk"), {
 			role: "junk",
 			providerPath: "Bulk Mail",
+			hierarchyDelimiter: "/",
 		});
 		assert.deepEqual(index.get("mb-work"), {
 			providerPath: "Projects/Bookkeeping",
+			hierarchyDelimiter: "/",
 		});
 	});
 
@@ -72,7 +76,7 @@ describe("resolveResultFolder", () => {
 	it("skips a virtual folder for one that names a real place", () => {
 		assert.deepEqual(resolveResultFolder(index, ["mb-all", "mb-inbox"]), {
 			mailboxId: "mb-inbox",
-			folder: { role: "inbox", providerPath: "INBOX" },
+			folder: { role: "inbox", providerPath: "INBOX", hierarchyDelimiter: "/" },
 		});
 	});
 
@@ -83,7 +87,11 @@ describe("resolveResultFolder", () => {
 	it("falls back to the first id when none names a real place", () => {
 		assert.deepEqual(resolveResultFolder(index, ["mb-all"]), {
 			mailboxId: "mb-all",
-			folder: { role: "all", providerPath: "[Gmail]/All Mail" },
+			folder: {
+				role: "all",
+				providerPath: "[Gmail]/All Mail",
+				hierarchyDelimiter: "/",
+			},
 		});
 	});
 
@@ -111,5 +119,15 @@ describe("buildResultFolderIndex before the mailbox list arrives", () => {
 		]);
 
 		assert.deepEqual(index.get("mb-junk"), { role: "junk" });
+	});
+});
+
+describe("buildResultFolderIndex on a dotted server", () => {
+	it("carries the delimiter the account reports, so the chip reads the leaf", () => {
+		const index = buildResultFolderIndex([
+			account([], [{ mailboxId: "mb-q3", fullPath: "INBOX.Projects.Q3" }], "."),
+		]);
+
+		assert.equal(provenanceFolderLabel(index.get("mb-q3") ?? {}), "Q3");
 	});
 });

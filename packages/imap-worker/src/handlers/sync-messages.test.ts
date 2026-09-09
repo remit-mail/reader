@@ -320,7 +320,7 @@ describe("syncMessages — terminal handling of events for a deleted mailbox (is
 			"a deleted mailbox must short-circuit before the OAuth/connection lifecycle",
 		);
 		const skip = warns.find((w) =>
-			w.msg.includes("the server does not hold this folder"),
+			w.msg.includes("a folder mutation is in flight"),
 		);
 		assert.ok(skip, "expected a WARN naming the skipped deleted mailbox");
 		assert.equal(skip.fields.accountId, "acc-1");
@@ -371,9 +371,7 @@ describe("syncMessages — terminal handling of events for a deleted mailbox (is
 
 			assert.equal(harness.lifecycleCalls, 0);
 			assert.ok(
-				warns.find((w) =>
-					w.msg.includes("the server does not hold this folder"),
-				),
+				warns.find((w) => w.msg.includes("a folder mutation is in flight")),
 			);
 		});
 	}

@@ -25,18 +25,20 @@
     "dev": "node --import tsx src/e2e-processor-shim.ts"
   },
   "devDependencies": {
+    "@remit/drizzle-service": "*",
+    "@remit/queue-sidecar": "*",
     "@remit/storage-service": "*",
     "aws-sdk-client-mock": "*",
     "esbuild": "^0.28.1"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1055.0",
+    "@remit/config-transfer": "*",
     "@remit/data-ports": "*",
     "@remit/smtp-service": "*",
     "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/search-index-worker": "*",
-    "@remit/search-service": "*",
     "@remit/sqs-client": "*",
     "@remit/backend": "*",
     "@remit/domain-enums": "*",

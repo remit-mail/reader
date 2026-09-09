@@ -7,7 +7,13 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { SenderTrust, StarColor } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+	SenderTrust,
+	StarColor,
+} from "@remit/domain-enums";
 import { deriveAutoMoved } from "./autoMoved.js";
 import { deriveMuted } from "./deriveMuted.js";
 import { deriveSenderTrust } from "./senderTrust.js";
@@ -56,6 +62,9 @@ const toResponse = (item: ThreadMessageItem): ThreadMessageResponse => ({
 	updatedAt: item.updatedAt,
 	senderTrust: SenderTrust.Unknown,
 	muted: false,
+	status: MessageStatus.active,
+	syncStatus: MessageSyncStatus.pending,
+	abandonedMutation: MessageMutation.none,
 });
 
 /**
@@ -102,8 +111,14 @@ export const planBatchFetch = (rows: ThreadMessageItem[]): BatchPlan => {
 /**
  * Enrich a page of ThreadMessage rows with `senderTrust` and `muted` (both
  * derived from the From Address's flags map), `authenticity`, `autoMoved` and
- * `spamReport` (all projected straight from the Message row — no ThreadMessage
- * column of their own, see `deriveAutoMoved`).
+ * `spamReport`, and the `status`/`syncStatus` pair an IMAP mutation leaves
+ * behind together with the mutation an abandoned one names (all projected
+ * straight from the Message row — no ThreadMessage
+ * column of their own, see `deriveAutoMoved`). `toResponse` seeds that pair
+ * with the ordinary inbound values, which the projection then overwrites; a
+ * ThreadMessage row whose Message row is missing from the batch is broken in a
+ * way this read path cannot report, and claiming a mutation it has no evidence
+ * of would be worse.
  *
  * `category` is not enriched: it is denormalized onto the ThreadMessage row
  * (shared with `Message.category`'s write-once value, see body-sync.ts) and
@@ -174,6 +189,16 @@ export const enrichThreadRows = async (
 	const spamReportByMessageId = new Map(
 		messages.map((m) => [m.messageId, m.spamReport]),
 	);
+	const settlementByMessageId = new Map(
+		messages.map((m) => [
+			m.messageId,
+			{
+				status: m.status,
+				syncStatus: m.syncStatus,
+				abandonedMutation: m.abandonedMutation,
+			},
+		]),
+	);
 	const trustByAddressId = new Map(
 		addresses.map((a) => [a.addressId, deriveSenderTrust(a.flags)]),
 	);
@@ -194,8 +219,10 @@ export const enrichThreadRows = async (
 			? (mutedByAddressId.get(addressId) ?? false)
 			: false;
 		const labels = labelsByMessageId.get(row.messageId);
+		const settlement = settlementByMessageId.get(row.messageId);
 		return {
 			...base,
+			...(settlement ?? {}),
 			...(authenticity !== undefined ? { authenticity } : {}),
 			...(autoMoved !== undefined ? { autoMoved } : {}),
 			...(labels !== undefined ? { labels } : {}),

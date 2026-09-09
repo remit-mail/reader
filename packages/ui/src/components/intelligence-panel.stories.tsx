@@ -202,6 +202,27 @@ export const WithSimilarMessages: Story = {
 };
 
 /**
+ * Semantic search is off on this instance (#1068). The section states the
+ * setting, what turning it on buys — the Organize widen and semantic filters —
+ * and the command, rather than rendering nothing and reading as a sender
+ * nothing resembles.
+ */
+export const SimilarMessagesOff: Story = {
+	args: {
+		data: base,
+		similarState: "off",
+	},
+};
+
+/** The runtime failure, for contrast: a retry might work, so it says no more. */
+export const SimilarMessagesUnavailable: Story = {
+	args: {
+		data: base,
+		similarState: "error",
+	},
+};
+
+/**
  * The spam quick actions are a contextual pair, decided by whether the message
  * carries a spam report — never by the mailbox it happens to sit in, since a
  * report on a message already in Junk (the provider's own filter put it there)

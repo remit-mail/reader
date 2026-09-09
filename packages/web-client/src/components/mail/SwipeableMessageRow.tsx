@@ -6,11 +6,11 @@ import {
 	type SwipePeek,
 	type ThreadRowData,
 } from "@remit/ui";
-import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
-import { useRetainOpenPanels } from "@/routing";
+import { rowSettlement } from "@/lib/row-settlement";
+import { useOpenThread } from "@/routing";
 import { MessageListItem } from "./MessageListItem";
 import { useModifierSelect } from "./useModifierSelect";
 
@@ -35,7 +35,13 @@ interface SwipeableMessageRowProps {
 	density?: Density;
 }
 
-const toThreadRowData = (
+/**
+ * The mobile list builds its own row rather than delegating to
+ * `MessageListItem` (see the `isDesktop || isMultiSelectMode` branch below),
+ * so every row signal has to be repeated here. Exported so a test can hold it
+ * to the same answers as the desktop mapper.
+ */
+export const swipeableRowData = (
 	thread: RemitImapThreadMessageResponse,
 ): ThreadRowData => {
 	const suspicious = thread.authenticity?.dkimMismatch === true;
@@ -53,6 +59,7 @@ const toThreadRowData = (
 		trust: thread.senderTrust,
 		category: toDisplayCategory(thread.category),
 		suspicious,
+		...rowSettlement(thread),
 	};
 };
 
@@ -74,8 +81,7 @@ export const SwipeableMessageRow = ({
 	density,
 }: SwipeableMessageRowProps) => {
 	const [peek, setPeek] = useState<SwipePeek>("none");
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 
 	const handleAct = useCallback(
 		(side: "leading" | "trailing") => {
@@ -99,17 +105,8 @@ export const SwipeableMessageRow = ({
 	}, [onToggleCheck, thread.messageId]);
 
 	const handleOpen = useCallback(() => {
-		navigate({
-			to: "/mail/$mailboxId/$threadId/$messageId",
-			params: {
-				mailboxId,
-				threadId: thread.threadId,
-				messageId: thread.messageId,
-			},
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [navigate, retainPanels, mailboxId, thread.threadId, thread.messageId]);
+		openThread({ threadId: thread.threadId, messageId: thread.messageId });
+	}, [openThread, thread.threadId, thread.messageId]);
 
 	const modifierSelect = useModifierSelect(thread.messageId, onRowSelect);
 
@@ -147,7 +144,7 @@ export const SwipeableMessageRow = ({
 			onContextMenu={modifierSelect.onContextMenu}
 		>
 			<SwipeableRow
-				thread={toThreadRowData(thread)}
+				thread={swipeableRowData(thread)}
 				selectionMode={false}
 				checked={false}
 				active={isSelected}

@@ -38,7 +38,7 @@ describe("searchInputForView", () => {
 		);
 	});
 
-	it("seeds from the destination's own query (deep link, saved search)", () => {
+	it("seeds from the destination's own query (deep link)", () => {
 		assert.equal(
 			searchInputForView(
 				"/mail/$mailboxId:inbox-1",
@@ -165,7 +165,7 @@ describe("shouldMirrorQuery", () => {
 interface Shell {
 	/** The view the address names, which is what a render reads. */
 	viewKey: string;
-	/** The view the text in the field was typed in (`hooks/useSearchField.ts`). */
+	/** The view the text in the field was typed in (`routing/search-field.ts`). */
 	typedInView: string;
 	/** The path of the list whose mirror is running. */
 	listPath: string;

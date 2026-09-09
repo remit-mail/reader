@@ -22,7 +22,7 @@ describe("DrizzleUnitOfWork", () => {
 	const MAILBOX_ID = "00000000-0000-0000-2222-000000000002";
 	const NOW = 1700000000000;
 
-	const writeEnvelopeAndMessage = async (
+	const writeEnvelopeMessageAndBody = async (
 		repos: Parameters<Parameters<DrizzleUnitOfWork["transaction"]>[0]>[0],
 	) => {
 		await repos.envelope.upsertEnvelope({
@@ -42,6 +42,10 @@ describe("DrizzleUnitOfWork", () => {
 			internalDate: NOW,
 			envelopeId: deriveEnvelopeId(MESSAGE_ID),
 			rootBodyPartId: deriveRootBodyPartId(MESSAGE_ID),
+		});
+		// Body-sync appends the transactional-outbox row; the create emits none.
+		await repos.message.update(MESSAGE_ID, {
+			bodyStorageKey: "body/hello.json",
 		});
 	};
 
@@ -74,7 +78,7 @@ describe("DrizzleUnitOfWork", () => {
 		await assert.rejects(
 			() =>
 				unitOfWork.transaction(async (repos) => {
-					await writeEnvelopeAndMessage(repos);
+					await writeEnvelopeMessageAndBody(repos);
 					// A later write in the set fails after the envelope, message and its
 					// transactional-outbox row have already been written.
 					throw new Error("thread write failed");
@@ -93,13 +97,13 @@ describe("DrizzleUnitOfWork", () => {
 	});
 
 	test("a successful transaction commits the data rows and the outbox row", async () => {
-		await unitOfWork.transaction(writeEnvelopeAndMessage);
+		await unitOfWork.transaction(writeEnvelopeMessageAndBody);
 
 		const { envelopes, messages, outbox } = await rows();
 		assert.equal(envelopes.length, 1);
 		assert.equal(messages.length, 1);
 		assert.equal(outbox.length, 1);
-		assert.equal(outbox[0].event, "message.created");
+		assert.equal(outbox[0].event, "message.body_synced");
 		assert.deepStrictEqual(outbox[0].payload, { messageId: MESSAGE_ID });
 	});
 });

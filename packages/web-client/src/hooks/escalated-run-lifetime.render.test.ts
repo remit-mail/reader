@@ -6,14 +6,15 @@
  *
  * These mount the real hook against the real fetch seam and count the batches
  * that actually left, so what is pinned is the run's own lifetime rather than
- * the wording of whichever screen started it. Every run is parked at a page
- * boundary before the test acts on it: that is where the run reads whether it
- * has been told to stop, and so the only place the difference shows.
+ * the wording of whichever screen started it. Every run is parked on a request
+ * the server is holding before the test acts on it: that is where leaving the
+ * selection and stopping the run tell each other apart.
  */
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
+import { ranOutcome } from "../test-support/bulk-run";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
 import {
 	type EscalationSearchQuery,
@@ -32,8 +33,12 @@ let server: MailServer | undefined;
 interface MailServer {
 	/** Every message id a delete call carried, in the order they were sent. */
 	deleted: () => string[];
-	/** Deletes queued at the boundary rather than answered. */
+	/** Requests queued at the boundary rather than answered. */
 	held: () => number;
+	/** Requests the client cancelled while they were held. */
+	aborted: () => number;
+	/** Hold the count request too, so a stop can be pressed during counting. */
+	holdCounts: (on: boolean) => void;
 	/** Answer everything held, and stop holding. */
 	release: () => void;
 	restore: () => void;
@@ -61,14 +66,33 @@ const searchPage = (url: URL): unknown => {
 
 /**
  * Answers the search and the bulk delete, holding every delete after the first
- * so a run can be caught mid-flight with real progress behind it.
+ * so a run can be caught mid-flight with real progress behind it. A held
+ * request honours its own abort signal, the way the platform's `fetch` does —
+ * that is the difference a stop is now supposed to make (#113).
  */
 const startMailServer = (): MailServer => {
 	const original = globalThis.fetch;
 	const deleted: string[] = [];
 	let waiting: Array<() => void> = [];
 	let holding = true;
+	let holdingCounts = false;
 	let served = 0;
+	let cancelled = 0;
+
+	const hold = (signal: AbortSignal | undefined): Promise<void> =>
+		new Promise<void>((resolve, reject) => {
+			const fail = () => {
+				cancelled += 1;
+				waiting = waiting.filter((held) => held !== resolve);
+				reject(signal?.reason);
+			};
+			if (signal?.aborted) {
+				fail();
+				return;
+			}
+			signal?.addEventListener("abort", fail, { once: true });
+			waiting.push(resolve);
+		});
 
 	globalThis.fetch = (async (input: RequestInfo | URL): Promise<Response> => {
 		const request = input instanceof Request ? input : undefined;
@@ -76,6 +100,9 @@ const startMailServer = (): MailServer => {
 		const url = new URL(request ? request.url : String(input), "http://x");
 
 		if (url.pathname.endsWith("/threads/search")) {
+			if (holdingCounts && url.searchParams.get("results") === "false") {
+				await hold(request?.signal);
+			}
 			return Response.json(searchPage(url));
 		}
 
@@ -84,7 +111,7 @@ const startMailServer = (): MailServer => {
 			: undefined;
 		served += 1;
 		if (holding && served > 1) {
-			await new Promise<void>((resolve) => waiting.push(resolve));
+			await hold(request?.signal);
 		}
 		deleted.push(...(body?.messageIds ?? []));
 		return Response.json({ successCount: 0, failureCount: 0 });
@@ -93,8 +120,13 @@ const startMailServer = (): MailServer => {
 	return {
 		deleted: () => deleted,
 		held: () => waiting.length,
+		aborted: () => cancelled,
+		holdCounts: (on) => {
+			holdingCounts = on;
+		},
 		release: () => {
 			holding = false;
+			holdingCounts = false;
 			const queued = waiting;
 			waiting = [];
 			for (const resolve of queued) resolve();
@@ -191,7 +223,7 @@ describe("an escalated run the user walks away from", () => {
 		press(() => hook().clear());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.cancelled, false);
 		assert.equal(outcome.done, TOTAL);
@@ -207,7 +239,7 @@ describe("an escalated run the user walks away from", () => {
 		setQuery({ query: "invoices" });
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.done, TOTAL);
 		assert.deepEqual(
@@ -235,6 +267,56 @@ describe("an escalated run the user walks away from", () => {
 	});
 });
 
+// Regression for #113: a stop used to be read only between pages, so the delete
+// already on the wire ran to completion and its whole page — up to a hundred
+// messages — was deleted after the press.
+describe("stopping a run with a delete already on the wire", () => {
+	it("cancels that delete and sends nothing more", async () => {
+		const { hook } = mountEscalation({ query: "npm" });
+		await escalateTo(hook);
+
+		const run = press(() => hook().runAction({ kind: "delete" }));
+		await parkAtBoundary();
+		const sentBeforeStop = server?.deleted().length ?? 0;
+		press(() => hook().stop());
+		press(() => server?.release());
+		await settle();
+		const outcome = ranOutcome(await run);
+
+		assert.equal(server?.aborted(), 1, "the delete in flight was cancelled");
+		assert.equal(
+			server?.deleted().length,
+			sentBeforeStop,
+			"no further ids reached the server",
+		);
+		assert.equal(outcome.cancelled, true);
+		assert.equal(
+			outcome.error,
+			undefined,
+			"a stop the user pressed is not a failure to report",
+		);
+		assert.equal(outcome.done, sentBeforeStop);
+	});
+
+	it("cancels a count in flight without raising an error", async () => {
+		server?.holdCounts(true);
+		const { hook } = mountEscalation({ query: "npm" });
+
+		press(() => hook().escalate());
+		await parkAtBoundary();
+		press(() => hook().stop());
+		press(() => server?.release());
+		await settle();
+
+		assert.equal(server?.aborted(), 1);
+		assert.deepEqual(hook().phase, { kind: "idle" });
+		assert.equal(
+			harness?.text().includes("Couldn't count matching messages"),
+			false,
+		);
+	});
+});
+
 describe("stopping the run, which is a different press", () => {
 	it("ends it at the next page boundary and says what it reached", async () => {
 		const { hook } = mountEscalation({ query: "npm" });
@@ -245,7 +327,7 @@ describe("stopping the run, which is a different press", () => {
 		press(() => hook().stop());
 		press(() => server?.release());
 		await settle();
-		const outcome = await run;
+		const outcome = ranOutcome(await run);
 
 		assert.equal(outcome.cancelled, true);
 		assert.ok(outcome.done > 0, "the batches already sent still count");

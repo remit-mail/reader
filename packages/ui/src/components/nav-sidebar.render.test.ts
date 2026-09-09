@@ -308,44 +308,43 @@ describe("NavSidebar", () => {
 	});
 });
 
-describe("NavSidebar saved searches", () => {
-	it("omits the group when there are no saved searches and no active query", () => {
-		const html = renderToString(
+/**
+ * An account that stopped syncing mail (#1179). It kept every mailbox it had,
+ * so the nav keeps it too — labelled, never dropped, and never an empty tree.
+ */
+describe("NavSidebar with mail sync off", () => {
+	const mailOff: NavAccount[] = accounts.map((account) => ({
+		...account,
+		syncedServices: ["Calendar"],
+	}));
+	const mailOn: NavAccount[] = accounts.map((account) => ({
+		...account,
+		syncedServices: ["Mail"],
+	}));
+
+	const render = (list: NavAccount[]) =>
+		renderToString(
 			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "brief",
+				accounts: list,
+				selectedNavId: "personal-inbox",
 				onSelectNav: () => undefined,
 			}),
 		);
-		assert.doesNotMatch(html, /Saved searches/);
+
+	it("keeps the account and every mailbox it already synced", () => {
+		const html = render(mailOff);
+		assert.match(html, /Personal/);
+		assert.match(html, /Inbox/);
+		assert.match(html, /Travel/);
 	});
 
-	it("renders every saved search", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "brief",
-				onSelectNav: () => undefined,
-				savedSearches: ["from:alice", "has:attachment invoice"],
-			}),
-		);
-		assert.match(html, /Saved searches/);
-		assert.match(html, /from:alice/);
-		assert.match(html, /has:attachment invoice/);
+	it("labels the account rather than leaving it to be guessed at", () => {
+		assert.match(render(mailOff), /mail sync off/);
 	});
 
-	it("shows a save row for an active, unsaved query", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "brief",
-				onSelectNav: () => undefined,
-				saveableQuery: "from:dhl",
-			}),
-		);
-		assert.match(html, /Saved searches/);
-		assert.match(html, /Save/);
-		assert.match(html, /from:dhl/);
+	it("leaves an account that syncs mail unlabelled", () => {
+		assert.doesNotMatch(render(accounts), /mail sync off/);
+		assert.doesNotMatch(render(mailOn), /mail sync off/);
 	});
 });
 

@@ -1,5 +1,7 @@
-import { type ReactNode, useCallback, useEffect, useRef } from "react";
+import { type ReactNode, useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface DialogProps {
@@ -27,37 +29,8 @@ export function Dialog({
 }: DialogProps) {
 	const dialogRef = useRef<HTMLDivElement>(null);
 
-	const handleKeyDown = useCallback(
-		(e: KeyboardEvent) => {
-			if (e.key !== "Escape") return;
-			// A control inside the dialog can own Escape while it has something of
-			// its own to close — an open suggestion list. Escape closes that first;
-			// the next Escape closes the dialog.
-			const focused = document.activeElement;
-			if (focused instanceof Element && focused.closest("[data-escape-owner]"))
-				return;
-			e.preventDefault();
-			e.stopImmediatePropagation();
-			onClose();
-		},
-		[onClose],
-	);
-
-	useEffect(() => {
-		if (!open) return;
-		window.addEventListener("keydown", handleKeyDown, true);
-		return () => window.removeEventListener("keydown", handleKeyDown, true);
-	}, [open, handleKeyDown]);
-
-	useEffect(() => {
-		if (!open) return;
-		const dialog = dialogRef.current;
-		if (!dialog) return;
-		const focusable = dialog.querySelectorAll<HTMLElement>(
-			'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-		);
-		focusable[0]?.focus();
-	}, [open]);
+	useOverlayScope({ id: "dialog", open, answers: { back: onClose } });
+	useModalFocus(dialogRef, open);
 
 	if (!open) return null;
 
@@ -81,6 +54,7 @@ export function Dialog({
 				role="dialog"
 				aria-modal="true"
 				aria-labelledby="dialog-title"
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 overflow-hidden border-line bg-surface shadow-xl",
 					// The edge-anchored panels reach the device edges; the centered

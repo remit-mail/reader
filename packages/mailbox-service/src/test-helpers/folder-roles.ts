@@ -1,5 +1,8 @@
 import type { IMailboxSpecialUseRepository } from "@remit/data-ports";
-import type { RoleResolution } from "@remit/data-ports/folder-role";
+import type {
+	JunkRoleMailboxes,
+	RoleResolution,
+} from "@remit/data-ports/folder-role";
 
 type RoleMailbox = { mailboxId: string; fullPath: string };
 
@@ -24,6 +27,7 @@ export const noFolderRoles = {
 	findJunkMailbox: async () => null,
 	findTrashMailbox: async () => null,
 	resolveTrashRole: async () => trashRole(null),
+	resolveJunkRolesForConfig: async () => NO_JUNK_ROLES,
 } as unknown as IMailboxSpecialUseRepository;
 
 /** A folder-role map naming the mailboxes that hold Junk and Trash. */
@@ -41,11 +45,22 @@ export const folderRoles = (roles: {
 				: null,
 		findTrashMailbox: async () => trash,
 		resolveTrashRole: async () => trashRole(trash),
+		resolveJunkRolesForConfig: async () => ({
+			junkMailboxIds: roles.junkMailboxId ? [roles.junkMailboxId] : [],
+			trashMailboxIds: roles.trashMailboxId ? [roles.trashMailboxId] : [],
+		}),
 	} as unknown as IMailboxSpecialUseRepository;
+};
+
+/** An account whose config resolves no Junk and no Trash anywhere. */
+export const NO_JUNK_ROLES: JunkRoleMailboxes = {
+	junkMailboxIds: [],
+	trashMailboxIds: [],
 };
 
 /** The same account, as the resolved map `saveMessage` is handed. */
 export const NO_FOLDER_ROLES = {
 	junkMailboxId: null,
 	trashMailboxId: null,
+	configJunkRoles: NO_JUNK_ROLES,
 };

@@ -1,6 +1,9 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
-import type { IMailboxRepository } from "@remit/data-ports";
+import type {
+	IMailboxRepository,
+	MailboxTransitionIntent,
+} from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	MailboxManagementService,
@@ -99,7 +102,14 @@ const boxStatus = (path: string): ImapBoxStatus => ({
 const recordingRepo = () => {
 	const updates: Array<{ mailboxId: string; patch: Record<string, unknown> }> =
 		[];
-	const repo: Pick<IMailboxRepository, "update" | "findByPathPrefix"> = {
+	const settles: Array<{
+		mailboxId: string;
+		intent: MailboxTransitionIntent;
+	}> = [];
+	const repo: Pick<
+		IMailboxRepository,
+		"update" | "transition" | "findByPathPrefix"
+	> = {
 		update: async (
 			_accountId: string,
 			mailboxId: string,
@@ -108,9 +118,17 @@ const recordingRepo = () => {
 			updates.push({ mailboxId, patch });
 			return {} as never;
 		},
+		transition: async (
+			_accountId: string,
+			mailboxId: string,
+			intent: MailboxTransitionIntent,
+		) => {
+			settles.push({ mailboxId, intent });
+			return {} as never;
+		},
 		findByPathPrefix: async () => [],
 	};
-	return { repo: repo as IMailboxRepository, updates };
+	return { repo: repo as IMailboxRepository, updates, settles };
 };
 
 const stubConnection = (
@@ -143,7 +161,7 @@ const stubConnection = (
 
 describe("MailboxManagementService.syncCreate — server path normalization", () => {
 	it("adopts the server-materialized path as the row's identity when it is prefixed", async () => {
-		const { repo, updates } = recordingRepo();
+		const { repo, settles } = recordingRepo();
 		const { connection, opened } = stubConnection("INBOX/Notifications", [
 			"INBOX/Notifications",
 		]);
@@ -159,28 +177,28 @@ describe("MailboxManagementService.syncCreate — server path normalization", ()
 		assert.strictEqual(result.success, true);
 		// The mailbox is opened at the server's path, not the requested leaf.
 		assert.deepStrictEqual(opened, ["INBOX/Notifications"]);
-		assert.strictEqual(updates.length, 1);
+		assert.strictEqual(settles.length, 1);
 		// The row keeps its id and takes on the prefixed path, so the next reconcile
 		// updates it in place instead of insert+delete — every reference survives.
-		assert.strictEqual(updates[0].mailboxId, "mbx-1");
-		assert.strictEqual(updates[0].patch.fullPath, "INBOX/Notifications");
-		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+		assert.strictEqual(settles[0].mailboxId, "mbx-1");
+		assert.strictEqual(settles[0].intent.set?.fullPath, "INBOX/Notifications");
+		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
 	});
 
 	it("leaves the path untouched when the server keeps it as requested", async () => {
-		const { repo, updates } = recordingRepo();
+		const { repo, settles } = recordingRepo();
 		const { connection } = stubConnection("Work", ["Work"]);
 		const service = new MailboxManagementService(repo);
 
 		await service.syncCreate("acc-1", "mbx-2", "Work", async () => connection);
 
-		assert.strictEqual(updates.length, 1);
-		assert.ok(!("fullPath" in updates[0].patch));
-		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+		assert.strictEqual(settles.length, 1);
+		assert.deepStrictEqual(settles[0].intent.set, {});
+		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
 	});
 
 	it("still adopts the server path when the fresh list cannot resolve it", async () => {
-		const { repo, updates } = recordingRepo();
+		const { repo, settles } = recordingRepo();
 		const { connection, opened } = stubConnection("INBOX/Notifications", []);
 		const service = new MailboxManagementService(repo);
 
@@ -192,13 +210,13 @@ describe("MailboxManagementService.syncCreate — server path normalization", ()
 		);
 
 		assert.deepStrictEqual(opened, []);
-		assert.strictEqual(updates.length, 1);
-		assert.strictEqual(updates[0].patch.fullPath, "INBOX/Notifications");
-		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+		assert.strictEqual(settles.length, 1);
+		assert.strictEqual(settles[0].intent.set?.fullPath, "INBOX/Notifications");
+		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
 	});
 
 	it("falls back to the requested path when the create result carries none", async () => {
-		const { repo, updates } = recordingRepo();
+		const { repo, settles } = recordingRepo();
 		const opened: string[] = [];
 		const subscribed: string[] = [];
 		const connection = {
@@ -234,9 +252,30 @@ describe("MailboxManagementService.syncCreate — server path normalization", ()
 		// A thin result never blanks fullPath — the requested path is used throughout.
 		assert.deepStrictEqual(subscribed, ["Archive"]);
 		assert.deepStrictEqual(opened, ["Archive"]);
-		assert.strictEqual(updates.length, 1);
-		assert.ok(!("fullPath" in updates[0].patch));
-		assert.strictEqual(updates[0].patch.syncStatus, MailboxSyncStatus.synced);
+		assert.strictEqual(settles.length, 1);
+		assert.deepStrictEqual(settles[0].intent.set, {});
+		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
+	});
+
+	it("settles only a row with no rename target on it", async () => {
+		// The predicate the seventh state turns on (D3). A create redelivered
+		// after a lost acknowledgement, against a row a rename has since claimed,
+		// passes a `pending`-only guard, gets `{created: false}` — which #346
+		// correctly reads as success — and would settle `synced` with the rename
+		// target still on it, killing the rename silently.
+		const { repo, settles } = recordingRepo();
+		const { connection } = stubConnection("Archive", ["Archive"]);
+		const service = new MailboxManagementService(repo);
+
+		await service.syncCreate(
+			"acc-1",
+			"mbx-5",
+			"Archive",
+			async () => connection,
+		);
+
+		assert.strictEqual(settles[0].intent.wherePendingPath, null);
+		assert.deepStrictEqual(settles[0].intent.from, [MailboxSyncStatus.pending]);
 	});
 });
 
@@ -257,8 +296,13 @@ describe("validateMailboxOperation", () => {
 		assert.doesNotThrow(() => validateMailboxOperation("delete", "Archive"));
 	});
 
-	it("allows renaming INBOX", () => {
-		assert.doesNotThrow(() => validateMailboxOperation("rename", "INBOX"));
+	it("throws when renaming INBOX", () => {
+		// The server would move INBOX's mail to the new name and leave an empty
+		// INBOX behind — a bulk move, not a path update (D5). The API refuses it;
+		// this is the worker's backstop.
+		assert.throws(() => validateMailboxOperation("rename", "INBOX"), {
+			message: "Cannot rename INBOX",
+		});
 	});
 
 	it("allows renaming other mailboxes", () => {

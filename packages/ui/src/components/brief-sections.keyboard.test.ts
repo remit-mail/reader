@@ -7,6 +7,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { BriefFilterId } from "../lib/brief-filters.js";
 import { LIST_ROW_SELECTOR } from "../lib/roving-focus.js";
 import {
 	type ListKeyboard,
@@ -82,6 +83,8 @@ function pressKey(target: Element, key: string, shiftKey = false) {
 	);
 }
 
+const NO_CHIPS: ReadonlySet<BriefFilterId> = new Set();
+
 function rows(): HTMLElement[] {
 	return Array.from(container.querySelectorAll(LIST_ROW_SELECTOR));
 }
@@ -94,6 +97,9 @@ function mount(onSelectThread: (id: string) => void = () => undefined) {
 				Row: ComfortableRow,
 				onSelectThread,
 				onSelectBriefCategory: () => undefined,
+				activeFilters: NO_CHIPS,
+				onToggleFilter: () => undefined,
+				onClearFilters: () => undefined,
 			}),
 		);
 	});
@@ -168,6 +174,9 @@ function BriefUnderLayer() {
 			keyboard: keyboard.keyboard,
 			onSelectThread: () => undefined,
 			onSelectBriefCategory: () => undefined,
+			activeFilters: NO_CHIPS,
+			onToggleFilter: () => undefined,
+			onClearFilters: () => undefined,
 		}),
 	);
 }

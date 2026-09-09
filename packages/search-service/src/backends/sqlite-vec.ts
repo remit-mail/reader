@@ -1,6 +1,11 @@
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import type SqliteDatabase from "better-sqlite3";
+import {
+	type IndexedChunkProvenance,
+	type IndexProvenance,
+	summarizeIndexProvenance,
+} from "../index-report.js";
 import type {
 	ChunkMetadata,
 	VectorMatch,
@@ -14,7 +19,7 @@ import { runtimeImport } from "./runtime-import.js";
 type Database = SqliteDatabase.Database;
 
 type BetterSqlite3Module = {
-	default: new (path: string) => Database;
+	default: new (path: string, options?: SqliteDatabase.Options) => Database;
 };
 
 type SqliteVecModule = {
@@ -126,6 +131,63 @@ const buildFilterClause = (
 
 	return { sql: sql.length > 0 ? ` AND ${sql.join(" AND ")}` : "", params };
 };
+
+/**
+ * Count the stored index by the embedder that wrote each vector (#455), read
+ * straight off the vec0 table rather than through the store: a report is not a
+ * search, and the caller has no query to run.
+ *
+ * Reads only. `fileMustExist` keeps a report on a box that has never indexed
+ * anything from creating the vector database as a side effect of asking about
+ * it, and an absent vec0 table — the window between the first boot and the
+ * first upsert — is an empty index rather than an error. The connection is not
+ * opened read-only: these files are WAL, and a read-only connection cannot
+ * initialize the shared-memory index when no writer is attached.
+ *
+ * The rows are streamed into the summary. One row per chunk means several per
+ * message, and a full mailbox's worth of metadata JSON must not be materialized
+ * to be counted.
+ */
+export const readSqliteIndexProvenance = async (config: {
+	path: string;
+	configuredEmbeddingId: string;
+}): Promise<IndexProvenance> => {
+	if (!existsSync(config.path)) {
+		return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+	}
+	const { default: Database } =
+		await runtimeImport<BetterSqlite3Module>("better-sqlite3");
+	const db = new Database(config.path, { fileMustExist: true });
+	try {
+		await loadSqliteVec(db);
+		const table = db
+			.prepare(
+				"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'vec_chunks'",
+			)
+			.get();
+		if (!table) {
+			return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+		}
+		const rows = db
+			.prepare("SELECT message_id AS messageId, meta FROM vec_chunks")
+			.iterate() as IterableIterator<{ messageId: string; meta: string }>;
+		return summarizeIndexProvenance(
+			config.configuredEmbeddingId,
+			provenanceOf(rows),
+		);
+	} finally {
+		db.close();
+	}
+};
+
+function* provenanceOf(
+	rows: Iterable<{ messageId: string; meta: string }>,
+): Generator<IndexedChunkProvenance> {
+	for (const row of rows) {
+		const metadata = JSON.parse(row.meta) as ChunkMetadata;
+		yield { messageId: row.messageId, embeddingId: metadata.embeddingId };
+	}
+}
 
 export interface SqliteVectorStoreConfig {
 	path: string;

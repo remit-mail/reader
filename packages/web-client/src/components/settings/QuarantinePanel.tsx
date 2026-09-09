@@ -6,7 +6,11 @@
  * visible: the list, the reassurance that there is nothing in it, and the
  * failure to read it at all. None of them is an empty panel.
  */
-import { meOperationsListQuarantineOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	configOperationsGetConfigOptions,
+	meOperationsListQuarantineOptions,
+} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapQuarantineResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
 	QuarantineBugDialog,
@@ -17,10 +21,15 @@ import {
 } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Bug } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { toQuarantineEntry } from "@/lib/quarantine-entries";
+import type { ResultFolderIndex } from "@/lib/result-folder";
+
+/** Stable identity, so an empty list does not rebuild the memos below. */
+const EMPTY_WIRE_ENTRIES: readonly RemitImapQuarantineResponse[] = [];
 
 function openIssue(url: string): void {
 	window.open(url, "_blank", "noopener,noreferrer");
@@ -35,7 +44,7 @@ function issueUrlFor(entry: QuarantineEntry): string {
 	);
 }
 
-function QuarantineReadFailure({ error }: { error: Error }) {
+function QuarantineReadFailure({ error }: { error: unknown }) {
 	return (
 		<section role="alert" className="space-y-3">
 			<h2 className="text-sm font-semibold text-fg">Messages set aside</h2>
@@ -68,7 +77,7 @@ function QuarantineReadFailure({ error }: { error: Error }) {
 export interface QuarantinePanelViewProps {
 	entries: readonly QuarantineEntry[];
 	isPending: boolean;
-	error: Error | null;
+	error: unknown;
 }
 
 export function QuarantinePanelView({
@@ -121,16 +130,49 @@ export function QuarantinePanelView({
 	);
 }
 
+/**
+ * A row names the folder it came from by the leaf of its path, which cannot be
+ * cut until that account's own delimiter has arrived. A mailbox the account no
+ * longer lists never gets one, and keeps its whole path — `folderLeaf` on an
+ * empty delimiter is the path itself.
+ */
+function delimiterForMailbox(
+	folders: ResultFolderIndex,
+	mailboxId: string,
+): string {
+	return folders.get(mailboxId)?.hierarchyDelimiter ?? "";
+}
+
+/**
+ * The folder names come from the account's mailbox lists, which are a second
+ * read — started alongside the quarantine list, never behind it. Until both have
+ * landed the pane says it is still reading, because a path cut on a delimiter
+ * that has not arrived is a wrong folder name rather than a late one, and a
+ * failure on either read is reported rather than papered over with a guess.
+ */
 export function QuarantinePanel() {
-	const { data, isPending, error } = useQuery(
-		meOperationsListQuarantineOptions(),
+	const quarantine = useQuery(meOperationsListQuarantineOptions());
+	const config = useQuery(configOperationsGetConfigOptions());
+	const accounts = useMemo(() => config.data?.accounts ?? [], [config.data]);
+	const folders = useResultFolderIndex(accounts);
+
+	const wireEntries = quarantine.data?.entries ?? EMPTY_WIRE_ENTRIES;
+	const entries = useMemo(
+		() =>
+			wireEntries.map((entry) =>
+				toQuarantineEntry(
+					entry,
+					delimiterForMailbox(folders.index, entry.mailboxId),
+				),
+			),
+		[wireEntries, folders.index],
 	);
 
 	return (
 		<QuarantinePanelView
-			entries={(data?.entries ?? []).map(toQuarantineEntry)}
-			isPending={isPending}
-			error={error}
+			entries={entries}
+			isPending={quarantine.isPending || config.isPending || folders.isPending}
+			error={quarantine.error ?? config.error ?? folders.error}
 		/>
 	);
 }

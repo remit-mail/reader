@@ -148,6 +148,17 @@ export const TARGETS = [
 		entry: "packages/search-index-worker/src/poller.ts",
 		external: [SQLITE, ...SEARCH_NATIVE],
 	},
+	// The provenance report `remit check-index` drives (#455), baked into the
+	// search-index-worker image as an alternate entrypoint — the same "one image,
+	// two commands" shape migrate.mjs has. This image and no other, because the
+	// configured embedder only resolves here: the weight precision is part of the
+	// embedding identity and is set in this image alone.
+	{
+		name: "search-index-report",
+		entry: "packages/search-index-worker/src/index-report.ts",
+		outfile: "dist-docker/search-index-worker/index-report.mjs",
+		external: [SQLITE, ...SEARCH_NATIVE],
+	},
 	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
 	// is a native module reached through @remit/queue-sidecar's store; keep it
 	// external and install it in the runtime stage, the same treatment the other
@@ -196,6 +207,16 @@ export const TARGETS = [
 		name: "backend-backfill-list-id",
 		entry: "packages/backend/scripts/backfill-list-id.ts",
 		outfile: "dist-docker/backend/backfill-list-id.mjs",
+		external: [SQLITE],
+	},
+	// `remit config save` (issue #1021). The same shape again, and for the same
+	// reason the exec seam exists: the operator runs it before a migration drops
+	// the database, with no browser and no session, over the identical reader
+	// the export endpoint uses.
+	{
+		name: "backend-config-save",
+		entry: "packages/backend/scripts/config-save.ts",
+		outfile: "dist-docker/backend/config-save.mjs",
 		external: [SQLITE],
 	},
 ];

@@ -4,7 +4,6 @@ import {
 	type ClauseDraft,
 	type ClauseEditState,
 	derivePropertyClauses,
-	deriveSenderClauses,
 	dominantSender,
 	type FolderTreeNode,
 	type MatchCount,
@@ -12,6 +11,7 @@ import {
 	type MatchMode,
 	type RuleClause,
 	type RunState,
+	ruleRestrictionFor,
 	type SearchConversion,
 	type SelectionRestriction,
 	SelectionWizard,
@@ -22,6 +22,7 @@ import {
 	stepIndex,
 	stepsFor,
 	suggestRuleName,
+	useOverlayScope,
 	type Verb,
 	type WizardDraft,
 	type WizardMessage,
@@ -37,7 +38,6 @@ import {
 import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import {
-	type EscalatedAction,
 	type EscalationSearchQuery,
 	useEscalatedActions,
 } from "@/hooks/useEscalatedActions";
@@ -48,13 +48,15 @@ import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
+import { useSemanticSearchEnabled } from "@/hooks/useSemanticSearchEnabled";
 import type {
 	BulkActionProgress,
 	BulkActionTarget,
 	BulkRunOutcome,
+	BulkRunStart,
+	EscalatedAction,
 } from "@/lib/bulk-actions";
 import { NO_JUNK_FOLDER_REASON } from "@/lib/junk-destination";
-import { useListHeaderChrome } from "@/lib/list-header-chrome";
 import { useMailContext } from "@/lib/mail-context";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import {
@@ -70,8 +72,10 @@ import {
 } from "@/lib/organize/rule-model";
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
 import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
-import { useWizardEntryValue, useWizardStep } from "@/lib/wizard-history";
+import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
+import { useWizardEntryValue, useWizardStep } from "@/routing";
+import { bulkRunReport } from "./bulk-run-state";
 import { organizeRunState } from "./organize-run-state";
 import {
 	retryIntent,
@@ -118,7 +122,15 @@ export interface EscalatedSelection {
 	 * screen is what now stands in front of it. The run belongs to the list, so
 	 * it survives the wizard closing over it — as the run screen promises.
 	 */
-	run: (action: EscalatedAction) => Promise<BulkRunOutcome>;
+	run: (
+		action: EscalatedAction,
+		/**
+		 * Handed the release for the ending of the run it starts, so the wizard's
+		 * run screen states that ending in place and the list does not banner it a
+		 * second time (#112).
+		 */
+		claimEnding: (release: () => void) => void,
+	) => Promise<BulkRunStart>;
 	/** Ends that run at the next page boundary, which leaving the wizard does not. */
 	stop: () => void;
 }
@@ -130,6 +142,8 @@ export interface SelectionWizardHostProps {
 	accountId?: string;
 	/** Where the selection was made, so a run invalidates the listing it changed. */
 	mailboxId?: string;
+	/** That mailbox in the user's words, for a commit refused while it runs. */
+	mailboxLabel?: string;
 	selection: readonly WizardSelectionMessage[];
 	/**
 	 * Which scope the ticked rows span more of than the folder and rule steps can
@@ -150,10 +164,11 @@ export interface SelectionWizardHostProps {
 	/** The wizard is done with the selection, and the list drops it. */
 	onFinished: () => void;
 	/**
-	 * How a run ended, once the screen that was reporting on it is gone. The run
-	 * screen invites the user to close it and keep the run going, so the surface
-	 * that outlives the wizard is what states the ending. Called only for a run
-	 * the user walked away from; a run screen still up reports in place.
+	 * How a run ended, once no screen reporting on it is left. Handed to the run's
+	 * owner rather than called here: the run screen invites the user to close it
+	 * and keep the run going, and leaving the mailbox on top of that takes this
+	 * component with it — so the ending is stated by something that outlives both
+	 * (#112). A run screen still up reports in place instead.
 	 */
 	onRunEnded?: (
 		kind: EscalatedAction["kind"],
@@ -294,6 +309,7 @@ function SelectionWizardSession({
 	verb,
 	accountId,
 	mailboxId,
+	mailboxLabel,
 	selection,
 	selectionRestriction,
 	escalated: escalatedSelection,
@@ -357,11 +373,6 @@ function SelectionWizardSession({
 	// cleared, so a failed start can be retried.
 	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
 	const commitSent = useRef(false);
-	// The user left the run screen while it was still reporting. Held here rather
-	// than read back off the URL: the rewind the exit starts lands a frame or two
-	// later, and an outcome arriving in between would find a screen that is on
-	// its way out and say nothing.
-	const walkedAway = useRef(false);
 
 	const messageIds = useMemo(
 		() => selection.map((message) => message.id),
@@ -391,6 +402,7 @@ function SelectionWizardSession({
 		escalated ? undefined : accountId,
 		anchorMessageId,
 		senders,
+		subjects,
 	);
 	const { preview: probeWiden } = widen;
 	// The similar door has to know before it is pressed whether it can run, so
@@ -487,14 +499,36 @@ function SelectionWizardSession({
 		senders,
 	);
 
+	// While this screen is up it states the ending itself, so the run's owner
+	// holds its banner back. The claim is over the run this screen starts and no
+	// other: a commit that starts none — a filter, a back-apply job — has no
+	// ending of its own to hold, and holding one anyway swallowed the banner of
+	// whatever run was going elsewhere. Leaving — closing the wizard, or leaving
+	// the mailbox altogether — unmounts this and releases it, and the ending is
+	// bannered where the user now is (#112, #521).
+	const releaseReport = useRef<(() => void) | undefined>(undefined);
+	const claimEnding = useCallback((release: () => void) => {
+		releaseReport.current?.();
+		releaseReport.current = release;
+	}, []);
+	useEffect(
+		() => () => {
+			releaseReport.current?.();
+			releaseReport.current = undefined;
+		},
+		[],
+	);
+
 	const organizeJob = useOrganizeJob(accountId);
 	const createFilter = useCreateFilter(accountId);
 	const bulk = useEscalatedActions({
 		mailboxId: mailboxId ?? "",
+		mailboxLabel,
 		accountId,
 		enabled: false,
 		predicateKey: "selection-wizard",
 		searchQuery: {},
+		reportEnding: onRunEnded,
 	});
 	const { runAction } = bulk;
 
@@ -511,11 +545,15 @@ function SelectionWizardSession({
 	// preview behind a widened door has something to count against. The one-off
 	// scope and the ticked rows act on the messages themselves and are unaffected.
 	const wizardScope = wizardScopeFor(accountId, selectionRestriction);
+	// An escalated match is restricted on the same step for its own reason: the
+	// list resolved it before the wizard opened, and no door on the match step can
+	// give it a predicate to keep matching on (#1193).
+	const ruleRestriction = ruleRestrictionFor(mode, wizardScope);
 	const restrictionFor = (step: StepId): string | undefined => {
 		if (step === "folder") return wizardScope.destination;
 		if (step !== "rule") return undefined;
 		return named.scope === "standing" || named.scope === "until"
-			? wizardScope.rule
+			? ruleRestriction
 			: undefined;
 	};
 	const blockedReason =
@@ -543,26 +581,33 @@ function SelectionWizardSession({
 		[anchorMessageId, selection.length, seedPropertyClauses],
 	);
 
-	// The dimmed similar door, pressed. The senders the widen would have fallen
-	// back to are filled in on the property step instead of standing in for the
-	// semantic match without saying so (#477 3.6).
+	// The dimmed similar door, pressed. What the widen would have fallen back to
+	// is filled in on the property step instead of standing in for the semantic
+	// match without saying so (#477 3.6) — the same agreement the property step
+	// itself seeds from (#458), not senders alone: a selection with nothing in
+	// common on sender still shares a subject worth matching on.
 	const takeSemanticFallback = useCallback(() => {
 		setSemanticFallbackTaken(true);
 		setDoor("properties");
 		setDraft((held) => ({
 			...held,
 			widen: undefined,
-			clauses: withIds(deriveSenderClauses(senders), "sender"),
+			clauses: seedPropertyClauses(),
 			matchOperator: "any",
 		}));
 		goToStep("properties");
-	}, [senders, goToStep]);
+	}, [seedPropertyClauses, goToStep]);
 
 	// The probe lands after the door is on screen, so it can report the widen
 	// unavailable while the user is already holding it. The fallback is taken then
 	// rather than left as a door that counts nothing: the property step says, in
 	// so many words, that these are the senders it substituted (#477 3.6).
-	const semanticUnavailable = widen.semanticUnavailable || widen.isError;
+	// Off is a deployment setting, not a probe result, and it reaches the door the
+	// same way the runtime failure does: dimmed, pressable, and falling back to
+	// the senders. Only the copy differs (#1068).
+	const semanticOff = useSemanticSearchEnabled() === false;
+	const semanticUnavailable =
+		semanticOff || widen.semanticUnavailable || widen.isError;
 	// Only while the door is the screen: the probe re-fires when the anchor
 	// changes under a background refetch, and a late answer that moved the step
 	// from Review would push an entry the wizard does not own and leave the count
@@ -648,13 +693,15 @@ function SelectionWizardSession({
 				return;
 			}
 			setBulkRun({ matched: targets.length, sent: targets });
-			const outcome = await runAction(action, targets);
-			setBulkRun({ matched: targets.length, sent: targets, outcome });
-			if (walkedAway.current) {
-				onRunEnded?.(action.kind, targets.length, outcome);
-			}
+			const started = await runAction(action, targets, claimEnding);
+			setBulkRun({
+				matched: targets.length,
+				sent: targets,
+				outcome: started.kind === "ran" ? started.outcome : undefined,
+				failureReason: started.kind === "refused" ? started.reason : undefined,
+			});
 		},
-		[verb, named.moveMailboxId, junkMailboxId, runAction, onRunEnded],
+		[verb, named.moveMailboxId, junkMailboxId, runAction, claimEnding],
 	);
 
 	// The escalated predicate, run by the chunked runner the list already owns.
@@ -672,12 +719,14 @@ function SelectionWizardSession({
 			return;
 		}
 		setBulkRun({ matched: escalated.total, sent: [] });
-		const outcome = await escalated.run(action);
-		setBulkRun({ matched: escalated.total, sent: [], outcome });
-		if (walkedAway.current) {
-			onRunEnded?.(action.kind, escalated.total, outcome);
-		}
-	}, [escalated, verb, named.moveMailboxId, junkMailboxId, onRunEnded]);
+		const started = await escalated.run(action, claimEnding);
+		setBulkRun({
+			matched: escalated.total,
+			sent: [],
+			outcome: started.kind === "ran" ? started.outcome : undefined,
+			failureReason: started.kind === "refused" ? started.reason : undefined,
+		});
+	}, [escalated, verb, named.moveMailboxId, junkMailboxId, claimEnding]);
 
 	const { start: startJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
@@ -811,57 +860,21 @@ function SelectionWizardSession({
 
 	const bulkSnapshot = useCallback((): RunSnapshot => {
 		if (!bulkRun) return NOT_STARTED;
-		const { matched, outcome, failureReason } = bulkRun;
-		// Nothing was sent, and nothing about sending it again resolves what was
-		// missing — so the screen carries why rather than the generic ending (#522).
-		if (failureReason !== undefined) {
-			return { ...NOT_STARTED, state: "commitFailed", failureReason };
-		}
-		if (!outcome) {
-			const applied = runProgress?.done ?? 0;
-			// A predicate matches more by the time the run re-pages it than the count
-			// saw, so what it has covered can overtake what it was offered against.
-			// The bar never reads more done than out of, and neither does this.
-			return {
-				state: "backApplyRunning",
-				matched: Math.max(matched, applied),
-				applied,
-				failed: 0,
-				failures: [],
-			};
-		}
-		const stopped = outcome.cancelled || outcome.error !== undefined;
-		if (!stopped) {
-			return {
-				state: "backApplyComplete",
-				matched: Math.max(matched, outcome.done),
-				applied: outcome.done,
-				failed: 0,
-				failures: [],
-			};
-		}
-		if (outcome.done === 0) {
-			return { ...NOT_STARTED, state: "commitFailed" };
-		}
-		// The run stopped part-way. Nothing here was rejected: a returned bulk call
-		// accepts every id in it, so the only failure this layer sees is a call that
-		// threw, and everything after it was never sent. A bounded run hands back
-		// exactly those ids; a predicate run re-resolves its match on every pass and
-		// has no remainder to hand back, so what is left is the difference between
-		// the count and what the run covered.
-		const failures = outcome.failedIds
-			.map((id) => rowsById.get(id))
-			.filter((message): message is WizardMessage => message !== undefined);
-		const unreached =
-			outcome.failedIds.length > 0
-				? outcome.failedIds.length
-				: Math.max(matched - outcome.done, 1);
+		const report = bulkRunReport({
+			matched: bulkRun.matched,
+			outcome: bulkRun.outcome,
+			failureReason: bulkRun.failureReason,
+			progressDone: runProgress?.done ?? 0,
+		});
 		return {
-			state: "runStopped",
-			matched: Math.max(matched, outcome.done),
-			applied: outcome.done,
-			failed: unreached,
-			failures,
+			state: report.state,
+			matched: report.matched,
+			applied: report.applied,
+			failed: report.failed,
+			failures: report.failedIds
+				.map((id) => rowsById.get(id))
+				.filter((message): message is WizardMessage => message !== undefined),
+			failureReason: report.failureReason,
 		};
 	}, [bulkRun, runProgress, rowsById]);
 
@@ -932,7 +945,6 @@ function SelectionWizardSession({
 	// run alone: the screen says so in as many words, and stopping it is a
 	// control of its own.
 	const dismiss = useCallback(() => {
-		walkedAway.current = true;
 		closeWizard(steps, current);
 		onFinished();
 	}, [closeWizard, steps, current, onFinished]);
@@ -1000,6 +1012,7 @@ function SelectionWizardSession({
 				accountId: wizardScope.accountId,
 				onModeChange: changeMode,
 				semanticUnavailable,
+				semanticOff,
 				semanticErrorDetail:
 					widen.error instanceof Error ? widen.error.message : undefined,
 				semanticFallbackTaken,
@@ -1040,7 +1053,7 @@ function SelectionWizardSession({
 				draft: named,
 				onScopeChange: (scope) => setDraft((held) => ({ ...held, scope })),
 				onUntilChange: (until) => setDraft((held) => ({ ...held, until })),
-				restriction: wizardScope.rule,
+				restriction: ruleRestriction,
 			}}
 			name={{
 				name: named.name ?? "",
@@ -1092,11 +1105,15 @@ function SelectionWizardSession({
  */
 export function SelectionWizardHost(props: SelectionWizardHostProps) {
 	const fromSearch = useWizardEntryValue() === "search";
-	const { searchConversion } = useListHeaderChrome();
+	const searchConversion = useSearchConversion();
 	const { accounts } = useMailContext();
 	const { step, goToStep, goBack, closeWizard } = useWizardStep(
 		fromSearch ? "properties" : "match",
 	);
+	// A walk in progress owns the keyboard. It answers nothing itself — Back and
+	// Close are on screen, and Escape abandoning a half-run selection is not what
+	// the reader asked for — so every triage key is contained until it closes.
+	useOverlayScope({ id: "selection-wizard", open: step !== undefined });
 	if (!step) return null;
 	const conversion = fromSearch
 		? (searchConversion ?? NO_CONVERSION)

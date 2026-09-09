@@ -10,8 +10,7 @@ import type {
 import type { NavAccount, NavLinkComponent, NavMailboxRole } from "@remit/ui";
 import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate, useParams } from "@tanstack/react-router";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import {
 	buildMailboxRoleMap,
@@ -20,12 +19,7 @@ import {
 } from "@/lib/folder-roles";
 import { useMailContext } from "@/lib/mail-context";
 import { isOutboxListRow } from "@/lib/outbox-status";
-import {
-	loadSavedSearches,
-	removeSavedSearch,
-	saveSearch,
-} from "@/lib/saved-searches";
-import { NavLink } from "@/routing";
+import { NavLink, useSelectedNavId } from "@/routing";
 
 interface MailSidebarAdapterProps {
 	accounts: RemitImapAccountResponse[];
@@ -113,26 +107,6 @@ function toNavMailbox(
 }
 
 /**
- * Resolves the currently selected nav ID from the active route so the kit
- * component can highlight the right item.
- *   - /mail/outbox → "outbox"
- *   - /mail/flagged → "flagged"
- *   - /mail/brief → "brief"
- *   - /mail/$mailboxId → mailboxId
- */
-function useSelectedNavId(): string {
-	const location = useLocation();
-	const params = useParams({ strict: false }) as { mailboxId?: string };
-
-	if (location.pathname.startsWith("/settings")) return "settings";
-	if (location.pathname.startsWith("/mail/outbox")) return "outbox";
-	if (location.pathname.startsWith("/mail/flagged")) return "flagged";
-	if (location.pathname.startsWith("/mail/brief")) return "brief";
-	if (params.mailboxId) return params.mailboxId;
-	return "";
-}
-
-/**
  * Pane 1 of the 4-pane shell. Data bridge that fetches mailboxes per account,
  * maps them onto the kit's NavAccount shape, and renders each entry as a real
  * router anchor via the kit's `linkComponent` render-prop. Replaces the retired
@@ -144,10 +118,8 @@ export function MailSidebarAdapter({
 	variant = "desktop",
 }: MailSidebarAdapterProps) {
 	const queryClient = useQueryClient();
-	const navigate = useNavigate();
 	const selectedNavId = useSelectedNavId();
-	const { searchInput, onSearchChange } = useMailContext();
-	const [savedSearches, setSavedSearches] = useState(loadSavedSearches);
+	const { onSearchChange } = useMailContext();
 	const { t } = useTranslation("mail", { useSuspense: false });
 	const translator: Translator = useCallback(
 		(key, fallback) => t(key, { defaultValue: fallback }),
@@ -240,6 +212,22 @@ export function MailSidebarAdapter({
 				</NavLink>
 			);
 		}
+		if (navId === "calendar") {
+			// No list segment to name: the calendar's index route sends the reader
+			// to the week they are in, so a bookmark of the nav entry keeps working
+			// tomorrow.
+			return (
+				<NavLink
+					to="/calendar"
+					onClick={() => onClick?.()}
+					className={className}
+					aria-label={ariaLabel}
+					title={title}
+				>
+					{children}
+				</NavLink>
+			);
+		}
 		if (navId === "outbox") {
 			return (
 				<NavLink
@@ -316,49 +304,14 @@ export function MailSidebarAdapter({
 		onMailboxSelect?.();
 	};
 
-	// Saved searches (#428 follow-up, local-only MVP — see
-	// doc/design/flows/06-search.md). A saved query is the raw typed text; the
-	// existing token parser re-derives its chips on reselect, so there's nothing
-	// else to persist.
-	const trimmedSearchInput = searchInput.trim();
-	const saveableQuery =
-		trimmedSearchInput.length > 0 && !savedSearches.includes(trimmedSearchInput)
-			? trimmedSearchInput
-			: undefined;
-
-	const handleSaveCurrentSearch = useCallback(() => {
-		if (!saveableQuery) return;
-		setSavedSearches(saveSearch(saveableQuery));
-	}, [saveableQuery]);
-
-	const handleRemoveSavedSearch = useCallback((query: string) => {
-		setSavedSearches(removeSavedSearch(query));
-	}, []);
-
-	// Running a saved search re-uses the daily brief as the search surface (the
-	// cross-account default view) — the same destination the search field
-	// itself lands results in once a query is active.
-	const handleSelectSavedSearch = useCallback(
-		(query: string) => {
-			onSearchChange(query);
-			navigate({ to: "/mail/brief", search: { q: query } });
-			onMailboxSelect?.();
-		},
-		[onSearchChange, navigate, onMailboxSelect],
-	);
-
 	return (
 		<NavSidebar
 			accounts={navAccounts}
 			selectedNavId={selectedNavId}
 			onSelectNav={handleSelectNav}
 			linkComponent={linkComponent}
+			calendarNav="shown"
 			variant={variant}
-			savedSearches={savedSearches}
-			saveableQuery={saveableQuery}
-			onSaveCurrentSearch={handleSaveCurrentSearch}
-			onSelectSavedSearch={handleSelectSavedSearch}
-			onRemoveSavedSearch={handleRemoveSavedSearch}
 		/>
 	);
 }

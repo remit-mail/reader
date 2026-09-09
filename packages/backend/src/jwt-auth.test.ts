@@ -72,6 +72,35 @@ test("no token and no bypass returns 401", async () => {
 	assert.equal(result?.statusCode, 401);
 });
 
+test("a tokenless GET to the Microsoft OAuth callback is admitted", async () => {
+	const event = buildEvent({
+		httpMethod: "GET",
+		path: "/accounts/oauth/microsoft/callback",
+	});
+
+	const result = await authenticateSelfHostRequest(event);
+
+	assert.equal(result, null);
+	assert.equal(event.requestContext.authorizer, undefined);
+});
+
+test("the callback exemption covers that path and method only", async () => {
+	const neighbour = buildEvent({
+		httpMethod: "GET",
+		path: "/accounts/oauth/microsoft/start",
+	});
+	const otherMethod = buildEvent({
+		httpMethod: "POST",
+		path: "/accounts/oauth/microsoft/callback",
+	});
+
+	assert.equal((await authenticateSelfHostRequest(neighbour))?.statusCode, 401);
+	assert.equal(
+		(await authenticateSelfHostRequest(otherMethod))?.statusCode,
+		401,
+	);
+});
+
 test("pre-injected claims (edge tier) short-circuit verification", async () => {
 	_setVerifierForTest(async () => {
 		throw new Error("verifier must not be called");

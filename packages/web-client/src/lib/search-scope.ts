@@ -22,7 +22,7 @@
  * Pure functions only. `useSearchScope` binds these to the router.
  */
 import type { FolderRole, SearchScope as ResultsScope } from "@remit/ui";
-import { type MailRouteMatch, mailListRoute } from "./mail-route";
+import type { BrowsedList } from "./mail-route";
 
 /**
  * Chip id of the scope chip. The top bar owns exactly one, so a fixed id is
@@ -64,19 +64,15 @@ export function scopeLabelForMailboxName(name: string): string {
  * These carry a scope; the daily brief (and any route not recognized here) does
  * not.
  */
-export function isScopedRoute(matches: readonly MailRouteMatch[]): boolean {
-	const route = mailListRoute(matches);
-	return route !== undefined && route.list !== "brief";
+export function isScopedRoute(browsed: BrowsedList): boolean {
+	return browsed.list !== undefined && browsed.list !== "brief";
 }
 
 /**
  * The mailbox id carried by a mailbox route, or `undefined` on any other route.
  */
-export function routeMailboxId(
-	matches: readonly MailRouteMatch[],
-): string | undefined {
-	const route = mailListRoute(matches);
-	return route?.list === "mailbox" ? route.mailboxId : undefined;
+export function routeMailboxId(browsed: BrowsedList): string | undefined {
+	return browsed.list === "mailbox" ? browsed.mailboxId : undefined;
 }
 
 /**
@@ -98,13 +94,13 @@ export function routeMailboxId(
  *    it, which is the one place `useSearchTokenContext` resolves that term.
  */
 export function semanticMailboxScope(args: {
-	matches: readonly MailRouteMatch[];
+	browsed: BrowsedList;
 	callerMailboxId?: string;
 	inTokenMailboxId?: string;
 }): string | undefined {
-	const fromRoute = routeMailboxId(args.matches);
+	const fromRoute = routeMailboxId(args.browsed);
 	if (fromRoute) return fromRoute;
-	if (isScopedRoute(args.matches)) return args.callerMailboxId;
+	if (isScopedRoute(args.browsed)) return args.callerMailboxId;
 	return args.callerMailboxId ?? args.inTokenMailboxId;
 }
 
@@ -117,23 +113,22 @@ export function semanticMailboxScope(args: {
  * either, because the list underneath is already narrowed.
  */
 export function searchScopeForRoute(
-	matches: readonly MailRouteMatch[],
+	browsed: BrowsedList,
 	mailboxName?: string | null,
 ): SearchScopeState {
-	const route = mailListRoute(matches);
-	if (route?.list === "flagged") {
+	if (browsed.list === "flagged") {
 		return {
 			kind: "scoped",
 			chip: { id: SEARCH_SCOPE_CHIP_ID, label: "is:starred" },
 		};
 	}
-	if (route?.list === "outbox") {
+	if (browsed.list === "outbox") {
 		return {
 			kind: "scoped",
 			chip: { id: SEARCH_SCOPE_CHIP_ID, label: "in:outbox" },
 		};
 	}
-	if (route?.list === "mailbox") {
+	if (browsed.list === "mailbox") {
 		if (!mailboxName) return { kind: "pending" };
 		return {
 			kind: "scoped",
@@ -164,11 +159,11 @@ export function searchScopeForRoute(
  * folder nobody appointed carries no role.
  */
 export function resultsScopeForRoute(
-	matches: readonly MailRouteMatch[],
+	browsed: BrowsedList,
 	state: SearchScopeState,
 	role?: FolderRole,
 ): ResultsScope {
 	if (state.kind === "global") return { kind: "global" };
-	if (mailListRoute(matches)?.list === "flagged") return { kind: "collection" };
+	if (browsed.list === "flagged") return { kind: "collection" };
 	return { kind: "folder", ...(role ? { role } : {}) };
 }

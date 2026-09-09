@@ -5,7 +5,9 @@ import "../enums/AuthenticityVerdict.tsp";
 import "../enums/DisplayNameCorrespondence.tsp";
 import "../enums/LabelAction.tsp";
 import "../enums/MessageCategory.tsp";
+import "../enums/MessageClassificationState.tsp";
 import "../enums/MessageFlag.tsp";
+import "../enums/MessageMutation.tsp";
 import "../enums/MessageStatus.tsp";
 import "../enums/MessageSyncStatus.tsp";
 import "../enums/PlacementAction.tsp";
@@ -206,9 +208,13 @@ model Message {
   @visibility(Lifecycle.Read)
   status: MessageStatus = MessageStatus.active;
 
-  @doc("Sync status for move/delete operations. Defaults to `synced` (nothing pending) so a freshly-synced message never looks like it has an outstanding move/delete.")
+  @doc("Sync status for move/delete operations, read as a pair with `status` (imap-mutations R3). The `synced` column default only applies to a row written without the field: the repository always supplies one, and an ordinary inbound sync writes `pending`, which nothing later promotes. So `pending` here does not mean an outstanding move or delete — `status` names that, `failed` marks an attempt about to be redelivered, and `abandoned` marks a mutation that gave up.")
   @visibility(Lifecycle.Read)
   syncStatus: MessageSyncStatus = MessageSyncStatus.synced;
+
+  @doc("Which mutation gave up on this message. Meaningful only while `syncStatus` is `abandoned`; `none` everywhere else, so the absent state is a named value rather than a missing attribute. Written by the same transition that writes `abandoned`, because a hand-back sets `status` back to `active` and that is the field which named the mutation.")
+  @visibility(Lifecycle.Read)
+  abandonedMutation: MessageMutation = MessageMutation.none;
 
   @doc("Original mailbox ID before move (for restore from trash)")
   @visibility(Lifecycle.Read)
@@ -218,9 +224,13 @@ model Message {
   @visibility(Lifecycle.Read)
   originalUid?: int64;
 
-  @doc("Header-derived category. Defaults to `uncategorized` for messages that have been metadata-synced but not yet body-classified — that pending state is a named value, not absence.")
+  @doc("Header-derived category. Defaults to `uncategorized`, a named value rather than absence. It covers two states — metadata-synced but not yet classified, and classified with nothing to say — and `classificationState` is what tells them apart.")
   @visibility(Lifecycle.Read)
   category: MessageCategory = MessageCategory.uncategorized;
+
+  @doc("Whether the header classifier has examined this message's body. Defaults to `NotExamined`, the named pending state every message written before this field existed carries. A field of its own rather than a reading of `category` or of `bodyStorageKey`: `uncategorized` is both the pending value and the classifier's own \"nothing to say\", and key presence is the storage fact, not the derivation's. Persistence-only — no response model exposes it — and it is what a later backfill selects the never-examined cohort by.")
+  @visibility(Lifecycle.Read)
+  classificationState: MessageClassificationState = MessageClassificationState.NotExamined;
 
   @doc("Structured sender-authenticity signal derived from DKIM headers at classification time. Absent for messages classified before this field was introduced — absence means no signal.")
   @visibility(Lifecycle.Read)
@@ -331,6 +341,9 @@ model MessageSummaryResponse {
       | "internalDate"
       | "messageIdHeader"
       | "authenticity"
+      | "status"
+      | "syncStatus"
+      | "abandonedMutation"
   >;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
@@ -372,7 +385,7 @@ model EnvelopeResponse {
   @doc("Reply-To addresses")
   replyTo: EnvelopeAddressResponse[];
 
-  @doc("Header-derived category for the message. Always present: `Message.category` is NOT NULL with an `uncategorized` default, and `uncategorized` names the not-yet-classified state rather than standing for absence (issue #45).")
+  @doc("Header-derived category for the message. Always present: `Message.category` is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value — no category — rather than a stand-in for absence or for `personal` (issue #45).")
   category: MessageCategory;
 
   @doc("Trust level for the From address, derived from AddressFlags at read time.")

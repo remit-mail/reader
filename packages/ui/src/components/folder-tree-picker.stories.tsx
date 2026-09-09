@@ -47,6 +47,17 @@ const folders: FolderTreeNode[] = [
 	{ id: "mbx-work-recruiting", label: "Recruiting", path: "Work/Recruiting" },
 ];
 
+// A server that reports no hierarchy delimiter has a flat namespace: nothing
+// nests, and `Work` is not a parent of `Workshop`.
+const flatFolders: FolderTreeNode[] = [
+	{ id: "mbx-inbox", label: "Inbox", path: "INBOX", isCurrent: true },
+	{ id: "mbx-archive", label: "Archive", path: "Archive" },
+	{ id: "mbx-work", label: "Work", path: "Work" },
+	{ id: "mbx-workshop", label: "Workshop", path: "Workshop" },
+	{ id: "mbx-sent", label: "Sent", path: "Sent Items" },
+	{ id: "mbx-trash", label: "Trash", path: "Deleted Messages" },
+];
+
 const longFolders: FolderTreeNode[] = [
 	...folders,
 	...Array.from({ length: 36 }, (_, i) => ({
@@ -100,6 +111,7 @@ const rejects = (message: string) => (): Promise<FolderTreeNode> =>
 function Picker({
 	options = folders,
 	onCreateFolder = createFolder,
+	delimiter,
 }: {
 	options?: FolderTreeNode[];
 	onCreateFolder?: (
@@ -107,6 +119,7 @@ function Picker({
 		parentPath: string,
 		signal?: AbortSignal,
 	) => Promise<FolderTreeNode>;
+	delimiter?: string;
 }) {
 	const [selected, setSelected] = useState<string>();
 	const [known, setKnown] = useState(options);
@@ -115,6 +128,7 @@ function Picker({
 			<FolderTreePicker
 				folders={known}
 				selectedId={selected}
+				delimiter={delimiter}
 				onSelect={setSelected}
 				onCreateFolder={(name, parentPath, signal) =>
 					onCreateFolder(name, parentPath, signal).then((created) => {
@@ -158,6 +172,15 @@ export const WithoutCreate: Story = {
 export const LongList: Story = {
 	name: "Long list (scrolls)",
 	render: () => <Picker options={longFolders} />,
+};
+
+/**
+ * A flat namespace: every folder sits at the top level and none of them opens,
+ * so a new folder can only be made at the top.
+ */
+export const FlatNamespace: Story = {
+	name: "Flat namespace (server reports no delimiter)",
+	render: () => <Picker options={flatFolders} delimiter="" />,
 };
 
 /** An account with nothing to list: the message states that, not a filter. */

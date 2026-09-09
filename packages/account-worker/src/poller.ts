@@ -4,10 +4,13 @@ import { env } from "expect-env";
 import { fanoutHandler, finalizeHandler } from "./index.js";
 
 /**
- * Production queue poller. No e2e shim exists for account-worker today —
- * the deletion cascade is not exercised on the compose stack in
- * CI (see AGENTS.md worker roster notes). This is the standalone
- * production entrypoint for the dedicated image.
+ * Production queue poller, and the standalone entrypoint for the dedicated
+ * image. The sibling workers carry a separate `e2e-processor-shim.ts` because
+ * they predate `runQueuePoller`; this one has no shim and needs none — the
+ * poller drains an SQS-compatible endpoint (the queue sidecar) exactly as it
+ * drains SQS, which is what deploy/vps/docker-compose.sqlite.yml already does,
+ * so the source-built e2e stack runs this same file (`npm run dev -w
+ * @remit/account-worker`, wired in npm-scripts/e2e-dev-up.sh).
  *
  * The deployment-specific steps of the cascade — sign-out, content
  * invalidation, storage cleanup, and the row cascade — resolve through the

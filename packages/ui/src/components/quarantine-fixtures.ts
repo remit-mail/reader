@@ -14,6 +14,7 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		uid: 40217,
 		mailboxRole: "inbox",
 		mailboxPath: "INBOX",
+		mailboxDelimiter: "/",
 		failureStage: "BodyParse",
 		failureCode: "UnreadableBody",
 		failureMessage: "multipart boundary was never closed",
@@ -42,6 +43,7 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		uid: 40219,
 		mailboxRole: "archive",
 		mailboxPath: "Archive/2026",
+		mailboxDelimiter: "/",
 		failureStage: "BodyParse",
 		failureCode: "UnknownCharset",
 		failureMessage: "declared charset is not a known encoding",
@@ -65,7 +67,9 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		// A folder the user never appointed a role to — the ordinary state of a
 		// plain folder, and the reason mailboxRole is optional.
 		mailboxRole: undefined,
-		mailboxPath: "Clients/Acme Holdings",
+		mailboxPath: "INBOX.Clients.Acme Holdings",
+		// A `.`-delimited server: the row still reads the leaf, not the path.
+		mailboxDelimiter: ".",
 		failureStage: "BodyParse",
 		failureCode: "UnreadableBody",
 		failureMessage: "stream ended before the declared body length",
@@ -91,6 +95,7 @@ export const quarantineDemoEntries: readonly QuarantineEntry[] = [
 		uid: 40263,
 		mailboxRole: "inbox",
 		mailboxPath: "INBOX",
+		mailboxDelimiter: "/",
 		failureStage: "BodyParse",
 		failureCode: "UnreadableBody",
 		failureMessage: "connection closed mid-body",

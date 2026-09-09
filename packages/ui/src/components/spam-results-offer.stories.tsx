@@ -27,15 +27,25 @@ type Story = StoryObj<typeof SpamResultsOffer>;
  * than opening a view of its own.
  */
 export const Default: Story = {
-	args: { count: 3, onScopeToSpam: () => {} },
+	args: { count: { kind: "exact", value: 3 }, onScopeToSpam: () => {} },
 };
 
 /** One match reads in the singular. */
 export const SingleResult: Story = {
-	args: { count: 1, onScopeToSpam: () => {} },
+	args: { count: { kind: "exact", value: 1 }, onScopeToSpam: () => {} },
 };
 
 /** Large counts stay on one line; the figure is tabular so it does not jitter. */
 export const ManyResults: Story = {
-	args: { count: 128, onScopeToSpam: () => {} },
+	args: { count: { kind: "exact", value: 1284 }, onScopeToSpam: () => {} },
+};
+
+/**
+ * No count came back — a junk folder's count request is still in flight, or the
+ * criteria carry a term the server does not count. The offer stands and names
+ * no figure, rather than substituting the junk rows this page happens to hold
+ * (#313).
+ */
+export const UncountedResults: Story = {
+	args: { count: { kind: "unknown" }, onScopeToSpam: () => {} },
 };

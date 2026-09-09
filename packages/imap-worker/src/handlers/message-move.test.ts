@@ -1,18 +1,22 @@
 import assert from "node:assert";
-import { afterEach, before, describe, it, mock } from "node:test";
+import { afterEach, before, beforeEach, describe, it, mock } from "node:test";
 import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { AccountItem, ThreadMessageItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import type { IImapConnection } from "@remit/mailbox-service";
 import type { MessageMoveEvent } from "../events.js";
+import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
+import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
 	emitMoveResync,
 	getMessageMoveMaxAttempts,
 	handleMessageMove,
 	MESSAGE_MOVE_MAX_ATTEMPTS,
+	type MessageMoveDeps,
 	moveThenResync,
-	searchMailboxByMessageId,
+	probePausedPlacement,
+	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 
 const silentLogger = (() => {
@@ -273,9 +277,84 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 				get: async () => [],
 				update: async () => undefined,
 				updateUid: async () => undefined,
+				transitionPlacement: async () => undefined,
+			},
+			threadMessage: {
+				findAllByMessageId: async () => [],
+				findByMessageId: async () => undefined,
+				update: async () => undefined,
 			},
 			secrets: { decrypt: async () => undefined },
 		} as unknown as RemitClient);
+	});
+
+	let emitted: unknown[] = [];
+	let connectCount = 0;
+	let logLines: { level: string; fields: Record<string, unknown> }[] = [];
+
+	// The level a give-up is logged at is behaviour: a routine pause must not
+	// page anyone, and a placement the server never settled must.
+	const capturingLogger = (): Logger => {
+		const at =
+			(level: string) =>
+			(fields: Record<string, unknown>): void => {
+				logLines.push({ level, fields });
+			};
+		const log = {
+			info: at("info"),
+			warn: at("warn"),
+			error: at("error"),
+			debug: at("debug"),
+			fatal: at("fatal"),
+			trace: at("trace"),
+			child: () => log,
+		} as unknown as Logger;
+		return log;
+	};
+
+	// One folder's Message-ID SEARCH answers, keyed by the box last opened.
+	// `openBox` on this handle is deliberately unguarded: the paused settle asks
+	// on the identity axis, which a UIDVALIDITY change leaves intact.
+	const holdingConnection = (
+		holdings: Record<string, number[]>,
+	): IImapConnection => {
+		let opened = "";
+		return {
+			openBox: async (path: string) => {
+				opened = path;
+				return {} as never;
+			},
+			search: async () => holdings[opened] ?? [],
+		} as unknown as IImapConnection;
+	};
+
+	const moveDeps = (connection?: IImapConnection): MessageMoveDeps => ({
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: () => ({
+			getConnection: async () => {
+				connectCount += 1;
+				if (!connection) throw new Error("this case must not connect");
+				return connection;
+			},
+			disconnect: async () => undefined,
+		}),
+		emitEvent: (async (event: unknown) => {
+			emitted.push(event);
+		}) as MessageMoveDeps["emitEvent"],
+	});
+
+	const pausedSource = () => ({
+		mailboxId: "mm-src-zzz",
+		uidValidity: 1,
+		cursorState: "rebuilding",
+	});
+
+	beforeEach(() => {
+		emitted = [];
+		connectCount = 0;
+		logLines = [];
 	});
 
 	afterEach(() => mock.restoreAll());
@@ -328,6 +407,215 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		);
 	});
 
+	const arrangePausedMove = async (
+		options: { probeable: boolean } = { probeable: true },
+	): Promise<{
+		transitionCalls: unknown[][];
+		updateUidCalls: unknown[][];
+		threadUpdateCalls: unknown[][];
+	}> => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => [
+			{
+				...pendingRow(),
+				messageIdHeader: options.probeable ? "<moved@example.com>" : undefined,
+			},
+		]);
+		mock.method(client.mailbox, "get", async () => pausedSource());
+		const transitionCalls: unknown[][] = [];
+		mock.method(
+			client.message,
+			"transitionPlacement",
+			async (...args: unknown[]) => {
+				transitionCalls.push(args);
+				return { messageId: "mm-msg-zzz" };
+			},
+		);
+		const updateUidCalls: unknown[][] = [];
+		mock.method(client.message, "updateUid", async (...args: unknown[]) => {
+			updateUidCalls.push(args);
+		});
+		const threadRow = {
+			...baseThreadMessage,
+			accountConfigId: "mm-cfg-zzz",
+			threadMessageId: "mm-tm-zzz",
+			mailboxId: "mm-dst-zzz",
+		};
+		mock.method(client.threadMessage, "findAllByMessageId", async () => [
+			threadRow,
+		]);
+		mock.method(client.threadMessage, "findByMessageId", async () => threadRow);
+		const threadUpdateCalls: unknown[][] = [];
+		mock.method(client.threadMessage, "update", async (...args: unknown[]) => {
+			threadUpdateCalls.push(args);
+		});
+		return { transitionCalls, updateUidCalls, threadUpdateCalls };
+	};
+
+	// Issue #1203. Acking a paused cursor left the row `moving` with `mailboxId`
+	// on the destination and `uid` on the source. Nothing re-enqueues a
+	// MESSAGE_MOVE, and the cursor rebuild matches rows by
+	// `(accountConfigId, mailboxId)`, so a row naming the destination sits in
+	// neither folder's set: `placementBindingOf` answered `in_flight` for good
+	// and the message became unmovable and undeletable.
+	it("hands the row back to its source on a first delivery, without connecting", async () => {
+		const { transitionCalls, threadUpdateCalls } = await arrangePausedMove();
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps());
+
+		assert.equal(
+			connectCount,
+			0,
+			"a first delivery has provably issued no MOVE, so it needs no answer from the server",
+		);
+		assert.deepEqual(
+			transitionCalls[0],
+			[
+				"mm-msg-zzz",
+				{ status: ["moving", "deleting"] },
+				{
+					mailboxId: "mm-src-zzz",
+					uid: 10,
+					status: "active",
+					syncStatus: "synced",
+					abandonedMutation: "none",
+				},
+			],
+			"the row goes back to the source pair, which is the set the rebuild adjudicates",
+		);
+		assert.equal(
+			(threadUpdateCalls[0]?.[2] as { mailboxId?: string })?.mailboxId,
+			"mm-src-zzz",
+			"the listing row follows the message back to its source folder",
+		);
+	});
+
+	// A paused settle is a settle, so both folders re-read their counts from
+	// IMAP — the same resync every other terminal verdict in this handler runs.
+	// Without it the repair depended entirely on someone else arming the
+	// mailbox's rebuild.
+	it("resyncs both folders after a paused move settles", async () => {
+		await arrangePausedMove();
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps());
+
+		assert.deepEqual(emitted, [
+			{ type: "SYNC_MESSAGES", accountId: acctId, mailboxId: "mm-src-zzz" },
+			{ type: "SYNC_MESSAGES", accountId: acctId, mailboxId: "mm-dst-zzz" },
+		]);
+	});
+
+	// Issue #1203, the redelivery half, and the mail-loss edge in it. INBOX was
+	// recreated (UIDVALIDITY bumped, which is why the cursor is paused), the
+	// MOVE never ran, and INBOX honestly answers "no" for the Message-ID because
+	// it no longer holds anything it used to. Archive holds an older copy of the
+	// same Message-ID at uid 40 — a sieve `fileinto` + `keep`, a resend — which
+	// `deriveMessageId` folds into this one local row. Settling `moved` on 40
+	// binds the row to that copy, and the next permanent delete expunges it:
+	// Archive is not paused, so no rebuild is ever coming to adjudicate there.
+	it("never settles a redelivered paused move as moved off a destination sighting", async () => {
+		const { transitionCalls, updateUidCalls } = await arrangePausedMove();
+
+		await handleMessageMove(
+			event,
+			capturingLogger(),
+			2,
+			moveDeps(holdingConnection({ INBOX: [], Archive: [40] })),
+		);
+
+		assert.equal(
+			updateUidCalls.length,
+			0,
+			"a sighting off a source whose uid axis has moved is not proof this move ran",
+		);
+		// The source pair is the set its own cursor rebuild walks and adjudicates
+		// by Message-ID, so handing the row back there is the reconcile path.
+		assert.deepEqual(transitionCalls[0]?.[2], {
+			mailboxId: "mm-src-zzz",
+			uid: 10,
+			status: "active",
+			syncStatus: "abandoned",
+			abandonedMutation: "move",
+		});
+		assert.equal(
+			logLines.filter(
+				(line) =>
+					line.fields.alert === "message_move_paused_placement_unproven",
+			).length,
+			1,
+			"a placement the server never settled is an operator's to adjudicate",
+		);
+	});
+
+	// The taxonomy `message-copy.ts` already applies: an evidence-free
+	// redelivery is broken, not settled. With no Message-ID header neither
+	// folder was asked, and silence is not an answer to write `synced` on.
+	it("settles a redelivered paused move broken when neither folder can be asked", async () => {
+		const { transitionCalls } = await arrangePausedMove({
+			probeable: false,
+		});
+
+		await handleMessageMove(
+			event,
+			capturingLogger(),
+			2,
+			moveDeps(holdingConnection({})),
+		);
+
+		assert.equal(
+			(transitionCalls[0]?.[2] as { syncStatus?: string })?.syncStatus,
+			"abandoned",
+		);
+		assert.equal(
+			logLines.filter(
+				(line) =>
+					line.fields.alert === "message_move_paused_placement_unproven",
+			).length,
+			1,
+		);
+	});
+
+	// The user's move was silently dropped. Nothing throws, nothing alerts and
+	// the row reads settled, so the only trace it ever leaves is this metric —
+	// the counterpart of copy's `message_copy_not_landed`.
+	it("counts a paused move the server was never told about", async () => {
+		await arrangePausedMove();
+
+		await handleMessageMove(event, capturingLogger(), 1, moveDeps());
+
+		const dropped = logLines.filter(
+			(line) => line.fields.metric === "message_move_dropped_on_pause",
+		);
+		assert.equal(dropped.length, 1);
+		assert.equal(dropped[0]?.level, "warn");
+	});
+
+	// Issue #1122 on the same path. The destination already held an older copy
+	// of this Message-ID and the MOVE never ran, so the destination hit is not
+	// this message. The source is asked first for exactly that reason, and its
+	// answer ends it.
+	it("never binds a redelivered paused move to an older copy while the source still answers", async () => {
+		const { transitionCalls, updateUidCalls } = await arrangePausedMove();
+
+		await handleMessageMove(
+			event,
+			silentLogger,
+			2,
+			moveDeps(holdingConnection({ INBOX: [4], Archive: [12] })),
+		);
+
+		assert.equal(updateUidCalls.length, 0);
+		assert.deepEqual(transitionCalls[0]?.[2], {
+			mailboxId: "mm-src-zzz",
+			uid: 10,
+			status: "active",
+			syncStatus: "synced",
+			abandonedMutation: "none",
+		});
+	});
+
 	it("acks without connecting when the message row is already gone", async () => {
 		const client = await getClient();
 		mock.method(client.account, "get", async () => cappedAccount());
@@ -343,7 +631,90 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 	});
 });
 
-describe("searchMailboxByMessageId — the probe that binds a move to a UID (#912)", () => {
+describe("probePausedPlacement — which folder a paused mutation left the message in (#1203)", () => {
+	const buildConnection = (
+		holdings: Record<string, number[]>,
+	): { connection: IImapConnection; opened: string[] } => {
+		const opened: string[] = [];
+		let current = "";
+		return {
+			opened,
+			connection: {
+				openBox: async (path: string) => {
+					opened.push(path);
+					current = path;
+					return {} as never;
+				},
+				search: async () => holdings[current] ?? [],
+			} as unknown as IImapConnection,
+		};
+	};
+
+	const probe = (holdings: Record<string, number[]>) => {
+		const { connection, opened } = buildConnection(holdings);
+		return {
+			opened,
+			result: probePausedPlacement(connection, {
+				messageIdHeader: "<paused@example.com>",
+				sourceMailboxPath: "INBOX",
+				destinationMailboxPath: "Archive",
+			}),
+		};
+	};
+
+	it("stops at the source and never asks the destination when the source still holds it", async () => {
+		const { opened, result } = probe({ INBOX: [4], Archive: [12] });
+
+		assert.deepStrictEqual(await result, { kind: "at-source" });
+		assert.deepStrictEqual(
+			opened,
+			["INBOX"],
+			"a source hit ends it: with the mutation unrun, every destination hit is an older copy (#1122)",
+		);
+	});
+
+	it("answers the destination's highest matching uid once the source has let go", async () => {
+		const { result } = probe({ INBOX: [], Archive: [12, 77] });
+
+		assert.deepStrictEqual(await result, { kind: "at-destination", uid: 77 });
+	});
+
+	it("answers gone when neither folder holds it", async () => {
+		assert.deepStrictEqual(await probe({}).result, { kind: "gone" });
+	});
+
+	it("answers gone, not at-source, when there is no destination to ask", async () => {
+		const { connection, opened } = buildConnection({ INBOX: [] });
+
+		assert.deepStrictEqual(
+			await probePausedPlacement(connection, {
+				messageIdHeader: "<paused@example.com>",
+				sourceMailboxPath: "INBOX",
+				destinationMailboxPath: undefined,
+			}),
+			{ kind: "gone" },
+		);
+		assert.deepStrictEqual(opened, ["INBOX"]);
+	});
+
+	// A row with no Message-ID header cannot be asked about, and the server's
+	// silence is not an answer. `unprobeable` keeps that distinct from `gone`.
+	it("asks nothing at all when the row carries no Message-ID header", async () => {
+		const { connection, opened } = buildConnection({ INBOX: [4] });
+
+		assert.deepStrictEqual(
+			await probePausedPlacement(connection, {
+				messageIdHeader: undefined,
+				sourceMailboxPath: "INBOX",
+				destinationMailboxPath: "Archive",
+			}),
+			{ kind: "unprobeable" },
+		);
+		assert.deepStrictEqual(opened, []);
+	});
+});
+
+describe("searchMailboxForHighestMessageIdUid — the probe that binds a move to a UID (#912)", () => {
 	const isMessageIdCriterion = (
 		criterion: unknown,
 	): criterion is [string, string, string] =>
@@ -381,7 +752,7 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 			},
 		} as unknown as IImapConnection;
 
-		await searchMailboxByMessageId(
+		await searchMailboxForHighestMessageIdUid(
 			destination,
 			"Archive",
 			'<a"b@example.com>\r\nUID 1',
@@ -392,14 +763,14 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 		]);
 	});
 
-	it("answers null, not the lowest UID, when the folder holds no such message", async () => {
+	it("answers null, not another message's UID, when the folder holds no such message", async () => {
 		const destination = buildDestination([
 			{ uid: 11, messageIdHeader: "<stranger-a@example.com>" },
 			{ uid: 12, messageIdHeader: "<stranger-b@example.com>" },
 		]);
 
 		assert.strictEqual(
-			await searchMailboxByMessageId(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
@@ -415,12 +786,51 @@ describe("searchMailboxByMessageId — the probe that binds a move to a UID (#91
 		]);
 
 		assert.strictEqual(
-			await searchMailboxByMessageId(
+			await searchMailboxForHighestMessageIdUid(
 				destination,
 				"Archive",
 				"<moved@example.com>",
 			),
 			12,
+		);
+	});
+
+	// Issue #1122. The folder already held an older copy of this Message-ID — a
+	// sieve `fileinto` + `keep`, a resend, an earlier copy of the same message —
+	// and the uid this probe hands back settles the row the fresh copy lives in.
+	// Answering 12 binds that row to mail this operation never touched and
+	// leaves the copy that just arrived unreachable by any later delete.
+	it("answers the newest copy's UID when the folder already held an older copy of it", async () => {
+		const destination = buildDestination([
+			{ uid: 12, messageIdHeader: "<moved@example.com>" },
+			{ uid: 40, messageIdHeader: "<moved@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxForHighestMessageIdUid(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			40,
+		);
+	});
+
+	// RFC 3501 does not order a SEARCH response, so the fresh copy is the
+	// highest uid returned rather than the last one returned.
+	it("takes the highest match whatever order the server lists them in", async () => {
+		const destination = buildDestination([
+			{ uid: 40, messageIdHeader: "<moved@example.com>" },
+			{ uid: 12, messageIdHeader: "<moved@example.com>" },
+		]);
+
+		assert.strictEqual(
+			await searchMailboxForHighestMessageIdUid(
+				destination,
+				"Archive",
+				"<moved@example.com>",
+			),
+			40,
 		);
 	});
 });

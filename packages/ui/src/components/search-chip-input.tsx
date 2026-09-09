@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { resolveAgainstOverlays } from "../lib/overlay-scope.js";
 import type { ComboboxProps } from "../lib/use-suggest-list.js";
 import {
 	type ChipFocusTarget,
@@ -323,6 +324,10 @@ export const SearchChipInput = ({
 				return;
 			}
 			if (isEditableTarget(event.target)) return;
+			// The field is behind whatever is on top of it: an open overlay either
+			// answers the key or contains it, and focusing a field under a modal is
+			// neither (#959).
+			if (resolveAgainstOverlays("focusSearch")) return;
 			event.preventDefault();
 			inputRef.current?.focus();
 		};

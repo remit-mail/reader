@@ -9,10 +9,19 @@
  * days without a seam.
  */
 import {
+	AgendaComposer,
+	type AgendaDensity,
+	AgendaDensityControl,
+	AgendaFlow,
+	AgendaPhraseField,
+	type AgendaScrollTarget,
+	addDays,
 	Button,
 	CalendarDateNav,
 	type CalendarEventData,
+	CalendarGrid,
 	CalendarList,
+	type CalendarSlotPick,
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type CustomRecurrence,
@@ -20,6 +29,7 @@ import {
 	CustomRecurrenceEditor,
 	cn,
 	type Density,
+	datesBetween,
 	defaultCustomRecurrence,
 	defaultEndDate,
 	EventDetail,
@@ -28,7 +38,15 @@ import {
 	EventSuggestionCard,
 	FlowScreen,
 	FooterNav,
+	type FreeStretch,
+	FreeTimeList,
 	formatCustomRecurrence,
+	formatMinute,
+	freeAhead,
+	monthLabel,
+	NextUpCard,
+	PhraseReading,
+	PositionMap,
 	ReadingPane,
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
@@ -36,6 +54,7 @@ import {
 	ResizablePanel,
 	ResizablePanelGroup,
 	readCustomRecurrence,
+	readNextUp,
 	type ThreadData,
 	useContainerWidth,
 } from "@remit/ui";
@@ -48,23 +67,7 @@ import {
 	Wand2,
 } from "lucide-react";
 import { type ReactNode, useMemo, useRef, useState } from "react";
-import {
-	AgendaComposer,
-	AgendaPhraseField,
-	PhraseReading,
-} from "../components/agenda-composer.js";
-import {
-	type AgendaDensity,
-	AgendaFlow,
-	type AgendaScrollTarget,
-} from "../components/agenda-flow.js";
-import {
-	AgendaDensityControl,
-	FreeTimeList,
-	NextUpCard,
-	PositionMap,
-} from "../components/agenda-panels.js";
-import { CalendarGrid, type SlotPick } from "../components/calendar-grid.js";
+import { AttendeeContextCard } from "../components/attendee-context.js";
 import {
 	EVENT_WIZARD_LAST_STEP,
 	EVENT_WIZARD_STEPS,
@@ -95,15 +98,6 @@ import {
 	STRIP_LAST_DATE,
 } from "../fixtures/calendar-agenda.js";
 import { type ChoicePicks, parseAgendaPhrase } from "../lib/agenda-phrase.js";
-import {
-	addDays,
-	datesBetween,
-	type FreeStretch,
-	formatMinute,
-	freeAhead,
-	monthLabel,
-	readNextUp,
-} from "../lib/agenda-time.js";
 import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
@@ -146,7 +140,7 @@ function emptyDraft(): EventDraft {
 	};
 }
 
-function draftFromSlot(pick: SlotPick): EventDraft {
+function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 	return {
 		...emptyDraft(),
 		date: pick.date,
@@ -245,7 +239,8 @@ type Flow =
 	| "event"
 	| "calendars"
 	| "suggestions"
-	| "thread";
+	| "thread"
+	| "attendee";
 
 /** A reading the reader has just dropped, and what was offered along with it. */
 interface DroppedSuggestion {
@@ -282,8 +277,11 @@ export interface CalendarAgendaProps {
 	phrase?: string;
 	/** Answers a reading the phrase left open, so a story can show the other one. */
 	picks?: ChoicePicks;
-	/** Opens the phone flow a story is about. A thread is opened, not seeded. */
-	flow?: Exclude<Flow, "thread">;
+	/**
+	 * Opens the phone flow a story is about. A thread and a guest are opened
+	 * from the screen that names them, not seeded.
+	 */
+	flow?: Exclude<Flow, "thread" | "attendee">;
 	/**
 	 * Opens the mail behind a thread id, which is the only way to show one the
 	 * mailbox no longer has.
@@ -323,6 +321,7 @@ export function CalendarAgenda({
 		useState<EventSuggestion[]>(agendaSuggestions);
 	const [dropped, setDropped] = useState<DroppedSuggestion | null>(null);
 	const [rules, setRules] = useState<string[]>([]);
+	const [zones, setZones] = useState<Record<string, string>>({});
 	const [selected, setSelected] = useState(selectedEventId);
 	const [visible, setVisible] = useState(
 		() =>
@@ -346,6 +345,7 @@ export function CalendarAgenda({
 	);
 	const [threadFrom, setThreadFrom] = useState<Flow>(initialFlow);
 	const [openThreadId, setOpenThreadId] = useState(initialThreadId);
+	const [activeAttendee, setActiveAttendee] = useState("");
 	const [step, setStep] = useState(initialStep);
 	const [customRule, setCustomRule] = useState<CustomRecurrence | null>(() =>
 		customRepeat === "open" ? defaultCustomRecurrence(draft.date) : null,
@@ -374,6 +374,9 @@ export function CalendarAgenda({
 	);
 	const selectedEvent = events.find((event) => event.id === selected);
 	const openedThread = threadFor(openThreadId);
+	const openedGuest = selectedEvent?.attendees.find(
+		(guest) => guest.email === activeAttendee,
+	);
 	const isMuted = (suggestion: EventSuggestion) =>
 		rules.includes(suggestion.senderAddress);
 	const visibleSuggestions = suggestions.filter(
@@ -434,7 +437,7 @@ export function CalendarAgenda({
 		setDraft(draftFromPhrase(phrase, next));
 	};
 
-	const openSlot = (pick: SlotPick) => {
+	const openSlot = (pick: CalendarSlotPick) => {
 		setPhrase("");
 		setPicks({});
 		setExpanded(false);
@@ -459,7 +462,23 @@ export function CalendarAgenda({
 	const openEvent = (eventId: string) => {
 		setSelected(eventId);
 		setOpenThreadId("");
+		setActiveAttendee("");
 		if (isPhone) setFlow("event");
+	};
+
+	/**
+	 * A guest is a correspondent, so their name on an event is a way into what
+	 * they have written. On a desktop the row opens what they wrote underneath
+	 * it; a thumb gets a screen rather than a card sitting under the finger.
+	 */
+	const openGuest = (email: string) => {
+		setActiveAttendee(email);
+		if (isPhone && email !== "") setFlow("attendee");
+	};
+
+	const closeGuest = () => {
+		setActiveAttendee("");
+		setFlow("event");
 	};
 
 	/**
@@ -569,16 +588,17 @@ export function CalendarAgenda({
 		);
 	};
 
-	const acceptSuggestion = (suggestion: EventSuggestion) => {
+	const acceptSuggestion = (suggestion: EventSuggestion, timeZone: string) => {
 		const id = `evt_from_${suggestion.id}`;
-		setEvents((previous) => [...previous, eventFromSuggestion(suggestion, id)]);
+		const promoted = eventFromSuggestion(suggestion, id, timeZone);
+		setEvents((previous) => [...previous, promoted]);
 		setSuggestions((previous) =>
 			previous.filter((item) => item.id !== suggestion.id),
 		);
 		setSelected(id);
 		setOpenThreadId("");
 		setFlow("none");
-		goTo(suggestion.start.slice(0, 10));
+		goTo(promoted.start.slice(0, 10));
 	};
 
 	const deleteSelected = (event: CalendarEventData) => {
@@ -600,6 +620,8 @@ export function CalendarAgenda({
 				colorByCalendarId={colorByCalendarId}
 				density={gridDensity}
 				selectedEventId={selected}
+				timeZone={HOME_ZONE}
+				now={NOW_ISO}
 				onSelectEvent={openEvent}
 				onPickSlot={openSlot}
 				onRangeChange={() => undefined}
@@ -610,6 +632,7 @@ export function CalendarAgenda({
 	const strip = (
 		<AgendaFlow
 			days={days}
+			calendars={calendars}
 			density={density}
 			today={TODAY}
 			focusDate={focusDate}
@@ -637,6 +660,7 @@ export function CalendarAgenda({
 					<div className="border-b border-line bg-surface-sunken p-3">
 						<NextUpCard
 							nextUp={nextUp}
+							calendars={calendars}
 							today={TODAY}
 							onSelectEvent={openEvent}
 							onGoTo={goTo}
@@ -696,7 +720,14 @@ export function CalendarAgenda({
 					key={suggestion.id}
 					suggestion={suggestion}
 					whenText={formatSuggestionWhen(suggestion)}
-					onAdd={() => acceptSuggestion(suggestion)}
+					zoneChoice={zones[suggestion.id] ?? ""}
+					onZoneChoice={(timeZone) =>
+						setZones((previous) => ({
+							...previous,
+							[suggestion.id]: timeZone,
+						}))
+					}
+					onAdd={(timeZone) => acceptSuggestion(suggestion, timeZone)}
 					onReview={() => goTo(suggestion.start.slice(0, 10))}
 					onDismiss={() => dropSuggestion(suggestion)}
 					onOpenThread={() => openThread(suggestion.threadId)}
@@ -779,6 +810,11 @@ export function CalendarAgenda({
 						: () => openThread(selectedEvent.threadId)
 				}
 				onClose={onClose}
+				activeAttendee={activeAttendee}
+				onActivateAttendee={openGuest}
+				renderAttendeeContext={(guest) => (
+					<AttendeeContextCard attendee={guest} className="w-full" />
+				)}
 			/>
 		) : null;
 
@@ -955,7 +991,26 @@ export function CalendarAgenda({
 	const phoneFlow = (): ReactNode => {
 		if (flow === "editor") return editorFlow();
 
-		if (flow === "event" && selectedEvent) {
+		if (flow === "attendee" && openedGuest)
+			return (
+				<FlowScreen
+					anchor="container"
+					title={openedGuest.name}
+					subtitle={openedGuest.email}
+					steps={["Guest"]}
+					activeStep={0}
+					onBack={closeGuest}
+					onExit={closeGuest}
+				>
+					<AttendeeContextCard
+						attendee={openedGuest}
+						className="w-full border-0 p-0"
+					/>
+				</FlowScreen>
+			);
+
+		/** A guest who is no longer on the event leaves the event itself open. */
+		if ((flow === "event" || flow === "attendee") && selectedEvent) {
 			const calendar =
 				calendarsById.get(selectedEvent.calendarId) ?? calendars[0];
 			return (
@@ -1001,6 +1056,9 @@ export function CalendarAgenda({
 								? undefined
 								: () => openThread(selectedEvent.threadId)
 						}
+						activeAttendee={activeAttendee}
+						onActivateAttendee={openGuest}
+						touch
 					/>
 				</FlowScreen>
 			);
@@ -1182,6 +1240,7 @@ export function CalendarAgenda({
 						<>
 							<NextUpCard
 								nextUp={nextUp}
+								calendars={calendars}
 								today={TODAY}
 								onSelectEvent={openEvent}
 								onGoTo={goTo}

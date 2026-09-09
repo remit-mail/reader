@@ -5,11 +5,9 @@
  * appointment prompt over an unrelated conflict. A 409 without one of these
  * codes is somebody else's error and keeps today's banner.
  */
-import type {
-	ApiError,
-	RemitImapCanonicalMailboxRole,
-} from "@remit/api-http-client/types.gen.ts";
+import type { RemitImapCanonicalMailboxRole } from "@remit/api-http-client/types.gen.ts";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
+import { type CodedApiErrorBody, codedApiErrorBody } from "@/lib/api";
 
 /** Why the role is unresolved, as the API's `details.reason` spells it. */
 export type FolderRoleRefusalReason = "none" | "stale" | "unconfirmed";
@@ -29,18 +27,8 @@ const REASONS: ReadonlySet<string> = new Set<FolderRoleRefusalReason>([
 
 const ROLES: ReadonlySet<string> = new Set(Object.values(CanonicalMailboxRole));
 
-/**
- * The wire body as `handleError` emits it — flat, so `code` and `details` sit
- * at the top level. Everything is re-checked at runtime: this is a network
- * boundary, and the type only says what the contract promises.
- */
-const bodyOf = (error: unknown): Partial<ApiError> | undefined =>
-	typeof error === "object" && error !== null
-		? (error as Partial<ApiError>)
-		: undefined;
-
 const stringAt = (
-	details: ApiError["details"],
+	details: CodedApiErrorBody["details"],
 	key: string,
 ): string | undefined => {
 	const value = details?.[key];
@@ -55,10 +43,10 @@ const stringAt = (
 export const isFolderRoleRefusal = (
 	error: unknown,
 ): FolderRoleRefusal | undefined => {
-	const body = bodyOf(error);
+	const body = codedApiErrorBody(error);
 	if (body?.code !== "folder_role_unresolved") return undefined;
 	const { details } = body;
-	if (typeof details !== "object" || details === null) return undefined;
+	if (!details) return undefined;
 	const reason = stringAt(details, "reason");
 	const role = stringAt(details, "role");
 	const accountId = stringAt(details, "accountId");
@@ -78,4 +66,4 @@ export const isFolderRoleRefusal = (
  * one, retrying does not.
  */
 export const isMailboxNotSettledRefusal = (error: unknown): boolean =>
-	bodyOf(error)?.code === "mailbox_not_settled";
+	codedApiErrorBody(error)?.code === "mailbox_not_settled";

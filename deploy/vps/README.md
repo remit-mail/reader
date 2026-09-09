@@ -68,17 +68,24 @@ remit doctor              # whether anything is wrong; non-zero when it is
 remit logs [service…]     # follow the logs
 remit restart             # apply an edit to .env
 remit update              # install the current release, atomically
-remit update --check      # what is available, changing nothing
+remit update --check      # what is available, changing nothing (stack must be up)
 remit down                # stop serving; remit restart brings it back
+remit semantic            # whether semantic search is on, and how
+remit semantic on         # turn it on (downloads a model image; see Search)
+remit semantic off        # turn it back off; stored vectors are kept
 remit config              # the effective configuration, secrets redacted
+remit config save <file>  # every setting to <file>, before a drop; no password
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
 remit purge --yes         # destroy the deployment, data included
 remit probe-host <origin> # check how a name resolves from this box
 ```
 
-When `/usr/local/bin` is writable the installer puts `remit` there; otherwise it
-stays in the install directory and the installer prints the one-line `sudo cp`
-that places it on PATH. `$REMIT_DIR` points it at a different install directory.
+When `/usr/local/bin` is writable the installer puts a one-line shim there that
+execs the install directory's own `remit`; otherwise nothing goes on PATH and
+the installer prints the one-line `sudo ln` that places it. It is a pointer
+rather than a copy because `remit update` installs each release's wrapper into
+the install directory, and a copy would keep answering with the release it was
+taken from. `$REMIT_DIR` points it at a different install directory.
 
 `.env`'s `REMIT_PROJECT` names the Compose project, and containers, volumes and
 the network all carry that name. Two install directories with the same project
@@ -168,7 +175,8 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `apisix` | `ghcr.io/remit-mail/reader/apisix` | Edge JWT gate, with the generated route table baked in. |
 | `web` | `ghcr.io/remit-mail/reader/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
-| `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, send outgoing mail, and build the search index. |
+| `imap-worker`, `smtp-worker`, `account-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, and send outgoing mail. |
+| `search-index-worker` | `ghcr.io/remit-mail/reader/search-index-worker` | Off by default (`profiles: ["semantic"]`). Embeds message bodies into the vector store. Turned on with `remit semantic on`. See [Search](#search). |
 | `scheduler` | `ghcr.io/remit-mail/reader/imap-worker` (command override) | The periodic mailbox-sync tick: enqueues a sync for every account whose last one is older than `MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS`. This is what fetches mail when no browser is open. See [Mail sync cadence](#mail-sync-cadence). |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [maintenance.md](maintenance.md). |
@@ -186,9 +194,60 @@ file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
 (see [Backups](#backups)).
 
-Every Node service runs under a 512 MB V8 heap ceiling. Move it with
-`REMIT_NODE_HEAP_MB` in `.env`; raise it on a larger box if indexing a big
-mailbox runs out of memory. The containers carry no hard memory limit.
+Every Node service runs under a 512 MB V8 heap ceiling, moved with
+`REMIT_NODE_HEAP_MB` in `.env`. It bounds JavaScript objects and nothing else,
+so it is not the answer to a worker that runs out of memory while indexing —
+see [Indexing on a small box](#indexing-on-a-small-box). The containers carry no
+hard memory limit: one would turn a slow job into an OOM kill.
+
+### Indexing on a small box
+
+Only on an instance that ran `remit semantic on` — see [Search](#search).
+
+The `search-index-worker` holds the embedding model, and the model, its
+inference arenas and its per-batch tensors are all allocated by onnxruntime,
+outside the V8 heap the ceiling above bounds. A first index of a large mailbox
+is the job that can exhaust a 4 GB box, and the kernel then picks its OOM victim
+by size — usually the backend, not the indexer.
+
+So the worker bounds itself. It starts at the smallest batch with one inference
+in flight and measures two numbers after every batch: the box's free memory, and
+its own resident size. Both matter. Free memory says whether the rest of the
+stack still has room; the worker's own size says whether it is the reason it
+does not — and that one a shed cannot walk back, because onnxruntime sizes its
+arena to the widest batch it has ever run and keeps it.
+
+Ramping costs three consecutive readings that leave more than 1024 MB free and
+keep the worker under 1536 MB resident. Shedding is immediate at 768 MB free or
+1536 MB resident: it halves the batch, drops back to one inference and paces
+itself. The gap between the two thresholds is deliberate — without it a box
+parked near the line would ramp and shed on alternate batches.
+
+Under 384 MB free it stops and waits rather than pushing the host into swap,
+logging a line and counting `remit_search_index_memory_stalls_total`. That stop
+ends after four minutes and the message goes back on the queue for redelivery,
+because the queue's visibility timeout is five. Each change of plan logs once,
+and `remit_search_index_embed_batch_size` shows where it settled.
+
+The cost is deliberate: a first index uses a large box fully and crawls on a
+small one. Ten variables in `.env` move it, all optional:
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `SEARCH_INDEX_MEMORY_HEADROOM_MB` | `768` | Free memory below which the worker sheds. |
+| `SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB` | `256` | Extra free memory a ramp needs on top of the headroom. |
+| `SEARCH_INDEX_RSS_CEILING_MB` | `1536` | Resident size at which the worker sheds and stops ramping. |
+| `SEARCH_INDEX_MEMORY_CRITICAL_MB` | `384` | Free memory below which indexing stops and waits. Must be below the headroom. |
+| `SEARCH_INDEX_EMBED_BATCH_MIN` | `4` | Chunks per embedding call at the floor, and after shedding. |
+| `SEARCH_INDEX_EMBED_BATCH_MAX` | `32` | Chunks per embedding call at full ramp. |
+| `SEARCH_INDEX_EMBED_CONCURRENCY_MAX` | `2` | Embedding calls in flight at full ramp. |
+| `SEARCH_INDEX_EMBED_RAMP_AFTER` | `3` | Consecutive comfortable readings a ramp costs. |
+| `SEARCH_INDEX_MEMORY_PAUSE_MS` | `2000` | Wait between batches while shedding, and between reads while stopped. |
+| `SEARCH_INDEX_MEMORY_STALL_MAX_MS` | `240000` | How long a stop waits before the message goes back on the queue. Must stay under 300000. |
+
+On a box with memory to spare, raising `SEARCH_INDEX_EMBED_BATCH_MAX`,
+`SEARCH_INDEX_MEMORY_HEADROOM_MB` and `SEARCH_INDEX_RSS_CEILING_MB` together is
+what makes a first index finish sooner.
 
 Each worker's health is a heartbeat. A worker polls one queue per kind of work
 (`imap-worker` six of them), each loop rewrites its own timestamp file on the
@@ -231,13 +290,51 @@ off the sync age.
 
 ## Search
 
-Text search is FTS5 over subjects and senders, and needs no configuration.
+Two searches. Text search is on for every install; semantic search is opt-in.
 
-Free-text semantic search is not served: the `backend` image ships without the
-embedding runtime, so `/search/semantic` returns empty results and the web
-client's "Related" section stays blank. The `search-index-worker` still writes
-embeddings, and the Organize "find similar" widen reads those stored vectors and
-does work.
+**Text search** is FTS5 over subjects and senders. It needs no configuration, no
+extra container and no model, and it covers every message as it syncs.
+
+**Semantic search** stores a vector for every message body. What reads those
+vectors is the semantic widen behind Organize filters — "and anything similar" —
+and semantic (anchor) filters, which match incoming mail against a saved
+example. That is what `remit semantic on` buys.
+
+Free-text semantic search is not served on this deployment either way: the
+`backend` image ships without the embedding runtime, so answering a typed query
+is something no container here can do. `/search/semantic` returns empty results
+and the web client says so — the "Related" and "Similar messages" panels state
+that semantic search is off rather than showing an empty list.
+
+It is off on a new install because of what it costs on the box this deployment
+is sized for. The `search-index-worker` image is ~1.36 GB, of a first-install
+pull that is otherwise ~2.6 GB. On a 2 vCPU box a first index of 30,906 messages
+drained at ~30 messages a minute — about 17 hours — holding ~150-190% CPU
+throughout. That is a once-per-mailbox cost; after it, the worker follows new
+mail. These are the numbers; every other place that mentions the cost points
+here.
+
+Turn it on when you want it:
+
+```bash
+remit semantic on     # writes SEARCH_EMBEDDING_PROVIDER=local and starts the worker
+remit semantic        # print the current state
+remit semantic off    # stop the worker; the vectors already built are kept
+```
+
+`remit status` and `remit doctor` both report the provider, so an Organize widen
+that counts nothing can be told apart from a mailbox with nothing similar in it.
+
+While it is off nothing embeds and nothing indexes, and the model image is never
+pulled. Committed message changes are still recorded in the transactional
+outbox, which is what makes `remit semantic on` index the mail already on the
+box rather than only what arrives afterwards.
+
+The alternative to paying the CPU here is paying it elsewhere: set
+`SEARCH_EMBEDDING_PROVIDER=bedrock` in `.env` and the embedding happens at AWS
+Bedrock, billed per request, with AWS credentials in `.env` and no model on this
+box. `remit semantic on` leaves that setting alone; every other value it
+replaces with `local`.
 
 ## TLS
 
@@ -359,6 +456,11 @@ The app path goes through the `updater` container, which watches a private
 volume the app writes a version string onto and runs this same `remit`. Every
 image reference comes from the manifest the updater fetches itself.
 
+`--check` at a shell goes through that container too. Its answer is kept on the
+updater's volumes — the same ones `remit status` and the app read — so a check
+run beside `.env` would report success and change nothing anyone looks at. The
+stack has to be up for it; `remit update --check` says so when it is not.
+
 The updater also checks the manifest on its own, once at startup and every six
 hours after. Override the cadence with `REMIT_UPDATE_CHECK_INTERVAL` (seconds);
 the check only reports and never installs.
@@ -370,23 +472,32 @@ in order:
 1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
-2. Every image is pulled at the target version. A failure here has touched
-   nothing and a retry is safe.
+2. Every image is pulled at the target version, and the release's own `remit`
+   wrapper and compose file are fetched with them, stamped for this deployment
+   and put through `sh -n` and `docker compose config`. A failure here — a
+   refused pull, a compose file this deployment's `.env` cannot resolve — has
+   touched nothing and a retry is safe.
 3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
-   still live**. The work queue is deliberately not part of the snapshot.
+   still live**, and the wrapper and compose file the deployment carries are
+   snapshotted beside them. The work queue is deliberately not part of the
+   snapshot.
 4. `REMIT_TAG` is written to `.env`, before the stop, so a host that reboots
    mid-update comes back on binaries that match the migrated database.
 5. Every service stops. The instance is offline from here.
-6. Only `queue`, `migrate` and `backend` start, so nothing is served and nothing
+6. The release's wrapper and compose file are installed, so everything below is
+   the release's own definition of this deployment rather than the one it
+   replaces.
+7. Only `queue`, `migrate` and `backend` start, so nothing is served and nothing
    is sent, purged or indexed between the snapshot and the verdict.
-7. The gate: this run's `migrate` exited `0`, every recreated service is up and
+8. The gate: this run's `migrate` exited `0`, every recreated service is up and
    not restarting, every healthcheck reports healthy, and `/health` answers
    three times in a row. 300 seconds, then the update has failed.
-8. On a pass the held-back services start and the update is done. Held back is
+9. On a pass the held-back services start and the update is done. Held back is
    what was running when the run began, so a service you had stopped stays
    stopped; on a box where nothing was running it is the whole always-on stack.
-9. On a failure the snapshot and the previous tag are restored, the gate runs
-   again, and the outcome is `rolledBack`, or `rollbackFailed`.
+10. On a failure the snapshot, the wrapper, the compose file and the previous
+    tag are restored, the gate runs again, and the outcome is `rolledBack`, or
+    `rollbackFailed`.
 
 `remit status` reports the running version, the last check and the last run's
 outcome.
@@ -432,6 +543,31 @@ never locks its own recovery out.
 still on the updater's volume under `snapshots/<runId>/` and the previous
 release's images are still pulled: restore the snapshot over `sqlite_data` as
 uid 1000, put the previous tag back in `.env`, and `remit restart`.
+
+## When a release rekeys stored data
+
+A release can change how a stored id is derived, and thread identity is the one
+that has. A thread is keyed on the account configuration rather than on the
+account, so one conversation held by two connected mailboxes is one thread and a
+reply sent from either account joins it. Rows written before that release were
+keyed the old way and a later sync keys the new way, so the two never meet: the
+conversation stays split, and no amount of resyncing on top of the old rows
+mends it.
+
+There is no backfill. Keep the configuration, drop the mail, let it sync again:
+
+```bash
+remit config save reader-config.json   # accounts, filters, labels, roles, signatures
+remit purge --yes                      # every data volume, mail included
+remit restart
+```
+
+Then sign up again on `PUBLIC_ORIGIN` — set `SELF_SIGN_UP_ENABLED=true` in
+`.env` first if you closed it — import the file from Settings → Advanced, and
+give each account its password again, because the export carries no credential
+and no OAuth token. Mail re-syncs from IMAP.
+
+Every thread URL bookmarked before the drop names an id nothing holds any more.
 
 ## Podman
 
@@ -551,6 +687,18 @@ the service logs at `info`. The queue sidecar has no threshold: it writes only
 remit logs backend | jq -c 'select(.level=="error")'
 remit logs | jq -r 'select(.accountId=="…") | "\(.time) \(.service) \(.msg)"'
 remit logs imap-worker | jq -r 'select(.error) | .error.stack // .stack // .error'
+```
+
+An auth request the rate limiter turned away writes one `warn` line,
+`Auth request rate limited`, carrying `endpoint`, `method`, `clientIp` and
+`retryAfterSeconds`. The limits are per address, so `clientIp` says whether one
+caller is looping or a whole office behind one NAT is sharing a budget; a
+`clientIp` of `unresolved` means the edge did not set `x-remit-client-ip` and
+every caller is on one bucket. The `BETTER_AUTH_RATE_LIMIT_*` variables set the
+ceilings.
+
+```bash
+remit logs backend | jq -c 'select(.msg=="Auth request rate limited")'
 ```
 
 ## Is anything wrong: `remit doctor`

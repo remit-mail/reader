@@ -44,7 +44,7 @@ describe("DrizzleMessageRepository", () => {
 		await stop();
 	});
 
-	describe("create — writes message + outbox row in one transaction", () => {
+	describe("create — writes the message row only", () => {
 		test("creates a message and returns MessageItem", async () => {
 			const item = await messageRepo.create(BASE_MESSAGE_INPUT);
 			assert.equal(item.messageId, MESSAGE_ID);
@@ -56,16 +56,14 @@ describe("DrizzleMessageRepository", () => {
 			assert.ok(typeof item.updatedAt === "number");
 		});
 
-		test("writes an outbox row in the same transaction", async () => {
+		test("writes no outbox row — there is nothing to index before the body", async () => {
 			const { outboxTable } = await import("../schema/message-data.js");
 			const { eq } = await import("drizzle-orm");
 			const rows = await db
 				.select()
 				.from(outboxTable)
 				.where(eq(outboxTable.messageId, MESSAGE_ID));
-			assert.ok(rows.length >= 1, "should have at least 1 outbox row");
-			assert.equal(rows[0].event, "message.created");
-			assert.deepStrictEqual(rows[0].payload, { messageId: MESSAGE_ID });
+			assert.equal(rows.length, 0);
 		});
 
 		test("duplicate messageId throws CreateFailedConflictError and writes no extra outbox row", async () => {
@@ -197,13 +195,18 @@ describe("DrizzleMessageRepository", () => {
 		});
 
 		test("returns the moved message with new mailbox and pending status", async () => {
-			const moved = await messageRepo.updateForMove(MOVE_MESSAGE_ID, {
-				mailboxId: DEST_MAILBOX_ID,
-				status: "moving",
-				syncStatus: "pending",
-				originalMailboxId: SOURCE_MAILBOX_ID,
-				originalUid: 7,
-			});
+			const moved = await messageRepo.transitionPlacement(
+				MOVE_MESSAGE_ID,
+				{ status: "active", mailboxId: SOURCE_MAILBOX_ID, uid: 7 },
+				{
+					mailboxId: DEST_MAILBOX_ID,
+					status: "moving",
+					syncStatus: "pending",
+					originalMailboxId: SOURCE_MAILBOX_ID,
+					originalUid: 7,
+				},
+			);
+			assert.ok(moved);
 			assert.equal(moved.mailboxId, DEST_MAILBOX_ID);
 			assert.equal(moved.status, "moving");
 			assert.equal(moved.syncStatus, "pending");
@@ -279,16 +282,25 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(rows[0].processedAt, null, "event starts undrained");
 		});
 
-		test("updateForMove throws NotFoundError for unknown messageId", async () => {
-			await assert.rejects(
-				() =>
-					messageRepo.updateForMove("00000000-0000-0000-9999-000000000001", {
-						mailboxId: DEST_MAILBOX_ID,
-					}),
-				(err: Error) => {
-					assert.equal(err.name, "NotFoundError");
-					return true;
-				},
+		test("updateUid drops the source uid and keeps the folder Undo restores to", async () => {
+			// `originalUid` says the row's `uid` was recorded under
+			// `originalMailboxId`. The confirmation above makes that untrue, and a
+			// leftover that happens to equal the destination's own uid — two
+			// independent per-folder counters, so a routine collision — reads as an
+			// unsettled placement for the rest of the row's life (#1217).
+			const read = await messageRepo.get(MOVE_MESSAGE_ID);
+			assert.equal(read.originalUid, undefined);
+			assert.equal(read.originalMailboxId, SOURCE_MAILBOX_ID);
+		});
+
+		test("the optimistic move answers undefined for an unknown messageId", async () => {
+			assert.equal(
+				await messageRepo.transitionPlacement(
+					"00000000-0000-0000-9999-000000000001",
+					{ status: "active" },
+					{ mailboxId: DEST_MAILBOX_ID },
+				),
+				undefined,
 			);
 		});
 

@@ -31,6 +31,16 @@ export type MailListRoute =
 	| { list: "mailbox"; mailboxId: string | undefined };
 
 /**
+ * The list a caller is on, flattened to the two values a navigation to it — or
+ * a decision about it — needs. Both are primitives, so a caller holding them in
+ * a dependency array settles, and `list` is `undefined` outside the mail shell.
+ */
+export interface BrowsedList {
+	list: MailListRoute["list"] | undefined;
+	mailboxId: string | undefined;
+}
+
+/**
  * The list layout among the matched routes, or `undefined` outside the mail
  * shell.
  *

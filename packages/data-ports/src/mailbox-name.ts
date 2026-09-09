@@ -24,6 +24,31 @@ export const mailboxLeafName = (mailbox: MailboxPath): string => {
 	return parts[parts.length - 1] || mailbox.fullPath;
 };
 
+/**
+ * Where a path under a renamed folder lands, or `undefined` when the rename did
+ * not move it. IMAP RENAME moves the whole subtree in one command, so a path
+ * inside the renamed branch moves exactly as far as its prefix does, and a path
+ * merely starting with the same characters (`Workshop` beside `Work`) does not
+ * move at all.
+ *
+ * Sliced rather than replaced. `String.prototype.replace` with a string pattern
+ * expands `$&`, `` $` ``, `$'` and `$$` in the replacement, so a rename to a
+ * folder whose name contains one of those wrote a different path locally from
+ * the one the RENAME carried to the server — the row and the server diverge and
+ * the next sweep inserts a second row for the real path.
+ */
+export const rebaseMailboxPath = (
+	recorded: string,
+	oldPath: string,
+	newPath: string,
+	delimiter: string,
+): string | undefined => {
+	if (recorded === oldPath) return newPath;
+	if (delimiter.length === 0) return undefined;
+	if (!recorded.startsWith(`${oldPath}${delimiter}`)) return undefined;
+	return `${newPath}${recorded.slice(oldPath.length)}`;
+};
+
 const rank = (
 	mailbox: MailboxNameCandidate,
 	names: readonly string[],

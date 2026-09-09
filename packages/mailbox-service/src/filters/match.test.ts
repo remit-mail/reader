@@ -8,6 +8,7 @@ import {
 	cosineSimilarity,
 	type FilterMessage,
 	literalClausesMatch,
+	literalClauseTerms,
 	selectMoveWinner,
 } from "./match.js";
 
@@ -285,5 +286,108 @@ describe("buildMatchText", () => {
 			message({ subject: "", text: "x".repeat(1000) }),
 		);
 		assert.equal(text.length, 512);
+	});
+});
+
+describe("literalClauseTerms (reader #459)", () => {
+	it("narrows From and Subject onto the columns that carry them", () => {
+		assert.deepEqual(
+			literalClauseTerms(
+				[
+					clause(FilterClauseField.From, " alice@acme.example "),
+					clause(FilterClauseField.Subject, "invoice"),
+				],
+				FilterMatchOperator.And,
+			),
+			{
+				terms: [
+					{ field: "sender", contains: "alice@acme.example" },
+					{ field: "subject", contains: "invoice" },
+				],
+				operator: "and",
+			},
+		);
+	});
+
+	it("narrows FromDomain to the registrable domain, which the sender always contains", () => {
+		const narrowing = literalClauseTerms(
+			[clause(FilterClauseField.FromDomain, "billing@mail.acme.example")],
+			FilterMatchOperator.And,
+		);
+
+		assert.deepEqual(narrowing?.terms, [
+			{ field: "sender", contains: "acme.example" },
+		]);
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.FromDomain, "billing@mail.acme.example"),
+				message(),
+			),
+			true,
+		);
+	});
+
+	it("narrows ListId to its canonical form", () => {
+		assert.deepEqual(
+			literalClauseTerms(
+				[clause(FilterClauseField.ListId, "News <Weekly.News.Example.com>")],
+				FilterMatchOperator.And,
+			)?.terms,
+			[{ field: "listId", contains: "weekly.news.example.com" }],
+		);
+	});
+
+	it("returns null for clauses nothing can satisfy, so no query is worth running", () => {
+		assert.equal(
+			literalClauseTerms(
+				[clause(FilterClauseField.From, "   ")],
+				FilterMatchOperator.And,
+			),
+			null,
+		);
+		assert.equal(
+			literalClauseTerms(
+				[clause(FilterClauseField.FromDomain, "not a domain")],
+				FilterMatchOperator.Or,
+			),
+			null,
+		);
+	});
+
+	it("drops an unsatisfiable clause from an Or instead of losing the rest", () => {
+		assert.deepEqual(
+			literalClauseTerms(
+				[
+					clause(FilterClauseField.From, ""),
+					clause(FilterClauseField.Subject, "invoice"),
+				],
+				FilterMatchOperator.Or,
+			),
+			{ terms: [{ field: "subject", contains: "invoice" }], operator: "or" },
+		);
+	});
+
+	it("narrows nothing when an Or reaches a clause no column carries", () => {
+		assert.deepEqual(
+			literalClauseTerms(
+				[
+					clause(FilterClauseField.HasWords, "quarter"),
+					clause(FilterClauseField.Subject, "invoice"),
+				],
+				FilterMatchOperator.Or,
+			),
+			{ terms: [], operator: "or" },
+		);
+	});
+
+	it("narrows nothing for no clauses, matching the vacuous pass of literalClausesMatch", () => {
+		assert.deepEqual(literalClauseTerms([], FilterMatchOperator.And), {
+			terms: [],
+			operator: "and",
+		});
+		assert.equal(
+			literalClausesMatch([], FilterMatchOperator.And, message()),
+			true,
+		);
 	});
 });

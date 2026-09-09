@@ -33,6 +33,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
+import {
+	isMissingPackage,
+	withVersionPropagation,
+} from "./lib/registry-fetch.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
@@ -175,20 +179,27 @@ const freshContentHash = (pkgDir) =>
 		return hashPackageDir(extractedTarballDir(tempDir));
 	});
 
+// The version this compares against was read from the packument a moment ago,
+// which is ahead of the replicas: a publish on main and a pull request's dry run
+// raced, and the run died on a tarball the registry had accepted but not yet
+// served. The pack is retried while that is what ETARGET means, and the last
+// attempt's failure ends the run as before.
 const publishedContentHash = (name, version) =>
 	withTempDir((tempDir) => {
-		run(
-			"npm",
-			[
-				"pack",
-				`${name}@${version}`,
-				"--pack-destination",
-				tempDir,
-				"--loglevel=error",
-			],
-			{
-				cwd: repoRoot,
-			},
+		withVersionPropagation(() =>
+			run(
+				"npm",
+				[
+					"pack",
+					`${name}@${version}`,
+					"--pack-destination",
+					tempDir,
+					"--loglevel=error",
+				],
+				{
+					cwd: repoRoot,
+				},
+			),
 		);
 		return hashPackageDir(extractedTarballDir(tempDir));
 	});
@@ -200,8 +211,7 @@ const registryLatest = (name) => {
 			stdio: ["ignore", "pipe", "pipe"],
 		}).trim();
 	} catch (error) {
-		const text = `${error.stdout ?? ""}${error.stderr ?? ""}`;
-		if (text.includes("E404") || text.includes("404")) return null;
+		if (isMissingPackage(error)) return null;
 		throw error;
 	}
 };

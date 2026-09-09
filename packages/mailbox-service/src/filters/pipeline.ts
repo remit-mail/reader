@@ -6,6 +6,11 @@ import type {
 	IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterState } from "@remit/domain-enums";
+import {
+	isEmbeddingCapabilityAbsence,
+	isEmbeddingCapabilityUnavailable,
+	recordEmbeddingCapabilityAbsence,
+} from "@remit/search-service/capability";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
 	type AnchorEmbedder,
@@ -131,7 +136,29 @@ export class FilterPipeline {
 				messageEmbedding = null;
 				return null;
 			}
-			messageEmbedding = await embedder.embed(buildMatchText(msg));
+			messageEmbedding = await embedder
+				.embed(buildMatchText(msg))
+				.catch((error: unknown) => {
+					// This deployment carries no embedding pipeline at all — the
+					// container images ship without `@huggingface/transformers`. That is
+					// the same absence `SEARCH_EMBEDDING_PROVIDER=off` states, so it takes
+					// the same designed skip rather than an error-level
+					// `filter_anchor_match_failed` per semantic filter per message. The
+					// absence is remembered process-wide, so this is the only embed that
+					// pays for it: `buildFilterConfig` wires no embedder afterwards.
+					if (!isEmbeddingCapabilityAbsence(error)) throw error;
+					if (!isEmbeddingCapabilityUnavailable()) {
+						this.log.warn?.(
+							{
+								accountConfigId,
+								error: inspect(error),
+							},
+							"No embedding pipeline in this deployment; semantic filters are skipped (literal filters still run)",
+						);
+					}
+					recordEmbeddingCapabilityAbsence(error);
+					return null;
+				});
 			return messageEmbedding;
 		};
 

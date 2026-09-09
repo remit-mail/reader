@@ -30,10 +30,10 @@ import {
 	ReadingPaneEmpty,
 	RefreshButton,
 	type RescueCandidate,
+	type ResultCount,
 	type SearchResult,
 } from "@remit/ui";
 import { useInfiniteQuery } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
 import {
 	createContext,
 	type ReactNode,
@@ -88,6 +88,7 @@ import { useToggleReadFor } from "@/hooks/useMarkAsRead";
 import { useMoveMessages } from "@/hooks/useMoveMessages";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
+import { useResultCount } from "@/hooks/useResultCount";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useThreadActions } from "@/hooks/useThreadActions";
@@ -107,10 +108,12 @@ import {
 	sameInboxFilter,
 } from "@/lib/inbox-filters";
 import { junkDestination } from "@/lib/junk-destination";
+import { listNarrowing } from "@/lib/list-narrowing";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
+import { shouldRequestResultCount } from "@/lib/result-count";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import {
 	relatedSearchResults,
@@ -127,11 +130,13 @@ import {
 	type OpenThreadTarget,
 	type ReplyMode,
 	replyToThread,
+	useCloseThread,
+	useGoToSection,
 	useIsComposing,
 	useIsReplying,
 	useOpenCompose,
 	useOpenReply,
-	useRetainOpenPanels,
+	useOpenThread,
 } from "@/routing";
 import { MailViewChrome } from "./MailViewChrome";
 
@@ -155,7 +160,8 @@ interface MailboxPaneContextValue {
 	mailboxAccountId: string | undefined;
 	mailboxAccountLoading: boolean;
 	mailboxName: string | null;
-	unreadCount: number;
+	/** The mailbox's unseen total, or null until it resolves — never a page length. */
+	unreadCount: number | null;
 	isDraftsMailbox: boolean;
 	// Rescue-from-Spam: true on the account's Junk/Spam folder, with the
 	// suspected-safe messages `useRescueCandidates` fetched. Drives the rescue
@@ -172,11 +178,17 @@ interface MailboxPaneContextValue {
 	onToggleFilterAttribute: (id: string) => void;
 	onClearFilters: () => void;
 	/**
-	 * The active category filter as the empty state renders it — its label, the
-	 * way out of it, and how much of the mailbox the request reached. Undefined
-	 * when no category is selected.
+	 * What narrows the list as the empty state renders it — the narrowing named,
+	 * the way out of it, and how much of the mailbox the request reached.
+	 * Undefined when nothing narrows the list.
 	 */
 	listFilter: MessageListFilter | undefined;
+	/**
+	 * The free text the empty state names. The typed tokens narrow the list too,
+	 * but `listFilter` already names them, and a headline saying the same
+	 * narrowing twice reads as two.
+	 */
+	listSearchText: string | undefined;
 	onToggleIntelligence: () => void;
 	/**
 	 * Where the mounted reading surface publishes the intelligence commands the
@@ -201,6 +213,8 @@ interface MailboxPaneContextValue {
 	 * header, not enough to reproduce the query server-side.
 	 */
 	searchPredicate: EscalationSearchQuery | undefined;
+	/** The server's count of the whole match set, for the result header. */
+	resultCount: ResultCount;
 	// List actions
 	onDeleteMessages: (ids: string[]) => void;
 	onMoveMessages: (ids: string[], dest: string) => void;
@@ -213,7 +227,6 @@ interface MailboxPaneContextValue {
 		focusedMessageId: string | undefined;
 		selectedIds: string[];
 		hasList: boolean;
-		blocksKeyboard: boolean;
 	}) => void;
 	/** Where the list publishes the commands the keyboard layer drives. */
 	listCommandsRef: RefObject<MessageListCommands | null>;
@@ -226,6 +239,8 @@ interface MailboxPaneContextValue {
 	onReply: ((mode: ReplyMode) => void) | undefined;
 	onToolbarDelete: () => void;
 	onToolbarStar: () => void;
+	/** Whether the open message is starred, as the conversation reports it. */
+	isStarred: boolean | undefined;
 	onToolbarMove: (destMailboxId: string) => void;
 	// Phone actions
 	onBack: () => void;
@@ -237,14 +252,6 @@ interface MailboxPaneContextValue {
 /** The server's own default page size (`DEFAULT_THREADS_PAGE_SIZE`), sent so the
  *  filtered path pages like the unfiltered one. */
 const THREADS_PAGE_SIZE = 50;
-
-/** Chip id → the label the empty state names the filter by. `all` is absent:
- *  it is how the category is cleared, not a category. */
-const CATEGORY_LABELS = new Map(
-	inboxFilterConfig()
-		.categories.filter((category) => category.id !== "all")
-		.map((category) => [category.id, category.label]),
-);
 
 const MailboxPaneCtx = createContext<MailboxPaneContextValue | null>(null);
 
@@ -270,12 +277,14 @@ function MailboxPaneProvider({
 	thread,
 	children,
 }: MailboxPaneProps) {
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
+	const closeThread = useCloseThread();
+	const goToSection = useGoToSection();
 	const threadId = thread?.threadId;
 	const pointedAtMessageId = thread?.messageId;
 	const telemetry = useTelemetry();
-	const { accounts, searchQuery, onToggleIntelligence } = useMailContext();
+	const { accounts, searchQuery, onToggleIntelligence, onSearchClearQuery } =
+		useMailContext();
 	const tokenContext = useSearchTokenContext();
 
 	const normalizedSearchQuery = normalizeSearchQuery(searchQuery);
@@ -293,6 +302,13 @@ function MailboxPaneProvider({
 		normalizedSearchQuery,
 		tokenContext,
 	);
+	// The same free text in the reader's own casing. The request's copy is folded
+	// to lowercase so equivalent searches share a cache entry; a sentence quoting
+	// the query back to the reader must not be.
+	const typedFreeText = parseSearchTokens(
+		searchQuery.trim(),
+		tokenContext,
+	).freeText;
 
 	const [filterCategory, setFilterCategory] = useState("all");
 	const [filterAttributes, setFilterAttributes] = useState<ReadonlySet<string>>(
@@ -319,14 +335,20 @@ function MailboxPaneProvider({
 		searchTokens,
 		filterParams,
 	);
-	const searchThreadsQuery = {
+	// What the list is asking about, with nothing about paging in it. The count
+	// is a property of the criteria alone, so it keys on this and a page fetch
+	// can never trigger one.
+	const searchCriteria = {
 		order: "desc" as const,
-		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
-		// so switching paths without it multiplies the page size by ten.
-		limit: THREADS_PAGE_SIZE,
 		...(freeText ? { query: freeText } : {}),
 		...tokenParams,
 		...filterParams,
+	};
+	const searchThreadsQuery = {
+		...searchCriteria,
+		// Explicit: an unspecified limit clamps to THREAD_SEARCH_MAX_LIMIT (500),
+		// so switching paths without it multiplies the page size by ten.
+		limit: THREADS_PAGE_SIZE,
 	};
 	// What the request actually narrows by, whoever set it. `placeholderData`
 	// keeps the previous rows only under the same predicate, and a token
@@ -390,6 +412,16 @@ function MailboxPaneProvider({
 				: undefined,
 	});
 
+	const resultCount = useResultCount({
+		mailboxId,
+		criteria: searchCriteria,
+		enabled: shouldRequestResultCount({
+			hasSearchQuery,
+			freeText,
+			residualTokenCount: residualTokens.length,
+		}),
+	});
+
 	const { accountId: mailboxAccountId, isLoading: mailboxAccountLoading } =
 		useMailboxAccount(mailboxId);
 	const mailboxName = useCurrentMailboxName({ accounts });
@@ -427,20 +459,25 @@ function MailboxPaneProvider({
 		setFilterAttributes(new Set());
 	}, []);
 
+	// The empty state's way out has to clear everything its headline names, or
+	// it is a button that leaves the list exactly as narrowed as it found it.
+	const onClearNarrowing = useCallback(() => {
+		onClearFilters();
+		onSearchClearQuery();
+	}, [onClearFilters, onSearchClearQuery]);
+
 	// The empty state has to say how much was read, and the reach comes off the
 	// request rather than the call site: the day a chip is answered over a window
 	// instead of the whole mailbox, the sentence changes with it.
-	const filterLabel = CATEGORY_LABELS.get(filterCategory);
-	const listFilter: MessageListFilter | undefined = filterLabel
-		? {
-				label: filterLabel,
-				reach:
-					residualTokens.length > 0
-						? "loaded-pages"
-						: filterReach(searchThreadsQuery),
-				onClear: onClearFilters,
-			}
-		: undefined;
+	const listFilter: MessageListFilter | undefined = listNarrowing({
+		chips: filterCriteria,
+		tokens: searchTokens,
+		reach:
+			residualTokens.length > 0
+				? "loaded-pages"
+				: filterReach(searchThreadsQuery),
+		onClear: onClearNarrowing,
+	});
 
 	// The row this folder itself lists, preferred because a mutation patches it in
 	// place. A thread the loaded pages do not hold — a chip that paged it out, a
@@ -470,26 +507,6 @@ function MailboxPaneProvider({
 	// Esc unwinds one step at a time: an active selection first (handled by the
 	// triage layer), then the open thread — which is a navigation up to the list,
 	// so nothing is left mounted below it.
-	const closeThread = useCallback(() => {
-		navigate({
-			to: "/mail/$mailboxId",
-			params: { mailboxId },
-			search: (prev) => prev,
-			hash: retainPanels,
-		});
-	}, [mailboxId, navigate, retainPanels]);
-
-	const handleOpenThread = useCallback(
-		(target: OpenThreadTarget) => {
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				params: { mailboxId, ...target },
-				search: (prev) => prev,
-				hash: retainPanels,
-			});
-		},
-		[mailboxId, navigate, retainPanels],
-	);
 
 	const handleDeselectIfRemoved = useCallback(
 		(removedIds: string[]) => {
@@ -529,10 +546,11 @@ function MailboxPaneProvider({
 	// The mailbox's own unseen total. A count over the loaded pages undercounts
 	// every mailbox larger than one page and creeps upward as the user scrolls,
 	// so there is no fallback: until the mailbox resolves there is no number.
-	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? 0;
+	const unreadCount = useCurrentMailboxUnseenCount({ accounts }) ?? null;
 
 	const toolbarActions = useThreadActions({
 		thread: selectedThread,
+		isOpen: true,
 		mailboxId,
 		accountId: mailboxAccountId,
 		onAfterOptimisticRemove: handleDeselectIfRemoved,
@@ -716,13 +734,6 @@ function MailboxPaneProvider({
 		intelligenceRef.current?.open();
 	}, []);
 
-	const goToRoute = useCallback(
-		(to: "/mail/brief" | "/mail/flagged" | "/settings") => {
-			navigate({ to });
-		},
-		[navigate],
-	);
-
 	const mailboxType = isDraftsMailbox
 		? "drafts"
 		: archiveMailboxId === mailboxId
@@ -748,6 +759,7 @@ function MailboxPaneProvider({
 		// would otherwise fire at the message behind whatever is being typed — or
 		// answer a row the cursor moved to while a reply was open.
 		enabled: !isComposing && !isReplying,
+		hasOpenThread: threadId !== undefined,
 		onClose: closeThread,
 		handlers: {
 			reply: triageReply,
@@ -764,11 +776,11 @@ function MailboxPaneProvider({
 				? () => intelligenceRef.current?.toggle()
 				: undefined,
 			compose: openCompose,
-			goBrief: () => goToRoute("/mail/brief"),
-			goInbox: () => goToRoute("/mail/brief"),
-			goSent: () => goToRoute("/mail/brief"),
-			goFlagged: () => goToRoute("/mail/flagged"),
-			goSettings: () => goToRoute("/settings"),
+			goBrief: () => goToSection("brief"),
+			goInbox: () => goToSection("brief"),
+			goSent: () => goToSection("brief"),
+			goFlagged: () => goToSection("flagged"),
+			goSettings: () => goToSection("settings"),
 		},
 	});
 
@@ -788,7 +800,7 @@ function MailboxPaneProvider({
 		selectedMessageId,
 		selectedThread,
 		conversation,
-		onOpenThread: handleOpenThread,
+		onOpenThread: openThread,
 		threads,
 		isLoading,
 		isError,
@@ -806,6 +818,7 @@ function MailboxPaneProvider({
 		onToggleFilterAttribute,
 		onClearFilters,
 		listFilter,
+		listSearchText: typedFreeText || undefined,
 		onToggleIntelligence,
 		intelligenceRef,
 		handleDeselectIfRemoved,
@@ -818,6 +831,7 @@ function MailboxPaneProvider({
 			hasSearchQuery && residualTokens.length === 0
 				? searchThreadsQuery
 				: undefined,
+		resultCount,
 		onDeleteMessages: handleDeleteMessages,
 		onMoveMessages: handleMoveMessages,
 		isDeleting,
@@ -831,6 +845,7 @@ function MailboxPaneProvider({
 		onReply: replyToOpenThread,
 		onToolbarDelete: toolbarActions.deleteThread,
 		onToolbarStar: toolbarActions.toggleStar,
+		isStarred: toolbarActions.isStarred,
 		onToolbarMove: toolbarActions.moveThread,
 		onBack: goBack,
 		nextThread: adjacentThread(nextMessageId),
@@ -880,13 +895,14 @@ function MailboxList() {
 		onToggleFilterAttribute,
 		onClearFilters,
 		listFilter,
+		listSearchText,
 		searchPredicate,
+		resultCount,
 	} = useMailboxPane();
 	const { searchQuery, searchInput, accounts, resultFolderIndex } =
 		useMailContext();
 	const tier = useLayoutTier();
-	const navigate = useNavigate();
-	const retainPanels = useRetainOpenPanels();
+	const openThread = useOpenThread();
 
 	const listTitle = mailboxName ?? "Inbox";
 	const preset = useMemo(() => inboxFilterConfig(), []);
@@ -970,26 +986,15 @@ function MailboxList() {
 				result.threadId ??
 				threads.find((thread) => thread.messageId === result.id)?.threadId;
 			if (!threadId) return;
-			navigate({
-				to: "/mail/$mailboxId/$threadId/$messageId",
-				// Both sections are scoped to this mailbox, so a result's own
-				// mailbox is normally this one; keep reading it off the result so a
-				// row can never open under a mailbox it does not belong to.
-				params: {
-					mailboxId: result.mailboxId ?? mailboxId,
-					threadId,
-					messageId: result.id,
-				},
-				// Commit the active query with the open so the debounced q-mirror —
-				// which walks back up to the list when the query goes active — is
-				// already satisfied and leaves the conversation alone. The *live*
-				// `searchInput`: a row can be tapped before the debounce settles, when
-				// the committed query is still empty.
-				search: (prev) => ({ ...prev, q: searchInput || undefined }),
-				hash: retainPanels,
-			});
+			// Both sections are scoped to this mailbox, so a result's own mailbox is
+			// normally this one; keep reading it off the result so a row can never
+			// open under a mailbox it does not belong to.
+			openThread(
+				{ threadId, messageId: result.id },
+				{ mailboxId: result.mailboxId ?? mailboxId, query: searchInput },
+			);
 		},
-		[mailboxId, navigate, retainPanels, searchInput, threads],
+		[mailboxId, openThread, searchInput, threads],
 	);
 
 	// Drafts keep their own dedicated view (and header); they don't carry the
@@ -997,7 +1002,6 @@ function MailboxList() {
 	if (isDraftsMailbox && mailboxAccountId) {
 		return (
 			<DraftsView
-				mailboxId={mailboxId}
 				accountId={mailboxAccountId}
 				selectedMessageId={selectedMessageId}
 				imapThreads={threads}
@@ -1018,6 +1022,7 @@ function MailboxList() {
 			onRetry={onRetry}
 			searchQuery={searchQuery}
 			searchPredicate={searchPredicate}
+			resultCount={resultCount}
 			onDeleteMessages={onDeleteMessages}
 			isDeleting={isDeleting}
 			isMoving={isMoving}
@@ -1027,6 +1032,7 @@ function MailboxList() {
 			accountId={mailboxAccountId}
 			listTitle={listTitle}
 			listFilter={listFilter}
+			listSearchText={listSearchText}
 			listScopeLabel={listTitle}
 			hideHeader
 			onTriageContextChange={onTriageContextChange}
@@ -1118,6 +1124,7 @@ function MailboxReading() {
 		onReply,
 		onToolbarDelete,
 		onToolbarStar,
+		isStarred,
 		onToolbarMove,
 		handleDeselectIfRemoved,
 		intelligenceRef,
@@ -1156,6 +1163,7 @@ function MailboxReading() {
 			selectedMessageId={conversation.messageId}
 			authenticity={conversation.authenticity}
 			onOpenIntelligence={intelligence.open}
+			listOnScreen
 		/>
 	) : (
 		<ReadingPaneEmpty />
@@ -1175,7 +1183,7 @@ function MailboxReading() {
 					onForward={onReply ? () => onReply("forward") : undefined}
 					onDelete={hasThread ? onToolbarDelete : undefined}
 					onToggleStar={hasThread ? onToolbarStar : undefined}
-					isStarred={selectedThread?.hasStars}
+					isStarred={isStarred}
 					moveContext={
 						hasThread && mailboxAccountId
 							? {

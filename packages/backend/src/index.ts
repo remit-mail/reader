@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { inspect } from "node:util";
+import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger, withLogContext, withTelemetry } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
 import {
@@ -12,7 +13,7 @@ import {
 } from "openapi-backend";
 import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
-import { handleError } from "./error.js";
+import { defaultErrorCode, handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
@@ -89,32 +90,50 @@ const api = new OpenAPIBackend({
 
 api.register("postResponseHandler", postResponseHandler);
 
+/**
+ * The validator's findings, narrowed to the three fields `RequestValidationDetail`
+ * declares. Copied field by field rather than passed through: an AJV error also
+ * carries `params`, and under `verbose` the rejected `data` itself — which for a
+ * refused request body is whatever the caller sent, a password among the
+ * possibilities. Naming the fields is what keeps that off the wire.
+ */
+const validationDetails = (
+	errors: OpenAPIContext["validation"]["errors"],
+): Array<{ path: string; rule: string; message: string }> =>
+	(errors ?? []).map((error) => ({
+		path: error.instancePath,
+		rule: error.keyword,
+		message: error.message ?? "refused",
+	}));
+
+// The errors and the operation, and nothing that came off the wire. A request
+// that fails validation is logged at error level, and the request it carries
+// holds the caller's headers and cookies — an Authorization bearer among them,
+// and for a calendar feed the token in the path is itself the credential
+// (issue #1065). The path is redacted the same way the request scope redacts it.
 api.register("validationFail", (c: OpenAPIContext, req: Request) => {
-	const operation = api.router.getOperation(c.operation?.operationId ?? "");
 	logger.error(
 		{
 			errors: c.validation.errors,
-			method: req.method,
-			path: req.path,
+			path: redactCalendarFeedPath(req.path),
 			operation: c.operation?.operationId,
-			operationParameters: operation?.parameters,
-			validationContext: {
-				parsedRequest: c.request,
-				validationTarget: c.validation,
-			},
 		},
 		"Validation failed",
 	);
 	return {
 		statusCode: 400,
 		body: {
+			code: defaultErrorCode(400),
 			message: "Invalid request",
-			errors: c.validation.errors,
+			errors: validationDetails(c.validation.errors),
 		},
 	};
 });
 
-api.register("notFound", () => ({ statusCode: 404 }));
+api.register("notFound", () => ({
+	statusCode: 404,
+	body: { code: defaultErrorCode(404), message: "Not found" },
+}));
 
 api.register("notImplemented", async (c: OpenAPIContext) => {
 	const { status, mock } = api.mockResponseForOperation(
@@ -146,17 +165,19 @@ const readOriginHeader = (
 // so a line gets attributed to the wrong request. The scope follows the request
 // through its own async continuations and nothing else. It nests inside the one
 // `withTelemetry` opens, which is where `requestId` comes from.
-const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
-	withLogContext(
+const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
+	// A calendar feed carries its credential in the path, so the raw path is a
+	// secret and cannot be a log field (issue #1065). Redacted once, here, where
+	// every line inside the request picks it up from the scope.
+	const path = redactCalendarFeedPath(event.path);
+
+	return withLogContext(
 		{
-			path: event.path,
+			path,
 			method: event.httpMethod,
 		},
 		async () => {
-			logger.debug(
-				{ method: event.httpMethod, path: event.path },
-				"Request received",
-			);
+			logger.debug({ method: event.httpMethod, path }, "Request received");
 
 			const origin = readOriginHeader(event.headers);
 
@@ -175,5 +196,6 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) =>
 			);
 		},
 	);
+};
 
 export const handler = withTelemetry(rawHandler);

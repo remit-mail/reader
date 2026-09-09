@@ -3,16 +3,15 @@ import type {
 	IAddressRepository,
 	IMailboxSpecialUseRepository,
 	IMessageRepository,
-	MessageItem,
 } from "@remit/data-ports";
 import { deriveAddressId } from "@remit/data-ports/id";
-import {
-	AddressRole,
-	MessageKeywordFlag,
-	MessageStatus,
-} from "@remit/domain-enums";
+import { AddressRole, MessageKeywordFlag } from "@remit/domain-enums";
 import type { FlagPushService } from "./flag-push.js";
 import type { MessageMoveService } from "./message-move.js";
+import {
+	isPlacementUnsettled,
+	waitForPlacementToSettle,
+} from "./placement-settled.js";
 
 export interface SpamReportLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -185,31 +184,6 @@ export class SpamReportService {
 		});
 	};
 
-	/**
-	 * R2 wait (docs/architecture/imap-mutations.md): `notSpam`'s restore is a
-	 * dependent write against report-spam's own move — enqueuing it while that
-	 * move is still in flight (`status === moving`) would carry the message's
-	 * pre-move `uid` (only a CONFIRMED move updates it, via `updateUid`) and
-	 * risk acting on the wrong server-side message once both moves are
-	 * in-flight at once. Cheap to block per the doc's default guidance: a move
-	 * ordinarily settles in well under a second. On timeout the dependent
-	 * write is not made — the caller is told to retry, and retrying is safe
-	 * (this whole flow is idempotent).
-	 */
-	private waitForMoveToSettle = async (
-		messageId: string,
-	): Promise<MessageItem> => {
-		const deadline = Date.now() + this.moveSettleTimeoutMs;
-		let message = await this.messageService.get(messageId);
-		while (message.status === MessageStatus.moving && Date.now() < deadline) {
-			await new Promise((resolve) =>
-				setTimeout(resolve, this.moveSettlePollMs),
-			);
-			message = await this.messageService.get(messageId);
-		}
-		return message;
-	};
-
 	reportSpam = async (params: SpamReportParams): Promise<void> => {
 		const { accountConfigId, accountId, messageId, setBy } = params;
 		const now = Date.now();
@@ -265,7 +239,19 @@ export class SpamReportService {
 			// originalMailboxId, so a stale value left by some earlier, unrelated
 			// move would otherwise survive and send a later notSpam to the wrong
 			// folder. This report-spam action established no move of its own.
-			await this.messageService.clearOriginalMailboxId(messageId);
+			//
+			// A transition off the row this call read (imap-mutations R3): the pair
+			// being cleared belongs to a placement, and a lane that has claimed the
+			// row since keeps its own — its settle manages the pair.
+			await this.messageService.transitionPlacement(
+				messageId,
+				{
+					status: before.status,
+					mailboxId: before.mailboxId,
+					uid: before.uid,
+				},
+				{ originalMailboxId: null, originalUid: null },
+			);
 		}
 
 		await this.flagPushService.flip({
@@ -308,8 +294,15 @@ export class SpamReportService {
 			// Only wait on the move's settlement when there is actually a
 			// dependent write to make (the restore below) — a move in flight for
 			// an unrelated reason is not this operation's concern.
-			const settled = await this.waitForMoveToSettle(messageId);
-			if (settled.status === MessageStatus.moving) {
+			const settled = await waitForPlacementToSettle(
+				this.messageService,
+				messageId,
+				{
+					timeoutMs: this.moveSettleTimeoutMs,
+					pollMs: this.moveSettlePollMs,
+				},
+			);
+			if (isPlacementUnsettled(settled)) {
 				throw new MoveNotSettledError(messageId);
 			}
 
@@ -318,7 +311,21 @@ export class SpamReportService {
 				messageId,
 				accountId,
 			);
-			await this.messageService.clearOriginalMailboxId(messageId);
+
+			// Re-read, then clear against what was read. The restore just wrote a
+			// placement, so the row here is not the one above; predicating on it is
+			// what keeps this from erasing a pair some other lane is relying on
+			// (imap-mutations R3).
+			const restored = await this.messageService.get(messageId);
+			await this.messageService.transitionPlacement(
+				messageId,
+				{
+					status: restored.status,
+					mailboxId: restored.mailboxId,
+					uid: restored.uid,
+				},
+				{ originalMailboxId: null, originalUid: null },
+			);
 		}
 
 		const current = await this.messageService.get(messageId);

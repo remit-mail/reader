@@ -10,6 +10,21 @@ export type MailboxSyncFields = Pick<
 	| "highWaterMarkUid"
 >;
 
+/** A mailbox row, as far as the sync-status projection reads it. */
+export type MailboxProgressFields = MailboxSyncFields &
+	Pick<MailboxItem, "mailboxId" | "fullPath">;
+
+/** The per-mailbox entry `getSyncStatus` returns. */
+export interface MailboxSyncProgress {
+	mailboxId: string;
+	fullPath: string;
+	phase: string;
+	messagesTotal: number;
+	messagesSynced: number;
+	highWaterMarkUid: number;
+	lastSyncedAt: number | undefined;
+}
+
 /**
  * Derive a per-mailbox sync phase from worker-written sync state.
  *
@@ -62,3 +77,23 @@ export const computeMessagesSynced = (mailbox: MailboxSyncFields): number => {
 
 	return Math.min(Math.max(synced, 0), messagesTotal);
 };
+
+/**
+ * Project a mailbox row into its sync-status entry.
+ *
+ * `highWaterMarkUid` is carried through because a total cannot tell an arrival
+ * from a departure: a message landing in the same sync round that another one
+ * leaves nets to zero, and the client's freshness check saw nothing (#771). The
+ * highest UID only ever moves up, so it names the arrival on its own.
+ */
+export const toMailboxSyncProgress = (
+	mailbox: MailboxProgressFields,
+): MailboxSyncProgress => ({
+	mailboxId: mailbox.mailboxId,
+	fullPath: mailbox.fullPath,
+	phase: deriveMailboxPhase(mailbox),
+	messagesTotal: mailbox.messageCount ?? 0,
+	messagesSynced: computeMessagesSynced(mailbox),
+	highWaterMarkUid: mailbox.highWaterMarkUid ?? 0,
+	lastSyncedAt: mailbox.lastMessageSyncAt || undefined,
+});

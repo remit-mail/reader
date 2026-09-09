@@ -1,5 +1,6 @@
 // RFC 2822 Header Enums
 import "./AddressRole.tsp";
+import "./AddressFlagKey.tsp";
 import "./ReferenceType.tsp";
 
 // IMAP Enums
@@ -32,7 +33,9 @@ import "./OutboxMessageStatus.tsp";
 import "./OutboxAttachmentRejectionReason.tsp";
 import "./OutboxAttachmentState.tsp";
 import "./MessageCategory.tsp";
+import "./MessageClassificationState.tsp";
 import "./SenderTrust.tsp";
+import "./SenderOverride.tsp";
 
 // Account Enums
 import "./AccountAuthType.tsp";
@@ -41,6 +44,12 @@ import "./AccountSettingName.tsp";
 import "./SyncPhase.tsp";
 import "./AccountExportState.tsp";
 import "./OrganizeJobState.tsp";
+
+// Configuration import (#1021)
+import "./ConfigImportState.tsp";
+import "./ConfigImportRefKind.tsp";
+import "./ConfigImportMode.tsp";
+import "./ConfigImportOnExisting.tsp";
 
 // Authentication Enums
 import "./AuthResultVerdict.tsp";
@@ -61,3 +70,17 @@ import "./LabelAction.tsp";
 // Message quarantine (issue #72)
 import "./QuarantineFailureStage.tsp";
 import "./QuarantineFailureCode.tsp";
+
+// Calendar Enums (issue #15)
+import "./CalendarColor.tsp";
+import "./CalendarComponentSet.tsp";
+import "./CalendarSource.tsp";
+import "./CalendarEventStatus.tsp";
+import "./CalendarTransparency.tsp";
+import "./RecurrenceScope.tsp";
+import "./ZoneCertainty.tsp";
+
+// Calendar Suggestion Enums (issue #1033 stage 0.3)
+import "./CalendarInviteMethod.tsp";
+import "./CalendarSuggestionSource.tsp";
+import "./CalendarSuggestionState.tsp";

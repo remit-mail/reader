@@ -97,11 +97,10 @@ if (isSelfHostBackend) {
 		},
 	);
 
-	const { createAuth, resolveAuthConfig, toNodeHandler } = await import(
-		"@remit/auth-service"
-	);
+	const { createAuth, resolveAuthConfig, toNodeHandler, withRateLimitLogging } =
+		await import("@remit/auth-service");
 	const auth = await createAuth(resolveAuthConfig());
-	app.all(/^\/api\/auth\//, toNodeHandler(auth));
+	app.all(/^\/api\/auth\//, toNodeHandler(withRateLimitLogging(auth)));
 }
 
 // Ahead of the body parsers, not after them: a body refused for its size never

@@ -95,6 +95,35 @@ export const WithActionLink: Story = {
 	},
 };
 
+/**
+ * A delete refused because the message is still being moved on the mail server
+ * (#845). Transient: the same press works once the move confirms, so the copy
+ * says so rather than sending the user off to report a bug.
+ */
+export const PlacementInFlight: Story = {
+	args: {
+		severity: "warning",
+		title: "Couldn't delete this message yet",
+		detail:
+			"It is still being moved on the mail server. Try again in a moment.",
+		action: { label: "Report an issue", href: REPORT_URL },
+	},
+};
+
+/**
+ * The same refusal after the move gave up without confirming. Waiting will
+ * never clear this one, so the remedy is a resync instead.
+ */
+export const PlacementUnverified: Story = {
+	args: {
+		severity: "warning",
+		title: "Couldn't delete 4 messages yet",
+		detail:
+			"An earlier move never finished, so where this message sits is unknown. Sync the folder, then delete it again.",
+		action: { label: "Report an issue", href: REPORT_URL },
+	},
+};
+
 /** The action link on the dark theme. */
 export const WithActionLinkDark: Story = {
 	name: "With Action Link (dark)",

@@ -1,11 +1,16 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { useState } from "react";
-import type {
-	BriefCategoryFilter,
-	ThreadRowData,
-	ThreadSection,
-} from "./app-shell-types.js";
-import { BriefSections } from "./brief-sections.js";
+import type { BriefCategoryFilter } from "../category-presentation.js";
+import {
+	type BriefFilterId,
+	narrowBriefSections,
+} from "../lib/brief-filters.js";
+import type { ThreadRowData, ThreadSection } from "./app-shell-types.js";
+import {
+	type BriefFilterControl,
+	BriefSections,
+	type BriefSectionsProps,
+} from "./brief-sections.js";
 import type { FilterSheetSource } from "./filter-sheet.js";
 import { ComfortableRow } from "./message-row.js";
 
@@ -22,6 +27,12 @@ function newsletterRow(i: number): ThreadRowData {
 		category: "newsletter",
 	};
 }
+
+const newsletterSection: ThreadSection = {
+	id: "newsletter",
+	label: "Newsletter",
+	threads: Array.from({ length: 14 }, (_, i) => newsletterRow(i + 1)),
+};
 
 const sections: ThreadSection[] = [
 	{
@@ -77,33 +88,122 @@ const sections: ThreadSection[] = [
 			},
 		],
 	},
+	newsletterSection,
+];
+
+const countedNewsletter: ThreadSection = {
+	id: "newsletter",
+	label: "Newsletter",
+	threads: Array.from({ length: 10 }, (_, i) => newsletterRow(i + 1)),
+	total: { kind: "exact", value: 2295 },
+};
+
+/**
+ * The live shape: each section is its own category-scoped query, so its header
+ * carries that category's real size and its rows are the newest page of it.
+ */
+const countedSections: ThreadSection[] = [
 	{
-		id: "newsletter",
-		label: "Newsletter",
-		threads: Array.from({ length: 14 }, (_, i) => newsletterRow(i + 1)),
+		id: "personal",
+		label: "Personal",
+		threads: [
+			{
+				id: "p1",
+				accountId: "a1",
+				fromName: "Priya Nair",
+				fromEmail: "priya@example.com",
+				subject: "Design review tomorrow",
+				snippet: "Can we move it to 2pm? I have a conflict.",
+				timeLabel: "8:15",
+				isRead: false,
+				category: "personal",
+			},
+		],
+		total: { kind: "exact", value: 4753 },
+	},
+	countedNewsletter,
+	{
+		id: "social",
+		label: "Social",
+		threads: [],
+		total: { kind: "exact", value: 88 },
+		loading: true,
+	},
+	{
+		id: "marketing",
+		label: "Marketing",
+		threads: [],
+		error: true,
+	},
+	{
+		id: "uncategorized",
+		label: "Unclassified",
+		threads: [],
+		total: { kind: "exact", value: 12 },
 	},
 ];
 
-const meta: Meta<typeof BriefSections> = {
+type BriefHostProps = Omit<
+	BriefSectionsProps,
+	keyof BriefFilterControl | "onSelectBriefCategory"
+>;
+
+/**
+ * The host these stories need, because `BriefSections` has stopped being one.
+ * The list draws the chips and the category pills and applies neither; the
+ * answer comes from whoever holds the rows — the server in the app, this
+ * component over its fixtures here (#314). Without it a chip would tick and the
+ * list would not move.
+ */
+function BriefHost({
+	sections,
+	briefCategory: scope = "all",
+	...rest
+}: BriefHostProps) {
+	const [filters, setFilters] = useState<ReadonlySet<BriefFilterId>>(new Set());
+	const [category, setCategory] = useState<BriefCategoryFilter>(scope);
+	return (
+		<BriefSections
+			{...rest}
+			sections={narrowBriefSections(sections, category, filters)}
+			briefCategory={category}
+			onSelectBriefCategory={setCategory}
+			activeFilters={filters}
+			onToggleFilter={(id) =>
+				setFilters((prev) => {
+					const next = new Set(prev);
+					if (next.has(id)) next.delete(id);
+					else next.add(id);
+					return next;
+				})
+			}
+			onClearFilters={() => {
+				setCategory("all");
+				setFilters(new Set());
+			}}
+		/>
+	);
+}
+
+const meta: Meta<typeof BriefHost> = {
 	title: "Screens/Kit/BriefSections",
-	component: BriefSections,
+	component: BriefHost,
 	parameters: { layout: "fullscreen" },
 	args: {
 		sections,
 		Row: ComfortableRow,
 		briefCategory: "all",
 		onSelectThread: () => undefined,
-		onSelectBriefCategory: () => undefined,
 	},
 };
 export default meta;
 
-type Story = StoryObj<typeof BriefSections>;
+type Story = StoryObj<typeof BriefHost>;
 
 export const Desktop: Story = {
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
-			<BriefSections {...args} />
+			<BriefHost {...args} />
 		</div>
 	),
 };
@@ -111,7 +211,7 @@ export const Desktop: Story = {
 export const Mobile: Story = {
 	render: (args) => (
 		<div className="flex h-[844px] w-[390px] flex-col border border-line">
-			<BriefSections {...args} />
+			<BriefHost {...args} />
 		</div>
 	),
 };
@@ -124,21 +224,102 @@ export const AllScopeWithHeaders: Story = {
 	args: { briefCategory: "all" },
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
-			<BriefSections {...args} />
+			<BriefHost {...args} />
 		</div>
 	),
 };
 
 /**
- * (b) Single-category filter: narrowed to Newsletter, the list renders FLAT with
- * NO section header — the header would be redundant once a single category is
- * selected. This is the behavior the live brief now inherits from the kit.
+ * (b) Single-category scope over uncounted sections: narrowed to Newsletter, the
+ * list renders FLAT with NO section header — with nothing but the label to state,
+ * the header only repeats the chip. The scope is one category-scoped request, so
+ * the section handed in is the only one there is.
  */
 export const SingleCategoryFlat: Story = {
-	args: { briefCategory: "newsletter" },
+	args: { sections: [newsletterSection], briefCategory: "newsletter" },
 	render: (args) => (
 		<div className="flex h-screen w-96 flex-col border-r border-line">
-			<BriefSections {...args} />
+			<BriefHost {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b2) The live brief: each header carries its category's real size, a section
+ * whose rows have not arrived shows the loading treatment under its total, a
+ * section whose own request failed says so and offers its own retry, and a
+ * section a chip emptied says so too. "Show all" hands the reader to that
+ * category's own list rather than fetching more rows here.
+ */
+export const ServerTotals: Story = {
+	args: {
+		sections: countedSections,
+		briefCategory: "all",
+		onShowAllSection: () => undefined,
+		onRetrySection: () => undefined,
+	},
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefHost {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b3) The "show all" destination: narrowed to one counted category, the header
+ * stays, because the total is the one thing the chip cannot state.
+ */
+export const SingleCategoryCounted: Story = {
+	args: { sections: [countedNewsletter], briefCategory: "newsletter" },
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefHost {...args} />
+		</div>
+	),
+};
+
+/**
+ * (b4) The brief answering a search: no sections at all, one list in the order
+ * the server returned it. A newsletter from last spring under a header would
+ * outrank a mail from this morning, which is the reading a search must not give.
+ */
+export const Searching: Story = {
+	args: {
+		sections: [
+			{
+				id: "matches",
+				threads: [
+					{
+						id: "m1",
+						accountId: "a1",
+						fromName: "CI",
+						fromEmail: "ci@build.example",
+						subject: "Your build passed",
+						snippet: "All checks green on main.",
+						timeLabel: "8:02",
+						isRead: false,
+						category: "automated",
+					},
+					{
+						id: "m2",
+						accountId: "a1",
+						fromName: "Digest",
+						fromEmail: "digest@news.example",
+						subject: "Weekly digest for you",
+						snippet: "Stories you might have missed.",
+						timeLabel: "Mar 4",
+						isRead: true,
+						category: "newsletter",
+					},
+				],
+			},
+		],
+		briefCategory: "all",
+		flat: true,
+	},
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefHost {...args} />
 		</div>
 	),
 };
@@ -157,13 +338,10 @@ const accountSources: FilterSheetSource[] = [
 export const AccountSources: Story = {
 	render: (args) => {
 		const [source, setSource] = useState("all");
-		const [category, setCategory] = useState<BriefCategoryFilter>("all");
 		return (
 			<div className="flex h-screen w-96 flex-col border-r border-line">
-				<BriefSections
+				<BriefHost
 					{...args}
-					briefCategory={category}
-					onSelectBriefCategory={setCategory}
 					sources={accountSources.map((s) => ({
 						...s,
 						active: s.id === source,
@@ -197,7 +375,7 @@ export const Selection: Story = {
 			});
 		return (
 			<div className="flex h-screen w-96 flex-col border-r border-line">
-				<BriefSections
+				<BriefHost
 					{...args}
 					Row={({ thread, active, onClick }) => (
 						<ComfortableRow

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
+import { categoryTone } from "../category-presentation.js";
+import type { ThreadRowData } from "./app-shell-types.js";
 import { ComfortableRow, CompactRow } from "./message-row.js";
 
 const base: ThreadRowData = {

@@ -15,12 +15,13 @@ e2e_dev_stop_all
 rm -rf "$DEV_STATE_DIR"
 
 e2e_dev_install_env
-e2e_dev_require_free_ports "$E2E_HTTP_PORT" "$E2E_IMAP_PORT" "$E2E_SMTP_PORT" \
-	"$E2E_SMTP_HTTP_PORT" "$E2E_SMTP_REJECT_PORT" "$E2E_SMTP_REJECT_HTTP_PORT" \
+e2e_dev_require_free_ports "$E2E_HTTP_PORT" "$E2E_IMAP_PORT" \
+	"$E2E_IMAP_NAMED_TRASH_PORT" "$E2E_SMTP_PORT" "$E2E_SMTP_HTTP_PORT" \
+	"$E2E_SMTP_REJECT_PORT" "$E2E_SMTP_REJECT_HTTP_PORT" \
 	"$SERVER_PORT" "$QUEUE_SIDECAR_PORT"
 mkdir -p "$STORAGE_LOCAL_PATH"
 
-echo "e2e-dev: starting dovecot and both mailpits"
+echo "e2e-dev: starting both dovecots and both mailpits"
 e2e_dev_compose up -d --wait --wait-timeout 120
 
 echo "e2e-dev: starting the queue"
@@ -39,8 +40,9 @@ echo "e2e-dev: starting the backend and the workers"
 e2e_dev_start backend npm --prefix "$REPO_ROOT" run serve -w @remit/backend
 e2e_dev_start imap-worker npm --prefix "$REPO_ROOT" run dev -w @remit/imap-worker
 e2e_dev_start smtp-worker npm --prefix "$REPO_ROOT" run dev -w @remit/smtp-worker
+e2e_dev_start account-worker npm --prefix "$REPO_ROOT" run dev -w @remit/account-worker
 e2e_dev_wait_for backend "http://127.0.0.1:${SERVER_PORT}/health" 90
-e2e_dev_require_running imap-worker smtp-worker
+e2e_dev_require_running imap-worker smtp-worker account-worker
 
 echo "e2e-dev: starting the web client"
 e2e_dev_start web npm --prefix "$REPO_ROOT" run dev -w @remit/web-client -- \

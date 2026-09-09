@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+	existsSync,
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
@@ -9,8 +10,10 @@ import {
 import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { normalizeRequest } from "../request.js";
+import { formatResponse } from "../response.js";
 import { SystemOperations } from "./system-update.js";
 
 const tmpRoot = join(
@@ -71,6 +74,11 @@ const buildEvent = (sub?: string): APIGatewayProxyEvent =>
 		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
 	}) as unknown as APIGatewayProxyEvent;
 
+// The query as openapi-backend hands it over: validated and coerced against the
+// spec, so `refresh` reaches the handler as a boolean or not at all.
+const getContext = (query: Record<string, unknown> = {}): Context =>
+	({ request: { query } }) as unknown as Context;
+
 const postContext = (targetVersion: string): Context =>
 	({ request: { requestBody: { targetVersion } } }) as unknown as Context;
 
@@ -86,8 +94,10 @@ const applySystemUpdate =
 		event: APIGatewayProxyEvent,
 	) => Promise<unknown>;
 
-const getUpdate = (event: APIGatewayProxyEvent) =>
-	getSystemUpdate({} as unknown as Context, event);
+const getUpdate = (
+	event: APIGatewayProxyEvent,
+	query: Record<string, unknown> = {},
+) => getSystemUpdate(getContext(query), event);
 
 const applyUpdate = (targetVersion: string, event: APIGatewayProxyEvent) =>
 	applySystemUpdate(postContext(targetVersion), event);
@@ -128,6 +138,49 @@ describe("GET /system/update", () => {
 		const result = await getUpdate(buildEvent(USER));
 
 		assert.deepEqual(result, okState);
+	});
+
+	it("records a check request on the control volume when refresh is set (#599)", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(USER), { refresh: true });
+
+		// The press reaches the updater through the seam, and the answer is the
+		// stored state — lastCheckedAt included, so the panel can say how old the
+		// verdict it is still showing is.
+		const file = readFileSync(join(controlDir, "check-request.json"), "utf8");
+		assert.deepEqual(JSON.parse(file), {});
+		assert.deepEqual(result, okState);
+	});
+
+	it("records a check request over an unknown version when no state exists yet", async () => {
+		const result = await getUpdate(buildEvent(USER), { refresh: true });
+
+		assert.equal(existsSync(join(controlDir, "check-request.json")), true);
+		assert.deepEqual(result, {
+			currentVersion: "unknown",
+			check: { status: "disabled" },
+			run: null,
+		});
+	});
+
+	it("records nothing when the query carries no refresh", async () => {
+		// `?refresh=1` is rejected by the spec before it reaches here, so the only
+		// value that records a request is the boolean the validator produced.
+		writeState(okState);
+
+		await getUpdate(buildEvent(USER));
+
+		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
+	});
+
+	it("returns 401 and records nothing when a refresh is not authenticated", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent(), { refresh: true });
+
+		assert.ok(hasStatus(result, 401));
+		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
 
 	it("reports an unknown version, not its own process env, when no state file exists", async () => {
@@ -362,5 +415,83 @@ describe("POST /system/update", () => {
 		);
 		const stamped = Date.parse(request.requestedAt);
 		assert.ok(stamped >= before - 1000 && stamped <= after + 1000);
+	});
+});
+
+describe("GET /system/update through the whole request pipeline", () => {
+	it("records the check for ?refresh=true off the wire", async () => {
+		// The rest of this file hands the handler a query the validator has already
+		// coerced. Here the query arrives as API Gateway delivers it — every value a
+		// string — and goes through the real built spec, which is where the press
+		// was being answered with 400 instead of reaching the handler at all.
+		writeState(okState);
+		const { api } = await import("../index.js");
+
+		const event = {
+			httpMethod: "GET",
+			path: "/system/update",
+			queryStringParameters: { refresh: "true" },
+			headers: {},
+			requestContext: { authorizer: { claims: { sub: USER } } },
+		} as unknown as APIGatewayProxyEvent;
+
+		const result = (await api.handleRequest(
+			normalizeRequest(event),
+			event,
+			{} as never,
+		)) as APIGatewayProxyResult;
+
+		assert.equal(result.statusCode, 200);
+		assert.deepEqual(
+			JSON.parse(readFileSync(join(controlDir, "check-request.json"), "utf8")),
+			{},
+		);
+		assert.deepEqual(JSON.parse(result.body), okState);
+	});
+});
+
+// A refusal here is the object `formatResponse` unwraps, never one that has
+// already been serialized: handing it a `body` string publishes the envelope
+// itself — `{"statusCode":…,"headers":…,"body":"{…}"}` — and what the caller
+// then parses is not an ApiError at all. Only the status was ever asserted, so
+// the shape went unguarded (issue #371).
+describe("the wire body of a self-update refusal", () => {
+	it("answers an unconfigured seam with a flat not_found", async () => {
+		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+
+		const result = await getUpdate(buildEvent(USER));
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 404);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "not_found",
+			message: "Not found",
+		});
+	});
+
+	it("answers an unauthenticated caller with a flat unauthorized", async () => {
+		writeState(okState);
+
+		const result = await getUpdate(buildEvent());
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 401);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "unauthorized",
+			message: "Unauthorized",
+		});
+	});
+
+	it("answers an unauthenticated install request the same way", async () => {
+		writeState(okState);
+
+		const result = await applyUpdate("v1.5.0", buildEvent());
+		const wire = formatResponse(result as Record<string, unknown>);
+
+		assert.equal(wire.statusCode, 401);
+		assert.deepEqual(JSON.parse(wire.body), {
+			code: "unauthorized",
+			message: "Unauthorized",
+		});
 	});
 });

@@ -15,13 +15,16 @@
  * waits.
  *
  * What this lane proves, in server truth: the standing filter is created and
- * points at the newly-created folder (not a dangling row), and the folder is
- * materialized on Dovecot. What it does not run to completion is the move: the
- * back-apply job is processed by the account-worker, which the source-built
- * e2e-dev stack does not start (only backend, imap-worker and web), so the job
- * stays queued here. The move/apply logic is covered by the mailbox-service and
- * web-client unit suites; the mobile organize spec drives the run screen's
- * progress-to-summary states over a stubbed job.
+ * points at the newly-created folder (not a dangling row), the folder is
+ * materialized on Dovecot, and the back-apply the save entered actually moves
+ * the mail — every message the rule matches leaves the inbox and lands in the
+ * new folder on the mail server. That last leg crosses three processes: the
+ * account-worker drains the job off the fan-out queue and applies it, and the
+ * move it commits is pushed to Dovecot by the imap-worker off the
+ * message-management queue.
+ *
+ * The mobile organize spec drives the run screen's progress-to-summary states
+ * over a stubbed job; the states are not re-asserted here.
  *
  * Runs as its own throwaway user (src/provision.ts): the flow files a filter and
  * a folder that would otherwise disturb the shared onboarded account.
@@ -29,7 +32,11 @@
 import { ApiClient, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, listServerMailboxes } from "../src/imap.js";
+import {
+	appendMessages,
+	listServerMailboxes,
+	waitForServerMailbox,
+} from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import {
 	advanceTo,
@@ -37,6 +44,7 @@ import {
 	commitButton,
 	createFolderInPicker,
 	expectBlockedReason,
+	pickMatchDoor,
 	wizardContinue,
 	wizardStep,
 } from "../src/wizard.js";
@@ -49,6 +57,13 @@ const FOLDER_NAME = `E2E BackApply ${STAMP}`;
 const RULE_NAME = `E2E BackApply rule ${STAMP}`;
 
 const SUBJECTS = [1, 2, 3].map((n) => `E2E Keep ${STAMP} #${n}`);
+
+/**
+ * The two rows the wizard is opened on. The rule is built from what they have in
+ * common — one sender, which the whole seed shares — so all three seeded
+ * messages are in the applied set, not only the two that were ticked.
+ */
+const SELECTED = SUBJECTS.slice(0, 2);
 
 /** The folder list the create's confirmation poll re-reads. */
 const MAILBOX_LIST = /\/mailboxes(\?.*)?$/;
@@ -68,7 +83,7 @@ test.describe("Standing filter back-applies over existing mail", () => {
 	test("a folder created on the Move step holds Continue until the server confirms it, and the standing rule binds to it", async ({
 		browser,
 	}) => {
-		test.setTimeout(600_000);
+		test.setTimeout(900_000);
 
 		await appendMessages(
 			run.imapUser,
@@ -109,13 +124,28 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			await expect(row(SUBJECTS[0])).toBeVisible({ timeout: 30_000 });
 
 			// Enter selection on two messages, then organize them into a rule.
-			await row(SUBJECTS[0]).click({ modifiers: ["ControlOrMeta"] });
-			await row(SUBJECTS[1]).click({ modifiers: ["ControlOrMeta"] });
+			await row(SELECTED[0]).click({ modifiers: ["ControlOrMeta"] });
+			await row(SELECTED[1]).click({ modifiers: ["ControlOrMeta"] });
 
 			await barOrganize(page).click();
 			await expect(wizardStep(page)).toHaveText(/^Step 1 of 5 · Apply to$/, {
 				timeout: 30_000,
 			});
+
+			// A rule matches on what the mail has in common, so the walk goes through
+			// the properties door. The ticked-rows door carries no predicate at all —
+			// a standing rule saved through it has nothing to match, now or as mail
+			// arrives — and this lane is about the pass a real rule enters.
+			await pickMatchDoor(page, "Its properties");
+			await advanceTo(page, "Properties");
+
+			// The clause the wizard derived from the ticked rows is their shared
+			// sender, and the server counts what it matches: the whole seed. That
+			// count is the set the back-apply commits to, so it is asserted before the
+			// rule is saved rather than inferred from the folder afterwards.
+			await expect(
+				page.getByText(`${SUBJECTS.length} messages match`),
+			).toBeVisible({ timeout: 30_000 });
 
 			await advanceTo(page, "Folder");
 
@@ -206,6 +236,31 @@ test.describe("Standing filter back-applies over existing mail", () => {
 			{
 				timeoutMs: 60_000,
 				what: `the folder "${FOLDER_NAME}" to exist on the IMAP server`,
+			},
+		);
+
+		// Server truth: the back-apply ran to completion. The account-worker took
+		// the job off the fan-out queue, matched the snapshotted predicate and
+		// committed the moves; the imap-worker pushed them to Dovecot. The budget
+		// covers both hops under CI load.
+		await waitForServerMailbox(
+			run.imapUser,
+			FOLDER_NAME,
+			(subjects) => SUBJECTS.every((subject) => subjects.includes(subject)),
+			{
+				timeoutMs: 180_000,
+				what: `the back-apply to move ${SUBJECTS.length} messages into "${FOLDER_NAME}"`,
+			},
+		);
+
+		// A move, not a copy: the same messages are gone from the inbox.
+		await waitForServerMailbox(
+			run.imapUser,
+			"INBOX",
+			(subjects) => SUBJECTS.every((subject) => !subjects.includes(subject)),
+			{
+				timeoutMs: 60_000,
+				what: "the back-applied messages to leave the inbox",
 			},
 		);
 	});

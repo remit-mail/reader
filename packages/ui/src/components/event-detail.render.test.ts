@@ -101,4 +101,57 @@ describe("EventDetail", () => {
 	it("names the calendar and its account", () => {
 		assert.match(render({}), /Northwind/);
 	});
+
+	it("leaves the guest list inert where a name leads nowhere", () => {
+		assert.doesNotMatch(render({}), /aria-expanded/);
+	});
+
+	it("opens the caller's context under the guest it is about", () => {
+		const html = renderToString(
+			createElement(EventDetail, {
+				event,
+				calendar,
+				whenText: "Wednesday 10 June · 10:00 – 11:30",
+				onEdit: () => undefined,
+				onDelete: () => undefined,
+				activeAttendee: "priya@northwind.example",
+				onActivateAttendee: () => undefined,
+				renderAttendeeContext: (attendee) =>
+					createElement("p", null, `Recent mail · ${attendee.name}`),
+			}),
+		);
+		assert.match(html, /aria-expanded="true"/);
+		assert.match(html, /Recent mail · Priya Natarajan/);
+	});
+});
+
+/**
+ * A host that cannot write yet — the calendar before its API lands — passes
+ * neither action. A button that leads nowhere is worse than no button, so the
+ * header has to come back without them rather than with two that do nothing.
+ */
+describe("EventDetail with nowhere to write", () => {
+	const readOnly = renderToString(
+		createElement(EventDetail, {
+			event,
+			calendar,
+			whenText: "Wednesday 10 June · 10:00 – 11:30",
+			onClose: () => undefined,
+		}),
+	);
+
+	it("offers neither Edit nor Delete", () => {
+		assert.doesNotMatch(readOnly, />Edit</);
+		assert.doesNotMatch(readOnly, />Delete</);
+	});
+
+	it("still names the event, its calendar and when it is", () => {
+		assert.match(readOnly, /Q3 roadmap review/);
+		assert.match(readOnly, /Northwind/);
+		assert.match(readOnly, /10:00 – 11:30/);
+	});
+
+	it("keeps the way out of the pane", () => {
+		assert.match(readOnly, /aria-label="Close event"/);
+	});
 });

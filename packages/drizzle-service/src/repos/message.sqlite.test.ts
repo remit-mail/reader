@@ -52,7 +52,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		await close();
 	});
 
-	test("create returns a MessageItem and writes one outbox row atomically", async () => {
+	test("create returns a MessageItem and writes no outbox row", async () => {
 		const item = await repo.create(BASE_INPUT);
 		assert.equal(item.messageId, MESSAGE_ID);
 		assert.equal(item.status, "active");
@@ -62,9 +62,11 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			.select()
 			.from(outboxTable)
 			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.equal(rows.length, 1);
-		assert.equal(rows[0].event, "message.created");
-		assert.deepEqual(rows[0].payload, { messageId: MESSAGE_ID });
+		assert.equal(
+			rows.length,
+			0,
+			"a message with no body yet has nothing to index",
+		);
 	});
 
 	test("boolean and json columns round-trip", async () => {
@@ -120,7 +122,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		assert.equal(afterUpdate.placementVerdict?.action, "MoveToInbox");
 	});
 
-	test("duplicate messageId throws CreateFailedConflictError and rolls back the outbox row", async () => {
+	test("duplicate messageId throws CreateFailedConflictError and appends no outbox row", async () => {
 		const before = await db
 			.select()
 			.from(outboxTable)
@@ -146,6 +148,105 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		const result = await repo.upsertWithStatus(BASE_INPUT);
 		assert.equal(result.created, false);
 		assert.equal(result.item.messageId, MESSAGE_ID);
+	});
+
+	// The state every inbound sync row is born in, and the one the re-point gate
+	// in mailbox-service has to accept (#1096): the sync path supplies no
+	// syncStatus and nothing later promotes what the repository writes here.
+	test("upsertWithStatus writes pending when the caller names no syncStatus", async () => {
+		const inboundId = "00000000-0000-0000-2222-000000000009";
+		const { item, created } = await repo.upsertWithStatus({
+			messageId: inboundId,
+			mailboxId: MAILBOX_ID,
+			uid: 43,
+			sequenceNumber: 2,
+			rfc822Size: 1024,
+			internalDate: NOW,
+			envelopeId: deriveEnvelopeId(inboundId),
+			rootBodyPartId: deriveRootBodyPartId(inboundId),
+		});
+
+		assert.equal(created, true);
+		assert.equal(item.syncStatus, "pending");
+		assert.equal(item.status, "active");
+	});
+
+	// The lock of imap-mutations R3. There is no version column: the predicate
+	// is over the placement fields themselves, so an unrelated write to any
+	// other column cannot make a transition lose, and a placement the caller
+	// did not read cannot make it win.
+	describe("transitionPlacement", () => {
+		const LOCK_ID = "00000000-0000-0000-2222-00000000000a";
+		const OTHER_MAILBOX = "00000000-0000-0000-2222-00000000000b";
+
+		before(async () => {
+			await repo.create({
+				...BASE_INPUT,
+				messageId: LOCK_ID,
+				uid: 7,
+				envelopeId: deriveEnvelopeId(LOCK_ID),
+				rootBodyPartId: deriveRootBodyPartId(LOCK_ID),
+				status: "moving" as const,
+				syncStatus: "pending" as const,
+			});
+		});
+
+		test("writes the row when every named field still matches", async () => {
+			const written = await repo.transitionPlacement(
+				LOCK_ID,
+				{ status: "moving", mailboxId: MAILBOX_ID, uid: 7 },
+				{ status: "active", syncStatus: "synced", mailboxId: OTHER_MAILBOX },
+			);
+
+			assert.equal(written?.status, "active");
+			assert.equal(written?.syncStatus, "synced");
+			assert.equal(written?.mailboxId, OTHER_MAILBOX);
+		});
+
+		test("answers undefined and writes nothing when the row has moved on", async () => {
+			const lost = await repo.transitionPlacement(
+				LOCK_ID,
+				{ status: "moving" },
+				{ status: "deleting" },
+			);
+
+			assert.equal(lost, undefined);
+			assert.equal(
+				(await repo.get(LOCK_ID)).status,
+				"active",
+				"the loser leaves the winner's placement exactly as it found it",
+			);
+		});
+
+		test("a set of from-states matches any of them", async () => {
+			const written = await repo.transitionPlacement(
+				LOCK_ID,
+				{ status: ["moving", "active"] },
+				{ syncStatus: "abandoned" },
+			);
+
+			assert.equal(written?.syncStatus, "abandoned");
+		});
+
+		test("a field the caller did not read constrains nothing", async () => {
+			const written = await repo.transitionPlacement(
+				LOCK_ID,
+				{ uid: 7 },
+				{ syncStatus: "synced" },
+			);
+
+			assert.equal(written?.syncStatus, "synced");
+		});
+
+		test("a row that no longer exists loses like any other predicate", async () => {
+			const lost = await repo.transitionPlacement(
+				"00000000-0000-0000-2222-0000000000ff",
+				{ status: "active" },
+				{ status: "deleting" },
+			);
+
+			assert.equal(lost, undefined);
+		});
 	});
 
 	test("delete removes the message and appends a removal outbox row", async () => {

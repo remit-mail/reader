@@ -1,4 +1,10 @@
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
+export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
+export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
+export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
+export { CalendarObjectRepo } from "./repos/calendar-object.js";
+export { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
+export { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 export {
 	type CascadeDeleteLogger,
 	type CascadeDeleter,
@@ -15,6 +21,7 @@ export * from "./repos/i4-account-config.js";
 export * from "./repos/i4-account-export-request.js";
 export * from "./repos/i4-account-setting.js";
 export * from "./repos/i4-address.js";
+export * from "./repos/i4-config-import.js";
 export * from "./repos/i4-mailbox.js";
 export * from "./repos/i4-mailbox-lock.js";
 export * from "./repos/i4-mailbox-special-use.js";
@@ -49,6 +56,7 @@ export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";
 export * from "./schema/i4-address.js";
+export * from "./schema/i4-config-import.js";
 export * from "./schema/i4-mailbox.js";
 export * from "./schema/i4-mailbox-lock.js";
 export * from "./schema/i4-message-flag-push.js";

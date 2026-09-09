@@ -10,10 +10,25 @@
  *
  * The endpoints enqueue the IMAP write and return; they do not apply it. So a
  * returned call means every id in it was accepted, not that the mail server
- * applied it — there is no per-id success/failure in the response to read. The
- * only failure this layer can observe is a thrown call: an infrastructure
- * failure (auth, the write, or the enqueue) that takes out the whole batch and
- * stops the run.
+ * applied it. Delete is the one action that can accept some of a batch and not
+ * the rest — a row whose placement changed under it is refused and counted in
+ * the response (imap-mutations R3) — and it reports that itself, on the call,
+ * rather than here: this layer only ever hands ids back, and an id this run did
+ * reach is not one it should re-offer. The only failure it observes is a thrown
+ * call: an infrastructure failure (auth, the write, or the enqueue) that takes
+ * out the whole batch and stops the run.
+ *
+ * Cancellation is an `AbortSignal` the caller owns, handed to every call the run
+ * makes (#113). Aborting ends the request in flight rather than waiting for it,
+ * so at most the batch already on the wire is at stake instead of a whole page;
+ * the run then stops before the next request leaves. A rejection raised while
+ * the signal is aborted is that abort, so it reports `cancelled` rather than an
+ * error — the user asked for it.
+ *
+ * That classification reads `signal.aborted`, deliberately, and not the shape of
+ * the rejection (`isAbortError`): a genuine failure that raced the user's Stop
+ * should read as a stop. The user pressed it and the run is over either way, and
+ * an error banner for a run they ended themselves is the wrong answer.
  *
  * Pure, framework-agnostic, and independently testable — no React, no fetch.
  * `useEscalatedActions.ts` supplies the real `ApplyBatch`/`FetchIdsPage`
@@ -21,6 +36,31 @@
  */
 
 export const BULK_ACTION_CHUNK_SIZE = 100;
+
+/**
+ * What a bulk run applies to every batch it reaches (#114). Delete, move and
+ * mark-read differ only in the bulk call they issue and the caches that call
+ * invalidates; the paging, chunking, progress and cancellation are the same.
+ */
+export type EscalatedAction =
+	| { kind: "delete" }
+	| { kind: "move"; destinationMailboxId: string }
+	| { kind: "markRead" };
+
+/**
+ * The mailboxes whose cached listings a bulk run affects: the mailbox it ran
+ * over, plus a move's destination, which gains the messages the source loses.
+ */
+export const mailboxesTouchedBy = (
+	action: EscalatedAction,
+	mailboxId: string,
+): string[] =>
+	action.kind === "move"
+		? [mailboxId, action.destinationMailboxId]
+		: [mailboxId];
+
+/** For a run with no Stop control to wire a signal to. */
+const NEVER_ABORTED = new AbortController().signal;
 
 /**
  * Resolves a promise to a discriminated result instead of throwing, so a
@@ -104,7 +144,10 @@ export interface BatchResult {
 }
 
 /** Applies the action to one batch of ids (≤100) with a single bulk call. */
-export type ApplyBatch = (ids: string[]) => Promise<BatchResult>;
+export type ApplyBatch = (
+	ids: string[],
+	signal: AbortSignal,
+) => Promise<BatchResult>;
 
 export interface BulkActionProgress {
 	/** Ids the action has been applied to so far. */
@@ -122,10 +165,22 @@ export interface BulkActionOutcome {
 	 * cancellation or a thrown error, the chunks the bounded run never attempted
 	 * (see `runChunkedAction`). Empty in the predicate case, which re-resolves on
 	 * every run rather than handing back a remainder (see `runPredicateAction`).
-	 * There is no per-id failure source: a returned batch call counts every id in
-	 * it as accepted (see the module header).
+	 * An aborted batch is counted here too: aborting the request does not
+	 * un-send what the server already accepted, so its ids are "may not have
+	 * landed" rather than "did not", and every action here is idempotent.
+	 * A returned batch call counts every id in it as reached. Delete's own
+	 * per-row refusals ride its response and are surfaced by the caller, not
+	 * folded in here (see the module header).
 	 */
 	failedIds: string[];
+	/**
+	 * Rows the server reached and refused: their placement changed under the
+	 * run, so the action never claimed them (imap-mutations R3). Summed across
+	 * every chunk so the caller states it once for the whole run rather than
+	 * once per hundred ids. Not folded into `failedIds` — those were never
+	 * reached, and these were.
+	 */
+	refused: number;
 	cancelled: boolean;
 	/** Set when a batch call threw — an infrastructure failure, not a
 	 *  per-item failure. The run stops at the point it was raised. */
@@ -150,30 +205,39 @@ export const runChunkedAction = async (
 	targets: readonly BulkActionTarget[],
 	applyBatch: ApplyBatch,
 	onProgress: (progress: BulkActionProgress) => void,
-	isCancelled: () => boolean,
+	signal: AbortSignal,
 ): Promise<BulkActionOutcome> => {
 	const chunks = chunkTargets(targets);
 	const total = targets.length;
 	let done = 0;
+	let refused = 0;
 	const failedIds: string[] = [];
 
 	for (let i = 0; i < chunks.length; i++) {
-		if (isCancelled()) {
+		if (signal.aborted) {
 			failedIds.push(...chunks.slice(i).flat());
-			return { done, failedIds, cancelled: true };
+			return { done, failedIds, refused, cancelled: true };
 		}
 		const chunk = chunks[i];
-		const attempted = await attempt(applyBatch(chunk));
+		const attempted = await attempt(applyBatch(chunk, signal));
 		if (!attempted.ok) {
 			failedIds.push(...chunks.slice(i).flat());
+			if (signal.aborted) return { done, failedIds, refused, cancelled: true };
 			onProgress({ done, total });
-			return { done, failedIds, cancelled: false, error: attempted.error };
+			return {
+				done,
+				failedIds,
+				refused,
+				cancelled: false,
+				error: attempted.error,
+			};
 		}
+		refused += attempted.value?.failureCount ?? 0;
 		done += chunk.length;
 		onProgress({ done, total });
 	}
 
-	return { done, failedIds, cancelled: false };
+	return { done, failedIds, refused, cancelled: false };
 };
 
 /**
@@ -194,6 +258,10 @@ export const runChunkedAction = async (
  * focused row, or a selection the surface already scoped — so nothing here
  * carries an account to split by. A caller with a cross-account selection
  * belongs on `runChunkedAction`, whose targets name one (#872).
+ *
+ * These callers have no Stop control to wire a signal to — a mutation over a
+ * handful of ids has no progress surface to stop from — so the run is handed a
+ * signal that never aborts.
  */
 export const runChunkedMutation = async (
 	ids: readonly string[],
@@ -206,7 +274,7 @@ export const runChunkedMutation = async (
 			return { successCount: chunk.length, failureCount: 0 };
 		},
 		() => {},
-		() => false,
+		NEVER_ABORTED,
 	);
 };
 
@@ -218,6 +286,7 @@ export interface FetchIdsPageResult {
 /** Fetches one page of matching message ids for the active predicate. */
 export type FetchIdsPage = (
 	continuationToken: string | undefined,
+	signal: AbortSignal,
 ) => Promise<FetchIdsPageResult>;
 
 /**
@@ -230,35 +299,53 @@ export type FetchIdsPage = (
  * `failedIds` for the unreached remainder, because those ids were never
  * fetched — there is nothing to hand back. A predicate resolves fresh on
  * every run (D2), so resuming is re-invoking this same function with the same
- * predicate.
+ * predicate. Aborting also ends the page or batch on the wire, so the run gives
+ * up at most the one request rather than the whole page it was mid-way through.
  */
 export const runPredicateAction = async (
 	fetchIdsPage: FetchIdsPage,
 	total: number,
 	applyBatch: ApplyBatch,
 	onProgress: (progress: BulkActionProgress) => void,
-	isCancelled: () => boolean,
+	signal: AbortSignal,
 ): Promise<BulkActionOutcome> => {
 	let done = 0;
+	let refused = 0;
 	const failedIds: string[] = [];
 	let token: string | undefined;
 
 	do {
-		if (isCancelled()) {
-			return { done, failedIds, cancelled: true };
+		if (signal.aborted) {
+			return { done, failedIds, refused, cancelled: true };
 		}
 
-		const fetched = await attempt(fetchIdsPage(token));
+		const fetched = await attempt(fetchIdsPage(token, signal));
 		if (!fetched.ok) {
-			return { done, failedIds, cancelled: false, error: fetched.error };
+			if (signal.aborted) return { done, failedIds, refused, cancelled: true };
+			return {
+				done,
+				failedIds,
+				refused,
+				cancelled: false,
+				error: fetched.error,
+			};
 		}
 		const page = fetched.value;
 
 		if (page.ids.length > 0) {
-			const attempted = await attempt(applyBatch(page.ids));
+			const attempted = await attempt(applyBatch(page.ids, signal));
 			if (!attempted.ok) {
-				return { done, failedIds, cancelled: false, error: attempted.error };
+				if (signal.aborted)
+					return { done, failedIds, refused, cancelled: true };
+				return {
+					done,
+					failedIds,
+					refused,
+					cancelled: false,
+					error: attempted.error,
+				};
 			}
+			refused += attempted.value?.failureCount ?? 0;
 			done += page.ids.length;
 			onProgress({ done, total });
 		}
@@ -266,7 +353,7 @@ export const runPredicateAction = async (
 		token = page.continuationToken;
 	} while (token);
 
-	return { done, failedIds, cancelled: false };
+	return { done, failedIds, refused, cancelled: false };
 };
 
 /**
@@ -290,6 +377,24 @@ export const honestProgress = (
 export interface BulkRunOutcome {
 	done: number;
 	failedIds: string[];
+	/**
+	 * Rows the server reached and refused: their placement changed under the
+	 * run, so the action never claimed them (imap-mutations R3). Summed across
+	 * every chunk so the caller states it once for the whole run rather than
+	 * once per hundred ids. Not folded into `failedIds` — those were never
+	 * reached, and these were.
+	 */
+	refused: number;
 	cancelled: boolean;
 	error?: unknown;
 }
+
+/**
+ * What asking for a run got: the run itself, or the reason there is none. One
+ * run at a time is the design — a second one would page a second predicate
+ * behind the same bar and the same Stop — so a commit pressed while one is
+ * going is answered with what is going rather than with a run that replaces it.
+ */
+export type BulkRunStart =
+	| { kind: "ran"; outcome: BulkRunOutcome }
+	| { kind: "refused"; reason: string };

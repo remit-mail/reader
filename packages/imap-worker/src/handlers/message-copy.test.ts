@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { MessageCopyEvent } from "../events.js";
 import { handleMessageCopy, type MessageCopyDeps } from "./message-copy.js";
-
-const noopLog = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	fatal: () => {},
-	trace: () => {},
-	child: () => noopLog,
-} as unknown as Logger;
 
 interface Call {
 	method: string;
@@ -28,7 +18,17 @@ interface Connection {
 		uids: number[],
 		dest: string,
 	) => Promise<{ uidMap: Map<number, number> }>;
+	search: (criteria: unknown[]) => Promise<number[]>;
 	createMailbox: (path: string) => Promise<void>;
+}
+
+interface CopyRow {
+	messageId: string;
+	mailboxId: string;
+	uid: number;
+	status: string;
+	syncStatus: string;
+	messageIdHeader?: string;
 }
 
 interface Harness {
@@ -40,6 +40,8 @@ interface Harness {
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
+	copyRow: CopyRow | null;
+	destinationHolds: number[];
 	connection: Connection;
 	getConnectionCount: number;
 	disconnectCount: number;
@@ -59,15 +61,36 @@ const record =
 	};
 
 const buildConnection = (): Connection => ({
-	openBox: async () => ({ uidvalidity: 1 }),
-	copyMessages: async () => ({ uidMap: new Map([[10, 20]]) }),
+	openBox: async (path: string, readOnly?: boolean) => {
+		h.calls.push({ method: "openBox", args: [path, readOnly] });
+		return { uidvalidity: 1 };
+	},
+	copyMessages: async (uids: number[], dest: string) => {
+		h.calls.push({ method: "copyMessages", args: [uids, dest] });
+		return { uidMap: new Map([[10, 20]]) };
+	},
+	search: async (criteria: unknown[]) => {
+		h.calls.push({ method: "search", args: criteria });
+		return h.destinationHolds;
+	},
 	createMailbox: record("createMailbox") as Connection["createMailbox"],
+});
+
+const unsettledCopyRow = (): CopyRow => ({
+	messageId: "new-msg",
+	mailboxId: "dst-mbx",
+	uid: 0,
+	status: "moving",
+	syncStatus: "pending",
+	messageIdHeader: "<abc@example.com>",
 });
 
 const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	copyRow: unsettledCopyRow(),
+	destinationHolds: [],
 	connection: buildConnection(),
 	getConnectionCount: 0,
 	disconnectCount: 0,
@@ -83,8 +106,17 @@ const deps = (): MessageCopyDeps =>
 				},
 			},
 			message: {
+				get: async (messageIds: string[]) => {
+					h.calls.push({ method: "message.get", args: [messageIds] });
+					return h.copyRow ? [h.copyRow] : [];
+				},
 				updateUid: record("message.updateUid"),
 				update: record("message.update"),
+				transitionPlacement: async (...args: unknown[]) => {
+					h.calls.push({ method: "message.transitionPlacement", args });
+					return { messageId: "new-msg" };
+				},
+				delete: record("message.delete"),
 			},
 			threadMessage: {
 				findByMessageId: async (cfg: string) => ({
@@ -97,6 +129,10 @@ const deps = (): MessageCopyDeps =>
 					hasStars: false,
 					hasAttachment: false,
 				}),
+				findAllByMessageId: async (cfg: string) => [
+					{ accountConfigId: cfg, threadMessageId: "tm-1" },
+				],
+				deleteMany: record("threadMessage.deleteMany"),
 				update: record("threadMessage.update"),
 			},
 			mailbox: {
@@ -115,6 +151,7 @@ const deps = (): MessageCopyDeps =>
 			_log: unknown,
 			cb: (credentials: unknown) => Promise<void>,
 		) => cb({}),
+		emitEvent: record("emitEvent"),
 		createConnectionScope: () => ({
 			getConnection: async () => {
 				h.getConnectionCount += 1;
@@ -141,40 +178,158 @@ const event: MessageCopyEvent = {
 const called = (method: string): Call[] =>
 	h.calls.filter((c) => c.method === method);
 
+const askedTheDestination = (): boolean =>
+	called("search").length > 0 &&
+	called("openBox").some((c) => c.args[0] === "Archive");
+
 describe("handleMessageCopy", () => {
 	beforeEach(() => {
 		h = fresh();
 	});
 
 	it("writes the new UID, marks the copy synced, and updates the thread row", async () => {
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.deepEqual(called("message.updateUid")[0]?.args, [
 			"new-msg",
 			20,
 			"dst-mbx",
 		]);
-		const statusUpdate = called("message.update")[0];
-		assert.equal(
-			(statusUpdate?.args[1] as { syncStatus?: string })?.syncStatus,
-			"synced",
-		);
+		// `updateUid` writes the confirmed uid, `active` and `synced` in one
+		// statement, so there is no second, unpredicated write behind it.
+		assert.equal(called("message.update").length, 0);
 		assert.equal(called("threadMessage.update").length, 1);
 		assert.equal(h.disconnectCount, 1, "the scope is always disconnected");
 	});
 
-	it("marks the copy failed when the COPYUID response omits the source uid", async () => {
+	it("settles on the destination UID when a server without UIDPLUS omits COPYUID", async () => {
 		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.destinationHolds = [42];
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
+		assert.ok(askedTheDestination(), "the destination was asked for the copy");
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+		assert.equal(called("message.update").length, 0);
+		assert.equal(called("threadMessage.update").length, 1);
+	});
+
+	// Issue #1122. `deriveCopyMessageId` reuses the row, so copying the same
+	// message into the same folder twice issues a second server COPY and leaves
+	// the destination holding both. Nothing here can rule the older one out the
+	// way the trash probe's source check does — a COPY leaves the source
+	// untouched — so the row must settle on the highest match. Settling on 12
+	// points it at the earlier copy and orphans the one just made.
+	it("settles on the copy this event made, not on an earlier copy of the same message", async () => {
+		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.destinationHolds = [12, 42];
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+	});
+
+	it("reconciles the optimistic row away when the destination does not hold the copy", async () => {
+		h.connection.copyMessages = async () => ({ uidMap: new Map() });
+		h.destinationHolds = [];
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.ok(askedTheDestination());
+		assert.equal(called("message.delete")[0]?.args[0], "new-msg");
+		assert.equal(called("threadMessage.deleteMany").length, 1);
 		assert.equal(called("message.updateUid").length, 0);
-		const update = called("message.update")[0];
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
+	});
+
+	it("settles a copy it cannot probe instead of retrying it into duplicates", async () => {
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			return { uidMap: new Map() };
+		};
+		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.equal(copies, 1, "the COPY is issued once");
+		assert.equal(called("search").length, 0, "there is nothing to ask with");
+		const [givenUp] = called("message.transitionPlacement");
+		assert.deepEqual(
+			givenUp?.args[2],
+			{
+				status: "deleted",
+				syncStatus: "abandoned",
+				abandonedMutation: "copy",
+			},
+			"a copy that gave up carries the give-up value and names itself",
 		);
-		assert.equal(called("threadMessage.update").length, 0);
+		assert.equal(called("message.delete").length, 0, "no row is thrown away");
+	});
+
+	it("never copies twice when a redelivered copy already landed", async () => {
+		h.destinationHolds = [42];
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(called("copyMessages").length, 0);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+	});
+
+	it("never copies twice when a redelivered copy cannot be probed", async () => {
+		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			// The COPY lands, then the tagged OK is lost with the connection.
+			throw new Error("connection reset by peer");
+		};
+
+		await assert.rejects(
+			handleMessageCopy(event, noopLogger, 1, deps()),
+			/connection reset/,
+		);
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(copies, 1, "the redelivery issues no second COPY");
+		assert.equal(called("search").length, 0);
+		const settled = called("message.transitionPlacement").at(-1);
+		assert.equal((settled?.args[2] as { status?: string })?.status, "deleted");
+	});
+
+	it("acks a copy that already settled without touching IMAP", async () => {
+		h.copyRow = {
+			...unsettledCopyRow(),
+			uid: 20,
+			status: "active",
+			syncStatus: "synced",
+		};
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("copyMessages").length, 0);
+	});
+
+	it("acks when the copy row no longer exists", async () => {
+		h.copyRow = null;
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
 	it("returns early without connecting when the account is soft-deleted", async () => {
@@ -184,7 +339,7 @@ describe("handleMessageCopy", () => {
 			deletedAt: Date.now(),
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 	});
@@ -193,7 +348,7 @@ describe("handleMessageCopy", () => {
 		h.account = null;
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/not found/,
 		);
 	});
@@ -201,30 +356,130 @@ describe("handleMessageCopy", () => {
 	it("acks terminally without connecting when the source mailbox was deleted", async () => {
 		h.mailboxError = notFoundError();
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
 		assert.equal(called("message.update").length, 0);
+		assert.equal(called("message.transitionPlacement").length, 0);
 	});
 
-	it("skips the copy without opening a connection when the cursor is rebuilding", async () => {
+	// Issue #1203. Both pauses are reached before `copyMessages`, so the COPY
+	// was never issued. Acking left the optimistic row at `uid: 0`/`moving`
+	// with nothing to re-enqueue it and no folder set for the cursor rebuild to
+	// find it in, which is `holdsCopyOf`'s row-existence answer turning into a
+	// copy that can never settle.
+	it("reconciles the optimistic copy row away when the cursor is rebuilding", async () => {
 		h.mailbox = {
 			mailboxId: "src-mbx",
 			uidValidity: 1,
 			cursorState: "rebuilding",
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(h.getConnectionCount, 0);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
+		assert.equal(called("threadMessage.deleteMany").length, 1);
 	});
 
-	it("pauses quietly when openBox trips a UIDVALIDITY mismatch", async () => {
+	// A redelivery's earlier attempt may have copied: the tagged OK can be lost
+	// with the connection. Deleting this row on the pause alone would leave the
+	// landed copy with no row of its own — `holdsCopyOf` answers on row
+	// existence, so no sync makes a second one — and the next destination sync
+	// would repoint the SOURCE row out of the folder the server still holds it
+	// in. The pause is on the source; the destination is asked before anything
+	// is deleted.
+	it("asks the destination before reconciling a redelivered copy onto a paused cursor", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.destinationHolds = [42];
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.ok(askedTheDestination(), "the destination was asked for the copy");
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"a copy the destination confirms is never reconciled away",
+		);
+		assert.equal(h.disconnectCount, 1);
+	});
+
+	it("settles a redelivered copy broken when the destination cannot be asked", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.copyRow = { ...unsettledCopyRow(), messageIdHeader: undefined };
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(
+			called("message.delete").length,
+			0,
+			"silence is never grounds to delete a row that may describe real mail",
+		);
+		assert.equal(
+			(
+				called("message.transitionPlacement")[0]?.args[2] as {
+					status?: string;
+				}
+			)?.status,
+			"deleted",
+		);
+	});
+
+	// A paused settle is a settle, and this handler had no way to say so: it
+	// carried no `emitEvent` at all, so the destination — which is not paused
+	// and has no rebuild coming — was never told to re-project. The move and
+	// delete handlers have run this resync since #1203.
+	it("resyncs both folders after a paused copy settles", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.deepEqual(
+			called("emitEvent").map((c) => c.args[0]),
+			[
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+				{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "dst-mbx" },
+			],
+		);
+	});
+
+	it("reconciles a redelivered copy away when the destination denies holding it", async () => {
+		h.mailbox = {
+			mailboxId: "src-mbx",
+			uidValidity: 1,
+			cursorState: "rebuilding",
+		};
+		h.destinationHolds = [];
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.ok(askedTheDestination());
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
+	});
+
+	it("reconciles the optimistic copy row away when openBox trips a UIDVALIDITY mismatch", async () => {
 		h.connection.openBox = async () => ({ uidvalidity: 999 });
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
 		assert.equal(
 			(called("mailbox.update")[0]?.args[2] as { cursorState?: string })
@@ -233,6 +488,7 @@ describe("handleMessageCopy", () => {
 			"the mismatch trips the mailbox cursor",
 		);
 		assert.equal(called("message.updateUid").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
 		assert.equal(h.disconnectCount, 1);
 	});
 
@@ -242,7 +498,7 @@ describe("handleMessageCopy", () => {
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/TRYCREATE/,
 		);
 
@@ -255,27 +511,82 @@ describe("handleMessageCopy", () => {
 			throw new Error("NONEXISTENT source message");
 		};
 
-		await handleMessageCopy(event, noopLog, deps());
+		await handleMessageCopy(event, noopLogger, 1, deps());
 
-		const update = called("message.update")[0];
-		assert.equal((update?.args[1] as { status?: string })?.status, "deleted");
+		const [givenUp] = called("message.transitionPlacement");
+		assert.equal((givenUp?.args[2] as { status?: string })?.status, "deleted");
+		assert.equal(
+			(givenUp?.args[2] as { abandonedMutation?: string })?.abandonedMutation,
+			"copy",
+		);
 		assert.equal(called("createMailbox").length, 0);
 	});
 
-	it("marks failed and rethrows on an unclassified IMAP error", async () => {
+	// The guard asks whether THIS copy is still outstanding, not whether anything
+	// is. A row a delete has claimed is `deleting`, and reading that as unsettled
+	// let a redelivery COPY the message a second time — COPY has no source-side
+	// effect to make that a no-op, so the duplicate is permanent.
+	it("skips a redelivered copy whose row a delete has claimed", async () => {
+		let copies = 0;
+		h.connection.copyMessages = async () => {
+			copies += 1;
+			return { uidMap: new Map([[10, 20]]) };
+		};
+		h.copyRow = { ...unsettledCopyRow(), status: "deleting" };
+
+		await handleMessageCopy(event, noopLogger, 2, deps());
+
+		assert.equal(copies, 0, "no second copy is issued");
+		assert.equal(called("message.updateUid").length, 0);
+	});
+
+	it("marks failed and rethrows on an unclassified IMAP error within the budget", async () => {
 		h.connection.copyMessages = async () => {
 			throw new Error("server exploded");
 		};
 
 		await assert.rejects(
-			handleMessageCopy(event, noopLog, deps()),
+			handleMessageCopy(event, noopLogger, 1, deps()),
 			/server exploded/,
 		);
 
-		const update = called("message.update")[0];
-		assert.equal(
-			(update?.args[1] as { syncStatus?: string })?.syncStatus,
-			"failed",
-		);
+		// The attempt marker is a transition too, predicated on this copy still
+		// being outstanding: a row another mutation has claimed keeps its own
+		// placement rather than picking up this attempt's failure.
+		const [marker] = called("message.transitionPlacement");
+		assert.deepEqual(marker?.args[1], { status: "moving" });
+		assert.deepEqual(marker?.args[2], { syncStatus: "failed" });
+	});
+
+	it("settles on the destination UID instead of dead-lettering the last attempt", async () => {
+		h.connection.copyMessages = async () => {
+			throw new Error("server exploded");
+		};
+		let asked = 0;
+		h.connection.search = async (criteria: unknown[]) => {
+			h.calls.push({ method: "search", args: criteria });
+			asked += 1;
+			return asked === 1 ? [] : [42];
+		};
+
+		await handleMessageCopy(event, noopLogger, 3, deps());
+
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			42,
+			"dst-mbx",
+		]);
+	});
+
+	it("reconciles the row away when the last attempt finds nothing at the destination", async () => {
+		h.connection.copyMessages = async () => {
+			throw new Error("server exploded");
+		};
+		h.destinationHolds = [];
+
+		await handleMessageCopy(event, noopLogger, 3, deps());
+
+		assert.equal(called("message.delete")[0]?.args[0], "new-msg");
+		assert.equal(called("threadMessage.deleteMany").length, 1);
 	});
 });

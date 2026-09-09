@@ -17,6 +17,8 @@
 #   migrate_recreate=yes|no   forces whether `up -d` gives migrate a new
 #                             container id; unset, the compose file and .env
 #                             decide, the way Compose decides
+#   run_exit=N                exit code of the `compose run` one-shot
+#   parse=ok|refused          whether docker accepts the `node -e` parse at all
 #   health=healthy|unhealthy  what the gate's healthchecks report
 #   health2=...               the same after a restore
 #   probe=ok|fail             GET /health
@@ -30,6 +32,12 @@
 #   current_schema=N          what the schema read returns (non-real mode)
 #   target_schema=N           the running schema after this run's migrate applies
 #   target_schema2=N          the same after a restore (rollback re-runs migrate)
+#   exec_mode=run|hang|updater  what `compose exec` does: answer from exec-out,
+#                             never return, or run the command for real under a
+#                             scrubbed updater-container environment
+#   updater_volume=present|absent|unreachable
+#                             whether this deployment has an updater state
+#                             volume, and whether the daemon says so at all
 #
 # With FAKE_REAL_DB=1 the snapshot, restore and schema read run for real against
 # $FAKE_SQLITE_DIR/remit.db (a host directory standing in for the sqlite volume)
@@ -336,6 +344,48 @@ up_refuses() {
 	return 1
 }
 
+# The updater container is the same wrapper the host runs, and a host-shell
+# check (reader#1158) or recovery (#275) is delegated to it because of where the
+# state it reads and writes lives. `exec_mode=updater` runs the command for real
+# under the environment the updater image sets, so the volumes an assertion
+# reads were written by the wrapper rather than by this stand-in. Reached from
+# `exec` and from `run`, because the two seams differ only in whether the
+# container has to be already running.
+#
+# The environment is scrubbed first, because that is the half of `compose exec`
+# a stand-in most easily gets wrong: what the container sees is the image's ENV
+# plus the -e flags, and nothing the caller happened to be holding. An exec that
+# inherits the whole test environment cannot tell a wrapper that reads a setting
+# from the image from one that only ever saw it because the host had it too.
+# What survives is the harness's own plumbing — PATH to reach these fakes, and
+# FAKE_* because this process is standing in for the daemon, not for the
+# container.
+become_updater() {
+	for _v in $(env | sed -n 's/^\([A-Za-z_][A-Za-z0-9_]*\)=.*/\1/p'); do
+		case "$_v" in
+		PATH | HOME | FAKE_*) continue ;;
+		# The compose service sets these two on the container.
+		REMIT_DIR | REMIT_UPDATE_SQLITE_VOLUME) continue ;;
+		esac
+		unset "$_v" || true
+	done
+	# The updater image's ENV block, verbatim, with the two volume paths
+	# standing in for the mounts the compose service makes.
+	REMIT_UPDATE_STATE_DIR="$FAKE_UPDATER_STATE"
+	REMIT_UPDATE_CONTROL_DIR="$FAKE_UPDATER_CONTROL"
+	REMIT_UPDATE_STATE_MOUNT="$FAKE_UPDATER_STATE"
+	REMIT_UPDATE_SNAPSHOT_LIB=""
+	REMIT_UPDATER_IMAGE_REPO=ghcr.io/remit-mail/reader/updater
+	export REMIT_UPDATE_STATE_DIR REMIT_UPDATE_CONTROL_DIR \
+		REMIT_UPDATE_STATE_MOUNT REMIT_UPDATE_SNAPSHOT_LIB \
+		REMIT_UPDATER_IMAGE_REPO
+	for _kv in $_execenv; do
+		# shellcheck disable=SC2163 # KEY=VALUE, so this is an assignment
+		export "$_kv"
+	done
+	exec "$@"
+}
+
 compose_cmd() {
 	_all_profiles=0
 	_env_file=""
@@ -500,6 +550,23 @@ compose_cmd() {
 		*" --volumes "*)
 			volume_names
 			;;
+		*)
+			# The full render, which resolves every interpolation in the file. A
+			# ${VAR:?message} whose variable is unset is what compose refuses, and
+			# refusing it is the whole of what the update's pre-install validation
+			# rests on.
+			[ -f "$_compose_file" ] || exit 1
+			# Split on the opening brace so every reference on a line is seen, not
+			# only the last one a greedy match would leave.
+			for _v in $(tr '{' '\n' <"$_compose_file" |
+				sed -n 's#^\([A-Za-z_][A-Za-z0-9_]*\):\{0,1\}?.*#\1#p' | sort -u); do
+				if [ -n "$_env_file" ] && grep -q "^$_v=" "$_env_file" 2>/dev/null; then continue; fi
+				eval "_set=\${$_v:-}"
+				if [ -n "$_set" ]; then continue; fi
+				printf 'error: required variable %s is missing a value\n' "$_v" >&2
+				exit 1
+			done
+			;;
 		esac
 		exit 0
 		;;
@@ -575,19 +642,32 @@ compose_cmd() {
 		# than one that never refused.
 		_svc=""
 		_wantjson=0
+		_execenv=""
 		while [ $# -gt 0 ]; do
 			case "$1" in
-			-e | --env | -u | --user | -w | --workdir | --index)
+			-e | --env)
+				_execenv="$_execenv $2"
+				shift 2
+				continue
+				;;
+			-u | --user | -w | --workdir | --index)
 				shift 2
 				continue
 				;;
 			--json) _wantjson=1 ;;
 			-*) ;;
 			*)
-				if [ -z "$_svc" ]; then _svc=$1; fi
+				_svc=$1
+				shift
+				break
 				;;
 			esac
 			shift
+		done
+		# What is left is the command the container was handed. The doctor seam's
+		# --json sits in it, and the updater seam below runs it for real.
+		for _a in "$@"; do
+			if [ "$_a" = "--json" ]; then _wantjson=1; fi
 		done
 		# A docker that accepts the exec and never comes back. The wrapper's own
 		# ceiling is what has to end it, so the fake simply becomes the sleep —
@@ -599,11 +679,92 @@ compose_cmd() {
 			printf 'service "%s" is not running container #1\n' "$_svc" >&2
 			exit 1
 		fi
+		# The updater container is the same wrapper the host runs, and a host-shell
+		# check is delegated to it because of where its two files have to land
+		# (reader#1158). `exec_mode=updater` runs the command for real under the
+		# environment the updater image sets, so the state and control volumes an
+		# assertion reads were written by the wrapper rather than by this stand-in.
+		#
+		# The environment is scrubbed first, because that is the half of `compose
+		# exec` a stand-in most easily gets wrong: what the container sees is the
+		# image's ENV plus the -e flags, and nothing the caller happened to be
+		# holding. An exec that inherits the whole test environment cannot tell a
+		# wrapper that reads a setting from the image from one that only ever saw
+		# it because the host had it too. What survives is the harness's own
+		# plumbing — PATH to reach these fakes, and FAKE_* because this process is
+		# standing in for the daemon, not for the container.
+		if [ "$(val exec_mode run)" = "updater" ]; then
+			become_updater "$@"
+		fi
 		_outfile="$S/exec-out"
 		if [ "$_wantjson" = "1" ]; then _outfile="$S/exec-out-json"; fi
 		if [ -f "$_outfile" ]; then cat "$_outfile"; fi
 		if [ -f "$S/exec-err" ]; then cat "$S/exec-err" >&2; fi
 		exit "$(val exec_exit 0)"
+		;;
+	# `run --rm --no-deps -T <service> <command>`: the alternate-entrypoint seam
+	# `remit config save` drives. The export's stdout comes from $S/run-out and
+	# its exit code from the scenario. The parse that follows it is `node -e`,
+	# which the stand-in runs for real against the wrapper's own stdin — the
+	# container's parser is the entire point of that step, and a stand-in
+	# answering "valid" from a scenario key would prove nothing about it.
+	run)
+		_execenv=""
+		while [ $# -gt 0 ]; do
+			case "$1" in
+			-e | --env)
+				_execenv="$_execenv $2"
+				shift 2
+				continue
+				;;
+			-u | --user | -w | --workdir | -v | --volume | --name | --label | -l | -p | --publish)
+				shift 2
+				continue
+				;;
+			-*)
+				shift
+				continue
+				;;
+			*)
+				shift
+				break
+				;;
+			esac
+		done
+		if [ "${1:-}" = "node" ] && [ "${2:-}" = "-e" ]; then
+			if [ "$(val parse ok)" != "ok" ]; then
+				printf 'Error response from daemon: no such image\n' >&2
+				exit 125
+			fi
+			exec node -e "$3"
+		fi
+		# A one-shot off the updater image, which is where a host-shell recovery
+		# has to happen (#275). Unlike `exec` this starts its own container, so
+		# it does not need the service to be running — which is the whole reason
+		# the recovery takes this seam.
+		if [ "${1:-}" = "remit" ] && [ "$(val exec_mode run)" = "updater" ]; then
+			become_updater "$@"
+		fi
+		if [ -f "$S/run-out" ]; then cat "$S/run-out"; fi
+		if [ -f "$S/run-err" ]; then cat "$S/run-err" >&2; fi
+		exit "$(val run_exit 0)"
+		;;
+	# `rm --force --stop <service>`: the container goes, not just its process.
+	# The wrapper uses it to take a profile service out of the deployment rather
+	# than leave a stopped one behind, and a stand-in that only forgot the `up`
+	# marker would report that container as still existing — which is exactly the
+	# state the wrapper is avoiding.
+	rm)
+		for _a in "$@"; do
+			case "$_a" in
+			-*) continue ;;
+			esac
+			rm -f "$S/up-$_a"
+			_rmcid=$(cat "$S/cid-$_a" 2>/dev/null || printf '')
+			if [ -n "$_rmcid" ]; then rm -f "$S/svc-$_rmcid"; fi
+			rm -f "$S/cid-$_a"
+		done
+		exit 0
 		;;
 	*) exit 0 ;;
 	esac
@@ -665,6 +826,8 @@ run_cmd() {
 	_probe=0
 	_detached=0
 	_entry=""
+	_image=""
+	_wantimage=0
 	_statesrc=""
 	_bindsrc=""
 	FR_SQLITE=""
@@ -678,7 +841,17 @@ run_cmd() {
 		container:*) _probe=1 ;;
 		-d) _detached=1 ;;
 		esac
-		if [ "$_prev" = "--entrypoint" ]; then _entry=$_a; fi
+		# The image is the operand right after the entrypoint's value, and which
+		# one it is matters: alpine has to apk-install sqlite over the network,
+		# the updater's own image bakes it in (reader#1158).
+		if [ "$_wantimage" = "1" ]; then
+			_image=$_a
+			_wantimage=0
+		fi
+		if [ "$_prev" = "--entrypoint" ]; then
+			_entry=$_a
+			_wantimage=1
+		fi
 		if [ "$_prev" = "-v" ]; then
 			_bindsrc=${_a%%:*}
 			_cpath=${_a#*:}
@@ -729,6 +902,31 @@ run_cmd() {
 		exit 0
 		;;
 	esac
+	# The snapshot prune (reader#1071), which runs in the helper because the
+	# snapshots directory was made there. It is run for real against the
+	# directory the -v named, so a test reads what actually survived.
+	#
+	# The helper is root, and no mode bit on the volume stops root. The stand-in
+	# is one unprivileged uid, so root's reach is modelled where the wrapper
+	# claims it: the snapshot's chown of the snapshots parent, below. Nothing is
+	# repaired here — a prune that meets a directory an older release left
+	# unwritable has to fail the way reader#1071 did.
+	case "$_script" in
+	*remit-prune-snapshots*)
+		log "run prune-snapshots src=$_statesrc"
+		printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" | sh
+		exit $?
+		;;
+	esac
+	# `remit status` reading the update record off the updater's state volume
+	# (reader#573): one flat file, answered from the directory the -v named.
+	case "$_script" in
+	"cat /state/"*)
+		log "run state-read src=$_statesrc"
+		printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" | sh
+		exit $?
+		;;
+	esac
 	{
 		printf -- '--- volume script ---\n'
 		printf '%s\n' "$_script"
@@ -751,7 +949,7 @@ run_cmd() {
 		exit 3
 		;;
 	*__drizzle_migrations*)
-		log "run schema-read"
+		log "run schema-read image=$_image"
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then
 			exec_real "$_script"
 			exit $?
@@ -764,6 +962,24 @@ run_cmd() {
 		# wrong volume writes a snapshot of an empty database and reports success.
 		log "run snapshot sqlite=$FR_SQLITE"
 		if [ "$(val snapshot ok)" != "ok" ]; then exit 1; fi
+		# The one place the helper's rootness is modelled. The snapshot chowns the
+		# snapshots parent so a directory an older release left root-owned is
+		# repaired by the next update (reader#1071); a chown is a no-op under this
+		# stand-in's single uid, so write is restored instead — and only when the
+		# script actually chowns the parent, so a release that drops that line
+		# leaves the prune below meeting the EACCES the operator met.
+		# shellcheck disable=SC2016 # the helper script's literal text, not an expansion
+		_parent_chown='chown "$own" /state/snapshots'
+		case "$_script" in
+		*"$_parent_chown"*)
+			chmod u+rwx "$_statesrc/snapshots" 2>/dev/null || true
+			;;
+		esac
+		# This run's own snapshot directory, which the prune has to keep.
+		_snapdir=$(printf '%s\n' "$_script" | sed -n 's#^mkdir -p /state/snapshots/##p' | sed -n 1p)
+		if [ -n "$_snapdir" ]; then
+			mkdir -p "$_statesrc/snapshots/$_snapdir"
+		fi
 		if [ "${FAKE_REAL_DB:-0}" = "1" ]; then exec_real "$_script" || exit 1; fi
 		exit 0
 		;;
@@ -789,6 +1005,19 @@ inspect)
 run)
 	shift
 	run_cmd "$@"
+	;;
+volume)
+	# How the wrapper asks whether this deployment has an updater volume at all,
+	# and then whether the daemon answered at all. `updater_volume=absent` is the
+	# box that never had one, where the record beside .env is the only one there
+	# is; `unreachable` is a daemon that refuses both, which is not an answer
+	# either way and must not read as "no volume".
+	shift
+	log "volume $*"
+	if [ "$(val updater_volume present)" = "unreachable" ]; then exit 1; fi
+	if [ "${1:-}" = "ls" ]; then exit 0; fi
+	if [ "$(val updater_volume present)" = "absent" ]; then exit 1; fi
+	exit 0
 	;;
 *)
 	log "docker $*"

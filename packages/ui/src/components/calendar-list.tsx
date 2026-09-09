@@ -1,7 +1,8 @@
-import { Check, ChevronDown, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, PauseCircle } from "lucide-react";
 import { useState } from "react";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
+import { ACCOUNT_SERVICE_OFF_LABEL } from "./account-service-status.js";
 import type { CalendarDescriptor } from "./calendar-types.js";
 
 export interface CalendarListProps {
@@ -187,39 +188,51 @@ function CalendarListRow({
 	onToggle: () => void;
 }) {
 	const hue = calendarColorClasses(calendar.color);
+	const paused = calendar.sync === "paused";
 	return (
-		<label
-			className={cn(
-				"flex cursor-pointer items-center gap-2.5 rounded-sm px-row-inset hover:bg-surface-sunken",
-				touch ? "min-h-11" : "min-h-9",
+		<div className="flex flex-col">
+			<label
+				className={cn(
+					"flex cursor-pointer items-center gap-2.5 rounded-sm px-row-inset hover:bg-surface-sunken",
+					touch ? "min-h-11" : "min-h-9",
+				)}
+			>
+				<input
+					type="checkbox"
+					checked={checked}
+					onChange={onToggle}
+					className="peer sr-only"
+				/>
+				<span
+					aria-hidden
+					className={cn(
+						"flex size-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
+						"peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-surface",
+						checked
+							? cn(hue.solid, hue.border)
+							: cn("bg-transparent", hue.border),
+					)}
+				>
+					{checked && <Check className="size-3 text-canvas" strokeWidth={3} />}
+				</span>
+				<span
+					className={cn(
+						"min-w-0 flex-1 truncate text-sm",
+						checked ? "text-fg" : "text-fg-subtle",
+					)}
+				>
+					{calendar.name}
+				</span>
+				{paused && (
+					<PauseCircle
+						className="size-3.5 shrink-0 text-fg-subtle"
+						aria-hidden
+					/>
+				)}
+			</label>
+			{paused && (
+				<span className="sr-only">{`${calendar.name}: ${ACCOUNT_SERVICE_OFF_LABEL.Calendar}`}</span>
 			)}
-		>
-			<input
-				type="checkbox"
-				checked={checked}
-				onChange={onToggle}
-				className="peer sr-only"
-			/>
-			<span
-				aria-hidden
-				className={cn(
-					"flex size-4 shrink-0 items-center justify-center rounded-xs border transition-colors",
-					"peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-1 peer-focus-visible:ring-offset-surface",
-					checked
-						? cn(hue.solid, hue.border)
-						: cn("bg-transparent", hue.border),
-				)}
-			>
-				{checked && <Check className="size-3 text-canvas" strokeWidth={3} />}
-			</span>
-			<span
-				className={cn(
-					"min-w-0 flex-1 truncate text-sm",
-					checked ? "text-fg" : "text-fg-subtle",
-				)}
-			>
-				{calendar.name}
-			</span>
-		</label>
+		</div>
 	);
 }

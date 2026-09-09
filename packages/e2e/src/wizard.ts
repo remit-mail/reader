@@ -43,6 +43,18 @@ export const expectNoBlockedReason = async (
 	await expect(announcedReason(page, reason)).toHaveCount(0);
 };
 
+/**
+ * Choose a match door on the "Apply to" step, by the card's title. The card
+ * carries its one-line hint in the same accessible name, so the title matches as
+ * a substring rather than as the whole name.
+ */
+export const pickMatchDoor = async (
+	page: Page,
+	title: string,
+): Promise<void> => {
+	await page.getByRole("button", { name: title }).click();
+};
+
 /** Pick a destination on the folder step's tree. */
 export const pickFolder = async (page: Page, label: string): Promise<void> => {
 	await page.getByRole("treeitem", { name: `Move to ${label}` }).click();

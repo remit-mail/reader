@@ -126,7 +126,11 @@ describe("executeThreadSearch", () => {
 		updatedAt: 0,
 	});
 
-	type RecordedCall = { search: { category?: Category[] } };
+	type RecordedCall = {
+		search: { category?: Category[] };
+		continuationToken?: string;
+		limit?: number;
+	};
 
 	const fakeClient = (rows: ThreadMessageItem[]) => {
 		const windowCalls: RecordedCall[] = [];
@@ -134,7 +138,8 @@ describe("executeThreadSearch", () => {
 
 		// The fake applies the category predicate itself, the way a port does, so
 		// a request that never reaches `search` cannot answer correctly by
-		// accident.
+		// accident. The window also honours `limit`, so a handler deriving a count
+		// from the rows it got back cannot pass for one that asked the port.
 		const matching = (categories?: Category[]) =>
 			categories?.length
 				? rows.filter((row) => categories.includes(row.category))
@@ -142,10 +147,14 @@ describe("executeThreadSearch", () => {
 
 		const client: ThreadSearchClient = {
 			threadMessage: {
-				async searchByMailboxWindow(_account, _mailbox, search) {
-					windowCalls.push({ search });
+				async searchByMailboxWindow(_account, _mailbox, search, options) {
+					windowCalls.push({
+						search,
+						continuationToken: options?.continuationToken,
+						limit: options?.limit,
+					});
 					return {
-						items: matching(search.category),
+						items: matching(search.category).slice(0, options?.limit),
 						continuationToken: undefined,
 					};
 				},
@@ -274,6 +283,110 @@ describe("executeThreadSearch", () => {
 		assert.deepEqual(windowCalls, [pageSize]);
 		assert.equal(response.items?.length, pageSize);
 		assert.equal(response.count, matches);
+	});
+
+	// #305: `senderTrust` and `dkimMismatch` are resolved by enriching rows, so
+	// the only number the handler could put in `count` is this page's post-filter
+	// length — a page length wearing the name of a total. Absent instead.
+	it("omits count under senderTrust rather than counting the page", async () => {
+		const { client, countCalls } = fakeClient(ACCOUNT_ROWS);
+
+		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+			senderTrust: [SenderTrust.Unknown],
+			count: true,
+		});
+
+		assert.equal(response.count, undefined);
+		assert.equal(countCalls.length, 0, "nothing to count off the row");
+		assert.equal(response.items?.length, ACCOUNT_ROWS.length);
+	});
+
+	it("omits count under dkimMismatch rather than counting the page", async () => {
+		const { client } = fakeClient(ACCOUNT_ROWS);
+
+		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+			dkimMismatch: true,
+			count: true,
+		});
+
+		assert.equal(response.count, undefined);
+	});
+
+	// The count it asked for cannot be answered and the rows it declined are not
+	// wanted, so there is nothing left to read.
+	it("reads nothing for a count-only request under an off-row criterion", async () => {
+		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
+
+		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+			dkimMismatch: true,
+			count: true,
+			results: false,
+		});
+
+		assert.deepEqual(response, {});
+		assert.equal(windowCalls.length, 0);
+		assert.equal(countCalls.length, 0);
+	});
+
+	it("answers the same count whether or not rows were asked for", async () => {
+		const criteria = {
+			category: [MessageCategory.personal, MessageCategory.marketing],
+			count: true,
+		};
+		const withRows = await executeThreadSearch(
+			fakeClient(ACCOUNT_ROWS).client,
+			ACCOUNT,
+			MAILBOX,
+			criteria,
+		);
+		const countOnly = await executeThreadSearch(
+			fakeClient(ACCOUNT_ROWS).client,
+			ACCOUNT,
+			MAILBOX,
+			{ ...criteria, results: false },
+		);
+
+		assert.equal(withRows.count, 2);
+		assert.equal(countOnly.count, withRows.count);
+	});
+
+	// The page size bounds the rows; it has no say in how many messages match.
+	it("holds the count still while the page size moves", async () => {
+		const responses = [];
+		for (const limit of [1, 500]) {
+			const { client } = fakeClient(ACCOUNT_ROWS);
+			responses.push(
+				await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+					count: true,
+					limit,
+				}),
+			);
+		}
+
+		assert.deepEqual(
+			responses.map((response) => response.items?.length),
+			[1, ACCOUNT_ROWS.length],
+			"the page did move",
+		);
+		assert.deepEqual(
+			responses.map((response) => response.count),
+			[ACCOUNT_ROWS.length, ACCOUNT_ROWS.length],
+		);
+	});
+
+	// The cursor never reaches the count query, so the number does not shrink as
+	// the user pages: page three claims the same total page one did.
+	it("holds the count still while the caller pages", async () => {
+		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
+
+		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
+			count: true,
+			continuationToken: "page-three",
+		});
+
+		assert.equal(windowCalls[0].continuationToken, "page-three");
+		assert.equal(countCalls.length, 1);
+		assert.equal(response.count, ACCOUNT_ROWS.length);
 	});
 
 	it("projects category, so the DynamoDB port reads it with the row", () => {

@@ -7,6 +7,7 @@ import type { MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
 	ForbiddenError,
+	MessagePlacementUnsettledError,
 	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
@@ -49,6 +50,7 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { assertMailboxSettled } from "./mailbox.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
@@ -356,13 +358,33 @@ export const GENERIC_FAILURE_REASON =
  * each names what happened and what the user can do about it, which the
  * generic text cannot.
  */
-const DESIGNED_FAILURES = [MoveNotSettledError, NoJunkMailboxError];
+const DESIGNED_FAILURES = [
+	MoveNotSettledError,
+	NoJunkMailboxError,
+	MessagePlacementUnsettledError,
+];
 
 const isDesignedFailure = (reason: unknown): reason is Error =>
 	DESIGNED_FAILURES.some((designed) => reason instanceof designed);
 
-const failureReason = (reason: unknown): string =>
-	isDesignedFailure(reason) ? reason.message : GENERIC_FAILURE_REASON;
+/**
+ * The placement refusal is the one designed outcome whose own message is not
+ * the text to ship: it names a uuid and no remedy. One remedy answers it, and
+ * only one refusal reaches it — a mutation still in flight, which settles on
+ * its own (imap-mutations R3). Worded here, the way the delete path words the
+ * same refusal for the client.
+ */
+const placementRefusalReason = (
+	_error: MessagePlacementUnsettledError,
+): string =>
+	"This message is still being moved on the mail server. Try again in a moment.";
+
+const failureReason = (reason: unknown): string => {
+	if (!isDesignedFailure(reason)) return GENERIC_FAILURE_REASON;
+	if (reason instanceof MessagePlacementUnsettledError)
+		return placementRefusalReason(reason);
+	return reason.message;
+};
 
 /**
  * Drive one report-spam/not-spam operation per message, concurrently. Each
@@ -454,6 +476,9 @@ export const MessageOperations: Record<
 			internalDate: message.internalDate,
 			messageIdHeader: message.messageIdHeader,
 			authenticity: message.authenticity,
+			status: message.status,
+			syncStatus: message.syncStatus,
+			abandonedMutation: message.abandonedMutation,
 			...(autoMoved ? { autoMoved } : {}),
 			...(labels.length > 0 ? { labels } : {}),
 			...(message.spamReport ? { spamReport: message.spamReport } : {}),
@@ -874,7 +899,7 @@ export const MessageBulkOperations: Record<
 		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
-		await client.messageMove.deleteMessages(
+		const { refusedMessageIds } = await client.messageMove.deleteMessages(
 			accountConfigId,
 			messageIds,
 			accountId,
@@ -883,9 +908,14 @@ export const MessageBulkOperations: Record<
 			},
 		);
 
+		// A row whose placement changed under the batch is reported, not dropped.
+		// The response already carries per-row counts, which is the honest shape
+		// for a batch that partly applied — a 409 over it would deny the deletes
+		// that did happen, and silence leaves the client's optimistic removal to
+		// reappear with nothing said (imap-mutations R3).
 		return {
-			successCount: messageIds.length,
-			failureCount: 0,
+			successCount: messageIds.length - refusedMessageIds.length,
+			failureCount: refusedMessageIds.length,
 		};
 	},
 
@@ -910,7 +940,10 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
-		// Destination must belong to the same (caller-owned) account.
+		// Destination must belong to the same (caller-owned) account, and must be
+		// a folder the mail server has settled: the row records the destination
+		// before the move confirms, so binding to a folder that may never exist
+		// leaves the message pointing at nothing (D12, first row).
 		const destination = await client.mailbox.get(
 			accountId,
 			destinationMailboxId,
@@ -920,6 +953,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
+		assertMailboxSettled(destination);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
@@ -956,7 +990,10 @@ export const MessageBulkOperations: Record<
 			"act",
 		);
 
-		// Destination must belong to the same (caller-owned) account.
+		// Destination must belong to the same (caller-owned) account, and must be
+		// a folder the mail server has settled: the row records the destination
+		// before the move confirms, so binding to a folder that may never exist
+		// leaves the message pointing at nothing (D12, first row).
 		const destination = await client.mailbox.get(
 			accountId,
 			destinationMailboxId,
@@ -966,6 +1003,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
+		assertMailboxSettled(destination);
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(

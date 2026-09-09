@@ -331,7 +331,12 @@ export function RescueFromSpamFlow({
 	};
 
 	return (
-		<BottomSheet open={open} onClose={onCancel} dismissLabel="Close rescue">
+		<BottomSheet
+			open={open}
+			onClose={onCancel}
+			label="Rescue from spam"
+			dismissLabel="Close rescue"
+		>
 			{step === "review" && (
 				<ReviewStep
 					candidates={candidates}

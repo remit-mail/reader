@@ -1,4 +1,10 @@
 import { logger } from "@remit/logger-lambda";
+import {
+	_resetEmbeddingCapabilityForTest,
+	isEmbeddingCapabilityAbsence,
+	isEmbeddingCapabilityUnavailable,
+	recordEmbeddingCapabilityAbsence,
+} from "@remit/search-service/capability";
 import { isSelfHostSqlBackend } from "../data-backend.js";
 
 /**
@@ -47,23 +53,20 @@ import { isSelfHostSqlBackend } from "../data-backend.js";
  * instead was considered and rejected — it would fabricate relevance scores and
  * matched-chunk labels for the "Related" UI, and cannot serve the cross-account
  * queries the daily brief issues.
+ *
+ * The error vocabulary and the memoized absence itself live in
+ * `@remit/search-service/capability`, shared with the filter pipeline's semantic
+ * skip: whichever path embeds first is the probe, and the other stops trying.
+ * This module adds the self-host scoping and the operator-facing log.
  */
-
-const CAPABILITY_ABSENCE_CODES = new Set([
-	"ERR_MODULE_NOT_FOUND",
-	"MODULE_NOT_FOUND",
-	"ERR_DLOPEN_FAILED",
-	"ERR_EMBEDDING_MODEL_UNAVAILABLE",
-]);
-
-let semanticUnavailable = false;
 
 /** Test-only reset for the memoized absence. */
 export const _resetSemanticCapabilityForTest = (): void => {
-	semanticUnavailable = false;
+	_resetEmbeddingCapabilityForTest();
 };
 
-export const isSemanticSearchUnavailable = (): boolean => semanticUnavailable;
+export const isSemanticSearchUnavailable = (): boolean =>
+	isEmbeddingCapabilityUnavailable();
 
 /**
  * Whether a failure is this deployment simply not carrying the semantic
@@ -71,11 +74,8 @@ export const isSemanticSearchUnavailable = (): boolean => semanticUnavailable;
  * Records nothing, for the caller that must degrade one operation without
  * disabling `/search/semantic` process-wide.
  */
-export const isSemanticCapabilityAbsence = (error: unknown): boolean => {
-	if (!isSelfHostSqlBackend()) return false;
-	const code = (error as { code?: unknown } | null)?.code;
-	return typeof code === "string" && CAPABILITY_ABSENCE_CODES.has(code);
-};
+export const isSemanticCapabilityAbsence = (error: unknown): boolean =>
+	isSelfHostSqlBackend() && isEmbeddingCapabilityAbsence(error);
 
 /**
  * Classify a semantic-search failure. Returns true — and remembers the
@@ -84,12 +84,12 @@ export const isSemanticCapabilityAbsence = (error: unknown): boolean => {
  */
 export const noteSemanticCapabilityAbsence = (error: unknown): boolean => {
 	if (!isSemanticCapabilityAbsence(error)) return false;
-	if (!semanticUnavailable) {
+	if (!isEmbeddingCapabilityUnavailable()) {
 		logger.warn(
 			{ error: error instanceof Error ? error.message : String(error) },
 			"Semantic search pipeline unavailable in this deployment — serving empty semantic results (see deploy/vps/README.md)",
 		);
 	}
-	semanticUnavailable = true;
+	recordEmbeddingCapabilityAbsence(error);
 	return true;
 };

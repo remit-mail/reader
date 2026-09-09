@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useRef } from "react";
 import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
 import { DialogBackdrop } from "./dialog-backdrop.js";
 
 export interface ConfirmDialogProps {
@@ -22,8 +24,7 @@ export interface ConfirmDialogProps {
  * primitive ships in the web client (only the bespoke KeyboardShortcutsModal
  * and SlidePanel), so this is a small reusable one matching their Tailwind +
  * overlay conventions. Esc cancels, the backdrop cancels, Cancel is focused on
- * open, and the confirm/cancel pair is the only focusable content so the focus
- * stays within the dialog.
+ * open, and Tab stays inside the dialog.
  */
 export const ConfirmDialog = ({
 	isOpen,
@@ -36,43 +37,18 @@ export const ConfirmDialog = ({
 	onConfirm,
 	onCancel,
 }: ConfirmDialogProps) => {
-	const cancelRef = useRef<HTMLButtonElement>(null);
+	const dialogRef = useRef<HTMLDivElement>(null);
 
-	const handleKeyDown = useCallback(
-		(event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-				onCancel();
-			}
-		},
-		[onCancel],
-	);
+	useOverlayScope({
+		id: "confirm-dialog",
+		open: isOpen,
+		answers: { back: onCancel },
+	});
 
-	useEffect(() => {
-		if (!isOpen) return;
-		// Capture phase so Esc closes the dialog before any list-level Esc
-		// handler (e.g. clearSelection) also fires on the same keystroke.
-		window.addEventListener("keydown", handleKeyDown, true);
-		return () => window.removeEventListener("keydown", handleKeyDown, true);
-	}, [isOpen, handleKeyDown]);
-
-	// Whoever opened the dialog gets the focus back when it closes. Without this
-	// a cancelled confirmation drops focus to the body, and the control the user
-	// was on — the compose mode toggle, a row's delete button — is gone from
-	// under the keyboard.
-	useEffect(() => {
-		if (!isOpen) return;
-		const opener =
-			document.activeElement instanceof HTMLElement
-				? document.activeElement
-				: null;
-		cancelRef.current?.focus();
-		return () => {
-			if (opener?.isConnected) opener.focus();
-		};
-	}, [isOpen]);
+	// Cancel is the first control in the dialog, so the shared trap opens on it —
+	// a confirmation asks before it acts. Whoever opened the dialog gets the
+	// focus back when it closes.
+	useModalFocus(dialogRef, isOpen);
 
 	if (!isOpen) return null;
 
@@ -89,9 +65,11 @@ export const ConfirmDialog = ({
 
 			{/* Dialog */}
 			<div
+				ref={dialogRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label={title}
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 w-full max-w-sm",
 					"bg-surface border border-line rounded-sm shadow-lg",
@@ -105,7 +83,6 @@ export const ConfirmDialog = ({
 
 				<div className="mt-6 flex items-center justify-end gap-2">
 					<button
-						ref={cancelRef}
 						type="button"
 						onClick={onCancel}
 						className={cn(

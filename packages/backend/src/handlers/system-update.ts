@@ -9,6 +9,7 @@ import { ConflictError, HTTPError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getSubFromEvent } from "../auth.js";
+import { defaultErrorCode } from "../error.js";
 import type { OperationHandler, SystemOperationIds } from "../types.js";
 
 class TargetVersionMismatchError extends HTTPError {
@@ -36,17 +37,21 @@ const manifestUrl = (): string | undefined =>
  */
 const UNKNOWN_VERSION = "unknown";
 
-const notFound = (): APIGatewayProxyResult => ({
-	statusCode: 404,
-	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message: "Not found" }),
-});
+/**
+ * A refusal in the shape `formatResponse` unwraps: the status, and the body as
+ * an object it serializes. Handing it an already-serialized `body` string
+ * instead publishes the whole envelope — `{"statusCode":…,"headers":…}` with
+ * the real body escaped inside it — which is not an `ApiError` at all.
+ */
+const refuse = (statusCode: number, message: string): APIGatewayProxyResult =>
+	({
+		statusCode,
+		body: { code: defaultErrorCode(statusCode), message },
+	}) as unknown as APIGatewayProxyResult;
 
-const unauthorized = (): APIGatewayProxyResult => ({
-	statusCode: 401,
-	headers: { "Content-Type": "application/json" },
-	body: JSON.stringify({ message: "Unauthorized" }),
-});
+const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
+
+const unauthorized = (): APIGatewayProxyResult => refuse(401, "Unauthorized");
 
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
@@ -113,6 +118,20 @@ const writeRequest = (request: {
 };
 
 /**
+ * Record a check request on the control seam (#599). The updater consumes it on
+ * its watch loop and runs a manifest check immediately, so a press of check in
+ * the panel — not just the updater's own cadence — moves `lastCheckedAt`. Like
+ * request.json it is written atomically and carries no authority: its presence
+ * is the whole message, so it is empty.
+ */
+const writeCheckRequest = (): void => {
+	const dir = controlDir();
+	const tmp = join(dir, `.check-request.json.tmp`);
+	writeFileSync(tmp, JSON.stringify({}), { mode: 0o644 });
+	renameSync(tmp, join(dir, "check-request.json"));
+};
+
+/**
  * The resource returned by the POST. The updater has not yet written the
  * authoritative run — it polls the seam — so this bootstraps the run block with
  * the id just requested and the first phase, giving the client a `runId` to poll
@@ -148,7 +167,7 @@ export const SystemOperations: Record<
 	OperationHandler<SystemOperationIds>
 > = {
 	SystemOperations_getSystemUpdate: async (
-		_context: Context,
+		context: Context,
 		...args: unknown[]
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
@@ -156,6 +175,14 @@ export const SystemOperations: Record<
 
 		const event = args[0] as APIGatewayProxyEvent;
 		if (!getSubFromEvent(event)) return unauthorized();
+
+		// A refresh asks for a fresh answer, and only the updater can fetch one, so
+		// the request goes on the control seam for its watch loop to pick up (#599).
+		// The answer is the stored state as it stands, `lastCheckedAt` included: the
+		// caller holds its own press and watches that timestamp move, so the
+		// response never has to claim a verdict the updater has not reached.
+		const { refresh } = context.request.query as { refresh?: boolean };
+		if (refresh === true) writeCheckRequest();
 
 		return readState() ?? emptyResource();
 	},

@@ -36,6 +36,7 @@ import {
 	type AppShellSlottedProps,
 	Avatar,
 	type BriefCategoryFilter,
+	type BriefFilterId,
 	type BriefFilterSurface,
 	Button,
 	briefChipFilters,
@@ -49,14 +50,19 @@ import {
 	FilterSheet,
 	type FilterSheetProps,
 	FilterToggle,
+	type IntelligenceCalendarSurface,
 	type IntelligenceData,
 	IntelligencePanel,
+	type IntelligenceTabId,
 	isBriefCategory,
 	isBriefFilterId,
 	type ListState,
 	MakeFilterAction,
+	type MessageListFilter,
 	MessageListPane,
 	MobileSearchView,
+	matchesBriefFilters,
+	type NavAccount,
 	NavSidebar,
 	ReadingPane,
 	RefreshButton,
@@ -97,9 +103,19 @@ export interface MailShellProps {
 	 * layout tier.
 	 */
 	width?: number;
+	/**
+	 * The accounts the nav lists. Defaults to the three fixture accounts; a
+	 * story about one account's state passes its own.
+	 */
+	accounts?: NavAccount[];
 	selectedNavId?: string;
 	listTitle?: string;
-	unreadCount?: number;
+	/**
+	 * Unread count beside the list title. `null` is the state a server count the
+	 * view could not obtain renders as: no number at all, never a figure derived
+	 * from the rows that happen to be loaded (#308).
+	 */
+	unreadCount?: number | null;
 	sections?: ThreadSection[];
 	/** Seeds the brief's category scope; the shell owns it from there. */
 	briefCategory?: BriefCategoryFilter;
@@ -124,6 +140,25 @@ export interface MailShellProps {
 	onMakeFilter?: () => void;
 	/** The list where it has no rows: empty, loading, error. */
 	listState?: ListState;
+	/**
+	 * The active category filter as the empty state renders it — its label, the
+	 * way out of it, and how far the request that came back empty reached. A
+	 * filtered empty list without it renders the unfiltered copy, which is the
+	 * state D19 exists to tell apart.
+	 */
+	listFilter?: MessageListFilter;
+	/**
+	 * Replaces the rows the pane scrolls, keeping its header, filter panel and
+	 * selection bar — the slot the app uses for a list that owns its own body,
+	 * and the one a story uses to put something below the rows.
+	 */
+	listBody?: ReactNode;
+	/**
+	 * Sits between the pane header and the rows, for a fact about the whole list
+	 * rather than about any row in it — a mailbox whose account stopped syncing
+	 * mail states that above the mail it still holds.
+	 */
+	listNotice?: ReactNode;
 	/**
 	 * Replaces the list pane whole — a view that brings its own header and body,
 	 * the way Drafts and the Outbox do in the app.
@@ -157,6 +192,10 @@ export interface MailShellProps {
 	 */
 	searchResultsInBody?: boolean;
 	intelligence?: IntelligenceData;
+	/** The panel's calendar half. Without it the panel shows no tab strip. */
+	calendar?: IntelligenceCalendarSurface;
+	/** Which half of the panel a story opens on. */
+	intelligenceTab?: IntelligenceTabId;
 	intelligenceOpen?: boolean;
 	isLoading?: boolean;
 	/** The scope the route carries into the field, e.g. `in:spam`. */
@@ -181,7 +220,6 @@ export interface MailShellProps {
 	 */
 	makeFilterBlockedReason?: string;
 	recentSearches?: string[];
-	savedSearches?: string[];
 	/**
 	 * Completions offered for the term being typed. The app derives these from
 	 * the caret and the search vocabulary; a story states the offer directly.
@@ -347,6 +385,9 @@ function ListPane({
 	briefSource,
 	filterOpen,
 	listState,
+	listFilter,
+	listBody,
+	listNotice,
 	selectedIds,
 	onVerb,
 	preset,
@@ -361,13 +402,16 @@ function ListPane({
 	onSearchOpenChange,
 }: {
 	title: string;
-	unreadCount: number;
+	unreadCount: number | null;
 	sections: ThreadSection[];
 	briefFilters?: boolean;
 	briefCategory?: BriefCategoryFilter;
 	briefSource?: string;
 	filterOpen?: boolean;
 	listState?: ListState;
+	listFilter?: MessageListFilter;
+	listBody?: ReactNode;
+	listNotice?: ReactNode;
 	selectedIds?: string[];
 	onVerb?: (verb: Verb, selected: ReadonlySet<string>) => void;
 	preset?: FilterPreset;
@@ -487,9 +531,21 @@ function ListPane({
 	const freeText = briefRendersQuery
 		? clearBriefFiltersInQuery(search.query).trim().toLowerCase()
 		: "";
-	const narrows = source !== "all" || freeText.length > 0;
+	// The prototype stands in for the server: the app's category scope and its
+	// attribute chips are query parameters, answered before the rows are handed
+	// to the list, and the list itself renders whatever it is given (#314). With
+	// no request behind these fixtures, the shell answers them here.
+	const briefChips = briefFilter?.activeFilters ?? new Set<BriefFilterId>();
+	const briefScope = briefFilter?.briefCategory ?? "all";
+	const narrows =
+		source !== "all" ||
+		freeText.length > 0 ||
+		briefScope !== "all" ||
+		briefChips.size > 0;
 	const keeps = (thread: ThreadRowData): boolean =>
 		(source === "all" || thread.accountId === source) &&
+		(briefScope === "all" || thread.category === briefScope) &&
+		matchesBriefFilters(thread, briefChips) &&
 		(freeText.length === 0 ||
 			thread.subject.toLowerCase().includes(freeText) ||
 			thread.fromName.toLowerCase().includes(freeText));
@@ -544,6 +600,8 @@ function ListPane({
 			briefFilters={briefFilters}
 			briefFilter={briefFilter}
 			listState={listState}
+			listFilter={listFilter}
+			listBody={listBody}
 			listScopeLabel={title}
 			flatList={!briefFilters}
 			selectedThreadId={selectedThreadId}
@@ -591,9 +649,11 @@ function ListPane({
 					title={title}
 					titleMeta={
 						<>
-							<span className="shrink-0 text-2xs text-fg-subtle">
-								{unreadCount.toLocaleString()} unread
-							</span>
+							{unreadCount === null ? null : (
+								<span className="shrink-0 text-2xs text-fg-subtle">
+									{unreadCount.toLocaleString()} unread
+								</span>
+							)}
 							<FilterToggle />
 							<RefreshButton
 								state="idle"
@@ -650,6 +710,9 @@ function ListPane({
 					}
 				/>
 				{suggest.list}
+				{listNotice && (
+					<div className="shrink-0 px-row-inset py-2">{listNotice}</div>
+				)}
 				<div className="min-h-0 flex-1">{body}</div>
 			</section>
 		</FilterPanelProvider>
@@ -658,6 +721,7 @@ function ListPane({
 
 export function MailShell({
 	width = 1440,
+	accounts = navAccounts,
 	selectedNavId = "brief",
 	listTitle = "Daily brief",
 	unreadCount = 12,
@@ -670,6 +734,9 @@ export function MailShell({
 	onVerb,
 	onMakeFilter,
 	listState,
+	listFilter,
+	listBody,
+	listNotice,
 	list: listOverride,
 	reading,
 	onCompose,
@@ -680,6 +747,8 @@ export function MailShell({
 	onSelectThread,
 	searchResultsInBody,
 	intelligence,
+	calendar,
+	intelligenceTab,
 	intelligenceOpen = true,
 	isLoading,
 	scopeChip,
@@ -691,7 +760,6 @@ export function MailShell({
 	searchTokens = [],
 	makeFilterBlockedReason,
 	recentSearches,
-	savedSearches = [],
 	searchSuggestions,
 	readingPane = "default",
 	listBias,
@@ -735,16 +803,10 @@ export function MailShell({
 
 	const nav = (
 		<NavSidebar
-			accounts={navAccounts}
+			accounts={accounts}
 			selectedNavId={selectedNavId}
-			briefUnseen={unreadCount}
+			briefUnseen={unreadCount ?? 0}
 			calendarNav={calendarNav}
-			savedSearches={savedSearches}
-			saveableQuery={
-				trimmed.length > 0 && !savedSearches.includes(trimmed)
-					? trimmed
-					: undefined
-			}
 		/>
 	);
 
@@ -758,6 +820,9 @@ export function MailShell({
 			briefSource={briefSource}
 			filterOpen={filterOpen}
 			listState={listState}
+			listFilter={listFilter}
+			listBody={listBody}
+			listNotice={listNotice}
 			selectedIds={selectedIds}
 			onVerb={onVerb}
 			preset={preset}
@@ -800,7 +865,10 @@ export function MailShell({
 				intelligence ? (
 					<IntelligencePanel
 						data={intelligence}
+						calendar={calendar}
+						defaultTab={intelligenceTab}
 						onClose={() => setRailOpen(false)}
+						touch={singlePane}
 						className="h-full w-full border-l-0"
 					/>
 				) : undefined

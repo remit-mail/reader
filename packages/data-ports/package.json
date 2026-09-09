@@ -25,10 +25,6 @@
 			"types": "./src/account-settings.ts",
 			"default": "./src/account-settings.ts"
 		},
-		"./mailbox-role": {
-			"types": "./src/mailbox-role.ts",
-			"default": "./src/mailbox-role.ts"
-		},
 		"./display-name": {
 			"types": "./src/display-name.ts",
 			"default": "./src/display-name.ts"
@@ -41,6 +37,10 @@
 			"types": "./src/mutation-events.ts",
 			"default": "./src/mutation-events.ts"
 		},
+		"./virtual-copy": {
+			"types": "./src/virtual-copy.ts",
+			"default": "./src/virtual-copy.ts"
+		},
 		"./mailbox-name": {
 			"types": "./src/mailbox-name.ts",
 			"default": "./src/mailbox-name.ts"
@@ -52,6 +52,10 @@
 		"./update-manifest": {
 			"types": "./src/update-manifest.ts",
 			"default": "./src/update-manifest.ts"
+		},
+		"./message-settlement": {
+			"types": "./src/message-settlement.ts",
+			"default": "./src/message-settlement.ts"
 		}
 	},
 	"scripts": {
@@ -62,7 +66,7 @@
 		"@remit/domain-enums": "*",
 		"short-uuid": "*",
 		"uuid": "*",
-		"zod": "*",
+		"zod": "^3.25.0",
 		"@remit/api-zod-schemas": "*"
 	},
 	"license": "MIT",

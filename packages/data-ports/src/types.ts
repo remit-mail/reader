@@ -6,6 +6,13 @@ import type {
 	BodyPartParameterSchema,
 	BodyPartSchema,
 	BodyPartStorageSchema,
+	CalendarCollectionSchema,
+	CalendarEventIndexSchema,
+	CalendarFeedTokenSchema,
+	CalendarObjectSchema,
+	CalendarSuggestionSchema,
+	ConfigImportSchema,
+	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
 	FilterAnchorSchema,
@@ -256,6 +263,23 @@ export type UpdateOrganizeJobRequestInput = Partial<
 	>
 >;
 
+export type ConfigImportItem = z.infer<typeof ConfigImportSchema>;
+export type ConfigImportUnresolvedRefItem = z.infer<
+	typeof ConfigImportUnresolvedRefSchema
+>;
+
+export type CreateConfigImportInput = Omit<
+	ConfigImportItem,
+	"importId" | "createdAt" | "updatedAt" | "state" | "completedAt"
+> & {
+	state?: ConfigImportItem["state"];
+	completedAt?: ConfigImportItem["completedAt"];
+};
+
+export type UpdateConfigImportInput = Partial<
+	Pick<ConfigImportItem, "state" | "unresolvedRefs" | "completedAt">
+>;
+
 export type UpsertAccountSettingInput = {
 	accountConfigId: string;
 	name: string;
@@ -336,6 +360,11 @@ export type BodyPartContentUpsertInput = {
 	content: string;
 };
 
+/**
+ * A mailbox row as an insert states it. `pendingPath` is absent: a create
+ * records no rename target (folder-rename-and-delete.md T1), and the transition
+ * is the only writer of it.
+ */
 export type CreateMailboxInput = Omit<
 	MailboxItem,
 	| "mailboxId"
@@ -344,14 +373,70 @@ export type CreateMailboxInput = Omit<
 	| "namespaceType"
 	| "parentMailboxId"
 	| "cursorState"
+	| "syncStatus"
+	| "pendingPath"
 > & {
 	namespaceType?: MailboxItem["namespaceType"];
 	parentMailboxId?: MailboxItem["parentMailboxId"];
 	/** Total per RFC 032 (defaults to `normal`) — optional at the input boundary, callers rarely set it explicitly. */
 	cursorState?: MailboxItem["cursorState"];
+	/** Total per D1 (defaults to `synced`) — the insert paths that record an intent say so; the sweep's discovery insert does not have to. */
+	syncStatus?: MailboxItem["syncStatus"];
 };
 
-export type UpdateMailboxInput = Partial<Omit<CreateMailboxInput, "accountId">>;
+/**
+ * Everything about a mailbox that is not its mutation state.
+ *
+ * `syncStatus` and `pendingPath` are omitted rather than merely discouraged
+ * (docs/architecture/folder-rename-and-delete.md D3): where they are gone from
+ * the only general-purpose writer, a folder state written without a predicate
+ * is a type error rather than a convention someone has to remember. The two
+ * doors are `transition` and `transitionSubtree`, and they are the whole set.
+ */
+export type UpdateMailboxInput = Partial<
+	Omit<CreateMailboxInput, "accountId" | "syncStatus">
+>;
+
+/**
+ * The state a mailbox transition expects to find, as the six states this design
+ * defines rather than as the four enum values
+ * (docs/architecture/folder-rename-and-delete.md D3). `from` becomes an
+ * `IN (…)` term; `wherePendingPath` becomes an equality or an `IS NULL` term,
+ * and is omitted only by a caller that genuinely does not care which of the two
+ * states sharing a `syncStatus` it is looking at.
+ */
+export type MailboxStatePredicate = {
+	from: readonly MailboxItem["syncStatus"][];
+	wherePendingPath?: string | null;
+};
+
+/**
+ * What a winning mailbox transition writes. `pendingPath` takes `null` to
+ * clear, and is only honoured at all when the state being written is one that
+ * may carry a rename target — a transition to `synced` or `deleting` drops it
+ * whatever the caller passes, which is what makes the invariant hold by
+ * construction rather than by convention.
+ */
+export type MailboxTransitionWrite = {
+	fullPath?: string;
+	pendingPath?: string | null;
+};
+
+export type MailboxTransitionIntent = MailboxStatePredicate & {
+	to: MailboxItem["syncStatus"];
+	set?: MailboxTransitionWrite;
+};
+
+/**
+ * A subtree intent recorded all-or-nothing (D6). It carries no
+ * `wherePendingPath`: its accepted from-states are `synced` and the two failed
+ * variants, and both failed variants are legal starting points.
+ */
+export type MailboxSubtreeTransitionIntent = {
+	from: readonly MailboxItem["syncStatus"][];
+	to: MailboxItem["syncStatus"];
+	rowSet: (row: MailboxItem) => MailboxTransitionWrite;
+};
 
 export type CreateMessageInput = Omit<
 	MessageItem,
@@ -360,7 +445,9 @@ export type CreateMessageInput = Omit<
 	| "updatedAt"
 	| "status"
 	| "syncStatus"
+	| "abandonedMutation"
 	| "category"
+	| "classificationState"
 	| "authenticityVerdict"
 	| "hasListUnsubscribe"
 	| "movedByRemit"
@@ -368,27 +455,63 @@ export type CreateMessageInput = Omit<
 	messageId: string;
 	status?: MessageItem["status"];
 	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
 	category?: MessageItem["category"];
+	classificationState?: MessageItem["classificationState"];
 	authenticityVerdict?: MessageItem["authenticityVerdict"];
 	hasListUnsubscribe?: MessageItem["hasListUnsubscribe"];
 	movedByRemit?: MessageItem["movedByRemit"];
 };
 
+/**
+ * Everything about a message that is not its placement.
+ *
+ * The six placement fields are omitted rather than merely discouraged
+ * (docs/architecture/imap-mutations.md R3): where they are gone from the only
+ * general-purpose writer, a placement written without a predicate is a type
+ * error rather than a convention someone has to remember. `transitionPlacement`
+ * and the settle in `updateUid` are the two doors, and they are the whole set.
+ */
 export type UpdateMessageInput = Partial<
-	Omit<CreateMessageInput, "mailboxId" | "uid">
->;
-
-export type UpdateMessageMoveInput = Partial<
-	Pick<
+	Omit<
 		CreateMessageInput,
 		| "mailboxId"
 		| "uid"
 		| "status"
 		| "syncStatus"
+		| "abandonedMutation"
 		| "originalMailboxId"
 		| "originalUid"
 	>
 >;
+
+/**
+ * The placement a transition expects to find, as the caller read it
+ * (docs/architecture/imap-mutations.md R3). Every field named here becomes a
+ * term of the UPDATE's WHERE clause; what the caller did not read, it does not
+ * supply. `syncStatus` takes a set because several of the six placement states
+ * share one `status`.
+ */
+export type PlacementPredicate = {
+	status?: MessageItem["status"] | readonly MessageItem["status"][];
+	syncStatus?: MessageItem["syncStatus"] | readonly MessageItem["syncStatus"][];
+	mailboxId?: string;
+	uid?: number;
+};
+
+/**
+ * What a winning transition writes. `originalMailboxId` and `originalUid` take
+ * `null` to clear, which is how a settle spells a dropped pre-move pair.
+ */
+export type PlacementTransitionInput = {
+	status?: MessageItem["status"];
+	syncStatus?: MessageItem["syncStatus"];
+	abandonedMutation?: MessageItem["abandonedMutation"];
+	mailboxId?: string;
+	uid?: number;
+	originalMailboxId?: string | null;
+	originalUid?: number | null;
+};
 
 export type MessageIdSource = {
 	messageId?: string;
@@ -462,6 +585,22 @@ export type UpdateThreadMessageInput = Partial<
 	Omit<CreateThreadMessageInput, "accountConfigId" | "threadId" | "messageId">
 >;
 
+/**
+ * One substring criterion over a text column of a ThreadMessage row, named by
+ * the column it selects on rather than by whatever rule derived it. `sender`
+ * covers the From address and display name together, the same pair
+ * `SearchOptions.from` reads.
+ *
+ * Matching is accent- and case-insensitive substring, identical to the search
+ * predicates, so a term is a NARROWING a caller refines further in memory. It
+ * may return more than the criterion it stands for and never less — a term an
+ * implementation cannot evaluate faithfully is dropped, not approximated.
+ */
+export type ThreadMessageFieldTerm = {
+	field: "sender" | "subject" | "listId";
+	contains: string;
+};
+
 export type SearchOptions = {
 	query?: string;
 	subject?: string;
@@ -470,11 +609,24 @@ export type SearchOptions = {
 	starred?: boolean;
 	attachments?: boolean;
 	/**
+	 * Whether the From address is muted, as a three-state filter: `false`
+	 * excludes muted senders, `true` keeps only them, absent filters nothing.
+	 *
+	 * The one criterion here that is not a column on the ThreadMessage row —
+	 * muting is a flag on the Address, reached through the row's `fromEmail` —
+	 * and it is a predicate rather than a pass over a page for the same reason
+	 * every other criterion is: a caller that hides muted mail while counting
+	 * with it in states a number larger than the list it renders (#1137).
+	 */
+	muted?: boolean;
+	/**
 	 * Any-of set over the denormalized `category` column on the ThreadMessage
 	 * row. An empty or absent set means no category filter. `uncategorized` is
 	 * a member like any other — the column is NOT NULL with that default, so it
-	 * names the not-yet-classified state rather than standing for absence
-	 * (issue #45).
+	 * names "no category" rather than standing for absence (issue #45). It
+	 * matches mail the classifier has not reached and mail it declined to
+	 * categorize alike; `Message.classificationState` is what separates those,
+	 * and no read path filters on it (issue #331).
 	 */
 	category?: ThreadMessageItem["category"][];
 };
@@ -531,6 +683,91 @@ export type UpdateFilterInput = Partial<
 export type CreateFilterAnchorInput = Omit<
 	FilterAnchorItem,
 	"createdAt" | "updatedAt"
+>;
+
+export type CalendarCollectionItem = z.infer<typeof CalendarCollectionSchema>;
+export type CalendarObjectItem = z.infer<typeof CalendarObjectSchema>;
+export type CalendarEventIndexItem = z.infer<typeof CalendarEventIndexSchema>;
+
+// `calendarId` is derived from accountConfigId + urlSegment, and syncSequence
+// starts at zero and only ever moves through the collection's own bump — so
+// neither is ever supplied here.
+export type CreateCalendarCollectionInput = Omit<
+	CalendarCollectionItem,
+	| "calendarId"
+	| "syncSequence"
+	| "createdAt"
+	| "updatedAt"
+	| "color"
+	| "componentSet"
+	| "source"
+	| "timezone"
+> & {
+	color?: CalendarCollectionItem["color"];
+	componentSet?: CalendarCollectionItem["componentSet"];
+	source?: CalendarCollectionItem["source"];
+	timezone?: CalendarCollectionItem["timezone"];
+};
+
+export type UpdateCalendarCollectionInput = Partial<
+	Pick<CalendarCollectionItem, "displayName" | "color" | "timezone">
+>;
+
+export type CalendarFeedTokenItem = z.infer<typeof CalendarFeedTokenSchema>;
+
+// `feedTokenId` is derived from `calendarId`, which is what makes one active
+// token per calendar structural rather than enforced. `rotatedAt` is the
+// repository's to stamp: only it can tell a mint from a replacement.
+export type PutCalendarFeedTokenInput = Omit<
+	CalendarFeedTokenItem,
+	"feedTokenId" | "rotatedAt" | "createdAt" | "updatedAt"
+>;
+
+/**
+ * A whole calendar resource. Every projected column is supplied together with
+ * the `icalData` it was projected from — the repository never derives one from
+ * the other, so the projection can only ever be produced by the one place that
+ * owns it (`@remit/calendar-service`) and can never drift from the bytes.
+ *
+ * `calendarObjectId` is derived from calendarId + resourceName, so this is an
+ * upsert: writing the same resource twice rewrites its own row.
+ */
+export type PutCalendarObjectInput = Omit<
+	CalendarObjectItem,
+	"calendarObjectId" | "createdAt" | "updatedAt"
+>;
+
+/**
+ * One expanded occurrence. Written only as part of a full replacement of a
+ * resource's occurrences — there is no single-occurrence write, because a row
+ * here is never authoritative and never edited in place.
+ */
+export type CalendarOccurrenceInput = Omit<
+	CalendarEventIndexItem,
+	"calendarId" | "calendarObjectId" | "createdAt" | "updatedAt"
+>;
+
+export type CalendarSuggestionItem = z.infer<typeof CalendarSuggestionSchema>;
+
+/**
+ * A whole suggestion, as the producer read it out of a message. Every field is
+ * derived from the message — nothing here is client-supplied — and
+ * `suggestionId` is derived from messageId + bodyPartId + icalUid, so this is
+ * an upsert: re-reading the same message rewrites its own row rather than
+ * stacking a second card on the message.
+ *
+ * `state` and `acceptedCalendarObjectId` are excluded: a producer only ever
+ * writes a `Pending` suggestion, and the two fields that record what a person
+ * decided move exclusively through `settle`, so a re-sync can never walk an
+ * answered card back to Pending.
+ */
+export type PutCalendarSuggestionInput = Omit<
+	CalendarSuggestionItem,
+	| "suggestionId"
+	| "state"
+	| "acceptedCalendarObjectId"
+	| "createdAt"
+	| "updatedAt"
 >;
 
 export type SenderSignerStandingItem = z.infer<

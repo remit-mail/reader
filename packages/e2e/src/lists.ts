@@ -17,3 +17,6 @@ export const listOnScreen = (page: Page, title: RegExp): Promise<void> =>
 
 /** The inbox's own list header. */
 export const INBOX_LIST = /^inbox$/i;
+
+/** The Starred list's own list header. */
+export const FLAGGED_LIST = /^starred$/i;

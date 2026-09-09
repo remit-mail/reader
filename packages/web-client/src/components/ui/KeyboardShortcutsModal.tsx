@@ -1,6 +1,13 @@
-import { cn, DialogBackdrop, Kbd, KEY_HINT_GROUPS } from "@remit/ui";
+import {
+	cn,
+	DialogBackdrop,
+	Kbd,
+	KEY_HINT_GROUPS,
+	useModalFocus,
+	useOverlayScope,
+} from "@remit/ui";
 import { X } from "lucide-react";
-import { Fragment, useCallback, useEffect } from "react";
+import { Fragment, useRef } from "react";
 
 interface KeyboardShortcutsModalProps {
 	isOpen: boolean;
@@ -16,27 +23,14 @@ export const KeyboardShortcutsModal = ({
 	isOpen,
 	onClose,
 }: KeyboardShortcutsModalProps) => {
-	// Close on Escape
-	const handleKeyDown = useCallback(
-		(event: KeyboardEvent) => {
-			if (event.key === "Escape") {
-				event.preventDefault();
-				event.stopPropagation();
-				event.stopImmediatePropagation();
-				onClose();
-			}
-		},
-		[onClose],
-	);
+	const modalRef = useRef<HTMLDivElement>(null);
 
-	useEffect(() => {
-		if (!isOpen) return;
-		// Capture phase, as `ConfirmDialog` does: the sheet is the topmost surface,
-		// so Escape dismisses it and nothing else. Shared with the list's own
-		// Escape, the one keystroke also closed the conversation underneath.
-		window.addEventListener("keydown", handleKeyDown, true);
-		return () => window.removeEventListener("keydown", handleKeyDown, true);
-	}, [isOpen, handleKeyDown]);
+	useOverlayScope({
+		id: "shortcuts",
+		open: isOpen,
+		answers: { back: onClose },
+	});
+	useModalFocus(modalRef, isOpen);
 
 	if (!isOpen) return null;
 
@@ -50,9 +44,11 @@ export const KeyboardShortcutsModal = ({
 
 			{/* Modal */}
 			<div
+				ref={modalRef}
 				role="dialog"
 				aria-modal="true"
 				aria-label="Keyboard shortcuts"
+				tabIndex={-1}
 				className={cn(
 					"relative z-10 max-h-[85vh] w-full max-w-2xl overflow-y-auto",
 					"rounded-lg border border-line bg-surface shadow-lg",

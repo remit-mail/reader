@@ -1,4 +1,4 @@
-import type { RoleResolution } from "../folder-role.js";
+import type { JunkRoleMailboxes, RoleResolution } from "../folder-role.js";
 import type {
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
@@ -47,4 +47,14 @@ export interface IMailboxSpecialUseRepository {
 	findJunkMailbox(
 		accountId: string,
 	): Promise<{ mailboxId: string; fullPath: string } | null>;
+	/**
+	 * Junk and Trash for every account under one config, as mailbox ids. The
+	 * address book is keyed by config and an address carries sightings from all
+	 * of them, so a predicate over an address must weigh every account's Junk —
+	 * resolving only the account in hand withholds a sender on one and restores
+	 * it on the next.
+	 */
+	resolveJunkRolesForConfig(
+		accountConfigId: string,
+	): Promise<JunkRoleMailboxes>;
 }

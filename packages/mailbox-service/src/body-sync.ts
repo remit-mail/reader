@@ -1,20 +1,30 @@
 import { PassThrough, type Readable } from "node:stream";
 import { inspect } from "node:util";
-import type {
-	IAddressRepository,
-	IEnvelopeRepository,
-	IMailboxSpecialUseRepository,
-	IMessageRepository,
-	IThreadMessageRepository,
-	MessageItem,
-	ThreadMessageItem,
-	UpdateMessageInput,
+import {
+	provisionDefaultCalendar,
+	recordCalendarSuggestion,
+} from "@remit/calendar-service";
+import {
+	type IAddressRepository,
+	type ICalendarSuggestionRepository,
+	type ICalendarUnitOfWork,
+	type IEnvelopeRepository,
+	type IFilterRepository,
+	type IMailboxSpecialUseRepository,
+	type IMessageRepository,
+	type IThreadMessageRepository,
+	isSenderMuted,
+	type MessageItem,
+	type ThreadMessageItem,
+	type UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { deriveAddressId } from "@remit/data-ports/id";
+import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
+	FilterState,
 	MessageCategory,
+	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
 	QuarantineFailureStage,
@@ -29,6 +39,7 @@ import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
+import { calendarParts } from "./calendar-parts.js";
 import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
@@ -48,9 +59,10 @@ import {
 	classifyPlacement,
 	type FolderPlacement,
 	type PlacementVerdict,
-	resolveBlockedVsTrust,
+	resolveSenderPlacement,
 } from "./heuristics/classifyPlacement.js";
 import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
+import { denormalizeMessageCategory } from "./message-category.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
@@ -145,9 +157,7 @@ const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
 const SNIPPET_LENGTH = 256;
 
 /**
- * The snippet the list row shows, from whichever body part carries text. Shared
- * by both paths that denormalize onto the ThreadMessage so they cannot derive it
- * differently.
+ * The snippet the list row shows, from whichever body part carries text.
  */
 const extractSnippet = (parsed: ParsedMail): string =>
 	extractSnippetFromEmail(
@@ -157,30 +167,16 @@ const extractSnippet = (parsed: ParsedMail): string =>
 	);
 
 /**
- * A row is skipped only when every field the denormalization would write
- * already matches. `snippet` and `listId` are absent from the update when the
- * message has neither, and an absent field is not a mismatch.
- */
-const alreadyDenormalized = (
-	row: ThreadMessageItem,
-	update: {
-		category: ThreadMessageCategory;
-		snippet?: string;
-		listId?: string;
-	},
-): boolean =>
-	row.category === update.category &&
-	(update.snippet === undefined || row.snippet === update.snippet) &&
-	(update.listId === undefined || row.listId === update.listId);
-
-/**
  * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
  * after — RFC 030's message-list GSI sort key depends on it never churning.
- * "Already decided" is any real category; `uncategorized` and the field being
- * absent (rows written before the column existed) both mean "not yet decided"
- * and must still classify. The one rule every re-entrant classification path
- * shares — {@link BodySyncService.backfillClassification} and
- * {@link BodySyncService.applyPostStoreSteps} both defer to it.
+ * "Already decided" is any real category, so a message that carries one is
+ * never re-categorized by a re-entrant pass.
+ *
+ * `uncategorized` fails this test whether or not the classifier has run, which
+ * is deliberate: this asks what the row holds, not what was done to it. Whether
+ * the classifier has run is {@link Message.classificationState}, and it is the
+ * skip guard in {@link BodySyncService.syncBodies} — not this one — that keeps
+ * a declined message from being examined twice.
  */
 const hasDecidedCategory = (
 	category: ThreadMessageCategory | undefined,
@@ -201,15 +197,18 @@ const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
 	placementDecidedAt !== undefined;
 
 /**
- * Issue #499: whether a completed body-sync pass has already classified this
- * message. `bodyStorageKey` is written last, once every derivation of that pass
- * has run, so its presence means the pass that first classified the message
- * finished. Reads it exactly as `syncBodies`' own skip guard does. The same two
+ * Issue #499: whether a completed body-sync pass has already stored this
+ * message's body. `bodyStorageKey` is written last, once every derivation of
+ * that pass has run, so its presence means that pass finished. The same two
  * re-entrant paths `hasDecidedCategory` and `hasDecidedPlacement` guard
- * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) are
- * the ones that reach the derivations again with it already set.
+ * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`)
+ * are the ones that reach the derivations again with it already set.
+ *
+ * Key presence, and nothing more. What the classifier decided is
+ * `Message.category`; whether it ran at all is `Message.classificationState`.
+ * Neither is inferred from here — the field this reads is the storage fact.
  */
-const hasClassifiedBody = (bodyStorageKey: string | undefined): boolean =>
+const hasStoredBody = (bodyStorageKey: string | undefined): boolean =>
 	Boolean(bodyStorageKey);
 
 /**
@@ -316,6 +315,25 @@ export interface UnsubscribeConfig {
 	flagQueueService: FlagQueueService;
 }
 
+/**
+ * What body sync needs to offer a mail's invitation as a card (issue #1033).
+ *
+ * The unit of work is here to provision the account's default collection on
+ * first use, through the one function every other caller provisions with. That
+ * is not bookkeeping: an invitation whose DTSTART names no zone is RFC 5545
+ * floating time, and reading it anywhere but where the user's calendar lives
+ * shows the meeting at the wrong hour. Without a collection there is no zone
+ * to read it in, and every such event silently lands in UTC.
+ *
+ * `filterService` is read to honour `dismiss{muteSender:true}`: a sender the
+ * user muted gets no card at all.
+ */
+export interface CalendarSuggestionConfig {
+	calendarSuggestionService: ICalendarSuggestionRepository;
+	calendarUnitOfWork: ICalendarUnitOfWork;
+	filterService: Pick<IFilterRepository, "listByAccountAndState">;
+}
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
@@ -331,6 +349,7 @@ export class BodySyncService {
 		private readonly filterConfig?: FilterConfig,
 		private readonly quarantineConfig?: QuarantineConfig,
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
+		private readonly calendarConfig?: CalendarSuggestionConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.filterPipeline = filterConfig
@@ -378,10 +397,6 @@ export class BodySyncService {
 		// messageId so we can match FETCH rows back and re-enqueue any UID the
 		// server never returns.
 		const pending = new Map<number, string>();
-		// Messages that were skipped (body already stored) but whose backfill
-		// classification failed. They are NOT in `pending` — nothing about them
-		// needs fetching — so they are merged into failedMessageIds separately.
-		const backfillFailedMessageIds: string[] = [];
 
 		// One read per round, not per message (issue #72). The list is small by
 		// design and almost always empty, so a lookup per message would put a
@@ -410,54 +425,16 @@ export class BodySyncService {
 				continue;
 			}
 
-			if (message.bodyStorageKey && !force) {
+			// The body is stored, so there is nothing to fetch (issue #331). This
+			// used to re-read those bytes from storage to re-derive a category,
+			// keyed on `category === uncategorized` — which is also the classifier's
+			// own "nothing to say", so a message it declined cost one storage read
+			// and two writes on every pass, forever, for the same answer. What the
+			// classifier did is now recorded as `classificationState`, so a sync
+			// pass never has to guess it from the row, and the cohort it has not
+			// reached is selectable by a backfill instead of re-derived here.
+			if (hasStoredBody(message.bodyStorageKey) && !force) {
 				this.log.debug?.({ messageId }, "Body already stored, skipping");
-				// The skip guard keys on the body, but classification is a separate
-				// derived field written by the same pass. A message that got its body
-				// before it got a classifier — or whose classifying pass failed after
-				// the body landed — is skipped here forever and stays `uncategorized`
-				// (issue #45). Classify it from the stored bytes: no IMAP, no
-				// placement/filter side effects, and it skips cleanly once done.
-				//
-				// Contained per-message: one unreadable body object must not abort a
-				// batch that has not fetched anything yet. The failure is loud and
-				// the id is requeued, but the other messages still get their bodies.
-				const backfillError = await this.backfillClassification(
-					message,
-					accountConfigId,
-				).then(
-					() => null,
-					(error: unknown) => error,
-				);
-				// The stored bytes will not parse, and they will not start parsing on
-				// a later attempt. Requeueing forever is the stall; set the message
-				// aside instead. Everything else this call can throw is storage or
-				// database work and stays on the requeue path below.
-				if (
-					backfillError instanceof BodyParseError &&
-					(await this.quarantineBodyParse(
-						message.messageId,
-						location,
-						backfillError,
-					))
-				) {
-					skippedCount++;
-					continue;
-				}
-				if (backfillError !== null) {
-					this.log.error?.(
-						{
-							messageId,
-							storageKey: message.bodyStorageKey,
-							errorName: (backfillError as { name?: string }).name,
-							errorCode: (backfillError as { Code?: string }).Code,
-							error: inspect(backfillError),
-						},
-						"Classification backfill failed for an already-stored body; leaving for requeue",
-					);
-					backfillFailedMessageIds.push(messageId);
-					continue;
-				}
 				skippedCount++;
 				continue;
 			}
@@ -465,11 +442,7 @@ export class BodySyncService {
 		}
 
 		if (pending.size === 0) {
-			return this.buildResult(
-				syncedMessageIds,
-				skippedCount,
-				backfillFailedMessageIds,
-			);
+			return this.buildResult(syncedMessageIds, skippedCount, []);
 		}
 
 		const connection = await getConnection();
@@ -555,7 +528,7 @@ export class BodySyncService {
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
-		const failedMessageIds = [...pending.values(), ...backfillFailedMessageIds];
+		const failedMessageIds = [...pending.values()];
 
 		this.log.info(
 			{
@@ -900,6 +873,13 @@ export class BodySyncService {
 			existingMessage.bodyStorageKey,
 		);
 
+		await this.deriveCalendarSuggestions(
+			messageId,
+			accountConfigId,
+			parsed,
+			existingMessage.bodyStorageKey,
+		);
+
 		const moved = Boolean(resolved.move || filterMoved);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
@@ -916,7 +896,7 @@ export class BodySyncService {
 		// already-classified message through two shipped paths — the `NoSuchKey`
 		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
 		// real, previously-decided category is carried forward unchanged instead
-		// of the just-recomputed one, the same rule `backfillClassification` uses.
+		// of the just-recomputed one.
 		// This also protects a `flags.category` override (issue #299): without
 		// this guard a re-entrant pass would let a *later* override silently
 		// rewrite a category already decided on an earlier message, which is
@@ -932,18 +912,22 @@ export class BodySyncService {
 
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
-		await this.denormalizeCategory(
+		await denormalizeMessageCategory(
+			{ threadMessageService: this.threadMessageService },
 			accountConfigId,
 			messageId,
-			finalCategory,
-			snippet,
-			listId,
+			{ category: finalCategory, snippet, listId },
 		);
 
+		// `classificationState` records that the classifier ran, in the same
+		// UpdateItem as the answer it gave (issue #331). Without it `uncategorized`
+		// carries two meanings at once — not reached yet, and reached with nothing
+		// to say — and only one of them should ever be looked at again.
 		const update: UpdateMessageInput = {
 			bodyStorageKey: bodyRef.uri,
 			...classification,
 			category: finalCategory,
+			classificationState: MessageClassificationState.Examined,
 			...(moved ? { movedByRemit: true } : {}),
 			...(resolved.verdict ? { placementVerdict: resolved.verdict } : {}),
 			...(filterMove ? { filterMove } : {}),
@@ -1073,66 +1057,6 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Classify a message whose body is already stored but which carries no
-	 * decided category, reading the body from storage instead of IMAP.
-	 *
-	 * "No decided category" is `uncategorized` OR the field being absent: rows
-	 * written before the column existed have no value at all, and treating that
-	 * as already-classified would strand exactly the oldest mail this backfill
-	 * exists to reach.
-	 *
-	 * Deliberately narrower than {@link applyPostStoreSteps}: it writes the
-	 * derived classification fields and the denormalized ThreadMessage category,
-	 * and nothing else. Placement moves and filter actions are index-time
-	 * decisions that already ran (or were declined) when the body first landed;
-	 * re-running them here would move mail the user has since filed by hand.
-	 *
-	 * A storage or write failure propagates to the caller, which contains it per
-	 * message: the id lands in `failedMessageIds` and SQS requeues it, while the
-	 * rest of the batch still gets its bodies. An unreadable body object is an
-	 * infra fault, never absorbed — but it is also not a reason to abort a batch
-	 * that has fetched nothing yet.
-	 */
-	private async backfillClassification(
-		message: MessageItem,
-		accountConfigId: string,
-	): Promise<void> {
-		if (!message.bodyStorageKey) return;
-		if (hasDecidedCategory(message.category)) return;
-
-		const body = await this.storageService.retrieve(message.bodyStorageKey);
-		const parsed = await parseMessageBody(body);
-		const classification = await this.classifyMessage(accountConfigId, parsed);
-
-		// Same order as {@link applyPostStoreSteps}, for the same reason: the
-		// signal the skip guard reads is written last. `message.category` is that
-		// signal here, so a failure between the two writes leaves both undone and
-		// the requeued retry redoes both. Writing the Message first strands the
-		// denormalized row at `uncategorized` forever — the guard is satisfied and
-		// the retry returns early (issue #320).
-		// The same three denormalized fields the full body-store path writes (see
-		// `applyPostStoreSteps`), not just the category. A copied message
-		// inherits `bodyStorageKey` and a decided category from its source, so it
-		// reaches neither that path nor this one's classification — but nothing
-		// else ever writes `listId`, so leaving it out here made a copy's
-		// `list_id` permanently NULL. Both are derived from the same bytes
-		// already in hand.
-		await this.denormalizeCategory(
-			accountConfigId,
-			message.messageId,
-			classification.category,
-			extractSnippet(parsed),
-			extractListId(parsed),
-		);
-		await this.messageService.update(message.messageId, classification);
-
-		this.log.info(
-			{ messageId: message.messageId, category: classification.category },
-			"Backfilled classification for an already-stored body",
-		);
-	}
-
-	/**
 	 * Header classification, with the sender's `Address.flags.category`
 	 * override (issue #299, RFC 039 Decision 3) substituted for the
 	 * header-derived category when one is set. Returns the subset of the
@@ -1143,11 +1067,10 @@ export class BodySyncService {
 	 *
 	 * The override wins outright rather than blending with the heuristic — RFC
 	 * 039 Decision 3 treats a direct reclassification as final, the same as
-	 * `flags.blocked`/`vip` already override placement. Both callers
-	 * (`applyPostStoreSteps`, `backfillClassification`) already gate on
-	 * `hasDecidedCategory` before this result reaches a write, so a message
-	 * that already carries a real category is never re-touched regardless of
-	 * what this returns.
+	 * `flags.blocked`/`vip` already override placement. The caller
+	 * (`applyPostStoreSteps`) gates on `hasDecidedCategory` before this result
+	 * reaches a write, so a message that already carries a real category is
+	 * never re-touched regardless of what this returns.
 	 */
 	private async classifyMessage(
 		accountConfigId: string,
@@ -1253,7 +1176,7 @@ export class BodySyncService {
 	 * `deriveSenderTrust` always did — `vip → wellknown → unknown`, untouched by
 	 * `blocked` — plus `blocked`/`autoArchive` off the same row. `trustSetAt` is
 	 * the `setAt` of whichever flag produced the trust value, needed by
-	 * {@link resolveBlockedVsTrust}'s tie-break; it stays local to placement and
+	 * {@link resolveSenderPlacement}'s tie-break; it stays local to placement and
 	 * never reaches `deriveSenderTrust`'s own contract (the trust badge).
 	 */
 	private async deriveSenderPlacementSignals(
@@ -1264,11 +1187,13 @@ export class BodySyncService {
 		trustSetAt?: number;
 		blocked: boolean;
 		blockedSetAt?: number;
+		neverSpam: boolean;
 		autoArchive: boolean;
 	}> {
 		const unknown = {
 			trust: SenderTrust.Unknown,
 			blocked: false,
+			neverSpam: false,
 			autoArchive: false,
 		} as const;
 		try {
@@ -1284,6 +1209,7 @@ export class BodySyncService {
 					trustSetAt: flags.vip.setAt,
 					blocked: flags.blocked?.value === true,
 					blockedSetAt: flags.blocked?.setAt,
+					neverSpam: flags.neverSpam?.value === true,
 					autoArchive: flags.autoArchive?.value === true,
 				};
 			}
@@ -1293,6 +1219,7 @@ export class BodySyncService {
 					trustSetAt: flags.wellknown.setAt,
 					blocked: flags.blocked?.value === true,
 					blockedSetAt: flags.blocked?.setAt,
+					neverSpam: flags.neverSpam?.value === true,
 					autoArchive: flags.autoArchive?.value === true,
 				};
 			}
@@ -1300,6 +1227,7 @@ export class BodySyncService {
 				...unknown,
 				blocked: flags?.blocked?.value === true,
 				blockedSetAt: flags?.blocked?.setAt,
+				neverSpam: flags?.neverSpam?.value === true,
 				autoArchive: flags?.autoArchive?.value === true,
 			};
 		} catch (err) {
@@ -1333,7 +1261,7 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.unsubscribeConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		if (hasStoredBody(storedBodyKey)) return;
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) return;
@@ -1349,6 +1277,103 @@ export class BodySyncService {
 			messageId,
 			accountId,
 		);
+	}
+
+	/**
+	 * Offer what a message's `text/calendar` parts propose, as cards beside the
+	 * message (issue #1033). Nothing here reaches a calendar: a suggestion is
+	 * written `Pending` and waits for a person, and a `METHOD:CANCEL` is a card
+	 * of its own rather than a withdrawal of an event the user added.
+	 *
+	 * Write-once per message, like the `category`, placement and read-state
+	 * derivations alongside it (issues #499, #1011): a card is offered on the
+	 * pass that first classifies a message — the same moment the account's
+	 * filters run — and never again. The two re-entrant paths a forced body
+	 * re-sync goes through (`fetchAndGetBody`'s `NoSuchKey` fallback,
+	 * `syncBodies(..., force: true)`) reach this with `bodyStorageKey` already
+	 * set, and re-offering there would resurrect a card the user dismissed.
+	 *
+	 * Isolated the same way placement and filters are: a card is auxiliary to
+	 * storing the mail, which is already durable by the time this runs. A
+	 * repository failure here is logged loudly with the messageId rather than
+	 * failing a body store that otherwise succeeded.
+	 */
+	private async deriveCalendarSuggestions(
+		messageId: string,
+		accountConfigId: string,
+		parsed: ParsedMail,
+		storedBodyKey: string | undefined,
+	): Promise<void> {
+		if (!this.calendarConfig) return;
+		if (hasStoredBody(storedBodyKey)) return;
+
+		const parts = calendarParts(parsed);
+		if (parts.length === 0) return;
+
+		const { calendarUnitOfWork, calendarSuggestionService, filterService } =
+			this.calendarConfig;
+
+		await Promise.resolve()
+			.then(async () => {
+				// `dismiss{muteSender:true}` wrote a standing rule naming this
+				// sender. Honouring it here is what makes that button do anything:
+				// the index-time filter pipeline skips a rule with no label and no
+				// move, so this is the only reader such a rule has.
+				const sender = extractPrimaryFromEmail(parsed);
+				if (sender) {
+					const active = await filterService.listByAccountAndState(
+						accountConfigId,
+						FilterState.Active,
+					);
+					if (isSenderMuted(active, sender)) {
+						this.log.debug?.(
+							{ messageId, sender },
+							"Sender is muted; offering no calendar suggestion",
+						);
+						return;
+					}
+				}
+
+				// Provisioned rather than looked up, through the one function every
+				// caller provisions with. A missing collection has no timezone, and
+				// a floating DTSTART read in UTC puts the meeting hours from where
+				// the organizer meant it. Idempotent: the id is derived, so a second
+				// first use returns the collection the first one made.
+				const collection = await provisionDefaultCalendar(
+					calendarUnitOfWork,
+					accountConfigId,
+				);
+				for (const part of parts) {
+					const recorded = await recordCalendarSuggestion(
+						calendarSuggestionService,
+						{
+							accountConfigId,
+							messageId,
+							bodyPartId: deriveBodyPartId(messageId, part.partPath),
+							source: part.source,
+							icalData: part.icalData,
+							timezone: collection.timezone,
+						},
+					);
+					if (!recorded.ok) {
+						this.log.info(
+							{
+								messageId,
+								partPath: part.partPath,
+								code: recorded.error.code,
+								reason: recorded.error.message,
+							},
+							"Message carries iCalendar this cannot read; no suggestion offered",
+						);
+					}
+				}
+			})
+			.catch((error: unknown) => {
+				this.log.error?.(
+					{ messageId, accountConfigId, error: inspect(error) },
+					"Calendar suggestion derivation failed; body is stored without a card",
+				);
+			});
 	}
 
 	private async deriveSenderUnsubscribed(
@@ -1494,12 +1519,14 @@ export class BodySyncService {
 			: {
 					trust: SenderTrust.Unknown,
 					blocked: false,
+					neverSpam: false,
 					autoArchive: false,
 				};
 
-		const { senderTrust, senderBlocked } = resolveBlockedVsTrust(
+		const { senderTrust, senderOverride } = resolveSenderPlacement(
 			{ trust: signals.trust, setAt: signals.trustSetAt },
 			{ blocked: signals.blocked, setAt: signals.blockedSetAt },
+			signals.neverSpam,
 		);
 
 		// The verdict needs the classification signals (providerSpam,
@@ -1510,7 +1537,7 @@ export class BodySyncService {
 			candidate,
 			placement,
 			senderTrust,
-			senderBlocked,
+			senderOverride,
 		);
 
 		// A `leave` verdict — including "nothing confident to say" — carries no
@@ -1852,75 +1879,6 @@ export class BodySyncService {
 				"Failed to store parsed body cache; failing sync to requeue",
 			);
 			throw err;
-		}
-	}
-
-	/**
-	 * Write the denormalized `category` (and optionally the snippet and the
-	 * normalized `List-Id`) onto EVERY ThreadMessage row the message has — the
-	 * copy the list/search read path serves without a per-row Message fetch.
-	 *
-	 * More than one row per messageId is schema-legal but not normally produced,
-	 * and this iterates for the same reason `message-move.ts` does (see the model
-	 * stated at its `deleteThreadMessagesForMessage`): the key permits it and
-	 * nothing enforces otherwise. It is NOT the second mailbox a message appears
-	 * in — `deriveMessageId` and `deriveThreadMessageId` are both
-	 * mailbox-independent, so INBOX and Archive resolve to one row, and a copy
-	 * gets its own messageId. The reachable case is thread-root drift: the same
-	 * message re-saved under different `References`, which mints a second
-	 * threadId and so a second row. Iterating is therefore hardening against a
-	 * legal state, not a repair for one the sync path manufactures, which is why
-	 * the tree's other single-row `messageId` lookups are correct as they stand.
-	 * `flag-queue.ts` iterates the same list.
-	 *
-	 * Rows are looked up by messageId, so this does not depend on the RFC822
-	 * Message-ID header — a headerless message still gets denormalized, matching
-	 * the unconditional Message.category write. The composite set is built per
-	 * row, never reused: `mailboxId` and `isRead` can differ between two rows for
-	 * one message, and it is passed at all so that a future key-attribute
-	 * addition touching the lsi3/lsi4/lsi5/gsi2 sort keys keeps the index rows
-	 * consistent.
-	 */
-	private async denormalizeCategory(
-		accountConfigId: string,
-		messageId: string,
-		category: ThreadMessageCategory,
-		snippet?: string,
-		listId?: string,
-	): Promise<void> {
-		const rows = await this.threadMessageService.findAllByMessageId(
-			accountConfigId,
-			messageId,
-		);
-		if (rows.length === 0) {
-			throw new NotFoundError(
-				`ThreadMessage not found for message ${messageId}`,
-			);
-		}
-
-		const update = {
-			category,
-			...(snippet ? { snippet } : {}),
-			...(listId ? { listId } : {}),
-		};
-
-		for (const row of rows) {
-			if (alreadyDenormalized(row, update)) continue;
-			await this.threadMessageService.update(
-				accountConfigId,
-				row.threadMessageId,
-				update,
-				{
-					composites: {
-						sentDate: row.sentDate,
-						mailboxId: row.mailboxId,
-						isRead: row.isRead,
-						isDeleted: row.isDeleted,
-						hasStars: row.hasStars,
-						hasAttachment: row.hasAttachment,
-					},
-				},
-			);
 		}
 	}
 }

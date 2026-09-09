@@ -1,8 +1,8 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
 import { unifiedThreadOperationsListAllThreadsQueryKey } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { mailboxesTouchedBy } from "@/lib/bulk-actions";
 import { threadListCacheKeys } from "@/lib/thread-list-cache";
-import { mailboxesTouchedBy } from "./useEscalatedActions.js";
 
 describe("mailboxesTouchedBy", () => {
 	test("a delete or mark-read run touches only the mailbox it ran over", () => {

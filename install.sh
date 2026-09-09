@@ -695,6 +695,13 @@ write_tunnel_env() {
 # A named project is placed as `remit-<name>`: one command per deployment, each
 # holding its own install directory, so neither can be typed at the other's
 # stack by accident.
+#
+# What goes on PATH is a one-line exec shim, never a copy. `remit update`
+# installs the release's own wrapper into the install directory (reader#1072),
+# and nothing refreshes a copy taken here: a verb the release adds answered
+# `unknown command` from /usr/local/bin for as long as this was a `cp`
+# (reader#1082). The shim stamps the directory, so the deployment it manages is
+# still settled at install time.
 place_wrapper() {
 	local src="$DIR/remit"
 	[ -f "$src" ] || die "the remit wrapper is missing from $DIR — the asset fetch did not complete."
@@ -708,7 +715,7 @@ place_wrapper() {
 	[ "$DRY_RUN" = "1" ] && return 0
 	local bindir="${REMIT_BINDIR:-/usr/local/bin}"
 	if [ -w "$bindir" ]; then
-		cp "$src" "$bindir/$WRAPPER_NAME"
+		printf '#!/bin/sh\nexec "%s/remit" "$@"\n' "$DIR" >"$bindir/$WRAPPER_NAME"
 		chmod +x "$bindir/$WRAPPER_NAME"
 		WRAPPER_ON_PATH="$bindir/$WRAPPER_NAME"
 		say "  $WRAPPER_NAME: installed at $bindir/$WRAPPER_NAME"
@@ -732,6 +739,12 @@ validate_compose() {
 bring_up() {
 	say "Pulling images and starting reader"
 	REMIT_DIR="$DIR" REMIT_QUIET=1 "$DIR/remit" update
+	# That run happened in this shell, so its lock, breadcrumb and state landed
+	# beside .env. Every run after it happens in the updater container, which
+	# keeps all of it on its own volume and never writes here again — left in
+	# place, this directory is a record of the install that nothing supersedes
+	# and that outlives what it describes (reader#573).
+	rm -rf "$DIR/.update"
 }
 
 # A warning emitted before the pull is minutes of image progress behind by the
@@ -761,6 +774,31 @@ project_block() {
 EOF
 }
 
+# Search is two features, and an installer that says "search works" is only half
+# right. What the other half is, and what turning it on does and does not buy,
+# is what belongs here; the numbers live in README.md.
+search_block() {
+	local remit="$WRAPPER_NAME"
+	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
+	cat <<EOF
+  Search      Text search works now, over every message as it syncs. Nothing to
+              turn on.
+
+              Semantic search is off. On, it stores a vector for every message,
+              which is what the Organize semantic widen and semantic filters
+              read. The "Similar messages" panel needs your typed query
+              embedded and no image here does that, so it stays empty either
+              way. Turning it on pulls a large model image and spends hours of
+              CPU indexing the mailbox once; README.md, under Search, has the
+              numbers.
+
+                $remit semantic on
+
+              '$remit semantic' prints the state, and 'off' turns it back off
+              and keeps the vectors it built.
+EOF
+}
+
 manage_block() {
 	local remit="$WRAPPER_NAME" indent="              "
 	if [ -n "$WRAPPER_ON_PATH" ]; then
@@ -773,6 +811,7 @@ manage_block() {
 	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
 	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
 	printf '%s%s %-8s Install a release. Atomic: gated, rolls back on failure.\n' "$indent" "$remit" update
+	printf '%s%s %-8s Turn semantic search on or off; prints the state.\n' "$indent" "$remit" semantic
 	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
 	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
@@ -830,6 +869,8 @@ EOF
 EOF
 	project_block
 	printf '\n'
+	search_block
+	printf '\n'
 	manage_block
 	cat <<EOF
 
@@ -844,7 +885,7 @@ EOF
 
               /usr/local/bin was not writable, so remit stayed in the install
               directory. To type 'remit' from anywhere instead:
-                sudo cp $DIR/remit /usr/local/bin/$WRAPPER_NAME
+                sudo ln -sf $DIR/remit /usr/local/bin/$WRAPPER_NAME
 EOF
 	fi
 	if [ "$TLS_MODE" = "internal" ]; then
@@ -883,7 +924,7 @@ main() {
 	write_env
 	place_wrapper
 	# Needs the wrapper on disk, and belongs before the pull: a wrong origin
-	# caught here costs nothing, caught after it costs ~4 GB and an install.
+	# caught here costs nothing, caught after it costs gigabytes and an install.
 	check_origin_dns
 	validate_compose
 	if [ "$DRY_RUN" = "1" ]; then

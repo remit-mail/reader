@@ -6,7 +6,9 @@
 	"description": "APISIX edge route table, generated from the OpenAPI spec and baked into the apisix image.",
 	"scripts": {
 		"generate": "node --import tsx generate-config.ts",
-		"test:typecheck": "tsgo --noEmit"
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-lines=95 --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
 		"@remit/auth-service": "*"

@@ -1,8 +1,22 @@
+export { deriveFilterTtl } from "./filter-ttl.js";
 export type { IAccountRepository } from "./interfaces/account.js";
 export type { IAccountConfigRepository } from "./interfaces/account-config.js";
 export type { IAccountExportRequestRepository } from "./interfaces/account-export-request.js";
 export type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 export type { IAddressRepository } from "./interfaces/address.js";
+export type { ICalendarCollectionRepository } from "./interfaces/calendar-collection.js";
+export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-index.js";
+export type { ICalendarFeedTokenRepository } from "./interfaces/calendar-feed-token.js";
+export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
+export type {
+	ICalendarSuggestionRepository,
+	SettleCalendarSuggestionInput,
+} from "./interfaces/calendar-suggestion.js";
+export type {
+	CalendarUnitOfWorkRepositories,
+	ICalendarUnitOfWork,
+} from "./interfaces/calendar-unit-of-work.js";
+export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
 export type { IFilterAnchorRepository } from "./interfaces/filter-anchor.js";
@@ -37,6 +51,17 @@ export type {
 	IUnitOfWork,
 	UnitOfWorkRepositories,
 } from "./interfaces/unit-of-work.js";
+export type { MessageSettlementFields } from "./message-settlement.js";
+export {
+	abandonedMutationOf,
+	hasAbandonedDelete,
+	hasAbandonedMove,
+} from "./message-settlement.js";
+export {
+	FILTER_NO_ACTION,
+	isSenderMuted,
+	isSenderMuteFilter,
+} from "./sender-mute.js";
 export type {
 	AccountConfigDescription,
 	AccountConfigItem,
@@ -55,10 +80,20 @@ export type {
 	BodyPartParameterUpsertInput,
 	BodyPartStorageItem,
 	BodyPartUpsertInput,
+	CalendarCollectionItem,
+	CalendarEventIndexItem,
+	CalendarFeedTokenItem,
+	CalendarObjectItem,
+	CalendarOccurrenceInput,
+	CalendarSuggestionItem,
+	ConfigImportItem,
+	ConfigImportUnresolvedRefItem,
 	CreateAccountConfigInput,
 	CreateAccountExportRequestInput,
 	CreateAccountInput,
 	CreateAddressInput,
+	CreateCalendarCollectionInput,
+	CreateConfigImportInput,
 	CreateEnvelopeAddressInput,
 	CreateEnvelopeInput,
 	CreateFilterAnchorInput,
@@ -82,6 +117,10 @@ export type {
 	MailboxLockItem,
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
+	MailboxStatePredicate,
+	MailboxSubtreeTransitionIntent,
+	MailboxTransitionIntent,
+	MailboxTransitionWrite,
 	MessageData,
 	MessageDescription,
 	MessageFlagItem,
@@ -95,6 +134,11 @@ export type {
 	OrganizeJobRequestItem,
 	OutboxAttachmentItem,
 	OutboxMessageItem,
+	PlacementPredicate,
+	PlacementTransitionInput,
+	PutCalendarFeedTokenInput,
+	PutCalendarObjectInput,
+	PutCalendarSuggestionInput,
 	PutMessageFlagPushInput,
 	PutMessagePlacementMoveInput,
 	QuarantineItem,
@@ -104,17 +148,19 @@ export type {
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,
+	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateAccountConfigInput,
 	UpdateAccountExportRequestInput,
 	UpdateAccountInput,
 	UpdateAddressInput,
+	UpdateCalendarCollectionInput,
+	UpdateConfigImportInput,
 	UpdateEnvelopeInput,
 	UpdateFilterInput,
 	UpdateLabelInput,
 	UpdateMailboxInput,
 	UpdateMessageInput,
-	UpdateMessageMoveInput,
 	UpdateOrganizeJobRequestInput,
 	UpdateOutboxMessageInput,
 	UpdateThreadMessageInput,

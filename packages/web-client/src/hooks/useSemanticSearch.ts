@@ -2,11 +2,11 @@ import { semanticSearchOperationsSemanticSearchOptions } from "@remit/api-http-c
 import type { RemitImapSemanticSearchResult } from "@remit/api-http-client/types.gen.ts";
 import { MessageCategory } from "@remit/domain-enums";
 import { useQuery } from "@tanstack/react-query";
-import { useRouterState } from "@tanstack/react-router";
 import { useMailContext } from "@/lib/mail-context";
 import { normalizeSearchQuery } from "@/lib/search-query";
 import { semanticMailboxScope } from "@/lib/search-scope";
 import { parseSearchTokens, type SearchToken } from "@/lib/search-tokens";
+import { useBrowsedList } from "@/routing";
 import { useSearchTokenContext } from "./useSearchTokenContext";
 
 /** Cap the "Related" section; the literal "Top matches" is the primary surface. */
@@ -79,7 +79,7 @@ export function useSemanticSearch({
 } {
 	const { searchQuery } = useMailContext();
 	const tokenContext = useSearchTokenContext();
-	const matches = useRouterState({ select: (s) => s.matches });
+	const browsed = useBrowsedList();
 	const normalizedQuery = normalizeSearchQuery(searchQuery);
 	const { freeText, tokens } = parseSearchTokens(normalizedQuery, tokenContext);
 	// `freeText`, not the raw query: a query of nothing but tokens
@@ -105,7 +105,7 @@ export function useSemanticSearch({
 	const inToken = tokens.find((t) => t.type === "in");
 	// The route decides the scope, not the call site — see `semanticMailboxScope`.
 	const effectiveMailboxId = semanticMailboxScope({
-		matches,
+		browsed,
 		callerMailboxId: mailboxId,
 		inTokenMailboxId: inToken?.mailboxId,
 	});

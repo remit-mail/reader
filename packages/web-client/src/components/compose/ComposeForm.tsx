@@ -9,22 +9,25 @@ import type {
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import {
+	Banner,
 	ComposeActionBar,
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
+	ComposeQuoteMissingBanner,
+	type ComposeQuoteMode,
 	type ComposeSendState,
 	type ComposeShellLayout,
 	ComposeSubjectField,
 	composeHeaderSummary,
 	defaultComposeLanguages,
 	modeOfDraft,
+	NO_QUOTABLE_BODY_FORWARD_MESSAGE,
 	QuotedText,
 	type RichTextValue,
 	SMTP_MISSING_MESSAGE,
 	sanitizeQuotedHtml,
 	unwrapLanguage,
-	wrapWithLanguage,
 } from "@remit/ui";
 import type { ComposeBodyMode } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -56,6 +59,13 @@ import type {
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 import { composeSpellcheck } from "./compose-spellcheck.js";
+import {
+	buildQuotedBlock,
+	outgoingBody,
+	type QuotedBlock,
+	type QuotedSourceBody,
+	textToHtml,
+} from "./quoted-message.js";
 
 const LazyComposeBody = lazy(() =>
 	import("@remit/ui/rich-text").then((m) => ({ default: m.ComposeBody })),
@@ -89,19 +99,6 @@ interface ComposeFormProps {
 	 */
 	layout?: ComposeShellLayout;
 }
-
-const escapeHtml = (text: string): string =>
-	text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;");
-
-const textToHtml = (text: string): string =>
-	text
-		.split("\n")
-		.map((line) => `<p>${escapeHtml(line)}</p>`)
-		.join("");
 
 const buildInitialHtml = (signaturePlainText: string): string => {
 	if (!signaturePlainText) return "";
@@ -185,34 +182,6 @@ const getReferences = (
 	};
 };
 
-/**
- * What the two body columns carry for this mode.
- *
- * Plain mode writes the empty string rather than omitting `htmlBody`: absent
- * means "leave alone" at every layer below, so a plain draft that omitted it
- * would send the HTML it was written as before the switch. The empty string is
- * defined, so the repository's update guard clears the column, and nodemailer
- * branches on the value being truthy — an empty one builds no HTML alternative
- * and the message leaves as a single `text/plain` part.
- *
- * Rich mode leaves it alone while it has nothing to say, so the moments before
- * the lazily-loaded editor reports its document cannot write a draft back as
- * plain.
- */
-const outgoingBody = (
-	bodyMode: ComposeBodyMode,
-	body: RichTextValue,
-	language: string,
-): { textBody: string | undefined; htmlBody: string | undefined } => ({
-	textBody: body.text || undefined,
-	htmlBody:
-		bodyMode === "plain"
-			? ""
-			: body.html
-				? wrapWithLanguage(body.html, language)
-				: undefined,
-});
-
 type SendReadiness =
 	| { status: "sending" }
 	| { status: "blocked"; reason: string }
@@ -242,6 +211,22 @@ interface AddressFieldHandles {
  * has anywhere to go, which is not the question this one asks.
  */
 const NO_TO_ADDRESS_MESSAGE = "Add a To address before sending.";
+
+/**
+ * Send waits for the message being quoted. Pressed before it lands, the send
+ * would go out carrying the answer and nothing of what it answers — the defect
+ * this refusal exists to make impossible rather than merely unlikely (#845.5).
+ */
+const QUOTE_LOADING_MESSAGE = "Loading the message you're quoting.";
+
+/**
+ * The quoted original could not be fetched. A forward without it is an empty
+ * message and a reply without it drops the thread, so the composer says so
+ * where the message is being written instead of sending a message the user
+ * believes carries the original.
+ */
+const QUOTE_FAILED_MESSAGE =
+	"The message you're quoting couldn't be loaded, so it won't be included.";
 
 /** A field holding text that is not an address, and which field it is. */
 interface UnparsedField {
@@ -431,6 +416,21 @@ export const ComposeForm = ({
 	 * commit out — the fields still hold the message that has just been left.
 	 */
 	const [openDocumentId, setOpenDocumentId] = useState(outboxMessageId);
+	/**
+	 * What the server's copy of this document would autosave as, so a draft that
+	 * is only being looked at writes nothing.
+	 *
+	 * Opening one runs the autosave effect on the render that fills the fields
+	 * from the read, and that write is no longer free: an edit returns a settled
+	 * failure to `draft` (#933), so opening a Failed message and pressing Escape
+	 * would take it out of the Outbox with the reader having changed nothing. The
+	 * first run after a load records what was loaded; only a payload that differs
+	 * from it is an edit. Nothing updates it afterwards — once the reader has
+	 * touched the document, every later run saves as it always did, retries of a
+	 * failed write included.
+	 */
+	const loadedPayloadRef = useRef<string | undefined>(undefined);
+	const captureLoadedPayloadRef = useRef(false);
 	const smtpConfigureRef = useRef<HTMLButtonElement>(null);
 	const prevOutboxMessageIdRef = useRef<string | undefined>(outboxMessageId);
 	/**
@@ -441,6 +441,41 @@ export const ComposeForm = ({
 	 * the subject the reader edited.
 	 */
 	const resumedDraftRef = useRef(outboxMessageId !== undefined);
+	/**
+	 * Whether the document on screen already carries the quoted original. True of
+	 * exactly one thing: a draft read back from the server, which was saved with
+	 * the quote in its body. Held as state rather than read off `resumedDraftRef`
+	 * because the quote is assembled during render.
+	 */
+	const [documentHoldsQuote, setDocumentHoldsQuote] = useState(
+		outboxMessageId !== undefined,
+	);
+	/**
+	 * The mode the fields on screen were last written for. A draft that is
+	 * resumed holds what its reader saved and must not be overwritten when it
+	 * mounts — but a switch of mode over the same message asks for different
+	 * recipients, which is how Reply All reaches the Cc field (#796).
+	 *
+	 * Taken at mount rather than on the first run that has a source: the source
+	 * is fetched fresh after a reload, so a reader who presses Reply All before
+	 * it lands would otherwise have that press recorded as the mode the draft
+	 * opened under, and Reply All would stay dead.
+	 */
+	const seededModeRef = useRef<ComposeMode | undefined>(
+		outboxMessageId !== undefined ? mode : undefined,
+	);
+	/**
+	 * The reader's own address the recipients were last written against, absent
+	 * until something has been written. The account resolves from the source's
+	 * mailbox, so it lands after the source: a seed made before it arrived kept
+	 * the reader in their own Cc (#819), and is redone once it does.
+	 */
+	const seededMyEmailRef = useRef<{ myEmail: string | undefined } | undefined>(
+		undefined,
+	);
+	// Read where a mode change must not itself be the trigger.
+	const modeRef = useRef(mode);
+	modeRef.current = mode;
 	/**
 	 * The identity this form has already taken from the surface that mounted it.
 	 * A reply learns which account the message reached only once the mailbox it
@@ -480,6 +515,10 @@ export const ComposeForm = ({
 		prevOutboxMessageIdRef.current = outboxMessageId;
 		if (previous === undefined) return;
 		resumedDraftRef.current = outboxMessageId !== undefined;
+		setDocumentHoldsQuote(outboxMessageId !== undefined);
+		seededModeRef.current =
+			outboxMessageId !== undefined ? modeRef.current : undefined;
+		seededMyEmailRef.current = undefined;
 		// A draft brings its own body along in a moment; a new message opens on
 		// the signature, the same document a fresh mount would have started on.
 		const opening = outboxMessageId
@@ -499,6 +538,8 @@ export const ComposeForm = ({
 		setBody({ ...opening, formatting: [] });
 		setDocumentGeneration((generation) => generation + 1);
 		setDraftLoaded(false);
+		loadedPayloadRef.current = undefined;
+		captureLoadedPayloadRef.current = false;
 		setOpenDocumentId(outboxMessageId);
 	}, [outboxMessageId, clearPendingFields]);
 
@@ -590,11 +631,22 @@ export const ComposeForm = ({
 		setDocumentGeneration((generation) => generation + 1);
 		setSelectedAccountId(draftData.accountId);
 		setDraftLoaded(true);
+		captureLoadedPayloadRef.current = true;
 	}, [draftData, draftLoaded]);
 
 	useEffect(() => {
-		if (resumedDraftRef.current) return;
 		if (!sourceMessage) return;
+		// A draft the reader came back to holds what they saved, so mounting over
+		// it seeds nothing — but a switch of mode over the same message asks for
+		// a different answer, and rewrites the fields for it (#796). A rewrite
+		// made before the account resolved is redone when its address arrives,
+		// which is what takes the reader back out of their own Cc (#819).
+		if (resumedDraftRef.current && seededModeRef.current === mode) {
+			const seeded = seededMyEmailRef.current;
+			if (!seeded || seeded.myEmail === account?.email) return;
+		}
+		seededModeRef.current = mode;
+		seededMyEmailRef.current = { myEmail: account?.email };
 
 		// The fields are being rewritten for a different answer, so what was typed
 		// into one and left there belongs to the answer being left behind. Without
@@ -622,22 +674,68 @@ export const ComposeForm = ({
 	}, [mode, sourceMessage, account?.email, clearPendingFields]);
 
 	// Quoted reply/forward content lives at the per-part `contentUrl` since
-	// #224 PR 3 — fetch it via the same hook MessageBody uses, and degrade
-	// to an empty quote when nothing renderable exists (the user can still
-	// attribute the reply manually).
+	// #224 PR 3 — fetch it via the same hook MessageBody uses.
 	const isQuoting =
 		mode === "reply" || mode === "reply-all" || mode === "forward";
-	const { data: sourceBody } = useMessageBodyContent({
+	const {
+		data: sourceBody,
+		isLoading: quoteIsLoading,
+		isError: quoteFailed,
+		hasNoRenderablePart: sourceHasNoQuotableBody,
+		refetch: refetchQuote,
+	} = useMessageBodyContent({
 		messageId: sourceMessage?.message.messageId,
 		bodyParts: sourceMessage?.bodyParts,
 		enabled: isQuoting && !!sourceMessage,
 	});
 
-	const quotedText = sourceBody?.kind === "text" ? sourceBody.body : "";
-	const quotedHtml =
-		sourceBody?.kind === "html"
-			? sanitizeQuotedHtml(sourceBody.body)
-			: undefined;
+	const quoteMode: ComposeQuoteMode = mode === "forward" ? "forward" : "reply";
+
+	/**
+	 * The message being answered has not arrived yet, so the quote's own fetch
+	 * cannot have started — it picks its part out of what has not landed. A send
+	 * pressed in this window went out carrying none of the original and was
+	 * refused by nothing, because "no part picked" reads the same here as "this
+	 * message has no part to pick" (#1030).
+	 */
+	const quoteSourceIsLoading = isQuoting && !sourceMessage;
+
+	/**
+	 * The message being answered arrived carrying attachments and no text. A
+	 * forward of it is refused: the composer sends a text body and an html body
+	 * and no attachments, so the forward would arrive holding nothing of the
+	 * original at all. A reply goes out — it carries the answer and the thread's
+	 * references either way — and says the original is not quoted in it.
+	 *
+	 * Not stated for a resumed draft, whose body already holds whatever quote it
+	 * was saved with; this composer is not the one that assembles it.
+	 */
+	const quoteHasNoBody =
+		isQuoting && !documentHoldsQuote && sourceHasNoQuotableBody;
+	const nothingToForward = quoteHasNoBody && quoteMode === "forward";
+
+	/**
+	 * The original as it will be sent, and as it is shown while the answer is
+	 * written — one value for both, because the two disagreeing is the whole of
+	 * #845.5.
+	 *
+	 * Absent for a draft read back from the server: that document was saved with
+	 * the quote already in it, so the editor holds it and appending a second copy
+	 * would send the original twice.
+	 */
+	const quotedBlock = useMemo<QuotedBlock | undefined>(() => {
+		if (!isQuoting || !sourceMessage || documentHoldsQuote) return undefined;
+		if (!sourceBody) return undefined;
+		const body: QuotedSourceBody =
+			sourceBody.kind === "html"
+				? { kind: "html", content: sanitizeQuotedHtml(sourceBody.body) }
+				: { kind: "text", content: sourceBody.body };
+		return buildQuotedBlock(
+			mode === "forward" ? "forward" : "reply",
+			sourceMessage.envelope,
+			body,
+		);
+	}, [isQuoting, sourceMessage, documentHoldsQuote, sourceBody, mode]);
 
 	const senderName =
 		sourceMessage?.envelope.from[0]?.displayName ??
@@ -749,15 +847,35 @@ export const ComposeForm = ({
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 			}
+			if (quoteIsLoading || quoteSourceIsLoading) {
+				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
+			}
 			if (unparsed) {
 				return { status: "blocked", reason: unparsedRefusal(unparsed) };
 			}
 			if (toCount === 0) {
 				return { status: "blocked", reason: NO_TO_ADDRESS_MESSAGE };
 			}
+			// Last of the refusals: the others name something the writer can go and
+			// fix, and this one names something about the message being forwarded
+			// that they cannot. The banner above states it the whole time either
+			// way, so the press is better spent on the fixable thing.
+			if (nothingToForward) {
+				return {
+					status: "blocked",
+					reason: NO_QUOTABLE_BODY_FORWARD_MESSAGE,
+				};
+			}
 			return { status: "ready", accountId: selectedAccountId };
 		},
-		[isSending, selectedAccountId, selectedAccountMissingSmtp],
+		[
+			isSending,
+			selectedAccountId,
+			selectedAccountMissingSmtp,
+			quoteIsLoading,
+			quoteSourceIsLoading,
+			nothingToForward,
+		],
 	);
 	const sendReadiness = useMemo<SendReadiness>(
 		() =>
@@ -793,9 +911,10 @@ export const ComposeForm = ({
 			bodyMode,
 			body,
 			composeLanguage,
+			quotedBlock,
 		);
 
-		saveDraft({
+		const payload = {
 			accountId: selectedAccountId,
 			toAddresses: toAddresses.map((a) => a.email),
 			ccAddresses:
@@ -805,7 +924,19 @@ export const ComposeForm = ({
 			subject: subject || undefined,
 			textBody,
 			htmlBody,
-		});
+		};
+
+		// Nor a document nobody has touched. Reopening one is not editing it, and
+		// a PATCH is now a status change as well as a content one (#933).
+		const fingerprint = JSON.stringify(payload);
+		if (captureLoadedPayloadRef.current) {
+			captureLoadedPayloadRef.current = false;
+			loadedPayloadRef.current = fingerprint;
+			return;
+		}
+		if (loadedPayloadRef.current === fingerprint) return;
+
+		saveDraft(payload);
 	}, [
 		selectedAccountId,
 		outboxMessageId,
@@ -818,6 +949,7 @@ export const ComposeForm = ({
 		body,
 		bodyMode,
 		composeLanguage,
+		quotedBlock,
 		saveDraft,
 	]);
 
@@ -839,6 +971,7 @@ export const ComposeForm = ({
 					bodyMode,
 					body,
 					composeLanguage,
+					quotedBlock,
 				);
 				const createdThisAttempt = !outboxMessageId;
 
@@ -907,6 +1040,7 @@ export const ComposeForm = ({
 			body,
 			bodyMode,
 			composeLanguage,
+			quotedBlock,
 			mode,
 			sourceMessage,
 			outboxMessageId,
@@ -997,12 +1131,31 @@ export const ComposeForm = ({
 		<ComposeFormShell
 			layout={layout}
 			banner={
-				selectedAccount && selectedAccountMissingSmtp ? (
-					<ComposeSmtpMissingBanner
-						accountId={selectedAccount.accountId}
-						configureRef={smtpConfigureRef}
-					/>
-				) : undefined
+				<>
+					{selectedAccount && selectedAccountMissingSmtp ? (
+						<ComposeSmtpMissingBanner
+							accountId={selectedAccount.accountId}
+							configureRef={smtpConfigureRef}
+						/>
+					) : null}
+					{quoteHasNoBody ? (
+						<ComposeQuoteMissingBanner mode={quoteMode} />
+					) : null}
+					{quoteFailed ? (
+						<Banner tone="warning" data-testid="compose-quote-failed">
+							<span>{QUOTE_FAILED_MESSAGE}</span>{" "}
+							<button
+								type="button"
+								className="underline"
+								onClick={() => {
+									void refetchQuote();
+								}}
+							>
+								Try again
+							</button>
+						</Banner>
+					) : null}
+				</>
 			}
 			header={
 				<WiredComposeHeader
@@ -1026,10 +1179,10 @@ export const ComposeForm = ({
 				/>
 			}
 			quoted={
-				quotedText || quotedHtml ? (
+				quotedBlock ? (
 					<QuotedText
-						text={quotedText}
-						html={quotedHtml}
+						text={quotedBlock.text}
+						html={quotedBlock.html}
 						senderName={senderName}
 					/>
 				) : undefined

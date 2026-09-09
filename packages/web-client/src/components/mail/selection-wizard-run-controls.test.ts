@@ -145,6 +145,7 @@ describe("whether the run screen offers a way to end the run", () => {
 	const outcome: BulkRunOutcome = {
 		done: 2,
 		failedIds: [],
+		refused: 0,
 		cancelled: false,
 	};
 

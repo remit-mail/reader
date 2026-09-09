@@ -66,7 +66,10 @@ const ALL_SERVICES =
 	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
 
 // The always-on stack the shipped compose file declares — every service with no
-// `profiles:` key. The stand-in answers `config --services` from that file, so
+// `profiles:` key. `search-index-worker` is not one of them: it sits behind the
+// `semantic` profile and only runs where an operator asked for vector search
+// (issue #1068), so an update on a stopped box brings it back no more than it
+// brings back the tunnel agent or the metrics containers. The stand-in answers `config --services` from that file, so
 // this is the list the wrapper derives its held-back set from, and "the whole
 // always-on stack" means this rather than whatever a sandbox happens to seed.
 // A service added to the deployment fails the check that compares the two.
@@ -80,7 +83,6 @@ const COMPOSE_ALWAYS_ON = [
 	"migrate",
 	"queue",
 	"scheduler",
-	"search-index-worker",
 	"smtp-worker",
 	"updater",
 	"volume-init",
@@ -168,9 +170,51 @@ function applyMigrationAndWrite(dbPath, subject) {
 	db.close();
 }
 
+// The pair of flat files a completed update leaves wherever its STATE_DIR was:
+// what it did, and what the check before it found.
+function writeRecord(dir, { outcome, message, latestVersion, lastCheckedAt }) {
+	mkdirSync(dir, { recursive: true });
+	writeFileSync(
+		join(dir, "run.json"),
+		`${JSON.stringify({
+			runId: `${lastCheckedAt}-run`,
+			fromVersion: "v0.2.15",
+			targetVersion: latestVersion,
+			phase: "committing",
+			outcome,
+			startedAt: lastCheckedAt,
+			updatedAt: lastCheckedAt,
+			message,
+			logCommand: "remit logs updater",
+		})}\n`,
+	);
+	writeFileSync(
+		join(dir, "check.json"),
+		`${JSON.stringify({
+			status: "ok",
+			lastCheckedAt,
+			latestVersion,
+			updateAvailable: false,
+		})}\n`,
+	);
+}
+
 function writeExecutable(path, body) {
 	writeFileSync(path, body);
 	spawnSync("chmod", ["+x", path]);
+}
+
+// The wrapper as it reaches a box: the release's own file with the three lines
+// install.sh's place_wrapper rewrites pointed at this deployment. An update
+// that installs the release's wrapper has to stamp it the same way, so this is
+// both what a sandbox starts with and what its result is measured against.
+const WRAPPER_SOURCE = readFileSync(REMIT, "utf8");
+
+function stampWrapper(source, { dir, composeFile, prog }) {
+	return source
+		.replace(/^DEFAULT_DIR=.*$/m, `DEFAULT_DIR=${dir}`)
+		.replace(/^COMPOSE_FILE=.*$/m, `COMPOSE_FILE=${composeFile}`)
+		.replace(/^PROG=.*$/m, `PROG=${prog}`);
 }
 
 function sandbox({
@@ -182,6 +226,20 @@ function sandbox({
 	bareDb = false,
 	tag = "v1.0.0",
 	tlsMode = "internal",
+	// The release's host-side files, served from the tag the run installs
+	// (reader#1072). Unset, the release ships what this checkout ships, which is
+	// a release that changed neither file. `hostAssets: false` is the release
+	// whose files cannot be fetched at all.
+	hostAssets = true,
+	releaseWrapper = null,
+	releaseCompose = null,
+	installedWrapper = null,
+	prog = "remit",
+	// An operator at a host shell, where REMIT_UPDATE_STATE_DIR is unset and
+	// STATE_DIR falls back to the directory beside .env. Every other test sets
+	// it, which is what kept the divergence between that directory and the
+	// updater's volume out of the suite (reader#573).
+	operatorShell = false,
 } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-update-"));
 	sandboxes.push(dir);
@@ -190,6 +248,12 @@ function sandbox({
 	const fake = join(dir, "fake");
 	const bin = join(dir, "bin");
 	const sqlite = join(dir, "sqlite");
+	// A host directory standing in for the updater_state volume, the way sqlite
+	// stands in for sqlite_data.
+	const updaterState = join(dir, "updater-state");
+	// And one for the updater_control volume — the seam the backend reads
+	// state.json off, which is a second volume and never the state one.
+	const updaterControl = join(dir, "updater-control");
 	for (const d of [
 		deployment,
 		join(deployment, "backup"),
@@ -197,16 +261,44 @@ function sandbox({
 		fake,
 		bin,
 		sqlite,
+		updaterState,
+		updaterControl,
 	]) {
 		mkdirSync(d, { recursive: true });
 	}
 	copyFileSync(COMPOSE, join(deployment, "docker-compose.sqlite.yml"));
 	copyFileSync(SNAPSHOT_LIB, join(deployment, "backup", "snapshot-db.sh"));
+	writeExecutable(
+		join(deployment, "remit"),
+		typeof installedWrapper === "function"
+			? installedWrapper(deployment)
+			: (installedWrapper ??
+					stampWrapper(WRAPPER_SOURCE, {
+						dir: deployment,
+						composeFile: "docker-compose.sqlite.yml",
+						prog,
+					})),
+	);
+	if (hostAssets) {
+		mkdirSync(join(fake, "assets"), { recursive: true });
+		writeFileSync(
+			join(fake, "assets", "remit"),
+			releaseWrapper ?? WRAPPER_SOURCE,
+		);
+		writeFileSync(
+			join(fake, "assets", "docker-compose.sqlite.yml"),
+			releaseCompose ?? readFileSync(COMPOSE, "utf8"),
+		);
+	}
 	writeFileSync(
 		join(deployment, ".env"),
 		[
 			`REMIT_TAG=${tag}`,
 			"PUBLIC_ORIGIN=https://mail.example.test",
+			// The deployment directory the compose file demands and install.sh
+			// writes. The stand-in resolves interpolations now, so an .env without
+			// it is an .env no `docker compose config` would accept.
+			`REMIT_DEPLOY_DIR=${deployment}`,
 			`TLS_MODE=${tlsMode}`,
 			// Compose reads its active profiles from here, so the mode is what turns
 			// the tunnel agent on — not a scenario key.
@@ -255,6 +347,11 @@ function sandbox({
 		spawnSync("chmod", ["+x", dest]);
 	}
 
+	// `remit` on PATH, the way the updater image bakes it: unstamped, because the
+	// container reads the deployment out of REMIT_DIR. It is what the delegated
+	// check runs as.
+	writeExecutable(join(bin, "remit"), `#!/bin/sh\nexec sh "${REMIT}" "$@"\n`);
+
 	// Real-database mode: the helper containers run their scripts for real, so
 	// the tools they call inside the container are shimmed onto PATH — sqlite3 is
 	// node:sqlite, su-exec drops its uid argument and execs, apk and chown are
@@ -275,7 +372,17 @@ function sandbox({
 		HOME: dir,
 		FAKE_DOCKER_DIR: fake,
 		REMIT_DIR: deployment,
-		REMIT_UPDATE_STATE_DIR: state,
+		...(operatorShell ? {} : { REMIT_UPDATE_STATE_DIR: state }),
+		REMIT_UPDATE_STATE_VOLUME: updaterState,
+		// The two volumes as the updater container sees them, for the stand-in's
+		// `exec_mode=updater`: a command it runs for real writes where the compose
+		// service's mounts would have put it.
+		FAKE_UPDATER_STATE: updaterState,
+		FAKE_UPDATER_CONTROL: updaterControl,
+		// The asset base shares the manifest URL's origin, which is what a
+		// deployment that has not gone out of its way to say otherwise is held to.
+		REMIT_UPDATE_ASSET_BASE:
+			"https://updates.example.test/remit-mail/reader/@TAG@/deploy/vps",
 		REMIT_UPDATE_GATE_BUDGET: "2",
 		REMIT_UPDATE_PROBE_INTERVAL: "0",
 		...(realDb
@@ -293,6 +400,8 @@ function sandbox({
 		dir,
 		deployment,
 		state,
+		updaterState,
+		updaterControl,
 		fake,
 		sqlite,
 		liveDb,
@@ -350,6 +459,38 @@ function sandbox({
 				return "";
 			}
 		},
+		// The host-side files as the deployment carries them now, and the URLs
+		// the run asked the release for.
+		installedWrapper() {
+			return readFileSync(join(deployment, "remit"), "utf8");
+		},
+		installedCompose() {
+			return readFileSync(
+				join(deployment, "docker-compose.sqlite.yml"),
+				"utf8",
+			);
+		},
+		assetLog() {
+			try {
+				return readFileSync(join(fake, "asset-log"), "utf8");
+			} catch {
+				return "";
+			}
+		},
+		snapshotDirs() {
+			try {
+				return readdirSync(join(state, "snapshots")).sort();
+			} catch {
+				return [];
+			}
+		},
+		seedSnapshots(names, mode) {
+			mkdirSync(join(state, "snapshots"), { recursive: true });
+			for (const name of names) {
+				mkdirSync(join(state, "snapshots", name), { recursive: true });
+			}
+			if (mode !== undefined) chmodSync(join(state, "snapshots"), mode);
+		},
 		breadcrumb() {
 			return readFileSync(join(state, "breadcrumb"), "utf8");
 		},
@@ -403,7 +544,13 @@ describe("the stand-in's service list is the compose file's", () => {
 
 	it("hides a service behind an inactive profile, the way compose does", () => {
 		const box = sandbox();
-		for (const service of ["tunnel", "backup", "dozzle", "victoriametrics"]) {
+		for (const service of [
+			"tunnel",
+			"backup",
+			"dozzle",
+			"victoriametrics",
+			"search-index-worker",
+		]) {
 			assert.ok(
 				!composeServices(box).includes(service),
 				`${service} is listed on a deployment whose profile is off`,
@@ -427,6 +574,7 @@ describe("the stand-in's service list is the compose file's", () => {
 				...COMPOSE_ALWAYS_ON,
 				"backup",
 				"dozzle",
+				"search-index-worker",
 				"tunnel",
 				"victoriametrics",
 			].sort(),
@@ -539,6 +687,354 @@ describe("remit update — the rollback's own gate fails", () => {
 		assert.equal(run.outcome, "rollbackFailed");
 		assert.match(run.message, /snapshot/);
 		assert.equal(run.logCommand, "remit logs backend");
+	});
+});
+
+// reader#1072. A release is not only its images. The wrapper and the compose
+// file are host files, and an update that moves the images and leaves those two
+// where they were gives the operator a box whose commands and whose service
+// definitions belong to the version before it: a verb the release adds
+// answering `unknown command`, a profile its compose file never declares.
+//
+// The wrapper stand-ins are deliberately tiny. What is being asserted is that
+// the file the deployment carries afterwards is the release's and answers the
+// release's commands, and a real wrapper would prove that no better while
+// costing every assertion a 3000-line diff to read.
+const wrapperWith = (verbs) =>
+	[
+		"#!/bin/sh",
+		"DEFAULT_DIR=/opt/remit",
+		"COMPOSE_FILE=docker-compose.sqlite.yml",
+		"PROG=remit",
+		'case "${1:-}" in',
+		...verbs.map((verb) => `${verb}) printf '${verb}\\n' ;;`),
+		"*) printf 'unknown command\\n' >&2; exit 1 ;;",
+		"esac",
+		"",
+	].join("\n");
+
+// The release adds a verb to the wrapper, an always-on service to the compose
+// file, and a service behind a profile the previous release never declared —
+// the three shapes #1072 was observed in.
+const RELEASE_WRAPPER = wrapperWith(["doctor", "semantic"]);
+const RELEASE_COMPOSE = readFileSync(COMPOSE, "utf8").replace(
+	/^services:$/m,
+	[
+		"services:",
+		"  search-preview:",
+		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
+		"  semantic-indexer:",
+		'    profiles: ["semantic"]',
+		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
+	].join("\n"),
+);
+
+// What this deployment has installed: the previous release's wrapper, stamped
+// the way install.sh stamps it, on a second deployment so the name and the
+// directory are things a re-stamp can lose.
+const installedFor = (dir) =>
+	stampWrapper(wrapperWith(["doctor"]), {
+		dir,
+		composeFile: "docker-compose.sqlite.yml",
+		prog: "remit-blue",
+	});
+
+const wrapperAnswers = (box, verb) =>
+	spawnSync(join(box.deployment, "remit"), [verb], { encoding: "utf8" }).status;
+
+describe("remit update — the release's wrapper and compose file", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseWrapper: RELEASE_WRAPPER,
+		releaseCompose: RELEASE_COMPOSE,
+		installedWrapper: installedFor,
+	});
+	const result = box.run(["update"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("fetches both files from the release being installed", () => {
+		const asked = box.assetLog();
+		assert.match(asked, /\/v1\.5\.0\/deploy\/vps\/remit$/m);
+		assert.match(
+			asked,
+			/\/v1\.5\.0\/deploy\/vps\/docker-compose\.sqlite\.yml$/m,
+		);
+	});
+
+	it("leaves the deployment carrying the release's commands", () => {
+		assert.equal(wrapperAnswers(box, "semantic"), 0);
+	});
+
+	it("re-stamps it with this deployment's own values", () => {
+		const lines = box.installedWrapper().split("\n");
+		assert.ok(lines.includes(`DEFAULT_DIR=${box.deployment}`));
+		assert.ok(lines.includes("COMPOSE_FILE=docker-compose.sqlite.yml"));
+		assert.ok(lines.includes("PROG=remit-blue"));
+	});
+
+	it("leaves the compose file declaring the release's services", () => {
+		assert.ok(composeServices(box).includes("search-preview"));
+		assert.ok(
+			composeServices(box, ["--profile", "*"]).includes("semantic-indexer"),
+		);
+	});
+});
+
+describe("remit update — the gate fails on the release's own files", () => {
+	const box = sandbox({
+		scenario: { probe: "fail", probe2: "ok" },
+		releaseWrapper: RELEASE_WRAPPER,
+		releaseCompose: RELEASE_COMPOSE,
+		installedWrapper: installedFor,
+	});
+	const wasInstalled = installedFor(box.deployment);
+	const result = box.run(["update"]);
+
+	it("rolls back", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+	});
+
+	// The gate is a verdict on what will run, so the release's compose file is
+	// what the stack was verified against: the stop that begins the rollback
+	// enumerates services the previous release never declared.
+	it("verified the release against the release's compose file", () => {
+		assert.ok(box.log().includes("search-preview"));
+	});
+
+	it("puts the deployment's own wrapper back", () => {
+		assert.equal(box.installedWrapper(), wasInstalled);
+		assert.notEqual(wrapperAnswers(box, "semantic"), 0);
+	});
+
+	it("puts the deployment's own compose file back", () => {
+		assert.equal(box.installedCompose(), readFileSync(COMPOSE, "utf8"));
+		assert.ok(!composeServices(box).includes("search-preview"));
+	});
+});
+
+describe("remit update — the release's host-side files cannot be fetched", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		hostAssets: false,
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run rather than installing half a release", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /wrapper and compose file/);
+	});
+
+	it("changes nothing", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// A fetch that completed proves bytes arrived and nothing else. Both files are
+// read next by something that cannot report a failure — the compose file by the
+// stop and the start on either side of the gate, the wrapper by the next shell
+// an operator types it into — so both are parsed while the stack is still up
+// and abandoning is free.
+describe("remit update — a release whose compose file will not resolve", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseCompose: readFileSync(COMPOSE, "utf8").replace(
+			/^services:$/m,
+			[
+				"services:",
+				"  search-preview:",
+				"    image: ghcr.io/remit-mail/reader/web:${UNSET_VAR:?the release needs it}",
+			].join("\n"),
+		),
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+	});
+
+	it("abandons it before anything is stopped", () => {
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+		assert.equal(box.installedCompose(), readFileSync(COMPOSE, "utf8"));
+	});
+});
+
+describe("remit update — a release whose wrapper will not parse", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseWrapper: [
+			"#!/bin/sh",
+			"DEFAULT_DIR=/opt/remit",
+			"COMPOSE_FILE=docker-compose.sqlite.yml",
+			"PROG=remit",
+			'case "${1:-}" in',
+			"",
+		].join("\n"),
+	});
+	const result = box.run(["update"]);
+
+	it("abandons the run before anything is stopped", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// What the asset base names is a shell script this box then runs as root, so
+// it is not read on the same terms as any other setting: https, and the origin
+// the manifest is already trusted from unless the deployment says otherwise.
+describe("remit update — where the release's host files may be read from", () => {
+	const attempt = (env) => {
+		const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 }, env });
+		return { box, result: box.run(["update"]) };
+	};
+
+	it("refuses a base that is not https", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"http://updates.example.test/remit-mail/reader/@TAG@/deploy/vps",
+		});
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.equal(box.assetLog(), "");
+	});
+
+	it("refuses an origin the manifest is not served from", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"https://elsewhere.example.test/remit-mail/reader/@TAG@/deploy/vps",
+		});
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.equal(box.assetLog(), "");
+	});
+
+	it("reads from a second origin the deployment named", () => {
+		const { box, result } = attempt({
+			REMIT_UPDATE_ASSET_BASE:
+				"https://elsewhere.example.test/remit-mail/reader/@TAG@/deploy/vps",
+			REMIT_UPDATE_ASSET_ORIGIN: "https://elsewhere.example.test",
+		});
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.match(box.assetLog(), /^https:\/\/elsewhere\.example\.test\//m);
+	});
+});
+
+// reader#1082. The entry on PATH used to be a copy of the wrapper, and an
+// update installs the release's wrapper into the deployment directory: the copy
+// kept answering with the release it was taken from. install.sh places an exec
+// shim now, and a copy left by an older install says so rather than silently
+// refusing a verb the release added.
+describe("an entry on PATH that is a copy of an older release", () => {
+	const entryBox = (body) => {
+		const dir = mkdtempSync(join(TMP_ROOT, "remit-path-entry-"));
+		sandboxes.push(dir);
+		const deployment = join(dir, "deployment");
+		mkdirSync(deployment, { recursive: true });
+		writeExecutable(
+			join(deployment, "remit"),
+			stampWrapper(WRAPPER_SOURCE, {
+				dir: deployment,
+				composeFile: "docker-compose.sqlite.yml",
+				prog: "remit",
+			}),
+		);
+		const entry = join(dir, "entry");
+		writeExecutable(entry, body(deployment));
+		return spawnSync(
+			"sh",
+			["-c", '. "$0"\npath_entry_stale "$1" && printf stale', REMIT, entry],
+			{
+				env: {
+					...process.env,
+					REMIT_LIB_ONLY: "1",
+					REMIT_DIR: deployment,
+				},
+				encoding: "utf8",
+			},
+		);
+	};
+
+	it("is what a copy of another release is read as", () => {
+		const run = entryBox(() => `${wrapperWith(["doctor"])}\n`);
+		assert.equal(run.stdout, "stale");
+	});
+
+	it("is not what the shim install.sh places is read as", () => {
+		const run = entryBox((dir) => `#!/bin/sh\nexec "${dir}/remit" "$@"\n`);
+		assert.equal(run.stdout, "");
+	});
+
+	// The three lines install.sh stamps belong to the deployment, not to the
+	// release, so a wrapper differing only there is the release that is running.
+	it("is not what the same release under another stamp is read as", () => {
+		const run = entryBox(() =>
+			stampWrapper(WRAPPER_SOURCE, {
+				dir: "/opt/other",
+				composeFile: "docker-compose.sqlite.yml",
+				prog: "remit-other",
+			}),
+		);
+		assert.equal(run.stdout, "");
+	});
+
+	it("says so on stderr, and never tells the operator to sudo", () => {
+		const box = sandbox({
+			scenario: { probe: "ok" },
+			installedWrapper: installedFor,
+		});
+		const result = box.run(["status"]);
+		assert.match(result.stderr, /is a copy of an older release/);
+		assert.ok(!result.stderr.includes("sudo"), result.stderr);
+	});
+});
+
+// reader#1071. The snapshots directory is made by a root helper container, so a
+// prune that runs on the host as the operator cannot unlink anything from it. A
+// release that pruned there failed with EACCES on every old run and told the
+// operator to sudo rm -rf inside their own deployment.
+describe("remit update — the snapshots left by earlier runs", () => {
+	const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 } });
+	const stale = ["20260101T000000Z-aaaaaaaa", "20260102T000000Z-bbbbbbbb"];
+	box.seedSnapshots(stale, 0o555);
+	const result = box.run(["update"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("removes them where they were made, in the helper", () => {
+		assert.ok(box.log().includes("run prune-snapshots"));
+		for (const dir of stale) {
+			assert.ok(
+				!box.snapshotDirs().includes(dir),
+				`${dir} survived the update`,
+			);
+		}
+	});
+
+	// The sweep keeps exactly one: a rollback after the commit has nothing to
+	// restore from if this run's own snapshot goes with the rest.
+	it("keeps this run's own snapshot", () => {
+		assert.deepEqual(box.snapshotDirs(), [box.stateJson().run.runId]);
+	});
+
+	it("never tells the operator to sudo anything", () => {
+		const output = `${result.stdout}${result.stderr}`;
+		assert.ok(!output.includes("sudo"), output);
+		assert.ok(!output.includes("rm:"), output);
 	});
 });
 
@@ -830,7 +1326,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 	});
 
@@ -850,7 +1346,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("attacker"));
@@ -868,7 +1364,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("run snapshot"));
@@ -887,6 +1383,12 @@ describe("the control seam", () => {
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(
+			run.message,
+			/is not the flat set of fields a request carries/,
+		);
 	});
 
 	it("rejects trailing tokens after the object the request ends with", () => {
@@ -904,7 +1406,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 	});
@@ -921,7 +1423,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 	});
@@ -938,7 +1440,7 @@ describe("the control seam", () => {
 		);
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
-		assert.equal(box.stateJson().run, null);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.ok(!box.log().includes("compose pull"));
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("attacker"));
@@ -1011,6 +1513,163 @@ describe("the control seam", () => {
 		const result = box.run(["update"]);
 		assert.notEqual(result.status, 0);
 		assert.ok(!box.log().includes("compose pull"));
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(
+			run.message,
+			/names a version other than the one this instance was offered/,
+		);
+	});
+
+	it("does not call a version wrong when it never read the manifest", () => {
+		// A check that could not fetch leaves nothing to compare against, so the
+		// refusal is real but "you named the wrong version" is a mismatch nobody
+		// established — the operator's problem is the fetch.
+		const box = sandbox({ manifest: null, scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({ targetVersion: "v1.5.0", requestedAt: justNow() }),
+		);
+		box.run(["update"]);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(run.message, /release manifest could not be read/);
+		assert.ok(!run.message.includes("other than the one this instance"));
+	});
+
+	it("settles the run the request named when the request is rejected", () => {
+		// #906: the backend posted the request and polls the id it minted. A
+		// rejection that writes no run.json leaves `"run":null` on the seam, so the
+		// app waits on a verdict that never comes — nothing retries, and the file
+		// that would explain it is already deleted.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-rejected",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+				registry: "ghcr.io/attacker",
+			}),
+		);
+		const result = box.run(["update"]);
+		assert.notEqual(result.status, 0);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(run.runId, "r-rejected");
+		assert.match(
+			run.message,
+			/is not the flat set of fields a request carries/,
+		);
+		assert.match(run.message, /rejected rather than installed/);
+		assert.match(result.stdout, /rejected rather than installed/);
+		assert.ok(!run.message.includes("attacker"));
+	});
+
+	it("mints a run id for a rejection that named none it could use", () => {
+		// The id is refused precisely because it is unusable, so the run cannot
+		// keep it. A record under an id nobody polls still beats no record at all.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "../../../etc",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+			}),
+		);
+		box.run(["update"]);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.match(run.runId, /^\d{8}T\d{6}Z-[0-9a-f]+$/);
+		assert.match(run.message, /names a run id this instance cannot use/);
+	});
+
+	it("names what about the rejected request could not be used", () => {
+		// One rejection is not the next: an operator told only "rejected" cannot
+		// tell a file the backend never wrote from a version this box was never
+		// offered.
+		const cases = [
+			[
+				{ targetVersion: "v1.5.0", pad: "x".repeat(8192) },
+				/is larger than a request may be/,
+			],
+			[{ requestedBy: "owner@example.test" }, /names no version to install/],
+			[
+				{ targetVersion: "latest" },
+				/carries a target version that is not a version number/,
+			],
+			[
+				{ targetVersion: "v9.9.9" },
+				/names a version other than the one this instance was offered/,
+			],
+		];
+		for (const [fields, expected] of cases) {
+			const box = sandbox({ scenario: { probe: "ok" } });
+			writeFileSync(
+				join(box.state, "request.json"),
+				JSON.stringify({ runId: "r-said", requestedAt: justNow(), ...fields }),
+			);
+			box.run(["update"]);
+			const run = box.stateJson().run;
+			assert.equal(run.outcome, "abandoned");
+			assert.equal(run.runId, "r-said");
+			assert.match(run.message, expected);
+		}
+	});
+
+	it("says an unreadable request could not be read, not that it is malformed", () => {
+		// The file can vanish between the caller's check and the seam's own, and a
+		// read can fail on permissions; neither is a malformed request, and the
+		// catch-all sentence would send the operator after the wrong fault.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		const result = spawnSync(
+			"sh",
+			[
+				"-c",
+				'. "$0"\nsettle_refused_request "$1" "$2"',
+				REMIT,
+				'{"runId":"r-gone"}',
+				"1",
+			],
+			{ env: { ...box.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+		);
+		assert.equal(result.status, 0, result.stderr);
+		const run = box.stateJson().run;
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(run.runId, "r-gone");
+		assert.match(run.message, /could not be read/);
+		assert.ok(!run.message.includes("flat set of fields"));
+	});
+
+	it("leaves a crashed run's breadcrumb alone when it refuses a request", () => {
+		// The breadcrumb is the only record `remit update --recover` has of a run
+		// that died mid-flight. A malformed request arriving before the recovery
+		// run is not that run ending, so settling it must not erase the recovery.
+		const box = sandbox({ scenario: { probe: "ok" } });
+		box.writeBreadcrumb({
+			runId: "run-1",
+			fromVersion: "v1.0.0",
+			targetVersion: "v1.5.0",
+			startedAt: "2026-07-20T08:00:00Z",
+			snapshot: join(box.state, "snapshots", "run-1"),
+			services: ALL_SERVICES,
+			migrateBefore: "cmigrate-old",
+			phase: "stopping",
+		});
+		writeFileSync(
+			join(box.state, "request.json"),
+			JSON.stringify({
+				runId: "r-bad",
+				targetVersion: "v1.5.0",
+				requestedAt: justNow(),
+				registry: "ghcr.io/attacker",
+			}),
+		);
+		box.run(["update"]);
+		assert.equal(box.stateJson().run.runId, "r-bad");
+		assert.match(box.breadcrumb(), /runId=run-1/);
+		assert.match(box.breadcrumb(), /phase=stopping/);
 	});
 
 	it("discards a request older than the window instead of installing it", () => {
@@ -1503,6 +2162,91 @@ describe("the updater self-replace survives the wrapper (reader#291)", () => {
 	});
 });
 
+// reader#1048: the pruner ran inside commit_run under `set -eu`, ahead of both
+// the verdict and the self-replace, and never read what `rm -rf` returned. One
+// snapshot left root-owned by an older release aborted the commit — the run
+// record stopped at `committing`, `remit status` read an update still in
+// progress, and the updater stayed on the old image while the rest of the stack
+// moved to the new one.
+describe("a snapshot that cannot be pruned does not hold back the commit (reader#1048)", () => {
+	// The suite runs as one uid, and as root nothing on a volume is unremovable
+	// at all, so the refusal is injected where the wrapper meets it: an `rm` on
+	// PATH that fails for that one path and execs the real one for everything
+	// else.
+	function stuckSnapshotBox() {
+		const box = sandbox({
+			scenario: {
+				probe: "ok",
+				migrate_exit: 0,
+				all_services: `${ALL_SERVICES} migrate volume-init updater`,
+			},
+		});
+		// Named so it is pruned before the removable one: what follows it in the
+		// loop is what proves the failure did not end the sweep.
+		const stuck = join(box.state, "snapshots", "run-2026-07");
+		const removable = join(box.state, "snapshots", "run-2026-08");
+		for (const dir of [stuck, removable]) {
+			mkdirSync(dir, { recursive: true });
+			writeFileSync(join(dir, "remit.db"), "an older release's snapshot");
+		}
+		const realRm = spawnSync("sh", ["-c", "command -v rm"], {
+			encoding: "utf8",
+		}).stdout.trim();
+		writeExecutable(
+			join(box.dir, "bin", "rm"),
+			[
+				"#!/bin/sh",
+				'for a in "$@"; do',
+				`  if [ "$a" = "${stuck}" ]; then`,
+				`    printf "rm: cannot remove '%s': Permission denied\\n" "$a" >&2`,
+				"    exit 1",
+				"  fi",
+				"done",
+				`exec ${realRm} "$@"`,
+				"",
+			].join("\n"),
+		);
+		return { box, result: box.run(["update"]), stuck, removable };
+	}
+
+	const { box, result, stuck, removable } = stuckSnapshotBox();
+
+	it("terminates the run as succeeded", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("still hands the updater off for replacement", () => {
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some((l) => l.startsWith("run updater-recreate")),
+			"the updater was never handed off for replacement",
+		);
+		assert.match(
+			readFileSync(join(box.state, "updater-handoff"), "utf8"),
+			/tag=v1\.5\.0/,
+		);
+	});
+
+	it("names the snapshot it could not remove", () => {
+		assert.match(
+			result.stderr,
+			new RegExp(`could not remove the snapshot at ${stuck}`),
+		);
+	});
+
+	it("never tells the operator to sudo anything", () => {
+		assert.ok(!result.stderr.includes("sudo"), result.stderr);
+	});
+
+	it("leaves the snapshot in place and prunes the rest", () => {
+		assert.ok(existsSync(stuck), "the unremovable snapshot was reported gone");
+		assert.ok(!existsSync(removable), "the sweep stopped at the first failure");
+	});
+});
+
 describe("a boot recover verifies the updater self-replace (reader#291)", () => {
 	const withHandoff = (fields, { done = false, scenario = {} } = {}) => {
 		const box = sandbox({ scenario: { probe: "ok", ...scenario } });
@@ -1880,6 +2624,268 @@ describe("remit status", () => {
 	});
 });
 
+// reader#573. install.sh's first update is the only one that runs in the
+// operator's shell; every one after it runs in the updater container, against
+// the updater_state volume. The directory beside .env keeps the install-time
+// verdict forever, so a status that reads it answers "the rollback failed" on a
+// box the app, reading the volume, calls up to date.
+describe("remit status from a host shell, with a stale record beside .env", () => {
+	function box(scenario = {}) {
+		const b = sandbox({
+			operatorShell: true,
+			scenario: { probe: "ok", ...scenario },
+		});
+		writeRecord(b.updaterState, {
+			outcome: "succeeded",
+			message: "reader is on v0.2.16.",
+			latestVersion: "v0.2.16",
+			lastCheckedAt: "2026-08-01T09:20:11Z",
+		});
+		writeRecord(join(b.deployment, ".update"), {
+			outcome: "rollbackFailed",
+			message: "the database migration did not run.",
+			latestVersion: "v0.2.0",
+			lastCheckedAt: "2026-07-25T06:17:55Z",
+		});
+		return b;
+	}
+
+	it("reports the run the updater recorded on its volume", () => {
+		const status = box().run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Update:\s+succeeded/);
+		assert.match(status.stdout, /up to date \(v0\.2\.16/);
+		assert.ok(!status.stdout.includes("rollbackFailed"), status.stdout);
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory is then the only record there is.
+	it("falls back to the directory when there is no updater volume", () => {
+		const status = box({ updater_volume: "absent" }).run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Update:\s+rollbackFailed/);
+		assert.match(status.stdout, /up to date \(v0\.2\.0/);
+	});
+
+	// A daemon that answers nothing is not a box without a volume. Reading it
+	// that way renders the stale directory copy as the current record, which is
+	// the reader#573 wrong answer with the daemon as its cause.
+	it("says the record is unknown when the daemon does not answer", () => {
+		const status = box({ updater_volume: "unreachable" }).run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Updates:\s+unknown/);
+		assert.ok(!status.stdout.includes("rollbackFailed"), status.stdout);
+	});
+});
+
+// reader#1158. A check run in the operator's shell writes check.json and
+// state.json beside .env, and neither store is read from there: the app reads
+// state.json off the control volume and `remit status` reads check.json off the
+// updater's state volume (reader#573). So `remit update --check` runs in the
+// updater container, which is this same wrapper pointed at both.
+describe("remit update --check from a host shell", () => {
+	function box(scenario = {}) {
+		return sandbox({
+			operatorShell: true,
+			scenario: {
+				probe: "ok",
+				exec_mode: "updater",
+				services: `${ALL_SERVICES} updater`,
+				...scenario,
+			},
+		});
+	}
+
+	it("lands the verdict on the volumes the app and status read", () => {
+		const b = box();
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /Updates:\s+v1\.5\.0 is available/);
+
+		const check = JSON.parse(
+			readFileSync(join(b.updaterState, "check.json"), "utf8"),
+		);
+		assert.equal(check.status, "ok");
+		assert.equal(check.latestVersion, "v1.5.0");
+		const state = JSON.parse(
+			readFileSync(join(b.updaterControl, "state.json"), "utf8"),
+		);
+		assert.equal(state.check.lastCheckedAt, check.lastCheckedAt);
+	});
+
+	it("leaves the deployment directory alone", () => {
+		const b = box();
+		assert.equal(b.run(["update", "--check"]).status, 0);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "state.json")),
+			false,
+		);
+	});
+
+	it("is what the next status reports", () => {
+		const b = box();
+		b.run(["update", "--check"]);
+		const status = b.run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Updates:\s+v1\.5\.0 is available/);
+	});
+
+	// Without a container to run it in there is nowhere the answer could land, and
+	// a check that writes beside .env is the silent no-op this fixes.
+	it("says so when the updater is not running", () => {
+		const b = box({ services: ALL_SERVICES });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the updater is not running/);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory beside .env is the only store there is.
+	it("checks in place where there is no updater volume", () => {
+		const b = box({ updater_volume: "absent" });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /Updates:\s+v1\.5\.0 is available/);
+		const check = JSON.parse(
+			readFileSync(join(b.deployment, ".update", "check.json"), "utf8"),
+		);
+		assert.equal(check.latestVersion, "v1.5.0");
+	});
+
+	// A daemon that did not answer has not said this box has no updater volume,
+	// and taking the failure for that answer is how a check reports success and
+	// writes where nothing reads (reader#573).
+	it("stops rather than guess where the answer goes when the daemon is silent", () => {
+		const b = box({ updater_volume: "unreachable" });
+		const result = b.run(["update", "--check"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the docker daemon did not answer/);
+		assert.equal(
+			existsSync(join(b.deployment, ".update", "check.json")),
+			false,
+		);
+	});
+
+	// `compose exec` does not run an entrypoint, so what the delegated wrapper
+	// knows about its own container is what the image set. The helper image is
+	// the one thing it has to get right: alpine reaches the schema read only
+	// through an apk install over the network, and on a box without that route
+	// the read fails, currentSchemaVersion is cleared, and the app renders a
+	// blank until the six-hourly cadence writes over it.
+	it("runs its helpers off the updater image rather than alpine", () => {
+		const b = box({ current_schema: "8" });
+		assert.equal(b.run(["update", "--check"]).status, 0);
+		assert.match(
+			b.log(),
+			/^run schema-read image=ghcr\.io\/remit-mail\/reader\/updater:v1\.0\.0$/m,
+		);
+		const state = JSON.parse(
+			readFileSync(join(b.updaterControl, "state.json"), "utf8"),
+		);
+		assert.equal(state.currentSchemaVersion, 8);
+	});
+});
+
+// #275. The same split the check has, on the command that acts. A run started
+// by the updater leaves its breadcrumb, its lock and its snapshots on the
+// updater's volume; a recovery driven from a host shell read the directory
+// beside .env, found nothing, and told the operator there was nothing to
+// recover while the interrupted run sat there. The recovery has to happen where
+// that state is.
+describe("remit update --recover from a host shell", () => {
+	function box(scenario = {}) {
+		const b = sandbox({
+			operatorShell: true,
+			scenario: {
+				probe: "ok",
+				exec_mode: "updater",
+				services: `${ALL_SERVICES} updater`,
+				...scenario,
+			},
+		});
+		writeFileSync(
+			join(b.updaterState, "breadcrumb"),
+			[
+				"runId=run-1",
+				"fromVersion=v1.0.0",
+				"targetVersion=v1.5.0",
+				"startedAt=2026-07-20T08:00:00Z",
+				`snapshot=${join(b.updaterState, "snapshots", "run-1")}`,
+				`services=${ALL_SERVICES}`,
+				"migrateBefore=cmigrate-old",
+				"phase=snapshotting",
+				"",
+			].join("\n"),
+		);
+		return b;
+	}
+
+	it("finishes the run the updater left on its volume", () => {
+		const b = box();
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			!result.stdout.includes("No interrupted update to recover"),
+			result.stdout,
+		);
+		const run = JSON.parse(
+			readFileSync(join(b.updaterState, "run.json"), "utf8"),
+		);
+		assert.equal(run.runId, "run-1");
+		assert.equal(run.outcome, "abandoned");
+		assert.equal(existsSync(join(b.updaterState, "breadcrumb")), false);
+	});
+
+	// The one-shot seam, not an exec: the run being recovered is most often the
+	// one whose updater died, and a recovery that needs that container alive is
+	// no recovery.
+	it("runs in a container of its own, starting no dependency", () => {
+		const b = box({ services: ALL_SERVICES });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			b
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line.startsWith("compose run --rm --no-deps") &&
+						line.includes("updater remit update --recover"),
+				),
+			`no updater one-shot in:\n${b.log()}`,
+		);
+		assert.ok(!b.log().includes("compose up"), b.log());
+	});
+
+	// A deployment installed before the updater existed has no volume, and the
+	// directory beside .env is the only place a run could have been recorded.
+	it("recovers in place where there is no updater volume", () => {
+		const b = box({ updater_volume: "absent" });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 0, result.stderr);
+		assert.match(result.stdout, /No interrupted update to recover/);
+		assert.equal(existsSync(join(b.updaterState, "run.json")), false);
+	});
+
+	// A daemon that answered nothing has not said this box has no volume, and
+	// reading it that way is exactly the false "nothing to recover" of #275.
+	it("stops rather than guess where the run is when the daemon is silent", () => {
+		const b = box({ updater_volume: "unreachable" });
+		const result = b.run(["update", "--recover"]);
+		assert.equal(result.status, 1);
+		assert.match(result.stderr, /the docker daemon did not answer/);
+		assert.equal(existsSync(join(b.updaterState, "run.json")), false);
+	});
+});
+
 describe("a box with nothing running and nothing on the volume", () => {
 	it("takes the plain path — there is nothing to snapshot or roll back to", () => {
 		const box = sandbox({ scenario: { probe: "ok", services: "" } });
@@ -2198,6 +3204,42 @@ describe("remit check-categories", () => {
 	});
 });
 
+// `remit check-index` (#455). Which embedder wrote the vectors that are in the
+// index is only answerable in the worker's own image: the weight precision is
+// part of the embedding identity and is set there, so the same environment read
+// from the backend image names an embedder that never wrote a vector here.
+describe("remit check-index", () => {
+	const box = sandbox({ scenario: { probe: "ok" } });
+	const result = box.run(["check-index"]);
+
+	it("runs the report in the worker's image, behind its own profile", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line ===
+						"compose run --rm --no-deps search-index-worker node index-report.mjs",
+				),
+			`no index report run in:\n${box.log()}`,
+		);
+	});
+
+	it("starts no dependency, so a report writes nothing", () => {
+		const log = box.log();
+		assert.ok(!log.includes("compose up"), log);
+		assert.ok(!log.includes("volume-init"), log);
+	});
+
+	it("takes no arguments", () => {
+		const rejected = box.run(["check-index", "--repair"]);
+		assert.equal(rejected.status, 1);
+		assert.match(rejected.stderr, /takes no arguments/);
+	});
+});
+
 describe("shellcheck", () => {
 	it("is clean on the wrapper under POSIX sh", () => {
 		const probe = spawnSync("shellcheck", ["--version"], { encoding: "utf8" });
@@ -2329,6 +3371,37 @@ describe("set_var preserves .env ownership (reader#273)", () => {
 			[],
 			`no owner should be restored when stat fails:\n${box.ownerLines.join("\n")}`,
 		);
+	});
+});
+
+// The restore reads a caller-supplied path into a local, and this wrapper has
+// no scoping: a local named for something a caller also uses is that caller's
+// variable. run_update holds the release being installed in `_target` across
+// every set_var, so a restore that borrowed the name left every phase after
+// the tag write naming an .env.tmp path instead of the version.
+describe("restoring an owner leaves its caller's variables alone", () => {
+	it("does not write through the name run_update holds the release in", () => {
+		const dir = mkdtempSync(join(TMP_ROOT, "remit-rom-"));
+		sandboxes.push(dir);
+		const file = join(dir, "subject");
+		writeFileSync(file, "");
+		const run = spawnSync(
+			"sh",
+			[
+				"-c",
+				[
+					'. "$0"',
+					"_target=v1.5.0",
+					'restore_owner_mode "$1" "$(owner_mode_of "$1")"',
+					'printf %s "$_target"',
+				].join("\n"),
+				REMIT,
+				file,
+			],
+			{ env: { ...process.env, REMIT_LIB_ONLY: "1" }, encoding: "utf8" },
+		);
+		assert.equal(run.status, 0, run.stderr);
+		assert.equal(run.stdout, "v1.5.0");
 	});
 });
 

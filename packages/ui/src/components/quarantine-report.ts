@@ -78,6 +78,12 @@ export interface QuarantineEntry {
 	mailboxRole?: FolderRole;
 	/** The user's own folder name. Shown on screen, withheld from the report. */
 	mailboxPath: string;
+	/**
+	 * The separator that folder's own server cuts its paths on, so the row can
+	 * show the leaf. Resolved from the account's mailbox list — the quarantine
+	 * record itself carries no delimiter. `""` means a flat namespace.
+	 */
+	mailboxDelimiter: string;
 	failureStage: QuarantineFailureStage;
 	failureCode: QuarantineFailureCode;
 	/** Parser error text. Shown on screen, never in the report. */

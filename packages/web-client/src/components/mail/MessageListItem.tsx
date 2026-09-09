@@ -6,6 +6,7 @@
  * interactive lives in `MessageRow`, which the brief and Flagged render too.
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+
 import type {
 	Density,
 	SelectionModifiers,
@@ -15,6 +16,7 @@ import type {
 import { memo } from "react";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatEmailDate } from "@/lib/format";
+import { rowSettlement } from "@/lib/row-settlement";
 import { MessageRow } from "./MessageRow";
 
 interface MessageListItemProps {
@@ -62,6 +64,7 @@ export const threadToRowData = (
 	// misses.
 	suspicious: thread.authenticity?.dkimMismatch === true,
 	labels: thread.labels,
+	...rowSettlement(thread),
 });
 
 const MessageListItemComponent = ({

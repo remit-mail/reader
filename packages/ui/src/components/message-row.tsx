@@ -5,13 +5,15 @@ import type {
 	ReactNode,
 	SyntheticEvent,
 } from "react";
+import { categoryTone, getCategoryLabel } from "../category-presentation.js";
 import { cn } from "../lib/cn.js";
 import { ROW_ATTRIBUTE } from "../lib/keymap-dispatch.js";
 import { LIST_ROW_ATTRIBUTE } from "../lib/roving-focus.js";
-import { categoryTone, type ThreadRowData } from "./app-shell-types.js";
+import type { ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { LabelChip } from "./label-chip.js";
+import { MessageSettlementBadge } from "./message-settlement.js";
 
 /** Visible keyboard-focus ring for a row reached by the list's arrow-key cursor. */
 const ROW_FOCUS_RING =
@@ -103,6 +105,9 @@ export function CompactRowBody({ thread }: { thread: ThreadRowData }) {
 					role="img"
 					aria-label="Has an attachment"
 				/>
+			)}
+			{thread.settlement && (
+				<MessageSettlementBadge settlement={thread.settlement} />
 			)}
 			<span className="w-11 shrink-0 text-right text-2xs text-fg-subtle tabular-nums">
 				{thread.timeLabel}
@@ -209,12 +214,15 @@ export function ComfortableRowTextContent({
 				</span>
 				{thread.category && thread.category !== "personal" && (
 					<Badge tone={categoryTone[thread.category]} className="shrink-0">
-						{thread.category}
+						{getCategoryLabel(thread.category)}
 					</Badge>
 				)}
 				{thread.labels?.map((label) => (
 					<LabelChip key={label.labelId} label={label} className="max-w-20" />
 				))}
+				{thread.settlement && (
+					<MessageSettlementBadge settlement={thread.settlement} />
+				)}
 				{badge}
 			</span>
 		</span>

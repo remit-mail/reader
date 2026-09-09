@@ -2,6 +2,7 @@ import {
 	FolderManager,
 	FolderRenameDialog,
 	type FolderRole,
+	FolderRolesHelp,
 	type FolderTreeNode,
 	type ManagedFolder,
 	type RoleAppointment,
@@ -122,21 +123,6 @@ const initialAppointments: Record<string, RoleAppointment> = {
 	trash: { mailboxId: "mbx-trash", source: "Proposed" },
 };
 
-const foldersHelp = (
-	<div className="space-y-3">
-		<p>
-			Each canonical role — Inbox, Drafts, Sent, Archive, Spam, Trash — points
-			at one of your account's real folders. Pick the one that actually holds
-			the mail; the message counts tell real folders from empty look-alikes.
-		</p>
-		<p>
-			<strong className="text-fg">Your folders</strong> is the account's real
-			hierarchy. Open a folder to see what's inside it, make a new one where
-			you're looking, and rename or delete any of them from its row.
-		</p>
-	</div>
-);
-
 let createdSeq = 0;
 const createFolder = (
 	name: string,
@@ -164,17 +150,15 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 	);
 	const [draft, setDraft] = useState("Travel");
 
-	const handleAppoint = (role: FolderRole, mailboxId: string | null) =>
+	const handleAppoint = (role: FolderRole, mailboxId: string) =>
 		setAppointments((current) => {
 			const next: Record<string, RoleAppointment> = {
 				...current,
-				[role]: mailboxId
-					? { mailboxId, source: "Appointed" }
-					: { mailboxId: null, source: "None" },
+				[role]: { mailboxId, source: "Appointed" },
 			};
 			for (const other of Object.keys(next)) {
 				if (other === role) continue;
-				if (!mailboxId || next[other]?.mailboxId !== mailboxId) continue;
+				if (next[other]?.mailboxId !== mailboxId) continue;
 				next[other] = { mailboxId: null, source: "None" };
 			}
 			return next;
@@ -186,7 +170,7 @@ function FolderSettingsPage({ renaming = false }: { renaming?: boolean }) {
 			activeId="folders"
 			title="Folder roles"
 			description="Appoint which real folder fills each canonical role, per account."
-			help={foldersHelp}
+			help={<FolderRolesHelp />}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((open) => !open)}
 			onBackToMail={() => undefined}

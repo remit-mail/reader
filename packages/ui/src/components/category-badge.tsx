@@ -1,45 +1,11 @@
+import {
+	getCategoryLabel,
+	type ThreadCategory,
+} from "../category-presentation.js";
 import { cn } from "../lib/cn.js";
 
-export type MessageCategory =
-	| "uncategorized"
-	| "personal"
-	| "newsletter"
-	| "marketing"
-	| "automated"
-	| "transactional"
-	| "social";
-
-/**
- * Display label for a message category badge.
- *
- * Per EDD #232: `personal` is the default fallback and never renders a badge,
- * so it has no entry here. `transactional` shows as "receipt" and `automated`
- * shows as "notification" — wording chosen so the badge reads naturally next
- * to a subject line.
- *
- * `uncategorized` does render a badge. It used to be displayed as `personal`,
- * which made "the classifier never ran on this message" indistinguishable from
- * "the classifier decided this is a person writing to you" — a classification
- * gap presented as a full personal inbox (issue #45).
- */
-const CATEGORY_LABELS: Record<Exclude<MessageCategory, "personal">, string> = {
-	uncategorized: "unclassified",
-	newsletter: "newsletter",
-	marketing: "marketing",
-	automated: "notification",
-	transactional: "receipt",
-	social: "social",
-};
-
-export const getCategoryLabel = (
-	category: MessageCategory | undefined,
-): string | null => {
-	if (!category || category === "personal") return null;
-	return CATEGORY_LABELS[category];
-};
-
 export interface CategoryBadgeProps {
-	category: MessageCategory | undefined;
+	category: ThreadCategory | undefined;
 	/** Larger size for the open-message header. List rows use the default. */
 	size?: "sm" | "md";
 	className?: string;

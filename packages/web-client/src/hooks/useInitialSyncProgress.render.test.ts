@@ -55,6 +55,7 @@ const status = (
 		phase: "syncing",
 		messagesSynced: mailbox.synced,
 		messagesTotal: mailbox.total,
+		highWaterMarkUid: mailbox.synced,
 	})),
 });
 

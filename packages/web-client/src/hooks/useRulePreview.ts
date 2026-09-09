@@ -78,6 +78,7 @@ export const useRulePreview = (
 					setState({
 						count: response.matchedCount,
 						matchedIds: response.messageIds,
+						indexEmpty: response.semanticIndexEmpty === true,
 						previewedSignature: signature,
 					});
 				})

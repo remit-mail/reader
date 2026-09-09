@@ -42,31 +42,33 @@ namespace RemitApi {
     @delete
     op deleteMe(
       @body body: DeleteMeInput,
-    ): DeleteAccountConfigResponse | ValidationError;
+    ): DeleteAccountConfigResponse | ValidationError | UnauthorizedError;
 
     @doc("List wellknown senders the user has not yet promoted to VIP. Ranked by `replyCount + inboundCount` desc with `lastInboundAt` desc as the tie-breaker. Capped at 10.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/vip-suggestions")
-    op listVipSuggestions(): VipSuggestionsResponse;
+    op listVipSuggestions(): VipSuggestionsResponse | UnauthorizedError;
 
     @doc("Request an export of all account data as a ZIP archive of .eml files. Returns immediately with an exportId; check GET /me/export/{exportId} for status and downloadUrl.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/export")
-    op createExport(): CreateExportResponse;
+    op createExport(): CreateExportResponse | UnauthorizedError;
 
     @doc("Get the status of a previously requested data export. When state is Ready, downloadUrl holds a 30-day presigned S3 URL.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/export/{exportId}")
-    op getExport(@path exportId: string): AccountExportRequestResponse;
+    op getExport(
+      @path exportId: string,
+    ): AccountExportRequestResponse | NotFoundError | UnauthorizedError;
 
     @doc("List every message the sync path could not read, for the current user across all of their mail accounts (issue #72). Backs the quarantine section in settings. Unpaginated: the list is small by design, and an entry is a defect waiting to be reported rather than a page of mail.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/quarantine")
-    op listQuarantine(): QuarantineListResponse;
+    op listQuarantine(): QuarantineListResponse | UnauthorizedError;
   }
 
   // ============================================
@@ -78,7 +80,23 @@ namespace RemitApi {
     @doc("Get the current user's configuration including accounts and addresses")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getConfig(): ConfigDescriptionResponse;
+    op getConfig(): ConfigDescriptionResponse | UnauthorizedError;
+
+    @doc("Export every configured setting for the caller as one versioned JSON document. Contains no credentials: no IMAP/SMTP password and no OAuth token, encrypted or otherwise, and the credential fields are structurally absent rather than blank. The document's own shape is not defined here - it is defined by the published JSON Schema for its `schemaVersion` (build/config-schema/reader-config.v<N>.schema.json), so a file keeps validating independent of this API's models.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/export")
+    op exportConfig(): ConfigExportResponse | UnauthorizedError;
+
+    @doc("Validate, or validate and apply, a config document. `mode: validate` (the default) writes nothing and returns the same report an apply would. `onExisting: abort` (the default) refuses with 409 when this configuration already holds accounts, labels, filters or address flags. Nothing is written until the whole document has validated; a write failure after that aborts the remainder and the report names exactly what landed. Imported accounts arrive inactive with `connectionState: credentials_missing` (or `reauth_required` for OAuth) - the credentials the file deliberately omits are re-entered per account afterwards.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/import")
+    op importConfig(@body input: ImportConfigInput):
+      | ConfigImportReport
+      | ValidationError
+      | ConfigImportConflict
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -87,15 +105,23 @@ namespace RemitApi {
 
   @route("/system/update")
   namespace SystemOperations {
-    @doc("Read the self-update resource: the running version, the outcome of the most recent manifest check, and the state of the current or last run. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
+    @doc("Read the self-update resource: the running version, the outcome of the most recent manifest check, and the state of the current or last run. With `refresh=true`, records a check request on the control volume for the updater to pick up and answers with the stored state as it stands; the caller watches `check.lastCheckedAt` for the updater's answer. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getSystemUpdate(): SystemUpdateResponse;
+    op getSystemUpdate(
+      @query(#{ explode: true })
+      refresh?: boolean,
+    ): SystemUpdateResponse | UnauthorizedError | NotFoundError;
 
     @doc("Request installation of a specific release. Writes the request to the control seam and returns 202 with the same resource, including a runId. 409 when a run is in flight, 422 when the target is not the manifest's version. Owner-only, and absent (404) unless a manifest URL is configured (RFC 037 D7, D8).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op applySystemUpdate(@body body: ApplyUpdateInput): SystemUpdateResponse;
+    op applySystemUpdate(@body body: ApplyUpdateInput):
+      | SystemUpdateResponse
+      | UnauthorizedError
+      | NotFoundError
+      | ConflictError
+      | UnprocessableEntityError;
   }
 
   // ============================================
@@ -112,14 +138,19 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<MailboxResponse>;
+    ):
+      | ResultList<MailboxResponse>
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createMailbox(
-      @path accountId: UUID,
-      @body input: CreateMailboxInput,
-    ): MailboxResponse;
+    op createMailbox(@path accountId: UUID, @body input: CreateMailboxInput):
+      | MailboxResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   @route("/accounts/{accountId}/mailboxes/{mailboxId}")
@@ -129,19 +160,33 @@ namespace RemitApi {
     op getMailbox(
       @path accountId: UUID,
       @path mailboxId: UUID,
-    ): MailboxResponse;
+    ): MailboxResponse | NotFoundError | UnauthorizedError;
 
+    @doc("Rename a folder, or dismiss a folder mutation that failed. `fullPath` records the rename target over the folder and everything under it; the folder keeps the path the mail server holds until the rename lands. A `fullPath` equal to the folder's current one is a dismissal: it clears a failed rename or delete and enqueues nothing. Refused with 400 for INBOX at either end, a name reserved for a system folder, and a name another folder already has; with 409 when a mutation is already in flight on the folder or on anything inside it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
     op renameMailbox(
       @path accountId: UUID,
       @path mailboxId: UUID,
       @body input: RenameMailboxInput,
-    ): MailboxResponse;
+    ):
+      | MailboxResponse
+      | ValidationError
+      | ConflictError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
+    @doc("Record a delete intent for a folder. The folder stays listed, marked as being deleted, until the mail server confirms it and its mail goes with it. Refused with 400 for INBOX, for a folder with folders inside it, and for a folder a filter or a canonical role is bound to — the message names each binding; with 409 when a mutation is already in flight on it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteMailbox(@path accountId: UUID, @path mailboxId: UUID): void;
+    op deleteMailbox(@path accountId: UUID, @path mailboxId: UUID):
+      | NoContent
+      | ValidationError
+      | ConflictError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -157,7 +202,13 @@ namespace RemitApi {
       @path accountId: UUID,
       @path role: CanonicalMailboxRole,
       @body input: AppointFolderRoleInput,
-    ): AccountResponse | AppointFolderRoleConflict;
+    ):
+      | AccountResponse
+      | AppointFolderRoleConflict
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -174,21 +225,31 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<FilterResponse>;
+    ):
+      | ResultList<FilterResponse>
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createFilter(
-      @path accountId: UUID,
-      @body input: CreateFilterInput,
-    ): FilterResponse;
+    op createFilter(@path accountId: UUID, @body input: CreateFilterInput):
+      | FilterResponse
+      | ValidationError
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   @route("/accounts/{accountId}/filters/{filterId}")
   namespace FilterDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getFilter(@path accountId: UUID, @path filterId: UUID): FilterResponse;
+    op getFilter(
+      @path accountId: UUID,
+      @path filterId: UUID,
+    ): FilterResponse | NotFoundError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -196,11 +257,20 @@ namespace RemitApi {
       @path accountId: UUID,
       @path filterId: UUID,
       @body input: UpdateFilterInput,
-    ): FilterResponse;
+    ):
+      | FilterResponse
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteFilter(@path accountId: UUID, @path filterId: UUID): void;
+    op deleteFilter(@path accountId: UUID, @path filterId: UUID):
+      | NoContent
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -217,21 +287,29 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<LabelResponse>;
+    ):
+      | ResultList<LabelResponse>
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createLabel(
-      @path accountId: UUID,
-      @body input: CreateLabelInput,
-    ): LabelResponse;
+    op createLabel(@path accountId: UUID, @body input: CreateLabelInput):
+      | LabelResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   @route("/accounts/{accountId}/labels/{labelId}")
   namespace LabelDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getLabel(@path accountId: UUID, @path labelId: UUID): LabelResponse;
+    op getLabel(
+      @path accountId: UUID,
+      @path labelId: UUID,
+    ): LabelResponse | NotFoundError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -239,12 +317,16 @@ namespace RemitApi {
       @path accountId: UUID,
       @path labelId: UUID,
       @body input: UpdateLabelInput,
-    ): LabelResponse;
+    ): LabelResponse | NotFoundError | ForbiddenError | UnauthorizedError;
 
     @doc("Delete a label. Cascades in both directions (issue #26): every `MessageLabel` row for it is removed, and every filter whose `actionLabelId` is this label is deleted outright — never left dangling, never blocking the delete. The client is expected to confirm first, naming `LabelResponse.filterCount` as the number of filters that will go with it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteLabel(@path accountId: UUID, @path labelId: UUID): void;
+    op deleteLabel(@path accountId: UUID, @path labelId: UUID):
+      | NoContent
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -256,19 +338,22 @@ namespace RemitApi {
     @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter or FilterAnchor row (RFC 034 recap).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createOrganizeJob(
-      @path accountId: UUID,
-      @body input: OrganizeInput,
-    ): CreateOrganizeJobResponse;
+    op createOrganizeJob(@path accountId: UUID, @body input: OrganizeInput):
+      | CreateOrganizeJobResponse
+      | ValidationError
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Preview an \"all like these\" back-apply: run the exact same matcher read-only and return the messages the action would be applied to, without applying it. The previewed set equals the set a job with the same input would apply to.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/preview")
-    op previewOrganize(
-      @path accountId: UUID,
-      @body input: OrganizeInput,
-    ): OrganizePreviewResponse;
+    op previewOrganize(@path accountId: UUID, @body input: OrganizeInput):
+      | OrganizePreviewResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
   }
 
   @route("/accounts/{accountId}/organize/{organizeJobId}")
@@ -279,7 +364,276 @@ namespace RemitApi {
     op getOrganizeJob(
       @path accountId: UUID,
       @path organizeJobId: UUID,
-    ): OrganizeJobResponse;
+    ): OrganizeJobResponse | NotFoundError | UnauthorizedError;
+  }
+
+  // ============================================
+  // Calendar Operations (issue #15, project 0)
+  // ============================================
+
+  @route("/calendars")
+  namespace CalendarOperations {
+    @doc("List the caller's calendar collections. Provisions the account config's default collection when it has none, so a first read never comes back empty and no client has to know how a calendar gets made.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendars(): CalendarListResponse | UnauthorizedError;
+
+    @doc("Create a calendar collection. Refused with 400 when `urlSegment` is empty or already taken in this account config — the segment is the collection's identity, so a second create under the same one would otherwise silently return the collection that already exists.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createCalendar(
+      @body input: CreateCalendarInput,
+    ): CalendarResponse | ValidationError | UnauthorizedError;
+  }
+
+  @route("/calendars/{calendarId}")
+  namespace CalendarDetailOperations {
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getCalendar(
+      @path calendarId: UUID,
+    ): CalendarResponse | NotFoundError | UnauthorizedError;
+
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateCalendar(
+      @path calendarId: UUID,
+      @body input: UpdateCalendarInput,
+    ): CalendarResponse | ValidationError | NotFoundError | UnauthorizedError;
+
+    @doc("Delete a calendar collection and every event in it. Refused with 400 for the account's default collection: it is the one place an accepted invitation or a first event can land, and an account with no calendar has nowhere to put an event.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteCalendar(@path calendarId: UUID):
+      | CalendarNoContent
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("""
+      Read whether this calendar has a feed address. Absent (404) until one is
+      minted. The token is not here: it is stored as a hash, so the only
+      moment it exists in the clear is the answer to the write below.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    @route("/feed")
+    op getCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarFeedStateResponse | NotFoundError | UnauthorizedError;
+
+    @doc("""
+      Mint the calendar's feed address, or replace the one it has, and answer
+      with the token in the clear. Idempotent in address rather than in value:
+      one calendar holds one token, so a second call rotates — the previous
+      URL stops resolving, which is how a subscription handed to the wrong
+      person is taken back.
+      
+      This is the only response that ever carries the plaintext. A client that
+      does not keep it rotates again.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @put
+    @route("/feed")
+    op putCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarFeedResponse | NotFoundError | UnauthorizedError;
+
+    @doc("Revoke the calendar's feed address. Every subscribed client starts getting 404 on its next poll. Answered 404 when the calendar has no feed, so a revoke is never reported as having taken something away that was not there.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    @route("/feed")
+    op revokeCalendarFeed(
+      @path calendarId: UUID,
+    ): CalendarNoContent | NotFoundError | UnauthorizedError;
+  }
+
+  @route("/feeds/calendar")
+  namespace CalendarFeedOperations {
+    @doc("""
+      Serve a calendar as iCalendar text to whoever holds its secret address
+      (issue #1067).
+      
+      Outside the session-auth surface on purpose: Apple Calendar, Google
+      Calendar, Outlook and Thunderbird subscribe to a URL and never sign in,
+      so the token in the path is the credential and the only one. It is
+      compared against the stored hash rather than looked up in the clear, and
+      an unknown, revoked or malformed token is the same 404 with the same body
+      — a subscriber learns whether it still has access, and nothing else.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @useAuth(NoAuth)
+    @get
+    @route("/{feedToken}.ics")
+    op getCalendarFeedIcal(
+      @doc("The calendar's secret token, base64url. Unconstrained on purpose: a length or pattern here answers an oversize or malformed address with a distinguishable 400, and error-logs the path it was refused for. The handler checks the shape itself and answers the same 404 an unknown token gets.")
+      @path
+      feedToken: string,
+
+      @header("If-None-Match")
+      ifNoneMatch?: string,
+
+      @doc("HTTP-date a subscriber last saw the calendar at. Ignored when `If-None-Match` also arrives (RFC 9110 13.2.2), and compared at whole seconds, which is the resolution the `Last-Modified` it came from has.")
+      @header("If-Modified-Since")
+      ifModifiedSince?: string,
+    ): CalendarFeedIcalResponse | CalendarFeedNotModified | CalendarFeedNotFound;
+  }
+
+  @route("/calendar-events")
+  namespace CalendarEventOperations {
+    @doc("""
+      Expanded event occurrences in a window. The server does the recurrence
+      expansion and the client renders instances — no RRULE is ever evaluated
+      in a browser, so a week grid and a day strip agree with each other and
+      with what a native client will later read over CalDAV.
+      
+      Occurrences are served from the stored occurrence index. A series whose
+      index stops before `to` — an open-ended event older than the expansion
+      horizon — is expanded live for this window instead, and nothing
+      unbounded is written to serve a read.
+      
+      Refused with 400 when `from` and `to` are not ISO 8601 date-times, when
+      `to` is not after `from`, or when the window is wider than a year.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarEvents(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      from: string,
+
+      @doc("End of the window, an ISO 8601 date-time with zone offset. Exclusive.")
+      @query(#{ explode: true })
+      to: string,
+
+      @doc("Restrict to these collections, repeated once per calendar. Omitted means every calendar the caller holds.")
+      @query(#{ explode: true })
+      calendarId?: UUID[],
+    ):
+      | CalendarEventListResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("Create an event. The server builds the VEVENT and writes it through the single calendar write path — the same one an accepted invitation and a later CalDAV PUT go through — so the object, its expanded occurrences and the collection's sync sequence land together or not at all.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    op createCalendarEvent(@body input: CreateCalendarEventInput):
+      | CalendarEventResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+  }
+
+  @route("/calendar-events/{calendarObjectId}")
+  namespace CalendarEventDetailOperations {
+    @doc("Get one stored event, including its canonical iCalendar text and its etag.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op getCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in. A resource is addressed by its collection and its own id, which is what a client holds: every occurrence a listing returns carries both.")
+      @query(#{ explode: true })
+      calendarId: UUID,
+    ):
+      | CalendarEventResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("""
+      Update an event. `scope` says what the caller meant by editing one
+      drawing of a series: `All` rewrites the master, `This` writes a
+      RECURRENCE-ID override for the named occurrence, and `Following` splits
+      the series — the master's rule is truncated and a second resource carries
+      the remainder under a UID of its own.
+      
+      `recurrenceId` is required for `This` and `Following` and is refused with
+      400 otherwise, along with a scope other than `All` on an event that does
+      not recur, and a `recurrenceId` naming no occurrence of the series.
+      
+      `If-Match` makes the write conditional on the etag the caller read. A
+      mismatch is 412: somebody replaced the resource in between, and applying
+      this patch would discard their change without either of them seeing it.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @patch(#{ implicitOptionality: true })
+    op updateCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @doc("Which occurrences this update applies to. Defaults to `All`.")
+      @query(#{ explode: true })
+      scope?: RecurrenceScope,
+
+      @doc("RECURRENCE-ID of the occurrence the update is anchored at, as the ISO 8601 UTC instant a listing returned. Required for `This` and `Following`.")
+      @query(#{ explode: true })
+      recurrenceId?: string,
+
+      @header("If-Match")
+      ifMatch?: string,
+
+      @body input: UpdateCalendarEventInput,
+    ):
+      | CalendarEventResponse
+      | ValidationError
+      | NotFoundError
+      | PreconditionFailedError
+      | UnauthorizedError;
+
+    @doc("""
+      Delete an event. `All` removes the resource and every occurrence it
+      produced; `This` writes an EXDATE for the named occurrence and keeps the
+      rest of the series; `Following` truncates the series to end just before
+      it.
+      
+      Same refusals and the same `If-Match` precondition as the update.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @delete
+    op deleteCalendarEvent(
+      @path calendarObjectId: UUID,
+
+      @doc("Collection the resource lives in")
+      @query(#{ explode: true })
+      calendarId: UUID,
+
+      @doc("Which occurrences this delete applies to. Defaults to `All`.")
+      @query(#{ explode: true })
+      scope?: RecurrenceScope,
+
+      @doc("RECURRENCE-ID of the occurrence the delete is anchored at. Required for `This` and `Following`.")
+      @query(#{ explode: true })
+      recurrenceId?: string,
+
+      @header("If-Match")
+      ifMatch?: string,
+    ):
+      | CalendarNoContent
+      | ValidationError
+      | NotFoundError
+      | PreconditionFailedError
+      | UnauthorizedError;
+  }
+
+  @route("/calendar-free-busy")
+  namespace CalendarFreeBusyOperations {
+    @doc("Busy spans over a window, merged across every calendar the caller holds. Backs the clash check beside a mail invitation and the free-stretch maths in the day strip, neither of which should have to fetch every event and merge them itself. Refused with 400 on the same window rules as the event listing.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarFreeBusy(
+      @doc("Start of the window, an ISO 8601 date-time with zone offset. Inclusive.")
+      @query(#{ explode: true })
+      from: string,
+
+      @doc("End of the window, an ISO 8601 date-time with zone offset. Exclusive.")
+      @query(#{ explode: true })
+      to: string,
+    ): CalendarFreeBusyResponse | ValidationError | UnauthorizedError;
   }
 
   // ============================================
@@ -292,9 +646,12 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/empty")
-    op emptyTrash(
-      @path accountId: UUID,
-    ): EmptyTrashResponse | FolderRoleConflict;
+    op emptyTrash(@path accountId: UUID):
+      | EmptyTrashResponse
+      | FolderRoleConflict
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -305,13 +662,19 @@ namespace RemitApi {
   namespace SyncOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op triggerSync(@path accountId: UUID): SyncTriggerResponse;
+    op triggerSync(@path accountId: UUID):
+      | SyncTriggerResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Get the current sync status for an account, including per-mailbox progress computed from watermarks. Read-only — does not write or contend with the mailbox sync lock (RFC 023).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/status")
-    op getSyncStatus(@path accountId: UUID): AccountSyncStatusResponse;
+    op getSyncStatus(
+      @path accountId: UUID,
+    ): AccountSyncStatusResponse | NotFoundError | UnauthorizedError;
   }
 
   // ============================================
@@ -323,13 +686,19 @@ namespace RemitApi {
     @doc("Create a new email account")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createAccount(@body input: CreateAccountInput): AccountResponse;
+    op createAccount(@body input: CreateAccountInput):
+      | AccountResponse
+      | ValidationError
+      | ConflictError
+      | UnauthorizedError;
 
     @doc("Test IMAP/SMTP connection without saving")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/test-connection")
-    op testConnection(@body input: TestConnectionInput): TestConnectionResponse;
+    op testConnection(
+      @body input: TestConnectionInput,
+    ): TestConnectionResponse | NotFoundError | UnauthorizedError;
   }
 
   // ============================================
@@ -354,7 +723,7 @@ namespace RemitApi {
     @route("/start")
     op microsoftOAuthStart(
       @body input: MicrosoftOAuthStartRequest,
-    ): MicrosoftOAuthStartResponse;
+    ): MicrosoftOAuthStartResponse | UnauthorizedError;
 
     @doc("Microsoft OAuth2 callback endpoint — receives the authorization code from Microsoft and exchanges it for tokens. This endpoint is intentionally unauthenticated: the browser is redirected here by Microsoft after the user grants consent, before any Cognito session is available. CSRF is prevented by an HMAC-signed state parameter.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -362,9 +731,14 @@ namespace RemitApi {
     @get
     @route("/callback")
     op microsoftOAuthCallback(
-      @query code?: string,
-      @query state?: string,
-      @query error?: string,
+      @query(#{ explode: true })
+      code?: string,
+
+      @query(#{ explode: true })
+      state?: string,
+
+      @query(#{ explode: true })
+      error?: string,
     ): {
       @statusCode statusCode: 302;
       @header Location: string;
@@ -376,15 +750,20 @@ namespace RemitApi {
     @doc("Update an existing account")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
-    op updateAccount(
-      @path accountId: UUID,
-      @body input: UpdateAccountInput,
-    ): AccountResponse;
+    op updateAccount(@path accountId: UUID, @body input: UpdateAccountInput):
+      | AccountResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Delete an account and all associated data")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteAccount(@path accountId: UUID): DeleteAccountResponse;
+    op deleteAccount(@path accountId: UUID):
+      | DeleteAccountResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -407,7 +786,7 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
-    ): ResultList<ThreadMessageResponse>;
+    ): ResultList<ThreadMessageResponse> | NotFoundError | UnauthorizedError;
   }
 
   @route("/threads")
@@ -423,7 +802,9 @@ namespace RemitApi {
       
       Starred mode (`starred=true`): served by the `byStarred` LSI4 instead. A star is a marker on the mail rather than on its placement, so the INBOX scope does not apply and a starred thread in Archive is still returned. Excluded are muted and soft-deleted rows as usual, plus the folders a star never surfaces from: Junk, Trash, and Gmail's All Mail (a second copy of everything, whose rows would otherwise double every starred message). All filtering happens in the query, so a page is short only when the results are exhausted. Rows are per mailbox: the same mail filed in two folders is two rows sharing a `threadId`, and a client rendering one row per conversation collapses by `threadId` across the pages it has accumulated.
       
-      Search mode (`query=<text>`): the listing widens past the INBOX scope to every non-muted mailbox of every non-muted account, and returns only rows whose subject or From address matches the text. This is the unscoped search of the daily brief: one query reaching every folder of every account. Whitespace splits the text into terms and every term must match (AND), each against subject OR From. Matching is case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.
+      Search mode (`query=<text>`): the listing widens past the INBOX scope to every non-muted mailbox of every non-muted account, and returns only rows whose subject, From address or body text matches the text. This is the unscoped search of the daily brief: one query reaching every folder of every account. Whitespace splits the text into terms and every term must match (AND), each against subject OR From OR body. Matching is case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.
+      
+      Body text is the stored preview the row carries — the first prose of the message with quoted replies removed, which is the same text the row renders under its subject. A term further into a long message is not reached; a term the reader can see on the row is.
       
       Search scope: every non-muted mailbox EXCEPT Trash. The scope is defined by what it excludes, so anything a server offers that is not on that list is searched — Spam, Drafts and Gmail's virtual folders (All Mail, Starred, Important) included. Spam is deliberately in scope: the point of an unscoped search is that it reaches the folders the user did not think to look in. Combining `query` with `starred=true` searches the starred scope instead.
       
@@ -434,6 +815,18 @@ namespace RemitApi {
       What a row is in search mode: one per message, not one per mailbox. This differs from the starred mode above, where the same mail filed in two folders is two rows sharing a `threadId`. Collapsing by `threadId` is still a client's job if it renders one row per CONVERSATION, since distinct messages in one thread remain distinct rows here.
       
       Callers that omit `query` are unaffected: the INBOX (and starred) listings behave exactly as before.
+      
+      Row filters: `category`, `unread` and `attachments` are columns on the ThreadMessage row, so each is a predicate inside the query rather than a pass over what a page returned. They compose with every mode above — INBOX, starred and search alike — and a page therefore comes back full of matches however rare the criterion is. This is what the cross-account collections need: filtering the pages a client happens to have loaded shows an empty list whenever the matching mail sits below the newest page (#308).
+      
+      Field filters: `from` and `subject` each match one field, which the single `query` cannot express — it matches both at once. They compose with `query` and with each other as further AND terms.
+      
+      Account scope: `accountId` narrows every mode to the mailboxes of one account. The scope is built from the account's own mailboxes, so the listing, the count and the search all answer over the same set. Without it the listing is the cross-account aggregate.
+      
+      Folder scope: `mailboxId` narrows the same scope to one folder, and composes with `accountId` as a further AND — a folder of another account leaves the scope empty and matches nothing. It is how a caller asks what one folder holds of a cross-account search, counted in the same conversations the unscoped listing renders. A folder the scope already excludes — Trash, a muted one, one of a muted account — stays excluded.
+      
+      Muted senders: `muted=false` excludes rows whose From address is muted, `muted=true` returns only those, and omitting it filters nothing. Muting is a property of the address rather than a column on the row, so this is the one predicate that reaches outside the ThreadMessage table; it applies to the listing and the `count` alike, which is what lets a caller that hides muted mail state a number that is the size of what it renders.
+      
+      Counting: `count=true` answers how many CONVERSATIONS match, over the whole scope and independent of `limit`. `results=false` omits the rows, which is how a header total is read without also paying for a page of mail. Conversations rather than rows because that is what this listing renders: a row is per mailbox, so the same mail filed in two folders is two rows sharing a `threadId`, and clients collapse by it. Counting rows would put a third number beside a list that shows a second one.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -452,10 +845,50 @@ namespace RemitApi {
       @query(#{ explode: true })
       starred?: boolean,
 
-      @doc("Free text to match against subject and From address. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
+      @doc("Free text to match against subject, From address and body text. Supplying it switches the listing into search mode, which widens the scope past INBOX to every non-muted mailbox — see the operation description. Omitting it leaves the listing unchanged.")
       @query(#{ explode: true })
       query?: string,
-    ): ResultList<ThreadMessageResponse>;
+
+      @doc("Match the From address or display name against this text. One field, where `query` matches subject and From at once, so `from:` can be asked for on its own. Applied as a SQL predicate over the whole scope; it does not widen the scope the way `query` does.")
+      @query(#{ explode: true })
+      from?: string,
+
+      @doc("Match the subject against this text. One field, where `query` matches subject and From at once, so `subject:` can be asked for on its own. Applied as a SQL predicate over the whole scope; it does not widen the scope the way `query` does.")
+      @query(#{ explode: true })
+      subject?: string,
+
+      @doc("Narrow every mode to one account's mailboxes. The listing, the search and the `count` all read the same narrowed scope, so a count is the size of what the caller renders rather than of the cross-account aggregate. An account the caller does not own, or one that is muted, holds no mailboxes here and matches nothing.")
+      @query(#{ explode: true })
+      accountId?: UUID,
+
+      @doc("Narrow every mode to one folder. Applied to the same scope `accountId` narrows, and after it, so the two compose and a folder of another account matches nothing. A folder outside the scope — Trash, a muted folder, one of a muted account — matches nothing either. The listing, the search and the `count` all read the narrowed scope, which is what lets a caller ask how much of a cross-account search one folder holds and get the conversations that folder would render, not a page's share of them.")
+      @query(#{ explode: true })
+      mailboxId?: UUID,
+
+      @doc("Filter by whether the From address is muted. `false` excludes muted senders, `true` returns only them, and omitting it filters nothing. Muting lives on the Address rather than on the row, so this is evaluated against the sender's flags; it narrows the `count` exactly as it narrows the listing.")
+      @query(#{ explode: true })
+      muted?: boolean,
+
+      @doc("Filter to messages with one of these header-derived categories, as a union over the values given. Applied as a SQL predicate over the whole scope, so a page comes back full of matches however rare the category is. `uncategorized` is one of them — the pending state's name, never the absence of one.")
+      @query(#{ explode: true })
+      category?: MessageCategory[],
+
+      @doc("When true, return only unread messages. A column on the row, so it narrows the query rather than the page.")
+      @query(#{ explode: true })
+      unread?: boolean,
+
+      @doc("When true, return only messages carrying an attachment. A column on the row, so it narrows the query rather than the page.")
+      @query(#{ explode: true })
+      attachments?: boolean,
+
+      @doc("Include how many conversations the listing matches, exactly, over the whole scope. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke.")
+      @query(#{ explode: true })
+      count?: boolean,
+
+      @doc("Return matching rows. Default true; set false for a count-only response.")
+      @query(#{ explode: true })
+      results?: boolean,
+    ): ThreadSearchResponse | ValidationError | UnauthorizedError;
   }
 
   @route("/mailboxes/{mailboxId}/threads")
@@ -471,7 +904,7 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
-    ): ResultList<ThreadMessageResponse>;
+    ): ResultList<ThreadMessageResponse> | ValidationError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -486,12 +919,15 @@ namespace RemitApi {
       @query(#{ explode: true })
       order?: SortOrder,
 
+      @doc("Free text to match against subject, From address and body text. Whitespace splits it into terms and every term must match, each against any one of the three. Body text is the stored preview the row carries — the first prose of the message with quoted replies removed — so a term further into a long message is not reached; a term the reader can see on the row is. Matching is accent- and case-insensitive substring, not tokenized full-text, so it neither stems nor ranks.")
       @query(#{ explode: true })
       query?: string,
 
+      @doc("Match the subject alone, where `query` matches all three fields at once.")
       @query(#{ explode: true })
       subject?: string,
 
+      @doc("Match the From address or display name alone, where `query` matches all three fields at once.")
       @query(#{ explode: true })
       from?: string,
 
@@ -504,7 +940,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       attachments?: boolean,
 
-      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion, resolved by in-handler enrichment over the capped window.")
+      @doc("Filter to messages whose From address has one of these trust levels. Off-row criterion: resolved by enriching the rows this page read, not by a predicate over the mailbox, so `count` comes back absent whenever it is supplied.")
       @query(#{ explode: true })
       senderTrust?: SenderTrust[],
 
@@ -512,11 +948,11 @@ namespace RemitApi {
       @query(#{ explode: true })
       category?: MessageCategory[],
 
-      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion; rows without an authenticity signal never match.")
+      @doc("Filter on the DKIM-alignment signal (true = DKIM mismatch). Off-row criterion, like `senderTrust`: rows without an authenticity signal never match, and `count` comes back absent whenever it is supplied.")
       @query(#{ explode: true })
       dkimMismatch?: boolean,
 
-      @doc("Include how many messages the query matches. Counted over the whole mailbox, independent of `limit`.")
+      @doc("Include how many messages the query matches, exactly, over the whole mailbox. Opt-in because it is a second read over the entire match set rather than a by-product of the page: ask for it on a deliberate act, never on a keystroke. Answered as absent — not as a page length — when the query carries `senderTrust` or `dkimMismatch`, which no predicate can count.")
       @query(#{ explode: true })
       count?: boolean,
 
@@ -524,10 +960,10 @@ namespace RemitApi {
       @query(#{ explode: true })
       results?: boolean,
 
-      @doc("Page size for the rows returned, capped server-side at 500. Bounds the read, not the `count`.")
+      @doc("Page size for the rows returned, capped server-side at 500. It bounds this page and nothing else: `count` is over the whole mailbox and does not move when this does.")
       @query(#{ explode: true })
       limit?: int32,
-    ): ThreadSearchResponse;
+    ): ThreadSearchResponse | ValidationError | UnauthorizedError;
   }
 
   // ============================================
@@ -577,7 +1013,7 @@ namespace RemitApi {
       limit?: int32,
     ): {
       items: SemanticSearchResult[];
-    };
+    } | UnauthorizedError;
   }
 
   // ============================================
@@ -589,9 +1025,11 @@ namespace RemitApi {
     @doc("Create a new outbox message (draft or send immediately)")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createOutboxMessage(
-      @body input: CreateOutboxMessageInput,
-    ): OutboxMessageResponse;
+    op createOutboxMessage(@body input: CreateOutboxMessageInput):
+      | OutboxMessageResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("List outbox messages for the current account")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -600,7 +1038,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<OutboxMessageResponse>;
+    ): ResultList<OutboxMessageResponse> | ValidationError | UnauthorizedError;
   }
 
   @route("/outbox/{outboxMessageId}")
@@ -608,7 +1046,9 @@ namespace RemitApi {
     @doc("Get an outbox message by ID")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+    op getOutboxMessage(
+      @path outboxMessageId: UUID,
+    ): OutboxMessageResponse | NotFoundError | UnauthorizedError;
 
     @doc("Update a draft outbox message")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -616,18 +1056,30 @@ namespace RemitApi {
     op updateOutboxMessage(
       @path outboxMessageId: UUID,
       @body input: UpdateOutboxMessageInput,
-    ): OutboxMessageResponse;
+    ):
+      | OutboxMessageResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Delete a draft or failed outbox message")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteOutboxMessage(@path outboxMessageId: UUID): void;
+    op deleteOutboxMessage(@path outboxMessageId: UUID):
+      | NoContent
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Queue a draft message for sending")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/send")
-    op sendOutboxMessage(@path outboxMessageId: UUID): OutboxMessageResponse;
+    op sendOutboxMessage(@path outboxMessageId: UUID):
+      | OutboxMessageResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Reserve room on a draft for a file, and get somewhere to put it")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -636,7 +1088,7 @@ namespace RemitApi {
     op mintOutboxAttachment(
       @path outboxMessageId: UUID,
       @body input: MintOutboxAttachmentInput,
-    ): MintOutboxAttachmentResponse | OutboxAttachmentRejected;
+    ): MintOutboxAttachmentResponse | OutboxAttachmentRejected | UnauthorizedError;
   }
 
   @route("/outbox/{outboxMessageId}/attachments/{outboxAttachmentId}")
@@ -648,7 +1100,7 @@ namespace RemitApi {
     op completeOutboxAttachment(
       @path outboxMessageId: UUID,
       @path outboxAttachmentId: UUID,
-    ): OutboxAttachmentResponse | OutboxAttachmentRejected;
+    ): OutboxAttachmentResponse | OutboxAttachmentRejected | UnauthorizedError;
   }
 
   // ============================================
@@ -664,18 +1116,19 @@ namespace RemitApi {
     op searchAddresses(
       @query(#{ explode: true }) q: string,
       @query(#{ explode: true }) limit?: int32,
-    ): ResultList<AddressResponse>;
+    ): ResultList<AddressResponse> | UnauthorizedError;
   }
 
   @route("/addresses/{addressId}")
   namespace AddressDetailOperations {
-    @doc("Update an address (currently: per-sender flags). Pass `flags: { <name>: null }` to remove a flag. Other flags are untouched.")
+    @doc("Update an address (currently: per-sender flags). Pass `flags` to set flags and `clearFlags: [\"<name>\"]` to remove them. Other flags are untouched.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
-    op updateAddress(
-      @path addressId: UUID,
-      @body input: UpdateAddressInput,
-    ): AddressResponse;
+    op updateAddress(@path addressId: UUID, @body input: UpdateAddressInput):
+      | AddressResponse
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -686,13 +1139,19 @@ namespace RemitApi {
   namespace MessageOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op describeMessage(@path messageId: UUID): DescribeMessageResponse;
+    op describeMessage(@path messageId: UUID):
+      | DescribeMessageResponse
+      | NotFoundError
+      | UnprocessableEntityError
+      | UnauthorizedError;
 
     @doc("Get the raw RFC822/MIME source of a message (headers and body) for inspection.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/raw")
-    op getRawMessage(@path messageId: UUID): RawMessageResponse;
+    op getRawMessage(
+      @path messageId: UUID,
+    ): RawMessageResponse | NotFoundError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -700,11 +1159,15 @@ namespace RemitApi {
     op updateMessageFlags(
       @path messageId: UUID,
       @body input: UpdateFlagsInput,
-    ): {
-      messageId: UUID;
-      isRead: boolean;
-      isStarred: boolean;
-    };
+    ):
+      | {
+          messageId: UUID;
+          isRead: boolean;
+          isStarred: boolean;
+        }
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
   }
 
   @route("/messages")
@@ -713,47 +1176,158 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/flags")
-    op updateFlags(
-      @body input: BulkUpdateFlagsInput,
-    ): MessageBulkOperationResult;
+    op updateFlags(@body input: BulkUpdateFlagsInput):
+      | MessageBulkOperationResult
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Delete messages (move to Trash or permanent delete)")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/delete")
-    op deleteMessages(
-      @body input: DeleteMessagesInput,
-    ): MessageBulkOperationResult | FolderRoleConflict;
+    op deleteMessages(@body input: DeleteMessagesInput):
+      | MessageBulkOperationResult
+      | DeleteMessagesConflict
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/move")
-    op moveMessages(@body input: MoveMessagesInput): MessageBulkOperationResult;
+    op moveMessages(@body input: MoveMessagesInput):
+      | MessageBulkOperationResult
+      | MessagePlacementConflict
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Copy messages to a destination mailbox")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/copy")
-    op copyMessages(@body input: CopyMessagesInput): MessageBulkOperationResult;
+    op copyMessages(@body input: CopyMessagesInput):
+      | MessageBulkOperationResult
+      | MessagePlacementConflict
+      | MailboxNotSettled
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Apply or remove a label on multiple messages — the manual \"just these\" scope (RFC 034 recap, issue #26). `appliedByFilterId` stays absent on the resulting `MessageLabel` rows; that provenance is reserved for filter/organize applies.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/labels")
-    op updateMessageLabels(
-      @body input: UpdateMessageLabelsInput,
-    ): MessageBulkOperationResult;
+    op updateMessageLabels(@body input: UpdateMessageLabelsInput):
+      | MessageBulkOperationResult
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Report messages as spam: block the sender (Address.flags.blocked) and move each message to the account's Junk folder. Skips the block (but still moves the message) when the sender is the account's own address. One call replaces composing the old separate `Block` and `Mark spam` actions — a single user intent, a single failure story. The sender block is written first and does not wait on the move; a failed move never rolls it back. Idempotent under a repeated call.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/report-spam")
-    op reportSpam(@body input: BulkMessageInput): SpamReportBulkResult;
+    op reportSpam(@body input: BulkMessageInput):
+      | SpamReportBulkResult
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
 
     @doc("Undo a spam report: clear the sender's `blocked` flag (never promotes to trusted/wellknown) and move each message back to `Message.originalMailboxId`. Idempotent under a repeated call. Each message is processed independently and concurrently, so the request's total wait is bounded by one message's settle timeout rather than accumulating across the batch.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/not-spam")
-    op notSpam(@body input: BulkMessageInput): SpamReportBulkResult;
+    op notSpam(@body input: BulkMessageInput):
+      | SpamReportBulkResult
+      | NotFoundError
+      | ForbiddenError
+      | UnauthorizedError;
+  }
+
+  // ============================================
+  // Calendar Suggestion Operations (issue #1033 stage 0.3)
+  // ============================================
+
+  @route("/calendar-suggestions")
+  namespace CalendarSuggestionOperations {
+    @doc("List the caller's suggestions in one state, newest first. `Pending` is the set that is waiting on a person and the one a client normally asks for.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listCalendarSuggestions(
+      @query(#{ explode: true }) state: CalendarSuggestionState,
+
+      @query(#{ explode: true })
+      @continuationToken
+      continuationToken?: string,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError | UnauthorizedError;
+  }
+
+  @route("/messages/{messageId}/calendar-suggestions")
+  namespace MessageCalendarSuggestionOperations {
+    @doc("Every suggestion read out of one message, in whatever state each has reached — a superseded revision included, so the card can say which revision replaced it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @get
+    op listMessageCalendarSuggestions(
+      @path messageId: UUID,
+    ): ResultList<CalendarSuggestionResponse> | ValidationError | UnauthorizedError;
+  }
+
+  @route("/calendar-suggestions/{suggestionId}")
+  namespace CalendarSuggestionActionOperations {
+    @doc("""
+      Add the suggested event to a calendar. One transaction: a VCALENDAR is
+      built from the invitation's own bytes, keeping its UID and SEQUENCE and
+      marking the user `ATTENDEE;PARTSTAT=ACCEPTED`, and written through the
+      same service function every other calendar write goes through — so a web
+      edit and a native edit of that event cannot diverge. Accepting a `Cancel`
+      suggestion writes `STATUS:CANCELLED` on the resource the same way.
+      
+      No reply is sent to the organizer. This endpoint sends no mail at all,
+      and the card says so.
+      
+      Idempotent: accepting an already-accepted suggestion rewrites the same
+      resource and returns the same suggestion, because both the resource id
+      and the suggestion id are derived rather than minted.
+      
+      400 when the suggestion is not one that can be accepted — already
+      declined, dismissed or superseded — or when its iCalendar will not parse.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/accept")
+    op acceptCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: AcceptCalendarSuggestionInput,
+    ):
+      | CalendarSuggestionResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("Say no. Writes no calendar object and sends no reply to the organizer. Idempotent; 400 when the suggestion was already accepted, since a resource exists and declining would not remove it.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/decline")
+    op declineCalendarSuggestion(@path suggestionId: UUID):
+      | CalendarSuggestionResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
+
+    @doc("Wave the card away. Writes no calendar object. With `muteSender`, also writes a standing `Filter` rule on the message's sender so their invitations stop being offered. Idempotent; 400 when the suggestion was already accepted.")
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/dismiss")
+    op dismissCalendarSuggestion(
+      @path suggestionId: UUID,
+      @body input: DismissCalendarSuggestionInput,
+    ):
+      | CalendarSuggestionResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
   }
 }

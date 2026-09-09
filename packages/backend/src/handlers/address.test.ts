@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
-import type { AddressItem, ResultList } from "@remit/data-ports";
+import { afterEach, describe, it, mock } from "node:test";
+import type { SendMessageCommand } from "@aws-sdk/client-sqs";
+import type {
+	AddressResponse,
+	UpdateAddressInput,
+} from "@remit/api-openapi-types";
+import type {
+	AddressItem,
+	FlagsMergePatch,
+	ResultList,
+} from "@remit/data-ports";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -9,13 +18,20 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { AddressOperations } from "./address.js";
+import { sqsClient } from "../service/sqs.js";
+import { AddressDetailOperations, AddressOperations } from "./address.js";
 
 const searchAddresses =
 	AddressOperations.AddressOperations_searchAddresses as unknown as (
 		context: Context,
 		event: APIGatewayProxyEvent,
 	) => Promise<ResultList<AddressItem>>;
+
+const updateAddress =
+	AddressDetailOperations.AddressDetailOperations_updateAddress as unknown as (
+		context: Context,
+		event: APIGatewayProxyEvent,
+	) => Promise<AddressResponse>;
 
 const SUB = "cognito-sub-704";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -67,6 +83,7 @@ const clientReturning = (items: AddressItem[], seen: Listing[]): RemitClient =>
 	}) as unknown as RemitClient;
 
 afterEach(() => {
+	mock.restoreAll();
 	_resetForTest();
 });
 
@@ -128,5 +145,237 @@ describe("AddressOperations_searchAddresses", () => {
 		await searchAddresses(contextFor({ q: "po" }), eventFor(SUB));
 
 		assert.equal(seen[0].limit, 10);
+	});
+});
+
+const updateContextFor = (body: UpdateAddressInput): Context =>
+	({
+		request: { params: { addressId: "addr-1" }, requestBody: body },
+	}) as unknown as Context;
+
+/**
+ * Fake data client that applies the same merge semantics the repo does:
+ * a `null` in the patch deletes the key, anything else writes it.
+ */
+const clientHolding = (
+	stored: AddressItem,
+	seen: FlagsMergePatch[],
+): RemitClient =>
+	({
+		address: {
+			getAddress: async (): Promise<AddressItem> => stored,
+			mergeFlags: async (
+				_accountConfigId: string,
+				_addressId: string,
+				patch: FlagsMergePatch,
+			): Promise<AddressItem> => {
+				seen.push(patch);
+				const flags: Record<string, unknown> = { ...(stored.flags ?? {}) };
+				for (const [key, value] of Object.entries(patch)) {
+					if (value === undefined) continue;
+					if (value === null) delete flags[key];
+					else flags[key] = value;
+				}
+				return { ...stored, flags } as AddressItem;
+			},
+		},
+	}) as unknown as RemitClient;
+
+/**
+ * The never-spam grant (#605) travels the same route every other flag does. The
+ * exclusivity against `blocked` is not asserted here: it lives in the repo's
+ * merge fold, the only place that sees both keys at once.
+ */
+describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
+	it("forwards the grant to the merge patch and hands it back on the address", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(clientHolding(address({ flags: {} }), seen));
+
+		const response = await updateAddress(
+			updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ neverSpam: { value: true, setAt: 20 } }]);
+		assert.deepEqual(response.flags.neverSpam, { value: true, setAt: 20 });
+	});
+
+	it("clears the grant by naming the key, the removal form every flag shares", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({ flags: { neverSpam: { value: true, setAt: 10 } } }),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["neverSpam"] }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ neverSpam: null }]);
+		assert.equal(response.flags.neverSpam, undefined);
+	});
+});
+
+describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
+	it("clears the category override, which has no false-equivalent value to send", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({
+					flags: { category: { value: "newsletter", setAt: 10 } },
+				}),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["category"] }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ category: null }]);
+		assert.equal(response.flags.category, undefined);
+	});
+
+	it("clears a boolean flag by the same route, leaving the untouched ones alone", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({
+					flags: {
+						muted: { value: true, setAt: 10 },
+						vip: { value: true, setAt: 11 },
+					},
+				}),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["muted"] }),
+			eventFor(SUB),
+		);
+
+		assert.equal(response.flags.muted, undefined);
+		assert.deepEqual(response.flags.vip, { value: true, setAt: 11 });
+	});
+
+	it("removes a key named in both halves, because clearFlags is applied last", async () => {
+		const seen: FlagsMergePatch[] = [];
+		setClient(
+			clientHolding(
+				address({ flags: { muted: { value: true, setAt: 10 } } }),
+				seen,
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({
+				flags: { muted: { value: true, setAt: 20 } },
+				clearFlags: ["muted"],
+			}),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(seen, [{ muted: null }]);
+		assert.equal(response.flags.muted, undefined);
+	});
+});
+
+/**
+ * The retroactive half of a sender-category override (#415). Setting the flag
+ * enqueues one back-apply carrying the category it was set to; clearing it —
+ * the revert-to-auto route — enqueues nothing, because the classifier's own
+ * answer for mail already filed cannot be re-derived without every body.
+ */
+describe("AddressDetailOperations_updateAddress category back-apply (#415)", () => {
+	const withStubbedQueue = (enqueued: SendMessageCommand[]): void => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
+			enqueued.push(command);
+			return {};
+		});
+	};
+
+	it("enqueues a back-apply naming the sender and the set it was fired for", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await updateAddress(
+			updateContextFor({
+				flags: { category: { value: "newsletter", setAt: 20 } },
+			}),
+			eventFor(SUB),
+		);
+
+		assert.equal(enqueued.length, 1);
+		assert.deepEqual(JSON.parse(String(enqueued[0]?.input.MessageBody)), {
+			type: "SenderCategoryBackApply",
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			addressId: "addr-1",
+			normalizedEmail: "amsterdam@pocahondas.nl",
+			category: "newsletter",
+			categorySetAt: 20,
+		});
+	});
+
+	it("says the override is saved and names the retry when the queue refuses", async () => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		mock.method(sqsClient, "send", async () => {
+			throw new Error("AWS.SimpleQueueService.NonExistentQueue");
+		});
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await assert.rejects(
+			updateAddress(
+				updateContextFor({
+					flags: { category: { value: "newsletter", setAt: 20 } },
+				}),
+				eventFor(SUB),
+			),
+			(error: Error) => {
+				assert.match(error.message, /saved/);
+				assert.match(error.message, /same category again/);
+				return true;
+			},
+		);
+	});
+
+	it("enqueues nothing when the override is cleared back to auto", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(
+			clientHolding(
+				address({ flags: { category: { value: "newsletter", setAt: 10 } } }),
+				[],
+			),
+		);
+
+		const response = await updateAddress(
+			updateContextFor({ clearFlags: ["category"] }),
+			eventFor(SUB),
+		);
+
+		assert.equal(response.flags.category, undefined);
+		assert.deepEqual(enqueued, []);
+	});
+
+	it("enqueues nothing for a flag that has no bearing on classification", async () => {
+		const enqueued: SendMessageCommand[] = [];
+		withStubbedQueue(enqueued);
+		setClient(clientHolding(address({ flags: {} }), []));
+
+		await updateAddress(
+			updateContextFor({ flags: { muted: { value: true, setAt: 20 } } }),
+			eventFor(SUB),
+		);
+
+		assert.deepEqual(enqueued, []);
 	});
 });

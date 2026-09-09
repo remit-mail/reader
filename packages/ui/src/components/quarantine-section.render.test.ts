@@ -44,6 +44,19 @@ describe("QuarantineSection", () => {
 		assert.match(html, /Acme Holdings/);
 	});
 
+	it("shows the folder name of a dotted path, not the whole path", () => {
+		const html = render([
+			{
+				...base,
+				mailboxPath: "INBOX.Projects.Q3",
+				mailboxDelimiter: ".",
+				mailboxRole: undefined,
+			},
+		]);
+		assert.match(html, />Q3</);
+		assert.doesNotMatch(html, />INBOX\.Projects\.Q3</);
+	});
+
 	it("offers reporting as the only per-row action", () => {
 		const html = render([base]);
 		assert.match(html, /Cut a bug/);

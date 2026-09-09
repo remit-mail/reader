@@ -1,7 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { AccountAuthType } from "@remit/domain-enums";
 import { triggerConfigLoadSyncs } from "./config.js";
+
+/**
+ * The credential a password account stores. Its content is never read here —
+ * only its presence decides whether a sync is worth enqueuing.
+ */
+const withPassword = (accountId: string) => ({
+	accountId,
+	passwordHash: '{"ciphertext":"x"}',
+});
 
 const QUEUE_URL = "http://localhost:9324/000000000000/remit-dev-mailboxes";
 
@@ -44,15 +54,58 @@ describe("triggerConfigLoadSyncs", () => {
 		const sent: SendMessageCommand[] = [];
 		const { logger, info, error } = createLoggerSpy();
 
-		await triggerConfigLoadSyncs("config-1", ["acc-a", "acc-b"], {
-			sqsClient: okSqsClient(sent),
-			queueUrl: QUEUE_URL,
-			logger,
-		});
+		await triggerConfigLoadSyncs(
+			"config-1",
+			[withPassword("acc-a"), withPassword("acc-b")],
+			{
+				sqsClient: okSqsClient(sent),
+				queueUrl: QUEUE_URL,
+				logger,
+			},
+		);
 
 		assert.equal(sent.length, 2);
 		assert.equal(info.length, 2);
 		assert.equal(error.length, 0);
+	});
+
+	it("skips an account that stores no credential (issue #1120)", async () => {
+		const sent: SendMessageCommand[] = [];
+		const { logger, error } = createLoggerSpy();
+
+		await triggerConfigLoadSyncs(
+			"config-1",
+			[
+				{ accountId: "imported-no-password" },
+				withPassword("acc-with-password"),
+			],
+			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
+		);
+
+		assert.equal(sent.length, 1);
+		assert.equal(error.length, 0);
+		const body = JSON.parse(String(sent[0]?.input.MessageBody)) as {
+			accountId: string;
+		};
+		assert.equal(body.accountId, "acc-with-password");
+	});
+
+	it("skips an OAuth account that stores no refresh token", async () => {
+		const sent: SendMessageCommand[] = [];
+		const { logger } = createLoggerSpy();
+
+		await triggerConfigLoadSyncs(
+			"config-1",
+			[
+				{
+					accountId: "oauth-unconnected",
+					authType: AccountAuthType.OauthMicrosoft,
+				},
+			],
+			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
+		);
+
+		assert.equal(sent.length, 0);
 	});
 
 	it("does NOT reject when the SQS enqueue fails (read stays resilient)", async () => {
@@ -63,7 +116,7 @@ describe("triggerConfigLoadSyncs", () => {
 		const { logger } = createLoggerSpy();
 
 		await assert.doesNotReject(
-			triggerConfigLoadSyncs("config-1", ["acc-a"], {
+			triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 				sqsClient: failingSqsClient(econnrefused),
 				queueUrl: QUEUE_URL,
 				logger,
@@ -78,7 +131,7 @@ describe("triggerConfigLoadSyncs", () => {
 		});
 		const { logger, error } = createLoggerSpy();
 
-		await triggerConfigLoadSyncs("config-1", ["acc-a"], {
+		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 			sqsClient: failingSqsClient(econnrefused),
 			queueUrl: QUEUE_URL,
 			logger,
@@ -109,11 +162,15 @@ describe("triggerConfigLoadSyncs", () => {
 		} as unknown as SQSClient;
 		const { logger, info, error } = createLoggerSpy();
 
-		await triggerConfigLoadSyncs("config-1", ["acc-a", "acc-b"], {
-			sqsClient,
-			queueUrl: QUEUE_URL,
-			logger,
-		});
+		await triggerConfigLoadSyncs(
+			"config-1",
+			[withPassword("acc-a"), withPassword("acc-b")],
+			{
+				sqsClient,
+				queueUrl: QUEUE_URL,
+				logger,
+			},
+		);
 
 		assert.equal(error.length, 1);
 		assert.equal(info.length, 1);
@@ -127,7 +184,7 @@ describe("triggerConfigLoadSyncs", () => {
 		});
 		const { logger, error } = createLoggerSpy();
 
-		await triggerConfigLoadSyncs("config-1", ["acc-a"], {
+		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 			sqsClient: failingSqsClient(sdkError),
 			queueUrl: QUEUE_URL,
 			logger,
@@ -161,11 +218,15 @@ describe("triggerConfigLoadSyncs", () => {
 		let readResolved = false;
 		try {
 			// Fire-and-forget exactly as the getConfig handler does.
-			void triggerConfigLoadSyncs("config-1", ["acc-a", "acc-b"], {
-				sqsClient: failingSqsClient(econnrefused),
-				queueUrl: QUEUE_URL,
-				logger,
-			});
+			void triggerConfigLoadSyncs(
+				"config-1",
+				[withPassword("acc-a"), withPassword("acc-b")],
+				{
+					sqsClient: failingSqsClient(econnrefused),
+					queueUrl: QUEUE_URL,
+					logger,
+				},
+			);
 
 			// A concurrent "read" sharing the event loop, like /mailboxes or /outbox.
 			await new Promise((resolve) => setImmediate(resolve)).then(() => {

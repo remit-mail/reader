@@ -9,8 +9,12 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { BriefFilterId } from "../lib/brief-filters.js";
 import type { ThreadSection } from "./app-shell-types.js";
-import type { BriefFilterSurface } from "./brief-sections.js";
+import type {
+	BriefFilterControl,
+	BriefFilterSurface,
+} from "./brief-sections.js";
 import { MessageListPane } from "./message-list-pane.js";
 
 const sections: ThreadSection[] = [
@@ -54,7 +58,19 @@ afterEach(() => {
 	});
 });
 
-function mount(briefFilter?: BriefFilterSurface) {
+const NO_CHIPS: ReadonlySet<BriefFilterId> = new Set();
+
+/**
+ * The pane draws the brief chips and applies none of them, so a host is what
+ * makes them do anything — the surface is not optional in the brief mode (#314).
+ */
+const chipControl: BriefFilterControl = {
+	activeFilters: NO_CHIPS,
+	onToggleFilter: () => undefined,
+	onClearFilters: () => undefined,
+};
+
+function mount(briefFilter: BriefFilterSurface = chipControl) {
 	act(() => {
 		root.render(
 			createElement(MessageListPane, {
@@ -91,6 +107,7 @@ function labels(selector: string): string[] {
 describe("the brief's filter panel inside the message list pane", () => {
 	it("carries the account pills and the muted note it is given", () => {
 		mount({
+			...chipControl,
 			sources,
 			sourcesNote: "+1 muted",
 			onSelectSource: () => undefined,
@@ -108,6 +125,7 @@ describe("the brief's filter panel inside the message list pane", () => {
 	it("reports the pill the user picks", () => {
 		let picked: string | undefined;
 		mount({
+			...chipControl,
 			sources,
 			onSelectSource: (id) => {
 				picked = id;

@@ -1,9 +1,6 @@
-import { Button, cn } from "@remit/ui";
+import { Button, type CalendarSlotPick, cn } from "@remit/ui";
 import { CornerUpLeft, Timer, X } from "lucide-react";
-import {
-	HOLD_EXPIRY_LABEL,
-	type TimeSlot,
-} from "../../fixtures/calendar-mail.js";
+import { HOLD_EXPIRY_LABEL } from "../../fixtures/calendar-mail.js";
 
 /**
  * Answering with times. The slots go into the reply as plain text, because the
@@ -16,11 +13,13 @@ import {
 export function composeReply(
 	recipientFirstName: string,
 	dayLabel: string,
-	slots: TimeSlot[],
+	slots: CalendarSlotPick[],
 ): string {
 	if (slots.length === 0)
 		return `Hoi ${recipientFirstName},\n\nPick a time below and I will send the invite.\n\nAlice`;
-	const lines = slots.map((slot) => `· ${dayLabel}, ${slot.start}–${slot.end}`);
+	const lines = slots.map(
+		(slot) => `· ${dayLabel}, ${slot.startTime}–${slot.endTime}`,
+	);
 	return [
 		`Hoi ${recipientFirstName},`,
 		"",
@@ -34,11 +33,11 @@ export function composeReply(
 }
 
 export interface ReplyWithTimesProps {
-	slots: TimeSlot[];
+	slots: CalendarSlotPick[];
 	dayLabel: string;
 	draft: string;
 	onDraftChange: (value: string) => void;
-	onRemoveSlot: (slot: TimeSlot) => void;
+	onRemoveSlot: (slot: CalendarSlotPick) => void;
 	onSend: () => void;
 	sent: boolean;
 	onRelease: () => void;
@@ -114,13 +113,13 @@ export function ReplyWithTimes({
 				<div className="flex flex-wrap gap-1.5">
 					{slots.map((slot) => (
 						<span
-							key={slot.start}
+							key={slot.startTime}
 							className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft py-0.5 pl-2 pr-1 text-xs tabular-nums text-accent"
 						>
-							{slot.start} – {slot.end}
+							{slot.startTime} – {slot.endTime}
 							<button
 								type="button"
-								aria-label={`Drop ${slot.start}`}
+								aria-label={`Drop ${slot.startTime}`}
 								onClick={() => onRemoveSlot(slot)}
 								className={cn(
 									"flex items-center justify-center rounded-sm outline-none hover:bg-surface focus-visible:ring-2 focus-visible:ring-ring",

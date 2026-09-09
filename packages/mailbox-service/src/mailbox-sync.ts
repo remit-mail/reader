@@ -11,10 +11,8 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import {
-	CANONICAL_ROLES,
-	type CanonicalMailboxRoleValue,
-	ROLE_NAME_HINTS,
 	ROLE_SPECIAL_USE,
+	roleForFolderName,
 } from "@remit/data-ports/folder-role";
 import {
 	MailboxCursorState,
@@ -25,7 +23,10 @@ import {
 import pMap from "p-map";
 import { isNoSelect, parseImapAttributes } from "./attribute-mapper.js";
 import { isCursorRebuildNeeded } from "./mailbox-cursor.js";
-import { isMailboxNotOnServer } from "./mailbox-presence.js";
+import {
+	isFolderMutationInFlight,
+	isMailboxMutationInFlight,
+} from "./mailbox-presence.js";
 import type {
 	FlatMailboxInfo,
 	IImapConnection,
@@ -54,30 +55,6 @@ const areSpecialUseSetsEqual = (
 		if (!aSet.has(value)) return false;
 	}
 	return true;
-};
-
-/**
- * The role a folder's own leaf name is most conventionally for, read from the
- * one hint table every special-folder lookup shares (`@remit/data-ports`,
- * #837). A name that several roles list goes to the role that ranks it highest,
- * so `All Mail` is an All folder rather than a lookalike of Archive.
- *
- * A second copy of these names lived here, and it is the one that could destroy
- * something: it still called `Deleted` and `Bin` Trash names, which #843 dropped
- * precisely because they are ordinary folders a user keeps mail in — and this
- * lookup does not merely skip a folder, it deletes the row and everything the
- * client can see in it.
- */
-const roleForFolderName = (
-	name: string,
-): CanonicalMailboxRoleValue | undefined => {
-	let best: { role: CanonicalMailboxRoleValue; rank: number } | undefined;
-	for (const role of CANONICAL_ROLES) {
-		const rank = ROLE_NAME_HINTS[role]?.indexOf(name) ?? -1;
-		if (rank < 0) continue;
-		if (!best || rank < best.rank) best = { role, rank };
-	}
-	return best?.role;
 };
 
 /**
@@ -149,6 +126,28 @@ export class MailboxSyncService {
 		const existingByPath = new Map(
 			existingMailboxes.map((m) => [m.fullPath, m]),
 		);
+		// The paths a rename is on its way to (D14). Under D2 `fullPath` stays the
+		// path the server held when the intent was recorded, so between the server
+		// executing RENAME and the settle, LIST returns a path no row is keyed to
+		// — and the insert branch below has no state guard at all. Without this it
+		// inserts a second row under a fresh mailboxId and initial-syncs the
+		// folder's mail into it, leaving the original as a permanent phantom still
+		// holding that folder's messages, filters and role appointments. No unique
+		// index on (accountId, fullPath) exists to catch it; #386 adds one.
+		//
+		// `pending` only. A failed rename keeps its target so the UI can name what
+		// it was aiming at (T6), and nothing clears it until the user retries or
+		// dismisses — so honouring a `failed` row's claim would let one stuck
+		// folder block the sweep from ever discovering a real folder another
+		// client later creates at that path.
+		const claimedByPendingRename = new Set(
+			existingMailboxes.flatMap((m) =>
+				m.syncStatus === MailboxSyncStatus.pending &&
+				m.pendingPath !== undefined
+					? [m.pendingPath]
+					: [],
+			),
+		);
 
 		// Get namespaces and mailboxes from IMAP
 		const namespaces = await connection.getNamespaces();
@@ -177,7 +176,15 @@ export class MailboxSyncService {
 					seenPaths.add(mailboxInfo.fullPath);
 					// If this mailbox exists in DB, delete it
 					const existing = existingByPath.get(mailboxInfo.fullPath);
-					if (existing) {
+					// A folder mid-create can transiently LIST as `\Noselect`, and
+					// deleting the row then races the create exactly as #290
+					// documented. The state check goes before the delete, through the
+					// same predicate the rest of the sweep asks.
+					if (existing && !isFolderMutationInFlight(existing)) {
+						// The duplicate-special-use branch below clears the special-use
+						// entries too; this one skipped them, orphaning a row per
+						// deleted mailbox.
+						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
 						await this.mailboxService.delete(
 							account.accountId,
 							existing.mailboxId,
@@ -199,7 +206,7 @@ export class MailboxSyncService {
 				if (this.isDuplicateSpecialUse(mailboxInfo, claimedSpecialUse)) {
 					seenPaths.add(mailboxInfo.fullPath);
 					const existing = existingByPath.get(mailboxInfo.fullPath);
-					if (existing) {
+					if (existing && !isFolderMutationInFlight(existing)) {
 						await this.specialUseService.deleteByMailboxId(existing.mailboxId);
 						await this.mailboxService.delete(
 							account.accountId,
@@ -226,10 +233,7 @@ export class MailboxSyncService {
 					// that establishes or removes it writes its own identity back, and
 					// reading its status meanwhile is work whose only possible outcome is
 					// a failure that fails this whole account's fan-out with it.
-					if (
-						existing.syncStatus === MailboxSyncStatus.pending ||
-						existing.syncStatus === MailboxSyncStatus.deleting
-					) {
+					if (isFolderMutationInFlight(existing)) {
 						return;
 					}
 					// The folder set can change under this sweep. A delete that lands
@@ -247,7 +251,7 @@ export class MailboxSyncService {
 					).catch(async (error: unknown) => {
 						// The read only classifies the failure in hand; one that cannot
 						// answer must not replace it.
-						const gone = await isMailboxNotOnServer(
+						const gone = await isMailboxMutationInFlight(
 							this.mailboxService,
 							account.accountId,
 							existing.mailboxId,
@@ -258,7 +262,7 @@ export class MailboxSyncService {
 					if (updated) {
 						result.updated++;
 					}
-				} else {
+				} else if (!claimedByPendingRename.has(mailboxInfo.fullPath)) {
 					await this.createMailbox(
 						account.accountId,
 						mailboxInfo,
@@ -274,15 +278,20 @@ export class MailboxSyncService {
 		// Handle deleted mailboxes (exist in DB but not on server)
 		for (const existing of existingMailboxes) {
 			if (seenPaths.has(existing.fullPath)) continue;
-			// A `pending` row is a folder the user just created (or renamed) whose
-			// MAILBOX_CREATE/RENAME has not yet reached the server, so its absence
-			// from the LIST is expected, not a server-side deletion. Deleting it
-			// races the create: the row vanishes, then MAILBOX_CREATE fails with
-			// NotFoundError trying to mark it synced, and — sharing this account's
-			// mailboxes FIFO group — that un-acked failure stalls every later
-			// mailbox sync for the queue's whole visibility window (#290). Leave
-			// pending rows to the create/rename flow that owns them.
-			if (existing.syncStatus === MailboxSyncStatus.pending) continue;
+			// A row with a mutation in flight is a folder whose absence from the
+			// LIST is expected, not a server-side deletion. Deleting it races the
+			// worker: the row vanishes, then MAILBOX_CREATE fails with NotFoundError
+			// trying to mark it synced, and — sharing this account's mailboxes FIFO
+			// group — that un-acked failure stalls every later mailbox sync for the
+			// queue's whole visibility window (#290).
+			//
+			// `deleting` is here for a second reason. That window is exactly when a
+			// delete has landed on the server and the worker has not written back,
+			// so hard-deleting the row removes it under the client holding its id —
+			// the "Mailbox not found: <old id>" of #333 — and removes it without the
+			// folder's mail, which is the worker's job (D8). Leave both to the flow
+			// that owns them.
+			if (isFolderMutationInFlight(existing)) continue;
 			await this.mailboxService.delete(account.accountId, existing.mailboxId);
 			this.log.info(
 				{
@@ -456,6 +465,10 @@ export class MailboxSyncService {
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
 			specialUse: parsed.specialUse.length > 0 ? parsed.specialUse : undefined,
+			// A folder the server just told us about is confirmed. The column
+			// defaults to this, so the row is right either way; the field is total
+			// now (D1) and the insert says what it means.
+			syncStatus: MailboxSyncStatus.synced,
 			// parentMailboxId would need to be resolved from parentPath
 		};
 

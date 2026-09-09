@@ -27,6 +27,7 @@ export const makeMailbox = (
 	lastSyncUid: 0,
 	highWaterMarkUid: 0,
 	lastMessageSyncAt: 0,
+	syncStatus: "synced",
 	createdAt: 0,
 	updatedAt: 0,
 	...overrides,
@@ -78,6 +79,9 @@ export const makeThreadMessage = (
 	star: "none",
 	hasStars: false,
 	isDeleted: false,
+	status: "active",
+	syncStatus: "pending",
+	abandonedMutation: "none",
 	senderTrust: "unknown",
 	muted: false,
 	createdAt: 0,
@@ -87,6 +91,7 @@ export const makeThreadMessage = (
 
 export const makeConfig = (
 	accounts: RemitImapAccountResponse[],
+	overrides: Partial<RemitImapConfigDescriptionResponse> = {},
 ): RemitImapConfigDescriptionResponse => ({
 	accountConfig: {
 		accountConfigId: "cfg-1",
@@ -96,4 +101,6 @@ export const makeConfig = (
 		updatedAt: 0,
 	},
 	accounts,
+	semanticSearchEnabled: true,
+	...overrides,
 });

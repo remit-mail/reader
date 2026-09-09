@@ -116,10 +116,15 @@ export interface LabelOption {
  * The live match count (RFC 038 D1). `stale` marks a count the editor already
  * moved past — a clause changed after it was counted, so the number on screen
  * is the previous rule's until the next preview lands.
+ *
+ * `indexEmpty` is the server saying the semantic index had nothing to answer
+ * with (issue #452). A zero counted against an empty index is a fact about the
+ * index, not about the rule, and reading it as "no mail matches" talks a user
+ * out of a rule that will match plenty once indexing catches up.
  */
 export type PreviewCount =
 	| { status: "loading" }
-	| { status: "ready"; count: number; stale?: boolean }
+	| { status: "ready"; count: number; stale?: boolean; indexEmpty?: boolean }
 	| { status: "error"; reason: string };
 
 const clauseFieldLabels: Record<ClauseField, string> = {
@@ -157,7 +162,7 @@ export function clauseFieldHint(field: ClauseField): string | undefined {
  *
  * The vector-free matcher serves `From`/`Subject` from the core thread rows and
  * carries no faithful body, so it rejects a body-text clause outright rather
- * than narrowing the match silently (`assertNoBodyContentClause`,
+ * than narrowing the match silently (`bodyContentRejection`,
  * backend/service/organize.ts). A rule with no active widen therefore cannot be
  * counted or applied one-time with such a clause in it — it can only be a
  * standing rule, where the index-time matcher reads the whole body.
@@ -169,6 +174,16 @@ export function matchesBodyText(field: ClauseField): boolean {
 /** Whether the rule's semantic widen is present and evaluable. */
 export function hasActiveWiden(rule: FilterRule): boolean {
 	return rule.widen !== undefined && !rule.widen.inactive;
+}
+
+/**
+ * Whether the rule carries a live way to match. Without one the predicate is
+ * empty, and a rule with an empty predicate matches nothing — not the mail
+ * already there and not the mail still to come. Every surface that saves a rule
+ * asks the question here, so none of them can save that shape.
+ */
+export function hasMatcher(rule: FilterRule): boolean {
+	return rule.clauses.length > 0 || hasActiveWiden(rule);
 }
 
 /**
@@ -215,6 +230,11 @@ export function matchJoinWord(operator: MatchOperator): string {
 export function previewCountSummary(preview: PreviewCount): string {
 	if (preview.status === "loading") return "Counting matches…";
 	if (preview.status === "error") return preview.reason;
+	// An index with nothing in it counted nothing, so there is no count to mark
+	// as recounting. The sentence is about the index, not about the rule, and it
+	// reads the same whichever predicate is on screen.
+	if (preview.indexEmpty)
+		return "Still indexing — nothing to match against yet";
 	if (preview.count === 0) return "No mail matches yet";
 	const noun = preview.count === 1 ? "message" : "messages";
 	const base = `${preview.count} ${noun} match`;
@@ -293,10 +313,7 @@ export function commitBlockedReason(
 	rule: FilterRule,
 	preview: PreviewCount,
 ): string | undefined {
-	const hasMatch =
-		rule.clauses.length > 0 ||
-		(rule.widen !== undefined && !rule.widen.inactive);
-	if (!hasMatch) return ruleBlockedCopy.noMatch;
+	if (!hasMatcher(rule)) return ruleBlockedCopy.noMatch;
 	if (rule.scope === "once" && unreadableBodyClauses(rule).length > 0)
 		return ruleBlockedCopy.bodyTextOnce;
 	if (!rule.moveMailboxId && !rule.labelId) return ruleBlockedCopy.noAction;

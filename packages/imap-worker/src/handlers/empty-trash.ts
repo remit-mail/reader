@@ -1,10 +1,13 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem } from "@remit/data-ports";
+import { isNotFoundError } from "@remit/data-ports/errors";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
 import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
+	buildThreadMessageUndelete,
+	carriesForeignUid,
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
@@ -12,10 +15,8 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { EmptyTrashEvent } from "../events.js";
-import { isNotFoundError } from "../is-not-found.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { buildThreadMessageUndelete } from "./message-delete.js";
 
 export interface EmptyTrashDeps {
 	getClient: typeof getClient;
@@ -88,7 +89,10 @@ export const handleEmptyTrash = async (
 	// an unsettled move is rewritten by its own MESSAGE_DELETE. Not `failed`:
 	// the mail is intact, and saying otherwise about a whole folder is a lie.
 	const handBackMarkedRows = async (
-		rows: readonly { messageId: string; status: MessageItem["status"] }[],
+		rows: readonly Pick<
+			MessageItem,
+			"messageId" | "status" | "mailboxId" | "uid"
+		>[],
 	): Promise<number> => {
 		let revertedCount = 0;
 		for (const message of rows) {
@@ -104,10 +108,30 @@ export const handleEmptyTrash = async (
 			);
 			if (threadMessages.length === 0) continue;
 
-			await messageService.update(message.messageId, {
-				status: MessageStatus.active,
-				syncStatus: MessageSyncStatus.synced,
-			});
+			// The hand-back is a transition off the row as this sweep read it
+			// (imap-mutations R3), because the snapshot it walks holds nothing:
+			// between the listing and here another lane can settle the row onto a
+			// placement of its own, and writing `active` + `synced` over that would
+			// declare a mutation settled that nobody confirmed.
+			const restored = await messageService.transitionPlacement(
+				message.messageId,
+				{
+					status: MessageStatus.deleting,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
+				{
+					status: MessageStatus.active,
+					syncStatus: MessageSyncStatus.synced,
+				},
+			);
+			if (!restored) {
+				log.info(
+					{ accountId, messageId: message.messageId },
+					"Empty Trash left a row alone: its placement changed after the sweep read it",
+				);
+				continue;
+			}
 			for (const threadMessage of threadMessages) {
 				const args = buildThreadMessageUndelete(threadMessage);
 				await threadMessageService.update(
@@ -233,27 +257,80 @@ export const handleEmptyTrash = async (
 						return;
 					}
 
-					const uids = await connection.search(["ALL"]);
+					// One read, before the expunge, decides both what is destroyed on
+					// the server and what is removed locally — so the two sets are the
+					// same set by construction and no message can be expunged that the
+					// sweep then declines to remove (issue #1230). Reading afterwards
+					// put the exclusion downstream of the destruction: a refused row
+					// had already lost its server copy, could not be refused into
+					// existence again, and nothing routine repaired it.
+					//
+					// Reconciles, never waits (imap-mutations R2). A row whose move
+					// into Trash has not settled names this folder while still
+					// carrying the SOURCE folder's uid, so matching it against the
+					// expunge answers for whatever Trash held at that uid — another
+					// message, deleted here in both its rows. Waiting is not open to
+					// this handler the way it is to the API-side mutators: a move on
+					// this account's own FIFO group cannot run until this returns, so
+					// the ceiling would be spent to reach the same answer. It buys
+					// nothing against the other lane either — PLACEMENT_MOVE_PUSH
+					// rides a standard queue with no group at all
+					// (`deploy/vps/queues.json`), so it is ordered against nothing
+					// here and can settle a row mid-sweep. That is why the writes
+					// below are transitions rather than snapshot writes (R3).
+					//
+					// `carriesForeignUid`, not the placement binding: the binding reads
+					// `status`, and `status` is exactly what an operation marking this
+					// folder overwrites. This is the same predicate `emptyTrash`
+					// applies before it marks anything — one gate, one answer, now
+					// asked once and honoured on both sides of the expunge.
+					const localMessages =
+						await messageService.listAllByMailbox(trashMailboxId);
+					const sweepable = localMessages.filter(
+						(message) => !carriesForeignUid(message),
+					);
+
+					// A refused row spares its uid only where no row the sweep will
+					// carry claims the same number. The two cases the predicate cannot
+					// tell apart part here: a row genuinely mid-move borrows a uid that
+					// belongs to a different message in this folder, and sparing that
+					// number would strand the message that owns it; a settled row whose
+					// `originalUid` a pre-#1217 build left behind owns its uid outright,
+					// and expunging it destroys mail the sweep then refuses to remove.
+					const sweepableUids = new Set(
+						sweepable.map((message) => message.uid),
+					);
+					const refusedUids = new Set(
+						localMessages
+							.filter(
+								(message) =>
+									carriesForeignUid(message) && !sweepableUids.has(message.uid),
+							)
+							.map((message) => message.uid),
+					);
+
+					const uids = (await connection.search(["ALL"])).filter(
+						(uid) => !refusedUids.has(uid),
+					);
 
 					if (uids.length > 0) {
 						await connection.deleteMessages(uids);
 						log.info(
-							{ count: uids.length },
+							{ count: uids.length, refused: refusedUids.size },
 							"Deleted messages from IMAP trash",
 						);
 					}
 
-					// Local cleanup follows the expunge, uid by uid. What was expunged
-					// is a fact this connection observed, and only those rows go.
+					// What was expunged is a fact this connection observed, and only
+					// those rows go.
 					const expunged = new Set(uids);
-					const localMessages =
-						await messageService.listAllByMailbox(trashMailboxId);
-					let deletedCount = 0;
+					const swept = sweepable.filter((message) =>
+						expunged.has(message.uid),
+					);
+					const sweptIds = new Set(swept.map((message) => message.messageId));
+					const deletedCount = swept.length;
 
-					for (const message of localMessages) {
-						if (!expunged.has(message.uid)) continue;
-						deletedCount += 1;
-
+					for (const message of swept) {
 						await messageService.delete(message.messageId);
 
 						const threadMessage = await threadMessageService.findByMessageId(
@@ -268,12 +345,16 @@ export const handleEmptyTrash = async (
 						}
 					}
 
-					// Everything the SEARCH did not name is still marked for a deletion
-					// that will never come: mail another client already emptied, mail
-					// that reached Trash after the SEARCH, or a redelivery finishing a
-					// partial sweep. All three must come back rather than sit invisible.
+					// Everything this sweep did not carry through is still marked for a
+					// deletion that will never come: mail another client already
+					// emptied, mail that reached Trash after the SEARCH, a redelivery
+					// finishing a partial sweep, and a row whose uid the sweep would
+					// not bind. All of them must come back rather than sit invisible —
+					// the last one especially, since nothing else is coming to clear
+					// its mark, and a row hidden in a folder it never left is worse
+					// than one the next sync re-projects.
 					const revertedCount = await handBackMarkedRows(
-						localMessages.filter((message) => !expunged.has(message.uid)),
+						localMessages.filter((message) => !sweptIds.has(message.messageId)),
 					);
 
 					log.info(
