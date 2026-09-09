@@ -23,7 +23,6 @@ import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
-	MessageCategory,
 	MessageClassificationState,
 	PlacementAction,
 	PlacementConfidence,
@@ -40,6 +39,10 @@ import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import { mapBodyPartsToContent } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
+import {
+	classifyParsedMessage,
+	extractPrimaryFromEmail,
+} from "./classify-message.js";
 import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
@@ -49,20 +52,15 @@ import {
 } from "./filters/pipeline.js";
 import type { FlagQueueService } from "./flag-queue.js";
 import {
-	classifyByHeaders,
-	extractAuthenticity,
-	extractAuthResult,
-	extractHasListUnsubscribe,
-	extractProviderSpam,
-} from "./heuristics/classifyByHeaders.js";
-import {
 	classifyPlacement,
 	type FolderPlacement,
 	type PlacementVerdict,
 	resolveSenderPlacement,
 } from "./heuristics/classifyPlacement.js";
-import { extractSenderMismatch } from "./heuristics/senderMismatch.js";
-import { denormalizeMessageCategory } from "./message-category.js";
+import {
+	denormalizeMessageCategory,
+	hasDecidedCategory,
+} from "./message-category.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
@@ -133,14 +131,6 @@ const isConnectionDrop = (error: unknown): boolean => {
 	return code === "EConnectionClosed" || code === "NoConnection";
 };
 
-export const extractPrimaryFromEmail = (parsed: ParsedMail): string | null => {
-	const from = parsed.from;
-	if (!from || !from.value || from.value.length === 0) return null;
-	const address = from.value[0]?.address;
-	if (!address) return null;
-	return address.toLowerCase();
-};
-
 /**
  * Project a parsed message onto the fields a filter matches against (RFC 034) —
  * the literal-clause targets plus the text a semantic anchor embeds. Kept
@@ -158,31 +148,15 @@ const SNIPPET_LENGTH = 256;
 
 /**
  * The snippet the list row shows, from whichever body part carries text.
+ * Exported for the classification backfill (issue #1197), which denormalizes
+ * the same fields the body-store path does, from the same bytes.
  */
-const extractSnippet = (parsed: ParsedMail): string =>
+export const extractSnippet = (parsed: ParsedMail): string =>
 	extractSnippetFromEmail(
 		parsed.text,
 		typeof parsed.html === "string" ? parsed.html : undefined,
 		SNIPPET_LENGTH,
 	);
-
-/**
-/**
- * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
- * after — RFC 030's message-list GSI sort key depends on it never churning.
- * "Already decided" is any real category, so a message that carries one is
- * never re-categorized by a re-entrant pass.
- *
- * `uncategorized` fails this test whether or not the classifier has run, which
- * is deliberate: this asks what the row holds, not what was done to it. Whether
- * the classifier has run is {@link Message.classificationState}, and it is the
- * skip guard in {@link BodySyncService.syncBodies} — not this one — that keeps
- * a declined message from being examined twice.
- */
-const hasDecidedCategory = (
-	category: ThreadMessageCategory | undefined,
-): boolean =>
-	category !== undefined && category !== MessageCategory.uncategorized;
 
 /**
  * Issue #499: whether a completed body-sync pass has already stored this
@@ -1115,87 +1089,16 @@ export class BodySyncService {
 	/**
 	 * Header classification, with the sender's `Address.flags.category`
 	 * override (issue #299, RFC 039 Decision 3) substituted for the
-	 * header-derived category when one is set. Returns the subset of the
-	 * Message update that carries the derived fields; the caller folds it into
-	 * a single UpdateItem alongside `bodyStorageKey`. Optional signals are
-	 * omitted when absent so we never overwrite an existing value with
-	 * `undefined`.
-	 *
-	 * The override wins outright rather than blending with the heuristic — RFC
-	 * 039 Decision 3 treats a direct reclassification as final, the same as
-	 * `flags.blocked`/`vip` already override placement. The caller
-	 * (`applyPostStoreSteps`) gates on `hasDecidedCategory` before this result
-	 * reaches a write, so a message that already carries a real category is
-	 * never re-touched regardless of what this returns.
+	 * header-derived category when one is set. Shared with the classification
+	 * backfill (issue #1197) as {@link classifyParsedMessage}, so the one-time
+	 * pass and the body-store path can never classify the same bytes
+	 * differently.
 	 */
 	private async classifyMessage(
 		accountConfigId: string,
 		parsed: ParsedMail,
 	): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> {
-		const headerCategory = classifyByHeaders(parsed);
-		const authenticity = extractAuthenticity(parsed);
-		const authResult = extractAuthResult(parsed);
-		const providerSpam = extractProviderSpam(parsed);
-		const hasListUnsubscribe = extractHasListUnsubscribe(parsed);
-
-		// A passing SPF/DKIM/DMARC check proves the sending domain, not the
-		// identity the message claims — on a shared-tenant host the verified
-		// subdomain belongs to whoever signed up. These two comparisons say
-		// whether the claim holds, and run only over mail the provider already
-		// called spam.
-		const senderMismatch =
-			authenticity === null
-				? {}
-				: extractSenderMismatch(parsed, {
-						fromDomain: authenticity.fromDomain,
-						spamClassified: providerSpam?.classified === true,
-						bulkSender: hasListUnsubscribe,
-					});
-
-		const fromEmail = extractPrimaryFromEmail(parsed);
-		const categoryOverride = fromEmail
-			? await this.resolveCategoryOverride(accountConfigId, fromEmail)
-			: undefined;
-
-		return {
-			category: categoryOverride ?? headerCategory,
-			hasListUnsubscribe,
-			...(authenticity !== null
-				? { authenticity: { ...authenticity, ...senderMismatch } }
-				: {}),
-			...(authResult !== null ? { authResult } : {}),
-			...(providerSpam !== null ? { providerSpam } : {}),
-		};
-	}
-
-	/**
-	 * The one-sided half of `Address.flags.category` (issue #299, RFC 039
-	 * Decision 3): a real value here overrides `classifyByHeaders` outright.
-	 * A second, separate `Address` read from `deriveSenderPlacementSignals`'s
-	 * (issue #300) — sharing one fetch was not practical, because the two have
-	 * different failure contracts: placement's read is best-effort (a failure
-	 * is caught and logged, never failing the sync), while this one feeds the
-	 * write-once `Message.category` at the moment it is decided, where a
-	 * masked infra failure would silently classify by headers when the user
-	 * asked for something else. Only a genuinely-absent Address is "no
-	 * override" — any other failure (throttle, infra) propagates, matching the
-	 * existing `deriveSenderPlacementSignals` convention.
-	 */
-	private async resolveCategoryOverride(
-		accountConfigId: string,
-		fromEmail: string,
-	): Promise<ThreadMessageCategory | undefined> {
-		try {
-			const addressId = deriveAddressId(accountConfigId, fromEmail);
-			const address = await this.addressService.getAddress(
-				accountConfigId,
-				addressId,
-			);
-			return address.flags?.category?.value;
-		} catch (err) {
-			if (!(err instanceof NotFoundError)) throw err;
-			return undefined;
-		}
+		return classifyParsedMessage(this.addressService, accountConfigId, parsed);
 	}
 
 	private async incrementInboundCount(

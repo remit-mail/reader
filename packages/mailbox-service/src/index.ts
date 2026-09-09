@@ -28,7 +28,7 @@ export {
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
-	extractPrimaryFromEmail,
+	extractSnippet,
 	type FetchBodyResult,
 	type PlacementConfig,
 	type QuarantineConfig,
@@ -48,6 +48,21 @@ export {
 	type ResolveExhaustedBodySyncResult,
 	resolveExhaustedBodySyncFailures,
 } from "./body-sync-terminal.js";
+export {
+	backfillClassifications,
+	type ClassificationBackfillCheckpoint,
+	type ClassificationBackfillCheckpointStore,
+	type ClassificationBackfillDeps,
+	type ClassificationBackfillLogger,
+	type ClassificationBackfillOptions,
+	type ClassificationBackfillProgress,
+	type ClassificationBackfillResult,
+	type ClassificationBackfillTotals,
+} from "./classification-backfill.js";
+export {
+	classifyParsedMessage,
+	extractPrimaryFromEmail,
+} from "./classify-message.js";
 // Connection factory
 export {
 	createConnection,

@@ -44,3 +44,27 @@ Safe to interrupt: it checkpoints to
 from there on the next run, and a message already backfilled (or one that never
 carried a `List-Id`) is left alone on a rerun. Run it once after upgrading from
 a release older than v0.2.5.
+
+## Classification backfill for pre-upgrade mail
+
+The header classifier that sorts mail into `transactional`, `newsletter` and
+the rest runs at body-sync time, and `message.classification_state` records
+that it ran. Mail whose body was stored before the classifier examined it
+keeps the default `NotExamined` and stays `uncategorized` in the list — the
+category filter matches the thread row's copy, which was never written. A
+one-time backfill classifies each such message from its already-stored raw
+source (no IMAP refetch, no placement or filter side effects — filing
+decisions already ran, or were declined, when the body first landed) and
+marks it `Examined`. A message that already carries a real category is
+recorded as examined without re-deriving it: the category is write-once:
+
+```bash
+docker compose -f docker-compose.sqlite.yml --env-file .env run --rm backend \
+  node backfill-classification.mjs
+```
+
+Safe to interrupt: it checkpoints to
+`/data/sqlite/classification-backfill-checkpoint.json` after every batch and
+resumes from there on the next run, and a message already examined is left
+alone on a rerun. Run it once after upgrading from a release that predates
+`Message.classificationState`.
