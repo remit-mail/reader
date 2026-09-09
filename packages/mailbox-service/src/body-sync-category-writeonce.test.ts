@@ -2,15 +2,13 @@
  * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
  * after — RFC 030's message-list GSI sort key depends on it never churning.
  *
- * `applyPostStoreSteps` computes a fresh classification on every pass and
- * folds it into the single Message update, with no check for whether the
- * message already carries a decided category. Two shipped paths re-enter it
- * on an already-classified message — the `NoSuchKey` fallback in
- * `fetchAndGetBody`, and `syncBodies(..., force: true)` — and both must leave
- * `category` untouched. Each test below feeds a re-entrant pass a body that
- * would classify differently from the message's existing category, so a
- * regression that drops the guard shows up even though header classification
- * is otherwise deterministic (issue #355).
+ * The re-entrant paths — `fetchAndGetBody`'s `NoSuchKey` fallback and
+ * `syncBodies(..., force: true)` — are now body-only re-stores (issue #1011):
+ * `applyPostStoreSteps(isReStore: true)` skips the entire decision pass and
+ * writes only `bodyStorageKey`, so the existing category on the row is never
+ * touched. Each test below feeds a re-store a body that would classify
+ * differently, so a regression that drops the isReStore skip shows up as the
+ * category field appearing in the update input (or changing on the row).
  */
 
 import assert from "node:assert/strict";
@@ -157,9 +155,11 @@ describe("Message.category survives a re-entrant classification pass", () => {
 		);
 
 		assert.equal(harness.messageUpdates.length, 1);
-		assert.equal(
-			harness.messageUpdates[0].input.category,
-			MessageCategory.marketing,
+		// Re-store writes only bodyStorageKey — category is untouched on the row.
+		assert.equal(harness.messageUpdates[0].input.category, undefined);
+		assert.deepEqual(
+			Object.keys(harness.messageUpdates[0].input).sort(),
+			["bodyStorageKey"],
 		);
 		assert.equal(harness.message.category, MessageCategory.marketing);
 	});
@@ -196,9 +196,11 @@ describe("Message.category survives a re-entrant classification pass", () => {
 
 		assert.deepEqual(result.syncedMessageIds, ["m-1"]);
 		assert.equal(harness.messageUpdates.length, 1);
-		assert.equal(
-			harness.messageUpdates[0].input.category,
-			MessageCategory.marketing,
+		// Re-store writes only bodyStorageKey — category is untouched on the row.
+		assert.equal(harness.messageUpdates[0].input.category, undefined);
+		assert.deepEqual(
+			Object.keys(harness.messageUpdates[0].input).sort(),
+			["bodyStorageKey"],
 		);
 		assert.equal(harness.message.category, MessageCategory.marketing);
 	});

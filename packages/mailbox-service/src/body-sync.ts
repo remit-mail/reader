@@ -174,53 +174,14 @@ const alreadyDenormalized = (
 	(update.listId === undefined || row.listId === update.listId);
 
 /**
- * RFC 034 Decision 3.1: `Message.category` is written once and never mutated
- * after — RFC 030's message-list GSI sort key depends on it never churning.
- * "Already decided" is any real category; `uncategorized` and the field being
- * absent (rows written before the column existed) both mean "not yet decided"
- * and must still classify. The one rule every re-entrant classification path
- * shares — {@link BodySyncService.backfillClassification} and
- * {@link BodySyncService.applyPostStoreSteps} both defer to it.
- */
-const hasDecidedCategory = (
-	category: ThreadMessageCategory | undefined,
-): boolean =>
-	category !== undefined && category !== MessageCategory.uncategorized;
-
-/**
- * Issue #383 (RFC 039 Non-goals): whether {@link BodySyncService.computePlacement}
- * has already produced a verdict for this message — moved, left in place, or
- * archived, confident or unsure alike. Absence means placement has genuinely
- * never been evaluated. The same two re-entrant paths `hasDecidedCategory`
- * guards (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force:
- * true)`) also re-enter `computePlacement`; without this guard a message a
- * user manually rescued (never touched by Remit, so `movedByRemit` never
- * recorded anything) can be silently re-evaluated and moved right back.
- */
-const hasDecidedPlacement = (placementDecidedAt: number | undefined): boolean =>
-	placementDecidedAt !== undefined;
-
-/**
- * Issue #499: whether a completed body-sync pass has already classified this
- * message. `bodyStorageKey` is written last, once every derivation of that pass
- * has run, so its presence means the pass that first classified the message
- * finished. Reads it exactly as `syncBodies`' own skip guard does. The same two
- * re-entrant paths `hasDecidedCategory` and `hasDecidedPlacement` guard
- * (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force: true)`) are
- * the ones that reach the derivations again with it already set.
- */
-const hasClassifiedBody = (bodyStorageKey: string | undefined): boolean =>
-	Boolean(bodyStorageKey);
-
-/**
  * Issue #398: `flags.autoArchive` is a filing preference relative to the Inbox.
  * A `leave` verdict reaches it for two unrelated reasons and only one of them
  * means "nothing confident to say":
  *
  * - `already-moved-by-remit` is {@link classifyPlacement}'s guard against
- *   re-deciding a settled placement, and auto-archive is a re-decision. The
- *   re-entrant paths `hasDecidedPlacement` names reach it on messages Remit
- *   itself placed, or that a user moved back afterwards.
+ *   re-deciding a settled placement, and auto-archive is a re-decision. It
+ *   fires on messages Remit itself placed, or that a user moved back
+ *   afterwards.
  * - A message already in Junk gets an unsure `leave` whatever the sender's
  *   `blocked` flag says, since the demote branch only fires outside Junk.
  *   Moving mail out of Junk is a rescue, which this file reserves for a
@@ -378,6 +339,12 @@ export class BodySyncService {
 		// messageId so we can match FETCH rows back and re-enqueue any UID the
 		// server never returns.
 		const pending = new Map<number, string>();
+		// Message IDs in this batch whose row already carried `bodyStorageKey`
+		// when `force` re-added them to `pending`: a forced re-fetch of an
+		// already-stored body is a re-store (issue #1011) — bytes only, no
+		// decision re-run. A message with no stored body inside a forced batch
+		// is still a first store and takes the full decision pass.
+		const reStoredMessageIds = new Set<string>();
 		// Messages that were skipped (body already stored) but whose backfill
 		// classification failed. They are NOT in `pending` — nothing about them
 		// needs fetching — so they are merged into failedMessageIds separately.
@@ -461,6 +428,7 @@ export class BodySyncService {
 				skippedCount++;
 				continue;
 			}
+			if (message.bodyStorageKey) reStoredMessageIds.add(messageId);
 			pending.set(message.uid, messageId);
 		}
 
@@ -495,6 +463,7 @@ export class BodySyncService {
 						accountId,
 						accountConfigId,
 						source,
+						reStoredMessageIds.has(messageId),
 					);
 				} catch (error) {
 					// A per-message store failure (e.g. the parsed-body S3 write) is a
@@ -671,12 +640,18 @@ export class BodySyncService {
 	 * cache, per-part objects). The S3 upload never sees a whole-body concat —
 	 * the storage service streams it — but mailparser still needs the full bytes,
 	 * so we collect them in parallel. Later issues move parsing off the hot path.
+	 *
+	 * `isReStore` marks a re-fetch of a message whose row already carried
+	 * `bodyStorageKey` (the `force` re-arm in {@link syncBodies}): the
+	 * post-store steps then re-materialize the body artifacts without
+	 * re-running any decision (issue #1011).
 	 */
 	private async storeStreamedBody(
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		source: Readable,
+		isReStore: boolean,
 	): Promise<void> {
 		const toStorage = new PassThrough();
 		const chunks: Buffer[] = [];
@@ -720,6 +695,7 @@ export class BodySyncService {
 			{
 				uri: ref.uri,
 			},
+			isReStore,
 		);
 	}
 
@@ -751,6 +727,16 @@ export class BodySyncService {
 		accountConfigId: string,
 		body: Buffer,
 		bodyRef: { uri: string },
+		/**
+		 * Whether this call is a re-store of an already-classified message
+		 * rather than a first store. The two re-entrant paths (`force: true`
+		 * in `syncBodies`, and `fetchAndGetBody`'s `NoSuchKey` IMAP fallback) are
+		 * both body-only re-fetches: a body re-sync fetches and stores bytes and
+		 * runs no decision logic (issue #1011). When `isReStore` is true the
+		 * placement/filter/category machinery is skipped entirely and the
+		 * message's existing category is carried forward unchanged.
+		 */
+		isReStore: boolean,
 	): Promise<ParsedMail> {
 		// The one operation on this path that can fail because of how the message
 		// is built. Its own try block lives in `parseMessageBody`, so this frame —
@@ -760,6 +746,43 @@ export class BodySyncService {
 		// feed happens later, alongside the Message write (see below), once the
 		// write-once category is decided.
 		const parsed = await parseMessageBody(body);
+
+		// Body-only re-fetch (issue #1011): the decision pass already ran when
+		// this message's body first landed, so a re-store re-materializes only
+		// the body-derived artifacts — parsed cache, body parts, the storage
+		// key — and re-decides nothing: no classification, placement, filters,
+		// labels, read state, and no second engagement-counter increment.
+		// Skipping the decisions here is what lets the write-once fields stay
+		// safe without per-derivation re-entrancy guards.
+		if (isReStore) {
+			// Same ordering rule as the first-store path below: the parsed-body
+			// cache must be durable before `bodyStorageKey` — the skip-guard
+			// signal — is written, so a failure here requeues the message and
+			// the retry genuinely re-attempts the artifact writes.
+			await this.storeParsedBodyCache(
+				accountConfigId,
+				accountId,
+				messageId,
+				parsed,
+			);
+			if (!isBodyPartDeferralEnabled()) {
+				await this.storeBodyPartContents(
+						accountConfigId,
+						accountId,
+						messageId,
+						parsed,
+					);
+			}
+			await this.messageService.update(messageId, {
+				bodyStorageKey: bodyRef.uri,
+			});
+			this.log.info(
+				{ messageId, storageKey: bodyRef.uri },
+				"Body re-stored without re-running decisions",
+			);
+			return parsed;
+		}
+
 		const snippet = extractSnippet(parsed);
 		const listId = extractListId(parsed);
 
@@ -912,23 +935,25 @@ export class BodySyncService {
 		// once the parsed cache AND the move (when any) are.
 		//
 		// `category` is RFC 034 D3.1's write-once field (RFC 030's message-list
-		// GSI sort key depends on it never churning). This step re-enters on an
-		// already-classified message through two shipped paths — the `NoSuchKey`
-		// fallback in `fetchAndGetBody` and `syncBodies(..., force: true)` — so a
-		// real, previously-decided category is carried forward unchanged instead
-		// of the just-recomputed one, the same rule `backfillClassification` uses.
-		// This also protects a `flags.category` override (issue #299): without
-		// this guard a re-entrant pass would let a *later* override silently
-		// rewrite a category already decided on an earlier message, which is
-		// exactly the churn RFC 030's GSI-safety argument forbids.
+		// GSI sort key depends on it never churning). The re-entrant re-store
+		// paths (issue #1011) return before this write; the carry-forward keeps
+		// the field write-once even when a first store lands on a row that
+		// already carries a real category — a previously-decided category wins
+		// over the just-recomputed one, the same rule `backfillClassification`
+		// uses. It likewise protects a `flags.category` override (issue #299):
+		// recomputing would let a *later* override silently rewrite a category
+		// already decided, which is exactly the churn RFC 030's GSI-safety
+		// argument forbids.
 		//
-		// `resolved.placementDecidedAt` (issue #383) guards the same two
-		// re-entrant paths for placement: `computePlacement` already declined to
-		// recompute a verdict once this field is set, so it is only ever present
-		// here on the pass that first decided it.
-		const finalCategory = hasDecidedCategory(existingMessage.category)
-			? existingMessage.category
-			: classification.category;
+		// `resolved.placementDecidedAt` (issue #383) is only ever present on
+		// the pass that first decided it: the re-store paths skip placement
+		// entirely (issue #1011), so `computePlacement` is reached only on a
+		// first store.
+		const finalCategory =
+			existingMessage.category !== undefined &&
+			existingMessage.category !== MessageCategory.uncategorized
+				? existingMessage.category
+				: classification.category;
 
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
@@ -1042,13 +1067,17 @@ export class BodySyncService {
 
 			// Same shared step the sync path (storeStreamedBody) runs — issue
 			// #1271 unified the two body paths so classification/placement no
-			// longer depends on which one fetched the body first.
+			// longer depends on which one fetched the body first. A store from
+			// here is a re-store exactly when the row already claimed a stored
+			// body — the NoSuchKey fallback above; a row with no bodyStorageKey is
+			// a genuine first store and takes the full decision pass.
 			parsed = await this.applyPostStoreSteps(
 				messageId,
 				accountId,
 				accountConfigId,
 				body,
 				{ uri: ref.uri },
+				message.bodyStorageKey != null,
 			);
 		} else {
 			parsed = await simpleParser(body);
@@ -1098,7 +1127,17 @@ export class BodySyncService {
 		accountConfigId: string,
 	): Promise<void> {
 		if (!message.bodyStorageKey) return;
-		if (hasDecidedCategory(message.category)) return;
+		// Category is write-once (RFC 034 D3.1): any real category is final;
+		// only `uncategorized` (and the absent-column legacy case) need classifying.
+		// The hasDecidedCategory/hasDecidedPlacement/hasClassifiedBody helpers were
+		// deleted (issue #1011): the re-store path no longer re-enters these
+		// derivations at all.
+		if (
+			message.category !== undefined &&
+			message.category !== MessageCategory.uncategorized
+		) {
+			return;
+		}
 
 		const body = await this.storageService.retrieve(message.bodyStorageKey);
 		const parsed = await parseMessageBody(body);
@@ -1144,10 +1183,10 @@ export class BodySyncService {
 	 * The override wins outright rather than blending with the heuristic — RFC
 	 * 039 Decision 3 treats a direct reclassification as final, the same as
 	 * `flags.blocked`/`vip` already override placement. Both callers
-	 * (`applyPostStoreSteps`, `backfillClassification`) already gate on
-	 * `hasDecidedCategory` before this result reaches a write, so a message
-	 * that already carries a real category is never re-touched regardless of
-	 * what this returns.
+	 * (`applyPostStoreSteps`, `backfillClassification`) already gate on a
+	 * decided category (RFC 034 D3.1) before this result reaches a write, so a
+	 * message that already carries a real category is never re-touched
+	 * regardless of what this returns.
 	 */
 	private async classifyMessage(
 		accountConfigId: string,
@@ -1333,7 +1372,11 @@ export class BodySyncService {
 		storedBodyKey: string | undefined,
 	): Promise<void> {
 		if (!this.unsubscribeConfig) return;
-		if (hasClassifiedBody(storedBodyKey)) return;
+		// Write-once (issue #499): a row that already carries `bodyStorageKey`
+		// comes from a completed pass, so its read state was already decided —
+		// never re-decide it. (The re-store paths skip this step entirely,
+		// issue #1011.)
+		if (storedBodyKey) return;
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		if (!fromEmail) return;
@@ -1467,14 +1510,12 @@ export class BodySyncService {
 
 		const message = await this.messageService.get(messageId);
 
-		// Issue #383: placement is meant to run once per message (RFC 039
-		// Non-goals). Once a verdict has EVER been decided for this message —
-		// moved, left in place, or archived — a re-entrant pass (the `NoSuchKey`
-		// fallback in `fetchAndGetBody`, `syncBodies(..., force: true)`) must not
-		// recompute it: a message a user has since moved by hand (which never
-		// touches `movedByRemit`) would otherwise be silently re-evaluated
-		// against the same signals that placed it in the first place.
-		if (hasDecidedPlacement(message.placementDecidedAt)) return {};
+		// Issue #383 / #1011: placement still runs once per message (RFC 039
+		// Non-goals), but the once-per-message guarantee now comes from the
+		// caller rather than a guard here — the re-store paths
+		// (`fetchAndGetBody`'s `NoSuchKey` fallback, `syncBodies(..., force:
+		// true)`) skip the decision steps entirely, so only the pass that first
+		// stores a body ever reaches this method.
 
 		const junkMailbox =
 			await mailboxSpecialUseService.findJunkMailbox(accountId);

@@ -1,20 +1,18 @@
 /**
- * RFC 039 Non-goals / issue #383: placement is meant to run once per message.
- * #378 (issue #355) guarded `Message.category` against the same two re-entrant
- * paths re-running `applyPostStoreSteps` on an already-processed message —
- * `fetchAndGetBody`'s `NoSuchKey` fallback and `syncBodies(..., force: true)`
- * — but did not guard `resolvePlacement`/`computePlacement`. Without a guard,
- * a message the provider originally junked and a user later rescued by hand
- * (never touched by Remit, so `movedByRemit` records nothing) gets
- * `classifyPlacement` re-evaluated against the same demote signals that
- * junked it in the first place, and can be silently moved right back.
+ * RFC 039 Non-goals / issues #383, #1011: placement is meant to run once per
+ * message. The two re-entrant paths — `fetchAndGetBody`'s `NoSuchKey` fallback
+ * and `syncBodies(..., force: true)` — are now marked as re-stores by
+ * `applyPostStoreSteps(isReStore: true)`, which skips the entire decision pass
+ * (placement, filters, classification) and writes only `bodyStorageKey`. This
+ * replaces the old per-field guards (`hasDecidedPlacement`,
+ * `hasDecidedCategory`, `hasClassifiedBody`) that each individual derivation
+ * carried.
  *
- * Each "already decided" test below presets `placementDecidedAt` on the
- * fixture (as a genuine first pass would have left it) and feeds the
- * re-entrant pass a body whose headers WOULD trigger a confident demote if
- * `classifyPlacement` ran fresh — so a regression that drops the guard shows
- * up as an unwanted move, not as a passing test relying on deterministic
- * heuristics happening to agree.
+ * The last test below previously asserted that a legacy row (movedByRemit: true,
+ * no placementDecidedAt) gets backfilled with placementDecidedAt on re-enter —
+ * that behavior is gone by design: re-stores never re-decide placement, so a
+ * pre-#1011 row that never got placementDecidedAt simply keeps not having it
+ * (and never gets moved by Remit either).
  */
 
 import assert from "node:assert/strict";
@@ -201,6 +199,8 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 		assert.equal(harness.message.mailboxId, MAILBOXES.inbox.mailboxId);
 		assert.equal(harness.messageUpdates[0]?.input.movedByRemit, undefined);
 		assert.equal(harness.messageUpdates[0]?.input.placementVerdict, undefined);
+		// The re-store wrote only bodyStorageKey — no placement fields.
+		assert.equal(harness.messageUpdates[0]?.input.placementDecidedAt, undefined);
 	});
 
 	it("keeps a user-rescued message in Inbox when syncBodies re-fetches with force", async () => {
@@ -279,16 +279,18 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 		);
 	});
 
-	it("continues to protect a message Remit itself already moved (movedByRemit: true), unchanged behavior", async () => {
+	it("a legacy row with movedByRemit: true and no placementDecidedAt is not re-decided on re-store", async () => {
 		const harness = buildHarness(
 			{
 				messageId: "m-1",
 				mailboxId: MAILBOXES.inbox.mailboxId,
 				bodyStorageKey: "s3://bodies/m-1",
 				movedByRemit: true,
-				// No placementDecidedAt — a legacy row synced before issue #383's
-				// guard existed. `classifyPlacement`'s own `movedByRemit` check
-				// must still hold on its own.
+				// No placementDecidedAt and no category — a legacy row synced before
+				// the write-once guards existed. Under #1011 a re-store skips the
+				// decision pass entirely, so placement is never re-evaluated and the
+				// row's missing fields are never backfilled — the re-store writes only
+				// bodyStorageKey.
 			},
 			async () => {
 				throw noSuchKeyError();
@@ -313,10 +315,17 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 			[],
 			"movedByRemit must keep protecting a legacy row with no placementDecidedAt of its own",
 		);
+		// The re-store wrote only bodyStorageKey — no placement fields were
+		// re-decided or backfilled.
 		assert.equal(harness.message.mailboxId, MAILBOXES.inbox.mailboxId);
-		assert.ok(
-			typeof harness.messageUpdates[0]?.input.placementDecidedAt === "number",
-			"the legacy row is backfilled with placementDecidedAt going forward, self-healing for future passes",
+		assert.equal(harness.messageUpdates[0]?.input.placementDecidedAt, undefined);
+		assert.equal(harness.messageUpdates[0]?.input.movedByRemit, undefined);
+		assert.equal(harness.messageUpdates[0]?.input.placementVerdict, undefined);
+		// The only field written is bodyStorageKey.
+		assert.equal(
+			Object.keys(harness.messageUpdates[0]?.input ?? {}).length,
+			1,
+			"re-store must write only bodyStorageKey",
 		);
 	});
 });
