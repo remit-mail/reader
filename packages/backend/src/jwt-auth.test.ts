@@ -5,6 +5,7 @@ import {
 	_setVerifierForTest,
 	authenticateSelfHostRequest,
 } from "./jwt-auth.js";
+import { runWithRequestContext } from "./request-context.js";
 
 const buildEvent = (
 	overrides: Partial<APIGatewayProxyEvent> = {},
@@ -41,7 +42,7 @@ test("valid token injects verified sub into authorizer claims", async () => {
 	assert.equal(event.requestContext.authorizer?.claims?.email, "a@b.com");
 });
 
-test("invalid token returns 401 and does not inject claims", async () => {
+test("invalid token returns 401 with correlation id and CORS headers", async () => {
 	_setVerifierForTest(async () => {
 		throw new Error("bad signature");
 	});
@@ -49,9 +50,29 @@ test("invalid token returns 401 and does not inject claims", async () => {
 		headers: { authorization: "Bearer bad.token" },
 	});
 
-	const result = await authenticateSelfHostRequest(event);
+	const result = await runWithRequestContext(
+		{ correlationId: "req-invalid-token" },
+		async () => authenticateSelfHostRequest(event),
+	);
 
 	assert.equal(result?.statusCode, 401);
+	assert.equal(
+		result?.headers?.["x-correlation-id"],
+		"req-invalid-token",
+		"edge-auth 401 must carry the correlation id",
+	);
+	assert.equal(
+		result?.headers?.["Access-Control-Allow-Origin"],
+		"*",
+		"edge-auth 401 must carry CORS headers",
+	);
+	assert.equal(
+		result?.body,
+		JSON.stringify({
+			code: "unauthorized",
+			message: "Invalid or expired token",
+		}),
+	);
 	assert.equal(event.requestContext.authorizer, undefined);
 });
 
@@ -64,12 +85,25 @@ test("no token with a local bypass configured is allowed", async () => {
 	assert.equal(result, null);
 });
 
-test("no token and no bypass returns 401", async () => {
+test("no token and no bypass returns 401 with correlation id", async () => {
 	const event = buildEvent();
 
-	const result = await authenticateSelfHostRequest(event);
+	const result = await runWithRequestContext(
+		{ correlationId: "req-no-token" },
+		async () => authenticateSelfHostRequest(event),
+	);
 
 	assert.equal(result?.statusCode, 401);
+	assert.equal(
+		result?.headers?.["x-correlation-id"],
+		"req-no-token",
+		"edge-auth 401 must carry the correlation id",
+	);
+	assert.equal(
+		result?.headers?.["Access-Control-Allow-Origin"],
+		"*",
+		"edge-auth 401 must carry CORS headers",
+	);
 });
 
 test("a tokenless GET to the Microsoft OAuth callback is admitted", async () => {
