@@ -10,6 +10,7 @@ import {
 	Folder,
 	Inbox,
 	Mails,
+	PauseCircle,
 	Send,
 	Sparkles,
 	Star,
@@ -19,6 +20,7 @@ import type { ReactNode } from "react";
 import { useRef, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { useRovingFocus } from "../lib/roving-focus.js";
+import { ACCOUNT_SERVICE_OFF_LABEL } from "./account-service-status.js";
 import type {
 	AppShellProps,
 	NavAccount,
@@ -274,6 +276,9 @@ function AccountNav({
 	const hiddenCount = folders.length - visibleFolders.length;
 
 	const status = account.status ?? "ready";
+	const mailOff =
+		account.syncedServices !== undefined &&
+		!account.syncedServices.includes("Mail");
 	const isEmpty =
 		status === "ready" && system.length === 0 && folders.length === 0;
 
@@ -301,6 +306,14 @@ function AccountNav({
 					<>
 						<BellOff className="size-3 shrink-0 text-fg-subtle" />
 						<span className="text-2xs text-fg-subtle">muted</span>
+					</>
+				)}
+				{mailOff && (
+					<>
+						<PauseCircle className="size-3 shrink-0 text-fg-subtle" />
+						<span className="text-2xs text-fg-subtle">
+							{ACCOUNT_SERVICE_OFF_LABEL.Mail}
+						</span>
 					</>
 				)}
 			</button>

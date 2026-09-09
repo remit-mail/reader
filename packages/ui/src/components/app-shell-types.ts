@@ -12,6 +12,7 @@ import type {
 } from "../category-presentation.js";
 import type { TriageHandlers } from "../lib/keymap.js";
 import type { SelectionModifiers } from "../lib/use-selection.js";
+import type { AccountService } from "./account-service-choice.js";
 import type {
 	IntelligenceData,
 	SenderTrustLevel,
@@ -198,6 +199,12 @@ export interface NavAccount {
 	email: string;
 	/** Muted: excluded from unified views, still syncing. Rendered dimmed. */
 	muted?: boolean;
+	/**
+	 * Services this account syncs. Absent is the account that syncs mail, which
+	 * is every IMAP account. An account without `Mail` keeps its place in the
+	 * nav with every mailbox it already synced, labelled rather than dropped.
+	 */
+	syncedServices?: AccountService[];
 	mailboxes: NavMailbox[];
 	/**
 	 * Number of outbox messages pending send. When provided, an Outbox entry

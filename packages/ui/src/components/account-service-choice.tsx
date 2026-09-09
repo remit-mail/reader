@@ -9,13 +9,14 @@ export type AccountService = "Mail" | "Calendar";
 export const ACCOUNT_SERVICE_EMPTY_MESSAGE =
 	"Pick at least one. An account has to sync something.";
 
-interface ServiceRow {
+/** One service as every surface names it: the same label and the same line. */
+export interface AccountServiceRow {
 	id: AccountService;
 	label: string;
 	description: string;
 }
 
-const SERVICE_ROWS: ServiceRow[] = [
+export const ACCOUNT_SERVICE_ROWS: AccountServiceRow[] = [
 	{
 		id: "Mail",
 		label: "Mail",
@@ -47,7 +48,7 @@ export function AccountServiceChoice({
 	error,
 }: AccountServiceChoiceProps) {
 	const noteId = useId();
-	const rows = SERVICE_ROWS.filter((row) => offered.includes(row.id));
+	const rows = ACCOUNT_SERVICE_ROWS.filter((row) => offered.includes(row.id));
 
 	const refusal = error ? (
 		<Banner tone="danger" variant="soft" className="mt-2 text-xs">

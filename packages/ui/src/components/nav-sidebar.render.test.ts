@@ -308,6 +308,46 @@ describe("NavSidebar", () => {
 	});
 });
 
+/**
+ * An account that stopped syncing mail (#1179). It kept every mailbox it had,
+ * so the nav keeps it too — labelled, never dropped, and never an empty tree.
+ */
+describe("NavSidebar with mail sync off", () => {
+	const mailOff: NavAccount[] = accounts.map((account) => ({
+		...account,
+		syncedServices: ["Calendar"],
+	}));
+	const mailOn: NavAccount[] = accounts.map((account) => ({
+		...account,
+		syncedServices: ["Mail"],
+	}));
+
+	const render = (list: NavAccount[]) =>
+		renderToString(
+			createElement(NavSidebar, {
+				accounts: list,
+				selectedNavId: "personal-inbox",
+				onSelectNav: () => undefined,
+			}),
+		);
+
+	it("keeps the account and every mailbox it already synced", () => {
+		const html = render(mailOff);
+		assert.match(html, /Personal/);
+		assert.match(html, /Inbox/);
+		assert.match(html, /Travel/);
+	});
+
+	it("labels the account rather than leaving it to be guessed at", () => {
+		assert.match(render(mailOff), /mail sync off/);
+	});
+
+	it("leaves an account that syncs mail unlabelled", () => {
+		assert.doesNotMatch(render(accounts), /mail sync off/);
+		assert.doesNotMatch(render(mailOn), /mail sync off/);
+	});
+});
+
 describe("NavSidebar collapse persistence", () => {
 	afterEach(() => {
 		Reflect.deleteProperty(globalThis, "localStorage");
