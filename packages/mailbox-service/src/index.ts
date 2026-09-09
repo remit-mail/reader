@@ -48,6 +48,18 @@ export {
 	type ResolveExhaustedBodySyncResult,
 	resolveExhaustedBodySyncFailures,
 } from "./body-sync-terminal.js";
+export {
+	backfillClassifications,
+	type ClassificationBackfillAuthenticityService,
+	type ClassificationBackfillCheckpoint,
+	type ClassificationBackfillCheckpointStore,
+	type ClassificationBackfillDeps,
+	type ClassificationBackfillLogger,
+	type ClassificationBackfillOptions,
+	type ClassificationBackfillProgress,
+	type ClassificationBackfillResult,
+	type ClassificationBackfillTotals,
+} from "./classification-backfill.js";
 // Connection factory
 export {
 	createConnection,
@@ -126,6 +138,13 @@ export {
 	type PlacementAction,
 	type PlacementVerdict,
 } from "./heuristics/classifyPlacement.js";
+export {
+	type AuthenticityVerdictValue,
+	deriveStandingPair,
+	resolveAuthenticityVerdict,
+	type StandingPairKeys,
+	senderTrusted,
+} from "./heuristics/resolveAuthenticityVerdict.js";
 export {
 	classifyDisplayNameCorrespondence,
 	extractOffDomainLinkDomains,
