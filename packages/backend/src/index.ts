@@ -180,9 +180,17 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
 			logger.debug({ method: event.httpMethod, path }, "Request received");
 
 			const origin = readOriginHeader(event.headers);
+			const startedAt = Date.now();
+			// Capture the correlation id here: it is seeded by
+			// runWithRequestContext below (from context.awsRequestId), but that
+			// AsyncLocalStorage scope does not reliably survive the
+			// openapi-backend handleRequest call chain, so we read it from
+			// `context.awsRequestId` directly rather than via
+			// getRequestCorrelationId at log time.
+			const correlationId = context.awsRequestId;
 
-			return runWithRequestContext(
-				{ origin, correlationId: context.awsRequestId },
+			const result = await runWithRequestContext(
+				{ origin, correlationId },
 				async () => {
 					if (usesBetterAuthJwt()) {
 						const denied = await authenticateSelfHostRequest(event);
@@ -194,6 +202,25 @@ const rawHandler = async (event: APIGatewayProxyEvent, context: Context) => {
 						.catch(handleError);
 				},
 			);
+
+			// One structured access line per request: method, path, status, and
+			// duration. The correlation id is inlined as a top-level field so a bug
+			// report quoting the id can grep logs by it directly, and emitted at
+			// info so it is on by default in production (the debug "Request
+			// received" above already filters out under normal log levels).
+			// biome-ignore lint/plugin/no-logger-info: one access line per request is an audit-grade signal (issue #1054)
+			logger.info(
+				{
+					method: event.httpMethod,
+					path,
+					statusCode: result.statusCode,
+					durationMs: Date.now() - startedAt,
+					correlationId,
+				},
+				"Request completed",
+			);
+
+			return result;
 		},
 	);
 };
