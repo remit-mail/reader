@@ -13,6 +13,7 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
+import type { CalendarSubscriptionTally } from "./calendar-subscriptions.js";
 import {
 	SCHEDULER_ENQUEUE_CONCURRENCY,
 	SCHEDULER_PAGE_SIZE,
@@ -43,6 +44,15 @@ export interface RunSchedulerTickDeps {
 	 * both real entry points pass it.
 	 */
 	sweepAttachments?: (account: AccountItem) => Promise<void>;
+	/**
+	 * Re-read the calendar subscriptions whose last fetch is older than
+	 * `offlineIntervalMs` — the same knob that says how stale mail may get.
+	 * Optional only so a test can leave it out; both real entry points pass it.
+	 */
+	refreshCalendarSubscriptions?: (
+		now: number,
+		intervalMs: number,
+	) => Promise<CalendarSubscriptionTally>;
 }
 
 export interface SchedulerTickResult {
@@ -51,6 +61,8 @@ export interface SchedulerTickResult {
 	skipped: number;
 	swept: number;
 	sweepFailed: number;
+	subscriptionsRefreshed: number;
+	subscriptionsFailed: number;
 }
 
 /**
@@ -193,10 +205,43 @@ export const runSchedulerTick = async (
 		cursor = page.cursor ?? undefined;
 	} while (cursor);
 
+	let subscriptionsRefreshed = 0;
+	let subscriptionsFailed = 0;
+	if (deps.refreshCalendarSubscriptions) {
+		// After every page is enqueued, for the same reason the sweep runs after
+		// the enqueue: a slow feed must never cost an account its mail. Contained
+		// like the sweep, so an unreadable store costs a tick's refresh and not
+		// the scheduler.
+		const tally = await deps
+			.refreshCalendarSubscriptions(now, offlineIntervalMs)
+			.catch((error: unknown) => {
+				log.error({ error }, "Calendar subscription refresh failed");
+				return { refreshed: 0, failed: 0, notDue: 0 };
+			});
+		subscriptionsRefreshed = tally.refreshed;
+		subscriptionsFailed = tally.failed;
+	}
+
 	log.info(
-		{ scanned, enqueued, skipped, swept, sweepFailed },
+		{
+			scanned,
+			enqueued,
+			skipped,
+			swept,
+			sweepFailed,
+			subscriptionsRefreshed,
+			subscriptionsFailed,
+		},
 		"Scheduled-sync tick complete",
 	);
 
-	return { scanned, enqueued, skipped, swept, sweepFailed };
+	return {
+		scanned,
+		enqueued,
+		skipped,
+		swept,
+		sweepFailed,
+		subscriptionsRefreshed,
+		subscriptionsFailed,
+	};
 };

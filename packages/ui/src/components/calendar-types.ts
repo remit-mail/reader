@@ -46,6 +46,10 @@ export interface CalendarDescriptor {
 	 * Defaults to `live`.
 	 */
 	sync?: "live" | "paused";
+	/** A calendar filled from a subscribed feed, so nothing in it is edited here. */
+	readOnly?: boolean;
+	/** Why the calendar's feed could not be refreshed. Absent or `""` when it could. */
+	syncError?: string;
 }
 
 /**

@@ -83,6 +83,35 @@ describe("what a request leaves in the log", () => {
 		);
 	});
 
+	it("never writes the address a calendar subscribes to", async () => {
+		const secret = "private-7c0ffee5eed";
+		const { result: response, logged } = await captureStdout(() =>
+			send({
+				httpMethod: "POST",
+				path: "/calendars",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					urlSegment: "harbour",
+					displayName: "Harbour",
+					subscriptionUrl: `http://127.0.0.1:9/calendar/ical/${secret}/basic.ics`,
+				}),
+				requestContext: {
+					authorizer: { claims: { sub: "log-redaction-subscriber" } },
+				} as unknown as APIGatewayProxyEvent["requestContext"],
+			}),
+		);
+
+		assert.equal(response.statusCode, 400, response.body);
+		assert.match(response.body, /subscription_unreachable/);
+		assert.equal(response.body.includes(secret), false);
+		assert.ok(logged.length > 0, "the request has to have logged something");
+		assert.equal(
+			logged.includes(secret),
+			false,
+			"for a Google secret address the URL is the whole credential",
+		);
+	});
+
 	it("never writes the credentials a failing request arrived with", async () => {
 		// A session is already established, so the bearer is never verified and the
 		// request reaches validation — where the whole parsed request, headers and

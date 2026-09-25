@@ -68,6 +68,25 @@ export {
 	type ScopedWriteInput,
 } from "./scope.js";
 export {
+	CALENDAR_SUBSCRIPTION_MAX_BYTES,
+	CALENDAR_SUBSCRIPTION_TIMEOUT_MS,
+	type CalendarFeedFetch,
+	type CalendarFeedFetcher,
+	type CalendarFeedResource,
+	type CalendarFeedSplit,
+	type CalendarFeedWrite,
+	type CalendarSubscriptionRefresh,
+	type CalendarSubscriptionTarget,
+	fetchCalendarFeed,
+	isSubscriptionDue,
+	readCalendarFeed,
+	readSubscriptionUrl,
+	recordCalendarFeedFailure,
+	refreshCalendarSubscription,
+	splitCalendarFeed,
+	writeCalendarFeed,
+} from "./subscribe.js";
+export {
 	type CalendarSuggestionProjection,
 	inviteMethodOf,
 	mailAddressOf,

@@ -413,3 +413,66 @@ describe("runSchedulerTick and the account's synced services", () => {
 		assert.equal(sent.length, 0);
 	});
 });
+
+describe("the calendar subscription refresh inside a tick", () => {
+	const oneAccount = () => [
+		{
+			items: [baseAccount({ accountId: "acct_1", lastSyncAt: 0 })],
+			cursor: null,
+		} as unknown as AccountSchedulerPage,
+	];
+
+	it("runs once per tick, against the offline interval", async () => {
+		const { sqsClient } = fakeSqsClient();
+		const calls: [number, number][] = [];
+
+		const result = await runSchedulerTick({
+			accountService: fakeAccountService(oneAccount()),
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log: createNoopLogger(),
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+			refreshCalendarSubscriptions: async (now, intervalMs) => {
+				calls.push([now, intervalMs]);
+				return { refreshed: 2, failed: 1, notDue: 4 };
+			},
+		});
+
+		assert.deepEqual(calls, [[NOW, OFFLINE_INTERVAL_MS]]);
+		assert.equal(result.subscriptionsRefreshed, 2);
+		assert.equal(result.subscriptionsFailed, 1);
+		assert.equal(result.enqueued, 1);
+	});
+
+	it("keeps the tick alive when the refresh throws", async () => {
+		const { sqsClient, sent } = fakeSqsClient();
+		const { log, calls } = createCapturingLogger();
+
+		const result = await runSchedulerTick({
+			accountService: fakeAccountService(oneAccount()),
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log,
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+			refreshCalendarSubscriptions: async () => {
+				throw new Error("database is locked");
+			},
+		});
+
+		assert.equal(sent.length, 1);
+		assert.equal(result.subscriptionsRefreshed, 0);
+		assert.ok(
+			calls.some(
+				(entry) =>
+					entry.level === "error" &&
+					entry.args.some((arg) =>
+						String(arg).includes("Calendar subscription refresh failed"),
+					),
+			),
+		);
+	});
+});

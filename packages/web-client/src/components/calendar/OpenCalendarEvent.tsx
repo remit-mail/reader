@@ -178,7 +178,8 @@ export function OpenCalendarEvent({
 		recurrenceId !== "";
 	// Until the resource is read there is no etag, and a write with no etag is a
 	// write that can silently overwrite somebody.
-	const writable = event !== undefined && resource !== undefined;
+	const writable =
+		event !== undefined && resource !== undefined && !calendar?.readOnly;
 
 	const settle = (outcome: CalendarWriteOutcome, done: () => void) => {
 		if (outcome.kind === "written") {

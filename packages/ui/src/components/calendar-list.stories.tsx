@@ -239,3 +239,40 @@ export const AsAStrip: Story = {
 		).toBeChecked();
 	},
 };
+
+/**
+ * A subscribed calendar whose feed stopped answering. Its stored events stay
+ * on the grid, and the reason sits under the row in words, because an icon
+ * alone reads as decoration.
+ */
+export const SubscriptionFailed: Story = {
+	render: () => {
+		const failing = calendars.map((calendar) =>
+			calendar.id === "c5"
+				? {
+						...calendar,
+						name: "Harbour rota",
+						readOnly: true,
+						syncError: "the feed answered HTTP 404",
+					}
+				: calendar,
+		);
+		return (
+			<CalendarList
+				calendars={failing}
+				visible={new Set(calendars.map((c) => c.id))}
+				onToggle={() => {}}
+				onToggleAccount={() => {}}
+			/>
+		);
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("checkbox", { name: "Harbour rota" }),
+		).toBeChecked();
+		await expect(
+			canvas.getByText("Not refreshed: the feed answered HTTP 404"),
+		).toBeVisible();
+	},
+};

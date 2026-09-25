@@ -37,6 +37,12 @@ export interface ICalendarCollectionRepository {
 	listByAccountConfig(
 		accountConfigId: string,
 	): Promise<CalendarCollectionItem[]>;
+	/**
+	 * Every `Subscribed` collection whose refresh is on, across all account
+	 * configs. The scheduled refresh walks this; a disabled subscription is
+	 * absent, which is what stops its refresh.
+	 */
+	listEnabledSubscriptions(): Promise<CalendarCollectionItem[]>;
 	findByUrlSegment(
 		accountConfigId: string,
 		urlSegment: string,

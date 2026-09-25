@@ -163,6 +163,13 @@ export function toCalendarDescriptor(
 		accountLabel: "",
 		name: calendar.displayName,
 		color: COLORS[calendar.color] ?? "cal-1",
+		...(calendar.source === "Subscribed"
+			? {
+					readOnly: true,
+					sync: calendar.subscriptionEnabled ? "live" : "paused",
+					syncError: calendar.subscriptionError,
+				}
+			: {}),
 	};
 }
 

@@ -231,6 +231,98 @@ export function calendarCollectionRepositoryConformance(
 			);
 		});
 
+		test("a collection starts with no subscription and empty fetch bookkeeping", async () => {
+			const calendar = await repo.create({
+				accountConfigId: harness.makeId(),
+				urlSegment: "plain",
+				displayName: "Plain",
+			});
+
+			assert.equal(calendar.subscriptionUrl, "");
+			assert.equal(calendar.subscriptionEnabled, false);
+			assert.equal(calendar.subscriptionCheckedAt, 0);
+			assert.equal(calendar.subscriptionFetchedAt, 0);
+			assert.equal(calendar.subscriptionError, "");
+		});
+
+		test("listEnabledSubscriptions returns enabled subscriptions across account configs and nothing else", async () => {
+			const first = harness.makeId();
+			const second = harness.makeId();
+			const subscribed = await repo.create({
+				accountConfigId: first,
+				urlSegment: "feed",
+				displayName: "Feed",
+				source: CalendarSource.Subscribed,
+				subscriptionUrl: "https://calendar.example/feed.ics",
+				subscriptionEnabled: true,
+			});
+			const elsewhere = await repo.create({
+				accountConfigId: second,
+				urlSegment: "feed",
+				displayName: "Feed",
+				source: CalendarSource.Subscribed,
+				subscriptionUrl: "https://calendar.example/other.ics",
+				subscriptionEnabled: true,
+			});
+			const paused = await repo.create({
+				accountConfigId: first,
+				urlSegment: "paused",
+				displayName: "Paused",
+				source: CalendarSource.Subscribed,
+				subscriptionUrl: "https://calendar.example/paused.ics",
+				subscriptionEnabled: true,
+			});
+			await repo.update(first, paused.calendarId, {
+				subscriptionEnabled: false,
+			});
+			await repo.create({
+				accountConfigId: first,
+				urlSegment: "own",
+				displayName: "Own",
+			});
+
+			const ids = (await repo.listEnabledSubscriptions())
+				.filter(
+					(calendar) =>
+						calendar.accountConfigId === first ||
+						calendar.accountConfigId === second,
+				)
+				.map((calendar) => calendar.calendarId)
+				.sort();
+
+			assert.deepEqual(
+				ids,
+				[subscribed.calendarId, elsewhere.calendarId].sort(),
+			);
+		});
+
+		test("update records a fetch outcome on the collection", async () => {
+			const accountConfigId = harness.makeId();
+			const calendar = await repo.create({
+				accountConfigId,
+				urlSegment: "fetched",
+				displayName: "Fetched",
+				source: CalendarSource.Subscribed,
+				subscriptionUrl: "https://calendar.example/feed.ics",
+				subscriptionEnabled: true,
+			});
+
+			const updated = await repo.update(accountConfigId, calendar.calendarId, {
+				subscriptionCheckedAt: 2_000,
+				subscriptionFetchedAt: 1_000,
+				subscriptionError: "the feed answered 404",
+			});
+
+			assert.equal(updated.subscriptionCheckedAt, 2_000);
+			assert.equal(updated.subscriptionFetchedAt, 1_000);
+			assert.equal(updated.subscriptionError, "the feed answered 404");
+			assert.equal(
+				updated.subscriptionUrl,
+				"https://calendar.example/feed.ics",
+			);
+			assert.equal(updated.subscriptionEnabled, true);
+		});
+
 		test("delete removes the row", async () => {
 			const accountConfigId = harness.makeId();
 			const calendar = await repo.create({

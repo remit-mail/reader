@@ -35,7 +35,7 @@ export const serializeCalendar = (component: ICAL.Component): string =>
  * ical.js's parser in a promise, so unreadable bytes arrive as a rejection to
  * branch on rather than a synchronous throw.
  */
-const readComponent = (
+export const readCalendarComponent = (
 	icalData: string,
 ): Promise<CalendarResult<ICAL.Component>> =>
 	new Promise<ICAL.Component>((resolve) => {
@@ -59,7 +59,7 @@ const readComponent = (
 export const parseCalendar = async (
 	icalData: string,
 ): Promise<CalendarResult<ParsedCalendar>> => {
-	const read = await readComponent(icalData);
+	const read = await readCalendarComponent(icalData);
 	if (!read.ok) return read;
 	const component = read.value;
 

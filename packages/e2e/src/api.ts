@@ -193,7 +193,10 @@ export interface Calendar {
 	/** IANA zone the collection reads floating times in; `""` reads as UTC. */
 	timezone: string;
 	/** `Default` is the collection the account was provisioned with. */
-	source: "Default" | "UserCreated" | "MailDerived";
+	source: "Default" | "UserCreated" | "MailDerived" | "Subscribed";
+	subscriptionEnabled: boolean;
+	subscriptionFetchedAt: number;
+	subscriptionError: string;
 }
 
 /** One occurrence as the server expanded it. No client ever reads an RRULE. */
@@ -280,6 +283,12 @@ export interface CalendarSuggestion {
 	dtEnd: string;
 	organizer: string;
 	acceptedCalendarObjectId: string;
+}
+
+/** A calendar's secret feed address, as the one write that mints it answers. */
+export interface CalendarFeed {
+	calendarId: string;
+	feedToken: string;
 }
 
 /** The stored resource a write comes back as, which is what a delete names. */
@@ -985,6 +994,10 @@ export class ApiClient {
 
 	deleteCalendar(calendarId: string): Promise<Response> {
 		return this.request("DELETE", `/calendars/${calendarId}`);
+	}
+
+	putCalendarFeed(calendarId: string): Promise<CalendarFeed> {
+		return this.json("PUT", `/calendars/${calendarId}/feed`);
 	}
 
 	createCalendarEvent(

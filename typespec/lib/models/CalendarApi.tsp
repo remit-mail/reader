@@ -37,9 +37,12 @@ model CreateCalendarInput {
 
   @doc("IANA time zone this collection's floating times are read in. Absent reads them as UTC.")
   timezone?: String64;
+
+  @doc("A read-only iCalendar URL to subscribe the collection to. `http`, `https` and `webcal` are accepted. The server fetches it once before creating anything and refuses with 400 when the fetch fails, so a mistyped address leaves no empty calendar behind. The collection is then `Subscribed`: it refuses event writes, and the scheduled refresh keeps it in step with the feed.")
+  subscriptionUrl?: String2048;
 }
 
-@doc("Input for updating a calendar collection. The name, colour and timezone are the mutable overlay; `urlSegment` is not among them, because it is the collection's identity and the path a client has bookmarked.")
+@doc("Input for updating a calendar collection. The name, colour and timezone are the mutable overlay, and `subscriptionEnabled` turns a subscribed collection's refresh off and on. `urlSegment` is not among them, because it is the collection's identity and the path a client has bookmarked.")
 model UpdateCalendarInput is Update<CalendarCollection>;
 
 @doc("A calendar collection as the API returns it.")

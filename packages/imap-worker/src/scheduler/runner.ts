@@ -7,6 +7,7 @@ import { createQueueProducer } from "@remit/sqs-client/producer";
 
 import { env } from "expect-env";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
+import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
@@ -80,6 +81,10 @@ const runLoop = async (): Promise<void> => {
 			tickIntervalMs,
 			offlineIntervalMs,
 			sweepAttachments: buildAttachmentSweep(client, log),
+			refreshCalendarSubscriptions: buildCalendarSubscriptionRefresh(
+				client,
+				log,
+			),
 		},
 		heartbeat: createHeartbeat("tick"),
 		onHeartbeatError: onBeatError,

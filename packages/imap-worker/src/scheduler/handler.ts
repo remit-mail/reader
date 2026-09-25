@@ -4,6 +4,7 @@ import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
 import { env } from "expect-env";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
+import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
 
@@ -45,5 +46,6 @@ export const handler: ScheduledHandler = withTelemetry(async (event) => {
 		// to block storage, so nothing refuses an upload against a draft that is
 		// already gone and this sweep is the only thing that collects it.
 		sweepAttachments: buildAttachmentSweep(client, log),
+		refreshCalendarSubscriptions: buildCalendarSubscriptionRefresh(client, log),
 	});
 });

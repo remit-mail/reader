@@ -28,6 +28,11 @@ function rowToCalendar(
 		source: row.source,
 		timezone: row.timezone,
 		syncSequence: row.syncSequence,
+		subscriptionUrl: row.subscriptionUrl,
+		subscriptionEnabled: row.subscriptionEnabled,
+		subscriptionCheckedAt: row.subscriptionCheckedAt,
+		subscriptionFetchedAt: row.subscriptionFetchedAt,
+		subscriptionError: row.subscriptionError,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -60,6 +65,8 @@ export class CalendarCollectionRepo implements ICalendarCollectionRepository {
 				componentSet: input.componentSet ?? "VeventOnly",
 				source: input.source ?? "UserCreated",
 				timezone: input.timezone ?? "",
+				subscriptionUrl: input.subscriptionUrl ?? "",
+				subscriptionEnabled: input.subscriptionEnabled ?? false,
 				syncSequence: 0,
 				createdAt: now,
 				updatedAt: now,
@@ -94,6 +101,8 @@ export class CalendarCollectionRepo implements ICalendarCollectionRepository {
 				componentSet: input.componentSet ?? "VeventOnly",
 				source: input.source ?? "UserCreated",
 				timezone: input.timezone ?? "",
+				subscriptionUrl: input.subscriptionUrl ?? "",
+				subscriptionEnabled: input.subscriptionEnabled ?? false,
 				syncSequence: 0,
 				createdAt: now,
 				updatedAt: now,
@@ -162,6 +171,20 @@ export class CalendarCollectionRepo implements ICalendarCollectionRepository {
 			.from(calendarTable)
 			.where(eq(calendarTable.accountConfigId, accountConfigId))
 			.orderBy(asc(calendarTable.urlSegment));
+		return rows.map(rowToCalendar);
+	}
+
+	async listEnabledSubscriptions(): Promise<CalendarCollectionItem[]> {
+		const rows = await this.db
+			.select()
+			.from(calendarTable)
+			.where(
+				and(
+					eq(calendarTable.source, "Subscribed"),
+					eq(calendarTable.subscriptionEnabled, true),
+				),
+			)
+			.orderBy(asc(calendarTable.calendarId));
 		return rows.map(rowToCalendar);
 	}
 
