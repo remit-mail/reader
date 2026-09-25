@@ -76,15 +76,21 @@ const localDay = (instant: string): string =>
 		day: "2-digit",
 	}).format(new Date(instant));
 
+/** One event on one day: `[summary, YYYY-MM-DD]`. */
+type Placement = [string, string];
+
+const sortPlacements = (placements: Placement[]): Placement[] =>
+	[...placements].sort((a, b) => a.join(" ").localeCompare(b.join(" ")));
+
 /**
- * What the server says is on each day of a range, as summary → day. The grid
+ * What the server says is on each day of a range, one entry per occurrence. The grid
  * asks for the same window, so this is the one account the screen has to match.
  */
 async function serverDays(
 	api: ApiClient,
 	first: string,
 	count: number,
-): Promise<Map<string, string>> {
+): Promise<Placement[]> {
 	const from = localMidnight(first);
 	const to = localMidnight(addDays(first, count));
 	const expected = EVENTS.filter(
@@ -98,10 +104,10 @@ async function serverDays(
 			),
 		{ what: `every event from ${first} to be expanded into its range` },
 	);
-	return new Map(
+	return sortPlacements(
 		items
 			.filter((item) => item.summary.startsWith(PREFIX))
-			.map((item) => [item.summary, localDay(item.start)]),
+			.map((item): Placement => [item.summary, localDay(item.start)]),
 	);
 }
 
@@ -110,7 +116,6 @@ const drawnDays = (page: Page): Promise<string[]> =>
 	page
 		.getByTestId("calendar-grid")
 		.locator("[data-date]")
-
 		.evaluateAll((cells) => [
 			...new Set(
 				cells
@@ -125,25 +130,24 @@ const drawnDays = (page: Page): Promise<string[]> =>
  * DOM rather than a screenshot: an event is on a day when the column stamped
  * with that date holds it.
  */
-const drawnEvents = (page: Page): Promise<Record<string, string>> =>
+const drawnEvents = (page: Page): Promise<Placement[]> =>
 	page
 		.getByTestId("calendar-grid")
 		.evaluate(
 			(grid, prefix) =>
-				Object.fromEntries(
-					[...grid.querySelectorAll("*")]
+				[...grid.querySelectorAll("*")]
 						.filter(
 							(node) =>
 								node.children.length === 0 &&
 								(node.textContent ?? "").startsWith(prefix),
 						)
-						.map((node) => [
+						.map((node): [string, string] => [
 							node.textContent ?? "",
 							node.closest("[data-date]")?.getAttribute("data-date") ?? "",
 						]),
-				),
 			PREFIX,
-		);
+		)
+		.then(sortPlacements);
 
 const pathOf = (page: Page): string => new URL(page.url()).pathname;
 
@@ -177,7 +181,7 @@ async function expectRange(
 			? `\\b${dayOfMonth(first)}\\b`
 			: `\\b${dayOfMonth(first)}\\b.*\\b${dayOfMonth(last)}\\b`;
 	await expect(title).toContainText(new RegExp(span));
-	const server = Object.fromEntries(await serverDays(api, first, count));
+	const server = await serverDays(api, first, count);
 	await expect
 		.poll(() => drawnEvents(page), {
 			message: `the ${view} of ${date} to draw what the server serves for it`,
@@ -438,7 +442,7 @@ test.describe("The calendar on a phone", () => {
 		written.push(booked);
 		expect(localDay(booked.start)).toBe(day);
 
-		await expect.poll(() => drawnEvents(page)).toEqual({ [summary]: day });
+		await expect.poll(() => drawnEvents(page)).toEqual([[summary, day]]);
 
 		await page.getByTestId("calendar-grid").getByText(summary).click();
 		await expect
@@ -450,6 +454,6 @@ test.describe("The calendar on a phone", () => {
 
 		await page.getByRole("button", { name: "Close event" }).click();
 		await expect.poll(() => pathOf(page)).toBe(`/calendar/day/${day}`);
-		await expect.poll(() => drawnEvents(page)).toEqual({ [summary]: day });
+		await expect.poll(() => drawnEvents(page)).toEqual([[summary, day]]);
 	});
 });

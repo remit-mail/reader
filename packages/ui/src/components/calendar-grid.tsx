@@ -69,14 +69,6 @@ const DAY_HEADER_FORMAT: Record<
 	agenda: { weekday: "short", day: "numeric" },
 };
 
-/* The engine names a week by its month alone, which reads the same for four
-   presses of Next in a row; a week is named by its first and last day. */
-const TITLE_FORMAT: Partial<
-	Record<CalendarViewId, { day: "numeric"; month: "short"; year: "numeric" }>
-> = {
-	week: { day: "numeric", month: "short", year: "numeric" },
-};
-
 /** Views that draw every event as a horizontal pill rather than a block. */
 const ROW_VIEWS = new Set<CalendarViewId>(["year", "month", "agenda"]);
 
@@ -271,7 +263,6 @@ export function CalendarGrid({
 				eventTimeFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
 				slotHeaderFormat={{ hour: "2-digit", minute: "2-digit", hour12: false }}
 				dayHeaderFormat={DAY_HEADER_FORMAT[view]}
-				titleFormat={TITLE_FORMAT[view]}
 				events={eventInputs}
 				eventClick={(info) => onSelectEvent(info.event.id)}
 				/* One gesture, two readings, and each owns a shape the other cannot

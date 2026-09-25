@@ -7,10 +7,11 @@ import {
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type Density,
-	segmentClassName,
+	Segmented,
+	type SegmentOption,
 } from "@remit/ui";
 import { Loader2 } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -30,12 +31,11 @@ import {
  * rather than of this component's state.
  */
 
-/** A phone has no room for a year grid, and a thumb needs the room it would take. */
 const PHONE_VIEWS: CalendarViewId[] = ["month", "week", "day", "agenda"];
 
-const DENSITY_OPTIONS: { value: Density; label: string }[] = [
-	{ value: "comfortable", label: "Detail" },
-	{ value: "compact", label: "Glance" },
+const DENSITY_OPTIONS: SegmentOption<Density>[] = [
+	{ value: "comfortable", label: "Detail", shortLabel: "Detail" },
+	{ value: "compact", label: "Glance", shortLabel: "Glance" },
 ];
 
 export interface CalendarWorkspaceProps {
@@ -80,7 +80,7 @@ export interface CalendarWorkspaceProps {
 
 /**
  * The range the toolbar names before the grid has measured one, and the whole
- * answer at a zoom that draws no grid.
+ * answer for a week and at a zoom that draws no grid.
  */
 function fallbackRangeTitle(view: CalendarViewId, date: string): string {
 	const instant = new Date(`${date}T00:00:00`);
@@ -133,14 +133,12 @@ export function CalendarWorkspace({
 	onStep,
 	touch = false,
 }: CalendarWorkspaceProps) {
-	const densityGroup = useId();
-	// The grid computes the range it drew, which is the only honest title for a
-	// week — it knows where the week starts. Held against the address it was
-	// measured for, so leaving a view does not carry its title into the next one.
+	// Held against the address it was measured for, so leaving a view does not
+	// carry its title into the next one.
 	const [measured, setMeasured] = useState({ key: "", title: "" });
 	const addressKey = `${view}/${date}`;
 	const title =
-		measured.key === addressKey
+		view !== "week" && measured.key === addressKey
 			? measured.title
 			: fallbackRangeTitle(view, date);
 
@@ -154,25 +152,14 @@ export function CalendarWorkspace({
 		/>
 	);
 	const densitySwitch = (
-		<fieldset className="inline-flex shrink-0 items-center gap-0.5">
-			<legend className="sr-only">Calendar density</legend>
-			{DENSITY_OPTIONS.map((option) => (
-				<label
-					key={option.value}
-					className={`${segmentClassName(density === option.value)} ${touch ? "min-h-11 text-sm" : "h-7 text-xs"}`}
-				>
-					<input
-						type="radio"
-						name={densityGroup}
-						value={option.value}
-						checked={density === option.value}
-						onChange={() => onChangeDensity(option.value)}
-						className="sr-only"
-					/>
-					{option.label}
-				</label>
-			))}
-		</fieldset>
+		<Segmented
+			ariaLabel="Calendar density"
+			options={DENSITY_OPTIONS}
+			value={density}
+			onChange={onChangeDensity}
+			touch={touch}
+			className="shrink-0"
+		/>
 	);
 
 	return (

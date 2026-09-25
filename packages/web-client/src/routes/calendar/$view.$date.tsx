@@ -14,7 +14,12 @@
  * week instead of on an error.
  */
 import type { CalendarSlotPick } from "@remit/ui";
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Navigate,
+	Outlet,
+	redirect,
+} from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AgendaView } from "@/components/calendar/AgendaView";
 import { CalendarComposeSeedProvider } from "@/components/calendar/CalendarComposeSeed";
@@ -95,6 +100,16 @@ function CalendarViewLayout() {
 		},
 		[openComposer],
 	);
+
+	if (isPhone && view === "year")
+		return (
+			<Navigate
+				to="/calendar/$view/$date"
+				params={{ view: "month", date }}
+				search={true}
+				replace
+			/>
+		);
 
 	const workspace = (
 		<CalendarWorkspace
