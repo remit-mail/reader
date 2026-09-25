@@ -61,7 +61,7 @@ const preview: Preview = {
 		viewport: { options: appViewports },
 		options: {
 			storySort: {
-				order: ["Primitives", "Screens", "Flows"],
+				order: ["Design System", "Playground", ["Shipped", "Proposed"]],
 			},
 		},
 	},

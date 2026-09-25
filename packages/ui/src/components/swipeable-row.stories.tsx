@@ -35,7 +35,7 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 }
 
 const meta: Meta<typeof SwipeableRow> = {
-	title: "Primitives/SwipeableRow",
+	title: "Design System/Primitives/SwipeableRow",
 	component: SwipeableRow,
 	parameters: { layout: "padded" },
 	args: baseArgs,

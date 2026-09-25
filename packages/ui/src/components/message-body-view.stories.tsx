@@ -179,7 +179,7 @@ const PANE: Decorator = (Story) => (
 );
 
 const meta: Meta<typeof MessageBodyView> = {
-	title: "Components/MessageBodyView",
+	title: "Design System/Mail/MessageBodyView",
 	component: MessageBodyView,
 	parameters: { layout: "padded" },
 	argTypes: {

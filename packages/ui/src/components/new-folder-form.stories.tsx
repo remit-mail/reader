@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { NewFolderForm } from "./new-folder-form.js";
 
 const meta: Meta<typeof NewFolderForm> = {
-	title: "Mail/NewFolderForm",
+	title: "Design System/Folders/NewFolderForm",
 	component: NewFolderForm,
 	parameters: { layout: "centered" },
 };

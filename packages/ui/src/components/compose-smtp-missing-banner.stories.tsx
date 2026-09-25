@@ -8,7 +8,7 @@ import { ComposeSmtpMissingBanner } from "./compose-smtp-missing-banner.js";
  * the way out rather than leaving them to find Settings.
  */
 const meta: Meta<typeof ComposeSmtpMissingBanner> = {
-	title: "Mail/ComposeSmtpMissingBanner",
+	title: "Design System/Compose/ComposeSmtpMissingBanner",
 	component: ComposeSmtpMissingBanner,
 	parameters: { layout: "padded" },
 	args: { onConfigure: fn().mockName("onConfigure") },

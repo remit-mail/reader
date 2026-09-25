@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { RefreshButton } from "./refresh-button.js";
 
 const meta: Meta<typeof RefreshButton> = {
-	title: "Mail/RefreshButton",
+	title: "Design System/Mail/RefreshButton",
 	component: RefreshButton,
 	args: {
 		label: "Refresh inbox",

@@ -2,7 +2,7 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react";
 import { MailActionToolbar } from "./mail-action-toolbar.js";
 
 const meta: Meta<typeof MailActionToolbar> = {
-	title: "Kit/MailActionToolbar",
+	title: "Design System/Mail/MailActionToolbar",
 	component: MailActionToolbar,
 	parameters: { layout: "centered" },
 	decorators: [

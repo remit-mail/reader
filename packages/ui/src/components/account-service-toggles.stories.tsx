@@ -12,7 +12,8 @@ import {
  * host confirms and commits.
  */
 const meta: Meta<typeof AccountServiceToggles> = {
-	title: "Components/AccountServiceToggles",
+	title: "Playground/Proposed/Settings/AccountServiceToggles",
+	tags: ["proposed"],
 	component: AccountServiceToggles,
 	parameters: { layout: "padded" },
 	decorators: [

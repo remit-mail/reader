@@ -10,7 +10,7 @@ import { type AttachmentItem, AttachmentList } from "./attachment-list.js";
  * component the app renders.
  */
 const meta: Meta<typeof AttachmentList> = {
-	title: "Mail/AttachmentList",
+	title: "Design System/Mail/AttachmentList",
 	component: AttachmentList,
 	parameters: { layout: "padded" },
 };

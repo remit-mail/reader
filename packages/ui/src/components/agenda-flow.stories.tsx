@@ -13,7 +13,7 @@ import type {
  * pile-up, a day with nothing but a banner, and a week nobody booked.
  */
 const meta: Meta<typeof AgendaFlow> = {
-	title: "Calendar/Agenda flow",
+	title: "Playground/Shipped/Calendar/Agenda flow",
 	component: AgendaFlow,
 	parameters: { layout: "fullscreen" },
 	decorators: [

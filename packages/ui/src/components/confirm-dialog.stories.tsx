@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { ConfirmDialog } from "./confirm-dialog.js";
 
 const meta: Meta<typeof ConfirmDialog> = {
-	title: "Primitives/ConfirmDialog",
+	title: "Design System/Primitives/ConfirmDialog",
 	component: ConfirmDialog,
 	parameters: { layout: "centered" },
 	args: {

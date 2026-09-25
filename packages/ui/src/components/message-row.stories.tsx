@@ -184,7 +184,7 @@ const labeled = [noLabel, oneLabel, twoLabels, severalLabels, longLabelName];
 const all = [read, unread, starred, suspicious, withAttachment, withCategory];
 
 const meta: Meta = {
-	title: "Primitives/MessageRow",
+	title: "Design System/Mail/MessageRow",
 	parameters: { layout: "padded" },
 };
 export default meta;

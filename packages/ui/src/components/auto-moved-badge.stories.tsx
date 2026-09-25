@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AutoMovedBadge } from "./auto-moved-badge.js";
 
 const meta: Meta<typeof AutoMovedBadge> = {
-	title: "Mail/AutoMovedBadge",
+	title: "Design System/Mail/AutoMovedBadge",
 	component: AutoMovedBadge,
 	parameters: { layout: "centered" },
 };

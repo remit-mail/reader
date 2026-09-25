@@ -135,7 +135,7 @@ const emptiedSections: ThreadSection[] = SECTION_ORDER.map((entry) => ({
 }));
 
 const meta: Meta = {
-	title: "Mail/Category presentation",
+	title: "Design System/Mail/Category presentation",
 	parameters: { layout: "padded" },
 };
 export default meta;

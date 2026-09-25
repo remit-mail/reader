@@ -9,7 +9,7 @@ import { EventSuggestionCard } from "./event-suggestion-card.js";
  * to notice and take back off the calendar.
  */
 const meta: Meta<typeof EventSuggestionCard> = {
-	title: "Calendar/Suggestion card",
+	title: "Design System/Calendar/Suggestion card",
 	component: EventSuggestionCard,
 	parameters: { layout: "padded" },
 	decorators: [

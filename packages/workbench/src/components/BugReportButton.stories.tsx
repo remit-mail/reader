@@ -57,7 +57,8 @@ function BugReportButtonDemo() {
 }
 
 const meta: Meta = {
-	title: "Components/BugReportButton",
+	title: "Playground/Proposed/Shell/BugReportButton",
+	tags: ["proposed"],
 	parameters: { layout: "padded" },
 };
 export default meta;

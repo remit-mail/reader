@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { RescueBanner } from "./rescue-banner.js";
 
 const meta: Meta<typeof RescueBanner> = {
-	title: "Components/RescueBanner",
+	title: "Design System/Spam rescue/RescueBanner",
 	component: RescueBanner,
 	parameters: { layout: "padded" },
 	args: { onReview: () => {} },

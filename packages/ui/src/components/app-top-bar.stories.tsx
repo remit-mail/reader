@@ -9,7 +9,7 @@ import { SearchChipInput } from "./search-chip-input.js";
  * both mount; these stories show only the row the slots sit in.
  */
 const meta: Meta<typeof AppTopBar> = {
-	title: "Mail/AppTopBar",
+	title: "Design System/Mail/AppTopBar",
 	component: AppTopBar,
 	parameters: { layout: "fullscreen" },
 };

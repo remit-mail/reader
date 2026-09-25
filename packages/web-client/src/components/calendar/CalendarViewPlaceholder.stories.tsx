@@ -11,7 +11,7 @@ import { CalendarViewPlaceholder } from "./CalendarViewPlaceholder";
  * and the reader would plan around an empty screen.
  */
 const meta: Meta<typeof CalendarViewPlaceholder> = {
-	title: "App/Calendar/Not built yet",
+	title: "Playground/Shipped/Calendar/Not built yet",
 	component: CalendarViewPlaceholder,
 	parameters: { layout: "fullscreen" },
 	render: (args) => (

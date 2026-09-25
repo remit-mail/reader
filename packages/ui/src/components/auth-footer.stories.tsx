@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AuthFooter } from "./auth-footer.js";
 
 const meta: Meta<typeof AuthFooter> = {
-	title: "Auth/AuthFooter",
+	title: "Design System/Auth/AuthFooter",
 	component: AuthFooter,
 	parameters: { layout: "centered" },
 };

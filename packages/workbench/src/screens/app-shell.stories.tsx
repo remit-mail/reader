@@ -47,7 +47,8 @@ const inboxBase: Partial<AppShellProps> = {
  * and mounts the app top bar over them. `Screens/AppShell` is that screen.
  */
 const meta: Meta<typeof AppShell> = {
-	title: "Screens/Kit/AppShell",
+	title: "Playground/Proposed/Shell/AppShell",
+	tags: ["proposed"],
 	component: AppShell,
 	parameters: { layout: "fullscreen" },
 };

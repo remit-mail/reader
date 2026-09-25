@@ -3,7 +3,7 @@ import { labelColorOptions } from "../lib/label-color.js";
 import { LabelChip } from "./label-chip.js";
 
 const meta: Meta<typeof LabelChip> = {
-	title: "Primitives/LabelChip",
+	title: "Design System/Primitives/LabelChip",
 	component: LabelChip,
 	parameters: { layout: "padded" },
 };

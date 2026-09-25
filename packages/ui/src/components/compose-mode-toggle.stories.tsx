@@ -12,7 +12,7 @@ import {
  * which one is up, so the control never changes under the finger.
  */
 const meta: Meta<typeof ComposeModeToggle> = {
-	title: "Mail/ComposeModeToggle",
+	title: "Design System/Compose/ComposeModeToggle",
 	component: ComposeModeToggle,
 	parameters: { layout: "centered" },
 };

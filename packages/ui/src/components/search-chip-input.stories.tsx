@@ -3,7 +3,7 @@ import { useState } from "react";
 import { type SearchChip, SearchChipInput } from "./search-chip-input.js";
 
 const meta: Meta<typeof SearchChipInput> = {
-	title: "Mail/SearchChipInput",
+	title: "Design System/Search/SearchChipInput",
 	component: SearchChipInput,
 	parameters: { layout: "padded" },
 };

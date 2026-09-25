@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { SearchConversionNoticeView } from "./search-conversion-notice.js";
 
 const meta = {
-	title: "Filters/Search conversion notice",
+	title: "Design System/Filters/Search conversion notice",
 	component: SearchConversionNoticeView,
 	parameters: { layout: "centered" },
 } satisfies Meta<typeof SearchConversionNoticeView>;

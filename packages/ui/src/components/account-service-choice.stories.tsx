@@ -13,7 +13,7 @@ import { Button } from "./button.js";
  * consent screen matches the pick (#1178).
  */
 const meta: Meta<typeof AccountServiceChoice> = {
-	title: "Components/AccountServiceChoice",
+	title: "Design System/Settings/AccountServiceChoice",
 	component: AccountServiceChoice,
 	parameters: { layout: "padded" },
 	decorators: [

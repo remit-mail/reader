@@ -29,7 +29,8 @@ import { MailShell } from "../screens/mail-shell.js";
  */
 
 const meta: Meta = {
-	title: "Flows/MailPickers",
+	title: "Playground/Proposed/Mail pickers",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

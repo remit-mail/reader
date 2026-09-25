@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AppPasswordHint } from "./app-password-hint.js";
 
 const meta: Meta<typeof AppPasswordHint> = {
-	title: "Onboarding/AppPasswordHint",
+	title: "Design System/Onboarding/AppPasswordHint",
 	component: AppPasswordHint,
 	parameters: { layout: "padded" },
 };

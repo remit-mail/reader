@@ -48,7 +48,7 @@ function Composer({ pick }: { pick?: CalendarSlotPick }) {
 }
 
 const meta: Meta<typeof Composer> = {
-	title: "App/Calendar/Write event",
+	title: "Playground/Shipped/Calendar/Write event",
 	component: Composer,
 	parameters: { layout: "fullscreen" },
 };

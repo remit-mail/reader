@@ -6,7 +6,7 @@ import type { SearchChip } from "./search-chip-input.js";
 import { type ShellSearchScope, ShellTopBar } from "./shell-top-bar.js";
 
 const meta: Meta<typeof ShellTopBar> = {
-	title: "Mail/ShellTopBar",
+	title: "Design System/Mail/ShellTopBar",
 	component: ShellTopBar,
 	parameters: { layout: "fullscreen" },
 };

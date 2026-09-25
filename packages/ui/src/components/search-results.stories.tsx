@@ -161,7 +161,7 @@ function Harness(props: Parameters<typeof SearchResults>[0]) {
 }
 
 const meta: Meta<typeof SearchResults> = {
-	title: "Kit/SearchResults",
+	title: "Playground/Shipped/Mail/Search/SearchResults",
 	component: SearchResults,
 	parameters: { layout: "centered" },
 	decorators: [listPaneFrame],

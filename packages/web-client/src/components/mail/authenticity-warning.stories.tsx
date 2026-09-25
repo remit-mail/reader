@@ -15,7 +15,7 @@ import { AuthenticityBanner } from "@/components/mail/AuthenticityBanner";
  * body's own size rather than floating off to the right as chrome.
  */
 const meta: Meta<typeof AuthenticityBanner> = {
-	title: "Flows/Reading/Authenticity Warning",
+	title: "Playground/Shipped/Mail/Reading/Authenticity warning",
 	component: AuthenticityBanner,
 	parameters: { layout: "centered" },
 };

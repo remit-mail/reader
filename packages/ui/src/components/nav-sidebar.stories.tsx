@@ -53,7 +53,7 @@ const manyFoldersAccount: NavAccount = {
 };
 
 const meta: Meta<typeof NavSidebar> = {
-	title: "Screens/Kit/NavSidebar",
+	title: "Playground/Shipped/Mail/NavSidebar",
 	component: NavSidebar,
 	parameters: { layout: "fullscreen" },
 	args: {

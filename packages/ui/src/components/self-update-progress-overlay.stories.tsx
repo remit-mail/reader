@@ -6,7 +6,7 @@ import {
 } from "./self-update-progress-overlay.js";
 
 const meta: Meta<typeof SelfUpdateProgressOverlay> = {
-	title: "Settings/Self-update restart",
+	title: "Design System/Settings/Self-update restart",
 	component: SelfUpdateProgressOverlay,
 	parameters: { layout: "fullscreen" },
 	args: { target: demoRelease.version },

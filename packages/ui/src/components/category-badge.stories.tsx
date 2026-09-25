@@ -3,7 +3,7 @@ import type { ThreadCategory } from "../category-presentation.js";
 import { CategoryBadge } from "./category-badge.js";
 
 const meta: Meta<typeof CategoryBadge> = {
-	title: "Mail/CategoryBadge",
+	title: "Design System/Mail/CategoryBadge",
 	component: CategoryBadge,
 	parameters: { layout: "centered" },
 };

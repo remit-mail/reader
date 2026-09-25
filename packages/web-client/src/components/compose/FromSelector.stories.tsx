@@ -28,7 +28,7 @@ function seededClient(): QueryClient {
 }
 
 const meta: Meta<typeof FromSelector> = {
-	title: "Components/FromSelector",
+	title: "Playground/Shipped/Mail/Compose/FromSelector",
 	component: FromSelector,
 	parameters: { layout: "padded" },
 	decorators: [

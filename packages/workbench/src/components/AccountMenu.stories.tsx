@@ -106,7 +106,8 @@ function AccountMenuDemo() {
 }
 
 const meta: Meta = {
-	title: "Components/AccountMenu",
+	title: "Playground/Proposed/Shell/AccountMenu",
+	tags: ["proposed"],
 	parameters: { layout: "padded" },
 };
 export default meta;

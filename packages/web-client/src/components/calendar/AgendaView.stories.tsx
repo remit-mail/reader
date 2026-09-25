@@ -56,7 +56,7 @@ function Agenda({
 }
 
 const meta: Meta<typeof Agenda> = {
-	title: "App/Calendar/Agenda view",
+	title: "Playground/Shipped/Calendar/Agenda view",
 	component: Agenda,
 	parameters: { layout: "fullscreen" },
 	args: {

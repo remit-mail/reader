@@ -4,7 +4,7 @@ import { FolderRow } from "./folder-row.js";
 import { NewFolderAction } from "./new-folder-action.js";
 
 const meta: Meta<typeof NewFolderAction> = {
-	title: "Mail/NewFolderAction",
+	title: "Design System/Folders/NewFolderAction",
 	component: NewFolderAction,
 	parameters: { layout: "centered" },
 };

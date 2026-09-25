@@ -3,7 +3,7 @@ import { RotateCcw, Send, Trash2 } from "lucide-react";
 import { RowActions } from "./row-actions.js";
 
 const meta: Meta<typeof RowActions> = {
-	title: "Primitives/RowActions",
+	title: "Design System/Primitives/RowActions",
 	component: RowActions,
 	parameters: { layout: "padded" },
 };

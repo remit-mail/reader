@@ -13,7 +13,7 @@ import { EmptyTrashBar } from "@/components/mail/EmptyTrashBar";
  * lands under the button and stays there until the user repairs it.
  */
 const meta: Meta<typeof EmptyTrashBar> = {
-	title: "Flows/Mail/Empty Trash",
+	title: "Playground/Shipped/Mail/Empty trash",
 	component: EmptyTrashBar,
 	parameters: { layout: "fullscreen" },
 };

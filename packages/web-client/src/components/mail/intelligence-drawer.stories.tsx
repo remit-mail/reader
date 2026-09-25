@@ -27,7 +27,7 @@ import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
  * mid-width panes both run on.
  */
 const meta: Meta = {
-	title: "Flows/Reading/Intelligence Drawer",
+	title: "Playground/Shipped/Mail/Reading/Intelligence drawer",
 	parameters: { layout: "centered" },
 };
 export default meta;

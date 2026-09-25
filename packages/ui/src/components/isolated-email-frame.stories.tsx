@@ -205,7 +205,7 @@ const DESIGNED = { background: true, spacing: true };
 const BARE = { background: false, spacing: false };
 
 const meta: Meta<typeof IsolatedEmailFrame> = {
-	title: "Components/IsolatedEmailFrame",
+	title: "Design System/Mail/IsolatedEmailFrame",
 	component: IsolatedEmailFrame,
 	parameters: { layout: "fullscreen" },
 	argTypes: {

@@ -11,7 +11,7 @@ import {
  * stored rows themselves.
  */
 const meta: Meta = {
-	title: "Components/AccountServiceStatus",
+	title: "Design System/Settings/AccountServiceStatus",
 	parameters: { layout: "padded" },
 };
 export default meta;

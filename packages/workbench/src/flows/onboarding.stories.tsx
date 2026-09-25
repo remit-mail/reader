@@ -14,7 +14,8 @@ import {
 } from "./onboarding.js";
 
 const meta: Meta = {
-	title: "Flows/Onboarding",
+	title: "Playground/Proposed/Onboarding",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

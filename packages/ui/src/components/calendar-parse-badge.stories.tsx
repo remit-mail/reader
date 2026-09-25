@@ -11,7 +11,7 @@ import type { CalendarParseMethod } from "./calendar-types.js";
  * so the badge says which one it was.
  */
 const meta: Meta<typeof CalendarParseBadge> = {
-	title: "Calendar/Parse badge",
+	title: "Design System/Calendar/Parse badge",
 	component: CalendarParseBadge,
 	parameters: { layout: "padded" },
 };

@@ -7,7 +7,7 @@ import { RecurrenceScopePrompt } from "./recurrence-scope-prompt.js";
  * is still an intention.
  */
 const meta: Meta<typeof RecurrenceScopePrompt> = {
-	title: "Calendar/Recurrence scope",
+	title: "Design System/Calendar/Recurrence scope",
 	component: RecurrenceScopePrompt,
 	parameters: { layout: "padded" },
 };

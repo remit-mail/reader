@@ -23,7 +23,7 @@ import { openSpellcheckWorker } from "./rich-text-spellcheck-worker-provider.js"
  * gives it rather than only the space its own text needs.
  */
 const meta: Meta<typeof RichTextEditor> = {
-	title: "Mail/RichTextEditor",
+	title: "Design System/Compose/RichTextEditor",
 	component: RichTextEditor,
 	parameters: { layout: "centered" },
 	decorators: [

@@ -596,7 +596,8 @@ function SelectionFlow({
  * the query converted and nothing ticked.
  */
 const meta: Meta = {
-	title: "Flows/Selection Wizard",
+	title: "Playground/Proposed/Selection wizard",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 	globals: { viewport: { value: "mobileShort" } },
 	decorators: [

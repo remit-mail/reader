@@ -3,7 +3,7 @@ import { useState } from "react";
 import { FolderRenameDialog } from "./folder-rename-dialog.js";
 
 const meta: Meta<typeof FolderRenameDialog> = {
-	title: "Mail/FolderRenameDialog",
+	title: "Design System/Folders/FolderRenameDialog",
 	component: FolderRenameDialog,
 	parameters: { layout: "fullscreen" },
 };

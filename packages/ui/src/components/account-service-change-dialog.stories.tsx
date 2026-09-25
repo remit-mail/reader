@@ -7,7 +7,7 @@ import { AccountServiceChangeDialog } from "./account-service-change-dialog.js";
  * Every state of it is copy, so every state is a story.
  */
 const meta: Meta<typeof AccountServiceChangeDialog> = {
-	title: "Components/AccountServiceChangeDialog",
+	title: "Design System/Settings/AccountServiceChangeDialog",
 	component: AccountServiceChangeDialog,
 	parameters: { layout: "fullscreen" },
 	args: {
