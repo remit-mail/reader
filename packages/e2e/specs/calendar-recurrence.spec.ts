@@ -54,13 +54,19 @@ const remember = (items: CalendarEventInstance[]): void => {
 	for (const item of items) written.set(item.calendarObjectId, item.calendarId);
 };
 
-/**
- * The column a timed occurrence is drawn in. The grid engine keys each day's
- * column by its date, and that date is the claim under test.
- */
-const dayColumn = (page: Page, date: string) =>
-	page.locator(`.fc-timegrid-col[data-date="${date}"]`);
+const columnName = (date: string): string =>
+	new Date(`${date}T00:00:00Z`).toLocaleDateString("en-US", {
+		month: "long",
+		day: "numeric",
+		year: "numeric",
+		timeZone: "UTC",
+	});
 
+/**
+ * Which day each timed occurrence is drawn under. The week's column headers
+ * name their dates, and the timed row holds one cell per column in the same
+ * order.
+ */
 const expectDrawnOn = async (
 	page: Page,
 	summary: string,
@@ -68,11 +74,21 @@ const expectDrawnOn = async (
 	days: string[],
 ): Promise<void> => {
 	await page.goto(weekPath(weekOf));
+	const headers = page.getByRole("columnheader");
+	const timed = page.getByRole("row", { name: /^Timed/ }).first();
+	const cells = timed.getByRole("gridcell");
+	await expect(headers).toHaveCount(7, { timeout: 30_000 });
+	await expect(timed.getByRole("button", { name: summary })).toHaveCount(
+		days.length,
+		{ timeout: 30_000 },
+	);
+	await expect(cells).toHaveCount(7);
 	for (let offset = 0; offset < 7; offset += 1) {
 		const day = addDays(weekOf, offset);
+		await expect(headers.nth(offset)).toHaveAccessibleName(columnName(day));
 		await expect(
-			dayColumn(page, day).getByRole("button", { name: summary }),
-		).toHaveCount(days.includes(day) ? 1 : 0, { timeout: 30_000 });
+			cells.nth(offset).getByRole("button", { name: summary }),
+		).toHaveCount(days.includes(day) ? 1 : 0);
 	}
 };
 

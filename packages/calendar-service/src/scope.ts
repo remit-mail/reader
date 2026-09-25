@@ -29,7 +29,7 @@ export type ScopedWrite =
 
 export interface ScopedWriteInput {
 	scope: RecurrenceScopeValue;
-	/** ISO 8601 UTC instant naming the occurrence; `""` outside `This`/`Following`. */
+	/** ISO 8601 UTC instant naming the occurrence the write was made from, or `""`. */
 	recurrenceId: string;
 	/** UID the resource a `Following` split creates is written under. */
 	followingUid: string;
@@ -286,6 +286,57 @@ const applyToMaster = async (
 	return { ok: true, value: replaceWith(calendar) };
 };
 
+const touchesTime = (patch: Partial<CalendarEventFields>): boolean =>
+	patch.start !== undefined ||
+	patch.end !== undefined ||
+	patch.allDay !== undefined ||
+	patch.timeZone !== undefined;
+
+const civilDay = (time: ICAL.Time): number =>
+	Date.UTC(time.year, time.month - 1, time.day) / 86_400_000;
+
+const shiftDays = (component: ICAL.Component, days: number): void => {
+	for (const name of ["dtstart", "dtend"]) {
+		const property = component.getFirstProperty(name);
+		const value = property?.getFirstValue();
+		if (!property || !(value instanceof ICAL.Time)) continue;
+		const shifted = value.clone();
+		shifted.adjust(days, 0, 0, 0);
+		property.setValue(shifted);
+	}
+};
+
+/**
+ * A whole-series edit made from one occurrence of it.
+ *
+ * The times in the patch are that occurrence's new times, so the series moves
+ * by the same amount rather than restarting on the occurrence it was opened
+ * from — which would drop every occurrence before it.
+ */
+const applyToSeriesFrom = async (
+	calendar: ParsedCalendar,
+	collectionTimezone: string,
+	recurrenceId: string,
+	patch: Partial<CalendarEventFields>,
+): Promise<CalendarResult<ScopedWrite>> => {
+	const seriesStart = calendar.master.getFirstPropertyValue("dtstart");
+	if (!(seriesStart instanceof ICAL.Time)) {
+		return applyToMaster(calendar, collectionTimezone, patch);
+	}
+	const found = findOccurrence(calendar, collectionTimezone, recurrenceId);
+	if (!found.ok) return found;
+	const daysIn = civilDay(found.value.slot) - civilDay(seriesStart);
+
+	const applied = await applyEventFields(
+		calendar.master,
+		patch,
+		collectionTimezone,
+	);
+	if (!applied.ok) return applied;
+	shiftDays(calendar.master, -daysIn);
+	return { ok: true, value: replaceWith(calendar) };
+};
+
 /**
  * The occurrence a `This` or `Following` write names, or `null` when the scope
  * collapses to the whole series — which is what "everything from the first
@@ -362,7 +413,8 @@ const overrideFor = async (
 /**
  * Turns an edit of one drawing of a series into the resource writes it means.
  *
- * `All` rewrites the master. `This` writes a RECURRENCE-ID override, which is
+ * `All` rewrites the master, moved from the occurrence it names when it names
+ * one. `This` writes a RECURRENCE-ID override, which is
  * the only thing iCalendar has for "this one is different". `Following` splits,
  * because a rule cannot change halfway through.
  */
@@ -373,7 +425,19 @@ export const applyScopedUpdate = async (
 	patch: Partial<CalendarEventFields>,
 ): Promise<CalendarResult<ScopedWrite>> => {
 	if (input.scope === RecurrenceScope.All) {
-		return applyToMaster(calendar, collectionTimezone, patch);
+		if (
+			input.recurrenceId === "" ||
+			!hasRecurrence(calendar) ||
+			!touchesTime(patch)
+		) {
+			return applyToMaster(calendar, collectionTimezone, patch);
+		}
+		return applyToSeriesFrom(
+			calendar,
+			collectionTimezone,
+			input.recurrenceId,
+			patch,
+		);
 	}
 
 	const anchored = anchorOf(calendar, collectionTimezone, input);

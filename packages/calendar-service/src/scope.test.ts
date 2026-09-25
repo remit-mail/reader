@@ -98,6 +98,65 @@ describe("applyScopedUpdate", () => {
 		assert.ok(master?.includes("DTSTART:20260907T090000Z"));
 	});
 
+	it("moves the series by what changed on the occurrence a scope=All edit was made from", async () => {
+		const calendar = await read(WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ start: "2026-09-21T14:00:00Z", end: "2026-09-21T15:30:00Z" },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master, ...rest] = events(write.value.icalData);
+		assert.deepEqual(rest, []);
+		assert.ok(
+			master?.includes("DTSTART:20260907T140000Z"),
+			`the series still starts on its first occurrence: ${master?.join(" | ")}`,
+		);
+		assert.ok(master?.includes("DTEND:20260907T153000Z"));
+		assert.ok(master?.includes("RRULE:FREQ=WEEKLY;COUNT=5"));
+	});
+
+	it("keeps a zoned series on its own first day when a scope=All edit crosses a clock change", async () => {
+		const calendar = await read(AMSTERDAM_WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"Europe/Amsterdam",
+			input(RecurrenceScope.All, "2026-10-29T08:00:00Z"),
+			{
+				start: "2026-10-29T10:00:00+01:00",
+				end: "2026-10-29T11:00:00+01:00",
+				timeZone: "Europe/Amsterdam",
+			},
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master] = events(write.value.icalData);
+		assert.ok(
+			master?.includes("DTSTART;TZID=Europe/Amsterdam:20261015T100000"),
+			`the series moves on its own wall clock: ${master?.join(" | ")}`,
+		);
+		assert.ok(master?.includes("DTEND;TZID=Europe/Amsterdam:20261015T110000"));
+	});
+
+	it("refuses a scope=All time change made from an occurrence the series does not have", async () => {
+		const calendar = await read(WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-22T09:00:00Z"),
+			{ start: "2026-09-22T14:00:00Z", end: "2026-09-22T15:00:00Z" },
+		);
+
+		assert.equal(write.ok, false);
+	});
+
 	it("writes a RECURRENCE-ID override for one occurrence under scope=This", async () => {
 		const calendar = await read(WEEKLY);
 
