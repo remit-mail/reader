@@ -17,7 +17,11 @@ import type {
 	IntelligenceCalendarSurface,
 	IntelligenceTabId,
 } from "@remit/ui";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+	calendarUnavailable,
+	calendarWriteGate,
+} from "@/components/calendar/CalendarUnavailable";
 import {
 	calendarWindowOfDays,
 	isDrawnInstance,
@@ -43,6 +47,7 @@ import {
 	toCalendarInvite,
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
+import { calendarReportHref } from "@/lib/calendar-report";
 import { useOpenEventOnCalendar } from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
@@ -88,13 +93,16 @@ export function useIntelligenceCalendar(
 	thread: RemitImapThreadMessageResponse,
 ): IntelligenceCalendar {
 	const messageId = thread.messageId;
-	const { suggestions, error } = useMessageCalendarSuggestions(messageId);
+	const { suggestions, isLoading, error } =
+		useMessageCalendarSuggestions(messageId);
+	const calendarsRead = useCalendars();
 	const {
 		calendars,
 		defaultCalendarId,
 		colorByCalendarId,
 		timeZoneByCalendarId,
-	} = useCalendars();
+	} = calendarsRead;
+	const gate = calendarWriteGate(calendarsRead);
 	const answers = useCalendarSuggestionAnswers();
 
 	const openEvent = useOpenEventOnCalendar();
@@ -141,6 +149,10 @@ export function useIntelligenceCalendar(
 		calendarId: defaultCalendarId,
 	};
 	const senderName = thread.fromName ?? thread.fromEmail ?? "";
+	const reportHref = calendarReportHref(
+		working.failure.text || "the invitations in a message could not be read",
+	);
+	const addBlocked = calendarUnavailable(gate, reportHref);
 
 	const answer = (
 		suggestionId: string,
@@ -183,10 +195,11 @@ export function useIntelligenceCalendar(
 								)
 							: [],
 					rsvp: standing.rsvp,
-					busy:
-						working.answering === invitation.suggestionId ||
-						defaultCalendarId === "",
+					busy: working.answering === invitation.suggestionId,
 					failure: inviteFailure,
+					reportHref,
+					addBlocked,
+					sender: senderName,
 				}
 			: undefined;
 
@@ -223,6 +236,8 @@ export function useIntelligenceCalendar(
 			: "Couldn't read the invitations in this message. Reopen it to try again.";
 
 	const cancellation = invitation?.method === "Cancel";
+	const copyText =
+		date === "" ? "" : slotsAsText(date, slots, working.picked);
 
 	const actions: IntelligenceCalendarActions = {
 		onAddInvite: () =>
@@ -256,8 +271,15 @@ export function useIntelligenceCalendar(
 					: [...working.picked, slot.startTime],
 			}),
 		onCopySlots: () => {
-			void navigator.clipboard
-				.writeText(slotsAsText(date, slots, working.picked))
+			// Outside a secure context — plain http on a tailnet host — the
+			// browser exposes no clipboard at all, so the absence is the failure.
+			const clipboard: Clipboard | undefined = navigator.clipboard;
+			if (!clipboard) {
+				update({ copy: "failed" });
+				return;
+			}
+			void Promise.resolve()
+				.then(() => clipboard.writeText(copyText))
 				.then(() => update({ copy: "copied" }))
 				.catch(() => update({ copy: "failed" }));
 		},
@@ -276,7 +298,23 @@ export function useIntelligenceCalendar(
 		},
 	};
 
-	const aboutTime = invite !== undefined || deck.length > 0;
+	const aboutTime = invite !== undefined || deck.length > 0 || error !== null;
+	const latched = working.tab !== undefined;
+
+	// The tab is decided once, when the message's suggestions have been read,
+	// and then held: answering the last card must not pull the tab out from
+	// under the reader, and a read still in flight must not decide it.
+	useEffect(() => {
+		if (isLoading || latched) return;
+		setHeld((prev) =>
+			prev.messageId === messageId && prev.tab !== undefined
+				? prev
+				: {
+						...(prev.messageId === messageId ? prev : fresh(messageId)),
+						tab: aboutTime ? "calendar" : "sender",
+					},
+		);
+	}, [isLoading, latched, aboutTime, messageId]);
 
 	return {
 		surface: {
@@ -290,17 +328,21 @@ export function useIntelligenceCalendar(
 								slots,
 								picked: working.picked,
 								copy: working.copy,
+								copyText,
 							}
 						: undefined,
 				suggestions: deck,
 				day,
 				dayLabel: date === "" ? "" : formatDayLabel(date),
 				suggestionsBusy: working.answering !== "" && !invite?.busy,
-				failure: readFailure || otherFailure,
+				failure: readFailure,
+				suggestionsFailure: otherFailure,
+				reportHref,
+				addBlocked,
 			},
 			actions,
 		},
-		tab: working.tab ?? (aboutTime ? "calendar" : "sender"),
+		tab: working.tab ?? "sender",
 		onTabChange: (tab) => update({ tab }),
 	};
 }

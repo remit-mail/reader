@@ -184,6 +184,10 @@ export {
 	type CalendarClashStripProps,
 } from "./components/calendar-clash-strip.js";
 export {
+	CalendarFailureNote,
+	type CalendarFailureNoteProps,
+} from "./components/calendar-failure-note.js";
+export {
 	CalendarEventChip,
 	type CalendarEventChipProps,
 } from "./components/calendar-event-chip.js";

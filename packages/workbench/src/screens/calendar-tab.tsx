@@ -128,6 +128,7 @@ export function CalendarTab({
 						color: inviteCalendar?.color ?? "cal-1",
 						clashes: overlapping(invite.proposed, seamWeekEvents).map(toClash),
 						rsvp,
+						sender: q3Intelligence.sender.name,
 					}
 				: undefined,
 		prose: offering
@@ -168,6 +169,14 @@ export function CalendarTab({
 					onAddInvite: () => setRsvp("accepted"),
 					onDeclineInvite: () => setRsvp("declined"),
 					onMuteInvite: () => setInviteGone(true),
+					onRemoveInvite:
+						invite.state === "cancelled"
+							? () => setInviteGone(true)
+							: undefined,
+					onReopenInvite:
+						invite.state === "cancelled"
+							? () => setInviteGone(true)
+							: undefined,
 					onOfferOtherTimes: () => setOffering(true),
 					onToggleSlot: (slot) => {
 						setCopy("idle");

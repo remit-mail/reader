@@ -7,6 +7,8 @@ import {
 	usePendingCalendarSuggestions,
 } from "@/hooks/calendar";
 import { suggestionWhen, toEventSuggestion } from "@/lib/calendar-suggestion";
+import { calendarReportHref } from "@/lib/calendar-report";
+import { calendarUnavailable, calendarWriteGate } from "./CalendarUnavailable";
 import { CalendarWaiting } from "./CalendarWaiting";
 
 const refusal = (what: string, answer: SuggestionAnswer): string =>
@@ -19,7 +21,8 @@ const refusal = (what: string, answer: SuggestionAnswer): string =>
  */
 export function PendingSuggestions() {
 	const { suggestions, error } = usePendingCalendarSuggestions();
-	const { defaultCalendarId } = useCalendars();
+	const calendars = useCalendars();
+	const { defaultCalendarId } = calendars;
 	const answers = useCalendarSuggestionAnswers();
 	const [failure, setFailure] = useState("");
 
@@ -38,6 +41,10 @@ export function PendingSuggestions() {
 		error === null ? "" : "Couldn't read what your mail is waiting on.";
 	if (deck.length === 0 && readFailure === "" && failure === "") return null;
 
+	const reportHref = calendarReportHref(
+		readFailure || failure || "pending invitations could not be answered",
+	);
+
 	const answer = (what: string, request: () => Promise<SuggestionAnswer>) => {
 		setFailure("");
 		void request().then((result) => setFailure(refusal(what, result)));
@@ -46,8 +53,10 @@ export function PendingSuggestions() {
 	return (
 		<CalendarWaiting
 			suggestions={deck}
-			busy={answers.isAnswering || defaultCalendarId === ""}
+			busy={answers.isAnswering}
 			failure={readFailure || failure}
+			reportHref={reportHref}
+			addBlocked={calendarUnavailable(calendarWriteGate(calendars), reportHref)}
 			onAdd={(suggestionId) =>
 				answer("add this to your calendar", () =>
 					answers.accept(suggestionId, defaultCalendarId),

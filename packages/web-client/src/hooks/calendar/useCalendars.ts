@@ -25,10 +25,12 @@ export interface CalendarsResult {
 	 */
 	defaultCalendarId: string;
 	isLoading: boolean;
+	/** Why the listing could not be read; null when it was. */
+	error: unknown;
 }
 
 export function useCalendars(): CalendarsResult {
-	const { data, isLoading } = useQuery(
+	const { data, isLoading, error } = useQuery(
 		calendarOperationsListCalendarsOptions(),
 	);
 
@@ -47,6 +49,7 @@ export function useCalendars(): CalendarsResult {
 				(items.find((item) => item.source === "Default") ?? items[0])
 					?.calendarId ?? "",
 			isLoading,
+			error: error ?? null,
 		};
-	}, [data, isLoading]);
+	}, [data, isLoading, error]);
 }

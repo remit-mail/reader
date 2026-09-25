@@ -1,4 +1,5 @@
 import {
+	CalendarFailureNote,
 	CalendarSuggestionDeck,
 	type CalendarSuggestionIntel,
 	EventSuggestionCard,
@@ -6,6 +7,7 @@ import {
 	ZONE_UNSETTLED_REASON,
 } from "@remit/ui";
 import { Sparkles } from "lucide-react";
+import type { ReactNode } from "react";
 
 /**
  * What the mail is still asking about time, beside the calendar it would land
@@ -21,6 +23,10 @@ export interface CalendarWaitingProps {
 	busy: boolean;
 	/** Why the last answer did not land. Empty when it did. */
 	failure: string;
+	/** A prefilled issue report for the failure above. */
+	reportHref?: string;
+	/** Why nothing can be added yet, with the way past it; holds Add. */
+	addBlocked?: ReactNode;
 	onAdd: (suggestionId: string) => void;
 	onDismiss: (suggestionId: string) => void;
 }
@@ -29,6 +35,8 @@ export function CalendarWaiting({
 	suggestions,
 	busy,
 	failure,
+	reportHref,
+	addBlocked,
 	onAdd,
 	onDismiss,
 }: CalendarWaitingProps) {
@@ -45,12 +53,16 @@ export function CalendarWaiting({
 				Waiting for you
 			</h3>
 			{failure !== "" && (
-				<p
-					role="alert"
-					className="mx-row-inset rounded-md border border-danger/40 bg-danger-soft p-2 text-xs text-danger"
-				>
-					{failure}
-				</p>
+				<CalendarFailureNote
+					text={failure}
+					reportHref={reportHref}
+					className="mx-row-inset"
+				/>
+			)}
+			{addBlocked !== undefined && (
+				<div className="mx-row-inset rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-fg">
+					{addBlocked}
+				</div>
 			)}
 			<CalendarSuggestionDeck
 				className="px-row-inset"
@@ -59,7 +71,8 @@ export function CalendarWaiting({
 				blocked={settlement !== undefined && !settlement.settled}
 				blockedReason={ZONE_UNSETTLED_REASON}
 				onConfirm={() => {
-					if (top && !busy) onAdd(top.suggestion.id);
+					if (top && !busy && addBlocked === undefined)
+						onAdd(top.suggestion.id);
 				}}
 				onReject={() => {
 					if (top && !busy) onDismiss(top.suggestion.id);
@@ -71,7 +84,9 @@ export function CalendarWaiting({
 						whenText={top.whenText}
 						onAdd={() => onAdd(top.suggestion.id)}
 						onDismiss={() => onDismiss(top.suggestion.id)}
+						addLabel="Add to calendar"
 						busy={busy}
+						addBlocked={addBlocked !== undefined}
 					/>
 				)}
 			</CalendarSuggestionDeck>

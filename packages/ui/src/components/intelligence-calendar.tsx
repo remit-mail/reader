@@ -1,7 +1,8 @@
 import { CalendarDays, Copy } from "lucide-react";
-import { useState } from "react";
+import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
+import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarEventChip } from "./calendar-event-chip.js";
 import { CalendarInviteCard } from "./calendar-invite-card.js";
 import { CalendarSlotOffers } from "./calendar-slot-offers.js";
@@ -48,6 +49,14 @@ export interface CalendarInviteIntel {
 	busy?: boolean;
 	/** Why the last answer did not land. Empty when it did. */
 	failure?: string;
+	reportHref?: string;
+	/** Why nothing can be written to a calendar yet; holds Add and Remove. */
+	addBlocked?: ReactNode;
+	/**
+	 * Who the mail came from, which is who muting stops — not always the
+	 * organiser. Without it the card offers no mute.
+	 */
+	sender?: string;
 }
 
 /** One reading off this thread that is not the invitation. */
@@ -75,6 +84,8 @@ export interface CalendarProseIntel {
 	picked: readonly string[];
 	/** What became of the last copy of the picked times. */
 	copy?: "idle" | "copied" | "failed";
+	/** The picked times as text, offered to select by hand when copying failed. */
+	copyText?: string;
 }
 
 export interface IntelligenceCalendarData {
@@ -88,11 +99,14 @@ export interface IntelligenceCalendarData {
 	dayLabel: string;
 	/** An answer to the top reading is on its way to the server. */
 	suggestionsBusy?: boolean;
-	/**
-	 * What the tab could not read or do, outside the invitation card — which
-	 * states its own. Empty when nothing failed.
-	 */
+	/** What the tab could not read. Empty when it read everything. */
 	failure?: string;
+	/** Why the last answer to a reading did not land, stated beside the deck. */
+	suggestionsFailure?: string;
+	/** A prefilled issue report for either failure above. */
+	reportHref?: string;
+	/** Why no reading can be added yet; holds the deck's Add. */
+	addBlocked?: ReactNode;
 }
 
 /**
@@ -141,6 +155,9 @@ export function IntelligenceCalendar({
 		dayLabel,
 		suggestionsBusy = false,
 		failure = "",
+		suggestionsFailure = "",
+		reportHref,
+		addBlocked,
 	} = data;
 	const { onReviewSuggestion, onOpenThread } = actions;
 	const [zoneChoices, setZoneChoices] = useState<Record<string, string>>({});
@@ -179,12 +196,11 @@ export function IntelligenceCalendar({
 	return (
 		<div className={cn("flex flex-col", className)}>
 			{failure !== "" && (
-				<p
-					role="alert"
-					className="mx-row-inset mt-3 rounded-md border border-danger/40 bg-danger-soft p-2 text-xs text-danger"
-				>
-					{failure}
-				</p>
+				<CalendarFailureNote
+					text={failure}
+					reportHref={reportHref}
+					className="mx-row-inset mt-3"
+				/>
 			)}
 
 			{invite && (
@@ -198,11 +214,17 @@ export function IntelligenceCalendar({
 						rsvp={invite.rsvp}
 						busy={invite.busy}
 						failure={invite.failure}
+						reportHref={invite.reportHref}
+						addBlocked={invite.addBlocked}
+						mute={
+							actions.onMuteInvite && invite.sender
+								? { sender: invite.sender, onMute: actions.onMuteInvite }
+								: undefined
+						}
 						onAdd={actions.onAddInvite}
 						onTentative={actions.onTentativeInvite}
 						onDecline={actions.onDeclineInvite}
 						onReopen={actions.onReopenInvite}
-						onMute={actions.onMuteInvite}
 						onOfferOtherTimes={actions.onOfferOtherTimes}
 						onRemove={actions.onRemoveInvite}
 						onOpenNewer={actions.onOpenNewerInvite}
@@ -273,10 +295,20 @@ export function IntelligenceCalendar({
 								</p>
 							)}
 							{prose.copy === "failed" && (
-								<p role="alert" className="text-2xs text-danger">
-									This browser refused the clipboard. Type the times into your
-									reply instead.
-								</p>
+								<div role="alert" className="flex flex-col gap-1">
+									<p className="text-2xs text-danger">
+										This page can't copy for you. Select the times below and copy
+										them yourself.
+									</p>
+									<textarea
+										readOnly
+										aria-label="Picked times"
+										value={prose.copyText ?? ""}
+										onFocus={(event) => event.currentTarget.select()}
+										rows={2}
+										className="w-full resize-none rounded-md border border-line bg-surface p-1.5 text-xs text-fg"
+									/>
+								</div>
 							)}
 							<p className="text-2xs text-fg-subtle">
 								Picked slots are copied as plain text. Nothing is booked.
@@ -298,7 +330,7 @@ export function IntelligenceCalendar({
 						blocked={topSettlement !== undefined && !topSettlement.settled}
 						blockedReason={ZONE_UNSETTLED_REASON}
 						onConfirm={() => {
-							if (top && topSettlement?.settled)
+							if (top && topSettlement?.settled && addBlocked === undefined)
 								actions.onAddSuggestion(
 									top.suggestion.id,
 									topSettlement.timeZone,
@@ -333,10 +365,23 @@ export function IntelligenceCalendar({
 									onOpenThread && (() => onOpenThread(top.suggestion.threadId))
 								}
 								busy={suggestionsBusy}
+								addBlocked={addBlocked !== undefined}
 								touch={touch}
 							/>
 						)}
 					</CalendarSuggestionDeck>
+					{addBlocked !== undefined && (
+						<div className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-fg">
+							{addBlocked}
+						</div>
+					)}
+					{suggestionsFailure !== "" && (
+						<CalendarFailureNote
+							text={suggestionsFailure}
+							reportHref={reportHref}
+							className="mt-2"
+						/>
+					)}
 
 					<p className="mt-2 text-2xs text-fg-subtle">
 						None of this is on your calendar, and none of it will be until you

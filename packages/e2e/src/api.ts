@@ -185,7 +185,8 @@ export interface Calendar {
 	displayName: string;
 	/** IANA zone the collection reads floating times in; `""` reads as UTC. */
 	timezone: string;
-	source: string;
+	/** `Default` is the collection the account was provisioned with. */
+	source: "Default" | "UserCreated" | "MailDerived";
 }
 
 /** One occurrence as the server expanded it. No client ever reads an RRULE. */
@@ -1024,13 +1025,6 @@ export class ApiClient {
 			`/messages/${messageId}/calendar-suggestions`,
 		);
 		return result.items ?? [];
-	}
-
-	/** Wave a card away, which is how a spec leaves nothing pending behind it. */
-	dismissCalendarSuggestion(suggestionId: string): Promise<CalendarSuggestion> {
-		return this.json("POST", `/calendar-suggestions/${suggestionId}/dismiss`, {
-			muteSender: false,
-		});
 	}
 
 	deleteCalendarEvent(

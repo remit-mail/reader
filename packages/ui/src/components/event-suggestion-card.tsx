@@ -63,6 +63,8 @@ export interface EventSuggestionCardProps {
 	onOpenThread?: () => void;
 	/** An answer is on its way to the server; the buttons wait for it. */
 	busy?: boolean;
+	/** Nothing can be added yet; the host says why beside the card. */
+	addBlocked?: boolean;
 	/** The clock picked so far. Omit to let the card hold the choice itself. */
 	zoneChoice?: string;
 	onZoneChoice?: (timeZone: string) => void;
@@ -108,6 +110,7 @@ export function EventSuggestionCard({
 	onDismiss,
 	onOpenThread,
 	busy = false,
+	addBlocked = false,
 	zoneChoice,
 	onZoneChoice,
 	addLabel = "Add",
@@ -238,7 +241,7 @@ export function EventSuggestionCard({
 					size={touch ? "md" : "sm"}
 					icon={<Plus className="size-3.5" />}
 					onClick={carryingTheZone(onAdd)}
-					disabled={busy}
+					disabled={busy || addBlocked}
 					aria-describedby={settlement.settled ? undefined : reasonId}
 					className={cn(
 						touch && "min-h-11 flex-1",

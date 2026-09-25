@@ -117,18 +117,47 @@ describe("CalendarInviteCard", () => {
 		);
 	});
 
-	it("offers to stop the organiser's invitations only where it is wired", () => {
+	it("names the sender the mute rule matches, not the organiser", () => {
 		assert.doesNotMatch(render(), /Stop offering invitations/);
-		assert.match(
-			render({ onMute: () => undefined }),
-			/Stop offering invitations from Priya Natarajan/,
-		);
+		const html = render({
+			mute: { sender: "Alex Forwarder", onMute: () => undefined },
+		});
+		assert.match(html, /Stop offering invitations from Alex Forwarder/);
+		assert.doesNotMatch(html, /Stop offering invitations from Priya/);
 	});
 
-	it("states an answer that did not land, where it was pressed", () => {
-		const html = render({ failure: "The calendar refused it." });
+	it("states an answer that did not land, with the way to report it", () => {
+		const html = render({
+			failure: "The calendar refused it.",
+			reportHref: "https://example.invalid/issues/new",
+		});
 		assert.match(html, /role="alert"/);
 		assert.match(html, /The calendar refused it\./);
+		assert.match(html, /href="https:\/\/example\.invalid\/issues\/new"/);
+		assert.match(html, /Report an issue/);
+	});
+
+	it("holds only the answers that write, when there is no calendar to write to", () => {
+		const html = render({
+			addBlocked: "You have no calendar yet.",
+			mute: { sender: "Alex", onMute: () => undefined },
+		});
+		assert.match(html, /You have no calendar yet\./);
+		const before = (label: string) => {
+			const upTo = html.slice(0, html.indexOf(label));
+			return upTo.slice(upTo.lastIndexOf("<button"));
+		};
+		assert.match(before("Add to calendar"), /disabled=""/);
+		assert.doesNotMatch(before("Decline"), /disabled=""/);
+		assert.doesNotMatch(before("Stop offering"), /disabled=""/);
+	});
+
+	it("points at no control that is not there for a superseded one", () => {
+		const html = render({
+			invite: { ...kickoffInvite, state: "superseded", sequence: 1 },
+		});
+		assert.doesNotMatch(html, /Open the newer invitation/);
+		assert.doesNotMatch(html, /Answer the newer one/);
 	});
 
 	it("holds the answers while one is on its way", () => {

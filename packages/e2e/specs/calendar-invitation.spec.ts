@@ -37,16 +37,26 @@ const WINDOW = {
 interface Invitation {
 	subject: string;
 	summary: string;
+	/** Who the VEVENT names as organising it. */
+	organizer: string;
+	/** Who the mail is From — the organiser, or whoever forwarded it. */
 	sender: string;
+	senderName: string;
 	uid: string;
 }
 
-const invitation = (name: string): Invitation => {
+const invitation = (
+	name: string,
+	{ forwarded = false }: { forwarded?: boolean } = {},
+): Invitation => {
 	const slug = `${name}-${Date.now()}`;
+	const organizer = `organiser-${slug}@remit.test`;
 	return {
 		subject: `${TAG} ${name}`,
 		summary: `Invitation e2e ${name} ${Date.now()}`,
-		sender: `organiser-${slug}@remit.test`,
+		organizer,
+		sender: forwarded ? `forwarder-${slug}@remit.test` : organizer,
+		senderName: forwarded ? `Forwarder ${slug}` : `Organiser ${slug}`,
 		uid: `${slug}@remit.test`,
 	};
 };
@@ -56,8 +66,8 @@ const at = (hour: number): string =>
 
 /**
  * An invitation as Outlook and Google send one: a `multipart/alternative`
- * whose second leg is `text/calendar; method=REQUEST`, and the organiser is
- * the sender.
+ * whose second leg is `text/calendar; method=REQUEST`. The sender is the
+ * organiser unless the invitation was forwarded.
  */
 const invitationMessage = (
 	invite: Invitation,
@@ -76,13 +86,13 @@ const invitationMessage = (
 		`DTSTART:${at(hour)}`,
 		`DTEND:${at(hour + 1)}`,
 		`SUMMARY:${invite.summary}`,
-		`ORGANIZER:mailto:${invite.sender}`,
+		`ORGANIZER:mailto:${invite.organizer}`,
 		`ATTENDEE;PARTSTAT=NEEDS-ACTION:mailto:${recipient}`,
 		"END:VEVENT",
 		"END:VCALENDAR",
 	].join("\r\n");
 	return [
-		`From: Organiser <${invite.sender}>`,
+		`From: ${invite.senderName} <${invite.sender}>`,
 		`To: ${recipient}`,
 		`Subject: ${invite.subject}`,
 		`Date: ${new Date().toUTCString()}`,
@@ -125,7 +135,6 @@ const deliverAndOpen = async (
 	);
 	await api.triggerSync(run.accountId);
 	const messageId = await api.messageIdForSubject(run.inboxId, invite.subject);
-	deliveredMessages.push(messageId);
 
 	await page.goto(`/mail/${run.inboxId}`);
 	const row = page
@@ -146,7 +155,7 @@ const deliverAndOpen = async (
 	const pending = suggestions.find((item) => item.state === "Pending");
 	if (!pending) throw new Error("unreachable: matched but not found");
 	expect(pending.summary).toBe(invite.summary);
-	expect(pending.organizer).toBe(invite.sender);
+	expect(pending.organizer).toBe(invite.organizer);
 
 	await page.reload();
 	await expect(rail(page)).toBeVisible({ timeout: 30_000 });
@@ -168,22 +177,11 @@ const settledState = (
 	);
 
 const createdObjects: { calendarObjectId: string; calendarId: string }[] = [];
-const deliveredMessages: string[] = [];
 const mutedSenders: string[] = [];
 
 test.afterAll(async () => {
 	const run = readRunState();
 	const api = new ApiClient(run);
-	// A card left pending is drawn beside every later calendar spec, and its
-	// buttons share names with the composer's.
-	for (const messageId of deliveredMessages) {
-		for (const suggestion of await api.listMessageCalendarSuggestions(
-			messageId,
-		)) {
-			if (suggestion.state === "Pending")
-				await api.dismissCalendarSuggestion(suggestion.suggestionId);
-		}
-	}
 	for (const created of createdObjects)
 		await api.deleteCalendarEvent(created.calendarObjectId, created.calendarId);
 	if (mutedSenders.length > 0) {
@@ -236,6 +234,12 @@ test.describe("An invitation beside the message it came in", () => {
 			calendarId: stored.calendarId,
 		});
 		expect(stored.calendarObjectId).toBe(accepted?.acceptedCalendarObjectId);
+		const calendars = await api.listCalendars();
+		const defaultCalendar = calendars.find(
+			(calendar) => calendar.source === "Default",
+		);
+		expect(defaultCalendar, "the account has a default calendar").toBeTruthy();
+		expect(stored.calendarId).toBe(defaultCalendar?.calendarId);
 		expect(new Date(stored.start).toISOString()).toBe(
 			new Date(pending.dtStart).toISOString(),
 		);
@@ -264,19 +268,21 @@ test.describe("An invitation beside the message it came in", () => {
 		expect(events.map((item) => item.summary)).not.toContain(invite.summary);
 	});
 
-	test("muting the organiser dismisses the card and writes a sender rule", async ({
+	test("muting a forwarded invitation writes a rule against the sender, not the organiser", async ({
 		page,
 		api,
 		run,
 	}) => {
-		const invite = invitation("mute");
+		const invite = invitation("mute", { forwarded: true });
+		expect(invite.sender).not.toBe(invite.organizer);
 		const pending = await deliverAndOpen(page, api, run, invite, 15);
 		mutedSenders.push(invite.sender);
 
 		const card = rail(page);
 		await card
 			.getByRole("button", {
-				name: `Stop offering invitations from ${invite.sender}`,
+				name: `Stop offering invitations from ${invite.senderName}`,
+				exact: true,
 			})
 			.click();
 		await expect(card.getByText(invite.summary)).toHaveCount(0, {
@@ -292,6 +298,10 @@ test.describe("An invitation beside the message it came in", () => {
 		const rule = rules.find((item) => item.name.includes(invite.sender));
 		expect(rule?.scope).toBe("Standing");
 		expect(rule?.state).toBe("Active");
+		expect(
+			rules.some((item) => item.name.includes(invite.organizer)),
+			"the organiser is not the one muted",
+		).toBe(false);
 		const events = await api.listCalendarEvents(WINDOW.from, WINDOW.to);
 		expect(events.map((item) => item.summary)).not.toContain(invite.summary);
 	});

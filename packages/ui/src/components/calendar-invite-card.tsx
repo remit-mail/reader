@@ -6,7 +6,6 @@ import {
 	History,
 	MapPin,
 	Trash2,
-	TriangleAlert,
 	X,
 } from "lucide-react";
 import type { ReactNode } from "react";
@@ -15,6 +14,7 @@ import { cn } from "../lib/cn.js";
 import { RsvpBadge } from "./attendee-row.js";
 import { Button } from "./button.js";
 import { CalendarClashStrip } from "./calendar-clash-strip.js";
+import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarParseBadge } from "./calendar-parse-badge.js";
 import type {
 	CalendarClash,
@@ -54,8 +54,13 @@ export interface CalendarInviteCardProps {
 	 */
 	onReopen?: () => void;
 	onOfferOtherTimes: () => void;
-	/** Stops this organiser's invitations being offered at all. */
-	onMute?: () => void;
+	/**
+	 * Stops invitations arriving from the mail's sender being offered at all.
+	 * The rule is written against the message's From, which is not always the
+	 * organiser — a forwarded invitation names someone else — so the button
+	 * names whoever the rule will match.
+	 */
+	mute?: { sender: string; onMute: () => void };
 	/** Wired only for a cancellation the reader has not acted on. */
 	onRemove?: () => void;
 	/** Wired only when a later message carries a higher SEQUENCE. */
@@ -69,6 +74,13 @@ export interface CalendarInviteCardProps {
 	busy?: boolean;
 	/** Why the last answer did not land, in words the reader can act on. */
 	failure?: string;
+	/** A prefilled issue report for the failure above. */
+	reportHref?: string;
+	/**
+	 * Why nothing can be written to a calendar yet, and the way to fix it. Set,
+	 * it holds Add and Remove; the answers that write nothing stay live.
+	 */
+	addBlocked?: ReactNode;
 	touch?: boolean;
 	className?: string;
 }
@@ -99,12 +111,14 @@ export function CalendarInviteCard({
 	onDecline,
 	onReopen,
 	onOfferOtherTimes,
-	onMute,
+	mute,
 	onRemove,
 	onOpenNewer,
 	guests,
 	busy = false,
 	failure = "",
+	reportHref,
+	addBlocked,
 	touch,
 	className,
 }: CalendarInviteCardProps) {
@@ -162,8 +176,8 @@ export function CalendarInviteCard({
 							{invite.organizerName} has sent a newer version of this.
 						</p>
 						<p className="mt-1 text-xs text-fg">
-							This one is revision {invite.sequence} and is out of date. Answer
-							the newer one instead.
+							This one is revision {invite.sequence} and is out of date. The
+							newer message carries the one to answer.
 						</p>
 						{onOpenNewer && (
 							<Button
@@ -197,7 +211,7 @@ export function CalendarInviteCard({
 									size={touch ? "md" : "sm"}
 									icon={<Trash2 className="size-3.5" />}
 									onClick={onRemove}
-									disabled={busy}
+									disabled={busy || addBlocked !== undefined}
 									className={cn(touch && "min-h-11 flex-1")}
 								>
 									Remove from calendar
@@ -229,13 +243,13 @@ export function CalendarInviteCard({
 				))}
 
 			{failure !== "" && (
-				<p
-					role="alert"
-					className="flex items-start gap-1.5 rounded-md border border-danger/40 bg-danger-soft p-2 text-xs text-danger"
-				>
-					<TriangleAlert className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-					{failure}
-				</p>
+				<CalendarFailureNote text={failure} reportHref={reportHref} />
+			)}
+
+			{addBlocked !== undefined && (
+				<div className="rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-fg">
+					{addBlocked}
+				</div>
 			)}
 
 			{!stale &&
@@ -247,7 +261,7 @@ export function CalendarInviteCard({
 								size={touch ? "md" : "sm"}
 								icon={<Calendar className="size-3.5" />}
 								onClick={onAdd}
-								disabled={busy}
+								disabled={busy || addBlocked !== undefined}
 								className={cn(touch && "min-h-11 flex-1")}
 							>
 								Add to calendar
@@ -282,16 +296,16 @@ export function CalendarInviteCard({
 						>
 							Offer other times
 						</Button>
-						{onMute && (
+						{mute && (
 							<Button
 								variant="ghost"
 								size={touch ? "md" : "sm"}
 								icon={<BellOff className="size-3.5" />}
-								onClick={onMute}
+								onClick={mute.onMute}
 								disabled={busy}
 								className={cn("self-start", touch && "min-h-11 w-full")}
 							>
-								{`Stop offering invitations from ${invite.organizerName}`}
+								{`Stop offering invitations from ${mute.sender}`}
 							</Button>
 						)}
 						<p className="text-2xs text-fg-subtle">

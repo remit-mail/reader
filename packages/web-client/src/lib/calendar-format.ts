@@ -24,6 +24,21 @@ const LONG_DAY = new Intl.DateTimeFormat(undefined, {
 	timeZone: "UTC",
 });
 
+const CIVIL_DAY = new Intl.DateTimeFormat(undefined, {
+	weekday: "short",
+	day: "numeric",
+	month: "long",
+	timeZone: "UTC",
+});
+
+/**
+ * "Wed 10 March", for a civil date `YYYY-MM-DD`. A date with no hours is the
+ * same day wherever the reader is, so it is never read as an instant.
+ */
+export function formatCivilDay(date: string): string {
+	return CIVIL_DAY.format(new Date(`${date}T00:00:00Z`));
+}
+
 /** A span as the kit is handed it: when it starts, when it ends, whether it has hours. */
 export type CalendarSpan = Pick<CalendarEventData, "start" | "end" | "allDay">;
 

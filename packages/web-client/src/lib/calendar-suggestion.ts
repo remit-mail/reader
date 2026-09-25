@@ -22,8 +22,9 @@ import {
 	type RsvpState,
 	type ZoneCertainty,
 } from "@remit/ui";
-import { busySpansByDate } from "@/hooks/calendar";
+import { addDays, busySpansByDate } from "@/hooks/calendar";
 import {
+	formatCivilDay,
 	formatClock,
 	formatDayLabel,
 	formatEventWhen,
@@ -93,6 +94,14 @@ export const suggestionTitle = (suggestion: CalendarSuggestion): string =>
 	suggestion.summary === "" ? "Untitled event" : suggestion.summary;
 
 export function suggestionWhen(suggestion: CalendarSuggestion): string {
+	if (suggestion.allDay) {
+		const first = suggestion.dtStart.slice(0, 10);
+		const end = suggestion.dtEnd.slice(0, 10);
+		const last = end > first ? addDays(end, -1) : first;
+		return last === first
+			? `${formatCivilDay(first)}, all day`
+			: `${formatCivilDay(first)} – ${formatCivilDay(last)}, all day`;
+	}
 	return formatEventWhen({
 		start: suggestion.dtStart,
 		end: suggestion.dtEnd,
