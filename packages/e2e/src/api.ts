@@ -1026,6 +1026,13 @@ export class ApiClient {
 		return result.items ?? [];
 	}
 
+	/** Wave a card away, which is how a spec leaves nothing pending behind it. */
+	dismissCalendarSuggestion(suggestionId: string): Promise<CalendarSuggestion> {
+		return this.json("POST", `/calendar-suggestions/${suggestionId}/dismiss`, {
+			muteSender: false,
+		});
+	}
+
 	deleteCalendarEvent(
 		calendarObjectId: string,
 		calendarId: string,

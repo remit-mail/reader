@@ -125,6 +125,7 @@ const deliverAndOpen = async (
 	);
 	await api.triggerSync(run.accountId);
 	const messageId = await api.messageIdForSubject(run.inboxId, invite.subject);
+	deliveredMessages.push(messageId);
 
 	await page.goto(`/mail/${run.inboxId}`);
 	const row = page
@@ -167,11 +168,22 @@ const settledState = (
 	);
 
 const createdObjects: { calendarObjectId: string; calendarId: string }[] = [];
+const deliveredMessages: string[] = [];
 const mutedSenders: string[] = [];
 
 test.afterAll(async () => {
 	const run = readRunState();
 	const api = new ApiClient(run);
+	// A card left pending is drawn beside every later calendar spec, and its
+	// buttons share names with the composer's.
+	for (const messageId of deliveredMessages) {
+		for (const suggestion of await api.listMessageCalendarSuggestions(
+			messageId,
+		)) {
+			if (suggestion.state === "Pending")
+				await api.dismissCalendarSuggestion(suggestion.suggestionId);
+		}
+	}
 	for (const created of createdObjects)
 		await api.deleteCalendarEvent(created.calendarObjectId, created.calendarId);
 	if (mutedSenders.length > 0) {
@@ -199,7 +211,9 @@ test.describe("An invitation beside the message it came in", () => {
 
 		const card = rail(page);
 		await expect(card.getByText(/is not notified/)).toBeVisible();
-		await card.getByRole("button", { name: "Add to calendar" }).click();
+		await card
+			.getByRole("button", { name: "Add to calendar", exact: true })
+			.click();
 
 		await expect(card.getByRole("alert")).toHaveCount(0);
 		await expect(card.getByText("On your calendar")).toBeVisible({
@@ -236,7 +250,7 @@ test.describe("An invitation beside the message it came in", () => {
 		const pending = await deliverAndOpen(page, api, run, invite, 12);
 
 		const card = rail(page);
-		await card.getByRole("button", { name: "Decline" }).click();
+		await card.getByRole("button", { name: "Decline", exact: true }).click();
 		await expect(card.getByText("You declined")).toBeVisible({
 			timeout: 30_000,
 		});
