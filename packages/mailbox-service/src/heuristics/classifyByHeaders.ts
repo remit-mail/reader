@@ -6,6 +6,11 @@ import type {
 	ParsedMail,
 	StructuredHeader,
 } from "mailparser";
+import {
+	type AuthenticationResult,
+	type AuthenticationResults,
+	parseAuthenticationResults,
+} from "./authenticationResults.js";
 import { hasMachineHeader, isMachineLocalPart } from "./machineSenders.js";
 import { SOCIAL_DOMAINS } from "./socialDomains.js";
 import { TRANSACTIONAL_DOMAINS } from "./transactionalDomains.js";
@@ -139,41 +144,98 @@ export const extractAuthenticity = (
 	};
 };
 
-const extractVerdict = (
-	text: string,
-	mechanism: string,
+const RESULTS_BY_FAVOURABILITY = [
+	"fail",
+	"softfail",
+	"neutral",
+	"none",
+	"unrecognised",
+	"pass",
+] as const;
+
+type RankedResult = (typeof RESULTS_BY_FAVOURABILITY)[number];
+
+const VERDICT_BY_RESULT: ReadonlyMap<RankedResult, AuthVerdictValue> = new Map([
+	["fail", AuthResultVerdict.Fail],
+	["softfail", AuthResultVerdict.Softfail],
+	["neutral", AuthResultVerdict.Neutral],
+	["none", AuthResultVerdict.None],
+	["pass", AuthResultVerdict.Pass],
+]);
+
+const isRankedResult = (result: string): result is RankedResult =>
+	(RESULTS_BY_FAVOURABILITY as readonly string[]).includes(result);
+
+const rankOf = (result: string): number =>
+	RESULTS_BY_FAVOURABILITY.indexOf(
+		isRankedResult(result) ? result : "unrecognised",
+	);
+
+const leastFavourableVerdict = (
+	results: AuthenticationResult[],
 ): AuthVerdictValue | undefined => {
-	const match = text.match(new RegExp(`${mechanism}=(\\w+)`, "i"));
-	if (!match) return undefined;
-	const raw = match[1].toLowerCase();
-	const map: Record<string, AuthVerdictValue> = {
-		pass: AuthResultVerdict.Pass,
-		fail: AuthResultVerdict.Fail,
-		none: AuthResultVerdict.None,
-		neutral: AuthResultVerdict.Neutral,
-		softfail: AuthResultVerdict.Softfail,
-	};
-	return map[raw];
+	if (results.length === 0) return undefined;
+	const worst = Math.min(...results.map((r) => rankOf(r.result)));
+	return VERDICT_BY_RESULT.get(RESULTS_BY_FAVOURABILITY[worst]);
 };
 
-/**
- * Extract provider authentication-results verdict from the Authentication-Results header.
- * Returns null when the header is absent.
- */
+const normaliseDomain = (value: string | undefined): string | null => {
+	if (value === undefined) return null;
+	const domain = value.trim().toLowerCase().replace(/\.$/, "");
+	return domain.length > 0 ? domain : null;
+};
+
+const identityDomain = (value: string | undefined): string | null => {
+	if (value === undefined) return null;
+	const at = value.lastIndexOf("@");
+	if (at < 0) return null;
+	return normaliseDomain(value.slice(at + 1));
+};
+
+const dkimSigningDomain = (result: AuthenticationResult): string | null => {
+	const signing = normaliseDomain(result.properties.get("header.d"));
+	const hasIdentity = result.properties.has("header.i");
+	const identity = identityDomain(result.properties.get("header.i"));
+	if (hasIdentity && identity === null) return null;
+	if (signing === null) return identity;
+	if (identity === null) return signing;
+	const identityWithinSigning =
+		identity === signing || identity.endsWith(`.${signing}`);
+	return identityWithinSigning ? signing : null;
+};
+
+const dkimResultsForFrom = (
+	results: AuthenticationResult[],
+	fromDomain: string | null,
+): AuthenticationResult[] => {
+	if (!fromDomain) return results;
+	const aligned = results.filter((r) => {
+		const domain = dkimSigningDomain(r);
+		return domain !== null && domainsAligned(domain, fromDomain);
+	});
+	return aligned.length > 0 ? aligned : results;
+};
+
 export const extractAuthResult = (
 	parsed: ParsedMail,
 ): MessageAuthResult | null => {
-	const line = parsed.headerLines.find(
-		(l) => l.key.toLowerCase() === "authentication-results",
-	);
-	if (!line) return null;
+	const headers = parsed.headerLines
+		.filter((l) => l.key.toLowerCase() === "authentication-results")
+		.map((l) => parseAuthenticationResults(stripHeaderName(l.line)))
+		.filter((h): h is AuthenticationResults => h !== null);
+	if (headers.length === 0) return null;
 
-	const text = stripHeaderName(line.line);
-	const dmarc = extractVerdict(text, "dmarc");
-	const spf = extractVerdict(text, "spf");
-	const dkim = extractVerdict(text, "dkim");
+	const results = headers.flatMap((h) => h.results);
+	const byMethod = (method: string): AuthenticationResult[] =>
+		results.filter((r) => r.method === method);
 
-	return { dmarc, spf, dkim };
+	return {
+		dmarc: leastFavourableVerdict(byMethod("dmarc")),
+		spf: leastFavourableVerdict(byMethod("spf")),
+		dkim: leastFavourableVerdict(
+			dkimResultsForFrom(byMethod("dkim"), getFromDomain(parsed)),
+		),
+	};
 };
 
 /**
