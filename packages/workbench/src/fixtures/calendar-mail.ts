@@ -500,6 +500,7 @@ export function slotOffers(
 		while (cursor + minutes <= end && slots.length < limit) {
 			slots.push({
 				date: PROPOSED_DATE,
+				endDate: PROPOSED_DATE,
 				startTime: fromMinutes(cursor),
 				endTime: fromMinutes(cursor + minutes),
 				allDay: false,

@@ -44,6 +44,7 @@ const seed: EventDraft = {
 	title: "",
 	date: "2026-06-12",
 	startTime: "13:00",
+	endDate: "2026-06-12",
 	endTime: "14:00",
 	allDay: false,
 	calendarId: "c1",
@@ -53,12 +54,28 @@ const seed: EventDraft = {
 	repeat: "",
 };
 
-/** 23:00 to 01:00, which one date cannot hold. */
+/** 23:00 to 01:00 on the same day, which runs backwards. */
 const backwards: EventDraft = {
 	...seed,
 	title: "Release window",
 	startTime: "23:00",
 	endTime: "01:00",
+};
+
+/** 23:00 to 01:00 the next morning: one night, not a backwards hour. */
+const overnight: EventDraft = {
+	...backwards,
+	endDate: "2026-06-13",
+};
+
+/** Three whole days, Friday through Sunday. */
+const weekend: EventDraft = {
+	...seed,
+	title: "Offsite",
+	startTime: "",
+	endTime: "",
+	allDay: true,
+	endDate: "2026-06-14",
 };
 
 function Live({
@@ -97,12 +114,22 @@ export const Folded: Story = { render: () => <Live startExpanded={false} /> };
 export const Unfolded: Story = { render: () => <Live startExpanded /> };
 
 /**
- * An end before the start is one date read backwards, not a night that runs
- * over. The form keeps what was typed, names the problem under the fields and
- * holds the save until it is fixed.
+ * An end before the start reads the span backwards. The form keeps what was
+ * typed, names the problem under the fields and holds the save until it is
+ * fixed.
  */
 export const EndBeforeStart: Story = {
 	render: () => <Live startExpanded={false} seed={backwards} />,
+};
+
+/** A night that runs past midnight ends on the next day, and saves. */
+export const RunsPastMidnight: Story = {
+	render: () => <Live startExpanded={false} seed={overnight} />,
+};
+
+/** An all-day event reads from its first day to its last. */
+export const AllDaySpan: Story = {
+	render: () => <Live startExpanded={false} seed={weekend} />,
 };
 
 /**

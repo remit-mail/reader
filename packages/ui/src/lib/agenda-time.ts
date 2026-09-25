@@ -46,6 +46,21 @@ export function addDays(date: string, days: number): string {
 	return cursor.toISOString().slice(0, 10);
 }
 
+export function daysFrom(from: string, to: string): number {
+	return Math.round(
+		(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+			86_400_000,
+	);
+}
+
+export function lastDayOf(event: CalendarEventData): string {
+	const start = event.start.slice(0, 10);
+	const end = event.end.slice(0, 10);
+	if (!event.allDay) return end;
+	const last = addDays(end, -1);
+	return last < start ? start : last;
+}
+
 export function datesBetween(from: string, to: string): string[] {
 	const dates: string[] = [];
 	for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1))

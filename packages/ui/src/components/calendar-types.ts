@@ -118,6 +118,7 @@ export interface CalendarDay {
 export interface CalendarSlotPick {
 	/** `YYYY-MM-DD`. */
 	date: string;
+	endDate: string;
 	/** `HH:MM`, empty when the pick landed in the all-day band. */
 	startTime: string;
 	endTime: string;
@@ -299,6 +300,7 @@ export interface EventDraft {
 	date: string;
 	/** `HH:MM`, empty when the entry is all day. */
 	startTime: string;
+	endDate: string;
 	endTime: string;
 	allDay: boolean;
 	calendarId: string;

@@ -43,6 +43,7 @@ import {
 	formatCustomRecurrence,
 	formatMinute,
 	freeAhead,
+	lastDayOf,
 	monthLabel,
 	NextUpCard,
 	PhraseReading,
@@ -130,6 +131,7 @@ function emptyDraft(): EventDraft {
 		title: "",
 		date: TODAY,
 		startTime: "10:00",
+		endDate: TODAY,
 		endTime: "11:00",
 		allDay: false,
 		calendarId: calendars[0].id,
@@ -145,6 +147,7 @@ function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 		...emptyDraft(),
 		date: pick.date,
 		startTime: pick.allDay ? "" : pick.startTime,
+		endDate: pick.endDate,
 		endTime: pick.allDay ? "" : pick.endTime,
 		allDay: pick.allDay,
 	};
@@ -155,6 +158,7 @@ function draftFromEvent(event: CalendarEventData): EventDraft {
 		title: event.title,
 		date: event.start.slice(0, 10),
 		startTime: event.allDay ? "" : event.start.slice(11, 16),
+		endDate: lastDayOf(event),
 		endTime: event.allDay ? "" : event.end.slice(11, 16),
 		allDay: event.allDay,
 		calendarId: event.calendarId,
@@ -172,6 +176,7 @@ function draftFromPhrase(phrase: string, picks: ChoicePicks): EventDraft {
 		title: parse.title,
 		date: parse.date,
 		startTime: parse.startTime === "" ? "10:00" : parse.startTime,
+		endDate: parse.date,
 		endTime: parse.endTime === "" ? "11:00" : parse.endTime,
 		location: parse.location,
 		guests: parse.attendees.join(", "),
@@ -451,6 +456,7 @@ export function CalendarAgenda({
 		goTo(stretch.date);
 		openSlot({
 			date: stretch.date,
+			endDate: stretch.date,
 			startTime: formatMinute(stretch.startMinute),
 			endTime: formatMinute(
 				Math.min(stretch.startMinute + 60, stretch.endMinute),

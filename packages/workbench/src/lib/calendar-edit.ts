@@ -5,21 +5,17 @@
  * means the same thing in all of them: a series is one object with instances,
  * and an edit either rewrites the object or takes one instance out of line.
  */
-import type {
-	CalendarAttendee,
-	CalendarEventData,
-	EventDraft,
-	RecurrenceScope,
+import {
+	addDays,
+	type CalendarAttendee,
+	type CalendarEventData,
+	daysFrom,
+	type EventDraft,
+	type RecurrenceScope,
 } from "@remit/ui";
 
 /** June puts Amsterdam at UTC+2, and every fixture week is in June. */
 const OFFSET = "+02:00";
-
-function nextDay(date: string): string {
-	const next = new Date(`${date}T00:00:00Z`);
-	next.setUTCDate(next.getUTCDate() + 1);
-	return next.toISOString().slice(0, 10);
-}
 
 /**
  * The guest field is a list of names, so a guest already on the event keeps the
@@ -66,8 +62,8 @@ export function applyDraft(
 			? draft.date
 			: `${draft.date}T${draft.startTime}:00${OFFSET}`,
 		end: draft.allDay
-			? nextDay(draft.date)
-			: `${draft.date}T${draft.endTime}:00${OFFSET}`,
+			? addDays(draft.endDate, 1)
+			: `${draft.endDate}T${draft.endTime}:00${OFFSET}`,
 		allDay: draft.allDay,
 		location: draft.location,
 		notes: draft.notes,
@@ -110,8 +106,10 @@ export function applyScopedEdit(
 	return events.map((event) => {
 		if (event.seriesId !== base.seriesId) return event;
 		if (scope === "following" && event.start < base.start) return event;
+		const date = event.start.slice(0, 10);
+		const endDate = addDays(date, daysFrom(draft.date, draft.endDate));
 		return {
-			...applyDraft(event, { ...draft, date: event.start.slice(0, 10) }),
+			...applyDraft(event, { ...draft, date, endDate }),
 			seriesException: false,
 		};
 	});

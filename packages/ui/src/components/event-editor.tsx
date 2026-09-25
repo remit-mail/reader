@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Repeat } from "lucide-react";
 import { type ReactNode, useId } from "react";
+import { addDays, daysFrom } from "../lib/agenda-time.js";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
 import { NO_REPEAT, repeatChoices } from "../lib/recurrence.js";
@@ -72,20 +73,52 @@ export function EventTitleField({
 }
 
 /**
- * A draft carries one date, so an end before the start is not a night that runs
- * over — it is a span the calendar reads backwards. The form says so and refuses
- * to save it rather than swapping the two fields behind whoever typed them.
+ * An end before the start is a span the calendar reads backwards, not a night
+ * that runs over — a night that runs over ends on the next day, and says so.
+ * The form names the problem and refuses to save it rather than swapping the
+ * fields behind whoever typed them.
  */
 export function endsBeforeStart(draft: EventDraft): boolean {
-	if (draft.allDay) return false;
+	if (draft.date === "" || draft.endDate === "") return false;
+	if (draft.allDay) return draft.endDate < draft.date;
 	if (draft.startTime === "" || draft.endTime === "") return false;
-	return draft.endTime < draft.startTime;
+	return (
+		`${draft.endDate}T${draft.endTime}` < `${draft.date}T${draft.startTime}`
+	);
+}
+
+export function withStartDate(draft: EventDraft, date: string): EventDraft {
+	if (date === "") return { ...draft, date };
+	if (draft.endDate === "") return { ...draft, date, endDate: date };
+	if (draft.date === "") return { ...draft, date };
+	return {
+		...draft,
+		date,
+		endDate: addDays(date, daysFrom(draft.date, draft.endDate)),
+	};
+}
+
+export function withAllDay(draft: EventDraft, allDay: boolean): EventDraft {
+	const overnight =
+		draft.date !== "" &&
+		draft.endDate === addDays(draft.date, 1) &&
+		draft.startTime !== "" &&
+		draft.endTime !== "" &&
+		draft.endTime < draft.startTime;
+	if (allDay && overnight) return { ...draft, allDay, endDate: draft.date };
+	return { ...draft, allDay };
 }
 
 export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
 	const fieldHeight = touch ? "min-h-11" : "";
 	const backwards = endsBeforeStart(draft);
 	const messageId = useId();
+	const invalid = {
+		"aria-invalid": backwards,
+		"aria-describedby": backwards ? messageId : undefined,
+	};
+	const dateClass = cn("w-40", fieldHeight, backwards && "border-danger/60");
+	const timeClass = cn("w-28", fieldHeight, backwards && "border-danger/60");
 	return (
 		<div className="flex flex-col gap-1.5">
 			<div className="flex flex-wrap items-center gap-2">
@@ -93,57 +126,51 @@ export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
 					type="date"
 					value={draft.date}
 					aria-label="Date"
-					onChange={(e) =>
-						setField({ draft, onChange }, "date", e.target.value)
-					}
-					className={cn("w-40", fieldHeight)}
+					{...invalid}
+					onChange={(e) => onChange(withStartDate(draft, e.target.value))}
+					className={dateClass}
 				/>
-				{draft.allDay ? (
-					<span className="text-sm text-fg-muted">All day</span>
-				) : (
-					<>
-						<Input
-							type="time"
-							value={draft.startTime}
-							aria-label="Start time"
-							max={draft.endTime === "" ? undefined : draft.endTime}
-							aria-invalid={backwards}
-							aria-describedby={backwards ? messageId : undefined}
-							onChange={(e) =>
-								setField({ draft, onChange }, "startTime", e.target.value)
-							}
-							className={cn(
-								"w-28",
-								fieldHeight,
-								backwards && "border-danger/60",
-							)}
-						/>
-						<span className="text-sm text-fg-subtle">to</span>
-						<Input
-							type="time"
-							value={draft.endTime}
-							aria-label="End time"
-							min={draft.startTime === "" ? undefined : draft.startTime}
-							aria-invalid={backwards}
-							aria-describedby={backwards ? messageId : undefined}
-							onChange={(e) =>
-								setField({ draft, onChange }, "endTime", e.target.value)
-							}
-							className={cn(
-								"w-28",
-								fieldHeight,
-								backwards && "border-danger/60",
-							)}
-						/>
-					</>
+				{!draft.allDay && (
+					<Input
+						type="time"
+						value={draft.startTime}
+						aria-label="Start time"
+						{...invalid}
+						onChange={(e) =>
+							setField({ draft, onChange }, "startTime", e.target.value)
+						}
+						className={timeClass}
+					/>
+				)}
+				<span className="text-sm text-fg-subtle">to</span>
+				<Input
+					type="date"
+					value={draft.endDate}
+					aria-label="End date"
+					min={draft.date === "" ? undefined : draft.date}
+					{...invalid}
+					onChange={(e) =>
+						setField({ draft, onChange }, "endDate", e.target.value)
+					}
+					className={dateClass}
+				/>
+				{!draft.allDay && (
+					<Input
+						type="time"
+						value={draft.endTime}
+						aria-label="End time"
+						{...invalid}
+						onChange={(e) =>
+							setField({ draft, onChange }, "endTime", e.target.value)
+						}
+						className={timeClass}
+					/>
 				)}
 				<label className="flex items-center gap-2 text-sm text-fg-muted">
 					<input
 						type="checkbox"
 						checked={draft.allDay}
-						onChange={(e) =>
-							setField({ draft, onChange }, "allDay", e.target.checked)
-						}
+						onChange={(e) => onChange(withAllDay(draft, e.target.checked))}
 						className="size-4 accent-current"
 					/>
 					All day
@@ -151,8 +178,9 @@ export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
 			</div>
 			{backwards && (
 				<p id={messageId} className="text-xs text-danger" role="alert">
-					Ends before it starts. Move the end past {draft.startTime}, or start
-					earlier.
+					{draft.allDay
+						? `Ends before it starts. Move the end to ${draft.date} or later.`
+						: `Ends before it starts. Move the end past ${draft.date} ${draft.startTime}, or start earlier.`}
 				</p>
 			)}
 		</div>

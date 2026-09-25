@@ -34,6 +34,7 @@ const draft: EventDraft = {
 	title: "Roadmap review",
 	date: "2026-06-10",
 	startTime: "10:00",
+	endDate: "2026-06-10",
 	endTime: "11:30",
 	allDay: false,
 	calendarId: "cal_work",
@@ -100,6 +101,22 @@ export const EditingOneOccurrence: Story = {
 			startTime: "09:15",
 			endTime: "09:30",
 			repeat: "Every weekday, 09:15",
+		},
+	},
+};
+
+/** A night shift opens as one night, ending on the next day. */
+export const EditingOvernight: Story = {
+	args: {
+		title: "Edit event",
+		subtitle: "2026-06-10",
+		saveLabel: "Save",
+		draft: {
+			...draft,
+			title: "Night shift handover",
+			startTime: "22:00",
+			endDate: "2026-06-11",
+			endTime: "01:00",
 		},
 	},
 };

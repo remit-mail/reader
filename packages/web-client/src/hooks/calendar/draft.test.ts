@@ -9,10 +9,16 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { EventDraft } from "@remit/ui";
+import {
+	type CalendarEventData,
+	type EventDraft,
+	withAllDay,
+	withStartDate,
+} from "@remit/ui";
 import {
 	type CreateInput,
 	createInputFromDraft,
+	draftFromEvent,
 	emptyDraft,
 	patchFromDrafts,
 	type UpdatePatch,
@@ -25,6 +31,30 @@ const NEW_YORK = "America/New_York";
 const draft = (over: Partial<EventDraft> = {}): EventDraft => ({
 	...emptyDraft("2026-06-10", CALENDAR),
 	title: "Roadmap review",
+	...over,
+});
+
+const STORED = { repeat: "", location: "", notes: "" };
+
+const event = (over: Partial<CalendarEventData>): CalendarEventData => ({
+	id: "evt_1",
+	calendarId: CALENDAR,
+	title: "Roadmap review",
+	start: "2026-06-10T09:00:00+02:00",
+	end: "2026-06-10T10:00:00+02:00",
+	allDay: false,
+	location: "",
+	notes: "",
+	attendees: [],
+	myRsvp: "accepted",
+	threadId: "",
+	threadSubject: "",
+	timeZone: AMSTERDAM,
+	zoneCertainty: "explicit",
+	recurrenceRule: "",
+	seriesId: "",
+	seriesException: false,
+	status: "confirmed",
 	...over,
 });
 
@@ -57,6 +87,31 @@ describe("creating an event", () => {
 		assert.equal(built.input.end, "2026-06-11");
 	});
 
+	it("ends a night that runs past midnight on the next day", () => {
+		const built = createInputFromDraft(
+			draft({ startTime: "22:00", endDate: "2026-06-11", endTime: "01:00" }),
+			AMSTERDAM,
+		);
+		assert.ok(built.ok);
+		assert.equal(built.input.start, "2026-06-10T22:00:00+02:00");
+		assert.equal(built.input.end, "2026-06-11T01:00:00+02:00");
+	});
+
+	it("ends an all-day event the day after the last day it covers", () => {
+		const built = createInputFromDraft(
+			draft({
+				allDay: true,
+				startTime: "",
+				endTime: "",
+				endDate: "2026-06-12",
+			}),
+			AMSTERDAM,
+		);
+		assert.ok(built.ok);
+		assert.equal(built.input.start, "2026-06-10");
+		assert.equal(built.input.end, "2026-06-13");
+	});
+
 	it("turns a picked repeat sentence into the rule it means", () => {
 		const built = createInputFromDraft(
 			draft({ repeat: "Every weekday, 09:00" }),
@@ -86,7 +141,24 @@ describe("a refusal", () => {
 					AMSTERDAM,
 				),
 			),
-			/end time is not after the start time/i,
+			/end is not after the start/i,
+		);
+	});
+
+	it("names a last day before the first on an all-day event", () => {
+		assert.match(
+			refusal(
+				createInputFromDraft(
+					draft({
+						allDay: true,
+						startTime: "",
+						endTime: "",
+						endDate: "2026-06-09",
+					}),
+					AMSTERDAM,
+				),
+			),
+			/last day is before the first/i,
 		);
 	});
 
@@ -153,6 +225,41 @@ describe("editing an event", () => {
 		assert.equal(patch.patch.recurrenceRule, "");
 	});
 
+	it("saves another field of a night that runs past midnight", () => {
+		const before = draftFromEvent(
+			event({
+				start: "2026-06-10T22:00:00+02:00",
+				end: "2026-06-11T01:00:00+02:00",
+			}),
+			STORED,
+		);
+		assert.equal(before.endDate, "2026-06-11");
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, title: "Night shift" },
+			AMSTERDAM,
+		);
+		assert.ok(patch.ok);
+		assert.deepEqual(patch.patch, { summary: "Night shift" });
+	});
+
+	it("keeps every day of an all-day event it opens", () => {
+		const before = draftFromEvent(
+			event({ allDay: true, start: "2026-06-10", end: "2026-06-13" }),
+			STORED,
+		);
+		assert.equal(before.date, "2026-06-10");
+		assert.equal(before.endDate, "2026-06-12");
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, date: "2026-06-17", endDate: "2026-06-19" },
+			AMSTERDAM,
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.start, "2026-06-17");
+		assert.equal(patch.patch.end, "2026-06-20");
+	});
+
 	it("changes nothing when nothing was touched", () => {
 		const before = draft();
 		const patch = patchFromDrafts(before, { ...before }, AMSTERDAM);
@@ -185,7 +292,7 @@ describe("an event anchored somewhere other than the device", () => {
 		const before = draft();
 		const patch = patchFromDrafts(
 			before,
-			{ ...before, date: "2026-06-17" },
+			{ ...before, date: "2026-06-17", endDate: "2026-06-17" },
 			AMSTERDAM,
 		);
 		assert.ok(patch.ok);
@@ -200,7 +307,7 @@ describe("an event anchored somewhere other than the device", () => {
 
 	it("reads the zone's own winter offset rather than one it saw in June", () => {
 		const built = createInputFromDraft(
-			draft({ date: "2026-01-14" }),
+			draft({ date: "2026-01-14", endDate: "2026-01-14" }),
 			AMSTERDAM,
 		);
 		assert.ok(built.ok);
@@ -231,11 +338,51 @@ describe("an event anchored somewhere other than the device", () => {
 		const before = draft();
 		const patch = patchFromDrafts(
 			before,
-			{ ...before, date: "2026-06-17" },
+			{ ...before, date: "2026-06-17", endDate: "2026-06-17" },
 			"",
 		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.timeZone, undefined);
 		assert.equal(patch.patch.start, "2026-06-17T09:00:00+00:00");
+	});
+});
+
+describe("the form moving its own dates", () => {
+	const weekend = draft({
+		allDay: true,
+		startTime: "",
+		endTime: "",
+		date: "2026-06-12",
+		endDate: "2026-06-14",
+	});
+
+	it("carries the last day along when the first day moves", () => {
+		const moved = withStartDate(weekend, "2026-06-19");
+		assert.equal(moved.date, "2026-06-19");
+		assert.equal(moved.endDate, "2026-06-21");
+	});
+
+	it("keeps the last day while the start date is cleared and retyped", () => {
+		const cleared = withStartDate(weekend, "");
+		assert.equal(cleared.endDate, "2026-06-14");
+		const retyped = withStartDate(cleared, "2026-06-12");
+		assert.equal(retyped.date, "2026-06-12");
+		assert.equal(retyped.endDate, "2026-06-14");
+	});
+
+	it("makes a night that runs past midnight one all-day date", () => {
+		const night = draft({
+			startTime: "22:00",
+			endDate: "2026-06-11",
+			endTime: "01:00",
+		});
+		const allDay = withAllDay(night, true);
+		assert.equal(allDay.allDay, true);
+		assert.equal(allDay.endDate, "2026-06-10");
+	});
+
+	it("keeps the days of a timed event that spans them when made all day", () => {
+		const span = draft({ endDate: "2026-06-12", endTime: "17:00" });
+		assert.equal(withAllDay(span, true).endDate, "2026-06-12");
 	});
 });

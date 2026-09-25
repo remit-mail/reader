@@ -37,6 +37,7 @@ import {
 	FlowScreen,
 	FooterNav,
 	formatCustomRecurrence,
+	lastDayOf,
 	type PhraseParse,
 	parseEventPhrase,
 	ReadingPane,
@@ -109,6 +110,7 @@ function emptyDraft(): EventDraft {
 		title: "",
 		date: TODAY,
 		startTime: "10:00",
+		endDate: TODAY,
 		endTime: "11:00",
 		allDay: false,
 		calendarId: calendars[0].id,
@@ -124,6 +126,7 @@ function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 		...emptyDraft(),
 		date: pick.date,
 		startTime: pick.allDay ? "" : pick.startTime,
+		endDate: pick.endDate,
 		endTime: pick.allDay ? "" : pick.endTime,
 		allDay: pick.allDay,
 	};
@@ -134,6 +137,7 @@ function draftFromEvent(event: CalendarEventData): EventDraft {
 		title: event.title,
 		date: event.start.slice(0, 10),
 		startTime: event.allDay ? "" : event.start.slice(11, 16),
+		endDate: lastDayOf(event),
 		endTime: event.allDay ? "" : event.end.slice(11, 16),
 		allDay: event.allDay,
 		calendarId: event.calendarId,
@@ -413,6 +417,7 @@ export function CalendarDestination({
 				title: base.title,
 				date: base.start.slice(0, 10),
 				startTime: base.allDay ? "" : base.start.slice(11, 16),
+				endDate: lastDayOf(base),
 				endTime: base.allDay ? "" : base.end.slice(11, 16),
 				allDay: base.allDay,
 				location: base.location,
@@ -889,6 +894,7 @@ export function CalendarDestination({
 						onCreate={() =>
 							openSlot({
 								date,
+								endDate: date,
 								startTime: FALLBACK_START,
 								endTime: addMinutesToClock(FALLBACK_START, 60),
 								allDay: false,
@@ -1023,6 +1029,7 @@ function fromPhrase(phrase: string): EventDraft {
 		title: parse.title,
 		date: parse.date,
 		startTime: parse.startTime,
+		endDate: parse.date,
 		endTime: addMinutesToClock(parse.startTime, parse.durationMinutes),
 		guests: parse.attendees.join(", "),
 	};
