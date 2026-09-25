@@ -15,6 +15,7 @@ import { describe, it } from "node:test";
 import type {
 	IAccountRepository,
 	IOutboxMessageRepository,
+	OutboxAttachmentItem,
 	OutboxMessageItem,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
@@ -50,7 +51,10 @@ interface Harness {
 	statusWrites: string[];
 }
 
-const createHarness = (stored: OutboxMessageItem): Harness => {
+const createHarness = (
+	stored: OutboxMessageItem,
+	attachments: OutboxAttachmentItem[] = [],
+): Harness => {
 	const harness: Harness = {
 		service: undefined as unknown as OutboxQueueService,
 		enqueued: [],
@@ -85,7 +89,10 @@ const createHarness = (stored: OutboxMessageItem): Harness => {
 
 	harness.service = new OutboxQueueService({
 		outboxMessageService,
-		outboxAttachmentService: {} as unknown as OutboxAttachmentService,
+		outboxAttachmentService: {
+			unfinishedUpload: async () =>
+				attachments.find((item) => item.state !== "Stored"),
+		} as unknown as OutboxAttachmentService,
 		accountService: {} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",
 		sqsClient: {
@@ -118,6 +125,37 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 			(error: unknown) => {
 				assert.ok(error instanceof BadRequestError);
 				assert.equal(error.statusCode, 400);
+				return true;
+			},
+		);
+
+		assert.deepEqual(harness.statusWrites, [], "it stayed a draft");
+		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+	});
+
+	it("refuses to queue a draft with a file still uploading, and names the file", async () => {
+		const harness = createHarness(draft({}), [
+			{
+				outboxAttachmentId: "att-1",
+				outboxMessageId: OUTBOX_MESSAGE_ID,
+				accountId: ACCOUNT_ID,
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				filename: "report.pdf",
+				contentType: "application/pdf",
+				sizeBytes: 10,
+				state: "Pending",
+				storageKey: "k",
+				reservationExpiresAt: Number.MAX_SAFE_INTEGER,
+				createdAt: 0,
+				updatedAt: 0,
+			},
+		]);
+
+		await assert.rejects(
+			() => harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID),
+			(error: unknown) => {
+				assert.ok(error instanceof BadRequestError);
+				assert.match(error.message, /"report\.pdf" has not finished uploading/);
 				return true;
 			},
 		);

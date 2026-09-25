@@ -181,6 +181,12 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
+	const attachments = await outboxAttachmentService.contentsFor(
+		account.accountConfigId,
+		accountId,
+		outboxMessageId,
+	);
+
 	let appendedUid = APPENDED_UID_NONE;
 
 	const failure = await withOAuthLifecycle(
@@ -193,7 +199,9 @@ export const handleAppendSentMessage = async (
 			await scope
 				.getConnection()
 				.then(async (connection) => {
-					const rawMessage = await renderRawMessage(buildMailMessage(outbox));
+					const rawMessage = await renderRawMessage(
+						buildMailMessage(outbox, attachments),
+					);
 
 					const result = await connection.append(
 						sentMailbox.fullPath,

@@ -269,6 +269,16 @@ export class OutboxQueueService {
 			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
 		}
 
+		const unfinished = await this.outboxAttachmentService.unfinishedUpload(
+			accountConfigId,
+			outboxMessageId,
+		);
+		if (unfinished) {
+			throw new BadRequestError(
+				`"${unfinished.filename}" has not finished uploading. Wait for it, or remove it, and send again.`,
+			);
+		}
+
 		// Conditional on the status this send was decided against, so two presses —
 		// or a press racing the worker — produce one queued row and one conflict
 		// rather than two events for the same message.

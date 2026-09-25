@@ -467,6 +467,27 @@ export const createS3StorageService = (
 		return { sizeBytes: head.ContentLength ?? 0 };
 	};
 
+	const retrieveOutboxAttachment: StorageService["retrieveOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
+			const key = buildOutboxAttachmentKey(
+				accountConfigId,
+				accountId,
+				outboxMessageId,
+				outboxAttachmentId,
+			);
+			const response = await client
+				.send(new GetObjectCommand({ Bucket: bucketName, Key: key }))
+				.catch((error: unknown) => {
+					if (isStorageNotFoundError(error)) return null;
+					throw error;
+				});
+			if (!response) return null;
+			if (!response.Body) {
+				throw new Error(`Empty response body for outbox attachment: ${key}`);
+			}
+			return Buffer.from(await response.Body.transformToByteArray());
+		};
+
 	// The browser PUTs straight to the bucket and these bytes never touch the
 	// API. `ContentLength` on the command hoists `content-length` into
 	// X-Amz-SignedHeaders, so S3 recomputes the signature over the length it was
@@ -718,6 +739,7 @@ export const createS3StorageService = (
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
+		retrieveOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,

@@ -27,6 +27,7 @@
 		"@remit/sqs-client": "*",
 		"@remit/secrets-service": "*",
 		"@remit/smtp-service": "*",
+		"@remit/storage-service": "*",
 		"@remit/domain-enums": "*",
 		"@remit/mail-oauth-service": "*",
 		"@remit/mailbox-service": "*",

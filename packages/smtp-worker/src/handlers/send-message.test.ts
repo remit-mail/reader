@@ -11,7 +11,12 @@ import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import { type SendResult, SmtpConnectionError } from "@remit/smtp-service";
+import {
+	type MailAttachment,
+	type MailMessage,
+	type SendResult,
+	SmtpConnectionError,
+} from "@remit/smtp-service";
 import type { SendMessageEvent } from "../events.js";
 import {
 	getSendMessageMaxAttempts,
@@ -104,6 +109,7 @@ const buildDeps = (
 		appendThrows?: Error;
 		resolveCredentials?: SendMessageDeps["resolveCredentials"];
 		send?: SendMessageDeps["send"];
+		attachments?: MailAttachment[];
 	} = {},
 ): { deps: SendMessageDeps; recorded: Recorded } => {
 	const recorded: Recorded = {
@@ -194,6 +200,12 @@ const buildDeps = (
 					}
 				);
 			}),
+		loadAttachments: async (tenant, outboxMessageId) => {
+			assert.equal(tenant.accountConfigId, account.accountConfigId);
+			assert.equal(tenant.accountId, account.accountId);
+			assert.equal(outboxMessageId, outbox.outboxMessageId);
+			return options.attachments ?? [];
+		},
 		emitAppendSentMessage: async (accountId, outboxMessageId) => {
 			recorded.appendCalls.push({ accountId, outboxMessageId });
 			if (options.appendThrows) throw options.appendThrows;
@@ -225,6 +237,29 @@ const event: SendMessageEvent = {
 };
 
 describe("sendMessage handler", () => {
+	it("sends every file the draft carries as a part of the message", async () => {
+		const attachments: MailAttachment[] = [
+			{
+				filename: "report.pdf",
+				contentType: "application/pdf",
+				content: Buffer.from("%PDF-1.4"),
+			},
+		];
+		const sent: MailMessage[] = [];
+		const { deps } = buildDeps({
+			attachments,
+			send: async (_config, message) => {
+				sent.push(message);
+				return { success: true, messageId: "smtp-mid-1", isTransient: false };
+			},
+		});
+
+		await sendMessage(event, silentLogger, deps);
+
+		assert.equal(sent.length, 1);
+		assert.deepEqual(sent[0].attachments, attachments);
+	});
+
 	it("marks status `blocked` when SMTP is disabled — never `sent`", async () => {
 		const { deps, recorded } = buildDeps({
 			account: buildAccount({ smtpEnabled: false }),

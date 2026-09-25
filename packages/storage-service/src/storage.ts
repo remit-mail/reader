@@ -267,6 +267,17 @@ export interface StorageService {
 	): Promise<{ sizeBytes: number } | null>;
 
 	/**
+	 * The bytes of one attachment, for building the MIME part it goes out as.
+	 * Null when nothing is stored under the key.
+	 */
+	retrieveOutboxAttachment(
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+		outboxAttachmentId: string,
+	): Promise<Buffer | null>;
+
+	/**
 	 * Mint somewhere to PUT one file. The backend decides what that is — block
 	 * storage direct, or this deployment's upload route — and the caller never
 	 * branches on which it got. Whatever it returns must bind the size: an
@@ -650,6 +661,12 @@ export const createMockStorageService = (): StorageService => {
 		return content ? { sizeBytes: content.length } : null;
 	};
 
+	const retrieveOutboxAttachment: StorageService["retrieveOutboxAttachment"] =
+		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) =>
+			storage.get(
+				`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+			) ?? null;
+
 	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
 		async (params) => ({
 			uploadUrl: `mock://upload/${buildOutboxAttachmentKey(params.accountConfigId, params.accountId, params.outboxMessageId, params.outboxAttachmentId)}?max=${params.sizeBytes}&exp=${params.expiresAt}`,
@@ -805,6 +822,7 @@ export const createMockStorageService = (): StorageService => {
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
+		retrieveOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,

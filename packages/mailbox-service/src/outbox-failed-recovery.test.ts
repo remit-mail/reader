@@ -122,7 +122,9 @@ const createHarness = (
 
 	harness.service = new OutboxQueueService({
 		outboxMessageService,
-		outboxAttachmentService: {} as unknown as OutboxAttachmentService,
+		outboxAttachmentService: {
+			unfinishedUpload: async () => undefined,
+		} as unknown as OutboxAttachmentService,
 		accountService: {} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",
 		sqsClient: {

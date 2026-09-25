@@ -31,6 +31,11 @@ interface Harness {
 	 * without ever running the work. */
 	ackWithoutWork: boolean;
 	disconnectCount: number;
+	attachments: Array<{
+		filename: string;
+		contentType: string;
+		content: Buffer;
+	}>;
 }
 
 let h: Harness;
@@ -65,6 +70,7 @@ const fresh = (): Harness => ({
 	},
 	ackWithoutWork: false,
 	disconnectCount: 0,
+	attachments: [],
 });
 
 const deps = (): AppendSentMessageDeps =>
@@ -83,6 +89,10 @@ const deps = (): AppendSentMessageDeps =>
 			},
 			outboxAttachment: {
 				discardAll: record("outboxAttachment.discardAll"),
+				contentsFor: async (...args: unknown[]) => {
+					h.calls.push({ method: "outboxAttachment.contentsFor", args });
+					return h.attachments;
+				},
 			},
 			mailboxSpecialUse: {
 				findSentMailbox: async () => h.sentMailbox,
@@ -188,6 +198,31 @@ describe("handleAppendSentMessage", () => {
 			"acc-1",
 			"out-1",
 		]);
+	});
+
+	it("files the Sent copy with the same files the wire copy carried", async () => {
+		h.attachments = [
+			{
+				filename: "numbers.csv",
+				contentType: "text/csv",
+				content: Buffer.from("q1,q2\n1,2\n"),
+			},
+		];
+
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
+
+		assert.deepEqual(called("outboxAttachment.contentsFor")[0]?.args, [
+			"cfg-1",
+			"acc-1",
+			"out-1",
+		]);
+		const raw = String(called("connection.append")[0]?.args[1] as Buffer);
+		assert.match(raw, /^Content-Type: multipart\/mixed;/m);
+		assert.match(
+			raw,
+			/^Content-Disposition: attachment; filename=numbers\.csv$/m,
+		);
+		assert.match(raw, /^Content-Type: text\/csv; name=numbers\.csv$/m);
 	});
 
 	it("builds the message from the outbox row's own headers", async () => {

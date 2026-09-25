@@ -3,6 +3,7 @@ import type {
 	IAddressRepository,
 	IEnvelopeRepository,
 	IMessageRepository,
+	IOutboxAttachmentRepository,
 	IOutboxMessageRepository,
 } from "@remit/data-ports";
 
@@ -13,6 +14,7 @@ import type {
 export interface SmtpDataPorts {
 	account: IAccountRepository;
 	outboxMessage: IOutboxMessageRepository;
+	outboxAttachment: IOutboxAttachmentRepository;
 	address: IAddressRepository;
 	message: IMessageRepository;
 	envelope: IEnvelopeRepository;
@@ -36,6 +38,7 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 		DrizzleEnvelopeRepository,
 		DrizzleMessageRepository,
 		messageDataSchema,
+		OutboxAttachmentRepo,
 		OutboxMessageRepo,
 	} = await import("@remit/drizzle-service");
 
@@ -46,6 +49,7 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 	return {
 		account: new AccountRepo(db),
 		outboxMessage: new OutboxMessageRepo(db),
+		outboxAttachment: new OutboxAttachmentRepo(db),
 		address: new AddressRepo(db),
 		message: new DrizzleMessageRepository(db),
 		envelope: new DrizzleEnvelopeRepository(db),

@@ -11,6 +11,7 @@ import type { CredentialResolution } from "@remit/mailbox-service/account-creden
 import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,
+	type MailAttachment,
 	type SendResult,
 	SmtpConnectionError,
 	type sendMail,
@@ -100,6 +101,10 @@ export interface SendMessageDeps {
 		lastError?: string,
 	) => Promise<void>;
 	send: typeof sendMail;
+	loadAttachments: (
+		tenant: SendTenant,
+		outboxMessageId: string,
+	) => Promise<MailAttachment[]>;
 	emitAppendSentMessage: (
 		accountId: string,
 		outboxMessageId: string,
@@ -301,9 +306,14 @@ export const sendMessage = async (
 	}
 	const smtpConfig = resolved.config;
 
+	const attachments = await deps.loadAttachments(
+		{ accountConfigId, accountId: account.accountId },
+		outboxMessageId,
+	);
+
 	await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "sending");
 
-	const message = buildMailMessage(outbox);
+	const message = buildMailMessage(outbox, attachments);
 
 	log.info(
 		{ outboxMessageId, to: outbox.toAddresses, subject: outbox.subject },

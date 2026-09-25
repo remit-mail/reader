@@ -15,12 +15,15 @@ import {
 	type AccountCredentialsDeps,
 	resolveConnectionCredentials,
 } from "@remit/mailbox-service/account-credentials";
+import { loadOutboxAttachmentContents } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
 } from "@remit/secrets-service";
 import { sendMail } from "@remit/smtp-service";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import type { StorageService } from "@remit/storage-service";
+import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
@@ -33,6 +36,12 @@ let portsPromise: Promise<SmtpDataPorts> | null = null;
 const getPorts = (): Promise<SmtpDataPorts> => {
 	if (!portsPromise) portsPromise = buildDataPortsFromEnv();
 	return portsPromise;
+};
+
+let storage: StorageService | null = null;
+const getStorage = (): StorageService => {
+	if (!storage) storage = createStorageService();
+	return storage;
 };
 
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -177,6 +186,15 @@ export const handleSendMessage = (
 				);
 			},
 			send: sendMail,
+			loadAttachments: async (tenant, outboxMessageId) =>
+				loadOutboxAttachmentContents(
+					{
+						attachments: (await getPorts()).outboxAttachment,
+						storage: getStorage(),
+					},
+					{ ...tenant, outboxMessageId },
+					Math.floor(Date.now() / 1000),
+				),
 			emitAppendSentMessage,
 			engagement: {
 				resolveAddressId: deriveAddressId,
