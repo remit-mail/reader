@@ -54,7 +54,9 @@ interface Harness {
 const createHarness = (
 	stored: OutboxMessageItem,
 	attachments: OutboxAttachmentItem[] = [],
+	lateAttachments: OutboxAttachmentItem[] = [],
 ): Harness => {
+	let unfinishedChecks = 0;
 	const harness: Harness = {
 		service: undefined as unknown as OutboxQueueService,
 		enqueued: [],
@@ -90,8 +92,11 @@ const createHarness = (
 	harness.service = new OutboxQueueService({
 		outboxMessageService,
 		outboxAttachmentService: {
-			unfinishedUpload: async () =>
-				attachments.find((item) => item.state !== "Stored"),
+			unfinishedUpload: async () => {
+				unfinishedChecks += 1;
+				const held = unfinishedChecks === 1 ? attachments : lateAttachments;
+				return held.find((item) => item.state !== "Stored");
+			},
 		} as unknown as OutboxAttachmentService,
 		accountService: {} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",
@@ -104,6 +109,21 @@ const createHarness = (
 	});
 
 	return harness;
+};
+
+const pendingFile: OutboxAttachmentItem = {
+	outboxAttachmentId: "att-late",
+	outboxMessageId: OUTBOX_MESSAGE_ID,
+	accountId: ACCOUNT_ID,
+	accountConfigId: ACCOUNT_CONFIG_ID,
+	filename: "report.pdf",
+	contentType: "application/pdf",
+	sizeBytes: 10,
+	state: "Pending",
+	storageKey: "k",
+	reservationExpiresAt: Number.MAX_SAFE_INTEGER,
+	createdAt: 0,
+	updatedAt: 0,
 };
 
 const sendInput = (overrides: Record<string, unknown>) => ({
@@ -130,6 +150,25 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.deepEqual(harness.statusWrites, [], "it stayed a draft");
+		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+	});
+
+	it("puts the draft back when a reservation lands between the check and the queue", async () => {
+		const harness = createHarness(draft({}), [], [pendingFile]);
+
+		await assert.rejects(
+			() => harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID),
+			(error: unknown) => {
+				assert.ok(error instanceof BadRequestError);
+				assert.match(error.message, /"report\.pdf" has not finished uploading/);
+				return true;
+			},
+		);
+
+		assert.deepEqual(harness.statusWrites, [
+			OutboxMessageStatus.queued,
+			OutboxMessageStatus.draft,
+		]);
 		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
 	});
 

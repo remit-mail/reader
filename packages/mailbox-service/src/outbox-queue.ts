@@ -290,6 +290,25 @@ export class OutboxQueueService {
 		);
 		if (!updated) throw new ConflictError(MOVED_WHILE_SENDING_MESSAGE);
 
+		// A reservation made from another tab between the check above and the
+		// move to `queued` got past it; one made after the move is refused, so a
+		// second look now is the last word.
+		const lateUpload = await this.outboxAttachmentService.unfinishedUpload(
+			accountConfigId,
+			outboxMessageId,
+		);
+		if (lateUpload) {
+			await this.outboxMessageService.updateIfStatus(
+				accountConfigId,
+				outboxMessageId,
+				OutboxMessageStatus.queued,
+				{ status: existing.status },
+			);
+			throw new BadRequestError(
+				`"${lateUpload.filename}" has not finished uploading. Wait for it, or remove it, and send again.`,
+			);
+		}
+
 		// `queued` is a dead end for a row the queue never accepted: `send` takes
 		// draft, failed and blocked, `deleteDraft` those three plus unfiled, so a
 		// row parked at `queued` by a failed enqueue is neither sendable nor

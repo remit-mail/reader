@@ -7,6 +7,7 @@ import type {
 } from "@remit/data-ports";
 import { AccountAuthType } from "@remit/domain-enums";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
+import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,
@@ -110,6 +111,7 @@ const buildDeps = (
 		resolveCredentials?: SendMessageDeps["resolveCredentials"];
 		send?: SendMessageDeps["send"];
 		attachments?: MailAttachment[];
+		attachmentsFail?: Error;
 	} = {},
 ): { deps: SendMessageDeps; recorded: Recorded } => {
 	const recorded: Recorded = {
@@ -204,6 +206,7 @@ const buildDeps = (
 			assert.equal(tenant.accountConfigId, account.accountConfigId);
 			assert.equal(tenant.accountId, account.accountId);
 			assert.equal(outboxMessageId, outbox.outboxMessageId);
+			if (options.attachmentsFail) throw options.attachmentsFail;
 			return options.attachments ?? [];
 		},
 		emitAppendSentMessage: async (accountId, outboxMessageId) => {
@@ -237,6 +240,42 @@ const event: SendMessageEvent = {
 };
 
 describe("sendMessage handler", () => {
+	it("retries a message whose files could not be read, below the budget", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({ status: "queued" }),
+			attachmentsFail: new OutboxAttachmentUnavailableError(
+				"payroll.xlsx",
+				"nothing is stored at key/payroll",
+			),
+		});
+
+		await assert.rejects(() => sendMessage(event, silentLogger, deps, 1));
+
+		assert.equal(recorded.sendCalls, 0);
+		assert.deepEqual(recorded.updates, []);
+		assert.deepEqual(recorded.statuses, [], "never moved to sending");
+	});
+
+	it("settles a message whose files cannot be read as failed, naming the file, at the budget", async () => {
+		const { deps, recorded } = buildDeps({
+			outbox: buildOutbox({ status: "queued" }),
+			attachmentsFail: new OutboxAttachmentUnavailableError(
+				"payroll.xlsx",
+				"nothing is stored at key/payroll",
+			),
+		});
+
+		await sendMessage(event, silentLogger, deps, SEND_MESSAGE_MAX_ATTEMPTS);
+
+		assert.equal(recorded.sendCalls, 0);
+		assert.equal(recorded.updates.length, 1);
+		assert.equal(recorded.updates[0].patch.status, "failed");
+		assert.equal(
+			recorded.updates[0].patch.lastError,
+			'"payroll.xlsx" could not be read: nothing is stored at key/payroll, so this message was not sent. Remove "payroll.xlsx", attach it again, and send.',
+		);
+	});
+
 	it("sends every file the draft carries as a part of the message", async () => {
 		const attachments: MailAttachment[] = [
 			{

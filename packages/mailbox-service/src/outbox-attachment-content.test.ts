@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { OutboxAttachmentItem } from "@remit/data-ports";
 import { createMockStorageService } from "@remit/storage-service";
-import { loadOutboxAttachmentContents } from "./outbox-attachment-content.js";
+import {
+	loadOutboxAttachmentContents,
+	OutboxAttachmentUnavailableError,
+} from "./outbox-attachment-content.js";
 
 const OWNER = {
 	accountConfigId: "cfg-1",
@@ -92,7 +95,12 @@ describe("loadOutboxAttachmentContents", () => {
 
 		await assert.rejects(
 			() => loadOutboxAttachmentContents(deps, OWNER, NOW),
-			/attachment open that never finished uploading/,
+			(error: unknown) => {
+				assert.ok(error instanceof OutboxAttachmentUnavailableError);
+				assert.equal(error.filename, "open.txt");
+				assert.match(error.message, /never finished uploading/);
+				return true;
+			},
 		);
 	});
 
@@ -101,7 +109,37 @@ describe("loadOutboxAttachmentContents", () => {
 
 		await assert.rejects(
 			() => loadOutboxAttachmentContents(deps, OWNER, NOW),
-			/gone is recorded as stored but nothing is stored at key\/gone/,
+			(error: unknown) => {
+				assert.ok(error instanceof OutboxAttachmentUnavailableError);
+				assert.equal(
+					error.message,
+					'"gone.txt" could not be read: nothing is stored at key/gone',
+				);
+				return true;
+			},
+		);
+	});
+
+	it("names the file when storage itself fails", async () => {
+		const deps = {
+			attachments: { listByOutboxMessage: async () => [row("payroll")] },
+			storage: {
+				retrieveOutboxAttachment: async (): Promise<Buffer | null> => {
+					throw new Error("S3 is down");
+				},
+			},
+		};
+
+		await assert.rejects(
+			() => loadOutboxAttachmentContents(deps, OWNER, NOW),
+			(error: unknown) => {
+				assert.ok(error instanceof OutboxAttachmentUnavailableError);
+				assert.equal(
+					error.message,
+					'"payroll.txt" could not be read: storage failed (S3 is down)',
+				);
+				return true;
+			},
 		);
 	});
 });

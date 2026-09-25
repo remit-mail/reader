@@ -485,7 +485,8 @@ export const createS3StorageService = (
 			if (!response.Body) {
 				throw new Error(`Empty response body for outbox attachment: ${key}`);
 			}
-			return Buffer.from(await response.Body.transformToByteArray());
+			const bytes = await response.Body.transformToByteArray();
+			return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
 		};
 
 	// The browser PUTs straight to the bucket and these bytes never touch the

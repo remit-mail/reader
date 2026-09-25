@@ -8,6 +8,24 @@ export interface OutboxAttachmentContent {
 	content: Buffer;
 }
 
+/**
+ * A file on a message that cannot be put into it. Carries the file's name so
+ * whoever settles the message can tell the sender which file to fix.
+ */
+export class OutboxAttachmentUnavailableError extends Error {
+	constructor(
+		readonly filename: string,
+		readonly detail: string,
+		options?: { cause: unknown },
+	) {
+		super(`"${filename}" could not be read: ${detail}`, options);
+		this.name = "OutboxAttachmentUnavailableError";
+	}
+}
+
+const describeCause = (error: unknown): string =>
+	error instanceof Error ? error.message : String(error);
+
 export interface OutboxAttachmentContentDeps {
 	attachments: Pick<IOutboxAttachmentRepository, "listByOutboxMessage">;
 	storage: Pick<StorageService, "retrieveOutboxAttachment">;
@@ -41,22 +59,34 @@ export const loadOutboxAttachmentContents = async (
 
 	const unfinished = live.find((item) => item.state !== "Stored");
 	if (unfinished) {
-		throw new Error(
-			`Outbox message ${owner.outboxMessageId} carries attachment ${unfinished.outboxAttachmentId} that never finished uploading`,
+		throw new OutboxAttachmentUnavailableError(
+			unfinished.filename,
+			`attachment ${unfinished.outboxAttachmentId} never finished uploading`,
 		);
 	}
 
 	return Promise.all(
 		live.map(async (item) => {
-			const content = await deps.storage.retrieveOutboxAttachment(
-				owner.accountConfigId,
-				owner.accountId,
-				owner.outboxMessageId,
-				item.outboxAttachmentId,
-			);
+			const content = await Promise.resolve()
+				.then(() =>
+					deps.storage.retrieveOutboxAttachment(
+						owner.accountConfigId,
+						owner.accountId,
+						owner.outboxMessageId,
+						item.outboxAttachmentId,
+					),
+				)
+				.catch((error: unknown) => {
+					throw new OutboxAttachmentUnavailableError(
+						item.filename,
+						`storage failed (${describeCause(error)})`,
+						{ cause: error },
+					);
+				});
 			if (content === null) {
-				throw new Error(
-					`Outbox attachment ${item.outboxAttachmentId} is recorded as stored but nothing is stored at ${item.storageKey}`,
+				throw new OutboxAttachmentUnavailableError(
+					item.filename,
+					`nothing is stored at ${item.storageKey}`,
 				);
 			}
 			return {

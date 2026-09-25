@@ -8,6 +8,7 @@ import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
 import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { CredentialResolution } from "@remit/mailbox-service/account-credentials";
+import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,
@@ -161,6 +162,16 @@ const SENDABLE_STATUSES: ReadonlySet<OutboxMessageItem["status"]> = new Set([
 	OutboxMessageStatus.sending,
 ]);
 
+/**
+ * Why a message stopped at its files, in words the Outbox can show. A `failed`
+ * row can be edited, sent again and discarded (#933), so the sentence names
+ * the file and what to do about it.
+ */
+const attachmentFailureReason = (error: unknown): string =>
+	error instanceof OutboxAttachmentUnavailableError
+		? `${error.message}, so this message was not sent. Remove "${error.filename}", attach it again, and send.`
+		: `The files on this message could not be read (${error instanceof Error ? error.message : String(error)}), so it was not sent. Send it again.`;
+
 export const getSendMessageMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
 ): number => attemptBudget("SEND_MESSAGE_MAX_ATTEMPTS", 3, processEnv);
@@ -306,10 +317,34 @@ export const sendMessage = async (
 	}
 	const smtpConfig = resolved.config;
 
-	const attachments = await deps.loadAttachments(
-		{ accountConfigId, accountId: account.accountId },
-		outboxMessageId,
-	);
+	// Below the budget a storage hiccup is retried like any other; at it the
+	// record would dead-letter with the row at `queued`, which can be neither
+	// sent again nor discarded (#845.8), so the row settles `failed` instead.
+	const attachments = await deps
+		.loadAttachments(
+			{ accountConfigId, accountId: account.accountId },
+			outboxMessageId,
+		)
+		.catch(async (error: unknown) => {
+			if (receiveCount < SEND_MESSAGE_MAX_ATTEMPTS) throw error;
+			log.error(
+				{ outboxMessageId, receiveCount, error: String(error) },
+				"Attachments could not be loaded; settling the row as failed",
+			);
+			if (outbox.status !== OutboxMessageStatus.draft) {
+				await deps.updateOutboxIfStatus(
+					accountConfigId,
+					outboxMessageId,
+					outbox.status,
+					{
+						status: OutboxMessageStatus.failed,
+						lastError: attachmentFailureReason(error),
+					},
+				);
+			}
+			return null;
+		});
+	if (attachments === null) return;
 
 	await deps.updateOutboxStatus(accountConfigId, outboxMessageId, "sending");
 

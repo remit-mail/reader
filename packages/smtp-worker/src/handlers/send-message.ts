@@ -38,8 +38,17 @@ const getPorts = (): Promise<SmtpDataPorts> => {
 	return portsPromise;
 };
 
+// Without a bucket the storage factory falls back to the local filesystem,
+// which a Lambda does not have: every read would come back empty and blame the
+// file. Asked for only when a message carries files, so a deployment that has
+// not been given the bucket yet still sends everything else.
 let storage: StorageService | null = null;
 const getStorage = (): StorageService => {
+	if (process.env.AWS_LAMBDA_FUNCTION_NAME && !process.env.S3_BUCKET_NAME) {
+		throw new Error(
+			"S3_BUCKET_NAME is not set on this worker, so it has no attachment storage to read from",
+		);
+	}
 	if (!storage) storage = createStorageService();
 	return storage;
 };
@@ -190,7 +199,10 @@ export const handleSendMessage = (
 				loadOutboxAttachmentContents(
 					{
 						attachments: (await getPorts()).outboxAttachment,
-						storage: getStorage(),
+						storage: {
+							retrieveOutboxAttachment: (...args) =>
+								getStorage().retrieveOutboxAttachment(...args),
+						},
 					},
 					{ ...tenant, outboxMessageId },
 					Math.floor(Date.now() / 1000),

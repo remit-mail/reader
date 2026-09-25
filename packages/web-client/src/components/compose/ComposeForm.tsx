@@ -832,19 +832,6 @@ export const ComposeForm = ({
 			saveImmediately,
 		]);
 
-	const reportRemoveFailed = useCallback(
-		(error: unknown) => {
-			pushError({
-				title: "Couldn't remove the file",
-				detail:
-					formatErrorDetail(error) ??
-					"The file is still on the draft. Reopen the draft to see it.",
-				error,
-			});
-		},
-		[pushError],
-	);
-
 	const {
 		items: attachmentItems,
 		attach,
@@ -855,7 +842,6 @@ export const ComposeForm = ({
 		blockingReason: attachmentBlockingReason,
 	} = useComposeAttachments({
 		ensureDraft: ensureDraftForAttachment,
-		onRemoveFailed: reportRemoveFailed,
 	});
 
 	const attachmentDocumentRef = useRef(outboxMessageId);
@@ -1306,7 +1292,9 @@ export const ComposeForm = ({
 			attachments={
 				<ComposeAttachments
 					items={attachmentItems}
-					onRemove={removeAttachment}
+					onRemove={(key) => {
+						void removeAttachment(key);
+					}}
 					onRetry={(key) => {
 						void retryAttachment(key);
 					}}

@@ -7,6 +7,7 @@ import {
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	buildMailMessage,
 	renderRawMessage,
@@ -28,7 +29,9 @@ const ROW_SURVIVED_ITS_DELETE =
 	"Sent message was filed but its outbox row survived its delete and stays hidden until the boot-time repair";
 
 const unfiledAppendRefused = (fullPath: string, error: unknown): string =>
-	`Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
+	error instanceof OutboxAttachmentUnavailableError
+		? `Sent, but not filed: the copy for ${fullPath} could not be built because ${error.message}.`
+		: `Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
 
 export const getAppendSentMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -181,12 +184,6 @@ export const handleAppendSentMessage = async (
 		return;
 	}
 
-	const attachments = await outboxAttachmentService.contentsFor(
-		account.accountConfigId,
-		accountId,
-		outboxMessageId,
-	);
-
 	let appendedUid = APPENDED_UID_NONE;
 
 	const failure = await withOAuthLifecycle(
@@ -194,6 +191,14 @@ export const handleAppendSentMessage = async (
 		account,
 		log,
 		async (credentials) => {
+			// Inside the retried unit: a file that cannot be read is retried below
+			// the budget and settles `unfiled` at it, rather than dead-lettering a
+			// delivered message out of every view.
+			const attachments = await outboxAttachmentService.contentsFor(
+				account.accountConfigId,
+				accountId,
+				outboxMessageId,
+			);
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
 			await scope
