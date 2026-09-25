@@ -265,12 +265,10 @@ test.describe("Editing a one-off event through the form", () => {
 		const summary = "Harbour festival";
 		await page.goto(weekPath);
 
-		const monday = page
-			.locator('.fc-timegrid [data-date="2032-09-06"]')
-			.first();
-		const wednesday = page
-			.locator('.fc-timegrid [data-date="2032-09-08"]')
-			.first();
+		const monday = page.getByRole("gridcell", { name: "September 6, 2032" });
+		const wednesday = page.getByRole("gridcell", {
+			name: "September 8, 2032",
+		});
 		await expect(monday).toBeVisible({ timeout: 30_000 });
 		const from = await monday.boundingBox();
 		const to = await wednesday.boundingBox();
