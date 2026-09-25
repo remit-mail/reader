@@ -183,6 +183,9 @@ export interface Calendar {
 	calendarId: string;
 	urlSegment: string;
 	displayName: string;
+	/** IANA zone the collection reads floating times in; `""` reads as UTC. */
+	timezone: string;
+	source: string;
 }
 
 /** One occurrence as the server expanded it. No client ever reads an RRULE. */
