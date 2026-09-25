@@ -208,7 +208,10 @@ describe("OnboardingWizard — the first-run path", () => {
 		const dom = start();
 		clickText(dom, "Add your first account");
 		assert.match(dom.text(), /How does this account connect/);
-		assert.doesNotMatch(dom.text(), /Gmail|Sign in with Google|No app passwords/);
+		assert.doesNotMatch(
+			dom.text(),
+			/Gmail|Sign in with Google|No app passwords/,
+		);
 	});
 
 	it("falls back to a guess for a domain nobody has heard of", async () => {
