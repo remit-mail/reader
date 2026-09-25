@@ -7,7 +7,7 @@ const gmail = getPresetById("gmail");
 if (!gmail) throw new Error("the gmail preset is missing");
 
 const meta: Meta<typeof StepServers> = {
-	title: "Flows/Onboarding/Servers",
+	title: "Playground/Shipped/Onboarding/Servers",
 	component: StepServers,
 	parameters: { layout: "fullscreen" },
 	args: {
