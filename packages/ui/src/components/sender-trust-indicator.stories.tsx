@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { SenderTrustIndicator } from "./sender-trust-indicator.js";
 
 const meta: Meta<typeof SenderTrustIndicator> = {
-	title: "Mail/SenderTrustIndicator",
+	title: "Design System/Mail/SenderTrustIndicator",
 	component: SenderTrustIndicator,
 	parameters: { layout: "centered" },
 };

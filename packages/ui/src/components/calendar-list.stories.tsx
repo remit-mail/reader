@@ -10,7 +10,7 @@ import type { CalendarDescriptor } from "./calendar-types.js";
  * key in another room.
  */
 const meta: Meta<typeof CalendarList> = {
-	title: "Calendar/Calendar list",
+	title: "Design System/Calendar/Calendar list",
 	component: CalendarList,
 	parameters: { layout: "padded" },
 	decorators: [

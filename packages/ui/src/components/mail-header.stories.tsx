@@ -126,7 +126,7 @@ function MailScreen({
 }
 
 const meta: Meta<typeof MailHeader> = {
-	title: "Screens/Kit/MailHeader",
+	title: "Playground/Shipped/Mail/MailHeader",
 	component: MailHeader,
 	parameters: { layout: "centered" },
 	decorators: [phoneFrame],

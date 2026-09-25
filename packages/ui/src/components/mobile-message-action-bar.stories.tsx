@@ -15,7 +15,7 @@ const moveSlot = (
 );
 
 const meta: Meta<typeof MobileMessageActionBar> = {
-	title: "Kit/MobileMessageActionBar",
+	title: "Design System/Mail/MobileMessageActionBar",
 	component: MobileMessageActionBar,
 	parameters: { layout: "centered" },
 	decorators: [

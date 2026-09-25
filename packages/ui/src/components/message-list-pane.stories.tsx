@@ -60,7 +60,7 @@ const sections: ThreadSection[] = [
 ];
 
 const meta: Meta<typeof MessageListPane> = {
-	title: "Screens/Kit/MessageListPane",
+	title: "Playground/Shipped/Mail/MessageListPane",
 	component: MessageListPane,
 	parameters: { layout: "centered" },
 	args: {

@@ -17,7 +17,8 @@ import {
 import type { Meta, StoryObj } from "@storybook/react-vite";
 
 const meta: Meta = {
-	title: "Screens/SignIn",
+	title: "Playground/Proposed/Sign in",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen", theme: "dark" },
 };
 export default meta;

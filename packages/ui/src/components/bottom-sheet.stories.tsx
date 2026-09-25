@@ -5,7 +5,7 @@ import { BottomSheet } from "./bottom-sheet.js";
 import { Button } from "./button.js";
 
 const meta: Meta<typeof BottomSheet> = {
-	title: "Components/BottomSheet",
+	title: "Design System/Components/BottomSheet",
 	component: BottomSheet,
 	parameters: { layout: "fullscreen" },
 	decorators: [

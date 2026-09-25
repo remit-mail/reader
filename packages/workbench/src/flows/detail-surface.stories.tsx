@@ -59,7 +59,8 @@ import { MailShell } from "../screens/mail-shell.js";
  * passes on code that only queued the work.
  */
 const meta: Meta = {
-	title: "Flows/Detail surface",
+	title: "Playground/Proposed/Detail surface",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

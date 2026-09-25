@@ -6,7 +6,7 @@ import {
 } from "./rescue-candidate-row.js";
 
 const meta: Meta<typeof RescueCandidateRow> = {
-	title: "Components/RescueCandidateRow",
+	title: "Design System/Spam rescue/RescueCandidateRow",
 	component: RescueCandidateRow,
 	parameters: { layout: "padded" },
 	decorators: [

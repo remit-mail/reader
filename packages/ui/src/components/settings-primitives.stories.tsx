@@ -6,7 +6,7 @@ import { SegmentedControl } from "./segmented-control.js";
 import { SenderGroupSwitch } from "./sender-group-switch.js";
 
 const meta: Meta = {
-	title: "Settings/Primitives",
+	title: "Design System/Settings/Primitives",
 };
 export default meta;
 

@@ -5,7 +5,7 @@ import {
 } from "./message-settlement.js";
 
 const meta: Meta = {
-	title: "Mail/MessageSettlement",
+	title: "Design System/Mail/MessageSettlement",
 	parameters: { layout: "padded" },
 };
 export default meta;

@@ -49,7 +49,8 @@ import {
 import { MailShell } from "../screens/mail-shell.js";
 
 const meta: Meta = {
-	title: "Flows/Search",
+	title: "Playground/Proposed/Search",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

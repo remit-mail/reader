@@ -151,7 +151,7 @@ function Workspace({
 }
 
 const meta: Meta<typeof Workspace> = {
-	title: "App/Calendar/Workspace",
+	title: "Playground/Shipped/Calendar/Workspace",
 	component: Workspace,
 	parameters: { layout: "fullscreen" },
 	args: { initialView: "week", events: week },

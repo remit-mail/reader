@@ -11,7 +11,7 @@ const paneFrame: Decorator = (Story) => (
 );
 
 const meta: Meta<typeof BriefEmpty> = {
-	title: "Screens/Kit/BriefEmpty",
+	title: "Playground/Shipped/Mail/Daily brief/BriefEmpty",
 	component: BriefEmpty,
 	parameters: { layout: "fullscreen" },
 	decorators: [paneFrame],

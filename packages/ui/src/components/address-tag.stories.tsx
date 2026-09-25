@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AddressTag } from "./address-tag.js";
 
 const meta: Meta<typeof AddressTag> = {
-	title: "Compose/AddressTag",
+	title: "Design System/Compose/AddressTag",
 	component: AddressTag,
 	parameters: { layout: "centered" },
 	args: { onRemove: () => {} },

@@ -108,7 +108,7 @@ Groeten,
 Ingrid`;
 
 const meta: Meta<typeof ReadingPane> = {
-	title: "Screens/Kit/ReadingPane",
+	title: "Playground/Shipped/Mail/ReadingPane",
 	component: ReadingPane,
 	parameters: { layout: "fullscreen" },
 	render: (args) => (

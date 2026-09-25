@@ -44,7 +44,7 @@ const sections: ThreadSection[] = [
 ];
 
 const meta: Meta<typeof TouchListBody> = {
-	title: "Screens/Kit/TouchListBody",
+	title: "Playground/Shipped/Mail/TouchListBody",
 	component: TouchListBody,
 	parameters: { layout: "padded" },
 	args: {

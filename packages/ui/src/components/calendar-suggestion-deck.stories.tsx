@@ -15,7 +15,7 @@ import {
  * time nobody placed on a clock is the mistake, not the shortcut.
  */
 const meta: Meta<typeof CalendarSuggestionDeck> = {
-	title: "Calendar/Suggestion deck",
+	title: "Design System/Calendar/Suggestion deck",
 	component: CalendarSuggestionDeck,
 	parameters: { layout: "padded" },
 	decorators: [

@@ -11,7 +11,7 @@ import { SecuritySelect } from "./security-select.js";
 import { Select } from "./select.js";
 
 const meta: Meta = {
-	title: "Primitives",
+	title: "Design System/Primitives/Overview",
 };
 export default meta;
 

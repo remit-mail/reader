@@ -10,7 +10,7 @@ import { deleteLabelConfirmCopy } from "@/lib/organize/label-delete-copy";
  * approved surface, not a placeholder for one.
  */
 const meta: Meta<typeof ConfirmDialog> = {
-	title: "Flows/Settings Labels/Delete Confirmation",
+	title: "Playground/Shipped/Settings/Labels/Delete confirmation",
 	component: ConfirmDialog,
 	parameters: { layout: "centered" },
 };

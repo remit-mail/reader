@@ -52,7 +52,7 @@ const folders: ManagedFolder[] = [
 ];
 
 const meta: Meta<typeof FolderManager> = {
-	title: "Mail/FolderManager",
+	title: "Design System/Folders/FolderManager",
 	component: FolderManager,
 	parameters: { layout: "centered" },
 };

@@ -22,7 +22,7 @@ const FromRow = ({ email }: { email: string }) => (
  * three empty ones push the writing surface off a phone.
  */
 const meta: Meta<typeof ComposeHeader> = {
-	title: "Mail/ComposeHeader",
+	title: "Design System/Compose/ComposeHeader",
 	component: ComposeHeader,
 	parameters: { layout: "padded" },
 };

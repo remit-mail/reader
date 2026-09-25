@@ -20,7 +20,7 @@ const base: IntelligenceData = {
 };
 
 const meta: Meta<typeof IntelligencePanel> = {
-	title: "Screens/Kit/IntelligencePanel",
+	title: "Playground/Shipped/Mail/IntelligencePanel",
 	component: IntelligencePanel,
 	parameters: { layout: "centered" },
 };

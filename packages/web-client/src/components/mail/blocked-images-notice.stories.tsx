@@ -12,7 +12,7 @@ import { BlockedImagesNotice } from "@/components/mail/BlockedImagesNotice";
  * message that explains nothing is indistinguishable from a broken one.
  */
 const meta: Meta<typeof BlockedImagesNotice> = {
-	title: "Flows/Mail/Blocked Images Notice",
+	title: "Playground/Shipped/Mail/Reading/Blocked images notice",
 	component: BlockedImagesNotice,
 	parameters: { layout: "padded" },
 };

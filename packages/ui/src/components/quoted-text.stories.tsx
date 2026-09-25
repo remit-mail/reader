@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { QuotedText } from "./quoted-text.js";
 
 const meta: Meta<typeof QuotedText> = {
-	title: "Mail/QuotedText",
+	title: "Design System/Mail/QuotedText",
 	component: QuotedText,
 	parameters: { layout: "padded" },
 };

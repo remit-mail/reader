@@ -74,7 +74,7 @@ function Opened({
 }
 
 const meta: Meta<typeof Opened> = {
-	title: "App/Calendar/Open event",
+	title: "Playground/Shipped/Calendar/Open event",
 	component: Opened,
 	parameters: { layout: "fullscreen" },
 	args: { calendarObjectId: ROADMAP_OBJECT, server: answering() },

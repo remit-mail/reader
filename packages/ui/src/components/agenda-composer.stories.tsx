@@ -14,7 +14,7 @@ import type {
  * readings the composer asks rather than choosing.
  */
 const meta: Meta<typeof AgendaComposer> = {
-	title: "Calendar/Agenda composer",
+	title: "Design System/Calendar/Agenda composer",
 	component: AgendaComposer,
 	parameters: { layout: "padded" },
 	decorators: [

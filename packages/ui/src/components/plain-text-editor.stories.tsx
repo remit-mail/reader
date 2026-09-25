@@ -64,7 +64,7 @@ const Surface = ({
 };
 
 const meta: Meta<typeof Surface> = {
-	title: "Mail/PlainTextEditor",
+	title: "Design System/Compose/PlainTextEditor",
 	component: Surface,
 	parameters: { layout: "centered" },
 	decorators: [

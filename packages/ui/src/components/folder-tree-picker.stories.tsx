@@ -68,7 +68,7 @@ const longFolders: FolderTreeNode[] = [
 ];
 
 const meta: Meta<typeof FolderTreePicker> = {
-	title: "Mail/FolderTreePicker",
+	title: "Design System/Folders/FolderTreePicker",
 	component: FolderTreePicker,
 	parameters: { layout: "centered" },
 };

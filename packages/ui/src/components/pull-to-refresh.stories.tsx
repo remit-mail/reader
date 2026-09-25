@@ -24,7 +24,7 @@ function PhoneFrame({ children }: { children: React.ReactNode }) {
 }
 
 const meta: Meta<typeof PullToRefresh> = {
-	title: "Primitives/PullToRefresh",
+	title: "Design System/Primitives/PullToRefresh",
 	component: PullToRefresh,
 	parameters: { layout: "padded" },
 	render: (args) => (

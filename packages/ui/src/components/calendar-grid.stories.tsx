@@ -104,7 +104,7 @@ const week: CalendarEventData[] = [
 ];
 
 const meta: Meta<typeof CalendarGrid> = {
-	title: "Calendar/Grid",
+	title: "Design System/Calendar/Grid",
 	component: CalendarGrid,
 	parameters: { layout: "fullscreen" },
 	decorators: [

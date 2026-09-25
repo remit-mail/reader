@@ -4,7 +4,7 @@ import { AuthFooter } from "./auth-footer.js";
 import { AuthHero } from "./auth-hero.js";
 
 const meta: Meta<typeof AuthCard> = {
-	title: "Auth/AuthCard",
+	title: "Design System/Auth/AuthCard",
 	component: AuthCard,
 	parameters: { layout: "fullscreen" },
 };

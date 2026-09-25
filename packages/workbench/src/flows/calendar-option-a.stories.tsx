@@ -330,7 +330,8 @@ function pickAndCheck(worth: "an hour" | "a day") {
  * props.
  */
 const meta: Meta = {
-	title: "Flows/Calendar — A. Destination",
+	title: "Playground/Proposed/Calendar/A. Destination",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

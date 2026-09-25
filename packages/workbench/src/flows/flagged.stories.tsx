@@ -18,7 +18,8 @@ import { MailShell } from "../screens/mail-shell.js";
  * stories describe.
  */
 const meta: Meta = {
-	title: "Flows/Flagged",
+	title: "Playground/Proposed/Flagged",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

@@ -7,7 +7,7 @@ import type { CalendarClash } from "./calendar-types.js";
  * an empty space where the check should be reads as "not checked".
  */
 const meta: Meta<typeof CalendarClashStrip> = {
-	title: "Calendar/Clash strip",
+	title: "Design System/Calendar/Clash strip",
 	component: CalendarClashStrip,
 	parameters: { layout: "padded" },
 	decorators: [

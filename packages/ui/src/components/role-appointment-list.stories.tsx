@@ -124,7 +124,7 @@ function Harness({
 }
 
 const meta: Meta<typeof Harness> = {
-	title: "Settings/RoleAppointmentList",
+	title: "Design System/Settings/RoleAppointmentList",
 	component: Harness,
 };
 export default meta;

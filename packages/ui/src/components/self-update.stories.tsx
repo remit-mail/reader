@@ -13,7 +13,7 @@ const NOW = Date.parse("2026-07-20T12:00:00.000Z");
 const CURRENT = "0.9.3";
 
 const meta: Meta<typeof SelfUpdateSection> = {
-	title: "Settings/Self-update",
+	title: "Design System/Settings/Self-update",
 	component: SelfUpdateSection,
 	parameters: { layout: "padded" },
 	args: {

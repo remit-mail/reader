@@ -6,7 +6,7 @@ import type { RescueCandidate } from "./rescue-candidate-row.js";
 import { RescueFromSpamFlow } from "./rescue-from-spam-flow.js";
 
 const meta: Meta<typeof RescueFromSpamFlow> = {
-	title: "Flows/RescueFromSpamFlow",
+	title: "Design System/Spam rescue/RescueFromSpamFlow",
 	component: RescueFromSpamFlow,
 	parameters: { layout: "fullscreen" },
 	decorators: [

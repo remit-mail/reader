@@ -4,7 +4,7 @@ import { useState } from "react";
 import { PopoverMenu, PopoverMenuRow } from "./popover-menu.js";
 
 const meta: Meta<typeof PopoverMenu> = {
-	title: "Kit/PopoverMenu",
+	title: "Design System/Primitives/PopoverMenu",
 	component: PopoverMenu,
 	parameters: { layout: "centered" },
 	render: (args) => (

@@ -129,7 +129,7 @@ export function EmptyStateComparison() {
 }
 
 const meta: Meta<typeof MessageListEmpty> = {
-	title: "Screens/Kit/MessageListState",
+	title: "Playground/Shipped/Mail/MessageListState",
 	component: MessageListEmpty,
 	parameters: { layout: "fullscreen" },
 	excludeStories: ["EmptyStateComparison"],

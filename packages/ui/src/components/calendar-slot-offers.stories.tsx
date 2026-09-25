@@ -8,7 +8,7 @@ import type { CalendarSlotPick } from "./calendar-types.js";
  * Picking one is not a booking: it goes into a reply as plain text.
  */
 const meta: Meta<typeof CalendarSlotOffers> = {
-	title: "Calendar/Slot offers",
+	title: "Design System/Calendar/Slot offers",
 	component: CalendarSlotOffers,
 	parameters: { layout: "padded" },
 };

@@ -42,7 +42,8 @@ import { CalendarAgenda } from "../screens/calendar-agenda.js";
  * calendars and answering a suggestion are pages of their own.
  */
 const meta: Meta = {
-	title: "Flows/Calendar — C. Agenda",
+	title: "Playground/Proposed/Calendar/C. Agenda",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

@@ -103,7 +103,9 @@ const storiesToLoad = async (): Promise<readonly string[]> => {
 		(entry) => entry.type === "story",
 	);
 	const first = stories[0];
-	const flow = stories.find((entry) => entry.title.startsWith("Flows/"));
+	const flow = stories.find((entry) =>
+		entry.title.startsWith("Playground/Proposed/"),
+	);
 	assert.ok(first, "the built index holds no stories");
 	assert.ok(flow, "the built index holds no flow stories");
 	return [first.id, flow.id];

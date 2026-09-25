@@ -8,7 +8,7 @@ import { EventEditor } from "./event-editor.js";
  * one click away, but they do not charge the common case for their existence.
  */
 const meta: Meta<typeof EventEditor> = {
-	title: "Calendar/Event editor",
+	title: "Design System/Calendar/Event editor",
 	component: EventEditor,
 	parameters: { layout: "padded" },
 };

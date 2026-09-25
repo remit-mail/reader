@@ -79,7 +79,7 @@ function Harness({ initialSelectedId, phaseCycle, ...props }: HarnessProps) {
 }
 
 const meta: Meta<typeof Harness> = {
-	title: "Mail/RoleAppointmentPrompt",
+	title: "Design System/Mail/RoleAppointmentPrompt",
 	component: Harness,
 };
 export default meta;

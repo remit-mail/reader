@@ -18,7 +18,7 @@ const START = "09:15";
  * one; the line under each story is what the event would carry.
  */
 const meta: Meta<typeof CustomRecurrenceEditor> = {
-	title: "Calendar/Custom recurrence",
+	title: "Design System/Calendar/Custom recurrence",
 	component: CustomRecurrenceEditor,
 	parameters: { layout: "padded" },
 };

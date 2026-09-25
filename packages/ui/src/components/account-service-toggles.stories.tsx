@@ -12,7 +12,7 @@ import {
  * host confirms and commits.
  */
 const meta: Meta<typeof AccountServiceToggles> = {
-	title: "Components/AccountServiceToggles",
+	title: "Design System/Settings/AccountServiceToggles",
 	component: AccountServiceToggles,
 	parameters: { layout: "padded" },
 	decorators: [

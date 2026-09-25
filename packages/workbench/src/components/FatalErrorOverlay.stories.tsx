@@ -73,7 +73,8 @@ function FatalErrorScreenDemo({
 }
 
 const meta: Meta<typeof FatalErrorScreenDemo> = {
-	title: "Components/FatalErrorOverlay",
+	title: "Playground/Proposed/Shell/FatalErrorOverlay",
+	tags: ["proposed"],
 	component: FatalErrorScreenDemo,
 	parameters: { layout: "fullscreen" },
 	decorators: [

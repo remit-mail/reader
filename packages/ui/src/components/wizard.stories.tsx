@@ -6,7 +6,7 @@ import type { ServerSecurity } from "./security-select.js";
 import { ConnectorTile, ServerFields, WizardShell } from "./wizard.js";
 
 const meta: Meta = {
-	title: "Components/Wizard",
+	title: "Design System/Primitives/Wizard",
 };
 export default meta;
 

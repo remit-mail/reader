@@ -3,7 +3,7 @@ import { useState } from "react";
 import { SearchTokenChips } from "./search-token-chip.js";
 
 const meta: Meta<typeof SearchTokenChips> = {
-	title: "Mail/SearchTokenChips",
+	title: "Design System/Search/SearchTokenChips",
 	component: SearchTokenChips,
 	parameters: { layout: "padded" },
 };
