@@ -58,6 +58,11 @@ export {
 	useDrawnEvents,
 } from "./selection";
 export {
+	type CalendarCollectionOutcome,
+	type CalendarCollectionWrites,
+	useCalendarCollectionWrites,
+} from "./useCalendarCollectionWrites";
+export {
 	type CalendarEventResource,
 	useCalendarEvent,
 } from "./useCalendarEvent";
@@ -82,6 +87,7 @@ export {
 	useCalendarWrites,
 	useInvalidateCalendarReads,
 } from "./useCalendarWrites";
+export { useDraftClashes } from "./useDraftClashes";
 export {
 	addDays,
 	type CalendarWindow,

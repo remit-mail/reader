@@ -17,7 +17,7 @@ import {
 	ConfirmDialog,
 } from "@remit/ui";
 import { Check, Copy, Link2, RefreshCw, Trash2 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { ErrorState, formatErrorMessage } from "@/components/ui/ErrorState";
 import type { CalendarFeedState } from "@/hooks/calendar/useCalendarFeed";
 import {
@@ -28,6 +28,8 @@ import { formatDatePreset } from "@/lib/format";
 
 export interface CalendarFeedCardProps {
 	calendarName: string;
+	/** The calendar's own settings, drawn above its subscription address. */
+	details?: ReactNode;
 	state: CalendarFeedState;
 	/** The address just minted, shown once. Empty at every other moment. */
 	mintedUrl: string;
@@ -167,6 +169,7 @@ function ActiveFeed({
 
 export function CalendarFeedCard({
 	calendarName,
+	details,
 	state,
 	mintedUrl,
 	isBusy,
@@ -200,6 +203,9 @@ export function CalendarFeedCard({
 				<CardTitle id={titleId}>{calendarName}</CardTitle>
 			</CardHeader>
 			<CardBody>
+				{details && (
+					<div className="mb-4 border-b border-line pb-4">{details}</div>
+				)}
 				{state.status === "loading" && mintedUrl === "" && (
 					// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on a loading skeleton is what assistive tech has to go on
 					<div

@@ -130,3 +130,22 @@ export const Conflicted: Story = {
 			"This event changed somewhere else — over CalDAV, or in another tab. Nothing was saved. Close it and open it again to see the version that's stored now.",
 	},
 };
+
+/** The span on the form runs into something already booked, named before Save. */
+export const Clashing: Story = {
+	args: {
+		clashes: [
+			{
+				id: "evt_board",
+				label: "Board prep, Wed 10 June, 10:30 – 11:00",
+			},
+			{
+				id: "evt_vendor",
+				label: "Vendor call, Wed 10 June, 11:00 – 12:00",
+			},
+		],
+	},
+};
+
+/** Checked, and clear. Silence here would read as "not checked". */
+export const Clear: Story = { args: { clashes: [] } };
