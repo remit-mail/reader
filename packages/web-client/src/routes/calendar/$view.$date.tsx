@@ -62,6 +62,21 @@ export const Route = createFileRoute("/calendar/$view/$date")({
 });
 
 function CalendarViewLayout() {
+	const { view, date } = useCalendarAddress();
+	const isPhone = useLayoutTier() === "phone";
+	if (isPhone && view === "year")
+		return (
+			<Navigate
+				to="/calendar/$view/$date"
+				params={{ view: "month", date }}
+				search={true}
+				replace
+			/>
+		);
+	return <CalendarView isPhone={isPhone} />;
+}
+
+function CalendarView({ isPhone }: { isPhone: boolean }) {
 	const { view, date, calendarIds } = useCalendarAddress();
 	// The strip fetches the days it holds a week at a time and draws none of
 	// this, so at that zoom the layout asks for nothing: the address rewrites on
@@ -74,7 +89,6 @@ function CalendarViewLayout() {
 		useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
 	const isWriting = useIsWritingEvent();
-	const isPhone = useLayoutTier() === "phone";
 	// Held in state rather than read back from storage each render: how much of
 	// a day this device shows is not a fact about the calendar, so changing it
 	// changes nothing about the address.
@@ -100,16 +114,6 @@ function CalendarViewLayout() {
 		},
 		[openComposer],
 	);
-
-	if (isPhone && view === "year")
-		return (
-			<Navigate
-				to="/calendar/$view/$date"
-				params={{ view: "month", date }}
-				search={true}
-				replace
-			/>
-		);
 
 	const workspace = (
 		<CalendarWorkspace

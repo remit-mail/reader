@@ -396,6 +396,30 @@ test.describe("The calendar on a phone", () => {
 		isMobile: true,
 	});
 
+	test("sends a year address to the month, without reading the year", async ({
+		page,
+	}) => {
+		const reads: string[] = [];
+		page.on("request", (request) => {
+			if (request.url().includes("/calendar-events")) reads.push(request.url());
+		});
+
+		await page.goto(`/calendar/year/${WEEK}`);
+		await expect.poll(() => pathOf(page)).toBe(`/calendar/month/${WEEK}`);
+		await expect(
+			page
+				.getByRole("group", { name: "Calendar view" })
+				.getByRole("radio", { name: "M", exact: true }),
+		).toBeChecked();
+
+		const yearReads = reads.filter(
+			(url) =>
+				new URL(url).searchParams.get("from")?.startsWith("2031-01-01") ??
+				false,
+		);
+		expect(yearReads).toEqual([]);
+	});
+
 	test("creates an event from a tapped slot and opens it", async ({
 		page,
 		api,
