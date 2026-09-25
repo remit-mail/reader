@@ -278,11 +278,16 @@ export function ServerFields({
 					{onSecurityChange ? (
 						<SecuritySelect
 							id={securityId}
+							disabled={readOnly}
 							value={security}
 							onValueChange={onSecurityChange}
 						/>
 					) : (
-						<SecuritySelect id={securityId} defaultValue={security} />
+						<SecuritySelect
+							id={securityId}
+							disabled={readOnly}
+							defaultValue={security}
+						/>
 					)}
 				</div>
 			</div>

@@ -318,7 +318,6 @@ export function StepServers({
 						<option value="yahoo">Yahoo</option>
 						<option value="aol">AOL</option>
 						<option value="fastmail">Fastmail</option>
-						<option value="gmail">Gmail</option>
 					</Select>
 					{preset && (
 						<p className="mt-1 text-2xs text-fg-subtle">

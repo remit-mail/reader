@@ -257,19 +257,13 @@ function StepConnector({
 				</>
 			}
 		>
-			<div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+			<div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
 				<ConnectorTile
 					name="IMAP / SMTP"
 					description="Any mail provider — Fastmail, iCloud, your own server."
 					icon={<Server className="size-5" />}
 					selected={selected === "imap"}
 					onSelect={() => setSelected("imap")}
-				/>
-				<ConnectorTile
-					name="Gmail"
-					description="Sign in with Google. No app passwords."
-					icon={<AtSign className="size-5" />}
-					comingSoon
 				/>
 				<ConnectorTile
 					name="Outlook / Microsoft 365"

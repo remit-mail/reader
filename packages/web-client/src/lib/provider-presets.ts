@@ -61,7 +61,7 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 		imap: { host: "imap.gmail.com", port: 993, security: "tls" },
 		smtp: { host: "smtp.gmail.com", port: 587, security: "starttls" },
 		passwordHelp: {
-			text: "Gmail requires an app password, not your Google password. First turn on 2-Step Verification for your Google Account, then create an app password under Security → App passwords.",
+			text: "Gmail requires an app password, not your Google password. First turn on 2-Step Verification for your Google Account, then create an app password under Security → 2-Step Verification → App passwords.",
 			url: APP_PASSWORD_URLS["gmail.com"],
 		},
 	},

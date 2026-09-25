@@ -34,6 +34,9 @@ export const GmailPreset: Story = {
 		await expect(canvas.getByDisplayValue("smtp.gmail.com")).toHaveAttribute(
 			"readonly",
 		);
+		for (const security of canvas.getAllByLabelText("Security")) {
+			await expect(security).toBeDisabled();
+		}
 		await expect(canvas.getByText(/2-Step Verification/)).toBeVisible();
 		await expect(
 			canvas.getByRole("link", { name: "Get an app password" }),
