@@ -225,15 +225,21 @@ export const extractAuthResult = (
 		.filter((h): h is AuthenticationResults => h !== null);
 	if (headers.length === 0) return null;
 
-	const results = headers.flatMap((h) => h.results);
-	const byMethod = (method: string): AuthenticationResult[] =>
-		results.filter((r) => r.method === method);
+	const fromDomain = getFromDomain(parsed);
+	const byMethod = (
+		results: AuthenticationResult[],
+		method: string,
+	): AuthenticationResult[] => results.filter((r) => r.method === method);
+	const acrossHeaders = (method: string): AuthenticationResult[] =>
+		headers.flatMap((h) => byMethod(h.results, method));
 
 	return {
-		dmarc: leastFavourableVerdict(byMethod("dmarc")),
-		spf: leastFavourableVerdict(byMethod("spf")),
+		dmarc: leastFavourableVerdict(acrossHeaders("dmarc")),
+		spf: leastFavourableVerdict(acrossHeaders("spf")),
 		dkim: leastFavourableVerdict(
-			dkimResultsForFrom(byMethod("dkim"), getFromDomain(parsed)),
+			headers.flatMap((h) =>
+				dkimResultsForFrom(byMethod(h.results, "dkim"), fromDomain),
+			),
 		),
 	};
 };

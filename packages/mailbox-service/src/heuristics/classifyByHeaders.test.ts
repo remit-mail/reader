@@ -583,16 +583,33 @@ describe("extractHasListUnsubscribe", () => {
 	});
 });
 
+const messageFrom = (parsed: ParsedMail): MessageItem => ({
+	messageId: "m-1",
+	mailboxId: "mb-1",
+	uid: 1,
+	sequenceNumber: 1,
+	rfc822Size: 1,
+	internalDate: 1,
+	envelopeId: "e-1",
+	rootBodyPartId: "bp-1",
+	status: "active",
+	syncStatus: "synced",
+	abandonedMutation: "none",
+	category: "uncategorized",
+	classificationState: "NotExamined",
+	authenticityVerdict: "NotEvaluated",
+	hasListUnsubscribe: false,
+	movedByRemit: false,
+	createdAt: 1,
+	updatedAt: 1,
+	providerSpam: extractProviderSpam(parsed) ?? undefined,
+	authResult: extractAuthResult(parsed) ?? undefined,
+	authenticity: extractAuthenticity(parsed) ?? undefined,
+});
+
 const inboxVerdict = (parsed: ParsedMail) =>
 	classifyPlacement(
-		{
-			messageId: "m-1",
-			mailboxId: "mb-1",
-			uid: 1,
-			providerSpam: extractProviderSpam(parsed) ?? undefined,
-			authResult: extractAuthResult(parsed) ?? undefined,
-			authenticity: extractAuthenticity(parsed) ?? undefined,
-		} as unknown as MessageItem,
+		messageFrom(parsed),
 		"inbox",
 		SenderTrust.Unknown,
 		SenderOverride.None,
@@ -670,12 +687,10 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 				"Authentication-Results: whatever; dkim=pass header.d=evil-mimic.example; dmarc=pass header.from=evil-mimic.example";
 			const real = "Authentication-Results: mx.example.com; dmarc=fail";
 			return withBody([
-				...(order === "forged-first" ? [forged] : []),
+				...(order === "forged-first" ? [forged, real] : [real, forged]),
 				"From: Support <support@evil-mimic.example>",
 				"To: me@example.com",
 				"Subject: Verify your account",
-				...(order === "real-first" ? [forged] : []),
-				real,
 				"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
 				"X-Spam-Status: No, score=0.1",
 			]);
@@ -684,6 +699,32 @@ describe("Authentication-Results adversarial findings (#657)", () => {
 			const parsed = await parse(lines(order));
 			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail", order);
 			assert.equal(inboxVerdict(parsed).action, "move-to-junk", order);
+		}
+	});
+
+	it("never lets a sender-added aligned dkim=pass override the receiver's verdict", async () => {
+		const receivers = [
+			"Authentication-Results: mx.me.example; dkim=fail header.d=phish.example; dmarc=fail header.from=bank.example",
+			"Authentication-Results: mx.me.example; dkim=none; dmarc=fail header.from=bank.example",
+		];
+		const forged = "Authentication-Results: x; dkim=pass header.d=bank.example";
+		for (const [receiver, expected] of [
+			[receivers[0], "Fail"],
+			[receivers[1], "None"],
+		] as const) {
+			for (const headers of [
+				[receiver, forged],
+				[forged, receiver],
+			]) {
+				const parsed = await parse(
+					withBody([...headers, "From: B <s@bank.example>"]),
+				);
+				assert.equal(
+					extractAuthResult(parsed)?.dkim,
+					expected,
+					headers.join(" | "),
+				);
+			}
 		}
 	});
 
