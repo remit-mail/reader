@@ -82,6 +82,7 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 			imapStartTls: false,
 			isActive: true,
 			connectionState: "authenticated",
+			syncedServices: ["Mail"],
 			createdAt: now,
 			updatedAt: now,
 		} as never);

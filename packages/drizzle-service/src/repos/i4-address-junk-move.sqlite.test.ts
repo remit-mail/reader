@@ -20,9 +20,9 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 				`INSERT OR IGNORE INTO account (
 					account_id, account_config_id, username, email, imap_host,
 					imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
-					connection_state, created_at, updated_at
+					connection_state, synced_services, created_at, updated_at
 				) VALUES (?, ?, 'user', 'user@example.com', 'imap.example.com',
-					993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
+					993, 1, 0, 465, 1, 'disconnected', '["Mail"]', 0, 0)`,
 			)
 			.run(accountId, CONFIG);
 	};
