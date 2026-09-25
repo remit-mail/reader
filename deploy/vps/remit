@@ -919,6 +919,9 @@ cmd_reembed() {
 		*) die "reembed: unknown option '$1'" ;;
 		esac
 	done
+	if semantic_is_off; then
+		die "reembed: semantic search is off ($SEMANTIC_VAR=$(semantic_provider)), so there is no model to re-embed with and every message would be queued. Run '$PROG semantic on' first."
+	fi
 	case "$_scope" in
 	all) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --all ;;
 	model) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --model "$_model" ;;

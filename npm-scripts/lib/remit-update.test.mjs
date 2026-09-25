@@ -3241,7 +3241,10 @@ describe("remit check-index", () => {
 });
 
 describe("remit reembed", () => {
-	const box = sandbox({ scenario: { probe: "ok" } });
+	const box = sandbox({
+		scenario: { probe: "ok" },
+		dotenv: ["SEARCH_EMBEDDING_PROVIDER=local"],
+	});
 	const result = box.run(["reembed", "--model", "local:MiniLM@384"]);
 
 	it("queues the re-embed from the worker's image", () => {
@@ -3270,6 +3273,19 @@ describe("remit reembed", () => {
 		assert.equal(rejected.status, 1);
 		assert.match(rejected.stderr, /unknown option '--repair'/);
 	});
+
+	for (const provider of ["off", "deterministic"]) {
+		it(`refuses while the provider is ${provider}, and queues nothing`, () => {
+			const off = sandbox({
+				scenario: { probe: "ok" },
+				dotenv: [`SEARCH_EMBEDDING_PROVIDER=${provider}`],
+			});
+			const rejected = off.run(["reembed"]);
+			assert.equal(rejected.status, 1);
+			assert.match(rejected.stderr, /reembed: semantic search is off/);
+			assert.ok(!off.log().includes("index-reembed.mjs"), off.log());
+		});
+	}
 });
 
 describe("shellcheck", () => {

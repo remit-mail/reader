@@ -70,7 +70,7 @@ function dispatchedSubcommands() {
 // would have answered cannot change the verdict — and a stand-in that succeeds
 // is the hostile case: a verb that swallows its argument runs to the end of its
 // normal path and exits 0.
-function run(args) {
+function run(args, dotenv = []) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-args-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
@@ -84,6 +84,7 @@ function run(args) {
 			"REMIT_TAG=v1.0.0",
 			`PUBLIC_ORIGIN=${ORIGIN}`,
 			"TLS_MODE=internal",
+			...dotenv,
 			"",
 		].join("\n"),
 	);
@@ -284,6 +285,7 @@ const CASES = {
 		],
 	},
 	reembed: {
+		dotenv: ["SEARCH_EMBEDDING_PROVIDER=local"],
 		refusal:
 			/^remit: reembed: (unknown option|--model needs a value|pass one of)/m,
 		takes: [
@@ -370,7 +372,7 @@ for (const [command, spec] of Object.entries(CASES)) {
 	describe(`remit ${command} argument handling`, () => {
 		for (const { args, proof } of spec.takes) {
 			it(`takes ${form(args)}`, () => {
-				const result = run([command, ...args]);
+				const result = run([command, ...args], spec.dotenv);
 				assert.ok(
 					!spec.refusal.test(result.stderr),
 					`the parser turned away a form it must take:\n${result.stderr}`,
@@ -385,7 +387,7 @@ for (const [command, spec] of Object.entries(CASES)) {
 
 		for (const { args, message } of spec.refuses) {
 			it(`refuses ${form(args)}, loudly`, () => {
-				const result = run([command, ...args]);
+				const result = run([command, ...args], spec.dotenv);
 				assert.notEqual(
 					result.status,
 					0,

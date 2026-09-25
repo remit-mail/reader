@@ -6,6 +6,7 @@ import {
 	parseReembedScope,
 	type ReembedQueue,
 	reembedIndex,
+	reembedRefusal,
 } from "./reembed.js";
 
 const CURRENT = "local:multilingual-MiniLM:q8@384";
@@ -27,7 +28,7 @@ const recordingQueue = (): ReembedQueue & { requested: string[] } => {
 		requested,
 		requestReembed: async (messageIds) => {
 			requested.push(...messageIds);
-			return messageIds.length;
+			return { queued: messageIds.length, alreadyQueued: 0 };
 		},
 	};
 };
@@ -90,14 +91,16 @@ describe("formatReembed", () => {
 		const text = formatReembed({
 			configuredEmbeddingId: CURRENT,
 			scope: { kind: "stale" },
-			selected: 3,
+			selected: 4,
 			queued: 2,
+			alreadyQueued: 1,
 		});
 		assert.match(
 			text,
 			new RegExp(`Queued 2 messages to re-embed with ${CURRENT}`),
 		);
 		assert.match(text, /Skipped 1 indexed message no longer in the mailbox/);
+		assert.match(text, /Skipped 1 message already waiting for a re-embed/);
 	});
 
 	it("names the model when nothing carries it", () => {
@@ -106,10 +109,25 @@ describe("formatReembed", () => {
 			scope: { kind: "model", embeddingId: OLDER },
 			selected: 0,
 			queued: 0,
+			alreadyQueued: 0,
 		});
 		assert.match(
 			text,
 			new RegExp(`No indexed message carries vectors from ${OLDER}`),
 		);
 	});
+});
+
+describe("reembedRefusal", () => {
+	for (const provider of ["off", "deterministic"] as const) {
+		it(`refuses while the provider is ${provider}`, () => {
+			assert.match(reembedRefusal(provider) ?? "", /no model to re-embed with/);
+		});
+	}
+
+	for (const provider of ["local", "bedrock"] as const) {
+		it(`runs with the ${provider} provider`, () => {
+			assert.equal(reembedRefusal(provider), undefined);
+		});
+	}
 });

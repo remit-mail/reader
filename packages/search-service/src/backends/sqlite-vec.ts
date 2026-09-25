@@ -133,9 +133,9 @@ const buildFilterClause = (
 };
 
 /**
- * Count the stored index by the embedder that wrote each vector (#455), read
- * straight off the vec0 table rather than through the store: a report is not a
- * search, and the caller has no query to run.
+ * Stream every stored chunk with the embedder that wrote it (#455), read
+ * straight off the vec0 table rather than through the store: a report or a
+ * re-embed is not a search, and the caller has no query to run.
  *
  * Reads only. `fileMustExist` keeps a report on a box that has never indexed
  * anything from creating the vector database as a side effect of asking about
@@ -144,9 +144,9 @@ const buildFilterClause = (
  * opened read-only: these files are WAL, and a read-only connection cannot
  * initialize the shared-memory index when no writer is attached.
  *
- * The rows are streamed into the summary. One row per chunk means several per
+ * The rows are streamed into `consume`. One row per chunk means several per
  * message, and a full mailbox's worth of metadata JSON must not be materialized
- * to be counted.
+ * to be read.
  */
 export const readSqliteIndexedChunks = async <T>(
 	path: string,

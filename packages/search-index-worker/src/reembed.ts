@@ -4,9 +4,12 @@ import {
 	type ReembedScope,
 	selectMessagesToReembed,
 } from "@remit/search-service";
+import type { EmbeddingProvider } from "@remit/search-service/from-env";
 
 export interface ReembedQueue {
-	requestReembed(messageIds: string[]): Promise<number>;
+	requestReembed(
+		messageIds: string[],
+	): Promise<{ queued: number; alreadyQueued: number }>;
 }
 
 export interface ReembedResult {
@@ -14,7 +17,15 @@ export interface ReembedResult {
 	scope: ReembedScope;
 	selected: number;
 	queued: number;
+	alreadyQueued: number;
 }
+
+export const reembedRefusal = (
+	provider: EmbeddingProvider,
+): string | undefined => {
+	if (provider !== "off" && provider !== "deterministic") return undefined;
+	return `SEARCH_EMBEDDING_PROVIDER is ${provider}, so there is no model to re-embed with and every indexed message would be queued. Turn semantic search on first.`;
+};
 
 export const parseReembedScope = (args: string[]): ReembedScope => {
 	const { values } = parseArgs({
@@ -47,13 +58,15 @@ export const reembedIndex = async (config: {
 	const messageIds = await config.readChunks((chunks) =>
 		selectMessagesToReembed(config.configuredEmbeddingId, chunks, config.scope),
 	);
-	const queued =
-		messageIds.length === 0 ? 0 : await config.queue.requestReembed(messageIds);
+	const request =
+		messageIds.length === 0
+			? { queued: 0, alreadyQueued: 0 }
+			: await config.queue.requestReembed(messageIds);
 	return {
 		configuredEmbeddingId: config.configuredEmbeddingId,
 		scope: config.scope,
 		selected: messageIds.length,
-		queued,
+		...request,
 	};
 };
 
@@ -76,7 +89,12 @@ export const formatReembed = (result: ReembedResult): string => {
 	const lines = [
 		`Queued ${plural(result.queued, "message")} to re-embed with ${result.configuredEmbeddingId}.`,
 	];
-	const gone = result.selected - result.queued;
+	if (result.alreadyQueued > 0) {
+		lines.push(
+			`Skipped ${plural(result.alreadyQueued, "message")} already waiting for a re-embed.`,
+		);
+	}
+	const gone = result.selected - result.queued - result.alreadyQueued;
 	if (gone > 0) {
 		lines.push(
 			`Skipped ${plural(gone, "indexed message")} no longer in the mailbox.`,
@@ -84,6 +102,7 @@ export const formatReembed = (result: ReembedResult): string => {
 	}
 	lines.push(
 		"The search-index worker re-embeds them as it drains the queue; 'remit check-index' shows how far it has got.",
+		"Wait for it to finish before running this again, or the messages still in the queue are embedded twice.",
 	);
 	return `${lines.join("\n")}\n`;
 };

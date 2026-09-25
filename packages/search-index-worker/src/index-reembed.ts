@@ -3,9 +3,23 @@ import {
 	DrizzleMessageRepository,
 	messageDataSchema,
 } from "@remit/drizzle-service";
-import { buildEmbeddingServiceFromEnv } from "@remit/search-service/from-env";
+import {
+	buildEmbeddingServiceFromEnv,
+	readEmbeddingProviderFromEnv,
+} from "@remit/search-service/from-env";
 import { readSqliteIndexedChunks } from "@remit/search-service/sqlite-vec";
-import { formatReembed, parseReembedScope, reembedIndex } from "./reembed.js";
+import {
+	formatReembed,
+	parseReembedScope,
+	reembedIndex,
+	reembedRefusal,
+} from "./reembed.js";
+
+const refusal = reembedRefusal(readEmbeddingProviderFromEnv());
+if (refusal) {
+	process.stderr.write(`${refusal}\n`);
+	process.exit(1);
+}
 
 const vectorPath = process.env.LOCAL_VECTORDB_PATH;
 if (!vectorPath) {

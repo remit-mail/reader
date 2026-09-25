@@ -268,13 +268,42 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			"00000000-0000-0000-2222-0000000000fe",
 		]);
 
-		assert.equal(queued, 1);
+		assert.deepEqual(queued, { queued: 1, alreadyQueued: 0 });
 		assert.equal((await movedRows()).length, pendingBefore + 1);
 		const orphan = await db
 			.select()
 			.from(outboxTable)
 			.where(eq(outboxTable.messageId, "00000000-0000-0000-2222-0000000000fe"));
 		assert.equal(orphan.length, 0);
+	});
+
+	test("requestReembed skips a message whose forced re-index is still pending", async () => {
+		const pendingBefore = await db
+			.select()
+			.from(outboxTable)
+			.where(
+				and(
+					eq(outboxTable.messageId, MESSAGE_ID),
+					eq(outboxTable.event, "message.moved"),
+					isNull(outboxTable.processedAt),
+				),
+			);
+		assert.ok(pendingBefore.length > 0);
+
+		const again = await repo.requestReembed([MESSAGE_ID]);
+
+		assert.deepEqual(again, { queued: 0, alreadyQueued: 1 });
+		const pendingAfter = await db
+			.select()
+			.from(outboxTable)
+			.where(
+				and(
+					eq(outboxTable.messageId, MESSAGE_ID),
+					eq(outboxTable.event, "message.moved"),
+					isNull(outboxTable.processedAt),
+				),
+			);
+		assert.equal(pendingAfter.length, pendingBefore.length);
 	});
 
 	test("delete removes the message and appends a removal outbox row", async () => {
