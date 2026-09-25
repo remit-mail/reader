@@ -11,6 +11,7 @@ import type { CalendarDescriptor } from "./calendar-types.js";
  */
 const meta: Meta<typeof CalendarList> = {
 	title: "Design System/Calendar/Calendar list",
+	tags: ["proposed"],
 	component: CalendarList,
 	parameters: { layout: "padded" },
 	decorators: [
