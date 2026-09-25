@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { ThreadRowData } from "./app-shell-types.js";
-import { SwipeableRow, type SwipePeek } from "./swipeable-row.js";
+import { commitPeek, SwipeableRow, type SwipePeek } from "./swipeable-row.js";
 
 const thread: ThreadRowData = {
 	id: "thread-1",
@@ -96,5 +96,20 @@ describe("SwipeableRow", () => {
 			html,
 			/role="checkbox"[^>]*aria-label="Select message from Alex Rivera"/,
 		);
+	});
+});
+
+describe("commitPeek — drag-release snap rule", () => {
+	it("snaps back to none when the drag is short of half the action width", () => {
+		assert.equal(commitPeek(0), "none");
+		assert.equal(commitPeek(35), "none", "just under half (36) stays closed");
+		assert.equal(commitPeek(-35), "none");
+	});
+
+	it("commits to a side once the drag passes half the action width", () => {
+		assert.equal(commitPeek(36), "leading", "dragged right past half");
+		assert.equal(commitPeek(72), "leading", "fully dragged right");
+		assert.equal(commitPeek(-36), "trailing", "dragged left past half");
+		assert.equal(commitPeek(-72), "trailing", "fully dragged left");
 	});
 });
