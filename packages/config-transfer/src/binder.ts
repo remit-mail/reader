@@ -18,7 +18,7 @@ import type { AppointFolderRole } from "./import-repositories.js";
 export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
 	accountSetting: Pick<IAccountSettingRepository, "upsert">;
-	filter: Pick<IFilterRepository, "update">;
+	filter: Pick<IFilterRepository, "listByAccountConfig" | "update">;
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 }
 
@@ -34,8 +34,11 @@ export interface ConfigBinderDeps {
  */
 export interface BindResult {
 	bound: number;
+	dropped: number;
 	stillPending: number;
 }
+
+type RefOutcome = { kind: "Bound" } | { kind: "TargetGone" };
 
 /**
  * Bind the folder references an import could not resolve, now that discovery
@@ -62,7 +65,7 @@ export const bindImportedFolders = async (
 	const imports = (
 		await repositories.configImport.listByAccountConfig(accountConfigId)
 	).filter((row) => row.state === ConfigImportState.Pending);
-	if (imports.length === 0) return { bound: 0, stillPending: 0 };
+	if (imports.length === 0) return { bound: 0, dropped: 0, stillPending: 0 };
 
 	const byPath = new Map(
 		(await repositories.mailbox.listAllByAccount(accountId)).map(
@@ -70,7 +73,14 @@ export const bindImportedFolders = async (
 		),
 	);
 
+	const filterIds = new Set(
+		(await repositories.filter.listByAccountConfig(accountConfigId)).map(
+			(filter) => filter.filterId,
+		),
+	);
+
 	let bound = 0;
+	let dropped = 0;
 	let stillPending = 0;
 
 	for (const row of imports) {
@@ -84,7 +94,18 @@ export const bindImportedFolders = async (
 				remaining.push(ref);
 				continue;
 			}
-			await bindRef(deps, accountConfigId, ref, mailboxId, document);
+			const outcome = await bindRef(
+				deps,
+				accountConfigId,
+				ref,
+				mailboxId,
+				document,
+				filterIds,
+			);
+			if (outcome.kind === "TargetGone") {
+				dropped++;
+				continue;
+			}
 			bound++;
 		}
 
@@ -99,7 +120,7 @@ export const bindImportedFolders = async (
 		});
 	}
 
-	return { bound, stillPending };
+	return { bound, dropped, stillPending };
 };
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
@@ -110,13 +131,15 @@ const bindRef = async (
 	ref: ConfigImportUnresolvedRefItem,
 	mailboxId: string,
 	document: BoundDocument,
-): Promise<void> => {
+	filterIds: ReadonlySet<string>,
+): Promise<RefOutcome> => {
 	const { repositories } = deps;
 	if (ref.kind === ConfigImportRefKind.FilterAction) {
+		if (!filterIds.has(ref.target)) return { kind: "TargetGone" };
 		await repositories.filter.update(accountConfigId, ref.target, {
 			actionMailboxId: mailboxId,
 		});
-		return;
+		return { kind: "Bound" };
 	}
 
 	if (ref.kind === ConfigImportRefKind.FolderRole) {
@@ -127,7 +150,7 @@ const bindRef = async (
 			mailboxId,
 			ref.folderPath,
 		);
-		return;
+		return { kind: "Bound" };
 	}
 
 	// The account the file named, when this instance still holds it under that
@@ -142,7 +165,7 @@ const bindRef = async (
 			? named.folderOverrides
 			: document.accounts.flatMap((a) => a.folderOverrides)
 	).find((candidate) => candidate.folderPath === ref.folderPath);
-	if (!override) return;
+	if (!override) return { kind: "Bound" };
 
 	if (override.displayName !== "") {
 		await repositories.accountSetting.upsert({
@@ -161,6 +184,7 @@ const bindRef = async (
 			value: { kind: "MutedFlag", value: override.muted },
 		});
 	}
+	return { kind: "Bound" };
 };
 
 /**

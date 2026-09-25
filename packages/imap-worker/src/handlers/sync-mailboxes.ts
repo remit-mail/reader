@@ -225,7 +225,7 @@ const syncMailboxesForAccount = async (
 		account.accountConfigId,
 		accountId,
 	);
-	if (bound.bound > 0 || bound.stillPending > 0) {
+	if (bound.bound > 0 || bound.dropped > 0 || bound.stillPending > 0) {
 		log.info({ accountId, ...bound }, "Bound imported folder references");
 	}
 

@@ -229,6 +229,9 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 				const at = store.filters.findIndex(
 					(filter) => filter.filterId === filterId,
 				);
+				if (at === -1) {
+					throw new NotFoundError(`Filter not found: ${filterId}`);
+				}
 				const next = { ...store.filters[at], ...patch };
 				store.filters[at] = next;
 				return next;
@@ -1228,6 +1231,56 @@ test("a binder run on a configuration with no import does nothing", async () => 
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);
-	assert.deepEqual(result, { bound: 0, stillPending: 0 });
+	assert.deepEqual(result, { bound: 0, dropped: 0, stillPending: 0 });
 	assert.equal(pendingImportOf([]), undefined);
+});
+
+test("a filter deleted before its folder is discovered drops its reference instead of failing the bind", async () => {
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
+	const store = emptyStore();
+	await apply(store, document);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	store.filters = store.filters.filter(
+		(filter) => filter.filterId !== invoices.filterId,
+	);
+
+	discover(store, PASSWORD_ACCOUNT_ID, [
+		"INBOX",
+		"INBOX.Sent",
+		"INBOX.Facturen",
+		"INBOX.Lists.dev-null",
+	]);
+	discover(store, OAUTH_ACCOUNT_ID, ["INBOX"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		now: () => NOW,
+	};
+
+	const first = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, OAUTH_ACCOUNT_ID);
+
+	assert.equal(first.dropped, 1);
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.target === invoices.filterId,
+		),
+		false,
+	);
+	assert.equal(store.imports[0].state, "Complete");
+
+	const again = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+	assert.deepEqual(again, { bound: 0, dropped: 0, stillPending: 0 });
 });
