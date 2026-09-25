@@ -46,6 +46,7 @@ const draft = {
 	accountId: ACCOUNT_ID,
 	fromAddress: account.email,
 	toAddresses: ["them@example.com"],
+	attachments: [],
 	ccAddresses: [],
 	bccAddresses: [],
 	references: [],

@@ -22,11 +22,11 @@ import {
 } from "@remit/secrets-service";
 import { sendMail } from "@remit/smtp-service";
 import { createQueueProducer } from "@remit/sqs-client/producer";
-import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
+import { createAttachmentReader } from "./attachment-storage.js";
 import { sendMessage } from "./send-message-core.js";
 
 // The data ports are resolved lazily and cached, not at module load: the
@@ -38,20 +38,10 @@ const getPorts = (): Promise<SmtpDataPorts> => {
 	return portsPromise;
 };
 
-// Without a bucket the storage factory falls back to the local filesystem,
-// which a Lambda does not have: every read would come back empty and blame the
-// file. Asked for only when a message carries files, so a deployment that has
-// not been given the bucket yet still sends everything else.
-let storage: StorageService | null = null;
-const getStorage = (): StorageService => {
-	if (process.env.AWS_LAMBDA_FUNCTION_NAME && !process.env.S3_BUCKET_NAME) {
-		throw new Error(
-			"S3_BUCKET_NAME is not set on this worker, so it has no attachment storage to read from",
-		);
-	}
-	if (!storage) storage = createStorageService();
-	return storage;
-};
+const attachmentReader = createAttachmentReader(
+	process.env,
+	createStorageService,
+);
 
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
@@ -199,10 +189,7 @@ export const handleSendMessage = (
 				loadOutboxAttachmentContents(
 					{
 						attachments: (await getPorts()).outboxAttachment,
-						storage: {
-							retrieveOutboxAttachment: (...args) =>
-								getStorage().retrieveOutboxAttachment(...args),
-						},
+						storage: attachmentReader,
 					},
 					{ ...tenant, outboxMessageId },
 					Math.floor(Date.now() / 1000),

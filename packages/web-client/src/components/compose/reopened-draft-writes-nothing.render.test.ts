@@ -46,6 +46,7 @@ const failedEntry = {
 	accountId: ACCOUNT_ID,
 	fromAddress: account.email,
 	toAddresses: ["typo@exmaple.com"],
+	attachments: [],
 	ccAddresses: [],
 	bccAddresses: [],
 	references: [],
