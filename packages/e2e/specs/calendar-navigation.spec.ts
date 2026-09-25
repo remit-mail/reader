@@ -136,15 +136,15 @@ const drawnEvents = (page: Page): Promise<Placement[]> =>
 		.evaluate(
 			(grid, prefix) =>
 				[...grid.querySelectorAll("*")]
-						.filter(
-							(node) =>
-								node.children.length === 0 &&
-								(node.textContent ?? "").startsWith(prefix),
-						)
-						.map((node): [string, string] => [
-							node.textContent ?? "",
-							node.closest("[data-date]")?.getAttribute("data-date") ?? "",
-						]),
+					.filter(
+						(node) =>
+							node.children.length === 0 &&
+							(node.textContent ?? "").startsWith(prefix),
+					)
+					.map((node): [string, string] => [
+						node.textContent ?? "",
+						node.closest("[data-date]")?.getAttribute("data-date") ?? "",
+					]),
 			PREFIX,
 		)
 		.then(sortPlacements);
