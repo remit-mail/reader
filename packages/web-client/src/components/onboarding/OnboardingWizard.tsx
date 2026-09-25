@@ -588,7 +588,7 @@ function StepAddress({
 	);
 }
 
-function StepServers({
+export function StepServers({
 	email,
 	imapConfig,
 	smtpConfig,

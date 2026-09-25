@@ -169,6 +169,31 @@ describe("OnboardingWizard — the first-run path", () => {
 		assert.equal(imapHostField(dom).value, "imap.fastmail.com");
 	});
 
+	it("picks the Gmail preset from a Gmail address and locks both hosts", async () => {
+		const dom = start();
+		await walkToServers(dom, "alice@gmail.com");
+
+		const provider = dom.query<HTMLSelectElement>("#provider-select");
+		assert.ok(provider);
+		assert.equal(provider.value, "gmail");
+		const imap = imapHostField(dom);
+		const smtp = dom.query<HTMLInputElement>(
+			'input[placeholder="smtp.example.com"]',
+		);
+		assert.ok(smtp, "expected the SMTP host field");
+		assert.equal(imap.value, "imap.gmail.com");
+		assert.equal(smtp.value, "smtp.gmail.com");
+		assert.equal(imap.readOnly, true);
+		assert.equal(smtp.readOnly, true);
+		assert.match(dom.text(), /2-Step Verification/);
+		assert.match(dom.text(), /create an app password/);
+		const link = dom.byText("a", "Get an app password");
+		assert.equal(
+			link.getAttribute("href"),
+			"https://support.google.com/accounts/answer/185833",
+		);
+	});
+
 	it("falls back to a guess for a domain nobody has heard of", async () => {
 		const dom = start();
 		await walkToServers(dom, "alice@unheard-of.example");
