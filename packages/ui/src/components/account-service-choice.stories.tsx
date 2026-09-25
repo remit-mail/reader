@@ -14,6 +14,7 @@ import { Button } from "./button.js";
  */
 const meta: Meta<typeof AccountServiceChoice> = {
 	title: "Design System/Settings/AccountServiceChoice",
+	tags: ["proposed"],
 	component: AccountServiceChoice,
 	parameters: { layout: "padded" },
 	decorators: [
