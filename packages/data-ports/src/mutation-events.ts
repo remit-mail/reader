@@ -9,6 +9,8 @@
  */
 export const MUTATION_EVENT_SCHEMA_VERSION = 2;
 
+export const PATHLESS_MUTATION_EVENT_SCHEMA_VERSION = 3;
+
 /**
  * Queue payloads are `JSON.parse`d and cast with no validation, so the declared
  * type is a promise the queue cannot keep. A handler that cannot vouch for an
@@ -16,5 +18,6 @@ export const MUTATION_EVENT_SCHEMA_VERSION = 2;
  * makes the unverified expunge the default for every event we cannot vouch for,
  * including any future producer that forgets the field.
  */
-export const isCurrentSchemaVersion = (value: unknown): boolean =>
-	value === MUTATION_EVENT_SCHEMA_VERSION;
+export const isAcceptedSchemaVersion = (value: unknown): boolean =>
+	value === MUTATION_EVENT_SCHEMA_VERSION ||
+	value === PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;

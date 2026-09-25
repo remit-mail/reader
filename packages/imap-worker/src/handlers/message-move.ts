@@ -1,6 +1,5 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
-import { isNotFoundError } from "@remit/data-ports/errors";
 import {
 	MessageMutation,
 	MessageStatus,
@@ -20,6 +19,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
+import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
@@ -278,23 +278,16 @@ export const handleMessageMove = async (
 		secrets,
 	} = await getClient();
 
-	const {
-		accountId,
-		messageId,
-		sourceMailboxId,
-		sourceMailboxPath,
-		destinationMailboxPath,
-		destinationMailboxId,
-		uid,
-	} = event;
+	const { accountId, messageId, sourceMailboxId, destinationMailboxId, uid } =
+		event;
 
 	log.info(
 		{
 			event: event.type,
 			accountId,
 			messageId,
-			from: sourceMailboxPath,
-			to: destinationMailboxPath,
+			from: sourceMailboxId,
+			to: destinationMailboxId,
 		},
 		"Handling event",
 	);
@@ -349,19 +342,25 @@ export const handleMessageMove = async (
 			// NotFoundError forever, and on the account's per-group FIFO that head
 			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
 			// source mailbox makes the move moot: ack with a WARN.
-			const mailbox = await mailboxService
-				.get(accountId, sourceMailboxId)
-				.catch((error: unknown) => {
-					if (isNotFoundError(error)) return null;
-					throw error;
-				});
-			if (!mailbox) {
+			const source = await findMailboxRow(
+				mailboxService,
+				accountId,
+				sourceMailboxId,
+			);
+			if (source.kind === "gone") {
 				log.warn(
 					{ accountId, messageId, mailboxId: sourceMailboxId },
 					"Skipping MESSAGE_MOVE: source mailbox no longer exists (deleted)",
 				);
 				return;
 			}
+			const mailbox = source.mailbox;
+			const sourceMailboxPath = mailbox.fullPath;
+			const destination = await findMailboxRow(
+				mailboxService,
+				accountId,
+				destinationMailboxId,
+			);
 
 			const settleMoved = async (newUid: number): Promise<void> => {
 				await messageService.updateUid(messageId, newUid, destinationMailboxId);
@@ -389,7 +388,7 @@ export const handleMessageMove = async (
 						messageId,
 						oldUid: uid,
 						newUid,
-						destination: destinationMailboxPath,
+						destination: destinationMailboxId,
 					},
 					"Message moved successfully",
 				);
@@ -413,8 +412,8 @@ export const handleMessageMove = async (
 					accountId,
 					messageId,
 					uid,
-					sourceMailboxPath,
-					destinationMailboxPath,
+					sourceMailboxId,
+					destinationMailboxId,
 					receiveCount,
 					reason,
 				};
@@ -448,6 +447,20 @@ export const handleMessageMove = async (
 					},
 				);
 			};
+
+			if (destination.kind === "gone") {
+				await handBackToSource(
+					MessageSyncStatus.synced,
+					{ metric: "message_move_destination_gone" },
+					"destination mailbox no longer exists (deleted)",
+				);
+				await emitMailboxResync(emitEvent, {
+					accountId,
+					mailboxId: sourceMailboxId,
+				});
+				return;
+			}
+			const destinationMailboxPath = destination.mailbox.fullPath;
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 

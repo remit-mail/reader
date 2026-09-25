@@ -1,5 +1,4 @@
 import { getClient } from "@remit/backend/client";
-import { isNotFoundError } from "@remit/data-ports/errors";
 import {
 	MessageMutation,
 	MessageStatus,
@@ -18,6 +17,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageCopyEvent } from "../events.js";
+import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -108,8 +108,6 @@ export const handleMessageCopy = async (
 		sourceMessageId,
 		newMessageId,
 		sourceMailboxId,
-		sourceMailboxPath,
-		destinationMailboxPath,
 		destinationMailboxId,
 		uid,
 	} = event;
@@ -120,8 +118,8 @@ export const handleMessageCopy = async (
 			accountId,
 			sourceMessageId,
 			newMessageId,
-			from: sourceMailboxPath,
-			to: destinationMailboxPath,
+			from: sourceMailboxId,
+			to: destinationMailboxId,
 		},
 		"Handling event",
 	);
@@ -173,19 +171,46 @@ export const handleMessageCopy = async (
 			// NotFoundError forever, and on the account's per-group FIFO that head
 			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
 			// source mailbox makes the copy moot: ack with a WARN.
-			const mailbox = await mailboxService
-				.get(accountId, sourceMailboxId)
-				.catch((error: unknown) => {
-					if (isNotFoundError(error)) return null;
-					throw error;
-				});
-			if (!mailbox) {
+			const source = await findMailboxRow(
+				mailboxService,
+				accountId,
+				sourceMailboxId,
+			);
+			if (source.kind === "gone") {
 				log.warn(
 					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
 					"Skipping MESSAGE_COPY: source mailbox no longer exists (deleted)",
 				);
 				return;
 			}
+			const mailbox = source.mailbox;
+			const sourceMailboxPath = mailbox.fullPath;
+
+			const destination = await findMailboxRow(
+				mailboxService,
+				accountId,
+				destinationMailboxId,
+			);
+			if (destination.kind === "gone") {
+				const { threadMessagesDeleted } = await reconcileStaleMessage(
+					{ messageService, threadMessageService },
+					account.accountConfigId,
+					newMessageId,
+				);
+				log.warn(
+					{
+						metric: "message_copy_destination_gone",
+						accountId,
+						sourceMessageId,
+						newMessageId,
+						mailboxId: destinationMailboxId,
+						threadMessagesDeleted,
+					},
+					"Skipping MESSAGE_COPY: destination mailbox no longer exists (deleted); optimistic copy row reconciled away",
+				);
+				return;
+			}
+			const destinationMailboxPath = destination.mailbox.fullPath;
 
 			// The copy row carries the source's Message-ID header, so the
 			// destination can be asked where this copy is. Always on the UNGUARDED

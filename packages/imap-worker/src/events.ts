@@ -1,4 +1,7 @@
-import type { MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
+import type {
+	MUTATION_EVENT_SCHEMA_VERSION,
+	PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
+} from "@remit/data-ports/mutation-events";
 
 export interface BaseEvent {
 	accountId: string;
@@ -88,39 +91,56 @@ export type MailboxManagementEvent =
 /**
  * Event for deleting a message (move to trash or permanent delete).
  */
-export interface MessageDeleteEvent extends BaseEvent {
+interface MessageDeleteEventFields extends BaseEvent {
 	type: "MESSAGE_DELETE";
-	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	messageId: string;
 	mailboxId: string;
-	mailboxPath: string;
 	uid: number;
 	operation: "move_to_trash" | "permanent_delete";
 	destinationMailboxId?: string;
+}
+
+export interface MessageDeleteEventV2 extends MessageDeleteEventFields {
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
+	mailboxPath: string;
 	destinationMailboxPath?: string;
 }
+
+export interface MessageDeleteEventV3 extends MessageDeleteEventFields {
+	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
+}
+
+export type MessageDeleteEvent = MessageDeleteEventV2 | MessageDeleteEventV3;
 
 /**
  * Event for moving a message to another mailbox.
  */
-export interface MessageMoveEvent extends BaseEvent {
+interface MessageMoveEventFields extends BaseEvent {
 	type: "MESSAGE_MOVE";
 	messageId: string;
 	sourceMailboxId: string;
-	sourceMailboxPath: string;
 	destinationMailboxId: string;
-	destinationMailboxPath: string;
 	uid: number;
 }
+
+export interface MessageMoveEventV1 extends MessageMoveEventFields {
+	schemaVersion?: undefined;
+	sourceMailboxPath: string;
+	destinationMailboxPath: string;
+}
+
+export interface MessageMoveEventV3 extends MessageMoveEventFields {
+	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
+}
+
+export type MessageMoveEvent = MessageMoveEventV1 | MessageMoveEventV3;
 
 /**
  * Event for emptying the Trash mailbox.
  */
-export interface EmptyTrashEvent extends BaseEvent {
+interface EmptyTrashEventFields extends BaseEvent {
 	type: "EMPTY_TRASH";
-	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	trashMailboxId: string;
-	trashMailboxPath: string;
 	/**
 	 * The Trash folder's UIDVALIDITY at the moment the user consented. The
 	 * handler compares it against what the SELECT serves: a path reused by a
@@ -130,19 +150,40 @@ export interface EmptyTrashEvent extends BaseEvent {
 	trashUidValidity: number;
 }
 
+export interface EmptyTrashEventV2 extends EmptyTrashEventFields {
+	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
+	trashMailboxPath: string;
+}
+
+export interface EmptyTrashEventV3 extends EmptyTrashEventFields {
+	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
+}
+
+export type EmptyTrashEvent = EmptyTrashEventV2 | EmptyTrashEventV3;
+
 /**
  * Event for copying a message to another mailbox.
  */
-export interface MessageCopyEvent extends BaseEvent {
+interface MessageCopyEventFields extends BaseEvent {
 	type: "MESSAGE_COPY";
 	sourceMessageId: string;
 	newMessageId: string;
 	sourceMailboxId: string;
-	sourceMailboxPath: string;
 	destinationMailboxId: string;
-	destinationMailboxPath: string;
 	uid: number;
 }
+
+export interface MessageCopyEventV1 extends MessageCopyEventFields {
+	schemaVersion?: undefined;
+	sourceMailboxPath: string;
+	destinationMailboxPath: string;
+}
+
+export interface MessageCopyEventV3 extends MessageCopyEventFields {
+	schemaVersion: typeof PATHLESS_MUTATION_EVENT_SCHEMA_VERSION;
+}
+
+export type MessageCopyEvent = MessageCopyEventV1 | MessageCopyEventV3;
 
 /**
  * Event for appending a sent message to the Sent mailbox via IMAP APPEND.
