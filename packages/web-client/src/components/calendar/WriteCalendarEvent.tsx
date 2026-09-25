@@ -8,6 +8,7 @@ import {
 	UNZONED_CALENDAR,
 	useCalendars,
 	useCalendarWrites,
+	useDraftClashes,
 } from "@/hooks/calendar";
 import { useCalendarAddress } from "@/routing";
 
@@ -41,6 +42,8 @@ export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 			endTime: seed.allDay ? "" : seed.endTime,
 		};
 	});
+
+	const clashes = useDraftClashes(draft);
 
 	// The default calendar is provisioned by the listing itself, so the picker
 	// has one the moment the calendars arrive rather than making the reader
@@ -88,6 +91,7 @@ export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 			problem={problem}
 			saveLabel="Add"
 			isSaving={isWriting}
+			clashes={clashes}
 			onSave={save}
 			onCancel={onClose}
 		/>

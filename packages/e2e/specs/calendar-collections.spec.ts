@@ -412,7 +412,9 @@ test.describe("Clashes", () => {
 			timeout: 30_000,
 		});
 		await expect(page.getByText(/\d+ at once/)).toHaveCount(1);
-		await expect(page.getByText("1 clash", { exact: false })).toBeVisible();
+		await expect(
+			page.getByText("1 clash", { exact: false }).first(),
+		).toBeVisible();
 
 		const editorFor = async (summary: string) => {
 			await page.goto(`/calendar/week/${CLASH_WEEK}`);
@@ -432,12 +434,8 @@ test.describe("Clashes", () => {
 			"This clashes with something you have already agreed to.",
 		);
 		await expect(clash).toBeVisible({ timeout: 30_000 });
-		await expect(
-			page.getByRole("listitem").filter({ hasText: second }),
-		).toBeVisible();
-		await expect(
-			page.getByRole("listitem").filter({ hasText: apart }),
-		).toHaveCount(0);
+		await expect(page.getByText(`${second},`)).toBeVisible();
+		await expect(page.getByText(`${apart},`)).toHaveCount(0);
 
 		await editorFor(apart);
 		await expect(

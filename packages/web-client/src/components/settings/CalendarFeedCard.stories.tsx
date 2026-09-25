@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { CalendarDetailsForm } from "./CalendarDetailsForm";
 import { CalendarFeedCard } from "./CalendarFeedCard";
 
 /**
@@ -130,5 +131,22 @@ export const Unreadable: Story = {
 			status: "unreadable",
 			error: new Error("Service unavailable"),
 		},
+	},
+};
+
+/** The whole card as the settings page draws it: details above the address. */
+export const WithDetails: Story = {
+	args: {
+		state: { status: "active", createdAt: CREATED, rotatedAt: 0 },
+		details: (
+			<CalendarDetailsForm
+				calendarName="Work"
+				timezone="Europe/Amsterdam"
+				isBusy={false}
+				problem=""
+				onSave={() => undefined}
+				onDelete={() => undefined}
+			/>
+		),
 	},
 };

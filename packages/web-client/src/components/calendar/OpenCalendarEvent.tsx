@@ -10,6 +10,7 @@ import {
 	type CalendarWriteOutcome,
 	calendarInstanceId,
 	draftFromEvent,
+	emptyDraft,
 	patchFromDrafts,
 	rruleFromIcalData,
 	type ScopedWrite,
@@ -19,6 +20,7 @@ import {
 	useCalendarEvent,
 	useCalendars,
 	useCalendarWrites,
+	useDraftClashes,
 } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
 import { formatEventWhen } from "@/lib/calendar-format";
@@ -77,6 +79,10 @@ export function OpenCalendarEvent({
 	>(undefined);
 	const [draft, setDraft] = useState<EventDraft | undefined>(undefined);
 	const [problem, setProblem] = useState("");
+	const clashes = useDraftClashes(
+		draft ?? emptyDraft("", ""),
+		calendarObjectId,
+	);
 
 	const stored = resource ? textFromIcalData(resource.icalData) : undefined;
 	const rrule = resource ? rruleFromIcalData(resource.icalData) : "";
@@ -182,6 +188,7 @@ export function OpenCalendarEvent({
 				isSaving={isWriting}
 				repeatEditable={editing.scope === undefined || editing.scope === "all"}
 				calendarEditable={false}
+				clashes={clashes}
 				onSave={saveEdit}
 				onCancel={() => {
 					setEditing(undefined);

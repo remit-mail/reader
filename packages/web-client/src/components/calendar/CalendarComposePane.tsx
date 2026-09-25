@@ -1,4 +1,6 @@
 import {
+	type CalendarClash,
+	CalendarClashStrip,
 	type CalendarDescriptor,
 	type EventDraft,
 	EventEditor,
@@ -44,6 +46,11 @@ export interface CalendarComposePaneProps {
 	 * part of its address and the patch has no field for it.
 	 */
 	calendarEditable?: boolean;
+	/**
+	 * What the span on the form runs into. Undefined while there is nothing to
+	 * check or the answer has not landed, which draws no strip at all.
+	 */
+	clashes?: CalendarClash[];
 	onSave: () => void;
 	onCancel: () => void;
 }
@@ -59,6 +66,7 @@ export function CalendarComposePane({
 	isSaving,
 	repeatEditable = true,
 	calendarEditable = true,
+	clashes,
 	onSave,
 	onCancel,
 }: CalendarComposePaneProps) {
@@ -75,16 +83,28 @@ export function CalendarComposePane({
 				onSave={onSave}
 				onCancel={onCancel}
 				header={
-					problem === "" ? undefined : (
-						<div
-							role="alert"
-							className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
-						>
-							<AlertCircle
-								className="mt-0.5 size-4 shrink-0 text-danger"
-								aria-hidden="true"
-							/>
-							<p className="min-w-0 flex-1 break-words text-fg">{problem}</p>
+					problem === "" && clashes === undefined ? undefined : (
+						<div className="space-y-2">
+							{problem !== "" && (
+								<div
+									role="alert"
+									className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger-soft px-3 py-2 text-sm"
+								>
+									<AlertCircle
+										className="mt-0.5 size-4 shrink-0 text-danger"
+										aria-hidden="true"
+									/>
+									<p className="min-w-0 flex-1 break-words text-fg">
+										{problem}
+									</p>
+								</div>
+							)}
+							{clashes !== undefined && (
+								<CalendarClashStrip
+									clashes={clashes}
+									clearText="Nothing else is booked at this time."
+								/>
+							)}
 						</div>
 					)
 				}
