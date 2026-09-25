@@ -83,8 +83,8 @@ export const readSubscriptionUrl = (raw: string): CalendarResult<string> => {
 			"a subscription address carries no user name or password",
 		);
 	}
-	url.protocol = scheme;
-	return { ok: true, value: url.toString() };
+	const address = new URL(`${scheme}${trimmed.slice(url.protocol.length)}`);
+	return { ok: true, value: address.toString() };
 };
 
 const truncate = (reason: string): string =>
