@@ -8,7 +8,7 @@ import { CalendarSubscribeCard } from "./CalendarSubscribeCard";
  * refusal means nothing was added.
  */
 const meta: Meta<typeof CalendarSubscribeCard> = {
-	title: "Flows/Settings Calendars/Subscribe to a calendar",
+	title: "Playground/Shipped/Settings/Calendars/Subscribe to a calendar",
 	component: CalendarSubscribeCard,
 	parameters: { layout: "padded" },
 	args: {

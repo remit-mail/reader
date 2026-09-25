@@ -9,7 +9,7 @@ import { CalendarSubscriptionStatus } from "./CalendarSubscriptionStatus";
  * is enough to recognise it.
  */
 const meta: Meta<typeof CalendarSubscriptionStatus> = {
-	title: "Flows/Settings Calendars/Subscribed calendar",
+	title: "Playground/Shipped/Settings/Calendars/Subscribed calendar",
 	component: CalendarSubscriptionStatus,
 	parameters: { layout: "padded" },
 	decorators: [
