@@ -21,8 +21,22 @@ export const AllStatuses: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(await canvas.findByText("Design review notes")).toBeVisible();
-		await expect(canvas.getByText("Weekly update")).toBeVisible();
-		await expect(canvas.getByText("Re: contract")).toBeVisible();
+		for (const subject of [
+			"Re: Q3 planning",
+			"Weekly update",
+			"Signed lease",
+			"Re: contract",
+		]) {
+			await expect(canvas.getByText(subject)).toBeVisible();
+		}
+		for (const error of [
+			"Sent, but not filed: this account has no Sent folder",
+			"SMTP connection timed out",
+			"No SMTP server configured for this account",
+		]) {
+			await expect(canvas.getByText(error, { exact: false })).toBeVisible();
+		}
+		await expect(canvas.queryByText("Invoice #1042")).toBeNull();
 	},
 };
 

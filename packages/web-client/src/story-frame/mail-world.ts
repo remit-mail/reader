@@ -23,7 +23,7 @@ export interface MailWorld {
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-const NOW = Date.now();
+const NOW = Date.UTC(2026, 8, 24, 13, 0);
 
 const ROLES = [
 	"Inbox",
@@ -82,7 +82,7 @@ export const WORK = "acc-work";
 
 const accounts = [
 	accountWithFolders(PERSONAL, "alice@example.com", "Personal"),
-	accountWithFolders(WORK, "alice@acme.example", "Work"),
+	accountWithFolders(WORK, "alice.tan@acme.example", "Work"),
 ];
 
 interface ThreadSeed {
@@ -165,6 +165,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		category: "transactional",
 		ago: 7 * HOUR,
 		isRead: true,
+		starred: true,
 	}),
 	thread({
 		id: "shipping",
@@ -362,6 +363,22 @@ export const outboxInEveryStatus: RemitImapOutboxMessageResponse[] = [
 		lastError: "No SMTP server configured for this account",
 	}),
 ];
+
+export const newsletterBacklog = (
+	count: number,
+): RemitImapThreadMessageResponse[] =>
+	Array.from({ length: count }, (_, index) =>
+		thread({
+			id: `digest-${index}`,
+			accountId: PERSONAL,
+			fromName: "The Weekly",
+			fromEmail: "digest@weekly.example",
+			subject: `Issue ${index + 1}: notes from the field`,
+			snippet: "Three long reads and a short one.",
+			category: "newsletter",
+			ago: 2 * DAY + index * HOUR,
+		}),
+	);
 
 export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 	accounts,

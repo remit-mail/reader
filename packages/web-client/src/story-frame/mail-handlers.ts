@@ -4,11 +4,16 @@ import type {
 	MailboxOperationsListMailboxesResponse,
 	MeOperationsListQuarantineResponse,
 	MeOperationsListVipSuggestionsResponse,
+	MessageBulkOperationsUpdateFlagsResponse,
+	MessageCalendarSuggestionOperationsListMessageCalendarSuggestionsResponse,
 	OutboxOperationsListOutboxMessagesResponse,
 	RemitImapConfigDescriptionResponse,
+	RemitImapDescribeMessageResponse,
 	RemitImapThreadMessageResponse,
 	RemitImapThreadSearchResponse,
+	SemanticSearchOperationsSemanticSearchResponse,
 	SyncOperationsGetSyncStatusResponse,
+	SyncOperationsTriggerSyncResponse,
 	SystemOperationsGetSystemUpdateResponse,
 	ThreadDetailOperationsListThreadMessagesResponse,
 	ThreadOperationsListThreadsResponse,
@@ -18,6 +23,62 @@ import { makeConfig } from "@/test-support/fixtures";
 import type { MailWorld } from "./mail-world";
 
 const API = "/api";
+
+export interface MailHandlerOptions {
+	withholdCounts?: boolean;
+	pageSize?: number;
+	holdLaterPages?: boolean;
+}
+
+const contentPath = (row: RemitImapThreadMessageResponse): string =>
+	`/content/accounts/${row.accountConfigId}/${row.accountId}/messages/${row.messageId}/parts/1`;
+
+const describe = (
+	row: RemitImapThreadMessageResponse,
+): RemitImapDescribeMessageResponse => ({
+	message: {
+		messageId: row.messageId,
+		mailboxId: row.mailboxId,
+		uid: 1,
+		rfc822Size: 2048,
+		internalDate: row.sentDate,
+		status: row.status,
+		syncStatus: row.syncStatus,
+		abandonedMutation: row.abandonedMutation,
+	},
+	envelope: {
+		messageId: row.messageId,
+		date: row.sentDate,
+		subject: row.subject,
+		from: [
+			{
+				addressId: `addr-${row.messageId}`,
+				displayName: row.fromName,
+				normalizedEmail: row.fromEmail ?? "",
+				addressRole: "from",
+				addressOrder: 0,
+			},
+		],
+		to: [],
+		cc: [],
+		bcc: [],
+		replyTo: [],
+		category: row.category,
+		senderTrust: row.senderTrust,
+	},
+	flags: row.isRead ? ["\\Seen"] : [],
+	bodyParts: [
+		{
+			bodyPartId: `part-${row.messageId}`,
+			mediaType: "TEXT",
+			mediaSubtype: "plain",
+			sizeOctets: (row.snippet ?? "").length,
+			isMultipart: false,
+			contentUrl: contentPath(row),
+		},
+	],
+	references: [],
+});
 
 const matchesText = (
 	row: RemitImapThreadMessageResponse,
@@ -68,21 +129,32 @@ const newestFirst = (
 const listing = (
 	rows: RemitImapThreadMessageResponse[],
 	params: URLSearchParams,
+	options: MailHandlerOptions,
 ): RemitImapThreadSearchResponse => {
-	const limit = Number(params.get("limit") ?? rows.length);
+	const offset = Number(params.get("continuationToken") ?? 0);
+	const size = options.pageSize ?? Number(params.get("limit") ?? rows.length);
+	const next = offset + size;
+	const counted = params.get("count") === "true" && !options.withholdCounts;
 	return {
 		items:
 			params.get("results") === "false"
 				? []
-				: newestFirst(rows).slice(0, limit),
-		count:
-			params.get("count") === "true"
-				? new Set(rows.map((row) => row.threadId)).size
+				: newestFirst(rows).slice(offset, next),
+		continuationToken:
+			options.pageSize !== undefined && next < rows.length
+				? String(next)
 				: undefined,
+		count: counted ? new Set(rows.map((row) => row.threadId)).size : undefined,
 	};
 };
 
-export const mailHandlers = (world: MailWorld): HttpHandler[] => {
+const pending = (): Promise<never> => new Promise<never>(() => undefined);
+
+export const mailHandlers = (
+	world: MailWorld,
+	options: MailHandlerOptions = {},
+): HttpHandler[] => {
+	const byMessageId = new Map(world.threads.map((row) => [row.messageId, row]));
 	const inboxIds = new Set(
 		world.accounts.flatMap((account) =>
 			account.folderAppointments
@@ -117,6 +189,39 @@ export const mailHandlers = (world: MailWorld): HttpHandler[] => {
 		http.get(`${API}/accounts/:accountId/filters`, () =>
 			HttpResponse.json<FilterOperationsListFiltersResponse>({ items: [] }),
 		),
+		http.post(`${API}/accounts/:accountId/sync`, () =>
+			HttpResponse.json<SyncOperationsTriggerSyncResponse>({
+				triggered: false,
+				message: "Already up to date",
+			}),
+		),
+		http.get(`${API}/messages/:messageId/calendar-suggestions`, () =>
+			HttpResponse.json<MessageCalendarSuggestionOperationsListMessageCalendarSuggestionsResponse>(
+				{ items: [] },
+			),
+		),
+		http.get(`${API}/messages/:messageId`, ({ params }) => {
+			const row = byMessageId.get(String(params.messageId));
+			if (!row)
+				return HttpResponse.json(
+					{ status: 404, message: "Message not found" },
+					{ status: 404 },
+				);
+			return HttpResponse.json<RemitImapDescribeMessageResponse>(describe(row));
+		}),
+		http.post(`${API}/messages/flags`, () =>
+			HttpResponse.json<MessageBulkOperationsUpdateFlagsResponse>({
+				successCount: 1,
+				failureCount: 0,
+			}),
+		),
+		http.get(
+			"/content/accounts/:accountConfigId/:accountId/messages/:messageId/parts/*",
+			({ params }) =>
+				HttpResponse.text(
+					byMessageId.get(String(params.messageId))?.snippet ?? "",
+				),
+		),
 		http.get(`${API}/threads/:threadId/messages`, ({ params }) =>
 			HttpResponse.json<ThreadDetailOperationsListThreadMessagesResponse>({
 				items: world.threads.filter((row) => row.threadId === params.threadId),
@@ -131,7 +236,9 @@ export const mailHandlers = (world: MailWorld): HttpHandler[] => {
 					params.get("starred") === "true" ||
 					inboxIds.has(row.mailboxId),
 			);
-			return HttpResponse.json(listing(narrow(scope, params), params));
+			if (options.holdLaterPages && params.has("continuationToken"))
+				return pending();
+			return HttpResponse.json(listing(narrow(scope, params), params, options));
 		}),
 		http.get(
 			`${API}/mailboxes/:mailboxId/threads/search`,
@@ -143,6 +250,7 @@ export const mailHandlers = (world: MailWorld): HttpHandler[] => {
 							new URL(request.url).searchParams,
 						),
 						new URL(request.url).searchParams,
+						options,
 					),
 				),
 		),
@@ -156,6 +264,11 @@ export const mailHandlers = (world: MailWorld): HttpHandler[] => {
 		http.get(`${API}/outbox`, () =>
 			HttpResponse.json<OutboxOperationsListOutboxMessagesResponse>({
 				items: world.outbox,
+			}),
+		),
+		http.get(`${API}/search/semantic`, () =>
+			HttpResponse.json<SemanticSearchOperationsSemanticSearchResponse>({
+				items: [],
 			}),
 		),
 		http.get(`${API}/me/quarantine`, () =>

@@ -33,7 +33,7 @@ The graph sees imports, not props: a state behind a prop web-client never passes
 
 ## The web-client story frame
 
-A `Playground/Shipped` route story mounts the real app, not a copy of its shell. `AppStory` in `packages/web-client/src/story-frame` builds the app router on a memory history at the story's `url`, with its own query client. The route's loaders and queries run against MSW: `mailHandlers(mailWorld())` answers the API from fixture accounts, folders, threads and outbox messages, and any request without a handler fails with a 501 that names it.
+A `Playground/Shipped` route story mounts the real app, not a copy of its shell. `AppStory` in `packages/web-client/src/story-frame` builds the app router on a memory history at the story's `url`, with its own query client. The route's loaders and queries run against MSW: `mailHandlers(mailWorld())` answers the API from fixture accounts, folders, threads and outbox messages, and an `/api/*` request without a handler fails with a 501 that names it. Requests outside `/api` pass through untouched.
 
 ```tsx
 const meta = {
@@ -44,4 +44,4 @@ const meta = {
 } satisfies Meta<typeof AppStory>;
 ```
 
-A state is a different world (`mailWorld({ outbox: [] })`) or a different address, never a prop the app does not have. A phone story sets `globals: { viewport: { value: "mobile" } }`, because the shell reads its tier off the viewport.
+A state is a different world (`mailWorld({ outbox: [] })`), a handler option (`withholdCounts`, `pageSize`, `holdLaterPages`), a different address or a play step, never a prop the app does not have. Fixture times sit on a fixed clock. A phone story sets `globals: { viewport: { value: "mobile" } }`, because the shell reads its tier off the viewport.
