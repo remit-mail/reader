@@ -4,13 +4,8 @@
 // commit, and that is only true if real git agrees.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	rmSync,
-	writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, it } from "node:test";
@@ -18,14 +13,26 @@ import { isLeaseRejection, publish, remove } from "./gh-pages-publish.mjs";
 
 const roots = [];
 
-afterEach(() => {
+afterEach(async () => {
 	while (roots.length > 0) {
-		rmSync(roots.pop(), { recursive: true, force: true });
+		await rm(roots.pop(), {
+			recursive: true,
+			force: true,
+			maxRetries: 5,
+			retryDelay: 100,
+		});
 	}
 });
 
 function git(cwd, args) {
 	return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" }).trim();
+}
+
+function disableBackgroundMaintenance(dir) {
+	git(dir, ["config", "gc.auto", "0"]);
+	git(dir, ["config", "gc.autoDetach", "false"]);
+	git(dir, ["config", "maintenance.auto", "false"]);
+	git(dir, ["config", "receive.autoGc", "false"]);
 }
 
 function fixture() {
@@ -35,8 +42,10 @@ function fixture() {
 	const repoRoot = join(root, "repo");
 	mkdirSync(remoteDir);
 	git(remoteDir, ["init", "--quiet", "--bare"]);
+	disableBackgroundMaintenance(remoteDir);
 	mkdirSync(repoRoot);
 	git(repoRoot, ["init", "--quiet"]);
+	disableBackgroundMaintenance(repoRoot);
 	git(repoRoot, ["config", "user.email", "test@example.com"]);
 	git(repoRoot, ["config", "user.name", "test"]);
 	git(repoRoot, ["remote", "add", "origin", remoteDir]);
@@ -101,6 +110,7 @@ function racer(root, remoteDir) {
 	roots.push(dir);
 	mkdirSync(dir, { recursive: true });
 	git(dir, ["init", "--quiet"]);
+	disableBackgroundMaintenance(dir);
 	git(dir, ["config", "user.email", "racer@example.com"]);
 	git(dir, ["config", "user.name", "racer"]);
 	git(dir, ["remote", "add", "origin", remoteDir]);
