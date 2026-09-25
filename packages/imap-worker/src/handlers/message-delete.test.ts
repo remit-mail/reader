@@ -1824,6 +1824,32 @@ describe("handleMessageDelete — folder paths come from the mailbox rows", () =
 		assert.deepEqual(destinations, ["Deleted Items"]);
 	});
 
+	it("opens the source under its current path when it was renamed after enqueue", async () => {
+		const destinations = movedTo();
+		const opened: string[] = [];
+		const openBox = h.connection.openBox;
+		h.connection.openBox = async (path: string) => {
+			opened.push(path);
+			return openBox(path);
+		};
+		h.folderPaths = { "src-mbx": "Old/Inbox-renamed", "trash-mbx": "Trash" };
+
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+		assert.equal(opened[0], "Old/Inbox-renamed");
+		assert.deepEqual(destinations, ["Trash"]);
+	});
+
+	it("resyncs the source when a redelivered delete finds the Trash mailbox deleted", async () => {
+		h.goneMailboxIds = ["trash-mbx"];
+
+		await handleMessageDelete(moveEvent, noopLogger, 2, deps());
+
+		assert.deepEqual(called("emitEvent")[0]?.args, [
+			{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+		]);
+	});
+
 	it("hands the row back without connecting when the Trash mailbox was deleted", async () => {
 		h.goneMailboxIds = ["trash-mbx"];
 		const destinations = movedTo();

@@ -631,6 +631,7 @@ export const handleMessageDelete = async (
 					"Refused to delete: the destination mailbox no longer exists (deleted)",
 					"message_delete_destination_gone",
 				);
+				await emitMailboxResync(emitEvent, { accountId, mailboxId });
 				return;
 			}
 

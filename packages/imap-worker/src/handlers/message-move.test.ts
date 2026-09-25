@@ -740,6 +740,22 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 		assert.deepEqual(updateUidCalls[0], ["mm-msg-zzz", 44, "mm-dst-zzz"]);
 	});
 
+	it("opens the source under its current path when it was renamed after enqueue", async () => {
+		const { opened, movedTo, connection } = await arrangeLiveMove({
+			"mm-src-zzz": "Old/Inbox-renamed",
+			"mm-dst-zzz": "Archive",
+		});
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps(connection));
+
+		assert.deepEqual(
+			opened,
+			["Old/Inbox-renamed"],
+			"the payload still says INBOX; the row says where the folder is now",
+		);
+		assert.deepEqual(movedTo, ["Archive"]);
+	});
+
 	it("hands the row back to its source without connecting when the destination mailbox was deleted", async () => {
 		const { transitionCalls, updateUidCalls } = await arrangeLiveMove({
 			"mm-src-zzz": "INBOX",
