@@ -11,16 +11,16 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
+	type DuplicateMailRepairMode,
+	formatDuplicateMailReport,
+	sweepDuplicateMailboxMail,
+} from "../../drizzle-service/src/repair/duplicate-mailbox-mail.js";
+import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	sweepJunkOnlyAddresses,
 } from "../../drizzle-service/src/repair/junk-only-address.js";
-import {
-	formatOrphanedMailReport,
-	type OrphanedMailRepairMode,
-	sweepOrphanedMail,
-} from "../../drizzle-service/src/repair/orphaned-mail.js";
 import {
 	formatStrandedSentReport,
 	type StrandedSentRepairClient,
@@ -106,9 +106,11 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
  *
- * The fourth is mail whose folder row is gone (#386): the dedupe migration
- * removes duplicate folder rows, and their mail is removed here through
- * `deleteMessageSubtree`, so the search index is cleared with it.
+ * The fourth is mail the folder dedupe migration could not move onto the
+ * surviving row (#386). The migration parks it, and it is removed here through
+ * `deleteMessageSubtree`, so the search index is cleared with it. In
+ * `--check` mode the report also counts the duplicate paths the pending
+ * migration will merge, since nothing has been parked yet.
 
  */
 
@@ -206,13 +208,13 @@ const strandedSentStep = async (
 	}
 };
 
-const orphanedMailStep = async (
-	db: Parameters<typeof sweepOrphanedMail>[0],
-	mode: OrphanedMailRepairMode,
+const duplicateMailStep = async (
+	db: Parameters<typeof sweepDuplicateMailboxMail>[0],
+	mode: DuplicateMailRepairMode,
 ): Promise<void> => {
-	const report = await sweepOrphanedMail(db, mode);
-	for (const line of formatOrphanedMailReport(report)) {
-		logStep({ step: "orphaned-mail-repair" }, line);
+	const report = await sweepDuplicateMailboxMail(db, mode);
+	for (const line of formatDuplicateMailReport(report)) {
+		logStep({ step: "duplicate-mailbox-mail-repair" }, line);
 	}
 };
 
@@ -273,7 +275,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
-			await orphanedMailStep(db, "check");
+			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
@@ -322,7 +324,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// covers.
 		await strandedSentStep(paramRepairClient, "repair");
 
-		await orphanedMailStep(db, "repair");
+		await duplicateMailStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
