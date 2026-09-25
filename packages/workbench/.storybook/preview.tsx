@@ -6,6 +6,7 @@ import "./tailwind.css";
 
 initialize({
 	onUnhandledRequest: "bypass",
+	quiet: true,
 	serviceWorker: { url: "./mockServiceWorker.js" },
 });
 
