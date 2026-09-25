@@ -30,9 +30,9 @@ describe("an account written before the service selection existed", () => {
 					account_id, account_config_id, username, email, auth_type,
 					imap_host, imap_port, imap_tls, imap_start_tls, smtp_port,
 					is_active, connection_state, created_at, updated_at
-				) VALUES (existing, config, person, person@example.com,
-					password, imap.example.com, 993, 1, 0, 587, 1,
-					not_authenticated, 0, 0)`,
+				) VALUES ('existing', 'config', 'person', 'person@example.com',
+					'password', 'imap.example.com', 993, 1, 0, 587, 1,
+					'not_authenticated', 0, 0)`,
 			)
 			.run();
 
