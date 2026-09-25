@@ -1,4 +1,4 @@
-import type { ServerSettings } from "./autodiscovery.js";
+import { APP_PASSWORD_URLS, type ServerSettings } from "./autodiscovery.js";
 
 export interface ProviderPreset {
 	id: string;
@@ -54,6 +54,17 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
 			url: "https://www.fastmail.help/hc/en-us/articles/360058752854",
 		},
 	},
+	{
+		id: "gmail",
+		label: "Gmail",
+		username: "full-email",
+		imap: { host: "imap.gmail.com", port: 993, security: "tls" },
+		smtp: { host: "smtp.gmail.com", port: 587, security: "starttls" },
+		passwordHelp: {
+			text: "Gmail requires an app password, not your Google password. First turn on 2-Step Verification for your Google Account, then create an app password under Security → 2-Step Verification → App passwords.",
+			url: APP_PASSWORD_URLS["gmail.com"],
+		},
+	},
 ];
 
 export function getPresetById(id: string): ProviderPreset | undefined {
@@ -70,6 +81,8 @@ const DOMAIN_TO_PRESET: Record<string, string> = {
 	"aol.com": "aol",
 	"fastmail.com": "fastmail",
 	"fastmail.fm": "fastmail",
+	"gmail.com": "gmail",
+	"googlemail.com": "gmail",
 };
 
 /** Pre-select a provider preset from a known email domain; "" for Custom. */

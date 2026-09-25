@@ -169,6 +169,51 @@ describe("OnboardingWizard — the first-run path", () => {
 		assert.equal(imapHostField(dom).value, "imap.fastmail.com");
 	});
 
+	it("picks the Gmail preset from a Gmail address and locks both hosts", async () => {
+		const dom = start();
+		await walkToServers(dom, "alice@gmail.com");
+
+		const provider = dom.query<HTMLSelectElement>("#provider-select");
+		assert.ok(provider);
+		assert.equal(provider.value, "gmail");
+		const imap = imapHostField(dom);
+		const smtp = dom.query<HTMLInputElement>(
+			'input[placeholder="smtp.example.com"]',
+		);
+		assert.ok(smtp, "expected the SMTP host field");
+		assert.equal(imap.value, "imap.gmail.com");
+		assert.equal(smtp.value, "smtp.gmail.com");
+		assert.equal(imap.readOnly, true);
+		assert.equal(smtp.readOnly, true);
+		const security = [
+			...dom.document.querySelectorAll<HTMLSelectElement>("fieldset select"),
+		];
+		assert.deepEqual(
+			security.map((select) => [select.value, select.disabled]),
+			[
+				["tls", true],
+				["starttls", true],
+			],
+		);
+		assert.match(dom.text(), /2-Step Verification/);
+		assert.match(dom.text(), /create an app password/);
+		const link = dom.byText("a", "Get an app password");
+		assert.equal(
+			link.getAttribute("href"),
+			"https://support.google.com/accounts/answer/185833",
+		);
+	});
+
+	it("offers no Gmail sign-in on the connector step", () => {
+		const dom = start();
+		clickText(dom, "Add your first account");
+		assert.match(dom.text(), /How does this account connect/);
+		assert.doesNotMatch(
+			dom.text(),
+			/Gmail|Sign in with Google|No app passwords/,
+		);
+	});
+
 	it("falls back to a guess for a domain nobody has heard of", async () => {
 		const dom = start();
 		await walkToServers(dom, "alice@unheard-of.example");
