@@ -217,6 +217,7 @@ export function slotOffersOn(
 		) {
 			offers.push({
 				date,
+				endDate: date,
 				startTime: formatMinute(minute),
 				endTime: formatMinute(minute + OFFER_MINUTES),
 				allDay: false,
