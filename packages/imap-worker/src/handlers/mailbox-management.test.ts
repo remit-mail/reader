@@ -711,6 +711,22 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		assert.equal(called("mailbox.transition").length, 0);
 	});
 
+	it("marks failed and acks when the server refuses the DELETE with NOPERM", async () => {
+		recordDeleteIntent();
+		h.connection.deleteMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NOPERM",
+				responseText: "Permission denied",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(deleteEvent, noopLogger, deps()),
+		);
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
+	});
+
 	it("still marks failed and rethrows when the server fails for any other reason", async () => {
 		recordDeleteIntent();
 		h.connection.deleteMailbox = async () => {

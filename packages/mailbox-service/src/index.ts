@@ -219,6 +219,7 @@ export {
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
 	isMailboxPresentUpstream,
+	isMailboxRefusedUpstream,
 } from "./mailbox-upstream.js";
 export {
 	denormalizeMessageCategory,

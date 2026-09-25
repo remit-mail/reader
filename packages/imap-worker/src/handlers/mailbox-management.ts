@@ -9,6 +9,7 @@ import {
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
 	isMailboxPresentUpstream,
+	isMailboxRefusedUpstream,
 	MailboxManagementService,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
@@ -441,6 +442,13 @@ const handleDelete = async (
 									"Cannot delete INBOX",
 								);
 								// Don't rethrow — no retry can make this succeed.
+								return;
+							}
+							if (isMailboxRefusedUpstream(error)) {
+								log.error(
+									{ accountId, mailboxId, path, intent: "delete", error },
+									"Mail server refused the delete",
+								);
 								return;
 							}
 							throw error;

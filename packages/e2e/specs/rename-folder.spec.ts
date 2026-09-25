@@ -23,7 +23,11 @@
  */
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, listServerMailboxes } from "../src/imap.js";
+import {
+	appendMessages,
+	listServerMailboxes,
+	listServerSubjects,
+} from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const STAMP = Date.now();
@@ -141,5 +145,98 @@ test.describe("Renaming a folder", () => {
 		// The mail travelled with the row rather than being initial-synced into a
 		// duplicate the sweep inserted.
 		expect((await api.listThreads(folder.mailboxId)).length).toBeGreaterThan(0);
+	});
+
+	test("refuses a delete while the rename is still in flight, and the rename lands untouched", async () => {
+		test.setTimeout(240_000);
+
+		const before = `Contracts ${STAMP}`;
+		const after = `Agreements ${STAMP}`;
+		const subject = `Conflict keeps the mail ${STAMP}`;
+
+		const folder = await api.createSettledMailbox(run.accountId, before);
+		await appendMessages(run.imapUser, [{ subject }], before);
+
+		await api.triggerSync(run.accountId);
+		const recorded = await api.renameMailbox(
+			run.accountId,
+			folder.mailboxId,
+			after,
+		);
+		const refused = await api.deleteMailbox(run.accountId, folder.mailboxId);
+
+		expect(recorded.syncStatus).toBe("pending");
+		expect(refused.status).toBe(409);
+
+		await waitFor(
+			() => listServerMailboxes(run.imapUser),
+			(paths) => paths.includes(after) && !paths.includes(before),
+			{ timeoutMs: 120_000, what: `Dovecot to hold "${after}" alone` },
+		);
+		expect(await listServerSubjects(run.imapUser, after)).toContain(subject);
+
+		const settled = await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) =>
+				list.some(
+					(box) =>
+						box.mailboxId === folder.mailboxId &&
+						box.fullPath === after &&
+						box.syncStatus === "synced",
+				),
+			{ timeoutMs: 120_000, what: `"${after}" to settle on the same row` },
+		);
+		expect(settled.filter((box) => box.fullPath === after)).toHaveLength(1);
+		expect(settled.some((box) => box.fullPath === before)).toBe(false);
+	});
+
+	test("refuses to rename or delete INBOX, or to take a reserved name", async () => {
+		test.setTimeout(240_000);
+
+		const subject = `Inbox stays put ${STAMP}`;
+		await appendMessages(run.imapUser, [{ subject }]);
+
+		const mailboxes = await api.listMailboxes(run.accountId);
+		const inbox = mailboxes.find((box) => box.fullPath === "INBOX");
+		if (!inbox) throw new Error(`no INBOX row in ${JSON.stringify(mailboxes)}`);
+
+		const path = `Projects ${STAMP}`;
+		const folder = await api.createSettledMailbox(run.accountId, path);
+
+		const renameInbox = await api.attemptRenameMailbox(
+			run.accountId,
+			inbox.mailboxId,
+			`Old inbox ${STAMP}`,
+		);
+		expect(renameInbox.status).toBe(400);
+
+		const deleteInbox = await api.deleteMailbox(run.accountId, inbox.mailboxId);
+		expect(deleteInbox.status).toBe(400);
+
+		const reserved = await api.attemptRenameMailbox(
+			run.accountId,
+			folder.mailboxId,
+			"Archive",
+		);
+		expect(reserved.status).toBe(400);
+		expect(await reserved.text()).toContain("reserved");
+
+		const serverPaths = await listServerMailboxes(run.imapUser);
+		expect(serverPaths).toContain("INBOX");
+		expect(serverPaths).toContain(path);
+		expect(await listServerSubjects(run.imapUser, "INBOX")).toContain(subject);
+
+		const after = await api.listMailboxes(run.accountId);
+		for (const id of [inbox.mailboxId, folder.mailboxId]) {
+			const row = after.find((box) => box.mailboxId === id);
+			expect(row?.syncStatus).toBe("synced");
+			expect(row?.pendingPath).toBeUndefined();
+		}
+		expect(
+			after.find((box) => box.mailboxId === inbox.mailboxId)?.fullPath,
+		).toBe("INBOX");
+		expect(
+			after.find((box) => box.mailboxId === folder.mailboxId)?.fullPath,
+		).toBe(path);
 	});
 });
