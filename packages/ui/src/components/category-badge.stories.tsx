@@ -4,6 +4,7 @@ import { CategoryBadge } from "./category-badge.js";
 
 const meta: Meta<typeof CategoryBadge> = {
 	title: "Design System/Mail/CategoryBadge",
+	tags: ["proposed"],
 	component: CategoryBadge,
 	parameters: { layout: "centered" },
 };

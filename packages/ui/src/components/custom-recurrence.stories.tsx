@@ -19,6 +19,7 @@ const START = "09:15";
  */
 const meta: Meta<typeof CustomRecurrenceEditor> = {
 	title: "Design System/Calendar/Custom recurrence",
+	tags: ["proposed"],
 	component: CustomRecurrenceEditor,
 	parameters: { layout: "padded" },
 };

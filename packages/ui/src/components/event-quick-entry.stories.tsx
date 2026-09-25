@@ -11,6 +11,7 @@ import { EventQuickEntry } from "./event-quick-entry.js";
  */
 const meta: Meta<typeof EventQuickEntry> = {
 	title: "Design System/Calendar/Quick entry",
+	tags: ["proposed"],
 	component: EventQuickEntry,
 	parameters: { layout: "padded" },
 };
