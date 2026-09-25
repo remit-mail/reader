@@ -140,10 +140,32 @@ export const engineKey = () =>
 /**
  * Rootless podman maps the caller to root inside the container, so a bare
  * `--user uid:gid` names a subordinate id that cannot write the bind mount.
- * `--userns=keep-id` maps the caller to the same id inside, which can.
+ * `--userns=keep-id` maps the caller to the same id inside, which can — but
+ * only the podman CLI accepts it; the docker CLI rejects every userns mode but
+ * `host`. Without the podman CLI, container root is the caller, so root it is.
  */
 export const isPodman = (dockerHost, serverComponents) =>
 	/podman/i.test(dockerHost ?? "") || /podman/i.test(serverComponents);
+
+export const containerRunner = ({ podman, podmanCli, uid, gid }) => {
+	if (!podman) return { cli: "docker", args: ["--user", `${uid}:${gid}`] };
+	if (podmanCli) {
+		return {
+			cli: "podman",
+			args: ["--userns=keep-id", "--user", `${uid}:${gid}`],
+		};
+	}
+	return { cli: "docker", args: ["--user", "0:0"] };
+};
+
+const hasPodmanCli = () => {
+	try {
+		execFileSync("podman", ["--version"], { stdio: "ignore" });
+		return true;
+	} catch {
+		return false;
+	}
+};
 
 const dockerServerComponents = () => {
 	try {
@@ -187,18 +209,20 @@ const run = (force) => {
 	// or oversized build never costs the working engine it would replace.
 	rmSync(stagingDir, { recursive: true, force: true });
 	mkdirSync(stagingDir, { recursive: true });
-	const userns = isPodman(process.env.DOCKER_HOST, dockerServerComponents())
-		? ["--userns=keep-id"]
-		: [];
+	const podman = isPodman(process.env.DOCKER_HOST, dockerServerComponents());
+	const runner = containerRunner({
+		podman,
+		podmanCli: podman && hasPodmanCli(),
+		uid: process.getuid(),
+		gid: process.getgid(),
+	});
 	try {
 		execFileSync(
-			"docker",
+			runner.cli,
 			[
 				"run",
 				"--rm",
-				...userns,
-				"--user",
-				`${process.getuid()}:${process.getgid()}`,
+				...runner.args,
 				"-v",
 				`${repoRoot}:/src`,
 				"-e",

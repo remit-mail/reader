@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import {
 	brotliSize,
 	ceilingBreaches,
+	containerRunner,
 	ENGINE_CEILINGS,
 	isPodman,
 	readPins,
@@ -140,6 +141,34 @@ describe("the container runtime the engine builds under", () => {
 		assert.equal(
 			isPodman(undefined, "Engine containerd runc docker-init "),
 			false,
+		);
+	});
+});
+
+describe("the container the engine builds in", () => {
+	const ids = { uid: 1000, gid: 1000 };
+
+	it("runs docker as the caller", () => {
+		assert.deepEqual(
+			containerRunner({ podman: false, podmanCli: false, ...ids }),
+			{ cli: "docker", args: ["--user", "1000:1000"] },
+		);
+	});
+
+	it("keeps the caller's id under podman", () => {
+		assert.deepEqual(
+			containerRunner({ podman: true, podmanCli: true, ...ids }),
+			{
+				cli: "podman",
+				args: ["--userns=keep-id", "--user", "1000:1000"],
+			},
+		);
+	});
+
+	it("runs as the namespace's root when only the docker CLI reaches podman", () => {
+		assert.deepEqual(
+			containerRunner({ podman: true, podmanCli: false, ...ids }),
+			{ cli: "docker", args: ["--user", "0:0"] },
 		);
 	});
 });
