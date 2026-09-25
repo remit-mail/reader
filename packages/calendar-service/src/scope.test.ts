@@ -144,6 +144,163 @@ describe("applyScopedUpdate", () => {
 		assert.ok(master?.includes("DTEND;TZID=Europe/Amsterdam:20261015T110000"));
 	});
 
+	it("keeps a series on its weekday when a scope=All edit is made from an occurrence moved on its own", async () => {
+		const calendar = await read(
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"BEGIN:VEVENT",
+				"UID:weekly@example.com",
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"SUMMARY:Stand-up",
+				"RRULE:FREQ=WEEKLY;COUNT=5",
+				"END:VEVENT",
+				"BEGIN:VEVENT",
+				"UID:weekly@example.com",
+				"RECURRENCE-ID:20260921T090000Z",
+				"DTSTART:20260923T090000Z",
+				"DTEND:20260923T100000Z",
+				"SUMMARY:Stand-up",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			),
+		);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ start: "2026-09-23T10:00:00Z", end: "2026-09-23T11:00:00Z" },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master, override] = events(write.value.icalData);
+		assert.ok(
+			master?.includes("DTSTART:20260907T100000Z"),
+			`the series stays on Mondays: ${master?.join(" | ")}`,
+		);
+		assert.ok(master?.includes("DTEND:20260907T110000Z"));
+		assert.ok(
+			override?.includes("RECURRENCE-ID:20260921T100000Z"),
+			`the moved occurrence still replaces its own slot: ${override?.join(" | ")}`,
+		);
+		assert.ok(override?.includes("DTSTART:20260923T090000Z"));
+
+		const expanded = expandCalendar(await read(write.value.icalData), "");
+		assert.deepEqual(
+			expanded.occurrences.map((occurrence) => occurrence.startAt),
+			[
+				"2026-09-07T10:00:00Z",
+				"2026-09-14T10:00:00Z",
+				"2026-09-23T09:00:00Z",
+				"2026-09-28T10:00:00Z",
+				"2026-10-05T10:00:00Z",
+			],
+		);
+	});
+
+	it("keeps an excluded occurrence excluded when a scope=All edit moves the series' time", async () => {
+		const calendar = await read(
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"BEGIN:VEVENT",
+				"UID:weekly@example.com",
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"SUMMARY:Stand-up",
+				"RRULE:FREQ=WEEKLY;COUNT=5",
+				"EXDATE:20260914T090000Z",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			),
+		);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ start: "2026-09-21T10:00:00Z", end: "2026-09-21T11:00:00Z" },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const expanded = expandCalendar(await read(write.value.icalData), "");
+		assert.deepEqual(
+			expanded.occurrences.map((occurrence) => occurrence.startAt),
+			[
+				"2026-09-07T10:00:00Z",
+				"2026-09-21T10:00:00Z",
+				"2026-09-28T10:00:00Z",
+				"2026-10-05T10:00:00Z",
+			],
+		);
+	});
+
+	it("moves only the end when a scope=All edit changes only the end", async () => {
+		const calendar = await read(WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ end: "2026-09-21T11:00:00Z" },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master] = events(write.value.icalData);
+		assert.ok(
+			master?.includes("DTSTART:20260907T090000Z"),
+			`the start is untouched: ${master?.join(" | ")}`,
+		);
+		assert.ok(
+			master?.includes("DTEND:20260907T110000Z"),
+			`the end lands on the series' first day: ${master?.join(" | ")}`,
+		);
+	});
+
+	it("keeps the series' first day when a scope=All edit changes only the zone", async () => {
+		const calendar = await read(WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ timeZone: "Europe/Amsterdam" },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master] = events(write.value.icalData);
+		assert.ok(
+			master?.includes("DTSTART;TZID=Europe/Amsterdam:20260907T110000"),
+			`the same instant, read in the new zone: ${master?.join(" | ")}`,
+		);
+		assert.ok(master?.includes("DTEND;TZID=Europe/Amsterdam:20260907T120000"));
+	});
+
+	it("keeps the series' first day when a scope=All edit changes only all-day", async () => {
+		const calendar = await read(WEEKLY);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-21T09:00:00Z"),
+			{ allDay: true },
+		);
+
+		assert.ok(write.ok);
+		assert.ok(write.value.kind === "Replace");
+		const [master] = events(write.value.icalData);
+		assert.ok(
+			master?.includes("DTSTART;VALUE=DATE:20260907"),
+			`the series still starts on its first day: ${master?.join(" | ")}`,
+		);
+	});
+
 	it("refuses a scope=All time change made from an occurrence the series does not have", async () => {
 		const calendar = await read(WEEKLY);
 

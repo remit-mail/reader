@@ -204,6 +204,93 @@ test.describe("The whole series", () => {
 		);
 		await expect(page.getByRole("button", { name: RENAMED })).toHaveCount(0);
 	});
+
+	test("an edit made from an occurrence moved on its own keeps the series on its weekday", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const MOVED_SERIES = "Fabrikam design crit";
+		const FIRST = "2031-08-04";
+		const weeks = [0, 1, 2, 3, 4].map((week) => addDays(FIRST, week * 7));
+		const MOVED_TO = addDays(weeks[1], 2);
+		const RANGE = window(FIRST, addDays(FIRST, 7 * (OCCURRENCES + 2)));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const series = await api.createCalendarEvent({
+			calendarId,
+			summary: MOVED_SERIES,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: `FREQ=WEEKLY;COUNT=${OCCURRENCES}`,
+		});
+		written.set(series.calendarObjectId, series.calendarId);
+
+		const ofSeries = (items: CalendarEventInstance[]) =>
+			items.filter((item) => item.calendarObjectId === series.calendarObjectId);
+
+		const expanded = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofSeries(items).length === OCCURRENCES,
+			{ what: "the weekly series to be expanded into the window" },
+		);
+		const second = ofSeries(expanded)[1];
+		if (!second) throw new Error("the series has no second occurrence");
+
+		// The second Monday moves to the Wednesday on its own, the way a "This
+		// event" edit leaves it.
+		await api.updateCalendarEvent(
+			series.calendarObjectId,
+			series.calendarId,
+			{
+				start: `${MOVED_TO}T09:00:00+00:00`,
+				end: `${MOVED_TO}T10:00:00+00:00`,
+			},
+			{ scope: "This", recurrenceId: second.recurrenceId },
+		);
+		await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => startDays(ofSeries(items)).includes(MOVED_TO),
+			{ what: "the second occurrence to be moved to the Wednesday" },
+		);
+
+		await page.goto(weekPath(weeks[1]));
+		await page.getByRole("button", { name: MOVED_SERIES }).click();
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await page.getByRole("button", { name: "The whole series" }).click();
+
+		const startTime = page.getByLabel("Start time", { exact: true });
+		await expect(startTime).toHaveValue("09:00");
+		await startTime.fill("10:00");
+		await page.getByLabel("End time", { exact: true }).fill("11:00");
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(startTime).toHaveCount(0, { timeout: 30_000 });
+		await expect(page.getByRole("alert")).toHaveCount(0);
+
+		const edited = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) =>
+				ofSeries(items).some((item) => item.start.slice(11, 16) === "10:00"),
+			{ what: "the whole-series edit to reach the server" },
+		);
+		const occurrences = ofSeries(edited);
+		expect(startDays(occurrences)).toEqual([
+			weeks[0],
+			MOVED_TO,
+			weeks[2],
+			weeks[3],
+			weeks[4],
+		]);
+		expect(
+			occurrences
+				.filter((item) => item.start.slice(0, 10) !== MOVED_TO)
+				.map((item) => item.start.slice(11, 16)),
+		).toEqual(["10:00", "10:00", "10:00", "10:00"]);
+	});
 });
 
 test.describe("Repeat rules picked in the form", () => {
