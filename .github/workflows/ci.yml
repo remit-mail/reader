@@ -288,6 +288,7 @@ jobs:
           key: ${{ runner.os }}-playwright-chromium-${{ hashFiles('package-lock.json') }}
 
       - name: Story suite
+        timeout-minutes: 12
         run: npm run test:stories
 
   # The pull request half of the two-lane e2e split. This one assembles the stack
