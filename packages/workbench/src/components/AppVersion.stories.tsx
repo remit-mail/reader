@@ -53,7 +53,8 @@ function AppVersion({
 }
 
 const meta: Meta<AppVersionProps> = {
-	title: "Components/AppVersion",
+	title: "Playground/Proposed/Shell/AppVersion",
+	tags: ["proposed"],
 	component: AppVersion,
 	parameters: { layout: "padded" },
 	argTypes: {

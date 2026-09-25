@@ -10,7 +10,7 @@ import { EventQuickEntry } from "./event-quick-entry.js";
  * correction happens before the event exists.
  */
 const meta: Meta<typeof EventQuickEntry> = {
-	title: "Calendar/Quick entry",
+	title: "Design System/Calendar/Quick entry",
 	component: EventQuickEntry,
 	parameters: { layout: "padded" },
 };

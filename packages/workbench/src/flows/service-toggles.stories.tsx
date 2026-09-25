@@ -16,7 +16,8 @@ import {
  * screens that make that believable.
  */
 const meta: Meta = {
-	title: "Flows/Service toggles",
+	title: "Playground/Proposed/Service toggles",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 	globals: { viewport: { value: "desktop" } },
 };

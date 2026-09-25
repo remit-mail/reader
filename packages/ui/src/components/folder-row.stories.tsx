@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { FolderRow } from "./folder-row.js";
 
 const meta: Meta<typeof FolderRow> = {
-	title: "Mail/FolderRow",
+	title: "Design System/Folders/FolderRow",
 	component: FolderRow,
 	parameters: { layout: "centered" },
 };

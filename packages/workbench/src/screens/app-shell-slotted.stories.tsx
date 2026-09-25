@@ -25,7 +25,8 @@ import {
 import { MailShell } from "./mail-shell.js";
 
 const meta: Meta<typeof AppShellSlotted> = {
-	title: "Screens/AppShell",
+	title: "Playground/Proposed/Shell/AppShell slotted",
+	tags: ["proposed"],
 	component: AppShellSlotted,
 	parameters: { layout: "fullscreen" },
 };

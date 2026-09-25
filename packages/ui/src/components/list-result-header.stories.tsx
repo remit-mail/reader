@@ -12,7 +12,7 @@ const listPaneFrame: Decorator = (Story) => (
 );
 
 const meta: Meta<typeof ListResultHeader> = {
-	title: "Components/ListResultHeader",
+	title: "Design System/Mail/ListResultHeader",
 	component: ListResultHeader,
 	parameters: { layout: "centered" },
 	decorators: [listPaneFrame],

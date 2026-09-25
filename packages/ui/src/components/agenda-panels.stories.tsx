@@ -22,7 +22,7 @@ import type {
  * something the rows cannot answer at a glance.
  */
 const meta: Meta = {
-	title: "Calendar/Agenda panels",
+	title: "Playground/Shipped/Calendar/Agenda panels",
 	parameters: { layout: "padded" },
 };
 export default meta;

@@ -15,7 +15,7 @@ const [unterminatedBoundary, unknownCharset, truncatedBody, shapeUnread] =
 const demoIssueUrl = "https://github.com/remit-mail/reader/issues/new";
 
 const meta: Meta<typeof QuarantineSection> = {
-	title: "Settings/Quarantine",
+	title: "Design System/Settings/Quarantine",
 	component: QuarantineSection,
 	parameters: { layout: "padded" },
 	args: { onCutBug: () => {} },

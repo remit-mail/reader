@@ -12,7 +12,7 @@ import { ErrorBanner } from "./ErrorBanner";
  * builds from build-time constants Storybook has no `define` for.
  */
 const meta: Meta<typeof ErrorBanner> = {
-	title: "Components/ErrorBanner",
+	title: "Playground/Shipped/Mail/ErrorBanner",
 	component: ErrorBanner,
 	parameters: { layout: "padded" },
 	args: {

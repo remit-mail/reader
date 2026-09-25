@@ -129,7 +129,7 @@ const chipOf = (canvasElement: HTMLElement): HTMLElement => {
  * `ComposeForm` adds the recipients, the autosave and the send around this.
  */
 const meta: Meta<typeof Harness> = {
-	title: "Mail/ComposeBody",
+	title: "Design System/Compose/ComposeBody",
 	component: Harness,
 	parameters: { layout: "centered" },
 };

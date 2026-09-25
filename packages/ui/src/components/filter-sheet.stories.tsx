@@ -31,7 +31,7 @@ const SOURCES: FilterSheetSource[] = [
 ];
 
 const meta: Meta<typeof FilterSheet> = {
-	title: "FilterSheet",
+	title: "Design System/Filters/FilterSheet",
 	component: FilterSheet,
 	parameters: {
 		layout: "fullscreen",

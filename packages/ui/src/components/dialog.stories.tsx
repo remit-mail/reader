@@ -5,7 +5,7 @@ import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
 
 const meta: Meta<typeof Dialog> = {
-	title: "Components/Dialog",
+	title: "Design System/Primitives/Dialog",
 	component: Dialog,
 	parameters: { layout: "fullscreen" },
 };

@@ -26,7 +26,7 @@ import {
 import type { FolderTreeNode } from "./folder-tree-picker.js";
 
 const meta: Meta<typeof FilterRuleEditor> = {
-	title: "FilterRuleEditor",
+	title: "Design System/Filters/FilterRuleEditor",
 	component: FilterRuleEditor,
 	parameters: { layout: "padded" },
 	decorators: [

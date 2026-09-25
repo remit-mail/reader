@@ -13,7 +13,7 @@ import {
  * organiser hears nothing — this plan sends no reply at all.
  */
 const meta: Meta<typeof CalendarInviteCard> = {
-	title: "Calendar/Invite card",
+	title: "Design System/Calendar/Invite card",
 	component: CalendarInviteCard,
 	parameters: { layout: "padded" },
 	decorators: [

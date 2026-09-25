@@ -227,7 +227,10 @@ export function CalendarGrid({
 	const isTight = density === "compact";
 
 	return (
-		<div className={cn("h-full min-h-0 w-full text-fg", className)}>
+		<div
+			data-testid="calendar-grid"
+			className={cn("h-full min-h-0 w-full text-fg", className)}
+		>
 			<FullCalendar
 				ref={calendarRef}
 				plugins={PLUGINS}
@@ -251,8 +254,6 @@ export function CalendarGrid({
 				eventMaxStack={3}
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
-				slotMinTime="07:00:00"
-				slotMaxTime="23:00:00"
 				scrollTime="08:30:00"
 				scrollTimeReset={false}
 				slotDuration={{ minutes: slot.slotMinutes }}

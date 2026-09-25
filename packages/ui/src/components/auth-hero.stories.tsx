@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AuthHero } from "./auth-hero.js";
 
 const meta: Meta<typeof AuthHero> = {
-	title: "Auth/AuthHero",
+	title: "Design System/Auth/AuthHero",
 	component: AuthHero,
 	parameters: { layout: "centered" },
 };

@@ -199,7 +199,7 @@ function Strip({
 }
 
 const meta: Meta<typeof Strip> = {
-	title: "App/Calendar/Agenda",
+	title: "Playground/Shipped/Calendar/Agenda",
 	component: Strip,
 	parameters: { layout: "fullscreen" },
 	args: {

@@ -22,7 +22,8 @@ import {
 import { useState } from "react";
 
 const meta: Meta = {
-	title: "Screens/Folder settings",
+	title: "Playground/Proposed/Settings/Folder settings",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

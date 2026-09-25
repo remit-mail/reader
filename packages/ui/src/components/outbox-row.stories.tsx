@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { OutboxRow } from "./outbox-row.js";
 
 const meta: Meta<typeof OutboxRow> = {
-	title: "Mail/OutboxRow",
+	title: "Design System/Mail/OutboxRow",
 	component: OutboxRow,
 	parameters: { layout: "padded" },
 	args: {

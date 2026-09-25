@@ -3,7 +3,7 @@ import { useState } from "react";
 import { SearchBar } from "./search-bar.js";
 
 const meta: Meta<typeof SearchBar> = {
-	title: "Mail/SearchBar",
+	title: "Design System/Search/SearchBar",
 	component: SearchBar,
 	parameters: { layout: "padded" },
 };

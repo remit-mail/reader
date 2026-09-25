@@ -14,7 +14,7 @@ import { calendarColorIds } from "./calendar-types.js";
  * take from here is the element — no `aria-pressed`, no leading slot.
  */
 const meta: Meta<typeof CalendarEventChip> = {
-	title: "Calendar/Event chip",
+	title: "Design System/Calendar/Event chip",
 	component: CalendarEventChip,
 	parameters: { layout: "padded" },
 };

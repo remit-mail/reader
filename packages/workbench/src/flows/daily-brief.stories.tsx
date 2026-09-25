@@ -25,7 +25,8 @@ import {
 import { MailShell } from "../screens/mail-shell.js";
 
 const meta: Meta = {
-	title: "Flows/DailyBrief",
+	title: "Playground/Proposed/Daily brief",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

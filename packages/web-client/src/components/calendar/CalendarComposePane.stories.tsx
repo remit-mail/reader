@@ -45,7 +45,7 @@ const draft: EventDraft = {
 };
 
 const meta: Meta<typeof CalendarComposePane> = {
-	title: "App/Calendar/Compose pane",
+	title: "Playground/Shipped/Calendar/Compose pane",
 	component: CalendarComposePane,
 	parameters: { layout: "fullscreen" },
 	args: {

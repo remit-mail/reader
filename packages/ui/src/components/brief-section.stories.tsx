@@ -42,7 +42,7 @@ const cappedSection: ThreadSection = {
 };
 
 const meta: Meta<typeof BriefSection> = {
-	title: "Screens/Kit/BriefSection",
+	title: "Playground/Shipped/Mail/Daily brief/BriefSection",
 	component: BriefSection,
 	parameters: { layout: "fullscreen" },
 	args: {

@@ -35,7 +35,7 @@ export interface SegmentedProps<T extends string> {
 	className?: string;
 }
 
-function Segmented<T extends string>({
+export function Segmented<T extends string>({
 	options,
 	value,
 	onChange,

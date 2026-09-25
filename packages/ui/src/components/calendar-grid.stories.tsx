@@ -104,7 +104,7 @@ const week: CalendarEventData[] = [
 ];
 
 const meta: Meta<typeof CalendarGrid> = {
-	title: "Calendar/Grid",
+	title: "Design System/Calendar/Grid",
 	component: CalendarGrid,
 	parameters: { layout: "fullscreen" },
 	decorators: [
@@ -138,6 +138,16 @@ export const Overlapping: Story = {
 	args: {
 		date: TODAY,
 		events: week.filter((event) => event.start.startsWith("2026-06-10")),
+	},
+};
+
+/** An early flight and a late call: the day runs midnight to midnight. */
+export const OutsideWorkingHours: Story = {
+	args: {
+		events: [
+			at("flight", "Flight to Lisbon", "09", "06:00", "07:00"),
+			at("late-call", "Call with Sydney", "11", "23:15", "23:45"),
+		],
 	},
 };
 

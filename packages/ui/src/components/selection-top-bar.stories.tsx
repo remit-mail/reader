@@ -6,7 +6,7 @@ import { SearchBar } from "./search-bar.js";
 import { SelectionTopBar } from "./selection-top-bar.js";
 
 const meta: Meta<typeof SelectionTopBar> = {
-	title: "Screens/Kit/SelectionTopBar",
+	title: "Playground/Shipped/Mail/SelectionTopBar",
 	component: SelectionTopBar,
 	parameters: { layout: "padded" },
 	args: {

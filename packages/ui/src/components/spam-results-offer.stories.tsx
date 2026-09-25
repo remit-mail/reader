@@ -12,7 +12,7 @@ const listPaneFrame: Decorator = (Story) => (
 );
 
 const meta: Meta<typeof SpamResultsOffer> = {
-	title: "Components/SpamResultsOffer",
+	title: "Design System/Spam rescue/SpamResultsOffer",
 	component: SpamResultsOffer,
 	parameters: { layout: "centered" },
 	decorators: [listPaneFrame],

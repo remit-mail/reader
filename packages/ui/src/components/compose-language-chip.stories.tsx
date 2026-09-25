@@ -45,7 +45,7 @@ const Chip = ({
  * Chrome or Safari user, and it says whose setting it is.
  */
 const meta: Meta<typeof Chip> = {
-	title: "Mail/ComposeLanguageChip",
+	title: "Design System/Compose/ComposeLanguageChip",
 	component: Chip,
 	parameters: { layout: "centered" },
 };

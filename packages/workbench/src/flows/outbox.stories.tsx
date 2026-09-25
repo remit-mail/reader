@@ -17,7 +17,8 @@ import { MailShell } from "../screens/mail-shell.js";
  */
 
 const meta: Meta = {
-	title: "Flows/Outbox",
+	title: "Playground/Proposed/Outbox",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

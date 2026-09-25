@@ -9,7 +9,7 @@ import type { CalendarAttendee } from "./calendar-types.js";
  * a colour on its own.
  */
 const meta: Meta = {
-	title: "Calendar/Attendees",
+	title: "Design System/Calendar/Attendees",
 	parameters: { layout: "padded" },
 };
 export default meta;

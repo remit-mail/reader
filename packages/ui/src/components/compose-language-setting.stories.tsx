@@ -18,7 +18,7 @@ const Setting = ({ initial = ["nl", "en"] }: { initial?: string[] }) => {
  * is what keeps detection accurate on a single sentence.
  */
 const meta: Meta<typeof Setting> = {
-	title: "Settings/ComposeLanguages",
+	title: "Design System/Settings/ComposeLanguages",
 	component: Setting,
 	parameters: { layout: "centered" },
 };

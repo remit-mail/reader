@@ -6,7 +6,7 @@ import { Input } from "./input.js";
 import { SlidePanel } from "./slide-panel.js";
 
 const meta: Meta<typeof SlidePanel> = {
-	title: "Components/SlidePanel",
+	title: "Design System/Primitives/SlidePanel",
 	component: SlidePanel,
 	parameters: { layout: "fullscreen" },
 };

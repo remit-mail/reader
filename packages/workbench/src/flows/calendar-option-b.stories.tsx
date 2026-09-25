@@ -39,7 +39,8 @@ import { CalendarTab } from "../screens/calendar-tab.js";
  * because a gesture is never the only way to answer.
  */
 const meta: Meta = {
-	title: "Flows/Calendar — B. Seam",
+	title: "Playground/Proposed/Calendar/B. Seam",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

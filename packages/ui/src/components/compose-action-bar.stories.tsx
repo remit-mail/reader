@@ -9,7 +9,7 @@ import { ComposeActionBar } from "./compose-action-bar.js";
  * and the press reports it.
  */
 const meta: Meta<typeof ComposeActionBar> = {
-	title: "Mail/ComposeActionBar",
+	title: "Design System/Compose/ComposeActionBar",
 	component: ComposeActionBar,
 	parameters: { layout: "padded" },
 	args: {

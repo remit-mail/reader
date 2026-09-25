@@ -21,7 +21,7 @@ const KNOWN: AddressEntry[] = [
  * component the app renders.
  */
 const meta: Meta<typeof ComposeAddressField> = {
-	title: "Mail/ComposeAddressField",
+	title: "Design System/Compose/ComposeAddressField",
 	component: ComposeAddressField,
 	parameters: { layout: "padded" },
 };

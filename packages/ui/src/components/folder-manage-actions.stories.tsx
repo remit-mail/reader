@@ -4,7 +4,7 @@ import { FolderManageActions } from "./folder-manage-actions.js";
 import { FolderRow } from "./folder-row.js";
 
 const meta: Meta<typeof FolderManageActions> = {
-	title: "Mail/FolderManageActions",
+	title: "Design System/Folders/FolderManageActions",
 	component: FolderManageActions,
 	parameters: { layout: "centered" },
 };

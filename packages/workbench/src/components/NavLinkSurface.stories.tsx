@@ -15,7 +15,8 @@ import { PHONE_WIDTH, phoneFrame, phoneParams } from "../lib/story-frame.js";
  * passes on code that only queued the work.
  */
 const meta: Meta = {
-	title: "Components/NavLinkSurface",
+	title: "Playground/Proposed/Shell/NavLinkSurface",
+	tags: ["proposed"],
 	parameters: { layout: "centered" },
 };
 export default meta;

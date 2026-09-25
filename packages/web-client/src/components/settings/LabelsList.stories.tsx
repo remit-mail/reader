@@ -3,7 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { LabelsList } from "./LabelsList";
 
 const meta: Meta<typeof LabelsList> = {
-	title: "Flows/Settings Labels/LabelsList",
+	title: "Playground/Shipped/Settings/Labels/LabelsList",
 	component: LabelsList,
 	parameters: { layout: "padded" },
 	decorators: [

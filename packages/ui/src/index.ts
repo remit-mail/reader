@@ -219,6 +219,8 @@ export {
 	type CalendarDateNavProps,
 	CalendarViewSwitch,
 	type CalendarViewSwitchProps,
+	Segmented,
+	type SegmentedProps,
 	type SegmentOption,
 	segmentClassName,
 } from "./components/calendar-toolbar.js";

@@ -103,7 +103,7 @@ function SheetStage({ children }: { children: ReactNode }) {
 }
 
 const meta: Meta = {
-	title: "Flows/Settings Filters",
+	title: "Playground/Shipped/Settings/Filters",
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

@@ -37,7 +37,7 @@ import {
 } from "./steps";
 
 const meta: Meta = {
-	title: "Flows/Config import",
+	title: "Playground/Shipped/Import/Config import",
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

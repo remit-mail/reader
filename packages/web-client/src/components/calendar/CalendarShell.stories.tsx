@@ -127,7 +127,7 @@ function Shell({
 }
 
 const meta: Meta<typeof Shell> = {
-	title: "App/Calendar/Shell",
+	title: "Playground/Shipped/Calendar/Shell",
 	component: Shell,
 	parameters: { layout: "fullscreen" },
 };

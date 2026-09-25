@@ -7,7 +7,7 @@ import { CalendarFeedCard } from "./CalendarFeedCard";
  * is legible and the two confirmations that take it away.
  */
 const meta: Meta<typeof CalendarFeedCard> = {
-	title: "Flows/Settings Calendars/Subscription address",
+	title: "Playground/Shipped/Settings/Calendars/Subscription address",
 	component: CalendarFeedCard,
 	parameters: { layout: "padded" },
 	args: {

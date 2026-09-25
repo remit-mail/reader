@@ -10,7 +10,7 @@ import type { CalendarViewId } from "./calendar-types.js";
  * hue, the same way the nav marks the mailbox you are in.
  */
 const meta: Meta = {
-	title: "Calendar/Toolbar",
+	title: "Design System/Calendar/Toolbar",
 	parameters: { layout: "padded" },
 };
 export default meta;

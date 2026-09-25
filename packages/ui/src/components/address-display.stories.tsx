@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react";
 import { AddressList, type EnvelopeAddress } from "./address-display.js";
 
 const meta: Meta<typeof AddressList> = {
-	title: "Mail/AddressList",
+	title: "Design System/Mail/AddressList",
 	component: AddressList,
 	parameters: { layout: "padded" },
 };

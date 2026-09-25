@@ -44,7 +44,7 @@ const event: CalendarEventData = {
 };
 
 const meta: Meta<typeof CalendarEventPane> = {
-	title: "App/Calendar/Event pane",
+	title: "Playground/Shipped/Calendar/Event pane",
 	component: CalendarEventPane,
 	parameters: { layout: "fullscreen" },
 	args: {

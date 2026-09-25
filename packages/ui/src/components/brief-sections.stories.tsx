@@ -186,7 +186,7 @@ function BriefHost({
 }
 
 const meta: Meta<typeof BriefHost> = {
-	title: "Screens/Kit/BriefSections",
+	title: "Playground/Shipped/Mail/Daily brief/BriefSections",
 	component: BriefHost,
 	parameters: { layout: "fullscreen" },
 	args: {

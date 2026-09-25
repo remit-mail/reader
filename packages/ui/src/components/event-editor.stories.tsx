@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 import type { CalendarDescriptor, EventDraft } from "./calendar-types.js";
 import { EventEditor } from "./event-editor.js";
 
@@ -8,7 +9,7 @@ import { EventEditor } from "./event-editor.js";
  * one click away, but they do not charge the common case for their existence.
  */
 const meta: Meta<typeof EventEditor> = {
-	title: "Calendar/Event editor",
+	title: "Design System/Calendar/Event editor",
 	component: EventEditor,
 	parameters: { layout: "padded" },
 };
@@ -155,6 +156,28 @@ export const AllDay: Story = {
 	render: () => (
 		<Live startExpanded={false} seed={{ ...backwards, allDay: true }} />
 	),
+};
+
+/**
+ * Ticking All day on a night, then unticking it, gives the night back rather
+ * than collapsing the end onto the start day.
+ */
+export const AllDayRoundTrip: Story = {
+	render: () => <Live startExpanded={false} seed={overnight} />,
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const allDay = canvas.getByLabelText("All day");
+
+		await userEvent.click(allDay);
+		await expect(canvas.getByLabelText("End date")).toHaveValue("2026-06-12");
+
+		await userEvent.click(allDay);
+		await expect(canvas.getByLabelText("End date")).toHaveValue("2026-06-13");
+		await expect(canvas.getByLabelText("End time")).toHaveValue("01:00");
+		await expect(
+			canvas.queryByText(/Ends before it starts/),
+		).not.toBeInTheDocument();
+	},
 };
 
 /** The same form sized for a bottom sheet: every control a thumb target. */

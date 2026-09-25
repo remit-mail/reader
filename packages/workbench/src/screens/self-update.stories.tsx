@@ -19,7 +19,8 @@ const NOW = Date.parse("2026-07-20T12:00:00.000Z");
 const CURRENT = "0.9.3";
 
 const meta: Meta = {
-	title: "Screens/Settings self-update",
+	title: "Playground/Proposed/Settings/Self-update",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

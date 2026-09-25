@@ -50,7 +50,8 @@ import {
 import { EditAccountForm } from "./edit-account.js";
 
 const meta: Meta = {
-	title: "Screens/Settings",
+	title: "Playground/Proposed/Settings/Overview",
+	tags: ["proposed"],
 	parameters: { layout: "fullscreen" },
 };
 export default meta;

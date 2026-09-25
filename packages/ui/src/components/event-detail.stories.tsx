@@ -10,7 +10,7 @@ import { EventDetail } from "./event-detail.js";
  * footnote, so nothing that started as mail is ever a dead end.
  */
 const meta: Meta<typeof EventDetail> = {
-	title: "Calendar/Event detail",
+	title: "Design System/Calendar/Event detail",
 	component: EventDetail,
 	parameters: { layout: "fullscreen" },
 	decorators: [
