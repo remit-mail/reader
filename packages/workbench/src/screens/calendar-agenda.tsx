@@ -98,7 +98,11 @@ import {
 	STRIP_LAST_DATE,
 } from "../fixtures/calendar-agenda.js";
 import { type ChoicePicks, parseAgendaPhrase } from "../lib/agenda-phrase.js";
-import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
+import {
+	applyDraft,
+	applyScopedEdit,
+	lastDayOf,
+} from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
@@ -130,6 +134,7 @@ function emptyDraft(): EventDraft {
 		title: "",
 		date: TODAY,
 		startTime: "10:00",
+		endDate: TODAY,
 		endTime: "11:00",
 		allDay: false,
 		calendarId: calendars[0].id,
@@ -145,6 +150,7 @@ function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 		...emptyDraft(),
 		date: pick.date,
 		startTime: pick.allDay ? "" : pick.startTime,
+		endDate: pick.date,
 		endTime: pick.allDay ? "" : pick.endTime,
 		allDay: pick.allDay,
 	};
@@ -155,6 +161,7 @@ function draftFromEvent(event: CalendarEventData): EventDraft {
 		title: event.title,
 		date: event.start.slice(0, 10),
 		startTime: event.allDay ? "" : event.start.slice(11, 16),
+		endDate: lastDayOf(event),
 		endTime: event.allDay ? "" : event.end.slice(11, 16),
 		allDay: event.allDay,
 		calendarId: event.calendarId,
@@ -172,6 +179,7 @@ function draftFromPhrase(phrase: string, picks: ChoicePicks): EventDraft {
 		title: parse.title,
 		date: parse.date,
 		startTime: parse.startTime === "" ? "10:00" : parse.startTime,
+		endDate: parse.date,
 		endTime: parse.endTime === "" ? "11:00" : parse.endTime,
 		location: parse.location,
 		guests: parse.attendees.join(", "),

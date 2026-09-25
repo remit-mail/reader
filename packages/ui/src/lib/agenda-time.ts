@@ -46,6 +46,14 @@ export function addDays(date: string, days: number): string {
 	return cursor.toISOString().slice(0, 10);
 }
 
+/** Whole days from one civil date to another, negative when `to` is earlier. */
+export function daysFrom(from: string, to: string): number {
+	return Math.round(
+		(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+			86_400_000,
+	);
+}
+
 export function datesBetween(from: string, to: string): string[] {
 	const dates: string[] = [];
 	for (let cursor = from; cursor <= to; cursor = addDays(cursor, 1))

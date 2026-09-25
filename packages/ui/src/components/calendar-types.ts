@@ -299,6 +299,12 @@ export interface EventDraft {
 	date: string;
 	/** `HH:MM`, empty when the entry is all day. */
 	startTime: string;
+	/**
+	 * `YYYY-MM-DD`, the day the event ends on: the day `endTime` falls on, or
+	 * the last day an all-day entry covers. A night shift ends the day after it
+	 * starts, which one date cannot say.
+	 */
+	endDate: string;
 	endTime: string;
 	allDay: boolean;
 	calendarId: string;

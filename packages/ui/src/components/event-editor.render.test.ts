@@ -27,6 +27,7 @@ const draft: EventDraft = {
 	title: "Coffee",
 	date: "2026-06-12",
 	startTime: "13:00",
+	endDate: "2026-06-12",
 	endTime: "14:00",
 	allDay: false,
 	calendarId: "c1",
@@ -132,6 +133,28 @@ describe("EventEditor", () => {
 		});
 		assert.equal(field(dom, "Start time")?.value, "23:00");
 		assert.equal(field(dom, "End time")?.value, "01:00");
+	});
+
+	it("lets a night that ends on the next day save", () => {
+		const dom = parse({
+			draft: {
+				...draft,
+				startTime: "23:00",
+				endDate: "2026-06-13",
+				endTime: "01:00",
+			},
+		});
+		assert.equal(alertText(dom), "");
+		assert.equal(saveControl(dom)?.disabled, false);
+		assert.equal(field(dom, "End date")?.value, "2026-06-13");
+	});
+
+	it("refuses an all-day entry whose last day is before its first", () => {
+		const dom = parse({
+			draft: { ...draft, allDay: true, endDate: "2026-06-11" },
+		});
+		assert.match(alertText(dom), /Ends before it starts/);
+		assert.equal(saveControl(dom)?.disabled, true);
 	});
 
 	it("lets a normal range save", () => {

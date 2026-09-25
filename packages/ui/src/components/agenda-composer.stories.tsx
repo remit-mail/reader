@@ -50,6 +50,7 @@ const draft: EventDraft = {
 	title: "Lunch with Jane",
 	date: "2026-06-12",
 	startTime: "13:00",
+	endDate: "2026-06-12",
 	endTime: "14:00",
 	allDay: false,
 	calendarId: "work",

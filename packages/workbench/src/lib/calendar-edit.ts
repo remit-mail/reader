@@ -15,10 +15,30 @@ import type {
 /** June puts Amsterdam at UTC+2, and every fixture week is in June. */
 const OFFSET = "+02:00";
 
-function nextDay(date: string): string {
+function shiftDay(date: string, days: number): string {
 	const next = new Date(`${date}T00:00:00Z`);
-	next.setUTCDate(next.getUTCDate() + 1);
+	next.setUTCDate(next.getUTCDate() + days);
 	return next.toISOString().slice(0, 10);
+}
+
+const nextDay = (date: string): string => shiftDay(date, 1);
+
+const daysFrom = (from: string, to: string): number =>
+	Math.round(
+		(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
+			86_400_000,
+	);
+
+/**
+ * The day an event ends on, as the form holds it: the day a timed end falls
+ * on, or the last day an all-day event covers — its stored end is exclusive.
+ */
+export function lastDayOf(event: CalendarEventData): string {
+	const start = event.start.slice(0, 10);
+	const end = event.end.slice(0, 10);
+	if (!event.allDay) return end;
+	const last = shiftDay(end, -1);
+	return last < start ? start : last;
 }
 
 /**
@@ -66,8 +86,8 @@ export function applyDraft(
 			? draft.date
 			: `${draft.date}T${draft.startTime}:00${OFFSET}`,
 		end: draft.allDay
-			? nextDay(draft.date)
-			: `${draft.date}T${draft.endTime}:00${OFFSET}`,
+			? nextDay(draft.endDate)
+			: `${draft.endDate}T${draft.endTime}:00${OFFSET}`,
 		allDay: draft.allDay,
 		location: draft.location,
 		notes: draft.notes,
@@ -110,8 +130,10 @@ export function applyScopedEdit(
 	return events.map((event) => {
 		if (event.seriesId !== base.seriesId) return event;
 		if (scope === "following" && event.start < base.start) return event;
+		const date = event.start.slice(0, 10);
+		const endDate = shiftDay(date, daysFrom(draft.date, draft.endDate));
 		return {
-			...applyDraft(event, { ...draft, date: event.start.slice(0, 10) }),
+			...applyDraft(event, { ...draft, date, endDate }),
 			seriesException: false,
 		};
 	});

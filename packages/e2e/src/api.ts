@@ -216,6 +216,8 @@ export interface CreateCalendarEventInput {
 	start: string;
 	end: string;
 	allDay?: boolean;
+	location?: string;
+	description?: string;
 	timeZone?: string;
 	/** An RRULE value without the property name, e.g. `"FREQ=WEEKLY;COUNT=5"`. */
 	recurrenceRule?: string;
@@ -251,6 +253,12 @@ export interface CalendarEventResource {
 	calendarObjectId: string;
 	calendarId: string;
 	icalUid: string;
+}
+
+/** One stored resource as the server keeps it: the iCalendar text and its etag. */
+export interface StoredCalendarEvent extends CalendarEventResource {
+	icalData: string;
+	etag: string;
 }
 
 export interface ConfigAccount {
@@ -936,6 +944,20 @@ export class ApiClient {
 		input: CreateCalendarEventInput,
 	): Promise<CalendarEventResource> {
 		return this.json("POST", "/calendar-events", input);
+	}
+
+	/**
+	 * The stored resource itself. The occurrence listing carries no location or
+	 * description, so a spec proving those were written reads them here.
+	 */
+	getCalendarEvent(
+		calendarObjectId: string,
+		calendarId: string,
+	): Promise<StoredCalendarEvent> {
+		return this.json(
+			"GET",
+			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}`,
+		);
 	}
 
 	/**

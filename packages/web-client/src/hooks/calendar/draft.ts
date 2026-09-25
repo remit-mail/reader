@@ -33,6 +33,7 @@ export function emptyDraft(date: string, calendarId: string): EventDraft {
 		title: "",
 		date,
 		startTime: "09:00",
+		endDate: date,
 		endTime: "10:00",
 		allDay: false,
 		calendarId,
@@ -41,6 +42,19 @@ export function emptyDraft(date: string, calendarId: string): EventDraft {
 		notes: "",
 		repeat: "",
 	};
+}
+
+/**
+ * The last day an event covers. A timed event ends on the day its end falls
+ * on; an all-day end is exclusive (RFC 5545 3.6.1), so the day before it is
+ * the last one the event holds.
+ */
+function lastDay(event: CalendarEventData): string {
+	const start = event.start.slice(0, 10);
+	const end = event.end.slice(0, 10);
+	if (!event.allDay) return end;
+	const last = addDays(end, -1);
+	return last < start ? start : last;
 }
 
 /**
@@ -56,6 +70,7 @@ export function draftFromEvent(
 		title: event.title,
 		date: event.start.slice(0, 10),
 		startTime: event.allDay ? "" : event.start.slice(11, 16),
+		endDate: lastDay(event),
 		endTime: event.allDay ? "" : event.end.slice(11, 16),
 		allDay: event.allDay,
 		calendarId: event.calendarId,
@@ -79,10 +94,11 @@ function timesFor(
 	draft: EventDraft,
 	timeZone: string,
 ): { start: string; end: string } {
-	if (draft.allDay) return { start: draft.date, end: addDays(draft.date, 1) };
+	if (draft.allDay)
+		return { start: draft.date, end: addDays(draft.endDate, 1) };
 	return {
 		start: isoAtInZone(draft.date, draft.startTime, timeZone),
-		end: isoAtInZone(draft.date, draft.endTime, timeZone),
+		end: isoAtInZone(draft.endDate, draft.endTime, timeZone),
 	};
 }
 
@@ -95,11 +111,17 @@ function refuse(draft: EventDraft, checkRepeat: boolean): string {
 	if (draft.title.trim() === "")
 		return "Give the event a title before saving it.";
 	if (draft.date === "") return "Pick the day the event is on.";
+	if (draft.endDate === "") return "Pick the day the event ends on.";
 	if (draft.calendarId === "") return "Pick the calendar to save the event in.";
 	if (!draft.allDay && (draft.startTime === "" || draft.endTime === ""))
 		return "Set a start and an end time, or mark the event all day.";
-	if (!draft.allDay && draft.endTime <= draft.startTime)
-		return "The end time is not after the start time. Move one of them.";
+	if (draft.allDay && draft.endDate < draft.date)
+		return "The last day is before the first. Move one of them.";
+	if (
+		!draft.allDay &&
+		`${draft.endDate}T${draft.endTime}` <= `${draft.date}T${draft.startTime}`
+	)
+		return "The end is not after the start. Move one of them.";
 	if (checkRepeat && rruleFromText(draft.repeat) === undefined)
 		return "This calendar can't store that repeat rule. Pick one of the offered rules, or turn the repeat off.";
 	return "";
@@ -149,6 +171,7 @@ export function patchFromDrafts(
 	const moved =
 		after.date !== before.date ||
 		after.startTime !== before.startTime ||
+		after.endDate !== before.endDate ||
 		after.endTime !== before.endTime ||
 		after.allDay !== before.allDay;
 	if (moved) {
