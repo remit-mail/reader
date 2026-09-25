@@ -14,6 +14,13 @@ export const PACKAGE_ROOTS = {
 	"packages/workbench/src": [PROPOSED],
 };
 
+const ESCAPES = new Map([
+	['"', '"'],
+	["'", "'"],
+	["\\", "\\"],
+	["n", "\n"],
+	["t", "\t"],
+]);
 const STORY_FILE = /\.stories\.tsx?$/;
 
 function skipQuoted(source, start) {
@@ -92,9 +99,17 @@ function stringLiteralAt(text, start) {
 	if (quote !== '"' && quote !== "'") return null;
 	const end = skipQuoted(text, start);
 	if (text[end - 1] !== quote) return null;
-	return JSON.parse(
-		`"${text.slice(start + 1, end - 1).replaceAll('"', '\\"')}"`,
-	);
+	let value = "";
+	for (let i = start + 1; i < end - 1; i++) {
+		if (text[i] !== "\\") {
+			value += text[i];
+			continue;
+		}
+		i++;
+		if (!ESCAPES.has(text[i])) return null;
+		value += ESCAPES.get(text[i]);
+	}
+	return value;
 }
 
 function stringArrayAt(text, start) {

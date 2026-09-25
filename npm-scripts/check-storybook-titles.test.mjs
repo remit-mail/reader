@@ -29,6 +29,13 @@ describe("readMeta", () => {
 		);
 	});
 
+	it("decodes an escaped single-quoted title", () => {
+		assert.deepEqual(readMeta(story("\ttitle: 'Design System/It\\'s',")), {
+			title: "Design System/It's",
+			tags: [],
+		});
+	});
+
 	it("reports a meta without a literal title, which Storybook would auto-title", () => {
 		assert.ok("error" in readMeta(story("\tcomponent: Button,")));
 	});

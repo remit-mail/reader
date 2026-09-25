@@ -310,7 +310,7 @@ function Harness({
 }
 
 const meta: Meta<typeof MobileSearchView> = {
-	title: "Design System/Search/MobileSearchView",
+	title: "Playground/Shipped/Mail/Search/MobileSearchView",
 	component: MobileSearchView,
 	parameters: { layout: "centered" },
 	decorators: [phoneFrame],
