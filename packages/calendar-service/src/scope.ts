@@ -9,7 +9,7 @@ import {
 	serializeCalendar,
 } from "./parse.js";
 import { hasRecurrence } from "./project.js";
-import { dtStartTzid, resolveTime, toUtcIso } from "./time.js";
+import { dtStartTzid, resolveTime, toUtcIso, tzidOf } from "./time.js";
 
 export type RecurrenceScopeValue =
 	(typeof RecurrenceScope)[keyof typeof RecurrenceScope];
@@ -308,17 +308,12 @@ const shiftProperty = (
 	property.setValue(shifted);
 };
 
-/** Where an occurrence is drawn, which a moved one no longer shares with its slot. */
 const shownStart = (occurrence: FoundOccurrence): ICAL.Time | null => {
 	if (occurrence.details) return occurrence.details.startDate;
 	const start = occurrence.override?.getFirstPropertyValue("dtstart");
 	return start instanceof ICAL.Time ? start : null;
 };
 
-/**
- * The slot a value named under the old DTSTART, named under the new one: the
- * same day of the series, at the series' new time and in its new zone.
- */
 const reslot = (
 	value: ICAL.Time,
 	before: ICAL.Time,
@@ -329,70 +324,327 @@ const reslot = (
 	return moved;
 };
 
-/**
- * Keeps every override and excluded date on the slot it was written for once
- * the series' own start has moved. A RECURRENCE-ID or an EXDATE matches a slot
- * by its exact time, so leaving them behind would detach a moved occurrence
- * from the one it replaces and bring a deleted one back.
- */
-const followSlots = (
-	calendar: ParsedCalendar,
+interface SeriesShape {
+	start: ICAL.Time;
+	tzid: string;
+	rule: ICAL.Recur | null;
+	durationSeconds: number;
+}
+
+interface SeriesSlot {
+	time: ICAL.Time;
+	instantMs: number;
+}
+
+const seriesShape = (master: ICAL.Component): SeriesShape | null => {
+	const start = master.getFirstPropertyValue("dtstart");
+	if (!(start instanceof ICAL.Time)) return null;
+	const rule = master.getFirstPropertyValue("rrule");
+	return {
+		start: start.clone(),
+		tzid: dtStartTzid(master),
+		rule: rule instanceof ICAL.Recur ? rule.clone() : null,
+		durationSeconds: new ICAL.Event(master).duration.toSeconds(),
+	};
+};
+
+const ruleSlots = (
+	shape: SeriesShape,
+	collectionTimezone: string,
+	stop: (instantMs: number, count: number) => boolean,
+): SeriesSlot[] => {
+	if (!shape.rule) return [];
+	const slots: SeriesSlot[] = [];
+	const iterator = shape.rule.iterator(shape.start);
+	let next: ICAL.Time | null = iterator.next();
+	while (next && slots.length < CALENDAR_WINDOW_MAX_STEPS) {
+		const instantMs = resolveTime(
+			next,
+			shape.tzid,
+			collectionTimezone,
+		).instantMs;
+		if (stop(instantMs, slots.length)) break;
+		slots.push({ time: next.clone(), instantMs });
+		next = iterator.next();
+	}
+	return slots;
+};
+
+const WEEKDAYS: readonly string[] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+
+const BY_WEEKDAY = /^([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$/;
+
+interface ByWeekday {
+	ordinal: number;
+	weekday: number;
+}
+
+const readByWeekday = (value: string): ByWeekday | null => {
+	const match = BY_WEEKDAY.exec(value);
+	if (!match) return null;
+	return {
+		ordinal: Number(match[1] ?? 0),
+		weekday: WEEKDAYS.indexOf(match[2] ?? ""),
+	};
+};
+
+const weekdayOf = (time: ICAL.Time): number => time.dayOfWeek() - 1;
+
+const ordinalOf = (
+	position: number,
+	length: number,
+	fromEnd: boolean,
+	withinMonth: boolean,
+): number => {
+	const fromStart = Math.floor((position - 1) / 7) + 1;
+	const fromLast = -(Math.floor((length - position) / 7) + 1);
+	const preferred = fromEnd ? fromLast : fromStart;
+	if (!withinMonth || Math.abs(preferred) < 5) return preferred;
+	return fromEnd ? fromStart : fromLast;
+};
+
+const unmovable = <T>(
+	rule: ICAL.Recur,
+	after: ICAL.Time,
+	reason: string,
+): CalendarResult<T> =>
+	calendarFailure(
+		"UnmovableRecurrenceRule",
+		`the repeat rule ${rule.toString()} ${reason}, so it cannot follow the series to ${after.toString().slice(0, 10)} — send a recurrenceRule for the new day in the same edit, or move one occurrence with scope=This`,
+	);
+
+const followStart = (
+	rule: ICAL.Recur,
 	before: ICAL.Time,
 	after: ICAL.Time,
-): void => {
-	if (before.isDate !== after.isDate) return;
-	const tzid = dtStartTzid(calendar.master);
-	for (const override of calendar.overrides) {
-		const recurrenceId = override.getFirstPropertyValue("recurrence-id");
-		if (!(recurrenceId instanceof ICAL.Time)) continue;
-		override.removeAllProperties("recurrence-id");
-		override.addProperty(
-			timeProperty("recurrence-id", reslot(recurrenceId, before, after), tzid),
-		);
+): CalendarResult<ICAL.Recur> => {
+	if (civilDay(after) === civilDay(before)) return { ok: true, value: rule };
+	const moved = rule.clone();
+	const parts = moved.parts;
+
+	const pinned = (["BYSETPOS", "BYYEARDAY", "BYWEEKNO"] as const).find(
+		(name) => (parts[name]?.length ?? 0) > 0,
+	);
+	if (pinned) return unmovable(rule, after, `picks its days with ${pinned}`);
+
+	const byMonthDay = parts.BYMONTHDAY ?? [];
+	if (byMonthDay.length > 0) {
+		if (byMonthDay.length !== 1 || byMonthDay[0] !== before.day) {
+			return unmovable(rule, after, "names days of the month of its own");
+		}
+		parts.BYMONTHDAY = [after.day];
 	}
+
+	const byMonth = parts.BYMONTH ?? [];
+	if (byMonth.length > 0 && after.month !== before.month) {
+		if (byMonth.length !== 1 || byMonth[0] !== before.month) {
+			return unmovable(rule, after, "names months of its own");
+		}
+		parts.BYMONTH = [after.month];
+	}
+
+	const byDay = parts.BYDAY ?? [];
+	const weekdays = byDay
+		.map(readByWeekday)
+		.filter((weekday): weekday is ByWeekday => weekday !== null);
+	if (weekdays.length !== byDay.length) {
+		return unmovable(rule, after, "names a weekday this server cannot read");
+	}
+	if (weekdays.length === 0) return { ok: true, value: moved };
+
+	const numbered = weekdays.find((weekday) => weekday.ordinal !== 0);
+	if (numbered) {
+		if (weekdays.length !== 1) {
+			return unmovable(rule, after, "names more than one numbered weekday");
+		}
+		const withinMonth =
+			moved.freq !== "YEARLY" || (parts.BYMONTH?.length ?? 0) > 0;
+		const position = withinMonth ? after.day : after.dayOfYear();
+		const length = withinMonth
+			? ICAL.Time.daysInMonth(after.month, after.year)
+			: ICAL.Time.isLeapYear(after.year)
+				? 366
+				: 365;
+		const ordinal = ordinalOf(
+			position,
+			length,
+			numbered.ordinal < 0,
+			withinMonth,
+		);
+		parts.BYDAY = [`${ordinal}${WEEKDAYS[weekdayOf(after)]}`];
+		return { ok: true, value: moved };
+	}
+
+	const shift = (((weekdayOf(after) - weekdayOf(before)) % 7) + 7) % 7;
+	if (moved.interval > 1 && weekdays.length > 1) {
+		const weekStart = moved.wkst - 1;
+		const wraps = weekdays.map(
+			(weekday) => ((weekday.weekday - weekStart + 7) % 7) + shift >= 7,
+		);
+		if (wraps.some((wrap) => wrap !== wraps[0])) {
+			return unmovable(
+				rule,
+				after,
+				"repeats on several days every few weeks, and the move carries some of them into another week",
+			);
+		}
+	}
+	parts.BYDAY = weekdays.map(
+		(weekday) => WEEKDAYS[(weekday.weekday + shift) % 7] ?? "",
+	);
+	return { ok: true, value: moved };
+};
+
+const followRule = (
+	master: ICAL.Component,
+	before: SeriesShape,
+): CalendarResult<null> => {
+	const property = master.getFirstProperty("rrule");
+	const rule = property?.getFirstValue();
+	const start = master.getFirstPropertyValue("dtstart");
+	if (!property || !(rule instanceof ICAL.Recur)) {
+		return { ok: true, value: null };
+	}
+	if (!(start instanceof ICAL.Time)) return { ok: true, value: null };
+	const followed = followStart(rule, before.start, start);
+	if (!followed.ok) return followed;
+	property.setValue(followed.value);
+	return { ok: true, value: null };
+};
+
+const replaceTime = (
+	component: ICAL.Component,
+	name: string,
+	time: ICAL.Time,
+	tzid: string,
+): void => {
+	component.removeAllProperties(name);
+	component.addProperty(timeProperty(name, time, tzid));
+};
+
+const followSlots = (
+	calendar: ParsedCalendar,
+	collectionTimezone: string,
+	before: SeriesShape,
+	after: SeriesShape,
+): void => {
+	const instantOf = (value: ICAL.Time, tzid: string): number =>
+		resolveTime(value, tzid, collectionTimezone).instantMs;
+
+	const exceptionInstants: number[] = [];
+	for (const override of calendar.overrides) {
+		const property = override.getFirstProperty("recurrence-id");
+		const value = property?.getFirstValue();
+		if (value instanceof ICAL.Time) {
+			exceptionInstants.push(instantOf(value, tzidOf(property)));
+		}
+	}
+	for (const property of calendar.master.getAllProperties("exdate")) {
+		for (const value of property.getValues()) {
+			if (value instanceof ICAL.Time) {
+				exceptionInstants.push(instantOf(value, tzidOf(property)));
+			}
+		}
+	}
+	const latest = Math.max(Number.NEGATIVE_INFINITY, ...exceptionInstants);
+
+	const previous = ruleSlots(
+		before,
+		collectionTimezone,
+		(instantMs) => instantMs > latest,
+	);
+	const indexByInstant = new Map(
+		previous.map((slot, index) => [slot.instantMs, index]),
+	);
+	const next = ruleSlots(
+		after,
+		collectionTimezone,
+		(_instantMs, count) => count >= previous.length,
+	);
+	const moved = (value: ICAL.Time, tzid: string): ICAL.Time => {
+		const index = indexByInstant.get(instantOf(value, tzid));
+		const slot = index === undefined ? undefined : next[index];
+		return slot ? slot.time.clone() : reslot(value, before.start, after.start);
+	};
+
+	for (const override of calendar.overrides) {
+		const property = override.getFirstProperty("recurrence-id");
+		const recurrenceId = property?.getFirstValue();
+		if (!(recurrenceId instanceof ICAL.Time)) continue;
+		const slot = moved(recurrenceId, tzidOf(property));
+		const start = override.getFirstPropertyValue("dtstart");
+		const untouched =
+			start instanceof ICAL.Time &&
+			instantOf(start, dtStartTzid(override)) ===
+				instantOf(recurrenceId, tzidOf(property)) &&
+			new ICAL.Event(override).duration.toSeconds() === before.durationSeconds;
+		replaceTime(override, "recurrence-id", slot, after.tzid);
+		if (!untouched) continue;
+		const end = slot.clone();
+		end.addDuration(ICAL.Duration.fromSeconds(after.durationSeconds));
+		override.removeAllProperties("duration");
+		replaceTime(override, "dtstart", slot, after.tzid);
+		replaceTime(override, "dtend", end, after.tzid);
+	}
+
 	for (const name of ["exdate", "rdate"]) {
 		for (const property of calendar.master.getAllProperties(name)) {
 			const values = property.getValues();
 			if (!values.every((value: unknown) => value instanceof ICAL.Time)) {
 				continue;
 			}
+			const tzid = tzidOf(property);
 			calendar.master.removeProperty(property);
 			for (const value of values as ICAL.Time[]) {
-				calendar.master.addProperty(
-					timeProperty(name, reslot(value, before, after), tzid),
-				);
+				const target =
+					name === "exdate"
+						? moved(value, tzid)
+						: reslot(value, before.start, after.start);
+				calendar.master.addProperty(timeProperty(name, target, after.tzid));
 			}
 		}
 	}
 };
 
-/**
- * A whole-series edit made from one occurrence of it.
- *
- * A start or end in the patch is that occurrence's new time, so each is moved
- * back by the days between where that occurrence is drawn and where the series
- * begins. The series keeps its first day and its weekday, and only what was
- * edited changes.
- */
-const applyToSeriesFrom = async (
+const occurrenceOffset = (
 	calendar: ParsedCalendar,
 	collectionTimezone: string,
 	recurrenceId: string,
-	patch: Partial<CalendarEventFields>,
-): Promise<CalendarResult<ScopedWrite>> => {
+	seriesStart: ICAL.Time,
+): CalendarResult<number> => {
+	if (recurrenceId === "") return { ok: true, value: 0 };
 	const found = findOccurrence(calendar, collectionTimezone, recurrenceId);
 	if (!found.ok) return found;
-	const seriesStart = calendar.master.getFirstPropertyValue("dtstart");
 	const shown = shownStart(found.value);
-	if (!(seriesStart instanceof ICAL.Time) || !shown) {
+	if (!shown) {
 		return calendarFailure(
 			"UnknownOccurrence",
 			`${recurrenceId} has no start to move the series from`,
 		);
 	}
-	const before = seriesStart.clone();
-	const beforeTzid = dtStartTzid(calendar.master);
-	const daysIn = civilDay(shown) - civilDay(before);
+	return { ok: true, value: civilDay(shown) - civilDay(seriesStart) };
+};
+
+const applyToSeries = async (
+	calendar: ParsedCalendar,
+	collectionTimezone: string,
+	recurrenceId: string,
+	patch: Partial<CalendarEventFields>,
+): Promise<CalendarResult<ScopedWrite>> => {
+	const before = seriesShape(calendar.master);
+	if (!before) {
+		return calendarFailure(
+			"UnknownOccurrence",
+			"this series has no start to move",
+		);
+	}
+	const daysIn = occurrenceOffset(
+		calendar,
+		collectionTimezone,
+		recurrenceId,
+		before.start,
+	);
+	if (!daysIn.ok) return daysIn;
 
 	const applied = await applyEventFields(
 		calendar.master,
@@ -401,20 +653,18 @@ const applyToSeriesFrom = async (
 	);
 	if (!applied.ok) return applied;
 	if (patch.start !== undefined) {
-		shiftProperty(calendar.master, "dtstart", -daysIn);
+		shiftProperty(calendar.master, "dtstart", -daysIn.value);
 	}
 	if (patch.end !== undefined) {
-		shiftProperty(calendar.master, "dtend", -daysIn);
+		shiftProperty(calendar.master, "dtend", -daysIn.value);
+	}
+	if (patch.recurrenceRule === undefined) {
+		const followed = followRule(calendar.master, before);
+		if (!followed.ok) return followed;
 	}
 
-	const after = calendar.master.getFirstPropertyValue("dtstart");
-	if (
-		after instanceof ICAL.Time &&
-		(after.toString() !== before.toString() ||
-			dtStartTzid(calendar.master) !== beforeTzid)
-	) {
-		followSlots(calendar, before, after);
-	}
+	const after = seriesShape(calendar.master);
+	if (after) followSlots(calendar, collectionTimezone, before, after);
 	return { ok: true, value: replaceWith(calendar) };
 };
 
@@ -506,14 +756,10 @@ export const applyScopedUpdate = async (
 	patch: Partial<CalendarEventFields>,
 ): Promise<CalendarResult<ScopedWrite>> => {
 	if (input.scope === RecurrenceScope.All) {
-		if (
-			input.recurrenceId === "" ||
-			!hasRecurrence(calendar) ||
-			!touchesTime(patch)
-		) {
+		if (!hasRecurrence(calendar) || !touchesTime(patch)) {
 			return applyToMaster(calendar, collectionTimezone, patch);
 		}
-		return applyToSeriesFrom(
+		return applyToSeries(
 			calendar,
 			collectionTimezone,
 			input.recurrenceId,
