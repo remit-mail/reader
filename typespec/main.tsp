@@ -570,7 +570,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       scope?: RecurrenceScope,
 
-      @doc("RECURRENCE-ID of the occurrence the update is anchored at, as the ISO 8601 UTC instant a listing returned. Required for `This` and `Following`.")
+      @doc("RECURRENCE-ID of the occurrence the update is anchored at, as the ISO 8601 UTC instant a listing returned. Required for `This` and `Following`. Optional for `All`, where it names the occurrence the edit was made from: a start or end in the patch is that occurrence's new time, and the whole series moves by as much.")
       @query(#{ explode: true })
       recurrenceId?: string,
 

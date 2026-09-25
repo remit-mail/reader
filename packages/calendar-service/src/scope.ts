@@ -29,7 +29,7 @@ export type ScopedWrite =
 
 export interface ScopedWriteInput {
 	scope: RecurrenceScopeValue;
-	/** ISO 8601 UTC instant naming the occurrence; `""` outside `This`/`Following`. */
+	/** ISO 8601 UTC instant naming the occurrence the write was made from, or `""`. */
 	recurrenceId: string;
 	/** UID the resource a `Following` split creates is written under. */
 	followingUid: string;
@@ -286,6 +286,138 @@ const applyToMaster = async (
 	return { ok: true, value: replaceWith(calendar) };
 };
 
+const touchesTime = (patch: Partial<CalendarEventFields>): boolean =>
+	patch.start !== undefined ||
+	patch.end !== undefined ||
+	patch.allDay !== undefined ||
+	patch.timeZone !== undefined;
+
+const civilDay = (time: ICAL.Time): number =>
+	Date.UTC(time.year, time.month - 1, time.day) / 86_400_000;
+
+const shiftProperty = (
+	component: ICAL.Component,
+	name: string,
+	days: number,
+): void => {
+	const property = component.getFirstProperty(name);
+	const value = property?.getFirstValue();
+	if (!property || !(value instanceof ICAL.Time)) return;
+	const shifted = value.clone();
+	shifted.adjust(days, 0, 0, 0);
+	property.setValue(shifted);
+};
+
+/** Where an occurrence is drawn, which a moved one no longer shares with its slot. */
+const shownStart = (occurrence: FoundOccurrence): ICAL.Time | null => {
+	if (occurrence.details) return occurrence.details.startDate;
+	const start = occurrence.override?.getFirstPropertyValue("dtstart");
+	return start instanceof ICAL.Time ? start : null;
+};
+
+/**
+ * The slot a value named under the old DTSTART, named under the new one: the
+ * same day of the series, at the series' new time and in its new zone.
+ */
+const reslot = (
+	value: ICAL.Time,
+	before: ICAL.Time,
+	after: ICAL.Time,
+): ICAL.Time => {
+	const moved = after.clone();
+	moved.adjust(civilDay(value) - civilDay(before), 0, 0, 0);
+	return moved;
+};
+
+/**
+ * Keeps every override and excluded date on the slot it was written for once
+ * the series' own start has moved. A RECURRENCE-ID or an EXDATE matches a slot
+ * by its exact time, so leaving them behind would detach a moved occurrence
+ * from the one it replaces and bring a deleted one back.
+ */
+const followSlots = (
+	calendar: ParsedCalendar,
+	before: ICAL.Time,
+	after: ICAL.Time,
+): void => {
+	if (before.isDate !== after.isDate) return;
+	const tzid = dtStartTzid(calendar.master);
+	for (const override of calendar.overrides) {
+		const recurrenceId = override.getFirstPropertyValue("recurrence-id");
+		if (!(recurrenceId instanceof ICAL.Time)) continue;
+		override.removeAllProperties("recurrence-id");
+		override.addProperty(
+			timeProperty("recurrence-id", reslot(recurrenceId, before, after), tzid),
+		);
+	}
+	for (const name of ["exdate", "rdate"]) {
+		for (const property of calendar.master.getAllProperties(name)) {
+			const values = property.getValues();
+			if (!values.every((value: unknown) => value instanceof ICAL.Time)) {
+				continue;
+			}
+			calendar.master.removeProperty(property);
+			for (const value of values as ICAL.Time[]) {
+				calendar.master.addProperty(
+					timeProperty(name, reslot(value, before, after), tzid),
+				);
+			}
+		}
+	}
+};
+
+/**
+ * A whole-series edit made from one occurrence of it.
+ *
+ * A start or end in the patch is that occurrence's new time, so each is moved
+ * back by the days between where that occurrence is drawn and where the series
+ * begins. The series keeps its first day and its weekday, and only what was
+ * edited changes.
+ */
+const applyToSeriesFrom = async (
+	calendar: ParsedCalendar,
+	collectionTimezone: string,
+	recurrenceId: string,
+	patch: Partial<CalendarEventFields>,
+): Promise<CalendarResult<ScopedWrite>> => {
+	const found = findOccurrence(calendar, collectionTimezone, recurrenceId);
+	if (!found.ok) return found;
+	const seriesStart = calendar.master.getFirstPropertyValue("dtstart");
+	const shown = shownStart(found.value);
+	if (!(seriesStart instanceof ICAL.Time) || !shown) {
+		return calendarFailure(
+			"UnknownOccurrence",
+			`${recurrenceId} has no start to move the series from`,
+		);
+	}
+	const before = seriesStart.clone();
+	const beforeTzid = dtStartTzid(calendar.master);
+	const daysIn = civilDay(shown) - civilDay(before);
+
+	const applied = await applyEventFields(
+		calendar.master,
+		patch,
+		collectionTimezone,
+	);
+	if (!applied.ok) return applied;
+	if (patch.start !== undefined) {
+		shiftProperty(calendar.master, "dtstart", -daysIn);
+	}
+	if (patch.end !== undefined) {
+		shiftProperty(calendar.master, "dtend", -daysIn);
+	}
+
+	const after = calendar.master.getFirstPropertyValue("dtstart");
+	if (
+		after instanceof ICAL.Time &&
+		(after.toString() !== before.toString() ||
+			dtStartTzid(calendar.master) !== beforeTzid)
+	) {
+		followSlots(calendar, before, after);
+	}
+	return { ok: true, value: replaceWith(calendar) };
+};
+
 /**
  * The occurrence a `This` or `Following` write names, or `null` when the scope
  * collapses to the whole series — which is what "everything from the first
@@ -362,7 +494,8 @@ const overrideFor = async (
 /**
  * Turns an edit of one drawing of a series into the resource writes it means.
  *
- * `All` rewrites the master. `This` writes a RECURRENCE-ID override, which is
+ * `All` rewrites the master, moved from the occurrence it names when it names
+ * one. `This` writes a RECURRENCE-ID override, which is
  * the only thing iCalendar has for "this one is different". `Following` splits,
  * because a rule cannot change halfway through.
  */
@@ -373,7 +506,19 @@ export const applyScopedUpdate = async (
 	patch: Partial<CalendarEventFields>,
 ): Promise<CalendarResult<ScopedWrite>> => {
 	if (input.scope === RecurrenceScope.All) {
-		return applyToMaster(calendar, collectionTimezone, patch);
+		if (
+			input.recurrenceId === "" ||
+			!hasRecurrence(calendar) ||
+			!touchesTime(patch)
+		) {
+			return applyToMaster(calendar, collectionTimezone, patch);
+		}
+		return applyToSeriesFrom(
+			calendar,
+			collectionTimezone,
+			input.recurrenceId,
+			patch,
+		);
 	}
 
 	const anchored = anchorOf(calendar, collectionTimezone, input);

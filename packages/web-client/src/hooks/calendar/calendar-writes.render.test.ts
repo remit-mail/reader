@@ -191,6 +191,27 @@ describe("editing one occurrence of a series", () => {
 		);
 	});
 
+	it("names the occurrence a whole-series edit was made from", async () => {
+		await mount(() => ({ items: [] }));
+		await write((writes) =>
+			writes.updateEvent(
+				{ ...scopedWrite, scope: "all" },
+				{
+					start: "2026-06-11T10:00:00+02:00",
+					end: "2026-06-11T11:00:00+02:00",
+				},
+			),
+		);
+
+		const patched = (http?.calls ?? []).find((call) => call.method === "PATCH");
+		assert.ok(patched, "the edit was sent");
+		assert.ok(patched.url.includes("scope=All"), patched.url);
+		assert.ok(
+			patched.url.includes(encodeURIComponent("2026-06-11T07:15:00Z")),
+			"the server moves the series by what changed on this occurrence",
+		);
+	});
+
 	it("makes the delete conditional on the same version", async () => {
 		await mount(() => ({ items: [] }));
 		await write((writes) => writes.deleteEvent(scopedWrite));

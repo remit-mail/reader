@@ -95,10 +95,12 @@ export function useInvalidateCalendarReads(): () => void {
 	}, [queryClient]);
 }
 
+/**
+ * The occurrence rides along under `All` too: an edit's times are the times of
+ * the occurrence it was made from, and the server moves the series by as much.
+ */
 const scopeQuery = ({ scope, recurrenceId }: ScopedWrite) =>
-	scope === undefined || scope === "all"
-		? {}
-		: { scope: SCOPES[scope], recurrenceId };
+	scope === undefined ? {} : { scope: SCOPES[scope], recurrenceId };
 
 export function useCalendarWrites(): CalendarWrites {
 	const invalidate = useInvalidateCalendarReads();
