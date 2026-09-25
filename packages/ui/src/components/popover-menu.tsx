@@ -112,6 +112,57 @@ function useAnchoredPlacement(
 	return style;
 }
 
+export interface PopoverMenuState {
+	open: boolean;
+	setOpen: (open: boolean | ((open: boolean) => boolean)) => void;
+	containerRef: RefObject<HTMLDivElement | null>;
+	panelRef: RefObject<HTMLDivElement | null>;
+	getAnchor: () => PopoverMenuAnchor | null;
+}
+
+export function usePopoverMenuState(
+	id: string,
+	onBack?: () => void,
+): PopoverMenuState {
+	const [open, setOpen] = useState(false);
+	const containerRef = useRef<HTMLDivElement>(null);
+	const panelRef = useRef<HTMLDivElement>(null);
+
+	useOverlayScope({
+		id,
+		open,
+		answers: {
+			back: () => {
+				setOpen(false);
+				onBack?.();
+			},
+		},
+	});
+
+	useEffect(() => {
+		if (!open) return;
+		const onPointer = (event: MouseEvent) => {
+			const target = event.target as Node;
+			if (
+				containerRef.current?.contains(target) ||
+				panelRef.current?.contains(target)
+			)
+				return;
+			setOpen(false);
+		};
+		document.addEventListener("mousedown", onPointer);
+		return () => document.removeEventListener("mousedown", onPointer);
+	}, [open]);
+
+	return {
+		open,
+		setOpen,
+		containerRef,
+		panelRef,
+		getAnchor: () => containerRef.current?.getBoundingClientRect() ?? null,
+	};
+}
+
 export interface PopoverMenuPortalProps {
 	open: boolean;
 	align?: "start" | "end";
@@ -290,30 +341,8 @@ export function PopoverMenu({
 	nested = false,
 	children,
 }: PopoverMenuProps) {
-	const [open, setOpen] = useState(false);
-	const containerRef = useRef<HTMLDivElement>(null);
-	const panelRef = useRef<HTMLDivElement>(null);
-
-	useOverlayScope({
-		id: "popover-menu",
-		open,
-		answers: { back: () => setOpen(false) },
-	});
-
-	useEffect(() => {
-		if (!open) return;
-		const onPointer = (event: MouseEvent) => {
-			const target = event.target as Node;
-			if (
-				containerRef.current?.contains(target) ||
-				panelRef.current?.contains(target)
-			)
-				return;
-			setOpen(false);
-		};
-		document.addEventListener("mousedown", onPointer);
-		return () => document.removeEventListener("mousedown", onPointer);
-	}, [open]);
+	const { open, setOpen, containerRef, panelRef, getAnchor } =
+		usePopoverMenuState("popover-menu");
 
 	if (items.length === 0 && !children) return null;
 
@@ -340,7 +369,7 @@ export function PopoverMenu({
 				open={open}
 				align={align}
 				panelRef={panelRef}
-				getAnchor={() => containerRef.current?.getBoundingClientRect() ?? null}
+				getAnchor={getAnchor}
 			>
 				<PopoverMenuPanel ref={panelRef}>
 					{items.map((item) => (

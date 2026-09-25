@@ -631,6 +631,8 @@ export {
 	type PopoverMenuProps,
 	PopoverMenuRow,
 	type PopoverMenuRowProps,
+	type PopoverMenuState,
+	usePopoverMenuState,
 } from "./components/popover-menu.js";
 export {
 	ProgressBar,

@@ -1,11 +1,11 @@
 import { LogOut } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useEffect, useRef } from "react";
 import { Avatar } from "./avatar.js";
 import {
 	PopoverMenuPanel,
 	PopoverMenuPortal,
 	PopoverMenuRow,
+	usePopoverMenuState,
 } from "./popover-menu.js";
 
 export interface AccountMenuProps {
@@ -14,36 +14,26 @@ export interface AccountMenuProps {
 }
 
 export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
-	const [open, setOpen] = useState(false);
-	const containerRef = useRef<HTMLDivElement>(null);
-	const panelRef = useRef<HTMLDivElement>(null);
-
-	useOverlayScope({
-		id: "account-menu",
-		open,
-		answers: { back: () => setOpen(false) },
-	});
+	const triggerRef = useRef<HTMLButtonElement>(null);
+	const { open, setOpen, containerRef, panelRef, getAnchor } =
+		usePopoverMenuState("account-menu", () => triggerRef.current?.focus());
 
 	useEffect(() => {
 		if (!open) return;
-		const onPointer = (event: MouseEvent) => {
-			const target = event.target as Node;
-			if (
-				containerRef.current?.contains(target) ||
-				panelRef.current?.contains(target)
-			)
-				return;
-			setOpen(false);
-		};
-		document.addEventListener("mousedown", onPointer);
-		return () => document.removeEventListener("mousedown", onPointer);
-	}, [open]);
+		const frame = requestAnimationFrame(() =>
+			panelRef.current
+				?.querySelector<HTMLElement>('[role="menuitem"]')
+				?.focus(),
+		);
+		return () => cancelAnimationFrame(frame);
+	}, [open, panelRef]);
 
 	const displayName = email ?? "Account";
 
 	return (
 		<div ref={containerRef} className="relative">
 			<button
+				ref={triggerRef}
 				type="button"
 				aria-label="Account"
 				aria-haspopup="menu"
@@ -57,7 +47,7 @@ export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
 				open={open}
 				align="end"
 				panelRef={panelRef}
-				getAnchor={() => containerRef.current?.getBoundingClientRect() ?? null}
+				getAnchor={getAnchor}
 			>
 				<PopoverMenuPanel ref={panelRef} label={displayName}>
 					{email && (
@@ -77,6 +67,7 @@ export function AccountMenu({ email, onSignOut }: AccountMenuProps) {
 						icon={<LogOut className="size-4" />}
 						onSelect={() => {
 							setOpen(false);
+							triggerRef.current?.focus();
 							onSignOut();
 						}}
 					/>

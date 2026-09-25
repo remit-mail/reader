@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { AccountMenu } from "./account-menu.js";
 
 const EMAIL = "info@example.com";
@@ -45,6 +45,39 @@ export const NoEmail: Story = {
 		await expect(
 			page.getByRole("menuitem", { name: "Sign out" }),
 		).toBeVisible();
+	},
+};
+
+export const KeyboardReachesSignOut: Story = {
+	args: { onSignOut: fn() },
+	render: (args) => (
+		<div className="flex h-48 items-start justify-end gap-2 p-4">
+			<AccountMenu {...args} />
+			<button type="button">After the menu</button>
+		</div>
+	),
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		const page = within(canvasElement.ownerDocument.body);
+		const trigger = canvas.getByRole("button", { name: "Account" });
+
+		await userEvent.tab();
+		await expect(trigger).toHaveFocus();
+		await userEvent.keyboard("{Enter}");
+		const signOut = await page.findByRole("menuitem", { name: "Sign out" });
+		await waitFor(() => expect(signOut).toHaveFocus());
+
+		await userEvent.keyboard("{Escape}");
+		await expect(page.queryByRole("menuitem")).toBeNull();
+		await expect(trigger).toHaveFocus();
+
+		await userEvent.keyboard("{Enter}");
+		await waitFor(() =>
+			expect(page.getByRole("menuitem", { name: "Sign out" })).toHaveFocus(),
+		);
+		await userEvent.keyboard("{Enter}");
+		await expect(args.onSignOut).toHaveBeenCalledOnce();
+		await expect(trigger).toHaveFocus();
 	},
 };
 
