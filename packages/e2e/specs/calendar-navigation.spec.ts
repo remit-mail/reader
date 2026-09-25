@@ -412,10 +412,11 @@ test.describe("The calendar on a phone", () => {
 				.getByRole("radio", { name: "M", exact: true }),
 		).toBeChecked();
 
+		// The month prefetches January beside it; only a window reaching into the
+		// next year is the year read.
 		const yearReads = reads.filter(
 			(url) =>
-				new URL(url).searchParams.get("from")?.startsWith("2031-01-01") ??
-				false,
+				new URL(url).searchParams.get("to")?.startsWith("2032-01-01") ?? false,
 		);
 		expect(yearReads).toEqual([]);
 	});
