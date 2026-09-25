@@ -46,6 +46,7 @@ const makeFilter = (
 	name: "Receipts",
 	scope: "Standing",
 	state: "Active",
+	disabledReason: "None",
 	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,

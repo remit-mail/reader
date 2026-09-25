@@ -1,5 +1,6 @@
 import type {
 	ConfigImportItem,
+	ConfigImportUnresolvedRefItem,
 	CreateConfigImportInput,
 	IConfigImportRepository,
 	UpdateConfigImportInput,
@@ -12,6 +13,18 @@ import { configImportTable } from "../schema/i4-config-import.js";
 
 type DB = Db<Record<string, unknown>>;
 
+type StoredRef = Omit<ConfigImportUnresolvedRefItem, "mailboxId"> & {
+	mailboxId?: string;
+};
+
+// A row written before the binder created folders carries refs without a
+// mailboxId; they read as refs no create has been issued for.
+const refsOf = (value: unknown): ConfigImportUnresolvedRefItem[] =>
+	(value as StoredRef[]).map((ref) => ({
+		...ref,
+		mailboxId: ref.mailboxId ?? "None",
+	}));
+
 function rowToConfigImport(
 	row: typeof configImportTable.$inferSelect,
 ): ConfigImportItem {
@@ -21,7 +34,7 @@ function rowToConfigImport(
 		schemaVersion: row.schemaVersion,
 		state: row.state as ConfigImportItem["state"],
 		document: row.document as ConfigImportItem["document"],
-		unresolvedRefs: row.unresolvedRefs as ConfigImportItem["unresolvedRefs"],
+		unresolvedRefs: refsOf(row.unresolvedRefs),
 		createdAt: row.createdAt,
 		completedAt: row.completedAt,
 		updatedAt: row.updatedAt,

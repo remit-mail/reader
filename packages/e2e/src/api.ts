@@ -155,7 +155,13 @@ export interface Filter {
 	filterId: string;
 	name: string;
 	scope: "Standing" | "Temporary";
-	state: "Active" | "Expired";
+	state: "Active" | "Expired" | "Disabled";
+	disabledReason:
+		| "None"
+		| "UserDisabled"
+		| "AwaitingFolder"
+		| "FolderCreateFailed"
+		| "FolderMissing";
 	expiresAt?: string;
 	actionMailboxId: string;
 }

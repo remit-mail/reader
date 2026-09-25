@@ -12,7 +12,11 @@ import {
 	type UpdateFilterInput,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
-import { FilterScope, FilterState } from "@remit/domain-enums";
+import {
+	FilterDisabledReason,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -76,6 +80,7 @@ export const pickFilterUpdate = (
 	if (Object.hasOwn(body, "actionMailboxId")) {
 		patch.actionMailboxId = body.actionMailboxId;
 	}
+	if (Object.hasOwn(body, "state")) patch.state = body.state;
 	return patch;
 };
 
@@ -164,6 +169,82 @@ export const resolveFilterScopeExpiry = (
 	return { scope, expiresAt, ttl, state };
 };
 
+const hasLapsed = (
+	filter: Pick<FilterItem, "scope" | "expiresAt">,
+	now: number,
+): boolean =>
+	filter.scope === FilterScope.Temporary &&
+	filter.expiresAt !== undefined &&
+	new Date(filter.expiresAt).getTime() <= now;
+
+export const resolveFilterUpdate = (
+	current: Pick<FilterItem, "scope" | "expiresAt" | "state">,
+	patch: Partial<UpdateFilterInput>,
+	now: number = Date.now(),
+): Partial<UpdateFilterInput> => {
+	if (patch.state === FilterState.Expired) {
+		throw new BadRequestError(
+			"A filter expires through its date, not its state. Set it Active or Disabled, or change its expiry.",
+		);
+	}
+	const touchesTiming =
+		Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
+	if (!touchesTiming && patch.state === undefined) return patch;
+
+	const timing = touchesTiming
+		? resolveFilterScopeExpiry(current, patch)
+		: undefined;
+	const lapsed = timing
+		? timing.state === FilterState.Expired
+		: hasLapsed(current, now);
+
+	if (patch.state === FilterState.Active && lapsed) {
+		throw new BadRequestError(
+			"This filter has expired. Move its date forward or make it Standing to turn it back on.",
+		);
+	}
+
+	const wanted = patch.state ?? current.state;
+	const merged = { ...patch, ...timing };
+	if (lapsed) {
+		return {
+			...merged,
+			state: FilterState.Expired,
+			disabledReason: FilterDisabledReason.None,
+		};
+	}
+	if (wanted !== FilterState.Disabled) {
+		return {
+			...merged,
+			state: FilterState.Active,
+			disabledReason: FilterDisabledReason.None,
+		};
+	}
+	return {
+		...merged,
+		state: FilterState.Disabled,
+		...(patch.state === FilterState.Disabled
+			? { disabledReason: FilterDisabledReason.UserDisabled }
+			: {}),
+	};
+};
+
+const assertEnabledTargetExists = async (
+	client: {
+		mailbox: Pick<IMailboxRepository, "get" | "resolveAccountId">;
+	},
+	accountId: string,
+	actionMailboxId: string,
+): Promise<void> => {
+	if (actionMailboxId === FILTER_NO_ACTION) return;
+	if ((await client.mailbox.resolveAccountId(actionMailboxId)) === null) {
+		throw new BadRequestError(
+			"The folder this filter moves mail into no longer exists. Pick another folder, then turn the filter on.",
+		);
+	}
+	await assertActionMailboxSettled(client, accountId, actionMailboxId);
+};
+
 const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	filterId: item.filterId,
 	accountConfigId: item.accountConfigId,
@@ -171,6 +252,7 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	scope: item.scope,
 	expiresAt: item.expiresAt,
 	state: item.state,
+	disabledReason: item.disabledReason,
 	hasAnchor: item.hasAnchor,
 	ruleChangedAt: item.ruleChangedAt,
 	actionChangedAt: item.actionChangedAt,
@@ -340,17 +422,18 @@ export const FilterDetailOperations: Record<
 		const { filter } = client;
 		const patch = pickFilterUpdate(body as Partial<UpdateFilterRequestBody>);
 		await assertActionMailboxSettled(client, accountId, patch.actionMailboxId);
-		const touchesScopeOrExpiry =
-			Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
-		const resolvedPatch: Partial<UpdateFilterInput> = touchesScopeOrExpiry
-			? {
-					...patch,
-					...resolveFilterScopeExpiry(
-						await filter.get(accountConfigId, filterId),
-						patch,
-					),
-				}
-			: patch;
+		const current = await filter.get(accountConfigId, filterId);
+		const resolvedPatch = resolveFilterUpdate(current, patch);
+		if (
+			patch.state === FilterState.Active &&
+			patch.actionMailboxId === undefined
+		) {
+			await assertEnabledTargetExists(
+				client,
+				accountId,
+				current.actionMailboxId,
+			);
+		}
 
 		const updated = await filter.update(
 			accountConfigId,

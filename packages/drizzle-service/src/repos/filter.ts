@@ -6,6 +6,7 @@ import type {
 	UpdateFilterInput,
 } from "@remit/data-ports";
 import {
+	FilterDisabledReason,
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
@@ -79,6 +80,7 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		expiresAt: row.expiresAt ?? undefined,
 		ttl: row.ttl ?? undefined,
 		state: row.state,
+		disabledReason: row.disabledReason,
 		hasAnchor: row.hasAnchor,
 		ruleChangedAt: row.ruleChangedAt,
 		actionChangedAt: row.actionChangedAt,
@@ -112,6 +114,7 @@ export class FilterRepo implements IFilterRepository {
 				expiresAt: input.expiresAt ?? null,
 				ttl: input.ttl ?? null,
 				state: input.state ?? FilterState.Active,
+				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
 				hasAnchor: input.hasAnchor ?? false,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
@@ -306,7 +309,11 @@ export class FilterRepo implements IFilterRepository {
 
 		const [row] = await this.db
 			.update(filterTable)
-			.set({ state: FilterState.Expired, updatedAt: Date.now() })
+			.set({
+				state: FilterState.Expired,
+				disabledReason: FilterDisabledReason.None,
+				updatedAt: Date.now(),
+			})
 			.where(
 				and(
 					eq(filterTable.accountConfigId, item.accountConfigId),

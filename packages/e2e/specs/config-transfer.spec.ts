@@ -18,12 +18,14 @@
 import { ApiClient, fetchBearerToken, signUp, waitFor } from "../src/api.js";
 import { imap } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
+import { deleteServerMailbox, listServerMailboxes } from "../src/imap.js";
 import { provisionIsolatedRun } from "../src/provision.js";
 
 const STAMP = Date.now();
 const LABEL_NAME = `Facturen ${STAMP}`;
 const FILTER_NAME = `Bonnetjes ${STAMP}`;
 const SENDER = `webshop-${STAMP}@remit.test`;
+const IMPORTED_FOLDER = `Imported-${STAMP}`;
 
 const freshInstance = async (label: string): Promise<ApiClient> => {
 	const credentials = {
@@ -48,17 +50,32 @@ const mintStoredId = (): string =>
 			"0123456789abcdefghijklmnopqrstuvwxyz"[Math.floor(Math.random() * 36)],
 	).join("");
 
-/** Re-key the one field two coexisting configurations cannot share. */
+/**
+ * Re-key the one field two coexisting configurations cannot share, and point
+ * the rule at a folder the account does not have, so the import has one to
+ * create.
+ */
 const withFreshAccountId = (
 	document: Record<string, unknown>,
 	accountId: string,
 ): Record<string, unknown> => {
 	const accounts = document.accounts as Array<Record<string, unknown>>;
+	const filters = document.filters as Array<Record<string, unknown>>;
 	return {
 		...document,
 		accounts: accounts.map((account) => ({ ...account, accountId })),
+		filters: filters.map((filter) =>
+			filter.name === FILTER_NAME
+				? {
+						...filter,
+						actionFolder: { accountId, folderPath: IMPORTED_FOLDER },
+					}
+				: filter,
+		),
 	};
 };
+
+const leafOf = (path: string): string | undefined => path.split(/[./]/).pop();
 
 test.describe("A configuration file", () => {
 	test("carries a label, a rule and an account into an empty instance", async () => {
@@ -107,7 +124,9 @@ test.describe("A configuration file", () => {
 		expect(labels.map((label) => label.name)).toContain(LABEL_NAME);
 
 		const filters = await target.listFilters(importedAccountId);
-		expect(filters.map((filter) => filter.name)).toContain(FILTER_NAME);
+		const landedFilter = filters.find((filter) => filter.name === FILTER_NAME);
+		expect(landedFilter?.state).toBe("Disabled");
+		expect(landedFilter?.disabledReason).toBe("AwaitingFolder");
 
 		// The account landed inactive and marked, because the file carried no
 		// password to land it with.
@@ -168,5 +187,49 @@ test.describe("A configuration file", () => {
 				(account) => account.accountId === importedAccountId,
 			)?.connectionState,
 		).toBe("authenticated");
+
+		// The folder the file named and the account lacked now exists on the mail
+		// server itself, created by the import, not by this spec.
+		const serverPaths = await waitFor(
+			async () => {
+				await target.triggerSync(importedAccountId);
+				return listServerMailboxes(source.imapUser);
+			},
+			(paths) => paths.some((path) => leafOf(path) === IMPORTED_FOLDER),
+			{
+				timeoutMs: 120_000,
+				what: "the imported rule's folder to be created on the mail server",
+			},
+		);
+		const createdPath = serverPaths.find(
+			(path) => leafOf(path) === IMPORTED_FOLDER,
+		);
+
+		// And the rule turned itself on, bound to the folder the server confirmed.
+		const running = await waitFor(
+			async () => {
+				await target.triggerSync(importedAccountId);
+				return target.listFilters(importedAccountId);
+			},
+			(list) =>
+				list.some(
+					(filter) =>
+						filter.name === FILTER_NAME &&
+						filter.state === "Active" &&
+						filter.actionMailboxId !== "None",
+				),
+			{
+				timeoutMs: 120_000,
+				what: "the imported rule to bind to its created folder and turn on",
+			},
+		);
+		const bound = running.find((filter) => filter.name === FILTER_NAME);
+		expect(bound?.disabledReason).toBe("None");
+		const folder = (await target.listMailboxes(importedAccountId)).find(
+			(box) => box.mailboxId === bound?.actionMailboxId,
+		);
+		expect(folder?.fullPath).toBe(createdPath);
+
+		if (createdPath) await deleteServerMailbox(source.imapUser, createdPath);
 	});
 });

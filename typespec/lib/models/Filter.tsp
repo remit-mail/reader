@@ -4,6 +4,7 @@ import "../enums/FilterClauseField.tsp";
 import "../enums/FilterMatchOperator.tsp";
 import "../enums/FilterScope.tsp";
 import "../enums/FilterState.tsp";
+import "../enums/FilterDisabledReason.tsp";
 import "../scalars/string.tsp";
 
 namespace RemitImap;
@@ -69,9 +70,13 @@ model Filter {
   @visibility(Lifecycle.Create, Lifecycle.Read)
   ttl?: int64;
 
-  @doc("Cache of whether this filter is still active, backing byAccountAndState (RFC 034 Decision 1.2). Starts Active; lazily patched to Expired the first time something reads a Temporary filter past its expiresAt — whichever of index-time evaluation, retroactive replay, or a settings-page list touches it next. Never the correctness source; expiresAt is.")
-  @visibility(Lifecycle.Read)
+  @doc("Whether this filter runs, backing byAccountAndState (RFC 034 Decision 1.2). Starts Active. The user sets Active or Disabled on update; the system sets Disabled when the filter cannot work as designed, and records why in disabledReason. Expired is lazily patched the first time something reads a Temporary filter past its expiresAt, which stays the correctness source for expiry.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
   state: FilterState = FilterState.Active;
+
+  @doc("Why this filter is Disabled; `None` whenever state is not Disabled. Written together with state, never on its own: turning a filter on clears it.")
+  @visibility(Lifecycle.Read)
+  disabledReason: FilterDisabledReason = FilterDisabledReason.None;
 
   @doc("Whether a sibling FilterAnchor row exists for this filter (RFC 034 Decision 2.3). Lets the index-time worker skip the FilterAnchor `get` entirely for purely-literal filters instead of probing for a row that may not exist.")
   @visibility(Lifecycle.Read)
@@ -135,8 +140,10 @@ model CreateFilterInput {
   Input for updating a filter (RFC 034, reader #266). The name, predicate,
   action, scope, and expiresAt are all updatable; `ttl` is always
   server-derived from `scope`/`expiresAt`, never client-supplied, and
-  `state`/`hasAnchor`/`ruleChangedAt`/`actionChangedAt`/`filterId` are
-  server-derived too. A patch touching the predicate, the action, `scope`, or
+  `disabledReason`/`hasAnchor`/`ruleChangedAt`/`actionChangedAt`/`filterId` are
+  server-derived too. `state` takes `Active` or `Disabled`: the user turns a
+  filter off or back on, and turning it on clears `disabledReason`. `Expired`
+  is refused; the expiry is set through `scope`/`expiresAt`. A patch touching the predicate, the action, `scope`, or
   `expiresAt` bumps `ruleChangedAt`; a name-only rename never does (RFC 034
   Decision 3.2, reader #266). Only a patch touching the predicate or the
   action bumps `actionChangedAt`, the narrower signal exclusive-move

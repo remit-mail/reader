@@ -3,6 +3,8 @@ export {
 	bindImportedFolders,
 	type ConfigBinderDeps,
 	type ConfigBinderRepositories,
+	type CreateImportedFolder,
+	disableFiltersMissingFolders,
 	pendingImportOf,
 } from "./binder.js";
 export {

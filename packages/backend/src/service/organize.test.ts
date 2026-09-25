@@ -109,6 +109,7 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	name: "other filter",
 	scope: "Standing",
 	state: FilterState.Active,
+	disabledReason: "None",
 	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,

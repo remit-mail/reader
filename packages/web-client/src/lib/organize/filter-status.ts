@@ -1,6 +1,8 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
 
-export type FilterDisplayStatus = "Active" | "Expired";
+export type FilterDisplayStatus = "Active" | "Expired" | "Disabled";
+
+export type FilterDisabledReason = RemitImapFilterResponse["disabledReason"];
 
 /**
  * The displayed Active/Expired status of a filter.
@@ -19,13 +21,32 @@ export const filterDisplayStatus = (
 	now: number,
 ): FilterDisplayStatus => {
 	if (filter.state === "Expired") return "Expired";
-	if (filter.scope !== "Temporary") return "Active";
-	if (!filter.expiresAt) return "Active";
+	const running = filter.state === "Disabled" ? "Disabled" : "Active";
+	if (filter.scope !== "Temporary") return running;
+	if (!filter.expiresAt) return running;
 
 	const expiresAtMs = Date.parse(filter.expiresAt);
-	if (Number.isNaN(expiresAtMs)) return "Active";
-	return expiresAtMs <= now ? "Expired" : "Active";
+	if (Number.isNaN(expiresAtMs)) return running;
+	return expiresAtMs <= now ? "Expired" : running;
 };
+
+const DISABLED_REASON_COPY: Record<
+	Exclude<FilterDisabledReason, "None">,
+	string
+> = {
+	UserDisabled: "Turned off. Turn it on to run it on new mail again.",
+	AwaitingFolder:
+		"Off until its folder exists on the mail server. It turns on by itself once the folder is created.",
+	FolderCreateFailed:
+		"Off: the mail server refused to create its folder. Pick another folder in the rule, then turn it on.",
+	FolderMissing:
+		"Off: the folder it moves mail into no longer exists. Pick another folder in the rule, then turn it on.",
+};
+
+export const disabledReasonCopy = (
+	reason: FilterDisabledReason,
+): string | undefined =>
+	reason === "None" ? undefined : DISABLED_REASON_COPY[reason];
 
 /**
  * Human-readable rendering of an expiry timestamp, e.g. "Jul 16, 2026".

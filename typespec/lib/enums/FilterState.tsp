@@ -1,7 +1,10 @@
 namespace RemitImap;
 
-@doc("Cache of whether a Filter is still active to evaluate, backing the byAccountAndState index (RFC 034 Decision 1.2). Not the source of truth for expiry — Filter.expiresAt is, compared directly at every evaluation. Starts Active; lazily patched to Expired the first time something reads a Temporary filter past its expiresAt. No Disabled value: this RFC has no flow that pauses a filter without deleting it.")
+@doc("Whether a Filter runs, backing the byAccountAndState index (RFC 034 Decision 1.2). Active and Disabled are written; Expired is a lazily-patched cache of Filter.expiresAt, which stays the source of truth for expiry. A Disabled filter records why in Filter.disabledReason.")
 enum FilterState {
   Active: "Active",
   Expired: "Expired",
+
+  @doc("Turned off, by the user or by the system when the filter cannot work as designed. Evaluation skips it.")
+  Disabled: "Disabled",
 }

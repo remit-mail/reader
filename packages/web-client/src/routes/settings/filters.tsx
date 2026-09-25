@@ -10,7 +10,11 @@ import { useCallback, useMemo, useState } from "react";
 import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useDeleteFilter, useFilterList } from "@/hooks/useFilters";
+import {
+	useDeleteFilter,
+	useFilterList,
+	useToggleFilter,
+} from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
@@ -32,6 +36,10 @@ const filtersHelp = (
 			An expired filter isn't deleted the instant it lapses — it stays here,
 			marked Expired, so you can see what it did and when it stopped.
 		</p>
+		<p>
+			A filter that can't do its job turns itself off and says why, for example
+			when its folder no longer exists. Turn it back on once that is fixed.
+		</p>
 	</div>
 );
 
@@ -44,6 +52,7 @@ export function AccountFilters({
 	const { filters, isPending, isError, error, refetch } =
 		useFilterList(accountId);
 	const { deleteFilter, deletingFilterId } = useDeleteFilter(accountId);
+	const toggle = useToggleFilter(accountId);
 	const [editingFilterId, setEditingFilterId] = useState<string | undefined>();
 
 	const { data: mailboxesData } = useQuery({
@@ -128,14 +137,30 @@ export function AccountFilters({
 					}}
 				/>
 			) : (
-				<FiltersList
-					filters={filters}
-					mailboxName={mailboxName}
-					labelById={labelById}
-					onEdit={setEditingFilterId}
-					onDelete={deleteFilter}
-					deletingFilterId={deletingFilterId}
-				/>
+				<>
+					{toggle.isError && (
+						<ErrorState
+							variant="inline"
+							title={
+								toggle.enabling
+									? "Couldn't turn the filter on"
+									: "Couldn't turn the filter off"
+							}
+							error={toggle.error}
+							onRetry={toggle.retry}
+						/>
+					)}
+					<FiltersList
+						filters={filters}
+						mailboxName={mailboxName}
+						labelById={labelById}
+						onEdit={setEditingFilterId}
+						onDelete={deleteFilter}
+						deletingFilterId={deletingFilterId}
+						onToggle={toggle.toggleFilter}
+						togglingFilterId={toggle.togglingFilterId}
+					/>
+				</>
 			)}
 		</section>
 	);

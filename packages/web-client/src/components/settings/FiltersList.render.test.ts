@@ -21,6 +21,7 @@ const filter = (
 	name: "Travel",
 	scope: "Standing",
 	state: "Active",
+	disabledReason: "None",
 	hasAnchor: true,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
@@ -45,6 +46,7 @@ const render = (
 			labelById,
 			onEdit: () => undefined,
 			onDelete: () => undefined,
+			onToggle: () => undefined,
 			semanticUnavailable,
 			now: NOW,
 		}) as never,
@@ -111,4 +113,28 @@ describe("FiltersList", () => {
 		assert.match(html, /Expired/);
 		assert.match(html, /expired/);
 	});
+
+	it("offers to turn a running filter off", () => {
+		const html = render([filter({})]);
+		assert.match(html, /Turn off filter Travel/);
+		assert.doesNotMatch(html, /Disabled/);
+	});
+
+	const reasons = [
+		["UserDisabled", /Turned off\./],
+		["AwaitingFolder", /Off until its folder exists on the mail server/],
+		["FolderCreateFailed", /refused to create its folder/],
+		["FolderMissing", /no longer exists/],
+	] as const;
+
+	for (const [reason, copy] of reasons) {
+		it(`marks a filter disabled for ${reason} with its reason and a way back on (#1103)`, () => {
+			const html = render([
+				filter({ state: "Disabled", disabledReason: reason }),
+			]);
+			assert.match(html, /Disabled/);
+			assert.match(html, copy);
+			assert.match(html, /Turn on filter Travel/);
+		});
+	}
 });

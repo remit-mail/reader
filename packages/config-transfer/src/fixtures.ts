@@ -129,6 +129,7 @@ export const makeFilter = (
 	accountConfigId: ACCOUNT_CONFIG_ID,
 	scope: "Standing",
 	state: "Active",
+	disabledReason: "None",
 	hasAnchor: false,
 	ruleChangedAt: NOW,
 	actionChangedAt: NOW,

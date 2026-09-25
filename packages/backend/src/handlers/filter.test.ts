@@ -10,6 +10,7 @@ import type {
 	FilterItem,
 } from "@remit/data-ports";
 import {
+	FilterDisabledReason,
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
@@ -21,6 +22,7 @@ import {
 	pickFilterUpdate,
 	rejectAnchorMutation,
 	resolveFilterScopeExpiry,
+	resolveFilterUpdate,
 } from "./filter.js";
 
 describe("pickFilterUpdate", () => {
@@ -45,13 +47,102 @@ describe("pickFilterUpdate", () => {
 		const raw: Record<string, unknown> = {
 			name: "Receipts",
 			ttl: 123,
-			state: "Expired",
+			disabledReason: "None",
 			hasAnchor: true,
 			ruleChangedAt: 999,
 			filterId: "sneaky",
 		};
 		const patch = pickFilterUpdate(raw as Partial<UpdateFilterRequestBody>);
 		assert.deepEqual(patch, { name: "Receipts" });
+	});
+});
+
+describe("resolveFilterUpdate (#1103)", () => {
+	const NOW = Date.parse("2026-09-25T12:00:00Z");
+	const standing = {
+		scope: FilterScope.Standing,
+		expiresAt: undefined,
+		state: FilterState.Active,
+	};
+
+	it("carries a state the body names through to the patch", () => {
+		assert.equal(
+			pickFilterUpdate({ state: FilterState.Disabled }).state,
+			FilterState.Disabled,
+		);
+	});
+
+	it("records UserDisabled when the user turns a filter off", () => {
+		assert.deepEqual(
+			resolveFilterUpdate(standing, { state: FilterState.Disabled }, NOW),
+			{
+				state: FilterState.Disabled,
+				disabledReason: FilterDisabledReason.UserDisabled,
+			},
+		);
+	});
+
+	for (const reason of [
+		FilterDisabledReason.UserDisabled,
+		FilterDisabledReason.AwaitingFolder,
+		FilterDisabledReason.FolderCreateFailed,
+		FilterDisabledReason.FolderMissing,
+	]) {
+		it(`clears ${reason} when the user turns the filter back on`, () => {
+			assert.deepEqual(
+				resolveFilterUpdate(
+					{ ...standing, state: FilterState.Disabled },
+					{ state: FilterState.Active },
+					NOW,
+				),
+				{
+					state: FilterState.Active,
+					disabledReason: FilterDisabledReason.None,
+				},
+			);
+		});
+	}
+
+	it("keeps a disabled filter disabled, with its reason, through an expiry edit", () => {
+		const resolved = resolveFilterUpdate(
+			{ ...standing, state: FilterState.Disabled },
+			{
+				scope: FilterScope.Temporary,
+				expiresAt: "2027-01-01T00:00:00+00:00",
+			},
+			NOW,
+		);
+		assert.equal(resolved.state, FilterState.Disabled);
+		assert.equal("disabledReason" in resolved, false);
+	});
+
+	it("refuses Expired as a state the user sets", () => {
+		assert.throws(
+			() => resolveFilterUpdate(standing, { state: FilterState.Expired }, NOW),
+			/expires through its date/,
+		);
+	});
+
+	it("refuses to turn on a temporary filter whose date has passed", () => {
+		assert.throws(
+			() =>
+				resolveFilterUpdate(
+					{
+						scope: FilterScope.Temporary,
+						expiresAt: "2026-01-01T00:00:00+00:00",
+						state: FilterState.Disabled,
+					},
+					{ state: FilterState.Active },
+					NOW,
+				),
+			/has expired/,
+		);
+	});
+
+	it("leaves a patch that names neither state nor timing untouched", () => {
+		assert.deepEqual(resolveFilterUpdate(standing, { name: "Receipts" }, NOW), {
+			name: "Receipts",
+		});
 	});
 });
 
@@ -197,6 +288,7 @@ describe("createFilterWithAnchor (#351)", () => {
 		name: baseInput.name,
 		scope: FilterScope.Standing,
 		state: FilterState.Active,
+		disabledReason: "None",
 		hasAnchor: false,
 		ruleChangedAt: 1_700_000_000,
 		actionChangedAt: 1_700_000_000,

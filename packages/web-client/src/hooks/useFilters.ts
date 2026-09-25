@@ -1,5 +1,6 @@
 import {
 	filterDetailOperationsDeleteFilterMutation,
+	filterDetailOperationsUpdateFilterMutation,
 	filterOperationsCreateFilterMutation,
 	filterOperationsListFiltersOptions,
 	filterOperationsListFiltersQueryKey,
@@ -143,5 +144,43 @@ export const useDeleteFilter = (accountId: string | undefined) => {
 		deletingFilterId: mutation.isPending
 			? mutation.variables?.path.filterId
 			: undefined,
+	};
+};
+
+export const useToggleFilter = (accountId: string | undefined) => {
+	const queryClient = useQueryClient();
+	const mutation = useMutation({
+		...filterDetailOperationsUpdateFilterMutation(),
+		onSuccess: () => {
+			if (!accountId) return;
+			queryClient.invalidateQueries({
+				queryKey: buildFilterListKey(accountId),
+			});
+		},
+	});
+	const { mutate, variables } = mutation;
+
+	const toggleFilter = useCallback(
+		(filterId: string, enabled: boolean) => {
+			if (!accountId) return;
+			mutate({
+				path: { accountId, filterId },
+				body: { state: enabled ? "Active" : "Disabled" },
+			});
+		},
+		[accountId, mutate],
+	);
+
+	const retry = useCallback(() => {
+		if (variables) mutate(variables);
+	}, [mutate, variables]);
+
+	return {
+		toggleFilter,
+		retry,
+		togglingFilterId: mutation.isPending ? variables?.path.filterId : undefined,
+		isError: mutation.isError,
+		error: mutation.error,
+		enabling: variables?.body?.state === "Active",
 	};
 };

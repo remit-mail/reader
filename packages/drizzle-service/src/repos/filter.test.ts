@@ -1,6 +1,10 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { FilterScope, FilterState } from "@remit/domain-enums";
+import {
+	FilterDisabledReason,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
 import { NotFoundError } from "../error.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { FilterRepo } from "./filter.js";
@@ -28,6 +32,7 @@ describe("FilterRepo", () => {
 		});
 
 		assert.equal(filter.state, FilterState.Active);
+		assert.equal(filter.disabledReason, FilterDisabledReason.None);
 		assert.equal(filter.hasAnchor, false);
 		assert.equal(filter.literalClauses.length, 0);
 		assert.equal(filter.actionLabelId, "None");
@@ -42,6 +47,36 @@ describe("FilterRepo", () => {
 		);
 		assert.equal(filter.expiresAt, undefined);
 		assert.equal(filter.ttl, undefined);
+	});
+
+	test("a disabled filter keeps its reason and drops out of the Active listing (#1103)", async () => {
+		const accountConfigId = randomId();
+		const filter = await repo.create({
+			accountConfigId,
+			name: "Invoices",
+			scope: FilterScope.Standing,
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.AwaitingFolder,
+		});
+
+		assert.equal(filter.state, FilterState.Disabled);
+		assert.equal(filter.disabledReason, FilterDisabledReason.AwaitingFolder);
+		assert.deepEqual(
+			await repo.listByAccountAndState(accountConfigId, FilterState.Active),
+			[],
+		);
+
+		const enabled = await repo.update(accountConfigId, filter.filterId, {
+			state: FilterState.Active,
+			disabledReason: FilterDisabledReason.None,
+		});
+		assert.equal(enabled.disabledReason, FilterDisabledReason.None);
+		assert.deepEqual(
+			(
+				await repo.listByAccountAndState(accountConfigId, FilterState.Active)
+			).map((item) => item.filterId),
+			[filter.filterId],
+		);
 	});
 
 	test("a Temporary filter round-trips expiresAt and ttl", async () => {
