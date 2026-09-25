@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { MessageCategory } from "@remit/domain-enums";
-import { simpleParser } from "mailparser";
+import type { MessageItem } from "@remit/data-ports";
+import {
+	MessageCategory,
+	SenderOverride,
+	SenderTrust,
+} from "@remit/domain-enums";
+import { type ParsedMail, simpleParser } from "mailparser";
 import {
 	classifyByHeaders,
 	extractAuthenticity,
@@ -9,6 +14,7 @@ import {
 	extractHasListUnsubscribe,
 	extractProviderSpam,
 } from "./classifyByHeaders.js";
+import { classifyPlacement } from "./classifyPlacement.js";
 
 const buildEml = (lines: string[]): Buffer => Buffer.from(lines.join("\r\n"));
 
@@ -574,5 +580,310 @@ describe("extractHasListUnsubscribe", () => {
 			"body",
 		]);
 		assert.equal(extractHasListUnsubscribe(parsed), true);
+	});
+});
+
+const messageFrom = (parsed: ParsedMail): MessageItem => ({
+	messageId: "m-1",
+	mailboxId: "mb-1",
+	uid: 1,
+	sequenceNumber: 1,
+	rfc822Size: 1,
+	internalDate: 1,
+	envelopeId: "e-1",
+	rootBodyPartId: "bp-1",
+	status: "active",
+	syncStatus: "synced",
+	abandonedMutation: "none",
+	category: "uncategorized",
+	classificationState: "NotExamined",
+	authenticityVerdict: "NotEvaluated",
+	hasListUnsubscribe: false,
+	movedByRemit: false,
+	createdAt: 1,
+	updatedAt: 1,
+	providerSpam: extractProviderSpam(parsed) ?? undefined,
+	authResult: extractAuthResult(parsed) ?? undefined,
+	authenticity: extractAuthenticity(parsed) ?? undefined,
+});
+
+const inboxVerdict = (parsed: ParsedMail) =>
+	classifyPlacement(
+		messageFrom(parsed),
+		"inbox",
+		SenderTrust.Unknown,
+		SenderOverride.None,
+	);
+
+const withBody = (lines: string[]): string[] => [...lines, "", "body"];
+
+describe("Authentication-Results adversarial findings (#657)", () => {
+	it("keeps the aligned dkim result when a comment carries a semicolon", async () => {
+		const parsed = await parse(
+			withBody([
+				"From: Alice <alice@acme.example>",
+				"Authentication-Results: gw.example; dkim=fail (1024-bit key; unprotected) header.d=acme.example; dkim=pass header.d=relay.example; dmarc=fail (p=REJECT) header.from=acme.example",
+				"X-Spam-Status: No, score=0.1",
+			]),
+		);
+		assert.deepEqual(extractAuthResult(parsed), {
+			dmarc: "Fail",
+			spf: undefined,
+			dkim: "Fail",
+		});
+	});
+
+	it("checks alignment even when an unrelated dkim=pass is present", async () => {
+		const header = (extra: string) =>
+			parse(
+				withBody([
+					"From: Alice <alice@acme.example>",
+					`Authentication-Results: gw.corp.example; ${extra}dkim=fail (body hash did not verify) header.d=acme.example; dmarc=fail (p=REJECT) header.from=acme.example`,
+					"X-Spam-Status: No, score=0.1",
+				]),
+			);
+		const without = await header("");
+		const withEsp = await header("dkim=pass header.d=esp-mailer.example; ");
+		assert.deepEqual(extractAuthResult(withEsp), extractAuthResult(without));
+		assert.deepEqual(inboxVerdict(withEsp), inboxVerdict(without));
+		assert.equal(inboxVerdict(withEsp).action, "leave");
+	});
+
+	it("never junks list mail whose relay stripped the original signature", async () => {
+		const parsed = await parse(
+			withBody([
+				"From: Alice <alice@acme.example>",
+				"To: list@googlegroups.example",
+				"Authentication-Results: mx.google.example; dkim=pass header.d=googlegroups.example; spf=pass smtp.mailfrom=googlegroups.example; dmarc=fail (p=REJECT) header.from=acme.example",
+				"List-Id: <list.googlegroups.example>",
+				"X-Spam-Status: No, score=0.2",
+			]),
+		);
+		assert.equal(extractAuthenticity(parsed), null);
+		assert.equal(inboxVerdict(parsed).action, "leave");
+	});
+
+	it("never lets a prepended header override the raw signing domain", async () => {
+		const parsed = await parse(
+			withBody([
+				"Authentication-Results: anything-i-like; dkim=pass header.d=bank.example",
+				"From: Security <security@bank.example>",
+				"To: victim@example.com",
+				"Subject: Verify your account",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=phish-host.example; s=sel; b=xxx",
+				"X-Spam-Status: No, score=0.1",
+			]),
+		);
+		assert.deepEqual(extractAuthenticity(parsed), {
+			fromDomain: "bank.example",
+			dkimDomain: "phish-host.example",
+			dkimMismatch: true,
+		});
+	});
+
+	it("never lets a prepended header hide the receiving MTA's dmarc=fail", async () => {
+		const lines = (order: "forged-first" | "real-first") => {
+			const forged =
+				"Authentication-Results: whatever; dkim=pass header.d=evil-mimic.example; dmarc=pass header.from=evil-mimic.example";
+			const real = "Authentication-Results: mx.example.com; dmarc=fail";
+			return withBody([
+				...(order === "forged-first" ? [forged, real] : [real, forged]),
+				"From: Support <support@evil-mimic.example>",
+				"To: me@example.com",
+				"Subject: Verify your account",
+				"DKIM-Signature: v=1; a=rsa-sha256; d=relay.example.net; s=sel; b=xxx",
+				"X-Spam-Status: No, score=0.1",
+			]);
+		};
+		for (const order of ["forged-first", "real-first"] as const) {
+			const parsed = await parse(lines(order));
+			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail", order);
+			assert.equal(inboxVerdict(parsed).action, "move-to-junk", order);
+		}
+	});
+
+	it("never lets a sender-added aligned dkim=pass override the receiver's verdict", async () => {
+		const receivers = [
+			"Authentication-Results: mx.me.example; dkim=fail header.d=phish.example; dmarc=fail header.from=bank.example",
+			"Authentication-Results: mx.me.example; dkim=none; dmarc=fail header.from=bank.example",
+		];
+		const forged = "Authentication-Results: x; dkim=pass header.d=bank.example";
+		for (const [receiver, expected] of [
+			[receivers[0], "Fail"],
+			[receivers[1], "None"],
+		] as const) {
+			for (const headers of [
+				[receiver, forged],
+				[forged, receiver],
+			]) {
+				const parsed = await parse(
+					withBody([...headers, "From: B <s@bank.example>"]),
+				);
+				assert.equal(
+					extractAuthResult(parsed)?.dkim,
+					expected,
+					headers.join(" | "),
+				);
+			}
+		}
+	});
+
+	it("never reads dkim=fail out of another method's comment", async () => {
+		const parsed = await parse(
+			withBody([
+				"From: Alice <alice@acme.example>",
+				"Authentication-Results: mx.example.net; arc=fail (i=1 spf=fail; dkim=fail",
+				"  header.d=arcsigner.example; dmarc=fail); spf=pass smtp.mailfrom=acme.example;",
+				"  dmarc=pass header.from=acme.example",
+			]),
+		);
+		assert.deepEqual(extractAuthResult(parsed), {
+			dmarc: "Pass",
+			spf: "Pass",
+			dkim: undefined,
+		});
+	});
+
+	it("reads dmarc from its own resinfo, not from an arc comment", async () => {
+		const parsed = await parse(
+			withBody([
+				"From: Alice <alice@acme.example>",
+				"Authentication-Results: gw.example; arc=pass (i=1 dmarc=fail fromdomain=acme.example); dmarc=pass header.from=acme.example",
+			]),
+		);
+		assert.equal(extractAuthResult(parsed)?.dmarc, "Pass");
+	});
+
+	describe("grammar edge cases", () => {
+		const dkimFor = async (value: string) =>
+			extractAuthResult(
+				await parse(
+					withBody([
+						"From: Alice <alice@acme.example>",
+						`Authentication-Results: ${value}`,
+					]),
+				),
+			)?.dkim;
+
+		it("aligns a signing domain written with a trailing root dot", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=fail header.d=esp.example; dkim=pass header.d=acme.example.",
+				),
+				"Pass",
+			);
+		});
+
+		it("never aligns a header.i without an @", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=fail header.d=esp.example; dkim=pass header.i=acme.example",
+				),
+				"Fail",
+			);
+		});
+
+		it("never aligns a result whose header.i falls outside header.d", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=fail header.d=esp.example; dkim=pass header.d=acme.example header.i=@evil.example",
+				),
+				"Fail",
+			);
+		});
+
+		it("aligns through header.i when header.d is absent", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=fail header.d=esp.example; dkim=pass header.i=alice@mail.acme.example",
+				),
+				"Pass",
+			);
+		});
+
+		it("reads upper-case tokens", async () => {
+			const parsed = await parse(
+				withBody([
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results: GW.EXAMPLE; DKIM=FAIL HEADER.D=EVIL.EXAMPLE; DMARC=FAIL",
+				]),
+			);
+			assert.deepEqual(extractAuthResult(parsed), {
+				dmarc: "Fail",
+				spf: undefined,
+				dkim: "Fail",
+			});
+		});
+
+		it("reads a folded header whose continuation starts with dkim=", async () => {
+			const parsed = await parse(
+				withBody([
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results: mx.example.com;",
+					"\tdkim=pass header.d=acme.example;",
+					"\tdmarc=fail header.from=acme.example",
+				]),
+			);
+			assert.deepEqual(extractAuthResult(parsed), {
+				dmarc: "Fail",
+				spf: undefined,
+				dkim: "Pass",
+			});
+		});
+
+		it("prefers the aligned result wherever it is listed", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=fail header.d=esp-mailer.example; dkim=pass header.d=acme.example; dmarc=fail",
+				),
+				"Pass",
+			);
+		});
+
+		it("reads dkim=fail with no domain", async () => {
+			assert.equal(await dkimFor("gw.example; dkim=fail; dmarc=fail"), "Fail");
+		});
+
+		it("never reads an unrecognised result as a pass", async () => {
+			assert.equal(
+				await dkimFor(
+					"gw.example; dkim=pass header.d=acme.example; dkim=permerror header.d=acme.example",
+				),
+				undefined,
+			);
+		});
+	});
+
+	describe("fail closed", () => {
+		it("yields no result for an empty header", async () => {
+			const parsed = await parse(
+				withBody([
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results:    ",
+				]),
+			);
+			assert.equal(extractAuthResult(parsed), null);
+		});
+
+		it("yields no result for a header that does not parse", async () => {
+			const parsed = await parse(
+				withBody([
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results: mx.example; dmarc=pass (unterminated",
+				]),
+			);
+			assert.equal(extractAuthResult(parsed), null);
+		});
+
+		it("ignores an unparseable header beside one that parses", async () => {
+			const parsed = await parse(
+				withBody([
+					"Authentication-Results: forged; dmarc=pass )",
+					"From: Alice <alice@acme.example>",
+					"Authentication-Results: mx.example.com; dmarc=fail header.from=acme.example",
+				]),
+			);
+			assert.equal(extractAuthResult(parsed)?.dmarc, "Fail");
+		});
 	});
 });
