@@ -8,6 +8,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEPLOY_DIR="$REPO_ROOT/deploy/vps"
 
+# shellcheck source=./lib/e2e-docker-config.sh
+source "$REPO_ROOT/npm-scripts/lib/e2e-docker-config.sh"
+
 e2e_compose() {
 	docker compose \
 		--project-directory "$DEPLOY_DIR" \

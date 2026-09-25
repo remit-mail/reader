@@ -11,7 +11,9 @@ import { fileURLToPath } from "node:url";
 import {
 	brotliSize,
 	ceilingBreaches,
+	containerRunner,
 	ENGINE_CEILINGS,
+	isPodman,
 	readPins,
 } from "./build-hunspell.mjs";
 
@@ -114,5 +116,59 @@ describe("the engine's size ceilings", () => {
 	it("measures the compressed size, not the file on disk", () => {
 		const raw = Buffer.alloc(64 * 1024, "hunspell");
 		assert.ok(brotliSize(raw) < raw.byteLength);
+	});
+});
+
+// Rootless podman maps the caller to root inside the container, so the build
+// only writes its bind mount under --userns=keep-id. Either signal is enough:
+// the socket path the CLI is pointed at, or the engine the server reports.
+describe("the container runtime the engine builds under", () => {
+	it("recognises podman by its socket path", () => {
+		assert.equal(
+			isPodman("unix:///run/user/1000/podman/podman.sock", ""),
+			true,
+		);
+	});
+
+	it("recognises podman behind the docker socket by its server components", () => {
+		assert.equal(
+			isPodman("unix:///var/run/docker.sock", "Podman Engine Conmon "),
+			true,
+		);
+	});
+
+	it("leaves docker alone", () => {
+		assert.equal(
+			isPodman(undefined, "Engine containerd runc docker-init "),
+			false,
+		);
+	});
+});
+
+describe("the container the engine builds in", () => {
+	const ids = { uid: 1000, gid: 1000 };
+
+	it("runs docker as the caller", () => {
+		assert.deepEqual(
+			containerRunner({ podman: false, podmanCli: false, ...ids }),
+			{ cli: "docker", args: ["--user", "1000:1000"] },
+		);
+	});
+
+	it("keeps the caller's id under podman", () => {
+		assert.deepEqual(
+			containerRunner({ podman: true, podmanCli: true, ...ids }),
+			{
+				cli: "podman",
+				args: ["--userns=keep-id", "--user", "1000:1000"],
+			},
+		);
+	});
+
+	it("runs as the namespace's root when only the docker CLI reaches podman", () => {
+		assert.deepEqual(
+			containerRunner({ podman: true, podmanCli: false, ...ids }),
+			{ cli: "docker", args: ["--user", "0:0"] },
+		);
 	});
 });

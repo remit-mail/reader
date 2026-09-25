@@ -17,6 +17,9 @@ DEV_ENV="$DEV_STATE_DIR/.env"
 DEV_LOG_DIR="$DEV_STATE_DIR/logs"
 DEV_PID_DIR="$DEV_STATE_DIR/pids"
 
+# shellcheck source=./lib/e2e-docker-config.sh
+source "$REPO_ROOT/npm-scripts/lib/e2e-docker-config.sh"
+
 # A run identifies its lane with E2E_DEV_SLOT. Unset — a developer's machine —
 # it is the single lane the committed template describes. Set, every host-wide
 # name this stack claims is derived from it: the compose project and the port
@@ -159,6 +162,25 @@ e2e_dev_install_env() {
 	# shellcheck disable=SC1090
 	set -a && source "$DEV_ENV" && set +a
 }
+
+# Remove everything this slot left behind: its processes, its containers and
+# its state dir. Safe to run when nothing is up.
+#
+# A subshell, so the previous run's env it loads never leaks into the caller —
+# `up` runs this first and then derives its own. The compose files interpolate
+# two values with `:?` and error without them, so a teardown that finds no
+# generated env takes them from the template.
+e2e_dev_teardown() (
+	e2e_dev_stop_all
+	# shellcheck disable=SC1090
+	[ -f "$DEV_ENV" ] && set -a && source "$DEV_ENV" && set +a
+	for name in E2E_IMAP_PASSWORD E2E_SMTP_REJECT_ALLOWED_RECIPIENTS; do
+		[ -n "${!name-}" ] && continue
+		export "$name=$(grep -E "^$name=" "$DEV_TEMPLATE" | cut -d= -f2-)"
+	done
+	e2e_dev_compose down --volumes --remove-orphans
+	rm -rf "$DEV_STATE_DIR"
+)
 
 # Start one long-running service from the worktree, detached from this shell,
 # with its log and pid under the state dir.
