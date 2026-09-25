@@ -454,6 +454,11 @@ export {
 	type ManagedFolder,
 } from "./components/folder-manager.js";
 export {
+	FolderMutationDialog,
+	type FolderMutationDialogProps,
+	type FolderMutationPhase,
+} from "./components/folder-mutation-dialog.js";
+export {
 	FolderRenameDialog,
 	type FolderRenameDialogProps,
 } from "./components/folder-rename-dialog.js";

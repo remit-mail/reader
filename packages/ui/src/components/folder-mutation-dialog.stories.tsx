@@ -1,8 +1,9 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { FolderMutationDialog } from "./FolderMutationDialog";
+import type { Meta, StoryObj } from "@storybook/react";
+import { FolderMutationDialog } from "./folder-mutation-dialog.js";
 
 const meta: Meta<typeof FolderMutationDialog> = {
-	title: "Playground/Shipped/Settings/Folders/FolderMutationDialog",
+	title: "Design System/Mail/FolderMutationDialog",
+	tags: ["proposed"],
 	component: FolderMutationDialog,
 	parameters: { layout: "fullscreen" },
 	args: {

@@ -1,14 +1,13 @@
+import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import React, { act, createElement } from "react";
+import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import {
 	FolderMutationDialog,
 	type FolderMutationDialogProps,
 	type FolderMutationPhase,
-} from "./FolderMutationDialog";
-
-(globalThis as { React?: typeof React }).React = React;
+} from "./folder-mutation-dialog.js";
 
 let container: HTMLElement;
 let root: Root;

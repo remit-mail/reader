@@ -1,5 +1,6 @@
-import { Button, Dialog } from "@remit/ui";
 import { AlertTriangle, Loader2 } from "lucide-react";
+import { Button } from "./button.js";
+import { Dialog } from "./dialog.js";
 
 export type FolderMutationPhase =
 	| { kind: "waiting" }
