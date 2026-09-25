@@ -37,6 +37,7 @@ export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 			...blank,
 			allDay: seed.allDay,
 			startTime: seed.allDay ? "" : seed.startTime,
+			endDate: seed.endDate,
 			endTime: seed.allDay ? "" : seed.endTime,
 		};
 	});

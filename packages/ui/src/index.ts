@@ -347,6 +347,8 @@ export {
 	EventTitleField,
 	EventWhenField,
 	endsBeforeStart,
+	withAllDay,
+	withStartDate,
 } from "./components/event-editor.js";
 export {
 	EventEditorPane,
@@ -941,6 +943,7 @@ export {
 	DAY_END_MINUTE,
 	DAY_START_MINUTE,
 	datesBetween,
+	daysFrom,
 	FREE_MINUTES,
 	type FreeStretch,
 	formatMinute,
@@ -953,6 +956,7 @@ export {
 	groupOverlapping,
 	isClearDay,
 	isEmptyDay,
+	lastDayOf,
 	mergeBusySpans,
 	minuteOfDay,
 	monthLabel,

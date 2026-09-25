@@ -5,41 +5,17 @@
  * means the same thing in all of them: a series is one object with instances,
  * and an edit either rewrites the object or takes one instance out of line.
  */
-import type {
-	CalendarAttendee,
-	CalendarEventData,
-	EventDraft,
-	RecurrenceScope,
+import {
+	addDays,
+	type CalendarAttendee,
+	type CalendarEventData,
+	daysFrom,
+	type EventDraft,
+	type RecurrenceScope,
 } from "@remit/ui";
 
 /** June puts Amsterdam at UTC+2, and every fixture week is in June. */
 const OFFSET = "+02:00";
-
-function shiftDay(date: string, days: number): string {
-	const next = new Date(`${date}T00:00:00Z`);
-	next.setUTCDate(next.getUTCDate() + days);
-	return next.toISOString().slice(0, 10);
-}
-
-const nextDay = (date: string): string => shiftDay(date, 1);
-
-const daysFrom = (from: string, to: string): number =>
-	Math.round(
-		(Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) /
-			86_400_000,
-	);
-
-/**
- * The day an event ends on, as the form holds it: the day a timed end falls
- * on, or the last day an all-day event covers — its stored end is exclusive.
- */
-export function lastDayOf(event: CalendarEventData): string {
-	const start = event.start.slice(0, 10);
-	const end = event.end.slice(0, 10);
-	if (!event.allDay) return end;
-	const last = shiftDay(end, -1);
-	return last < start ? start : last;
-}
 
 /**
  * The guest field is a list of names, so a guest already on the event keeps the
@@ -86,7 +62,7 @@ export function applyDraft(
 			? draft.date
 			: `${draft.date}T${draft.startTime}:00${OFFSET}`,
 		end: draft.allDay
-			? nextDay(draft.endDate)
+			? addDays(draft.endDate, 1)
 			: `${draft.endDate}T${draft.endTime}:00${OFFSET}`,
 		allDay: draft.allDay,
 		location: draft.location,
@@ -131,7 +107,7 @@ export function applyScopedEdit(
 		if (event.seriesId !== base.seriesId) return event;
 		if (scope === "following" && event.start < base.start) return event;
 		const date = event.start.slice(0, 10);
-		const endDate = shiftDay(date, daysFrom(draft.date, draft.endDate));
+		const endDate = addDays(date, daysFrom(draft.date, draft.endDate));
 		return {
 			...applyDraft(event, { ...draft, date, endDate }),
 			seriesException: false,

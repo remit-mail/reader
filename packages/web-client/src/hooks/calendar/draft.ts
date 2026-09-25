@@ -13,7 +13,7 @@ import type {
 	RemitImapCreateCalendarEventInput,
 	RemitImapUpdateCalendarEventInput,
 } from "@remit/api-http-client/types.gen.ts";
-import type { CalendarEventData, EventDraft } from "@remit/ui";
+import { type CalendarEventData, type EventDraft, lastDayOf } from "@remit/ui";
 import { rruleFromText } from "./recurrence-rule";
 import { addDays, isoAtInZone } from "./window";
 
@@ -45,19 +45,6 @@ export function emptyDraft(date: string, calendarId: string): EventDraft {
 }
 
 /**
- * The last day an event covers. A timed event ends on the day its end falls
- * on; an all-day end is exclusive (RFC 5545 3.6.1), so the day before it is
- * the last one the event holds.
- */
-function lastDay(event: CalendarEventData): string {
-	const start = event.start.slice(0, 10);
-	const end = event.end.slice(0, 10);
-	if (!event.allDay) return end;
-	const last = addDays(end, -1);
-	return last < start ? start : last;
-}
-
-/**
  * The draft an event opens into, so an edit starts from what is stored rather
  * than from what a grid chip had room to draw. The occurrence listing carries
  * neither the location nor the notes, so those come from the resource.
@@ -70,7 +57,7 @@ export function draftFromEvent(
 		title: event.title,
 		date: event.start.slice(0, 10),
 		startTime: event.allDay ? "" : event.start.slice(11, 16),
-		endDate: lastDay(event),
+		endDate: lastDayOf(event),
 		endTime: event.allDay ? "" : event.end.slice(11, 16),
 		allDay: event.allDay,
 		calendarId: event.calendarId,

@@ -1,4 +1,5 @@
 import type { CalendarSlotPick } from "../components/calendar-types.js";
+import { addDays } from "./agenda-time.js";
 import { addMinutesToClock } from "./event-phrase.js";
 
 /** How long a new event is when nobody said — the hour every other path starts from. */
@@ -18,9 +19,14 @@ export function rangePick(
 	endStr: string,
 	allDay: boolean,
 ): CalendarSlotPick {
-	if (allDay) return allDayPick(startStr);
+	if (allDay) {
+		const date = startStr.slice(0, 10);
+		const last = addDays(endStr.slice(0, 10), -1);
+		return { ...allDayPick(startStr), endDate: last < date ? date : last };
+	}
 	return {
 		date: startStr.slice(0, 10),
+		endDate: endStr.slice(0, 10),
 		startTime: startStr.slice(11, 16),
 		endTime: endStr.slice(11, 16),
 		allDay: false,
@@ -31,10 +37,13 @@ export function rangePick(
 export function pointPick(dateStr: string, allDay: boolean): CalendarSlotPick {
 	if (allDay) return allDayPick(dateStr);
 	const startTime = dateStr.slice(11, 16);
+	const endTime = addMinutesToClock(startTime, DRAFT_MINUTES);
+	const date = dateStr.slice(0, 10);
 	return {
-		date: dateStr.slice(0, 10),
+		date,
+		endDate: endTime < startTime ? addDays(date, 1) : date,
 		startTime,
-		endTime: addMinutesToClock(startTime, DRAFT_MINUTES),
+		endTime,
 		allDay: false,
 	};
 }
@@ -42,6 +51,7 @@ export function pointPick(dateStr: string, allDay: boolean): CalendarSlotPick {
 function allDayPick(dateStr: string): CalendarSlotPick {
 	return {
 		date: dateStr.slice(0, 10),
+		endDate: dateStr.slice(0, 10),
 		startTime: "",
 		endTime: "",
 		allDay: true,

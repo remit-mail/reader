@@ -16,13 +16,8 @@ import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 
 const DESKTOP = { width: 1512, height: 864 };
-/**
- * The default collection names no zone and reads as UTC. Running the browser on
- * the same clock makes the digits the form shows the digits the server stores.
- */
 test.use({ viewport: DESKTOP, timezoneId: "UTC" });
 
-/** A Monday no other spec writes to, far enough out that today is never in it. */
 const WEEK = "2032-09-06";
 const WINDOW = {
 	from: `${WEEK}T00:00:00+00:00`,
@@ -35,10 +30,6 @@ const weekUrl = new RegExp(`/calendar/week/${WEEK}(\\?|#|$)`);
 const clock = (iso: string): string => iso.slice(0, 16);
 const day = (iso: string): string => iso.slice(0, 10);
 
-/**
- * One property of the stored VEVENT, unfolded and unescaped. The spec reads
- * the bytes a CalDAV client would get rather than trusting the app's reading.
- */
 const icalText = (stored: StoredCalendarEvent, name: string): string => {
 	const unfolded = stored.icalData.replace(/\r?\n[ \t]/g, "");
 	const line = unfolded
@@ -53,7 +44,6 @@ const icalText = (stored: StoredCalendarEvent, name: string): string => {
 		.replace(/\\\\/g, "\\");
 };
 
-/** The suite shares one account, so whatever a test wrote goes when it ends. */
 const written: { calendarObjectId: string; calendarId: string }[] = [];
 const collections: string[] = [];
 
@@ -76,7 +66,6 @@ const defaultCalendarId = async (api: ApiClient): Promise<string> => {
 	return calendarId;
 };
 
-/** The one occurrence the server serves under a title, once it serves it. */
 const servedAs = async (
 	api: ApiClient,
 	summary: string,
@@ -209,6 +198,112 @@ test.describe("Editing a one-off event through the form", () => {
 		expect(await occurrencesOf(api, first.calendarObjectId)).toHaveLength(1);
 	});
 
+	test("moves an all-day event that spans days without losing any", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(120_000);
+
+		const summary = "Regatta weekend";
+		const created = await api.createCalendarEvent({
+			calendarId: await defaultCalendarId(api),
+			summary,
+			start: "2032-09-10",
+			end: "2032-09-13",
+			allDay: true,
+		});
+		written.push(created);
+		const first = await servedAs(api, summary);
+		expect(day(first.start)).toBe("2032-09-10");
+		expect(day(first.end)).toBe("2032-09-13");
+
+		await page.goto(weekPath);
+		await page.getByRole("button", { name: summary }).first().click();
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+
+		await expect(page.getByLabel("End date", { exact: true })).toHaveValue(
+			"2032-09-12",
+		);
+		await page.getByLabel("Date", { exact: true }).fill("2032-09-08");
+		await expect(page.getByLabel("End date", { exact: true })).toHaveValue(
+			"2032-09-10",
+		);
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		await expect(page.getByRole("textbox", { name: "Title" })).toHaveCount(0, {
+			timeout: 30_000,
+		});
+
+		const moved = await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			(items) =>
+				items.some(
+					(item) =>
+						item.calendarObjectId === created.calendarObjectId &&
+						day(item.start) === "2032-09-08",
+				),
+			{ what: `"${summary}" to move to Wednesday` },
+		);
+		const stored = moved.filter(
+			(item) => item.calendarObjectId === created.calendarObjectId,
+		);
+		expect(stored).toHaveLength(1);
+		expect(stored[0]?.allDay).toBe(true);
+		expect(day(stored[0]?.start ?? "")).toBe("2032-09-08");
+		expect(day(stored[0]?.end ?? "")).toBe("2032-09-11");
+	});
+
+	test("writes the days dragged across the all-day row", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(120_000);
+
+		const summary = "Harbour festival";
+		await page.goto(weekPath);
+
+		const monday = page
+			.locator('.fc-timegrid [data-date="2032-09-06"]')
+			.first();
+		const wednesday = page
+			.locator('.fc-timegrid [data-date="2032-09-08"]')
+			.first();
+		await expect(monday).toBeVisible({ timeout: 30_000 });
+		const from = await monday.boundingBox();
+		const to = await wednesday.boundingBox();
+		if (!from || !to) throw new Error("the all-day row has no cells to drag");
+		await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+		await page.mouse.down();
+		await page.mouse.move(to.x + to.width / 2, to.y + to.height / 2, {
+			steps: 10,
+		});
+		await page.mouse.up();
+
+		const title = page.getByRole("textbox", { name: "Title" });
+		await expect(title).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByRole("checkbox", { name: "All day" })).toBeChecked();
+		await expect(page.getByLabel("Date", { exact: true })).toHaveValue(
+			"2032-09-06",
+		);
+		await expect(page.getByLabel("End date", { exact: true })).toHaveValue(
+			"2032-09-08",
+		);
+		await title.fill(summary);
+		await page.getByRole("button", { name: "Add", exact: true }).click();
+
+		await expect(page.getByRole("alert")).toHaveCount(0);
+		await expect(title).toHaveCount(0, { timeout: 30_000 });
+
+		const stored = await servedAs(api, summary);
+		written.push(stored);
+		expect(stored.allDay).toBe(true);
+		expect(day(stored.start)).toBe("2032-09-06");
+		expect(day(stored.end)).toBe("2032-09-09");
+	});
+
 	test("writes an event that runs past midnight, and edits it", async ({
 		page,
 		api,
@@ -236,8 +331,6 @@ test.describe("Editing a one-off event through the form", () => {
 		expect(clock(first.start)).toBe("2032-09-08T22:00");
 		expect(clock(first.end)).toBe("2032-09-09T01:00");
 
-		// The stored event opens into a form that reads it as one night, not as
-		// an hour that ends before it starts.
 		await page.getByRole("button", { name: before }).first().click();
 		const edit = page.getByRole("button", { name: "Edit", exact: true });
 		await expect(edit).toBeVisible({ timeout: 30_000 });
@@ -291,8 +384,6 @@ test.describe("Editing a one-off event through the form", () => {
 
 		await page.getByLabel("Start time", { exact: true }).fill("15:00");
 
-		// The reason is on screen before the reader reaches for Save, and Save
-		// cannot send what the reason describes.
 		await expect(page.getByRole("alert")).toContainText(
 			"Ends before it starts",
 		);

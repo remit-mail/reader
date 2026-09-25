@@ -10,6 +10,7 @@ describe("pointPick", () => {
 	it("drafts an hour from the point that was clicked", () => {
 		assert.deepEqual(pointPick("2026-06-10T14:30:00+02:00", false), {
 			date: "2026-06-10",
+			endDate: "2026-06-10",
 			startTime: "14:30",
 			endTime: "15:30",
 			allDay: false,
@@ -30,6 +31,7 @@ describe("pointPick", () => {
 	it("carries an all-day point with no clock at all", () => {
 		assert.deepEqual(pointPick("2026-06-10", true), {
 			date: "2026-06-10",
+			endDate: "2026-06-10",
 			startTime: "",
 			endTime: "",
 			allDay: true,
@@ -37,10 +39,9 @@ describe("pointPick", () => {
 	});
 
 	it("rolls a draft that runs past midnight round the clock", () => {
-		assert.equal(
-			pointPick("2026-06-10T23:30:00+02:00", false).endTime,
-			"00:30",
-		);
+		const pick = pointPick("2026-06-10T23:30:00+02:00", false);
+		assert.equal(pick.endTime, "00:30");
+		assert.equal(pick.endDate, "2026-06-11");
 	});
 });
 
@@ -54,6 +55,7 @@ describe("rangePick", () => {
 			),
 			{
 				date: "2026-06-10",
+				endDate: "2026-06-10",
 				startTime: "09:00",
 				endTime: "11:30",
 				allDay: false,
@@ -61,9 +63,27 @@ describe("rangePick", () => {
 		);
 	});
 
-	it("drops the clock off an all-day range", () => {
+	it("keeps a dragged range that runs past midnight on its own end day", () => {
+		assert.deepEqual(
+			rangePick(
+				"2026-06-10T22:00:00+02:00",
+				"2026-06-11T01:00:00+02:00",
+				false,
+			),
+			{
+				date: "2026-06-10",
+				endDate: "2026-06-11",
+				startTime: "22:00",
+				endTime: "01:00",
+				allDay: false,
+			},
+		);
+	});
+
+	it("drops the clock off an all-day range and keeps its last day", () => {
 		assert.deepEqual(rangePick("2026-06-10", "2026-06-13", true), {
 			date: "2026-06-10",
+			endDate: "2026-06-12",
 			startTime: "",
 			endTime: "",
 			allDay: true,

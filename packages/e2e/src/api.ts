@@ -255,7 +255,6 @@ export interface CalendarEventResource {
 	icalUid: string;
 }
 
-/** One stored resource as the server keeps it: the iCalendar text and its etag. */
 export interface StoredCalendarEvent extends CalendarEventResource {
 	icalData: string;
 	etag: string;
@@ -946,10 +945,6 @@ export class ApiClient {
 		return this.json("POST", "/calendar-events", input);
 	}
 
-	/**
-	 * The stored resource itself. The occurrence listing carries no location or
-	 * description, so a spec proving those were written reads them here.
-	 */
 	getCalendarEvent(
 		calendarObjectId: string,
 		calendarId: string,

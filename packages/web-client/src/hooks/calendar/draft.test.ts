@@ -9,7 +9,12 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { CalendarEventData, EventDraft } from "@remit/ui";
+import {
+	type CalendarEventData,
+	type EventDraft,
+	withAllDay,
+	withStartDate,
+} from "@remit/ui";
 import {
 	type CreateInput,
 	createInputFromDraft,
@@ -339,5 +344,45 @@ describe("an event anchored somewhere other than the device", () => {
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.timeZone, undefined);
 		assert.equal(patch.patch.start, "2026-06-17T09:00:00+00:00");
+	});
+});
+
+describe("the form moving its own dates", () => {
+	const weekend = draft({
+		allDay: true,
+		startTime: "",
+		endTime: "",
+		date: "2026-06-12",
+		endDate: "2026-06-14",
+	});
+
+	it("carries the last day along when the first day moves", () => {
+		const moved = withStartDate(weekend, "2026-06-19");
+		assert.equal(moved.date, "2026-06-19");
+		assert.equal(moved.endDate, "2026-06-21");
+	});
+
+	it("keeps the last day while the start date is cleared and retyped", () => {
+		const cleared = withStartDate(weekend, "");
+		assert.equal(cleared.endDate, "2026-06-14");
+		const retyped = withStartDate(cleared, "2026-06-12");
+		assert.equal(retyped.date, "2026-06-12");
+		assert.equal(retyped.endDate, "2026-06-14");
+	});
+
+	it("makes a night that runs past midnight one all-day date", () => {
+		const night = draft({
+			startTime: "22:00",
+			endDate: "2026-06-11",
+			endTime: "01:00",
+		});
+		const allDay = withAllDay(night, true);
+		assert.equal(allDay.allDay, true);
+		assert.equal(allDay.endDate, "2026-06-10");
+	});
+
+	it("keeps the days of a timed event that spans them when made all day", () => {
+		const span = draft({ endDate: "2026-06-12", endTime: "17:00" });
+		assert.equal(withAllDay(span, true).endDate, "2026-06-12");
 	});
 });

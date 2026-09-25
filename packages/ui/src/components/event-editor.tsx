@@ -87,18 +87,26 @@ export function endsBeforeStart(draft: EventDraft): boolean {
 	);
 }
 
-/**
- * Moving the day an event starts on moves the day it ends on with it, so a
- * night shift dragged to Friday still ends on Saturday morning.
- */
-function withStartDate(draft: EventDraft, date: string): EventDraft {
-	if (draft.date === "" || draft.endDate === "" || date === "")
-		return { ...draft, date, endDate: date };
+export function withStartDate(draft: EventDraft, date: string): EventDraft {
+	if (date === "") return { ...draft, date };
+	if (draft.endDate === "") return { ...draft, date, endDate: date };
+	if (draft.date === "") return { ...draft, date };
 	return {
 		...draft,
 		date,
 		endDate: addDays(date, daysFrom(draft.date, draft.endDate)),
 	};
+}
+
+export function withAllDay(draft: EventDraft, allDay: boolean): EventDraft {
+	const overnight =
+		draft.date !== "" &&
+		draft.endDate === addDays(draft.date, 1) &&
+		draft.startTime !== "" &&
+		draft.endTime !== "" &&
+		draft.endTime < draft.startTime;
+	if (allDay && overnight) return { ...draft, allDay, endDate: draft.date };
+	return { ...draft, allDay };
 }
 
 export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
@@ -162,9 +170,7 @@ export function EventWhenField({ draft, onChange, touch }: EventFieldProps) {
 					<input
 						type="checkbox"
 						checked={draft.allDay}
-						onChange={(e) =>
-							setField({ draft, onChange }, "allDay", e.target.checked)
-						}
+						onChange={(e) => onChange(withAllDay(draft, e.target.checked))}
 						className="size-4 accent-current"
 					/>
 					All day

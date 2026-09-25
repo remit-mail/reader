@@ -11,7 +11,13 @@ import type { CalendarSlotPick } from "./calendar-types.js";
 const THURSDAY = "2026-06-11";
 
 function slot(startTime: string, endTime: string): CalendarSlotPick {
-	return { date: THURSDAY, startTime, endTime, allDay: false };
+	return {
+		date: THURSDAY,
+		endDate: THURSDAY,
+		startTime,
+		endTime,
+		allDay: false,
+	};
 }
 
 const thursday: CalendarSlotPick[] = [

@@ -28,6 +28,7 @@ const server: CalendarServer = (request) => {
 
 const slot: CalendarSlotPick = {
 	date: "2026-06-11",
+	endDate: "2026-06-11",
 	startTime: "14:00",
 	endTime: "15:00",
 	allDay: false,

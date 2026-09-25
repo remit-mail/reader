@@ -385,6 +385,7 @@ export const CreateFromASlot: Story = {
 		<CalendarDestination
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,
@@ -569,6 +570,7 @@ export const CustomRepeat: Story = {
 		<CalendarDestination
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,
@@ -685,6 +687,7 @@ export const PhoneCreate: Story = {
 			flow="editor"
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,
@@ -706,6 +709,7 @@ export const PhoneCreateWhen: Story = {
 			step={1}
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,
@@ -727,6 +731,7 @@ export const PhoneCreateWhereItLands: Story = {
 			step={3}
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,
@@ -887,6 +892,7 @@ export const PhoneCustomRepeat: Story = {
 			customRepeat="open"
 			draftAt={{
 				date: "2026-06-11",
+				endDate: "2026-06-11",
 				startTime: "11:00",
 				endTime: "12:00",
 				allDay: false,

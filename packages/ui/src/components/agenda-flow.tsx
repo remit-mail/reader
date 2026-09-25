@@ -545,6 +545,7 @@ function EmptyRun({
 			onClick={() =>
 				onPickSlot({
 					date: from,
+					endDate: from,
 					startTime: "10:00",
 					endTime: "11:00",
 					allDay: false,
@@ -762,6 +763,7 @@ function DayBlock({
 					onPick={() =>
 						onPickSlot({
 							date: stretch.date,
+							endDate: stretch.date,
 							startTime: formatMinute(stretch.startMinute),
 							endTime: formatMinute(
 								Math.min(stretch.startMinute + 60, stretch.endMinute),
@@ -896,6 +898,7 @@ function ClearDayLine({
 			onClick={() =>
 				onPickSlot({
 					date: day.date,
+					endDate: day.date,
 					startTime: "10:00",
 					endTime: "11:00",
 					allDay: false,

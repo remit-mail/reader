@@ -43,6 +43,7 @@ import {
 	formatCustomRecurrence,
 	formatMinute,
 	freeAhead,
+	lastDayOf,
 	monthLabel,
 	NextUpCard,
 	PhraseReading,
@@ -98,11 +99,7 @@ import {
 	STRIP_LAST_DATE,
 } from "../fixtures/calendar-agenda.js";
 import { type ChoicePicks, parseAgendaPhrase } from "../lib/agenda-phrase.js";
-import {
-	applyDraft,
-	applyScopedEdit,
-	lastDayOf,
-} from "../lib/calendar-edit.js";
+import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
 import { MailShell } from "./mail-shell.js";
 
@@ -150,7 +147,7 @@ function draftFromSlot(pick: CalendarSlotPick): EventDraft {
 		...emptyDraft(),
 		date: pick.date,
 		startTime: pick.allDay ? "" : pick.startTime,
-		endDate: pick.date,
+		endDate: pick.endDate,
 		endTime: pick.allDay ? "" : pick.endTime,
 		allDay: pick.allDay,
 	};
@@ -459,6 +456,7 @@ export function CalendarAgenda({
 		goTo(stretch.date);
 		openSlot({
 			date: stretch.date,
+			endDate: stretch.date,
 			startTime: formatMinute(stretch.startMinute),
 			endTime: formatMinute(
 				Math.min(stretch.startMinute + 60, stretch.endMinute),
