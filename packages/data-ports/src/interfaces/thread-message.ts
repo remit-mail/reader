@@ -58,8 +58,10 @@ export interface IThreadMessageRepository {
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
-	 * Search rows for a config across every mailbox in `mailboxIds`, newest
-	 * first — the cross-account, cross-folder counterpart of `searchByMailbox`.
+	 * Search rows for a config across every mailbox in `mailboxIds` — the
+	 * cross-account, cross-folder counterpart of `searchByMailbox`. A row whose
+	 * From matches any `query` term ranks above one that only mentions the
+	 * terms, and each tier runs in date order.
 	 *
 	 * Backed by the same date-ordered access pattern as `listByDate`; the caller
 	 * supplies the mailbox scope, so a search reaching Archive, Sent, Spam and

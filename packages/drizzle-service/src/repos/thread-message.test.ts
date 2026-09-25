@@ -647,6 +647,141 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 			["epsilon mine"],
 		);
 	});
+	test("a sender match ranks above a newer mail that only mentions the term", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{
+				subject: "lunch plans",
+				snippet: "I spoke to penny about it",
+				fromEmail: "bob@acme.test",
+				sentDate: now,
+				internalDate: now,
+			},
+			{
+				subject: "penny wise",
+				fromEmail: "carol@acme.test",
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+			{
+				subject: "hello",
+				fromName: "Penny Lane",
+				fromEmail: "lane@acme.test",
+				sentDate: now - 2,
+				internalDate: now - 2,
+			},
+			{
+				subject: "older hello",
+				fromEmail: "penny@acme.test",
+				sentDate: now - 3,
+				internalDate: now - 3,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "penny" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["hello", "older hello", "lunch plans", "penny wise"],
+			"sender matches first, newest first inside each tier",
+		);
+	});
+
+	test("one term hitting the sender lifts the mail into the sender tier", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{
+				subject: "invoice for zeta",
+				fromEmail: "billing@acme.test",
+				sentDate: now,
+				internalDate: now,
+			},
+			{
+				subject: "your invoice",
+				fromEmail: "zeta@acme.test",
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+		]);
+
+		const result = await repo.searchByDate(
+			acct,
+			{ query: "zeta invoice" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]) },
+		);
+
+		assert.deepEqual(
+			result.items.map((r) => r.subject),
+			["your invoice", "invoice for zeta"],
+		);
+	});
+
+	test("paging walks the sender tier, then the mentions, without a gap or repeat", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{ subject: "kappa news", sentDate: now, internalDate: now },
+			{
+				subject: "one",
+				fromEmail: "kappa@acme.test",
+				sentDate: now - 1,
+				internalDate: now - 1,
+			},
+			{ subject: "kappa digest", sentDate: now - 2, internalDate: now - 2 },
+			{
+				subject: "two",
+				fromEmail: "kappa@acme.test",
+				sentDate: now - 3,
+				internalDate: now - 3,
+			},
+			{ subject: "kappa recap", sentDate: now - 4, internalDate: now - 4 },
+		]);
+		const scope = { excludeDeleted: true, mailboxIds: new Set([mbx]) };
+
+		const walked: string[] = [];
+		let continuationToken: string | undefined;
+		do {
+			const page = await repo.searchByDate(
+				acct,
+				{ query: "kappa" },
+				{ ...scope, limit: 2, continuationToken },
+			);
+			walked.push(...page.items.map((r) => r.subject ?? ""));
+			continuationToken = page.continuationToken;
+		} while (continuationToken);
+
+		assert.deepEqual(walked, [
+			"one",
+			"two",
+			"kappa news",
+			"kappa digest",
+			"kappa recap",
+		]);
+	});
+
+	test("a cursor without a rank is refused", async () => {
+		const token = Buffer.from(
+			JSON.stringify({ s: Date.now(), id: "x" }),
+		).toString("base64");
+
+		await assert.rejects(
+			repo.searchByDate(
+				uuid(),
+				{ query: "kappa" },
+				{ excludeDeleted: true, continuationToken: token },
+			),
+			/Invalid continuationToken/,
+		);
+	});
 });
 
 // ─── Native text-search semantics ─────────────────────────────────────────────

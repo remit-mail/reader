@@ -91,3 +91,8 @@ export const bodyMatch = (term: string): SQL =>
 // scan of one config's rows beats reading them all into the service (#459).
 export const listIdMatch = (term: string): SQL =>
 	sql`${LIST_ID_FOLDED} like ${likePattern(term)} escape '\\'`;
+
+export const senderMatchRank = (terms: readonly string[]): SQL<number> =>
+	terms.length === 0
+		? sql<number>`0`
+		: sql<number>`case when ${sql.join(terms.map(fromMatch), sql` or `)} then 1 else 0 end`;

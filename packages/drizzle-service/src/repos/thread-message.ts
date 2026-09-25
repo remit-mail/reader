@@ -13,6 +13,7 @@ import {
 	asc,
 	desc,
 	eq,
+	getTableColumns,
 	gt,
 	inArray,
 	lt,
@@ -31,6 +32,7 @@ import {
 	fromMatch,
 	isNarrowableTerm,
 	listIdMatch,
+	senderMatchRank,
 	subjectMatch,
 } from "./thread-search-predicates.js";
 
@@ -57,6 +59,29 @@ export const clampThreadSearchLimit = (limit?: number): number => {
 
 type DateCursor = { s: number; id: string };
 type AccountCursor = { id: string };
+type RankedDateCursor = { r: number; s: number; id: string };
+
+function encodeRankedDateCursor(
+	rank: number,
+	sentDate: number,
+	threadMessageId: string,
+): string {
+	return Buffer.from(
+		JSON.stringify({ r: rank, s: sentDate, id: threadMessageId }),
+	).toString("base64");
+}
+
+function decodeRankedDateCursor(token: string): RankedDateCursor {
+	const decoded = decodeToken(token, "base64");
+	if (
+		typeof decoded.r !== "number" ||
+		typeof decoded.s !== "number" ||
+		typeof decoded.id !== "string"
+	) {
+		throw new BadRequestError("Invalid continuationToken");
+	}
+	return { r: decoded.r, s: decoded.s, id: decoded.id };
+}
 
 function encodeDateCursor(sentDate: number, threadMessageId: string): string {
 	return Buffer.from(
@@ -144,6 +169,9 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
+const queryTerms = (query: string | undefined): string[] =>
+	query ? query.split(/\s+/).filter(Boolean) : [];
+
 // Translate SearchOptions into SQL conditions: subject/from/query as indexed
 // text predicates, muted as a subquery over the sender's address, the rest as
 // plain column equalities. A multi-word `query`
@@ -157,8 +185,7 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	if (search.from) conditions.push(fromMatch(search.from));
 
 	if (search.query) {
-		const tokens = search.query.split(/\s+/).filter(Boolean);
-		for (const token of tokens) {
+		for (const token of queryTerms(search.query)) {
 			conditions.push(
 				sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
 			);
@@ -230,6 +257,18 @@ function sentDateCursorCond(
 			eq(threadMessageTable.sentDate, cursor.s),
 			gt(threadMessageTable.threadMessageId, cursor.id),
 		),
+	);
+}
+
+function rankedDateCursorCond(
+	order: "asc" | "desc",
+	rank: SQL<number>,
+	cursor: RankedDateCursor | null,
+): SQL | undefined {
+	if (!cursor) return undefined;
+	return or(
+		sql`${rank} < ${cursor.r}`,
+		and(sql`${rank} = ${cursor.r}`, sentDateCursorCond(order, cursor)),
 	);
 }
 
@@ -546,15 +585,20 @@ export class DrizzleThreadMessageRepository
 		const order = options?.order ?? "desc";
 		const limit = clampThreadSearchLimit(options?.limit);
 		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
+			? decodeRankedDateCursor(options.continuationToken)
 			: null;
 
 		const mailboxCond = options?.mailboxIds?.size
 			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
 			: undefined;
 
+		const senderRank = senderMatchRank(queryTerms(search.query));
+
 		const rows = await this.db
-			.select()
+			.select({
+				...getTableColumns(threadMessageTable),
+				senderRank,
+			})
 			.from(threadMessageTable)
 			.where(
 				and(
@@ -564,10 +608,11 @@ export class DrizzleThreadMessageRepository
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
 					...buildSearchConditions(search),
-					sentDateCursorCond(order, cursor),
+					rankedDateCursorCond(order, senderRank, cursor),
 				),
 			)
 			.orderBy(
+				desc(senderRank),
 				order === "desc"
 					? desc(threadMessageTable.sentDate)
 					: asc(threadMessageTable.sentDate),
@@ -580,7 +625,11 @@ export class DrizzleThreadMessageRepository
 			items: rows.map(toItem),
 			continuationToken:
 				rows.length === limit && lastRow
-					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+					? encodeRankedDateCursor(
+							lastRow.senderRank,
+							lastRow.sentDate,
+							lastRow.threadMessageId,
+						)
 					: undefined,
 		};
 	}
