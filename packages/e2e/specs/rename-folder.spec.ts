@@ -200,7 +200,7 @@ test.describe("Renaming a folder", () => {
 		const inbox = mailboxes.find((box) => box.fullPath === "INBOX");
 		if (!inbox) throw new Error(`no INBOX row in ${JSON.stringify(mailboxes)}`);
 
-		const path = `Projects ${STAMP}`;
+		const path = `Plans ${STAMP}`;
 		const folder = await api.createSettledMailbox(run.accountId, path);
 
 		const renameInbox = await api.attemptRenameMailbox(

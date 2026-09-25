@@ -25,6 +25,7 @@ export interface Mailbox {
 	 * a rename is in flight rather than a create.
 	 */
 	pendingPath?: string;
+	syncFailureReason?: string;
 }
 
 /**

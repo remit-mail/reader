@@ -327,6 +327,7 @@ const toMailboxResponse = (
 	// client cannot tell a create in flight from a rename in flight, name the
 	// target of a failed rename, or offer the right retry.
 	pendingPath: mailbox.pendingPath,
+	syncFailureReason: mailbox.syncFailureReason,
 	muted: overrides.muted,
 	displayNameOverride: overrides.displayNameOverride,
 	createdAt: mailbox.createdAt,

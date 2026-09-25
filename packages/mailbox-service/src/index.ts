@@ -220,6 +220,7 @@ export {
 	isMailboxAbsentUpstream,
 	isMailboxPresentUpstream,
 	isMailboxRefusedUpstream,
+	upstreamFailureReason,
 } from "./mailbox-upstream.js";
 export {
 	denormalizeMessageCategory,

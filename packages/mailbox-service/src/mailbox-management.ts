@@ -598,6 +598,7 @@ export class MailboxManagementService {
 		mailboxId: string,
 		oldPath: string,
 		newPath: string,
+		reason: string,
 	): Promise<void> => {
 		const root = await this.mailboxService
 			.get(accountId, mailboxId)
@@ -643,6 +644,7 @@ export class MailboxManagementService {
 					from: [MailboxSyncStatus.pending],
 					wherePendingPath: row.pendingPath,
 					to: MailboxSyncStatus.failed,
+					set: { syncFailureReason: reason },
 				},
 			);
 			this.log.info(
@@ -811,10 +813,15 @@ export class MailboxManagementService {
 	 * target is written, which is how the client tells a failed delete from a
 	 * failed rename.
 	 */
-	failDelete = async (accountId: string, mailboxId: string): Promise<void> => {
+	failDelete = async (
+		accountId: string,
+		mailboxId: string,
+		reason: string,
+	): Promise<void> => {
 		const failed = await this.mailboxService.transition(accountId, mailboxId, {
 			from: [MailboxSyncStatus.deleting],
 			to: MailboxSyncStatus.failed,
+			set: { syncFailureReason: reason },
 		});
 		if (!failed) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 		this.log.info(

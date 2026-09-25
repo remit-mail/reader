@@ -161,6 +161,7 @@ test.describe("Deleting a folder", () => {
 		const row = failed.find((box) => box.mailboxId === folder.mailboxId);
 		expect(row?.fullPath).toBe(path);
 		expect(row?.pendingPath).toBeUndefined();
+		expect(row?.syncFailureReason).toContain("Permission denied");
 
 		expect(await listServerMailboxes(run.imapUser)).toContain(path);
 		expect(await listServerSubjects(run.imapUser, path)).toContain(subject);

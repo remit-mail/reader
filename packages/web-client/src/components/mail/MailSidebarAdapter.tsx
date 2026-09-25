@@ -12,6 +12,7 @@ import { NavSidebar } from "@remit/ui";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import { folderFailure } from "@/lib/folder-failure";
 import {
 	buildMailboxRoleMap,
 	labelForMailbox,
@@ -103,6 +104,7 @@ function toNavMailbox(
 		unseen: showBadge ? mb.unseenCount : undefined,
 		role,
 		fullPath: mb.fullPath,
+		failure: folderFailure(mb),
 	};
 }
 

@@ -227,7 +227,7 @@ describe("MailboxManagementService.failDelete", () => {
 		]);
 		const service = new MailboxManagementService(repo);
 
-		await service.failDelete("acc-1", "mbx-1");
+		await service.failDelete("acc-1", "mbx-1", "Permission denied");
 
 		assert.equal(byId.get("mbx-1")?.syncStatus, MailboxSyncStatus.failed);
 		assert.equal(byId.get("mbx-1")?.fullPath, "Receipts");
@@ -239,7 +239,7 @@ describe("MailboxManagementService.failDelete", () => {
 		const service = new MailboxManagementService(repo);
 
 		await assert.rejects(
-			service.failDelete("acc-1", "mbx-1"),
+			service.failDelete("acc-1", "mbx-1", "Permission denied"),
 			(error: unknown) => (error as Error).name === "NotFoundError",
 		);
 	});

@@ -95,6 +95,30 @@ describe("NavSidebar", () => {
 		assert.match(html, /Travel/);
 	});
 
+	it("marks a folder whose last change failed and names the reason", () => {
+		const html = renderToString(
+			createElement(NavSidebar, {
+				accounts: [
+					{
+						...(accounts[0] as NavAccount),
+						mailboxes: [
+							{
+								id: "personal-locked",
+								name: "Locked",
+								fullPath: "Locked",
+								failure: "Permission denied",
+							},
+						],
+					},
+				],
+				selectedNavId: "personal-inbox",
+				onSelectNav: () => undefined,
+			}),
+		);
+		assert.match(html, /aria-label="Locked — Permission denied"/);
+		assert.match(html, /title="Locked — Permission denied"/);
+	});
+
 	it("gives the selected item its active accent styling", () => {
 		const html = renderToString(
 			createElement(NavSidebar, {

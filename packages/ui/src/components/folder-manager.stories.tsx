@@ -175,6 +175,31 @@ export const JustTheInbox: Story = {
 	),
 };
 
+/** A folder the mail server refused to delete says why, on its own row. */
+export const RefusedDelete: Story = {
+	name: "A delete the mail server refused",
+	render: () => (
+		<Frame>
+			<FolderManager
+				folders={[
+					folders[0] as ManagedFolder,
+					{
+						id: "mbx-locked",
+						label: "Locked",
+						path: "Locked",
+						failure:
+							"The mail server refused the last change: Permission denied",
+					},
+					folders[11] as ManagedFolder,
+				]}
+				onCreateFolder={createFolder}
+				onRename={() => {}}
+				onDelete={() => {}}
+			/>
+		</Frame>
+	),
+};
+
 /** The surface as it sits on a phone: full width, one branch open at a time. */
 export const Phone: Story = {
 	name: "Phone",
