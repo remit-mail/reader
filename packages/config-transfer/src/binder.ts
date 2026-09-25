@@ -38,7 +38,10 @@ export interface BindResult {
 	stillPending: number;
 }
 
-type RefOutcome = { kind: "Bound" } | { kind: "TargetGone" };
+type RefState =
+	| { kind: "TargetGone" }
+	| { kind: "Waiting" }
+	| { kind: "Ready"; mailboxId: string };
 
 /**
  * Bind the folder references an import could not resolve, now that discovery
@@ -88,24 +91,16 @@ export const bindImportedFolders = async (
 		const remaining: ConfigImportUnresolvedRefItem[] = [];
 
 		for (const ref of row.unresolvedRefs) {
-			const mailboxId =
-				ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
-			if (mailboxId === undefined) {
-				remaining.push(ref);
-				continue;
-			}
-			const outcome = await bindRef(
-				deps,
-				accountConfigId,
-				ref,
-				mailboxId,
-				document,
-				filterIds,
-			);
-			if (outcome.kind === "TargetGone") {
+			const state = refStateOf(ref, accountId, byPath, filterIds);
+			if (state.kind === "TargetGone") {
 				dropped++;
 				continue;
 			}
+			if (state.kind === "Waiting") {
+				remaining.push(ref);
+				continue;
+			}
+			await bindRef(deps, accountConfigId, ref, state.mailboxId, document);
 			bound++;
 		}
 
@@ -125,21 +120,37 @@ export const bindImportedFolders = async (
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
 
+const refStateOf = (
+	ref: ConfigImportUnresolvedRefItem,
+	accountId: string,
+	byPath: ReadonlyMap<string, string>,
+	filterIds: ReadonlySet<string>,
+): RefState => {
+	if (
+		ref.kind === ConfigImportRefKind.FilterAction &&
+		!filterIds.has(ref.target)
+	) {
+		return { kind: "TargetGone" };
+	}
+	const mailboxId =
+		ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
+	if (mailboxId === undefined) return { kind: "Waiting" };
+	return { kind: "Ready", mailboxId };
+};
+
 const bindRef = async (
 	deps: ConfigBinderDeps,
 	accountConfigId: string,
 	ref: ConfigImportUnresolvedRefItem,
 	mailboxId: string,
 	document: BoundDocument,
-	filterIds: ReadonlySet<string>,
-): Promise<RefOutcome> => {
+): Promise<void> => {
 	const { repositories } = deps;
 	if (ref.kind === ConfigImportRefKind.FilterAction) {
-		if (!filterIds.has(ref.target)) return { kind: "TargetGone" };
 		await repositories.filter.update(accountConfigId, ref.target, {
 			actionMailboxId: mailboxId,
 		});
-		return { kind: "Bound" };
+		return;
 	}
 
 	if (ref.kind === ConfigImportRefKind.FolderRole) {
@@ -150,7 +161,7 @@ const bindRef = async (
 			mailboxId,
 			ref.folderPath,
 		);
-		return { kind: "Bound" };
+		return;
 	}
 
 	// The account the file named, when this instance still holds it under that
@@ -165,7 +176,7 @@ const bindRef = async (
 			? named.folderOverrides
 			: document.accounts.flatMap((a) => a.folderOverrides)
 	).find((candidate) => candidate.folderPath === ref.folderPath);
-	if (!override) return { kind: "Bound" };
+	if (!override) return;
 
 	if (override.displayName !== "") {
 		await repositories.accountSetting.upsert({
@@ -184,7 +195,6 @@ const bindRef = async (
 			value: { kind: "MutedFlag", value: override.muted },
 		});
 	}
-	return { kind: "Bound" };
 };
 
 /**

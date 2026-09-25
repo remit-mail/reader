@@ -1284,3 +1284,40 @@ test("a filter deleted before its folder is discovered drops its reference inste
 	);
 	assert.deepEqual(again, { bound: 0, dropped: 0, stillPending: 0 });
 });
+
+test("a deleted filter's reference is dropped even when its folder never appears", async () => {
+	const document = await exportSource(sourceWithLegacyFlagsFixture());
+	const store = emptyStore();
+	await apply(store, document);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	store.filters = store.filters.filter(
+		(filter) => filter.filterId !== invoices.filterId,
+	);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX"]);
+	const result = await bindImportedFolders(
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+			now: () => NOW,
+		},
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.dropped, 1);
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.target === invoices.filterId,
+		),
+		false,
+	);
+	assert.equal(
+		pendingImportOf(store.imports)?.folderPaths.includes("INBOX.Facturen"),
+		false,
+	);
+});
