@@ -4,7 +4,7 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { CalendarDescriptor, EventDraft } from "./calendar-types.js";
-import { EventEditor } from "./event-editor.js";
+import { EventEditor, withAllDay } from "./event-editor.js";
 
 const calendars: CalendarDescriptor[] = [
 	{
@@ -167,6 +167,29 @@ describe("EventEditor", () => {
 		const dom = parse({
 			draft: { ...draft, startTime: "23:00", endTime: "01:00", allDay: true },
 		});
+		assert.equal(alertText(dom), "");
+		assert.equal(saveControl(dom)?.disabled, false);
+	});
+
+	it("restores the overnight end when all day is ticked then unticked", () => {
+		const overnight: EventDraft = {
+			...draft,
+			startTime: "22:00",
+			endDate: "2026-06-13",
+			endTime: "01:00",
+		};
+
+		const ticked = withAllDay(overnight, true);
+		assert.equal(ticked.allDay, true);
+		assert.equal(ticked.endDate, overnight.date);
+
+		const unticked = withAllDay(ticked, false);
+		assert.equal(unticked.allDay, false);
+		assert.equal(unticked.endDate, overnight.endDate);
+		assert.equal(unticked.startTime, overnight.startTime);
+		assert.equal(unticked.endTime, overnight.endTime);
+
+		const dom = parse({ draft: unticked });
 		assert.equal(alertText(dom), "");
 		assert.equal(saveControl(dom)?.disabled, false);
 	});

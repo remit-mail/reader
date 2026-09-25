@@ -106,6 +106,16 @@ export function withAllDay(draft: EventDraft, allDay: boolean): EventDraft {
 		draft.endTime !== "" &&
 		draft.endTime < draft.startTime;
 	if (allDay && overnight) return { ...draft, allDay, endDate: draft.date };
+	const collapsedOvernight =
+		!allDay &&
+		draft.date !== "" &&
+		draft.endDate === draft.date &&
+		draft.startTime !== "" &&
+		draft.endTime !== "" &&
+		draft.endTime < draft.startTime;
+	if (collapsedOvernight) {
+		return { ...draft, allDay, endDate: addDays(draft.date, 1) };
+	}
 	return { ...draft, allDay };
 }
 
