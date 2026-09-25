@@ -18,7 +18,7 @@ import type { AppointFolderRole } from "./import-repositories.js";
 export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
 	accountSetting: Pick<IAccountSettingRepository, "upsert">;
-	filter: Pick<IFilterRepository, "update">;
+	filter: Pick<IFilterRepository, "listByAccountConfig" | "update">;
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 }
 
@@ -34,8 +34,14 @@ export interface ConfigBinderDeps {
  */
 export interface BindResult {
 	bound: number;
+	dropped: number;
 	stillPending: number;
 }
+
+type RefState =
+	| { kind: "TargetGone" }
+	| { kind: "Waiting" }
+	| { kind: "Ready"; mailboxId: string };
 
 /**
  * Bind the folder references an import could not resolve, now that discovery
@@ -62,7 +68,7 @@ export const bindImportedFolders = async (
 	const imports = (
 		await repositories.configImport.listByAccountConfig(accountConfigId)
 	).filter((row) => row.state === ConfigImportState.Pending);
-	if (imports.length === 0) return { bound: 0, stillPending: 0 };
+	if (imports.length === 0) return { bound: 0, dropped: 0, stillPending: 0 };
 
 	const byPath = new Map(
 		(await repositories.mailbox.listAllByAccount(accountId)).map(
@@ -70,7 +76,14 @@ export const bindImportedFolders = async (
 		),
 	);
 
+	const filterIds = new Set(
+		(await repositories.filter.listByAccountConfig(accountConfigId)).map(
+			(filter) => filter.filterId,
+		),
+	);
+
 	let bound = 0;
+	let dropped = 0;
 	let stillPending = 0;
 
 	for (const row of imports) {
@@ -78,13 +91,16 @@ export const bindImportedFolders = async (
 		const remaining: ConfigImportUnresolvedRefItem[] = [];
 
 		for (const ref of row.unresolvedRefs) {
-			const mailboxId =
-				ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
-			if (mailboxId === undefined) {
+			const state = refStateOf(ref, accountId, byPath, filterIds);
+			if (state.kind === "TargetGone") {
+				dropped++;
+				continue;
+			}
+			if (state.kind === "Waiting") {
 				remaining.push(ref);
 				continue;
 			}
-			await bindRef(deps, accountConfigId, ref, mailboxId, document);
+			await bindRef(deps, accountConfigId, ref, state.mailboxId, document);
 			bound++;
 		}
 
@@ -99,10 +115,28 @@ export const bindImportedFolders = async (
 		});
 	}
 
-	return { bound, stillPending };
+	return { bound, dropped, stillPending };
 };
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
+
+const refStateOf = (
+	ref: ConfigImportUnresolvedRefItem,
+	accountId: string,
+	byPath: ReadonlyMap<string, string>,
+	filterIds: ReadonlySet<string>,
+): RefState => {
+	if (
+		ref.kind === ConfigImportRefKind.FilterAction &&
+		!filterIds.has(ref.target)
+	) {
+		return { kind: "TargetGone" };
+	}
+	const mailboxId =
+		ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
+	if (mailboxId === undefined) return { kind: "Waiting" };
+	return { kind: "Ready", mailboxId };
+};
 
 const bindRef = async (
 	deps: ConfigBinderDeps,
