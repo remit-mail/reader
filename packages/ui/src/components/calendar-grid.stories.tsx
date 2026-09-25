@@ -141,6 +141,16 @@ export const Overlapping: Story = {
 	},
 };
 
+/** An early flight and a late call: the day runs midnight to midnight. */
+export const OutsideWorkingHours: Story = {
+	args: {
+		events: [
+			at("flight", "Flight to Lisbon", "09", "06:00", "07:00"),
+			at("late-call", "Call with Sydney", "11", "23:15", "23:45"),
+		],
+	},
+};
+
 export const AllDayBand: Story = {
 	args: { events: week.filter((event) => event.allDay) },
 };

@@ -22,6 +22,7 @@ import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
 import { calendarInstanceId, deviceTimeZone } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import {
 	readCalendarDensity,
 	writeCalendarDensity,
@@ -68,6 +69,7 @@ function CalendarViewLayout() {
 		useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
 	const isWriting = useIsWritingEvent();
+	const isPhone = useLayoutTier() === "phone";
 	// Held in state rather than read back from storage each render: how much of
 	// a day this device shows is not a fact about the calendar, so changing it
 	// changes nothing about the address.
@@ -121,6 +123,7 @@ function CalendarViewLayout() {
 			onChangeDensity={changeDensity}
 			onSelectEvent={selectEvent}
 			onPickSlot={pickSlot}
+			touch={isPhone}
 		/>
 	);
 
