@@ -11,6 +11,7 @@ import {
 	shippedTableDdl,
 } from "../test-shipped-sqlite-schema.js";
 import { MailboxRepo } from "./i4-mailbox.js";
+import { mailboxCreated } from "./test-helpers.js";
 
 function makeMailboxInput(accountId: string, fullPath = "INBOX") {
 	return {
@@ -50,10 +51,12 @@ describe("MailboxRepo (sqlite)", () => {
 		const accountId = randomUUID();
 		const modseq = "18446744073709551615";
 
-		const created = await repo.create({
-			...makeMailboxInput(accountId),
-			highestModseq: modseq,
-		});
+		const created = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId),
+				highestModseq: modseq,
+			}),
+		);
 		assert.equal(created.highestModseq, modseq);
 
 		const fetched = await repo.get(accountId, created.mailboxId);
@@ -70,8 +73,8 @@ describe("MailboxRepo (sqlite)", () => {
 
 	test("a row written without a state reads back synced (D1)", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create(
-			makeMailboxInput(accountId, "Discovered"),
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Discovered")),
 		);
 		assert.equal(created.syncStatus, MailboxSyncStatus.synced);
 		const fetched = await repo.get(accountId, created.mailboxId);
@@ -80,7 +83,9 @@ describe("MailboxRepo (sqlite)", () => {
 
 	test("pendingPath round-trips and clears", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create(makeMailboxInput(accountId, "Archive"));
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Archive")),
+		);
 		assert.equal(created.pendingPath, undefined);
 
 		const claimed = await repo.transition(accountId, created.mailboxId, {
@@ -101,6 +106,53 @@ describe("MailboxRepo (sqlite)", () => {
 		});
 		assert.equal(settled?.pendingPath, undefined);
 		assert.equal(settled?.fullPath, "Records");
+	});
+
+	test("a second row at a path the account holds is refused as PathTaken", async () => {
+		const accountId = randomUUID();
+		const first = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Notifications")),
+		);
+
+		const second = await repo.create(
+			makeMailboxInput(accountId, "Notifications"),
+		);
+
+		assert.deepEqual(second, { outcome: "PathTaken" });
+		assert.equal(
+			(await repo.findByPath(accountId, "Notifications"))?.mailboxId,
+			first.mailboxId,
+		);
+	});
+
+	test("another account may hold the same path", async () => {
+		const created = await repo.create(
+			makeMailboxInput(randomUUID(), "Notifications"),
+		);
+		assert.equal(created.outcome, "Created");
+	});
+
+	test("a write that moves a row onto a path another row holds is rejected", async () => {
+		const accountId = randomUUID();
+		mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "INBOX/Notifications")),
+		);
+		const recreated = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId, "Notifications"),
+				syncStatus: MailboxSyncStatus.pending,
+			}),
+		);
+
+		await assert.rejects(
+			repo.transition(accountId, recreated.mailboxId, {
+				from: [MailboxSyncStatus.pending],
+				wherePendingPath: null,
+				to: MailboxSyncStatus.synced,
+				set: { fullPath: "INBOX/Notifications" },
+			}),
+			/UNIQUE constraint failed: mailbox\.account_id, mailbox\.full_path/,
+		);
 	});
 });
 
@@ -126,6 +178,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		applyMigration(sqlite, "0026_mailbox_sync_status_backfill");
 		applyMigration(sqlite, "0027_mailbox_sync_status_total");
 		applyMigration(sqlite, "0028_mailbox_pending_path");
+		applyMigration(sqlite, "0030_mailbox_path_unique");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {
@@ -146,10 +199,12 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 	test("reads a plain-digit cursor back as a string", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create({
-			...makeMailboxInput(accountId),
-			highestModseq: "900",
-		});
+		const created = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId),
+				highestModseq: "900",
+			}),
+		);
 
 		assert.strictEqual(created.highestModseq, "900");
 
@@ -159,10 +214,12 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 	test("keeps a resumable cursor intact", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create({
-			...makeMailboxInput(accountId, "Archive"),
-			highestModseq: "900:149",
-		});
+		const created = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId, "Archive"),
+				highestModseq: "900:149",
+			}),
+		);
 
 		const fetched = await repo.get(accountId, created.mailboxId);
 		assert.strictEqual(fetched.highestModseq, "900:149");
@@ -170,13 +227,17 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 	test("a row inserted without a state reads back synced", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create(makeMailboxInput(accountId, "Notes"));
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Notes")),
+		);
 		assert.equal(created.syncStatus, MailboxSyncStatus.synced);
 	});
 
 	test("pendingPath round-trips and clears on the shipped shape", async () => {
 		const accountId = randomUUID();
-		const created = await repo.create(makeMailboxInput(accountId, "Receipts"));
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Receipts")),
+		);
 
 		const claimed = await repo.transition(accountId, created.mailboxId, {
 			from: [MailboxSyncStatus.synced],
@@ -196,10 +257,12 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	test("round-trips a cursor above 2^53 with its exact digits", async () => {
 		const accountId = randomUUID();
 		const modseq = "18446744073709551615";
-		const created = await repo.create({
-			...makeMailboxInput(accountId, "Sent"),
-			highestModseq: modseq,
-		});
+		const created = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId, "Sent"),
+				highestModseq: modseq,
+			}),
+		);
 
 		assert.strictEqual(created.highestModseq, modseq);
 		const fetched = await repo.get(accountId, created.mailboxId);

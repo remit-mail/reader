@@ -17,6 +17,11 @@ import {
 	sweepJunkOnlyAddresses,
 } from "../../drizzle-service/src/repair/junk-only-address.js";
 import {
+	formatOrphanedMailReport,
+	type OrphanedMailRepairMode,
+	sweepOrphanedMail,
+} from "../../drizzle-service/src/repair/orphaned-mail.js";
+import {
 	formatStrandedSentReport,
 	type StrandedSentRepairClient,
 	type StrandedSentRepairMode,
@@ -56,7 +61,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in three places.
+ * DDL objects around them, and rewrites row content in four places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -100,6 +105,10 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * no remedy: the message is on no server folder to re-fetch. It flips a status
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
+ *
+ * The fourth is mail whose folder row is gone (#386): the dedupe migration
+ * removes duplicate folder rows, and their mail is removed here through
+ * `deleteMessageSubtree`, so the search index is cleared with it.
 
  */
 
@@ -197,6 +206,16 @@ const strandedSentStep = async (
 	}
 };
 
+const orphanedMailStep = async (
+	db: Parameters<typeof sweepOrphanedMail>[0],
+	mode: OrphanedMailRepairMode,
+): Promise<void> => {
+	const report = await sweepOrphanedMail(db, mode);
+	for (const line of formatOrphanedMailReport(report)) {
+		logStep({ step: "orphaned-mail-repair" }, line);
+	}
+};
+
 /**
  * Which folder holds Junk is decided once, in TypeScript, through the same
  * repository seam every other special-folder lookup reads — so the sweep
@@ -254,6 +273,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
+			await orphanedMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
@@ -301,6 +321,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// `outbox_attachment`, which no index and no trigger installed below
 		// covers.
 		await strandedSentStep(paramRepairClient, "repair");
+
+		await orphanedMailStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);

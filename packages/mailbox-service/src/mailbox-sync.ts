@@ -82,6 +82,7 @@ export interface SyncAccountInfo {
 export interface MailboxSyncLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 	debug(obj: Record<string, unknown>, msg: string): void;
+	error(obj: Record<string, unknown>, msg: string): void;
 }
 
 /**
@@ -263,13 +264,13 @@ export class MailboxSyncService {
 						result.updated++;
 					}
 				} else if (!claimedByPendingRename.has(mailboxInfo.fullPath)) {
-					await this.createMailbox(
+					const created = await this.createMailbox(
 						account.accountId,
 						mailboxInfo,
 						namespaces,
 						connection,
 					);
-					result.created++;
+					if (created) result.created++;
 				}
 			},
 			{ concurrency: 3 },
@@ -432,7 +433,7 @@ export class MailboxSyncService {
 		},
 		_namespaces: ImapNamespaces,
 		connection: IImapConnection,
-	): Promise<MailboxItem> => {
+	): Promise<MailboxItem | null> => {
 		// Fetch mailbox status using STATUS command (doesn't require SELECT/EXAMINE)
 		// This gets us message counts including unseen without opening the mailbox
 		const status = await connection.getMailboxStatus(mailboxInfo.fullPath);
@@ -472,7 +473,15 @@ export class MailboxSyncService {
 			// parentMailboxId would need to be resolved from parentPath
 		};
 
-		const mailbox = await this.mailboxService.create(input);
+		const created = await this.mailboxService.create(input);
+		if (created.outcome === "PathTaken") {
+			this.log.error(
+				{ accountId, fullPath: mailboxInfo.fullPath },
+				"Sweep found no row for a folder path the account already holds",
+			);
+			return null;
+		}
+		const { mailbox } = created;
 
 		// Keep the MailboxSpecialUseEntry table in sync — every backend and worker
 		// special-folder lookup reads it through MailboxSpecialUseRepo. Denormalized

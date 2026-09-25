@@ -1,3 +1,4 @@
+import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/MailboxAttribute.tsp";
@@ -37,6 +38,11 @@ namespace RemitImap;
     pk: [Mailbox.mailboxId],
     sk: [],
   }
+)
+@Drizzle.indexDef(
+  "mailbox_by_account_full_path",
+  [Mailbox.accountId, Mailbox.fullPath],
+  true
 )
 model Mailbox {
   @doc("Primary identifier")

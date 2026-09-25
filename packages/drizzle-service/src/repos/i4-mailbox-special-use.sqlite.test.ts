@@ -16,6 +16,7 @@ import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
+import { mailboxCreated } from "./test-helpers.js";
 
 const makeMailboxInput = (
 	accountId: string,
@@ -103,11 +104,15 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("the appointment beats the folder the server flagged", async () => {
 		const { accountId, accountConfigId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const flagged = await mailboxes.create(makeMailboxInput(accountId, "Junk"));
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const flagged = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "Junk")),
+		);
 		await repo.create(flagged.mailboxId, "Junk");
-		const chosen = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Rubbish"),
+		const chosen = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Rubbish")),
 		);
 		await appoint(
 			accountConfigId,
@@ -126,10 +131,14 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// the user keeps mail in. `bin` is no longer a hint, and an appointment
 		// overrides the proposal either way.
 		const { accountId, accountConfigId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const bin = await mailboxes.create(makeMailboxInput(accountId, "Bin"));
-		const gmailTrash = await mailboxes.create(
-			makeMailboxInput(accountId, "[Gmail]/Trash"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const bin = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "Bin")),
+		);
+		const gmailTrash = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "[Gmail]/Trash")),
 		);
 
 		assert.equal(
@@ -151,9 +160,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("an appointment on a mailbox that is gone falls back rather than resolving to nothing", async () => {
 		const { accountId, accountConfigId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const archive = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Archive"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const archive = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Archive")),
 		);
 		await appoint(
 			accountConfigId,
@@ -171,12 +182,14 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// `Deleted` matches the name proposal, and emptying it would destroy mail
 		// the user never put in a trash folder (audit #841).
 		const { accountId, accountConfigId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const keepsakes = await mailboxes.create(
-			makeMailboxInput(accountId, "Deleted"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
 		);
-		const trash = await mailboxes.create(
-			makeMailboxInput(accountId, "[Gmail]/Trash"),
+		const keepsakes = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "Deleted")),
+		);
+		const trash = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "[Gmail]/Trash")),
 		);
 
 		const proposal = await repo.resolveTrashRole(accountId);
@@ -201,9 +214,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// flagged folder both hide that; the resolution names the id the user chose
 		// so a refusal can offer the repair (#887).
 		const { accountId, accountConfigId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const flagged = await mailboxes.create(
-			makeMailboxInput(accountId, "[Gmail]/Trash"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const flagged = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "[Gmail]/Trash")),
 		);
 		await repo.create(flagged.mailboxId, "Trash");
 		const appointed = randomUUID();
@@ -237,9 +252,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("resolves an INBOX-nested Junk folder that advertises \\Junk", async () => {
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const spam = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Spam"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const spam = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Spam")),
 		);
 		await repo.create(spam.mailboxId, "Junk");
 
@@ -252,9 +269,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// bare names, so `INBOX/Spam` resolved to nothing on a server that
 		// advertises no \Junk.
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const spam = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Spam"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const spam = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Spam")),
 		);
 
 		const found = await repo.findJunkMailbox(accountId);
@@ -266,9 +285,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		// whole-path rule, so `INBOX/Trash` resolved to nothing and a delete
 		// refused on an account that plainly has a Trash folder.
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const trash = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Trash"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const trash = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Trash")),
 		);
 
 		assert.equal(
@@ -286,9 +307,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("resolves an INBOX-nested Archive folder that advertises no special use", async () => {
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		const archive = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX/Archive"),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const archive = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Archive")),
 		);
 
 		assert.equal(
@@ -299,12 +322,14 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("splits the leaf on the account's own delimiter, not on a slash", async () => {
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX", "."));
-		const trash = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX.Trash", "."),
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX", ".")),
 		);
-		const archive = await mailboxes.create(
-			makeMailboxInput(accountId, "INBOX.Archive", "."),
+		const trash = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX.Trash", ".")),
+		);
+		const archive = mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX.Archive", ".")),
 		);
 
 		assert.equal(
@@ -319,8 +344,12 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 
 	test("answers null when the account has no Junk folder at all", async () => {
 		const { accountId } = await makeAccount();
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX"));
-		await mailboxes.create(makeMailboxInput(accountId, "INBOX/Work"));
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		mailboxCreated(
+			await mailboxes.create(makeMailboxInput(accountId, "INBOX/Work")),
+		);
 
 		assert.equal(await repo.findJunkMailbox(accountId), null);
 	});

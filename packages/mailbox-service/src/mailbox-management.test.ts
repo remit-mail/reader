@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import type {
 	IMailboxRepository,
+	MailboxItem,
 	MailboxTransitionIntent,
 } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
@@ -99,7 +100,10 @@ const boxStatus = (path: string): ImapBoxStatus => ({
 	newKeywords: false,
 });
 
-const recordingRepo = () => {
+const recordingRepo = (
+	held: Pick<MailboxItem, "mailboxId" | "fullPath">[] = [],
+) => {
+	const removed: string[] = [];
 	const updates: Array<{ mailboxId: string; patch: Record<string, unknown> }> =
 		[];
 	const settles: Array<{
@@ -108,7 +112,11 @@ const recordingRepo = () => {
 	}> = [];
 	const repo: Pick<
 		IMailboxRepository,
-		"update" | "transition" | "findByPathPrefix"
+		| "update"
+		| "transition"
+		| "findByPathPrefix"
+		| "findByPath"
+		| "deleteMailboxWithMail"
 	> = {
 		update: async (
 			_accountId: string,
@@ -127,8 +135,13 @@ const recordingRepo = () => {
 			return {} as never;
 		},
 		findByPathPrefix: async () => [],
+		findByPath: async (_accountId: string, fullPath: string) =>
+			(held.find((row) => row.fullPath === fullPath) as MailboxItem) ?? null,
+		deleteMailboxWithMail: async (_accountId: string, mailboxId: string) => {
+			removed.push(mailboxId);
+		},
 	};
-	return { repo: repo as IMailboxRepository, updates, settles };
+	return { repo: repo as IMailboxRepository, updates, settles, removed };
 };
 
 const stubConnection = (
@@ -183,6 +196,38 @@ describe("MailboxManagementService.syncCreate — server path normalization", ()
 		assert.strictEqual(settles[0].mailboxId, "mbx-1");
 		assert.strictEqual(settles[0].intent.set?.fullPath, "INBOX/Notifications");
 		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
+	});
+
+	it("drops the pending row when the prefixed path already has a folder (#318)", async () => {
+		const { repo, settles, updates, removed } = recordingRepo([
+			{ mailboxId: "mbx-existing", fullPath: "INBOX/Notifications" },
+		]);
+		const connection = {
+			createMailbox: async (_path: string) => ({
+				path: "INBOX/Notifications",
+				created: false,
+			}),
+			subscribeMailbox: async () => undefined,
+			listMailboxes: async (): Promise<FlatMailboxInfo[]> => [],
+			openBox: async (path: string) => boxStatus(path),
+			closeBox: async () => undefined,
+		} as unknown as IImapConnection;
+		const service = new MailboxManagementService(repo);
+
+		const result = await service.syncCreate(
+			"acc-1",
+			"mbx-recreated",
+			"Notifications",
+			async () => connection,
+		);
+
+		assert.deepStrictEqual(result, {
+			success: true,
+			existing: { mailboxId: "mbx-existing", fullPath: "INBOX/Notifications" },
+		});
+		assert.deepStrictEqual(removed, ["mbx-recreated"]);
+		assert.deepStrictEqual(settles, []);
+		assert.deepStrictEqual(updates, []);
 	});
 
 	it("leaves the path untouched when the server keeps it as requested", async () => {

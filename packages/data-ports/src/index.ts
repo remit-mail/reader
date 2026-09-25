@@ -100,6 +100,7 @@ export type {
 	CreateFilterInput,
 	CreateLabelInput,
 	CreateMailboxInput,
+	CreateMailboxResult,
 	CreateMessageFlagInput,
 	CreateMessageInput,
 	CreateMessageLabelInput,

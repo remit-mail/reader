@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
+import { BadRequestError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -11,7 +12,11 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { MailboxDetailOperations, TrashOperations } from "./mailbox.js";
+import {
+	MailboxDetailOperations,
+	MailboxOperations,
+	TrashOperations,
+} from "./mailbox.js";
 
 const SUB = "cognito-sub-887";
 const ACCOUNT_ID = "acc-887";
@@ -228,5 +233,48 @@ describe("MailboxDetailOperations_deleteMailbox — what it refuses (D4, D16)", 
 
 		assert.deepEqual(await run(), { statusCode: 204 });
 		assert.deepEqual(deleted, ["mbx-1"]);
+	});
+});
+
+const createMailbox =
+	MailboxOperations.MailboxOperations_createMailbox as unknown as (
+		context: Context,
+		event: APIGatewayProxyEvent,
+	) => Promise<unknown>;
+
+describe("MailboxOperations_createMailbox", () => {
+	afterEach(() => {
+		_resetForTest();
+	});
+
+	it("refuses a path the account already has a folder at", async () => {
+		setClient({
+			account: {
+				get: async () => ({
+					accountId: ACCOUNT_ID,
+					accountConfigId: deriveAccountConfigId(SUB),
+				}),
+			},
+			mailboxQueue: {
+				createMailbox: async () => ({ outcome: "PathTaken" }),
+			},
+		} as unknown as RemitClient);
+
+		await assert.rejects(
+			createMailbox(
+				{
+					request: {
+						params: { accountId: ACCOUNT_ID },
+						requestBody: { namespaceType: "personal", fullPath: "Receipts" },
+					},
+				} as unknown as Context,
+				{
+					requestContext: { authorizer: { claims: { sub: SUB } } },
+				} as unknown as APIGatewayProxyEvent,
+			),
+			(error: unknown) =>
+				error instanceof BadRequestError &&
+				error.message === "A folder named “Receipts” is already there.",
+		);
 	});
 });

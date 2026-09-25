@@ -386,6 +386,10 @@ export type CreateMailboxInput = Omit<
 	syncStatus?: MailboxItem["syncStatus"];
 };
 
+export type CreateMailboxResult =
+	| { outcome: "Created"; mailbox: MailboxItem }
+	| { outcome: "PathTaken" };
+
 /**
  * Everything about a mailbox that is not its mutation state.
  *
