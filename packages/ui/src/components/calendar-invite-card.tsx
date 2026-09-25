@@ -291,7 +291,7 @@ export function CalendarInviteCard({
 								disabled={busy}
 								className={cn("self-start", touch && "min-h-11 w-full")}
 							>
-								Stop offering invitations from {invite.organizerName}
+								{`Stop offering invitations from ${invite.organizerName}`}
 							</Button>
 						)}
 						<p className="text-2xs text-fg-subtle">
