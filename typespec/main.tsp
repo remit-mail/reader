@@ -792,7 +792,7 @@ namespace RemitApi {
   @route("/threads")
   namespace UnifiedThreadOperations {
     @doc("""
-      List threads across all non-muted accounts of the caller, ordered by sentDate desc. Each row carries an attached `accountId` (derived from a mailboxId→accountId map at read time) plus the usual `senderTrust` enrichment; `category` is served from the ThreadMessage row. Served by the `byDate` LSI1 (pk = the caller's account config), so the caller can never see another account config's threads.
+      List threads across all non-muted accounts of the caller, ordered by sentDate desc (search mode ranks sender matches first, see below). Each row carries an attached `accountId` (derived from a mailboxId→accountId map at read time) plus the usual `senderTrust` enrichment; `category` is served from the ThreadMessage row. Served by the `byDate` LSI1 (pk = the caller's account config), so the caller can never see another account config's threads.
       
       INBOX scope: results are filtered to each account's top-level INBOX, matched by exact path `fullPath === "INBOX"` (RFC 6154 defines no Inbox special-use). By design this excludes namespaced sub-paths like `INBOX/Receipts` and non-English server primaries — the unified inbox is each account's primary INBOX, not its sub-folders. Soft-deleted rows are also excluded.
       

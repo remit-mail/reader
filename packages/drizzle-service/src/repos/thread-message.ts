@@ -59,7 +59,8 @@ export const clampThreadSearchLimit = (limit?: number): number => {
 
 type DateCursor = { s: number; id: string };
 type AccountCursor = { id: string };
-type RankedDateCursor = { r: number; s: number; id: string };
+type RankedDateCursor = { v: 2; r: number; s: number; id: string };
+type SearchCursor = RankedDateCursor | (DateCursor & { v: 1 });
 
 function encodeRankedDateCursor(
 	rank: number,
@@ -67,20 +68,24 @@ function encodeRankedDateCursor(
 	threadMessageId: string,
 ): string {
 	return Buffer.from(
-		JSON.stringify({ r: rank, s: sentDate, id: threadMessageId }),
+		JSON.stringify({ v: 2, r: rank, s: sentDate, id: threadMessageId }),
 	).toString("base64");
 }
 
-function decodeRankedDateCursor(token: string): RankedDateCursor {
+function decodeSearchCursor(token: string): SearchCursor {
 	const decoded = decodeToken(token, "base64");
+	if (decoded.v === undefined) {
+		return { v: 1, ...decodeDateCursor(token) };
+	}
 	if (
+		decoded.v !== 2 ||
 		typeof decoded.r !== "number" ||
 		typeof decoded.s !== "number" ||
 		typeof decoded.id !== "string"
 	) {
 		throw new BadRequestError("Invalid continuationToken");
 	}
-	return { r: decoded.r, s: decoded.s, id: decoded.id };
+	return { v: 2, r: decoded.r, s: decoded.s, id: decoded.id };
 }
 
 function encodeDateCursor(sentDate: number, threadMessageId: string): string {
@@ -267,8 +272,8 @@ function rankedDateCursorCond(
 ): SQL | undefined {
 	if (!cursor) return undefined;
 	return or(
-		sql`${rank} < ${cursor.r}`,
-		and(sql`${rank} = ${cursor.r}`, sentDateCursorCond(order, cursor)),
+		lt(rank, cursor.r),
+		and(eq(rank, cursor.r), sentDateCursorCond(order, cursor)),
 	);
 }
 
@@ -567,8 +572,9 @@ export class DrizzleThreadMessageRepository
 
 	/**
 	 * Cross-mailbox search for the unified listing's search mode. Same predicate
-	 * builder and keyset cursor as `searchByMailboxWindow`, with the mailbox
-	 * equality swapped for the caller's scope set. Matching runs in SQL over the
+	 * builder as `searchByMailboxWindow`, with the mailbox equality swapped for
+	 * the caller's scope set. Sender matches rank first, then date order; a
+	 * cursor minted before the ranking finishes its session in date order. Matching runs in SQL over the
 	 * whole scope, so a short page means the matches are exhausted.
 	 */
 	async searchByDate(
@@ -585,14 +591,17 @@ export class DrizzleThreadMessageRepository
 		const order = options?.order ?? "desc";
 		const limit = clampThreadSearchLimit(options?.limit);
 		const cursor = options?.continuationToken
-			? decodeRankedDateCursor(options.continuationToken)
+			? decodeSearchCursor(options.continuationToken)
 			: null;
+		const ranked = cursor?.v !== 1;
 
 		const mailboxCond = options?.mailboxIds?.size
 			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
 			: undefined;
 
-		const senderRank = senderMatchRank(queryTerms(search.query));
+		const senderRank = ranked
+			? senderMatchRank(queryTerms(search.query))
+			: sql<number>`0`;
 
 		const rows = await this.db
 			.select({
@@ -608,11 +617,13 @@ export class DrizzleThreadMessageRepository
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
 					...buildSearchConditions(search),
-					rankedDateCursorCond(order, senderRank, cursor),
+					cursor?.v === 1
+						? sentDateCursorCond(order, cursor)
+						: rankedDateCursorCond(order, senderRank, cursor),
 				),
 			)
 			.orderBy(
-				desc(senderRank),
+				...(ranked ? [desc(senderRank)] : []),
 				order === "desc"
 					? desc(threadMessageTable.sentDate)
 					: asc(threadMessageTable.sentDate),
@@ -625,18 +636,20 @@ export class DrizzleThreadMessageRepository
 			items: rows.map(toItem),
 			continuationToken:
 				rows.length === limit && lastRow
-					? encodeRankedDateCursor(
-							lastRow.senderRank,
-							lastRow.sentDate,
-							lastRow.threadMessageId,
-						)
+					? ranked
+						? encodeRankedDateCursor(
+								lastRow.senderRank,
+								lastRow.sentDate,
+								lastRow.threadMessageId,
+							)
+						: encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
 					: undefined,
 		};
 	}
 
 	/**
-	 * Cross-mailbox narrowing for a rule back-apply. Same keyset cursor and
-	 * ordering as `searchByDate`, with the terms combined under the caller's
+	 * Cross-mailbox narrowing for a rule back-apply. Same date keyset cursor
+	 * and ordering as `listByDate`, with the terms combined under the caller's
 	 * operator instead of the AND-only `SearchOptions` shape a search box needs.
 	 * The terms run in SQL over the whole config, so a page is a page of
 	 * narrowed rows and a rule for a sender that has been quiet for a month

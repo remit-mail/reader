@@ -8,8 +8,10 @@
  *
  * Deduping over the accumulated pages rather than inside one keeps a
  * conversation single even when its copies straddle a page boundary — a single
- * page cannot know what earlier pages already showed. The first row wins, which
- * is the newest under the server's descending order.
+ * page cannot know what earlier pages already showed. The first row wins: the
+ * newest under a plain listing, and under a search the one the server ranked
+ * highest, so a sender's own older message beats a newer reply that mentions
+ * them.
  *
  * Generic over anything naming its thread, so the same collapse runs over the
  * API rows and over the merged display rows a text search produces — two

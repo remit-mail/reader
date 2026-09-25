@@ -768,19 +768,136 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 		]);
 	});
 
-	test("a cursor without a rank is refused", async () => {
-		const token = Buffer.from(
-			JSON.stringify({ s: Date.now(), id: "x" }),
-		).toString("base64");
+	test("date ties at the tier boundary page without a gap or repeat, in either order", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const tie = Date.now();
+		await seed(acct, mbx, [
+			{
+				subject: "sender a",
+				fromEmail: "lambda@acme.test",
+				sentDate: tie,
+				internalDate: tie,
+			},
+			{
+				subject: "sender b",
+				fromEmail: "lambda@acme.test",
+				sentDate: tie,
+				internalDate: tie,
+			},
+			{ subject: "lambda mention a", sentDate: tie, internalDate: tie },
+			{ subject: "lambda mention b", sentDate: tie, internalDate: tie },
+		]);
+		const scope = { excludeDeleted: true, mailboxIds: new Set([mbx]) };
 
-		await assert.rejects(
-			repo.searchByDate(
-				uuid(),
-				{ query: "kappa" },
-				{ excludeDeleted: true, continuationToken: token },
-			),
-			/Invalid continuationToken/,
+		for (const order of ["desc", "asc"] as const) {
+			const walked: string[] = [];
+			let continuationToken: string | undefined;
+			do {
+				const page = await repo.searchByDate(
+					acct,
+					{ query: "lambda" },
+					{ ...scope, order, limit: 1, continuationToken },
+				);
+				walked.push(...page.items.map((r) => r.subject ?? ""));
+				continuationToken = page.continuationToken;
+			} while (continuationToken);
+
+			assert.equal(walked.length, 4, `${order}: a row was skipped or repeated`);
+			assert.deepEqual(
+				walked.slice(0, 2).sort(),
+				["sender a", "sender b"],
+				`${order}: the sender tier comes first`,
+			);
+			assert.deepEqual(
+				walked.slice(2).sort(),
+				["lambda mention a", "lambda mention b"],
+				`${order}: the mentions follow`,
+			);
+		}
+	});
+
+	test("a ranked page hands back a versioned cursor", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		await seed(acct, mbx, [
+			{ subject: "mu one", sentDate: now, internalDate: now },
+			{ subject: "mu two", sentDate: now - 1, internalDate: now - 1 },
+		]);
+
+		const page = await repo.searchByDate(
+			acct,
+			{ query: "mu one" },
+			{ excludeDeleted: true, mailboxIds: new Set([mbx]), limit: 1 },
 		);
+
+		assert.ok(page.continuationToken);
+		const decoded = JSON.parse(
+			Buffer.from(page.continuationToken, "base64").toString("utf8"),
+		);
+		assert.equal(decoded.v, 2);
+		assert.equal(typeof decoded.r, "number");
+	});
+
+	test("a cursor minted before the ranking finishes its session in date order", async () => {
+		const acct = uuid();
+		const mbx = uuid();
+		const now = Date.now();
+		const rows: Array<Partial<CreateThreadMessageInput>> = [
+			{ subject: "nu news", sentDate: now, internalDate: now },
+			{ subject: "nu digest", sentDate: now - 1, internalDate: now - 1 },
+			{
+				subject: "from nu",
+				fromEmail: "nu@acme.test",
+				sentDate: now - 2,
+				internalDate: now - 2,
+			},
+			{ subject: "nu recap", sentDate: now - 3, internalDate: now - 3 },
+			{
+				subject: "also from nu",
+				fromEmail: "nu@acme.test",
+				sentDate: now - 4,
+				internalDate: now - 4,
+			},
+		];
+		const ids: string[] = [];
+		for (const overrides of rows) {
+			const created = await repo.create(makeInput(acct, mbx, overrides));
+			ids.push(created.threadMessageId);
+			cleanup.push(() => repo.delete(acct, created.threadMessageId));
+		}
+
+		let continuationToken: string | undefined = Buffer.from(
+			JSON.stringify({ s: now - 1, id: ids[1] }),
+		).toString("base64");
+		const walked: string[] = [];
+		do {
+			const page = await repo.searchByDate(
+				acct,
+				{ query: "nu" },
+				{
+					excludeDeleted: true,
+					mailboxIds: new Set([mbx]),
+					limit: 2,
+					continuationToken,
+				},
+			);
+			walked.push(...page.items.map((r) => r.subject ?? ""));
+			continuationToken = page.continuationToken;
+			if (continuationToken) {
+				const decoded = JSON.parse(
+					Buffer.from(continuationToken, "base64").toString("utf8"),
+				);
+				assert.equal(
+					decoded.v,
+					undefined,
+					"the session keeps its cursor shape",
+				);
+			}
+		} while (continuationToken);
+
+		assert.deepEqual(walked, ["from nu", "nu recap", "also from nu"]);
 	});
 });
 
