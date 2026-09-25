@@ -121,6 +121,16 @@ function reachableHour(
  * re-laid out for a frame or two after the form is on screen.
  */
 async function gridSettles(root: HTMLElement): Promise<void> {
+	await waitFor(
+		() => {
+			const box = root
+				.querySelector("[role=gridcell]")
+				?.getBoundingClientRect();
+			expect(box?.width).toBeGreaterThan(0);
+		},
+		{ timeout: 5000, interval: 120 },
+	);
+
 	let previous = "";
 	await waitFor(
 		() => {
