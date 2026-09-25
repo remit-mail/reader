@@ -156,6 +156,30 @@ describe("the toolbar", () => {
 		assert.ok(render("year").includes("2026"));
 	});
 
+	it("names a week that runs over a year end by both of its years", () => {
+		const html = renderQuietly(
+			createElement(CalendarWorkspace, {
+				...workspaceProps("week", []),
+				date: "2025-12-31",
+			}),
+		);
+		const title = /<h2[^>]*>([^<]*)<\/h2>/.exec(html)?.[1] ?? "";
+		assert.match(title, /2025/, `"${title}" lost the year the week starts in`);
+		assert.match(title, /2026/, `"${title}" lost the year the week ends in`);
+	});
+
+	it("leaves the year off the ladder on a phone", () => {
+		const html = renderQuietly(
+			createElement(CalendarWorkspace, {
+				...workspaceProps("week"),
+				touch: true,
+			}),
+		);
+		assert.equal(html.includes(">Year<"), false);
+		assert.equal(html.includes(">Y<"), false);
+		assert.ok(html.includes(">W<"), "the phone ladder did not render");
+	});
+
 	it("carries the density control, which the address never names", () => {
 		const html = render("week");
 		assert.ok(html.includes("Calendar density"));

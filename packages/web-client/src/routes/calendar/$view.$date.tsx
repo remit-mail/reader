@@ -14,7 +14,12 @@
  * week instead of on an error.
  */
 import type { CalendarSlotPick } from "@remit/ui";
-import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Navigate,
+	Outlet,
+	redirect,
+} from "@tanstack/react-router";
 import { useCallback, useState } from "react";
 import { AgendaView } from "@/components/calendar/AgendaView";
 import { CalendarComposeSeedProvider } from "@/components/calendar/CalendarComposeSeed";
@@ -22,6 +27,7 @@ import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
 import { calendarInstanceId, deviceTimeZone } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
+import { useLayoutTier } from "@/hooks/useLayoutTier";
 import {
 	readCalendarDensity,
 	writeCalendarDensity,
@@ -56,6 +62,21 @@ export const Route = createFileRoute("/calendar/$view/$date")({
 });
 
 function CalendarViewLayout() {
+	const { view, date } = useCalendarAddress();
+	const isPhone = useLayoutTier() === "phone";
+	if (isPhone && view === "year")
+		return (
+			<Navigate
+				to="/calendar/$view/$date"
+				params={{ view: "month", date }}
+				search={true}
+				replace
+			/>
+		);
+	return <CalendarView isPhone={isPhone} />;
+}
+
+function CalendarView({ isPhone }: { isPhone: boolean }) {
 	const { view, date, calendarIds } = useCalendarAddress();
 	// The strip fetches the days it holds a week at a time and draws none of
 	// this, so at that zoom the layout asks for nothing: the address rewrites on
@@ -121,6 +142,7 @@ function CalendarViewLayout() {
 			onChangeDensity={changeDensity}
 			onSelectEvent={selectEvent}
 			onPickSlot={pickSlot}
+			touch={isPhone}
 		/>
 	);
 

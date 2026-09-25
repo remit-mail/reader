@@ -7,10 +7,11 @@ import {
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type Density,
-	segmentClassName,
+	Segmented,
+	type SegmentOption,
 } from "@remit/ui";
 import { Loader2 } from "lucide-react";
-import { type ReactNode, useId, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -30,9 +31,11 @@ import {
  * rather than of this component's state.
  */
 
-const DENSITY_OPTIONS: { value: Density; label: string }[] = [
-	{ value: "comfortable", label: "Detail" },
-	{ value: "compact", label: "Glance" },
+const PHONE_VIEWS: CalendarViewId[] = ["month", "week", "day", "agenda"];
+
+const DENSITY_OPTIONS: SegmentOption<Density>[] = [
+	{ value: "comfortable", label: "Detail", shortLabel: "Detail" },
+	{ value: "compact", label: "Glance", shortLabel: "Glance" },
 ];
 
 export interface CalendarWorkspaceProps {
@@ -68,11 +71,16 @@ export interface CalendarWorkspaceProps {
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	onStep: (direction: -1 | 1) => void;
+	/**
+	 * A phone: the toolbar splits into two rows of thumb-sized controls, because
+	 * one row of them is wider than the screen and pushes the grid off it.
+	 */
+	touch?: boolean;
 }
 
 /**
  * The range the toolbar names before the grid has measured one, and the whole
- * answer at a zoom that draws no grid.
+ * answer for a week and at a zoom that draws no grid.
  */
 function fallbackRangeTitle(view: CalendarViewId, date: string): string {
 	const instant = new Date(`${date}T00:00:00`);
@@ -80,6 +88,17 @@ function fallbackRangeTitle(view: CalendarViewId, date: string): string {
 		return new Intl.DateTimeFormat(undefined, { year: "numeric" }).format(
 			instant,
 		);
+	if (view === "week") {
+		const monday = new Date(instant);
+		monday.setDate(instant.getDate() - ((instant.getDay() + 6) % 7));
+		const sunday = new Date(monday);
+		sunday.setDate(monday.getDate() + 6);
+		return new Intl.DateTimeFormat(undefined, {
+			day: "numeric",
+			month: "short",
+			year: "numeric",
+		}).formatRange(monday, sunday);
+	}
 	if (view === "day")
 		return new Intl.DateTimeFormat(undefined, {
 			weekday: "short",
@@ -112,53 +131,67 @@ export function CalendarWorkspace({
 	onSelectEvent,
 	onPickSlot,
 	onStep,
+	touch = false,
 }: CalendarWorkspaceProps) {
-	const densityGroup = useId();
-	// The grid computes the range it drew, which is the only honest title for a
-	// week — it knows where the week starts. Held against the address it was
-	// measured for, so leaving a view does not carry its title into the next one.
+	// Held against the address it was measured for, so leaving a view does not
+	// carry its title into the next one.
 	const [measured, setMeasured] = useState({ key: "", title: "" });
 	const addressKey = `${view}/${date}`;
 	const title =
-		measured.key === addressKey
+		view !== "week" && measured.key === addressKey
 			? measured.title
 			: fallbackRangeTitle(view, date);
 
+	const dateNav = (
+		<CalendarDateNav
+			title={title}
+			onPrev={() => onStep(-1)}
+			onNext={() => onStep(1)}
+			onToday={onToday}
+			touch={touch}
+		/>
+	);
+	const densitySwitch = (
+		<Segmented
+			ariaLabel="Calendar density"
+			options={DENSITY_OPTIONS}
+			value={density}
+			onChange={onChangeDensity}
+			touch={touch}
+			className="shrink-0"
+		/>
+	);
+
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-surface">
-			<div className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-2">
-				{/* Below the nav pane the sidebar is a slide-over with nothing to open
-				    it: the calendar is a whole surface of its own, so without this
-				    the reader has no way back to their mail. */}
-				<NavMenuButton />
-				<CalendarDateNav
-					title={title}
-					onPrev={() => onStep(-1)}
-					onNext={() => onStep(1)}
-					onToday={onToday}
-				>
-					<fieldset className="inline-flex items-center gap-0.5">
-						<legend className="sr-only">Calendar density</legend>
-						{DENSITY_OPTIONS.map((option) => (
-							<label
-								key={option.value}
-								className={`${segmentClassName(density === option.value)} h-7 text-xs`}
-							>
-								<input
-									type="radio"
-									name={densityGroup}
-									value={option.value}
-									checked={density === option.value}
-									onChange={() => onChangeDensity(option.value)}
-									className="sr-only"
-								/>
-								{option.label}
-							</label>
-						))}
-					</fieldset>
+			{touch ? (
+				<div className="flex shrink-0 flex-col gap-1 border-b border-line px-2 pb-1">
+					<div className="flex min-w-0 items-center gap-1">
+						<NavMenuButton />
+						<div className="min-w-0 flex-1">{dateNav}</div>
+					</div>
+					<div className="flex items-center gap-2">
+						<CalendarViewSwitch
+							value={view}
+							onChange={onChangeView}
+							views={PHONE_VIEWS}
+							touch
+							className="flex-1"
+						/>
+						{densitySwitch}
+					</div>
+				</div>
+			) : (
+				<div className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-2">
+					{/* Below the nav pane the sidebar is a slide-over with nothing to open
+					    it: the calendar is a whole surface of its own, so without this
+					    the reader has no way back to their mail. */}
+					<NavMenuButton />
+					<div className="min-w-0 flex-1">{dateNav}</div>
+					{densitySwitch}
 					<CalendarViewSwitch value={view} onChange={onChangeView} />
-				</CalendarDateNav>
-			</div>
+				</div>
+			)}
 
 			{/* The strip rolls its own range, so it answers for its own days: the
 			    week this pane read is not what it is drawing, and gating it on that

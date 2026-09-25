@@ -111,11 +111,13 @@ function Workspace({
 	events,
 	isLoading,
 	error,
+	touch,
 }: {
 	initialView: CalendarViewId;
 	events: CalendarEventData[];
 	isLoading?: boolean;
 	error?: unknown;
+	touch?: boolean;
 }) {
 	const [view, setView] = useState<CalendarViewId>(initialView);
 	const [density, setDensity] = useState<Density>("comfortable");
@@ -146,6 +148,7 @@ function Workspace({
 			onChangeDensity={setDensity}
 			onSelectEvent={setSelected}
 			onPickSlot={() => undefined}
+			touch={touch}
 		/>
 	);
 }
@@ -168,6 +171,12 @@ type Story = StoryObj<typeof Workspace>;
 export const Week: Story = {};
 
 export const Day: Story = { args: { initialView: "day" } };
+
+/** A phone: two rows of thumb-sized controls, and no year on the ladder. */
+export const Phone: Story = {
+	args: { touch: true },
+	globals: { viewport: { value: "mobile" } },
+};
 
 /** Nothing scheduled is still a grid, never a "nothing here" surface. */
 export const EmptyWeek: Story = { args: { events: [] } };
