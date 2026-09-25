@@ -17,6 +17,10 @@ export {
 	type ThreadCategory,
 } from "./category-presentation.js";
 export {
+	AccountMenu,
+	type AccountMenuProps,
+} from "./components/account-menu.js";
+export {
 	type AccountServiceChange,
 	type AccountServiceChangeCopy,
 	AccountServiceChangeDialog,
@@ -80,7 +84,6 @@ export {
 	AppPasswordHint,
 	type AppPasswordHintProps,
 } from "./components/app-password-hint.js";
-export { AppShell } from "./components/app-shell.js";
 export {
 	type AppShellLayoutContext,
 	AppShellSlotted,
