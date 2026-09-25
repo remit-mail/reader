@@ -9,7 +9,9 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 process.env.TZ = "America/New_York";
-const { suggestionDate, suggestionWhen } = await import("./calendar-suggestion");
+const { suggestionDate, suggestionWhen } = await import(
+	"./calendar-suggestion"
+);
 
 const allDay = {
 	suggestionId: "sug-1",

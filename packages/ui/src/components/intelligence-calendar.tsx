@@ -2,8 +2,8 @@ import { CalendarDays, Copy } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
-import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarEventChip } from "./calendar-event-chip.js";
+import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarInviteCard } from "./calendar-invite-card.js";
 import { CalendarSlotOffers } from "./calendar-slot-offers.js";
 import { CalendarSuggestionDeck } from "./calendar-suggestion-deck.js";
@@ -297,8 +297,8 @@ export function IntelligenceCalendar({
 							{prose.copy === "failed" && (
 								<div role="alert" className="flex flex-col gap-1">
 									<p className="text-2xs text-danger">
-										This page can't copy for you. Select the times below and copy
-										them yourself.
+										This page can't copy for you. Select the times below and
+										copy them yourself.
 									</p>
 									<textarea
 										readOnly

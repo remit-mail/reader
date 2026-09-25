@@ -6,8 +6,8 @@ import {
 	useCalendars,
 	usePendingCalendarSuggestions,
 } from "@/hooks/calendar";
-import { suggestionWhen, toEventSuggestion } from "@/lib/calendar-suggestion";
 import { calendarReportHref } from "@/lib/calendar-report";
+import { suggestionWhen, toEventSuggestion } from "@/lib/calendar-suggestion";
 import { calendarUnavailable, calendarWriteGate } from "./CalendarUnavailable";
 import { CalendarWaiting } from "./CalendarWaiting";
 

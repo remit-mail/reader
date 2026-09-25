@@ -35,6 +35,7 @@ import {
 	useMessageCalendarSuggestions,
 } from "@/hooks/calendar";
 import { formatDayLabel, formatInstantClock } from "@/lib/calendar-format";
+import { calendarReportHref } from "@/lib/calendar-report";
 import {
 	type CalendarSuggestion,
 	clashesOver,
@@ -47,7 +48,6 @@ import {
 	toCalendarInvite,
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
-import { calendarReportHref } from "@/lib/calendar-report";
 import { useOpenEventOnCalendar } from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
@@ -236,8 +236,7 @@ export function useIntelligenceCalendar(
 			: "Couldn't read the invitations in this message. Reopen it to try again.";
 
 	const cancellation = invitation?.method === "Cancel";
-	const copyText =
-		date === "" ? "" : slotsAsText(date, slots, working.picked);
+	const copyText = date === "" ? "" : slotsAsText(date, slots, working.picked);
 
 	const actions: IntelligenceCalendarActions = {
 		onAddInvite: () =>

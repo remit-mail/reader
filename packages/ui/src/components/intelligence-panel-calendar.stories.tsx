@@ -329,7 +329,10 @@ export const NoCalendarYet = rail(KICKOFF, organiserSender, {
 		addBlocked: (
 			<>
 				You have no calendar yet, so there is nowhere to add this.{" "}
-				<a href="#calendars" className="font-medium text-accent hover:underline">
+				<a
+					href="#calendars"
+					className="font-medium text-accent hover:underline"
+				>
 					Create a calendar
 				</a>
 			</>
