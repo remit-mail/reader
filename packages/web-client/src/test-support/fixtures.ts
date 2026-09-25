@@ -40,6 +40,7 @@ export const makeAccount = (
 	username: "alice@example.com",
 	email: "alice@example.com",
 	authType: "password",
+	syncedServices: ["Mail"],
 	imapHost: "imap.example.com",
 	imapPort: 993,
 	imapTls: true,

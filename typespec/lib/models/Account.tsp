@@ -2,6 +2,7 @@ import "typespec-electrodb-emitter";
 import "@typespec/http";
 
 import "../enums/AccountAuthType.tsp";
+import "../enums/AccountService.tsp";
 import "../enums/ConnectionState.tsp";
 import "../enums/AccountConfigState.tsp";
 import "../enums/SyncPhase.tsp";
@@ -138,6 +139,10 @@ model Account {
   @doc("Authentication mechanism used by this account")
   @visibility(Lifecycle.Read)
   authType: AccountAuthType = AccountAuthType.Password;
+
+  @doc("Services this account syncs. Never empty. A password account holds `Mail` alone. Every account written before this field existed holds `#[AccountService.Mail]`.")
+  @visibility(Lifecycle.Read)
+  syncedServices: AccountService[] = #[AccountService.Mail];
 
   @doc("Hashed password for authentication (password accounts only)")
   @visibility(Lifecycle.Read)
@@ -355,6 +360,7 @@ model AccountResponse {
       | "username"
       | "email"
       | "authType"
+      | "syncedServices"
       | "imapHost"
       | "imapPort"
       | "imapTls"
@@ -460,6 +466,9 @@ model CreateAccountInput {
   @doc("Authentication mechanism for this account. Defaults to `password`. Pass `oauthMicrosoft` only via the OAuth connect flow (POST /accounts/oauth/microsoft/start).")
   authType?: AccountAuthType;
 
+  @doc("Services this account syncs. Defaults to `#[Mail]`. Refused when empty, and refused for a password account unless it is exactly `#[Mail]`.")
+  syncedServices?: AccountService[];
+
   @doc("Account password (will be encrypted). Required for password accounts; omit for OAuth accounts.")
   @secret
   password?: string;
@@ -553,6 +562,9 @@ model UpdateAccountInput {
 
   @doc("Enable/disable account")
   isActive?: boolean;
+
+  @doc("Replaces the stored service set outright. Refused when empty, on a password account unless it is exactly `#[Mail]`, or when it names a service the account's OAuth grant does not cover. That last case is a consent round trip through the OAuth start route.")
+  syncedServices?: AccountService[];
 
   @doc("Plain text email signature")
   signaturePlainText?: string;

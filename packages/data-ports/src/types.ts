@@ -207,9 +207,11 @@ export type CreateAccountInput = Omit<
 	| "smtpTls"
 	| "smtpStartTls"
 	| "smtpUsername"
+	| "syncedServices"
 > & {
 	accountId?: string;
 	authType?: AccountItem["authType"];
+	syncedServices?: AccountItem["syncedServices"];
 	smtpEnabled?: AccountItem["smtpEnabled"];
 	smtpHost?: AccountItem["smtpHost"];
 	smtpPort?: AccountItem["smtpPort"];

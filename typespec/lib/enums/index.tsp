@@ -40,6 +40,7 @@ import "./SenderOverride.tsp";
 // Account Enums
 import "./AccountAuthType.tsp";
 import "./AccountConfigState.tsp";
+import "./AccountService.tsp";
 import "./AccountSettingName.tsp";
 import "./SyncPhase.tsp";
 import "./AccountExportState.tsp";

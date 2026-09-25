@@ -1,10 +1,11 @@
 import type {
 	AccountResponse,
+	AccountService as AccountServiceName,
 	FolderAppointment,
 } from "@remit/api-openapi-types";
 import type { AccountItem } from "@remit/data-ports";
 import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
-import { AccountAuthType } from "@remit/domain-enums";
+import { AccountAuthType, AccountService } from "@remit/domain-enums";
 import type { AccountOverrides } from "./account-overrides.js";
 import type { AccountSignature } from "./account-signature.js";
 
@@ -84,6 +85,41 @@ export const assertPasswordProvided = (
 	}
 };
 
+const MICROSOFT_GRANT_SERVICES: readonly AccountServiceName[] = [
+	AccountService.Mail,
+];
+
+export const resolveSyncedServices = (
+	authType: string,
+	requested: readonly AccountServiceName[],
+): AccountServiceName[] => {
+	const services = Object.values(AccountService).filter((service) =>
+		requested.includes(service),
+	);
+	if (services.length === 0) {
+		throw new BadRequestError(
+			"syncedServices must name at least one service. To stop syncing an account entirely, delete it with DELETE /accounts/{accountId}.",
+		);
+	}
+	if (authType !== AccountAuthType.OauthMicrosoft) {
+		if (services.some((service) => service !== AccountService.Mail)) {
+			throw new BadRequestError(
+				`A password account syncs mail only, so syncedServices must be ["${AccountService.Mail}"].`,
+			);
+		}
+		return services;
+	}
+	const uncovered = services.filter(
+		(service) => !MICROSOFT_GRANT_SERVICES.includes(service),
+	);
+	if (uncovered.length > 0) {
+		throw new BadRequestError(
+			`This account's Microsoft consent does not cover ${uncovered.join(", ")}. Grant it through POST /accounts/oauth/microsoft/start.`,
+		);
+	}
+	return services;
+};
+
 // SECURITY: passwordHash, oauthRefreshTokenHash, and smtpPasswordHash are
 // intentionally omitted — never expose token material in API responses.
 // Display name, mute flag, and signatures live in per-account AccountSetting
@@ -103,6 +139,7 @@ export const toAccountResponse = (
 	username: account.username,
 	email: account.email,
 	authType: account.authType ?? AccountAuthType.Password,
+	syncedServices: account.syncedServices,
 	imapHost: account.imapHost,
 	imapPort: account.imapPort,
 	imapTls: account.imapTls,

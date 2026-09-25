@@ -1,0 +1,1 @@
+ALTER TABLE `account` ADD `synced_services` text DEFAULT '["Mail"]' NOT NULL;

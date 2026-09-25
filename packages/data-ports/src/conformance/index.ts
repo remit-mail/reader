@@ -1,3 +1,4 @@
+export { accountRepositoryConformance } from "./account.js";
 export { calendarCollectionRepositoryConformance } from "./calendar-collection.js";
 export { calendarEventIndexRepositoryConformance } from "./calendar-event-index.js";
 export { calendarFeedTokenRepositoryConformance } from "./calendar-feed-token.js";
