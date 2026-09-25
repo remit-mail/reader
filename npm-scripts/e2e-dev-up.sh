@@ -9,10 +9,10 @@ set -euo pipefail
 # shellcheck source=./e2e-dev-compose.sh
 source "$(dirname "${BASH_SOURCE[0]}")/e2e-dev-compose.sh"
 
-# A leftover stack from an interrupted run would hold the ports and, worse,
-# serve the previous run's database.
-e2e_dev_stop_all
-rm -rf "$DEV_STATE_DIR"
+# A leftover stack from an interrupted or failed run would hold the ports and,
+# worse, serve the previous run's database. Its containers go too, or a failed
+# `up` leaves them holding the slot's ports and the next `up` refuses to start.
+e2e_dev_teardown
 
 e2e_dev_install_env
 e2e_dev_require_free_ports "$E2E_HTTP_PORT" "$E2E_IMAP_PORT" \

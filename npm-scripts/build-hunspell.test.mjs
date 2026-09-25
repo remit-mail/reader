@@ -12,6 +12,7 @@ import {
 	brotliSize,
 	ceilingBreaches,
 	ENGINE_CEILINGS,
+	isPodman,
 	readPins,
 } from "./build-hunspell.mjs";
 
@@ -114,5 +115,31 @@ describe("the engine's size ceilings", () => {
 	it("measures the compressed size, not the file on disk", () => {
 		const raw = Buffer.alloc(64 * 1024, "hunspell");
 		assert.ok(brotliSize(raw) < raw.byteLength);
+	});
+});
+
+// Rootless podman maps the caller to root inside the container, so the build
+// only writes its bind mount under --userns=keep-id. Either signal is enough:
+// the socket path the CLI is pointed at, or the engine the server reports.
+describe("the container runtime the engine builds under", () => {
+	it("recognises podman by its socket path", () => {
+		assert.equal(
+			isPodman("unix:///run/user/1000/podman/podman.sock", ""),
+			true,
+		);
+	});
+
+	it("recognises podman behind the docker socket by its server components", () => {
+		assert.equal(
+			isPodman("unix:///var/run/docker.sock", "Podman Engine Conmon "),
+			true,
+		);
+	});
+
+	it("leaves docker alone", () => {
+		assert.equal(
+			isPodman(undefined, "Engine containerd runc docker-init "),
+			false,
+		);
 	});
 });

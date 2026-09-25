@@ -13,7 +13,14 @@ import { execFileSync } from "node:child_process";
 // path CI takes: every input that can change the engine is in that key, so a
 // recipe or a pin that moves lands on a run that rebuilds and measures.
 import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	renameSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { brotliCompressSync, constants } from "node:zlib";
@@ -21,6 +28,7 @@ import { brotliCompressSync, constants } from "node:zlib";
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const recipeDir = join(repoRoot, "docker", "hunspell");
 const outDir = join(repoRoot, "build", "hunspell");
+const stagingDir = join(repoRoot, "build", "hunspell.next");
 const stampFile = join(outDir, "stamp.json");
 
 export const readPins = (envFile) => {
@@ -84,11 +92,11 @@ export const ceilingBreaches = (sizes, pins) =>
 		];
 	});
 
-const assertWithinCeilings = (pins) => {
+const assertWithinCeilings = (pins, dir) => {
 	const sizes = Object.fromEntries(
 		ENGINE_CEILINGS.map(({ file }) => [
 			file,
-			brotliSize(readFileSync(join(outDir, file))),
+			brotliSize(readFileSync(join(dir, file))),
 		]),
 	);
 	const breaches = ceilingBreaches(sizes, pins);
@@ -129,7 +137,27 @@ export const engineKey = () =>
 		.digest("hex")
 		.slice(0, 32);
 
-const run = () => {
+/**
+ * Rootless podman maps the caller to root inside the container, so a bare
+ * `--user uid:gid` names a subordinate id that cannot write the bind mount.
+ * `--userns=keep-id` maps the caller to the same id inside, which can.
+ */
+export const isPodman = (dockerHost, serverComponents) =>
+	/podman/i.test(dockerHost ?? "") || /podman/i.test(serverComponents);
+
+const dockerServerComponents = () => {
+	try {
+		return execFileSync(
+			"docker",
+			["version", "--format", "{{range .Server.Components}}{{.Name}} {{end}}"],
+			{ encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+		);
+	} catch {
+		return "";
+	}
+};
+
+const run = (force) => {
 	const pins = readPins(join(recipeDir, "pin.env"));
 	const wanted = engineStamp();
 
@@ -145,39 +173,61 @@ const run = () => {
 		Object.entries(wanted).every(([key, value]) => built[key] === value)
 	) {
 		console.log(`hunspell ${wanted.version}: already built in ${outDir}`);
-		assertWithinCeilings(pins);
+		assertWithinCeilings(pins, outDir);
+		return;
+	}
+	if (!force && existsSync(join(outDir, "hunspell.wasm"))) {
+		console.log(
+			`hunspell: ${outDir} holds an engine this recipe did not stamp; keeping it. Rebuild with: npm run build:hunspell -- --force`,
+		);
 		return;
 	}
 
-	rmSync(outDir, { recursive: true, force: true });
-	mkdirSync(outDir, { recursive: true });
-	execFileSync(
-		"docker",
-		[
-			"run",
-			"--rm",
-			"--user",
-			`${process.getuid()}:${process.getgid()}`,
-			"-v",
-			`${repoRoot}:/src`,
-			"-e",
-			"OUT_DIR=/src/build/hunspell",
-			"-w",
-			"/src",
-			wanted.image,
-			"sh",
-			"docker/hunspell/build.sh",
-		],
-		{ stdio: "inherit" },
-	);
-	// Before the stamp, so an engine that broke a ceiling is never recorded as a
-	// build somebody can reuse: the next run compiles it again and fails again.
-	assertWithinCeilings(pins);
-	writeFileSync(stampFile, `${JSON.stringify(wanted, null, "\t")}\n`);
+	// Built beside the engine and swapped in only once it passes, so a failed
+	// or oversized build never costs the working engine it would replace.
+	rmSync(stagingDir, { recursive: true, force: true });
+	mkdirSync(stagingDir, { recursive: true });
+	const userns = isPodman(process.env.DOCKER_HOST, dockerServerComponents())
+		? ["--userns=keep-id"]
+		: [];
+	try {
+		execFileSync(
+			"docker",
+			[
+				"run",
+				"--rm",
+				...userns,
+				"--user",
+				`${process.getuid()}:${process.getgid()}`,
+				"-v",
+				`${repoRoot}:/src`,
+				"-e",
+				"OUT_DIR=/src/build/hunspell.next",
+				"-w",
+				"/src",
+				wanted.image,
+				"sh",
+				"docker/hunspell/build.sh",
+			],
+			{ stdio: "inherit" },
+		);
+		// Before the stamp, so an engine that broke a ceiling is never recorded as a
+		// build somebody can reuse: the next run compiles it again and fails again.
+		assertWithinCeilings(pins, stagingDir);
+		writeFileSync(
+			join(stagingDir, "stamp.json"),
+			`${JSON.stringify(wanted, null, "\t")}\n`,
+		);
+		rmSync(outDir, { recursive: true, force: true });
+		renameSync(stagingDir, outDir);
+	} finally {
+		rmSync(stagingDir, { recursive: true, force: true });
+	}
 	console.log(`hunspell ${wanted.version}: built into ${outDir}`);
 };
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
 	if (process.argv[2] === "key") console.log(engineKey());
-	else run();
+	else
+		run(process.argv.includes("--force") || process.env.HUNSPELL_FORCE === "1");
 }
