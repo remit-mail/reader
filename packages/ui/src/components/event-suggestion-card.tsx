@@ -54,11 +54,15 @@ export interface EventSuggestionCardProps {
 	 * Correcting the reading first. It is handed the same settled zone Add is,
 	 * and is refused on the same terms — an editor opened on an hour nobody has
 	 * placed on a clock seeds the draft with the wrong time, which is the
-	 * mistake Add is dimmed to prevent.
+	 * mistake Add is dimmed to prevent. Wired only where an editor can take the
+	 * reading; without it the card offers Add and Dismiss alone.
 	 */
-	onReview: (timeZone: string) => void;
+	onReview?: (timeZone: string) => void;
 	onDismiss: () => void;
-	onOpenThread: () => void;
+	/** Wired only where the mail is somewhere else; beside it, it is plain text. */
+	onOpenThread?: () => void;
+	/** An answer is on its way to the server; the buttons wait for it. */
+	busy?: boolean;
 	/** The clock picked so far. Omit to let the card hold the choice itself. */
 	zoneChoice?: string;
 	onZoneChoice?: (timeZone: string) => void;
@@ -70,6 +74,12 @@ export interface EventSuggestionCardProps {
 	addLabel?: string;
 	touch?: boolean;
 	className?: string;
+}
+
+function mailLine(suggestion: EventSuggestion): string {
+	return suggestion.threadSubject === ""
+		? suggestion.sender
+		: `${suggestion.sender} — ${suggestion.threadSubject}`;
 }
 
 /** Words for a number, so the card never shows a false 87%. */
@@ -97,6 +107,7 @@ export function EventSuggestionCard({
 	onReview,
 	onDismiss,
 	onOpenThread,
+	busy = false,
 	zoneChoice,
 	onZoneChoice,
 	addLabel = "Add",
@@ -148,6 +159,7 @@ export function EventSuggestionCard({
 					type="button"
 					aria-label="Dismiss suggestion"
 					onClick={onDismiss}
+					disabled={busy}
 					className={cn(
 						"flex shrink-0 items-center justify-center rounded-md text-fg-subtle outline-none hover:bg-surface hover:text-fg focus-visible:ring-2 focus-visible:ring-ring",
 						touch ? "size-11" : "size-7",
@@ -164,16 +176,21 @@ export function EventSuggestionCard({
 				</p>
 			)}
 
-			<button
-				type="button"
-				onClick={onOpenThread}
-				className="flex w-full min-w-0 items-center gap-1.5 rounded-sm text-left text-2xs text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
-			>
-				<Mail className="size-3 shrink-0" />
-				<span className="truncate">
-					{suggestion.sender} — {suggestion.threadSubject}
-				</span>
-			</button>
+			{onOpenThread ? (
+				<button
+					type="button"
+					onClick={onOpenThread}
+					className="flex w-full min-w-0 items-center gap-1.5 rounded-sm text-left text-2xs text-accent-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					<Mail className="size-3 shrink-0" />
+					<span className="truncate">{mailLine(suggestion)}</span>
+				</button>
+			) : (
+				<p className="flex w-full min-w-0 items-center gap-1.5 text-2xs text-fg-subtle">
+					<Mail className="size-3 shrink-0" />
+					<span className="truncate">{mailLine(suggestion)}</span>
+				</p>
+			)}
 
 			{suggestion.zoneOptions && (
 				<div className="flex flex-col gap-1.5 rounded-md border border-warning/40 p-2">
@@ -221,6 +238,7 @@ export function EventSuggestionCard({
 					size={touch ? "md" : "sm"}
 					icon={<Plus className="size-3.5" />}
 					onClick={carryingTheZone(onAdd)}
+					disabled={busy}
 					aria-describedby={settlement.settled ? undefined : reasonId}
 					className={cn(
 						touch && "min-h-11 flex-1",
@@ -229,19 +247,22 @@ export function EventSuggestionCard({
 				>
 					{addLabel}
 				</Button>
-				<Button
-					variant="secondary"
-					size={touch ? "md" : "sm"}
-					icon={<SlidersHorizontal className="size-3.5" />}
-					onClick={carryingTheZone(onReview)}
-					aria-describedby={settlement.settled ? undefined : reasonId}
-					className={cn(
-						touch && "min-h-11",
-						!settlement.settled && "opacity-55",
-					)}
-				>
-					Change first
-				</Button>
+				{onReview && (
+					<Button
+						variant="secondary"
+						size={touch ? "md" : "sm"}
+						icon={<SlidersHorizontal className="size-3.5" />}
+						onClick={carryingTheZone(onReview)}
+						disabled={busy}
+						aria-describedby={settlement.settled ? undefined : reasonId}
+						className={cn(
+							touch && "min-h-11",
+							!settlement.settled && "opacity-55",
+						)}
+					>
+						Change first
+					</Button>
+				)}
 			</div>
 		</article>
 	);

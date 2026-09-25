@@ -12,6 +12,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { Drawer } from "@/components/layout/Drawer";
 import { MessageToolbar } from "@/components/mail/MessageToolbar";
 import { useIntelligenceDrawer } from "@/hooks/useIntelligenceDrawer";
+import { quietCalendar } from "./intelligence-story-calendar";
 
 /**
  * The intelligence drawer below the desktop tier (#777, #778).
@@ -159,7 +160,11 @@ const PhoneReader = () => {
 					ariaLabel="Message details"
 					side="right"
 				>
-					<IntelligencePanel data={intelligence} hideCloseButton />
+					<IntelligencePanel
+						data={intelligence}
+						calendar={quietCalendar}
+						hideCloseButton
+					/>
 				</Drawer>
 			</div>
 			<p className="font-mono text-2xs text-fg-subtle">
@@ -291,7 +296,11 @@ const MidWidthReader = () => {
 				ariaLabel="Message details"
 				side="right"
 			>
-				<IntelligencePanel data={intelligence} hideCloseButton />
+				<IntelligencePanel
+					data={intelligence}
+					calendar={quietCalendar}
+					hideCloseButton
+				/>
 			</Drawer>
 		</div>
 	);

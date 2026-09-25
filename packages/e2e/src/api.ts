@@ -251,6 +251,28 @@ export interface CreateCalendarInput {
 	displayName: string;
 }
 
+/**
+ * An event a message offers, waiting on a person (#1033). The fields a spec
+ * reads back to prove what the server made of an invitation and of an answer.
+ */
+export interface CalendarSuggestion {
+	suggestionId: string;
+	messageId: string;
+	icalUid: string;
+	state:
+		| "Pending"
+		| "Accepted"
+		| "Declined"
+		| "Tentative"
+		| "Dismissed"
+		| "Superseded";
+	summary: string;
+	dtStart: string;
+	dtEnd: string;
+	organizer: string;
+	acceptedCalendarObjectId: string;
+}
+
 /** The stored resource a write comes back as, which is what a delete names. */
 export interface CalendarEventResource {
 	calendarObjectId: string;
@@ -989,6 +1011,17 @@ export class ApiClient {
 		const result = await this.json<ResultList<CalendarFreeBusySpan>>(
 			"GET",
 			`/calendar-free-busy?${query}`,
+		);
+		return result.items ?? [];
+	}
+
+	/** Every suggestion one message produced, whatever became of each. */
+	async listMessageCalendarSuggestions(
+		messageId: string,
+	): Promise<CalendarSuggestion[]> {
+		const result = await this.json<ResultList<CalendarSuggestion>>(
+			"GET",
+			`/messages/${messageId}/calendar-suggestions`,
 		);
 		return result.items ?? [];
 	}

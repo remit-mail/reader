@@ -165,3 +165,32 @@ export function useCalendarNavigation(): CalendarNavigation {
 		[goTo, navigate, retainPanels, view, date],
 	);
 }
+
+/**
+ * Leave the mail for one event on the calendar, on the day it falls, so the
+ * reader lands where the grid already shows what is around it. The panes are
+ * not carried: the calendar is a different surface, as the nav treats it.
+ */
+export function useOpenEventOnCalendar(): (
+	date: string,
+	calendarObjectId: string,
+	recurrenceId: string,
+) => void {
+	const navigate = useNavigate();
+	return useCallback(
+		(date: string, calendarObjectId: string, recurrenceId: string) => {
+			if (recurrenceId === "") {
+				navigate({
+					to: "/calendar/$view/$date/$calendarObjectId",
+					params: { view: "day", date, calendarObjectId },
+				});
+				return;
+			}
+			navigate({
+				to: "/calendar/$view/$date/$calendarObjectId/$recurrenceId",
+				params: { view: "day", date, calendarObjectId, recurrenceId },
+			});
+		},
+		[navigate],
+	);
+}

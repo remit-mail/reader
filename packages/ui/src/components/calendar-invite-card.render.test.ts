@@ -107,4 +107,43 @@ describe("CalendarInviteCard", () => {
 		assert.match(render({ touch: true }), /min-h-11/);
 		assert.doesNotMatch(render(), /min-h-11/);
 	});
+
+	it("leaves off the answers the host cannot store", () => {
+		const html = render({ onTentative: undefined, onReopen: undefined });
+		assert.doesNotMatch(html, />Maybe</);
+		assert.doesNotMatch(
+			render({ rsvp: "accepted", onReopen: undefined }),
+			/>Change</,
+		);
+	});
+
+	it("offers to stop the organiser's invitations only where it is wired", () => {
+		assert.doesNotMatch(render(), /Stop offering invitations/);
+		assert.match(
+			render({ onMute: () => undefined }),
+			/Stop offering invitations from Priya Natarajan/,
+		);
+	});
+
+	it("states an answer that did not land, where it was pressed", () => {
+		const html = render({ failure: "The calendar refused it." });
+		assert.match(html, /role="alert"/);
+		assert.match(html, /The calendar refused it\./);
+	});
+
+	it("holds the answers while one is on its way", () => {
+		const html = render({ busy: true });
+		const accept = html.slice(0, html.indexOf("Add to calendar"));
+		assert.match(accept.slice(accept.lastIndexOf("<button")), /disabled=""/);
+	});
+
+	it("draws no guest tally when the invitation named nobody", () => {
+		const html = render({
+			invite: {
+				...kickoffInvite,
+				proposed: { ...kickoffInvite.proposed, attendees: [] },
+			},
+		});
+		assert.doesNotMatch(html, /guests/);
+	});
 });

@@ -69,12 +69,13 @@ function PanelDemo({
 	const [removed, setRemoved] = useState(false);
 	const [offering, setOffering] = useState(calendar.prose !== undefined);
 	const [picked, setPicked] = useState<string[]>([]);
+	const [copy, setCopy] = useState<"idle" | "copied">("idle");
 	const [dropped, setDropped] = useState<string[]>([]);
 	const [selectedEventId, setSelectedEventId] = useState("");
 	const [lastAction, setLastAction] = useState("");
 
 	const prose = offering
-		? { ...(calendar.prose ?? thursdayProse), picked }
+		? { ...(calendar.prose ?? thursdayProse), picked, copy }
 		: undefined;
 
 	const data: IntelligenceCalendarData = {
@@ -97,19 +98,23 @@ function PanelDemo({
 					selectedEventId,
 					actions: {
 						onAddInvite: () => setRsvp("accepted"),
-						onTentativeInvite: () => setRsvp("tentative"),
 						onDeclineInvite: () => setRsvp("declined"),
-						onReopenInvite: () => setRsvp("noReply"),
+						onReopenInvite:
+							calendar.invite?.invite.state === "cancelled"
+								? () => setRemoved(true)
+								: undefined,
+						onMuteInvite: () => setRemoved(true),
 						onOfferOtherTimes: () => setOffering(true),
 						onRemoveInvite: () => setRemoved(true),
-						onOpenNewerInvite: () =>
-							setLastAction("would open revision 2 of the invitation"),
-						onToggleSlot: (slot) =>
+						onToggleSlot: (slot) => {
+							setCopy("idle");
 							setPicked((prev) =>
 								prev.includes(slot.startTime)
 									? prev.filter((start) => start !== slot.startTime)
 									: [...prev, slot.startTime],
-							),
+							);
+						},
+						onCopySlots: () => setCopy("copied"),
 						onAddSuggestion: (id, timeZone) => {
 							setDropped((prev) => [...prev, id]);
 							setLastAction(
@@ -118,11 +123,7 @@ function PanelDemo({
 									: `added ${id} on ${timeZone}`,
 							);
 						},
-						onReviewSuggestion: (id) =>
-							setLastAction(`would open the editor on ${id}`),
 						onDismissSuggestion: (id) => setDropped((prev) => [...prev, id]),
-						onOpenThread: (threadId) =>
-							setLastAction(`would open thread ${threadId}`),
 						onSelectEvent: setSelectedEventId,
 					},
 				}}
@@ -265,6 +266,19 @@ function drawer(
  * does — Priya learns nothing from it, and the card says so.
  */
 export const InviteWithAClash = rail(KICKOFF, organiserSender, inviteWithClash);
+
+/**
+ * An answer the server turned down. The card keeps its buttons and says why in
+ * the place the press happened, so a refusal never reads as a dead button.
+ */
+export const AnswerRefused = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		failure:
+			"Couldn't add this to your calendar: the calendar it was going into is gone. Pick another calendar and try again.",
+	},
+});
 
 /**
  * The same invitation an hour later. Nothing is booked over it, and the panel
