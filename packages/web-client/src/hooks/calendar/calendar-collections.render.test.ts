@@ -18,6 +18,7 @@ import {
 	type CalendarCollectionWrites,
 	useCalendarCollectionWrites,
 } from "./useCalendarCollectionWrites";
+import { useCalendars } from "./useCalendars";
 import { useDraftClashes } from "./useDraftClashes";
 
 const WORK = "11111111-1111-4111-8111-111111111111";
@@ -75,6 +76,7 @@ const instance = (
 const draft = (over: Partial<EventDraft>): EventDraft => ({
 	title: "Roadmap review",
 	date: "2026-06-10",
+	endDate: "2026-06-10",
 	startTime: "10:00",
 	endTime: "11:00",
 	allDay: false,
@@ -102,6 +104,7 @@ const serve = (respond: (call: HttpCall) => unknown) => {
 };
 
 function WritesProbe() {
+	useCalendars();
 	writes = useCalendarCollectionWrites();
 	return null;
 }
@@ -217,6 +220,36 @@ describe("the clashes a draft runs into", () => {
 	it("never counts the event being edited against itself", async () => {
 		const found = await clashesFor(draft({}), [instance({})], "obj-1");
 		assert.deepEqual(found, []);
+	});
+
+	it("checks a multi-day span through its last day", async () => {
+		const found = await clashesFor(
+			draft({
+				endDate: "2026-06-16",
+				startTime: "09:00",
+				endTime: "17:00",
+			}),
+			[
+				instance({
+					start: "2026-06-15T12:00:00+00:00",
+					end: "2026-06-15T13:00:00+00:00",
+				}),
+			],
+		);
+		assert.equal(found?.length, 1);
+		const read = http?.to("/calendar-events")[0]?.url ?? "";
+		assert.ok(
+			read.includes(`to=${encodeURIComponent("2026-06-22")}`),
+			"the read has to cover the week of the last day",
+		);
+	});
+
+	it("checks nothing when the end is not after the start", async () => {
+		const found = await clashesFor(
+			draft({ startTime: "10:00", endTime: "10:00" }),
+			[instance({})],
+		);
+		assert.equal(found, undefined);
 	});
 
 	it("checks nothing for an all-day draft", async () => {

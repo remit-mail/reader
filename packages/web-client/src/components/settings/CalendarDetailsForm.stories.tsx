@@ -7,7 +7,7 @@ import { CalendarDetailsForm } from "./CalendarDetailsForm";
  * default calendar.
  */
 const meta: Meta<typeof CalendarDetailsForm> = {
-	title: "Flows/Settings Calendars/Calendar details",
+	title: "Playground/Shipped/Settings/Calendars/Calendar details",
 	component: CalendarDetailsForm,
 	parameters: { layout: "padded" },
 	args: {

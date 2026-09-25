@@ -44,7 +44,7 @@ describe("CalendarDetailsForm", () => {
 	it("states a refusal in the server's words", () => {
 		const html = details("cannot be removed");
 		assert.match(html, /role="alert"/);
-		assert.match(html, /Work was not changed/);
+		assert.match(html.replaceAll("<!-- -->", ""), /Work was not changed/);
 		assert.match(html, /cannot be removed/);
 	});
 });
@@ -102,6 +102,7 @@ describe("CalendarComposePane clashes", () => {
 	const draft: EventDraft = {
 		title: "Roadmap review",
 		date: "2026-06-10",
+		endDate: "2026-06-10",
 		startTime: "10:00",
 		endTime: "11:00",
 		allDay: false,

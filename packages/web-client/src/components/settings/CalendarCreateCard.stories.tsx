@@ -3,7 +3,7 @@ import { CalendarCreateCard } from "./CalendarCreateCard";
 
 /** Settings › Calendars: adding a calendar, and the server refusing one. */
 const meta: Meta<typeof CalendarCreateCard> = {
-	title: "Flows/Settings Calendars/New calendar",
+	title: "Playground/Shipped/Settings/Calendars/New calendar",
 	component: CalendarCreateCard,
 	parameters: { layout: "padded" },
 	args: {

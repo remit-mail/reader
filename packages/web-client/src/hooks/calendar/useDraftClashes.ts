@@ -2,9 +2,10 @@
  * What the span a draft names runs into, across every calendar the reader
  * holds — so the editor says so before Save rather than the grid after it.
  *
- * Read on the week the draft's day falls in, which is the grid's own cache
- * entry, and measured by the same rule the invitation card uses. Undefined
- * while there is no span to check (all day, a time missing) or no answer to
+ * Read on the weeks from the draft's first day through its last, which for a
+ * single-day draft is the grid's own cache entry, and measured by the same rule the invitation card uses. Undefined
+ * while there is no span to check (all day, a time missing, an end not after
+ * the start) or no answer to
  * check it against: drawing "nothing else is booked" over a read that has not
  * landed is a claim, not a delay.
  */
@@ -23,12 +24,7 @@ import {
 } from "./instance";
 import { useCalendarEventWindow } from "./useCalendarEvents";
 import { useCalendars } from "./useCalendars";
-import {
-	addDays,
-	type CalendarWindow,
-	calendarWindow,
-	isoAtInZone,
-} from "./window";
+import { type CalendarWindow, calendarWindow, isoAtInZone } from "./window";
 
 const EVERY_CALENDAR: readonly string[] = [];
 const NO_WINDOW: CalendarWindow = { from: "", to: "" };
@@ -42,10 +38,17 @@ export function useDraftClashes(
 	const checkable =
 		draft.date !== "" &&
 		!draft.allDay &&
+		draft.endDate !== "" &&
 		draft.startTime !== "" &&
-		draft.endTime !== "";
+		draft.endTime !== "" &&
+		`${draft.endDate}T${draft.endTime}` > `${draft.date}T${draft.startTime}`;
 	const { instances, isLoading, error } = useCalendarEventWindow({
-		...(checkable ? calendarWindow("week", draft.date) : NO_WINDOW),
+		...(checkable
+			? {
+					from: calendarWindow("week", draft.date).from,
+					to: calendarWindow("week", draft.endDate).to,
+				}
+			: NO_WINDOW),
 		calendarIds: EVERY_CALENDAR,
 		enabled: checkable,
 	});
@@ -55,9 +58,7 @@ export function useDraftClashes(
 	return useMemo(() => {
 		if (!checkable || isLoading || error) return undefined;
 		const start = isoAtInZone(draft.date, draft.startTime, zone);
-		const endDate =
-			draft.endTime <= draft.startTime ? addDays(draft.date, 1) : draft.date;
-		const end = isoAtInZone(endDate, draft.endTime, zone);
+		const end = isoAtInZone(draft.endDate, draft.endTime, zone);
 		const others: CalendarEventData[] = instances
 			.filter(
 				(instance) =>
@@ -79,6 +80,7 @@ export function useDraftClashes(
 		isLoading,
 		error,
 		draft.date,
+		draft.endDate,
 		draft.startTime,
 		draft.endTime,
 		zone,
