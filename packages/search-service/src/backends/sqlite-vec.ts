@@ -148,16 +148,16 @@ const buildFilterClause = (
  * message, and a full mailbox's worth of metadata JSON must not be materialized
  * to be counted.
  */
-export const readSqliteIndexProvenance = async (config: {
-	path: string;
-	configuredEmbeddingId: string;
-}): Promise<IndexProvenance> => {
-	if (!existsSync(config.path)) {
-		return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+export const readSqliteIndexedChunks = async <T>(
+	path: string,
+	consume: (chunks: Iterable<IndexedChunkProvenance>) => T,
+): Promise<T> => {
+	if (!existsSync(path)) {
+		return consume([]);
 	}
 	const { default: Database } =
 		await runtimeImport<BetterSqlite3Module>("better-sqlite3");
-	const db = new Database(config.path, { fileMustExist: true });
+	const db = new Database(path, { fileMustExist: true });
 	try {
 		await loadSqliteVec(db);
 		const table = db
@@ -166,19 +166,24 @@ export const readSqliteIndexProvenance = async (config: {
 			)
 			.get();
 		if (!table) {
-			return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+			return consume([]);
 		}
 		const rows = db
 			.prepare("SELECT message_id AS messageId, meta FROM vec_chunks")
 			.iterate() as IterableIterator<{ messageId: string; meta: string }>;
-		return summarizeIndexProvenance(
-			config.configuredEmbeddingId,
-			provenanceOf(rows),
-		);
+		return consume(provenanceOf(rows));
 	} finally {
 		db.close();
 	}
 };
+
+export const readSqliteIndexProvenance = (config: {
+	path: string;
+	configuredEmbeddingId: string;
+}): Promise<IndexProvenance> =>
+	readSqliteIndexedChunks(config.path, (chunks) =>
+		summarizeIndexProvenance(config.configuredEmbeddingId, chunks),
+	);
 
 function* provenanceOf(
 	rows: Iterable<{ messageId: string; meta: string }>,

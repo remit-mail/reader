@@ -127,3 +127,38 @@ export const formatIndexProvenance = (report: IndexProvenance): string => {
 	}
 	return `${lines.join("\n")}\n`;
 };
+
+export type ReembedScope =
+	| { kind: "stale" }
+	| { kind: "model"; embeddingId: string }
+	| { kind: "all" };
+
+export const selectMessagesToReembed = (
+	configuredEmbeddingId: string,
+	chunks: Iterable<IndexedChunkProvenance>,
+	scope: ReembedScope,
+): string[] => {
+	const selected = new Set<string>();
+	for (const chunk of chunks) {
+		const embeddingId = chunk.embeddingId ?? UNKNOWN_CHUNK_EMBEDDING_ID;
+		if (chunkMatchesScope(configuredEmbeddingId, embeddingId, scope)) {
+			selected.add(chunk.messageId);
+		}
+	}
+	return [...selected].sort();
+};
+
+const chunkMatchesScope = (
+	configuredEmbeddingId: string,
+	embeddingId: string,
+	scope: ReembedScope,
+): boolean => {
+	switch (scope.kind) {
+		case "all":
+			return true;
+		case "model":
+			return embeddingId === scope.embeddingId;
+		case "stale":
+			return embeddingId !== configuredEmbeddingId;
+	}
+};

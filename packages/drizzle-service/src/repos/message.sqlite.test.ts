@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -247,6 +247,34 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 
 			assert.equal(lost, undefined);
 		});
+	});
+
+	test("requestReembed queues a forced re-index for each message that still exists", async () => {
+		const movedRows = () =>
+			db
+				.select()
+				.from(outboxTable)
+				.where(
+					and(
+						eq(outboxTable.messageId, MESSAGE_ID),
+						eq(outboxTable.event, "message.moved"),
+						isNull(outboxTable.processedAt),
+					),
+				);
+		const pendingBefore = (await movedRows()).length;
+
+		const queued = await repo.requestReembed([
+			MESSAGE_ID,
+			"00000000-0000-0000-2222-0000000000fe",
+		]);
+
+		assert.equal(queued, 1);
+		assert.equal((await movedRows()).length, pendingBefore + 1);
+		const orphan = await db
+			.select()
+			.from(outboxTable)
+			.where(eq(outboxTable.messageId, "00000000-0000-0000-2222-0000000000fe"));
+		assert.equal(orphan.length, 0);
 	});
 
 	test("delete removes the message and appends a removal outbox row", async () => {

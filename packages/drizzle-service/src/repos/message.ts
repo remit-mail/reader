@@ -47,6 +47,8 @@ import {
 
 type DB = Db<MessageDataSchema>;
 
+const REEMBED_BATCH_SIZE = 500;
+
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
 		messageId: row.messageId,
@@ -631,5 +633,34 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			return updated;
 		});
 		return toMessageItem(rows[0]);
+	}
+
+	async requestReembed(messageIds: string[]): Promise<number> {
+		let queued = 0;
+		for (
+			let start = 0;
+			start < messageIds.length;
+			start += REEMBED_BATCH_SIZE
+		) {
+			const batch = messageIds.slice(start, start + REEMBED_BATCH_SIZE);
+			queued += await runInTransaction(this.db, async (tx) => {
+				const present = await tx
+					.select({ messageId: messageTable.messageId })
+					.from(messageTable)
+					.where(inArray(messageTable.messageId, batch));
+				if (present.length === 0) return 0;
+				await tx.insert(outboxTable).values(
+					present.map(({ messageId }) => ({
+						id: randomUUID(),
+						messageId,
+						event: "message.moved" as const,
+						payload: { messageId },
+						createdAt: new Date(),
+					})),
+				);
+				return present.length;
+			});
+		}
+		return queued;
 	}
 }

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	formatIndexProvenance,
 	type IndexedChunkProvenance,
+	selectMessagesToReembed,
 	summarizeIndexProvenance,
 } from "./index-report.js";
 
@@ -125,5 +126,48 @@ describe("formatIndexProvenance", () => {
 		);
 		assert.ok(!text.includes("older model"), text);
 		assert.ok(!text.includes("no longer configured"), text);
+	});
+});
+
+describe("selectMessagesToReembed", () => {
+	const index = [
+		chunk("m1", CURRENT),
+		chunk("m2", OLDER),
+		chunk("m3", CURRENT),
+		chunk("m3", OLDER),
+		chunk("m4", undefined),
+	];
+
+	it("takes every message with a vector the configured embedder did not write", () => {
+		assert.deepEqual(
+			selectMessagesToReembed(CURRENT, index, { kind: "stale" }),
+			["m2", "m3", "m4"],
+		);
+	});
+
+	it("takes the messages carrying a named model, unknown included", () => {
+		assert.deepEqual(
+			selectMessagesToReembed(CURRENT, index, {
+				kind: "model",
+				embeddingId: OLDER,
+			}),
+			["m2", "m3"],
+		);
+		assert.deepEqual(
+			selectMessagesToReembed(CURRENT, index, {
+				kind: "model",
+				embeddingId: "unknown",
+			}),
+			["m4"],
+		);
+	});
+
+	it("takes every indexed message once under all", () => {
+		assert.deepEqual(selectMessagesToReembed(CURRENT, index, { kind: "all" }), [
+			"m1",
+			"m2",
+			"m3",
+			"m4",
+		]);
 	});
 });

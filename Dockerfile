@@ -460,6 +460,7 @@ COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/serve
 # below is part of the embedding identity and is set only here — read anywhere
 # else, the same environment names an embedder that never wrote a vector.
 COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/index-report.mjs ./index-report.mjs
+COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/index-reembed.mjs ./index-reembed.mjs
 ENV SEARCH_EMBEDDING_PROVIDER=local
 ENV SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2
 ENV SEARCH_EMBEDDING_DTYPE=q8

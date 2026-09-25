@@ -283,6 +283,33 @@ const CASES = {
 			},
 		],
 	},
+	reembed: {
+		refusal:
+			/^remit: reembed: (unknown option|--model needs a value|pass one of)/m,
+		takes: [
+			{ args: [], proof: /search-index-worker node index-reembed\.mjs$/m },
+			{
+				args: ["--all"],
+				proof: /search-index-worker node index-reembed\.mjs --all$/m,
+			},
+			{
+				args: ["--model", "local:MiniLM@384"],
+				proof:
+					/search-index-worker node index-reembed\.mjs --model local:MiniLM@384$/m,
+			},
+		],
+		refuses: [
+			{ args: ["zzz"], message: /^remit: reembed: unknown option 'zzz'/m },
+			{
+				args: ["--model"],
+				message: /^remit: reembed: --model needs a value/m,
+			},
+			{
+				args: ["--all", "--model", "local:MiniLM@384"],
+				message: /^remit: reembed: pass one of --all or --model/m,
+			},
+		],
+	},
 	cert: {
 		refusal: /^remit: cert: unknown option/m,
 		takes: [{ args: [], proof: /^compose .* cp caddy:/m }],
