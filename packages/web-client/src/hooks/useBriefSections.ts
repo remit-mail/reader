@@ -276,7 +276,8 @@ export interface UseBriefSearchRows {
 }
 
 /**
- * The brief under a search: one request, one globally newest-first list.
+ * The brief under a search: one request, one list — sender matches first, then
+ * mentions, each newest first.
  *
  * Not seven category queries stitched back together. A match's category must not
  * lift it above a newer match, and section headers between the rows would do

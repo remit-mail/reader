@@ -58,11 +58,12 @@ export interface IThreadMessageRepository {
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**
-	 * Search rows for a config across every mailbox in `mailboxIds`, newest
-	 * first — the cross-account, cross-folder counterpart of `searchByMailbox`.
+	 * Search rows for a config across every mailbox in `mailboxIds` — the
+	 * cross-account, cross-folder counterpart of `searchByMailbox`. A row whose
+	 * From matches any `query` term ranks above one that only mentions the
+	 * terms, and each tier runs in date order.
 	 *
-	 * Backed by the same date-ordered access pattern as `listByDate`; the caller
-	 * supplies the mailbox scope, so a search reaching Archive, Sent, Spam and
+	 * The caller supplies the mailbox scope, so a search reaching Archive, Sent, Spam and
 	 * custom folders is a matter of which set is passed. An empty or absent
 	 * `mailboxIds` means no narrowing (every mailbox of the config), which is why
 	 * handlers pass an explicitly built set rather than relying on the default.

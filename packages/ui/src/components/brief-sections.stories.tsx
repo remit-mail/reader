@@ -324,6 +324,47 @@ export const Searching: Story = {
 	),
 };
 
+export const SearchingSenderFirst: Story = {
+	args: {
+		sections: [
+			{
+				id: "matches",
+				threads: [
+					{
+						id: "s1",
+						accountId: "a1",
+						fromName: "Penny Lane",
+						fromEmail: "penny@example.com",
+						subject: "Dinner on Friday?",
+						snippet: "I booked the place on the corner.",
+						timeLabel: "Mar 2",
+						isRead: true,
+						category: "personal",
+					},
+					{
+						id: "s2",
+						accountId: "a1",
+						fromName: "Sam Ortiz",
+						fromEmail: "sam@example.com",
+						subject: "Weekend plans",
+						snippet: "Penny said she can bring the tent.",
+						timeLabel: "9:14",
+						isRead: false,
+						category: "personal",
+					},
+				],
+			},
+		],
+		briefCategory: "all",
+		flat: true,
+	},
+	render: (args) => (
+		<div className="flex h-screen w-96 flex-col border-r border-line">
+			<BriefHost {...args} />
+		</div>
+	),
+};
+
 const accountSources: FilterSheetSource[] = [
 	{ id: "all", label: "All", active: true },
 	{ id: "a1", label: "work", count: 3 },

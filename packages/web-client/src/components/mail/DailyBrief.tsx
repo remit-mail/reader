@@ -16,7 +16,8 @@
  * here loads a mailbox.
  *
  * Sections are the unsearched brief only. A search is one request and one flat
- * list, newest first across every category: sectioning the matches would order
+ * list in the server's order — sender matches first, then mentions, each newest
+ * first across every category: sectioning the matches would order
  * them by category first and recency second, putting last spring's newsletter
  * above a mail that arrived this morning.
  *
