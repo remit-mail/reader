@@ -290,6 +290,7 @@ export {
 	type ComposeAttachmentsProps,
 } from "./components/compose-attachments.js";
 export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
+export { ComposeFab, type ComposeFabProps } from "./components/compose-fab.js";
 export {
 	ComposeFormShell,
 	type ComposeFormShellProps,

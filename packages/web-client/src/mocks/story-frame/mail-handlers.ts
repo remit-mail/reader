@@ -2,19 +2,30 @@ import type {
 	AccountDetailOperationsUpdateAccountResponse,
 	AddressDetailOperationsUpdateAddressResponse,
 	AddressOperationsSearchAddressesResponse,
+	CalendarEventOperationsListCalendarEventsResponse,
+	CalendarOperationsListCalendarsResponse,
+	CalendarSuggestionOperationsListCalendarSuggestionsResponse,
 	FilterOperationsListFiltersResponse,
 	LabelOperationsListLabelsResponse,
 	MailboxDetailOperationsRenameMailboxResponse,
 	MailboxOperationsListMailboxesResponse,
 	MeOperationsListQuarantineResponse,
 	MeOperationsListVipSuggestionsResponse,
+	MessageBulkOperationsDeleteMessagesData,
+	MessageBulkOperationsDeleteMessagesResponse,
+	MessageBulkOperationsMoveMessagesData,
+	MessageBulkOperationsMoveMessagesResponse,
 	MessageBulkOperationsUpdateFlagsResponse,
 	MessageCalendarSuggestionOperationsListMessageCalendarSuggestionsResponse,
+	OrganizeOperationsPreviewOrganizeResponse,
 	OutboxOperationsListOutboxMessagesResponse,
 	RemitImapConfigDescriptionResponse,
+	RemitImapCreateOutboxMessageInput,
 	RemitImapDescribeMessageResponse,
+	RemitImapOutboxMessageResponse,
 	RemitImapThreadMessageResponse,
 	RemitImapThreadSearchResponse,
+	RemitImapUpdateOutboxMessageInput,
 	SemanticSearchOperationsSemanticSearchResponse,
 	SyncOperationsGetSyncStatusResponse,
 	SyncOperationsTriggerSyncResponse,
@@ -32,10 +43,44 @@ export interface MailHandlerOptions {
 	withholdCounts?: boolean;
 	pageSize?: number;
 	holdLaterPages?: boolean;
+	draftSave?: "saves" | "refused";
+	send?: "sends" | "holds";
+	search?: "answers" | "holds";
+	config?: "answers" | "holds";
 }
 
 const contentPath = (row: RemitImapThreadMessageResponse): string =>
 	`/content/accounts/${row.accountConfigId}/${row.accountId}/messages/${row.messageId}/parts/1`;
+
+const attachmentOnly = (row: RemitImapThreadMessageResponse): boolean =>
+	row.hasAttachment && !row.snippet;
+
+const bodyPartsOf = (
+	row: RemitImapThreadMessageResponse,
+): RemitImapDescribeMessageResponse["bodyParts"] =>
+	attachmentOnly(row)
+		? [
+				{
+					bodyPartId: `part-${row.messageId}`,
+					mediaType: "APPLICATION",
+					mediaSubtype: "pdf",
+					sizeOctets: 48_000,
+					isMultipart: false,
+					disposition: "attachment",
+					dispositionFilename: "scan.pdf",
+					contentUrl: contentPath(row),
+				},
+			]
+		: [
+				{
+					bodyPartId: `part-${row.messageId}`,
+					mediaType: "TEXT",
+					mediaSubtype: "plain",
+					sizeOctets: (row.snippet ?? "").length,
+					isMultipart: false,
+					contentUrl: contentPath(row),
+				},
+			];
 
 const describe = (
 	row: RemitImapThreadMessageResponse,
@@ -71,16 +116,7 @@ const describe = (
 		senderTrust: row.senderTrust,
 	},
 	flags: row.isRead ? ["\\Seen"] : [],
-	bodyParts: [
-		{
-			bodyPartId: `part-${row.messageId}`,
-			mediaType: "TEXT",
-			mediaSubtype: "plain",
-			sizeOctets: (row.snippet ?? "").length,
-			isMultipart: false,
-			contentUrl: contentPath(row),
-		},
-	],
+	bodyParts: bodyPartsOf(row),
 	references: [],
 });
 
@@ -167,11 +203,23 @@ export const mailHandlers = (
 		),
 	);
 
+	const outbox = new Map(
+		world.outbox.map((message) => [message.outboxMessageId, message]),
+	);
+	let draftsCreated = 0;
+	const refuseSave = () =>
+		HttpResponse.json(
+			{ status: 409, message: "The mail server did not accept the draft." },
+			{ status: 409 },
+		);
+
 	return [
 		http.get(`${API}/config`, () =>
-			HttpResponse.json<RemitImapConfigDescriptionResponse>(
-				makeConfig(world.accounts),
-			),
+			options.config === "holds"
+				? pending()
+				: HttpResponse.json<RemitImapConfigDescriptionResponse>(
+						makeConfig(world.accounts),
+					),
 		),
 		http.patch(
 			`${API}/accounts/:accountId/mailboxes/:mailboxId`,
@@ -277,11 +325,38 @@ export const mailHandlers = (
 				failureCount: 0,
 			}),
 		),
+		http.post(`${API}/messages/delete`, async ({ request }) => {
+			const { messageIds } =
+				(await request.json()) as MessageBulkOperationsDeleteMessagesData["body"];
+			return HttpResponse.json<MessageBulkOperationsDeleteMessagesResponse>({
+				successCount: messageIds.length,
+				failureCount: 0,
+			});
+		}),
+		http.post(`${API}/messages/move`, async ({ request }) => {
+			const { messageIds } =
+				(await request.json()) as MessageBulkOperationsMoveMessagesData["body"];
+			return HttpResponse.json<MessageBulkOperationsMoveMessagesResponse>({
+				successCount: messageIds.length,
+				failureCount: 0,
+			});
+		}),
+		http.post(`${API}/accounts/:accountId/organize/preview`, ({ params }) => {
+			const matched = world.threads.filter(
+				(row) => row.accountId === params.accountId,
+			);
+			return HttpResponse.json<OrganizeOperationsPreviewOrganizeResponse>({
+				matchedCount: matched.length,
+				messageIds: matched.map((row) => row.messageId),
+			});
+		}),
 		http.get(
 			"/content/accounts/:accountConfigId/:accountId/messages/:messageId/parts/*",
 			({ params }) =>
 				HttpResponse.text(
-					byMessageId.get(String(params.messageId))?.snippet ?? "",
+					world.bodies[String(params.messageId)] ??
+						byMessageId.get(String(params.messageId))?.snippet ??
+						"",
 				),
 		),
 		http.get(`${API}/threads/:threadId/messages`, ({ params }) =>
@@ -300,21 +375,25 @@ export const mailHandlers = (
 			);
 			if (options.holdLaterPages && params.has("continuationToken"))
 				return pending();
+			if (searching && options.search === "holds") return pending();
 			return HttpResponse.json(listing(narrow(scope, params), params, options));
 		}),
 		http.get(
 			`${API}/mailboxes/:mailboxId/threads/search`,
-			({ request, params }) =>
-				HttpResponse.json(
+			({ request, params }) => {
+				const search = new URL(request.url).searchParams;
+				if (search.has("query") && options.search === "holds") return pending();
+				return HttpResponse.json(
 					listing(
 						narrow(
 							world.threads.filter((row) => row.mailboxId === params.mailboxId),
-							new URL(request.url).searchParams,
+							search,
 						),
-						new URL(request.url).searchParams,
+						search,
 						options,
 					),
-				),
+				);
+			},
 		),
 		http.get(`${API}/mailboxes/:mailboxId/threads`, ({ params }) =>
 			HttpResponse.json<ThreadOperationsListThreadsResponse>({
@@ -325,13 +404,107 @@ export const mailHandlers = (
 		),
 		http.get(`${API}/outbox`, () =>
 			HttpResponse.json<OutboxOperationsListOutboxMessagesResponse>({
-				items: world.outbox,
+				items: [...outbox.values()],
 			}),
 		),
-		http.get(`${API}/search/semantic`, () =>
-			HttpResponse.json<SemanticSearchOperationsSemanticSearchResponse>({
+		http.post(`${API}/outbox`, async ({ request }) => {
+			if (options.draftSave === "refused") return refuseSave();
+			const input = (await request.json()) as RemitImapCreateOutboxMessageInput;
+			draftsCreated += 1;
+			const account = world.accounts.find(
+				(candidate) => candidate.accountId === input.accountId,
+			);
+			const created: RemitImapOutboxMessageResponse = {
+				outboxMessageId: `out-created-${draftsCreated}`,
+				accountId: input.accountId,
+				fromAddress: account?.email ?? "",
+				fromName: account?.displayName,
+				toAddresses: input.toAddresses,
+				ccAddresses: input.ccAddresses ?? [],
+				bccAddresses: input.bccAddresses ?? [],
+				subject: input.subject,
+				textBody: input.textBody,
+				htmlBody: input.htmlBody,
+				references: input.references ?? [],
+				status: "draft",
+				createdAt: Date.UTC(2026, 8, 24, 13, 0),
+				updatedAt: Date.UTC(2026, 8, 24, 13, 0),
+				attachments: [],
+			};
+			outbox.set(created.outboxMessageId, created);
+			return HttpResponse.json<RemitImapOutboxMessageResponse>(created);
+		}),
+		http.get(`${API}/outbox/:outboxMessageId`, ({ params }) => {
+			const message = outbox.get(String(params.outboxMessageId));
+			if (!message)
+				return HttpResponse.json(
+					{ status: 404, message: "Outbox message not found" },
+					{ status: 404 },
+				);
+			return HttpResponse.json<RemitImapOutboxMessageResponse>(message);
+		}),
+		http.patch(
+			`${API}/outbox/:outboxMessageId`,
+			async ({ params, request }) => {
+				if (options.draftSave === "refused") return refuseSave();
+				const id = String(params.outboxMessageId);
+				const current = outbox.get(id);
+				if (!current)
+					return HttpResponse.json(
+						{ status: 404, message: "Outbox message not found" },
+						{ status: 404 },
+					);
+				const input =
+					(await request.json()) as RemitImapUpdateOutboxMessageInput;
+				const { attachmentIds: _attachmentIds, ...fields } = input;
+				const updated: RemitImapOutboxMessageResponse = {
+					...current,
+					...fields,
+					status: "draft",
+				};
+				outbox.set(id, updated);
+				return HttpResponse.json<RemitImapOutboxMessageResponse>(updated);
+			},
+		),
+		http.post(`${API}/outbox/:outboxMessageId/send`, ({ params }) => {
+			if (options.send === "holds") return pending();
+			const id = String(params.outboxMessageId);
+			const current = outbox.get(id);
+			if (!current)
+				return HttpResponse.json(
+					{ status: 404, message: "Outbox message not found" },
+					{ status: 404 },
+				);
+			const queued: RemitImapOutboxMessageResponse = {
+				...current,
+				status: "queued",
+			};
+			outbox.set(id, queued);
+			return HttpResponse.json<RemitImapOutboxMessageResponse>(queued);
+		}),
+		http.delete(`${API}/outbox/:outboxMessageId`, ({ params }) => {
+			outbox.delete(String(params.outboxMessageId));
+			return new HttpResponse(null, { status: 204 });
+		}),
+		http.get(`${API}/calendars`, () =>
+			HttpResponse.json<CalendarOperationsListCalendarsResponse>({ items: [] }),
+		),
+		http.get(`${API}/calendar-events`, () =>
+			HttpResponse.json<CalendarEventOperationsListCalendarEventsResponse>({
 				items: [],
 			}),
+		),
+		http.get(`${API}/calendar-suggestions`, () =>
+			HttpResponse.json<CalendarSuggestionOperationsListCalendarSuggestionsResponse>(
+				{ items: [] },
+			),
+		),
+		http.get(`${API}/search/semantic`, () =>
+			options.search === "holds"
+				? pending()
+				: HttpResponse.json<SemanticSearchOperationsSemanticSearchResponse>({
+						items: [],
+					}),
 		),
 		http.get(`${API}/me/quarantine`, () =>
 			HttpResponse.json<MeOperationsListQuarantineResponse>({

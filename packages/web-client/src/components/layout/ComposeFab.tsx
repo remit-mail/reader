@@ -1,4 +1,4 @@
-import { Pencil } from "lucide-react";
+import { ComposeFab as ComposeFabButton } from "@remit/ui";
 import { useOpenCompose, useOpensDetail } from "@/routing";
 
 /**
@@ -18,18 +18,5 @@ export const ComposeFab = () => {
 
 	if (opensDetail) return null;
 
-	return (
-		<button
-			type="button"
-			onClick={compose}
-			aria-label="Compose new message"
-			className="lg:hidden fixed right-4 z-30 h-14 w-14 rounded-full bg-accent text-accent-fg shadow-lg flex items-center justify-center hover:opacity-90 active:scale-95 transition-all"
-			style={{
-				// 16px breathing room above the iOS home-indicator inset.
-				bottom: "calc(env(safe-area-inset-bottom, 0) + 1rem)",
-			}}
-		>
-			<Pencil className="size-6" />
-		</button>
-	);
+	return <ComposeFabButton onCompose={compose} />;
 };

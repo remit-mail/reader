@@ -26,11 +26,12 @@ export interface MailWorld {
 	vipSuggestions: RemitImapVipSuggestionEntry[];
 	addresses: RemitImapAddressResponse[];
 	systemUpdate: RemitImapSystemUpdateResponse;
+	bodies: Record<string, string>;
 }
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+export const MINUTE = 60_000;
+export const HOUR = 60 * MINUTE;
+export const DAY = 24 * HOUR;
 export const NOW = Date.UTC(2026, 8, 24, 13, 0);
 
 const ROLES = [
@@ -93,8 +94,9 @@ const accounts = [
 	accountWithFolders(WORK, "alice.tan@acme.example", "Work"),
 ];
 
-interface ThreadSeed {
+export interface ThreadSeed {
 	id: string;
+	inThread?: string;
 	accountId: string;
 	role?: RemitImapCanonicalMailboxRole;
 	fromName: string;
@@ -108,10 +110,10 @@ interface ThreadSeed {
 	hasAttachment?: boolean;
 }
 
-const thread = (seed: ThreadSeed): RemitImapThreadMessageResponse =>
+export const threadRow = (seed: ThreadSeed): RemitImapThreadMessageResponse =>
 	makeThreadMessage({
 		messageId: `msg-${seed.id}`,
-		threadId: `thread-${seed.id}`,
+		threadId: `thread-${seed.inThread ?? seed.id}`,
 		threadMessageId: `tm-${seed.id}`,
 		accountId: seed.accountId,
 		mailboxId: mailboxIdFor(seed.accountId, seed.role ?? "Inbox"),
@@ -129,7 +131,7 @@ const thread = (seed: ThreadSeed): RemitImapThreadMessageResponse =>
 	});
 
 const inboxThreads: RemitImapThreadMessageResponse[] = [
-	thread({
+	threadRow({
 		id: "q3-planning",
 		accountId: WORK,
 		fromName: "Ada Lovelace",
@@ -140,7 +142,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		ago: 20 * MINUTE,
 		starred: true,
 	}),
-	thread({
+	threadRow({
 		id: "lease",
 		accountId: PERSONAL,
 		fromName: "Amara Okafor",
@@ -152,7 +154,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		hasAttachment: true,
 		starred: true,
 	}),
-	thread({
+	threadRow({
 		id: "dinner",
 		accountId: PERSONAL,
 		fromName: "Grace Hopper",
@@ -163,7 +165,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		ago: 5 * HOUR,
 		isRead: true,
 	}),
-	thread({
+	threadRow({
 		id: "invoice",
 		accountId: WORK,
 		fromName: "Billing",
@@ -175,7 +177,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		isRead: true,
 		starred: true,
 	}),
-	thread({
+	threadRow({
 		id: "shipping",
 		accountId: PERSONAL,
 		fromName: "Parcel Service",
@@ -185,7 +187,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		category: "transactional",
 		ago: 9 * HOUR,
 	}),
-	thread({
+	threadRow({
 		id: "weekly-digest",
 		accountId: PERSONAL,
 		fromName: "The Weekly",
@@ -195,7 +197,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		category: "newsletter",
 		ago: DAY,
 	}),
-	thread({
+	threadRow({
 		id: "sale",
 		accountId: PERSONAL,
 		fromName: "Outdoor Store",
@@ -205,7 +207,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		category: "marketing",
 		ago: DAY + 3 * HOUR,
 	}),
-	thread({
+	threadRow({
 		id: "mention",
 		accountId: WORK,
 		fromName: "Chat",
@@ -215,7 +217,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		category: "social",
 		ago: DAY + 5 * HOUR,
 	}),
-	thread({
+	threadRow({
 		id: "build",
 		accountId: WORK,
 		fromName: "CI",
@@ -226,7 +228,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 		ago: 2 * DAY,
 		isRead: true,
 	}),
-	thread({
+	threadRow({
 		id: "talk-outline",
 		accountId: PERSONAL,
 		role: "Archive",
@@ -242,7 +244,7 @@ const inboxThreads: RemitImapThreadMessageResponse[] = [
 ];
 
 const serverDrafts: RemitImapThreadMessageResponse[] = [
-	thread({
+	threadRow({
 		id: "draft-talk",
 		accountId: PERSONAL,
 		role: "Drafts",
@@ -376,7 +378,7 @@ export const newsletterBacklog = (
 	count: number,
 ): RemitImapThreadMessageResponse[] =>
 	Array.from({ length: count }, (_, index) =>
-		thread({
+		threadRow({
 			id: `digest-${index}`,
 			accountId: PERSONAL,
 			fromName: "The Weekly",
@@ -387,6 +389,29 @@ export const newsletterBacklog = (
 			ago: 2 * DAY + index * HOUR,
 		}),
 	);
+
+export const senderAddress = (
+	row: RemitImapThreadMessageResponse,
+): RemitImapAddressResponse => {
+	const email = (row.fromEmail ?? "").toLowerCase();
+	const [localPart = "", domain = ""] = email.split("@");
+	return {
+		addressId: `addr-${email}`,
+		accountConfigId: row.accountConfigId,
+		displayName: row.fromName,
+		localPart,
+		domain,
+		normalizedEmail: email,
+		flags: {},
+		inboundCount: 1,
+		outboundCount: 0,
+		replyCount: 0,
+		lastInboundAt: row.sentDate,
+		lastReplyAt: 0,
+		createdAt: row.sentDate,
+		updatedAt: row.sentDate,
+	};
+};
 
 export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 	accounts,
@@ -403,5 +428,6 @@ export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 		check: { status: "disabled" },
 		run: null,
 	},
+	bodies: {},
 	...overrides,
 });

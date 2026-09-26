@@ -84,7 +84,7 @@ import {
 } from "../fixtures/calendar.js";
 import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
-import { MailShell } from "./mail-shell.js";
+import { ProposedShell } from "../lib/proposed-shell.js";
 
 /** Below this the surface has no room for a calendar rail beside the grid. */
 const RAIL_MIN_WIDTH = 700;
@@ -870,7 +870,7 @@ export function CalendarDestination({
 
 	if (isPhone) {
 		return (
-			<MailShell
+			<ProposedShell
 				width={width}
 				selectedNavId="calendar"
 				calendarNav="shown"
@@ -908,7 +908,7 @@ export function CalendarDestination({
 	}
 
 	return (
-		<MailShell
+		<ProposedShell
 			width={width}
 			selectedNavId="calendar"
 			calendarNav="shown"

@@ -93,7 +93,7 @@ import {
 	slotOffers,
 	toMinutes,
 } from "../fixtures/calendar-mail.js";
-import { MailShell } from "./mail-shell.js";
+import { ProposedShell } from "../lib/proposed-shell.js";
 
 /** Below this the reading pane has no room for a day beside the thread. */
 const ASIDE_MIN_WIDTH = 620;
@@ -838,7 +838,7 @@ export function CalendarSeam({
 		);
 
 		return (
-			<MailShell
+			<ProposedShell
 				width={width}
 				selectedNavId="mbx_work_inbox"
 				calendarNav="shown"
@@ -870,7 +870,7 @@ export function CalendarSeam({
 		);
 
 	return (
-		<MailShell
+		<ProposedShell
 			width={width}
 			selectedNavId="mbx_work_inbox"
 			calendarNav="shown"

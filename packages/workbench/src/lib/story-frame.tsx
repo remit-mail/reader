@@ -2,10 +2,6 @@ import type { Decorator } from "@storybook/react-vite";
 
 /** The tiers the preview's viewport toolbar offers, so a story can match one. */
 export const PHONE_WIDTH = 390;
-/** The wider Android phone the narrow tiers are checked against. */
-export const WIDE_PHONE_WIDTH = 411;
-/** Below the desktop tier, so the search field is the list header's own. */
-export const TABLET_WIDTH = 834;
 export const DESKTOP_WIDTH = 1440;
 
 /**

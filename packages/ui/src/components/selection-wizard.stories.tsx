@@ -1,45 +1,42 @@
+import type { Meta, StoryObj } from "@storybook/react-vite";
+import { useState } from "react";
+import { expect, fn, userEvent, within } from "storybook/test";
+import type { FolderTreeNode } from "../lib/folder-tree.js";
+import { derivePropertyClauses } from "../lib/property-prefill.js";
+import { suggestRuleName } from "../lib/rule-name.js";
 import {
-	type ClauseEditState,
-	demoClauseSuggestions,
-	derivePropertyClauses,
-	dominantSender,
-	type EnvelopeAddress,
-	type FolderTreeNode,
-	inboxFilterConfig,
-	isConvertible,
+	type SearchConversion,
+	searchConversionNotice,
+} from "../lib/search-rule.js";
+import { dominantSender, senderLabel } from "../lib/sender-derivation.js";
+import {
 	type MatchCount,
 	type MatchDoor,
 	type MatchMode,
-	type MatchOperator,
-	makeFilterBlockedCopy,
-	type RuleClause,
-	type RuleScope,
 	type RunState,
-	ruleBlockedCopy,
 	ruleRestrictionFor,
 	type SampleEmptyReason,
-	type SearchChip,
-	type SearchConversion,
 	type SelectionRestriction,
-	SelectionWizard,
 	type StepId,
-	searchConversionNotice,
-	senderLabel,
 	stepBlockedReason,
 	stepIndex,
 	stepsFor,
-	suggestRuleName,
-	type ThreadRowData,
-	UNCOUNTABLE_PREDICATE_REASON,
 	type Verb,
 	type WizardDraft,
 	wizardScopeFor,
-} from "@remit/ui";
-import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
-import { expect, within } from "storybook/test";
+} from "../lib/wizard-steps.js";
+import type { EnvelopeAddress } from "./address-display.js";
 import {
-	FACETS_ONLY_CONVERSION,
+	demoClauseSuggestions,
+	type MatchOperator,
+	type RuleClause,
+	type RuleScope,
+	ruleBlockedCopy,
+	UNCOUNTABLE_PREDICATE_REASON,
+} from "./filter-rule.js";
+import type { ClauseEditState } from "./filter-rule-editor.js";
+import { SelectionWizard } from "./selection-wizard.js";
+import {
 	PLAIN_CONVERSION,
 	RICH_CONVERSION,
 	SELECTION_FOLDERS,
@@ -47,73 +44,26 @@ import {
 	SELECTION_SAMPLE,
 	SELECTION_SEARCH_SAMPLE,
 	type SelectionMessage,
-} from "../fixtures/selection-messages.js";
-import { q3Intelligence, q3Thread } from "../fixtures/workspace.js";
-import {
-	DESKTOP_WIDTH,
-	TABLET_WIDTH,
-	WIDE_PHONE_WIDTH,
-} from "../lib/story-frame.js";
-import { MailShell } from "../screens/mail-shell.js";
+} from "./selection-wizard-fixtures.js";
 
-/** The list rows the wizard is opened from, as the shell's list pane takes them. */
-const toRow = (message: SelectionMessage): ThreadRowData => ({
-	id: message.id,
-	fromName: message.sender,
-	fromEmail: message.email,
-	subject: message.subject,
-	snippet: message.preview,
-	timeLabel: message.date,
-});
-
-/* ------------------------------------------------------------------ */
-/* The driver — the answers, held for the wizard to render             */
-/* ------------------------------------------------------------------ */
-
-/** The wizard as a story opens it: a verb, and optionally a state to land on. */
 interface WizardEntry {
 	verb: Verb;
-	/** Enter by converting the query rather than by ticking rows. */
 	fromSearch?: boolean;
 	startAt?: StepId;
 	startMode?: MatchMode;
-	/**
-	 * The list escalated the selection to a predicate — every message matching
-	 * the query rather than the ticked rows. The wizard is offered no doors over
-	 * it: the predicate is already the match.
-	 */
 	escalatedScope?: string;
-	/** The server's count of that predicate, which the review states. */
 	escalatedTotal?: number;
 	scope?: RuleScope;
 	semanticUnavailable?: boolean;
-	/**
-	 * Semantic search is off on this instance (#1068). A deployment setting, so
-	 * the door names the command that changes it rather than inviting a retry.
-	 */
 	semanticOff?: boolean;
-	/** What the mail server said when the widen was asked to run and failed. */
 	semanticError?: string;
-	/**
-	 * The selection spans more than one account, or more than one folder of a
-	 * single account. Either way no folder and no rule can be reached, and the
-	 * steps state the one that applies (#525).
-	 */
 	restriction?: SelectionRestriction;
 	runState?: RunState;
-	/**
-	 * Why the commit never started, when sending the same one again cannot get
-	 * past it. The run screen states it and offers no retry (#522).
-	 */
 	runFailureReason?: string;
-	/** How many the mail server rejected beyond the ones the run can name. */
 	failedBeyondNamed?: number;
-	/** The property door carries a body-text clause, which has no count to show. */
 	bodyTextClause?: boolean;
 	sampleEmpty?: SampleEmptyReason;
-	/** The rows are still arriving, which is not the same answer as no rows. */
 	sampleLoading?: boolean;
-	/** How the mail server answers a folder create on the folder step. */
 	folderCreate?: "confirms" | "never confirms" | "fails";
 }
 
@@ -139,7 +89,6 @@ const MAILBOXES: FolderTreeNode[] = SELECTION_FOLDERS.map((path) => ({
 	path,
 }));
 
-/** A create that resolves only once the mail server has confirmed the folder. */
 const folderCreators: Record<
 	NonNullable<WizardEntry["folderCreate"]>,
 	(
@@ -166,10 +115,6 @@ const folderCreators: Record<
 		),
 };
 
-/**
- * The answers a story holds while the wizard renders them. The app holds the
- * same answers against its own hooks; nothing here is a second copy of a screen.
- */
 function WizardDriver({
 	entry,
 	selected,
@@ -211,8 +156,6 @@ function WizardDriver({
 		if (entry.bodyTextClause) {
 			return [{ id: "body-text", field: "HasWords", value: "invoice" }];
 		}
-		// The ticked-rows door builds no predicate, and the app holds it that way:
-		// clauses are seeded by the property door, when it is taken.
 		return mode === "properties" ? seedPropertyClauses() : [];
 	});
 	const [matchOperator, setMatchOperator] = useState<MatchOperator>(
@@ -254,14 +197,9 @@ function WizardDriver({
 	const ruleName = typedName ?? suggestedName;
 
 	const covered = fromSearch || escalated ? results : selected;
-	// A body-text clause cannot be counted before it is saved: the vector-free
-	// matcher refuses to evaluate it, so the app never asks. That is a stated
-	// answer, not a count of zero, and the sample it leaves empty has to say so.
 	const uncountable =
 		mode === "properties" &&
 		clauses.some((clause) => clause.field === "HasWords");
-	// A widened door has no count until it has run; the ticked list is its own
-	// count, and the app's would come from the preview endpoint (#477 5.3).
 	const count: MatchCount = uncountable
 		? { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON }
 		: escalated
@@ -273,16 +211,12 @@ function WizardDriver({
 	const draft: WizardDraft = {
 		clauses,
 		matchOperator,
-		// The similar door rides the semantic widen, which reads message bodies.
 		widen: mode === "similar" ? { anchorCount: selected.length } : undefined,
 		moveMailboxId: mailboxId,
 		scope,
 		until,
 		name: ruleName,
 	};
-	// The one account the selection belongs to, as the app hands it over: a
-	// selection spanning accounts has none, and the widened doors go with it. One
-	// spanning folders of a single account keeps both, and is told about folders.
 	const wizardScope = wizardScopeFor(
 		entry.restriction === "spansAccounts" ? undefined : "acc-personal",
 		entry.restriction,
@@ -305,9 +239,6 @@ function WizardDriver({
 		emptyReason: entry.sampleEmpty,
 		loading: entry.sampleLoading,
 	};
-
-	// Both endings name what they did not reach; only the badge on each row
-	// differs, because only one of them ever sent those messages.
 	const failures =
 		runState === "backApplyFailed" || runState === "runStopped"
 			? covered.slice(0, 2)
@@ -438,11 +369,7 @@ function WizardDriver({
 						? searchConversionNotice(conversion)
 						: undefined,
 				semanticFallbackTaken,
-				sample: {
-					...sample,
-					label: "What this matches",
-					count: { status: "uncounted" },
-				},
+				sample: { ...sample, label: "What this matches" },
 			}}
 			folder={{
 				folders: mailboxes,
@@ -485,8 +412,6 @@ function WizardDriver({
 						runState === "commitFailed" ? "saving" : "backApplyRunning",
 					),
 				onDismiss: onExit,
-				// A chunked run stops between batches. A saved rule's pass over
-				// existing mail is the mail server's own, so it has no stop.
 				onCancelRun:
 					runState === "backApplyRunning" &&
 					scope !== "standing" &&
@@ -498,106 +423,35 @@ function WizardDriver({
 	);
 }
 
-function SelectionFlow({
+const exit = fn().mockName("onExit");
+
+function Flow({
 	messages = SELECTION_SAMPLE,
-	title = "Inbox",
 	conversion,
 	preselected = 0,
 	preselectedIds,
 	openAt,
-	width = WIDE_PHONE_WIDTH,
 }: {
 	messages?: SelectionMessage[];
-	title?: string;
-	/**
-	 * What `convertSearchToRule` made of the query this page of results is for.
-	 * It puts "Make this a filter" above the list — a second way in, taken or
-	 * declined. Ticking rows here reaches the same wizard the inbox reaches.
-	 */
 	conversion?: SearchConversion;
-	/** Tick the first N rows on mount — for stories that open the wizard directly. */
 	preselected?: number;
-	/** Tick named rows on mount, where which rows they are is the point. */
 	preselectedIds?: string[];
-	/** Open the wizard on mount, on a given step. */
-	openAt?: WizardEntry;
-	/**
-	 * The tier the wizard is judged at. Match it to the story's viewport: the
-	 * shell reflows off its own width, and a modal over one narrow column is not
-	 * the room a desktop window has.
-	 */
-	width?: number;
+	openAt: WizardEntry;
 }) {
-	const seeded =
-		preselectedIds ?? messages.slice(0, preselected).map((m) => m.id);
-	const [ids, setIds] = useState<string[]>(seeded);
-	const [entry, setEntry] = useState<WizardEntry | undefined>(openAt);
-
-	const selected = messages.filter((m) => ids.includes(m.id));
-	const desktop = width >= 1024;
-
+	const ids = preselectedIds ?? messages.slice(0, preselected).map((m) => m.id);
 	return (
-		<MailShell
-			width={width}
-			selectedNavId="mbx_personal_inbox"
-			listTitle={title}
-			unreadCount={messages.length}
-			sections={[{ id: "selection", threads: messages.map(toRow) }]}
-			preset={inboxFilterConfig()}
-			scopeChip={inboxScope}
-			selectedIds={seeded}
-			onVerb={(verb, ticked) => {
-				setIds([...ticked]);
-				setEntry({ verb });
-			}}
-			{...(conversion
-				? {
-						onMakeFilter: () =>
-							setEntry({ verb: "organize", fromSearch: true }),
-						makeFilterBlockedReason: isConvertible(conversion)
-							? undefined
-							: makeFilterBlockedCopy(
-									conversion.droppedFacets.map((facet) => facet.label),
-								),
-					}
-				: {})}
-			{...(desktop ? { thread: q3Thread, intelligence: q3Intelligence } : {})}
-			overlay={
-				entry && (
-					<WizardDriver
-						entry={entry}
-						selected={selected}
-						results={messages}
-						conversion={conversion}
-						onExit={() => setEntry(undefined)}
-					/>
-				)
-			}
+		<WizardDriver
+			entry={openAt}
+			selected={messages.filter((m) => ids.includes(m.id))}
+			results={messages}
+			conversion={conversion}
+			onExit={exit}
 		/>
 	);
 }
 
-/* ------------------------------------------------------------------ */
-/* Stories                                                             */
-/* ------------------------------------------------------------------ */
-
-/**
- * One responsive surface: below 768px the wizard is full-bleed, from 768px up
- * the same screens render as a centered modal over the list. Flip the toolbar
- * viewport on any story to see both.
- *
- * Every story starts from a real list. The ones that name a step open the
- * wizard there with rows already ticked, so the screen is always judged against
- * the mail behind it.
- *
- * A search is a way in, not a mode: ticking rows in a page of results reaches
- * exactly the wizard the inbox reaches. The one place a query is the anchor is
- * "Make this a filter" above the results, which opens on the property step with
- * the query converted and nothing ticked.
- */
 const meta: Meta = {
-	title: "Playground/Proposed/Selection wizard",
-	tags: ["proposed"],
+	title: "Design System/Mail/Selection wizard",
 	parameters: { layout: "fullscreen" },
 	globals: { viewport: { value: "mobileShort" } },
 	decorators: [
@@ -612,92 +466,61 @@ export default meta;
 
 type Story = StoryObj;
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+const shows =
+	(present: (string | RegExp)[], absent: (string | RegExp)[] = []) =>
+	async ({ canvasElement }: { canvasElement: HTMLElement }) => {
+		const canvas = within(canvasElement);
+		for (const text of present) {
+			const [match] = await canvas.findAllByText(
+				typeof text === "string"
+					? (_, element) =>
+							element?.textContent === text &&
+							![...element.children].some((child) => child.textContent === text)
+					: text,
+			);
+			await expect(match).toBeVisible();
+		}
+		for (const text of absent) {
+			await expect(canvas.queryAllByText(text)).toHaveLength(0);
+		}
+	};
 
-const clickByText = (root: HTMLElement, label: string) => {
-	const button = Array.from(
-		root.querySelectorAll<HTMLButtonElement>("button"),
-	).find((candidate) => candidate.textContent?.trim() === label);
-	button?.click();
+const nameNewFolder = async (canvasElement: HTMLElement, name: string) => {
+	const canvas = within(canvasElement);
+	await userEvent.click(canvas.getByRole("button", { name: "New folder" }));
+	await userEvent.type(await canvas.findByLabelText("Folder name"), name);
 };
 
-/** Types into the Move picker's search, which is also where a new folder is named. */
-const typeFolderName = async (root: HTMLElement, name: string) => {
-	const input = root.querySelector<HTMLInputElement>(
-		'input[aria-label="Filter folders"]',
+const createFolder = (canvasElement: HTMLElement) =>
+	userEvent.click(
+		within(canvasElement).getByRole("button", { name: "Create folder" }),
 	);
-	if (!input) return;
-	const setter = Object.getOwnPropertyDescriptor(
-		HTMLInputElement.prototype,
-		"value",
-	)?.set;
-	setter?.call(input, name);
-	input.dispatchEvent(new Event("input", { bubbles: true }));
-	await tick();
-};
 
 const QUERY = "npm";
-/** What the server counts this query as matching. The result header and the
- *  escalated selection render one figure, from one count (#307). */
 const MATCH_TOTAL = 1284;
-const RESULTS_TITLE = `${MATCH_TOTAL.toLocaleString()} results for “${QUERY}”`;
 
-/** The three Booking.com rows — one sender across the whole selection. */
 const ONE_SENDER = ["m1", "m5", "m8"];
 
-const inboxScope: SearchChip = {
-	id: "inbox",
-	label: "in:inbox",
-	tone: "scope",
-};
-
-/**
- * PRIMARY — a plain inbox, nothing ticked. Press and hold a row to tick it, take
- * a verb off the list header, then walk the wizard. With no search behind it the
- * widened options are seeded from the messages you ticked.
- */
-export const Inbox: Story = {
-	name: "Inbox — no search",
-	render: () => <SelectionFlow />,
-};
-
-/** The modal over the desktop shell, at the door it opens on. */
-export const InboxDesktop: Story = {
-	name: "Inbox — no search, desktop",
+export const OrganizeApplyToDesktop: Story = {
+	name: "Organize — apply to, desktop",
+	play: shows([
+		"What should this apply to?",
+		"These 3 messages",
+		"Similar to these 3",
+	]),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
-		<SelectionFlow
-			width={DESKTOP_WIDTH}
-			preselected={3}
-			openAt={{ verb: "organize", startAt: "match" }}
-		/>
-	),
-};
-
-/**
- * PRIMARY — a page of results with "Make this a filter" above it. Take it and
- * the query is the anchor; tick rows instead and the affordance gives way to the
- * selection bar, which opens the inbox's wizard unchanged.
- */
-export const SearchResults: Story = {
-	name: "Search results — npm",
-	render: () => (
-		<SelectionFlow
-			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
-			conversion={RICH_CONVERSION}
-		/>
+		<Flow preselected={3} openAt={{ verb: "organize", startAt: "match" }} />
 	),
 };
 
 export const SearchResultsDesktop: Story = {
-	name: "Search results — npm, desktop",
+	name: "Search results — ticked rows, desktop",
+	play: shows(["These 4 messages", "4 messages match"]),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
-		<SelectionFlow
-			width={DESKTOP_WIDTH}
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			conversion={PLAIN_CONVERSION}
 			preselected={4}
 			openAt={{ verb: "organize", startAt: "match" }}
@@ -705,23 +528,16 @@ export const SearchResultsDesktop: Story = {
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* The second way in — converting the search itself                    */
-/* ------------------------------------------------------------------ */
-
-/**
- * "Make this a filter" taken. The wizard opens on the property step with the
- * query's clauses, nothing ticked and no anchor step behind it — the query has
- * already said what this applies to, and it carries no widen because free text
- * has no message to read. Everything the filter cannot carry is named above the
- * clauses before anything is edited.
- */
 export const SearchConverted: Story = {
 	name: "Search — make this a filter",
+	play: shows([
+		/Your search was limited to Archive/,
+		/aren't filter conditions/,
+		"npm",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			conversion={RICH_CONVERSION}
 			openAt={{ verb: "organize", fromSearch: true }}
 		/>
@@ -730,72 +546,42 @@ export const SearchConverted: Story = {
 
 export const SearchConvertedDesktop: Story = {
 	name: "Search — make this a filter, desktop",
+	play: shows([
+		/Your search was limited to Archive/,
+		/aren't filter conditions/,
+		"npm",
+	]),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
-		<SelectionFlow
-			width={DESKTOP_WIDTH}
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			conversion={RICH_CONVERSION}
 			openAt={{ verb: "organize", fromSearch: true }}
 		/>
 	),
 };
 
-/** Plain words, nothing scoped or faceted: one clause and nothing to report. */
 export const SearchConvertedPlain: Story = {
 	name: "Search — make this a filter, plain query",
+	play: shows(
+		["Which properties have to match?", "npm"],
+		[/Your search was limited/],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			conversion={PLAIN_CONVERSION}
 			openAt={{ verb: "organize", fromSearch: true }}
 		/>
 	),
 };
 
-/**
- * Searching Starred, where the list header's affordance is borrowed by a bar
- * the view does not own. It is the same entry and the same wizard: every
- * surface that puts the row on screen answers the step it pushes, or the press
- * lands on nothing.
- */
-export const SearchConvertedFromStarred: Story = {
-	name: "Search — make this a filter, from Starred",
-	render: () => (
-		<SelectionFlow
-			messages={SELECTION_SEARCH_SAMPLE}
-			title="Starred"
-			conversion={PLAIN_CONVERSION}
-			openAt={{ verb: "organize", fromSearch: true }}
-		/>
-	),
-};
-
-/** Nothing in the query converts, so the affordance says so rather than opening. */
-export const SearchNotConvertible: Story = {
-	name: "Search — nothing to filter on",
-	render: () => (
-		<SelectionFlow
-			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
-			conversion={FACETS_ONLY_CONVERSION}
-		/>
-	),
-};
-
-/**
- * The affordance declined. Rows ticked in a page of results reach the anchor
- * step, the doors and the prefill the inbox reaches — the query is behind the
- * list and nowhere in the wizard.
- */
 export const SearchThenSelect: Story = {
 	name: "Search — ticked rows, same wizard",
+	play: shows(["These 3 messages", "npm: remit-ui@0.4.2 was published"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			conversion={RICH_CONVERSION}
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match" }}
@@ -803,69 +589,64 @@ export const SearchThenSelect: Story = {
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Walking the flow                                                    */
-/* ------------------------------------------------------------------ */
-
 export const DeleteApplyTo: Story = {
 	name: "Delete — apply to",
+	play: shows([
+		"What should this apply to?",
+		"These 3 messages",
+		"3 messages match",
+	]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "match" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "match" }} />
 	),
 };
 
 export const DeleteProperties: Story = {
 	name: "Delete — match properties",
+	play: shows([
+		"Which properties have to match?",
+		"noreply@booking.com",
+		"travel@expediamail.com",
+	]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "properties" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "properties" }} />
 	),
 };
 
 export const DeleteReview: Story = {
 	name: "Delete — review",
+	play: shows(["Delete 3 messages."]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "review" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "review" }} />
 	),
 };
 
 export const DeleteReviewDesktop: Story = {
 	name: "Delete — review, desktop",
+	play: shows(["Delete 3 messages."]),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
-		<SelectionFlow
-			width={DESKTOP_WIDTH}
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "review" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "review" }} />
 	),
 };
 
 export const DeleteReviewTablet: Story = {
 	name: "Delete — review, tablet",
+	play: shows(["Delete 3 messages."]),
 	globals: { viewport: { value: "tablet" } },
 	render: () => (
-		<SelectionFlow
-			width={TABLET_WIDTH}
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "review" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "review" }} />
 	),
 };
 
-/** Review of a widened match: no count, and a sample that says so. */
 export const DeleteReviewSimilar: Story = {
 	name: "Delete — review, similar to these",
+	play: shows([
+		"Delete mail similar to these 3.",
+		"This covers messages not shown in the list.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "delete", startAt: "review", startMode: "similar" }}
 		/>
@@ -874,18 +655,20 @@ export const DeleteReviewSimilar: Story = {
 
 export const DeleteDone: Story = {
 	name: "Delete — done",
+	play: shows(["Deleted 3", /Every message the match reached was deleted/]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "delete", startAt: "run" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "delete", startAt: "run" }} />
 	),
 };
 
 export const DeletePartialFailure: Story = {
 	name: "Delete — partial failure",
+	play: shows([
+		"Not everything was deleted",
+		"1 of 3 deleted · the mail server rejected 2.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "delete", startAt: "run", runState: "backApplyFailed" }}
 		/>
@@ -894,37 +677,29 @@ export const DeletePartialFailure: Story = {
 
 export const MoveFolder: Story = {
 	name: "Move — folder",
+	play: shows(["Pick a destination", "Pick a destination first."]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "move", startAt: "folder" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "move", startAt: "folder" }} />
 	),
 };
 
-/** Typing a name no folder carries offers to make it. */
 export const MoveNewFolder: Story = {
 	name: "Move — new folder",
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "move", startAt: "folder" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "move", startAt: "folder" }} />
 	),
 	play: async ({ canvasElement }) => {
-		await typeFolderName(canvasElement, "Hotels");
+		await nameNewFolder(canvasElement, "Hotels");
+		await expect(
+			within(canvasElement).getByRole("button", { name: "Create folder" }),
+		).toBeVisible();
 	},
 };
 
-/**
- * Creating a folder is an IMAP mutation and the move that follows waits on it,
- * so the create holds until the mail server confirms the folder. The wait is on
- * screen and a second press cannot start a second create.
- */
 export const MoveNewFolderCreating: Story = {
 	name: "Move — new folder, waiting for the server",
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "move",
@@ -934,127 +709,128 @@ export const MoveNewFolderCreating: Story = {
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await typeFolderName(canvasElement, "Hotels");
-		clickByText(canvasElement, 'Create "Hotels"');
+		await nameNewFolder(canvasElement, "Hotels");
+		await createFolder(canvasElement);
+		await expect(
+			await within(canvasElement).findByText(
+				"Waiting for the mail server to confirm the folder…",
+			),
+		).toBeVisible();
 	},
 };
 
-/** The create failed on the mail server. No folder is picked, and it says so. */
 export const MoveNewFolderCreateFailed: Story = {
 	name: "Move — new folder, create failed",
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "move", startAt: "folder", folderCreate: "fails" }}
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		await typeFolderName(canvasElement, "Hotels");
-		clickByText(canvasElement, 'Create "Hotels"');
-		await tick();
+		await nameNewFolder(canvasElement, "Hotels");
+		await createFolder(canvasElement);
+		await expect(
+			await within(canvasElement).findByText(
+				"The mail server refused the folder. Please try again.",
+			),
+		).toBeVisible();
 	},
 };
 
 export const MoveReview: Story = {
 	name: "Move — review",
+	play: shows(["Move 3 messages."]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "move", startAt: "review" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "move", startAt: "review" }} />
 	),
 };
 
 export const MarkReadReview: Story = {
 	name: "Mark read — review",
+	play: shows(["Mark read 20 messages."]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={SELECTION_SAMPLE.length}
 			openAt={{ verb: "markRead", startAt: "review" }}
 		/>
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Match step — the doors                                              */
-/* ------------------------------------------------------------------ */
-
-/** The opening state: the ticked messages, with the two widened doors offered. */
 export const OrganizeApplyTo: Story = {
 	name: "Organize — apply to",
+	play: shows(["What should this apply to?", "3 messages match"]),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "organize", startAt: "match" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "organize", startAt: "match" }} />
 	),
 };
 
-/** The widen-by-reading door taken: the match is anchored on the ticked mail. */
 export const OrganizeSimilarDoor: Story = {
 	name: "Organize — similar to these",
+	play: shows([
+		"Similar to these 3",
+		"The first matches. The total is not known until the run finishes.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match", startMode: "similar" }}
 		/>
 	),
 };
 
-/** The property door taken from the anchor step, before the editor opens. */
 export const OrganizePropertyDoor: Story = {
 	name: "Organize — match on properties",
+	play: shows([
+		"Its properties",
+		"The first matches. The total is not known until the run finishes.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match", startMode: "properties" }}
 		/>
 	),
 };
 
-/**
- * Similar-mail matching cannot run right now — the embedding backend is down, or
- * this mail is not indexed yet. The door renders dimmed and stays pressable:
- * press it and it says so, then lands on the property door with the senders
- * filled in.
- */
 export const OrganizeSemanticUnavailable: Story = {
 	name: "Organize — similar unavailable",
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match", semanticUnavailable: true }}
 		/>
 	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByText("Similar to these 3"));
+		await expect(
+			await canvas.findByText(
+				"Similar-mail matching is unavailable right now — matching on the senders instead.",
+			),
+		).toBeVisible();
+	},
 };
 
-/**
- * The same door on an instance that never turned semantic search on (#1068).
- * The distinction matters: nothing here is going to work on a retry, and the
- * fix is a command on the server, so that is what the door says.
- */
 export const OrganizeSemanticOff: Story = {
 	name: "Organize — semantic search off",
+	play: shows([/Semantic search is off on this instance/, /remit semantic on/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "match", semanticOff: true }}
 		/>
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Property step — the clauses                                         */
-/* ------------------------------------------------------------------ */
-
-/**
- * The sender fallback: no similar-mail matching, senders across three different
- * domains, so one editable `From` clause each.
- */
 export const OrganizeSenderFallback: Story = {
 	name: "Organize — sender fallback, addresses",
+	play: shows([
+		"Similar-mail matching is unavailable right now. These are the senders of the messages you picked.",
+		"automated@airbnb.com",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1065,15 +841,14 @@ export const OrganizeSenderFallback: Story = {
 	),
 };
 
-/**
- * The same fallback where every sender is at one registrable domain. The sender
- * derivation collapses them to a single `FromDomain` clause; the wizard does not
- * ask which, and the clause is an ordinary editable chip either way.
- */
 export const OrganizeSenderFallbackDomain: Story = {
 	name: "Organize — sender fallback, one domain",
+	play: shows([
+		"npmjs.com",
+		"Similar-mail matching is unavailable right now. These are the senders of the messages you picked.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
 			preselected={2}
 			openAt={{
@@ -1085,11 +860,11 @@ export const OrganizeSenderFallbackDomain: Story = {
 	),
 };
 
-/** The sender fallback carried through to a standing rule. */
 export const OrganizeSenderFallbackStanding: Story = {
 	name: "Organize — sender fallback, standing",
+	play: shows(["So you can find it later", "Rule name"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={4}
 			openAt={{
 				verb: "organize",
@@ -1102,25 +877,22 @@ export const OrganizeSenderFallbackStanding: Story = {
 	),
 };
 
-/** One sender across the whole selection — a single sharp `From` clause. */
 export const OrganizePropertiesSender: Story = {
 	name: "Organize — properties, one sender",
+	play: shows(["noreply@booking.com", "How was your stay?"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselectedIds={ONE_SENDER}
 			openAt={{ verb: "organize", startAt: "properties" }}
 		/>
 	),
 };
 
-/**
- * Senders that share nothing: what the messages have in common is their subject,
- * so the prefill drops to the run of words all three carry.
- */
 export const OrganizePropertiesSubject: Story = {
 	name: "Organize — properties, shared subject",
+	play: shows(["Your receipt from", "Your receipt from Sightglass #77"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_RECEIPTS_SAMPLE}
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "properties" }}
@@ -1128,11 +900,13 @@ export const OrganizePropertiesSubject: Story = {
 	),
 };
 
-/** The rule matches no mail — said as itself, not as a bare empty list (#452). */
 export const OrganizeNothingMatches: Story = {
 	name: "Organize — nothing matches",
+	play: shows([
+		"Nothing matches this yet. Widen a property, or match on a different one.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1143,16 +917,16 @@ export const OrganizeNothingMatches: Story = {
 	),
 };
 
-/**
- * A body-text clause has no count and never will: the vector-free matcher
- * refuses to read message bodies, so there is nothing to ask and nothing to
- * show. The sample says that, because the alternative — an empty list under
- * "nothing matches this yet" — is not merely unexplained but wrong.
- */
 export const OrganizeUncountable: Story = {
 	name: "Organize — the count that can't be taken",
+	play: shows(
+		["Has the words", /only a saved rule does/],
+		[
+			"Nothing matches this yet. Widen a property, or match on a different one.",
+		],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1164,11 +938,13 @@ export const OrganizeUncountable: Story = {
 	),
 };
 
-/** Nothing is indexed yet — the other reason for an empty sample (#452). */
 export const OrganizeNothingIndexed: Story = {
 	name: "Organize — nothing indexed",
+	play: shows([
+		"This mail isn't indexed yet, so nothing can be counted. The rule still matches once indexing catches up.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1179,30 +955,25 @@ export const OrganizeNothingIndexed: Story = {
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Scope step                                                          */
-/* ------------------------------------------------------------------ */
-
-/**
- * Reached through a widened door, which is what a scope that persists has to
- * hold: the two saving scopes need a predicate to keep matching on, and the
- * ticked rows are not one.
- */
 export const OrganizeScope: Story = {
 	name: "Organize — scope",
+	play: shows(["How long should this hold?", "Choose one of the three first."]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "rule", startMode: "similar" }}
 		/>
 	),
 };
 
-/** The standing scope: the rule keeps working on mail that hasn't arrived yet. */
 export const OrganizeStanding: Story = {
 	name: "Organize — keep doing this",
+	play: shows(
+		["How long should this hold?", "Keep doing this"],
+		["Choose one of the three first."],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1214,11 +985,11 @@ export const OrganizeStanding: Story = {
 	),
 };
 
-/** The same rule with a stop date, asked for on the step that offers the scope. */
 export const OrganizeUntil: Story = {
 	name: "Organize — until a date",
+	play: shows(["Stops on", "Pick the date this rule should stop on."]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1230,25 +1001,18 @@ export const OrganizeUntil: Story = {
 	),
 };
 
-/**
- * The ticked rows are a bounded list of ids and no predicate at all, so a rule
- * saved through that door would match nothing — now or later. The step refuses
- * it in the rule editor's words rather than saving a rule that never fires
- * (#1193); Back reaches the doors that do carry a predicate.
- */
 export const OrganizeStandingNoPredicate: Story = {
 	name: "Organize — keep doing this, nothing to match on",
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "rule", scope: "standing" }}
 		/>
 	),
 	play: async ({ canvasElement }) => {
-		clickByText(canvasElement, "Continue");
-		await tick();
-		// The live region is empty until the press, so this is the announcement
-		// itself rather than the description that was there all along.
+		await userEvent.click(
+			within(canvasElement).getByRole("button", { name: "Continue" }),
+		);
 		const announced = within(canvasElement)
 			.getAllByRole("status")
 			.some((region) => region.textContent === ruleBlockedCopy.noMatch);
@@ -1256,14 +1020,11 @@ export const OrganizeStandingNoPredicate: Story = {
 	},
 };
 
-/**
- * A one-time apply cannot read message bodies, so the scope step says so where
- * the choice is made rather than refusing the clause that offered it.
- */
 export const OrganizeScopeBodyText: Story = {
 	name: "Organize — scope, has the words",
+	play: shows([/Applying once can't read message bodies/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
 			conversion={PLAIN_CONVERSION}
 			openAt={{ verb: "organize", fromSearch: true, startAt: "rule" }}
@@ -1271,11 +1032,11 @@ export const OrganizeScopeBodyText: Story = {
 	),
 };
 
-/** Only reached by a scope that persists — the suggestion is prefilled and editable. */
 export const OrganizeName: Story = {
 	name: "Organize — name the rule",
+	play: shows(["So you can find it later", "Rule name"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{ verb: "organize", startAt: "name", startMode: "similar" }}
 		/>
@@ -1284,8 +1045,12 @@ export const OrganizeName: Story = {
 
 export const OrganizeReviewStanding: Story = {
 	name: "Organize — review, standing",
+	play: shows([
+		"Organize mail similar to these 3 and save a rule that keeps doing it.",
+		"Mail from Booking.com",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1297,14 +1062,11 @@ export const OrganizeReviewStanding: Story = {
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Run step — every commit outcome                                     */
-/* ------------------------------------------------------------------ */
-
 export const RunSaving: Story = {
 	name: "Run — saving",
+	play: shows(["Saving rule…", "Nothing has been changed yet."]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1316,11 +1078,14 @@ export const RunSaving: Story = {
 	),
 };
 
-/** The pass over the mail already in the mailbox, after the rule is saved. */
 export const RunBackApplyInFlight: Story = {
 	name: "Run — back-apply in flight",
+	play: shows([
+		"Rule saved. Moving the mail already in your mailbox…",
+		"This keeps running if you close the wizard.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1334,8 +1099,9 @@ export const RunBackApplyInFlight: Story = {
 
 export const RunBackApplyDone: Story = {
 	name: "Run — back-apply done",
+	play: shows(["Rule saved and applied"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1347,11 +1113,14 @@ export const RunBackApplyDone: Story = {
 	),
 };
 
-/** The pass failed part-way. The rule itself is saved — that is stated. */
 export const RunBackApplyFailed: Story = {
 	name: "Run — back-apply failed",
+	play: shows([
+		"Rule saved — some mail stayed put",
+		"1 of 3 organized · the mail server rejected 2. The rule itself is saved and keeps working on new mail.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1363,11 +1132,11 @@ export const RunBackApplyFailed: Story = {
 	),
 };
 
-/** The pass never began — distinct from failing, and offered again. */
 export const RunBackApplyStartFailed: Story = {
 	name: "Run — back-apply start failed",
+	play: shows(["Rule saved", "Run it over existing mail"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1379,14 +1148,11 @@ export const RunBackApplyStartFailed: Story = {
 	),
 };
 
-/**
- * The retry over a pass that already moved mail never reached the server. That
- * pass keeps its counts, and what is offered again is the same retry (#552).
- */
 export const RunBackApplyRestartFailed: Story = {
 	name: "Run — back-apply restart failed",
+	play: shows(["Rule saved — the retry didn't start"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1398,14 +1164,14 @@ export const RunBackApplyRestartFailed: Story = {
 	),
 };
 
-/**
- * A status poll that could not be read. The pass is still the mail server's, so
- * the counts stay and the way forward is another look, not another run (#526).
- */
 export const RunStatusUnknown: Story = {
 	name: "Run — status unknown",
+	play: shows([
+		"Rule saved. Its progress over your existing mail is unknown",
+		"Check again",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1417,11 +1183,11 @@ export const RunStatusUnknown: Story = {
 	),
 };
 
-/** The filter saved with nothing to back-apply. */
 export const RunFilterSaved: Story = {
 	name: "Run — filter saved",
+	play: shows(["Filter saved"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1433,11 +1199,11 @@ export const RunFilterSaved: Story = {
 	),
 };
 
-/** The rule was never created — nothing is live, and it can be retried. */
 export const RunCommitFailed: Story = {
 	name: "Run — commit failed",
+	play: shows(["Couldn't save the rule", "Nothing has changed.", "Try again"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1449,15 +1215,14 @@ export const RunCommitFailed: Story = {
 	),
 };
 
-/**
- * The commit reached the mail server with nowhere to file into. The screen names
- * the cause and the setting that fixes it, and offers no retry: the same commit
- * resolves the same absent destination every time it is sent (#522).
- */
 export const RunNoDestination: Story = {
 	name: "Run — nowhere to file into",
+	play: shows(
+		["Couldn't start junk", /no Junk folder appointed/],
+		["Try again"],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "junk",
@@ -1471,16 +1236,14 @@ export const RunNoDestination: Story = {
 	),
 };
 
-/**
- * The commit pressed while another run is still paging. There is one run at a
- * time, so this one never started: the screen names the one that is going and
- * where to stop it, and offers no retry — sending the same commit again meets
- * the same run (#112).
- */
 export const RunAnotherIsGoing: Story = {
 	name: "Run — another run is still going",
+	play: shows(
+		["Couldn't start delete", /still running — stop it first/],
+		["Try again"],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "delete",
@@ -1494,11 +1257,11 @@ export const RunAnotherIsGoing: Story = {
 	),
 };
 
-/** A one-off run ends on its own count, not on a rule. */
 export const RunOnceDone: Story = {
 	name: "Run — one-off done",
+	play: shows(["Organized 3"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1510,15 +1273,11 @@ export const RunOnceDone: Story = {
 	),
 };
 
-/**
- * A selection spanning accounts. A folder and a filter both belong to one
- * account, so neither step can be answered — and each says so, in place, rather
- * than offering an empty picker or a scope that cannot be saved (#477 5.5).
- */
 export const CrossAccountDestination: Story = {
 	name: "Folder — selection spans accounts",
+	play: shows([/A destination only works within one account/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1529,15 +1288,11 @@ export const CrossAccountDestination: Story = {
 	),
 };
 
-/**
- * A selection spanning folders of one account. The account is settled, so the
- * step names the restriction that actually applies — told to pick a single
- * account, a user holding one account's mail has nothing to act on (#525).
- */
 export const CrossFolderDestination: Story = {
 	name: "Folder — selection spans folders",
+	play: shows([/A destination only works within one folder/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1548,28 +1303,25 @@ export const CrossFolderDestination: Story = {
 	),
 };
 
-/** One account, one folder: the step asks for a destination and nothing else. */
 export const UnrestrictedDestination: Story = {
 	name: "Folder — one account, one folder",
+	play: shows(
+		["Tap a folder to open it, or make a new one where you want it."],
+		[/only works within/],
+	),
 	render: () => (
-		<SelectionFlow
-			preselected={3}
-			openAt={{ verb: "organize", startAt: "folder" }}
-		/>
+		<Flow preselected={3} openAt={{ verb: "organize", startAt: "folder" }} />
 	),
 };
 
-/**
- * The same selection on the step that asks what the action applies to (#523).
- * Both widened doors are counted by a preview one account answers, so they are
- * withheld rather than left to lead to a review waiting on a count nobody can
- * take. The ticked rows are their own match, and the step says why they are all
- * that is on offer.
- */
 export const CrossAccountMatch: Story = {
 	name: "Apply to — selection spans accounts",
+	play: shows(
+		[/Matching beyond the messages you picked only works within one account/],
+		["Similar to these 3"],
+	),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1580,14 +1332,11 @@ export const CrossAccountMatch: Story = {
 	),
 };
 
-/**
- * The folder-spanning selection on the same step. One account answers the
- * preview both widened doors are counted through, so both stay on offer.
- */
 export const CrossFolderMatch: Story = {
 	name: "Apply to — selection spans folders",
+	play: shows(["Similar to these 3", "Its properties"], [/only works within/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1600,8 +1349,9 @@ export const CrossFolderMatch: Story = {
 
 export const CrossAccountRule: Story = {
 	name: "Rule — selection spans accounts",
+	play: shows([/A rule only works within one account/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1615,8 +1365,9 @@ export const CrossAccountRule: Story = {
 
 export const CrossFolderRule: Story = {
 	name: "Rule — selection spans folders",
+	play: shows([/A rule only works within one folder/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1628,15 +1379,13 @@ export const CrossFolderRule: Story = {
 	),
 };
 
-/**
- * The widen was asked to run and the mail server refused. The door dims like
- * any other door that cannot run, and carries the server's own words rather
- * than a generic line.
- */
 export const MatchWidenFailed: Story = {
 	name: "Apply to — the widen failed",
+	play: shows([
+		"Couldn't find similar messages: The matcher is not reachable right now.",
+	]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1647,15 +1396,11 @@ export const MatchWidenFailed: Story = {
 	),
 };
 
-/**
- * A widened match reaches mail the list never loaded, so its rows are fetched
- * from the server that matched them. No rows yet is not the same answer as no
- * rows at all — saying "nothing matches" here is the wrong conclusion (#477 3.5).
- */
 export const MatchSampleLoading: Story = {
 	name: "Apply to — the sample is still arriving",
+	play: shows(["Fetching the messages this covers…"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1667,14 +1412,11 @@ export const MatchSampleLoading: Story = {
 	),
 };
 
-/**
- * A back-apply the server ran itself reports how many it could not apply
- * without handing back the messages behind them, so the count stands alone.
- */
 export const RunFailedBeyondNamed: Story = {
 	name: "Run — more rejected than can be named",
+	play: shows([/the mail server rejected 9/, "Retry 9"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
@@ -1687,10 +1429,6 @@ export const RunFailedBeyondNamed: Story = {
 	),
 };
 
-/* ------------------------------------------------------------------ */
-/* Select-all-matching — the selection that is a predicate            */
-/* ------------------------------------------------------------------ */
-
 const ESCALATED_SCOPE = `matching "${QUERY}"`;
 
 const escalatedEntry = (verb: Verb, startAt: StepId): WizardEntry => ({
@@ -1700,35 +1438,24 @@ const escalatedEntry = (verb: Verb, startAt: StepId): WizardEntry => ({
 	escalatedTotal: MATCH_TOTAL,
 });
 
-/**
- * PRIMARY — the selection the list escalated past its loaded rows. The match
- * step names what the predicate covers instead of offering three ways to widen
- * it: there is nothing to widen, the search is already the match. The sample
- * beneath comes from the server that resolved it, not from the rows on screen.
- */
 export const EscalatedApplyTo: Story = {
 	name: "Select all matching — apply to",
+	play: shows(["What this applies to", 'Every message matching "npm"']),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("delete", "match")}
 		/>
 	),
 };
 
-/**
- * The review the predicate now ends on. It states the server's count in the
- * sentence, warns that the run covers whatever matches by the time it goes, and
- * closes with the sample — the screen that replaced the bar's confirmation.
- */
 export const EscalatedReview: Story = {
 	name: "Select all matching — review",
+	play: shows(['Delete all 1,284 messages matching "npm".']),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("delete", "review")}
 		/>
@@ -1737,62 +1464,47 @@ export const EscalatedReview: Story = {
 
 export const EscalatedReviewDesktop: Story = {
 	name: "Select all matching — review, desktop",
+	play: shows(['Delete all 1,284 messages matching "npm".']),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
-		<SelectionFlow
-			width={DESKTOP_WIDTH}
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("delete", "review")}
 		/>
 	),
 };
 
-/**
- * Organize over the predicate reaches the scope step, and the two that save a
- * rule are dimmed there. The list resolved this match before the wizard opened,
- * so there is no clause to build a rule from, no anchor to widen, and no door on
- * the match step to get either — asking for a clause would name a remedy on no
- * screen this walk can reach. The step states the one that works instead: the
- * query's own "Make this a filter" (#1193). Applying once is unaffected.
- */
 export const EscalatedRuleRestricted: Story = {
 	name: "Select all matching — scope, no rule to save",
+	play: shows([/A match this wide applies once/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("organize", "rule")}
 		/>
 	),
 };
 
-/** A move over the predicate still asks where, on the step that asks it. */
 export const EscalatedMoveFolder: Story = {
 	name: "Select all matching — move, folder",
+	play: shows(["Pick a destination", "Archive"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={escalatedEntry("move", "folder")}
 		/>
 	),
 };
 
-/**
- * The chunked runner, driven by the run screen rather than by the bar. Two ways
- * off the screen, and they mean different things: Close leaves a run that keeps
- * going, Stop the run ends it at the next batch.
- */
 export const EscalatedRunning: Story = {
 	name: "Select all matching — running",
+	play: shows(["Deleting 12 messages…", "Stop the run"]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={{
 				...escalatedEntry("delete", "run"),
@@ -1802,19 +1514,12 @@ export const EscalatedRunning: Story = {
 	),
 };
 
-/**
- * The run stopped part-way. Nothing rejected what it left behind: most of it was
- * never sent, and the batch already on its way when Stop landed may have gone
- * through anyway — which is what the screen says, rather than reporting a mail
- * server that refused them. Retry re-resolves the predicate; every verb it
- * carries is idempotent.
- */
 export const EscalatedStopped: Story = {
 	name: "Select all matching — stopped part-way",
+	play: shows(["Stopped after 10", /10 of 12 deleted/]),
 	render: () => (
-		<SelectionFlow
+		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
-			title={RESULTS_TITLE}
 			preselected={4}
 			openAt={{
 				...escalatedEntry("delete", "run"),
