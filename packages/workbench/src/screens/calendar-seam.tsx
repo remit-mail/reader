@@ -39,7 +39,7 @@ import {
 	PaneHeader,
 	type RsvpState,
 	settleZone,
-	useContainerWidth,
+	useAppShellLayout,
 } from "@remit/ui";
 import {
 	CalendarDays,
@@ -95,9 +95,6 @@ import {
 	toMinutes,
 } from "../fixtures/calendar-mail.js";
 import { ProposedShell } from "../lib/proposed-shell.js";
-
-/** Below this the reading pane has no room for a day beside the thread. */
-const ASIDE_MIN_WIDTH = 620;
 
 /** Half an hour is what Sofia asked for, and what a hold is worth. */
 const OFFER_MINUTES = 30;
@@ -859,18 +856,29 @@ export function CalendarSeam({
 		);
 	}
 
+	const dayLabel = formatDayLabel(PROPOSED_DATE);
+	const daySummary = `${busySummary(blocks)} · ${offers.length} half-hours free`;
 	let readingBody: ReactNode;
+	let rail: ReactNode;
 	if (selectedEvent) readingBody = eventPane(false);
-	else if (thread)
+	else if (thread) {
 		readingBody = (
 			<SeamReading
 				subject={thread.subject}
-				dayLabel={formatDayLabel(PROPOSED_DATE)}
-				daySummary={`${busySummary(blocks)} · ${offers.length} half-hours free`}
-				body={(aside) => threadBody(false, aside)}
+				dayLabel={dayLabel}
+				daySummary={daySummary}
+				body={(railShown) => threadBody(false, railShown)}
 				day={(minuteHeight) => dayPanel(false, minuteHeight)}
 			/>
 		);
+		rail = (
+			<SeamDayRail
+				dayLabel={dayLabel}
+				daySummary={daySummary}
+				day={(minuteHeight) => dayPanel(false, minuteHeight)}
+			/>
+		);
+	}
 
 	return (
 		<ProposedShell
@@ -893,6 +901,7 @@ export function CalendarSeam({
 			}
 			readingPane={readingBody ? "default" : "off"}
 			reading={readingBody ?? undefined}
+			rail={rail}
 		/>
 	);
 }
@@ -973,45 +982,50 @@ function SeamReading({
 	subject: string;
 	dayLabel: string;
 	daySummary: string;
-	body: (aside: boolean) => ReactNode;
+	body: (railShown: boolean) => ReactNode;
 	day: (minuteHeight: number) => ReactNode;
 }) {
-	const [ref, paneWidth] = useContainerWidth(900);
-	const aside = (paneWidth ?? 0) >= ASIDE_MIN_WIDTH;
+	const railShown = useAppShellLayout()?.showIntelligencePane ?? false;
 
 	return (
-		<div ref={ref} className="flex h-full w-full bg-surface">
-			<div className="flex min-w-0 flex-1 flex-col">
-				<PaneHeader title={subject} />
-				<div className="min-h-0 flex-1 overflow-y-auto pb-6">
-					{body(aside)}
-					{!aside && (
-						<div className="px-row-inset pt-3">
-							<h2 className="pb-1 text-sm font-medium text-fg">{dayLabel}</h2>
-							<p className="pb-2 text-2xs text-fg-subtle">{daySummary}</p>
-							{day(0.5)}
-						</div>
-					)}
-				</div>
-			</div>
-
-			{aside && (
-				<aside className="flex w-72 shrink-0 flex-col border-l border-line bg-surface-sunken">
-					<PaneHeader
-						leading={
-							<CalendarDays className="size-4 shrink-0 text-fg-subtle" />
-						}
-					>
-						<h2 className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">
-							{dayLabel}
-						</h2>
-					</PaneHeader>
-					<div className="min-h-0 flex-1 overflow-y-auto px-row-inset py-2">
+		<div className="flex h-full w-full flex-col bg-surface">
+			<PaneHeader title={subject} />
+			<div className="min-h-0 flex-1 overflow-y-auto pb-6">
+				{body(railShown)}
+				{!railShown && (
+					<div className="px-row-inset pt-3">
+						<h2 className="pb-1 text-sm font-medium text-fg">{dayLabel}</h2>
 						<p className="pb-2 text-2xs text-fg-subtle">{daySummary}</p>
-						{day(0.62)}
+						{day(0.5)}
 					</div>
-				</aside>
-			)}
+				)}
+			</div>
+		</div>
+	);
+}
+
+function SeamDayRail({
+	dayLabel,
+	daySummary,
+	day,
+}: {
+	dayLabel: string;
+	daySummary: string;
+	day: (minuteHeight: number) => ReactNode;
+}) {
+	return (
+		<div className="flex h-full w-full flex-col border-l border-line bg-surface-sunken">
+			<PaneHeader
+				leading={<CalendarDays className="size-4 shrink-0 text-fg-subtle" />}
+			>
+				<h2 className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">
+					{dayLabel}
+				</h2>
+			</PaneHeader>
+			<div className="min-h-0 flex-1 overflow-y-auto px-row-inset py-2">
+				<p className="pb-2 text-2xs text-fg-subtle">{daySummary}</p>
+				{day(0.62)}
+			</div>
 		</div>
 	);
 }

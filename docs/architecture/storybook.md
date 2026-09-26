@@ -47,3 +47,7 @@ const meta = {
 A state is a different world (`mailWorld({ outbox: [] })`), a handler option (`withholdCounts`, `pageSize`, `holdLaterPages`, `draftSave`, `send`, `search`, `config`), a different address or a play step, never a prop the app does not have. Fixture times sit on a fixed clock. A phone story sets `globals: { viewport: { value: "mobile" } }`, because the shell reads its tier off the viewport.
 
 The frame takes the `authProvider` a deployment composes, as `mountApp` does: `cognitoAuthProvider` or `betterAuthProvider` for the sign-in screens, `signedInAs(email)` for a screen that reads the session. `withRuntimeConfig` in a story's `beforeEach` sets the deployment config a state depends on, such as `tlsMode` or a Cognito user pool, and restores it afterwards.
+
+## The workbench fence
+
+Biome keeps a `packages/workbench/src` prototype built from shipped parts. `noRestrictedImports` lets it import `@remit/ui`, `@remit/test-dom`, the web-client story frame (`@/mocks/story-frame`), and a relative path inside the package itself, and nothing else: no other `@remit` package, no other `@/` path, no relative path out of the package. The `plugins/no-raw-landmarks.grit` rule bans a raw `aside`, `header` or `nav` there, so a prototype takes its nav and rail from `ProposedShell` and its headers from `PaneHeader` or `ExpandedMessage` instead of drawing copies. `screens/calendar-agenda.tsx` is exempt from that landmark rule until stage 9 replaces its layout.

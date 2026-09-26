@@ -92,6 +92,177 @@
 			}
 		},
 		{
+			"includes": [
+				"packages/workbench/src/*.ts",
+				"packages/workbench/src/*.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@remit/**",
+											"!@remit/ui",
+											"!@remit/ui/**",
+											"!@remit/test-dom",
+											"!@remit/test-dom/**"
+										],
+										"message": "A workbench prototype builds from @remit/ui parts only. Move what it needs into packages/ui, or story the shipped screen in web-client."
+									},
+									{
+										"group": [
+											"@/**",
+											"!@/mocks/story-frame",
+											"!@/mocks/story-frame/**"
+										],
+										"message": "Of the web-client, a workbench prototype reaches the story frame only (@/mocks/story-frame)."
+									},
+									{
+										"group": ["../../**"],
+										"message": "A workbench prototype imports nothing from outside its package by a relative path. Reach a ui part through @remit/ui."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"packages/workbench/src/*/*.ts",
+				"packages/workbench/src/*/*.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@remit/**",
+											"!@remit/ui",
+											"!@remit/ui/**",
+											"!@remit/test-dom",
+											"!@remit/test-dom/**"
+										],
+										"message": "A workbench prototype builds from @remit/ui parts only. Move what it needs into packages/ui, or story the shipped screen in web-client."
+									},
+									{
+										"group": [
+											"@/**",
+											"!@/mocks/story-frame",
+											"!@/mocks/story-frame/**"
+										],
+										"message": "Of the web-client, a workbench prototype reaches the story frame only (@/mocks/story-frame)."
+									},
+									{
+										"group": ["../../../**"],
+										"message": "A workbench prototype imports nothing from outside its package by a relative path. Reach a ui part through @remit/ui."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"packages/workbench/src/*/*/*.ts",
+				"packages/workbench/src/*/*/*.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@remit/**",
+											"!@remit/ui",
+											"!@remit/ui/**",
+											"!@remit/test-dom",
+											"!@remit/test-dom/**"
+										],
+										"message": "A workbench prototype builds from @remit/ui parts only. Move what it needs into packages/ui, or story the shipped screen in web-client."
+									},
+									{
+										"group": [
+											"@/**",
+											"!@/mocks/story-frame",
+											"!@/mocks/story-frame/**"
+										],
+										"message": "Of the web-client, a workbench prototype reaches the story frame only (@/mocks/story-frame)."
+									},
+									{
+										"group": ["../../../../**"],
+										"message": "A workbench prototype imports nothing from outside its package by a relative path. Reach a ui part through @remit/ui."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"packages/workbench/src/*/*/*/**/*.ts",
+				"packages/workbench/src/*/*/*/**/*.tsx"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"patterns": [
+									{
+										"group": [
+											"@remit/**",
+											"!@remit/ui",
+											"!@remit/ui/**",
+											"!@remit/test-dom",
+											"!@remit/test-dom/**"
+										],
+										"message": "A workbench prototype builds from @remit/ui parts only. Move what it needs into packages/ui, or story the shipped screen in web-client."
+									},
+									{
+										"group": [
+											"@/**",
+											"!@/mocks/story-frame",
+											"!@/mocks/story-frame/**"
+										],
+										"message": "Of the web-client, a workbench prototype reaches the story frame only (@/mocks/story-frame)."
+									},
+									{
+										"group": ["../../../../../**"],
+										"message": "A workbench prototype imports nothing from outside its package by a relative path. Reach a ui part through @remit/ui."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"packages/workbench/src/**/*.tsx",
+				"!packages/workbench/src/screens/calendar-agenda.tsx"
+			],
+			"plugins": ["./plugins/no-raw-landmarks.grit"]
+		},
+		{
 			"includes": ["npm-scripts/lib/*.test.mjs"],
 			"linter": {
 				"rules": {
