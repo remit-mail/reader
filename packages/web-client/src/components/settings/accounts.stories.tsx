@@ -199,6 +199,11 @@ export const AccountsOauthSuccess: Story = {
 	args: { url: "/settings/accounts?connected=acc-personal" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
+		await expect(await canvas.findByText(/^Connected /)).toBeVisible();
+		await expect(canvas.getByText(/Access granted/)).toBeVisible();
+		await userEvent.click(
+			canvas.getByRole("button", { name: /Go to inbox|Continue/ }),
+		);
 		await expect(
 			await canvas.findByText("Account connected successfully."),
 		).toBeVisible();
