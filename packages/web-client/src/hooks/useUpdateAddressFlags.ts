@@ -55,7 +55,7 @@ function applyFlagPatch(
 }
 
 /**
- * Optimistic PATCH for per-sender flags (VIP / Mute / Block / Unsubscribe).
+ * Optimistic PATCH for per-sender flags (VIP / Mute / Block).
  * Mirrors the `useToggleTrusted` pattern: patch the cached
  * address-search response so the toggle flips instantly, roll back on error,
  * and invalidate on settle to reconcile with the server.

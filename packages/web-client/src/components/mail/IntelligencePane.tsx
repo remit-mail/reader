@@ -321,11 +321,6 @@ function WiredPanel({
 		updateFlags({ muted: { value: next } });
 	}, [data?.flags?.muted, updateFlags]);
 
-	const handleToggleUnsubscribe = useCallback(() => {
-		const next = !(data?.flags?.unsubscribed === true);
-		updateFlags({ unsubscribed: { value: next } });
-	}, [data?.flags?.unsubscribed, updateFlags]);
-
 	const handleReclassifySelect = useCallback(
 		(category: CategoryOverride) => {
 			setReclassifyOpen(false);
@@ -347,7 +342,6 @@ function WiredPanel({
 	const actions: IntelligenceQuickActions = {
 		onToggleVip: canUpdateFlags ? handleToggleVip : undefined,
 		onToggleMute: canUpdateFlags ? handleToggleMute : undefined,
-		onToggleUnsubscribe: canUpdateFlags ? handleToggleUnsubscribe : undefined,
 		onReclassify: canUpdateFlags ? () => setReclassifyOpen(true) : undefined,
 		onNotSpam: spamAction === "notSpam" ? handleNotSpam : undefined,
 		onReportSpam: spamAction === "reportSpam" ? handleReportSpam : undefined,

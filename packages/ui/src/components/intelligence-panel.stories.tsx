@@ -252,7 +252,7 @@ export const Reported: Story = {
 
 /**
  * Neither action is offered. The panel hides the pair rather than disabling
- * it — unlike VIP/Mute/Unsubscribe, which always render and go visibly
+ * it — unlike VIP/Mute, which always render and go visibly
  * unavailable with no handler (issue #51). The host's own wiring never
  * actually reaches this: `resolveSpamAction` always returns one of the two,
  * since every message either carries a spam report or doesn't. Kept as a

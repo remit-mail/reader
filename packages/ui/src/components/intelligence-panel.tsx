@@ -1,7 +1,6 @@
 import {
 	BellOff,
 	MailCheck,
-	MailX,
 	ShieldAlert,
 	ShieldCheck,
 	ShieldQuestion,
@@ -142,7 +141,6 @@ export interface SenderFlagsIntel {
 	 * host derives from this specific message's `Message.spamReport`.
 	 */
 	blocked?: boolean;
-	unsubscribed?: boolean;
 }
 
 export interface IntelligenceData {
@@ -156,7 +154,6 @@ export interface IntelligenceData {
 export interface IntelligenceQuickActions {
 	onToggleVip?: () => void;
 	onToggleMute?: () => void;
-	onToggleUnsubscribe?: () => void;
 	onReclassify?: () => void;
 	/**
 	 * "Not spam": undo a spam report — clears the sender block and moves the
@@ -557,12 +554,6 @@ export function IntelligencePanel({
 									pending={reportSpamPending}
 								/>
 							)}
-							<QuickAction
-								icon={<MailX className="size-3.5" />}
-								label="Unsubscribe"
-								active={flags.unsubscribed}
-								onClick={actions?.onToggleUnsubscribe}
-							/>
 						</div>
 						{actions?.onNotSpam && (
 							<p className="mt-1.5 text-2xs text-fg-subtle">

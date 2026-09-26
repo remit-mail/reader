@@ -118,7 +118,6 @@ function buildSenderFlags(
 		vip: address.flags.vip?.value === true,
 		muted: address.flags.muted?.value === true,
 		blocked: address.flags.blocked?.value === true,
-		unsubscribed: address.flags.unsubscribed?.value === true,
 	};
 }
 
