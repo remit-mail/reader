@@ -204,6 +204,20 @@
       "when": 1790371527892,
       "tag": "0029_account_synced_services",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "6",
+      "when": 1790385845118,
+      "tag": "0030_mailbox_path_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1790385846240,
+      "tag": "0031_mailbox_path_unique",
+      "breakpoints": true
     }
   ]
 }

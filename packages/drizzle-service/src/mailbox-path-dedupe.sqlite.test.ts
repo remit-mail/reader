@@ -16,8 +16,8 @@ import {
 	migrationJournal,
 } from "./test-shipped-sqlite-schema.js";
 
-const DEDUPE = "0029_mailbox_path_dedupe";
-const UNIQUE = "0030_mailbox_path_unique";
+const DEDUPE = "0030_mailbox_path_dedupe";
+const UNIQUE = "0031_mailbox_path_unique";
 const ACCOUNT = "acct";
 const CONFIG = "cfg";
 

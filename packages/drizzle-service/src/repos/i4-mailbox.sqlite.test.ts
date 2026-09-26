@@ -178,7 +178,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		applyMigration(sqlite, "0026_mailbox_sync_status_backfill");
 		applyMigration(sqlite, "0027_mailbox_sync_status_total");
 		applyMigration(sqlite, "0028_mailbox_pending_path");
-		applyMigration(sqlite, "0030_mailbox_path_unique");
+		applyMigration(sqlite, "0031_mailbox_path_unique");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {
