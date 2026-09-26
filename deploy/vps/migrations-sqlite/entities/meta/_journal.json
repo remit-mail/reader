@@ -232,6 +232,13 @@
       "when": 1790390091232,
       "tag": "0033_mailbox_sync_failure_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "6",
+      "when": 1790393935279,
+      "tag": "0034_calendar_subscription",
+      "breakpoints": true
     }
   ]
 }
