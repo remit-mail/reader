@@ -2,6 +2,7 @@ import {
 	type CalendarEventData,
 	calendarColorClasses,
 	cn,
+	PaneHeader,
 	RsvpBadge,
 } from "@remit/ui";
 import { Clock, Globe, MapPin, X } from "lucide-react";
@@ -46,7 +47,7 @@ export function SeamEventDetail({
 
 	return (
 		<article className={cn("flex h-full flex-col bg-surface", className)}>
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+			<PaneHeader>
 				<span className={cn("size-2.5 shrink-0 rounded-full", hue.solid)} />
 				<span className="min-w-0 flex-1 truncate text-xs text-fg-muted">
 					{calendar?.name} · {calendar?.accountLabel}
@@ -64,7 +65,7 @@ export function SeamEventDetail({
 						<X className="size-4" />
 					</button>
 				)}
-			</header>
+			</PaneHeader>
 
 			<div className="min-h-0 flex-1 overflow-y-auto">
 				<div className="border-b border-line px-row-inset py-3">

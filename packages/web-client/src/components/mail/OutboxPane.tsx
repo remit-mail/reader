@@ -26,6 +26,7 @@ import {
 	cn,
 	LIST_ROW_SELECTOR,
 	OutboxRow,
+	PaneHeader,
 	ReadingPaneEmpty,
 	useRovingFocus,
 } from "@remit/ui";
@@ -458,18 +459,7 @@ function OutboxList() {
 
 	return (
 		<div className="h-full flex flex-col bg-canvas">
-			{/* List datum bar (40px, the shared `--spacing-pane-header`): keeps
-			    the bottom hairline on the same y as the mailbox view so the grid
-			    line stays continuous across nav → outbox (no staircase, #422). */}
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<NavMenuButton />
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					Outbox
-				</h1>
-				<span className="shrink-0 text-2xs text-fg-subtle">
-					{messages.length} {messages.length === 1 ? "message" : "messages"}
-				</span>
-			</header>
+			<OutboxListHeader count={messages.length} />
 			<div ref={listRef} className="flex-1 overflow-y-auto">
 				{messages.map((message) => (
 					<OutboxMessageRow
@@ -481,6 +471,16 @@ function OutboxList() {
 				))}
 			</div>
 		</div>
+	);
+}
+
+function OutboxListHeader({ count }: { count: number }) {
+	return (
+		<PaneHeader title="Outbox" leading={<NavMenuButton />}>
+			<span className="shrink-0 text-2xs text-fg-subtle">
+				{count} {count === 1 ? "message" : "messages"}
+			</span>
+		</PaneHeader>
 	);
 }
 
@@ -496,7 +496,7 @@ function OutboxReading() {
 			{/* Detail datum bar (40px): outbox has no message-action toolbar,
 			    but the datum bar must be present so its bottom hairline lines
 			    up with the list pane's, keeping the grid continuous (#422). */}
-			<header className="flex h-pane-header shrink-0 items-center border-b border-line px-3" />
+			<PaneHeader />
 			<div className="min-h-0 flex-1 overflow-hidden">
 				{selectedMessage ? (
 					<OutboxMessageDetail message={selectedMessage} />
@@ -556,15 +556,7 @@ function OutboxPhone() {
 
 	return (
 		<div className="h-full flex flex-col bg-canvas">
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<NavMenuButton />
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					Outbox
-				</h1>
-				<span className="shrink-0 text-2xs text-fg-subtle">
-					{messages.length} {messages.length === 1 ? "message" : "messages"}
-				</span>
-			</header>
+			<OutboxListHeader count={messages.length} />
 			<div ref={listRef} className="flex-1 overflow-y-auto">
 				{messages.map((message) => (
 					<OutboxMessageRow

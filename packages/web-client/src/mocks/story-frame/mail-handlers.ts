@@ -2,6 +2,7 @@ import type {
 	AccountDetailOperationsUpdateAccountResponse,
 	AddressDetailOperationsUpdateAddressResponse,
 	AddressOperationsSearchAddressesResponse,
+	CalendarEventDetailOperationsGetCalendarEventResponse,
 	CalendarEventOperationsListCalendarEventsResponse,
 	CalendarOperationsListCalendarsResponse,
 	CalendarSuggestionOperationsListCalendarSuggestionsResponse,
@@ -34,6 +35,7 @@ import type {
 	ThreadOperationsListThreadsResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { type HttpHandler, HttpResponse, http } from "msw";
+import { instancesWithin } from "@/components/calendar/calendar-story-fixtures";
 import { makeConfig } from "@/test-support/fixtures";
 import type { MailWorld } from "./mail-world";
 
@@ -487,13 +489,29 @@ export const mailHandlers = (
 			return new HttpResponse(null, { status: 204 });
 		}),
 		http.get(`${API}/calendars`, () =>
-			HttpResponse.json<CalendarOperationsListCalendarsResponse>({ items: [] }),
-		),
-		http.get(`${API}/calendar-events`, () =>
-			HttpResponse.json<CalendarEventOperationsListCalendarEventsResponse>({
-				items: [],
+			HttpResponse.json<CalendarOperationsListCalendarsResponse>({
+				items: world.calendars,
 			}),
 		),
+		http.get(`${API}/calendar-events`, ({ request }) =>
+			HttpResponse.json<CalendarEventOperationsListCalendarEventsResponse>({
+				items: instancesWithin(new URL(request.url), world.calendarEvents),
+			}),
+		),
+		http.get(`${API}/calendar-events/:calendarObjectId`, ({ params }) => {
+			const resource = world.calendarResources.find(
+				(candidate) =>
+					candidate.calendarObjectId === String(params.calendarObjectId),
+			);
+			if (!resource)
+				return HttpResponse.json(
+					{ status: 404, message: "Calendar event not found" },
+					{ status: 404 },
+				);
+			return HttpResponse.json<CalendarEventDetailOperationsGetCalendarEventResponse>(
+				resource,
+			);
+		}),
 		http.get(`${API}/calendar-suggestions`, () =>
 			HttpResponse.json<CalendarSuggestionOperationsListCalendarSuggestionsResponse>(
 				{ items: [] },
