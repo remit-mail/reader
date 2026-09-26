@@ -4,6 +4,7 @@ import * as entities from "@remit/drizzle-sqlite-schema";
 import Database from "better-sqlite3";
 import { asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { Db } from "./db.js";
 import {
 	PARKED_MAILBOX_ID,
@@ -21,6 +22,18 @@ const UNIQUE = "0031_mailbox_path_unique";
 const MAILBOX_COLUMNS_ADDED_SINCE = ["0033_mailbox_sync_failure_reason"];
 const ACCOUNT = "acct";
 const CONFIG = "cfg";
+
+const filterAtDedupe = sqliteTable("filter", {
+	filterId: text("filter_id").primaryKey(),
+	accountConfigId: text("account_config_id").notNull(),
+	name: text("name").notNull(),
+	scope: text("scope").notNull(),
+	ruleChangedAt: integer("rule_changed_at").notNull(),
+	actionChangedAt: integer("action_changed_at").notNull(),
+	actionMailboxId: text("action_mailbox_id").notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
 
 type Handle = { sqlite: Database.Database; db: Db<Record<string, unknown>> };
 
@@ -205,7 +218,7 @@ describe("(account_id, full_path) becomes unique", () => {
 			.update(entities.mailboxes)
 			.set({ parentMailboxId: "older-empty" })
 			.where(eq(entities.mailboxes.mailboxId, "child"));
-		await handle.db.insert(entities.filters).values({
+		await handle.db.insert(filterAtDedupe).values({
 			filterId: "f1",
 			accountConfigId: CONFIG,
 			name: "Alerts",
@@ -257,7 +270,7 @@ describe("(account_id, full_path) becomes unique", () => {
 			.from(entities.mailboxes)
 			.where(eq(entities.mailboxes.mailboxId, "child"));
 		assert.equal(child?.parent, "with-mail");
-		const [filter] = await handle.db.select().from(entities.filters);
+		const [filter] = await handle.db.select().from(filterAtDedupe);
 		assert.equal(filter?.actionMailboxId, "with-mail");
 		const [job] = await handle.db.select().from(entities.organizeJobRequests);
 		assert.equal(job?.actionMailboxId, "with-mail");

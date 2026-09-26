@@ -47,6 +47,7 @@ const filterFixture = (
 	name: "Receipts",
 	scope: "Standing",
 	state: "Active",
+	disabledReason: "None",
 	hasAnchor: false,
 	ruleChangedAt: 100,
 	actionChangedAt: 100,

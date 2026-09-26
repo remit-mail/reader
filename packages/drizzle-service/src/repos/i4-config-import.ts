@@ -1,8 +1,10 @@
-import type {
-	ConfigImportItem,
-	CreateConfigImportInput,
-	IConfigImportRepository,
-	UpdateConfigImportInput,
+import {
+	type ConfigImportItem,
+	type ConfigImportUnresolvedRefItem,
+	type CreateConfigImportInput,
+	FILTER_NO_ACTION,
+	type IConfigImportRepository,
+	type UpdateConfigImportInput,
 } from "@remit/data-ports";
 import { desc, eq } from "drizzle-orm";
 import type { Db } from "../db.js";
@@ -11,6 +13,30 @@ import { randomId } from "../id.js";
 import { configImportTable } from "../schema/i4-config-import.js";
 
 type DB = Db<Record<string, unknown>>;
+
+type StoredRef = Omit<ConfigImportUnresolvedRefItem, "mailboxId"> & {
+	mailboxId?: string;
+};
+
+const isStoredRef = (value: unknown): value is StoredRef =>
+	typeof value === "object" &&
+	value !== null &&
+	"kind" in value &&
+	"accountId" in value &&
+	"folderPath" in value &&
+	"target" in value;
+
+const refsOf = (value: unknown): ConfigImportUnresolvedRefItem[] => {
+	if (!Array.isArray(value) || !value.every(isStoredRef)) {
+		throw new Error(
+			"config_import.unresolved_refs is not a list of folder references",
+		);
+	}
+	return value.map((ref) => ({
+		...ref,
+		mailboxId: ref.mailboxId ?? FILTER_NO_ACTION,
+	}));
+};
 
 function rowToConfigImport(
 	row: typeof configImportTable.$inferSelect,
@@ -21,7 +47,7 @@ function rowToConfigImport(
 		schemaVersion: row.schemaVersion,
 		state: row.state as ConfigImportItem["state"],
 		document: row.document as ConfigImportItem["document"],
-		unresolvedRefs: row.unresolvedRefs as ConfigImportItem["unresolvedRefs"],
+		unresolvedRefs: refsOf(row.unresolvedRefs),
 		createdAt: row.createdAt,
 		completedAt: row.completedAt,
 		updatedAt: row.updatedAt,

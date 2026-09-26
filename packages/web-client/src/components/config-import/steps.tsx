@@ -621,10 +621,10 @@ export function StepPendingFolders({
 		<WizardShell
 			steps={IMPORT_STEPS}
 			activeStep={3}
-			title={folders.length > 0 ? "Waiting on folders" : "Import finished"}
+			title={folders.length > 0 ? "Creating folders" : "Import finished"}
 			subtitle={
 				folders.length > 0
-					? "The config names folders this server has not shown us yet."
+					? "The config names folders this account does not have yet. Reader creates them on the mail server."
 					: "Everything in the file landed, and every folder it named resolved."
 			}
 			footer={
@@ -642,10 +642,11 @@ export function StepPendingFolders({
 				{folders.length > 0 ? (
 					<>
 						<Banner tone="warning">
-							{folders.length} settings are imported but switched off. Each
-							turns itself on the moment its folder appears — nothing was
-							dropped. If a folder never appears, create it in your mail client,
-							or edit the setting in Settings → Senders & Rules.
+							{folders.length} settings are imported but switched off. Reader
+							creates each missing folder on the mail server the next time the
+							account syncs, and turns the setting on once the server confirms
+							it. A rule whose folder cannot be created stays off, and Settings
+							→ Filters says why.
 						</Banner>
 						<div className="flex items-center gap-2 text-xs text-fg-muted">
 							<FolderClock className="size-4" />

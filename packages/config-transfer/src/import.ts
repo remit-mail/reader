@@ -26,6 +26,8 @@ import {
 	ConfigImportRefKind,
 	ConfigImportState,
 	ConnectionState,
+	FilterDisabledReason,
+	FilterState,
 } from "@remit/domain-enums";
 import { carriesUserFlag } from "./export.js";
 import type { ConfigImportDeps } from "./import-repositories.js";
@@ -61,6 +63,15 @@ export interface ImportConfigInput {
 }
 
 const normalize = (value: string): string => value.trim().toLowerCase();
+
+const filterFolderPendingMessage = (name: string, folderPath: string): string =>
+	`Filter "${name}" files mail into "${folderPath}", which this account does not hold yet. The folder is created on the mail server when the account next syncs, and the filter stays off until the server confirms it.`;
+
+const folderPendingMessage = (folderPath: string): string =>
+	`"${folderPath}" is not a folder this account holds yet. It is created on the mail server when the account next syncs, and the setting is bound once the server confirms it.`;
+
+const awaitingFolderReason = (folderPath: string): string =>
+	`Off until "${folderPath}" exists on the mail server.`;
 
 /**
  * The version a document claims, read straight off the raw input. The parse
@@ -564,6 +575,12 @@ const applyDocument = async (
 					: (labelIdByName.get(normalize(filter.actionLabelName)) ?? NO_ACTION),
 			actionMailboxId: folder.actionMailboxId,
 			hasAnchor: filter.anchor !== null,
+			...(folder.pending
+				? {
+						state: FilterState.Disabled,
+						disabledReason: FilterDisabledReason.AwaitingFolder,
+					}
+				: {}),
 		};
 
 		const held = existingFilterByName.get(key);
@@ -587,11 +604,14 @@ const applyDocument = async (
 				).filterId;
 
 		filterIdByName.set(key, filterId);
-		record(
-			ConfigImportSection.Filters,
-			filter.name,
-			held ? ConfigImportVerdict.Updated : ConfigImportVerdict.Created,
-		);
+		items.push({
+			section: ConfigImportSection.Filters,
+			key: filter.name,
+			verdict: held ? ConfigImportVerdict.Updated : ConfigImportVerdict.Created,
+			...(folder.pending && filter.actionFolder
+				? { reason: awaitingFolderReason(filter.actionFolder.folderPath) }
+				: {}),
+		});
 
 		if (folder.pending && filter.actionFolder) {
 			unresolvedRefs.push({
@@ -601,11 +621,15 @@ const applyDocument = async (
 					filter.actionFolder.accountId,
 				folderPath: filter.actionFolder.folderPath,
 				target: filterId,
+				mailboxId: NO_ACTION,
 			});
 			warnings.push(
 				problem(
 					"folder_not_found_yet",
-					`Filter "${filter.name}" files mail into "${filter.actionFolder.folderPath}", which this account does not hold yet. It is bound once the folder list has been read.`,
+					filterFolderPendingMessage(
+						filter.name,
+						filter.actionFolder.folderPath,
+					),
 					{ filter: filter.name, folderPath: filter.actionFolder.folderPath },
 				),
 			);
@@ -699,11 +723,10 @@ const applyDocument = async (
 	for (const ref of unresolvedRefs) {
 		if (ref.kind === ConfigImportRefKind.FilterAction) continue;
 		warnings.push(
-			problem(
-				"folder_not_found_yet",
-				`"${ref.folderPath}" is not a folder this account holds yet. It is bound once the folder list has been read.`,
-				{ folderPath: ref.folderPath, accountId: ref.accountId },
-			),
+			problem("folder_not_found_yet", folderPendingMessage(ref.folderPath), {
+				folderPath: ref.folderPath,
+				accountId: ref.accountId,
+			}),
 		);
 	}
 
@@ -861,6 +884,7 @@ class SettingWriter {
 					accountId,
 					folderPath: role.folderPath,
 					target: role.role,
+					mailboxId: NO_ACTION,
 				});
 				continue;
 			}
@@ -881,6 +905,7 @@ class SettingWriter {
 					accountId,
 					folderPath: override.folderPath,
 					target: override.folderPath,
+					mailboxId: NO_ACTION,
 				});
 				continue;
 			}
@@ -1102,10 +1127,19 @@ const plan = (
 		});
 	}
 	for (const filter of document.filters) {
+		const { actionFolder } = filter;
+		const awaiting =
+			actionFolder !== null &&
+			!foldersFor(existing, liveAccountId, actionFolder.accountId).has(
+				actionFolder.folderPath,
+			);
 		items.push({
 			section: ConfigImportSection.Filters,
 			key: filter.name,
 			verdict: verdict(heldFilters.has(normalize(filter.name))),
+			...(awaiting && actionFolder
+				? { reason: awaitingFolderReason(actionFolder.folderPath) }
+				: {}),
 		});
 	}
 	for (const entry of document.addressFlags) {
@@ -1139,7 +1173,7 @@ const plan = (
 		warnings.push(
 			problem(
 				"folder_not_found_yet",
-				`Filter "${filter.name}" files mail into "${actionFolder.folderPath}", which this account does not hold yet. It is bound once the folder list has been read.`,
+				filterFolderPendingMessage(filter.name, actionFolder.folderPath),
 				{ filter: filter.name, folderPath: actionFolder.folderPath },
 			),
 		);
@@ -1155,11 +1189,10 @@ const plan = (
 		for (const folderPath of paths) {
 			if (folders.has(folderPath)) continue;
 			warnings.push(
-				problem(
-					"folder_not_found_yet",
-					`"${folderPath}" is not a folder this account holds yet. It is bound once the folder list has been read.`,
-					{ folderPath, accountId },
-				),
+				problem("folder_not_found_yet", folderPendingMessage(folderPath), {
+					folderPath,
+					accountId,
+				}),
 			);
 		}
 	}

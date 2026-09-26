@@ -6,6 +6,7 @@ import type {
 	UpdateFilterInput,
 } from "@remit/data-ports";
 import {
+	FilterDisabledReason,
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
@@ -79,6 +80,7 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		expiresAt: row.expiresAt ?? undefined,
 		ttl: row.ttl ?? undefined,
 		state: row.state,
+		disabledReason: row.disabledReason,
 		hasAnchor: row.hasAnchor,
 		ruleChangedAt: row.ruleChangedAt,
 		actionChangedAt: row.actionChangedAt,
@@ -112,6 +114,7 @@ export class FilterRepo implements IFilterRepository {
 				expiresAt: input.expiresAt ?? null,
 				ttl: input.ttl ?? null,
 				state: input.state ?? FilterState.Active,
+				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
 				hasAnchor: input.hasAnchor ?? false,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
@@ -290,8 +293,8 @@ export class FilterRepo implements IFilterRepository {
 	 * Patches a Temporary filter's `state` to `Expired` when read past its
 	 * `expiresAt` (RFC 034 Decision 1.2). `expiresAt`/`now` are compared
 	 * directly — `state` is only ever a lazily-refreshed cache of that
-	 * comparison. A no-op for a Standing filter (no `expiresAt`) or one already
-	 * Expired.
+	 * comparison. A no-op for a Standing filter (no `expiresAt`) or one that is not
+	 * Active: a Disabled filter keeps the reason it was turned off for.
 	 *
 	 * There is no TTL reaper here, so an Expired Temporary row is never deleted by
 	 * a background sweep the way DynamoDB reaps it via the `ttl` attribute. That
@@ -301,12 +304,16 @@ export class FilterRepo implements IFilterRepository {
 	 */
 	async refreshExpiry(item: FilterItem): Promise<FilterItem> {
 		if (item.scope !== "Temporary" || !item.expiresAt) return item;
-		if (item.state === FilterState.Expired) return item;
+		if (item.state !== FilterState.Active) return item;
 		if (new Date(item.expiresAt).getTime() > Date.now()) return item;
 
 		const [row] = await this.db
 			.update(filterTable)
-			.set({ state: FilterState.Expired, updatedAt: Date.now() })
+			.set({
+				state: FilterState.Expired,
+				disabledReason: FilterDisabledReason.None,
+				updatedAt: Date.now(),
+			})
 			.where(
 				and(
 					eq(filterTable.accountConfigId, item.accountConfigId),

@@ -1,17 +1,24 @@
 import { readConfigDocument } from "@remit/config-format";
-import type {
-	ConfigImportItem,
-	ConfigImportUnresolvedRefItem,
-	IAccountSettingRepository,
-	IConfigImportRepository,
-	IFilterRepository,
-	IMailboxRepository,
+import {
+	type ConfigImportItem,
+	type ConfigImportUnresolvedRefItem,
+	type CreateMailboxResult,
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type IAccountSettingRepository,
+	type IConfigImportRepository,
+	type IFilterRepository,
+	type IMailboxRepository,
+	type MailboxItem,
 } from "@remit/data-ports";
 import { composeSettingName } from "@remit/data-ports/account-settings";
 import {
 	AccountSettingName,
 	ConfigImportRefKind,
 	ConfigImportState,
+	FilterDisabledReason,
+	FilterState,
+	MailboxSyncStatus,
 } from "@remit/domain-enums";
 import type { AppointFolderRole } from "./import-repositories.js";
 
@@ -19,12 +26,18 @@ export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
 	accountSetting: Pick<IAccountSettingRepository, "upsert">;
 	filter: Pick<IFilterRepository, "listByAccountConfig" | "update">;
-	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
+	mailbox: Pick<IMailboxRepository, "listAllByAccount" | "resolveAccountId">;
 }
+
+export type CreateImportedFolder = (
+	accountId: string,
+	folderPath: string,
+) => Promise<CreateMailboxResult>;
 
 export interface ConfigBinderDeps {
 	repositories: ConfigBinderRepositories;
 	appointFolderRole: AppointFolderRole;
+	createFolder: CreateImportedFolder;
 	now?: () => number;
 }
 
@@ -35,27 +48,34 @@ export interface ConfigBinderDeps {
 export interface BindResult {
 	bound: number;
 	dropped: number;
+	created: number;
+	disabled: number;
 	stillPending: number;
 }
 
 type RefState =
 	| { kind: "TargetGone" }
-	| { kind: "Waiting" }
-	| { kind: "Ready"; mailboxId: string };
+	| { kind: "Waiting"; mailboxId: string }
+	| { kind: "Ready"; mailboxId: string }
+	| { kind: "Absent" }
+	| { kind: "Refused"; reason: FilterItem["disabledReason"] };
 
 /**
  * Bind the folder references an import could not resolve, now that discovery
  * has produced this account's mailboxes.
  *
  * Every reference names a folder by IMAP path, because the ids are new on every
- * discovery. This runs where discovery ends, resolves what it can, writes the
- * row each reference belongs to, and drops it. An import whose last reference
- * is gone is Complete; the rest stay, and surface on `GET /config` until the
- * folder they name shows up or the person removes the expectation.
+ * discovery. A path discovery did not produce is a folder the account lacks,
+ * so the binder creates it through the folder-create mutation and waits for
+ * the server to confirm it (imap-mutations R1, R2: wait), binding to that row
+ * by id because the server may have normalized its path. A create the server
+ * refused, or a created folder that vanished, drops the reference and turns
+ * its filter off with the reason.
  *
  * Idempotent and replayable: every write is an upsert or an update onto a row
- * the import already created, so a second discovery finds nothing to do rather
- * than doing it again differently.
+ * the import already created, and a create is recorded on the reference before
+ * the next run, so a second discovery finds nothing to do rather than doing it
+ * again differently.
  */
 export const bindImportedFolders = async (
 	deps: ConfigBinderDeps,
@@ -64,48 +84,108 @@ export const bindImportedFolders = async (
 ): Promise<BindResult> => {
 	const { repositories } = deps;
 	const now = deps.now ?? Date.now;
+	const result: BindResult = {
+		bound: 0,
+		dropped: 0,
+		created: 0,
+		disabled: 0,
+		stillPending: 0,
+	};
 
 	const imports = (
 		await repositories.configImport.listByAccountConfig(accountConfigId)
 	).filter((row) => row.state === ConfigImportState.Pending);
-	if (imports.length === 0) return { bound: 0, dropped: 0, stillPending: 0 };
+	if (imports.length === 0) return result;
 
+	const mailboxes = await repositories.mailbox.listAllByAccount(accountId);
 	const byPath = new Map(
-		(await repositories.mailbox.listAllByAccount(accountId)).map(
-			(mailbox) => [mailbox.fullPath, mailbox.mailboxId] as const,
-		),
+		mailboxes.map((mailbox) => [mailbox.fullPath, mailbox] as const),
+	);
+	const byId = new Map(
+		mailboxes.map((mailbox) => [mailbox.mailboxId, mailbox] as const),
 	);
 
-	const filterIds = new Set(
+	const filtersById = new Map(
 		(await repositories.filter.listByAccountConfig(accountConfigId)).map(
-			(filter) => filter.filterId,
+			(filter) => [filter.filterId, filter] as const,
 		),
 	);
 
-	let bound = 0;
-	let dropped = 0;
-	let stillPending = 0;
+	const createdByPath = new Map<string, string>();
+	const createFolder = async (folderPath: string): Promise<string> => {
+		const held = createdByPath.get(folderPath);
+		if (held !== undefined) return held;
+		const created = await deps.createFolder(accountId, folderPath);
+		if (created.outcome === "PathTaken") return FILTER_NO_ACTION;
+		createdByPath.set(folderPath, created.mailbox.mailboxId);
+		result.created++;
+		return created.mailbox.mailboxId;
+	};
 
 	for (const row of imports) {
 		const document = readConfigDocument(row.document);
 		const remaining: ConfigImportUnresolvedRefItem[] = [];
+		let changed = false;
 
 		for (const ref of row.unresolvedRefs) {
-			const state = refStateOf(ref, accountId, byPath, filterIds);
+			const state = refStateOf(ref, accountId, byPath, byId, filtersById);
+			if (
+				(state.kind === "Ready" || state.kind === "Refused") &&
+				!movesIntoNothing(ref, filtersById)
+			) {
+				await settlePickedFolder(
+					repositories,
+					accountConfigId,
+					filtersById.get(ref.target),
+				);
+				result.dropped++;
+				changed = true;
+				continue;
+			}
 			if (state.kind === "TargetGone") {
-				dropped++;
+				result.dropped++;
+				changed = true;
 				continue;
 			}
 			if (state.kind === "Waiting") {
-				remaining.push(ref);
+				if (state.mailboxId !== ref.mailboxId) changed = true;
+				remaining.push({ ...ref, mailboxId: state.mailboxId });
 				continue;
 			}
-			await bindRef(deps, accountConfigId, ref, state.mailboxId, document);
-			bound++;
+			if (state.kind === "Absent") {
+				remaining.push({
+					...ref,
+					mailboxId: await createFolder(ref.folderPath),
+				});
+				changed = true;
+				continue;
+			}
+			if (state.kind === "Refused") {
+				if (ref.kind === ConfigImportRefKind.FilterAction) {
+					await repositories.filter.update(accountConfigId, ref.target, {
+						state: FilterState.Disabled,
+						disabledReason: state.reason,
+					});
+					result.disabled++;
+				}
+				result.dropped++;
+				changed = true;
+				continue;
+			}
+			await bindRef(
+				deps,
+				accountConfigId,
+				ref,
+				state.mailboxId,
+				document,
+				filtersById,
+			);
+			result.bound++;
+			changed = true;
 		}
 
-		stillPending += remaining.length;
-		if (remaining.length === row.unresolvedRefs.length) continue;
+		result.stillPending += remaining.length;
+		if (!changed) continue;
 
 		await repositories.configImport.update(row.importId, {
 			unresolvedRefs: remaining,
@@ -115,27 +195,116 @@ export const bindImportedFolders = async (
 		});
 	}
 
-	return { bound, dropped, stillPending };
+	return result;
+};
+
+export const disableFiltersMissingFolders = async (
+	repositories: {
+		filter: Pick<IFilterRepository, "listByAccountConfig" | "update">;
+		mailbox: Pick<IMailboxRepository, "resolveAccountId">;
+	},
+	accountConfigId: string,
+): Promise<number> => {
+	const filters =
+		await repositories.filter.listByAccountConfig(accountConfigId);
+	let disabled = 0;
+	for (const filter of filters) {
+		if (filter.state !== FilterState.Active) continue;
+		if (filter.actionMailboxId === FILTER_NO_ACTION) continue;
+		const owner = await repositories.mailbox.resolveAccountId(
+			filter.actionMailboxId,
+		);
+		if (owner !== null) continue;
+		await repositories.filter.update(accountConfigId, filter.filterId, {
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.FolderMissing,
+		});
+		disabled++;
+	}
+	return disabled;
 };
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
 
+const FOLDERLESS_REASONS: ReadonlySet<FilterItem["disabledReason"]> = new Set([
+	FilterDisabledReason.AwaitingFolder,
+	FilterDisabledReason.FolderCreateFailed,
+]);
+
+const settlePickedFolder = async (
+	repositories: ConfigBinderRepositories,
+	accountConfigId: string,
+	filter: FilterItem | undefined,
+): Promise<void> => {
+	if (!filter || filter.state !== FilterState.Disabled) return;
+	if (!FOLDERLESS_REASONS.has(filter.disabledReason)) return;
+	await repositories.filter.update(accountConfigId, filter.filterId, {
+		disabledReason: FilterDisabledReason.UserDisabled,
+	});
+};
+
+const movesIntoNothing = (
+	ref: ConfigImportUnresolvedRefItem,
+	filtersById: ReadonlyMap<string, FilterItem>,
+): boolean =>
+	ref.kind !== ConfigImportRefKind.FilterAction ||
+	filtersById.get(ref.target)?.actionMailboxId === FILTER_NO_ACTION;
+
+const findByPath = (
+	folderPath: string,
+	byPath: ReadonlyMap<string, MailboxItem>,
+): MailboxItem | undefined => {
+	const exact = byPath.get(folderPath);
+	if (exact) return exact;
+	const prefix = byPath.get("INBOX")?.namespacePrefix ?? "";
+	if (prefix === "" || folderPath.startsWith(prefix)) return undefined;
+	return byPath.get(`${prefix}${folderPath}`);
+};
+
 const refStateOf = (
 	ref: ConfigImportUnresolvedRefItem,
 	accountId: string,
-	byPath: ReadonlyMap<string, string>,
-	filterIds: ReadonlySet<string>,
+	byPath: ReadonlyMap<string, MailboxItem>,
+	byId: ReadonlyMap<string, MailboxItem>,
+	filtersById: ReadonlyMap<string, FilterItem>,
 ): RefState => {
 	if (
 		ref.kind === ConfigImportRefKind.FilterAction &&
-		!filterIds.has(ref.target)
+		!filtersById.has(ref.target)
 	) {
 		return { kind: "TargetGone" };
 	}
-	const mailboxId =
-		ref.accountId === accountId ? byPath.get(ref.folderPath) : undefined;
-	if (mailboxId === undefined) return { kind: "Waiting" };
-	return { kind: "Ready", mailboxId };
+	if (ref.accountId !== accountId) {
+		return { kind: "Waiting", mailboxId: ref.mailboxId };
+	}
+	const created = byId.get(ref.mailboxId);
+	if (created) {
+		if (created.syncStatus === MailboxSyncStatus.synced) {
+			return { kind: "Ready", mailboxId: created.mailboxId };
+		}
+		if (
+			created.syncStatus === MailboxSyncStatus.failed &&
+			created.pendingPath === undefined
+		) {
+			return {
+				kind: "Refused",
+				reason: FilterDisabledReason.FolderCreateFailed,
+			};
+		}
+		return { kind: "Waiting", mailboxId: created.mailboxId };
+	}
+	const found = findByPath(ref.folderPath, byPath);
+	if (found?.syncStatus === MailboxSyncStatus.synced) {
+		return { kind: "Ready", mailboxId: found.mailboxId };
+	}
+	if (found) return { kind: "Waiting", mailboxId: FILTER_NO_ACTION };
+	if (ref.mailboxId !== FILTER_NO_ACTION) {
+		return {
+			kind: "Refused",
+			reason: FilterDisabledReason.FolderCreateFailed,
+		};
+	}
+	return { kind: "Absent" };
 };
 
 const bindRef = async (
@@ -144,11 +313,21 @@ const bindRef = async (
 	ref: ConfigImportUnresolvedRefItem,
 	mailboxId: string,
 	document: BoundDocument,
+	filtersById: ReadonlyMap<string, FilterItem>,
 ): Promise<void> => {
 	const { repositories } = deps;
 	if (ref.kind === ConfigImportRefKind.FilterAction) {
+		const awaiting =
+			filtersById.get(ref.target)?.disabledReason ===
+			FilterDisabledReason.AwaitingFolder;
 		await repositories.filter.update(accountConfigId, ref.target, {
 			actionMailboxId: mailboxId,
+			...(awaiting
+				? {
+						state: FilterState.Active,
+						disabledReason: FilterDisabledReason.None,
+					}
+				: {}),
 		});
 		return;
 	}

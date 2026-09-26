@@ -9,10 +9,16 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
+import { FilterToggleError } from "@/components/settings/FilterToggleError";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { useDeleteFilter, useFilterList } from "@/hooks/useFilters";
+import {
+	useDeleteFilter,
+	useFilterList,
+	useToggleFilter,
+} from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
+import { filterToggleReportHref } from "@/lib/filter-report";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -32,6 +38,10 @@ const filtersHelp = (
 			An expired filter isn't deleted the instant it lapses — it stays here,
 			marked Expired, so you can see what it did and when it stopped.
 		</p>
+		<p>
+			A filter that can't do its job turns itself off and says why, for example
+			when its folder no longer exists. Turn it back on once that is fixed.
+		</p>
 	</div>
 );
 
@@ -44,6 +54,7 @@ export function AccountFilters({
 	const { filters, isPending, isError, error, refetch } =
 		useFilterList(accountId);
 	const { deleteFilter, deletingFilterId } = useDeleteFilter(accountId);
+	const toggle = useToggleFilter(accountId);
 	const [editingFilterId, setEditingFilterId] = useState<string | undefined>();
 
 	const { data: mailboxesData } = useQuery({
@@ -128,14 +139,26 @@ export function AccountFilters({
 					}}
 				/>
 			) : (
-				<FiltersList
-					filters={filters}
-					mailboxName={mailboxName}
-					labelById={labelById}
-					onEdit={setEditingFilterId}
-					onDelete={deleteFilter}
-					deletingFilterId={deletingFilterId}
-				/>
+				<>
+					{toggle.isError && (
+						<FilterToggleError
+							enabling={toggle.enabling}
+							error={toggle.error}
+							onRetry={toggle.retry}
+							reportHref={filterToggleReportHref}
+						/>
+					)}
+					<FiltersList
+						filters={filters}
+						mailboxName={mailboxName}
+						labelById={labelById}
+						onEdit={setEditingFilterId}
+						onDelete={deleteFilter}
+						deletingFilterId={deletingFilterId}
+						onToggle={toggle.toggleFilter}
+						togglingFilterId={toggle.togglingFilterId}
+					/>
+				</>
 			)}
 		</section>
 	);

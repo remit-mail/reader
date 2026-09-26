@@ -8,6 +8,7 @@ import {
 } from "@remit/ui";
 import { Trash2 } from "lucide-react";
 import {
+	disabledReasonCopy,
 	filterDisplayStatus,
 	formatExpiresAt,
 } from "@/lib/organize/filter-status";
@@ -23,6 +24,8 @@ interface FiltersListProps {
 	onEdit: (filterId: string) => void;
 	onDelete: (filterId: string) => void;
 	deletingFilterId?: string;
+	onToggle: (filterId: string, enabled: boolean) => void;
+	togglingFilterId?: string;
 	/**
 	 * This deployment ships no vector pipeline (RFC 038 D4). A filter carrying a
 	 * semantic anchor lists with its widen chip inactive — it matches by its
@@ -47,6 +50,8 @@ export function FiltersList({
 	onEdit,
 	onDelete,
 	deletingFilterId,
+	onToggle,
+	togglingFilterId,
 	semanticUnavailable = false,
 	now = Date.now(),
 }: FiltersListProps) {
@@ -64,6 +69,8 @@ export function FiltersList({
 			{filters.map((filter) => {
 				const status = filterDisplayStatus(filter, now);
 				const expired = status === "Expired";
+				const disabled = status === "Disabled";
+				const reason = disabled ? disabledReasonCopy(filter) : undefined;
 				const folder =
 					filter.actionMailboxId !== NO_ACTION
 						? mailboxName(filter.actionMailboxId)
@@ -88,12 +95,15 @@ export function FiltersList({
 							<div className="flex items-center gap-2">
 								<span
 									className={`truncate text-sm font-medium ${
-										expired ? "text-fg-muted" : "text-fg"
+										expired || disabled ? "text-fg-muted" : "text-fg"
 									}`}
 								>
 									{filter.name}
 								</span>
-								<Badge tone={expired ? "neutral" : "positive"} dot>
+								<Badge
+									tone={expired ? "neutral" : disabled ? "warning" : "positive"}
+									dot
+								>
 									{status}
 								</Badge>
 							</div>
@@ -107,6 +117,9 @@ export function FiltersList({
 										? " · always"
 										: ""}
 							</p>
+							{reason && (
+								<p className="mt-0.5 text-xs text-warning">{reason}</p>
+							)}
 							{(filter.hasAnchor || label) && (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
 									{filter.hasAnchor && (
@@ -129,6 +142,17 @@ export function FiltersList({
 								</div>
 							)}
 						</button>
+						{!expired && (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => onToggle(filter.filterId, disabled)}
+								disabled={togglingFilterId === filter.filterId}
+								aria-label={`${disabled ? "Turn on" : "Turn off"} filter ${filter.name}`}
+							>
+								{disabled ? "Turn on" : "Turn off"}
+							</Button>
+						)}
 						<Button
 							variant="ghost"
 							size="sm"

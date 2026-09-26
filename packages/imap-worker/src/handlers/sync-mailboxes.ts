@@ -3,6 +3,7 @@ import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointme
 import {
 	bindImportedFolders,
 	type ConfigBinderDeps,
+	disableFiltersMissingFolders,
 } from "@remit/config-transfer";
 import type {
 	AccountItem,
@@ -16,10 +17,12 @@ import type { Logger } from "@remit/logger-lambda";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createConnectionWithCredentials,
+	MailboxQueueService,
 	MailboxSyncService,
 	MailConnectionError,
 	type MailCredentials,
 } from "@remit/mailbox-service";
+import { env } from "expect-env";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
@@ -30,6 +33,7 @@ import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import { createImportedFolder } from "./imported-folder.js";
 import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 
 const EVENT_EMIT_CONCURRENCY = 20;
@@ -110,6 +114,14 @@ export const syncMailboxes = async (
 				mailboxId,
 				lastKnownPath,
 			),
+		createFolder: createImportedFolder(
+			mailboxService,
+			new MailboxQueueService({
+				mailboxService,
+				sqsQueueUrl: env.SQS_QUEUE_URL_MAILBOX_MGMT,
+				logger: log,
+			}),
+		),
 	};
 
 	const { accountId } = event;
@@ -233,8 +245,19 @@ const syncMailboxesForAccount = async (
 		account.accountConfigId,
 		accountId,
 	);
-	if (bound.bound > 0 || bound.dropped > 0 || bound.stillPending > 0) {
+	if (Object.values(bound).some((count) => count > 0)) {
 		log.info({ accountId, ...bound }, "Bound imported folder references");
+	}
+
+	const disabled = await disableFiltersMissingFolders(
+		binder.repositories,
+		account.accountConfigId,
+	);
+	if (disabled > 0) {
+		log.warn(
+			{ accountId, disabled },
+			"Disabled filters whose move folder no longer exists",
+		);
 	}
 
 	const allMailboxes = await collectAllMailboxes(accountId, mailboxService);

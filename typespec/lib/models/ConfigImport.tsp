@@ -31,6 +31,9 @@ model ConfigImportUnresolvedRef {
 
   @doc("The role for a folder role, the folder path for a mailbox override, the filter id for a filter's move action")
   target: String256;
+
+  @doc("The folder the binder asked the mail server to create for this path, once discovery showed the account lacks it. The binder waits for that row to settle and binds to it by id, because the server may store the folder under a normalized path. `None` until a create is issued.")
+  mailboxId: string = "None";
 }
 
 @doc("""
@@ -125,7 +128,7 @@ model ConfigImportItemReport {
   @doc("created | updated | unchanged | skipped | rejected")
   verdict: string;
 
-  @doc("Why, when the verdict is skipped or rejected")
+  @doc("Why, when the verdict is skipped or rejected; for a filter that lands switched off, what it is waiting for")
   reason?: string;
 }
 

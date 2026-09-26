@@ -661,6 +661,7 @@ export type CreateFilterInput = Omit<
 	| "createdAt"
 	| "updatedAt"
 	| "state"
+	| "disabledReason"
 	| "hasAnchor"
 	| "ruleChangedAt"
 	| "actionChangedAt"
@@ -670,6 +671,7 @@ export type CreateFilterInput = Omit<
 	| "actionMailboxId"
 > & {
 	state?: FilterItem["state"];
+	disabledReason?: FilterItem["disabledReason"];
 	hasAnchor?: FilterItem["hasAnchor"];
 	matchOperator?: FilterItem["matchOperator"];
 	literalClauses?: FilterItem["literalClauses"];

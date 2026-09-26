@@ -9,6 +9,27 @@ import {
 const NOW = Date.parse("2026-07-12T12:00:00Z");
 
 describe("filterDisplayStatus", () => {
+	it("marks a disabled filter Disabled (#1103)", () => {
+		assert.equal(
+			filterDisplayStatus({ scope: "Standing", state: "Disabled" }, NOW),
+			"Disabled",
+		);
+	});
+
+	it("marks a disabled temporary filter past its date Expired", () => {
+		assert.equal(
+			filterDisplayStatus(
+				{
+					scope: "Temporary",
+					state: "Disabled",
+					expiresAt: "2020-01-01T00:00:00Z",
+				},
+				NOW,
+			),
+			"Expired",
+		);
+	});
+
 	it("treats a Standing filter as always Active", () => {
 		assert.equal(
 			filterDisplayStatus({ scope: "Standing", state: "Active" }, NOW),

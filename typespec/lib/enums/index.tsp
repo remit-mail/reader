@@ -63,6 +63,7 @@ import "./SortOrder.tsp";
 // Smart Organize Enums (RFC 030, RFC 034)
 import "./FilterScope.tsp";
 import "./FilterState.tsp";
+import "./FilterDisabledReason.tsp";
 import "./FilterMatchOperator.tsp";
 import "./FilterClauseField.tsp";
 import "./LabelColor.tsp";

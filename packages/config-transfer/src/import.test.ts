@@ -17,7 +17,11 @@ import {
 	composeFolderRoleAppointmentName,
 } from "@remit/data-ports/folder-role";
 import { deriveAddressId } from "@remit/data-ports/id";
-import { bindImportedFolders, pendingImportOf } from "./binder.js";
+import {
+	bindImportedFolders,
+	disableFiltersMissingFolders,
+	pendingImportOf,
+} from "./binder.js";
 import { readConfigForExport } from "./export.js";
 import {
 	ACCOUNT_CONFIG_ID,
@@ -185,6 +189,9 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 		mailbox: {
 			listAllByAccount: async (accountId: string) =>
 				store.mailboxes.filter((mailbox) => mailbox.accountId === accountId),
+			resolveAccountId: async (mailboxId: string) =>
+				store.mailboxes.find((mailbox) => mailbox.mailboxId === mailboxId)
+					?.accountId ?? null,
 		},
 		label: {
 			listByAccountConfig: async () => [...store.labels],
@@ -352,6 +359,38 @@ const appointFolderRoleInto =
 			makeSetting(labelled, { kind: "String", value: lastKnownPath }),
 		);
 	};
+
+const createFolderInto =
+	(store: Store) =>
+	async (
+		accountId: string,
+		fullPath: string,
+	): Promise<{ outcome: "Created"; mailbox: MailboxItem }> => {
+		const row = makeMailbox({
+			mailboxId: nextId("mbx"),
+			accountId,
+			fullPath,
+			syncStatus: "pending",
+		});
+		store.mailboxes.push(row);
+		return { outcome: "Created", mailbox: row };
+	};
+
+const settle = (
+	store: Store,
+	fullPath: string,
+	syncStatus: MailboxItem["syncStatus"],
+	confirmedPath: string = fullPath,
+): MailboxItem => {
+	const at = store.mailboxes.findIndex(
+		(mailbox) =>
+			mailbox.fullPath === fullPath && mailbox.syncStatus === "pending",
+	);
+	assert.notEqual(at, -1, `no pending create for ${fullPath}`);
+	const next = { ...store.mailboxes[at], syncStatus, fullPath: confirmedPath };
+	store.mailboxes[at] = next;
+	return next;
+};
 
 /**
  * A transaction that actually rolls back. The backend's `writeSet` discards
@@ -602,6 +641,7 @@ test("a configuration survives an export, an import and a discovery unchanged", 
 	const binder = {
 		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
 		now: () => NOW,
 	};
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
@@ -828,7 +868,7 @@ test("a flag that arrives at the sentinel is stored at the sentinel", async () =
 	assert.equal(legacy?.flags?.category?.setAt, 0);
 });
 
-test("a folder no mailbox answers to yet is kept, then bound when discovery finds it", async () => {
+test("a folder discovery did not produce is created, and bound once the server confirms it", async () => {
 	const document = await exportSource();
 	const store = emptyStore();
 
@@ -849,6 +889,7 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 	const binder = {
 		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
 		now: () => NOW,
 	};
 	const first = await bindImportedFolders(
@@ -858,6 +899,7 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 	);
 
 	assert.equal(first.bound > 0, true);
+	assert.equal(first.created, 2);
 	assert.equal(first.stillPending > 0, true);
 	const invoices = store.mailboxes.find(
 		(mailbox) => mailbox.fullPath === "INBOX.Facturen",
@@ -868,16 +910,28 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 		invoices?.mailboxId,
 	);
 
-	// Replayable: a second discovery over the same folders changes nothing.
+	// Replayable: a second discovery over the same folders creates nothing again.
 	const again = await bindImportedFolders(
 		binder,
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);
 	assert.equal(again.bound, 0);
+	assert.equal(again.created, 0);
+	assert.equal(
+		store.mailboxes.filter((mailbox) => mailbox.fullPath === "INBOX.Sent")
+			.length,
+		1,
+	);
 	assert.equal(store.imports[0].state, "Pending");
 
-	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX.Sent", "INBOX.Lists.dev-null"]);
+	settle(store, "INBOX.Sent", "synced");
+	const lists = settle(
+		store,
+		"INBOX.Lists.dev-null",
+		"synced",
+		"INBOX.Lists.dev-null-normalized",
+	);
 	discover(store, OAUTH_ACCOUNT_ID, ["INBOX"]);
 	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
 
@@ -890,13 +944,497 @@ test("a folder no mailbox answers to yet is kept, then bound when discovery find
 		)?.value.kind,
 		"String",
 	);
-	const lists = store.mailboxes.find(
-		(mailbox) => mailbox.fullPath === "INBOX.Lists.dev-null",
-	);
 	assert.equal(
-		store.settings.get(`MailboxDisplayName#${lists?.mailboxId}`)?.value.value,
+		store.settings.get(`MailboxDisplayName#${lists.mailboxId}`)?.value.value,
 		"dev/null",
 	);
+});
+
+test("a filter whose folder is missing lands disabled, awaiting the folder, and the report says so", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+
+	const report = reportOf(await apply(store, document));
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(invoices?.state, "Disabled");
+	assert.equal(invoices?.disabledReason, "AwaitingFolder");
+	assert.match(
+		report.items.find((item) => item.key === "Invoices to Facturen")?.reason ??
+			"",
+		/Off until "INBOX\.Facturen" exists/,
+	);
+});
+
+test("the dry run names the filters an apply would leave off", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+
+	const outcome = await importConfig(depsOf(store, TARGET_CONFIG_ID), {
+		accountConfigId: TARGET_CONFIG_ID,
+		userId: TARGET_USER_ID,
+		document,
+		mode: "validate",
+		onExisting: "abort",
+	});
+
+	assert.match(
+		reportOf(outcome).items.find((item) => item.key === "Invoices to Facturen")
+			?.reason ?? "",
+		/Off until "INBOX\.Facturen" exists/,
+	);
+});
+
+test("an imported filter turns on once the folder the binder created settles, under the path the server chose", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const waiting = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(waiting?.state, "Disabled");
+	assert.equal(waiting?.disabledReason, "AwaitingFolder");
+	assert.equal(waiting?.actionMailboxId, "None");
+
+	const created = settle(store, "INBOX.Facturen", "synced", "INBOX/Facturen");
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.disabledReason, "None");
+	assert.equal(bound?.actionMailboxId, created.mailboxId);
+});
+
+test("a folder the server refused to create turns its filter off with FolderCreateFailed", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+	settle(store, "INBOX.Facturen", "failed");
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 1);
+	const refused = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(refused?.state, "Disabled");
+	assert.equal(refused?.disabledReason, "FolderCreateFailed");
+	assert.equal(
+		pendingImportOf(store.imports)?.folderPaths.includes("INBOX.Facturen") ??
+			false,
+		false,
+	);
+});
+
+test("a created folder that disappears before it settles means the create never landed", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+	store.mailboxes = store.mailboxes.filter(
+		(mailbox) => mailbox.fullPath !== "INBOX.Facturen",
+	);
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 1);
+	const refused = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(refused?.state, "Disabled");
+	assert.equal(refused?.disabledReason, "FolderCreateFailed");
+});
+
+test("a create that finds its path already taken binds the existing folder on the next sync", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: async () => ({ outcome: "PathTaken" as const }),
+		now: () => NOW,
+	};
+	const first = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(first.created, 0);
+	assert.equal(
+		store.imports[0].unresolvedRefs.find(
+			(ref) => ref.folderPath === "INBOX.Facturen",
+		)?.mailboxId,
+		"None",
+	);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX.Facturen"]);
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const existing = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Facturen",
+	);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.actionMailboxId, existing?.mailboxId);
+});
+
+const withUnprefixedPaths = async () => {
+	const document = (await exportSource()) as unknown as {
+		accounts: {
+			folderRoles: { role: string; folderPath: string }[];
+		}[];
+		filters: { actionFolder: { folderPath: string } | null }[];
+	};
+	for (const filter of document.filters) {
+		if (filter.actionFolder?.folderPath === "INBOX.Facturen") {
+			filter.actionFolder.folderPath = "Facturen";
+		}
+	}
+	for (const account of document.accounts) {
+		for (const role of account.folderRoles) {
+			if (role.folderPath === "INBOX.Sent") role.folderPath = "Sent";
+		}
+	}
+	return document;
+};
+
+const discoverUnderInbox = (store: Store, paths: readonly string[]): void => {
+	for (const fullPath of ["INBOX", ...paths]) {
+		store.mailboxes.push(
+			makeMailbox({
+				mailboxId: nextId("mbx"),
+				accountId: PASSWORD_ACCOUNT_ID,
+				fullPath,
+				namespacePrefix: "INBOX.",
+			}),
+		);
+	}
+};
+
+test("a folder the account already holds under its namespace is bound, not created", async () => {
+	const store = emptyStore();
+	await apply(store, await withUnprefixedPaths());
+
+	discoverUnderInbox(store, ["INBOX.Facturen", "INBOX.Sent"]);
+	const result = await bindImportedFolders(
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
+			now: () => NOW,
+		},
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	const facturen = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Facturen",
+	);
+	const sent = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Sent",
+	);
+	assert.equal(
+		store.mailboxes.some((mailbox) => mailbox.fullPath === "Facturen"),
+		false,
+	);
+	assert.equal(result.disabled, 0);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.actionMailboxId, facturen?.mailboxId);
+	assert.equal(
+		store.settings.get(
+			composeFolderRoleAppointmentName(PASSWORD_ACCOUNT_ID, "Sent"),
+		)?.value.value,
+		sent?.mailboxId,
+	);
+});
+
+test("a created folder the worker folds into one the server already held binds to that one", async () => {
+	const store = emptyStore();
+	await apply(store, await withUnprefixedPaths());
+
+	discoverUnderInbox(store, ["INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	const first = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+	assert.equal(first.created > 0, true);
+
+	store.mailboxes = store.mailboxes.filter(
+		(mailbox) => mailbox.fullPath !== "Facturen",
+	);
+	const holder = makeMailbox({
+		mailboxId: nextId("mbx"),
+		accountId: PASSWORD_ACCOUNT_ID,
+		fullPath: "INBOX.Facturen",
+		namespacePrefix: "INBOX.",
+	});
+	store.mailboxes.push(holder);
+
+	const second = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(second.disabled, 0);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.disabledReason, "None");
+	assert.equal(bound?.actionMailboxId, holder.mailboxId);
+});
+
+test("a filter the user pointed at a folder keeps it when the imported folder appears", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	invoices.actionMailboxId = "mbx-picked";
+
+	discover(store, PASSWORD_ACCOUNT_ID, [
+		"INBOX",
+		"INBOX.Sent",
+		"INBOX.Facturen",
+	]);
+	await bindImportedFolders(
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
+			now: () => NOW,
+		},
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	const picked = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(picked?.actionMailboxId, "mbx-picked");
+	assert.equal(picked?.state, "Disabled");
+	assert.equal(picked?.disabledReason, "UserDisabled");
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.target === invoices.filterId,
+		),
+		false,
+	);
+});
+
+test("a filter the user already turned on with their own folder survives the import's failed create", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	Object.assign(invoices, {
+		actionMailboxId: "mbx-picked",
+		state: "Active",
+		disabledReason: "None",
+	});
+	settle(store, "INBOX.Facturen", "failed");
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 0);
+	const kept = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(kept?.state, "Active");
+	assert.equal(kept?.actionMailboxId, "mbx-picked");
+});
+
+test("a failed rename of the created folder is not read as a failed create", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+	const created = settle(store, "INBOX.Facturen", "failed");
+	Object.assign(created, { pendingPath: "INBOX.Invoices" });
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 0);
+	const waiting = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(waiting?.disabledReason, "AwaitingFolder");
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.mailboxId === created.mailboxId,
+		),
+		true,
+	);
+});
+
+test("a folder still pending on the server is waited for, never bound", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	store.mailboxes.push(
+		makeMailbox({
+			mailboxId: nextId("mbx"),
+			accountId: PASSWORD_ACCOUNT_ID,
+			fullPath: "INBOX.Facturen",
+			syncStatus: "pending",
+		}),
+	);
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const result = await bindImportedFolders(
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
+			now: () => NOW,
+		},
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(
+		store.mailboxes.filter((mailbox) => mailbox.fullPath === "INBOX.Facturen")
+			.length,
+		1,
+	);
+	assert.equal(result.stillPending > 0, true);
+	assert.equal(
+		store.filters.find((filter) => filter.name === "Invoices to Facturen")
+			?.actionMailboxId,
+		"None",
+	);
+});
+
+test("a running filter whose folder another client deleted turns off with FolderMissing", async () => {
+	const store = emptyStore();
+	store.mailboxes.push(
+		makeMailbox({
+			mailboxId: INVOICES_ID,
+			accountId: PASSWORD_ACCOUNT_ID,
+			fullPath: "INBOX.Facturen",
+		}),
+	);
+	store.filters.push(
+		makeFilter({
+			filterId: "flt-live",
+			name: "Live",
+			actionMailboxId: INVOICES_ID,
+		}),
+		makeFilter({
+			filterId: "flt-gone",
+			name: "Gone",
+			actionMailboxId: LISTS_ID,
+		}),
+		makeFilter({
+			filterId: "flt-off",
+			name: "Off",
+			state: "Disabled",
+			disabledReason: "UserDisabled",
+			actionMailboxId: SENT_ID,
+		}),
+	);
+
+	const disabled = await disableFiltersMissingFolders(
+		repositoriesOf(store, TARGET_CONFIG_ID),
+		TARGET_CONFIG_ID,
+	);
+
+	assert.equal(disabled, 1);
+	const byId = new Map(
+		store.filters.map((filter) => [filter.filterId, filter]),
+	);
+	assert.equal(byId.get("flt-live")?.state, "Active");
+	assert.equal(byId.get("flt-gone")?.state, "Disabled");
+	assert.equal(byId.get("flt-gone")?.disabledReason, "FolderMissing");
+	assert.equal(byId.get("flt-off")?.disabledReason, "UserDisabled");
 });
 
 test("an import with no folders to wait for is complete the moment it lands", async () => {
@@ -1226,12 +1764,19 @@ test("a binder run on a configuration with no import does nothing", async () => 
 		{
 			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
 			now: () => NOW,
 		},
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);
-	assert.deepEqual(result, { bound: 0, dropped: 0, stillPending: 0 });
+	assert.deepEqual(result, {
+		bound: 0,
+		dropped: 0,
+		created: 0,
+		disabled: 0,
+		stillPending: 0,
+	});
 	assert.equal(pendingImportOf([]), undefined);
 });
 
@@ -1258,6 +1803,7 @@ test("a filter deleted before its folder is discovered drops its reference inste
 	const binder = {
 		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
 		now: () => NOW,
 	};
 
@@ -1282,7 +1828,13 @@ test("a filter deleted before its folder is discovered drops its reference inste
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);
-	assert.deepEqual(again, { bound: 0, dropped: 0, stillPending: 0 });
+	assert.deepEqual(again, {
+		bound: 0,
+		dropped: 0,
+		created: 0,
+		disabled: 0,
+		stillPending: 0,
+	});
 });
 
 test("a deleted filter's reference is dropped even when its folder never appears", async () => {
@@ -1303,6 +1855,7 @@ test("a deleted filter's reference is dropped even when its folder never appears
 		{
 			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
 			now: () => NOW,
 		},
 		TARGET_CONFIG_ID,
