@@ -92,7 +92,7 @@ const hasNowhereToGo = (message: {
 const NO_RECIPIENT_MESSAGE =
 	"This message has nobody to send to. Add a recipient before sending it.";
 
-export const MAIL_SYNC_OFF_SEND_MESSAGE =
+const MAIL_SYNC_OFF_SEND_MESSAGE =
 	"Mail is turned off for this account, so it cannot send. Turn Mail back on for this account in Settings to send from it.";
 
 const ENQUEUE_FAILED_MESSAGE =

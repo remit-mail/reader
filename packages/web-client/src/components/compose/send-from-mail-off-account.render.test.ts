@@ -14,8 +14,7 @@ import {
 } from "@tanstack/react-router";
 import { createElement, useState } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
-import { type HttpMock, httpError, mockFetch } from "../../test-support/http";
-import { MAIL_OFF_SEND_MESSAGE } from "../settings/account-form-helpers.js";
+import { type HttpMock, mockFetch } from "../../test-support/http";
 import { ComposeForm } from "./ComposeForm";
 import { ComposeProvider } from "./ComposeProvider";
 
@@ -78,6 +77,17 @@ const testRouter = (): AnyRouter =>
 		history: createMemoryHistory({ initialEntries: ["/mail/mbx-1"] }),
 	}) as unknown as AnyRouter;
 
+const mailSyncOff = (): Response =>
+	new Response(
+		JSON.stringify({
+			status: 400,
+			code: "mail_sync_off",
+			message: SERVER_REFUSAL,
+			details: { accountId: ACCOUNT_ID },
+		}),
+		{ status: 400, headers: { "content-type": "application/json" } },
+	);
+
 const mount = async (options: {
 	syncedServices: string[];
 	serverRefusesSend: boolean;
@@ -92,7 +102,7 @@ const mount = async (options: {
 	http = mockFetch(async (call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		if (call.path.endsWith("/send") && options.serverRefusesSend) {
-			return httpError(400, SERVER_REFUSAL);
+			return mailSyncOff();
 		}
 		return outboxEntry;
 	});
@@ -137,23 +147,26 @@ const sends = (): number =>
 	(http?.calls ?? []).filter((call) => call.path.endsWith("/send")).length;
 
 describe("sending from an account with mail off (#1181)", () => {
-	it("says why in the composer and sends nothing", async () => {
-		await mount({ syncedServices: ["Calendar"], serverRefusesSend: false });
-
-		await pressSend();
-
-		assert.equal(sends(), 0);
-		assert.equal(closed, 0);
-		assert.ok((harness?.text() ?? "").includes(MAIL_OFF_SEND_MESSAGE));
-	});
-
-	it("shows the server's refusal in the composer when the send reaches it", async () => {
-		await mount({ syncedServices: ["Mail"], serverRefusesSend: true });
+	it("shows the server's refusal in the composer and keeps it open", async () => {
+		await mount({ syncedServices: ["Calendar"], serverRefusesSend: true });
 
 		await pressSend();
 
 		assert.equal(sends(), 1);
 		assert.equal(closed, 0);
 		assert.ok((harness?.text() ?? "").includes(SERVER_REFUSAL));
+	});
+
+	it("holds Send blocked on that refusal instead of asking the server again", async () => {
+		await mount({ syncedServices: ["Calendar"], serverRefusesSend: true });
+
+		await pressSend();
+		await pressSend();
+
+		assert.equal(sends(), 1);
+		assert.equal(
+			harness?.byText("button", "Send")?.getAttribute("title"),
+			SERVER_REFUSAL,
+		);
 	});
 });

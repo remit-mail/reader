@@ -2,7 +2,6 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	accountIsMissingSmtp,
-	accountSendsNoMail,
 	appendAppPasswordHint,
 	computeSmtpAutoFill,
 	deriveSmtpHostFromImap,
@@ -169,22 +168,5 @@ describe("appendAppPasswordHint", () => {
 
 	test("returns undefined when there is no message", () => {
 		assert.equal(appendAppPasswordHint(undefined, hint), undefined);
-	});
-});
-
-describe("accountSendsNoMail", () => {
-	test("false for a mail-only account", () => {
-		assert.equal(accountSendsNoMail({ syncedServices: ["Mail"] }), false);
-	});
-
-	test("false for an account syncing mail and calendar", () => {
-		assert.equal(
-			accountSendsNoMail({ syncedServices: ["Mail", "Calendar"] }),
-			false,
-		);
-	});
-
-	test("true for a calendar-only account", () => {
-		assert.equal(accountSendsNoMail({ syncedServices: ["Calendar"] }), true);
 	});
 });

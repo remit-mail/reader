@@ -47,9 +47,9 @@ The collection, its `CalendarObject` rows, its `syncSequence` and its feed token
 
 Invariant 1 states that disable is not delete. Each calendar mints and revokes its own feed token (`typespec/main.tsp:409`, `typespec/main.tsp:425`), so a subscriber starts getting 404 once someone revokes that token. A service toggle is a different act.
 
-### D5 - the mail surfaces read stored rows, and the From picker filters
+### D5 - the mail surfaces read only mail-syncing accounts, and the From picker filters
 
-The mail list, the brief, search and folder appointments read stored rows and never look at `syncedServices`. A calendar-only account owns no mailboxes and no messages, so it reaches none of those surfaces and none of them needs to know why (invariant 5). An account that stops syncing mail keeps the rows it holds, and those rows stop changing (invariant 1).
+The mail list, the brief and search read their accounts through `listMailSourcesByAccountConfig`, which selects only accounts whose `syncedServices` hold `Mail` (#1181). A calendar-only account and an account that stopped syncing mail both drop out of those surfaces. The stopped account keeps the rows it holds, those rows stop changing (invariant 1), and its mailboxes still open when addressed directly. Folder appointments read stored rows and never look at `syncedServices`.
 
 The compose From picker is the exception, because it reads the configured account list instead of stored rows (`packages/web-client/src/components/compose/FromSelector.tsx:19`). Unfiltered it lists a calendar-only account as a sender, which invariant 5 forbids and the send path refuses. So the picker lists only accounts holding `Mail`. When that leaves nothing to send from, compose raises the banner it already raises for a missing SMTP configuration (`ComposeSmtpMissingBanner`), pointed at the account's service toggle instead of its SMTP settings (#1182). That banner's copy is a module constant naming SMTP (`SMTP_MISSING_MESSAGE`, `packages/ui/src/components/compose-smtp-missing-banner.tsx:9`), so reusing it turns the message into a prop, and #1182 files that change. A person who switched mail off gets told where to switch it back on, and every account the picker lists can send.
 

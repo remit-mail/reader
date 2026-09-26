@@ -1028,11 +1028,12 @@ namespace RemitApi {
 
   @route("/outbox")
   namespace OutboxOperations {
-    @doc("Create a new outbox message (draft or send immediately)")
+    @doc("Create a new outbox message (draft or send immediately). A send-immediately create from an account whose syncedServices leave out Mail is refused with 400 `mail_sync_off`.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createOutboxMessage(@body input: CreateOutboxMessageInput):
       | OutboxMessageResponse
+      | ValidationError
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
@@ -1077,12 +1078,13 @@ namespace RemitApi {
       | ForbiddenError
       | UnauthorizedError;
 
-    @doc("Queue a draft message for sending")
+    @doc("Queue a draft message for sending. A draft on an account whose syncedServices leave out Mail is refused with 400 `mail_sync_off`, and stays a draft.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/send")
     op sendOutboxMessage(@path outboxMessageId: UUID):
       | OutboxMessageResponse
+      | ValidationError
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;
