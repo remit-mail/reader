@@ -27,7 +27,11 @@ import {
 	type SyncedMessage,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
-import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
+import {
+	isAccountDeleted,
+	isMailSyncDisabled,
+	isUnsyncableHost,
+} from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type {
 	FlagPushEvent,
@@ -123,6 +127,10 @@ export const syncMessages = async (
 	account = rawAccount;
 
 	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
+	if (isMailSyncDisabled(account, log)) {
 		return;
 	}
 

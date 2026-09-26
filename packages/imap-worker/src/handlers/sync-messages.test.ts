@@ -256,6 +256,7 @@ const liveAccount = {
 	accountId: "acc-1",
 	accountConfigId: "acc-cfg-1",
 	imapHost: "localhost",
+	syncedServices: ["Mail"],
 	username: "user@localhost",
 } as unknown as AccountItem;
 
@@ -540,5 +541,27 @@ describe("syncMessages — a delete that lands mid-round (issue #339)", () => {
 		);
 		assert.equal(harness.accountUpdates.length, 1);
 		assert.equal(harness.accountUpdates[0]?.syncPhase, "error");
+	});
+});
+
+describe("syncMessages — an account with mail sync off", () => {
+	it("acks the event without connecting and without touching the mailbox", async () => {
+		const { log } = buildLogger();
+		let mailboxReads = 0;
+		const harness = buildSyncDeps({
+			accountGet: async () =>
+				({ ...liveAccount, syncedServices: ["Calendar"] }) as AccountItem,
+			mailboxGet: async () => {
+				mailboxReads += 1;
+				return {};
+			},
+		});
+
+		await assert.doesNotReject(
+			syncMessages(syncEvent("mbx-1"), log, harness.deps),
+		);
+
+		assert.equal(harness.lifecycleCalls, 0);
+		assert.equal(mailboxReads, 0);
 	});
 });
