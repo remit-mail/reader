@@ -15,7 +15,6 @@ import {
 	type AccountCredentialsDeps,
 	resolveConnectionCredentials,
 } from "@remit/mailbox-service/account-credentials";
-import { loadOutboxAttachmentContents } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	createKmsDataKeyProvider,
 	createSecretsService,
@@ -26,7 +25,10 @@ import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
-import { createAttachmentReader } from "./attachment-storage.js";
+import {
+	createAttachmentLoader,
+	createAttachmentReader,
+} from "./attachment-storage.js";
 import { sendMessage } from "./send-message-core.js";
 
 // The data ports are resolved lazily and cached, not at module load: the
@@ -38,9 +40,9 @@ const getPorts = (): Promise<SmtpDataPorts> => {
 	return portsPromise;
 };
 
-const attachmentReader = createAttachmentReader(
-	process.env,
-	createStorageService,
+const loadAttachments = createAttachmentLoader(
+	createAttachmentReader(process.env, createStorageService),
+	async () => (await getPorts()).outboxAttachment,
 );
 
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
@@ -185,15 +187,7 @@ export const handleSendMessage = (
 				);
 			},
 			send: sendMail,
-			loadAttachments: async (tenant, outboxMessageId) =>
-				loadOutboxAttachmentContents(
-					{
-						attachments: (await getPorts()).outboxAttachment,
-						storage: attachmentReader,
-					},
-					{ ...tenant, outboxMessageId },
-					Math.floor(Date.now() / 1000),
-				),
+			loadAttachments,
 			emitAppendSentMessage,
 			engagement: {
 				resolveAddressId: deriveAddressId,

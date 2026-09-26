@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import type { OutboxAttachmentItem } from "@remit/data-ports";
 import { createMockStorageService } from "@remit/storage-service";
-import { createAttachmentReader } from "./attachment-storage.js";
+import {
+	createAttachmentLoader,
+	createAttachmentReader,
+} from "./attachment-storage.js";
 
 describe("createAttachmentReader", () => {
 	it("refuses to read on a Lambda with no bucket, naming the missing setting", () => {
@@ -45,5 +49,58 @@ describe("createAttachmentReader", () => {
 		);
 		await reader.retrieveOutboxAttachment("cfg", "acc", "ob", "att");
 		assert.equal(created, 1);
+	});
+});
+
+describe("createAttachmentLoader", () => {
+	it("reads the draft's stored files for the tenant it is given", async () => {
+		const storage = createMockStorageService();
+		await storage.storeOutboxAttachment({
+			accountConfigId: "cfg",
+			accountId: "acc",
+			outboxMessageId: "ob",
+			outboxAttachmentId: "att",
+			content: Buffer.from("%PDF"),
+		});
+		const row: OutboxAttachmentItem = {
+			outboxAttachmentId: "att",
+			outboxMessageId: "ob",
+			accountId: "acc",
+			accountConfigId: "cfg",
+			filename: "report.pdf",
+			contentType: "application/pdf",
+			sizeBytes: 4,
+			state: "Stored",
+			storageKey: "k",
+			reservationExpiresAt: 0,
+			createdAt: 0,
+			updatedAt: 0,
+		};
+		const asked: string[][] = [];
+		const load = createAttachmentLoader(
+			storage,
+			async () => ({
+				listByOutboxMessage: async (accountConfigId, outboxMessageId) => {
+					asked.push([accountConfigId, outboxMessageId]);
+					return [row];
+				},
+			}),
+			() => 1_000_000,
+		);
+
+		const files = await load(
+			{ accountConfigId: "cfg", accountId: "acc" },
+			"ob",
+		);
+
+		assert.deepEqual(asked, [["cfg", "ob"]]);
+		assert.deepEqual(
+			files.map((file) => [
+				file.filename,
+				file.contentType,
+				String(file.content),
+			]),
+			[["report.pdf", "application/pdf", "%PDF"]],
+		);
 	});
 });

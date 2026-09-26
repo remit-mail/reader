@@ -1,4 +1,8 @@
+import type { IOutboxAttachmentRepository } from "@remit/data-ports";
+import { loadOutboxAttachmentContents } from "@remit/mailbox-service/outbox-attachment-content";
+import type { MailAttachment } from "@remit/smtp-service";
 import type { StorageService } from "@remit/storage-service";
+import type { SendTenant } from "./send-message-core.js";
 
 export type AttachmentReader = Pick<StorageService, "retrieveOutboxAttachment">;
 
@@ -27,3 +31,22 @@ export const createAttachmentReader = (
 		},
 	};
 };
+
+/** The files a message goes out with, read from this worker's ports and storage. */
+export const createAttachmentLoader =
+	(
+		reader: AttachmentReader,
+		getRepository: () => Promise<
+			Pick<IOutboxAttachmentRepository, "listByOutboxMessage">
+		>,
+		now: () => number = Date.now,
+	) =>
+	async (
+		tenant: SendTenant,
+		outboxMessageId: string,
+	): Promise<MailAttachment[]> =>
+		loadOutboxAttachmentContents(
+			{ attachments: await getRepository(), storage: reader },
+			{ ...tenant, outboxMessageId },
+			Math.floor(now() / 1000),
+		);
