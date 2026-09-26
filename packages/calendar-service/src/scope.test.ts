@@ -923,7 +923,9 @@ describe("a whole-series edit to another day", () => {
 		assert.equal(write.ok, false);
 		assert.ok(!write.ok);
 		assert.equal(write.error.code, "UnmovableRecurrenceRule");
-		assert.match(write.error.message, /recurrenceRule/);
+		assert.match(write.error.message, /Pick a new repeat/);
+		assert.match(write.error.message, /move only this event/);
+		assert.doesNotMatch(write.error.message, /recurrenceRule|scope=|BYDAY/);
 	});
 
 	it("refuses a move a rule pinned by BYSETPOS cannot follow", async () => {
@@ -1171,5 +1173,249 @@ describe("a whole-series time change with per-occurrence changes", () => {
 			1,
 			`the edited occurrence shows once: ${expanded.join(", ")}`,
 		);
+	});
+});
+
+describe("a whole-series move the review found", () => {
+	const firstMonday = () =>
+		read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=MONTHLY;BYDAY=1MO;COUNT=4",
+			),
+		);
+
+	it("takes a monthly weekday from the moved second occurrence", async () => {
+		const icalData = replaced(
+			await applyScopedUpdate(
+				await firstMonday(),
+				"",
+				input(RecurrenceScope.All, "2026-10-05T09:00:00Z"),
+				{ start: "2026-10-06T09:00:00Z", end: "2026-10-06T10:00:00Z" },
+			),
+		);
+
+		const [master] = events(icalData);
+		assert.ok(
+			master?.includes("RRULE:FREQ=MONTHLY;COUNT=4;BYDAY=1TU"),
+			`the rule is the first Tuesday: ${master?.join(" | ")}`,
+		);
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-01T09:00:00Z",
+			"2026-10-06T09:00:00Z",
+			"2026-11-03T09:00:00Z",
+			"2026-12-01T09:00:00Z",
+		]);
+	});
+
+	it("takes a monthly weekday from the moved third occurrence", async () => {
+		const icalData = replaced(
+			await applyScopedUpdate(
+				await firstMonday(),
+				"",
+				input(RecurrenceScope.All, "2026-11-02T09:00:00Z"),
+				{ start: "2026-11-03T09:00:00Z", end: "2026-11-03T10:00:00Z" },
+			),
+		);
+
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-01T09:00:00Z",
+			"2026-10-06T09:00:00Z",
+			"2026-11-03T09:00:00Z",
+			"2026-12-01T09:00:00Z",
+		]);
+	});
+
+	it("keeps the moved occurrence's place in its month for a second weekday", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260914T090000Z",
+				"DTEND:20260914T100000Z",
+				"RRULE:FREQ=MONTHLY;BYDAY=2MO;COUNT=3",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(
+				calendar,
+				"",
+				input(RecurrenceScope.All, "2026-10-12T09:00:00Z"),
+				{ start: "2026-10-13T09:00:00Z", end: "2026-10-13T10:00:00Z" },
+			),
+		);
+
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-08T09:00:00Z",
+			"2026-10-13T09:00:00Z",
+			"2026-11-10T09:00:00Z",
+		]);
+	});
+
+	it("keeps a fifth weekday a fifth weekday", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260330T090000Z",
+				"DTEND:20260330T100000Z",
+				"RRULE:FREQ=MONTHLY;BYDAY=5MO;COUNT=2",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(calendar, "", input(RecurrenceScope.All), {
+				start: "2026-03-31T09:00:00Z",
+				end: "2026-03-31T10:00:00Z",
+			}),
+		);
+
+		const [master] = events(icalData);
+		assert.ok(
+			master?.includes("RRULE:FREQ=MONTHLY;COUNT=2;BYDAY=5TU"),
+			`the rule is the fifth Tuesday: ${master?.join(" | ")}`,
+		);
+		assert.deepEqual(await starts(icalData), [
+			"2026-03-31T09:00:00Z",
+			"2026-06-30T09:00:00Z",
+		]);
+	});
+
+	it("keeps a daily Monday-to-Friday rule when the move stays on a weekday", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR;COUNT=6",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(
+				calendar,
+				"",
+				input(RecurrenceScope.All, "2026-09-07T09:00:00Z"),
+				{ start: "2026-09-08T10:00:00Z", end: "2026-09-08T11:00:00Z" },
+			),
+		);
+
+		const [master] = events(icalData);
+		assert.ok(
+			master?.includes("RRULE:FREQ=DAILY;COUNT=6;BYDAY=MO,TU,WE,TH,FR"),
+			`the weekday set is kept: ${master?.join(" | ")}`,
+		);
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-07T10:00:00Z",
+			"2026-09-08T10:00:00Z",
+			"2026-09-09T10:00:00Z",
+			"2026-09-10T10:00:00Z",
+			"2026-09-11T10:00:00Z",
+			"2026-09-14T10:00:00Z",
+		]);
+	});
+
+	it("keeps the app's every-weekday rule when the move stays on a weekday", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;COUNT=6",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(
+				calendar,
+				"",
+				input(RecurrenceScope.All, "2026-09-09T09:00:00Z"),
+				{ start: "2026-09-10T09:00:00Z", end: "2026-09-10T10:00:00Z" },
+			),
+		);
+
+		const [master] = events(icalData);
+		assert.ok(
+			master?.includes("RRULE:FREQ=WEEKLY;COUNT=6;BYDAY=MO,TU,WE,TH,FR"),
+		);
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-07T09:00:00Z",
+			"2026-09-08T09:00:00Z",
+			"2026-09-09T09:00:00Z",
+			"2026-09-10T09:00:00Z",
+			"2026-09-11T09:00:00Z",
+			"2026-09-14T09:00:00Z",
+		]);
+	});
+
+	it("refuses to move an every-weekday series onto a weekend", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR;COUNT=6",
+			),
+		);
+
+		const write = await applyScopedUpdate(
+			calendar,
+			"",
+			input(RecurrenceScope.All, "2026-09-11T09:00:00Z"),
+			{ start: "2026-09-12T09:00:00Z", end: "2026-09-12T10:00:00Z" },
+		);
+
+		assert.ok(!write.ok);
+		assert.equal(write.error.code, "UnmovableRecurrenceRule");
+	});
+
+	it("moves an end date with the series so the last occurrence stays", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=WEEKLY;BYDAY=MO;UNTIL=20260928T090000Z",
+				"EXDATE:20260928T090000Z",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(
+				calendar,
+				"",
+				input(RecurrenceScope.All, "2026-09-14T09:00:00Z"),
+				{ start: "2026-09-15T09:00:00Z", end: "2026-09-15T10:00:00Z" },
+			),
+		);
+
+		const [master] = events(icalData);
+		assert.ok(
+			master?.includes("RRULE:FREQ=WEEKLY;BYDAY=TU;UNTIL=20260929T090000Z"),
+			`the end date moves with the series: ${master?.join(" | ")}`,
+		);
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-08T09:00:00Z",
+			"2026-09-15T09:00:00Z",
+			"2026-09-22T09:00:00Z",
+		]);
+	});
+
+	it("keeps the last occurrence of a series with an end date moved later in the day", async () => {
+		const calendar = await read(
+			series(
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"RRULE:FREQ=WEEKLY;UNTIL=20260928T090000Z",
+				"EXDATE:20260921T090000Z",
+			),
+		);
+
+		const icalData = replaced(
+			await applyScopedUpdate(calendar, "", input(RecurrenceScope.All), {
+				start: "2026-09-07T10:00:00Z",
+				end: "2026-09-07T11:00:00Z",
+			}),
+		);
+
+		assert.deepEqual(await starts(icalData), [
+			"2026-09-07T10:00:00Z",
+			"2026-09-14T10:00:00Z",
+			"2026-09-28T10:00:00Z",
+		]);
 	});
 });

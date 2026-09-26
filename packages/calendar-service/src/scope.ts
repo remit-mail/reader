@@ -372,11 +372,18 @@ const ruleSlots = (
 
 const WEEKDAYS: readonly string[] = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
 
+const WORKWEEK: readonly number[] = [1, 2, 3, 4, 5];
+
 const BY_WEEKDAY = /^([+-]?\d{1,2})?(SU|MO|TU|WE|TH|FR|SA)$/;
 
 interface ByWeekday {
 	ordinal: number;
 	weekday: number;
+}
+
+interface FollowedRule {
+	rule: ICAL.Recur;
+	startShift: number;
 }
 
 const readByWeekday = (value: string): ByWeekday | null => {
@@ -390,57 +397,108 @@ const readByWeekday = (value: string): ByWeekday | null => {
 
 const weekdayOf = (time: ICAL.Time): number => time.dayOfWeek() - 1;
 
+const weekdayOfDate = (year: number, month: number, day: number): number =>
+	new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+
 const ordinalOf = (
 	position: number,
 	length: number,
-	fromEnd: boolean,
-	withinMonth: boolean,
+	original: number,
 ): number => {
 	const fromStart = Math.floor((position - 1) / 7) + 1;
 	const fromLast = -(Math.floor((length - position) / 7) + 1);
-	const preferred = fromEnd ? fromLast : fromStart;
-	if (!withinMonth || Math.abs(preferred) < 5) return preferred;
-	return fromEnd ? fromStart : fromLast;
+	const preferred = original < 0 ? fromLast : fromStart;
+	if (Math.abs(preferred) < 5 || Math.abs(original) >= 5) return preferred;
+	return original < 0 ? fromStart : fromLast;
 };
 
-const unmovable = <T>(
-	rule: ICAL.Recur,
-	after: ICAL.Time,
-	reason: string,
-): CalendarResult<T> =>
+const nthWeekday = (
+	year: number,
+	month: number,
+	weekday: number,
+	ordinal: number,
+): number | null => {
+	const length = ICAL.Time.daysInMonth(month, year);
+	if (ordinal > 0) {
+		const first = 1 + ((weekday - weekdayOfDate(year, month, 1) + 7) % 7);
+		const day = first + 7 * (ordinal - 1);
+		return day <= length ? day : null;
+	}
+	const last =
+		length - ((weekdayOfDate(year, month, length) - weekday + 7) % 7);
+	const day = last + 7 * (ordinal + 1);
+	return day >= 1 ? day : null;
+};
+
+const firstNumberedSlot = (
+	from: ICAL.Time,
+	month: number,
+	yearly: boolean,
+	weekday: number,
+	ordinal: number,
+): ICAL.Time | null => {
+	for (let step = 0; step < 48; step += 1) {
+		const monthIndex = yearly ? month - 1 : from.month - 1 + step;
+		const year = from.year + (yearly ? step : Math.floor(monthIndex / 12));
+		const candidateMonth = (monthIndex % 12) + 1;
+		const day = nthWeekday(year, candidateMonth, weekday, ordinal);
+		if (day !== null) {
+			const slot = from.clone();
+			slot.adjust(
+				civilDay(ICAL.Time.fromData({ year, month: candidateMonth, day })) -
+					civilDay(from),
+				0,
+				0,
+				0,
+			);
+			return slot;
+		}
+	}
+	return null;
+};
+
+const unmovable = <T>(after: ICAL.Time, reason: string): CalendarResult<T> =>
 	calendarFailure(
 		"UnmovableRecurrenceRule",
-		`the repeat rule ${rule.toString()} ${reason}, so it cannot follow the series to ${after.toString().slice(0, 10)} — send a recurrenceRule for the new day in the same edit, or move one occurrence with scope=This`,
+		`This series repeats ${reason}, so it cannot move to ${after.toString().slice(0, 10)}. Pick a new repeat together with the new date, or move only this event.`,
 	);
 
 const followStart = (
 	rule: ICAL.Recur,
-	before: ICAL.Time,
-	after: ICAL.Time,
-): CalendarResult<ICAL.Recur> => {
-	if (civilDay(after) === civilDay(before)) return { ok: true, value: rule };
+	seriesStart: ICAL.Time,
+	newStart: ICAL.Time,
+	anchor: ICAL.Time,
+): CalendarResult<FollowedRule> => {
+	const days = civilDay(newStart) - civilDay(seriesStart);
+	if (days === 0) return { ok: true, value: { rule, startShift: 0 } };
+	const anchorBefore = anchor.clone();
+	anchorBefore.adjust(-days, 0, 0, 0);
 	const moved = rule.clone();
 	const parts = moved.parts;
+	const kept = (startShift: number): CalendarResult<FollowedRule> => ({
+		ok: true,
+		value: { rule: moved, startShift },
+	});
 
-	const pinned = (["BYSETPOS", "BYYEARDAY", "BYWEEKNO"] as const).find(
+	const pinned = (["BYSETPOS", "BYYEARDAY", "BYWEEKNO"] as const).some(
 		(name) => (parts[name]?.length ?? 0) > 0,
 	);
-	if (pinned) return unmovable(rule, after, `picks its days with ${pinned}`);
+	if (pinned) return unmovable(anchor, "on a pattern of positions");
 
 	const byMonthDay = parts.BYMONTHDAY ?? [];
 	if (byMonthDay.length > 0) {
-		if (byMonthDay.length !== 1 || byMonthDay[0] !== before.day) {
-			return unmovable(rule, after, "names days of the month of its own");
+		if (byMonthDay.length !== 1 || byMonthDay[0] !== anchorBefore.day) {
+			return unmovable(anchor, "on several days of the month");
 		}
-		parts.BYMONTHDAY = [after.day];
+		parts.BYMONTHDAY = [anchor.day];
 	}
 
 	const byMonth = parts.BYMONTH ?? [];
-	if (byMonth.length > 0 && after.month !== before.month) {
-		if (byMonth.length !== 1 || byMonth[0] !== before.month) {
-			return unmovable(rule, after, "names months of its own");
+	if (byMonth.length > 0 && anchor.month !== anchorBefore.month) {
+		if (byMonth.length !== 1 || byMonth[0] !== anchorBefore.month) {
+			return unmovable(anchor, "in several months");
 		}
-		parts.BYMONTH = [after.month];
+		parts.BYMONTH = [anchor.month];
 	}
 
 	const byDay = parts.BYDAY ?? [];
@@ -448,56 +506,72 @@ const followStart = (
 		.map(readByWeekday)
 		.filter((weekday): weekday is ByWeekday => weekday !== null);
 	if (weekdays.length !== byDay.length) {
-		return unmovable(rule, after, "names a weekday this server cannot read");
+		return unmovable(anchor, "on days the calendar cannot read");
 	}
-	if (weekdays.length === 0) return { ok: true, value: moved };
+	if (weekdays.length === 0) return kept(0);
 
 	const numbered = weekdays.find((weekday) => weekday.ordinal !== 0);
 	if (numbered) {
 		if (weekdays.length !== 1) {
-			return unmovable(rule, after, "names more than one numbered weekday");
+			return unmovable(anchor, "on more than one numbered weekday");
 		}
-		const withinMonth =
-			moved.freq !== "YEARLY" || (parts.BYMONTH?.length ?? 0) > 0;
-		const position = withinMonth ? after.day : after.dayOfYear();
-		const length = withinMonth
-			? ICAL.Time.daysInMonth(after.month, after.year)
-			: ICAL.Time.isLeapYear(after.year)
-				? 366
-				: 365;
+		const yearly = moved.freq === "YEARLY";
+		if (yearly && (parts.BYMONTH?.length ?? 0) === 0) {
+			return unmovable(anchor, "on a numbered weekday of the year");
+		}
 		const ordinal = ordinalOf(
-			position,
-			length,
-			numbered.ordinal < 0,
-			withinMonth,
+			anchor.day,
+			ICAL.Time.daysInMonth(anchor.month, anchor.year),
+			numbered.ordinal,
 		);
-		parts.BYDAY = [`${ordinal}${WEEKDAYS[weekdayOf(after)]}`];
-		return { ok: true, value: moved };
+		const weekday = weekdayOf(anchor);
+		parts.BYDAY = [`${ordinal}${WEEKDAYS[weekday]}`];
+		const first = firstNumberedSlot(
+			seriesStart,
+			anchor.month,
+			yearly,
+			weekday,
+			ordinal,
+		);
+		if (!first) return unmovable(anchor, "on a weekday that never comes");
+		return kept(civilDay(first) - civilDay(newStart));
 	}
 
-	const shift = (((weekdayOf(after) - weekdayOf(before)) % 7) + 7) % 7;
-	if (moved.interval > 1 && weekdays.length > 1) {
+	const set = weekdays.map((weekday) => weekday.weekday);
+	const workweek =
+		set.length === WORKWEEK.length &&
+		WORKWEEK.every((weekday) => set.includes(weekday));
+	if (moved.freq !== "WEEKLY" || workweek) {
+		if (!set.includes(weekdayOf(anchor))) {
+			return unmovable(anchor, "on a set of weekdays without that day");
+		}
+		return kept(-days);
+	}
+
+	const shift = (((weekdayOf(newStart) - weekdayOf(seriesStart)) % 7) + 7) % 7;
+	if (moved.interval > 1 && set.length > 1) {
 		const weekStart = moved.wkst - 1;
-		const wraps = weekdays.map(
-			(weekday) => ((weekday.weekday - weekStart + 7) % 7) + shift >= 7,
+		const wraps = set.map(
+			(weekday) => ((weekday - weekStart + 7) % 7) + shift >= 7,
 		);
 		if (wraps.some((wrap) => wrap !== wraps[0])) {
-			return unmovable(
-				rule,
-				after,
-				"repeats on several days every few weeks, and the move carries some of them into another week",
-			);
+			return unmovable(anchor, "on several days every few weeks");
 		}
 	}
-	parts.BYDAY = weekdays.map(
-		(weekday) => WEEKDAYS[(weekday.weekday + shift) % 7] ?? "",
-	);
-	return { ok: true, value: moved };
+	parts.BYDAY = set.map((weekday) => WEEKDAYS[(weekday + shift) % 7] ?? "");
+	return kept(0);
+};
+
+const shiftStart = (master: ICAL.Component, days: number): void => {
+	if (days === 0) return;
+	shiftProperty(master, "dtstart", days);
+	shiftProperty(master, "dtend", days);
 };
 
 const followRule = (
 	master: ICAL.Component,
 	before: SeriesShape,
+	daysIn: number,
 ): CalendarResult<null> => {
 	const property = master.getFirstProperty("rrule");
 	const rule = property?.getFirstValue();
@@ -506,10 +580,49 @@ const followRule = (
 		return { ok: true, value: null };
 	}
 	if (!(start instanceof ICAL.Time)) return { ok: true, value: null };
-	const followed = followStart(rule, before.start, start);
+	const anchor = start.clone();
+	anchor.adjust(daysIn, 0, 0, 0);
+	const followed = followStart(rule, before.start, start, anchor);
 	if (!followed.ok) return followed;
-	property.setValue(followed.value);
+	property.setValue(followed.value.rule);
+	shiftStart(master, followed.value.startShift);
 	return { ok: true, value: null };
+};
+
+const untilAt = (slot: SeriesSlot, shape: SeriesShape): ICAL.Time => {
+	const floating =
+		shape.tzid === "" && slot.time.zone !== ICAL.Timezone.utcTimezone;
+	if (slot.time.isDate || floating) return slot.time.clone();
+	return ICAL.Time.fromJSDate(new Date(slot.instantMs), true);
+};
+
+const followUntil = (
+	master: ICAL.Component,
+	before: SeriesShape,
+	collectionTimezone: string,
+): void => {
+	if (!before.rule || before.rule.until === null) return;
+	const property = master.getFirstProperty("rrule");
+	const rule = property?.getFirstValue();
+	const now = seriesShape(master);
+	if (!property || !(rule instanceof ICAL.Recur) || !now) return;
+	if (rule.until === null) return;
+
+	const previous = ruleSlots(before, collectionTimezone, () => false);
+	if (previous.length === 0 || previous.length >= CALENDAR_WINDOW_MAX_STEPS) {
+		return;
+	}
+	const open = rule.clone();
+	open.until = null;
+	const next = ruleSlots(
+		{ ...now, rule: open },
+		collectionTimezone,
+		(_instantMs, count) => count >= previous.length,
+	);
+	const last = next[previous.length - 1];
+	if (!last) return;
+	rule.until = untilAt(last, now);
+	property.setValue(rule);
 };
 
 const replaceTime = (
@@ -659,8 +772,9 @@ const applyToSeries = async (
 		shiftProperty(calendar.master, "dtend", -daysIn.value);
 	}
 	if (patch.recurrenceRule === undefined) {
-		const followed = followRule(calendar.master, before);
+		const followed = followRule(calendar.master, before, daysIn.value);
 		if (!followed.ok) return followed;
+		followUntil(calendar.master, before, collectionTimezone);
 	}
 
 	const after = seriesShape(calendar.master);
