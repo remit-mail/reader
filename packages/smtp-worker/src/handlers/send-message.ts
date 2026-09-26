@@ -21,9 +21,14 @@ import {
 } from "@remit/secrets-service";
 import { sendMail } from "@remit/smtp-service";
 import { createQueueProducer } from "@remit/sqs-client/producer";
+import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
 import type { SendMessageEvent } from "../events.js";
+import {
+	createAttachmentLoader,
+	createAttachmentReader,
+} from "./attachment-storage.js";
 import { sendMessage } from "./send-message-core.js";
 
 // The data ports are resolved lazily and cached, not at module load: the
@@ -34,6 +39,11 @@ const getPorts = (): Promise<SmtpDataPorts> => {
 	if (!portsPromise) portsPromise = buildDataPortsFromEnv();
 	return portsPromise;
 };
+
+const loadAttachments = createAttachmentLoader(
+	createAttachmentReader(process.env, createStorageService),
+	async () => (await getPorts()).outboxAttachment,
+);
 
 const dataKeyProvider = createKmsDataKeyProvider(env.KMS_KEY_ID);
 const secrets = createSecretsService(dataKeyProvider);
@@ -177,6 +187,7 @@ export const handleSendMessage = (
 				);
 			},
 			send: sendMail,
+			loadAttachments,
 			emitAppendSentMessage,
 			engagement: {
 				resolveAddressId: deriveAddressId,

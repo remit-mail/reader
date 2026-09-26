@@ -18,6 +18,8 @@ export interface ComposeFormShellProps {
 	children: ReactNode;
 	/** Quoted reply / forwarded content under the body. */
 	quoted?: ReactNode;
+	/** The files the message carries, above the action bar. */
+	attachments?: ReactNode;
 	/** The ComposeActionBar. */
 	actionBar: ReactNode;
 	layout?: ComposeShellLayout;
@@ -46,6 +48,7 @@ export function ComposeFormShell({
 	header,
 	children,
 	quoted,
+	attachments,
 	actionBar,
 	layout = "fill",
 }: ComposeFormShellProps) {
@@ -63,6 +66,7 @@ export function ComposeFormShell({
 				{children}
 				{quoted && <div className="shrink-0 px-3 pb-2">{quoted}</div>}
 			</div>
+			{attachments && <div className="shrink-0">{attachments}</div>}
 			{fills ? (
 				actionBar
 			) : (

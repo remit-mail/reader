@@ -11,6 +11,7 @@ import type {
 import {
 	Banner,
 	ComposeActionBar,
+	ComposeAttachments,
 	ComposeBodySkeleton,
 	ComposeFormShell,
 	ComposeHeader,
@@ -41,6 +42,10 @@ import {
 	useRef,
 	useState,
 } from "react";
+import {
+	type DraftForAttachment,
+	useComposeAttachments,
+} from "../../hooks/useComposeAttachments";
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
@@ -227,6 +232,13 @@ const QUOTE_LOADING_MESSAGE = "Loading the message you're quoting.";
  */
 const QUOTE_FAILED_MESSAGE =
 	"The message you're quoting couldn't be loaded, so it won't be included.";
+
+/**
+ * A file needs a draft to hang from, and a draft is created against its To
+ * address, so a message with none cannot take a file yet.
+ */
+const ATTACH_NEEDS_TO_ADDRESS =
+	"Add a To address before attaching a file — the draft the file is kept with is saved against it.";
 
 /** A field holding text that is not an address, and which field it is. */
 interface UnparsedField {
@@ -763,6 +775,92 @@ export const ComposeForm = ({
 			onDraftCreated: adoptCreatedDraft,
 		});
 
+	const ensureDraftForAttachment =
+		useCallback(async (): Promise<DraftForAttachment> => {
+			if (outboxMessageId) return { outcome: "ready", outboxMessageId };
+			if (!selectedAccountId) {
+				return {
+					outcome: "refused",
+					reason: "Choose an account to send from before attaching a file.",
+				};
+			}
+			if (toAddresses.length === 0) {
+				return { outcome: "refused", reason: ATTACH_NEEDS_TO_ADDRESS };
+			}
+			const { htmlBody, textBody } = outgoingBody(
+				bodyMode,
+				body,
+				composeLanguage,
+				quotedBlock,
+			);
+			const saved = await saveImmediately({
+				accountId: selectedAccountId,
+				toAddresses: toAddresses.map((a) => a.email),
+				ccAddresses:
+					ccAddresses.length > 0 ? ccAddresses.map((a) => a.email) : undefined,
+				bccAddresses:
+					bccAddresses.length > 0
+						? bccAddresses.map((a) => a.email)
+						: undefined,
+				subject: subject || undefined,
+				textBody,
+				htmlBody,
+				...(sourceMessage && (mode === "reply" || mode === "reply-all")
+					? getReferences(sourceMessage)
+					: {}),
+			});
+			if (saved.outcome === "failed") {
+				return {
+					outcome: "refused",
+					reason: `The draft could not be saved, so the file was not attached: ${formatErrorDetail(saved.error) ?? "the request failed"}.`,
+				};
+			}
+			return { outcome: "ready", outboxMessageId: saved.outboxMessageId };
+		}, [
+			outboxMessageId,
+			selectedAccountId,
+			toAddresses,
+			ccAddresses,
+			bccAddresses,
+			subject,
+			body,
+			bodyMode,
+			composeLanguage,
+			quotedBlock,
+			sourceMessage,
+			mode,
+			saveImmediately,
+		]);
+
+	const {
+		items: attachmentItems,
+		attach,
+		retry: retryAttachment,
+		remove: removeAttachment,
+		load: loadAttachments,
+		reset: resetAttachments,
+		blockingReason: attachmentBlockingReason,
+	} = useComposeAttachments({
+		ensureDraft: ensureDraftForAttachment,
+	});
+
+	const attachmentDocumentRef = useRef(outboxMessageId);
+	useEffect(() => {
+		const previous = attachmentDocumentRef.current;
+		if (previous === outboxMessageId) return;
+		attachmentDocumentRef.current = outboxMessageId;
+		if (previous === undefined) return;
+		resetAttachments(outboxMessageId);
+	}, [outboxMessageId, resetAttachments]);
+
+	const attachmentsLoadedForRef = useRef<string | undefined>(undefined);
+	useEffect(() => {
+		if (!draftData || draftData.outboxMessageId !== outboxMessageId) return;
+		if (attachmentsLoadedForRef.current === draftData.outboxMessageId) return;
+		attachmentsLoadedForRef.current = draftData.outboxMessageId;
+		loadAttachments(draftData.outboxMessageId, draftData.attachments);
+	}, [draftData, outboxMessageId, loadAttachments]);
+
 	// Auto-save runs on a debounce, so a failure has no inline call site to
 	// surface it. Push the real error detail to a banner instead of leaving only
 	// the muted "Save failed" status dot. A fatal 5xx also hits the global
@@ -850,6 +948,9 @@ export const ComposeForm = ({
 			if (quoteIsLoading || quoteSourceIsLoading) {
 				return { status: "blocked", reason: QUOTE_LOADING_MESSAGE };
 			}
+			if (attachmentBlockingReason) {
+				return { status: "blocked", reason: attachmentBlockingReason };
+			}
 			if (unparsed) {
 				return { status: "blocked", reason: unparsedRefusal(unparsed) };
 			}
@@ -874,6 +975,7 @@ export const ComposeForm = ({
 			selectedAccountMissingSmtp,
 			quoteIsLoading,
 			quoteSourceIsLoading,
+			attachmentBlockingReason,
 			nothingToForward,
 		],
 	);
@@ -1187,6 +1289,17 @@ export const ComposeForm = ({
 					/>
 				) : undefined
 			}
+			attachments={
+				<ComposeAttachments
+					items={attachmentItems}
+					onRemove={(key) => {
+						void removeAttachment(key);
+					}}
+					onRetry={(key) => {
+						void retryAttachment(key);
+					}}
+				/>
+			}
 			actionBar={
 				<ComposeActionBar
 					send={sendState}
@@ -1194,6 +1307,9 @@ export const ComposeForm = ({
 					onBlocked={reportBlocked}
 					onDiscard={handleDiscard}
 					save={saveState}
+					onAttach={(files) => {
+						void attach(files);
+					}}
 				/>
 			}
 		>

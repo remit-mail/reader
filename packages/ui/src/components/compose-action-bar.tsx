@@ -1,4 +1,5 @@
-import { Loader2, Send, Trash2 } from "lucide-react";
+import { Loader2, Paperclip, Send, Trash2 } from "lucide-react";
+import { useRef } from "react";
 import { Button } from "./button.js";
 
 /**
@@ -36,7 +37,49 @@ export interface ComposeActionBarProps {
 	onBlocked: (reason: string) => void;
 	onDiscard: () => void;
 	save?: ComposeSaveState;
+	/** Called with the files picked. Absent, the composer offers no attach control. */
+	onAttach?: (files: File[]) => void;
 }
+
+const AttachControl = ({
+	disabled,
+	onAttach,
+}: {
+	disabled: boolean;
+	onAttach: (files: File[]) => void;
+}) => {
+	const inputRef = useRef<HTMLInputElement>(null);
+	return (
+		<>
+			<Button
+				variant="ghost"
+				size="md"
+				aria-label="Attach files"
+				title="Attach files"
+				aria-busy={disabled}
+				className="min-h-11 min-w-11 px-2"
+				data-testid="compose-attach"
+				icon={<Paperclip className="size-4" />}
+				onClick={() => {
+					if (disabled) return;
+					inputRef.current?.click();
+				}}
+			/>
+			<input
+				ref={inputRef}
+				type="file"
+				multiple
+				hidden
+				data-testid="compose-attach-input"
+				onChange={(event) => {
+					const files = Array.from(event.currentTarget.files ?? []);
+					event.currentTarget.value = "";
+					if (files.length > 0) onAttach(files);
+				}}
+			/>
+		</>
+	);
+};
 
 const SaveStateIndicator = ({ save }: { save: ComposeSaveState }) => {
 	if (save.status === "saving") {
@@ -70,6 +113,7 @@ export function ComposeActionBar({
 	onBlocked,
 	onDiscard,
 	save = { status: "idle" },
+	onAttach,
 }: ComposeActionBarProps) {
 	const sending = send.status === "sending";
 	const blockedReason = send.status === "blocked" ? send.reason : undefined;
@@ -102,6 +146,7 @@ export function ComposeActionBar({
 				>
 					Send
 				</Button>
+				{onAttach && <AttachControl disabled={sending} onAttach={onAttach} />}
 				<SaveStateIndicator save={save} />
 			</div>
 			<Button

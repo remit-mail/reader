@@ -87,6 +87,7 @@ const createHarness = (stored: OutboxMessageItem): Harness => {
 			discardAll: async (_configId: string, _accountId: string, id: string) => {
 				harness.discarded.push(id);
 			},
+			unfinishedUpload: async () => undefined,
 		} as unknown as OutboxAttachmentService,
 		accountService: {} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",

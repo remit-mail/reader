@@ -283,6 +283,12 @@ export {
 	type ComposeAddressFieldProps,
 	type ParsedAddressInput,
 } from "./components/compose-address-field.js";
+export {
+	type ComposeAttachmentItem,
+	type ComposeAttachmentState,
+	ComposeAttachments,
+	type ComposeAttachmentsProps,
+} from "./components/compose-attachments.js";
 export { ComposeBodySkeleton } from "./components/compose-body-skeleton.js";
 export {
 	ComposeFormShell,

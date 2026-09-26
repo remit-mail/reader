@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { beforeEach, describe, it } from "node:test";
 import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import type { AppendSentMessageEvent } from "../events.js";
 import {
 	APPEND_SENT_MAX_ATTEMPTS,
@@ -31,6 +32,11 @@ interface Harness {
 	 * without ever running the work. */
 	ackWithoutWork: boolean;
 	disconnectCount: number;
+	attachments: Array<{
+		filename: string;
+		contentType: string;
+		content: Buffer;
+	}>;
 }
 
 let h: Harness;
@@ -65,6 +71,7 @@ const fresh = (): Harness => ({
 	},
 	ackWithoutWork: false,
 	disconnectCount: 0,
+	attachments: [],
 });
 
 const deps = (): AppendSentMessageDeps =>
@@ -83,6 +90,10 @@ const deps = (): AppendSentMessageDeps =>
 			},
 			outboxAttachment: {
 				discardAll: record("outboxAttachment.discardAll"),
+				contentsFor: async (...args: unknown[]) => {
+					h.calls.push({ method: "outboxAttachment.contentsFor", args });
+					return h.attachments;
+				},
 			},
 			mailboxSpecialUse: {
 				findSentMailbox: async () => h.sentMailbox,
@@ -188,6 +199,85 @@ describe("handleAppendSentMessage", () => {
 			"acc-1",
 			"out-1",
 		]);
+	});
+
+	it("files the Sent copy with the same files the wire copy carried", async () => {
+		h.attachments = [
+			{
+				filename: "numbers.csv",
+				contentType: "text/csv",
+				content: Buffer.from("q1,q2\n1,2\n"),
+			},
+		];
+
+		await handleAppendSentMessage(event, noopLogger, 1, deps());
+
+		assert.deepEqual(called("outboxAttachment.contentsFor")[0]?.args, [
+			"cfg-1",
+			"acc-1",
+			"out-1",
+		]);
+		const raw = String(called("connection.append")[0]?.args[1] as Buffer);
+		assert.match(raw, /^Content-Type: multipart\/mixed;/m);
+		assert.match(
+			raw,
+			/^Content-Disposition: attachment; filename=numbers\.csv$/m,
+		);
+		assert.match(raw, /^Content-Type: text\/csv; name=numbers\.csv$/m);
+	});
+
+	const unreadable = new OutboxAttachmentUnavailableError(
+		"numbers.csv",
+		"nothing is stored at key/numbers",
+	);
+
+	const depsWithUnreadableFile = (): AppendSentMessageDeps => {
+		const base = deps();
+		return {
+			...base,
+			getClient: async (): Promise<BackendClient> => {
+				const client = await base.getClient();
+				client.outboxAttachment.contentsFor = async () => {
+					throw unreadable;
+				};
+				return client;
+			},
+		};
+	};
+
+	it("retries a copy whose files could not be read, below the budget", async () => {
+		const failing = depsWithUnreadableFile();
+
+		await assert.rejects(
+			() => handleAppendSentMessage(event, noopLogger, 1, failing),
+			unreadable,
+		);
+		assert.equal(called("connection.append").length, 0);
+		assert.deepEqual(patches(), [], "the row is left for the retry");
+	});
+
+	it("settles a delivered message whose files cannot be read as sent, not filed, at the budget", async () => {
+		const failing = depsWithUnreadableFile();
+
+		await handleAppendSentMessage(
+			event,
+			noopLogger,
+			APPEND_SENT_MAX_ATTEMPTS,
+			failing,
+		);
+		assert.deepEqual(patches(), [
+			{
+				status: "unfiled",
+				lastError:
+					'Sent, but not filed: the copy for INBOX/Sent could not be built because "numbers.csv" could not be read: nothing is stored at key/numbers.',
+			},
+		]);
+		assert.equal(called("connection.append").length, 0);
+		assert.equal(
+			called("outboxMessage.delete").length,
+			0,
+			"the row stays in the Outbox with its reason",
+		);
 	});
 
 	it("builds the message from the outbox row's own headers", async () => {

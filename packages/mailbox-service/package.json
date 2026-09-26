@@ -25,6 +25,10 @@
       "types": "./src/account-credentials.ts",
       "default": "./src/account-credentials.ts"
     },
+    "./outbox-attachment-content": {
+      "types": "./src/outbox-attachment-content.ts",
+      "default": "./src/outbox-attachment-content.ts"
+    },
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"

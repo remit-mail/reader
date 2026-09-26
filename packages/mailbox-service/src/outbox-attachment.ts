@@ -14,6 +14,10 @@ import {
 	UPLOAD_URL_TTL_SECONDS,
 } from "@remit/storage-service";
 import {
+	loadOutboxAttachmentContents,
+	type OutboxAttachmentContent,
+} from "./outbox-attachment-content.js";
+import {
 	normalizeAttachmentContentType,
 	sanitizeAttachmentFilename,
 } from "./outbox-attachment-filename.js";
@@ -405,6 +409,34 @@ export class OutboxAttachmentService {
 			outboxMessageId,
 		);
 		return held.filter((item) => holdsRoom(item, nowSeconds));
+	};
+
+	/**
+	 * The files a message goes out with, bytes included. The Sent copy is built
+	 * from the same rows the wire copy was, so the two carry the same parts.
+	 */
+	contentsFor = (
+		accountConfigId: string,
+		accountId: string,
+		outboxMessageId: string,
+	): Promise<OutboxAttachmentContent[]> =>
+		loadOutboxAttachmentContents(
+			{ attachments: this.attachments, storage: this.storage },
+			{ accountConfigId, accountId, outboxMessageId },
+			this.now(),
+		);
+
+	/**
+	 * The file that stops a send, if any: one still uploading, or one whose
+	 * upload never finished. A message must not leave without a file its sender
+	 * can see in the composer.
+	 */
+	unfinishedUpload = async (
+		accountConfigId: string,
+		outboxMessageId: string,
+	): Promise<OutboxAttachmentItem | undefined> => {
+		const live = await this.listFor(accountConfigId, outboxMessageId);
+		return live.find((item) => item.state !== "Stored");
 	};
 
 	/**

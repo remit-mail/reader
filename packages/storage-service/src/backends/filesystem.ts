@@ -400,6 +400,27 @@ export const createFilesystemStorageService = (
 		return stats ? { sizeBytes: stats.size } : null;
 	};
 
+	const retrieveOutboxAttachment: StorageService["retrieveOutboxAttachment"] = (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+		outboxAttachmentId,
+	) =>
+		readFile(
+			join(
+				basePath,
+				buildOutboxAttachmentKey(
+					accountConfigId,
+					accountId,
+					outboxMessageId,
+					outboxAttachmentId,
+				),
+			),
+		).catch((error: unknown) => {
+			if (isStorageNotFoundError(error)) return null;
+			throw error;
+		});
+
 	// This backend has no presigned anything, so the URL addresses the
 	// deployment's own upload route. Its authority is the same HMAC the read side
 	// uses on /content, under the write label, covering the storage key, the
@@ -540,6 +561,7 @@ export const createFilesystemStorageService = (
 		deleteOutboxAttachments,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
+		retrieveOutboxAttachment,
 		createOutboxAttachmentUploadUrl,
 		storeDeduplicated,
 		storeParsedBody,

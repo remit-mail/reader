@@ -104,6 +104,30 @@ export const NoRecipient: Story = {
 	},
 };
 
+/**
+ * The paperclip opens the file picker, and every file picked is handed on in
+ * one call — several files are one gesture, not one each.
+ */
+export const AttachFiles: Story = {
+	name: "Attach — pick one or more files",
+	args: { onAttach: fn() },
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("button", { name: "Attach files" }),
+		).toBeInTheDocument();
+		const report = new File(["%PDF-1.4"], "report.pdf", {
+			type: "application/pdf",
+		});
+		const notes = new File(["notes"], "notes.txt", { type: "text/plain" });
+		await userEvent.upload(canvas.getByTestId("compose-attach-input"), [
+			report,
+			notes,
+		]);
+		await expect(args.onAttach).toHaveBeenCalledWith([report, notes]);
+	},
+};
+
 export const SmtpMissing: Story = {
 	name: "Blocked — the account cannot send",
 	args: {
