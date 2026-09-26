@@ -129,7 +129,15 @@ export const bindImportedFolders = async (
 
 		for (const ref of row.unresolvedRefs) {
 			const state = refStateOf(ref, accountId, byPath, byId, filtersById);
-			if (state.kind === "Ready" && !movesIntoNothing(ref, filtersById)) {
+			if (
+				(state.kind === "Ready" || state.kind === "Refused") &&
+				!movesIntoNothing(ref, filtersById)
+			) {
+				await settlePickedFolder(
+					repositories,
+					accountConfigId,
+					filtersById.get(ref.target),
+				);
 				result.dropped++;
 				changed = true;
 				continue;
@@ -218,6 +226,23 @@ export const disableFiltersMissingFolders = async (
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
 
+const FOLDERLESS_REASONS: ReadonlySet<FilterItem["disabledReason"]> = new Set([
+	FilterDisabledReason.AwaitingFolder,
+	FilterDisabledReason.FolderCreateFailed,
+]);
+
+const settlePickedFolder = async (
+	repositories: ConfigBinderRepositories,
+	accountConfigId: string,
+	filter: FilterItem | undefined,
+): Promise<void> => {
+	if (!filter || filter.state !== FilterState.Disabled) return;
+	if (!FOLDERLESS_REASONS.has(filter.disabledReason)) return;
+	await repositories.filter.update(accountConfigId, filter.filterId, {
+		disabledReason: FilterDisabledReason.UserDisabled,
+	});
+};
+
 const movesIntoNothing = (
 	ref: ConfigImportUnresolvedRefItem,
 	filtersById: ReadonlyMap<string, FilterItem>,
@@ -257,7 +282,10 @@ const refStateOf = (
 		if (created.syncStatus === MailboxSyncStatus.synced) {
 			return { kind: "Ready", mailboxId: created.mailboxId };
 		}
-		if (created.syncStatus === MailboxSyncStatus.failed) {
+		if (
+			created.syncStatus === MailboxSyncStatus.failed &&
+			created.pendingPath === undefined
+		) {
 			return {
 				kind: "Refused",
 				reason: FilterDisabledReason.FolderCreateFailed,
@@ -269,10 +297,7 @@ const refStateOf = (
 	if (found?.syncStatus === MailboxSyncStatus.synced) {
 		return { kind: "Ready", mailboxId: found.mailboxId };
 	}
-	if (found?.syncStatus === MailboxSyncStatus.failed) {
-		return { kind: "Waiting", mailboxId: FILTER_NO_ACTION };
-	}
-	if (found) return { kind: "Waiting", mailboxId: found.mailboxId };
+	if (found) return { kind: "Waiting", mailboxId: FILTER_NO_ACTION };
 	if (ref.mailboxId !== FILTER_NO_ACTION) {
 		return {
 			kind: "Refused",

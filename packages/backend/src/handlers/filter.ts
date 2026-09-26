@@ -182,6 +182,15 @@ const FOLDERLESS_REASONS: ReadonlySet<FilterItem["disabledReason"]> = new Set([
 	FilterDisabledReason.FolderCreateFailed,
 ]);
 
+const folderlessRefusal = (
+	reason: FilterItem["disabledReason"],
+): BadRequestError =>
+	new BadRequestError(
+		reason === FilterDisabledReason.AwaitingFolder
+			? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
+			: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.",
+	);
+
 export const resolveFilterUpdate = (
 	current: Pick<
 		FilterItem,
@@ -195,9 +204,20 @@ export const resolveFilterUpdate = (
 			"A filter expires through its date, not its state. Set it Active or Disabled, or change its expiry.",
 		);
 	}
+	const folderless =
+		current.state === FilterState.Disabled &&
+		FOLDERLESS_REASONS.has(current.disabledReason);
+	const folder = patch.actionMailboxId ?? current.actionMailboxId;
+	const picked = folderless && folder !== FILTER_NO_ACTION;
+	const pickedReason = picked
+		? { disabledReason: FilterDisabledReason.UserDisabled }
+		: {};
+
 	const touchesTiming =
 		Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
-	if (!touchesTiming && patch.state === undefined) return patch;
+	if (!touchesTiming && patch.state === undefined) {
+		return { ...patch, ...pickedReason };
+	}
 
 	const timing = touchesTiming
 		? resolveFilterScopeExpiry(current, patch)
@@ -205,18 +225,6 @@ export const resolveFilterUpdate = (
 	const lapsed = timing
 		? timing.state === FilterState.Expired
 		: hasLapsed(current, now);
-
-	if (
-		patch.state === FilterState.Active &&
-		FOLDERLESS_REASONS.has(current.disabledReason) &&
-		(patch.actionMailboxId ?? current.actionMailboxId) === FILTER_NO_ACTION
-	) {
-		throw new BadRequestError(
-			current.disabledReason === FilterDisabledReason.AwaitingFolder
-				? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
-				: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.",
-		);
-	}
 
 	if (patch.state === FilterState.Active && lapsed) {
 		throw new BadRequestError(
@@ -226,6 +234,17 @@ export const resolveFilterUpdate = (
 
 	const wanted = patch.state ?? current.state;
 	const merged = { ...patch, ...timing };
+	if (wanted === FilterState.Disabled) {
+		return {
+			...merged,
+			state: FilterState.Disabled,
+			...(folderless
+				? pickedReason
+				: patch.state === FilterState.Disabled
+					? { disabledReason: FilterDisabledReason.UserDisabled }
+					: {}),
+		};
+	}
 	if (lapsed) {
 		return {
 			...merged,
@@ -233,19 +252,13 @@ export const resolveFilterUpdate = (
 			disabledReason: FilterDisabledReason.None,
 		};
 	}
-	if (wanted !== FilterState.Disabled) {
-		return {
-			...merged,
-			state: FilterState.Active,
-			disabledReason: FilterDisabledReason.None,
-		};
+	if (folderless && folder === FILTER_NO_ACTION) {
+		throw folderlessRefusal(current.disabledReason);
 	}
 	return {
 		...merged,
-		state: FilterState.Disabled,
-		...(patch.state === FilterState.Disabled
-			? { disabledReason: FilterDisabledReason.UserDisabled }
-			: {}),
+		state: FilterState.Active,
+		disabledReason: FilterDisabledReason.None,
 	};
 };
 

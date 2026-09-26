@@ -127,10 +127,26 @@ describe("FiltersList", () => {
 		["FolderMissing", /no longer exists/],
 	] as const;
 
+	it("drops the turns-on-by-itself copy once the user picked a folder", () => {
+		const html = render([
+			filter({
+				state: "Disabled",
+				disabledReason: "AwaitingFolder",
+				actionMailboxId: "mbx-travel",
+			}),
+		]);
+		assert.doesNotMatch(html, /turns on by itself/);
+		assert.match(html, /Turned off\./);
+	});
+
 	for (const [reason, copy] of reasons) {
 		it(`marks a filter disabled for ${reason} with its reason and a way back on (#1103)`, () => {
 			const html = render([
-				filter({ state: "Disabled", disabledReason: reason }),
+				filter({
+					state: "Disabled",
+					disabledReason: reason,
+					actionMailboxId: "None",
+				}),
 			]);
 			assert.match(html, /Disabled/);
 			assert.match(html, copy);

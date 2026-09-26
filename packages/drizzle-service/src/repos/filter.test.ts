@@ -320,6 +320,24 @@ describe("FilterRepo", () => {
 		assert.equal(result.state, FilterState.Active);
 	});
 
+	test("refreshExpiry leaves a disabled filter and its reason alone (#1103)", async () => {
+		const accountConfigId = randomId();
+		const past = new Date(Date.now() - 86_400_000).toISOString();
+		const filter = await repo.create({
+			accountConfigId,
+			name: "Until yesterday, awaiting its folder",
+			scope: FilterScope.Temporary,
+			expiresAt: past,
+			ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.AwaitingFolder,
+		});
+
+		const result = await repo.refreshExpiry(filter);
+		assert.equal(result.state, FilterState.Disabled);
+		assert.equal(result.disabledReason, FilterDisabledReason.AwaitingFolder);
+	});
+
 	test("refreshExpiry lazily patches a past-expiresAt Temporary filter to Expired", async () => {
 		const accountConfigId = randomId();
 		const past = new Date(Date.now() - 86_400_000).toISOString();

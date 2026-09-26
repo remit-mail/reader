@@ -70,9 +70,7 @@ export function FiltersList({
 				const status = filterDisplayStatus(filter, now);
 				const expired = status === "Expired";
 				const disabled = status === "Disabled";
-				const reason = disabled
-					? disabledReasonCopy(filter.disabledReason)
-					: undefined;
+				const reason = disabled ? disabledReasonCopy(filter) : undefined;
 				const folder =
 					filter.actionMailboxId !== NO_ACTION
 						? mailboxName(filter.actionMailboxId)

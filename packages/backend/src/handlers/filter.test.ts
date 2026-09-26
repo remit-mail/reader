@@ -160,6 +160,70 @@ describe("resolveFilterUpdate (#1103)", () => {
 		});
 	}
 
+	const awaiting = {
+		...standing,
+		state: FilterState.Disabled,
+		disabledReason: FilterDisabledReason.AwaitingFolder,
+		actionMailboxId: "None",
+	};
+
+	it("keeps a folderless reason when the user turns an awaiting filter off again", () => {
+		const resolved = resolveFilterUpdate(
+			awaiting,
+			{ state: FilterState.Disabled },
+			NOW,
+		);
+		assert.equal(resolved.state, FilterState.Disabled);
+		assert.equal("disabledReason" in resolved, false);
+		assert.throws(
+			() =>
+				resolveFilterUpdate(
+					{ ...awaiting, state: resolved.state ?? awaiting.state },
+					{ state: FilterState.Active },
+					NOW,
+				),
+			/pick a folder in the rule/i,
+		);
+	});
+
+	it("keeps a lapsed folderless filter off when its date moves forward", () => {
+		const lapsed = {
+			...awaiting,
+			scope: FilterScope.Temporary,
+			expiresAt: "2026-01-01T00:00:00+00:00",
+			disabledReason: FilterDisabledReason.FolderCreateFailed,
+		};
+		const resolved = resolveFilterUpdate(
+			lapsed,
+			{
+				scope: FilterScope.Temporary,
+				expiresAt: "2027-01-01T00:00:00+00:00",
+			},
+			NOW,
+		);
+		assert.equal(resolved.state, FilterState.Disabled);
+		assert.equal("disabledReason" in resolved, false);
+		assert.throws(
+			() =>
+				resolveFilterUpdate(
+					{ ...lapsed, expiresAt: "2027-01-01T00:00:00+00:00" },
+					{ state: FilterState.Active },
+					NOW,
+				),
+			/pick a folder in the rule/i,
+		);
+	});
+
+	it("marks a folderless filter UserDisabled once the user picks a folder", () => {
+		assert.deepEqual(
+			resolveFilterUpdate(awaiting, { actionMailboxId: "mbx-picked" }, NOW),
+			{
+				actionMailboxId: "mbx-picked",
+				disabledReason: FilterDisabledReason.UserDisabled,
+			},
+		);
+	});
+
 	it("refuses Expired as a state the user sets", () => {
 		assert.throws(
 			() => resolveFilterUpdate(standing, { state: FilterState.Expired }, NOW),

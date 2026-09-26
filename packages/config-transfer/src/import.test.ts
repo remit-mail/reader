@@ -1267,16 +1267,91 @@ test("a filter the user pointed at a folder keeps it when the imported folder ap
 		PASSWORD_ACCOUNT_ID,
 	);
 
-	assert.equal(
-		store.filters.find((filter) => filter.name === "Invoices to Facturen")
-			?.actionMailboxId,
-		"mbx-picked",
+	const picked = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
 	);
+	assert.equal(picked?.actionMailboxId, "mbx-picked");
+	assert.equal(picked?.state, "Disabled");
+	assert.equal(picked?.disabledReason, "UserDisabled");
 	assert.equal(
 		store.imports[0].unresolvedRefs.some(
 			(ref) => ref.target === invoices.filterId,
 		),
 		false,
+	);
+});
+
+test("a filter the user already turned on with their own folder survives the import's failed create", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	Object.assign(invoices, {
+		actionMailboxId: "mbx-picked",
+		state: "Active",
+		disabledReason: "None",
+	});
+	settle(store, "INBOX.Facturen", "failed");
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 0);
+	const kept = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(kept?.state, "Active");
+	assert.equal(kept?.actionMailboxId, "mbx-picked");
+});
+
+test("a failed rename of the created folder is not read as a failed create", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+	const created = settle(store, "INBOX.Facturen", "failed");
+	Object.assign(created, { pendingPath: "INBOX.Invoices" });
+
+	const result = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(result.disabled, 0);
+	const waiting = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(waiting?.disabledReason, "AwaitingFolder");
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.mailboxId === created.mailboxId,
+		),
+		true,
 	);
 });
 

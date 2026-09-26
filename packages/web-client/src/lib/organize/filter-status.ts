@@ -44,9 +44,17 @@ const DISABLED_REASON_COPY: Record<
 };
 
 export const disabledReasonCopy = (
-	reason: FilterDisabledReason,
-): string | undefined =>
-	reason === "None" ? undefined : DISABLED_REASON_COPY[reason];
+	filter: Pick<RemitImapFilterResponse, "disabledReason" | "actionMailboxId">,
+): string | undefined => {
+	if (filter.disabledReason === "None") return undefined;
+	const folderless =
+		filter.disabledReason === "AwaitingFolder" ||
+		filter.disabledReason === "FolderCreateFailed";
+	if (folderless && filter.actionMailboxId !== "None") {
+		return DISABLED_REASON_COPY.UserDisabled;
+	}
+	return DISABLED_REASON_COPY[filter.disabledReason];
+};
 
 /**
  * Human-readable rendering of an expiry timestamp, e.g. "Jul 16, 2026".
