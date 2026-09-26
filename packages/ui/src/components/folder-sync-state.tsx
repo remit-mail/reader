@@ -1,3 +1,4 @@
+import { folderLeaf } from "../lib/folder-tree.js";
 import { Badge } from "./badge.js";
 
 export type FolderSyncState =
@@ -11,26 +12,48 @@ export type FolderSyncState =
 export interface FolderSyncMailbox {
 	syncStatus: string;
 	pendingPath?: string;
-}
-
-function targetLeaf(pendingPath: string): string {
-	const segments = pendingPath.split("/");
-	return segments[segments.length - 1] || pendingPath;
+	hierarchyDelimiter: string;
 }
 
 export function folderSyncState(mailbox: FolderSyncMailbox): FolderSyncState {
 	if (mailbox.syncStatus === "pending") {
 		return mailbox.pendingPath
-			? { kind: "renaming", target: targetLeaf(mailbox.pendingPath) }
+			? {
+					kind: "renaming",
+					target: folderLeaf(mailbox.pendingPath, mailbox.hierarchyDelimiter),
+				}
 			: { kind: "creating" };
 	}
 	if (mailbox.syncStatus === "deleting") return { kind: "deleting" };
 	if (mailbox.syncStatus === "failed") {
 		return mailbox.pendingPath
-			? { kind: "rename-failed", target: targetLeaf(mailbox.pendingPath) }
+			? {
+					kind: "rename-failed",
+					target: folderLeaf(mailbox.pendingPath, mailbox.hierarchyDelimiter),
+				}
 			: { kind: "delete-failed" };
 	}
 	return { kind: "healthy" };
+}
+
+export function folderSyncAriaLabel(
+	folderName: string,
+	state: FolderSyncState,
+): string {
+	switch (state.kind) {
+		case "healthy":
+			return folderName;
+		case "creating":
+			return `${folderName} — creating`;
+		case "renaming":
+			return `${folderName} — renaming to ${state.target}`;
+		case "deleting":
+			return `${folderName} — deleting`;
+		case "rename-failed":
+			return `${folderName} — rename failed`;
+		case "delete-failed":
+			return `${folderName} — delete failed`;
+	}
 }
 
 export function isFolderSyncNavigable(state: FolderSyncState): boolean {

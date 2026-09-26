@@ -4,6 +4,7 @@ import { cn } from "../lib/cn.js";
 import {
 	FolderSyncBadge,
 	type FolderSyncState,
+	folderSyncAriaLabel,
 	isFolderSyncNavigable,
 } from "./folder-sync-state.js";
 
@@ -26,8 +27,9 @@ function FolderRowPreview({
 }) {
 	const navigable = isFolderSyncNavigable(state);
 	return (
-		<div className="w-[320px] overflow-hidden rounded-lg border border-line bg-surface font-sans">
-			<div
+		<ul className="w-[320px] list-none overflow-hidden rounded-lg border border-line bg-surface font-sans">
+			<li
+				aria-label={folderSyncAriaLabel(label, state)}
 				className={cn(
 					"flex min-h-11 items-center gap-2 px-3 py-2.5",
 					!navigable && "opacity-60",
@@ -36,8 +38,8 @@ function FolderRowPreview({
 				<Folder className="size-4 shrink-0 text-fg-subtle" aria-hidden="true" />
 				<span className="min-w-0 flex-1 truncate text-sm text-fg">{label}</span>
 				<FolderSyncBadge state={state} />
-			</div>
-		</div>
+			</li>
+		</ul>
 	);
 }
 

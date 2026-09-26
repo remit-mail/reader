@@ -474,6 +474,7 @@ export {
 	type FolderSyncBadgeProps,
 	type FolderSyncMailbox,
 	type FolderSyncState,
+	folderSyncAriaLabel,
 	folderSyncState,
 	isFolderSyncNavigable,
 } from "./components/folder-sync-state.js";
