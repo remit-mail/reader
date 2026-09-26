@@ -4,11 +4,23 @@ import {
 	GetSecretValueCommand,
 	SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
-import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
+import type {
+	AccountService as AccountServiceName,
+	MicrosoftOAuthStartRequest,
+} from "@remit/api-openapi-types";
+import {
+	AccountAuthType,
+	AccountService,
+	ConnectionState,
+} from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	createMailOAuthService,
+	type MailOAuthService,
 	microsoftProviderConfig,
+	microsoftServicesGranted,
+	orderServices,
+	RefreshTokenError,
 } from "@remit/mail-oauth-service";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
@@ -31,7 +43,18 @@ export interface OAuthState {
 	accountConfigId: string;
 	nonce: string;
 	timestamp: number;
+	services: AccountServiceName[];
 }
+
+const ACCOUNT_SERVICES: readonly string[] = Object.values(AccountService);
+
+const isServiceList = (value: unknown): value is AccountServiceName[] =>
+	Array.isArray(value) &&
+	value.length > 0 &&
+	value.every(
+		(service) =>
+			typeof service === "string" && ACCOUNT_SERVICES.includes(service),
+	);
 
 export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
@@ -92,6 +115,14 @@ export async function verifyState(
 
 	if (Date.now() - payload.timestamp > STATE_TTL_MS) {
 		throw new Error("State has expired");
+	}
+
+	if (payload.services === undefined) {
+		return { ...payload, services: [AccountService.Mail] };
+	}
+
+	if (!isServiceList(payload.services)) {
+		throw new Error("State names no requested services");
 	}
 
 	return payload;
@@ -203,6 +234,45 @@ export function getWebOrigin(): string {
 	return httpsOrigin ?? origins[0] ?? "https://localhost:3000";
 }
 
+type ScopeRedemption =
+	| { kind: "granted"; refreshToken: string; grantedScopes: string[] }
+	| { kind: "refused"; reason: "exchange_failed" | "scope_not_granted" };
+
+const redeemEachService = async (
+	serviceFor: (service: AccountServiceName) => MailOAuthService,
+	initialToken: string,
+	services: readonly AccountServiceName[],
+	accountConfigId: string,
+): Promise<ScopeRedemption> => {
+	let token = initialToken;
+	const grantedScopes: string[] = [];
+	for (const service of services) {
+		const redeemed = await serviceFor(service)
+			.refresh(token)
+			.catch((err: unknown) => {
+				logger.warn(
+					{
+						alert: "oauth_callback_failed",
+						reason: "scope_redemption_failed",
+						accountConfigId,
+						service,
+						error: inspect(err),
+					},
+					"MS OAuth callback: the consent did not cover a requested service",
+				);
+				return err instanceof RefreshTokenError &&
+					err.error.kind === "transient"
+					? ("exchange_failed" as const)
+					: ("scope_not_granted" as const);
+			});
+		if (typeof redeemed === "string")
+			return { kind: "refused", reason: redeemed };
+		grantedScopes.push(...redeemed.grantedScopes);
+		token = redeemed.refreshToken ?? token;
+	}
+	return { kind: "granted", refreshToken: token, grantedScopes };
+};
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 export const MicrosoftOAuthOperations: Record<
@@ -216,8 +286,9 @@ export const MicrosoftOAuthOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 
-		const input = JSON.parse(event.body ?? "{}") as { email?: string };
+		const input = JSON.parse(event.body ?? "{}") as MicrosoftOAuthStartRequest;
 		const email = typeof input.email === "string" ? input.email : undefined;
+		const services = orderServices(input.services ?? [AccountService.Mail]);
 
 		const config = getMsOAuthConfig();
 		const credentials = await getMsOAuthCredentials();
@@ -226,6 +297,7 @@ export const MicrosoftOAuthOperations: Record<
 			microsoftProviderConfig({
 				clientId: credentials.clientId,
 				clientSecret: credentials.clientSecret,
+				services,
 				overrides: config.tokenEndpoint
 					? { tokenEndpoint: config.tokenEndpoint }
 					: undefined,
@@ -237,6 +309,7 @@ export const MicrosoftOAuthOperations: Record<
 			accountConfigId,
 			nonce,
 			timestamp: Date.now(),
+			services,
 		};
 
 		const state = await signState(statePayload, credentials.clientSecret);
@@ -248,7 +321,10 @@ export const MicrosoftOAuthOperations: Record<
 		});
 
 		// biome-ignore lint/plugin/no-logger-info: OAuth initiation is an audit-grade signal
-		logger.info({ accountConfigId }, "Microsoft OAuth start initiated");
+		logger.info(
+			{ accountConfigId, services },
+			"Microsoft OAuth start initiated",
+		);
 
 		return { authorizationUrl };
 	},
@@ -329,20 +405,23 @@ export const MicrosoftOAuthOperations: Record<
 			);
 
 		const { accountConfigId } = statePayload;
+		const [firstService] = orderServices(statePayload.services);
 
 		const config = getMsOAuthConfig();
-		const oauthService = createMailOAuthService(
-			microsoftProviderConfig({
-				clientId: credentials.clientId,
-				clientSecret: credentials.clientSecret,
-				overrides: config.tokenEndpoint
-					? { tokenEndpoint: config.tokenEndpoint }
-					: undefined,
-			}),
-		);
+		const serviceFor = (service: AccountServiceName): MailOAuthService =>
+			createMailOAuthService(
+				microsoftProviderConfig({
+					clientId: credentials.clientId,
+					clientSecret: credentials.clientSecret,
+					services: [service],
+					overrides: config.tokenEndpoint
+						? { tokenEndpoint: config.tokenEndpoint }
+						: undefined,
+				}),
+			);
 
 		// Exchange the authorization code for tokens
-		const tokenSet = await oauthService
+		const tokenSet = await serviceFor(firstService)
 			.exchangeCode(code, config.redirectUri)
 			.catch((err: unknown) => {
 				logger.error(
@@ -410,16 +489,6 @@ export const MicrosoftOAuthOperations: Record<
 
 		const { account, accountConfig, secrets } = await getClient();
 
-		// Ensure the account config row exists for this user
-		await ensureAccountConfig(accountConfig, accountConfigId);
-
-		// Encrypt the refresh token
-		const tokenPayload = await secrets.encrypt(tokenSet.refreshToken);
-		const oauthRefreshTokenHash = JSON.stringify(
-			serializeEncryptedPayload(tokenPayload),
-		);
-		const oauthTokenUpdatedAt = Date.now();
-
 		// Reconnect when an active OAuth account already onboards this mailbox.
 		// Same natural key as the IMAP create guard (#635); the OAuth flow returns
 		// the existing account (token refresh) rather than rejecting, because a
@@ -432,6 +501,55 @@ export const MicrosoftOAuthOperations: Record<
 			username: email,
 		});
 
+		const services = orderServices([
+			...statePayload.services,
+			...(existing?.syncedServices ?? []),
+		]);
+
+		const redemption = await redeemEachService(
+			serviceFor,
+			tokenSet.refreshToken,
+			services.filter((service) => service !== firstService),
+			accountConfigId,
+		);
+		if (redemption.kind === "refused")
+			return redirect(
+				`${webOrigin}/settings/accounts?oauthError=${redemption.reason}`,
+			);
+
+		const grantedScopes = [
+			...new Set([...tokenSet.grantedScopes, ...redemption.grantedScopes]),
+		];
+		const grantedServices = microsoftServicesGranted(grantedScopes);
+		const missingServices = services.filter(
+			(service) => !grantedServices.includes(service),
+		);
+		if (missingServices.length > 0) {
+			logger.warn(
+				{
+					alert: "oauth_callback_failed",
+					reason: "scope_not_granted",
+					accountConfigId,
+					missingServices,
+					grantedScopes,
+				},
+				"MS OAuth callback: granted scopes lack a requested service",
+			);
+			return redirect(
+				`${webOrigin}/settings/accounts?oauthError=scope_not_granted`,
+			);
+		}
+
+		// Ensure the account config row exists for this user
+		await ensureAccountConfig(accountConfig, accountConfigId);
+
+		// Encrypt the refresh token
+		const tokenPayload = await secrets.encrypt(redemption.refreshToken);
+		const oauthRefreshTokenHash = JSON.stringify(
+			serializeEncryptedPayload(tokenPayload),
+		);
+		const oauthTokenUpdatedAt = Date.now();
+
 		let accountId: string;
 
 		if (existing) {
@@ -441,6 +559,8 @@ export const MicrosoftOAuthOperations: Record<
 				{
 					oauthRefreshTokenHash,
 					oauthTokenUpdatedAt,
+					syncedServices: services,
+					grantedScopes,
 					connectionState: ConnectionState.NotAuthenticated,
 				},
 				["lastError"] as never,
@@ -458,6 +578,8 @@ export const MicrosoftOAuthOperations: Record<
 				email,
 				username: email,
 				authType: AccountAuthType.OauthMicrosoft,
+				syncedServices: services,
+				grantedScopes,
 				oauthRefreshTokenHash,
 				oauthTokenUpdatedAt,
 				imapHost: OUTLOOK_IMAP_HOST,
@@ -480,7 +602,9 @@ export const MicrosoftOAuthOperations: Record<
 			);
 		}
 
-		await triggerAccountSyncSafe(accountId);
+		if (services.includes(AccountService.Mail)) {
+			await triggerAccountSyncSafe(accountId);
+		}
 
 		return redirect(
 			`${webOrigin}/settings/accounts?connected=${encodeURIComponent(accountId)}`,

@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { AccountResponse } from "@remit/api-openapi-types";
+import type {
+	AccountResponse,
+	AccountService as AccountServiceName,
+} from "@remit/api-openapi-types";
 import type { AccountItem } from "@remit/data-ports";
 import {
 	AccountAuthType,
@@ -15,6 +18,7 @@ import {
 	MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -65,12 +69,21 @@ const bodyOf = <T>(response: APIGatewayProxyResult): T =>
 let accounts: AccountRepo;
 let close: () => void;
 
-const seedAccount = (authType: AccountItem["authType"]) =>
+const seedAccount = (
+	authType: AccountItem["authType"],
+	grantedServices: AccountServiceName[] = authType ===
+	AccountAuthType.OauthMicrosoft
+		? [AccountService.Mail]
+		: [],
+) =>
 	accounts.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		username: `${authType}@example.com`,
 		email: `${authType}@example.com`,
 		authType,
+		grantedScopes: grantedServices.flatMap(
+			(service) => MICROSOFT_SERVICE_SCOPES[service],
+		),
 		imapHost: "imap.example.com",
 		imapPort: 993,
 		imapTls: true,
@@ -175,6 +188,22 @@ describe("the services an account syncs", () => {
 		]);
 	});
 
+	it("accepts calendar once the granted scopes cover it", async () => {
+		const account = await seedAccount(AccountAuthType.OauthMicrosoft, [
+			AccountService.Mail,
+			AccountService.Calendar,
+		]);
+
+		const response = await patchServices(account.accountId, [
+			AccountService.Calendar,
+		]);
+
+		assert.equal(response.statusCode, 200);
+		assert.deepEqual(await readServices(account.accountId), [
+			AccountService.Calendar,
+		]);
+	});
+
 	it("refuses calendar the Microsoft consent never covered and names the consent route", async () => {
 		const account = await seedAccount(AccountAuthType.OauthMicrosoft);
 
@@ -183,10 +212,9 @@ describe("the services an account syncs", () => {
 		]);
 
 		assert.equal(response.statusCode, 400);
-		assert.match(
-			bodyOf<{ message: string }>(response).message,
-			/POST \/accounts\/oauth\/microsoft\/start/,
-		);
+		const { message } = bodyOf<{ message: string }>(response);
+		assert.match(message, /granted scopes lack Calendar/);
+		assert.match(message, /POST \/accounts\/oauth\/microsoft\/start/);
 		assert.deepEqual(await readServices(account.accountId), [
 			AccountService.Mail,
 		]);

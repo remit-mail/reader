@@ -64,6 +64,10 @@ export function mapOauthError(code: string): string {
 		return "You cancelled the sign-in.";
 	}
 
+	if (lower === "scope_not_granted") {
+		return "Microsoft did not grant access to every service you picked. Sign in again and accept each permission Microsoft asks for.";
+	}
+
 	if (
 		lower === "consent_required" ||
 		lower.includes("admin_consent") ||
@@ -440,7 +444,10 @@ function AccountsSettings() {
 										onClick: () => {
 											setReconnectingAccountId(account.accountId);
 											reconnectMutation.mutate({
-												body: { email: account.email },
+												body: {
+													email: account.email,
+													services: account.syncedServices,
+												},
 											});
 										},
 									}

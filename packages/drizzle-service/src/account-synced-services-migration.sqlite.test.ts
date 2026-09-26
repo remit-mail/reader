@@ -21,6 +21,13 @@ const atPredecessor = (): Database.Database => {
 	throw new Error(`${MIGRATION} is not in the journal`);
 };
 
+const migrateOnward = (sqlite: Database.Database): void => {
+	const tags = migrationJournal().map((entry) => entry.tag);
+	for (const tag of tags.slice(tags.indexOf(MIGRATION))) {
+		applyMigration(sqlite, tag);
+	}
+};
+
 describe("an account written before the service selection existed", () => {
 	test("comes out of the migration syncing mail only", async () => {
 		const sqlite = atPredecessor();
@@ -36,7 +43,7 @@ describe("an account written before the service selection existed", () => {
 			)
 			.run();
 
-		applyMigration(sqlite, MIGRATION);
+		migrateOnward(sqlite);
 
 		const repo = new AccountRepo(
 			drizzle(sqlite, { schema: { accounts: accountTable } }) as never,

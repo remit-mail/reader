@@ -144,6 +144,10 @@ model Account {
   @visibility(Lifecycle.Read)
   syncedServices: AccountService[] = #[AccountService.Mail];
 
+  @doc("OAuth scopes the provider confirmed on the last consent, as full scope URIs. Empty on a password account. A Microsoft account can only select a service these scopes cover; one that lacks it goes back through POST /accounts/oauth/microsoft/start carrying that service.")
+  @visibility(Lifecycle.Read)
+  grantedScopes: string[] = #[];
+
   @doc("Hashed password for authentication (password accounts only)")
   @visibility(Lifecycle.Read)
   @secret
@@ -361,6 +365,7 @@ model AccountResponse {
       | "email"
       | "authType"
       | "syncedServices"
+      | "grantedScopes"
       | "imapHost"
       | "imapPort"
       | "imapTls"
