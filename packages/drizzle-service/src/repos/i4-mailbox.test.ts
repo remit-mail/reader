@@ -18,6 +18,7 @@ import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { runInTransaction } from "../tx.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { DrizzleMessageRepository, deleteMessageSubtree } from "./message.js";
+import { mailboxCreated } from "./test-helpers.js";
 
 /** Every state a row can carry, for a transition that decides against none. */
 const EVERY_STATE = [
@@ -63,7 +64,9 @@ describe("MailboxRepo", () => {
 
 	test("create and get", async () => {
 		const accountId = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
+		const mailbox = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId)),
+		);
 		assert.ok(mailbox.mailboxId);
 		assert.equal(mailbox.fullPath, "INBOX");
 
@@ -76,10 +79,12 @@ describe("MailboxRepo", () => {
 	test("highestModseq round-trips a value above 2^53 without loss (reader#9)", async () => {
 		const accountId = randomId();
 		const modseq = "18446744073709551615";
-		const created = await repo.create({
-			...makeMailboxInput(accountId),
-			highestModseq: modseq,
-		});
+		const created = mailboxCreated(
+			await repo.create({
+				...makeMailboxInput(accountId),
+				highestModseq: modseq,
+			}),
+		);
 		assert.equal(created.highestModseq, modseq);
 
 		const fetched = await repo.get(accountId, created.mailboxId);
@@ -98,8 +103,12 @@ describe("MailboxRepo", () => {
 
 	test("batchGet: WHERE id = ANY($1)", async () => {
 		const accountId = randomId();
-		const m1 = await repo.create(makeMailboxInput(accountId, "INBOX"));
-		const m2 = await repo.create(makeMailboxInput(accountId, "Sent"));
+		const m1 = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "INBOX")),
+		);
+		const m2 = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Sent")),
+		);
 
 		const results = await repo.get(accountId, [m1.mailboxId, m2.mailboxId]);
 		assert.equal(results.length, 2);
@@ -114,7 +123,9 @@ describe("MailboxRepo", () => {
 
 	test("findByPath finds existing mailbox", async () => {
 		const accountId = randomId();
-		await repo.create(makeMailboxInput(accountId, "Work/Projects"));
+		mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Work/Projects")),
+		);
 
 		const found = await repo.findByPath(accountId, "Work/Projects");
 		assert.ok(found);
@@ -145,9 +156,13 @@ describe("MailboxRepo", () => {
 
 	test("findByPathPrefix finds children", async () => {
 		const accountId = randomId();
-		await repo.create(makeMailboxInput(accountId, "Work"));
-		await repo.create(makeMailboxInput(accountId, "Work/Projects"));
-		await repo.create(makeMailboxInput(accountId, "Work/Projects/Alpha"));
+		mailboxCreated(await repo.create(makeMailboxInput(accountId, "Work")));
+		mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Work/Projects")),
+		);
+		mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Work/Projects/Alpha")),
+		);
 
 		const children = await repo.findByPathPrefix(accountId, "Work");
 		assert.ok(children.some((m) => m.fullPath === "Work/Projects"));
@@ -161,8 +176,8 @@ describe("MailboxRepo", () => {
 
 	test("findByPathPrefix finds nothing in a flat namespace", async () => {
 		const accountId = randomId();
-		await repo.create(makeMailboxInput(accountId, "Work"));
-		await repo.create(makeMailboxInput(accountId, "Workshop"));
+		mailboxCreated(await repo.create(makeMailboxInput(accountId, "Work")));
+		mailboxCreated(await repo.create(makeMailboxInput(accountId, "Workshop")));
 
 		assert.deepEqual(await repo.findByPathPrefix(accountId, "Work", ""), []);
 	});
@@ -170,7 +185,9 @@ describe("MailboxRepo", () => {
 	test("cross-tenant: get refuses a foreign account", async () => {
 		const accountId = randomId();
 		const other = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
+		const mailbox = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId)),
+		);
 
 		await assert.rejects(
 			() => repo.get(other, mailbox.mailboxId),
@@ -186,7 +203,9 @@ describe("MailboxRepo", () => {
 	test("cross-tenant: update refuses a foreign account and leaves the row unchanged", async () => {
 		const accountId = randomId();
 		const other = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
+		const mailbox = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId)),
+		);
 
 		await assert.rejects(
 			() => repo.update(other, mailbox.mailboxId, { messageCount: 99 }),
@@ -201,7 +220,9 @@ describe("MailboxRepo", () => {
 	test("cross-tenant: delete is a no-op for a foreign account", async () => {
 		const accountId = randomId();
 		const other = randomId();
-		const mailbox = await repo.create(makeMailboxInput(accountId));
+		const mailbox = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId)),
+		);
 
 		await repo.delete(other, mailbox.mailboxId);
 		const still = await repo.get(accountId, mailbox.mailboxId);
@@ -213,8 +234,8 @@ describe("MailboxRepo", () => {
 	test("cross-tenant: deleteMany only removes ids owned by the tenant", async () => {
 		const accountA = randomId();
 		const accountB = randomId();
-		const a = await repo.create(makeMailboxInput(accountA));
-		const b = await repo.create(makeMailboxInput(accountB));
+		const a = mailboxCreated(await repo.create(makeMailboxInput(accountA)));
+		const b = mailboxCreated(await repo.create(makeMailboxInput(accountB)));
 
 		await repo.deleteMany(accountA, [a.mailboxId, b.mailboxId]);
 
@@ -231,7 +252,9 @@ describe("MailboxRepo", () => {
 	describe("transition — the conditional write (D3)", () => {
 		test("an accepted from-state applies the new state and the set fields", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Archive"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Archive")),
+			);
 
 			const written = await repo.transition(accountId, mailbox.mailboxId, {
 				from: [MailboxSyncStatus.synced, MailboxSyncStatus.failed],
@@ -246,7 +269,9 @@ describe("MailboxRepo", () => {
 
 		test("a state outside `from` writes nothing and leaves the row byte-identical", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Work"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Work")),
+			);
 			const before = await repo.get(accountId, mailbox.mailboxId);
 
 			const lost = await repo.transition(accountId, mailbox.mailboxId, {
@@ -271,7 +296,9 @@ describe("MailboxRepo", () => {
 
 		test("wherePendingPath as a string matches only that target", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Bills"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Bills")),
+			);
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: [MailboxSyncStatus.synced],
 				to: MailboxSyncStatus.pending,
@@ -302,7 +329,9 @@ describe("MailboxRepo", () => {
 			// `synced` with the rename target still on it, and the rename then
 			// never runs and is never marked failed.
 			const accountId = randomId();
-			const claimed = await repo.create(makeMailboxInput(accountId, "Notes"));
+			const claimed = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Notes")),
+			);
 			await repo.transition(accountId, claimed.mailboxId, {
 				from: [MailboxSyncStatus.synced],
 				to: MailboxSyncStatus.pending,
@@ -320,10 +349,12 @@ describe("MailboxRepo", () => {
 			assert.equal(still.syncStatus, MailboxSyncStatus.pending);
 			assert.equal(still.pendingPath, "Journal");
 
-			const creating = await repo.create({
-				...makeMailboxInput(accountId, "Fresh"),
-				syncStatus: MailboxSyncStatus.pending,
-			});
+			const creating = mailboxCreated(
+				await repo.create({
+					...makeMailboxInput(accountId, "Fresh"),
+					syncStatus: MailboxSyncStatus.pending,
+				}),
+			);
 			const settled = await repo.transition(accountId, creating.mailboxId, {
 				from: [MailboxSyncStatus.pending],
 				wherePendingPath: null,
@@ -334,7 +365,9 @@ describe("MailboxRepo", () => {
 
 		test("omitting wherePendingPath predicates on syncStatus alone", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Old"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Old")),
+			);
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: [MailboxSyncStatus.synced],
 				to: MailboxSyncStatus.pending,
@@ -355,7 +388,9 @@ describe("MailboxRepo", () => {
 			// rename target on it is what strands a folder whose rename then never
 			// runs and is never marked failed.
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Trips"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Trips")),
+			);
 
 			for (const to of EVERY_STATE) {
 				const written = await repo.transition(accountId, mailbox.mailboxId, {
@@ -380,7 +415,9 @@ describe("MailboxRepo", () => {
 
 		test("two overlapping transitions with the same from: exactly one wins", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Races"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Races")),
+			);
 
 			const outcomes = await Promise.all([
 				repo.transition(accountId, mailbox.mailboxId, {
@@ -398,7 +435,9 @@ describe("MailboxRepo", () => {
 
 		test("cross-tenant: a foreign account transitions nothing", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Private"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Private")),
+			);
 
 			assert.equal(
 				await repo.transition(randomId(), mailbox.mailboxId, {
@@ -416,10 +455,14 @@ describe("MailboxRepo", () => {
 
 	describe("transitionSubtree — the intent, all-or-nothing (D6)", () => {
 		const seedSubtree = async (accountId: string) => ({
-			parent: await repo.create(makeMailboxInput(accountId, "Work")),
-			child: await repo.create(makeMailboxInput(accountId, "Work/Projects")),
-			grandchild: await repo.create(
-				makeMailboxInput(accountId, "Work/Projects/Alpha"),
+			parent: mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Work")),
+			),
+			child: mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Work/Projects")),
+			),
+			grandchild: mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Work/Projects/Alpha")),
 			),
 		});
 
@@ -568,8 +611,12 @@ describe("MailboxRepo", () => {
 
 		test("removes the folder, its mail and its own child rows, and nothing else's", async () => {
 			const accountId = randomId();
-			const doomed = await repo.create(makeMailboxInput(accountId, "Receipts"));
-			const spared = await repo.create(makeMailboxInput(accountId, "Keep"));
+			const doomed = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Receipts")),
+			);
+			const spared = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Keep")),
+			);
 			const doomedMessage = await seedMessage(doomed.mailboxId, 1);
 			const sparedMessage = await seedMessage(spared.mailboxId, 1);
 			await db.insert(mailboxSpecialUseTable).values({
@@ -636,7 +683,9 @@ describe("MailboxRepo", () => {
 			// delete is the outcome the design rules out. This is the test that
 			// stops a future refactor doing it.
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Bound"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Bound")),
+			);
 			const filterId = randomId();
 			await db.insert(filterTable).values({
 				filterId,
@@ -662,7 +711,9 @@ describe("MailboxRepo", () => {
 
 		test("re-running after a partial removal completes", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Resume"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Resume")),
+			);
 			const first = await seedMessage(mailbox.mailboxId, 1);
 			await seedMessage(mailbox.mailboxId, 2);
 
@@ -691,7 +742,9 @@ describe("MailboxRepo", () => {
 
 		test("cross-tenant: a foreign account removes neither the row nor its mail", async () => {
 			const accountId = randomId();
-			const mailbox = await repo.create(makeMailboxInput(accountId, "Mine"));
+			const mailbox = mailboxCreated(
+				await repo.create(makeMailboxInput(accountId, "Mine")),
+			);
 			await seedMessage(mailbox.mailboxId, 1);
 
 			await repo.deleteMailboxWithMail(randomId(), mailbox.mailboxId);

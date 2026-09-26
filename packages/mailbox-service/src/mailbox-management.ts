@@ -48,6 +48,7 @@ export interface MailboxManagementSyncResult {
 	 * which is how a caller tells the two apart without a second read.
 	 */
 	renamed?: { oldPath: string; newPath: string; delimiter: string };
+	existing?: { mailboxId: string; fullPath: string };
 }
 
 /**
@@ -302,6 +303,30 @@ export class MailboxManagementService {
 		if (subscribe) {
 			await connection.subscribeMailbox(serverPath);
 			this.log.info({ mailboxId, path: serverPath }, "Subscribed to mailbox");
+		}
+
+		const holder =
+			confirmedPath === undefined
+				? null
+				: await this.mailboxService.findByPath(accountId, confirmedPath);
+		if (holder && holder.mailboxId !== mailboxId) {
+			await this.mailboxService.deleteMailboxWithMail(accountId, mailboxId);
+			this.log.info(
+				{
+					accountId,
+					mailboxId,
+					intent: "create",
+					path,
+					serverPath,
+					existingMailboxId: holder.mailboxId,
+					outcome: "already-exists",
+				},
+				"Folder already exists at the path the server resolved",
+			);
+			return {
+				success: true,
+				existing: { mailboxId: holder.mailboxId, fullPath: holder.fullPath },
+			};
 		}
 
 		// Refresh mailbox list to get UIDVALIDITY and other attributes

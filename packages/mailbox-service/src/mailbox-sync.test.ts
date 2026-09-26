@@ -13,7 +13,11 @@ import {
 import { parseImapAttributes } from "./attribute-mapper.js";
 import { type MailboxSyncLogger, MailboxSyncService } from "./mailbox-sync.js";
 
-const silentLogger: MailboxSyncLogger = { info: () => {}, debug: () => {} };
+const silentLogger: MailboxSyncLogger = {
+	info: () => {},
+	debug: () => {},
+	error: () => {},
+};
 
 import type { IImapConnection, ImapNamespaces } from "./types.js";
 
@@ -110,7 +114,10 @@ describe("MailboxSyncService.syncMailboxes — UIDVALIDITY cursor detection (#12
 				return {};
 			},
 			delete: async () => undefined,
-			create: async () => ({}),
+			create: async () => ({
+				outcome: "Created",
+				mailbox: { mailboxId: "new" },
+			}),
 		} as unknown as IMailboxRepository;
 
 		const specialUseService = {
@@ -257,6 +264,7 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 			syncStatus?: string;
 			pendingPath?: string;
 		}>,
+		createOutcome: "Created" | "PathTaken" = "Created",
 	) => {
 		const deleted: string[] = [];
 		const created: Array<Record<string, unknown>> = [];
@@ -283,7 +291,11 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 			},
 			create: async (input: Record<string, unknown>) => {
 				created.push(input);
-				return { ...input, mailboxId: `new-${created.length}` };
+				if (createOutcome === "PathTaken") return { outcome: "PathTaken" };
+				return {
+					outcome: "Created",
+					mailbox: { ...input, mailboxId: `new-${created.length}` },
+				};
 			},
 		} as unknown as IMailboxRepository;
 
@@ -399,6 +411,35 @@ describe("MailboxSyncService.syncMailboxes — reconcile does not delete pending
 		assert.deepEqual(created, []);
 		assert.equal(result.created, 0);
 		assert.deepEqual(deleted, []);
+	});
+
+	it("counts no insert and keeps the account sweep going when the path is already taken", async () => {
+		const { mailboxService, specialUseService, created } = buildServices(
+			[
+				{
+					mailboxId: "inbox",
+					fullPath: "INBOX",
+					syncStatus: MailboxSyncStatus.synced,
+				},
+			],
+			"PathTaken",
+		);
+		const errors: Array<Record<string, unknown>> = [];
+		const service = new MailboxSyncService(mailboxService, specialUseService, {
+			...silentLogger,
+			error: (obj) => {
+				errors.push(obj);
+			},
+		});
+
+		const result = await service.syncMailboxes(
+			{ accountId: "acc-1" },
+			serverConnection([{ fullPath: "INBOX" }, { fullPath: "Projects" }]),
+		);
+
+		assert.equal(created.length, 1);
+		assert.equal(result.created, 0);
+		assert.deepEqual(errors, [{ accountId: "acc-1", fullPath: "Projects" }]);
 	});
 
 	it("lets a failed rename's target be discovered as a folder of its own", async () => {
@@ -539,7 +580,10 @@ describe("MailboxSyncService.syncMailboxes — a lookalike is not a folder the u
 			delete: async (_accountId: string, mailboxId: string) => {
 				deleted.push(mailboxId);
 			},
-			create: async () => ({}),
+			create: async () => ({
+				outcome: "Created",
+				mailbox: { mailboxId: "new" },
+			}),
 		} as unknown as IMailboxRepository;
 
 		const specialUseService = {
@@ -717,7 +761,10 @@ describe("MailboxSyncService.syncMailboxes — a folder leaving mid-sweep (#339)
 				return {};
 			},
 			delete: async () => undefined,
-			create: async () => ({}),
+			create: async () => ({
+				outcome: "Created",
+				mailbox: { mailboxId: "new" },
+			}),
 		} as unknown as IMailboxRepository;
 
 		const specialUseService = {

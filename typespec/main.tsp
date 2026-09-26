@@ -144,10 +144,12 @@ namespace RemitApi {
       | NotFoundError
       | UnauthorizedError;
 
+    @doc("Create a folder. Refused with 400 when the account already has a folder at that path.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createMailbox(@path accountId: UUID, @body input: CreateMailboxInput):
       | MailboxResponse
+      | ValidationError
       | NotFoundError
       | ForbiddenError
       | UnauthorizedError;

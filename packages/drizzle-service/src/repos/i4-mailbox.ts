@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type {
 	CreateMailboxInput,
+	CreateMailboxResult,
 	IMailboxRepository,
 	MailboxItem,
 	MailboxStatePredicate,
@@ -128,7 +129,7 @@ export function rowToMailbox(
 export class MailboxRepo implements IMailboxRepository {
 	constructor(private db: DB) {}
 
-	async create(input: CreateMailboxInput): Promise<MailboxItem> {
+	async create(input: CreateMailboxInput): Promise<CreateMailboxResult> {
 		const now = Date.now();
 		const [row] = await this.db
 			.insert(mailboxTable)
@@ -160,8 +161,12 @@ export class MailboxRepo implements IMailboxRepository {
 				createdAt: now,
 				updatedAt: now,
 			})
+			.onConflictDoNothing({
+				target: [mailboxTable.accountId, mailboxTable.fullPath],
+			})
 			.returning();
-		return rowToMailbox(row);
+		if (!row) return { outcome: "PathTaken" };
+		return { outcome: "Created", mailbox: rowToMailbox(row) };
 	}
 
 	async get(accountId: string, mailboxId: string): Promise<MailboxItem>;
@@ -444,7 +449,13 @@ export class MailboxRepo implements IMailboxRepository {
 	): Promise<MailboxItem> {
 		const existing = await this.findByPath(accountId, fullPath);
 		if (existing) return existing;
-		return this.create({ accountId, fullPath, ...defaults });
+		const created = await this.create({ accountId, fullPath, ...defaults });
+		if (created.outcome === "Created") return created.mailbox;
+		const winner = await this.findByPath(accountId, fullPath);
+		if (!winner) {
+			throw new NotFoundError(`Mailbox not found at path: ${fullPath}`);
+		}
+		return winner;
 	}
 
 	async findByPathPrefix(

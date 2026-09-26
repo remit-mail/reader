@@ -133,7 +133,12 @@ const handleCreate = async (
 					.then((result) => {
 						if (result.success) {
 							log.info(
-								{ accountId, mailboxId, path },
+								{
+									accountId,
+									mailboxId,
+									path,
+									existingMailboxId: result.existing?.mailboxId,
+								},
 								"Mailbox created on IMAP",
 							);
 						} else {

@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { AccountRepo } from "./i4-account.js";
 import { MailboxRepo } from "./i4-mailbox.js";
+import { mailboxCreated } from "./test-helpers.js";
 
 function makeAccountInput(accountConfigId: string) {
 	return {
@@ -160,23 +161,25 @@ describe("AccountRepo", () => {
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
 		const mailboxRepo = new MailboxRepo(db as never);
-		await mailboxRepo.create({
-			accountId: account.accountId,
-			namespaceType: "personal",
-			namespacePrefix: "",
-			hierarchyDelimiter: "/",
-			fullPath: "INBOX",
-			uidValidity: 1,
-			uidNext: 1,
-			highestModseq: "0",
-			messageCount: 0,
-			unseenCount: 0,
-			deletedCount: 0,
-			totalSize: 0,
-			lastSyncUid: 0,
-			highWaterMarkUid: 0,
-			lastMessageSyncAt: Date.now(),
-		});
+		mailboxCreated(
+			await mailboxRepo.create({
+				accountId: account.accountId,
+				namespaceType: "personal",
+				namespacePrefix: "",
+				hierarchyDelimiter: "/",
+				fullPath: "INBOX",
+				uidValidity: 1,
+				uidNext: 1,
+				highestModseq: "0",
+				messageCount: 0,
+				unseenCount: 0,
+				deletedCount: 0,
+				totalSize: 0,
+				lastSyncUid: 0,
+				highWaterMarkUid: 0,
+				lastMessageSyncAt: Date.now(),
+			}),
+		);
 
 		const desc = await repo.describe(account.accountId);
 		assert.equal(desc.account.length, 1);

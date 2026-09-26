@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateMailboxInput,
+	CreateMailboxResult,
 	IMailboxRepository,
 	MailboxItem,
 } from "@remit/data-ports";
@@ -120,18 +121,19 @@ export class MailboxQueueService {
 	 * @param input - The mailbox creation input (without syncStatus)
 	 * @param accountId - The account ID for the IMAP sync event
 	 * @param subscribe - Whether to subscribe to the mailbox after creation
-	 * @returns The created mailbox
+	 * @returns The created mailbox, or `PathTaken` when the account already has a folder at that path
 	 */
 	createMailbox = async (
 		input: CreateMailboxQueueInput,
 		accountId: string,
 		subscribe?: boolean,
-	): Promise<MailboxItem> => {
-		// Create local mailbox with pending status
-		const mailbox = await this.mailboxService.create({
+	): Promise<CreateMailboxResult> => {
+		const created = await this.mailboxService.create({
 			...input,
 			syncStatus: MailboxSyncStatus.pending,
 		});
+		if (created.outcome === "PathTaken") return created;
+		const { mailbox } = created;
 
 		this.log.info(
 			{ mailboxId: mailbox.mailboxId, path: mailbox.fullPath },
@@ -149,7 +151,7 @@ export class MailboxQueueService {
 			subscribe,
 		});
 
-		return mailbox;
+		return created;
 	};
 
 	/**

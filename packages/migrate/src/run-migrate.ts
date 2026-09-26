@@ -11,6 +11,11 @@ import {
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
 import {
+	type DuplicateMailRepairMode,
+	formatDuplicateMailReport,
+	sweepDuplicateMailboxMail,
+} from "../../drizzle-service/src/repair/duplicate-mailbox-mail.js";
+import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -56,7 +61,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in three places.
+ * DDL objects around them, and rewrites row content in four places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -100,6 +105,12 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * no remedy: the message is on no server folder to re-fetch. It flips a status
  * and writes the reason, on rows an hour past any retry, and touches nothing
  * else.
+ *
+ * The fourth is mail the folder dedupe migration could not move onto the
+ * surviving row (#386). The migration parks it, and it is removed here through
+ * `deleteMessageSubtree`, so the search index is cleared with it. In
+ * `--check` mode the report also counts the duplicate paths the pending
+ * migration will merge, since nothing has been parked yet.
 
  */
 
@@ -197,6 +208,16 @@ const strandedSentStep = async (
 	}
 };
 
+const duplicateMailStep = async (
+	db: Parameters<typeof sweepDuplicateMailboxMail>[0],
+	mode: DuplicateMailRepairMode,
+): Promise<void> => {
+	const report = await sweepDuplicateMailboxMail(db, mode);
+	for (const line of formatDuplicateMailReport(report)) {
+		logStep({ step: "duplicate-mailbox-mail-repair" }, line);
+	}
+};
+
 /**
  * Which folder holds Junk is decided once, in TypeScript, through the same
  * repository seam every other special-folder lookup reads — so the sweep
@@ -254,6 +275,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			logReport(await checkThreadMessageCategory(sqliteRepairClient));
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
+			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			return;
 		}
@@ -301,6 +323,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// `outbox_attachment`, which no index and no trigger installed below
 		// covers.
 		await strandedSentStep(paramRepairClient, "repair");
+
+		await duplicateMailStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);

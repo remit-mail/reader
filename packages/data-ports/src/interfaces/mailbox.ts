@@ -1,5 +1,6 @@
 import type {
 	CreateMailboxInput,
+	CreateMailboxResult,
 	MailboxItem,
 	MailboxSubtreeTransitionIntent,
 	MailboxTransitionIntent,
@@ -8,7 +9,7 @@ import type {
 } from "../types.js";
 
 export interface IMailboxRepository {
-	create(input: CreateMailboxInput): Promise<MailboxItem>;
+	create(input: CreateMailboxInput): Promise<CreateMailboxResult>;
 	get(accountId: string, mailboxId: string): Promise<MailboxItem>;
 	get(accountId: string, mailboxIds: string[]): Promise<MailboxItem[]>;
 	/**

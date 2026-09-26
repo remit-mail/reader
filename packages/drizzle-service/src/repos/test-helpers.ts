@@ -1,3 +1,4 @@
+import type { CreateMailboxResult, MailboxItem } from "@remit/data-ports";
 import type Database from "better-sqlite3";
 import type { Db } from "../db.js";
 import {
@@ -20,3 +21,10 @@ export async function createTestDb(): Promise<{
 	const { db, sqlite, close } = await createSqliteTestDb(messageDataSchema);
 	return { db, sqlite, stop: close };
 }
+
+export const mailboxCreated = (result: CreateMailboxResult): MailboxItem => {
+	if (result.outcome !== "Created") {
+		throw new Error("The account already has a folder at that path");
+	}
+	return result.mailbox;
+};

@@ -402,7 +402,7 @@ export const MailboxOperations: Record<
 		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		const mailbox = await client.mailboxQueue.createMailbox(
+		const created = await client.mailboxQueue.createMailbox(
 			{
 				accountId,
 				namespaceType: namespaceType as "personal" | "other_users" | "shared",
@@ -423,8 +423,13 @@ export const MailboxOperations: Record<
 			accountId,
 			true,
 		);
+		if (created.outcome === "PathTaken") {
+			throw new BadRequestError(
+				`A folder named “${fullPath}” is already there.`,
+			);
+		}
 
-		return toMailboxResponse(mailbox);
+		return toMailboxResponse(created.mailbox);
 	},
 };
 
