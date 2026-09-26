@@ -15,7 +15,7 @@ import {
 } from "../../hooks/useRedirectEnded";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, mockFetch } from "../../test-support/http";
-import { OnboardingWizard } from "./OnboardingWizard";
+import { type MicrosoftReturn, OnboardingWizard } from "./OnboardingWizard";
 
 let harness: DomHarness | undefined;
 let http: HttpMock;
@@ -41,18 +41,34 @@ interface Backend {
 	lastError?: string;
 	mailboxCountTotal?: number;
 	mailboxCountSynced?: number;
+	accounts?: Record<string, unknown>[];
+	accountsAfterSignIn?: Record<string, unknown>[];
 }
 
 const completed: string[] = [];
 const cancelled: string[] = [];
 
-const start = (backend: Backend = {}, skipWelcome = false): DomHarness => {
+const start = (
+	backend: Backend = {},
+	skipWelcome = false,
+	microsoftReturn?: MicrosoftReturn,
+): DomHarness => {
 	http = mockFetch((call) => {
 		if (call.path === "/accounts/test-connection") return backend.test ?? OK;
 		if (call.path.endsWith("/oauth/microsoft/start")) {
 			return { authorizationUrl: CONSENT_URL };
 		}
 		if (call.path === "/accounts") return { accountId: "acc-new" };
+		if (call.path === "/config" && backend.accounts) {
+			return { accounts: backend.accounts, mailboxes: [] };
+		}
+		if (call.path === "/config" && backend.accountsAfterSignIn) {
+			const signedIn = http.to("/oauth/microsoft/start").length > 0;
+			return {
+				accounts: signedIn ? backend.accountsAfterSignIn : [],
+				mailboxes: [],
+			};
+		}
 		if (call.path === "/config") {
 			return {
 				accounts: [{ accountId: "acc-new", lastError: backend.lastError }],
@@ -83,6 +99,7 @@ const start = (backend: Backend = {}, skipWelcome = false): DomHarness => {
 			skipWelcome,
 			onComplete: (accountId: string) => completed.push(accountId),
 			onCancel: () => cancelled.push("cancelled"),
+			microsoftReturn,
 		}),
 	);
 	return harness;
@@ -485,5 +502,208 @@ describe("OnboardingWizard — a sync that stalls", () => {
 		assert.match(dom.text(), /Sync stalled/);
 		assert.match(dom.text(), /still active/);
 		assert.match(dom.text(), /IMAP LOGIN failed/);
+	});
+});
+
+const OUTLOOK_CALENDAR_ONLY = {
+	accountId: "acc-outlook",
+	email: "alice@outlook.com",
+	authType: "oauthMicrosoft",
+	syncedServices: ["Calendar"],
+	grantedScopes: ["https://graph.microsoft.com/Calendars.Read"],
+};
+
+const serviceBoxes = (dom: DomHarness): Record<string, HTMLInputElement> => {
+	const [mail, calendar] = dom.queryAll<HTMLInputElement>(
+		'input[type="checkbox"]',
+	);
+	assert.ok(mail && calendar, "expected a Mail and a Calendar checkbox");
+	return { mail, calendar };
+};
+
+const startRequests = (): Array<Record<string, unknown> | undefined> =>
+	http.to("/oauth/microsoft/start").map((call) => call.body);
+
+describe("OnboardingWizard — what a Microsoft account syncs (#1183)", () => {
+	afterEach(() => {
+		Reflect.deleteProperty(document, "visibilityState");
+	});
+
+	it("asks for mail and calendar before the sign-in, both on", async () => {
+		const dom = start();
+		await walkToMicrosoftStep(dom);
+
+		assert.match(dom.text(), /What should Remit sync\?/);
+		const { mail, calendar } = serviceBoxes(dom);
+		assert.equal(mail.checked, true);
+		assert.equal(calendar.checked, true);
+	});
+
+	it("sends both services with the sign-in start when both stay on", async () => {
+		const dom = start();
+		await walkToRedirect(dom);
+
+		assert.deepEqual(startRequests(), [{ services: ["Mail", "Calendar"] }]);
+	});
+
+	it("sends calendar alone when mail is turned off", async () => {
+		const dom = start();
+		await walkToMicrosoftStep(dom);
+		dom.click(serviceBoxes(dom).mail);
+		clickText(dom, "Sign in with Microsoft");
+		await settle(dom);
+
+		assert.deepEqual(startRequests(), [{ services: ["Calendar"] }]);
+	});
+
+	it("sends mail alone when calendar is turned off", async () => {
+		const dom = start();
+		await walkToMicrosoftStep(dom);
+		dom.click(serviceBoxes(dom).calendar);
+		clickText(dom, "Sign in with Microsoft");
+		await settle(dom);
+
+		assert.deepEqual(startRequests(), [{ services: ["Mail"] }]);
+	});
+
+	it("refuses an empty choice with the reason and keeps the button live", async () => {
+		const dom = start();
+		await walkToMicrosoftStep(dom);
+		const { mail, calendar } = serviceBoxes(dom);
+		dom.click(mail);
+		dom.click(calendar);
+		clickText(dom, "Sign in with Microsoft");
+		await settle(dom);
+
+		assert.match(dom.text(), /Pick at least one/);
+		assert.deepEqual(startRequests(), []);
+		const button = dom.byText("button", "Sign in with Microsoft");
+		assert.equal(button.getAttribute("disabled"), null);
+	});
+
+	it("shows what Microsoft granted once the new account appears", async () => {
+		const dom = start({ accountsAfterSignIn: [OUTLOOK_CALENDAR_ONLY] });
+		await walkToMicrosoftStep(dom);
+		dom.click(serviceBoxes(dom).mail);
+		clickText(dom, "Sign in with Microsoft");
+		await settle(dom);
+		setVisibility("hidden");
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		dom.dispatch(dom.window, new Event("pagehide"));
+		setVisibility("visible");
+		dom.dispatch(dom.document, new Event("visibilitychange"));
+		await dom.waitFor(
+			() => dom.text().includes("Connected alice@outlook.com"),
+			"the granted step",
+		);
+
+		assert.match(dom.text(), /Access granted/);
+		assert.match(dom.text(), /Calendars\.Read/);
+		assert.match(dom.text(), /Not synced/);
+		clickText(dom, "Continue");
+		assert.deepEqual(completed, ["acc-outlook"]);
+	});
+
+	it("opens on the granted result when the callback returns to it", async () => {
+		const dom = start({ accounts: [OUTLOOK_CALENDAR_ONLY] }, true, {
+			kind: "connected",
+			accountId: "acc-outlook",
+		});
+		await dom.waitFor(
+			() => dom.text().includes("Connected alice@outlook.com"),
+			"the granted step",
+		);
+
+		assert.match(dom.text(), /Calendar/);
+		assert.match(dom.text(), /Access granted/);
+	});
+
+	it("says the account is missing and offers the sign-in again", async () => {
+		const dom = start({ accounts: [] }, true, {
+			kind: "connected",
+			accountId: "acc-gone",
+		});
+		await dom.waitFor(
+			() => dom.text().includes("The account is not here"),
+			"the missing-account state",
+		);
+
+		clickText(dom, "Sign in again");
+		assert.match(dom.text(), /What should Remit sync\?/);
+	});
+
+	it("opens on the sign-in with the reason when Microsoft withheld a scope", async () => {
+		const message =
+			"Microsoft did not grant access to every service you picked. Sign in again and accept each permission Microsoft asks for.";
+		const dom = start({}, true, { kind: "refused", message, reconnect: false });
+
+		assert.ok(dom.text().includes(message));
+		assert.match(dom.text(), /What should Remit sync\?/);
+		const button = dom.byText("button", "Sign in with Microsoft");
+		assert.equal(button.getAttribute("disabled"), null);
+	});
+
+	it("drops the refusal once the person goes back and returns", async () => {
+		const message =
+			"Microsoft did not grant access to Calendar. Sign in again and accept the Calendar permission when Microsoft asks.";
+		const dom = start({}, true, { kind: "refused", message, reconnect: false });
+		assert.ok(dom.text().includes(message));
+
+		clickText(dom, "Back");
+		clickText(dom, "Outlook / Microsoft 365");
+		clickText(dom, "Continue with Microsoft");
+		await settle(dom);
+
+		assert.match(dom.text(), /What should Remit sync\?/);
+		assert.equal(dom.text().includes(message), false);
+	});
+
+	it("reopens a refused reconnect on the account, its address and services filled", async () => {
+		const message =
+			"Microsoft did not grant access to Calendar. Sign in again and accept the Calendar permission when Microsoft asks.";
+		const dom = start({ accounts: [] }, true, {
+			kind: "refused",
+			message,
+			email: "alice@outlook.com",
+			services: ["Calendar"],
+			reconnect: true,
+		});
+
+		assert.match(dom.text(), /Reconnect alice@outlook\.com/);
+		assert.ok(dom.text().includes(message));
+		const field = dom.query<HTMLInputElement>("#microsoft-email");
+		assert.equal(field?.value, "alice@outlook.com");
+		const { mail, calendar } = serviceBoxes(dom);
+		assert.equal(mail.checked, false);
+		assert.equal(calendar.checked, true);
+
+		clickText(dom, "Sign in with Microsoft");
+		await settle(dom);
+		assert.deepEqual(startRequests(), [
+			{ email: "alice@outlook.com", services: ["Calendar"] },
+		]);
+	});
+
+	it("shows the granted result for a reconnected account it already held", async () => {
+		const dom = start({ accounts: [OUTLOOK_CALENDAR_ONLY] }, true, {
+			kind: "connected",
+			accountId: "acc-outlook",
+		});
+		await dom.waitFor(
+			() => dom.text().includes("Connected alice@outlook.com"),
+			"the granted step",
+		);
+
+		clickText(dom, "Continue");
+		assert.deepEqual(completed, ["acc-outlook"]);
+	});
+
+	it("never offers the choice to a password account", async () => {
+		const dom = start();
+		await walkToServers(dom);
+		assert.doesNotMatch(dom.text(), /What should Remit sync/);
+		clickText(dom, "Continue");
+		assert.doesNotMatch(dom.text(), /What should Remit sync/);
+		assert.equal(dom.query('input[type="checkbox"]'), null);
 	});
 });

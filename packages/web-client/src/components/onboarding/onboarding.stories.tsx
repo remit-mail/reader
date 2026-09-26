@@ -458,3 +458,93 @@ export const SyncStalled: Story = {
 		);
 	},
 };
+
+const OUTLOOK = makeAccount({
+	accountId: "acc-outlook",
+	email: "alice@outlook.com",
+	authType: "oauthMicrosoft",
+	syncedServices: ["Calendar"],
+	grantedScopes: ["https://graph.microsoft.com/Calendars.Read"],
+});
+
+const withOutlook = mailWorld({
+	accounts: [...mailWorld().accounts, OUTLOOK],
+});
+
+export const MicrosoftServiceChoice: Story = {
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await toMicrosoft(canvas);
+		await expect(canvas.getByRole("checkbox", { name: /^Mail/ })).toBeChecked();
+		await expect(
+			canvas.getByRole("checkbox", { name: /^Calendar/ }),
+		).toBeChecked();
+	},
+};
+
+export const MicrosoftNothingPicked: Story = {
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const signIn = await toMicrosoft(canvas);
+		await userEvent.click(canvas.getByRole("checkbox", { name: /^Mail/ }));
+		await userEvent.click(canvas.getByRole("checkbox", { name: /^Calendar/ }));
+		await userEvent.click(signIn);
+		await expect(await canvas.findByRole("alert")).toHaveTextContent(
+			"Pick at least one",
+		);
+		await expect(signIn).toBeEnabled();
+	},
+};
+
+export const MicrosoftGranted: Story = {
+	args: { url: `/settings/accounts?connected=${OUTLOOK.accountId}` },
+	parameters: handlers({}, withOutlook),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText(`Connected ${OUTLOOK.email}`),
+		).toBeVisible();
+		await expect(canvas.getByText("Access granted — syncing")).toBeVisible();
+		await expect(
+			canvas.getByRole("button", { name: "Continue" }),
+		).toBeEnabled();
+	},
+};
+
+export const MicrosoftScopeNotGranted: Story = {
+	args: {
+		url: "/settings/accounts?oauthError=scope_not_granted&oauthEmail=bob%40outlook.com&missingServices=Calendar",
+	},
+	parameters: handlers({}, mailWorld()),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText(/did not grant access to Calendar/),
+		).toBeVisible();
+		await expect(canvas.getByLabelText("Email address (optional)")).toHaveValue(
+			"bob@outlook.com",
+		);
+		await expect(
+			canvas.getByRole("button", { name: "Sign in with Microsoft" }),
+		).toBeEnabled();
+	},
+};
+
+export const MicrosoftReconnectScopeNotGranted: Story = {
+	args: {
+		url: `/settings/accounts?oauthError=scope_not_granted&oauthEmail=${encodeURIComponent(OUTLOOK.email)}&missingServices=Calendar`,
+	},
+	parameters: handlers({}, withOutlook),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText(`Reconnect ${OUTLOOK.email}`),
+		).toBeVisible();
+		await expect(
+			canvas.getByText(/did not grant access to Calendar/),
+		).toBeVisible();
+		await expect(canvas.getByLabelText("Email address (optional)")).toHaveValue(
+			OUTLOOK.email,
+		);
+	},
+};

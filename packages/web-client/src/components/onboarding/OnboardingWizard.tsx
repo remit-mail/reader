@@ -2,7 +2,7 @@
  * OnboardingWizard — full 7-step onboarding flow.
  *
  * Steps: Welcome → Connector → Address → Servers → Credentials → Test → Sync
- *        Microsoft path: Connector → MicrosoftEmail → redirect
+ *        Microsoft path: Connector → MicrosoftEmail → redirect → MicrosoftGranted
  *
  * Entry points:
  *  - First-run (zero accounts): full-screen wizard via /onboarding route
@@ -24,7 +24,12 @@ import {
 	microsoftOAuthOperationsMicrosoftOAuthStartMutation,
 	syncOperationsGetSyncStatusOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	ACCOUNT_SERVICE_EMPTY_MESSAGE,
+	ACCOUNT_SERVICE_ROWS,
+	type AccountService,
+	AccountServiceChoice,
 	Banner,
 	Button,
 	CheckRow,
@@ -71,6 +76,7 @@ type WizardStep =
 	| "welcome"
 	| "connector"
 	| "microsoft-email"
+	| "microsoft-granted"
 	| "address"
 	| "servers"
 	| "credentials"
@@ -91,6 +97,7 @@ const STEP_INDEX: Record<WizardStep, number> = {
 	welcome: 0,
 	connector: 0,
 	"microsoft-email": 0,
+	"microsoft-granted": 5,
 	address: 1,
 	servers: 2,
 	credentials: 3,
@@ -277,15 +284,25 @@ function StepConnector({
 	);
 }
 
-function StepMicrosoftEmail({
-	onBack,
-	onConnected,
-}: {
+const MICROSOFT_SERVICES: AccountService[] = ["Mail", "Calendar"];
+
+export interface StepMicrosoftEmailProps {
+	refusal?: MicrosoftRefusal;
 	onBack: () => void;
 	onConnected: (accountId: string) => void;
-}) {
-	const [email, setEmail] = useState("");
-	const [error, setError] = useState<string | null>(null);
+}
+
+export function StepMicrosoftEmail({
+	refusal,
+	onBack,
+	onConnected,
+}: StepMicrosoftEmailProps) {
+	const [email, setEmail] = useState(refusal?.email ?? "");
+	const [services, setServices] = useState<AccountService[]>(
+		refusal?.services ?? MICROSOFT_SERVICES,
+	);
+	const [servicesRefused, setServicesRefused] = useState(false);
+	const [error, setError] = useState<string | null>(refusal?.message ?? null);
 	const [awaitingReturn, setAwaitingReturn] = useState(false);
 	const [preparing, setPreparing] = useState(false);
 	// The account read is in flight across a step the user can leave — Escape and
@@ -368,6 +385,10 @@ function StepMicrosoftEmail({
 
 	const handleSubmit = () => {
 		if (redirecting) return;
+		if (services.length === 0) {
+			setServicesRefused(true);
+			return;
+		}
 		setError(null);
 		setPreparing(true);
 		void refetchConfig().then(({ data, isError }) => {
@@ -383,7 +404,7 @@ function StepMicrosoftEmail({
 				data.accounts.map((account) => account.accountId),
 			);
 			startMutation.mutate({
-				body: { email: email.trim() || undefined },
+				body: { email: email.trim() || undefined, services },
 			});
 		});
 	};
@@ -406,8 +427,12 @@ function StepMicrosoftEmail({
 		<WizardShell
 			steps={STEP_LABELS}
 			activeStep={STEP_INDEX.connector}
-			title="Sign in with Microsoft"
-			subtitle="You'll be redirected to Microsoft to sign in securely."
+			title={
+				refusal?.reconnect && refusal.email
+					? `Reconnect ${refusal.email}`
+					: "Sign in with Microsoft"
+			}
+			subtitle="Microsoft is asked for the mail and calendar access you pick here."
 			footer={
 				<>
 					<Button variant="ghost" onClick={onBack}>
@@ -433,6 +458,16 @@ function StepMicrosoftEmail({
 			}
 		>
 			<div className="space-y-3">
+				<AccountServiceChoice
+					providerName="Microsoft"
+					offered={MICROSOFT_SERVICES}
+					selected={services}
+					onChange={(next) => {
+						setServices(next);
+						if (next.length > 0) setServicesRefused(false);
+					}}
+					error={servicesRefused ? ACCOUNT_SERVICE_EMPTY_MESSAGE : undefined}
+				/>
 				<div>
 					<FieldLabel htmlFor="microsoft-email">
 						Email address (optional)
@@ -458,6 +493,170 @@ function StepMicrosoftEmail({
 					</Banner>
 				)}
 				{error && <Banner tone="danger">{error}</Banner>}
+			</div>
+		</WizardShell>
+	);
+}
+
+export interface StepMicrosoftGrantedProps {
+	accountId: string;
+	onSignInAgain: () => void;
+	onContinue: (accountId: string) => void;
+}
+
+export function StepMicrosoftGranted({
+	accountId,
+	onSignInAgain,
+	onContinue,
+}: StepMicrosoftGrantedProps) {
+	const {
+		data: config,
+		isError,
+		isFetching,
+		refetch,
+	} = useQuery(configOperationsGetConfigOptions());
+	const account = config?.accounts.find(
+		(candidate) => candidate.accountId === accountId,
+	);
+
+	if (isError) {
+		return (
+			<WizardShell
+				steps={STEP_LABELS}
+				activeStep={STEP_INDEX["microsoft-granted"]}
+				title="Couldn't read the new account"
+				subtitle="Microsoft finished, but this instance did not answer."
+				footer={
+					<>
+						<span />
+						<Button
+							variant="primary"
+							onClick={() => void refetch()}
+							disabled={isFetching}
+						>
+							Retry
+						</Button>
+					</>
+				}
+			>
+				<Banner tone="danger">
+					Couldn't load the account Microsoft just connected. Check your
+					connection and retry, or open Settings › Accounts to see it.
+				</Banner>
+			</WizardShell>
+		);
+	}
+
+	if (!config || (!account && isFetching)) {
+		return (
+			<WizardShell
+				steps={STEP_LABELS}
+				activeStep={STEP_INDEX["microsoft-granted"]}
+				title="Reading the new account"
+				subtitle="Checking what Microsoft granted."
+				footer={
+					<>
+						<span className="text-2xs text-fg-subtle">Loading…</span>
+						<span />
+					</>
+				}
+			>
+				<div className="flex items-center gap-2 py-4 text-sm text-fg-muted">
+					<Loader2 className="size-4 animate-spin text-accent" />
+					Loading the account…
+				</div>
+			</WizardShell>
+		);
+	}
+
+	if (!account) {
+		return (
+			<WizardShell
+				steps={STEP_LABELS}
+				activeStep={STEP_INDEX["microsoft-granted"]}
+				title="The account is not here"
+				subtitle="Microsoft sent the sign-in back, but no account was kept."
+				footer={
+					<>
+						<span />
+						<Button variant="primary" onClick={onSignInAgain}>
+							Sign in again
+						</Button>
+					</>
+				}
+			>
+				<Banner tone="danger">
+					This instance holds no account from that sign-in. Sign in with
+					Microsoft again to connect it.
+				</Banner>
+			</WizardShell>
+		);
+	}
+
+	return <AccountGranted account={account} onContinue={onContinue} />;
+}
+
+export interface AccountGrantedProps {
+	account: Pick<
+		RemitImapAccountResponse,
+		"accountId" | "email" | "syncedServices" | "grantedScopes"
+	>;
+	onContinue: (accountId: string) => void;
+}
+
+export function AccountGranted({ account, onContinue }: AccountGrantedProps) {
+	const syncsMail = account.syncedServices.includes("Mail");
+	return (
+		<WizardShell
+			steps={STEP_LABELS}
+			activeStep={STEP_INDEX["microsoft-granted"]}
+			title={`Connected ${account.email}`}
+			subtitle="Microsoft granted access to what you picked."
+			footer={
+				<>
+					<span className="text-2xs text-fg-subtle">
+						Change this later in Settings › Accounts
+					</span>
+					<Button
+						variant="primary"
+						onClick={() => onContinue(account.accountId)}
+					>
+						{syncsMail ? "Go to inbox" : "Continue"}
+					</Button>
+				</>
+			}
+		>
+			<div className="space-y-3">
+				<div className="divide-y divide-line">
+					{ACCOUNT_SERVICE_ROWS.map((row) =>
+						account.syncedServices.includes(row.id) ? (
+							<CheckRow
+								key={row.id}
+								label={row.label}
+								detail="Access granted — syncing"
+								state="ok"
+							/>
+						) : (
+							<CheckRow
+								key={row.id}
+								label={row.label}
+								detail="Not synced. Turn it on in Settings › Accounts; Microsoft asks for access then."
+								state="pending"
+							/>
+						),
+					)}
+				</div>
+				<div>
+					<p className="text-2xs text-fg-subtle">
+						Permissions Microsoft granted
+					</p>
+					<code
+						className="mt-1 block rounded bg-surface-sunken px-2.5 py-2 text-2xs text-fg-muted"
+						data-testid="granted-scopes"
+					>
+						{account.grantedScopes.join(" ")}
+					</code>
+				</div>
 			</div>
 		</WizardShell>
 	);
@@ -1150,16 +1349,45 @@ export interface OnboardingWizardProps {
 	 * has one — importing a configuration is a first-run move, not an add.
 	 */
 	onImportConfig?: () => void;
+	microsoftReturn?: MicrosoftReturn;
 }
+
+export interface MicrosoftRefusal {
+	kind: "refused";
+	message: string;
+	email?: string;
+	services?: AccountService[];
+	reconnect: boolean;
+}
+
+export type MicrosoftReturn =
+	| { kind: "connected"; accountId: string }
+	| MicrosoftRefusal;
+
+const initialStep = (
+	skipWelcome: boolean,
+	microsoftReturn: MicrosoftReturn | undefined,
+): WizardStep => {
+	if (microsoftReturn?.kind === "connected") return "microsoft-granted";
+	if (microsoftReturn?.kind === "refused") return "microsoft-email";
+	return skipWelcome ? "connector" : "welcome";
+};
 
 export function OnboardingWizard({
 	skipWelcome = false,
 	onComplete,
 	onCancel,
 	onImportConfig,
+	microsoftReturn,
 }: OnboardingWizardProps) {
 	const [step, setStep] = useState<WizardStep>(
-		skipWelcome ? "connector" : "welcome",
+		initialStep(skipWelcome, microsoftReturn),
+	);
+	const [microsoftRefusal, setMicrosoftRefusal] = useState<
+		MicrosoftRefusal | undefined
+	>(microsoftReturn?.kind === "refused" ? microsoftReturn : undefined);
+	const [microsoftAccountId, setMicrosoftAccountId] = useState<string | null>(
+		microsoftReturn?.kind === "connected" ? microsoftReturn.accountId : null,
 	);
 	const [state, setState] = useState<WizardState>({
 		email: "",
@@ -1254,6 +1482,20 @@ export function OnboardingWizard({
 		[onComplete],
 	);
 
+	const microsoftSignIn = (
+		<StepMicrosoftEmail
+			refusal={microsoftRefusal}
+			onBack={() => {
+				setMicrosoftRefusal(undefined);
+				setStep("connector");
+			}}
+			onConnected={(accountId) => {
+				setMicrosoftAccountId(accountId);
+				setStep("microsoft-granted");
+			}}
+		/>
+	);
+
 	switch (step) {
 		case "welcome":
 			return (
@@ -1274,10 +1516,15 @@ export function OnboardingWizard({
 			);
 
 		case "microsoft-email":
+			return microsoftSignIn;
+
+		case "microsoft-granted":
+			if (microsoftAccountId === null) return microsoftSignIn;
 			return (
-				<StepMicrosoftEmail
-					onBack={() => setStep("connector")}
-					onConnected={handleGoToInbox}
+				<StepMicrosoftGranted
+					accountId={microsoftAccountId}
+					onSignInAgain={() => setStep("microsoft-email")}
+					onContinue={handleGoToInbox}
 				/>
 			);
 

@@ -117,3 +117,16 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  fake-microsoft:
+    image: node:22-alpine
+    command: ["node", "/srv/token-server.mjs"]
+    volumes:
+      - ../../docker/test/fake-microsoft/token-server.mjs:/srv/token-server.mjs:ro
+    ports:
+      - "127.0.0.1:${E2E_MSOAUTH_TOKEN_PORT:-18031}:8080"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

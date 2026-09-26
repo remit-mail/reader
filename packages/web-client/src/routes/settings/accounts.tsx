@@ -6,6 +6,7 @@ import {
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
 import {
+	ACCOUNT_SERVICE_ROWS,
 	AccountHealthCard,
 	Badge,
 	Banner,
@@ -20,7 +21,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { AlertTriangle, Loader2, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { z } from "zod";
-import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
+import {
+	type MicrosoftReturn,
+	OnboardingWizard,
+} from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { AccountServices } from "@/components/settings/AccountServices";
 import { DangerZone } from "@/components/settings/DangerZone";
@@ -41,6 +45,8 @@ const accountsSearchSchema = z.object({
 	connected: z.string().optional(),
 	/** Set by the backend redirect when the OAuth flow fails */
 	oauthError: z.string().optional(),
+	oauthEmail: z.string().optional(),
+	missingServices: z.string().optional(),
 });
 
 export const Route = createFileRoute("/settings/accounts")({
@@ -84,6 +90,43 @@ export function mapOauthError(code: string): string {
 	}
 
 	return `Sign-in failed: ${code}. Please try again.`;
+}
+
+const joinServices = (labels: string[]): string =>
+	labels.length > 1
+		? `${labels.slice(0, -1).join(", ")} and ${labels[labels.length - 1]}`
+		: (labels[0] ?? "");
+
+export function scopeRefusalReturn(
+	refusal: { oauthEmail?: string; missingServices?: string },
+	accounts: Pick<
+		RemitImapAccountResponse,
+		"email" | "authType" | "syncedServices"
+	>[],
+): MicrosoftReturn {
+	const named = (refusal.missingServices ?? "").split(",");
+	const missing = ACCOUNT_SERVICE_ROWS.filter((row) => named.includes(row.id));
+	const email = refusal.oauthEmail;
+	const existing = email
+		? accounts.find(
+				(account) =>
+					account.authType === "oauthMicrosoft" &&
+					account.email.toLowerCase() === email.toLowerCase(),
+			)
+		: undefined;
+	const labels = joinServices(missing.map((row) => row.label));
+	const message =
+		missing.length === 0
+			? mapOauthError("scope_not_granted")
+			: `Microsoft did not grant access to ${labels}. Sign in again and accept the ${labels} ${missing.length > 1 ? "permissions" : "permission"} when Microsoft asks.`;
+	const services = existing
+		? ACCOUNT_SERVICE_ROWS.filter(
+				(row) =>
+					existing.syncedServices.includes(row.id) ||
+					missing.some((service) => service.id === row.id),
+			).map((row) => row.id)
+		: undefined;
+	return { kind: "refused", message, email, services, reconnect: !!existing };
 }
 
 /**
@@ -182,6 +225,9 @@ function AccountsSettings() {
 
 	const [showForm, setShowForm] = useState(false);
 	const [showAddWizard, setShowAddWizard] = useState(false);
+	const [microsoftReturn, setMicrosoftReturn] = useState<
+		MicrosoftReturn | undefined
+	>(undefined);
 	const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
 	const [focusSmtp, setFocusSmtp] = useState(false);
 	const [deletingAccountId, setDeletingAccountId] = useState<string | null>(
@@ -219,6 +265,8 @@ function AccountsSettings() {
 				focusSmtp: undefined,
 				connected: search.connected,
 				oauthError: search.oauthError,
+				oauthEmail: search.oauthEmail,
+				missingServices: search.missingServices,
 			},
 			replace: true,
 		});
@@ -228,13 +276,15 @@ function AccountsSettings() {
 		navigate,
 		search.connected,
 		search.oauthError,
+		search.oauthEmail,
+		search.missingServices,
 	]);
 
-	// Handle ?connected — show success, select the account, clear param
+	// Handle ?connected — show what Microsoft granted, clear param
 	useEffect(() => {
 		if (!search.connected) return;
-		setSuccessMessage("Account connected successfully.");
-		setEditingAccountId(search.connected);
+		setMicrosoftReturn({ kind: "connected", accountId: search.connected });
+		setShowAddWizard(true);
 		queryClient.invalidateQueries({
 			queryKey: configOperationsGetConfigQueryKey(),
 		});
@@ -252,8 +302,23 @@ function AccountsSettings() {
 	// Handle ?oauthError — show human-readable error, clear param
 	useEffect(() => {
 		if (!search.oauthError) return;
-		setOauthErrorMessage(mapOauthError(search.oauthError));
+		const refusedScope = search.oauthError === "scope_not_granted";
+		if (refusedScope && !config && !isError) return;
 		setReconnectingAccountId(null);
+		if (refusedScope) {
+			setMicrosoftReturn(
+				scopeRefusalReturn(
+					{
+						oauthEmail: search.oauthEmail,
+						missingServices: search.missingServices,
+					},
+					config?.accounts ?? [],
+				),
+			);
+			setShowAddWizard(true);
+		} else {
+			setOauthErrorMessage(mapOauthError(search.oauthError));
+		}
 		navigate({
 			search: {
 				oauthError: undefined,
@@ -263,7 +328,14 @@ function AccountsSettings() {
 			},
 			replace: true,
 		});
-	}, [search.oauthError, navigate]);
+	}, [
+		search.oauthError,
+		search.oauthEmail,
+		search.missingServices,
+		config,
+		isError,
+		navigate,
+	]);
 
 	// Microsoft may hand the finished sign-in back to a different window than the
 	// one that started it, so a reconnect can complete without this page ever
@@ -522,13 +594,21 @@ function AccountsSettings() {
 				<div className="fixed inset-0 z-40 overflow-auto bg-canvas">
 					<OnboardingWizard
 						skipWelcome
+						microsoftReturn={microsoftReturn}
 						onComplete={() => {
+							if (microsoftReturn?.kind === "connected") {
+								setSuccessMessage("Account connected successfully.");
+							}
 							setShowAddWizard(false);
+							setMicrosoftReturn(undefined);
 							queryClient.invalidateQueries({
 								queryKey: configOperationsGetConfigQueryKey(),
 							});
 						}}
-						onCancel={() => setShowAddWizard(false)}
+						onCancel={() => {
+							setShowAddWizard(false);
+							setMicrosoftReturn(undefined);
+						}}
 					/>
 				</div>
 			)}

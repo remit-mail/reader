@@ -251,7 +251,7 @@ describe("the Microsoft consent for the services an account syncs", () => {
 
 		assert.equal(
 			location,
-			`${WEB_ORIGIN}/settings/accounts?oauthError=scope_not_granted`,
+			`${WEB_ORIGIN}/settings/accounts?oauthError=scope_not_granted&oauthEmail=person%40example.com&missingServices=Calendar`,
 		);
 		assert.deepEqual(
 			await client.account.listAllByAccountConfig(deriveAccountConfigId(sub)),
