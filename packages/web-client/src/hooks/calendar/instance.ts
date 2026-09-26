@@ -86,6 +86,28 @@ export function readCalendarInstanceId(id: string): CalendarInstanceRef {
 	};
 }
 
+/**
+ * The occurrence a series opens at when the address names only the series: the
+ * next one still to finish, or the first in the window where none is left.
+ */
+export function seriesOccurrenceOf(
+	events: readonly CalendarEventData[],
+	calendarObjectId: string,
+	now: string,
+): CalendarInstanceRef | undefined {
+	const occurrences = events
+		.map((event) => ({ event, ref: readCalendarInstanceId(event.id) }))
+		.filter(
+			({ ref }) =>
+				ref.calendarObjectId === calendarObjectId && ref.recurrenceId !== "",
+		)
+		.sort((a, b) => Date.parse(a.event.start) - Date.parse(b.event.start));
+	const next = occurrences.find(
+		({ event }) => Date.parse(event.end) > Date.parse(now),
+	);
+	return (next ?? occurrences[0])?.ref;
+}
+
 export function toCalendarDescriptor(
 	calendar: RemitImapCalendarResponse,
 ): CalendarDescriptor {

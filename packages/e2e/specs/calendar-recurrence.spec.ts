@@ -586,3 +586,77 @@ test.describe("Repeat rules picked in the form", () => {
 		await expectDrawnOn(page, SUMMARY, "2032-07-12", ["2032-07-15"]);
 	});
 });
+
+test.describe("A one-off event given a repeat", () => {
+	test("opens from its plain address at an occurrence, with Edit (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam retro";
+		const FIRST = "2031-11-03";
+		const MONDAYS = [0, 1, 2].map((week) => addDays(FIRST, week * 7));
+		const RANGE = window(FIRST, addDays(FIRST, 15));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const event = await api.createCalendarEvent({
+			calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+		});
+		written.set(event.calendarObjectId, event.calendarId);
+
+		const ofEvent = (items: CalendarEventInstance[]) =>
+			items.filter((item) => item.calendarObjectId === event.calendarObjectId);
+		await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofEvent(items).length === 1,
+			{ what: "the one-off event to be listed" },
+		);
+
+		const plainPath = `${weekPath(FIRST)}/${event.calendarObjectId}`;
+		await page.goto(plainPath);
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await page
+			.getByRole("combobox", { name: "Repeat" })
+			.selectOption({ label: "Every week on Monday, 09:00" });
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(page.getByRole("alert")).toHaveCount(0);
+
+		const repeating = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofEvent(items).length === MONDAYS.length,
+			{ what: "the repeat to reach the server" },
+		);
+		const occurrences = ofEvent(repeating);
+		expect(startDays(occurrences)).toEqual(MONDAYS);
+		expect(occurrences.every((item) => item.recurrenceId !== "")).toBe(true);
+		const resource = await api.getCalendarEvent(
+			event.calendarObjectId,
+			calendarId,
+		);
+		expect(resource.icalData).toMatch(/RRULE:FREQ=WEEKLY;BYDAY=MO/);
+
+		await page.goto(plainPath);
+		await expect(page).toHaveURL(
+			new RegExp(
+				`${plainPath}/${encodeURIComponent(occurrences[0]?.recurrenceId ?? "")}(\\?|#|$)`,
+			),
+			{ timeout: 30_000 },
+		);
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await expect(
+			page.getByRole("button", { name: "This event" }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "The whole series" }).click();
+		await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(
+			SUMMARY,
+		);
+	});
+});

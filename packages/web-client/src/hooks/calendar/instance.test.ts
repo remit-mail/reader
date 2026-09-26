@@ -2,7 +2,11 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitImapCalendarEventInstance } from "@remit/api-http-client/types.gen.ts";
-import { anchorZoneFor, toCalendarEventData } from "./instance";
+import {
+	anchorZoneFor,
+	seriesOccurrenceOf,
+	toCalendarEventData,
+} from "./instance";
 
 const instance = (
 	over: Partial<RemitImapCalendarEventInstance>,
@@ -66,5 +70,56 @@ describe("the zone a write anchors an event in", () => {
 			if (runner === undefined) Reflect.deleteProperty(process.env, "TZ");
 			else process.env.TZ = runner;
 		}
+	});
+});
+
+describe("the occurrence a series opens at from its plain address", () => {
+	const weekly = ["06", "13", "20"].map((day) =>
+		toCalendarEventData(
+			instance({
+				recurrenceId: `203403${day}T090000Z`,
+				hasRecurrence: true,
+				allDay: false,
+				start: `2034-03-${day}T09:00:00+00:00`,
+				end: `2034-03-${day}T10:00:00+00:00`,
+			}),
+			"UTC",
+			"UTC",
+		),
+	);
+	const shuffled = [...weekly].reverse();
+
+	it("is the next one still to finish", () => {
+		assert.deepEqual(
+			seriesOccurrenceOf(shuffled, "obj_1", "2034-03-13T09:30:00Z"),
+			{ calendarObjectId: "obj_1", recurrenceId: "20340313T090000Z" },
+		);
+	});
+
+	it("is the first in the window once every one has passed", () => {
+		assert.deepEqual(
+			seriesOccurrenceOf(shuffled, "obj_1", "2034-04-01T00:00:00Z"),
+			{ calendarObjectId: "obj_1", recurrenceId: "20340306T090000Z" },
+		);
+	});
+
+	it("is nothing for an event that does not recur or is not in the window", () => {
+		const oneOff = toCalendarEventData(
+			instance({ calendarObjectId: "obj_2" }),
+			"UTC",
+			"UTC",
+		);
+		assert.equal(
+			seriesOccurrenceOf(
+				[oneOff, ...shuffled],
+				"obj_2",
+				"2034-03-01T00:00:00Z",
+			),
+			undefined,
+		);
+		assert.equal(
+			seriesOccurrenceOf(shuffled, "obj_3", "2034-03-01T00:00:00Z"),
+			undefined,
+		);
 	});
 });

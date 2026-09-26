@@ -3,6 +3,7 @@ import {
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
 } from "@remit/ui";
+import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
 import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
@@ -17,6 +18,7 @@ import {
 	patchFromDrafts,
 	rruleFromIcalData,
 	type ScopedWrite,
+	seriesOccurrenceOf,
 	storedAnchorZone,
 	textFromIcalData,
 	textFromRrule,
@@ -174,6 +176,27 @@ export function OpenCalendarEvent({
 			}),
 		);
 	};
+
+	const occurrence =
+		recurrenceId === undefined && event === undefined
+			? seriesOccurrenceOf(events, calendarObjectId, new Date().toISOString())
+			: undefined;
+	if (occurrence) {
+		return (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId/$recurrenceId"
+				params={{
+					view,
+					date,
+					calendarObjectId,
+					recurrenceId: occurrence.recurrenceId,
+				}}
+				search={true}
+				hash={true}
+				replace
+			/>
+		);
+	}
 
 	if (asking !== undefined && event) {
 		return (

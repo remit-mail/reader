@@ -43,6 +43,7 @@ export {
 	deviceTimeZone,
 	isDrawnInstance,
 	readCalendarInstanceId,
+	seriesOccurrenceOf,
 	toCalendarDescriptor,
 	toCalendarEventData,
 	UNZONED_CALENDAR,
