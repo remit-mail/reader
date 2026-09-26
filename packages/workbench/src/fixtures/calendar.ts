@@ -1,21 +1,11 @@
 import {
-	buildCalendarDay,
 	type CalendarAttendee,
-	type CalendarDay,
 	type CalendarDescriptor,
 	type CalendarEventData,
 	type EventSuggestion,
-	type ThreadData,
 	wallSpanOn,
 } from "@remit/ui";
-import {
-	allThreads,
-	hobbyId,
-	lisbonCallThread,
-	personalId,
-	q3Thread,
-	workId,
-} from "./workspace.js";
+import { hobbyId, personalId, workId } from "./workspace.js";
 
 /**
  * One week of calendar, on the same three accounts and the same fixed "now" as
@@ -40,7 +30,6 @@ export const OFFSET = "+02:00";
 
 /** The Wednesday every relative label in this file is measured from. */
 export const TODAY = "2026-06-10";
-export const NOW_ISO = `${TODAY}T09:30:00${OFFSET}`;
 
 export function pad(n: number): string {
 	return String(n).padStart(2, "0");
@@ -112,8 +101,6 @@ export const calendars: CalendarDescriptor[] = [
 ];
 
 export const calendarsById = new Map(calendars.map((c) => [c.id, c]));
-
-export const allCalendarIds: string[] = calendars.map((c) => c.id);
 
 /* ------------------------------------------------------------------ */
 /* People — reusing the sender identities from the mail fixtures       */
@@ -618,14 +605,6 @@ export const suggestions: EventSuggestion[] = [
 ];
 
 /* ------------------------------------------------------------------ */
-/* Derived — computed from the week above, never restated by hand      */
-/* ------------------------------------------------------------------ */
-
-export function buildDay(date: string, source = events): CalendarDay {
-	return buildCalendarDay(date, source, TODAY);
-}
-
-/* ------------------------------------------------------------------ */
 /* Formatting the stories share                                        */
 /* ------------------------------------------------------------------ */
 
@@ -669,34 +648,6 @@ export function formatSuggestionWhen(suggestion: EventSuggestion): string {
 	return `${formatDayLabel(suggestion.start.slice(0, 10))} · ${formatClock(
 		suggestion.start,
 	)} – ${formatClock(suggestion.end)}`;
-}
-
-/**
- * The mail an event or a suggestion came out of. Every calendar `threadId` is a
- * real row in `workspace.ts`, so the way back always resolves; the roadmap
- * thread has a written-out conversation and the rest open on their one message.
- */
-export function threadFor(threadId: string): ThreadData | undefined {
-	if (threadId === "") return undefined;
-	if (threadId === "thr_q3") return q3Thread;
-	if (threadId === "thr_lisbon_call") return lisbonCallThread;
-	const row = allThreads.find((candidate) => candidate.id === threadId);
-	if (!row) return undefined;
-	return {
-		subject: row.subject,
-		messages: [
-			{
-				id: `msg_${row.id}`,
-				fromName: row.fromName,
-				fromEmail: row.fromEmail,
-				toLabel: "Alice Tan",
-				dateLabel: row.timeLabel,
-				expanded: true,
-				snippet: row.snippet,
-				bodyHtml: `<p>${row.snippet}</p>`,
-			},
-		],
-	};
 }
 
 /**

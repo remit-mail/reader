@@ -36,7 +36,7 @@ import { IntelligencePanel } from "./intelligence-panel.js";
  * sends no reply, so the card says so where the press happens.
  */
 const meta: Meta = {
-	title: "Design System/Calendar/Intelligence panel calendar tab",
+	title: "Playground/Shipped/Mail/IntelligencePanel calendar tab",
 	parameters: { layout: "centered" },
 };
 export default meta;

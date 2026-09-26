@@ -2,7 +2,6 @@ import type { Decorator } from "@storybook/react-vite";
 
 /** The tiers the preview's viewport toolbar offers, so a story can match one. */
 export const PHONE_WIDTH = 390;
-export const DESKTOP_WIDTH = 1440;
 
 /**
  * A device-sized window onto a full-screen story. The shell reflows off its own

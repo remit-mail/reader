@@ -58,27 +58,14 @@ export {
 } from "./components/address-display.js";
 export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
 export {
-	AgendaComposer,
-	type AgendaComposerProps,
-	AgendaPhraseField,
-	type AgendaPhraseFieldProps,
-	PhraseReading,
-} from "./components/agenda-composer.js";
-export {
 	type AgendaDensity,
 	AgendaFlow,
 	type AgendaFlowProps,
 	type AgendaScrollTarget,
 } from "./components/agenda-flow.js";
 export {
-	AgendaDensityControl,
-	type AgendaDensityControlProps,
-	FreeTimeList,
-	type FreeTimeListProps,
 	NextUpCard,
 	type NextUpCardProps,
-	PositionMap,
-	type PositionMapProps,
 } from "./components/agenda-panels.js";
 export {
 	AppPasswordHint,
@@ -327,12 +314,6 @@ export {
 	type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
 export {
-	CustomRecurrenceDialog,
-	type CustomRecurrenceDialogProps,
-	CustomRecurrenceEditor,
-	type CustomRecurrenceEditorProps,
-} from "./components/custom-recurrence.js";
-export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -370,10 +351,6 @@ export {
 	EventEditorPane,
 	type EventEditorPaneProps,
 } from "./components/event-editor-pane.js";
-export {
-	EventQuickEntry,
-	type EventQuickEntryProps,
-} from "./components/event-quick-entry.js";
 export {
 	EventSuggestionCard,
 	type EventSuggestionCardProps,
