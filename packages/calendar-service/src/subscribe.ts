@@ -42,6 +42,8 @@ export interface CalendarFeedSplit {
 }
 
 export interface CalendarFeedWrite {
+	/** The subscription was paused while its feed was being read, so nothing was written. */
+	paused: boolean;
 	written: number;
 	unchanged: number;
 	removed: number;
@@ -139,17 +141,52 @@ export const fetchCalendarFeed = async (
 	const declared = Number(response.value.headers.get("content-length") ?? "0");
 	if (declared > CALENDAR_SUBSCRIPTION_MAX_BYTES) {
 		await response.value.body?.cancel();
-		return { ok: false, reason: "the feed is larger than 10 MB" };
+		return { ok: false, reason: TOO_LARGE };
 	}
 
-	return response.value.text().then(
-		(text) =>
-			Buffer.byteLength(text, "utf8") > CALENDAR_SUBSCRIPTION_MAX_BYTES
-				? { ok: false, reason: "the feed is larger than 10 MB" }
-				: { ok: true, value: text },
+	const { body } = response.value;
+	if (!body) return { ok: true, value: "" };
+	return readCapped(body).then(
+		(read) => read,
 		(error: unknown) => ({ ok: false, reason: unreachableReason(error) }),
 	);
 };
+
+const TOO_LARGE = "the feed is larger than 10 MB";
+
+/**
+ * Reads a body a chunk at a time and stops at the cap. A feed sent chunked
+ * carries no length to refuse up front, so counting as it arrives is the only
+ * thing that keeps an endless body out of memory.
+ */
+const readCapped = async (
+	body: ReadableStream<Uint8Array>,
+): Promise<CalendarFeedFetch> => {
+	const reader = body.getReader();
+	const decoder = new TextDecoder();
+	let received = 0;
+	let text = "";
+	for (;;) {
+		const { done, value } = await reader.read();
+		if (done) break;
+		received += value.byteLength;
+		if (received > CALENDAR_SUBSCRIPTION_MAX_BYTES) {
+			await reader.cancel();
+			return { ok: false, reason: TOO_LARGE };
+		}
+		text += decoder.decode(value, { stream: true });
+	}
+	return { ok: true, value: text + decoder.decode() };
+};
+
+/**
+ * A resource as it would compare across two fetches. DTSTAMP is when the
+ * provider exported the feed, not when the event changed — Google restamps it
+ * on every fetch — so it is left out, or every refresh would rewrite every
+ * event.
+ */
+const comparable = (icalData: string): string =>
+	icalData.replace(/^DTSTAMP[;:][^\r\n]*\r?\n/gim, "");
 
 const resourceNameOf = (uid: string): string =>
 	`${createHash("sha256").update(uid, "utf8").digest("hex").slice(0, 40)}.ics`;
@@ -249,12 +286,20 @@ export const writeCalendarFeed = async (
 	now: number,
 ): Promise<CalendarFeedWrite> =>
 	unitOfWork.transaction(async (repos) => {
+		const current = await repos.calendarCollection.get(
+			target.accountConfigId,
+			target.calendarId,
+		);
+		if (!current.subscriptionEnabled) {
+			return { paused: true, written: 0, unchanged: 0, removed: 0, skipped: 0 };
+		}
 		const stored = await repos.calendarObject.listByCalendar(target.calendarId);
 		const storedByName = new Map(
 			stored.map((object) => [object.resourceName, object]),
 		);
 		const kept = new Set<string>();
 		const write: CalendarFeedWrite = {
+			paused: false,
 			written: 0,
 			unchanged: 0,
 			removed: 0,
@@ -263,7 +308,10 @@ export const writeCalendarFeed = async (
 
 		for (const resource of split.resources) {
 			const existing = storedByName.get(resource.resourceName);
-			if (existing && existing.icalData === resource.icalData) {
+			if (
+				existing &&
+				comparable(existing.icalData) === comparable(resource.icalData)
+			) {
 				kept.add(resource.resourceName);
 				write.unchanged += 1;
 				continue;

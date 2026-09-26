@@ -9,6 +9,7 @@
 import { Badge, Banner, Button } from "@remit/ui";
 import { Pause, Play } from "lucide-react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import { subscriptionHostOf } from "@/lib/calendar-subscription";
 import { formatDatePreset } from "@/lib/format";
 
 export interface CalendarSubscriptionStatusProps {
@@ -22,11 +23,6 @@ export interface CalendarSubscriptionStatusProps {
 	actionError: unknown;
 	onSetEnabled: (enabled: boolean) => void;
 }
-
-export const subscriptionHostOf = (subscriptionUrl: string): string =>
-	URL.canParse(subscriptionUrl)
-		? new URL(subscriptionUrl).host
-		: "an iCalendar feed";
 
 export function CalendarSubscriptionStatus({
 	calendarName,

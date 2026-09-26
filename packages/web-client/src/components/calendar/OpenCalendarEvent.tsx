@@ -38,6 +38,7 @@ import { useCalendarData } from "@/hooks/useCalendarData";
 import { formatEventWhen } from "@/lib/calendar-format";
 import { calendarEventReportHref } from "@/lib/calendar-report";
 import type { CalendarSearch } from "@/lib/calendar-route";
+import { subscriptionReadOnlyNote } from "@/lib/calendar-subscription";
 import { useCalendarAddress, useCalendarNavigation } from "@/routing";
 
 /**
@@ -113,7 +114,7 @@ export function OpenCalendarEvent({
 }: OpenCalendarEventProps) {
 	const { view, date, calendarIds } = useCalendarAddress();
 	const { events, isLoading } = useCalendarData({ view, date, calendarIds });
-	const { calendars, timeZoneByCalendarId } = useCalendars();
+	const { calendars, collections, timeZoneByCalendarId } = useCalendars();
 	const { closeEvent } = useCalendarNavigation();
 	const { updateEvent, deleteEvent, isWriting } = useCalendarWrites();
 
@@ -341,6 +342,15 @@ export function OpenCalendarEvent({
 				}
 			}
 			calendar={calendar}
+			readOnlyNote={
+				calendar?.readOnly
+					? subscriptionReadOnlyNote(
+							collections.find(
+								(collection) => collection.calendarId === calendar.id,
+							)?.subscriptionUrl ?? "",
+						)
+					: ""
+			}
 			isOccurrence={recurrenceId !== undefined}
 			absence={absenceOf(search, seriesOnly && isLoading)}
 			problem={problem}

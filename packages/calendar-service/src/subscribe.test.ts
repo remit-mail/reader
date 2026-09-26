@@ -170,6 +170,34 @@ describe("fetchCalendarFeed", () => {
 		});
 	});
 
+	it("stops reading a chunked feed once it passes the cap", async () => {
+		let pulled = 0;
+		let cancelled = false;
+		const chunk = new Uint8Array(1024 * 1024).fill(0x41);
+		const endless = new ReadableStream<Uint8Array>({
+			pull(controller) {
+				pulled += 1;
+				controller.enqueue(chunk);
+			},
+			cancel() {
+				cancelled = true;
+			},
+		});
+
+		const fetched = await fetchCalendarFeed(SECRET_URL, async () => {
+			const response = new Response(endless, { status: 200 });
+			assert.equal(response.headers.get("content-length"), null);
+			return response;
+		});
+
+		assert.deepEqual(fetched, {
+			ok: false,
+			reason: "the feed is larger than 10 MB",
+		});
+		assert.equal(cancelled, true);
+		assert.ok(pulled <= 12, `read ${pulled} MB of a feed capped at 10`);
+	});
+
 	it("refuses a feed larger than it will store", async () => {
 		const fetched = await fetchCalendarFeed(
 			SECRET_URL,
@@ -273,6 +301,7 @@ describe("writeCalendarFeed", () => {
 		const write = await writeFeed(store, collection, GOOGLE_FEED, 5_000);
 
 		assert.deepEqual(write, {
+			paused: false,
 			written: 3,
 			unchanged: 0,
 			removed: 0,
@@ -347,6 +376,7 @@ describe("writeCalendarFeed", () => {
 		const write = await writeFeed(store, collection, dropped, 9_000);
 
 		assert.deepEqual(write, {
+			paused: false,
 			written: 0,
 			unchanged: 2,
 			removed: 1,
@@ -361,6 +391,59 @@ describe("writeCalendarFeed", () => {
 			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
 		);
 		assert.equal(after.syncSequence, sequenceBefore + 1);
+	});
+
+	it("writes nothing when a second fetch differs only in its export stamps", async () => {
+		const { store, collection } = await subscribed();
+		await writeFeed(store, collection, GOOGLE_FEED, 5_000);
+		const before = await store.transaction((repos) =>
+			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		);
+
+		const restamped = GOOGLE_FEED.replaceAll(
+			"DTSTAMP:20260925T120000Z",
+			"DTSTAMP:20260926T081500Z",
+		);
+		const write = await writeFeed(store, collection, restamped, 9_000);
+
+		assert.deepEqual(write, {
+			paused: false,
+			written: 0,
+			unchanged: 3,
+			removed: 0,
+			skipped: 0,
+		});
+		const after = await store.transaction((repos) =>
+			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		);
+		assert.equal(after.syncSequence, before.syncSequence);
+		assert.equal(after.subscriptionFetchedAt, 9_000);
+	});
+
+	it("writes nothing for a subscription paused while its feed was read", async () => {
+		const { store, collection } = await subscribed();
+		await store.transaction((repos) =>
+			repos.calendarCollection.update(
+				ACCOUNT_CONFIG_ID,
+				collection.calendarId,
+				{ subscriptionEnabled: false },
+			),
+		);
+
+		const write = await writeFeed(store, collection, GOOGLE_FEED, 5_000);
+
+		assert.deepEqual(write, {
+			paused: true,
+			written: 0,
+			unchanged: 0,
+			removed: 0,
+			skipped: 0,
+		});
+		assert.deepEqual(await drawn(store, collection), []);
+		const stored = await store.transaction((repos) =>
+			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		);
+		assert.equal(stored.subscriptionFetchedAt, 0);
 	});
 
 	it("records the events it could not store and keeps the rest", async () => {
