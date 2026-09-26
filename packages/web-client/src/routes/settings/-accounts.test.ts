@@ -144,7 +144,9 @@ const pageShow = (persisted: boolean): Event => {
 };
 
 /** The real route, mounted the way the generated tree mounts it. */
-const mountAccounts = async (): Promise<DomHarness> => {
+const mountAccounts = async (
+	entry = "/settings/accounts",
+): Promise<DomHarness> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/oauth/microsoft/start")) {
 			return { authorizationUrl: CONSENT_URL };
@@ -168,7 +170,7 @@ const mountAccounts = async (): Promise<DomHarness> => {
 	]) as unknown as AnyRoute;
 	const router = createRouter({
 		routeTree,
-		history: createMemoryHistory({ initialEntries: ["/settings/accounts"] }),
+		history: createMemoryHistory({ initialEntries: [entry] }),
 	}) as unknown as AnyRouter;
 	await router.load();
 
@@ -273,5 +275,71 @@ describe("the Reconnect button and the redirect it starts", () => {
 			"Back out of the consent screen left the button busy for good",
 		);
 		assert.ok(dom.byText("button", "Reconnect"));
+	});
+});
+
+describe("the Microsoft callback landing on the accounts page (#1183)", () => {
+	afterEach(() => {
+		harness?.close();
+		harness = undefined;
+		http?.restore();
+		http = undefined;
+	});
+
+	test("a reconnect that comes back connected ends on the granted screen", async () => {
+		const dom = await mountAccounts("/settings/accounts?connected=acc-1");
+		await dom.waitFor(
+			() => dom.text().includes("Connected matthijs@ischen.nl"),
+			"the granted screen",
+		);
+
+		assert.match(dom.text(), /Access granted/);
+		dom.click(dom.byText("button", "Go to inbox"));
+		await settle(dom);
+		assert.match(dom.text(), /Account connected successfully\./);
+	});
+
+	test("a reconnect Microsoft refused a service reopens that account, address filled", async () => {
+		const dom = await mountAccounts(
+			"/settings/accounts?oauthError=scope_not_granted&oauthEmail=matthijs%40ischen.nl&missingServices=Calendar",
+		);
+		await dom.waitFor(
+			() => dom.text().includes("Reconnect matthijs@ischen.nl"),
+			"the reconnect sign-in",
+		);
+
+		assert.match(dom.text(), /Microsoft did not grant access to Calendar\./);
+		assert.equal(
+			dom.query<HTMLInputElement>("#microsoft-email")?.value,
+			"matthijs@ischen.nl",
+		);
+		const choice = dom
+			.queryAll("fieldset")
+			.find((fieldset) =>
+				fieldset.textContent?.includes("What should Remit sync?"),
+			);
+		assert.ok(choice, "expected the service choice");
+		assert.deepEqual(
+			[
+				...choice.querySelectorAll<HTMLInputElement>("input[type=checkbox]"),
+			].map((box) => box.checked),
+			[true, true],
+		);
+	});
+
+	test("a new sign-in Microsoft refused a service reopens the add wizard", async () => {
+		const dom = await mountAccounts(
+			"/settings/accounts?oauthError=scope_not_granted&oauthEmail=new%40outlook.com&missingServices=Mail%2CCalendar",
+		);
+		await dom.waitFor(
+			() => dom.text().includes("did not grant access to Mail and Calendar"),
+			"the refused sign-in",
+		);
+
+		assert.doesNotMatch(dom.text(), /Reconnect new@outlook\.com/);
+		assert.equal(
+			dom.query<HTMLInputElement>("#microsoft-email")?.value,
+			"new@outlook.com",
+		);
 	});
 });

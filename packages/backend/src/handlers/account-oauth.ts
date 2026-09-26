@@ -236,7 +236,24 @@ export function getWebOrigin(): string {
 
 type ScopeRedemption =
 	| { kind: "granted"; refreshToken: string; grantedScopes: string[] }
-	| { kind: "refused"; reason: "exchange_failed" | "scope_not_granted" };
+	| { kind: "refused"; reason: "exchange_failed" }
+	| {
+			kind: "refused";
+			reason: "scope_not_granted";
+			service: AccountServiceName;
+	  };
+
+const scopeRefusalUrl = (
+	webOrigin: string,
+	email: string,
+	missingServices: readonly AccountServiceName[],
+): string => {
+	const url = new URL(`${webOrigin}/settings/accounts`);
+	url.searchParams.set("oauthError", "scope_not_granted");
+	url.searchParams.set("oauthEmail", email);
+	url.searchParams.set("missingServices", missingServices.join(","));
+	return url.toString();
+};
 
 const redeemEachService = async (
 	serviceFor: (service: AccountServiceName) => MailOAuthService,
@@ -265,8 +282,10 @@ const redeemEachService = async (
 					? ("exchange_failed" as const)
 					: ("scope_not_granted" as const);
 			});
-		if (typeof redeemed === "string")
+		if (redeemed === "exchange_failed")
 			return { kind: "refused", reason: redeemed };
+		if (redeemed === "scope_not_granted")
+			return { kind: "refused", reason: redeemed, service };
 		grantedScopes.push(...redeemed.grantedScopes);
 		token = redeemed.refreshToken ?? token;
 	}
@@ -512,6 +531,11 @@ export const MicrosoftOAuthOperations: Record<
 			services.filter((service) => service !== firstService),
 			accountConfigId,
 		);
+		if (
+			redemption.kind === "refused" &&
+			redemption.reason === "scope_not_granted"
+		)
+			return redirect(scopeRefusalUrl(webOrigin, email, [redemption.service]));
 		if (redemption.kind === "refused")
 			return redirect(
 				`${webOrigin}/settings/accounts?oauthError=${redemption.reason}`,
@@ -535,9 +559,7 @@ export const MicrosoftOAuthOperations: Record<
 				},
 				"MS OAuth callback: granted scopes lack a requested service",
 			);
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=scope_not_granted`,
-			);
+			return redirect(scopeRefusalUrl(webOrigin, email, missingServices));
 		}
 
 		// Ensure the account config row exists for this user

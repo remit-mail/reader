@@ -37,7 +37,10 @@ const answerMicrosoft = async (
 	return seen;
 };
 
-const signInForCalendarOnly = async (page: Page): Promise<void> => {
+const signInForCalendarOnly = async (
+	page: Page,
+	email?: string,
+): Promise<void> => {
 	await page.goto("/settings/accounts");
 	await page.getByRole("button", { name: "Add account" }).first().click();
 	await page.getByText("Outlook / Microsoft 365").click();
@@ -45,10 +48,12 @@ const signInForCalendarOnly = async (page: Page): Promise<void> => {
 	await expect(page.getByText("What should Remit sync?")).toBeVisible();
 	await page.getByRole("checkbox", { name: /^Mail/ }).uncheck();
 	await expect(page.getByRole("checkbox", { name: /^Calendar/ })).toBeChecked();
+	if (email) await page.getByLabel("Email address (optional)").fill(email);
 	await page.getByRole("button", { name: "Sign in with Microsoft" }).click();
 };
 
 test.describe("Onboarding a Microsoft account for its calendar alone", () => {
+	test.describe.configure({ mode: "serial" });
 	let run: IsolatedRun;
 	let api: ApiClient;
 	let context: BrowserContext;
@@ -67,10 +72,11 @@ test.describe("Onboarding a Microsoft account for its calendar alone", () => {
 		await context.close();
 	});
 
+	const email = `outlook-${Date.now()}@outlook.e2e`;
+
 	test("asks Microsoft for the calendar only and records the granted scope", async () => {
 		test.setTimeout(120_000);
 		const page = await context.newPage();
-		const email = `outlook-${Date.now()}@outlook.e2e`;
 		const microsoft = await answerMicrosoft(page, email, (requested) =>
 			requested.filter((scope) => scope.includes("://")),
 		);
@@ -100,21 +106,72 @@ test.describe("Onboarding a Microsoft account for its calendar alone", () => {
 	test("says Microsoft withheld the calendar and keeps no account", async () => {
 		test.setTimeout(120_000);
 		const page = await context.newPage();
-		const email = `outlook-denied-${Date.now()}@outlook.e2e`;
-		await answerMicrosoft(page, email, () => []);
+		const deniedEmail = `outlook-denied-${Date.now()}@outlook.e2e`;
+		await answerMicrosoft(page, deniedEmail, () => []);
 
 		await signInForCalendarOnly(page);
 
 		await expect(
-			page.getByText(/did not grant access to every service you picked/),
+			page.getByText(/Microsoft did not grant access to Calendar\./),
 		).toBeVisible({ timeout: 30_000 });
+		await expect(page.getByLabel("Email address (optional)")).toHaveValue(
+			deniedEmail,
+		);
 		await expect(
 			page.getByRole("button", { name: "Sign in with Microsoft" }),
 		).toBeEnabled();
 
 		const config = await api.getConfig();
 		expect(config.accounts.map((account) => account.email)).not.toContain(
+			deniedEmail,
+		);
+	});
+
+	test("a reconnect of the calendar account ends on the granted screen", async () => {
+		test.setTimeout(120_000);
+		const page = await context.newPage();
+		const before = await api.getConfig();
+		const connected = before.accounts.find(
+			(candidate) => candidate.email === email,
+		);
+		expect(connected).toBeDefined();
+		await answerMicrosoft(page, email, (requested) =>
+			requested.filter((scope) => scope.includes("://")),
+		);
+
+		await signInForCalendarOnly(page, email);
+
+		await expect(page.getByText(`Connected ${email}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		const after = await api.getConfig();
+		expect(
+			after.accounts.filter((candidate) => candidate.email === email),
+		).toHaveLength(1);
+		expect(
+			after.accounts.find((candidate) => candidate.email === email)?.accountId,
+		).toBe(connected?.accountId);
+	});
+
+	test("a reconnect Microsoft refused the calendar reopens that account", async () => {
+		test.setTimeout(120_000);
+		const page = await context.newPage();
+		await answerMicrosoft(page, email, () => []);
+
+		await signInForCalendarOnly(page, email);
+
+		await expect(page.getByText(`Reconnect ${email}`)).toBeVisible({
+			timeout: 30_000,
+		});
+		await expect(
+			page.getByText(/Microsoft did not grant access to Calendar\./),
+		).toBeVisible();
+		await expect(page.getByLabel("Email address (optional)")).toHaveValue(
 			email,
 		);
+		const account = (await api.getConfig()).accounts.find(
+			(candidate) => candidate.email === email,
+		);
+		expect(account?.grantedScopes).toEqual([CALENDAR_SCOPE]);
 	});
 });

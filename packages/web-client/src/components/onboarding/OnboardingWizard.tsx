@@ -287,7 +287,7 @@ function StepConnector({
 const MICROSOFT_SERVICES: AccountService[] = ["Mail", "Calendar"];
 
 export interface StepMicrosoftEmailProps {
-	refusal?: string;
+	refusal?: MicrosoftRefusal;
 	onBack: () => void;
 	onConnected: (accountId: string) => void;
 }
@@ -297,11 +297,12 @@ export function StepMicrosoftEmail({
 	onBack,
 	onConnected,
 }: StepMicrosoftEmailProps) {
-	const [email, setEmail] = useState("");
-	const [services, setServices] =
-		useState<AccountService[]>(MICROSOFT_SERVICES);
+	const [email, setEmail] = useState(refusal?.email ?? "");
+	const [services, setServices] = useState<AccountService[]>(
+		refusal?.services ?? MICROSOFT_SERVICES,
+	);
 	const [servicesRefused, setServicesRefused] = useState(false);
-	const [error, setError] = useState<string | null>(refusal ?? null);
+	const [error, setError] = useState<string | null>(refusal?.message ?? null);
 	const [awaitingReturn, setAwaitingReturn] = useState(false);
 	const [preparing, setPreparing] = useState(false);
 	// The account read is in flight across a step the user can leave — Escape and
@@ -426,7 +427,11 @@ export function StepMicrosoftEmail({
 		<WizardShell
 			steps={STEP_LABELS}
 			activeStep={STEP_INDEX.connector}
-			title="Sign in with Microsoft"
+			title={
+				refusal?.reconnect && refusal.email
+					? `Reconnect ${refusal.email}`
+					: "Sign in with Microsoft"
+			}
 			subtitle="Microsoft is asked for the mail and calendar access you pick here."
 			footer={
 				<>
@@ -1347,9 +1352,17 @@ export interface OnboardingWizardProps {
 	microsoftReturn?: MicrosoftReturn;
 }
 
+export interface MicrosoftRefusal {
+	kind: "refused";
+	message: string;
+	email?: string;
+	services?: AccountService[];
+	reconnect: boolean;
+}
+
 export type MicrosoftReturn =
 	| { kind: "connected"; accountId: string }
-	| { kind: "refused"; message: string };
+	| MicrosoftRefusal;
 
 const initialStep = (
 	skipWelcome: boolean,
@@ -1370,6 +1383,9 @@ export function OnboardingWizard({
 	const [step, setStep] = useState<WizardStep>(
 		initialStep(skipWelcome, microsoftReturn),
 	);
+	const [microsoftRefusal, setMicrosoftRefusal] = useState<
+		MicrosoftRefusal | undefined
+	>(microsoftReturn?.kind === "refused" ? microsoftReturn : undefined);
 	const [microsoftAccountId, setMicrosoftAccountId] = useState<string | null>(
 		microsoftReturn?.kind === "connected" ? microsoftReturn.accountId : null,
 	);
@@ -1468,12 +1484,11 @@ export function OnboardingWizard({
 
 	const microsoftSignIn = (
 		<StepMicrosoftEmail
-			refusal={
-				microsoftReturn?.kind === "refused"
-					? microsoftReturn.message
-					: undefined
-			}
-			onBack={() => setStep("connector")}
+			refusal={microsoftRefusal}
+			onBack={() => {
+				setMicrosoftRefusal(undefined);
+				setStep("connector");
+			}}
 			onConnected={(accountId) => {
 				setMicrosoftAccountId(accountId);
 				setStep("microsoft-granted");
