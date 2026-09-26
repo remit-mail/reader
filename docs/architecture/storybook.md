@@ -33,7 +33,7 @@ The graph sees imports, not props: a state behind a prop web-client never passes
 
 ## The web-client story frame
 
-A `Playground/Shipped` route story mounts the real app, not a copy of its shell. `AppStory` in `packages/web-client/src/story-frame` builds the app router on a memory history at the story's `url`, with its own query client. The route's loaders and queries run against MSW: `mailHandlers(mailWorld())` answers the API from fixture accounts, folders, threads and outbox messages, and an `/api/*` request without a handler fails with a 501 that names it. Requests outside `/api` pass through untouched.
+A `Playground/Shipped` route story mounts the real app, not a copy of its shell. `AppStory` in `packages/web-client/src/mocks/story-frame` builds the app router on a memory history at the story's `url`, with its own query client. The route's loaders and queries run against MSW: `mailHandlers(mailWorld())` answers the API from fixture accounts, folders, threads and outbox messages, and an `/api/*` request without a handler fails with a 501 that names it. Requests outside `/api` pass through untouched.
 
 ```tsx
 const meta = {

@@ -1,9 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
-import { AppStory } from "@/story-frame/AppStory";
-import { mailHandlers } from "@/story-frame/mail-handlers";
-import { mailWorld, newsletterBacklog } from "@/story-frame/mail-world";
-import { longPress } from "@/story-frame/touch";
+import { AppStory } from "@/mocks/story-frame/AppStory";
+import { mailHandlers } from "@/mocks/story-frame/mail-handlers";
+import { mailWorld, newsletterBacklog } from "@/mocks/story-frame/mail-world";
+import { longPress } from "@/mocks/story-frame/touch";
 
 const world = mailWorld();
 
