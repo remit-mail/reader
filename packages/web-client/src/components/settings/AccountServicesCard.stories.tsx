@@ -10,6 +10,8 @@ const meta: Meta<typeof AccountServicesCard> = {
 		providerName: "Microsoft",
 		offered: ["Mail", "Calendar"],
 		enabled: ["Mail"],
+		consented: ["Mail", "Calendar"],
+		disabled: false,
 		refusal: null,
 		onRequestChange: () => {},
 	},
@@ -22,13 +24,33 @@ export const MailOnly: Story = {};
 
 export const BothOn: Story = { args: { enabled: ["Mail", "Calendar"] } };
 
+export const CalendarNeedsSignIn: Story = {
+	args: { consented: ["Mail"] },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByText(/signing in with Microsoft again/),
+		).toBeVisible();
+	},
+};
+
+export const Saving: Story = {
+	args: { enabled: ["Mail", "Calendar"], disabled: true },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("switch", { name: "Sync calendar" }),
+		).toBeDisabled();
+	},
+};
+
 export const CalendarRefused: Story = {
 	args: {
 		refusal: {
 			service: "Calendar",
 			intent: "on",
 			message:
-				"This account's Microsoft consent does not cover Calendar. Grant it through POST /accounts/oauth/microsoft/start.",
+				"Couldn't open Microsoft's sign-in page. Check your connection, and anything blocking redirects, then try again.",
 		},
 	},
 	play: async ({ canvasElement }) => {

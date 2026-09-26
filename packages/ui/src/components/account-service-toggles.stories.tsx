@@ -119,3 +119,23 @@ export const ImapAccount: Story = {
 		</>
 	),
 };
+
+/** A change is in flight: neither switch takes a press until it lands. */
+export const Saving: Story = {
+	render: () => (
+		<AccountServiceToggles
+			providerName="Microsoft"
+			offered={bothServices}
+			enabled={bothServices}
+			consented={bothServices}
+			disabled
+			onRequestChange={() => {}}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("switch", { name: "Sync mail" }),
+		).toBeDisabled();
+	},
+};

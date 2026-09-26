@@ -1,8 +1,10 @@
 import {
 	accountDetailOperationsUpdateAccountMutation,
 	configOperationsGetConfigQueryKey,
+	microsoftOAuthOperationsMicrosoftOAuthStartMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import { microsoftServicesGranted } from "@remit/mail-oauth-service";
 import {
 	type AccountService,
 	type AccountServiceChange,
@@ -12,6 +14,10 @@ import {
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
+import {
+	REDIRECT_STALL_MESSAGE,
+	useRedirectEnded,
+} from "@/hooks/useRedirectEnded";
 import { softErrorMeta } from "@/lib/error-classifier";
 import {
 	type AccountServiceRefusal,
@@ -21,10 +27,8 @@ import {
 const SERVICES: AccountService[] = ["Mail", "Calendar"];
 const PROVIDER_NAME = "Microsoft";
 
-const offeredServices = (
-	account: RemitImapAccountResponse,
-): AccountService[] =>
-	account.authType === "oauthMicrosoft" ? SERVICES : ["Mail"];
+const isMicrosoft = (account: RemitImapAccountResponse): boolean =>
+	account.authType === "oauthMicrosoft";
 
 const withService = (
 	services: AccountService[],
@@ -46,8 +50,9 @@ export function AccountServices({
 	const queryClient = useQueryClient();
 	const [change, setChange] = useState<AccountServiceChange | null>(null);
 	const [refusal, setRefusal] = useState<AccountServiceRefusal | null>(null);
+	const [redirecting, setRedirecting] = useState<AccountService | null>(null);
 
-	const mutation = useMutation({
+	const save = useMutation({
 		...accountDetailOperationsUpdateAccountMutation(),
 		meta: softErrorMeta,
 		onSuccess: () =>
@@ -56,10 +61,26 @@ export function AccountServices({
 			}),
 	});
 
+	const consent = useMutation({
+		...microsoftOAuthOperationsMicrosoftOAuthStartMutation(),
+		meta: softErrorMeta,
+	});
+
+	const markRedirectStarted = useRedirectEnded((end) => {
+		const service = redirecting;
+		setRedirecting(null);
+		if (end !== "stalled" || service === null) return;
+		setRefusal({ service, intent: "on", message: REDIRECT_STALL_MESSAGE });
+	});
+
 	const enabled =
-		mutation.isPending && mutation.variables?.body.syncedServices
-			? mutation.variables.body.syncedServices
+		save.isPending && save.variables?.body.syncedServices
+			? save.variables.body.syncedServices
 			: account.syncedServices;
+	const offered = isMicrosoft(account) ? SERVICES : ["Mail" as const];
+	const consented = isMicrosoft(account)
+		? microsoftServicesGranted(account.grantedScopes)
+		: offered;
 
 	const commit = (
 		services: AccountService[],
@@ -67,7 +88,7 @@ export function AccountServices({
 		intent: AccountServiceIntent,
 	) => {
 		setRefusal(null);
-		mutation.mutate(
+		save.mutate(
 			{
 				path: { accountId: account.accountId },
 				body: { syncedServices: services },
@@ -75,6 +96,31 @@ export function AccountServices({
 			{
 				onError: (error) =>
 					setRefusal({ service, intent, message: formatErrorMessage(error) }),
+			},
+		);
+	};
+
+	const startConsent = (service: AccountService) => {
+		setRefusal(null);
+		consent.mutate(
+			{
+				body: {
+					email: account.email,
+					services: withService(enabled, service),
+				},
+			},
+			{
+				onSuccess: (data) => {
+					setRedirecting(service);
+					markRedirectStarted();
+					window.location.assign(data.authorizationUrl);
+				},
+				onError: (error) =>
+					setRefusal({
+						service,
+						intent: "on",
+						message: formatErrorMessage(error),
+					}),
 			},
 		);
 	};
@@ -87,17 +133,25 @@ export function AccountServices({
 			setChange({ kind: enabled.length === 1 ? "last" : "disable", service });
 			return;
 		}
+		if (!consented.includes(service)) {
+			setChange({ kind: "enable", service });
+			return;
+		}
 		commit(withService(enabled, service), service, "on");
 	};
 
 	const confirm = () => {
 		const confirmed = change;
 		setChange(null);
-		if (confirmed?.kind === "last") {
+		if (confirmed === null) return;
+		if (confirmed.kind === "last") {
 			onRemoveAccount();
 			return;
 		}
-		if (confirmed?.kind !== "disable") return;
+		if (confirmed.kind === "enable") {
+			startConsent(confirmed.service);
+			return;
+		}
 		commit(
 			enabled.filter((service) => service !== confirmed.service),
 			confirmed.service,
@@ -109,8 +163,10 @@ export function AccountServices({
 		<>
 			<AccountServicesCard
 				providerName={PROVIDER_NAME}
-				offered={offeredServices(account)}
+				offered={offered}
 				enabled={enabled}
+				consented={consented}
+				disabled={save.isPending || consent.isPending || redirecting !== null}
 				refusal={refusal}
 				onRequestChange={requestChange}
 			/>

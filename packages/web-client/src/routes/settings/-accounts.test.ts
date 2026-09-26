@@ -107,6 +107,7 @@ const REAUTH_ACCOUNT = {
 	authType: "oauthMicrosoft",
 	connectionState: "reauth_required",
 	syncedServices: ["Mail", "Calendar"],
+	grantedScopes: [],
 };
 
 // The router reads `self` at construction; the shared jsdom globals stop at

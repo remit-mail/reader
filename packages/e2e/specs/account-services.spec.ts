@@ -1,7 +1,7 @@
 import { expect, test } from "../src/fixtures.js";
 
 test.describe("What an account syncs", () => {
-	test("switching calendar on for an IMAP account is refused and mail stays the only service", async ({
+	test("the API refuses calendar on an IMAP account, and settings offers it no switch", async ({
 		api,
 		page,
 		run,

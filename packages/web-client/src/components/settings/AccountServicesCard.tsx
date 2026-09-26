@@ -16,6 +16,8 @@ export interface AccountServicesCardProps {
 	providerName: string;
 	offered: AccountService[];
 	enabled: AccountService[];
+	consented: AccountService[];
+	disabled: boolean;
 	refusal: AccountServiceRefusal | null;
 	onRequestChange: (
 		service: AccountService,
@@ -38,6 +40,8 @@ export function AccountServicesCard({
 	providerName,
 	offered,
 	enabled,
+	consented,
+	disabled,
 	refusal,
 	onRequestChange,
 }: AccountServicesCardProps) {
@@ -49,7 +53,8 @@ export function AccountServicesCard({
 				providerName={providerName}
 				offered={offered}
 				enabled={enabled}
-				consented={offered}
+				consented={consented}
+				disabled={disabled}
 				onRequestChange={onRequestChange}
 			/>
 			{refusal && (

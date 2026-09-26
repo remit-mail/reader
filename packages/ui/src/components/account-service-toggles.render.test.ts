@@ -120,4 +120,9 @@ describe("AccountServiceToggles", () => {
 			{ service: "Calendar", intent: "on" },
 		]);
 	});
+
+	it("holds every switch still while the host has a change in flight", () => {
+		assert.deepEqual(pressSwitch(1, { enabled: ["Mail"], disabled: true }), []);
+		assert.equal(render({ disabled: true }).match(/disabled=""/g)?.length, 2);
+	});
 });
