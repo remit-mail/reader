@@ -1,7 +1,9 @@
-import { CalendarDays } from "lucide-react";
-import { useState } from "react";
+import { CalendarDays, Copy } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { Button } from "./button.js";
 import { CalendarEventChip } from "./calendar-event-chip.js";
+import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarInviteCard } from "./calendar-invite-card.js";
 import { CalendarSlotOffers } from "./calendar-slot-offers.js";
 import { CalendarSuggestionDeck } from "./calendar-suggestion-deck.js";
@@ -43,6 +45,18 @@ export interface CalendarInviteIntel {
 	color: CalendarColorId;
 	clashes: CalendarClash[];
 	rsvp: RsvpState;
+	/** An answer is on its way to the server. */
+	busy?: boolean;
+	/** Why the last answer did not land. Empty when it did. */
+	failure?: string;
+	reportHref?: string;
+	/** Why nothing can be written to a calendar yet; holds Add and Remove. */
+	addBlocked?: ReactNode;
+	/**
+	 * Who the mail came from, which is who muting stops — not always the
+	 * organiser. Without it the card offers no mute.
+	 */
+	sender?: string;
 }
 
 /** One reading off this thread that is not the invitation. */
@@ -68,6 +82,10 @@ export interface CalendarProseIntel {
 	slots: CalendarSlotPick[];
 	/** Start clocks already ticked into the reply. */
 	picked: readonly string[];
+	/** What became of the last copy of the picked times. */
+	copy?: "idle" | "copied" | "failed";
+	/** The picked times as text, offered to select by hand when copying failed. */
+	copyText?: string;
 }
 
 export interface IntelligenceCalendarData {
@@ -79,21 +97,37 @@ export interface IntelligenceCalendarData {
 	day: CalendarDayEntry[];
 	/** The day those entries sit on, in words. */
 	dayLabel: string;
+	/** An answer to the top reading is on its way to the server. */
+	suggestionsBusy?: boolean;
+	/** What the tab could not read. Empty when it read everything. */
+	failure?: string;
+	/** Why the last answer to a reading did not land, stated beside the deck. */
+	suggestionsFailure?: string;
+	/** A prefilled issue report for either failure above. */
+	reportHref?: string;
+	/** Why no reading can be added yet; holds the deck's Add. */
+	addBlocked?: ReactNode;
 }
 
+/**
+ * What the tab can do. An optional action is one a host may have no way to
+ * carry out, and the control behind it is left off rather than drawn dead.
+ */
 export interface IntelligenceCalendarActions {
 	onAddInvite: () => void;
-	onTentativeInvite: () => void;
+	onTentativeInvite?: () => void;
 	onDeclineInvite: () => void;
-	onReopenInvite: () => void;
+	onReopenInvite?: () => void;
+	onMuteInvite?: () => void;
 	onOfferOtherTimes: () => void;
-	onRemoveInvite: () => void;
-	onOpenNewerInvite: () => void;
+	onRemoveInvite?: () => void;
+	onOpenNewerInvite?: () => void;
 	onToggleSlot: (slot: CalendarSlotPick) => void;
+	onCopySlots?: () => void;
 	onAddSuggestion: (suggestionId: string, timeZone: string) => void;
-	onReviewSuggestion: (suggestionId: string, timeZone: string) => void;
+	onReviewSuggestion?: (suggestionId: string, timeZone: string) => void;
 	onDismissSuggestion: (suggestionId: string) => void;
-	onOpenThread: (threadId: string) => void;
+	onOpenThread?: (threadId: string) => void;
 	onSelectEvent: (eventId: string) => void;
 }
 
@@ -113,7 +147,19 @@ export function IntelligenceCalendar({
 	touch,
 	className,
 }: IntelligenceCalendarProps) {
-	const { invite, prose, suggestions, day, dayLabel } = data;
+	const {
+		invite,
+		prose,
+		suggestions,
+		day,
+		dayLabel,
+		suggestionsBusy = false,
+		failure = "",
+		suggestionsFailure = "",
+		reportHref,
+		addBlocked,
+	} = data;
+	const { onReviewSuggestion, onOpenThread } = actions;
 	const [zoneChoices, setZoneChoices] = useState<Record<string, string>>({});
 	const top = suggestions[0];
 	const topChoice =
@@ -122,6 +168,7 @@ export function IntelligenceCalendar({
 		top === undefined ? undefined : settleZone(top.suggestion, topChoice);
 	const picked = new Set(prose?.picked ?? []);
 	const nothingToSay =
+		failure === "" &&
 		invite === undefined &&
 		prose === undefined &&
 		suggestions.length === 0 &&
@@ -148,6 +195,14 @@ export function IntelligenceCalendar({
 
 	return (
 		<div className={cn("flex flex-col", className)}>
+			{failure !== "" && (
+				<CalendarFailureNote
+					text={failure}
+					reportHref={reportHref}
+					className="mx-row-inset mt-3"
+				/>
+			)}
+
 			{invite && (
 				<IntelligenceSection label="Invitation">
 					<CalendarInviteCard
@@ -157,6 +212,15 @@ export function IntelligenceCalendar({
 						color={invite.color}
 						clashes={invite.clashes}
 						rsvp={invite.rsvp}
+						busy={invite.busy}
+						failure={invite.failure}
+						reportHref={invite.reportHref}
+						addBlocked={invite.addBlocked}
+						mute={
+							actions.onMuteInvite && invite.sender
+								? { sender: invite.sender, onMute: actions.onMuteInvite }
+								: undefined
+						}
 						onAdd={actions.onAddInvite}
 						onTentative={actions.onTentativeInvite}
 						onDecline={actions.onDeclineInvite}
@@ -170,8 +234,19 @@ export function IntelligenceCalendar({
 			)}
 
 			{prose && (
-				<IntelligenceSection label={`Times named · ${prose.dayLabel}`}>
-					<ul className="flex flex-col gap-1">
+				<IntelligenceSection
+					label={
+						prose.proposals.length > 0
+							? `Times named · ${prose.dayLabel}`
+							: `Other times · ${prose.dayLabel}`
+					}
+				>
+					<ul
+						className={cn(
+							"flex flex-col gap-1",
+							prose.proposals.length === 0 && "hidden",
+						)}
+					>
 						{prose.proposals.map((proposal) => (
 							<li
 								key={proposal.id}
@@ -202,9 +277,48 @@ export function IntelligenceCalendar({
 						touch={touch}
 						scroll
 					/>
-					<p className="mt-1.5 text-2xs text-fg-subtle">
-						Picked slots go into the reply as plain text. Nothing is booked.
-					</p>
+					{actions.onCopySlots ? (
+						<div className="mt-2 flex flex-col gap-1.5">
+							<Button
+								variant="secondary"
+								size={touch ? "md" : "sm"}
+								icon={<Copy className="size-3.5" />}
+								onClick={actions.onCopySlots}
+								disabled={picked.size === 0}
+								className={cn("self-start", touch && "min-h-11")}
+							>
+								Copy picked times
+							</Button>
+							{prose.copy === "copied" && (
+								<p role="status" className="text-2xs text-positive">
+									Copied. Paste them into your reply.
+								</p>
+							)}
+							{prose.copy === "failed" && (
+								<div role="alert" className="flex flex-col gap-1">
+									<p className="text-2xs text-danger">
+										This page can't copy for you. Select the times below and
+										copy them yourself.
+									</p>
+									<textarea
+										readOnly
+										aria-label="Picked times"
+										value={prose.copyText ?? ""}
+										onFocus={(event) => event.currentTarget.select()}
+										rows={2}
+										className="w-full resize-none rounded-md border border-line bg-surface p-1.5 text-xs text-fg"
+									/>
+								</div>
+							)}
+							<p className="text-2xs text-fg-subtle">
+								Picked slots are copied as plain text. Nothing is booked.
+							</p>
+						</div>
+					) : (
+						<p className="mt-1.5 text-2xs text-fg-subtle">
+							Picked slots go into the reply as plain text. Nothing is booked.
+						</p>
+					)}
 				</IntelligenceSection>
 			)}
 
@@ -216,7 +330,7 @@ export function IntelligenceCalendar({
 						blocked={topSettlement !== undefined && !topSettlement.settled}
 						blockedReason={ZONE_UNSETTLED_REASON}
 						onConfirm={() => {
-							if (top && topSettlement?.settled)
+							if (top && topSettlement?.settled && addBlocked === undefined)
 								actions.onAddSuggestion(
 									top.suggestion.id,
 									topSettlement.timeZone,
@@ -241,17 +355,34 @@ export function IntelligenceCalendar({
 								onAdd={(timeZone) =>
 									actions.onAddSuggestion(top.suggestion.id, timeZone)
 								}
-								onReview={(timeZone) =>
-									actions.onReviewSuggestion(top.suggestion.id, timeZone)
+								onReview={
+									onReviewSuggestion &&
+									((timeZone) =>
+										onReviewSuggestion(top.suggestion.id, timeZone))
 								}
 								onDismiss={() => actions.onDismissSuggestion(top.suggestion.id)}
-								onOpenThread={() =>
-									actions.onOpenThread(top.suggestion.threadId)
+								onOpenThread={
+									onOpenThread && (() => onOpenThread(top.suggestion.threadId))
 								}
+								busy={suggestionsBusy}
+								addBlocked={addBlocked !== undefined}
 								touch={touch}
 							/>
 						)}
 					</CalendarSuggestionDeck>
+					{addBlocked !== undefined && (
+						<div className="mt-2 rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-fg">
+							{addBlocked}
+						</div>
+					)}
+					{suggestionsFailure !== "" && (
+						<CalendarFailureNote
+							text={suggestionsFailure}
+							reportHref={reportHref}
+							className="mt-2"
+						/>
+					)}
+
 					<p className="mt-2 text-2xs text-fg-subtle">
 						None of this is on your calendar, and none of it will be until you
 						say so.

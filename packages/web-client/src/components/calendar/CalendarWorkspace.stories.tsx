@@ -1,12 +1,14 @@
 import {
 	type CalendarColorId,
 	type CalendarEventData,
+	type CalendarSuggestionIntel,
 	type CalendarViewId,
 	type Density,
 	NavSidebar,
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { CalendarWaiting } from "./CalendarWaiting";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 
 /**
@@ -105,6 +107,88 @@ const week: CalendarEventData[] = [
 	at("climbing", "Climbing", "13", "10:00", "12:00", { calendarId: HOME }),
 ];
 
+const reading = (
+	id: string,
+	title: string,
+	day: string,
+	from: string,
+	to: string,
+	sender: string,
+): CalendarSuggestionIntel => ({
+	suggestion: {
+		id,
+		title,
+		start: `2026-06-${day}T${from}:00+02:00`,
+		end: `2026-06-${day}T${to}:00+02:00`,
+		allDay: false,
+		location: "",
+		threadId: "",
+		threadSubject: "",
+		sender,
+		senderAddress: sender,
+		confidence: 1,
+		ambiguity: "",
+		suggestedCalendarId: WORK,
+		timeZone: "",
+		zoneCertainty: "explicit",
+	},
+	whenText: `Thu ${Number(day)} June, ${from} – ${to}`,
+});
+
+const mailWaiting: CalendarSuggestionIntel[] = [
+	reading(
+		"sug-kickoff",
+		"Billing migration kickoff",
+		"11",
+		"14:00",
+		"15:00",
+		"priya@example.invalid",
+	),
+	reading(
+		"sug-review",
+		"Quarterly review",
+		"12",
+		"10:00",
+		"11:00",
+		"finance@example.invalid",
+	),
+];
+
+/**
+ * The column `PendingSuggestions` mounts beside the grid, with the answers a
+ * story can give: adding or dropping takes the reading off, and a refusal is
+ * stated the way the server's would be.
+ */
+function Waiting({ refuse }: { refuse: boolean }) {
+	const [left, setLeft] = useState(mailWaiting);
+	const [failure, setFailure] = useState("");
+	const answer = (suggestionId: string) => {
+		if (refuse) {
+			setFailure(
+				"Couldn't add this to your calendar: This suggestion was already declined, so it can't be accepted.",
+			);
+			return;
+		}
+		setLeft((prev) =>
+			prev.filter((entry) => entry.suggestion.id !== suggestionId),
+		);
+	};
+	if (left.length === 0) return null;
+	return (
+		<CalendarWaiting
+			suggestions={left}
+			busy={false}
+			failure={failure}
+			onAdd={answer}
+			onDismiss={(suggestionId) =>
+				setLeft((prev) =>
+					prev.filter((entry) => entry.suggestion.id !== suggestionId),
+				)
+			}
+		/>
+	);
+}
+
 /** The shell drives view and date through the router; a story drives its own. */
 function Workspace({
 	initialView,
@@ -112,12 +196,14 @@ function Workspace({
 	isLoading,
 	error,
 	touch,
+	waiting,
 }: {
 	initialView: CalendarViewId;
 	events: CalendarEventData[];
 	isLoading?: boolean;
 	error?: unknown;
 	touch?: boolean;
+	waiting?: "none" | "some" | "refused";
 }) {
 	const [view, setView] = useState<CalendarViewId>(initialView);
 	const [density, setDensity] = useState<Density>("comfortable");
@@ -134,6 +220,11 @@ function Workspace({
 				<div className="p-4 text-sm text-fg-muted">
 					The strip, which App/Calendar/Agenda has to itself.
 				</div>
+			}
+			waiting={
+				waiting === undefined || waiting === "none" ? undefined : (
+					<Waiting refuse={waiting === "refused"} />
+				)
 			}
 			isLoading={isLoading}
 			error={error}
@@ -203,6 +294,15 @@ export const CouldNotLoad: Story = {
 export const YearNotBuiltYet: Story = { args: { initialView: "year" } };
 
 export const MonthNotBuiltYet: Story = { args: { initialView: "month" } };
+
+/**
+ * Invitations the mail is still asking about, beside the week they would land
+ * in. One at a time, as a deck; nothing here is on the calendar until added.
+ */
+export const MailWaiting: Story = { args: { waiting: "some" } };
+
+/** An answer the server refused, stated in the column rather than swallowed. */
+export const MailWaitingRefused: Story = { args: { waiting: "refused" } };
 
 /** The zoom that mounts the strip instead of the grid. */
 export const Agenda: Story = { args: { initialView: "agenda" } };

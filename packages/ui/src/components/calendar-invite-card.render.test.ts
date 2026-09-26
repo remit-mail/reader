@@ -107,4 +107,72 @@ describe("CalendarInviteCard", () => {
 		assert.match(render({ touch: true }), /min-h-11/);
 		assert.doesNotMatch(render(), /min-h-11/);
 	});
+
+	it("leaves off the answers the host cannot store", () => {
+		const html = render({ onTentative: undefined, onReopen: undefined });
+		assert.doesNotMatch(html, />Maybe</);
+		assert.doesNotMatch(
+			render({ rsvp: "accepted", onReopen: undefined }),
+			/>Change</,
+		);
+	});
+
+	it("names the sender the mute rule matches, not the organiser", () => {
+		assert.doesNotMatch(render(), /Stop offering invitations/);
+		const html = render({
+			mute: { sender: "Alex Forwarder", onMute: () => undefined },
+		});
+		assert.match(html, /Stop offering invitations from Alex Forwarder/);
+		assert.doesNotMatch(html, /Stop offering invitations from Priya/);
+	});
+
+	it("states an answer that did not land, with the way to report it", () => {
+		const html = render({
+			failure: "The calendar refused it.",
+			reportHref: "https://example.invalid/issues/new",
+		});
+		assert.match(html, /role="alert"/);
+		assert.match(html, /The calendar refused it\./);
+		assert.match(html, /href="https:\/\/example\.invalid\/issues\/new"/);
+		assert.match(html, /Report an issue/);
+	});
+
+	it("holds only the answers that write, when there is no calendar to write to", () => {
+		const html = render({
+			addBlocked: "You have no calendar yet.",
+			mute: { sender: "Alex", onMute: () => undefined },
+		});
+		assert.match(html, /You have no calendar yet\./);
+		const before = (label: string) => {
+			const upTo = html.slice(0, html.indexOf(label));
+			return upTo.slice(upTo.lastIndexOf("<button"));
+		};
+		assert.match(before("Add to calendar"), /disabled=""/);
+		assert.doesNotMatch(before("Decline"), /disabled=""/);
+		assert.doesNotMatch(before("Stop offering"), /disabled=""/);
+	});
+
+	it("points at no control that is not there for a superseded one", () => {
+		const html = render({
+			invite: { ...kickoffInvite, state: "superseded", sequence: 1 },
+		});
+		assert.doesNotMatch(html, /Open the newer invitation/);
+		assert.doesNotMatch(html, /Answer the newer one/);
+	});
+
+	it("holds the answers while one is on its way", () => {
+		const html = render({ busy: true });
+		const accept = html.slice(0, html.indexOf("Add to calendar"));
+		assert.match(accept.slice(accept.lastIndexOf("<button")), /disabled=""/);
+	});
+
+	it("draws no guest tally when the invitation named nobody", () => {
+		const html = render({
+			invite: {
+				...kickoffInvite,
+				proposed: { ...kickoffInvite.proposed, attendees: [] },
+			},
+		});
+		assert.doesNotMatch(html, /guests/);
+	});
 });

@@ -25,6 +25,7 @@ import { AgendaView } from "@/components/calendar/AgendaView";
 import { CalendarComposeSeedProvider } from "@/components/calendar/CalendarComposeSeed";
 import { CalendarShell } from "@/components/calendar/CalendarShell";
 import { CalendarWorkspace } from "@/components/calendar/CalendarWorkspace";
+import { PendingSuggestions } from "@/components/calendar/PendingSuggestions";
 import { calendarInstanceId, deviceTimeZone } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
 import { useLayoutTier } from "@/hooks/useLayoutTier";
@@ -122,6 +123,7 @@ function CalendarView({ isPhone }: { isPhone: boolean }) {
 			events={events}
 			colorByCalendarId={colorByCalendarId}
 			agenda={<AgendaView density={density} onPickSlot={pickSlot} />}
+			waiting={<PendingSuggestions />}
 			isLoading={isLoading}
 			error={error}
 			onRetry={retry}

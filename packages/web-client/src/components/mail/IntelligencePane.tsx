@@ -12,6 +12,7 @@ import {
 } from "@remit/ui";
 import { Sparkles } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
+import { useIntelligenceCalendar } from "@/hooks/useIntelligenceCalendar";
 import { useIntelligenceData } from "@/hooks/useIntelligenceData";
 import { useReportSpam } from "@/hooks/useReportSpam";
 import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
@@ -272,6 +273,7 @@ function WiredPanel({
 		similarErrorIsFatal,
 		semanticEnabled,
 	} = useIntelligenceData(thread, mailboxId);
+	const calendar = useIntelligenceCalendar(thread);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
@@ -391,6 +393,9 @@ function WiredPanel({
 		<>
 			<IntelligencePanel
 				data={data}
+				calendar={calendar.surface}
+				tab={calendar.tab}
+				onTabChange={calendar.onTabChange}
 				onClose={onClose}
 				hideCloseButton={hideCloseButton}
 				onShowSimilar={handleShowSimilar}

@@ -192,6 +192,10 @@ export {
 	type CalendarEventChipContentProps,
 } from "./components/calendar-event-chip-content.js";
 export {
+	CalendarFailureNote,
+	type CalendarFailureNoteProps,
+} from "./components/calendar-failure-note.js";
+export {
 	CalendarGrid,
 	type CalendarGridProps,
 } from "./components/calendar-grid.js";

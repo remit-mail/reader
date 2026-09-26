@@ -18,11 +18,19 @@ export interface CalendarsResult {
 	colorByCalendarId: Record<string, CalendarColorId>;
 	/** The zone each collection's floating times are read in. */
 	timeZoneByCalendarId: Record<string, string>;
+	/**
+	 * Where an accepted invitation lands: the collection the account was
+	 * provisioned with, or the first one when that is gone. `""` until the
+	 * listing has answered.
+	 */
+	defaultCalendarId: string;
 	isLoading: boolean;
+	/** Why the listing could not be read; null when it was. */
+	error: unknown;
 }
 
 export function useCalendars(): CalendarsResult {
-	const { data, isLoading } = useQuery(
+	const { data, isLoading, error } = useQuery(
 		calendarOperationsListCalendarsOptions(),
 	);
 
@@ -37,7 +45,11 @@ export function useCalendars(): CalendarsResult {
 			timeZoneByCalendarId: Object.fromEntries(
 				items.map((item) => [item.calendarId, item.timezone]),
 			),
+			defaultCalendarId:
+				(items.find((item) => item.source === "Default") ?? items[0])
+					?.calendarId ?? "",
 			isLoading,
+			error: error ?? null,
 		};
-	}, [data, isLoading]);
+	}, [data, isLoading, error]);
 }

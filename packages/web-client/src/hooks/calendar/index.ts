@@ -79,6 +79,14 @@ export {
 	type CalendarFreeBusyResult,
 	useCalendarFreeBusyWeeks,
 } from "./useCalendarFreeBusy";
+export {
+	type CalendarSuggestionAnswers,
+	type CalendarSuggestionsResult,
+	type SuggestionAnswer,
+	useCalendarSuggestionAnswers,
+	useMessageCalendarSuggestions,
+	usePendingCalendarSuggestions,
+} from "./useCalendarSuggestions";
 export { type CalendarsResult, useCalendars } from "./useCalendars";
 export {
 	type CalendarWriteOutcome,

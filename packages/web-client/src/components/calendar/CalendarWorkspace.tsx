@@ -50,6 +50,11 @@ export interface CalendarWorkspaceProps {
 	 * pane holds no events and knows no router.
 	 */
 	agenda: ReactNode;
+	/**
+	 * What the mail is still asking about time, beside whichever zoom is drawn.
+	 * A slot for the reason the strip is one: it reads its own data.
+	 */
+	waiting?: ReactNode;
 	/** The first read of this window is still out; the grid has nothing yet. */
 	isLoading?: boolean;
 	/**
@@ -118,6 +123,7 @@ export function CalendarWorkspace({
 	events,
 	colorByCalendarId,
 	agenda,
+	waiting,
 	isLoading = false,
 	error,
 	onRetry,
@@ -197,47 +203,50 @@ export function CalendarWorkspace({
 			    week this pane read is not what it is drawing, and gating it on that
 			    read would blank a strip that has everything it needs. It also
 			    scrolls itself, so it gets a column to fill rather than a box. */}
-			{calendarViewMountsAgenda(view) ? (
-				<div className="flex min-h-0 flex-1 flex-col">{agenda}</div>
-			) : (
-				<div className="min-h-0 flex-1">
-					{error !== undefined && error !== null ? (
-						<div className="flex h-full items-center justify-center">
-							<ErrorState
-								title="Couldn't load this week"
-								error={error}
-								onRetry={onRetry}
+			<div className="flex min-h-0 flex-1">
+				{waiting}
+				{calendarViewMountsAgenda(view) ? (
+					<div className="flex min-h-0 min-w-0 flex-1 flex-col">{agenda}</div>
+				) : (
+					<div className="min-h-0 min-w-0 flex-1">
+						{error !== undefined && error !== null ? (
+							<div className="flex h-full items-center justify-center">
+								<ErrorState
+									title="Couldn't load this week"
+									error={error}
+									onRetry={onRetry}
+								/>
+							</div>
+						) : isLoading ? (
+							<div
+								role="status"
+								aria-label="Loading the calendar"
+								className="flex h-full items-center justify-center bg-surface"
+							>
+								<Loader2 className="size-6 animate-spin text-fg-subtle" />
+							</div>
+						) : calendarViewMountsGrid(view) ? (
+							<CalendarGrid
+								view={view}
+								date={date}
+								events={events}
+								colorByCalendarId={colorByCalendarId}
+								density={density}
+								selectedEventId={selectedEventId}
+								timeZone={timeZone}
+								now={now}
+								onSelectEvent={onSelectEvent}
+								onPickSlot={onPickSlot}
+								onRangeChange={(measuredTitle) =>
+									setMeasured({ key: addressKey, title: measuredTitle })
+								}
 							/>
-						</div>
-					) : isLoading ? (
-						<div
-							role="status"
-							aria-label="Loading the calendar"
-							className="flex h-full items-center justify-center bg-surface"
-						>
-							<Loader2 className="size-6 animate-spin text-fg-subtle" />
-						</div>
-					) : calendarViewMountsGrid(view) ? (
-						<CalendarGrid
-							view={view}
-							date={date}
-							events={events}
-							colorByCalendarId={colorByCalendarId}
-							density={density}
-							selectedEventId={selectedEventId}
-							timeZone={timeZone}
-							now={now}
-							onSelectEvent={onSelectEvent}
-							onPickSlot={onPickSlot}
-							onRangeChange={(measuredTitle) =>
-								setMeasured({ key: addressKey, title: measuredTitle })
-							}
-						/>
-					) : (
-						<CalendarViewPlaceholder view={view} />
-					)}
-				</div>
-			)}
+						) : (
+							<CalendarViewPlaceholder view={view} />
+						)}
+					</div>
+				)}
+			</div>
 		</div>
 	);
 }

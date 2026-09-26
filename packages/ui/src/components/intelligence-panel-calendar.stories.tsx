@@ -54,6 +54,7 @@ function PanelDemo({
 	hideCloseButton,
 	touch,
 	className,
+	copyFails = false,
 }: {
 	sender: IntelligenceData;
 	calendar: IntelligenceCalendarData;
@@ -61,6 +62,8 @@ function PanelDemo({
 	hideCloseButton?: boolean;
 	touch?: boolean;
 	className?: string;
+	/** The page cannot reach the clipboard, as on plain http. */
+	copyFails?: boolean;
 }) {
 	const [tab, setTab] = useState<IntelligenceTabId>(initialTab);
 	const [rsvp, setRsvp] = useState<RsvpState>(
@@ -69,18 +72,28 @@ function PanelDemo({
 	const [removed, setRemoved] = useState(false);
 	const [offering, setOffering] = useState(calendar.prose !== undefined);
 	const [picked, setPicked] = useState<string[]>([]);
+	const [copy, setCopy] = useState<"idle" | "copied" | "failed">(
+		calendar.prose?.copy ?? "idle",
+	);
 	const [dropped, setDropped] = useState<string[]>([]);
 	const [selectedEventId, setSelectedEventId] = useState("");
 	const [lastAction, setLastAction] = useState("");
 
 	const prose = offering
-		? { ...(calendar.prose ?? thursdayProse), picked }
+		? {
+				...(calendar.prose ?? thursdayProse),
+				picked,
+				copy,
+				copyText: `${(calendar.prose ?? thursdayProse).dayLabel}: ${picked.join(", ")}`,
+			}
 		: undefined;
 
 	const data: IntelligenceCalendarData = {
 		...calendar,
 		invite:
-			calendar.invite && !removed ? { ...calendar.invite, rsvp } : undefined,
+			calendar.invite && !removed
+				? { ...calendar.invite, rsvp, sender: sender.sender.name }
+				: undefined,
 		prose,
 		suggestions: calendar.suggestions.filter(
 			(entry) => !dropped.includes(entry.suggestion.id),
@@ -97,19 +110,23 @@ function PanelDemo({
 					selectedEventId,
 					actions: {
 						onAddInvite: () => setRsvp("accepted"),
-						onTentativeInvite: () => setRsvp("tentative"),
 						onDeclineInvite: () => setRsvp("declined"),
-						onReopenInvite: () => setRsvp("noReply"),
+						onReopenInvite:
+							calendar.invite?.invite.state === "cancelled"
+								? () => setRemoved(true)
+								: undefined,
+						onMuteInvite: () => setRemoved(true),
 						onOfferOtherTimes: () => setOffering(true),
 						onRemoveInvite: () => setRemoved(true),
-						onOpenNewerInvite: () =>
-							setLastAction("would open revision 2 of the invitation"),
-						onToggleSlot: (slot) =>
+						onToggleSlot: (slot) => {
+							setCopy("idle");
 							setPicked((prev) =>
 								prev.includes(slot.startTime)
 									? prev.filter((start) => start !== slot.startTime)
 									: [...prev, slot.startTime],
-							),
+							);
+						},
+						onCopySlots: () => setCopy(copyFails ? "failed" : "copied"),
 						onAddSuggestion: (id, timeZone) => {
 							setDropped((prev) => [...prev, id]);
 							setLastAction(
@@ -118,11 +135,7 @@ function PanelDemo({
 									: `added ${id} on ${timeZone}`,
 							);
 						},
-						onReviewSuggestion: (id) =>
-							setLastAction(`would open the editor on ${id}`),
 						onDismissSuggestion: (id) => setDropped((prev) => [...prev, id]),
-						onOpenThread: (threadId) =>
-							setLastAction(`would open thread ${threadId}`),
 						onSelectEvent: setSelectedEventId,
 					},
 				}}
@@ -206,6 +219,8 @@ function DrawerHost({
 	);
 }
 
+const REPORT = "https://github.com/remit-mail/reader/issues/new";
+
 const KICKOFF = "Invitation: Billing migration kickoff — Thu 11 Jun, 14:00";
 const THURSDAY = "Can we meet Thursday?";
 const FLIGHT = "Your booking is confirmed — KL1693 Amsterdam to Lisbon";
@@ -216,6 +231,7 @@ function rail(
 	sender: IntelligenceData,
 	calendar: IntelligenceCalendarData,
 	initialTab: IntelligenceTabId = "calendar",
+	copyFails = false,
 ): Story {
 	return {
 		render: () => (
@@ -224,6 +240,7 @@ function rail(
 					sender={sender}
 					calendar={calendar}
 					initialTab={initialTab}
+					copyFails={copyFails}
 					className="h-full"
 				/>
 			</RailHost>
@@ -265,6 +282,86 @@ function drawer(
  * does — Priya learns nothing from it, and the card says so.
  */
 export const InviteWithAClash = rail(KICKOFF, organiserSender, inviteWithClash);
+
+/**
+ * An answer the server turned down. The card keeps its buttons and says why in
+ * the place the press happened, so a refusal never reads as a dead button.
+ */
+export const AnswerRefused = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		failure:
+			"Couldn't add this to your calendar: the calendar it was going into is gone. Try again, or answer from your calendar app.",
+		reportHref: REPORT,
+	},
+});
+
+/**
+ * An answer on its way. The buttons wait for it rather than letting a second
+ * press send a second request.
+ */
+export const AnswerInFlight = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && { ...inviteWithClash.invite, busy: true },
+});
+
+/**
+ * Declined, and said so. Nothing was written to a calendar and nothing was
+ * sent to the organiser.
+ */
+export const Declined = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		rsvp: "declined",
+	},
+});
+
+/**
+ * No calendar to write to yet. Adding waits for one, with the way to make it;
+ * declining and muting write nothing to a calendar and stay live.
+ */
+export const NoCalendarYet = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		addBlocked: (
+			<>
+				You have no calendar yet, so there is nowhere to add this.{" "}
+				<a
+					href="#calendars"
+					className="font-medium text-accent hover:underline"
+				>
+					Create a calendar
+				</a>
+			</>
+		),
+	},
+});
+
+/**
+ * The invitations in this message could not be read. The tab says so, with the
+ * way to report it, rather than claiming the message says nothing about time.
+ */
+export const ReadFailure = rail(PLAIN, organiserSender, {
+	...nothingAboutTime,
+	failure:
+		"Couldn't read the invitations in this message. Reopen it to try again.",
+	reportHref: REPORT,
+});
+
+/**
+ * Picked times on a page that cannot reach the clipboard, as on plain http.
+ * The failure is stated and the times are there to select by hand.
+ */
+export const CopyFailed = rail(
+	THURSDAY,
+	organiserSender,
+	proseTimeThread,
+	"calendar",
+	true,
+);
 
 /**
  * The same invitation an hour later. Nothing is booked over it, and the panel

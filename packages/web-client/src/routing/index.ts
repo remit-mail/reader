@@ -11,6 +11,7 @@ export {
 	useCalendarNavigation,
 	useIsWritingEvent,
 	useOpenCalendarEvent,
+	useOpenEventOnCalendar,
 } from "./calendar";
 export {
 	useAdoptComposeDraft,

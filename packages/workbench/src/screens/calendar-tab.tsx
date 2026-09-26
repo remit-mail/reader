@@ -77,6 +77,8 @@ export function CalendarTab({
 }: CalendarTabProps) {
 	const [rsvp, setRsvp] = useState<RsvpState>(inviteRsvp);
 	const [picked, setPicked] = useState<string[]>([]);
+	const [copy, setCopy] = useState<"idle" | "copied">("idle");
+	const [inviteGone, setInviteGone] = useState(false);
 	const [dropped, setDropped] = useState<string[]>([]);
 	const [selectedEventId, setSelectedEventId] = useState("");
 	const [offering, setOffering] = useState(threadId === proposalThreadId);
@@ -117,22 +119,25 @@ export function CalendarTab({
 		}));
 
 	const data: IntelligenceCalendarData = {
-		invite: onInvite
-			? {
-					invite,
-					whenText: formatEventWhen(invite.proposed),
-					calendarName: inviteCalendar?.name ?? "Calendar",
-					color: inviteCalendar?.color ?? "cal-1",
-					clashes: overlapping(invite.proposed, seamWeekEvents).map(toClash),
-					rsvp,
-				}
-			: undefined,
+		invite:
+			onInvite && !inviteGone
+				? {
+						invite,
+						whenText: formatEventWhen(invite.proposed),
+						calendarName: inviteCalendar?.name ?? "Calendar",
+						color: inviteCalendar?.color ?? "cal-1",
+						clashes: overlapping(invite.proposed, seamWeekEvents).map(toClash),
+						rsvp,
+						sender: q3Intelligence.sender.name,
+					}
+				: undefined,
 		prose: offering
 			? {
 					dayLabel: formatDayLabel(PROPOSED_DATE),
 					proposals: verdicts,
 					slots,
 					picked,
+					copy,
 				}
 			: undefined,
 		suggestions: seamSuggestions
@@ -162,22 +167,28 @@ export function CalendarTab({
 				selectedEventId,
 				actions: {
 					onAddInvite: () => setRsvp("accepted"),
-					onTentativeInvite: () => setRsvp("tentative"),
 					onDeclineInvite: () => setRsvp("declined"),
-					onReopenInvite: () => setRsvp("noReply"),
+					onMuteInvite: () => setInviteGone(true),
+					onRemoveInvite:
+						invite.state === "cancelled"
+							? () => setInviteGone(true)
+							: undefined,
+					onReopenInvite:
+						invite.state === "cancelled"
+							? () => setInviteGone(true)
+							: undefined,
 					onOfferOtherTimes: () => setOffering(true),
-					onRemoveInvite: () => setRsvp("noReply"),
-					onOpenNewerInvite: () => undefined,
-					onToggleSlot: (slot) =>
+					onToggleSlot: (slot) => {
+						setCopy("idle");
 						setPicked((prev) =>
 							prev.includes(slot.startTime)
 								? prev.filter((start) => start !== slot.startTime)
 								: [...prev, slot.startTime],
-						),
+						);
+					},
+					onCopySlots: () => setCopy("copied"),
 					onAddSuggestion: (id) => setDropped((prev) => [...prev, id]),
-					onReviewSuggestion: () => undefined,
 					onDismissSuggestion: (id) => setDropped((prev) => [...prev, id]),
-					onOpenThread: () => undefined,
 					onSelectEvent: setSelectedEventId,
 				},
 			}}

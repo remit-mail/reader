@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
 import { Drawer } from "@/components/layout/Drawer";
 import { AuthenticityBanner } from "@/components/mail/AuthenticityBanner";
+import { quietCalendar } from "./intelligence-story-calendar";
 
 /**
  * The authenticity warning over the reading pane, and where its "Why?" goes.
@@ -113,7 +114,11 @@ const TwoPaneReading = () => {
 				ariaLabel="Message details"
 				side="right"
 			>
-				<IntelligencePanel data={intelligence} hideCloseButton />
+				<IntelligencePanel
+					data={intelligence}
+					calendar={quietCalendar}
+					hideCloseButton
+				/>
 			</Drawer>
 		</div>
 	);

@@ -1,4 +1,5 @@
 import {
+	BellOff,
 	Calendar,
 	Check,
 	Clock,
@@ -13,6 +14,7 @@ import { cn } from "../lib/cn.js";
 import { RsvpBadge } from "./attendee-row.js";
 import { Button } from "./button.js";
 import { CalendarClashStrip } from "./calendar-clash-strip.js";
+import { CalendarFailureNote } from "./calendar-failure-note.js";
 import { CalendarParseBadge } from "./calendar-parse-badge.js";
 import type {
 	CalendarClash,
@@ -43,10 +45,22 @@ export interface CalendarInviteCardProps {
 	clashes: CalendarClash[];
 	rsvp: RsvpState;
 	onAdd: () => void;
-	onTentative: () => void;
+	/** Wired only where a tentative answer can be stored. */
+	onTentative?: () => void;
 	onDecline: () => void;
-	onReopen: () => void;
+	/**
+	 * Takes an answer back, or keeps a cancelled event. Wired only where the
+	 * store can undo the answer; an answer it cannot take back offers no Change.
+	 */
+	onReopen?: () => void;
 	onOfferOtherTimes: () => void;
+	/**
+	 * Stops invitations arriving from the mail's sender being offered at all.
+	 * The rule is written against the message's From, which is not always the
+	 * organiser — a forwarded invitation names someone else — so the button
+	 * names whoever the rule will match.
+	 */
+	mute?: { sender: string; onMute: () => void };
 	/** Wired only for a cancellation the reader has not acted on. */
 	onRemove?: () => void;
 	/** Wired only when a later message carries a higher SEQUENCE. */
@@ -56,6 +70,17 @@ export interface CalendarInviteCardProps {
 	 * passes it here rather than the card growing a second one.
 	 */
 	guests?: ReactNode;
+	/** An answer is on its way to the server; the buttons wait for it. */
+	busy?: boolean;
+	/** Why the last answer did not land, in words the reader can act on. */
+	failure?: string;
+	/** A prefilled issue report for the failure above. */
+	reportHref?: string;
+	/**
+	 * Why nothing can be written to a calendar yet, and the way to fix it. Set,
+	 * it holds Add and Remove; the answers that write nothing stay live.
+	 */
+	addBlocked?: ReactNode;
 	touch?: boolean;
 	className?: string;
 }
@@ -86,9 +111,14 @@ export function CalendarInviteCard({
 	onDecline,
 	onReopen,
 	onOfferOtherTimes,
+	mute,
 	onRemove,
 	onOpenNewer,
 	guests,
+	busy = false,
+	failure = "",
+	reportHref,
+	addBlocked,
 	touch,
 	className,
 }: CalendarInviteCardProps) {
@@ -146,8 +176,8 @@ export function CalendarInviteCard({
 							{invite.organizerName} has sent a newer version of this.
 						</p>
 						<p className="mt-1 text-xs text-fg">
-							This one is revision {invite.sequence} and is out of date. Answer
-							the newer one instead.
+							This one is revision {invite.sequence} and is out of date. The
+							newer message carries the one to answer.
 						</p>
 						{onOpenNewer && (
 							<Button
@@ -181,18 +211,22 @@ export function CalendarInviteCard({
 									size={touch ? "md" : "sm"}
 									icon={<Trash2 className="size-3.5" />}
 									onClick={onRemove}
+									disabled={busy || addBlocked !== undefined}
 									className={cn(touch && "min-h-11 flex-1")}
 								>
 									Remove from calendar
 								</Button>
-								<Button
-									variant="secondary"
-									size={touch ? "md" : "sm"}
-									onClick={onReopen}
-									className={cn(touch && "min-h-11 flex-1")}
-								>
-									Keep it
-								</Button>
+								{onReopen && (
+									<Button
+										variant="secondary"
+										size={touch ? "md" : "sm"}
+										onClick={onReopen}
+										disabled={busy}
+										className={cn(touch && "min-h-11 flex-1")}
+									>
+										Keep it
+									</Button>
+								)}
 							</div>
 						)}
 					</div>
@@ -201,10 +235,21 @@ export function CalendarInviteCard({
 
 			{!stale && <CalendarClashStrip clashes={clashes} />}
 
-			{guests ?? (
-				<p className="text-2xs uppercase tracking-wider text-fg-subtle">
-					{attendees.length} guests{tally === "" ? "" : ` · ${tally}`}
-				</p>
+			{guests ??
+				(attendees.length > 0 && (
+					<p className="text-2xs uppercase tracking-wider text-fg-subtle">
+						{attendees.length} guests{tally === "" ? "" : ` · ${tally}`}
+					</p>
+				))}
+
+			{failure !== "" && (
+				<CalendarFailureNote text={failure} reportHref={reportHref} />
+			)}
+
+			{addBlocked !== undefined && (
+				<div className="rounded-md border border-warning/40 bg-warning-soft p-2 text-xs text-fg">
+					{addBlocked}
+				</div>
 			)}
 
 			{!stale &&
@@ -216,23 +261,28 @@ export function CalendarInviteCard({
 								size={touch ? "md" : "sm"}
 								icon={<Calendar className="size-3.5" />}
 								onClick={onAdd}
+								disabled={busy || addBlocked !== undefined}
 								className={cn(touch && "min-h-11 flex-1")}
 							>
 								Add to calendar
 							</Button>
-							<Button
-								variant="secondary"
-								size={touch ? "md" : "sm"}
-								onClick={onTentative}
-								className={cn(touch && "min-h-11 flex-1")}
-							>
-								Maybe
-							</Button>
+							{onTentative && (
+								<Button
+									variant="secondary"
+									size={touch ? "md" : "sm"}
+									onClick={onTentative}
+									disabled={busy}
+									className={cn(touch && "min-h-11 flex-1")}
+								>
+									Maybe
+								</Button>
+							)}
 							<Button
 								variant="secondary"
 								size={touch ? "md" : "sm"}
 								icon={<X className="size-3.5" />}
 								onClick={onDecline}
+								disabled={busy}
 								className={cn(touch && "min-h-11 flex-1")}
 							>
 								Decline
@@ -246,6 +296,18 @@ export function CalendarInviteCard({
 						>
 							Offer other times
 						</Button>
+						{mute && (
+							<Button
+								variant="ghost"
+								size={touch ? "md" : "sm"}
+								icon={<BellOff className="size-3.5" />}
+								onClick={mute.onMute}
+								disabled={busy}
+								className={cn("self-start", touch && "min-h-11 w-full")}
+							>
+								{`Stop offering invitations from ${mute.sender}`}
+							</Button>
+						)}
 						<p className="text-2xs text-fg-subtle">
 							{invite.organizerName} is not notified. Reader writes this to your
 							calendar and sends no reply — tell them in the thread.
@@ -258,14 +320,17 @@ export function CalendarInviteCard({
 								{rsvp === "declined" ? "You declined" : "On your calendar"}
 								<RsvpBadge rsvp={rsvp} />
 							</span>
-							<Button
-								variant="ghost"
-								size={touch ? "md" : "sm"}
-								onClick={onReopen}
-								className={touch ? "min-h-11" : ""}
-							>
-								Change
-							</Button>
+							{onReopen && (
+								<Button
+									variant="ghost"
+									size={touch ? "md" : "sm"}
+									onClick={onReopen}
+									disabled={busy}
+									className={touch ? "min-h-11" : ""}
+								>
+									Change
+								</Button>
+							)}
 							{rsvp === "declined" && (
 								<Button
 									variant="secondary"
