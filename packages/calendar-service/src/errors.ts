@@ -34,7 +34,8 @@ export type CalendarValidationCode =
 	/** A per-occurrence scope against an event that has one occurrence. */
 	| "NotRecurring"
 	/** A RECURRENCE-ID naming no occurrence this series produces. */
-	| "UnknownOccurrence";
+	| "UnknownOccurrence"
+	| "UnmovableRecurrenceRule";
 
 export interface CalendarValidationError {
 	code: CalendarValidationCode;

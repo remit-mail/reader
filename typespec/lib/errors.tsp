@@ -55,8 +55,8 @@ model RequestValidationDetail {
   `malformed_icalendar`, `not_a_calendar`, `unsupported_component`, `no_event`,
   `no_master_event`, `multiple_master_events`, `missing_uid`, `mismatched_uid`,
   `missing_dt_start`, `backwards_end`, `invalid_date_time`,
-  `invalid_recurrence_rule`, `missing_recurrence_id`, `not_recurring` and
-  `unknown_occurrence`.
+  `invalid_recurrence_rule`, `missing_recurrence_id`, `not_recurring`,
+  `unknown_occurrence` and `unmovable_recurrence_rule`.
   
   `errors` is present only when the request failed schema validation before any
   handler ran, and names every field that was refused.

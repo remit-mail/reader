@@ -293,6 +293,162 @@ test.describe("The whole series", () => {
 	});
 });
 
+test.describe("A whole-series edit that moves the series", () => {
+	const OCCURRENCES = 4;
+
+	test("a Monday series moved to Tuesday repeats on Tuesdays", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SERIES = "Fabrikam supplier call";
+		const FIRST = "2031-09-01";
+		const mondays = [0, 1, 2, 3].map((week) => addDays(FIRST, week * 7));
+		const tuesdays = mondays.map((monday) => addDays(monday, 1));
+		const RANGE = window(FIRST, addDays(FIRST, 7 * (OCCURRENCES + 2)));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const series = await api.createCalendarEvent({
+			calendarId,
+			summary: SERIES,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: `FREQ=WEEKLY;BYDAY=MO;COUNT=${OCCURRENCES}`,
+		});
+		written.set(series.calendarObjectId, series.calendarId);
+
+		const ofSeries = (items: CalendarEventInstance[]) =>
+			items.filter((item) => item.calendarObjectId === series.calendarObjectId);
+
+		const expanded = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofSeries(items).length === OCCURRENCES,
+			{ what: "the Monday series to be expanded into the window" },
+		);
+		expect(startDays(ofSeries(expanded))).toEqual(mondays);
+
+		await page.goto(weekPath(mondays[1] ?? FIRST));
+		await page.getByRole("button", { name: SERIES }).click();
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await page.getByRole("button", { name: "The whole series" }).click();
+
+		const date = page.getByLabel("Date", { exact: true });
+		await expect(date).toHaveValue(mondays[1] ?? "");
+		await date.fill(tuesdays[1] ?? "");
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(date).toHaveCount(0, { timeout: 30_000 });
+		await expect(page.getByRole("alert")).toHaveCount(0);
+
+		const moved = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => startDays(ofSeries(items))[0] === tuesdays[0],
+			{ what: "the whole-series move to reach the server" },
+		);
+		const occurrences = ofSeries(moved);
+		expect(startDays(occurrences)).toEqual(tuesdays);
+		expect(occurrences.map((item) => item.start.slice(11, 16))).toEqual(
+			tuesdays.map(() => "09:00"),
+		);
+	});
+
+	test("a deleted and a single-edited occurrence survive a series time change", async ({
+		api,
+	}) => {
+		test.setTimeout(120_000);
+		const SERIES = "Fabrikam ops sync";
+		const FIRST = "2031-10-06";
+		const weeks = [0, 1, 2, 3, 4].map((week) => addDays(FIRST, week * 7));
+		const RANGE = window(FIRST, addDays(FIRST, 7 * 7));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const series = await api.createCalendarEvent({
+			calendarId,
+			summary: SERIES,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: `FREQ=WEEKLY;COUNT=${weeks.length}`,
+		});
+		written.set(series.calendarObjectId, series.calendarId);
+
+		const ofSeries = (items: CalendarEventInstance[]) =>
+			items.filter((item) => item.calendarObjectId === series.calendarObjectId);
+		const occurrenceOn = (items: CalendarEventInstance[], day: string) => {
+			const found = ofSeries(items).find(
+				(item) => item.start.slice(0, 10) === day,
+			);
+			if (!found) throw new Error(`the series has no occurrence on ${day}`);
+			return found;
+		};
+
+		const expanded = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofSeries(items).length === weeks.length,
+			{ what: "the weekly series to be expanded into the window" },
+		);
+
+		const removed = await api.deleteCalendarEvent(
+			series.calendarObjectId,
+			series.calendarId,
+			{
+				scope: "This",
+				recurrenceId: occurrenceOn(expanded, weeks[1] ?? "").recurrenceId,
+			},
+		);
+		expect(removed.ok).toBe(true);
+		await api.updateCalendarEvent(
+			series.calendarObjectId,
+			series.calendarId,
+			{
+				start: `${weeks[2]}T13:00:00+00:00`,
+				end: `${weeks[2]}T14:00:00+00:00`,
+			},
+			{
+				scope: "This",
+				recurrenceId: occurrenceOn(expanded, weeks[2] ?? "").recurrenceId,
+			},
+		);
+		const excepted = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) =>
+				ofSeries(items).length === weeks.length - 1 &&
+				ofSeries(items).some((item) => item.start.slice(11, 16) === "13:00"),
+			{ what: "the deleted and the single-edited occurrence to be written" },
+		);
+
+		await api.updateCalendarEvent(
+			series.calendarObjectId,
+			series.calendarId,
+			{
+				start: `${weeks[3]}T10:00:00+00:00`,
+				end: `${weeks[3]}T11:00:00+00:00`,
+			},
+			{
+				scope: "All",
+				recurrenceId: occurrenceOn(excepted, weeks[3] ?? "").recurrenceId,
+			},
+		);
+
+		const edited = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) =>
+				ofSeries(items).some((item) => item.start.slice(11, 16) === "10:00"),
+			{ what: "the whole-series time change to reach the server" },
+		);
+		expect(ofSeries(edited).map((item) => item.start.slice(0, 16))).toEqual([
+			`${weeks[0]}T10:00`,
+			`${weeks[2]}T13:00`,
+			`${weeks[3]}T10:00`,
+			`${weeks[4]}T10:00`,
+		]);
+	});
+});
+
 test.describe("Repeat rules picked in the form", () => {
 	test("every weekday lands on Monday to Friday only", async ({
 		page,

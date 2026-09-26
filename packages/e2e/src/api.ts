@@ -1030,10 +1030,11 @@ export class ApiClient {
 	deleteCalendarEvent(
 		calendarObjectId: string,
 		calendarId: string,
+		scope: RecurrenceScopeInput = { scope: "All" },
 	): Promise<Response> {
 		return this.request(
 			"DELETE",
-			`/calendar-events/${calendarObjectId}?calendarId=${calendarId}&scope=All`,
+			`/calendar-events/${calendarObjectId}?${calendarEventScopeQuery(calendarId, scope)}`,
 		);
 	}
 
