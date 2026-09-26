@@ -87,6 +87,8 @@ export interface FolderTreePickerProps {
 	onSelect?: (folderId: string) => void;
 	/** Controls beside each row, for a surface that acts on folders themselves. */
 	rowActions?: (folder: FolderTreeNode) => ReactNode;
+	/** What went wrong with each folder whose last change failed. */
+	rowFailure?: (folder: FolderTreeNode) => string | undefined;
 	/**
 	 * Creating a folder is an IMAP mutation, so this resolves only once the mail
 	 * server confirms the folder (docs/architecture/imap-mutations.md). The form
@@ -149,6 +151,7 @@ export const FolderTreePicker = ({
 	selectedId,
 	onSelect,
 	rowActions,
+	rowFailure,
 	onCreateFolder,
 	onCancel,
 	delimiter = "/",
@@ -414,6 +417,7 @@ export const FolderTreePicker = ({
 				messageCount={folder.messageCount}
 				selected={selectable && folder.id === selectedId}
 				separated={separated}
+				failure={rowFailure?.(folder)}
 				actions={rowActions?.(folder)}
 				ariaLabel={rowAriaLabel(row)}
 				tabIndex={index === focusedIndex ? 0 : -1}

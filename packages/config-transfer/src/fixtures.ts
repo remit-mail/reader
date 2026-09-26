@@ -79,6 +79,7 @@ export const makeMailbox = (
 		Pick<MailboxItem, "mailboxId" | "accountId" | "fullPath">,
 ): MailboxItem => ({
 	namespaceType: "personal",
+	syncFailureReason: "",
 	namespacePrefix: "",
 	hierarchyDelimiter: ".",
 	uidValidity: 1,

@@ -36,6 +36,18 @@ export const isMailboxPresentUpstream = (error: unknown): boolean => {
 	return /already exists/i.test(saidByServer(error));
 };
 
+const PERMANENT_REFUSALS = new Set(["NOPERM", "CANNOT"]);
+
+export const isMailboxRefusedUpstream = (error: unknown): boolean =>
+	error instanceof Error &&
+	PERMANENT_REFUSALS.has(stringField(error, "serverResponseCode"));
+
+export const upstreamFailureReason = (error: unknown): string => {
+	const serverText = stringField(error, "responseText").trim();
+	if (serverText.length > 0) return serverText;
+	return error instanceof Error ? error.message : String(error);
+};
+
 /**
  * Something after the server RENAME failed — the local settle, not the
  * mutation. The rename landed, so this is never a refused rename: marking the

@@ -34,6 +34,22 @@ export const Closed: Story = {
 	),
 };
 
+export const Failed: Story = {
+	name: "The last change was refused",
+	render: () => (
+		<List>
+			<FolderRow
+				label="Locked"
+				depth={0}
+				expanded={false}
+				ariaLabel="Locked"
+				failure="The mail server refused the last change: Permission denied"
+				tabIndex={0}
+			/>
+		</List>
+	),
+};
+
 export const Open: Story = {
 	name: "Open, with its children indented under it",
 	render: () => (

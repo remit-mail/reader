@@ -65,11 +65,13 @@ function NavItemInner({
 	label,
 	count,
 	active,
+	failure,
 }: {
 	icon?: ReactNode;
 	label: string;
 	count?: number;
 	active?: boolean;
+	failure?: string;
 }) {
 	return (
 		<>
@@ -84,6 +86,12 @@ function NavItemInner({
 				</span>
 			)}
 			<span className="flex-1 truncate">{label}</span>
+			{failure && (
+				<AlertCircle
+					className="size-3.5 shrink-0 text-danger"
+					aria-hidden="true"
+				/>
+			)}
 			{count != null && count > 0 && (
 				<span
 					className={cn(
@@ -114,11 +122,13 @@ function NavItem({
 	linkComponent,
 	ariaLabel,
 	title,
+	failure,
 	onClick,
 }: {
 	icon?: ReactNode;
 	label: string;
 	count?: number;
+	failure?: string;
 	active?: boolean;
 	dimmed?: boolean;
 	indent?: boolean;
@@ -130,15 +140,24 @@ function NavItem({
 }) {
 	const className = navItemClassName({ active, dimmed, indent });
 	const inner = (
-		<NavItemInner icon={icon} label={label} count={count} active={active} />
+		<NavItemInner
+			icon={icon}
+			label={label}
+			count={count}
+			active={active}
+			failure={failure}
+		/>
 	);
+	const name = ariaLabel ?? label;
+	const announced = failure ? `${name} — ${failure}` : name;
+	const tooltip = failure ? `${title ?? label} — ${failure}` : title;
 
 	if (navId && linkComponent) {
 		return linkComponent({
 			navId,
 			className,
-			ariaLabel: ariaLabel ?? label,
-			title,
+			ariaLabel: announced,
+			title: tooltip,
 			onClick,
 			children: inner,
 		});
@@ -149,8 +168,8 @@ function NavItem({
 			type="button"
 			onClick={onClick}
 			className={className}
-			aria-label={ariaLabel}
-			title={title}
+			aria-label={failure ? announced : ariaLabel}
+			title={tooltip}
 		>
 			{inner}
 		</button>
@@ -365,6 +384,7 @@ function AccountNav({
 									label={mb.name}
 									ariaLabel={mb.name}
 									title={mb.fullPath ?? mb.name}
+									failure={mb.failure}
 									count={mb.unseen}
 									active={selectedNavId === mb.id}
 									dimmed={account.muted}
@@ -422,6 +442,7 @@ function AccountNav({
 													label={mb.name}
 													ariaLabel={mb.name}
 													title={mb.fullPath ?? mb.name}
+													failure={mb.failure}
 													count={mb.unseen}
 													active={selectedNavId === mb.id}
 													dimmed={account.muted}

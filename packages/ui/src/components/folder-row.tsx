@@ -1,4 +1,4 @@
-import { Check, ChevronRight, Folder } from "lucide-react";
+import { AlertCircle, Check, ChevronRight, Folder } from "lucide-react";
 import type { ReactNode, Ref } from "react";
 import { cn } from "../lib/cn.js";
 
@@ -56,6 +56,8 @@ export interface FolderRowProps {
 	 * in there rather than relying on this.
 	 */
 	messageCount?: number;
+	/** Present when the last change to this folder failed: what went wrong, in words. */
+	failure?: string;
 	/** A hairline under the label, drawn for every row but the last. */
 	separated?: boolean;
 	/**
@@ -84,6 +86,7 @@ export const FolderRow = ({
 	current = false,
 	currentTag,
 	messageCount,
+	failure,
 	separated = false,
 	actions,
 	tabIndex,
@@ -109,6 +112,18 @@ export const FolderRow = ({
 				{messageCount} {messageCount === 1 ? "msg" : "msgs"}
 			</span>
 		);
+	const name = (
+		<span className="min-w-0 flex-1">
+			<span className="block truncate">{label}</span>
+			{failure && (
+				<span className="flex items-center gap-1 text-2xs text-danger">
+					<AlertCircle className="size-3 shrink-0" aria-hidden="true" />
+					<span className="truncate">{failure}</span>
+				</span>
+			)}
+		</span>
+	);
+	const announced = failure ? `${ariaLabel} — ${failure}` : ariaLabel;
 	if (context) {
 		return (
 			<div className="relative flex items-center">
@@ -118,13 +133,13 @@ export const FolderRow = ({
 					aria-level={depth + 1}
 					aria-selected={false}
 					aria-expanded={expanded}
-					aria-label={ariaLabel}
+					aria-label={announced}
 					className={cn(FOLDER_ROW_BASE, "opacity-60")}
 				>
 					<FolderRowIndent depth={depth} />
 					{chevron}
 					{icon}
-					<span className="min-w-0 flex-1 truncate">{label}</span>
+					{name}
 					{count}
 				</div>
 				{actions}
@@ -142,7 +157,7 @@ export const FolderRow = ({
 				aria-selected={selected}
 				aria-expanded={expanded}
 				aria-current={current ? "true" : undefined}
-				aria-label={ariaLabel}
+				aria-label={announced}
 				tabIndex={tabIndex}
 				onClick={onActivate}
 				onFocus={onFocus}
@@ -155,7 +170,7 @@ export const FolderRow = ({
 				<FolderRowIndent depth={depth} />
 				{chevron}
 				{icon}
-				<span className="min-w-0 flex-1 truncate">{label}</span>
+				{name}
 				{count}
 				{current && currentTag && (
 					<span className="shrink-0 text-xs text-fg-muted">{currentTag}</span>

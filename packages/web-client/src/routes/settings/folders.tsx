@@ -32,6 +32,7 @@ import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { guardFolderDeletion } from "@/lib/delete-folder";
 import { softErrorStatuses } from "@/lib/error-classifier";
+import { folderFailure } from "@/lib/folder-failure";
 import {
 	buildMailboxRoleMap,
 	CANONICAL_TO_NAV_ROLE,
@@ -104,6 +105,7 @@ function AccountFolders({ account }: { account: RemitImapAccountResponse }) {
 					mailboxes,
 					account.folderAppointments,
 				).message,
+				failure: folderFailure(mailbox),
 			})),
 		[mailboxes, roleMap, translator, account.folderAppointments],
 	);

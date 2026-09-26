@@ -188,6 +188,8 @@ export interface NavMailbox {
 	 * localized leaf name still reveals where it lives. Defaults to `name`.
 	 */
 	fullPath?: string;
+	/** Present when the last change to this folder failed: what went wrong, in words. */
+	failure?: string;
 }
 
 /** Per-account mailbox-load status, so the nav can show loading/error inline. */

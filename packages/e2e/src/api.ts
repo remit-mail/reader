@@ -25,6 +25,7 @@ export interface Mailbox {
 	 * a rename is in flight rather than a create.
 	 */
 	pendingPath?: string;
+	syncFailureReason?: string;
 }
 
 /**
@@ -860,6 +861,18 @@ export class ApiClient {
 		});
 	}
 
+	attemptRenameMailbox(
+		accountId: string,
+		mailboxId: string,
+		fullPath: string,
+	): Promise<Response> {
+		return this.request(
+			"PATCH",
+			`/accounts/${accountId}/mailboxes/${mailboxId}`,
+			{ fullPath },
+		);
+	}
+
 	/** Delete a folder by id — the same endpoint the delete wizard calls. Specs use it to sweep scratch folders in cleanup. */
 	deleteMailbox(accountId: string, mailboxId: string): Promise<Response> {
 		return this.request(
@@ -1153,7 +1166,12 @@ export class ApiClient {
 	 * to whether a thread is listed.
 	 */
 	async listAllThreads(
-		query: { starred?: boolean; limit?: number } = {},
+		query: {
+			starred?: boolean;
+			limit?: number;
+			query?: string;
+			accountId?: string;
+		} = {},
 	): Promise<Thread[]> {
 		const items: Thread[] = [];
 		let continuationToken: string | undefined;
@@ -1161,6 +1179,9 @@ export class ApiClient {
 			const params = new URLSearchParams();
 			if (query.starred !== undefined)
 				params.set("starred", String(query.starred));
+			if (query.query !== undefined) params.set("query", query.query);
+			if (query.accountId !== undefined)
+				params.set("accountId", query.accountId);
 			if (query.limit !== undefined) params.set("limit", String(query.limit));
 			if (continuationToken) params.set("continuationToken", continuationToken);
 			const result = await this.json<ResultList<Thread>>(

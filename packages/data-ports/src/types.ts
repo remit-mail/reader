@@ -379,6 +379,7 @@ export type CreateMailboxInput = Omit<
 	| "cursorState"
 	| "syncStatus"
 	| "pendingPath"
+	| "syncFailureReason"
 > & {
 	namespaceType?: MailboxItem["namespaceType"];
 	parentMailboxId?: MailboxItem["parentMailboxId"];
@@ -428,6 +429,7 @@ export type MailboxStatePredicate = {
 export type MailboxTransitionWrite = {
 	fullPath?: string;
 	pendingPath?: string | null;
+	syncFailureReason?: string;
 };
 
 export type MailboxTransitionIntent = MailboxStatePredicate & {

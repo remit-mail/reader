@@ -154,6 +154,37 @@ describe("MailboxRepo (sqlite)", () => {
 			/UNIQUE constraint failed: mailbox\.account_id, mailbox\.full_path/,
 		);
 	});
+
+	test("syncFailureReason is written on failed and cleared by any other state", async () => {
+		const accountId = randomUUID();
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Locked")),
+		);
+		assert.equal(created.syncFailureReason, "");
+
+		await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.synced],
+			to: MailboxSyncStatus.deleting,
+			set: { syncFailureReason: "ignored outside failed" },
+		});
+		assert.equal(
+			(await repo.get(accountId, created.mailboxId)).syncFailureReason,
+			"",
+		);
+
+		const failed = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.deleting],
+			to: MailboxSyncStatus.failed,
+			set: { syncFailureReason: "Permission denied" },
+		});
+		assert.equal(failed?.syncFailureReason, "Permission denied");
+
+		const dismissed = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.failed],
+			to: MailboxSyncStatus.synced,
+		});
+		assert.equal(dismissed?.syncFailureReason, "");
+	});
 });
 
 /**
@@ -179,6 +210,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		applyMigration(sqlite, "0027_mailbox_sync_status_total");
 		applyMigration(sqlite, "0028_mailbox_pending_path");
 		applyMigration(sqlite, "0031_mailbox_path_unique");
+		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {
@@ -252,6 +284,25 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 			set: { pendingPath: null },
 		});
 		assert.equal(cleared?.pendingPath, undefined);
+	});
+
+	test("syncFailureReason round-trips on the shipped shape", async () => {
+		const accountId = randomUUID();
+		const created = mailboxCreated(
+			await repo.create(makeMailboxInput(accountId, "Held")),
+		);
+		assert.equal(created.syncFailureReason, "");
+
+		await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.synced],
+			to: MailboxSyncStatus.deleting,
+		});
+		const failed = await repo.transition(accountId, created.mailboxId, {
+			from: [MailboxSyncStatus.deleting],
+			to: MailboxSyncStatus.failed,
+			set: { syncFailureReason: "Permission denied" },
+		});
+		assert.equal(failed?.syncFailureReason, "Permission denied");
 	});
 
 	test("round-trips a cursor above 2^53 with its exact digits", async () => {

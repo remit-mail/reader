@@ -18,6 +18,7 @@ import {
 
 const DEDUPE = "0030_mailbox_path_dedupe";
 const UNIQUE = "0031_mailbox_path_unique";
+const MAILBOX_COLUMNS_ADDED_SINCE = ["0033_mailbox_sync_failure_reason"];
 const ACCOUNT = "acct";
 const CONFIG = "cfg";
 
@@ -27,6 +28,8 @@ const atPredecessor = (): Handle => {
 	const sqlite = new Database(":memory:");
 	for (const entry of migrationJournal()) {
 		if (entry.tag === DEDUPE) {
+			for (const tag of MAILBOX_COLUMNS_ADDED_SINCE)
+				applyMigration(sqlite, tag);
 			return {
 				sqlite,
 				db: drizzle(sqlite) as unknown as Db<Record<string, unknown>>,

@@ -203,6 +203,7 @@ describe("addresses standing only on mail in Junk", () => {
 		// `mailbox` is read through the repo, which selects every column the
 		// entity declares — including the rename target added after this DDL.
 		applyMigration(sqlite, "0028_mailbox_pending_path");
+		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
 		sqlite.exec(
 			readFileSync(
 				new URL(

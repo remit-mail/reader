@@ -8,6 +8,8 @@ import {
 export interface ManagedFolder extends FolderTreeNode {
 	/** Why this folder can't be deleted; absent means it can. */
 	deleteBlockedReason?: string;
+	/** Present when the last change to this folder failed: what went wrong, in words. */
+	failure?: string;
 }
 
 export interface FolderManagerLabels extends FolderTreePickerLabels {
@@ -58,6 +60,7 @@ export const FolderManager = ({
 				optionLabel: (folder) => folder.label,
 				...labels,
 			}}
+			rowFailure={(folder) => byId.get(folder.id)?.failure}
 			rowActions={(folder) => {
 				const managed = byId.get(folder.id);
 				if (!managed) return null;

@@ -9,7 +9,9 @@ import {
 	FolderRenameSettleError,
 	isMailboxAbsentUpstream,
 	isMailboxPresentUpstream,
+	isMailboxRefusedUpstream,
 	MailboxManagementService,
+	upstreamFailureReason,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
@@ -47,12 +49,13 @@ const recordCreateOutcome = async (
 	accountId: string,
 	mailboxId: string,
 	to: (typeof MailboxSyncStatus)[keyof typeof MailboxSyncStatus],
+	syncFailureReason = "",
 ): Promise<void> => {
 	const written = await mailboxService.transition(accountId, mailboxId, {
 		from: [MailboxSyncStatus.pending],
 		wherePendingPath: null,
 		to,
-		set: {},
+		set: { syncFailureReason },
 	});
 	if (!written) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 };
@@ -167,7 +170,15 @@ const handleCreate = async (
 								accountId,
 								mailboxId,
 								MailboxSyncStatus.failed,
+								upstreamFailureReason(error),
 							);
+							if (isMailboxRefusedUpstream(error)) {
+								log.error(
+									{ accountId, mailboxId, path, intent: "create", error },
+									"Mail server refused the create",
+								);
+								return;
+							}
 							throw error;
 						}
 					})
@@ -333,7 +344,22 @@ const handleRename = async (
 							mailboxId,
 							oldPath,
 							newPath,
+							upstreamFailureReason(error),
 						);
+						if (isMailboxRefusedUpstream(error)) {
+							log.error(
+								{
+									accountId,
+									mailboxId,
+									oldPath,
+									newPath,
+									intent: "rename",
+									error,
+								},
+								"Mail server refused the rename",
+							);
+							return;
+						}
 						throw error;
 					})
 					.finally(() => scope.disconnect());
@@ -431,7 +457,11 @@ const handleDelete = async (
 							// worker's backstop is unreachable from it; if something else
 							// reaches it, the honest outcome is `failed`, not `synced` —
 							// the folder was never deleted and nothing was undone.
-							await managementService.failDelete(accountId, mailboxId);
+							await managementService.failDelete(
+								accountId,
+								mailboxId,
+								upstreamFailureReason(error),
+							);
 							if (
 								error instanceof Error &&
 								error.message.includes("Cannot delete INBOX")
@@ -441,6 +471,13 @@ const handleDelete = async (
 									"Cannot delete INBOX",
 								);
 								// Don't rethrow — no retry can make this succeed.
+								return;
+							}
+							if (isMailboxRefusedUpstream(error)) {
+								log.error(
+									{ accountId, mailboxId, path, intent: "delete", error },
+									"Mail server refused the delete",
+								);
 								return;
 							}
 							throw error;

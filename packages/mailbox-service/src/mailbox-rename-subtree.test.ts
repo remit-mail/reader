@@ -361,7 +361,13 @@ describe("MailboxManagementService.syncRename — rows it must not claim", () =>
 		]);
 		const service = new MailboxManagementService(repo);
 
-		await service.failRename("acc-1", "mbx-parent", "Work", "Projects");
+		await service.failRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			"Permission denied",
+		);
 
 		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.failed);
 		assert.equal(rowOf("mbx-other")?.syncStatus, MailboxSyncStatus.pending);
@@ -572,7 +578,13 @@ describe("MailboxManagementService.failRename", () => {
 		]);
 		const service = new MailboxManagementService(repo);
 
-		await service.failRename("acc-1", "mbx-parent", "Work", "Projects");
+		await service.failRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			"Permission denied",
+		);
 
 		for (const [id, path, target] of [
 			["mbx-parent", "Work", "Projects"],
@@ -593,7 +605,13 @@ describe("MailboxManagementService.failRename", () => {
 		const service = new MailboxManagementService(repo);
 
 		await assert.rejects(
-			service.failRename("acc-1", "mbx-parent", "Work", "Projects"),
+			service.failRename(
+				"acc-1",
+				"mbx-parent",
+				"Work",
+				"Projects",
+				"Permission denied",
+			),
 			(error: unknown) => (error as Error).name === "NotFoundError",
 		);
 	});
@@ -606,7 +624,13 @@ describe("MailboxManagementService.failRename", () => {
 		const service = new MailboxManagementService(repo);
 
 		await assert.doesNotReject(
-			service.failRename("acc-1", "mbx-parent", "Work", "Projects"),
+			service.failRename(
+				"acc-1",
+				"mbx-parent",
+				"Work",
+				"Projects",
+				"Permission denied",
+			),
 		);
 	});
 
@@ -627,7 +651,13 @@ describe("MailboxManagementService.failRename", () => {
 			/not ready/,
 		);
 
-		await service.failRename("acc-1", "mbx-parent", "Work", "Projects");
+		await service.failRename(
+			"acc-1",
+			"mbx-parent",
+			"Work",
+			"Projects",
+			"Permission denied",
+		);
 		assert.equal(rowOf("mbx-parent")?.syncStatus, MailboxSyncStatus.failed);
 		assert.equal(rowOf("mbx-parent")?.fullPath, "Work");
 	});

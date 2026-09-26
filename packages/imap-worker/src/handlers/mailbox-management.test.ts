@@ -711,6 +711,23 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		assert.equal(called("mailbox.transition").length, 0);
 	});
 
+	it("marks failed and acks when the server refuses the DELETE with NOPERM", async () => {
+		recordDeleteIntent();
+		h.connection.deleteMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NOPERM",
+				responseText: "Permission denied",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(deleteEvent, noopLogger, deps()),
+		);
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(lastSettle().set?.syncFailureReason, "Permission denied");
+		assert.equal(called("mailbox.deleteMailboxWithMail").length, 0);
+	});
+
 	it("still marks failed and rethrows when the server fails for any other reason", async () => {
 		recordDeleteIntent();
 		h.connection.deleteMailbox = async () => {
@@ -747,6 +764,21 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 		assert.equal(lastSettle().to, "synced");
 	});
 
+	it("marks failed with the server's reason and acks when a CREATE is refused", async () => {
+		h.connection.createMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NOPERM",
+				responseText: "Permission denied",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(createEvent, noopLogger, deps()),
+		);
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(lastSettle().set?.syncFailureReason, "Permission denied");
+	});
+
 	it("still marks failed and rethrows when a CREATE fails for any other reason", async () => {
 		h.connection.createMailbox = async () => {
 			throw Object.assign(new Error("Command failed"), {
@@ -779,6 +811,25 @@ describe("processMailboxManagement — a tagged NO the server means as success (
 			"acc-1",
 			"mbx-1",
 		]);
+	});
+
+	it("marks failed with the server's reason and acks when a RENAME is refused", async () => {
+		recordRenameIntent();
+		h.connection.renameMailbox = async () => {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "CANNOT",
+				responseText: "Can't rename mailbox with its children",
+			});
+		};
+
+		await assert.doesNotReject(
+			processMailboxManagement(renameEvent, noopLogger, deps()),
+		);
+		assert.equal(lastSettle().to, "failed");
+		assert.equal(
+			lastSettle().set?.syncFailureReason,
+			"Can't rename mailbox with its children",
+		);
 	});
 
 	it("still refuses the intent and rethrows when a RENAME fails for any other reason", async () => {

@@ -139,6 +139,27 @@ const hostnetAccount: NavAccount = {
 	],
 };
 
+export const RefusedFolderChange: Story = {
+	args: {
+		accounts: [
+			{
+				...hostnetAccount,
+				mailboxes: [
+					...hostnetAccount.mailboxes,
+					{
+						id: "hn-locked",
+						name: "Locked",
+						fullPath: "INBOX/Locked",
+						failure:
+							"The mail server refused the last change: Permission denied",
+					},
+				],
+			},
+		],
+		selectedNavId: "hn-inbox",
+	},
+};
+
 export const Hostnet: Story = {
 	args: {
 		accounts: [hostnetAccount],

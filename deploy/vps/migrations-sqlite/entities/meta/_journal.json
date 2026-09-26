@@ -225,6 +225,13 @@
       "when": 1790387867406,
       "tag": "0032_account_granted_scopes",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "6",
+      "when": 1790390091232,
+      "tag": "0033_mailbox_sync_failure_reason",
+      "breakpoints": true
     }
   ]
 }

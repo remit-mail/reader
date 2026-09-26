@@ -92,6 +92,7 @@ const transitionSet = (
 			? { pendingPath: write.pendingPath }
 			: {}
 		: { pendingPath: null }),
+	syncFailureReason: to === "failed" ? (write?.syncFailureReason ?? "") : "",
 	updatedAt: Date.now(),
 });
 
@@ -119,6 +120,7 @@ export function rowToMailbox(
 		parentMailboxId: row.parentMailboxId,
 		syncStatus: row.syncStatus as MailboxItem["syncStatus"],
 		...(row.pendingPath !== null ? { pendingPath: row.pendingPath } : {}),
+		syncFailureReason: row.syncFailureReason,
 		cursorState: (row.cursorState as MailboxItem["cursorState"]) ?? undefined,
 		specialUse: (row.specialUse as MailboxItem["specialUse"]) ?? undefined,
 		createdAt: row.createdAt,

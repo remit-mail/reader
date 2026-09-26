@@ -134,6 +134,10 @@ model Mailbox {
   @visibility(Lifecycle.Read)
   pendingPath?: String512;
 
+  @doc("What the mail server said when it refused the last folder mutation, verbatim, so a folder in `failed` can say why. Total: the empty string whenever `syncStatus` is not `failed`, and on a failure the server gave no text for.")
+  @visibility(Lifecycle.Read)
+  syncFailureReason: string = "";
+
   @doc("Cursor integrity state machine for stored UIDs (epic #1281 invariant 5, issue #1272). Total per RFC 032: defaults to `normal` rather than being absent. A row written before this field existed reads back as `normal` (unset DynamoDB/Postgres attribute deserializes to the schema default).")
   @visibility(Lifecycle.Read)
   cursorState: MailboxCursorState = MailboxCursorState.normal;
@@ -295,6 +299,7 @@ model MailboxResponse {
       | "lastMessageSyncAt"
       | "syncStatus"
       | "pendingPath"
+      | "syncFailureReason"
       | "createdAt"
       | "updatedAt"
   >;

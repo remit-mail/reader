@@ -21,7 +21,12 @@
  */
 import { ApiClient, waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
-import { appendMessages, listServerMailboxes } from "../src/imap.js";
+import {
+	appendMessages,
+	listServerMailboxes,
+	listServerSubjects,
+	setServerMailboxOwnerRights,
+} from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 
 const STAMP = Date.now();
@@ -54,6 +59,11 @@ test.describe("Deleting a folder", () => {
 			{ timeoutMs: 120_000, what: `"${path}" to hold its message` },
 		);
 		expect((await api.listThreads(folder.mailboxId)).length).toBeGreaterThan(0);
+		await waitFor(
+			() => api.listAllThreads({ query: subject, accountId: run.accountId }),
+			(threads) => threads.some((thread) => thread.subject === subject),
+			{ timeoutMs: 120_000, what: `a search to find "${subject}"` },
+		);
 
 		const response = await api.deleteMailbox(run.accountId, folder.mailboxId);
 		expect(response.status).toBe(204);
@@ -79,6 +89,9 @@ test.describe("Deleting a folder", () => {
 		// The mail went with the folder rather than being orphaned under a dead
 		// mailboxId, where it stayed searchable forever (D8).
 		expect(await api.listThreads(folder.mailboxId)).toHaveLength(0);
+		expect(
+			await api.listAllThreads({ query: subject, accountId: run.accountId }),
+		).toHaveLength(0);
 	});
 
 	test("refuses while a filter is bound to it, and leaves both standing", async () => {
@@ -114,5 +127,61 @@ test.describe("Deleting a folder", () => {
 			(paths) => !paths.includes(path),
 			{ timeoutMs: 120_000, what: `Dovecot to drop "${path}"` },
 		);
+	});
+
+	test("keeps a folder the server refused to delete, with its mail, until a retry", async () => {
+		test.setTimeout(240_000);
+
+		const path = `Locked ${STAMP}`;
+		const subject = `Refused delete keeps the mail ${STAMP}`;
+
+		const folder = await api.createSettledMailbox(run.accountId, path);
+		await appendMessages(run.imapUser, [{ subject }], path);
+		await api.triggerSync(run.accountId);
+		await waitFor(
+			() => api.listThreads(folder.mailboxId),
+			(threads) => threads.length > 0,
+			{ timeoutMs: 120_000, what: `"${path}" to hold its message locally` },
+		);
+
+		await setServerMailboxOwnerRights(run.imapUser, path, "lrwstipeka");
+
+		const refused = await api.deleteMailbox(run.accountId, folder.mailboxId);
+		expect(refused.status).toBe(204);
+
+		const failed = await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) =>
+				list.some(
+					(box) =>
+						box.mailboxId === folder.mailboxId && box.syncStatus === "failed",
+				),
+			{ timeoutMs: 120_000, what: `"${path}" to report the refused delete` },
+		);
+		const row = failed.find((box) => box.mailboxId === folder.mailboxId);
+		expect(row?.fullPath).toBe(path);
+		expect(row?.pendingPath).toBeUndefined();
+		expect(row?.syncFailureReason).toContain("Permission denied");
+
+		expect(await listServerMailboxes(run.imapUser)).toContain(path);
+		expect(await listServerSubjects(run.imapUser, path)).toContain(subject);
+		expect((await api.listThreads(folder.mailboxId)).length).toBeGreaterThan(0);
+
+		await setServerMailboxOwnerRights(run.imapUser, path, "lrwstipekxa");
+
+		const retried = await api.deleteMailbox(run.accountId, folder.mailboxId);
+		expect(retried.status).toBe(204);
+
+		await waitFor(
+			() => listServerMailboxes(run.imapUser),
+			(paths) => !paths.includes(path),
+			{ timeoutMs: 120_000, what: `Dovecot to drop "${path}" on the retry` },
+		);
+		await waitFor(
+			() => api.listMailboxes(run.accountId),
+			(list) => !list.some((box) => box.mailboxId === folder.mailboxId),
+			{ timeoutMs: 120_000, what: "the folder row to go with it" },
+		);
+		expect(await api.listThreads(folder.mailboxId)).toHaveLength(0);
 	});
 });

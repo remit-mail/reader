@@ -257,6 +257,35 @@ export const deleteServerMailbox = async (
 	}
 };
 
+interface ImapExec {
+	exec(
+		command: string,
+		attributes: ReadonlyArray<{ type: "ATOM" | "STRING"; value: string }>,
+	): Promise<{ next: () => void }>;
+}
+
+const canExec = (client: object): client is ImapExec =>
+	"exec" in client && typeof client.exec === "function";
+
+export const setServerMailboxOwnerRights = async (
+	user: string,
+	path: string,
+	rights: string,
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		if (!canExec(client)) throw new Error("ImapFlow no longer exposes exec");
+		const response = await client.exec("SETACL", [
+			{ type: "STRING", value: path },
+			{ type: "ATOM", value: "owner" },
+			{ type: "ATOM", value: rights },
+		]);
+		response.next();
+	} finally {
+		await client.logout();
+	}
+};
+
 /**
  * The UIDs Dovecot holds for one subject in a mailbox.
  *

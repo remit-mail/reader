@@ -16,6 +16,12 @@ const render = (props: Partial<FolderRowProps>) =>
 	);
 
 describe("FolderRow", () => {
+	it("shows and announces why the last change to the folder failed", () => {
+		const html = render({ failure: "Permission denied" });
+		assert.match(html, />Permission denied</);
+		assert.match(html, /aria-label="Move to Travel — Permission denied"/);
+	});
+
 	it("is a tree item that carries its nesting and its label", () => {
 		const html = render({ depth: 2 });
 		assert.match(html, /<button[^>]*role="treeitem"/);
