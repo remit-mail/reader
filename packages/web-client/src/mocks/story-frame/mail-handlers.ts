@@ -19,7 +19,6 @@ import type {
 	MessageCalendarSuggestionOperationsListMessageCalendarSuggestionsResponse,
 	OrganizeOperationsPreviewOrganizeResponse,
 	OutboxOperationsListOutboxMessagesResponse,
-	RemitImapAddressResponse,
 	RemitImapConfigDescriptionResponse,
 	RemitImapCreateOutboxMessageInput,
 	RemitImapDescribeMessageResponse,

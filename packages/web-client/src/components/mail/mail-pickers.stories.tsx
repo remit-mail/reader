@@ -31,9 +31,12 @@ const page = () => within(document.body);
 export const MovePicker: Story = {
 	play: async () => {
 		await page().findByRole("heading", { level: 1, name: "Q3 planning" });
-		await userEvent.click(
-			await page().findByRole("button", { name: "Move to mailbox" }),
-		);
+		const trigger = await waitFor(() => {
+			const button = page().getByRole("button", { name: "Move to mailbox" });
+			expect(button).toHaveAttribute("aria-haspopup", "tree");
+			return button;
+		});
+		await userEvent.click(trigger);
 		const filter = await page().findByLabelText("Filter folders");
 		await expect(filter).toBeVisible();
 		for (const folder of ["Archive", "Trash"]) {
