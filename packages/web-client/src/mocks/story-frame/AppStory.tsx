@@ -7,6 +7,11 @@ import {
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { useState } from "react";
 import {
+	type AuthProvider,
+	AuthProviderProvider,
+	noneAuthProvider,
+} from "@/auth/provider";
+import {
 	handleMutationCacheError,
 	handleQueryCacheError,
 } from "@/lib/query-error-handler";
@@ -17,6 +22,7 @@ import "@/lib/client";
 
 export interface AppStoryProps {
 	url: string;
+	authProvider?: AuthProvider;
 }
 
 const createStoryQueryClient = (): QueryClient =>
@@ -29,19 +35,28 @@ const createStoryQueryClient = (): QueryClient =>
 		},
 	});
 
-export function AppStory({ url }: AppStoryProps) {
+export function AppStory({
+	url,
+	authProvider = noneAuthProvider,
+}: AppStoryProps) {
 	const [queryClient] = useState(createStoryQueryClient);
-	const [router] = useState(() =>
-		createAppRouter(
+	const [router] = useState(() => {
+		authProvider.configure();
+		return createAppRouter(
 			queryClient,
 			noopTelemetry,
 			createMemoryHistory({ initialEntries: [url] }),
-		),
-	);
+		);
+	});
+	const { Shell } = authProvider;
 
 	return (
 		<QueryClientProvider client={queryClient}>
-			<RouterProvider router={router} />
+			<AuthProviderProvider value={authProvider}>
+				<Shell>
+					<RouterProvider router={router} />
+				</Shell>
+			</AuthProviderProvider>
 		</QueryClientProvider>
 	);
 }

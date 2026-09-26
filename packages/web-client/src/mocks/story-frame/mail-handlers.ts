@@ -1,6 +1,10 @@
 import type {
+	AccountDetailOperationsUpdateAccountResponse,
+	AddressDetailOperationsUpdateAddressResponse,
+	AddressOperationsSearchAddressesResponse,
 	FilterOperationsListFiltersResponse,
 	LabelOperationsListLabelsResponse,
+	MailboxDetailOperationsRenameMailboxResponse,
 	MailboxOperationsListMailboxesResponse,
 	MeOperationsListQuarantineResponse,
 	MeOperationsListVipSuggestionsResponse,
@@ -169,6 +173,22 @@ export const mailHandlers = (
 				makeConfig(world.accounts),
 			),
 		),
+		http.patch(
+			`${API}/accounts/:accountId/mailboxes/:mailboxId`,
+			({ params }) => {
+				const mailbox = world.mailboxes.find(
+					(candidate) => candidate.mailboxId === params.mailboxId,
+				);
+				if (!mailbox)
+					return HttpResponse.json(
+						{ status: 404, message: "Mailbox not found" },
+						{ status: 404 },
+					);
+				return HttpResponse.json<MailboxDetailOperationsRenameMailboxResponse>(
+					mailbox,
+				);
+			},
+		),
 		http.get(`${API}/accounts/:accountId/mailboxes`, ({ params }) =>
 			HttpResponse.json<MailboxOperationsListMailboxesResponse>({
 				items: world.mailboxes.filter(
@@ -176,6 +196,48 @@ export const mailHandlers = (
 				),
 			}),
 		),
+		http.patch(`${API}/accounts/:accountId`, ({ params }) => {
+			const account = world.accounts.find(
+				(candidate) => candidate.accountId === params.accountId,
+			);
+			if (!account)
+				return HttpResponse.json(
+					{ status: 404, message: "Account not found" },
+					{ status: 404 },
+				);
+			return HttpResponse.json<AccountDetailOperationsUpdateAccountResponse>(
+				account,
+			);
+		}),
+		http.delete(
+			`${API}/accounts/:accountId`,
+			() => new HttpResponse(null, { status: 204 }),
+		),
+		http.get(`${API}/addresses/search`, ({ request }) => {
+			const needle = (
+				new URL(request.url).searchParams.get("q") ?? ""
+			).toLowerCase();
+			return HttpResponse.json<AddressOperationsSearchAddressesResponse>({
+				items: world.addresses.filter(
+					(address) =>
+						address.normalizedEmail.includes(needle) ||
+						(address.displayName ?? "").toLowerCase().includes(needle),
+				),
+			});
+		}),
+		http.patch(`${API}/addresses/:addressId`, ({ params }) => {
+			const address = world.addresses.find(
+				(candidate) => candidate.addressId === params.addressId,
+			);
+			if (!address)
+				return HttpResponse.json(
+					{ status: 404, message: "Address not found" },
+					{ status: 404 },
+				);
+			return HttpResponse.json<AddressDetailOperationsUpdateAddressResponse>(
+				address,
+			);
+		}),
 		http.get(`${API}/accounts/:accountId/sync/status`, ({ params }) =>
 			HttpResponse.json<SyncOperationsGetSyncStatusResponse>({
 				accountId: String(params.accountId),
@@ -272,19 +334,19 @@ export const mailHandlers = (
 			}),
 		),
 		http.get(`${API}/me/quarantine`, () =>
-			HttpResponse.json<MeOperationsListQuarantineResponse>({ entries: [] }),
+			HttpResponse.json<MeOperationsListQuarantineResponse>({
+				entries: world.quarantine,
+			}),
 		),
 		http.get(`${API}/me/vip-suggestions`, () =>
 			HttpResponse.json<MeOperationsListVipSuggestionsResponse>({
-				suggestions: [],
+				suggestions: world.vipSuggestions,
 			}),
 		),
 		http.get(`${API}/system/update`, () =>
-			HttpResponse.json<SystemOperationsGetSystemUpdateResponse>({
-				currentVersion: "0.0.0-storybook",
-				check: { status: "disabled" },
-				run: null,
-			}),
+			HttpResponse.json<SystemOperationsGetSystemUpdateResponse>(
+				world.systemUpdate,
+			),
 		),
 		http.all(`${API}/*`, ({ request }) =>
 			HttpResponse.json(
