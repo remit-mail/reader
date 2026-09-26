@@ -701,7 +701,8 @@ export type CalendarEventIndexItem = z.infer<typeof CalendarEventIndexSchema>;
 
 // `calendarId` is derived from accountConfigId + urlSegment, and syncSequence
 // starts at zero and only ever moves through the collection's own bump — so
-// neither is ever supplied here.
+// neither is ever supplied here. The fetch bookkeeping starts empty and only
+// moves through an update after a fetch.
 export type CreateCalendarCollectionInput = Omit<
 	CalendarCollectionItem,
 	| "calendarId"
@@ -712,15 +713,31 @@ export type CreateCalendarCollectionInput = Omit<
 	| "componentSet"
 	| "source"
 	| "timezone"
+	| "subscriptionUrl"
+	| "subscriptionEnabled"
+	| "subscriptionCheckedAt"
+	| "subscriptionFetchedAt"
+	| "subscriptionError"
 > & {
 	color?: CalendarCollectionItem["color"];
 	componentSet?: CalendarCollectionItem["componentSet"];
 	source?: CalendarCollectionItem["source"];
 	timezone?: CalendarCollectionItem["timezone"];
+	subscriptionUrl?: CalendarCollectionItem["subscriptionUrl"];
+	subscriptionEnabled?: CalendarCollectionItem["subscriptionEnabled"];
 };
 
 export type UpdateCalendarCollectionInput = Partial<
-	Pick<CalendarCollectionItem, "displayName" | "color" | "timezone">
+	Pick<
+		CalendarCollectionItem,
+		| "displayName"
+		| "color"
+		| "timezone"
+		| "subscriptionEnabled"
+		| "subscriptionCheckedAt"
+		| "subscriptionFetchedAt"
+		| "subscriptionError"
+	>
 >;
 
 export type CalendarFeedTokenItem = z.infer<typeof CalendarFeedTokenSchema>;

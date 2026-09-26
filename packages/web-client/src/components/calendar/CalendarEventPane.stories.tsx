@@ -1,5 +1,6 @@
 import type { CalendarDescriptor, CalendarEventData } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
+import { expect, within } from "storybook/test";
 import { CalendarEventPane } from "./CalendarEventPane";
 
 /**
@@ -174,4 +175,26 @@ export const ChangedElsewhere: Story = {
  */
 export const NotWritableYet: Story = {
 	args: { onEdit: undefined, onDelete: undefined },
+};
+
+/**
+ * An event from a subscribed feed. The controls are gone because the feed
+ * owns the event, and the note says so where they would have been.
+ */
+export const FromSubscription: Story = {
+	args: {
+		onEdit: undefined,
+		onDelete: undefined,
+		readOnlyNote:
+			"Read-only: from calendar.google.com. Change it where the feed comes from.",
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByText(
+				"Read-only: from calendar.google.com. Change it where the feed comes from.",
+			),
+		).toBeVisible();
+		await expect(canvas.queryByRole("button", { name: "Edit" })).toBeNull();
+	},
 };

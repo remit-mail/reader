@@ -1,4 +1,10 @@
-import { Check, ChevronDown, ChevronRight, PauseCircle } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	ChevronDown,
+	ChevronRight,
+	PauseCircle,
+} from "lucide-react";
 import { useState } from "react";
 import { calendarColorClasses } from "../lib/calendar-color.js";
 import { cn } from "../lib/cn.js";
@@ -189,6 +195,7 @@ function CalendarListRow({
 }) {
 	const hue = calendarColorClasses(calendar.color);
 	const paused = calendar.sync === "paused";
+	const syncError = calendar.syncError ?? "";
 	return (
 		<div className="flex flex-col">
 			<label
@@ -229,9 +236,20 @@ function CalendarListRow({
 						aria-hidden
 					/>
 				)}
+				{syncError !== "" && (
+					<AlertTriangle
+						className="size-3.5 shrink-0 text-danger"
+						aria-hidden
+					/>
+				)}
 			</label>
 			{paused && (
 				<span className="sr-only">{`${calendar.name}: ${ACCOUNT_SERVICE_OFF_LABEL.Calendar}`}</span>
+			)}
+			{syncError !== "" && (
+				<p className="px-row-inset pb-1 text-xs text-danger">
+					<span className="block pl-6.5">{`Not refreshed: ${syncError}`}</span>
+				</p>
 			)}
 		</div>
 	);

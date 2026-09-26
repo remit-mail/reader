@@ -41,6 +41,7 @@
     "@remit/search-index-worker": "*",
     "@remit/sqs-client": "*",
     "@remit/backend": "*",
+    "@remit/calendar-service": "*",
     "@remit/domain-enums": "*",
     "@remit/mail-oauth-service": "*",
     "@remit/secrets-service": "*",

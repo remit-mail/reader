@@ -9,6 +9,7 @@ import {
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import {
+	CalendarSource,
 	CalendarSuggestionState,
 	FilterClauseField,
 	FilterMatchOperator,
@@ -224,7 +225,15 @@ export const CalendarSuggestionActionOperations: Record<
 		// Reads the collection through the caller's own account config, so a
 		// calendarId naming somebody else's collection is a 404 before anything
 		// is written into it.
-		await client.calendarCollection.get(accountConfigId, calendarId);
+		const collection = await client.calendarCollection.get(
+			accountConfigId,
+			calendarId,
+		);
+		if (collection.source === CalendarSource.Subscribed) {
+			throw new BadRequestError(
+				`"${collection.displayName}" is subscribed to a feed and is read-only — accept the invitation into another calendar`,
+			);
+		}
 
 		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
 			accountConfigId,

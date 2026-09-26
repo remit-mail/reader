@@ -380,7 +380,7 @@ namespace RemitApi {
     @get
     op listCalendars(): CalendarListResponse | UnauthorizedError;
 
-    @doc("Create a calendar collection. Refused with 400 when `urlSegment` is empty or already taken in this account config — the segment is the collection's identity, so a second create under the same one would otherwise silently return the collection that already exists.")
+    @doc("Create a calendar collection. Refused with 400 when `urlSegment` is empty or already taken in this account config — the segment is the collection's identity, so a second create under the same one would otherwise silently return the collection that already exists. With `subscriptionUrl` the feed is fetched first and a fetch that fails is refused with 400 `subscription_unreachable`, naming why and never the URL.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createCalendar(
@@ -396,6 +396,7 @@ namespace RemitApi {
       @path calendarId: UUID,
     ): CalendarResponse | NotFoundError | UnauthorizedError;
 
+    @doc("Update a calendar collection. `subscriptionEnabled` is refused with 400 `not_subscribed` on a collection that is not `Subscribed`. Turning it off stops the refresh and removes nothing.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
     op updateCalendar(
@@ -521,7 +522,7 @@ namespace RemitApi {
       | NotFoundError
       | UnauthorizedError;
 
-    @doc("Create an event. The server builds the VEVENT and writes it through the single calendar write path — the same one an accepted invitation and a later CalDAV PUT go through — so the object, its expanded occurrences and the collection's sync sequence land together or not at all.")
+    @doc("Create an event. The server builds the VEVENT and writes it through the single calendar write path — the same one an accepted invitation and a later CalDAV PUT go through — so the object, its expanded occurrences and the collection's sync sequence land together or not at all. Refused with 400 `read_only_calendar` for a `Subscribed` collection, whose events belong to the feed.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createCalendarEvent(@body input: CreateCalendarEventInput):
@@ -598,6 +599,8 @@ namespace RemitApi {
       it.
       
       Same refusals and the same `If-Match` precondition as the update.
+      An event in a `Subscribed` collection is refused with 400
+      `read_only_calendar`, here and on the update.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete

@@ -30,7 +30,8 @@ export interface WriteCalendarEventProps {
 export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 	const { date } = useCalendarAddress();
 	const seed = useCalendarComposeSeed();
-	const { calendars, timeZoneByCalendarId } = useCalendars();
+	const { calendars: held, timeZoneByCalendarId } = useCalendars();
+	const calendars = held.filter((calendar) => !calendar.readOnly);
 	const { createEvent, isWriting } = useCalendarWrites();
 	const [problem, setProblem] = useState("");
 	const [draft, setDraft] = useState<EventDraft>(() => {

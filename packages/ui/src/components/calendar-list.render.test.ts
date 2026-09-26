@@ -109,3 +109,24 @@ describe("CalendarList with a paused calendar", () => {
 		assert.match(renderPaused(["c1"]), /checked=""/);
 	});
 });
+
+describe("CalendarList with a subscription that could not be refreshed", () => {
+	it("states the reason under the row", () => {
+		const html = renderToString(
+			createElement(CalendarList, {
+				calendars: calendars.map((calendar) =>
+					calendar.id === "c3"
+						? { ...calendar, syncError: "the feed answered HTTP 404" }
+						: calendar,
+				),
+				visible: new Set(["c3"]),
+				onToggle: () => undefined,
+			}),
+		);
+		assert.match(html, /Not refreshed: the feed answered HTTP 404/);
+	});
+
+	it("says nothing for a calendar whose last refresh landed", () => {
+		assert.doesNotMatch(render(["c1"]), /Not refreshed/);
+	});
+});

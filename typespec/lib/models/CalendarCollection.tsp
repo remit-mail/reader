@@ -74,6 +74,26 @@ model CalendarCollection {
   @visibility(Lifecycle.Read)
   syncSequence: int64 = 0;
 
+  @doc("The read-only iCalendar URL a `Subscribed` collection is filled from, such as a Google Calendar secret address. For some providers the URL is the whole credential, so it never reaches a log line. `\"\"` for every other source.")
+  @visibility(Lifecycle.Read)
+  subscriptionUrl: String2048 = "";
+
+  @doc("Whether the scheduled refresh re-reads `subscriptionUrl`. Turning it off stops the refresh and keeps every stored event. Always `false` on a collection that is not `Subscribed`.")
+  @visibility(Lifecycle.Read, Lifecycle.Update)
+  subscriptionEnabled: boolean = false;
+
+  @doc("When the subscription was last fetched, whatever the outcome. `0` when it never was.")
+  @visibility(Lifecycle.Read)
+  subscriptionCheckedAt: int64 = 0;
+
+  @doc("When the subscription was last fetched and written. `0` when it never was.")
+  @visibility(Lifecycle.Read)
+  subscriptionFetchedAt: int64 = 0;
+
+  @doc("Why the last fetch failed, or which events in it could not be stored. `\"\"` when the last fetch landed whole.")
+  @visibility(Lifecycle.Read)
+  subscriptionError: String512 = "";
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;

@@ -4,10 +4,14 @@ import type {
 	UpdateCalendarInput,
 } from "@remit/api-openapi-types";
 import {
+	type CalendarFeedFetcher,
 	DEFAULT_CALENDAR_URL_SEGMENT,
 	isResolvableZone,
 	provisionDefaultCalendar,
 	putCalendarObject,
+	readCalendarFeed,
+	readSubscriptionUrl,
+	writeCalendarFeed,
 } from "@remit/calendar-service";
 import type {
 	CalendarCollectionItem,
@@ -114,6 +118,11 @@ const toCalendarResponse = (
 	source: item.source,
 	timezone: item.timezone,
 	syncSequence: item.syncSequence,
+	subscriptionUrl: item.subscriptionUrl,
+	subscriptionEnabled: item.subscriptionEnabled,
+	subscriptionCheckedAt: item.subscriptionCheckedAt,
+	subscriptionFetchedAt: item.subscriptionFetchedAt,
+	subscriptionError: item.subscriptionError,
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
@@ -160,6 +169,28 @@ export const findCalendarFor = async (
 };
 
 /**
+ * One of the caller's collections that a person may write events into. A
+ * subscribed collection holds what its feed holds: an edit made here would be
+ * overwritten by the next refresh, so it is refused rather than accepted and
+ * silently lost.
+ */
+export const findWritableCalendarFor = async (
+	deps: CalendarDeps,
+	accountConfigId: string,
+	calendarId: string,
+): Promise<CalendarOutcome<CalendarCollectionItem>> => {
+	const found = await findCalendarFor(deps, accountConfigId, calendarId);
+	if (!found.ok) return found;
+	if (found.value.source === CalendarSource.Subscribed) {
+		return refuseCalendar(
+			"ReadOnlyCalendar",
+			`"${found.value.displayName}" is subscribed to a feed and is read-only — change the event where the feed comes from`,
+		);
+	}
+	return found;
+};
+
+/**
  * A collection's timezone is what every floating time in it is read in, so a
  * name this server cannot resolve is not a cosmetic setting — it silently moves
  * every all-day and unzoned event in the calendar. A Windows zone name, which
@@ -179,10 +210,66 @@ export const readCollectionTimezone = (
 	return { ok: true, value: timezone };
 };
 
+/**
+ * Creates a collection subscribed to a feed. The feed is read before anything
+ * is written, so an address that cannot be fetched leaves no empty calendar
+ * behind; its events then land through the one write path, in the same unit as
+ * the collection itself.
+ */
+const createSubscribedCalendarFor = async (
+	deps: CalendarDeps,
+	accountConfigId: string,
+	input: CreateCalendarInput & { subscriptionUrl: string },
+	collection: { urlSegment: string; timezone: string },
+	fetcher: CalendarFeedFetcher,
+	now: number,
+): Promise<CalendarOutcome<CalendarCollectionItem>> => {
+	const url = readSubscriptionUrl(input.subscriptionUrl);
+	if (!url.ok) return url;
+
+	const feed = await readCalendarFeed(url.value, fetcher);
+	if (!feed.ok) {
+		return refuseCalendar(
+			"SubscriptionUnreachable",
+			`the calendar was not created: ${feed.reason}`,
+		);
+	}
+
+	const created = await deps.calendarUnitOfWork.transaction(async (repos) => {
+		const made = await repos.calendarCollection.createExclusive({
+			accountConfigId,
+			urlSegment: collection.urlSegment,
+			displayName: input.displayName,
+			color: input.color,
+			timezone: collection.timezone,
+			source: CalendarSource.Subscribed,
+			subscriptionUrl: url.value,
+			subscriptionEnabled: true,
+		});
+		if (!made) return null;
+		await writeCalendarFeed(
+			deps.calendarUnitOfWork,
+			{ accountConfigId, calendarId: made.calendarId },
+			feed.value,
+			now,
+		);
+		return repos.calendarCollection.get(accountConfigId, made.calendarId);
+	});
+	if (!created) {
+		return refuseCalendar(
+			"UrlSegmentTaken",
+			`"${collection.urlSegment}" already addresses a calendar on this account — pick another`,
+		);
+	}
+	return { ok: true, value: created };
+};
+
 export const createCalendarFor = async (
 	deps: CalendarDeps,
 	accountConfigId: string,
 	input: CreateCalendarInput,
+	fetcher: CalendarFeedFetcher = fetch,
+	now: number = Date.now(),
 ): Promise<CalendarOutcome<CalendarCollectionItem>> => {
 	const urlSegment = normalizeCalendarUrlSegment(input.urlSegment);
 	if (urlSegment === "") {
@@ -194,6 +281,18 @@ export const createCalendarFor = async (
 
 	const timezone = readCollectionTimezone(input.timezone);
 	if (!timezone.ok) return timezone;
+
+	const { subscriptionUrl } = input;
+	if (subscriptionUrl !== undefined) {
+		return createSubscribedCalendarFor(
+			deps,
+			accountConfigId,
+			{ ...input, subscriptionUrl },
+			{ urlSegment, timezone: timezone.value },
+			fetcher,
+			now,
+		);
+	}
 
 	// The write decides, not a prior read: two creates of one segment arriving
 	// together would both find it free, and the loser would silently be handed
@@ -264,6 +363,9 @@ export const pickCalendarUpdate = (
 	if (Object.hasOwn(body, "displayName")) patch.displayName = body.displayName;
 	if (Object.hasOwn(body, "color")) patch.color = body.color;
 	if (Object.hasOwn(body, "timezone")) patch.timezone = body.timezone;
+	if (Object.hasOwn(body, "subscriptionEnabled")) {
+		patch.subscriptionEnabled = body.subscriptionEnabled;
+	}
 	return patch;
 };
 
@@ -288,6 +390,15 @@ export const updateCalendarFor = async (
 	if (!current.ok) return current;
 
 	const patch = pickCalendarUpdate(body);
+	if (
+		patch.subscriptionEnabled !== undefined &&
+		current.value.source !== CalendarSource.Subscribed
+	) {
+		return refuseCalendar(
+			"NotSubscribed",
+			`"${current.value.displayName}" is not subscribed to a feed, so there is no refresh to turn on or off`,
+		);
+	}
 	if (patch.timezone !== undefined) {
 		const timezone = readCollectionTimezone(patch.timezone);
 		if (!timezone.ok) return timezone;

@@ -1,6 +1,6 @@
 import type { CalendarDescriptor, CalendarEventData } from "@remit/ui";
 import { EventDetail } from "@remit/ui";
-import { AlertCircle, CalendarDays } from "lucide-react";
+import { AlertCircle, CalendarDays, Lock } from "lucide-react";
 import type { ReactNode } from "react";
 import { formatEventWhen } from "@/lib/calendar-format";
 
@@ -76,6 +76,11 @@ export interface CalendarEventPaneProps {
 	 * when the last one did.
 	 */
 	problem?: string;
+	/**
+	 * Why this event cannot be changed here, stated where Edit and Delete would
+	 * be. Empty for an event the reader can change.
+	 */
+	readOnlyNote?: string;
 	onEdit?: () => void;
 	onDelete?: () => void;
 	onClose: () => void;
@@ -87,6 +92,7 @@ export function CalendarEventPane({
 	isOccurrence,
 	absence = NOT_IN_VIEW,
 	problem = "",
+	readOnlyNote = "",
 	onEdit,
 	onDelete,
 	onClose,
@@ -127,6 +133,12 @@ export function CalendarEventPane({
 			{isOccurrence && (
 				<p className="shrink-0 border-b border-line bg-surface-sunken px-row-inset py-1.5 text-2xs uppercase tracking-wider text-fg-subtle">
 					One occurrence of a repeating event
+				</p>
+			)}
+			{readOnlyNote !== "" && (
+				<p className="flex shrink-0 items-start gap-2 border-b border-line bg-surface-sunken px-row-inset py-2 text-sm text-fg-muted">
+					<Lock className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+					<span className="min-w-0 flex-1 break-words">{readOnlyNote}</span>
 				</p>
 			)}
 			{problem !== "" && (

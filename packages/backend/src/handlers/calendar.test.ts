@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import type { CalendarFeedFetcher } from "@remit/calendar-service";
 import type {
 	CalendarCollectionItem,
 	CalendarEventIndexItem,
@@ -860,5 +861,220 @@ describe("the calendar collection wrappers", () => {
 			(refused.body as { code: string }).code,
 			"default_calendar_undeletable",
 		);
+	});
+});
+
+const FEED_URL =
+	"https://calendar.example/calendar/ical/rota%40example.com/private-0ddba11/basic.ics";
+
+const feedOf = (...events: string[][]): string =>
+	`${[
+		"BEGIN:VCALENDAR",
+		"VERSION:2.0",
+		"PRODID:-//Example//Published Calendar//EN",
+		"METHOD:PUBLISH",
+		...events.flat(),
+		"END:VCALENDAR",
+	].join("\r\n")}\r\n`;
+
+const FERRY = [
+	"BEGIN:VEVENT",
+	"UID:ferry@calendar.example",
+	"DTSTAMP:20260901T000000Z",
+	"DTSTART:20260908T070000Z",
+	"DTEND:20260908T080000Z",
+	"RRULE:FREQ=DAILY;COUNT=3",
+	"SUMMARY:Ferry crossing",
+	"END:VEVENT",
+];
+
+const LOCKS = [
+	"BEGIN:VEVENT",
+	"UID:locks@calendar.example",
+	"DTSTAMP:20260901T000000Z",
+	"DTSTART;VALUE=DATE:20260910",
+	"DTEND;VALUE=DATE:20260911",
+	"SUMMARY:Locks closed",
+	"END:VEVENT",
+];
+
+const serving =
+	(body: string, status = 200): CalendarFeedFetcher =>
+	async () =>
+		new Response(body, { status });
+
+const subscribe = async (
+	account: CalendarAccount,
+	fetcher: CalendarFeedFetcher = serving(feedOf(FERRY, LOCKS)),
+) =>
+	createCalendarFor(
+		account.eventDeps(),
+		account.accountConfigId,
+		{
+			urlSegment: "harbour",
+			displayName: "Harbour",
+			subscriptionUrl: FEED_URL.replace("https:", "webcal:"),
+		},
+		fetcher,
+		1_000,
+	);
+
+describe("a subscribed calendar", () => {
+	it("is created with the feed's events already in it", async () => {
+		const account = anAccount();
+
+		const created = await subscribe(account);
+
+		assert.ok(created.ok, JSON.stringify(created));
+		assert.equal(created.value.source, CalendarSource.Subscribed);
+		assert.equal(created.value.subscriptionUrl, FEED_URL);
+		assert.equal(created.value.subscriptionEnabled, true);
+		assert.equal(created.value.subscriptionFetchedAt, 1_000);
+		assert.equal(created.value.subscriptionError, "");
+		const objects = await account.objects();
+		assert.deepEqual(objects.map((object) => object.summary).sort(), [
+			"Ferry crossing",
+			"Locks closed",
+		]);
+		const ferry = objects.find((object) => object.summary === "Ferry crossing");
+		assert.ok(ferry);
+		assert.equal((await account.occurrences(ferry)).length, 3);
+	});
+
+	it("is not created when the feed cannot be read, and says why without the address", async () => {
+		const account = anAccount();
+
+		const created = await subscribe(account, serving("nope", 401));
+
+		assert.ok(!created.ok);
+		assert.equal(created.error.code, "SubscriptionUnreachable");
+		assert.equal(
+			created.error.message,
+			"the calendar was not created: the feed answered HTTP 401",
+		);
+		assert.equal(created.error.message.includes("private-0ddba11"), false);
+		assert.deepEqual(await account.collections(), []);
+	});
+
+	it("refuses an address that is not a web address", async () => {
+		const account = anAccount();
+
+		const created = await createCalendarFor(
+			account.deps(),
+			account.accountConfigId,
+			{
+				urlSegment: "harbour",
+				displayName: "Harbour",
+				subscriptionUrl: "file:///etc/passwd",
+			},
+			serving(feedOf(FERRY)),
+		);
+
+		assert.ok(!created.ok);
+		assert.equal(created.error.code, "InvalidSubscriptionUrl");
+	});
+
+	it("refuses a new event, an edit and a delete", async () => {
+		const account = anAccount();
+		const created = await subscribe(account);
+		assert.ok(created.ok);
+		const deps = account.eventDeps();
+		const [ferry] = (await account.objects()).filter(
+			(object) => object.summary === "Ferry crossing",
+		);
+		assert.ok(ferry);
+		const request = {
+			calendarId: created.value.calendarId,
+			calendarObjectId: ferry.calendarObjectId,
+			scope: RecurrenceScope.All,
+			recurrenceId: "",
+			ifMatch: undefined,
+		};
+
+		const added = await createCalendarEventFor(deps, account.accountConfigId, {
+			calendarId: created.value.calendarId,
+			summary: "Smuggled in",
+			start: "2026-09-09T09:00:00Z",
+			end: "2026-09-09T10:00:00Z",
+		});
+		const edited = await updateCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			request,
+			{ summary: "Renamed" },
+		);
+		const removed = await deleteCalendarEventFor(
+			deps,
+			account.accountConfigId,
+			request,
+		);
+
+		for (const outcome of [added, edited, removed]) {
+			assert.ok(!outcome.ok);
+			assert.equal(outcome.error.code, "ReadOnlyCalendar");
+		}
+		const stored = await account.object(
+			created.value.calendarId,
+			ferry.calendarObjectId,
+		);
+		assert.equal(stored?.etag, ferry.etag);
+		assert.equal((await account.objects()).length, 2);
+	});
+
+	it("turns its refresh off without removing a collection or an event", async () => {
+		const account = anAccount();
+		const created = await subscribe(account);
+		assert.ok(created.ok);
+		const held = await account.objects();
+
+		const paused = await updateCalendarFor(
+			account.deps(),
+			account.accountConfigId,
+			created.value.calendarId,
+			{ subscriptionEnabled: false },
+		);
+
+		assert.ok(paused.ok);
+		assert.equal(paused.value.subscriptionEnabled, false);
+		assert.equal(paused.value.source, CalendarSource.Subscribed);
+		assert.deepEqual(
+			(await account.objects()).map((object) => object.etag).sort(),
+			held.map((object) => object.etag).sort(),
+		);
+		const enabled = await client.calendarCollection.listEnabledSubscriptions();
+		assert.equal(
+			enabled.some(
+				(collection) => collection.calendarId === created.value.calendarId,
+			),
+			false,
+		);
+
+		const resumed = await updateCalendarFor(
+			account.deps(),
+			account.accountConfigId,
+			created.value.calendarId,
+			{ subscriptionEnabled: true },
+		);
+		assert.ok(resumed.ok);
+		assert.equal(resumed.value.subscriptionEnabled, true);
+	});
+
+	it("refuses to turn a refresh on for a calendar that has no feed", async () => {
+		const account = anAccount();
+		const [own] = await listCalendarsFor(
+			account.deps(),
+			account.accountConfigId,
+		);
+		assert.ok(own);
+
+		const updated = await updateCalendarFor(
+			account.deps(),
+			account.accountConfigId,
+			own.calendarId,
+			{ subscriptionEnabled: true },
+		);
+
+		assert.ok(!updated.ok);
+		assert.equal(updated.error.code, "NotSubscribed");
 	});
 });

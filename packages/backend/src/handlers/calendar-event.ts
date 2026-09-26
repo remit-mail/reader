@@ -46,6 +46,7 @@ import {
 	type CalendarOutcome,
 	calendarDepsOf,
 	findCalendarFor,
+	findWritableCalendarFor,
 	listCalendarsFor,
 	notFound,
 	preconditionFailed,
@@ -348,7 +349,7 @@ export const createCalendarEventFor = async (
 	accountConfigId: string,
 	input: CreateCalendarEventInput,
 ): Promise<CalendarOutcome<CalendarObjectItem>> => {
-	const collection = await findCalendarFor(
+	const collection = await findWritableCalendarFor(
 		deps,
 		accountConfigId,
 		input.calendarId,
@@ -388,12 +389,12 @@ const resolveResource = async (
 	deps: CalendarEventDeps,
 	accountConfigId: string,
 	request: Pick<ScopedRequest, "calendarId" | "calendarObjectId">,
+	intent: "read" | "write",
 ): Promise<CalendarOutcome<ResolvedResource>> => {
-	const collection = await findCalendarFor(
-		deps,
-		accountConfigId,
-		request.calendarId,
-	);
+	const collection =
+		intent === "write"
+			? await findWritableCalendarFor(deps, accountConfigId, request.calendarId)
+			: await findCalendarFor(deps, accountConfigId, request.calendarId);
 	if (!collection.ok) return collection;
 
 	const object = await deps.calendarObject.find(
@@ -415,7 +416,12 @@ export const updateCalendarEventFor = async (
 	request: ScopedRequest,
 	patch: Partial<CalendarEventFields>,
 ): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
-	const resolved = await resolveResource(deps, accountConfigId, request);
+	const resolved = await resolveResource(
+		deps,
+		accountConfigId,
+		request,
+		"write",
+	);
 	if (!resolved.ok) return resolved;
 	const { collection, object } = resolved.value;
 
@@ -458,7 +464,12 @@ export const deleteCalendarEventFor = async (
 	accountConfigId: string,
 	request: ScopedRequest,
 ): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
-	const resolved = await resolveResource(deps, accountConfigId, request);
+	const resolved = await resolveResource(
+		deps,
+		accountConfigId,
+		request,
+		"write",
+	);
 	if (!resolved.ok) return resolved;
 	const { collection, object } = resolved.value;
 
@@ -646,6 +657,7 @@ export const CalendarEventDetailOperations: Record<
 			deps,
 			accountConfigId,
 			request.value,
+			"read",
 		);
 		if (!resolved.ok) return answerRefusal(resolved.error);
 		return toEventResponse(resolved.value.object);

@@ -8,6 +8,7 @@
  * indistinguishable from a week with nothing in it.
  */
 import { calendarOperationsListCalendarsOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapCalendarResponse } from "@remit/api-http-client/types.gen.ts";
 import type { CalendarColorId, CalendarDescriptor } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -15,6 +16,8 @@ import { toCalendarDescriptor } from "./instance";
 
 export interface CalendarsResult {
 	calendars: CalendarDescriptor[];
+	/** The collections as the API returned them, for a surface that manages them. */
+	collections: RemitImapCalendarResponse[];
 	colorByCalendarId: Record<string, CalendarColorId>;
 	/** The zone each collection's floating times are read in. */
 	timeZoneByCalendarId: Record<string, string>;
@@ -39,6 +42,7 @@ export function useCalendars(): CalendarsResult {
 		const calendars = items.map(toCalendarDescriptor);
 		return {
 			calendars,
+			collections: items,
 			colorByCalendarId: Object.fromEntries(
 				calendars.map((calendar) => [calendar.id, calendar.color]),
 			),

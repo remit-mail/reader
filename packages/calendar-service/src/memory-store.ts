@@ -65,6 +65,11 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 				source: input.source ?? "UserCreated",
 				timezone: input.timezone ?? "",
 				syncSequence: 0,
+				subscriptionUrl: input.subscriptionUrl ?? "",
+				subscriptionEnabled: input.subscriptionEnabled ?? false,
+				subscriptionCheckedAt: 0,
+				subscriptionFetchedAt: 0,
+				subscriptionError: "",
 				createdAt: now,
 				updatedAt: now,
 			};
@@ -102,6 +107,11 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			if (this.collections.has(calendarId)) return null;
 			return this.collectionRepo.create(input);
 		},
+		listEnabledSubscriptions: async () =>
+			[...this.collections.values()].filter(
+				(collection) =>
+					collection.source === "Subscribed" && collection.subscriptionEnabled,
+			),
 		findByUrlSegment: async (accountConfigId: string, urlSegment: string) =>
 			this.collections.get(deriveCalendarId(accountConfigId, urlSegment)) ??
 			null,

@@ -3,7 +3,10 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { CalendarCreateCard } from "@/components/settings/CalendarCreateCard";
 import { CalendarSettingsPanel } from "@/components/settings/CalendarSettingsPanel";
+import { CalendarSubscribeCard } from "@/components/settings/CalendarSubscribeCard";
+import { CalendarSubscriptionStatus } from "@/components/settings/CalendarSubscriptionStatus";
 import { useCalendarCollectionWrites } from "@/hooks/calendar/useCalendarCollectionWrites";
+import { useCalendarSubscriptions } from "@/hooks/calendar/useCalendarSubscriptions";
 import { useCalendars } from "@/hooks/calendar/useCalendars";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
@@ -34,13 +37,19 @@ const calendarsHelp = (
 			looked up later. Replacing it breaks every subscription built on the old
 			one, which is how a shared address is taken back.
 		</p>
+		<p>
+			Subscribing works the other way round: paste another calendar's iCal
+			address and its events show here, read-only, refreshed on a schedule.
+		</p>
 	</div>
 );
 
 function CalendarsSettings() {
 	const navigate = useNavigate();
 	const [helpOpen, setHelpOpen] = useState(true);
-	const { calendars, timeZoneByCalendarId, isLoading } = useCalendars();
+	const { calendars, collections, timeZoneByCalendarId, isLoading } =
+		useCalendars();
+	const subscriptions = useCalendarSubscriptions();
 	const { createCalendar, isWriting } = useCalendarCollectionWrites();
 	const [createProblem, setCreateProblem] = useState("");
 
@@ -49,7 +58,7 @@ function CalendarsSettings() {
 			items={SETTINGS_NAV_ITEMS}
 			activeId="calendars"
 			title="Calendars"
-			description="Add, rename and delete calendars, and share one with any client that can subscribe to a URL."
+			description="Add, rename and delete calendars, subscribe to a calendar feed, and share one with any client that can subscribe to a URL."
 			help={calendarsHelp}
 			helpOpen={helpOpen}
 			onToggleHelp={() => setHelpOpen((open) => !open)}
@@ -68,14 +77,44 @@ function CalendarsSettings() {
 				/>
 			) : (
 				<div className="space-y-4">
-					{calendars.map((calendar) => (
-						<CalendarSettingsPanel
-							key={calendar.id}
-							calendarId={calendar.id}
-							calendarName={calendar.name}
-							timezone={timeZoneByCalendarId[calendar.id] ?? ""}
-						/>
-					))}
+					{calendars.map((calendar) => {
+						const collection = collections.find(
+							(candidate) => candidate.calendarId === calendar.id,
+						);
+						return (
+							<CalendarSettingsPanel
+								key={calendar.id}
+								calendarId={calendar.id}
+								calendarName={calendar.name}
+								timezone={timeZoneByCalendarId[calendar.id] ?? ""}
+								subscription={
+									collection?.source === "Subscribed" && (
+										<CalendarSubscriptionStatus
+											calendarName={collection.displayName}
+											subscriptionUrl={collection.subscriptionUrl}
+											enabled={collection.subscriptionEnabled}
+											fetchedAt={collection.subscriptionFetchedAt}
+											error={collection.subscriptionError}
+											isBusy={subscriptions.togglingCalendarId === calendar.id}
+											actionError={
+												subscriptions.toggleFailure.calendarId === calendar.id
+													? subscriptions.toggleFailure.error
+													: undefined
+											}
+											onSetEnabled={(enabled) =>
+												subscriptions.setEnabled(calendar.id, enabled)
+											}
+										/>
+									)
+								}
+							/>
+						);
+					})}
+					<CalendarSubscribeCard
+						isBusy={subscriptions.isSubscribing}
+						error={subscriptions.subscribeError}
+						onSubscribe={subscriptions.subscribe}
+					/>
 					<CalendarCreateCard
 						isBusy={isWriting}
 						problem={createProblem}

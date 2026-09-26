@@ -13,6 +13,14 @@ const required = (name: string): string => {
 
 export const baseUrl = `http://localhost:${required("E2E_HTTP_PORT")}`;
 
+/**
+ * The same web origin as the deployment itself dials it, for a URL the server
+ * fetches on the suite's behalf — a calendar subscription. On the image stack
+ * the app is a container and reaches the edge by its service name; on the
+ * source-built stack it is a host process and shares the suite's loopback.
+ */
+export const webFromStack = process.env.E2E_WEB_STACK_ORIGIN ?? baseUrl;
+
 /** How the suite reaches Dovecot: a published loopback port. */
 export const imap = {
 	host: "127.0.0.1",
