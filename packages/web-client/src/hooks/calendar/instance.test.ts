@@ -148,6 +148,7 @@ describe("the day a view moves to for an event it does not hold", () => {
 			{
 				calendarObjectId: "obj_1",
 				recurrenceId: "2034-03-13T01:00:00Z",
+				calendarId: "cal_work",
 				date: "2034-03-12",
 			},
 		);
@@ -159,6 +160,7 @@ describe("the day a view moves to for an event it does not hold", () => {
 			{
 				calendarObjectId: "obj_1",
 				recurrenceId: "2034-03-06T01:00:00Z",
+				calendarId: "cal_work",
 				date: "2034-03-06",
 			},
 		);
@@ -186,7 +188,12 @@ describe("the day a view moves to for an event it does not hold", () => {
 				"2034-01-01T00:00:00Z",
 				"Pacific/Pago_Pago",
 			),
-			{ calendarObjectId: "obj_2", recurrenceId: "", date: "2034-03-01" },
+			{
+				calendarObjectId: "obj_2",
+				recurrenceId: "",
+				calendarId: "cal_work",
+				date: "2034-03-01",
+			},
 		);
 	});
 

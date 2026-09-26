@@ -106,17 +106,53 @@ export const NotOnThisWeek: Story = {
 
 /** Looking for the day an event the view does not hold falls on. */
 export const Finding: Story = {
-	args: { event: undefined, calendar: undefined, absence: "Finding" },
+	args: { event: undefined, calendar: undefined, absence: { kind: "Finding" } },
 };
 
-/** A series whose rule, or whose removed days, leave it no occurrence at all. */
-export const NoOccurrences: Story = {
-	args: { event: undefined, calendar: undefined, absence: "NoOccurrences" },
+/** The address names a resource none of the reader's calendars holds. */
+export const Deleted: Story = {
+	args: { event: undefined, calendar: undefined, absence: { kind: "Deleted" } },
 };
 
-/** The look-up itself failed, which is said rather than drawn as absence. */
+/** A series that falls on no day in its first year or the coming one. */
+export const NoOccurrenceFound: Story = {
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: { kind: "NoOccurrenceFound" },
+	},
+};
+
+/** The session ended during the look-up; the way back in is on the pane. */
+export const SignedOut: Story = {
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: {
+			kind: "SignedOut",
+			signIn: (
+				<button
+					type="button"
+					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg"
+				>
+					Sign in again
+				</button>
+			),
+		},
+	},
+};
+
+/** The look-up failed, with the server's reason and a way to report it. */
 export const LookupFailed: Story = {
-	args: { event: undefined, calendar: undefined, absence: "Failed" },
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: {
+			kind: "Failed",
+			reason: "Internal server error (HTTP 500)",
+			reportHref: "https://github.com/remit-mail/reader/issues/new",
+		},
+	},
 };
 
 /**

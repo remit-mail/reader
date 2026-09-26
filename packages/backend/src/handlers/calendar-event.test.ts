@@ -36,6 +36,8 @@ const listEvents =
 	CalendarEventOperations.CalendarEventOperations_listCalendarEvents as Handler;
 const createEvent =
 	CalendarEventOperations.CalendarEventOperations_createCalendarEvent as Handler;
+const getEvent =
+	CalendarEventDetailOperations.CalendarEventDetailOperations_getCalendarEvent as Handler;
 const updateEvent =
 	CalendarEventDetailOperations.CalendarEventDetailOperations_updateCalendarEvent as Handler;
 const deleteEvent =
@@ -261,6 +263,118 @@ describe("GET /calendar-events", () => {
 		assert.equal(backwards.statusCode, 400);
 		assert.equal((backwards.body as { code: string }).code, "invalid_window");
 		assert.equal(tooWide.statusCode, 400);
+	});
+});
+
+describe("GET /calendar-events?calendarObjectId", () => {
+	it("lists the occurrences of that one resource, across the caller's calendars", async () => {
+		const { event } = anAccount();
+		const defaultId = await defaultCalendarId(event);
+		const work = (await createCalendar(
+			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
+			event,
+		)) as unknown as { calendarId: string };
+		const series = await seedEvent(event, {
+			calendarId: work.calendarId,
+			summary: "Stand-up",
+			start: "2026-09-07T09:00:00Z",
+			end: "2026-09-07T09:15:00Z",
+			recurrenceRule: "FREQ=WEEKLY;COUNT=3",
+		});
+		await seedEvent(event, {
+			calendarId: defaultId,
+			summary: "Dentist",
+			start: "2026-09-08T09:00:00Z",
+			end: "2026-09-08T10:00:00Z",
+		});
+
+		const listed = (await listEvents(
+			contextOf({
+				query: { ...WINDOW, calendarObjectId: series.calendarObjectId },
+			}),
+			event,
+		)) as unknown as { items: Instance[] };
+
+		assert.deepEqual(
+			listed.items.map((instance) => [
+				instance.calendarId,
+				instance.start.slice(0, 10),
+			]),
+			[
+				[work.calendarId, "2026-09-07"],
+				[work.calendarId, "2026-09-14"],
+				[work.calendarId, "2026-09-21"],
+			],
+		);
+	});
+
+	it("lists nothing for a resource on another account", async () => {
+		const stranger = anAccount();
+		const theirs = await seedEvent(stranger.event, {
+			calendarId: await defaultCalendarId(stranger.event),
+			summary: "Private",
+			start: "2026-09-07T09:00:00Z",
+			end: "2026-09-07T10:00:00Z",
+		});
+		const { event } = anAccount();
+
+		const listed = (await listEvents(
+			contextOf({
+				query: { ...WINDOW, calendarObjectId: theirs.calendarObjectId },
+			}),
+			event,
+		)) as unknown as { items: Instance[] };
+
+		assert.deepEqual(listed.items, []);
+	});
+});
+
+describe("GET /calendar-events/{calendarObjectId} without a calendar", () => {
+	it("finds the resource among the caller's calendars", async () => {
+		const { event } = anAccount();
+		await defaultCalendarId(event);
+		const work = (await createCalendar(
+			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
+			event,
+		)) as unknown as { calendarId: string };
+		const seeded = await seedEvent(event, {
+			calendarId: work.calendarId,
+			summary: "Stand-up",
+			start: "2026-09-07T09:00:00Z",
+			end: "2026-09-07T09:15:00Z",
+		});
+
+		const found = (await getEvent(
+			contextOf({
+				params: { calendarObjectId: seeded.calendarObjectId },
+				query: {},
+			}),
+			event,
+		)) as unknown as { calendarId: string; dtStart: string };
+
+		assert.equal(found.calendarId, work.calendarId);
+		assert.match(found.dtStart, /^2026-09-07/);
+	});
+
+	it("answers not-found for a resource on another account", async () => {
+		const stranger = anAccount();
+		const theirs = await seedEvent(stranger.event, {
+			calendarId: await defaultCalendarId(stranger.event),
+			summary: "Private",
+			start: "2026-09-07T09:00:00Z",
+			end: "2026-09-07T10:00:00Z",
+		});
+		const { event } = anAccount();
+
+		const found = await getEvent(
+			contextOf({
+				params: { calendarObjectId: theirs.calendarObjectId },
+				query: {},
+			}),
+			event,
+		);
+
+		assert.equal(found.statusCode, 404);
 	});
 });
 

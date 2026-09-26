@@ -93,5 +93,6 @@ export {
 	isBusy,
 	listBusySpans,
 	listCalendarInstances,
+	listObjectInstances,
 	mergeBusySpans,
 } from "./window.js";

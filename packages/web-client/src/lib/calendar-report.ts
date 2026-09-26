@@ -9,3 +9,13 @@ export function calendarReportHref(what: string): string {
 		}),
 	);
 }
+
+/** A prefilled issue for an event the calendar could not look up. */
+export function calendarEventReportHref(what: string): string {
+	return buildGitHubIssueUrl(
+		buildBugReportContext({
+			title: `Calendar event: ${what}`,
+			errorMessage: what,
+		}),
+	);
+}

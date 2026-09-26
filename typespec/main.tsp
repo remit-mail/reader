@@ -511,6 +511,10 @@ namespace RemitApi {
       @doc("Restrict to these collections, repeated once per calendar. Omitted means every calendar the caller holds.")
       @query(#{ explode: true })
       calendarId?: UUID[],
+
+      @doc("Restrict to the occurrences of this one resource, read from it alone rather than from its collection. A resource none of the listed collections holds lists nothing.")
+      @query(#{ explode: true })
+      calendarObjectId?: UUID,
     ):
       | CalendarEventListResponse
       | ValidationError
@@ -535,9 +539,9 @@ namespace RemitApi {
     op getCalendarEvent(
       @path calendarObjectId: UUID,
 
-      @doc("Collection the resource lives in. A resource is addressed by its collection and its own id, which is what a client holds: every occurrence a listing returns carries both.")
+      @doc("Collection the resource lives in. A resource is addressed by its collection and its own id, which is what a client holds: every occurrence a listing returns carries both. Omitted, the resource is looked for in every collection the caller holds.")
       @query(#{ explode: true })
-      calendarId: UUID,
+      calendarId?: UUID,
     ):
       | CalendarEventResponse
       | ValidationError

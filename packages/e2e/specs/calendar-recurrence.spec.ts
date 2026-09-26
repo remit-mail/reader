@@ -711,4 +711,67 @@ test.describe("A one-off event given a repeat", () => {
 			page.getByRole("button", { name: "This event" }),
 		).toBeVisible();
 	});
+	test("opens a series in a hidden calendar at its next occurrence and shows that calendar (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam running sync";
+		const today = new Date().toISOString().slice(0, 10);
+		const FIRST = addDays(today, -56);
+
+		const [shown] = await api.listCalendars();
+		const shownId = shown?.calendarId ?? "";
+		expect(shownId).not.toBe("");
+		const hidden = await api.createCalendar({
+			urlSegment: `hidden-${Date.now()}`,
+			displayName: "Fabrikam hidden",
+		});
+		const series = await api.createCalendarEvent({
+			calendarId: hidden.calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: "FREQ=WEEKLY;COUNT=20",
+		});
+
+		try {
+			const RANGE = window(addDays(today, -1), addDays(today, 15));
+			const around = await waitFor(
+				() => api.listCalendarEvents(RANGE.from, RANGE.to),
+				(items) =>
+					items.some(
+						(item) => item.calendarObjectId === series.calendarObjectId,
+					),
+				{ what: "the running series to be expanded around today" },
+			);
+			const next = around.find(
+				(item) =>
+					item.calendarObjectId === series.calendarObjectId &&
+					Date.parse(item.end) > Date.now(),
+			);
+			if (!next) throw new Error("the series has no occurrence still to come");
+			expect(next.start.slice(0, 10) > FIRST).toBe(true);
+
+			await page.goto(
+				`/calendar/week/2031-01-06/${series.calendarObjectId}?calendarId=${shownId}`,
+			);
+			await expect(page).toHaveURL(
+				new RegExp(
+					`/calendar/week/${next.start.slice(0, 10)}/${series.calendarObjectId}/${encodeURIComponent(next.recurrenceId)}\\?`,
+				),
+				{ timeout: 30_000 },
+			);
+			expect(new URL(page.url()).searchParams.getAll("calendarId")).toEqual([
+				shownId,
+				hidden.calendarId,
+			]);
+			await expect(
+				page.getByRole("button", { name: "Edit", exact: true }),
+			).toBeVisible({ timeout: 30_000 });
+		} finally {
+			await api.deleteCalendarEvent(series.calendarObjectId, hidden.calendarId);
+			await api.deleteCalendar(hidden.calendarId);
+		}
+	});
 });

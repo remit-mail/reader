@@ -121,7 +121,8 @@ export function seriesOccurrenceOf(
 }
 
 export interface CalendarJump extends CalendarInstanceRef {
-	/** The day the occurrence falls on, on the clock the calendar is drawn in. */
+	calendarId: string;
+	/** On the clock the calendar is drawn in. */
 	date: string;
 }
 
@@ -148,6 +149,7 @@ export function calendarJumpOf(
 	if (!picked) return undefined;
 	return {
 		...readCalendarInstanceId(picked.id),
+		calendarId: picked.calendarId,
 		date: picked.start.slice(0, 10),
 	};
 }

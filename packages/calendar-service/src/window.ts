@@ -158,6 +158,55 @@ export const listCalendarInstances = async (
 		.sort((left, right) => left.startAt.localeCompare(right.startAt));
 };
 
+/**
+ * The occurrences of one resource in a window, read from that resource alone:
+ * its own index rows where the index reaches the window, and a live expansion
+ * of it where it does not.
+ */
+export const listObjectInstances = async (
+	repositories: {
+		calendarEventIndex: Pick<ICalendarEventIndexRepository, "listForObject">;
+	},
+	collection: CalendarCollectionItem,
+	object: CalendarObjectItem,
+	window: CalendarWindow,
+): Promise<CalendarInstance[]> => {
+	const fromMs = Date.parse(window.from);
+	const toMs = Date.parse(window.to);
+	const indexReaches =
+		object.expandedThrough === "" || object.expandedThrough >= window.to;
+
+	const occurrences = indexReaches
+		? await repositories.calendarEventIndex.listForObject(
+				collection.calendarId,
+				object.calendarObjectId,
+			)
+		: await expandObject(object, collection.timezone, fromMs, toMs);
+
+	return occurrences
+		.map((occurrence) => instanceOf(collection, object, occurrence))
+		.filter((instance) => overlapsWindow(instance, fromMs, toMs))
+		.sort((left, right) => left.startAt.localeCompare(right.startAt));
+};
+
+const expandObject = async (
+	object: CalendarObjectItem,
+	timezone: string,
+	fromMs: number,
+	toMs: number,
+): Promise<CalendarOccurrenceInput[]> => {
+	const parsed = await parseCalendar(object.icalData);
+	if (!parsed.ok) {
+		throw new Error(
+			`stored calendar object ${object.calendarObjectId} no longer parses: ${parsed.error.message}`,
+		);
+	}
+	return expandCalendarWindow(parsed.value, timezone, {
+		fromMs: fromMs - LOOKBACK_MS,
+		toMs,
+	});
+};
+
 const overlapsWindow = (
 	instance: CalendarInstance,
 	fromMs: number,

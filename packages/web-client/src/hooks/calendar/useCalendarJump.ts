@@ -2,86 +2,90 @@ import {
 	calendarEventDetailOperationsGetCalendarEventOptions,
 	calendarEventOperationsListCalendarEventsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { softErrorStatuses } from "@/lib/error-classifier";
+import { getErrorStatus, softErrorStatuses } from "@/lib/error-classifier";
 import { type CalendarJump, calendarJumpOf, deviceTimeZone } from "./instance";
-import { useCalendars } from "./useCalendars";
 
-/**
- * Finding an event the view on screen does not hold, for an address that names
- * it. Occurrences still to come are asked for first; failing those, the
- * resource is found among the calendars and the year from its start is read,
- * so an event that has ended opens at its first occurrence.
- */
 export type CalendarJumpSearch =
 	| { kind: "Idle" }
 	| { kind: "Searching" }
 	| { kind: "Found"; jump: CalendarJump }
-	| { kind: "NoOccurrences" }
-	| { kind: "Missing" }
-	| { kind: "Failed" };
+	| { kind: "Deleted" }
+	| { kind: "NoOccurrenceFound" }
+	| { kind: "SignedOut" }
+	| { kind: "Failed"; reason: string };
 
-const YEAR_MS = 365 * 24 * 60 * 60_000;
+const WINDOW_MS = 365 * 24 * 60 * 60_000;
 const DAY_MS = 24 * 60 * 60_000;
 
-const RESOURCE_META = softErrorStatuses(404);
+const LISTING_META = softErrorStatuses(401);
+const RESOURCE_META = softErrorStatuses(401, 404);
 
 const instant = (ms: number): string =>
 	new Date(ms).toISOString().replace(/\.\d{3}Z$/, "+00:00");
 
-const inCalendars = (calendarIds: readonly string[]) =>
-	calendarIds.length === 0 ? {} : { calendarId: [...calendarIds] };
+const reasonOf = (error: unknown): string => {
+	const message =
+		error instanceof Error && error.message !== ""
+			? error.message
+			: "no reason given";
+	const status = getErrorStatus(error);
+	return status === undefined ? message : `${message} (HTTP ${status})`;
+};
 
+/**
+ * Finds the day an event falls on when the view on screen does not hold it:
+ * its occurrences in the coming year first, and failing those, the year from
+ * the resource's own start — so an event that has ended opens at its first.
+ */
 export function useCalendarJump(
 	calendarObjectId: string,
-	calendarIds: readonly string[],
 	enabled: boolean,
 ): CalendarJumpSearch {
 	const [now] = useState(() => Date.now());
 	const clock = deviceTimeZone();
 	const nowIso = new Date(now).toISOString();
-	const { calendars } = useCalendars();
 
 	const ahead = useQuery({
 		...calendarEventOperationsListCalendarEventsOptions({
 			query: {
 				from: instant(now),
-				to: instant(now + YEAR_MS),
-				...inCalendars(calendarIds),
+				to: instant(now + WINDOW_MS),
+				calendarObjectId,
 			},
 		}),
+		meta: LISTING_META,
+		retry: false,
 		enabled,
 	});
 	const upcoming = ahead.data
 		? calendarJumpOf(ahead.data.items, calendarObjectId, nowIso, clock)
 		: undefined;
 
-	const probing = enabled && ahead.data !== undefined && upcoming === undefined;
-	const probes = useQueries({
-		queries: calendars.map((calendar) => ({
-			...calendarEventDetailOperationsGetCalendarEventOptions({
-				path: { calendarObjectId },
-				query: { calendarId: calendar.id },
-			}),
-			meta: RESOURCE_META,
-			retry: false,
-			enabled: probing,
-		})),
+	const lookup = useQuery({
+		...calendarEventDetailOperationsGetCalendarEventOptions({
+			path: { calendarObjectId },
+		}),
+		meta: RESOURCE_META,
+		retry: false,
+		enabled: enabled && ahead.data !== undefined && upcoming === undefined,
 	});
-	const resource = probes.find((probe) => probe.data !== undefined)?.data;
-	const probed = probes.every((probe) => probe.status !== "pending");
 
-	const firstFrom = resource ? Date.parse(resource.dtStart) - DAY_MS : 0;
+	const started = Date.parse(lookup.data?.dtStart ?? "");
+	const unreadableStart = lookup.data !== undefined && Number.isNaN(started);
+	const firstFrom = Number.isNaN(started) ? 0 : started - DAY_MS;
 	const first = useQuery({
 		...calendarEventOperationsListCalendarEventsOptions({
 			query: {
 				from: instant(firstFrom),
-				to: instant(firstFrom + YEAR_MS),
-				calendarId: [resource?.calendarId ?? ""],
+				to: instant(firstFrom + WINDOW_MS),
+				calendarObjectId,
 			},
 		}),
-		enabled: probing && resource !== undefined,
+		meta: LISTING_META,
+		retry: false,
+		enabled: enabled && lookup.data !== undefined && !unreadableStart,
 	});
 	const earliest = first.data
 		? calendarJumpOf(first.data.items, calendarObjectId, nowIso, clock)
@@ -90,9 +94,24 @@ export function useCalendarJump(
 	if (!enabled) return { kind: "Idle" };
 	if (upcoming) return { kind: "Found", jump: upcoming };
 	if (earliest) return { kind: "Found", jump: earliest };
-	if (ahead.isError || first.isError) return { kind: "Failed" };
-	if (ahead.data === undefined || !probed) return { kind: "Searching" };
-	if (resource === undefined) return { kind: "Missing" };
-	if (first.data === undefined) return { kind: "Searching" };
-	return { kind: "NoOccurrences" };
+
+	const deleted = getErrorStatus(lookup.error) === 404;
+	const failure = [
+		ahead.error,
+		deleted ? null : lookup.error,
+		first.error,
+	].find((error) => error !== null);
+	if (failure !== undefined) {
+		return getErrorStatus(failure) === 401
+			? { kind: "SignedOut" }
+			: { kind: "Failed", reason: reasonOf(failure) };
+	}
+	if (deleted) return { kind: "Deleted" };
+	if (unreadableStart)
+		return {
+			kind: "Failed",
+			reason: `the stored event names no readable start (${lookup.data?.dtStart ?? ""})`,
+		};
+	if (first.data !== undefined) return { kind: "NoOccurrenceFound" };
+	return { kind: "Searching" };
 }

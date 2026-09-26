@@ -5,6 +5,7 @@ import {
 } from "@remit/ui";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useAuthProvider } from "@/auth/provider";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
 import {
 	type CalendarEventAbsence,
@@ -35,6 +36,8 @@ import {
 } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
 import { formatEventWhen } from "@/lib/calendar-format";
+import { calendarEventReportHref } from "@/lib/calendar-report";
+import type { CalendarSearch } from "@/lib/calendar-route";
 import { useCalendarAddress, useCalendarNavigation } from "@/routing";
 
 /**
@@ -62,14 +65,46 @@ const CONFLICT =
 
 type Intent = "edit" | "delete";
 
+function SignInAgain() {
+	const { Account } = useAuthProvider();
+	return (
+		<Account>
+			{({ signOut }) => (
+				<button
+					type="button"
+					onClick={() => signOut()}
+					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					Sign in again
+				</button>
+			)}
+		</Account>
+	);
+}
+
 const absenceOf = (
 	search: CalendarJumpSearch,
 	loading: boolean,
 ): CalendarEventAbsence => {
-	if (search.kind === "NoOccurrences") return "NoOccurrences";
-	if (search.kind === "Failed") return "Failed";
-	if (search.kind === "Searching" || loading) return "Finding";
-	return "NotInView";
+	switch (search.kind) {
+		case "Deleted":
+		case "NoOccurrenceFound":
+			return { kind: search.kind };
+		case "SignedOut":
+			return { kind: "SignedOut", signIn: <SignInAgain /> };
+		case "Failed":
+			return {
+				kind: "Failed",
+				reason: search.reason,
+				reportHref: calendarEventReportHref(
+					`opening an event failed: ${search.reason}`,
+				),
+			};
+		case "Searching":
+			return { kind: "Finding" };
+		default:
+			return { kind: loading ? "Finding" : "NotInView" };
+	}
 };
 
 export function OpenCalendarEvent({
@@ -92,7 +127,6 @@ export function OpenCalendarEvent({
 		: undefined;
 	const search = useCalendarJump(
 		calendarObjectId,
-		calendarIds,
 		seriesOnly && !isLoading && occurrence === undefined,
 	);
 	const calendar = calendars.find(
@@ -218,13 +252,23 @@ export function OpenCalendarEvent({
 		);
 	}
 
-	if (search.kind === "Found" && search.jump.date !== date) {
-		const { jump } = search;
+	const jump = search.kind === "Found" ? search.jump : undefined;
+	const hidden =
+		jump !== undefined &&
+		calendarIds.length > 0 &&
+		!calendarIds.includes(jump.calendarId);
+	if (jump && (jump.date !== date || hidden)) {
+		const shown = hidden
+			? (previous: CalendarSearch) => ({
+					...previous,
+					calendarId: [...calendarIds, jump.calendarId],
+				})
+			: true;
 		return jump.recurrenceId === "" ? (
 			<Navigate
 				to="/calendar/$view/$date/$calendarObjectId"
 				params={{ view, date: jump.date, calendarObjectId }}
-				search={true}
+				search={shown}
 				hash={true}
 				replace
 			/>
@@ -237,7 +281,7 @@ export function OpenCalendarEvent({
 					calendarObjectId,
 					recurrenceId: jump.recurrenceId,
 				}}
-				search={true}
+				search={shown}
 				hash={true}
 				replace
 			/>
