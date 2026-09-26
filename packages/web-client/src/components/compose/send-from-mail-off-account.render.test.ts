@@ -38,6 +38,7 @@ const sourceMessage = {
 } as unknown as RemitImapDescribeMessageResponse;
 
 const outboxEntry = {
+	attachments: [],
 	outboxMessageId: OUTBOX_MESSAGE_ID,
 	accountId: ACCOUNT_ID,
 	fromAddress: "me@example.com",

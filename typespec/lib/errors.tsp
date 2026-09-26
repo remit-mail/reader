@@ -56,10 +56,9 @@ model RequestValidationDetail {
   `no_master_event`, `multiple_master_events`, `missing_uid`, `mismatched_uid`,
   `missing_dt_start`, `backwards_end`, `invalid_date_time`,
   `invalid_recurrence_rule`, `missing_recurrence_id`, `not_recurring`,
-  `unknown_occurrence` and `unmovable_recurrence_rule`.
-  
-  The outbox answers `mail_sync_off` to a send from an account whose
-  `syncedServices` leave out `Mail`, with the account in `details.accountId`.
+  `unknown_occurrence` and `unmovable_recurrence_rule`. The outbox answers `mail_sync_off` to a
+  send from an account whose `syncedServices` leave out `Mail`, with the
+  account in `details.accountId`.
   
   `errors` is present only when the request failed schema validation before any
   handler ran, and names every field that was refused.
