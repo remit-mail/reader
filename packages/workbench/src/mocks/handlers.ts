@@ -1,9 +1,7 @@
 import type { HttpHandler } from "msw";
 
 /**
- * MSW harness stays wired (preview.tsx) for future data-driven stories,
- * but every current story is static and fixture-driven — no handlers.
- * Add request handlers here when a story needs to exercise real fetch
- * flows against the generated API surface.
+ * Handlers every story shares. A web-client route story brings its own through
+ * `parameters.msw`, built by `mailHandlers` in the web-client story frame.
  */
 export const handlers: HttpHandler[] = [];

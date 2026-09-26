@@ -1,5 +1,5 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { createRouter } from "@tanstack/react-router";
+import { createRouter, type RouterHistory } from "@tanstack/react-router";
 import { AppShellSkeleton } from "./components/layout/AppShellSkeleton";
 import { recordRoute } from "./lib/route-breadcrumbs";
 import { stringifySearch } from "./lib/search-params";
@@ -13,10 +13,12 @@ export interface RouterContext {
 export const createAppRouter = (
 	queryClient: QueryClient,
 	telemetry: Telemetry,
+	history?: RouterHistory,
 ) => {
 	const router = createRouter({
 		routeTree,
 		context: { queryClient },
+		history,
 		// A query param that carries a list writes one param per value
 		// (`lib/search-params.ts`), which is what the router's own reader already
 		// expects and what a hand-written link says.
