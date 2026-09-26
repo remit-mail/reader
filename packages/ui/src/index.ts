@@ -482,6 +482,15 @@ export {
 	type FolderRowProps,
 } from "./components/folder-row.js";
 export {
+	FolderSyncBadge,
+	type FolderSyncBadgeProps,
+	type FolderSyncMailbox,
+	type FolderSyncState,
+	folderSyncAriaLabel,
+	folderSyncState,
+	isFolderSyncNavigable,
+} from "./components/folder-sync-state.js";
+export {
 	type FolderTreeNode,
 	FolderTreePicker,
 	type FolderTreePickerLabels,
