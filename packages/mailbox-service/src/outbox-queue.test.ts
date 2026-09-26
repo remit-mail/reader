@@ -18,7 +18,7 @@ import type {
 	OutboxAttachmentItem,
 	OutboxMessageItem,
 } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
+import { BadRequestError, MailSyncOffError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
 import { OutboxQueueService } from "./outbox-queue.js";
@@ -55,6 +55,7 @@ const createHarness = (
 	stored: OutboxMessageItem,
 	attachments: OutboxAttachmentItem[] = [],
 	lateAttachments: OutboxAttachmentItem[] = [],
+	syncedServices: string[] = ["Mail"],
 ): Harness => {
 	let unfinishedChecks = 0;
 	const harness: Harness = {
@@ -98,7 +99,9 @@ const createHarness = (
 				return held.find((item) => item.state !== "Stored");
 			},
 		} as unknown as OutboxAttachmentService,
-		accountService: {} as unknown as IAccountRepository,
+		accountService: {
+			get: async () => ({ syncedServices }),
+		} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",
 		sqsClient: {
 			send: async (command: { input: { MessageBody: string } }) => {
@@ -238,6 +241,51 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.equal(harness.created, 1);
+		assert.equal(harness.enqueued.length, 1);
+	});
+});
+
+describe("OutboxQueueService and an account with mail off", () => {
+	const refusesWithTheFix = (error: unknown): boolean => {
+		assert.ok(error instanceof MailSyncOffError);
+		assert.equal(error.statusCode, 400);
+		assert.equal(error.publicApiError?.code, "mail_sync_off");
+		assert.match(error.message, /Turn Mail back on .* in Settings/);
+		return true;
+	};
+
+	it("refuses to queue a stored draft and leaves it a draft", async () => {
+		const harness = createHarness(draft({}), [], [], ["Calendar"]);
+
+		await assert.rejects(
+			() => harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID),
+			refusesWithTheFix,
+		);
+
+		assert.deepEqual(harness.statusWrites, []);
+		assert.deepEqual(harness.enqueued, []);
+	});
+
+	it("refuses a send-immediately create before writing a row", async () => {
+		const harness = createHarness(draft({}), [], [], ["Calendar"]);
+
+		await assert.rejects(
+			() =>
+				harness.service.createAndSend(
+					sendInput({ toAddresses: ["them@example.com"] }),
+				),
+			refusesWithTheFix,
+		);
+
+		assert.equal(harness.created, 0);
+		assert.deepEqual(harness.enqueued, []);
+	});
+
+	it("sends from an account syncing mail and calendar", async () => {
+		const harness = createHarness(draft({}), [], [], ["Mail", "Calendar"]);
+
+		await harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID);
+
 		assert.equal(harness.enqueued.length, 1);
 	});
 });

@@ -52,7 +52,7 @@ const buildClient = (
 	settings: AccountSettingItem[] = [],
 ): InboxMapClient =>
 	({
-		account: { listAllByAccountConfig: async () => accounts },
+		account: { listMailSourcesByAccountConfig: async () => accounts },
 		mailbox: {
 			listAllByAccount: async (accountId: string) =>
 				mailboxesByAccount[accountId] ?? [],
@@ -455,7 +455,10 @@ describe("executeUnifiedThreadListing", () => {
 	const buildListingClient = (calls: Call[], count = 0) =>
 		({
 			account: {
-				listAllByAccountConfig: async () => [account("a1"), account("a2")],
+				listMailSourcesByAccountConfig: async () => [
+					account("a1"),
+					account("a2"),
+				],
 			},
 			mailbox: {
 				listAllByAccount: async (accountId: string) =>

@@ -89,7 +89,9 @@ const createHarness = (stored: OutboxMessageItem): Harness => {
 			},
 			unfinishedUpload: async () => undefined,
 		} as unknown as OutboxAttachmentService,
-		accountService: {} as unknown as IAccountRepository,
+		accountService: {
+			get: async () => ({ syncedServices: ["Mail"] }),
+		} as unknown as IAccountRepository,
 		sqsSmtpQueueUrl: "http://localhost/queue",
 		sqsClient: {
 			send: async (command: { input: { MessageBody: string } }) => {

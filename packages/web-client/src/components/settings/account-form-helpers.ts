@@ -1,3 +1,5 @@
+import { AccountService } from "@remit/domain-enums";
+
 /**
  * Default SMTP defaults applied when auto-filling from IMAP at save time.
  *
@@ -103,3 +105,12 @@ export const accountIsMissingSmtp = (account: {
 }): boolean => {
 	return account.smtpEnabled !== true;
 };
+
+export const MAIL_OFF_SEND_MESSAGE =
+	"Mail is turned off for this account, so it cannot send. Turn Mail back on for this account in Settings to send from it.";
+
+export const accountSendsNoMail = (account: {
+	syncedServices?: readonly string[];
+}): boolean =>
+	account.syncedServices !== undefined &&
+	!account.syncedServices.includes(AccountService.Mail);

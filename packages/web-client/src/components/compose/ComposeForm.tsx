@@ -50,7 +50,11 @@ import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
 import { isNotFound, softErrorMeta } from "../../lib/error-classifier";
-import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
+import {
+	accountIsMissingSmtp,
+	accountSendsNoMail,
+	MAIL_OFF_SEND_MESSAGE,
+} from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
 	buildMutationErrorBanner,
@@ -910,6 +914,9 @@ export const ComposeForm = ({
 	const selectedAccountMissingSmtp = selectedAccount
 		? accountIsMissingSmtp(selectedAccount)
 		: false;
+	const selectedAccountSendsNoMail = selectedAccount
+		? accountSendsNoMail(selectedAccount)
+		: false;
 
 	// An account that has never been to the language setting falls back to what
 	// the browser already knows the user reads, which is an ordered answer.
@@ -942,6 +949,9 @@ export const ComposeForm = ({
 			if (!selectedAccountId) {
 				return { status: "blocked", reason: "Choose an account to send from." };
 			}
+			if (selectedAccountSendsNoMail) {
+				return { status: "blocked", reason: MAIL_OFF_SEND_MESSAGE };
+			}
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 			}
@@ -972,6 +982,7 @@ export const ComposeForm = ({
 		[
 			isSending,
 			selectedAccountId,
+			selectedAccountSendsNoMail,
 			selectedAccountMissingSmtp,
 			quoteIsLoading,
 			quoteSourceIsLoading,

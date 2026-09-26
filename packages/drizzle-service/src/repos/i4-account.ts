@@ -8,7 +8,7 @@ import type {
 	UpdateAccountInput,
 } from "@remit/data-ports";
 import { AccountService, SyncPhase } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, like, or, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
@@ -288,6 +288,21 @@ export class AccountRepo implements IAccountRepository {
 			.select()
 			.from(accountTable)
 			.where(eq(accountTable.accountConfigId, accountConfigId));
+		return rows.map(rowToAccount);
+	}
+
+	async listMailSourcesByAccountConfig(
+		accountConfigId: string,
+	): Promise<AccountItem[]> {
+		const rows = await this.db
+			.select()
+			.from(accountTable)
+			.where(
+				and(
+					eq(accountTable.accountConfigId, accountConfigId),
+					like(accountTable.syncedServices, `%"${AccountService.Mail}"%`),
+				),
+			);
 		return rows.map(rowToAccount);
 	}
 

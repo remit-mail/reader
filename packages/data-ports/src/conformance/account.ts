@@ -78,5 +78,27 @@ export function accountRepositoryConformance(
 				AccountService.Calendar,
 			]);
 		});
+
+		test("the mail sources of a config leave out an account with mail off", async () => {
+			const accountConfigId = harness.makeId();
+			const mailOnly = await repo.create(accountInput(accountConfigId));
+			const both = await repo.create({
+				...accountInput(accountConfigId),
+				syncedServices: [AccountService.Mail, AccountService.Calendar],
+			});
+			await repo.create({
+				...accountInput(accountConfigId),
+				syncedServices: [AccountService.Calendar],
+			});
+			await repo.create(accountInput(harness.makeId()));
+
+			const sources =
+				await repo.listMailSourcesByAccountConfig(accountConfigId);
+
+			assert.deepEqual(
+				sources.map((account) => account.accountId).sort(),
+				[mailOnly.accountId, both.accountId].sort(),
+			);
+		});
 	});
 }
