@@ -25,11 +25,6 @@ export interface SenderMismatchSignals {
 export interface SenderMismatchContext {
 	fromDomain: string;
 	providerSpamClassified: boolean;
-	/**
-	 * Where the message sits. Junk counts as a spam verdict of its own: mail filed
-	 * there by a server-side rule or another client may carry no provider verdict
-	 * at all.
-	 */
 	placement: FolderPlacement;
 	/**
 	 * List-Unsubscribe present. Bulk mail routinely shows a brand name over an

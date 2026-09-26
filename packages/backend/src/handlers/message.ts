@@ -606,6 +606,14 @@ export const MessageOperations: Record<
 					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
 				);
 			} else {
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
+						accountId,
+						mailbox.mailboxId,
+					),
+				};
 				const scope = await client.createConnectionScope(accountId);
 				// Guard at the one choke point every UID-based IMAP op already
 				// passes through: openBox. A mismatch trips the mailbox to
@@ -619,14 +627,6 @@ export const MessageOperations: Record<
 					mailbox,
 				);
 
-				const folder = {
-					fullPath: mailbox.fullPath,
-					placement: await resolveFolderPlacement(
-						client.mailboxSpecialUse,
-						accountId,
-						mailbox.mailboxId,
-					),
-				};
 				await client.bodySync
 					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
 						Promise.resolve(connection),
@@ -747,6 +747,14 @@ export const MessageOperations: Record<
 					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
 				);
 			} else {
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
+						accountId,
+						mailbox.mailboxId,
+					),
+				};
 				const scope = await client.createConnectionScope(accountId);
 				// Guard at the openBox choke point — a fresh mismatch trips the
 				// mailbox and throws once the SELECT reveals it; caught below.
@@ -756,14 +764,6 @@ export const MessageOperations: Record<
 					accountId,
 					mailbox,
 				);
-				const folder = {
-					fullPath: mailbox.fullPath,
-					placement: await resolveFolderPlacement(
-						client.mailboxSpecialUse,
-						accountId,
-						mailbox.mailboxId,
-					),
-				};
 				await client.bodySync
 					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
 						Promise.resolve(connection),

@@ -1,11 +1,3 @@
-/**
- * Mail in Junk is compared against its sender whether or not the provider
- * called it spam (#610). The seeded Junk message carries no provider verdict,
- * a DKIM signature aligned with its From domain, a display name that belongs
- * to nobody at that domain, and a link that leaves it. Before the fix the
- * comparison ran only over provider-flagged mail, so this message read as
- * signed and unremarkable.
- */
 import { waitFor } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";

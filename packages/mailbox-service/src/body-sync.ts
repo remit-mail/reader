@@ -51,6 +51,7 @@ import {
 	FilterPipeline,
 } from "./filters/pipeline.js";
 import type { FlagQueueService } from "./flag-queue.js";
+import { placementOf, resolveFolderRoleMailboxes } from "./folder-placement.js";
 import {
 	classifyPlacement,
 	type FolderPlacement,
@@ -239,11 +240,6 @@ export interface StoreBodyPartContentsResult {
 
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
-/**
- * The folder a body-sync round reads from: its IMAP path, and where it sits
- * among the account's special folders. The placement is a property of the
- * round, resolved once by the caller, not looked up per message.
- */
 export interface BodySyncFolder {
 	fullPath: string;
 	placement: FolderPlacement;
@@ -1491,17 +1487,12 @@ export class BodySyncService {
 		// true)`) skip the decision steps entirely, so only the pass that first
 		// stores a body ever reaches this method.
 
-		const junkMailbox =
-			await mailboxSpecialUseService.findJunkMailbox(accountId);
-		const inboxMailbox =
-			await mailboxSpecialUseService.findInboxMailbox(accountId);
-
-		const placement: FolderPlacement =
-			junkMailbox && message.mailboxId === junkMailbox.mailboxId
-				? "junk"
-				: inboxMailbox && message.mailboxId === inboxMailbox.mailboxId
-					? "inbox"
-					: "other";
+		const roleMailboxes = await resolveFolderRoleMailboxes(
+			mailboxSpecialUseService,
+			accountId,
+		);
+		const { junkMailbox, inboxMailbox } = roleMailboxes;
+		const placement = placementOf(message.mailboxId, roleMailboxes);
 
 		const fromEmail = extractPrimaryFromEmail(parsed);
 		const signals = fromEmail

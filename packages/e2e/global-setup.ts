@@ -100,10 +100,6 @@ const CONVERSATION = {
  *
  * Junk, not INBOX, so it stays out of `seededSubjects` and the exact-count
  * inbox assertions keep counting only what is in the inbox.
- *
- * It carries a DKIM signature aligned with its From domain and no provider
- * spam verdict, over a display name that is not that domain and a link that
- * leaves it: the Junk-only case the sender comparison has to reach (#610).
  */
 const SPAM_SEED = {
 	subject: "Reminder: please verify your account",
