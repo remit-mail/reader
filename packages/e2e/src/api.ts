@@ -303,6 +303,8 @@ export interface ConfigAccount {
 	connectionState: string;
 	imapHost: string;
 	imapPort: number;
+	syncedServices: string[];
+	grantedScopes: string[];
 }
 
 export interface ConfigDescription {

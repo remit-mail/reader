@@ -18,10 +18,10 @@ e2e_dev_install_env
 e2e_dev_require_free_ports "$E2E_HTTP_PORT" "$E2E_IMAP_PORT" \
 	"$E2E_IMAP_NAMED_TRASH_PORT" "$E2E_SMTP_PORT" "$E2E_SMTP_HTTP_PORT" \
 	"$E2E_SMTP_REJECT_PORT" "$E2E_SMTP_REJECT_HTTP_PORT" \
-	"$SERVER_PORT" "$QUEUE_SIDECAR_PORT"
+	"$SERVER_PORT" "$QUEUE_SIDECAR_PORT" "$E2E_MSOAUTH_TOKEN_PORT"
 mkdir -p "$STORAGE_LOCAL_PATH"
 
-echo "e2e-dev: starting both dovecots and both mailpits"
+echo "e2e-dev: starting both dovecots, both mailpits and the Microsoft token stand-in"
 e2e_dev_compose up -d --wait --wait-timeout 120
 
 echo "e2e-dev: starting the queue"

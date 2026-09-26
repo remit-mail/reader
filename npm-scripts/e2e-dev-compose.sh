@@ -44,7 +44,7 @@ e2e_dev_compose() {
 		"$@"
 }
 
-# The nine ports a slot claims, contiguous so one block per slot covers the
+# The ten ports a slot claims, contiguous so one block per slot covers the
 # whole stack. 400 blocks is far more than a host runs concurrently; a hash
 # collision between two live slots is caught by e2e_dev_require_free_ports, which
 # fails the run rather than letting it attach to the other stack.
@@ -57,7 +57,7 @@ e2e_dev_slot_ports() {
 	[ -n "$E2E_DEV_SLOT" ] || return 0
 	local index base
 	index=$(($(printf '%s' "$E2E_DEV_SLOT" | cksum | cut -d' ' -f1) % 400))
-	base=$((20000 + index * 9))
+	base=$((20000 + index * 10))
 	: "${E2E_HTTP_PORT:=$base}"
 	: "${SERVER_PORT:=$((base + 1))}"
 	: "${QUEUE_SIDECAR_PORT:=$((base + 2))}"
@@ -67,7 +67,8 @@ e2e_dev_slot_ports() {
 	: "${E2E_SMTP_REJECT_PORT:=$((base + 6))}"
 	: "${E2E_SMTP_REJECT_HTTP_PORT:=$((base + 7))}"
 	: "${E2E_IMAP_NAMED_TRASH_PORT:=$((base + 8))}"
-	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 8))"
+	: "${E2E_MSOAUTH_TOKEN_PORT:=$((base + 9))}"
+	echo "e2e-dev: slot $E2E_DEV_SLOT — project $E2E_DEV_PROJECT, ports $base-$((base + 9))"
 }
 
 # Resolve the committed template into the generated env this run uses, then load
@@ -84,7 +85,7 @@ e2e_dev_install_env() {
 
 	for name in E2E_HTTP_PORT E2E_IMAP_PORT E2E_IMAP_NAMED_TRASH_PORT E2E_SMTP_PORT \
 		E2E_SMTP_HTTP_PORT E2E_SMTP_REJECT_PORT E2E_SMTP_REJECT_HTTP_PORT SERVER_PORT \
-		QUEUE_SIDECAR_PORT; do
+		QUEUE_SIDECAR_PORT E2E_MSOAUTH_TOKEN_PORT; do
 		[ -n "${!name-}" ] || continue
 		printf '%s=%s\n' "$name" "${!name}" >>"$DEV_ENV"
 		echo "e2e-dev: $name overridden to ${!name}"
@@ -120,6 +121,8 @@ e2e_dev_install_env() {
 		printf 'CONTENT_DELIVERY_DOMAIN=%s\n' "$origin"
 		printf 'BETTER_AUTH_JWKS_URL=http://127.0.0.1:%s/api/auth/jwks\n' "$SERVER_PORT"
 		printf 'VITE_PROXY_BACKEND_PORT=%s\n' "$SERVER_PORT"
+		printf 'MSOAUTH_REDIRECT_URI=%s/api/accounts/oauth/microsoft/callback\n' "$origin"
+		printf 'MSOAUTH_TOKEN_ENDPOINT=http://127.0.0.1:%s/token\n' "$E2E_MSOAUTH_TOKEN_PORT"
 
 		# The queue set is deploy/vps/queues.json — the image stack's own — so the
 		# names are fixed and only the port moves. Derived rather than committed:
@@ -285,6 +288,6 @@ e2e_dev_require_free_ports() {
 	done
 	[ ${#occupied[@]} -eq 0 ] && return 0
 	echo "e2e-dev: ports already in use: ${occupied[*]}" >&2
-	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / E2E_IMAP_NAMED_TRASH_PORT / E2E_SMTP_PORT / E2E_SMTP_HTTP_PORT / E2E_SMTP_REJECT_PORT / E2E_SMTP_REJECT_HTTP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT" >&2
+	echo "e2e-dev: move this run with E2E_HTTP_PORT / E2E_IMAP_PORT / E2E_IMAP_NAMED_TRASH_PORT / E2E_SMTP_PORT / E2E_SMTP_HTTP_PORT / E2E_SMTP_REJECT_PORT / E2E_SMTP_REJECT_HTTP_PORT / SERVER_PORT / QUEUE_SIDECAR_PORT / E2E_MSOAUTH_TOKEN_PORT" >&2
 	return 1
 }

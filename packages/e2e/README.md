@@ -60,6 +60,14 @@ against there, and are skipped by name — see `src/stack.ts`, and the annotatio
 each skipped test carries in the report. Today that is `gateway.spec.ts` and
 nothing else.
 
+Both also get a stand-in for Microsoft's token endpoint
+(`docker/test/fake-microsoft/token-server.mjs`), which the backend reaches through
+`MSOAUTH_TOKEN_ENDPOINT`. A spec intercepts the browser's trip to
+login.microsoftonline.com and answers it with a redirect to the callback whose
+code carries the scopes the person consented to; the stand-in redeems that code
+for exactly those scopes. That is how a Microsoft sign-in runs end to end with no
+Microsoft account.
+
 ## Running it
 
 From the repository root:
@@ -83,11 +91,12 @@ between runs, and it reads its configuration from the generated env whichever
 lane wrote it, so it needs no argument to know which one it is talking to.
 
 The source stack needs the monorepo installed and generated (`npm ci && make`),
-which the suite itself does not. Nine ports move it if something else is in the
+which the suite itself does not. Ten ports move it if something else is in the
 way: `E2E_HTTP_PORT`, `E2E_IMAP_PORT`, `E2E_IMAP_NAMED_TRASH_PORT`,
 `E2E_SMTP_PORT`, `E2E_SMTP_HTTP_PORT`, `E2E_SMTP_REJECT_PORT`,
-`E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`, `QUEUE_SIDECAR_PORT`. Setting
-`E2E_DEV_SLOT` instead derives all nine from the slot name, which is how several
+`E2E_SMTP_REJECT_HTTP_PORT`, `SERVER_PORT`, `QUEUE_SIDECAR_PORT`,
+`E2E_MSOAUTH_TOKEN_PORT`. Setting `E2E_DEV_SLOT` instead derives all ten from
+the slot name, which is how several
 lanes share one host.
 
 ## Isolation
