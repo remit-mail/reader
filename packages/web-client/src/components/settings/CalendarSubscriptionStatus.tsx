@@ -39,7 +39,7 @@ export function CalendarSubscriptionStatus({
 	onSetEnabled,
 }: CalendarSubscriptionStatusProps) {
 	return (
-		<div className="mb-4 space-y-2 border-b border-line pb-4">
+		<div className="mb-4 space-y-2">
 			<div className="flex flex-wrap items-center gap-2">
 				<Badge tone={enabled ? "positive" : "neutral"}>
 					{enabled ? "subscribed" : "paused"}
