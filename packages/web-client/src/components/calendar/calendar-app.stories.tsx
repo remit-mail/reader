@@ -80,6 +80,26 @@ export const RecurrenceScope: Story = {
 	},
 };
 
+export const NewEvent: Story = {
+	args: { url: `${STORY_WEEK}/new` },
+	play: async () => {
+		await expect(await page().findByLabelText("Date")).toHaveValue(STORY_DATE);
+		await expect(page().getByLabelText("Title")).toHaveValue("");
+		await expect(
+			await page().findByRole("radio", { name: "Northwind" }),
+		).toBeChecked();
+	},
+};
+
+export const PhoneNewEvent: Story = {
+	args: { url: `/calendar/day/${STORY_DATE}/new` },
+	globals: phone,
+	play: async () => {
+		await expect(await page().findByLabelText("Date")).toHaveValue(STORY_DATE);
+		await expect(page().getByLabelText("Title")).toHaveValue("");
+	},
+};
+
 export const PhoneDay: Story = {
 	args: { url: `/calendar/day/${STORY_DATE}` },
 	globals: phone,

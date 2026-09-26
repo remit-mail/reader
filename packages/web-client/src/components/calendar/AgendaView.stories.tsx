@@ -1,13 +1,9 @@
 import type { Density } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, within } from "storybook/test";
+import { instancesWithin } from "@/mocks/story-frame/calendar-window";
 import { AgendaView } from "./AgendaView";
-import {
-	calendars,
-	fortnight,
-	instancesWithin,
-	STORY_DATE,
-} from "./calendar-story-fixtures";
+import { calendars, fortnight, STORY_DATE } from "./calendar-story-fixtures";
 import {
 	type CalendarServer,
 	CalendarStory,

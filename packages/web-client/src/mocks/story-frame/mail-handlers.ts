@@ -35,8 +35,8 @@ import type {
 	ThreadOperationsListThreadsResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { type HttpHandler, HttpResponse, http } from "msw";
-import { instancesWithin } from "@/components/calendar/calendar-story-fixtures";
 import { makeConfig } from "@/test-support/fixtures";
+import { instancesWithin } from "./calendar-window";
 import type { MailWorld } from "./mail-world";
 
 const API = "/api";
