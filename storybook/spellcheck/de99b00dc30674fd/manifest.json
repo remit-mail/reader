@@ -1,0 +1,42 @@
+{
+	"engine": {
+		"project": "Hunspell",
+		"version": "1.7.3",
+		"licence": "MPL-1.1",
+		"source": "https://github.com/hunspell/hunspell",
+		"recipe": "docker/hunspell/build.sh",
+		"bytes": 644566
+	},
+	"languages": [
+		{
+			"tag": "en",
+			"project": "SCOWL",
+			"authors": "Kevin Atkinson and contributors",
+			"source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/en",
+			"package": "dictionary-en@4.0.0",
+			"licence": "MIT AND BSD-3-Clause",
+			"licenceFile": "dictionaries/en/LICENSE",
+			"bytes": 554848
+		},
+		{
+			"tag": "en-GB",
+			"project": "SCOWL",
+			"authors": "Kevin Atkinson and contributors",
+			"source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/en-GB",
+			"package": "dictionary-en-gb@3.0.0",
+			"licence": "MIT AND BSD-3-Clause",
+			"licenceFile": "dictionaries/en-GB/LICENSE",
+			"bytes": 555192
+		},
+		{
+			"tag": "nl",
+			"project": "OpenTaal",
+			"authors": "Stichting OpenTaal",
+			"source": "https://github.com/wooorm/dictionaries/tree/main/dictionaries/nl",
+			"package": "dictionary-nl@2.0.0",
+			"licence": "CC-BY-3.0",
+			"licenceFile": "dictionaries/nl/LICENSE",
+			"bytes": 2535898
+		}
+	]
+}

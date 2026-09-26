@@ -1,0 +1,12 @@
+import{j as t}from"./iframe-DS5xN_9u.js";import{G as d,a as m,A as u}from"./app-info-D21UNLQ5.js";import"./preload-helper-PPVm8Dsz.js";function c(e){try{return new Date(e).toLocaleString(void 0,{year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})}catch{return e}}function o({sha:e=m,commitUrl:n=d,buildTime:i=u}){return t.jsxs("p",{className:"text-xs text-fg-subtle",children:["Version"," ",n?t.jsx("a",{href:n,target:"_blank",rel:"noopener noreferrer",className:"font-mono hover:text-fg-muted hover:underline",children:e}):t.jsx("span",{className:"font-mono",children:e})," · ",t.jsxs("span",{children:["Built ",c(i)]})]})}o.__docgenInfo={description:"",methods:[],displayName:"AppVersion",props:{sha:{required:!1,tsType:{name:"string"},description:"Override SHA for testing/Storybook. Defaults to the build-time constant.",defaultValue:{value:"APP_SHORT_SHA",computed:!0}},commitUrl:{required:!1,tsType:{name:"string"},description:`Override commit URL. Defaults to the GitHub commit link, which is undefined
+for a local "dev" build with no real SHA — the version renders unlinked then.`,defaultValue:{value:"GITHUB_COMMIT_URL",computed:!0}},buildTime:{required:!1,tsType:{name:"string"},description:"Override build time ISO string. Defaults to the build-time constant.",defaultValue:{value:"APP_BUILD_TIME",computed:!0}}}};const h={title:"Playground/Shipped/Settings/Advanced/AppVersion",component:o,parameters:{layout:"padded"},args:{sha:"a1b2c3d",commitUrl:"https://github.com/remit-mail/reader/commit/a1b2c3d4e5f6",buildTime:"2024-06-12T10:30:00.000Z"}},r={},s={args:{sha:"dev",commitUrl:void 0}},a={render:e=>t.jsxs("div",{className:"mt-4 max-w-sm border-t border-line pt-4",children:[t.jsx("p",{className:"mb-1 text-sm font-medium text-fg",children:"About"}),t.jsx(o,{...e})]})};r.parameters={...r.parameters,docs:{...r.parameters?.docs,source:{originalSource:"{}",...r.parameters?.docs?.source}}};s.parameters={...s.parameters,docs:{...s.parameters?.docs,source:{originalSource:`{
+  args: {
+    sha: "dev",
+    commitUrl: undefined
+  }
+}`,...s.parameters?.docs?.source}}};a.parameters={...a.parameters,docs:{...a.parameters?.docs,source:{originalSource:`{
+  render: args => <div className="mt-4 max-w-sm border-t border-line pt-4">
+            <p className="mb-1 text-sm font-medium text-fg">About</p>
+            <AppVersion {...args} />
+        </div>
+}`,...a.parameters?.docs?.source}}};const g=["Default","DevBuild","InAboutSection"];export{r as Default,s as DevBuild,a as InAboutSection,g as __namedExportsOrder,h as default};

@@ -1,0 +1,1 @@
+const _=typeof __APP_SHA__>"u"?"dev":__APP_SHA__,e=typeof __APP_BUILD_TIME__>"u"?"unknown":__APP_BUILD_TIME__,s=_.slice(0,7),t=/^[0-9a-f]{40}$/.test(_),P=t?`https://github.com/remit-mail/reader/commit/${_}`:void 0,n="https://github.com/remit-mail/reader/issues/new";export{e as A,P as G,s as a,n as b};
