@@ -131,6 +131,42 @@ export const RecurringScopePrompt: Story = {
 };
 
 /**
+ * A series opened by its plain address lands on an occurrence, so an edit asks
+ * which occurrences it means exactly as it does from one.
+ */
+export const SeriesFromItsPlainAddress: Story = {
+	args: { calendarObjectId: STANDUP_OBJECT },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("One occurrence of a repeating event"),
+		).toBeVisible();
+		await userEvent.click(await canvas.findByRole("button", { name: "Edit" }));
+		await expect(
+			await canvas.findByRole("button", { name: /The whole series/ }),
+		).toBeVisible();
+	},
+};
+
+/** A series that no longer falls on any day says so instead of drawing nothing. */
+export const SeriesWithNoOccurrences: Story = {
+	args: {
+		calendarObjectId: STANDUP_OBJECT,
+		server: answering((request) =>
+			new URL(request.url).pathname.endsWith("/calendar-events")
+				? json({ items: [] })
+				: undefined,
+		),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("This event has no occurrences"),
+		).toBeVisible();
+	},
+};
+
+/**
  * Somebody replaced the event between it being read and the delete going out —
  * over CalDAV, or in another tab. Nothing was removed, and the pane says so
  * where the reader is looking rather than resolving it by winning.

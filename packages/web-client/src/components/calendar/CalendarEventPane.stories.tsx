@@ -104,6 +104,21 @@ export const NotOnThisWeek: Story = {
 	args: { event: undefined, calendar: undefined },
 };
 
+/** Looking for the day an event the view does not hold falls on. */
+export const Finding: Story = {
+	args: { event: undefined, calendar: undefined, absence: "Finding" },
+};
+
+/** A series whose rule, or whose removed days, leave it no occurrence at all. */
+export const NoOccurrences: Story = {
+	args: { event: undefined, calendar: undefined, absence: "NoOccurrences" },
+};
+
+/** The look-up itself failed, which is said rather than drawn as absence. */
+export const LookupFailed: Story = {
+	args: { event: undefined, calendar: undefined, absence: "Failed" },
+};
+
 /**
  * The event was replaced somewhere else — over CalDAV, or in another tab —
  * between it being read and the write going out. Nothing was overwritten, and

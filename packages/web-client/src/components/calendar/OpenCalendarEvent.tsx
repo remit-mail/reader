@@ -6,8 +6,12 @@ import {
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
-import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
 import {
+	type CalendarEventAbsence,
+	CalendarEventPane,
+} from "@/components/calendar/CalendarEventPane";
+import {
+	type CalendarJumpSearch,
 	type CalendarWriteOutcome,
 	calendarInstanceId,
 	deviceTimeZone,
@@ -24,6 +28,7 @@ import {
 	textFromRrule,
 	UNZONED_CALENDAR,
 	useCalendarEvent,
+	useCalendarJump,
 	useCalendars,
 	useCalendarWrites,
 	useDraftClashes,
@@ -57,12 +62,22 @@ const CONFLICT =
 
 type Intent = "edit" | "delete";
 
+const absenceOf = (
+	search: CalendarJumpSearch,
+	loading: boolean,
+): CalendarEventAbsence => {
+	if (search.kind === "NoOccurrences") return "NoOccurrences";
+	if (search.kind === "Failed") return "Failed";
+	if (search.kind === "Searching" || loading) return "Finding";
+	return "NotInView";
+};
+
 export function OpenCalendarEvent({
 	calendarObjectId,
 	recurrenceId,
 }: OpenCalendarEventProps) {
 	const { view, date, calendarIds } = useCalendarAddress();
-	const { events } = useCalendarData({ view, date, calendarIds });
+	const { events, isLoading } = useCalendarData({ view, date, calendarIds });
 	const { calendars, timeZoneByCalendarId } = useCalendars();
 	const { closeEvent } = useCalendarNavigation();
 	const { updateEvent, deleteEvent, isWriting } = useCalendarWrites();
@@ -70,6 +85,15 @@ export function OpenCalendarEvent({
 	const event = events.find(
 		(candidate) =>
 			candidate.id === calendarInstanceId(calendarObjectId, recurrenceId ?? ""),
+	);
+	const seriesOnly = recurrenceId === undefined && event === undefined;
+	const occurrence = seriesOnly
+		? seriesOccurrenceOf(events, calendarObjectId, new Date().toISOString())
+		: undefined;
+	const search = useCalendarJump(
+		calendarObjectId,
+		calendarIds,
+		seriesOnly && !isLoading && occurrence === undefined,
 	);
 	const calendar = calendars.find(
 		(candidate) => candidate.id === event?.calendarId,
@@ -177,10 +201,6 @@ export function OpenCalendarEvent({
 		);
 	};
 
-	const occurrence =
-		recurrenceId === undefined && event === undefined
-			? seriesOccurrenceOf(events, calendarObjectId, new Date().toISOString())
-			: undefined;
 	if (occurrence) {
 		return (
 			<Navigate
@@ -190,6 +210,32 @@ export function OpenCalendarEvent({
 					date,
 					calendarObjectId,
 					recurrenceId: occurrence.recurrenceId,
+				}}
+				search={true}
+				hash={true}
+				replace
+			/>
+		);
+	}
+
+	if (search.kind === "Found" && search.jump.date !== date) {
+		const { jump } = search;
+		return jump.recurrenceId === "" ? (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId"
+				params={{ view, date: jump.date, calendarObjectId }}
+				search={true}
+				hash={true}
+				replace
+			/>
+		) : (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId/$recurrenceId"
+				params={{
+					view,
+					date: jump.date,
+					calendarObjectId,
+					recurrenceId: jump.recurrenceId,
 				}}
 				search={true}
 				hash={true}
@@ -251,6 +297,7 @@ export function OpenCalendarEvent({
 			}
 			calendar={calendar}
 			isOccurrence={recurrenceId !== undefined}
+			absence={absenceOf(search, seriesOnly && isLoading)}
 			problem={problem}
 			onEdit={
 				writable

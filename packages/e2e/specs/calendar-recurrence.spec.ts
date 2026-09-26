@@ -659,4 +659,56 @@ test.describe("A one-off event given a repeat", () => {
 			SUMMARY,
 		);
 	});
+
+	test("moves a month without an occurrence to the day of the first one (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam planning";
+		const FIRST = "2032-02-02";
+		const EMPTY_MONTH = "2032-05-10";
+		const RANGE = window(FIRST, addDays(FIRST, 21));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const series = await api.createCalendarEvent({
+			calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: "FREQ=WEEKLY;COUNT=3",
+		});
+		written.set(series.calendarObjectId, series.calendarId);
+
+		const expanded = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) =>
+				items.filter(
+					(item) => item.calendarObjectId === series.calendarObjectId,
+				).length === 3,
+			{ what: "the weekly series to be expanded into the window" },
+		);
+		const first = expanded.find(
+			(item) => item.calendarObjectId === series.calendarObjectId,
+		);
+		expect(first?.start.slice(0, 10)).toBe(FIRST);
+
+		await page.goto(
+			`/calendar/month/${EMPTY_MONTH}/${series.calendarObjectId}`,
+		);
+		await expect(page).toHaveURL(
+			new RegExp(
+				`/calendar/month/${FIRST}/${series.calendarObjectId}/${encodeURIComponent(first?.recurrenceId ?? "")}(\\?|#|$)`,
+			),
+			{ timeout: 30_000 },
+		);
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await expect(
+			page.getByRole("button", { name: "This event" }),
+		).toBeVisible();
+	});
 });

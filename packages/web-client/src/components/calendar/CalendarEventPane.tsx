@@ -4,6 +4,39 @@ import { AlertCircle, CalendarDays } from "lucide-react";
 import { formatEventWhen } from "@/lib/calendar-format";
 
 /**
+ * Why the pane has no event to show: the view does not hold it, it is still
+ * being looked for elsewhere, its series leaves it no day to fall on, or the
+ * look-up failed.
+ */
+export type CalendarEventAbsence =
+	| "NotInView"
+	| "Finding"
+	| "NoOccurrences"
+	| "Failed";
+
+const ABSENCE: Record<CalendarEventAbsence, { title: string; detail: string }> =
+	{
+		NotInView: {
+			title: "That event isn't on this week",
+			detail: "The address names an event the calendar doesn't have here.",
+		},
+		Finding: {
+			title: "Finding the event",
+			detail: "Looking for the day it falls on.",
+		},
+		NoOccurrences: {
+			title: "This event has no occurrences",
+			detail:
+				"Its repeat rule, or the days taken out of it, leave no day for it to fall on.",
+		},
+		Failed: {
+			title: "The event couldn't be looked up",
+			detail:
+				"Reading the calendar failed. Go back to the calendar and open it again.",
+		},
+	};
+
+/**
  * The event the address has open.
  *
  * Presentational, like the workspace beside it: the route resolves the event
@@ -17,6 +50,8 @@ export interface CalendarEventPaneProps {
 	calendar: CalendarDescriptor | undefined;
 	/** Whether the address names one occurrence rather than the series. */
 	isOccurrence: boolean;
+	/** What to say when there is no event. Defaults to `NotInView`. */
+	absence?: CalendarEventAbsence;
 	/**
 	 * A write that did not happen, stated where the reader is looking. Empty
 	 * when the last one did.
@@ -31,6 +66,7 @@ export function CalendarEventPane({
 	event,
 	calendar,
 	isOccurrence,
+	absence = "NotInView",
 	problem = "",
 	onEdit,
 	onDelete,
@@ -40,11 +76,9 @@ export function CalendarEventPane({
 		return (
 			<div className="flex h-full flex-col items-center justify-center gap-2 bg-surface p-8 text-center">
 				<CalendarDays className="size-8 text-fg-subtle" aria-hidden="true" />
-				<p className="text-sm font-medium text-fg">
-					That event isn't on this week
-				</p>
+				<p className="text-sm font-medium text-fg">{ABSENCE[absence].title}</p>
 				<p className="max-w-xs text-sm text-fg-muted">
-					The address names an event the calendar doesn't have here.
+					{ABSENCE[absence].detail}
 				</p>
 				<button
 					type="button"
