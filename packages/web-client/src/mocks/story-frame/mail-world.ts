@@ -1,11 +1,15 @@
 import type {
 	RemitImapAccountResponse,
+	RemitImapAddressResponse,
 	RemitImapCanonicalMailboxRole,
 	RemitImapMailboxResponse,
 	RemitImapMessageCategory,
 	RemitImapOutboxMessageResponse,
 	RemitImapOutboxMessageStatus,
+	RemitImapQuarantineResponse,
+	RemitImapSystemUpdateResponse,
 	RemitImapThreadMessageResponse,
+	RemitImapVipSuggestionEntry,
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	makeAccount,
@@ -18,12 +22,16 @@ export interface MailWorld {
 	mailboxes: RemitImapMailboxResponse[];
 	threads: RemitImapThreadMessageResponse[];
 	outbox: RemitImapOutboxMessageResponse[];
+	quarantine: RemitImapQuarantineResponse[];
+	vipSuggestions: RemitImapVipSuggestionEntry[];
+	addresses: RemitImapAddressResponse[];
+	systemUpdate: RemitImapSystemUpdateResponse;
 }
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-const NOW = Date.UTC(2026, 8, 24, 13, 0);
+export const NOW = Date.UTC(2026, 8, 24, 13, 0);
 
 const ROLES = [
 	"Inbox",
@@ -48,7 +56,7 @@ export const mailboxIdFor = (
 	role: RemitImapCanonicalMailboxRole,
 ): string => `mbx-${accountId}-${role.toLowerCase()}`;
 
-const accountWithFolders = (
+export const accountWithFolders = (
 	accountId: string,
 	email: string,
 	displayName: string,
@@ -67,7 +75,7 @@ const accountWithFolders = (
 		})),
 	});
 
-const foldersOf = (accountId: string): RemitImapMailboxResponse[] =>
+export const foldersOf = (accountId: string): RemitImapMailboxResponse[] =>
 	ROLES.map((role) =>
 		makeMailbox({
 			accountId,
@@ -382,8 +390,18 @@ export const newsletterBacklog = (
 
 export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 	accounts,
-	mailboxes: accounts.flatMap((account) => foldersOf(account.accountId)),
+	mailboxes: (overrides.accounts ?? accounts).flatMap((account) =>
+		foldersOf(account.accountId),
+	),
 	threads: [...inboxThreads, ...serverDrafts],
 	outbox: [...remitDrafts, ...outboxInEveryStatus],
+	quarantine: [],
+	vipSuggestions: [],
+	addresses: [],
+	systemUpdate: {
+		currentVersion: "0.0.0-storybook",
+		check: { status: "disabled" },
+		run: null,
+	},
 	...overrides,
 });

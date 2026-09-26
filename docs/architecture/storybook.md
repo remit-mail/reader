@@ -45,3 +45,5 @@ const meta = {
 ```
 
 A state is a different world (`mailWorld({ outbox: [] })`), a handler option (`withholdCounts`, `pageSize`, `holdLaterPages`), a different address or a play step, never a prop the app does not have. Fixture times sit on a fixed clock. A phone story sets `globals: { viewport: { value: "mobile" } }`, because the shell reads its tier off the viewport.
+
+The frame takes the `authProvider` a deployment composes, as `mountApp` does: `cognitoAuthProvider` or `betterAuthProvider` for the sign-in screens, `signedInAs(email)` for a screen that reads the session. `withRuntimeConfig` in a story's `beforeEach` sets the deployment config a state depends on, such as `tlsMode` or a Cognito user pool, and restores it afterwards.

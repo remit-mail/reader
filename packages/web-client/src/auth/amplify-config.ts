@@ -24,11 +24,10 @@ const readCognitoEnv = (): CognitoEnv | null => {
 	};
 };
 
-const cognitoEnv = readCognitoEnv();
-
-export const isCognitoConfigured = (): boolean => cognitoEnv !== null;
+export const isCognitoConfigured = (): boolean => readCognitoEnv() !== null;
 
 export const configureAmplify = (): void => {
+	const cognitoEnv = readCognitoEnv();
 	if (!cognitoEnv) {
 		console.warn(
 			"[auth] Cognito user pool is not configured. Running in local dev mode without Cognito auth.",
