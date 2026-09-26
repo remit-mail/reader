@@ -1,7 +1,60 @@
 import type { CalendarDescriptor, CalendarEventData } from "@remit/ui";
 import { EventDetail } from "@remit/ui";
 import { AlertCircle, CalendarDays } from "lucide-react";
+import type { ReactNode } from "react";
 import { formatEventWhen } from "@/lib/calendar-format";
+
+export type CalendarEventAbsence =
+	| { kind: "NotInView" }
+	| { kind: "Finding" }
+	| { kind: "Deleted" }
+	| { kind: "NoOccurrenceFound" }
+	| { kind: "SignedOut"; signIn: ReactNode }
+	| { kind: "Failed"; reason: string; reportHref: string };
+
+const NOT_IN_VIEW: CalendarEventAbsence = { kind: "NotInView" };
+
+const LINK =
+	"rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring";
+
+function absenceText(absence: CalendarEventAbsence): {
+	title: string;
+	detail: string;
+} {
+	switch (absence.kind) {
+		case "Finding":
+			return {
+				title: "Finding the event",
+				detail: "Looking for the day it falls on.",
+			};
+		case "Deleted":
+			return {
+				title: "This event was deleted",
+				detail: "None of your calendars holds it any more.",
+			};
+		case "NoOccurrenceFound":
+			return {
+				title: "No occurrence in its first year or the coming year",
+				detail:
+					"Its repeat rule, or the days taken out of it, leave it no day in either.",
+			};
+		case "SignedOut":
+			return {
+				title: "Your session has ended",
+				detail: "Sign in again to open this event.",
+			};
+		case "Failed":
+			return {
+				title: "The event couldn't be looked up",
+				detail: absence.reason,
+			};
+		case "NotInView":
+			return {
+				title: "That event isn't on this week",
+				detail: "The address names an event the calendar doesn't have here.",
+			};
+	}
+}
 
 /**
  * The event the address has open.
@@ -17,6 +70,7 @@ export interface CalendarEventPaneProps {
 	calendar: CalendarDescriptor | undefined;
 	/** Whether the address names one occurrence rather than the series. */
 	isOccurrence: boolean;
+	absence?: CalendarEventAbsence;
 	/**
 	 * A write that did not happen, stated where the reader is looking. Empty
 	 * when the last one did.
@@ -31,28 +85,39 @@ export function CalendarEventPane({
 	event,
 	calendar,
 	isOccurrence,
+	absence = NOT_IN_VIEW,
 	problem = "",
 	onEdit,
 	onDelete,
 	onClose,
 }: CalendarEventPaneProps) {
 	if (!event || !calendar) {
+		const { title, detail } = absenceText(absence);
+		const loud = absence.kind === "Failed" || absence.kind === "SignedOut";
 		return (
-			<div className="flex h-full flex-col items-center justify-center gap-2 bg-surface p-8 text-center">
+			<div
+				role={loud ? "alert" : undefined}
+				className="flex h-full flex-col items-center justify-center gap-2 bg-surface p-8 text-center"
+			>
 				<CalendarDays className="size-8 text-fg-subtle" aria-hidden="true" />
-				<p className="text-sm font-medium text-fg">
-					That event isn't on this week
-				</p>
-				<p className="max-w-xs text-sm text-fg-muted">
-					The address names an event the calendar doesn't have here.
-				</p>
-				<button
-					type="button"
-					onClick={onClose}
-					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					Back to the calendar
-				</button>
+				<p className="text-sm font-medium text-fg">{title}</p>
+				<p className="max-w-xs break-words text-sm text-fg-muted">{detail}</p>
+				<div className="flex flex-wrap items-center justify-center gap-2">
+					{absence.kind === "SignedOut" && absence.signIn}
+					{absence.kind === "Failed" && (
+						<a
+							href={absence.reportHref}
+							target="_blank"
+							rel="noreferrer"
+							className={LINK}
+						>
+							Report an issue
+						</a>
+					)}
+					<button type="button" onClick={onClose} className={LINK}>
+						Back to the calendar
+					</button>
+				</div>
 			</div>
 		);
 	}

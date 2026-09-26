@@ -86,6 +86,74 @@ export function readCalendarInstanceId(id: string): CalendarInstanceRef {
 	};
 }
 
+const nextOrFirst = (
+	events: readonly CalendarEventData[],
+	now: string,
+): CalendarEventData | undefined => {
+	const ordered = [...events].sort(
+		(a, b) => Date.parse(a.start) - Date.parse(b.start),
+	);
+	return (
+		ordered.find((event) => Date.parse(event.end) > Date.parse(now)) ??
+		ordered[0]
+	);
+};
+
+/**
+ * The occurrence a series opens at when the address names only the series: the
+ * next one still to finish, or the first in the window where none is left.
+ */
+export function seriesOccurrenceOf(
+	events: readonly CalendarEventData[],
+	calendarObjectId: string,
+	now: string,
+): CalendarInstanceRef | undefined {
+	const picked = nextOrFirst(
+		events.filter((event) => {
+			const ref = readCalendarInstanceId(event.id);
+			return (
+				ref.calendarObjectId === calendarObjectId && ref.recurrenceId !== ""
+			);
+		}),
+		now,
+	);
+	return picked ? readCalendarInstanceId(picked.id) : undefined;
+}
+
+export interface CalendarJump extends CalendarInstanceRef {
+	calendarId: string;
+	/** On the clock the calendar is drawn in. */
+	date: string;
+}
+
+/**
+ * Where a view has to move to show an event it does not hold: the day of its
+ * next occurrence still to finish, or of its first where none is left.
+ */
+export function calendarJumpOf(
+	instances: readonly RemitImapCalendarEventInstance[],
+	calendarObjectId: string,
+	now: string,
+	clockZone: string,
+): CalendarJump | undefined {
+	const picked = nextOrFirst(
+		instances
+			.filter(
+				(instance) =>
+					instance.calendarObjectId === calendarObjectId &&
+					isDrawnInstance(instance),
+			)
+			.map((instance) => toCalendarEventData(instance, "", clockZone)),
+		now,
+	);
+	if (!picked) return undefined;
+	return {
+		...readCalendarInstanceId(picked.id),
+		calendarId: picked.calendarId,
+		date: picked.start.slice(0, 10),
+	};
+}
+
 export function toCalendarDescriptor(
 	calendar: RemitImapCalendarResponse,
 ): CalendarDescriptor {

@@ -3,10 +3,16 @@ import {
 	type RecurrenceScope,
 	RecurrenceScopePrompt,
 } from "@remit/ui";
+import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
+import { useAuthProvider } from "@/auth/provider";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
-import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
 import {
+	type CalendarEventAbsence,
+	CalendarEventPane,
+} from "@/components/calendar/CalendarEventPane";
+import {
+	type CalendarJumpSearch,
 	type CalendarWriteOutcome,
 	calendarInstanceId,
 	deviceTimeZone,
@@ -17,17 +23,21 @@ import {
 	patchFromDrafts,
 	rruleFromIcalData,
 	type ScopedWrite,
+	seriesOccurrenceOf,
 	storedAnchorZone,
 	textFromIcalData,
 	textFromRrule,
 	UNZONED_CALENDAR,
 	useCalendarEvent,
+	useCalendarJump,
 	useCalendars,
 	useCalendarWrites,
 	useDraftClashes,
 } from "@/hooks/calendar";
 import { useCalendarData } from "@/hooks/useCalendarData";
 import { formatEventWhen } from "@/lib/calendar-format";
+import { calendarEventReportHref } from "@/lib/calendar-report";
+import type { CalendarSearch } from "@/lib/calendar-route";
 import { useCalendarAddress, useCalendarNavigation } from "@/routing";
 
 /**
@@ -55,12 +65,54 @@ const CONFLICT =
 
 type Intent = "edit" | "delete";
 
+function SignInAgain() {
+	const { Account } = useAuthProvider();
+	return (
+		<Account>
+			{({ signOut }) => (
+				<button
+					type="button"
+					onClick={() => signOut()}
+					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring"
+				>
+					Sign in again
+				</button>
+			)}
+		</Account>
+	);
+}
+
+const absenceOf = (
+	search: CalendarJumpSearch,
+	loading: boolean,
+): CalendarEventAbsence => {
+	switch (search.kind) {
+		case "Deleted":
+		case "NoOccurrenceFound":
+			return { kind: search.kind };
+		case "SignedOut":
+			return { kind: "SignedOut", signIn: <SignInAgain /> };
+		case "Failed":
+			return {
+				kind: "Failed",
+				reason: search.reason,
+				reportHref: calendarEventReportHref(
+					`opening an event failed: ${search.reason}`,
+				),
+			};
+		case "Searching":
+			return { kind: "Finding" };
+		default:
+			return { kind: loading ? "Finding" : "NotInView" };
+	}
+};
+
 export function OpenCalendarEvent({
 	calendarObjectId,
 	recurrenceId,
 }: OpenCalendarEventProps) {
 	const { view, date, calendarIds } = useCalendarAddress();
-	const { events } = useCalendarData({ view, date, calendarIds });
+	const { events, isLoading } = useCalendarData({ view, date, calendarIds });
 	const { calendars, timeZoneByCalendarId } = useCalendars();
 	const { closeEvent } = useCalendarNavigation();
 	const { updateEvent, deleteEvent, isWriting } = useCalendarWrites();
@@ -68,6 +120,14 @@ export function OpenCalendarEvent({
 	const event = events.find(
 		(candidate) =>
 			candidate.id === calendarInstanceId(calendarObjectId, recurrenceId ?? ""),
+	);
+	const seriesOnly = recurrenceId === undefined && event === undefined;
+	const occurrence = seriesOnly
+		? seriesOccurrenceOf(events, calendarObjectId, new Date().toISOString())
+		: undefined;
+	const search = useCalendarJump(
+		calendarObjectId,
+		seriesOnly && !isLoading && occurrence === undefined,
 	);
 	const calendar = calendars.find(
 		(candidate) => candidate.id === event?.calendarId,
@@ -175,6 +235,59 @@ export function OpenCalendarEvent({
 		);
 	};
 
+	if (occurrence) {
+		return (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId/$recurrenceId"
+				params={{
+					view,
+					date,
+					calendarObjectId,
+					recurrenceId: occurrence.recurrenceId,
+				}}
+				search={true}
+				hash={true}
+				replace
+			/>
+		);
+	}
+
+	const jump = search.kind === "Found" ? search.jump : undefined;
+	const hidden =
+		jump !== undefined &&
+		calendarIds.length > 0 &&
+		!calendarIds.includes(jump.calendarId);
+	if (jump && (jump.date !== date || hidden)) {
+		const shown = hidden
+			? (previous: CalendarSearch) => ({
+					...previous,
+					calendarId: [...calendarIds, jump.calendarId],
+				})
+			: true;
+		return jump.recurrenceId === "" ? (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId"
+				params={{ view, date: jump.date, calendarObjectId }}
+				search={shown}
+				hash={true}
+				replace
+			/>
+		) : (
+			<Navigate
+				to="/calendar/$view/$date/$calendarObjectId/$recurrenceId"
+				params={{
+					view,
+					date: jump.date,
+					calendarObjectId,
+					recurrenceId: jump.recurrenceId,
+				}}
+				search={shown}
+				hash={true}
+				replace
+			/>
+		);
+	}
+
 	if (asking !== undefined && event) {
 		return (
 			<div className="flex h-full flex-col justify-center bg-surface px-row-inset">
@@ -228,6 +341,7 @@ export function OpenCalendarEvent({
 			}
 			calendar={calendar}
 			isOccurrence={recurrenceId !== undefined}
+			absence={absenceOf(search, seriesOnly && isLoading)}
 			problem={problem}
 			onEdit={
 				writable

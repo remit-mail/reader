@@ -39,10 +39,13 @@ export {
 export {
 	anchorZoneFor,
 	type CalendarInstanceRef,
+	type CalendarJump,
 	calendarInstanceId,
+	calendarJumpOf,
 	deviceTimeZone,
 	isDrawnInstance,
 	readCalendarInstanceId,
+	seriesOccurrenceOf,
 	toCalendarDescriptor,
 	toCalendarEventData,
 	UNZONED_CALENDAR,
@@ -82,6 +85,7 @@ export {
 	type CalendarFreeBusyResult,
 	useCalendarFreeBusyWeeks,
 } from "./useCalendarFreeBusy";
+export { type CalendarJumpSearch, useCalendarJump } from "./useCalendarJump";
 export {
 	type CalendarSuggestionAnswers,
 	type CalendarSuggestionsResult,

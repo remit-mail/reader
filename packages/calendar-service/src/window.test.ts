@@ -20,6 +20,7 @@ import {
 	type CalendarWindowRepositories,
 	listBusySpans,
 	listCalendarInstances,
+	listObjectInstances,
 	mergeBusySpans,
 } from "./window.js";
 
@@ -365,6 +366,78 @@ describe("listCalendarInstances", () => {
 				"2026-10-29T08:00:00Z",
 				"2026-11-05T08:00:00Z",
 			],
+		);
+	});
+});
+
+describe("listObjectInstances", () => {
+	const ownRows = (resource: StoredResource) => ({
+		calendarEventIndex: {
+			listForObject: async () => resource.rows,
+		},
+	});
+
+	it("reads one resource's own rows where its index reaches the window", async () => {
+		const calendar = collection();
+		const weekly = await store(
+			calendar,
+			"weekly.ics",
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"BEGIN:VEVENT",
+				"UID:weekly@example.com",
+				"DTSTART:20260907T090000Z",
+				"DTEND:20260907T100000Z",
+				"SUMMARY:Stand-up",
+				"RRULE:FREQ=WEEKLY;COUNT=4",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			),
+		);
+
+		const instances = await listObjectInstances(
+			ownRows(weekly),
+			calendar,
+			weekly.object,
+			{ from: "2026-09-10T00:00:00Z", to: "2026-09-25T00:00:00Z" },
+		);
+
+		assert.deepEqual(
+			instances.map((instance) => instance.startAt),
+			["2026-09-14T09:00:00Z", "2026-09-21T09:00:00Z"],
+		);
+	});
+
+	it("expands the resource live where its index stops before the window", async () => {
+		const calendar = collection();
+		const openEnded = await store(
+			calendar,
+			"open.ics",
+			ical(
+				"BEGIN:VCALENDAR",
+				"VERSION:2.0",
+				"BEGIN:VEVENT",
+				"UID:open@example.com",
+				"DTSTART:20200907T090000Z",
+				"DTEND:20200907T100000Z",
+				"SUMMARY:Weekly one-to-one",
+				"RRULE:FREQ=WEEKLY",
+				"END:VEVENT",
+				"END:VCALENDAR",
+			),
+		);
+
+		const instances = await listObjectInstances(
+			ownRows(openEnded),
+			calendar,
+			openEnded.object,
+			{ from: "2026-09-14T00:00:00Z", to: "2026-09-28T00:00:00Z" },
+		);
+
+		assert.deepEqual(
+			instances.map((instance) => instance.startAt),
+			["2026-09-14T09:00:00Z", "2026-09-21T09:00:00Z"],
 		);
 	});
 });

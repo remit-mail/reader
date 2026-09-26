@@ -104,6 +104,57 @@ export const NotOnThisWeek: Story = {
 	args: { event: undefined, calendar: undefined },
 };
 
+/** Looking for the day an event the view does not hold falls on. */
+export const Finding: Story = {
+	args: { event: undefined, calendar: undefined, absence: { kind: "Finding" } },
+};
+
+/** The address names a resource none of the reader's calendars holds. */
+export const Deleted: Story = {
+	args: { event: undefined, calendar: undefined, absence: { kind: "Deleted" } },
+};
+
+/** A series that falls on no day in its first year or the coming one. */
+export const NoOccurrenceFound: Story = {
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: { kind: "NoOccurrenceFound" },
+	},
+};
+
+/** The session ended during the look-up; the way back in is on the pane. */
+export const SignedOut: Story = {
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: {
+			kind: "SignedOut",
+			signIn: (
+				<button
+					type="button"
+					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg"
+				>
+					Sign in again
+				</button>
+			),
+		},
+	},
+};
+
+/** The look-up failed, with the server's reason and a way to report it. */
+export const LookupFailed: Story = {
+	args: {
+		event: undefined,
+		calendar: undefined,
+		absence: {
+			kind: "Failed",
+			reason: "Internal server error (HTTP 500)",
+			reportHref: "https://github.com/remit-mail/reader/issues/new",
+		},
+	},
+};
+
 /**
  * The event was replaced somewhere else — over CalDAV, or in another tab —
  * between it being read and the write going out. Nothing was overwritten, and

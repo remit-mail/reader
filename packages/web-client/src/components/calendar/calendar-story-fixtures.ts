@@ -106,6 +106,7 @@ export const standupResource = {
 	calendarObjectId: STANDUP_OBJECT,
 	resourceName: "standup.ics",
 	icalUid: "uid-standup",
+	dtStart: "2026-06-10T09:15:00+02:00",
 	icalData: [
 		"BEGIN:VCALENDAR",
 		"BEGIN:VEVENT",

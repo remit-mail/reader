@@ -586,3 +586,192 @@ test.describe("Repeat rules picked in the form", () => {
 		await expectDrawnOn(page, SUMMARY, "2032-07-12", ["2032-07-15"]);
 	});
 });
+
+test.describe("A one-off event given a repeat", () => {
+	test("opens from its plain address at an occurrence, with Edit (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam retro";
+		const FIRST = "2031-11-03";
+		const MONDAYS = [0, 1, 2].map((week) => addDays(FIRST, week * 7));
+		const RANGE = window(FIRST, addDays(FIRST, 15));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const event = await api.createCalendarEvent({
+			calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+		});
+		written.set(event.calendarObjectId, event.calendarId);
+
+		const ofEvent = (items: CalendarEventInstance[]) =>
+			items.filter((item) => item.calendarObjectId === event.calendarObjectId);
+		await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofEvent(items).length === 1,
+			{ what: "the one-off event to be listed" },
+		);
+
+		const plainPath = `${weekPath(FIRST)}/${event.calendarObjectId}`;
+		await page.goto(plainPath);
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await page
+			.getByRole("combobox", { name: "Repeat" })
+			.selectOption({ label: "Every week on Monday, 09:00" });
+		await page.getByRole("button", { name: "Save", exact: true }).click();
+		await expect(page.getByRole("alert")).toHaveCount(0);
+
+		const repeating = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) => ofEvent(items).length === MONDAYS.length,
+			{ what: "the repeat to reach the server" },
+		);
+		const occurrences = ofEvent(repeating);
+		expect(startDays(occurrences)).toEqual(MONDAYS);
+		expect(occurrences.every((item) => item.recurrenceId !== "")).toBe(true);
+		const resource = await api.getCalendarEvent(
+			event.calendarObjectId,
+			calendarId,
+		);
+		expect(resource.icalData).toMatch(/RRULE:FREQ=WEEKLY;BYDAY=MO/);
+
+		await page.goto(plainPath);
+		await expect(page).toHaveURL(
+			new RegExp(
+				`${plainPath}/${encodeURIComponent(occurrences[0]?.recurrenceId ?? "")}(\\?|#|$)`,
+			),
+			{ timeout: 30_000 },
+		);
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await expect(
+			page.getByRole("button", { name: "This event" }),
+		).toBeVisible();
+		await page.getByRole("button", { name: "The whole series" }).click();
+		await expect(page.getByRole("textbox", { name: "Title" })).toHaveValue(
+			SUMMARY,
+		);
+	});
+
+	test("moves a month without an occurrence to the day of the first one (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam planning";
+		const FIRST = "2032-02-02";
+		const EMPTY_MONTH = "2032-05-10";
+		const RANGE = window(FIRST, addDays(FIRST, 21));
+
+		const calendars = await api.listCalendars();
+		const calendarId = calendars[0]?.calendarId ?? "";
+		expect(calendarId).not.toBe("");
+		const series = await api.createCalendarEvent({
+			calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: "FREQ=WEEKLY;COUNT=3",
+		});
+		written.set(series.calendarObjectId, series.calendarId);
+
+		const expanded = await waitFor(
+			() => api.listCalendarEvents(RANGE.from, RANGE.to),
+			(items) =>
+				items.filter(
+					(item) => item.calendarObjectId === series.calendarObjectId,
+				).length === 3,
+			{ what: "the weekly series to be expanded into the window" },
+		);
+		const first = expanded.find(
+			(item) => item.calendarObjectId === series.calendarObjectId,
+		);
+		expect(first?.start.slice(0, 10)).toBe(FIRST);
+
+		await page.goto(
+			`/calendar/month/${EMPTY_MONTH}/${series.calendarObjectId}`,
+		);
+		await expect(page).toHaveURL(
+			new RegExp(
+				`/calendar/month/${FIRST}/${series.calendarObjectId}/${encodeURIComponent(first?.recurrenceId ?? "")}(\\?|#|$)`,
+			),
+			{ timeout: 30_000 },
+		);
+		const edit = page.getByRole("button", { name: "Edit", exact: true });
+		await expect(edit).toBeVisible({ timeout: 30_000 });
+		await edit.click();
+		await expect(
+			page.getByRole("button", { name: "This event" }),
+		).toBeVisible();
+	});
+	test("opens a series in a hidden calendar at its next occurrence and shows that calendar (#1332)", async ({
+		page,
+		api,
+	}) => {
+		test.setTimeout(180_000);
+		const SUMMARY = "Fabrikam running sync";
+		const today = new Date().toISOString().slice(0, 10);
+		const FIRST = addDays(today, -56);
+
+		const [shown] = await api.listCalendars();
+		const shownId = shown?.calendarId ?? "";
+		expect(shownId).not.toBe("");
+		const hidden = await api.createCalendar({
+			urlSegment: `hidden-${Date.now()}`,
+			displayName: "Fabrikam hidden",
+		});
+		const series = await api.createCalendarEvent({
+			calendarId: hidden.calendarId,
+			summary: SUMMARY,
+			start: `${FIRST}T09:00:00+00:00`,
+			end: `${FIRST}T10:00:00+00:00`,
+			recurrenceRule: "FREQ=WEEKLY;COUNT=20",
+		});
+
+		try {
+			const RANGE = window(addDays(today, -1), addDays(today, 15));
+			const around = await waitFor(
+				() => api.listCalendarEvents(RANGE.from, RANGE.to),
+				(items) =>
+					items.some(
+						(item) => item.calendarObjectId === series.calendarObjectId,
+					),
+				{ what: "the running series to be expanded around today" },
+			);
+			const next = around.find(
+				(item) =>
+					item.calendarObjectId === series.calendarObjectId &&
+					Date.parse(item.end) > Date.now(),
+			);
+			if (!next) throw new Error("the series has no occurrence still to come");
+			expect(next.start.slice(0, 10) > FIRST).toBe(true);
+
+			await page.goto(
+				`/calendar/week/2031-01-06/${series.calendarObjectId}?calendarId=${shownId}`,
+			);
+			await expect(page).toHaveURL(
+				new RegExp(
+					`/calendar/week/${next.start.slice(0, 10)}/${series.calendarObjectId}/${encodeURIComponent(next.recurrenceId)}\\?`,
+				),
+				{ timeout: 30_000 },
+			);
+			expect(new URL(page.url()).searchParams.getAll("calendarId")).toEqual([
+				shownId,
+				hidden.calendarId,
+			]);
+			await expect(
+				page.getByRole("button", { name: "Edit", exact: true }),
+			).toBeVisible({ timeout: 30_000 });
+		} finally {
+			await api.deleteCalendarEvent(series.calendarObjectId, hidden.calendarId);
+			await api.deleteCalendar(hidden.calendarId);
+		}
+	});
+});

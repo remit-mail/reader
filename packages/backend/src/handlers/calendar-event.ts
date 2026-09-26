@@ -15,6 +15,7 @@ import {
 	deleteCalendarObject,
 	listBusySpans,
 	listCalendarInstances,
+	listObjectInstances,
 	OFFSET_BEARING,
 	parseCalendar,
 	projectCalendar,
@@ -490,6 +491,22 @@ export const deleteCalendarEventFor = async (
 	);
 };
 
+/** The collection holding a resource, found among the ones given. */
+const locateResource = async (
+	deps: CalendarDeps,
+	collections: CalendarCollectionItem[],
+	calendarObjectId: string,
+): Promise<ResolvedResource | undefined> => {
+	for (const collection of collections) {
+		const object = await deps.calendarObject.find(
+			collection.calendarId,
+			calendarObjectId,
+		);
+		if (object) return { collection, object };
+	}
+	return undefined;
+};
+
 const readCalendarIds = (value: unknown): string[] => {
 	if (typeof value === "string") return value === "" ? [] : [value];
 	if (Array.isArray(value)) return value.filter((id) => typeof id === "string");
@@ -545,6 +562,7 @@ export const CalendarEventOperations: Record<
 			from?: string;
 			to?: string;
 			calendarId?: string | string[];
+			calendarObjectId?: string;
 		};
 		const window = readWindow(query.from, query.to);
 		if (!window.ok) return badRequest(window.error);
@@ -556,6 +574,22 @@ export const CalendarEventOperations: Record<
 			readCalendarIds(query.calendarId),
 		);
 		if (!collections.ok) return answerRefusal(collections.error);
+
+		if (query.calendarObjectId) {
+			const located = await locateResource(
+				deps,
+				collections.value,
+				query.calendarObjectId,
+			);
+			if (!located) return { items: [] };
+			const own = await listObjectInstances(
+				deps,
+				located.collection,
+				located.object,
+				window.value,
+			);
+			return { items: own.map(toInstanceResponse) };
+		}
 
 		const instances = await listCalendarInstances(
 			deps,
@@ -593,6 +627,20 @@ export const CalendarEventDetailOperations: Record<
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
 		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
+
+		if (request.value.calendarId === "") {
+			const located = await locateResource(
+				deps,
+				await listCalendarsFor(deps, accountConfigId),
+				request.value.calendarObjectId,
+			);
+			if (!located) {
+				return notFound(
+					`no event ${request.value.calendarObjectId} on this account`,
+				);
+			}
+			return toEventResponse(located.object);
+		}
 
 		const resolved = await resolveResource(
 			deps,

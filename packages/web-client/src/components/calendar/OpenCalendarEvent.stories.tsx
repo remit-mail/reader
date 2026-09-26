@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, userEvent, within } from "storybook/test";
+import { useOpenCalendarEvent } from "@/routing";
 import {
 	calendars,
 	fortnight,
@@ -44,6 +45,17 @@ const answering = (
 	};
 };
 
+/** The pane with its props read off the address, as the app's routes hand them. */
+function FromAddress() {
+	const opened = useOpenCalendarEvent();
+	return (
+		<OpenCalendarEvent
+			calendarObjectId={opened?.calendarObjectId ?? ""}
+			recurrenceId={opened?.recurrenceId}
+		/>
+	);
+}
+
 function Opened({
 	calendarObjectId,
 	recurrenceId,
@@ -59,16 +71,7 @@ function Opened({
 			: `${STORY_WEEK}/${calendarObjectId}/${recurrenceId}`;
 	return (
 		<div className="h-dvh max-w-xl border-l border-line bg-canvas">
-			<CalendarStory
-				entry={address}
-				server={server}
-				pane={
-					<OpenCalendarEvent
-						calendarObjectId={calendarObjectId}
-						recurrenceId={recurrenceId}
-					/>
-				}
-			/>
+			<CalendarStory entry={address} server={server} pane={<FromAddress />} />
 		</div>
 	);
 }
@@ -126,6 +129,121 @@ export const RecurringScopePrompt: Story = {
 		).toBeVisible();
 		await expect(
 			canvas.getByRole("button", { name: /The whole series/ }),
+		).toBeVisible();
+	},
+};
+
+/**
+ * A series opened by its plain address lands on an occurrence, so an edit asks
+ * which occurrences it means exactly as it does from one.
+ */
+export const SeriesFromItsPlainAddress: Story = {
+	args: { calendarObjectId: STANDUP_OBJECT },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("One occurrence of a repeating event"),
+		).toBeVisible();
+		await userEvent.click(await canvas.findByRole("button", { name: "Edit" }));
+		await expect(
+			await canvas.findByRole("button", { name: /The whole series/ }),
+		).toBeVisible();
+	},
+};
+
+/** A series that no longer falls on any day says so instead of drawing nothing. */
+export const SeriesWithNoOccurrences: Story = {
+	args: {
+		calendarObjectId: STANDUP_OBJECT,
+		server: answering((request) =>
+			new URL(request.url).pathname.endsWith("/calendar-events")
+				? json({ items: [] })
+				: undefined,
+		),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText(
+				"No occurrence in its first year or the coming year",
+			),
+		).toBeVisible();
+	},
+};
+
+/**
+ * A week the standup is not on, and the look-up for it answered by `lookUp`:
+ * the listing for the one resource, and the resource read with no calendar.
+ */
+const lookingUp =
+	(lookUp: (url: URL) => Response): CalendarServer =>
+	(request) => {
+		const url = new URL(request.url);
+		if (url.searchParams.has("calendarObjectId")) return lookUp(url);
+		if (url.pathname.endsWith("/calendar-events"))
+			return json({
+				items: instancesWithin(
+					url,
+					fortnight.filter(
+						(instance) => instance.calendarObjectId !== STANDUP_OBJECT,
+					),
+				),
+			});
+		if (
+			url.pathname.includes(STANDUP_OBJECT) &&
+			!url.searchParams.has("calendarId")
+		)
+			return lookUp(url);
+		return answering()(request);
+	};
+
+/** A resource none of the reader's calendars holds any more. */
+export const SeriesDeleted: Story = {
+	args: {
+		calendarObjectId: STANDUP_OBJECT,
+		server: lookingUp((url) =>
+			url.pathname.endsWith("/calendar-events")
+				? json({ items: [] })
+				: json({ message: "no event on this account" }, 404),
+		),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("This event was deleted"),
+		).toBeVisible();
+	},
+};
+
+/** A failed look-up says why and offers a report, never "not on this week". */
+export const LookupFailed: Story = {
+	args: {
+		calendarObjectId: STANDUP_OBJECT,
+		server: lookingUp(() =>
+			json({ message: "The calendar store is unavailable." }, 500),
+		),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("The event couldn't be looked up"),
+		).toBeVisible();
+		await expect(
+			canvas.getByRole("link", { name: "Report an issue" }),
+		).toBeVisible();
+	},
+};
+
+/** A session that ended during the look-up is said as such. */
+export const SignedOutDuringLookup: Story = {
+	args: {
+		calendarObjectId: STANDUP_OBJECT,
+		server: lookingUp(() => json({ message: "Session expired." }, 401)),
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText("Your session has ended"),
 		).toBeVisible();
 	},
 };
