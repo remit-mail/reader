@@ -1,8 +1,7 @@
 import { getClient } from "@remit/backend/client";
 import type { MessageItem } from "@remit/data-ports";
-import { isNotFoundError } from "@remit/data-ports/errors";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
-import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
+import { isAcceptedSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import {
@@ -15,6 +14,7 @@ import {
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import type { EmptyTrashEvent } from "../events.js";
+import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
@@ -64,12 +64,9 @@ export const handleEmptyTrash = async (
 		secrets,
 	} = await getClient();
 
-	const { accountId, trashMailboxId, trashMailboxPath } = event;
+	const { accountId, trashMailboxId } = event;
 
-	log.info(
-		{ event: event.type, accountId, trashMailboxPath },
-		"Handling event",
-	);
+	log.info({ event: event.type, accountId, trashMailboxId }, "Handling event");
 
 	const account = await accountService.get(accountId);
 	if (!account) {
@@ -151,16 +148,13 @@ export const handleEmptyTrash = async (
 		alert: string,
 		context: Record<string, unknown> = {},
 	): Promise<void> => {
-		log.error(
-			{ alert, accountId, trashMailboxId, trashMailboxPath, ...context },
-			reason,
-		);
+		log.error({ alert, accountId, trashMailboxId, ...context }, reason);
 		await handBackMarkedRows(
 			await messageService.listAllByMailbox(trashMailboxId),
 		);
 	};
 
-	if (!isCurrentSchemaVersion(event.schemaVersion)) {
+	if (!isAcceptedSchemaVersion(event.schemaVersion)) {
 		await abandonEmptyTrash(
 			"Refused to empty trash: event was minted under an unknown contract",
 			"empty_trash_unknown_schema_version",
@@ -199,19 +193,19 @@ export const handleEmptyTrash = async (
 			// NotFoundError forever, and on the account's per-group FIFO that head
 			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
 			// Trash makes the empty moot: ack with a WARN.
-			const mailbox = await mailboxService
-				.get(accountId, trashMailboxId)
-				.catch((error: unknown) => {
-					if (isNotFoundError(error)) return null;
-					throw error;
-				});
-			if (!mailbox) {
+			const trash = await findMailboxRow(
+				mailboxService,
+				accountId,
+				trashMailboxId,
+			);
+			if (trash.kind === "gone") {
 				log.warn(
 					{ accountId, mailboxId: trashMailboxId },
 					"Skipping EMPTY_TRASH: mailbox no longer exists (deleted)",
 				);
 				return;
 			}
+			const mailbox = trash.mailbox;
 
 			// A paused cursor is not a wait here: this return acks the event and
 			// nothing re-issues it, so the marks have to come back or the folder
@@ -239,7 +233,7 @@ export const handleEmptyTrash = async (
 						accountId,
 						mailbox,
 					);
-					const boxStatus = await connection.openBox(trashMailboxPath, false);
+					const boxStatus = await connection.openBox(mailbox.fullPath, false);
 
 					// The path is not the folder. A third-party client that renames
 					// Trash and creates a fresh one leaves this event pointing at a

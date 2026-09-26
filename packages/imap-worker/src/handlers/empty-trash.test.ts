@@ -38,7 +38,12 @@ interface Harness {
 		accountConfigId: string;
 		deletedAt?: number;
 	} | null;
-	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
+	mailbox: {
+		mailboxId: string;
+		fullPath: string;
+		uidValidity: number;
+		cursorState?: string;
+	};
 	mailboxError?: Error;
 	trashResolution: RoleResolution<TrashMailbox>;
 	connection: Connection;
@@ -118,7 +123,12 @@ const markedMidMove = (messageId: string, uid: number): LocalMessage => ({
 const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
-	mailbox: { mailboxId: "trash-mbx", uidValidity: 1, cursorState: undefined },
+	mailbox: {
+		mailboxId: "trash-mbx",
+		fullPath: "Trash",
+		uidValidity: 1,
+		cursorState: undefined,
+	},
 	trashResolution: {
 		kind: "flagged",
 		mailbox: { mailboxId: "trash-mbx", fullPath: "Trash" },
@@ -406,7 +416,7 @@ describe("handleEmptyTrash", () => {
 		// The path was reused: a third-party client renamed Trash away and made a
 		// fresh one. Same path, different folder, and nobody consented to empty it.
 		h.connection.openBox = async () => ({ uidvalidity: 77 });
-		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
+		h.mailbox = { mailboxId: "trash-mbx", fullPath: "Trash", uidValidity: 77 };
 
 		await handleEmptyTrash(event, noopLogger, deps());
 
@@ -422,7 +432,7 @@ describe("handleEmptyTrash", () => {
 			{ messageId: "msg-arrived", uid: 12, status: "active" },
 		];
 		h.connection.openBox = async () => ({ uidvalidity: 77 });
-		h.mailbox = { mailboxId: "trash-mbx", uidValidity: 77 };
+		h.mailbox = { mailboxId: "trash-mbx", fullPath: "Trash", uidValidity: 77 };
 
 		await handleEmptyTrash(event, noopLogger, deps());
 
@@ -450,6 +460,7 @@ describe("handleEmptyTrash", () => {
 	it("reverts the marks without connecting when the cursor is rebuilding", async () => {
 		h.mailbox = {
 			mailboxId: "trash-mbx",
+			fullPath: "Trash",
 			uidValidity: 1,
 			cursorState: "rebuilding",
 		};
@@ -661,5 +672,57 @@ describe("handleEmptyTrash and an unsettled placement", () => {
 			called("message.delete").map((c) => c.args[0]),
 			["msg-settled"],
 		);
+	});
+});
+
+describe("handleEmptyTrash — the Trash path comes from its mailbox row", () => {
+	beforeEach(() => {
+		h = fresh();
+	});
+
+	const openedPaths = (): string[] => {
+		const opened: string[] = [];
+		h.connection.openBox = async (path: string) => {
+			opened.push(path);
+			return { uidvalidity: 1 };
+		};
+		return opened;
+	};
+
+	it("runs an empty enqueued with the version 2 payload that carries the folder path", async () => {
+		const opened = openedPaths();
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		assert.deepEqual(opened, ["Trash"]);
+		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10, 11]]);
+	});
+
+	it("runs an empty enqueued with the pathless payload", async () => {
+		const opened = openedPaths();
+		const pathless: EmptyTrashEvent = {
+			type: "EMPTY_TRASH",
+			schemaVersion: 3,
+			eventId: "evt-1",
+			timestamp: 1,
+			accountId: "acc-1",
+			trashMailboxId: "trash-mbx",
+			trashUidValidity: 1,
+		};
+
+		await handleEmptyTrash(pathless, noopLogger, deps());
+
+		assert.deepEqual(opened, ["Trash"]);
+		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10, 11]]);
+	});
+
+	it("empties Trash under its current path when the folder was renamed after enqueue", async () => {
+		const opened = openedPaths();
+		h.mailbox = { ...h.mailbox, fullPath: "Deleted Items" };
+
+		await handleEmptyTrash(event, noopLogger, deps());
+
+		assert.deepEqual(opened, ["Deleted Items"]);
+		assert.deepEqual(called("connection.deleteMessages")[0]?.args, [[10, 11]]);
 	});
 });

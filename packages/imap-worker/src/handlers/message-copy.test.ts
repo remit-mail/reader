@@ -40,6 +40,8 @@ interface Harness {
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
+	folderPaths: Record<string, string>;
+	goneMailboxIds: string[];
 	copyRow: CopyRow | null;
 	destinationHolds: number[];
 	connection: Connection;
@@ -89,6 +91,8 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	folderPaths: { "src-mbx": "INBOX", "dst-mbx": "Archive" },
+	goneMailboxIds: [],
 	copyRow: unsettledCopyRow(),
 	destinationHolds: [],
 	connection: buildConnection(),
@@ -136,9 +140,14 @@ const deps = (): MessageCopyDeps =>
 				update: record("threadMessage.update"),
 			},
 			mailbox: {
-				get: async () => {
+				get: async (_accountId: string, mailboxId: string) => {
 					if (h.mailboxError) throw h.mailboxError;
-					return h.mailbox;
+					if (h.goneMailboxIds.includes(mailboxId)) throw notFoundError();
+					const row =
+						mailboxId === h.mailbox.mailboxId
+							? h.mailbox
+							: { mailboxId, uidValidity: 1, cursorState: "normal" };
+					return { ...row, fullPath: h.folderPaths[mailboxId] };
 				},
 				update: record("mailbox.update"),
 			},
@@ -588,5 +597,58 @@ describe("handleMessageCopy", () => {
 
 		assert.equal(called("message.delete")[0]?.args[0], "new-msg");
 		assert.equal(called("threadMessage.deleteMany").length, 1);
+	});
+
+	it("runs a copy enqueued with the unversioned payload that carries folder paths", async () => {
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.deepEqual(called("copyMessages")[0]?.args, [[10], "Archive"]);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"new-msg",
+			20,
+			"dst-mbx",
+		]);
+	});
+
+	it("runs a copy enqueued with the pathless payload", async () => {
+		const pathless: MessageCopyEvent = {
+			type: "MESSAGE_COPY",
+			schemaVersion: 3,
+			eventId: "evt-1",
+			timestamp: 1,
+			accountId: "acc-1",
+			sourceMessageId: "src-msg",
+			newMessageId: "new-msg",
+			sourceMailboxId: "src-mbx",
+			destinationMailboxId: "dst-mbx",
+			uid: 10,
+		};
+
+		await handleMessageCopy(pathless, noopLogger, 1, deps());
+
+		assert.deepEqual(called("openBox")[0]?.args, ["INBOX", true]);
+		assert.deepEqual(called("copyMessages")[0]?.args, [[10], "Archive"]);
+	});
+
+	it("copies between the paths the rows hold when both folders were renamed after enqueue", async () => {
+		h.folderPaths = { "src-mbx": "Old/INBOX", "dst-mbx": "Records/Archive" };
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.deepEqual(called("openBox")[0]?.args, ["Old/INBOX", true]);
+		assert.deepEqual(called("copyMessages")[0]?.args, [
+			[10],
+			"Records/Archive",
+		]);
+	});
+
+	it("reconciles the copy row away without connecting when the destination mailbox was deleted", async () => {
+		h.goneMailboxIds = ["dst-mbx"];
+
+		await handleMessageCopy(event, noopLogger, 1, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.equal(called("copyMessages").length, 0);
+		assert.deepEqual(called("message.delete")[0]?.args, ["new-msg"]);
 	});
 });

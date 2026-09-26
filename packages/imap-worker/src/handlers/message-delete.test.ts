@@ -291,6 +291,8 @@ interface Harness {
 	} | null;
 	mailbox: { mailboxId: string; uidValidity: number; cursorState?: string };
 	mailboxError?: Error;
+	folderPaths: Record<string, string>;
+	goneMailboxIds: string[];
 	connection: Connection;
 	threadMessageUpdateError?: Error;
 	messageRow: { messageIdHeader?: string; status?: string } | undefined;
@@ -398,6 +400,8 @@ const fresh = (): Harness => ({
 	calls: [],
 	account: { accountId: "acc-1", accountConfigId: "cfg-1" },
 	mailbox: { mailboxId: "src-mbx", uidValidity: 1, cursorState: undefined },
+	folderPaths: { "src-mbx": "INBOX", "trash-mbx": "Trash" },
+	goneMailboxIds: [],
 	// What the API writes before it enqueues: a move to Trash records `moving`,
 	// a permanent delete records `deleting`, and the handler's guard asks one
 	// question of both — is a mutation still outstanding on this row.
@@ -457,9 +461,18 @@ const deps = (): MessageDeleteDeps =>
 				deleteMany: record("threadMessage.deleteMany"),
 			},
 			mailbox: {
-				get: async () => {
+				get: async (_accountId: string, mailboxId: string) => {
 					if (h.mailboxError) throw h.mailboxError;
-					return h.mailbox;
+					if (h.goneMailboxIds.includes(mailboxId)) {
+						throw Object.assign(new Error(`Mailbox not found: ${mailboxId}`), {
+							name: "NotFoundError",
+						});
+					}
+					const row =
+						mailboxId === h.mailbox.mailboxId
+							? h.mailbox
+							: { mailboxId, uidValidity: 1, cursorState: "normal" };
+					return { ...row, fullPath: h.folderPaths[mailboxId] };
 				},
 				update: record("mailbox.update"),
 			},
@@ -1736,6 +1749,121 @@ describe("handleMessageDelete", () => {
 		await assert.rejects(
 			handleMessageDelete(moveEvent, noopLogger, 1, deps()),
 			/not found/,
+		);
+	});
+});
+
+describe("handleMessageDelete — folder paths come from the mailbox rows", () => {
+	beforeEach(() => {
+		h = fresh();
+	});
+
+	const movedTo = (): string[] => {
+		const destinations: string[] = [];
+		h.connection.moveMessages = async (
+			_uids: number[],
+			destination: string,
+		) => {
+			destinations.push(destination);
+			return { uidMap: new Map([[10, 20]]) };
+		};
+		return destinations;
+	};
+
+	it("runs a delete enqueued with the version 2 payload that carries folder paths", async () => {
+		const destinations = movedTo();
+
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+		assert.deepEqual(destinations, ["Trash"]);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			20,
+			"trash-mbx",
+		]);
+	});
+
+	it("runs a delete enqueued with the pathless payload", async () => {
+		const destinations = movedTo();
+		const pathless: MessageDeleteEvent = {
+			type: "MESSAGE_DELETE",
+			schemaVersion: 3,
+			eventId: "evt-1",
+			timestamp: 1,
+			accountId: "acc-1",
+			messageId: "msg-1",
+			mailboxId: "src-mbx",
+			uid: 10,
+			operation: "move_to_trash",
+			destinationMailboxId: "trash-mbx",
+		};
+
+		await handleMessageDelete(pathless, noopLogger, 1, deps());
+
+		assert.deepEqual(destinations, ["Trash"]);
+		assert.deepEqual(called("message.updateUid")[0]?.args, [
+			"msg-1",
+			20,
+			"trash-mbx",
+		]);
+	});
+
+	it("moves to Trash under its current path when the folder was renamed after enqueue", async () => {
+		const destinations = movedTo();
+		const opened: string[] = [];
+		const openBox = h.connection.openBox;
+		h.connection.openBox = async (path: string) => {
+			opened.push(path);
+			return openBox(path);
+		};
+		h.folderPaths = { "src-mbx": "Mail/INBOX", "trash-mbx": "Deleted Items" };
+
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+		assert.equal(opened[0], "Mail/INBOX");
+		assert.deepEqual(destinations, ["Deleted Items"]);
+	});
+
+	it("opens the source under its current path when it was renamed after enqueue", async () => {
+		const destinations = movedTo();
+		const opened: string[] = [];
+		const openBox = h.connection.openBox;
+		h.connection.openBox = async (path: string) => {
+			opened.push(path);
+			return openBox(path);
+		};
+		h.folderPaths = { "src-mbx": "Old/Inbox-renamed", "trash-mbx": "Trash" };
+
+		await handleMessageDelete(moveEvent, noopLogger, 1, deps());
+
+		assert.equal(opened[0], "Old/Inbox-renamed");
+		assert.deepEqual(destinations, ["Trash"]);
+	});
+
+	it("resyncs the source when a redelivered delete finds the Trash mailbox deleted", async () => {
+		h.goneMailboxIds = ["trash-mbx"];
+
+		await handleMessageDelete(moveEvent, noopLogger, 2, deps());
+
+		assert.deepEqual(called("emitEvent")[0]?.args, [
+			{ type: "SYNC_MESSAGES", accountId: "acc-1", mailboxId: "src-mbx" },
+		]);
+	});
+
+	it("hands the row back without connecting when the Trash mailbox was deleted", async () => {
+		h.goneMailboxIds = ["trash-mbx"];
+		const destinations = movedTo();
+
+		await handleMessageDelete(moveEvent, capturingLog(), 1, deps());
+
+		assert.equal(h.getConnectionCount, 0);
+		assert.deepEqual(destinations, []);
+		assert.equal(called("connection.deleteMessages").length, 0);
+		assert.equal(called("message.delete").length, 0);
+		assert.deepEqual(restoreCalls()[0]?.args, restoredToSource("abandoned"));
+		assert.equal(
+			loggedWith("alert", "message_delete_destination_gone").length,
+			1,
 		);
 	});
 });

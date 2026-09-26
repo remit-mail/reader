@@ -4,8 +4,7 @@ import type {
 	IThreadMessageRepository,
 	MessageItem,
 } from "@remit/data-ports";
-import { isNotFoundError } from "@remit/data-ports/errors";
-import { isCurrentSchemaVersion } from "@remit/data-ports/mutation-events";
+import { isAcceptedSchemaVersion } from "@remit/data-ports/mutation-events";
 import {
 	MessageMutation,
 	MessageStatus,
@@ -27,6 +26,7 @@ import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
+import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
@@ -37,6 +37,11 @@ import {
 	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
+
+interface FolderPaths {
+	source: string;
+	destination: string | undefined;
+}
 
 export const getMessageDeleteMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -179,15 +184,13 @@ export const handleMessageDelete = async (
 		accountId,
 		messageId,
 		mailboxId,
-		mailboxPath,
 		uid,
 		operation,
 		destinationMailboxId,
-		destinationMailboxPath,
 	} = event;
 
 	log.info(
-		{ event: event.type, accountId, messageId, mailboxPath, operation },
+		{ event: event.type, accountId, messageId, mailboxId, operation },
 		"Handling event",
 	);
 
@@ -308,7 +311,7 @@ export const handleMessageDelete = async (
 			accountId,
 			messageId,
 			uid,
-			mailboxPath,
+			mailboxId,
 			operation,
 			receiveCount,
 			reason,
@@ -431,8 +434,10 @@ export const handleMessageDelete = async (
 	const settlePausedDelete = async (
 		getRawConnection: () => Promise<IImapConnection>,
 		commandIssued: boolean,
+		paths: FolderPaths,
 	): Promise<void> => {
 		const mayHaveIssued = commandIssued || receiveCount > 1;
+		const destinationMailboxPath = paths.destination;
 		const isProbeableTrashMove =
 			mayHaveIssued &&
 			operation === "move_to_trash" &&
@@ -443,7 +448,7 @@ export const handleMessageDelete = async (
 			? await probePausedPlacement(await getRawConnection(), {
 					messageIdHeader: (await messageService.get([messageId]))[0]
 						?.messageIdHeader,
-					sourceMailboxPath: mailboxPath,
+					sourceMailboxPath: paths.source,
 					destinationMailboxPath,
 				})
 			: { kind: "at-source" };
@@ -486,6 +491,7 @@ export const handleMessageDelete = async (
 
 	const settleExhaustedDelete = async (
 		accountConfigId: string,
+		sourceMailboxPath: string,
 		getConnection: () => Promise<IImapConnection>,
 		settlePaused: () => Promise<void>,
 	): Promise<void> => {
@@ -497,7 +503,7 @@ export const handleMessageDelete = async (
 				messageId,
 				sourceMailboxId: mailboxId,
 				uid,
-				sourceMailboxPath: mailboxPath,
+				sourceMailboxPath,
 				getConnection,
 			},
 		).catch(async (settleError: unknown) => {
@@ -542,6 +548,7 @@ export const handleMessageDelete = async (
 	const settleUnconfirmedTrashMove = async (
 		confirmation: Exclude<TrashMoveConfirmation, { outcome: "confirmed" }>,
 		accountConfigId: string,
+		sourceMailboxPath: string,
 		getConnection: () => Promise<IImapConnection>,
 		settlePaused: () => Promise<void>,
 	): Promise<void> => {
@@ -550,7 +557,7 @@ export const handleMessageDelete = async (
 			accountConfigId,
 			messageId,
 			uid,
-			mailboxPath,
+			mailboxId,
 			receiveCount,
 			confirmation: confirmation.outcome,
 		};
@@ -569,7 +576,12 @@ export const handleMessageDelete = async (
 				context,
 				"Move to trash carries no Message-ID header to probe the destination with; settling on the source's answer alone",
 			);
-			await settleExhaustedDelete(accountConfigId, getConnection, settlePaused);
+			await settleExhaustedDelete(
+				accountConfigId,
+				sourceMailboxPath,
+				getConnection,
+				settlePaused,
+			);
 			return;
 		}
 
@@ -578,7 +590,7 @@ export const handleMessageDelete = async (
 		);
 	};
 
-	if (!isCurrentSchemaVersion(event.schemaVersion)) {
+	if (!isAcceptedSchemaVersion(event.schemaVersion)) {
 		await abandonDelete(
 			"Refused to delete: event was minted under an unknown contract",
 			"message_delete_unknown_schema_version",
@@ -596,19 +608,39 @@ export const handleMessageDelete = async (
 			// NotFoundError forever, and on the account's per-group FIFO that head
 			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
 			// mailbox makes the delete moot: ack with a WARN.
-			const mailbox = await mailboxService
-				.get(accountId, mailboxId)
-				.catch((error: unknown) => {
-					if (isNotFoundError(error)) return null;
-					throw error;
-				});
-			if (!mailbox) {
+			const source = await findMailboxRow(mailboxService, accountId, mailboxId);
+			if (source.kind === "gone") {
 				log.warn(
 					{ accountId, messageId, mailboxId },
 					"Skipping MESSAGE_DELETE: mailbox no longer exists (deleted)",
 				);
 				return;
 			}
+			const mailbox = source.mailbox;
+
+			const destination =
+				operation === "move_to_trash" && destinationMailboxId !== undefined
+					? await findMailboxRow(
+							mailboxService,
+							accountId,
+							destinationMailboxId,
+						)
+					: undefined;
+			if (destination?.kind === "gone") {
+				await abandonDelete(
+					"Refused to delete: the destination mailbox no longer exists (deleted)",
+					"message_delete_destination_gone",
+				);
+				await emitMailboxResync(emitEvent, { accountId, mailboxId });
+				return;
+			}
+
+			const mailboxPath = mailbox.fullPath;
+			const destinationMailboxPath = destination?.mailbox.fullPath;
+			const paths: FolderPaths = {
+				source: mailboxPath,
+				destination: destinationMailboxPath,
+			};
 
 			const scope = createConnectionScopeWithCredentials(account, credentials);
 
@@ -628,7 +660,7 @@ export const handleMessageDelete = async (
 				);
 
 			const settlePaused = (commandIssued: boolean): Promise<void> =>
-				settlePausedDelete(scope.getConnection, commandIssued);
+				settlePausedDelete(scope.getConnection, commandIssued, paths);
 
 			// Flipped the instant the MOVE or the EXPUNGE leaves, so every settle
 			// downstream of it knows the server was asked.
@@ -734,6 +766,7 @@ export const handleMessageDelete = async (
 						await settleUnconfirmedTrashMove(
 							confirmation,
 							account.accountConfigId,
+							mailboxPath,
 							getGuardedConnection,
 							() => settlePaused(true),
 						);
@@ -843,6 +876,7 @@ export const handleMessageDelete = async (
 					// failure this budget exists for.
 					await settleExhaustedDelete(
 						account.accountConfigId,
+						mailboxPath,
 						getGuardedConnection,
 						() => settlePaused(commandIssued),
 					);

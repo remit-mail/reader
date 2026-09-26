@@ -423,7 +423,19 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 				messageIdHeader: options.probeable ? "<moved@example.com>" : undefined,
 			},
 		]);
-		mock.method(client.mailbox, "get", async () => pausedSource());
+		mock.method(
+			client.mailbox,
+			"get",
+			async (_accountId: string, id: string) =>
+				id === "mm-src-zzz"
+					? { ...pausedSource(), fullPath: "INBOX" }
+					: {
+							mailboxId: id,
+							uidValidity: 1,
+							cursorState: "normal",
+							fullPath: "Archive",
+						},
+		);
 		const transitionCalls: unknown[][] = [];
 		mock.method(
 			client.message,
@@ -614,6 +626,161 @@ describe("handleMessageMove — the move's own pending state gates every attempt
 			syncStatus: "synced",
 			abandonedMutation: "none",
 		});
+	});
+
+	const arrangeLiveMove = async (
+		folders: Record<string, string>,
+	): Promise<{
+		opened: string[];
+		movedTo: string[];
+		updateUidCalls: unknown[][];
+		transitionCalls: unknown[][];
+		connection: IImapConnection;
+	}> => {
+		const client = await getClient();
+		mock.method(client.account, "get", async () => cappedAccount());
+		mock.method(client.secrets, "decrypt", async () => "fake-password");
+		mock.method(client.message, "get", async () => [pendingRow()]);
+		mock.method(
+			client.mailbox,
+			"get",
+			async (_accountId: string, id: string) => {
+				const fullPath = folders[id];
+				if (fullPath === undefined) {
+					throw Object.assign(new Error(`Mailbox not found: ${id}`), {
+						name: "NotFoundError",
+					});
+				}
+				return {
+					mailboxId: id,
+					uidValidity: 1,
+					cursorState: "normal",
+					fullPath,
+				};
+			},
+		);
+		const updateUidCalls: unknown[][] = [];
+		mock.method(client.message, "updateUid", async (...args: unknown[]) => {
+			updateUidCalls.push(args);
+		});
+		const transitionCalls: unknown[][] = [];
+		mock.method(
+			client.message,
+			"transitionPlacement",
+			async (...args: unknown[]) => {
+				transitionCalls.push(args);
+				return { messageId: "mm-msg-zzz" };
+			},
+		);
+		const opened: string[] = [];
+		const movedTo: string[] = [];
+		const connection = {
+			openBox: async (path: string) => {
+				opened.push(path);
+				return { uidvalidity: 1 } as never;
+			},
+			moveMessages: async (_uids: number[], destination: string) => {
+				movedTo.push(destination);
+				return { uidMap: new Map([[10, 44]]) };
+			},
+		} as unknown as IImapConnection;
+		return { opened, movedTo, updateUidCalls, transitionCalls, connection };
+	};
+
+	it("runs a move enqueued with the unversioned payload that carries folder paths", async () => {
+		const { movedTo, updateUidCalls, connection } = await arrangeLiveMove({
+			"mm-src-zzz": "INBOX",
+			"mm-dst-zzz": "Archive",
+		});
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps(connection));
+
+		assert.deepEqual(movedTo, ["Archive"]);
+		assert.deepEqual(updateUidCalls[0], ["mm-msg-zzz", 44, "mm-dst-zzz"]);
+	});
+
+	it("runs a move enqueued with the pathless payload", async () => {
+		const { opened, movedTo, connection } = await arrangeLiveMove({
+			"mm-src-zzz": "INBOX",
+			"mm-dst-zzz": "Archive",
+		});
+		const pathless: MessageMoveEvent = {
+			type: "MESSAGE_MOVE",
+			schemaVersion: 3,
+			accountId: acctId,
+			messageId: "mm-msg-zzz",
+			sourceMailboxId: "mm-src-zzz",
+			destinationMailboxId: "mm-dst-zzz",
+			uid: 10,
+			eventId: "mm-evt-zzz",
+			timestamp: 1700000000000,
+		};
+
+		await handleMessageMove(pathless, silentLogger, 1, moveDeps(connection));
+
+		assert.deepEqual(opened, ["INBOX"]);
+		assert.deepEqual(movedTo, ["Archive"]);
+	});
+
+	it("moves under the destination's current path when the folder was renamed after enqueue", async () => {
+		const { opened, movedTo, updateUidCalls, connection } =
+			await arrangeLiveMove({
+				"mm-src-zzz": "INBOX",
+				"mm-dst-zzz": "Records",
+			});
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps(connection));
+
+		assert.deepEqual(opened, ["INBOX"]);
+		assert.deepEqual(
+			movedTo,
+			["Records"],
+			"the payload still says Archive; the row says where the folder is now",
+		);
+		assert.deepEqual(updateUidCalls[0], ["mm-msg-zzz", 44, "mm-dst-zzz"]);
+	});
+
+	it("opens the source under its current path when it was renamed after enqueue", async () => {
+		const { opened, movedTo, connection } = await arrangeLiveMove({
+			"mm-src-zzz": "Old/Inbox-renamed",
+			"mm-dst-zzz": "Archive",
+		});
+
+		await handleMessageMove(event, silentLogger, 1, moveDeps(connection));
+
+		assert.deepEqual(
+			opened,
+			["Old/Inbox-renamed"],
+			"the payload still says INBOX; the row says where the folder is now",
+		);
+		assert.deepEqual(movedTo, ["Archive"]);
+	});
+
+	it("hands the row back to its source without connecting when the destination mailbox was deleted", async () => {
+		const { transitionCalls, updateUidCalls } = await arrangeLiveMove({
+			"mm-src-zzz": "INBOX",
+		});
+
+		await handleMessageMove(event, capturingLogger(), 1, moveDeps());
+
+		assert.equal(connectCount, 0);
+		assert.equal(updateUidCalls.length, 0);
+		assert.deepEqual(transitionCalls[0]?.[2], {
+			mailboxId: "mm-src-zzz",
+			uid: 10,
+			status: "active",
+			syncStatus: "synced",
+			abandonedMutation: "none",
+		});
+		assert.equal(
+			logLines.filter(
+				(line) => line.fields.metric === "message_move_destination_gone",
+			).length,
+			1,
+		);
+		assert.deepEqual(emitted, [
+			{ type: "SYNC_MESSAGES", accountId: acctId, mailboxId: "mm-src-zzz" },
+		]);
 	});
 
 	it("acks without connecting when the message row is already gone", async () => {
