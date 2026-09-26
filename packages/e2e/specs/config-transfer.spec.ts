@@ -50,11 +50,7 @@ const mintStoredId = (): string =>
 			"0123456789abcdefghijklmnopqrstuvwxyz"[Math.floor(Math.random() * 36)],
 	).join("");
 
-/**
- * Re-key the one field two coexisting configurations cannot share, and point
- * the rule at a folder the account does not have, so the import has one to
- * create.
- */
+/** Re-key the one field two coexisting configurations cannot share. */
 const withFreshAccountId = (
 	document: Record<string, unknown>,
 	accountId: string,
@@ -188,8 +184,6 @@ test.describe("A configuration file", () => {
 			)?.connectionState,
 		).toBe("authenticated");
 
-		// The folder the file named and the account lacked now exists on the mail
-		// server itself, created by the import, not by this spec.
 		const serverPaths = await waitFor(
 			async () => {
 				await target.triggerSync(importedAccountId);
@@ -205,7 +199,6 @@ test.describe("A configuration file", () => {
 			(path) => leafOf(path) === IMPORTED_FOLDER,
 		);
 
-		// And the rule turned itself on, bound to the folder the server confirmed.
 		const running = await waitFor(
 			async () => {
 				await target.triggerSync(importedAccountId);

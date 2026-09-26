@@ -9,6 +9,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
+import { FilterToggleError } from "@/components/settings/FilterToggleError";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useDeleteFilter,
@@ -17,6 +18,7 @@ import {
 } from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
+import { filterToggleReportHref } from "@/lib/filter-report";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -139,15 +141,11 @@ export function AccountFilters({
 			) : (
 				<>
 					{toggle.isError && (
-						<ErrorState
-							variant="inline"
-							title={
-								toggle.enabling
-									? "Couldn't turn the filter on"
-									: "Couldn't turn the filter off"
-							}
+						<FilterToggleError
+							enabling={toggle.enabling}
 							error={toggle.error}
 							onRetry={toggle.retry}
+							reportHref={filterToggleReportHref}
 						/>
 					)}
 					<FiltersList

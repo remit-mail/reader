@@ -177,8 +177,16 @@ const hasLapsed = (
 	filter.expiresAt !== undefined &&
 	new Date(filter.expiresAt).getTime() <= now;
 
+const FOLDERLESS_REASONS: ReadonlySet<FilterItem["disabledReason"]> = new Set([
+	FilterDisabledReason.AwaitingFolder,
+	FilterDisabledReason.FolderCreateFailed,
+]);
+
 export const resolveFilterUpdate = (
-	current: Pick<FilterItem, "scope" | "expiresAt" | "state">,
+	current: Pick<
+		FilterItem,
+		"scope" | "expiresAt" | "state" | "disabledReason" | "actionMailboxId"
+	>,
 	patch: Partial<UpdateFilterInput>,
 	now: number = Date.now(),
 ): Partial<UpdateFilterInput> => {
@@ -197,6 +205,18 @@ export const resolveFilterUpdate = (
 	const lapsed = timing
 		? timing.state === FilterState.Expired
 		: hasLapsed(current, now);
+
+	if (
+		patch.state === FilterState.Active &&
+		FOLDERLESS_REASONS.has(current.disabledReason) &&
+		(patch.actionMailboxId ?? current.actionMailboxId) === FILTER_NO_ACTION
+	) {
+		throw new BadRequestError(
+			current.disabledReason === FilterDisabledReason.AwaitingFolder
+				? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
+				: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.",
+		);
+	}
 
 	if (patch.state === FilterState.Active && lapsed) {
 		throw new BadRequestError(

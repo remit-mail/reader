@@ -1,14 +1,15 @@
 import { readConfigDocument } from "@remit/config-format";
-import type {
-	ConfigImportItem,
-	ConfigImportUnresolvedRefItem,
-	CreateMailboxResult,
-	FilterItem,
-	IAccountSettingRepository,
-	IConfigImportRepository,
-	IFilterRepository,
-	IMailboxRepository,
-	MailboxItem,
+import {
+	type ConfigImportItem,
+	type ConfigImportUnresolvedRefItem,
+	type CreateMailboxResult,
+	FILTER_NO_ACTION,
+	type FilterItem,
+	type IAccountSettingRepository,
+	type IConfigImportRepository,
+	type IFilterRepository,
+	type IMailboxRepository,
+	type MailboxItem,
 } from "@remit/data-ports";
 import { composeSettingName } from "@remit/data-ports/account-settings";
 import {
@@ -20,8 +21,6 @@ import {
 	MailboxSyncStatus,
 } from "@remit/domain-enums";
 import type { AppointFolderRole } from "./import-repositories.js";
-
-const NO_MAILBOX = "None";
 
 export interface ConfigBinderRepositories {
 	configImport: Pick<IConfigImportRepository, "listByAccountConfig" | "update">;
@@ -117,7 +116,7 @@ export const bindImportedFolders = async (
 		const held = createdByPath.get(folderPath);
 		if (held !== undefined) return held;
 		const created = await deps.createFolder(accountId, folderPath);
-		if (created.outcome === "PathTaken") return NO_MAILBOX;
+		if (created.outcome === "PathTaken") return FILTER_NO_ACTION;
 		createdByPath.set(folderPath, created.mailbox.mailboxId);
 		result.created++;
 		return created.mailbox.mailboxId;
@@ -130,6 +129,11 @@ export const bindImportedFolders = async (
 
 		for (const ref of row.unresolvedRefs) {
 			const state = refStateOf(ref, accountId, byPath, byId, filtersById);
+			if (state.kind === "Ready" && !movesIntoNothing(ref, filtersById)) {
+				result.dropped++;
+				changed = true;
+				continue;
+			}
 			if (state.kind === "TargetGone") {
 				result.dropped++;
 				changed = true;
@@ -198,7 +202,7 @@ export const disableFiltersMissingFolders = async (
 	let disabled = 0;
 	for (const filter of filters) {
 		if (filter.state !== FilterState.Active) continue;
-		if (filter.actionMailboxId === NO_MAILBOX) continue;
+		if (filter.actionMailboxId === FILTER_NO_ACTION) continue;
 		const owner = await repositories.mailbox.resolveAccountId(
 			filter.actionMailboxId,
 		);
@@ -213,6 +217,24 @@ export const disableFiltersMissingFolders = async (
 };
 
 type BoundDocument = ReturnType<typeof readConfigDocument>;
+
+const movesIntoNothing = (
+	ref: ConfigImportUnresolvedRefItem,
+	filtersById: ReadonlyMap<string, FilterItem>,
+): boolean =>
+	ref.kind !== ConfigImportRefKind.FilterAction ||
+	filtersById.get(ref.target)?.actionMailboxId === FILTER_NO_ACTION;
+
+const findByPath = (
+	folderPath: string,
+	byPath: ReadonlyMap<string, MailboxItem>,
+): MailboxItem | undefined => {
+	const exact = byPath.get(folderPath);
+	if (exact) return exact;
+	const prefix = byPath.get("INBOX")?.namespacePrefix ?? "";
+	if (prefix === "" || folderPath.startsWith(prefix)) return undefined;
+	return byPath.get(`${prefix}${folderPath}`);
+};
 
 const refStateOf = (
 	ref: ConfigImportUnresolvedRefItem,
@@ -230,28 +252,34 @@ const refStateOf = (
 	if (ref.accountId !== accountId) {
 		return { kind: "Waiting", mailboxId: ref.mailboxId };
 	}
-	if (ref.mailboxId === NO_MAILBOX) {
-		const found = byPath.get(ref.folderPath);
-		if (!found) return { kind: "Absent" };
-		if (found.syncStatus === MailboxSyncStatus.synced) {
-			return { kind: "Ready", mailboxId: found.mailboxId };
-		}
-		return { kind: "Waiting", mailboxId: found.mailboxId };
-	}
 	const created = byId.get(ref.mailboxId);
-	if (!created) {
-		return { kind: "Refused", reason: FilterDisabledReason.FolderMissing };
+	if (created) {
+		if (created.syncStatus === MailboxSyncStatus.synced) {
+			return { kind: "Ready", mailboxId: created.mailboxId };
+		}
+		if (created.syncStatus === MailboxSyncStatus.failed) {
+			return {
+				kind: "Refused",
+				reason: FilterDisabledReason.FolderCreateFailed,
+			};
+		}
+		return { kind: "Waiting", mailboxId: created.mailboxId };
 	}
-	if (created.syncStatus === MailboxSyncStatus.synced) {
-		return { kind: "Ready", mailboxId: created.mailboxId };
+	const found = findByPath(ref.folderPath, byPath);
+	if (found?.syncStatus === MailboxSyncStatus.synced) {
+		return { kind: "Ready", mailboxId: found.mailboxId };
 	}
-	if (created.syncStatus === MailboxSyncStatus.failed) {
+	if (found?.syncStatus === MailboxSyncStatus.failed) {
+		return { kind: "Waiting", mailboxId: FILTER_NO_ACTION };
+	}
+	if (found) return { kind: "Waiting", mailboxId: found.mailboxId };
+	if (ref.mailboxId !== FILTER_NO_ACTION) {
 		return {
 			kind: "Refused",
 			reason: FilterDisabledReason.FolderCreateFailed,
 		};
 	}
-	return { kind: "Waiting", mailboxId: created.mailboxId };
+	return { kind: "Absent" };
 };
 
 const bindRef = async (

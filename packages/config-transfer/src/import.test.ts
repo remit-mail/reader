@@ -1053,7 +1053,7 @@ test("a folder the server refused to create turns its filter off with FolderCrea
 	);
 });
 
-test("a created folder that vanishes before it settles turns its filter off with FolderMissing", async () => {
+test("a created folder that disappears before it settles means the create never landed", async () => {
 	const document = await exportSource();
 	const store = emptyStore();
 	await apply(store, document);
@@ -1077,36 +1077,206 @@ test("a created folder that vanishes before it settles turns its filter off with
 	);
 
 	assert.equal(result.disabled, 1);
-	const gone = store.filters.find(
+	const refused = store.filters.find(
 		(filter) => filter.name === "Invoices to Facturen",
 	);
-	assert.equal(gone?.state, "Disabled");
-	assert.equal(gone?.disabledReason, "FolderMissing");
+	assert.equal(refused?.state, "Disabled");
+	assert.equal(refused?.disabledReason, "FolderCreateFailed");
 });
 
-test("a create that finds its path already taken waits for discovery to name the folder", async () => {
+test("a create that finds its path already taken binds the existing folder on the next sync", async () => {
 	const document = await exportSource();
 	const store = emptyStore();
 	await apply(store, document);
 
 	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX", "INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: async () => ({ outcome: "PathTaken" as const }),
+		now: () => NOW,
+	};
+	const first = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(first.created, 0);
+	assert.equal(
+		store.imports[0].unresolvedRefs.find(
+			(ref) => ref.folderPath === "INBOX.Facturen",
+		)?.mailboxId,
+		"None",
+	);
+
+	discover(store, PASSWORD_ACCOUNT_ID, ["INBOX.Facturen"]);
+	await bindImportedFolders(binder, TARGET_CONFIG_ID, PASSWORD_ACCOUNT_ID);
+
+	const existing = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Facturen",
+	);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.actionMailboxId, existing?.mailboxId);
+});
+
+const withUnprefixedPaths = async () => {
+	const document = (await exportSource()) as unknown as {
+		accounts: {
+			folderRoles: { role: string; folderPath: string }[];
+		}[];
+		filters: { actionFolder: { folderPath: string } | null }[];
+	};
+	for (const filter of document.filters) {
+		if (filter.actionFolder?.folderPath === "INBOX.Facturen") {
+			filter.actionFolder.folderPath = "Facturen";
+		}
+	}
+	for (const account of document.accounts) {
+		for (const role of account.folderRoles) {
+			if (role.folderPath === "INBOX.Sent") role.folderPath = "Sent";
+		}
+	}
+	return document;
+};
+
+const discoverUnderInbox = (store: Store, paths: readonly string[]): void => {
+	for (const fullPath of ["INBOX", ...paths]) {
+		store.mailboxes.push(
+			makeMailbox({
+				mailboxId: nextId("mbx"),
+				accountId: PASSWORD_ACCOUNT_ID,
+				fullPath,
+				namespacePrefix: "INBOX.",
+			}),
+		);
+	}
+};
+
+test("a folder the account already holds under its namespace is bound, not created", async () => {
+	const store = emptyStore();
+	await apply(store, await withUnprefixedPaths());
+
+	discoverUnderInbox(store, ["INBOX.Facturen", "INBOX.Sent"]);
 	const result = await bindImportedFolders(
 		{
 			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
 			appointFolderRole: appointFolderRoleInto(store),
-			createFolder: async () => ({ outcome: "PathTaken" as const }),
+			createFolder: createFolderInto(store),
 			now: () => NOW,
 		},
 		TARGET_CONFIG_ID,
 		PASSWORD_ACCOUNT_ID,
 	);
 
-	assert.equal(result.created, 0);
+	const facturen = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Facturen",
+	);
+	const sent = store.mailboxes.find(
+		(mailbox) => mailbox.fullPath === "INBOX.Sent",
+	);
 	assert.equal(
-		store.imports[0].unresolvedRefs.find(
-			(ref) => ref.folderPath === "INBOX.Facturen",
-		)?.mailboxId,
-		"None",
+		store.mailboxes.some((mailbox) => mailbox.fullPath === "Facturen"),
+		false,
+	);
+	assert.equal(result.disabled, 0);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.actionMailboxId, facturen?.mailboxId);
+	assert.equal(
+		store.settings.get(
+			composeFolderRoleAppointmentName(PASSWORD_ACCOUNT_ID, "Sent"),
+		)?.value.value,
+		sent?.mailboxId,
+	);
+});
+
+test("a created folder the worker folds into one the server already held binds to that one", async () => {
+	const store = emptyStore();
+	await apply(store, await withUnprefixedPaths());
+
+	discoverUnderInbox(store, ["INBOX.Sent"]);
+	const binder = {
+		repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+		appointFolderRole: appointFolderRoleInto(store),
+		createFolder: createFolderInto(store),
+		now: () => NOW,
+	};
+	const first = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+	assert.equal(first.created > 0, true);
+
+	store.mailboxes = store.mailboxes.filter(
+		(mailbox) => mailbox.fullPath !== "Facturen",
+	);
+	const holder = makeMailbox({
+		mailboxId: nextId("mbx"),
+		accountId: PASSWORD_ACCOUNT_ID,
+		fullPath: "INBOX.Facturen",
+		namespacePrefix: "INBOX.",
+	});
+	store.mailboxes.push(holder);
+
+	const second = await bindImportedFolders(
+		binder,
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(second.disabled, 0);
+	const bound = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.equal(bound?.state, "Active");
+	assert.equal(bound?.disabledReason, "None");
+	assert.equal(bound?.actionMailboxId, holder.mailboxId);
+});
+
+test("a filter the user pointed at a folder keeps it when the imported folder appears", async () => {
+	const document = await exportSource();
+	const store = emptyStore();
+	await apply(store, document);
+
+	const invoices = store.filters.find(
+		(filter) => filter.name === "Invoices to Facturen",
+	);
+	assert.ok(invoices);
+	invoices.actionMailboxId = "mbx-picked";
+
+	discover(store, PASSWORD_ACCOUNT_ID, [
+		"INBOX",
+		"INBOX.Sent",
+		"INBOX.Facturen",
+	]);
+	await bindImportedFolders(
+		{
+			repositories: repositoriesOf(store, TARGET_CONFIG_ID),
+			appointFolderRole: appointFolderRoleInto(store),
+			createFolder: createFolderInto(store),
+			now: () => NOW,
+		},
+		TARGET_CONFIG_ID,
+		PASSWORD_ACCOUNT_ID,
+	);
+
+	assert.equal(
+		store.filters.find((filter) => filter.name === "Invoices to Facturen")
+			?.actionMailboxId,
+		"mbx-picked",
+	);
+	assert.equal(
+		store.imports[0].unresolvedRefs.some(
+			(ref) => ref.target === invoices.filterId,
+		),
+		false,
 	);
 });
 

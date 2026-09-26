@@ -63,6 +63,8 @@ describe("resolveFilterUpdate (#1103)", () => {
 		scope: FilterScope.Standing,
 		expiresAt: undefined,
 		state: FilterState.Active,
+		disabledReason: FilterDisabledReason.None,
+		actionMailboxId: "mbx-invoices",
 	};
 
 	it("carries a state the body names through to the patch", () => {
@@ -91,7 +93,11 @@ describe("resolveFilterUpdate (#1103)", () => {
 		it(`clears ${reason} when the user turns the filter back on`, () => {
 			assert.deepEqual(
 				resolveFilterUpdate(
-					{ ...standing, state: FilterState.Disabled },
+					{
+						...standing,
+						state: FilterState.Disabled,
+						disabledReason: reason,
+					},
 					{ state: FilterState.Active },
 					NOW,
 				),
@@ -116,6 +122,44 @@ describe("resolveFilterUpdate (#1103)", () => {
 		assert.equal("disabledReason" in resolved, false);
 	});
 
+	for (const reason of [
+		FilterDisabledReason.AwaitingFolder,
+		FilterDisabledReason.FolderCreateFailed,
+	]) {
+		it(`refuses to turn on a ${reason} filter that has no folder`, () => {
+			assert.throws(
+				() =>
+					resolveFilterUpdate(
+						{
+							...standing,
+							state: FilterState.Disabled,
+							disabledReason: reason,
+							actionMailboxId: "None",
+						},
+						{ state: FilterState.Active },
+						NOW,
+					),
+				/pick a folder in the rule/i,
+			);
+		});
+
+		it(`turns on a ${reason} filter once the patch names a folder`, () => {
+			assert.equal(
+				resolveFilterUpdate(
+					{
+						...standing,
+						state: FilterState.Disabled,
+						disabledReason: reason,
+						actionMailboxId: "None",
+					},
+					{ state: FilterState.Active, actionMailboxId: "mbx-picked" },
+					NOW,
+				).state,
+				FilterState.Active,
+			);
+		});
+	}
+
 	it("refuses Expired as a state the user sets", () => {
 		assert.throws(
 			() => resolveFilterUpdate(standing, { state: FilterState.Expired }, NOW),
@@ -128,6 +172,7 @@ describe("resolveFilterUpdate (#1103)", () => {
 			() =>
 				resolveFilterUpdate(
 					{
+						...standing,
 						scope: FilterScope.Temporary,
 						expiresAt: "2026-01-01T00:00:00+00:00",
 						state: FilterState.Disabled,
