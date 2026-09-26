@@ -129,56 +129,6 @@ export interface CalendarSlotPick {
 	allDay: boolean;
 }
 
-/** One reading of a phrase the parser could not settle on its own. */
-export interface PhraseChoiceOption {
-	id: string;
-	label: string;
-	/** Empty leaves the reading from the rest of the sentence alone. */
-	date: string;
-	startTime: string;
-}
-
-export interface PhraseChoice {
-	id: string;
-	question: string;
-	/** The words the question is about. */
-	source: string;
-	options: PhraseChoiceOption[];
-	chosenId: string;
-}
-
-/**
- * What a reader made of a typed sentence, with the words each reading came
- * from. Every field is presentational: the composer renders it and never parses
- * anything itself, so a parser can be swapped without touching the surface.
- */
-export interface AgendaParse {
-	title: string;
-	date: string;
-	dateText: string;
-	startTime: string;
-	startTimeText: string;
-	endTime: string;
-	durationMinutes: number;
-	durationText: string;
-	attendees: string[];
-	attendeesText: string;
-	location: string;
-	locationText: string;
-	/** Human-readable rule, empty for a one-off. */
-	repeat: string;
-	repeatText: string;
-	/** Defaults the reader applied on its own authority. */
-	assumptions: string[];
-	/** What the sentence never said. */
-	unresolved: string[];
-	/** What the sentence said two ways. */
-	choices: PhraseChoice[];
-}
-
-/** Choice id → option id, as answered by the person typing. */
-export type ChoicePicks = Readonly<Record<string, string>>;
-
 /**
  * One clock a zoneless time could be on. Present only when the source genuinely
  * did not say which, and the reader is the one who settles it.

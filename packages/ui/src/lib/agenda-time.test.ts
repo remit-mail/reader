@@ -35,7 +35,6 @@ import {
 	minuteOfDay,
 	monthLabel,
 	readNextUp,
-	shortMonthLabel,
 	wallSpanOn,
 	weekdayLongLabel,
 	weekdayShortLabel,
@@ -589,7 +588,6 @@ describe("labels and arithmetic", () => {
 	it("names a day the same in every machine zone", () => {
 		inEveryZone(() => {
 			assert.equal(monthLabel(TODAY), "June 2026");
-			assert.equal(shortMonthLabel(TODAY), "Jun");
 			assert.equal(formatShortDay(TODAY), "Wed 10 Jun");
 			assert.equal(weekdayLongLabel(TODAY), "Wednesday");
 			assert.equal(weekdayShortLabel(TODAY), "Wed");

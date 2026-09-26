@@ -219,7 +219,6 @@ export {
 	segmentClassName,
 } from "./components/calendar-toolbar.js";
 export {
-	type AgendaParse,
 	type CalendarAttendee,
 	type CalendarClash,
 	type CalendarColorId,
@@ -232,12 +231,9 @@ export {
 	type CalendarProposal,
 	type CalendarSlotPick,
 	type CalendarViewId,
-	type ChoicePicks,
 	calendarColorIds,
 	type EventDraft,
 	type EventSuggestion,
-	type PhraseChoice,
-	type PhraseChoiceOption,
 	type RecurrenceScope,
 	type RsvpState,
 	type ZoneCertainty,
@@ -331,18 +327,9 @@ export {
 	type EventDetailProps,
 } from "./components/event-detail.js";
 export {
-	EventCalendarField,
 	EventEditor,
 	type EventEditorLayout,
 	type EventEditorProps,
-	EventField,
-	type EventFieldProps,
-	EventGuestsField,
-	EventLocationField,
-	EventNotesField,
-	EventRepeatField,
-	EventTitleField,
-	EventWhenField,
 	endsBeforeStart,
 	withAllDay,
 	withStartDate,
@@ -960,7 +947,6 @@ export {
 	formatRunLabel,
 	formatShortDay,
 	formatSpan,
-	freeAhead,
 	freeStretchesFromSpans,
 	freeStretchesOn,
 	groupOverlapping,
@@ -972,7 +958,6 @@ export {
 	monthLabel,
 	type NextUp,
 	readNextUp,
-	shortMonthLabel,
 	type WallSpan,
 	wallSpanOn,
 	weekdayLongLabel,
@@ -1047,11 +1032,7 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
-export {
-	addMinutesToClock,
-	type PhraseParse,
-	parseEventPhrase,
-} from "./lib/event-phrase.js";
+export { addMinutesToClock } from "./lib/event-phrase.js";
 export {
 	collapseFolderTree,
 	filterFolderTree,
@@ -1118,20 +1099,16 @@ export {
 } from "./lib/property-prefill.js";
 export {
 	type CustomRecurrence,
-	dayOfMonthLabel,
 	defaultCustomRecurrence,
 	defaultEndDate,
 	endDateLabel,
 	formatCustomRecurrence,
 	type MonthlyMode,
 	NO_REPEAT,
-	ordinalWeekdayLabel,
 	type RecurrenceEnd,
 	type RecurrenceUnit,
 	readCustomRecurrence,
 	repeatChoices,
-	WEEKDAY_INITIALS,
-	weekdayName,
 } from "./lib/recurrence.js";
 export {
 	LIST_ROW_ATTRIBUTE,

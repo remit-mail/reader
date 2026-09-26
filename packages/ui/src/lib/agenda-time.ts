@@ -76,13 +76,6 @@ export function monthLabel(date: string): string {
 	});
 }
 
-export function shortMonthLabel(date: string): string {
-	const [year, month, day] = date.split("-").map(Number);
-	return new Date(year, month - 1, day).toLocaleDateString("en-GB", {
-		month: "short",
-	});
-}
-
 /** "Thu 11 Jun". */
 export function formatShortDay(date: string): string {
 	const [year, month, day] = date.split("-").map(Number);
