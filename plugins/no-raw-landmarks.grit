@@ -1,0 +1,8 @@
+language js(typescript, jsx);
+or {
+  JsxOpeningElement(name = $name),
+  JsxSelfClosingElement(name = $name)
+} as $element where {
+  $name <: or { `aside`, `header`, `nav` },
+  register_diagnostic(span = $element, message = "A workbench prototype takes its landmarks from the ui shell parts: ProposedShell and AppShellSlotted for the nav and rail, PaneHeader for a pane header, ExpandedMessage for a message header. A raw aside, header or nav here is a copy of one of them that drifts. (#1278)", severity = "error")
+}

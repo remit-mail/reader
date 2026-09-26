@@ -37,6 +37,7 @@ export interface ProposedShellProps {
 	intelligence?: IntelligenceData;
 	intelligenceTab?: IntelligenceTabId;
 	calendar?: IntelligenceCalendarSurface;
+	rail?: ReactNode;
 }
 
 function TopBar() {
@@ -87,6 +88,7 @@ export function ProposedShell({
 	intelligence,
 	intelligenceTab,
 	calendar,
+	rail,
 }: ProposedShellProps) {
 	const singlePane = width < DESKTOP_MIN_WIDTH;
 	const [railOpen, setRailOpen] = useState(true);
@@ -143,10 +145,12 @@ export function ProposedShell({
 						touch={singlePane}
 						className="h-full w-full border-l-0"
 					/>
-				) : undefined
+				) : (
+					rail
+				)
 			}
 			intelligenceOpen={railOpen}
-			hasThread={Boolean(thread)}
+			hasThread={Boolean(thread ?? rail)}
 			overlay={
 				overlay ??
 				(singlePane ? <ComposeFab onCompose={() => undefined} /> : undefined)
