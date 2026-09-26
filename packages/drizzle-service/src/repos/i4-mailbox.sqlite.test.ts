@@ -210,7 +210,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		applyMigration(sqlite, "0027_mailbox_sync_status_total");
 		applyMigration(sqlite, "0028_mailbox_pending_path");
 		applyMigration(sqlite, "0031_mailbox_path_unique");
-		applyMigration(sqlite, "0032_mailbox_sync_failure_reason");
+		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
 		repo = new MailboxRepo(db as never);
 		close = async () => {

@@ -18,7 +18,7 @@ import {
 
 const DEDUPE = "0030_mailbox_path_dedupe";
 const UNIQUE = "0031_mailbox_path_unique";
-const MAILBOX_COLUMNS_ADDED_SINCE = ["0032_mailbox_sync_failure_reason"];
+const MAILBOX_COLUMNS_ADDED_SINCE = ["0033_mailbox_sync_failure_reason"];
 const ACCOUNT = "acct";
 const CONFIG = "cfg";
 
