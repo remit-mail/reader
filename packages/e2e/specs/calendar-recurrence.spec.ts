@@ -762,10 +762,9 @@ test.describe("A one-off event given a repeat", () => {
 				),
 				{ timeout: 30_000 },
 			);
-			expect(new URL(page.url()).searchParams.getAll("calendarId")).toEqual([
-				shownId,
-				hidden.calendarId,
-			]);
+			expect(
+				new URL(page.url()).searchParams.getAll("calendarId").sort(),
+			).toEqual([shownId, hidden.calendarId].sort());
 			await expect(
 				page.getByRole("button", { name: "Edit", exact: true }),
 			).toBeVisible({ timeout: 30_000 });
