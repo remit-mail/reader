@@ -162,8 +162,12 @@ const connection = () =>
 	}) as unknown as IImapConnection;
 
 const sync = (service: BodySyncService) =>
-	service.syncBodies(["m-1"], "acc-1", "cfg-1", "INBOX", async () =>
-		connection(),
+	service.syncBodies(
+		["m-1"],
+		"acc-1",
+		"cfg-1",
+		{ fullPath: "INBOX", placement: "inbox" },
+		async () => connection(),
 	);
 
 const parseRefusal = () =>
@@ -258,7 +262,7 @@ describe("body sync skips what is already quarantined", () => {
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => {
 				throw new Error("a quarantined message must not be fetched again");
 			},

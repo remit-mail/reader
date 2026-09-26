@@ -195,7 +195,7 @@ const syncBatch = (harness: Harness) =>
 		["m-1"],
 		"acc-1",
 		"cfg-1",
-		"INBOX",
+		{ fullPath: "INBOX", placement: "inbox" },
 		async () =>
 			({
 				openBox: async () => {},
@@ -212,7 +212,7 @@ const syncFromImap = (harness: Harness) =>
 		"m-1",
 		"acc-1",
 		"cfg-1",
-		"INBOX",
+		{ fullPath: "INBOX", placement: "inbox" },
 		async () =>
 			({
 				openBox: async () => {},

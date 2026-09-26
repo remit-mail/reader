@@ -11,6 +11,7 @@ import {
 	PlacementMoveService,
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
+	resolveFolderPlacement,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -272,12 +273,21 @@ export const syncMessageBody = async (
 			// Both the sync attempt AND the retry-exhaustion resolution below run
 			// against the SAME borrowed connection, so the mailbox stays open
 			// across the two — the connection is only released once both are done.
+			const folder = {
+				fullPath: mailbox.fullPath,
+				placement: await resolveFolderPlacement(
+					mailboxSpecialUseService,
+					accountId,
+					mailbox.mailboxId,
+				),
+			};
+
 			await (async () => {
 				const result = await bodySyncService.syncBodies(
 					messageIds,
 					accountId,
 					account.accountConfigId,
-					mailbox.fullPath,
+					folder,
 					getConnectionChecked,
 					force,
 				);

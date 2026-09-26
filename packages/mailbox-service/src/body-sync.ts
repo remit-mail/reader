@@ -239,6 +239,16 @@ export interface StoreBodyPartContentsResult {
 
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
+/**
+ * The folder a body-sync round reads from: its IMAP path, and where it sits
+ * among the account's special folders. The placement is a property of the
+ * round, resolved once by the caller, not looked up per message.
+ */
+export interface BodySyncFolder {
+	fullPath: string;
+	placement: FolderPlacement;
+}
+
 export interface PlacementConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	/**
@@ -332,7 +342,7 @@ export class BodySyncService {
 	 * @param messageIds - The message IDs to sync bodies for
 	 * @param accountId - The account ID (for storage path)
 	 * @param accountConfigId - The account config ID (for thread updates)
-	 * @param mailboxPath - The IMAP mailbox path
+	 * @param folder - The IMAP mailbox path and its folder placement
 	 * @param getConnection - Function to get a (lazy) IMAP connection
 	 * @param force - Bypass the "already stored" skip guard and re-fetch every
 	 * message in this batch even though `bodyStorageKey` is already set. Set
@@ -345,13 +355,17 @@ export class BodySyncService {
 		messageIds: string[],
 		accountId: string,
 		accountConfigId: string,
-		mailboxPath: string,
+		folder: BodySyncFolder,
 		getConnection: ConnectionGetter,
 		force = false,
 	): Promise<SyncBodiesResult> {
 		const syncedMessageIds: string[] = [];
 		let skippedCount = 0;
-		const location = { accountId, accountConfigId, mailboxPath };
+		const location = {
+			accountId,
+			accountConfigId,
+			mailboxPath: folder.fullPath,
+		};
 
 		// Resolve every message up front so we can issue ONE ranged FETCH for the
 		// whole batch (the desktop-client pattern) instead of a SELECT + download
@@ -420,7 +434,7 @@ export class BodySyncService {
 		const connection = await getConnection();
 		// Single SELECT for the whole batch. openBox is idempotent, so a warm
 		// connection already on this mailbox skips the SELECT entirely.
-		await connection.openBox(mailboxPath);
+		await connection.openBox(folder.fullPath);
 
 		let connectionLost = false;
 		try {
@@ -440,6 +454,7 @@ export class BodySyncService {
 						accountId,
 						accountConfigId,
 						source,
+						folder.placement,
 						reStoredMessageIds.has(messageId),
 					);
 				} catch (error) {
@@ -628,6 +643,7 @@ export class BodySyncService {
 		accountId: string,
 		accountConfigId: string,
 		source: Readable,
+		placement: FolderPlacement,
 		isReStore: boolean,
 	): Promise<void> {
 		const toStorage = new PassThrough();
@@ -672,6 +688,7 @@ export class BodySyncService {
 			{
 				uri: ref.uri,
 			},
+			placement,
 			isReStore,
 		);
 	}
@@ -704,6 +721,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		body: Buffer,
 		bodyRef: { uri: string },
+		placement: FolderPlacement,
 		/**
 		 * Whether this call is a re-store of an already-classified message
 		 * rather than a first store. The two re-entrant paths (`force: true`
@@ -767,7 +785,11 @@ export class BodySyncService {
 		// `flags.category` override when one applies (issue #299). The derived
 		// fields are folded into the single Message update below — they are NOT
 		// written here.
-		const classification = await this.classifyMessage(accountConfigId, parsed);
+		const classification = await this.classifyMessage(
+			accountConfigId,
+			parsed,
+			placement,
+		);
 
 		// Decide the placement move from the in-memory classification before the
 		// write, so its `movedByRemit` flag and audit verdict join the same
@@ -984,7 +1006,7 @@ export class BodySyncService {
 	 * @param messageId - The message ID to fetch
 	 * @param accountId - The account ID (for storage path)
 	 * @param accountConfigId - The account config ID (for thread updates)
-	 * @param mailboxPath - The IMAP mailbox path
+	 * @param folder - The IMAP mailbox path and its folder placement
 	 * @param getConnection - Function to get a (lazy) IMAP connection
 	 * @returns Parsed text and HTML content
 	 */
@@ -992,7 +1014,7 @@ export class BodySyncService {
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
-		mailboxPath: string,
+		folder: BodySyncFolder,
 		getConnection: ConnectionGetter,
 	): Promise<FetchBodyResult> {
 		const message = await this.messageService.get(messageId);
@@ -1030,14 +1052,18 @@ export class BodySyncService {
 				needsStore = true;
 				body = await this.fetchFromImap(
 					message.uid,
-					mailboxPath,
+					folder.fullPath,
 					getConnection,
 				);
 			}
 		} else {
 			// Fetch from IMAP and store
 			needsStore = true;
-			body = await this.fetchFromImap(message.uid, mailboxPath, getConnection);
+			body = await this.fetchFromImap(
+				message.uid,
+				folder.fullPath,
+				getConnection,
+			);
 		}
 
 		let parsed: ParsedMail;
@@ -1062,6 +1088,7 @@ export class BodySyncService {
 				accountConfigId,
 				body,
 				{ uri: ref.uri },
+				folder.placement,
 				message.bodyStorageKey != null,
 			);
 		} else {
@@ -1097,8 +1124,14 @@ export class BodySyncService {
 	private async classifyMessage(
 		accountConfigId: string,
 		parsed: ParsedMail,
+		placement: FolderPlacement,
 	): Promise<UpdateMessageInput & { category: ThreadMessageCategory }> {
-		return classifyParsedMessage(this.addressService, accountConfigId, parsed);
+		return classifyParsedMessage(
+			this.addressService,
+			accountConfigId,
+			parsed,
+			placement,
+		);
 	}
 
 	private async incrementInboundCount(

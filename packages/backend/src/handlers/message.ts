@@ -26,6 +26,7 @@ import {
 	MailboxCursorPausedError,
 	MoveNotSettledError,
 	NoJunkMailboxError,
+	resolveFolderPlacement,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -618,13 +619,17 @@ export const MessageOperations: Record<
 					mailbox,
 				);
 
-				await client.bodySync
-					.fetchAndGetBody(
-						messageId,
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
 						accountId,
-						accountConfigId,
-						mailbox.fullPath,
-						() => Promise.resolve(connection),
+						mailbox.mailboxId,
+					),
+				};
+				await client.bodySync
+					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
+						Promise.resolve(connection),
 					)
 					.catch((error: unknown) => {
 						if (error instanceof MailboxCursorPausedError) {
@@ -751,13 +756,17 @@ export const MessageOperations: Record<
 					accountId,
 					mailbox,
 				);
-				await client.bodySync
-					.fetchAndGetBody(
-						messageId,
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
 						accountId,
-						accountConfigId,
-						mailbox.fullPath,
-						() => Promise.resolve(connection),
+						mailbox.mailboxId,
+					),
+				};
+				await client.bodySync
+					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
+						Promise.resolve(connection),
 					)
 					.catch((error: unknown) => {
 						if (error instanceof MailboxCursorPausedError) {

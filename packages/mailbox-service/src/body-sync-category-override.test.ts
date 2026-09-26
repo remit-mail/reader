@@ -199,7 +199,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -229,7 +229,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -251,7 +251,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -276,7 +276,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -296,7 +296,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () =>
 				({
 					openBox: async () => {},
@@ -336,7 +336,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => {
 				throw new Error("an examined message must not be fetched again");
 			},
@@ -376,7 +376,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 				"m-1",
 				"acc-1",
 				"cfg-1",
-				"INBOX",
+				{ fullPath: "INBOX", placement: "inbox" },
 				async () => connection,
 			);
 
@@ -413,7 +413,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 				["m-1"],
 				"acc-1",
 				"cfg-1",
-				"INBOX",
+				{ fullPath: "INBOX", placement: "inbox" },
 				async () => connection,
 				true,
 			);
@@ -492,7 +492,7 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 				"m-1",
 				"acc-1",
 				"cfg-1",
-				"INBOX",
+				{ fullPath: "INBOX", placement: "inbox" },
 				async () => connection,
 			),
 			/ProvisionedThroughputExceededException/,

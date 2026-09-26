@@ -139,8 +139,8 @@ function joinDomains(domains: readonly string[]): string {
 /**
  * The clauses naming what does not line up on a message whose signature checks
  * out. Empty when everything the backend compared agreed — including when it
- * compared nothing, which is every message the provider's filter did not
- * already call spam.
+ * compared nothing, which is every message outside Junk that the provider's
+ * filter did not already call spam.
  *
  * Each clause leads with the concern and names `auth.fromDomain` — the
  * domain `classifyDisplayNameCorrespondence` actually compared the display

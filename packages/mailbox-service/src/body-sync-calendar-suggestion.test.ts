@@ -346,7 +346,7 @@ const readBody = async (
 		messageId,
 		"acc-1",
 		"cfg-1",
-		"INBOX",
+		{ fullPath: "INBOX", placement: "inbox" },
 		async () => connection,
 	);
 };
