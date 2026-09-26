@@ -22,6 +22,7 @@ import { useEffect, useState } from "react";
 import { z } from "zod";
 import { OnboardingWizard } from "@/components/onboarding/OnboardingWizard";
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
+import { AccountServices } from "@/components/settings/AccountServices";
 import { DangerZone } from "@/components/settings/DangerZone";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
@@ -482,26 +483,33 @@ function AccountsSettings() {
 						);
 
 						return (
-							<AccountHealthCard
-								key={account.accountId}
-								label={accountLabel(account)}
-								email={account.email}
-								connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
-								syncLabel={deriveSyncLabel(account)}
-								state={deriveState(account)}
-								// What the mail server said, when it said anything. Not every
-								// refusal that fences an account is one the Reconnect button
-								// clears — "SmtpClientAuthentication is disabled" is a tenant
-								// setting — so the stored reason outranks the generic prompt.
-								errorDetail={
-									isReauth
-										? (account.lastError ?? "Re-authentication required")
-										: isMissingPassword
-											? "Imported from a config file, which carries no password. Enter one to start syncing."
-											: account.lastError
-								}
-								trailing={trailingButton}
-							/>
+							<div key={account.accountId} className="space-y-2">
+								<AccountHealthCard
+									label={accountLabel(account)}
+									email={account.email}
+									connector={isOAuthAccount ? "Microsoft 365" : "IMAP"}
+									syncLabel={deriveSyncLabel(account)}
+									state={deriveState(account)}
+									// What the mail server said, when it said anything. Not every
+									// refusal that fences an account is one the Reconnect button
+									// clears — "SmtpClientAuthentication is disabled" is a tenant
+									// setting — so the stored reason outranks the generic prompt.
+									errorDetail={
+										isReauth
+											? (account.lastError ?? "Re-authentication required")
+											: isMissingPassword
+												? "Imported from a config file, which carries no password. Enter one to start syncing."
+												: account.lastError
+									}
+									trailing={trailingButton}
+								/>
+								<AccountServices
+									account={account}
+									onRemoveAccount={() =>
+										setDeletingAccountId(account.accountId)
+									}
+								/>
+							</div>
 						);
 					})}
 				</div>
