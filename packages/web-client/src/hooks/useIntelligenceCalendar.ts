@@ -24,6 +24,7 @@ import {
 } from "@/components/calendar/CalendarUnavailable";
 import {
 	calendarWindowOfDays,
+	deviceTimeZone,
 	isDrawnInstance,
 	readCalendarInstanceId,
 	type SuggestionAnswer,
@@ -214,6 +215,7 @@ export function useIntelligenceCalendar(
 			const event = toCalendarEventData(
 				instance,
 				timeZoneByCalendarId[instance.calendarId] ?? "",
+				deviceTimeZone(),
 			);
 			return {
 				event,

@@ -48,7 +48,8 @@ export type CalendarSpan = Pick<CalendarEventData, "start" | "end" | "allDay">;
  * the day before anywhere west of UTC.
  */
 export function formatEventWhen(event: CalendarSpan): string {
-	if (event.allDay) return `${formatCivilDay(event.start.slice(0, 10))}, all day`;
+	if (event.allDay)
+		return `${formatCivilDay(event.start.slice(0, 10))}, all day`;
 	const start = new Date(event.start);
 	const end = new Date(event.end);
 	const day = DAY.format(start);
