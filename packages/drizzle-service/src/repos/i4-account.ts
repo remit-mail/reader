@@ -7,7 +7,7 @@ import type {
 	ResultList,
 	UpdateAccountInput,
 } from "@remit/data-ports";
-import { SyncPhase } from "@remit/domain-enums";
+import { AccountService, SyncPhase } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
@@ -39,6 +39,7 @@ export function rowToAccount(
 		username: row.username,
 		email: row.email,
 		authType: row.authType as AccountItem["authType"],
+		syncedServices: row.syncedServices as AccountItem["syncedServices"],
 		passwordHash: row.passwordHash ?? undefined,
 		oauthRefreshTokenHash: row.oauthRefreshTokenHash ?? undefined,
 		oauthTokenUpdatedAt: row.oauthTokenUpdatedAt ?? undefined,
@@ -81,6 +82,7 @@ export class AccountRepo implements IAccountRepository {
 				username: input.username,
 				email: input.email,
 				authType: input.authType ?? "password",
+				syncedServices: input.syncedServices ?? [AccountService.Mail],
 				passwordHash: input.passwordHash,
 				oauthRefreshTokenHash: input.oauthRefreshTokenHash,
 				oauthTokenUpdatedAt: input.oauthTokenUpdatedAt,
@@ -144,6 +146,8 @@ export class AccountRepo implements IAccountRepository {
 		if (input.username !== undefined) updates.username = input.username;
 		if (input.email !== undefined) updates.email = input.email;
 		if (input.authType !== undefined) updates.authType = input.authType;
+		if (input.syncedServices !== undefined)
+			updates.syncedServices = input.syncedServices;
 		if (input.passwordHash !== undefined)
 			updates.passwordHash = input.passwordHash;
 		if (input.oauthRefreshTokenHash !== undefined)

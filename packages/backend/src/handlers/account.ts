@@ -8,7 +8,11 @@ import type {
 	UpdateAccountInput,
 } from "@remit/api-openapi-types";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
-import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
+import {
+	AccountAuthType,
+	AccountService,
+	ConnectionState,
+} from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	createMailOAuthService,
@@ -42,6 +46,7 @@ import {
 	assertNoDuplicateMailbox,
 	assertNotOAuthCreate,
 	assertPasswordProvided,
+	resolveSyncedServices,
 	toAccountResponse,
 } from "./account-guards.js";
 import {
@@ -203,6 +208,11 @@ export const AccountOperations: Record<
 		// Password accounts require a non-empty password
 		assertPasswordProvided(input.authType, input.password);
 
+		const syncedServices = resolveSyncedServices(
+			AccountAuthType.Password,
+			input.syncedServices ?? [AccountService.Mail],
+		);
+
 		const { account, accountConfig, accountSetting, mailbox, secrets } =
 			await getClient();
 
@@ -235,6 +245,7 @@ export const AccountOperations: Record<
 			email: input.email,
 			username: input.username ?? input.email,
 			authType: AccountAuthType.Password,
+			syncedServices,
 			passwordHash,
 			imapHost: input.imapHost,
 			imapPort: input.imapPort,
@@ -402,6 +413,13 @@ export const AccountDetailOperations: Record<
 			const payload = await secrets.encrypt(input.smtpPassword);
 			updates.smtpPasswordHash = JSON.stringify(
 				serializeEncryptedPayload(payload),
+			);
+		}
+
+		if (input.syncedServices !== undefined) {
+			updates.syncedServices = resolveSyncedServices(
+				existing.authType,
+				input.syncedServices,
 			);
 		}
 

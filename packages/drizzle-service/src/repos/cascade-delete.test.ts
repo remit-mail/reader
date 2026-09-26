@@ -56,6 +56,7 @@ describe("runDrizzleCascadeDelete", () => {
 			username: "u",
 			email: "u@example.com",
 			authType: "password",
+			syncedServices: ["Mail"],
 			imapHost: "imap.example.com",
 			imapPort: 993,
 			imapTls: true,
