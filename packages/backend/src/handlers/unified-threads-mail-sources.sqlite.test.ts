@@ -90,7 +90,7 @@ const seedAccountWithInboxThread = async (
 		isActive: true,
 		connectionState: ConnectionState.Authenticated,
 	});
-	const mailbox = await client.mailbox.create({
+	const created = await client.mailbox.create({
 		accountId: account.accountId,
 		namespacePrefix: "",
 		hierarchyDelimiter: "/",
@@ -107,6 +107,8 @@ const seedAccountWithInboxThread = async (
 		lastMessageSyncAt: NOW,
 		cursorState: MailboxCursorState.normal,
 	} as Parameters<MailboxRepo["create"]>[0]);
+	if (created.outcome !== "Created") throw new Error("INBOX path taken");
+	const mailbox = created.mailbox;
 	const messageId = randomUUID();
 	await client.message.create({
 		messageId,

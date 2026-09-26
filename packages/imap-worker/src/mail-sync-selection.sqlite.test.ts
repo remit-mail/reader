@@ -87,7 +87,7 @@ const seedSyncedAccount = async (): Promise<{
 		isActive: true,
 		connectionState: ConnectionState.Authenticated,
 	});
-	const mailbox = await mailboxes.create({
+	const created = await mailboxes.create({
 		accountId: account.accountId,
 		namespacePrefix: "",
 		hierarchyDelimiter: "/",
@@ -104,6 +104,8 @@ const seedSyncedAccount = async (): Promise<{
 		lastMessageSyncAt: NOW,
 		cursorState: MailboxCursorState.normal,
 	} as Parameters<MailboxRepo["create"]>[0]);
+	if (created.outcome !== "Created") throw new Error("INBOX path taken");
+	const mailbox = created.mailbox;
 	const messageId = randomUUID();
 	await messages.create({
 		messageId,
