@@ -38,6 +38,7 @@ const createServer = () => {
 	const completed: string[] = [];
 	const keeps: string[][] = [];
 	let keepFailure: Error | null = null;
+	let keepGate: Promise<void> | null = null;
 
 	const transport: AttachmentTransport = {
 		mint: (_draft, file) => {
@@ -57,6 +58,7 @@ const createServer = () => {
 		},
 		keep: async (_draft, attachmentIds) => {
 			keeps.push(attachmentIds);
+			if (keepGate) await keepGate;
 			if (keepFailure) throw keepFailure;
 			for (const id of [...onDraft]) {
 				if (!attachmentIds.includes(id)) onDraft.delete(id);
@@ -83,6 +85,14 @@ const createServer = () => {
 		keeps,
 		failKeeps: (error: Error | null) => {
 			keepFailure = error;
+		},
+		holdKeeps: () => {
+			const gate = deferred<void>();
+			keepGate = gate.promise;
+			return () => {
+				keepGate = null;
+				gate.resolve();
+			};
 		},
 	};
 };
@@ -193,6 +203,26 @@ describe("ComposeAttachmentController", () => {
 		await controller.remove(controller.getSnapshot()[0].key);
 		assert.deepEqual(server.keeps.at(-1), []);
 		assert.equal(controller.getSnapshot().length, 0);
+	});
+
+	it("keeps Send refused, naming the file, until the server has dropped it", async () => {
+		const { server, controller } = setup();
+
+		const attaching = controller.attach([file("payroll.xlsx")]);
+		await settle();
+		server.answerMint("payroll.xlsx", "att-payroll");
+		await attaching;
+
+		const release = server.holdKeeps();
+		const removing = controller.remove(controller.getSnapshot()[0].key);
+		await settle();
+		assert.equal(controller.getSnapshot().length, 0, "the row goes at once");
+		assert.equal(controller.blockingReason(), 'Removing "payroll.xlsx"…');
+
+		release();
+		await removing;
+		assert.equal(controller.blockingReason(), undefined);
+		assert.equal(server.onDraft.has("att-payroll"), false);
 	});
 
 	it("blocks sending while a file uploads, naming it", async () => {

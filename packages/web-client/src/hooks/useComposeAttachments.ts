@@ -98,6 +98,6 @@ export const useComposeAttachments = ({
 		remove: controller.remove,
 		load: controller.load,
 		reset: controller.reset,
-		blockingReason: items.length > 0 ? controller.blockingReason() : undefined,
+		blockingReason: controller.blockingReason(),
 	};
 };

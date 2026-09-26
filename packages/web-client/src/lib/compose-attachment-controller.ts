@@ -123,6 +123,7 @@ export class ComposeAttachmentController {
 	private readonly reservationsInFlight = new Set<Promise<void>>();
 	private readonly inFlight = new Map<string, AbortController>();
 	private readonly mintedAfterRemoval = new Map<string, string>();
+	private readonly removing = new Map<string, string>();
 
 	constructor(private readonly deps: ComposeAttachmentControllerDeps) {}
 
@@ -134,6 +135,8 @@ export class ComposeAttachmentController {
 	getSnapshot = (): ComposeAttachmentItem[] => this.snapshot;
 
 	blockingReason = (): string | undefined => {
+		const [removing] = this.removing.values();
+		if (removing !== undefined) return `Removing "${removing}"…`;
 		const uploading = this.entries.find(
 			(entry) => entry.state.status === "uploading",
 		);
@@ -367,7 +370,13 @@ export class ComposeAttachmentController {
 		}
 		if (entry.serverId === null && !uploading) return;
 
+		// Until the server has dropped it the file is still on the draft, and a
+		// Send pressed in that window would carry it.
+		this.removing.set(key, entry.filename);
+		this.set(this.entries);
 		const failure = await this.syncKept(generation);
+		this.removing.delete(key);
+		this.set(this.entries);
 		const serverId = entry.serverId ?? this.mintedAfterRemoval.get(key) ?? null;
 		this.mintedAfterRemoval.delete(key);
 		if (failure === null || generation !== this.generation) return;
@@ -399,6 +408,7 @@ export class ComposeAttachmentController {
 		for (const controller of this.inFlight.values()) controller.abort();
 		this.inFlight.clear();
 		this.mintedAfterRemoval.clear();
+		this.removing.clear();
 		this.draftId = outboxMessageId;
 		this.set([]);
 	};

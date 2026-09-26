@@ -226,13 +226,14 @@ describe("handleAppendSentMessage", () => {
 		assert.match(raw, /^Content-Type: text\/csv; name=numbers\.csv$/m);
 	});
 
-	it("retries a copy whose files could not be read, below the budget", async () => {
-		const unreadable = new OutboxAttachmentUnavailableError(
-			"numbers.csv",
-			"nothing is stored at key/numbers",
-		);
+	const unreadable = new OutboxAttachmentUnavailableError(
+		"numbers.csv",
+		"nothing is stored at key/numbers",
+	);
+
+	const depsWithUnreadableFile = (): AppendSentMessageDeps => {
 		const base = deps();
-		const failing: AppendSentMessageDeps = {
+		return {
 			...base,
 			getClient: async (): Promise<BackendClient> => {
 				const client = await base.getClient();
@@ -242,6 +243,10 @@ describe("handleAppendSentMessage", () => {
 				return client;
 			},
 		};
+	};
+
+	it("retries a copy whose files could not be read, below the budget", async () => {
+		const failing = depsWithUnreadableFile();
 
 		await assert.rejects(
 			() => handleAppendSentMessage(event, noopLogger, 1, failing),
@@ -249,6 +254,10 @@ describe("handleAppendSentMessage", () => {
 		);
 		assert.equal(called("connection.append").length, 0);
 		assert.deepEqual(patches(), [], "the row is left for the retry");
+	});
+
+	it("settles a delivered message whose files cannot be read as sent, not filed, at the budget", async () => {
+		const failing = depsWithUnreadableFile();
 
 		await handleAppendSentMessage(
 			event,
@@ -263,7 +272,12 @@ describe("handleAppendSentMessage", () => {
 					'Sent, but not filed: the copy for INBOX/Sent could not be built because "numbers.csv" could not be read: nothing is stored at key/numbers.',
 			},
 		]);
-		assert.equal(called("outboxMessage.delete").length, 0);
+		assert.equal(called("connection.append").length, 0);
+		assert.equal(
+			called("outboxMessage.delete").length,
+			0,
+			"the row stays in the Outbox with its reason",
+		);
 	});
 
 	it("builds the message from the outbox row's own headers", async () => {
