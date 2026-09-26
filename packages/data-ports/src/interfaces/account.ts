@@ -24,6 +24,9 @@ export interface IAccountRepository {
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<AccountItem>>;
 	listAllByAccountConfig(accountConfigId: string): Promise<AccountItem[]>;
+	listMailSourcesByAccountConfig(
+		accountConfigId: string,
+	): Promise<AccountItem[]>;
 	describe(accountId: string): Promise<AccountDescription>;
 	listAll(): Promise<AccountItem[]>;
 	incrementMailboxSynced(accountId: string): Promise<AccountItem>;

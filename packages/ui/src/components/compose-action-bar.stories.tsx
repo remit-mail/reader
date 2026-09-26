@@ -137,3 +137,22 @@ export const SmtpMissing: Story = {
 		},
 	},
 };
+
+export const MailOff: Story = {
+	name: "Blocked — mail is off for this account",
+	args: {
+		send: {
+			status: "blocked",
+			reason:
+				"Mail is turned off for this account, so it cannot send. Turn Mail back on for this account in Settings to send from it.",
+		},
+	},
+	play: async ({ args, canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(canvas.getByRole("button", { name: "Send" }));
+		await expect(args.onBlocked).toHaveBeenCalledWith(
+			"Mail is turned off for this account, so it cannot send. Turn Mail back on for this account in Settings to send from it.",
+		);
+		await expect(args.onSend).not.toHaveBeenCalled();
+	},
+};

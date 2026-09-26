@@ -43,6 +43,7 @@ const eligibleAccount = (accountId: string) =>
 		email: `${accountId}@example.com`,
 		username: accountId,
 		authType: "password",
+		syncedServices: ["Mail"],
 		imapHost: "imap.example.com",
 		imapPort: 993,
 		imapTls: true,

@@ -4,6 +4,7 @@ import type { AccountItem } from "@remit/data-ports";
 import {
 	isAccountDeleted,
 	isAccountReauthRequired,
+	isMailSyncDisabled,
 	isReservedHost,
 	isUnsyncableHost,
 } from "./account-check.js";
@@ -116,6 +117,32 @@ describe("isAccountReauthRequired", () => {
 				buildAccount({ connectionState: "reauth_required" }),
 				log,
 			),
+			true,
+		);
+	});
+});
+
+describe("isMailSyncDisabled", () => {
+	it("returns false for a mail-only account", () => {
+		assert.equal(
+			isMailSyncDisabled(buildAccount({ syncedServices: ["Mail"] }), log),
+			false,
+		);
+	});
+
+	it("returns false for an account syncing mail and calendar", () => {
+		assert.equal(
+			isMailSyncDisabled(
+				buildAccount({ syncedServices: ["Mail", "Calendar"] }),
+				log,
+			),
+			false,
+		);
+	});
+
+	it("returns true for a calendar-only account", () => {
+		assert.equal(
+			isMailSyncDisabled(buildAccount({ syncedServices: ["Calendar"] }), log),
 			true,
 		);
 	});

@@ -64,6 +64,7 @@ import type {
 import { AddressField } from "./AddressField";
 import { ComposeSmtpMissingBanner } from "./ComposeSmtpMissingBanner";
 import { composeSpellcheck } from "./compose-spellcheck.js";
+import { mailSyncOffReason } from "./mail-sync-off-refusal.js";
 import {
 	buildQuotedBlock,
 	outgoingBody,
@@ -910,6 +911,13 @@ export const ComposeForm = ({
 	const selectedAccountMissingSmtp = selectedAccount
 		? accountIsMissingSmtp(selectedAccount)
 		: false;
+	const [mailOffRefusal, setMailOffRefusal] = useState<
+		{ accountId: string; reason: string } | undefined
+	>();
+	const selectedAccountMailOffReason =
+		mailOffRefusal && mailOffRefusal.accountId === selectedAccountId
+			? mailOffRefusal.reason
+			: undefined;
 
 	// An account that has never been to the language setting falls back to what
 	// the browser already knows the user reads, which is an ordered answer.
@@ -942,6 +950,9 @@ export const ComposeForm = ({
 			if (!selectedAccountId) {
 				return { status: "blocked", reason: "Choose an account to send from." };
 			}
+			if (selectedAccountMailOffReason) {
+				return { status: "blocked", reason: selectedAccountMailOffReason };
+			}
 			if (selectedAccountMissingSmtp) {
 				return { status: "blocked", reason: SMTP_MISSING_MESSAGE };
 			}
@@ -972,6 +983,7 @@ export const ComposeForm = ({
 		[
 			isSending,
 			selectedAccountId,
+			selectedAccountMailOffReason,
 			selectedAccountMissingSmtp,
 			quoteIsLoading,
 			quoteSourceIsLoading,
@@ -1116,6 +1128,8 @@ export const ComposeForm = ({
 						path: { outboxMessageId: messageId },
 					})
 					.catch((error: unknown) => {
+						const reason = mailSyncOffReason(error);
+						if (reason) setMailOffRefusal({ accountId, reason });
 						pushError({
 							title: "Couldn't send message",
 							detail:

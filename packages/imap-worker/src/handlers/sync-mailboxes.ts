@@ -21,7 +21,11 @@ import {
 	type MailCredentials,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
-import { isAccountDeleted, isUnsyncableHost } from "../account-check.js";
+import {
+	isAccountDeleted,
+	isMailSyncDisabled,
+	isUnsyncableHost,
+} from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
@@ -117,6 +121,10 @@ export const syncMailboxes = async (
 	}
 
 	if (isAccountDeleted(account, log)) {
+		return;
+	}
+
+	if (isMailSyncDisabled(account, log)) {
 		return;
 	}
 

@@ -212,3 +212,15 @@ export class InternalServerError extends UnhandledError {
  */
 export const isNotFoundError = (error: unknown): boolean =>
 	(error as { name?: string })?.name === "NotFoundError";
+
+export class MailSyncOffError extends BadRequestError {
+	name = "MailSyncOffError";
+
+	constructor(message: string, accountId: string) {
+		super(message);
+		this.publicApiError = {
+			code: "mail_sync_off",
+			details: { accountId },
+		};
+	}
+}

@@ -37,7 +37,9 @@ const MAILBOX_LIST_CONCURRENCY = 5;
  */
 export interface InboxMapClient {
 	account: {
-		listAllByAccountConfig(accountConfigId: string): Promise<AccountItem[]>;
+		listMailSourcesByAccountConfig(
+			accountConfigId: string,
+		): Promise<AccountItem[]>;
 	};
 	mailbox: {
 		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
@@ -125,7 +127,7 @@ const isExcludedFromSearch = (mailbox: MailboxItem): boolean =>
  * keyed by accountId/mailboxId; a target counts as muted only when its MutedFlag
  * exists AND `value === true`.
  *
- * NOTE (read cost / mute drift): this fan-out (one listAllByAccountConfig + N
+ * NOTE (read cost / mute drift): this fan-out (one listMailSourcesByAccountConfig + N
  * per-account mailbox listings) runs on *every* page request and is not cached
  * across a pagination session. Acceptable for v1 — mailbox lists are small —
  * but it means the inbox/mute filter set is rebuilt per page from live state,
@@ -146,7 +148,7 @@ export const buildInboxMailboxMap = async (
 	virtualCopyMailboxIds: Set<string>;
 }> => {
 	const [accounts, settings] = await Promise.all([
-		client.account.listAllByAccountConfig(accountConfigId),
+		client.account.listMailSourcesByAccountConfig(accountConfigId),
 		client.accountSetting.listByAccountConfig(accountConfigId),
 	]);
 

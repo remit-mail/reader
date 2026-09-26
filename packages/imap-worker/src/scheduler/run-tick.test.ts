@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type { AccountItem, AccountSchedulerPage } from "@remit/data-ports";
+import { AccountService } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { runSchedulerTick } from "./run-tick.js";
 
@@ -62,6 +63,7 @@ const baseAccount = (overrides: Partial<AccountItem>): AccountItem =>
 		smtpTls: false,
 		smtpStartTls: true,
 		smtpUsername: "",
+		syncedServices: [AccountService.Mail],
 		isActive: true,
 		connectionState: "authenticated",
 		createdAt: NOW - 1_000_000,
@@ -362,5 +364,52 @@ describe("the attachment sweep inside a tick", () => {
 
 		assert.equal(result.swept, 0);
 		assert.equal(result.sweepFailed, 0);
+	});
+});
+
+describe("runSchedulerTick and the account's synced services", () => {
+	const tickWith = async (syncedServices: AccountItem["syncedServices"]) => {
+		const accountService = fakeAccountService([
+			{
+				items: [baseAccount({ accountId: "acct_1", syncedServices })],
+				cursor: null,
+			},
+		]);
+		const { sqsClient, sent } = fakeSqsClient();
+		const result = await runSchedulerTick({
+			accountService,
+			sqsClient,
+			queueUrl: "https://queue.test/mailboxes",
+			log: createNoopLogger(),
+			tickIntervalMs: TICK_INTERVAL_MS,
+			offlineIntervalMs: OFFLINE_INTERVAL_MS,
+			now: NOW,
+		});
+		return { result, sent };
+	};
+
+	it("enqueues mail sync for a mail-only account", async () => {
+		const { result, sent } = await tickWith([AccountService.Mail]);
+
+		assert.equal(result.enqueued, 1);
+		assert.equal(sent.length, 1);
+	});
+
+	it("enqueues mail sync for an account syncing mail and calendar", async () => {
+		const { result, sent } = await tickWith([
+			AccountService.Mail,
+			AccountService.Calendar,
+		]);
+
+		assert.equal(result.enqueued, 1);
+		assert.equal(sent.length, 1);
+	});
+
+	it("skips a calendar-only account", async () => {
+		const { result, sent } = await tickWith([AccountService.Calendar]);
+
+		assert.equal(result.enqueued, 0);
+		assert.equal(result.skipped, 1);
+		assert.equal(sent.length, 0);
 	});
 });

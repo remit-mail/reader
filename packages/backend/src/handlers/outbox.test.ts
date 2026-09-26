@@ -168,11 +168,14 @@ const refusingSqsClient = (): { client: SQSClient; accept: () => void } => {
 	};
 };
 
+let accountSyncedServices: string[] = ["Mail"];
+
 const accountRepository = {
 	get: async () => ({
 		accountId: ACCOUNT_ID,
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		email: ACCOUNT_EMAIL,
+		syncedServices: accountSyncedServices,
 	}),
 } as unknown as IAccountRepository;
 
@@ -327,6 +330,7 @@ const sentOutboxMessageId = async (): Promise<string> => {
 
 afterEach(() => {
 	_resetForTest();
+	accountSyncedServices = ["Mail"];
 });
 
 describe("an outbox entry that has left draft (#604)", () => {
@@ -672,5 +676,69 @@ describe("attachmentIds on a draft update (#679)", () => {
 
 		assert.equal(response.statusCode, 200);
 		assert.equal(attachmentRows.size, 2);
+	});
+});
+
+describe("sending from an account with mail off (#1181)", () => {
+	const assertRefusal = (response: APIGatewayProxyResult): void => {
+		assert.equal(response.statusCode, 400);
+		const body = JSON.parse(response.body) as {
+			code?: string;
+			message?: string;
+			details?: Record<string, string>;
+		};
+		assert.equal(body.code, "mail_sync_off");
+		assert.match(String(body.message), /Turn Mail back on .* in Settings/);
+		assert.deepEqual(body.details, { accountId: ACCOUNT_ID });
+	};
+
+	it("answers a send of a saved draft with a 400 naming the fix", async () => {
+		installClient();
+		const draft = await createDraft(
+			requestContext({}),
+			authorizedEvent({
+				accountId: ACCOUNT_ID,
+				toAddresses: ["recipient@example.com"],
+				subject: "hello",
+			}),
+		);
+		accountSyncedServices = ["Calendar"];
+
+		const response = await respond(() =>
+			sendMessage(
+				requestContext({
+					params: { outboxMessageId: String(draft.outboxMessageId) },
+				}),
+				authorizedEvent(),
+			),
+		);
+
+		assertRefusal(response);
+		const kept = await getMessage(
+			requestContext({
+				params: { outboxMessageId: String(draft.outboxMessageId) },
+			}),
+			authorizedEvent(),
+		);
+		assert.equal(kept.status, "draft");
+	});
+
+	it("answers a send-immediately create with the same 400", async () => {
+		installClient();
+		accountSyncedServices = ["Calendar"];
+
+		const response = await respond(() =>
+			createDraft(
+				requestContext({}),
+				authorizedEvent({
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+					subject: "hello",
+					sendImmediately: true,
+				}),
+			),
+		);
+
+		assertRefusal(response);
 	});
 });

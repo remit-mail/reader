@@ -10,6 +10,7 @@ import pMap from "p-map";
 import {
 	isAccountDeleted,
 	isAccountReauthRequired,
+	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
 import {
@@ -78,6 +79,7 @@ const silentLogger: Logger = (() => {
 
 const isEligible = (account: AccountItem): boolean => {
 	if (isAccountDeleted(account, silentLogger)) return false;
+	if (isMailSyncDisabled(account, silentLogger)) return false;
 	if (isUnsyncableHost(account, silentLogger)) return false;
 	if (isAccountReauthRequired(account, silentLogger)) return false;
 	// An account storing no credential can only produce a sync that fails at

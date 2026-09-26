@@ -1,4 +1,5 @@
 import type { AccountItem } from "@remit/data-ports";
+import { AccountService } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 
 /**
@@ -85,4 +86,16 @@ export const isAccountReauthRequired = (
 		return true;
 	}
 	return false;
+};
+
+export const isMailSyncDisabled = (
+	account: AccountItem,
+	log: Logger,
+): boolean => {
+	if (account.syncedServices.includes(AccountService.Mail)) return false;
+	log.info(
+		{ accountId: account.accountId, syncedServices: account.syncedServices },
+		"Skipping account: mail sync is off",
+	);
+	return true;
 };

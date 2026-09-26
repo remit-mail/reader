@@ -5,8 +5,12 @@ import type {
 	IOutboxMessageRepository,
 	OutboxMessageItem,
 } from "@remit/data-ports";
-import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
-import { OutboxMessageStatus } from "@remit/domain-enums";
+import {
+	BadRequestError,
+	ConflictError,
+	MailSyncOffError,
+} from "@remit/data-ports/errors";
+import { AccountService, OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
 import { isOpenForWork } from "./outbox-status.js";
@@ -87,6 +91,9 @@ const hasNowhereToGo = (message: {
 
 const NO_RECIPIENT_MESSAGE =
 	"This message has nobody to send to. Add a recipient before sending it.";
+
+const MAIL_SYNC_OFF_SEND_MESSAGE =
+	"Mail is turned off for this account, so it cannot send. Turn Mail back on for this account in Settings to send from it.";
 
 const ENQUEUE_FAILED_MESSAGE =
 	"This message could not be handed to the outgoing queue, so it was not sent. Send it again.";
@@ -250,6 +257,12 @@ export class OutboxQueueService {
 		return updated;
 	};
 
+	private refuseWithoutMail = async (accountId: string): Promise<void> => {
+		const account = await this.accountService.get(accountId);
+		if (account.syncedServices.includes(AccountService.Mail)) return;
+		throw new MailSyncOffError(MAIL_SYNC_OFF_SEND_MESSAGE, accountId);
+	};
+
 	send = async (
 		accountConfigId: string,
 		outboxMessageId: string,
@@ -268,6 +281,7 @@ export class OutboxQueueService {
 		if (hasNowhereToGo(existing)) {
 			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
 		}
+		await this.refuseWithoutMail(existing.accountId);
 
 		const unfinished = await this.outboxAttachmentService.unfinishedUpload(
 			accountConfigId,
@@ -339,6 +353,7 @@ export class OutboxQueueService {
 		if (hasNowhereToGo(input)) {
 			throw new BadRequestError(NO_RECIPIENT_MESSAGE);
 		}
+		await this.refuseWithoutMail(input.accountId);
 
 		const domain = extractDomain(input.fromAddress);
 		const messageIdValue = generateMessageId(domain);
