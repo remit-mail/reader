@@ -645,6 +645,7 @@ export {
 	type OutboxStatusBadgeProps,
 	outboxStatusConfig,
 } from "./components/outbox-status-badge.js";
+export { PaneHeader, type PaneHeaderProps } from "./components/pane-header.js";
 export {
 	PasswordInput,
 	type PasswordInputProps,

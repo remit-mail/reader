@@ -1,6 +1,9 @@
 import type {
 	RemitImapAccountResponse,
 	RemitImapAddressResponse,
+	RemitImapCalendarEventInstance,
+	RemitImapCalendarEventResponse,
+	RemitImapCalendarResponse,
 	RemitImapCanonicalMailboxRole,
 	RemitImapMailboxResponse,
 	RemitImapMessageCategory,
@@ -27,6 +30,9 @@ export interface MailWorld {
 	addresses: RemitImapAddressResponse[];
 	systemUpdate: RemitImapSystemUpdateResponse;
 	bodies: Record<string, string>;
+	calendars: RemitImapCalendarResponse[];
+	calendarEvents: RemitImapCalendarEventInstance[];
+	calendarResources: RemitImapCalendarEventResponse[];
 }
 
 export const MINUTE = 60_000;
@@ -429,5 +435,8 @@ export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 		run: null,
 	},
 	bodies: {},
+	calendars: [],
+	calendarEvents: [],
+	calendarResources: [],
 	...overrides,
 });

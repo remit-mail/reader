@@ -36,6 +36,7 @@ import {
 	FlowScreen,
 	FooterNav,
 	MessageListPane,
+	PaneHeader,
 	type RsvpState,
 	settleZone,
 	useContainerWidth,
@@ -654,18 +655,20 @@ export function CalendarSeam({
 		if (thread)
 			phoneBody = (
 				<div className="flex h-full flex-col bg-surface">
-					<header className="flex h-pane-header shrink-0 items-center gap-1 border-b border-line pl-1 pr-row-inset">
-						<button
-							type="button"
-							aria-label="Back to the list"
-							onClick={() => setThreadId("")}
-							className="flex size-11 items-center justify-center rounded-md text-fg-subtle outline-none focus-visible:ring-2 focus-visible:ring-ring"
-						>
-							<ChevronLeft className="size-5" />
-						</button>
-						<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-							{thread.subject}
-						</h1>
+					<PaneHeader
+						title={thread.subject}
+						className="gap-1 pl-1 pr-row-inset"
+						leading={
+							<button
+								type="button"
+								aria-label="Back to the list"
+								onClick={() => setThreadId("")}
+								className="flex size-11 items-center justify-center rounded-md text-fg-subtle outline-none focus-visible:ring-2 focus-visible:ring-ring"
+							>
+								<ChevronLeft className="size-5" />
+							</button>
+						}
+					>
 						<button
 							type="button"
 							onClick={() => {
@@ -677,7 +680,7 @@ export function CalendarSeam({
 						>
 							<CalendarDays className="size-5" />
 						</button>
-					</header>
+					</PaneHeader>
 					<div className="min-h-0 flex-1 overflow-y-auto pb-6">
 						{threadBody(true, false)}
 					</div>
@@ -917,12 +920,9 @@ function DesktopList({
 }) {
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					Inbox
-				</h1>
+			<PaneHeader title="Inbox">
 				<span className="shrink-0 text-2xs text-fg-subtle">3 unread</span>
-			</header>
+			</PaneHeader>
 
 			<div className="shrink-0 border-b border-line bg-surface-sunken">
 				<SuggestionHeading count={pendingCount} ruleCount={ruleCount}>
@@ -982,11 +982,7 @@ function SeamReading({
 	return (
 		<div ref={ref} className="flex h-full w-full bg-surface">
 			<div className="flex min-w-0 flex-1 flex-col">
-				<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-					<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-						{subject}
-					</h1>
-				</header>
+				<PaneHeader title={subject} />
 				<div className="min-h-0 flex-1 overflow-y-auto pb-6">
 					{body(aside)}
 					{!aside && (
@@ -1001,12 +997,15 @@ function SeamReading({
 
 			{aside && (
 				<aside className="flex w-72 shrink-0 flex-col border-l border-line bg-surface-sunken">
-					<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-						<CalendarDays className="size-4 shrink-0 text-fg-subtle" />
+					<PaneHeader
+						leading={
+							<CalendarDays className="size-4 shrink-0 text-fg-subtle" />
+						}
+					>
 						<h2 className="min-w-0 flex-1 truncate text-xs font-semibold text-fg">
 							{dayLabel}
 						</h2>
-					</header>
+					</PaneHeader>
 					<div className="min-h-0 flex-1 overflow-y-auto px-row-inset py-2">
 						<p className="pb-2 text-2xs text-fg-subtle">{daySummary}</p>
 						{day(0.62)}
@@ -1034,11 +1033,7 @@ function PhoneList({
 }) {
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					Inbox
-				</h1>
-			</header>
+			<PaneHeader title="Inbox" />
 			<button
 				type="button"
 				onClick={onOpenSuggestions}

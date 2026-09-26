@@ -46,6 +46,7 @@ import {
 	lastDayOf,
 	monthLabel,
 	NextUpCard,
+	PaneHeader,
 	PhraseReading,
 	PositionMap,
 	ReadingPane,
@@ -1292,16 +1293,18 @@ function ThreadPane({
 }) {
 	return (
 		<div className="flex h-full w-full min-w-0 flex-col bg-canvas">
-			<div className="flex h-pane-header shrink-0 items-center border-b border-line px-row-inset">
-				<Button
-					variant="ghost"
-					size="sm"
-					icon={<ArrowLeft className="size-3.5" />}
-					onClick={onBack}
-				>
-					{backLabel}
-				</Button>
-			</div>
+			<PaneHeader
+				leading={
+					<Button
+						variant="ghost"
+						size="sm"
+						icon={<ArrowLeft className="size-3.5" />}
+						onClick={onBack}
+					>
+						{backLabel}
+					</Button>
+				}
+			/>
 			<div className="min-h-0 flex-1">
 				{thread ? <ReadingPane thread={thread} /> : <ThreadGone />}
 			</div>
@@ -1394,7 +1397,7 @@ function DesktopSurface({
 			ref={surfaceRef}
 			className="relative flex h-full w-full flex-col bg-surface"
 		>
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
+			<PaneHeader>
 				<CalendarDateNav
 					title={title}
 					onPrev={onPrev}
@@ -1406,7 +1409,7 @@ function DesktopSurface({
 						<AgendaDensityControl value={density} onChange={onChangeDensity} />
 					)}
 				</CalendarDateNav>
-			</header>
+			</PaneHeader>
 
 			{!hasRail && (
 				<div className="flex h-9 shrink-0 items-center border-b border-line">
@@ -1490,10 +1493,7 @@ function PhoneSurface({
 }) {
 	return (
 		<div className="flex h-full w-full flex-col bg-surface">
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					{title}
-				</h1>
+			<PaneHeader title={title}>
 				<button
 					type="button"
 					onClick={onToday}
@@ -1509,7 +1509,7 @@ function PhoneSurface({
 					<Sparkles className="size-3.5" />
 					{suggestionCount}
 				</button>
-			</header>
+			</PaneHeader>
 
 			{/* The chips are the legend and the quick filter; the whole list, with
 			    its accounts, is a screen of its own rather than a drawer. */}

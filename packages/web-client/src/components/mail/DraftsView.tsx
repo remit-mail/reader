@@ -32,6 +32,7 @@ import {
 	ComfortableRowTextContent,
 	cn,
 	comfortableRowClass,
+	PaneHeader,
 	type ThreadRowData,
 	type ThreadSection,
 } from "@remit/ui";
@@ -194,18 +195,13 @@ export function DraftsView({
 
 	return (
 		<section className="flex h-full w-full flex-col bg-surface">
-			{/* List datum bar */}
-			<header className="flex h-pane-header shrink-0 items-center gap-2 border-b border-line px-row-inset">
-				<NavMenuButton />
-				<h1 className="min-w-0 flex-1 truncate text-sm font-semibold text-fg">
-					{title}
-				</h1>
+			<PaneHeader title={title} leading={<NavMenuButton />}>
 				{(unreadCount ?? 0) > 0 && (
 					<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
 						{unreadCount} unread
 					</span>
 				)}
-			</header>
+			</PaneHeader>
 
 			{/* Scrollable body */}
 			<div className="flex-1 overflow-y-auto">

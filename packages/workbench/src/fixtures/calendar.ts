@@ -625,31 +625,6 @@ export function buildDay(date: string, source = events): CalendarDay {
 	return buildCalendarDay(date, source, TODAY);
 }
 
-/** Monday through Sunday of the fixture week, computed off `events`. */
-export const week: CalendarDay[] = [8, 9, 10, 11, 12, 13, 14].map((d) =>
-	buildDay(day(d)),
-);
-
-/** How many events sit on top of one another in this day's worst moment. */
-function deepestPile(day: CalendarDay): number {
-	return day.conflicts.reduce(
-		(deepest, group) => Math.max(deepest, group.length),
-		0,
-	);
-}
-
-/** The day the overlap rule has to survive — the tallest stack, not the most. */
-export const mostOverlappedDay: CalendarDay = week.reduce((worst, candidate) =>
-	deepestPile(candidate) > deepestPile(worst) ? candidate : worst,
-);
-
-/** The day that shows what the same design looks like with room to breathe. */
-export const quietestDay: CalendarDay = week
-	.filter((d) => d.timed.length > 0)
-	.reduce((best, candidate) =>
-		candidate.busyMinutes < best.busyMinutes ? candidate : best,
-	);
-
 /* ------------------------------------------------------------------ */
 /* Formatting the stories share                                        */
 /* ------------------------------------------------------------------ */
