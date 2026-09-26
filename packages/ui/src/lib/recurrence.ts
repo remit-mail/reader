@@ -90,9 +90,6 @@ export interface CustomRecurrence {
 	ends: RecurrenceEnd;
 }
 
-/** Single-letter weekday labels, Sunday first, for a row of toggles. */
-export const WEEKDAY_INITIALS = ["S", "M", "T", "W", "T", "F", "S"];
-
 export const weekdayName = (index: number): string => WEEKDAY_NAMES[index];
 
 function parseDate(date: string): Date | undefined {

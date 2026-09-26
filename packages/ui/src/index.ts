@@ -58,27 +58,14 @@ export {
 } from "./components/address-display.js";
 export { AddressTag, type AddressTagProps } from "./components/address-tag.js";
 export {
-	AgendaComposer,
-	type AgendaComposerProps,
-	AgendaPhraseField,
-	type AgendaPhraseFieldProps,
-	PhraseReading,
-} from "./components/agenda-composer.js";
-export {
 	type AgendaDensity,
 	AgendaFlow,
 	type AgendaFlowProps,
 	type AgendaScrollTarget,
 } from "./components/agenda-flow.js";
 export {
-	AgendaDensityControl,
-	type AgendaDensityControlProps,
-	FreeTimeList,
-	type FreeTimeListProps,
 	NextUpCard,
 	type NextUpCardProps,
-	PositionMap,
-	type PositionMapProps,
 } from "./components/agenda-panels.js";
 export {
 	AppPasswordHint,
@@ -232,7 +219,6 @@ export {
 	segmentClassName,
 } from "./components/calendar-toolbar.js";
 export {
-	type AgendaParse,
 	type CalendarAttendee,
 	type CalendarClash,
 	type CalendarColorId,
@@ -245,12 +231,9 @@ export {
 	type CalendarProposal,
 	type CalendarSlotPick,
 	type CalendarViewId,
-	type ChoicePicks,
 	calendarColorIds,
 	type EventDraft,
 	type EventSuggestion,
-	type PhraseChoice,
-	type PhraseChoiceOption,
 	type RecurrenceScope,
 	type RsvpState,
 	type ZoneCertainty,
@@ -327,12 +310,6 @@ export {
 	type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
 export {
-	CustomRecurrenceDialog,
-	type CustomRecurrenceDialogProps,
-	CustomRecurrenceEditor,
-	type CustomRecurrenceEditorProps,
-} from "./components/custom-recurrence.js";
-export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -350,18 +327,9 @@ export {
 	type EventDetailProps,
 } from "./components/event-detail.js";
 export {
-	EventCalendarField,
 	EventEditor,
 	type EventEditorLayout,
 	type EventEditorProps,
-	EventField,
-	type EventFieldProps,
-	EventGuestsField,
-	EventLocationField,
-	EventNotesField,
-	EventRepeatField,
-	EventTitleField,
-	EventWhenField,
 	endsBeforeStart,
 	withAllDay,
 	withStartDate,
@@ -370,10 +338,6 @@ export {
 	EventEditorPane,
 	type EventEditorPaneProps,
 } from "./components/event-editor-pane.js";
-export {
-	EventQuickEntry,
-	type EventQuickEntryProps,
-} from "./components/event-quick-entry.js";
 export {
 	EventSuggestionCard,
 	type EventSuggestionCardProps,
@@ -983,7 +947,6 @@ export {
 	formatRunLabel,
 	formatShortDay,
 	formatSpan,
-	freeAhead,
 	freeStretchesFromSpans,
 	freeStretchesOn,
 	groupOverlapping,
@@ -995,7 +958,6 @@ export {
 	monthLabel,
 	type NextUp,
 	readNextUp,
-	shortMonthLabel,
 	type WallSpan,
 	wallSpanOn,
 	weekdayLongLabel,
@@ -1070,11 +1032,7 @@ export {
 	sanitizeInlineStyle,
 	sanitizeStyleElementCss,
 } from "./lib/email-sanitizer.js";
-export {
-	addMinutesToClock,
-	type PhraseParse,
-	parseEventPhrase,
-} from "./lib/event-phrase.js";
+export { addMinutesToClock } from "./lib/event-phrase.js";
 export {
 	collapseFolderTree,
 	filterFolderTree,
@@ -1141,20 +1099,16 @@ export {
 } from "./lib/property-prefill.js";
 export {
 	type CustomRecurrence,
-	dayOfMonthLabel,
 	defaultCustomRecurrence,
 	defaultEndDate,
 	endDateLabel,
 	formatCustomRecurrence,
 	type MonthlyMode,
 	NO_REPEAT,
-	ordinalWeekdayLabel,
 	type RecurrenceEnd,
 	type RecurrenceUnit,
 	readCustomRecurrence,
 	repeatChoices,
-	WEEKDAY_INITIALS,
-	weekdayName,
 } from "./lib/recurrence.js";
 export {
 	LIST_ROW_ATTRIBUTE,

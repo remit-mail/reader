@@ -1,17 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { useState } from "react";
-import {
-	buildCalendarDay,
-	type FreeStretch,
-	freeAhead,
-	readNextUp,
-} from "../lib/agenda-time.js";
-import {
-	AgendaDensityControl,
-	FreeTimeList,
-	NextUpCard,
-	PositionMap,
-} from "./agenda-panels.js";
+import { buildCalendarDay, readNextUp } from "../lib/agenda-time.js";
+import { NextUpCard } from "./agenda-panels.js";
 import type {
 	CalendarDescriptor,
 	CalendarEventData,
@@ -105,7 +94,6 @@ const dates = [
 	"2026-06-14",
 ];
 const days = dates.map((date) => buildCalendarDay(date, events, TODAY));
-const dayOf = (date: string) => buildCalendarDay(date, events, TODAY);
 
 const nextUpProps = {
 	calendars,
@@ -146,62 +134,4 @@ export const NextUpTouch: Story = {
 			className="max-w-80"
 		/>
 	),
-};
-
-/** Three readings, not two, and the control never leaves the screen. */
-export const Density: Story = {
-	render: () => {
-		const [value, setValue] = useState<"dots" | "pills" | "detail">("pills");
-		return (
-			<div className="flex flex-col gap-4">
-				<AgendaDensityControl value={value} onChange={setValue} />
-				<AgendaDensityControl value={value} onChange={setValue} icons />
-				<AgendaDensityControl value={value} onChange={setValue} touch icons />
-			</div>
-		);
-	},
-};
-
-/** Empty time, listed like anything else that is on the calendar. */
-export const OpenTime: Story = {
-	render: () => (
-		<div className="max-w-80">
-			<FreeTimeList
-				stretches={freeAhead(days, NOW, 5)}
-				today={TODAY}
-				onPick={() => {}}
-			/>
-		</div>
-	),
-};
-
-/** Nothing open is a sentence, never an empty box. */
-export const NoOpenTime: Story = {
-	render: () => (
-		<div className="max-w-80">
-			<FreeTimeList
-				stretches={[] as FreeStretch[]}
-				today={TODAY}
-				onPick={() => {}}
-			/>
-		</div>
-	),
-};
-
-/** A scrollbar with meaning: how full each day is, and where you are parked. */
-export const WhereYouAre: Story = {
-	render: () => {
-		const [visible, setVisible] = useState("2026-06-11");
-		return (
-			<div className="max-w-64">
-				<PositionMap
-					anchorDate={TODAY}
-					visibleDate={visible}
-					today={TODAY}
-					dayOf={dayOf}
-					onGoTo={setVisible}
-				/>
-			</div>
-		);
-	},
 };

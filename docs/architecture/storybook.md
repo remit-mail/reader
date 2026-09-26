@@ -29,7 +29,7 @@ A story fails when its title sits outside its package's roots (ui: any root; web
 
 A `packages/ui` story also fails when its `proposed` tag disagrees with web-client. The check follows every value import of `@remit/ui` in web-client source, less stories, tests, fixtures and `test-support`, through the package exports to a ui module, then through that module's own imports. A story whose component is reached must not carry the tag; one whose component is not reached must. The component is the story's sibling module, or every ui module the story imports when it has none. Comments, strings and type-only imports do not count.
 
-The graph sees imports, not props: a state behind a prop web-client never passes, such as the IntelligencePanel calendar tab, counts as mounted.
+The graph sees imports, not props: a state behind a prop web-client never passes counts as mounted.
 
 ## The web-client story frame
 
