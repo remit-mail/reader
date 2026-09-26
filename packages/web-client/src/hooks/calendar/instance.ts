@@ -15,26 +15,29 @@ import type {
 	CalendarEventData,
 	ZoneCertainty,
 } from "@remit/ui";
+import { isoOnClock } from "./window";
 
 /** The device's own clock, the only zone a browser can honestly draw in. */
 export const deviceTimeZone = (): string =>
 	Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-/**
- * A collection that names no zone of its own, spelled the way the API spells
- * it: an empty string, which both ends read as UTC.
- *
- * There is deliberately no substitute value. The server checks a TZID against
- * `Intl.supportedValuesOf("timeZone")`, which is the canonical zone list and so
- * holds no spelling of UTC at all — not `UTC`, not `Etc/UTC` — and refuses
- * anything else. Sending nothing is what the API asks for, and it is the only
- * thing it accepts.
- *
- * The device's zone is not the fallback either. The listing returns this
- * collection's occurrences on its own clock, so answering with the reader's
- * would rewrite every time they saved by the difference between the two.
- */
+/** A collection that names no zone of its own, spelled the way the API spells it. */
 export const UNZONED_CALENDAR = "";
+
+/**
+ * The zone a write anchors an event in: the collection's, or where it names
+ * none, the device's — a weekly 09:00 written from New York into an unzoned
+ * calendar would otherwise be stored in UTC and meet at 10:00 once the clocks
+ * change. UTC itself has no name the server takes as a TZID, so a device on it
+ * sends nothing, which the server reads as UTC.
+ */
+export function anchorZoneFor(collectionZone: string): string {
+	if (collectionZone !== UNZONED_CALENDAR) return collectionZone;
+	const device = deviceTimeZone();
+	return Intl.supportedValuesOf("timeZone").includes(device)
+		? device
+		: UNZONED_CALENDAR;
+}
 
 const COLORS: Record<string, CalendarColorId> = {
 	Cal1: "cal-1",
@@ -99,17 +102,27 @@ export function toCalendarDescriptor(
  * One occurrence, drawn. `location`, `notes` and the guest list are projections
  * the listing does not carry — the reading pane fetches the resource itself for
  * those, and a grid chip has no room for them anyway.
+ *
+ * A timed occurrence is re-read on `clockZone`, the clock every surface draws
+ * on. An all-day one is a civil date and keeps only its date: midnight with an
+ * offset is an instant, and a device west of it reads that instant as the day
+ * before.
  */
 export function toCalendarEventData(
 	instance: RemitImapCalendarEventInstance,
 	timeZone: string,
+	clockZone: string,
 ): CalendarEventData {
 	return {
 		id: calendarInstanceId(instance.calendarObjectId, instance.recurrenceId),
 		calendarId: instance.calendarId,
 		title: instance.summary,
-		start: instance.start,
-		end: instance.end,
+		start: instance.allDay
+			? instance.start.slice(0, 10)
+			: isoOnClock(instance.start, clockZone),
+		end: instance.allDay
+			? instance.end.slice(0, 10)
+			: isoOnClock(instance.end, clockZone),
 		allDay: instance.allDay,
 		location: "",
 		notes: "",

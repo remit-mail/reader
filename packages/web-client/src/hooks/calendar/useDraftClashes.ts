@@ -18,6 +18,7 @@ import {
 import { useMemo } from "react";
 import { formatEventWhen } from "@/lib/calendar-format";
 import {
+	deviceTimeZone,
 	isDrawnInstance,
 	toCalendarEventData,
 	UNZONED_CALENDAR,
@@ -53,7 +54,7 @@ export function useDraftClashes(
 		enabled: checkable,
 	});
 
-	const zone = timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR;
+	const zone = deviceTimeZone();
 
 	return useMemo(() => {
 		if (!checkable || isLoading || error) return undefined;
@@ -69,6 +70,7 @@ export function useDraftClashes(
 				toCalendarEventData(
 					instance,
 					timeZoneByCalendarId[instance.calendarId] ?? UNZONED_CALENDAR,
+					zone,
 				),
 			);
 		return clashesWith({ start, end }, others).map((event) => ({

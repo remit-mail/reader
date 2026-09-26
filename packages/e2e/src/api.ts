@@ -250,6 +250,7 @@ export interface RecurrenceScopeInput {
 export interface CreateCalendarInput {
 	urlSegment: string;
 	displayName: string;
+	timezone?: string;
 }
 
 /**

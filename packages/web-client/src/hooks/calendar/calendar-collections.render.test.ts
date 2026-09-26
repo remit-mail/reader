@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import type {
 	RemitImapCalendarEventInstance,
 	RemitImapCalendarResponse,
@@ -203,6 +203,28 @@ const clashesFor = async (
 };
 
 describe("the clashes a draft runs into", () => {
+	const runner = process.env.TZ;
+	before(() => {
+		process.env.TZ = "UTC";
+	});
+	after(() => {
+		if (runner === undefined) Reflect.deleteProperty(process.env, "TZ");
+		else process.env.TZ = runner;
+	});
+
+	it("reads the draft on the device's clock, not the calendar's", async () => {
+		process.env.TZ = "Europe/Amsterdam";
+		try {
+			const found = await clashesFor(
+				draft({ startTime: "12:00", endTime: "13:00" }),
+				[instance({})],
+			);
+			assert.equal(found?.length, 1);
+		} finally {
+			process.env.TZ = "UTC";
+		}
+	});
+
 	it("names an event the span overlaps", async () => {
 		const found = await clashesFor(draft({}), [instance({})]);
 		assert.equal(found?.length, 1);

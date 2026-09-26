@@ -20,6 +20,7 @@ import {
 	calendarWindowOfDays,
 	isoAt,
 	isoAtInZone,
+	isoOnClock,
 } from "./window";
 
 const day = (iso: string): string => iso.slice(0, 10);
@@ -142,6 +143,33 @@ describe("a clock time in a named zone", () => {
 	it("falls back to the device rather than throwing on a zone nothing knows", () => {
 		assert.match(
 			isoAtInZone("2026-06-10", "09:15", "Mars/Olympus_Mons"),
+			OFFSET,
+		);
+	});
+});
+
+describe("an occurrence re-read on the device's clock", () => {
+	it("moves a Tokyo morning to the New York evening before", () => {
+		assert.equal(
+			isoOnClock("2034-02-22T08:00:00+09:00", "America/New_York"),
+			"2034-02-21T18:00:00-05:00",
+		);
+	});
+
+	it("reads each side of a spring-forward on its own offset", () => {
+		assert.equal(
+			isoOnClock("2034-03-20T08:00:00+00:00", "Europe/Amsterdam"),
+			"2034-03-20T09:00:00+01:00",
+		);
+		assert.equal(
+			isoOnClock("2034-03-27T07:00:00+00:00", "Europe/Amsterdam"),
+			"2034-03-27T09:00:00+02:00",
+		);
+	});
+
+	it("falls back to the device rather than throwing on a zone nothing knows", () => {
+		assert.match(
+			isoOnClock("2034-02-22T08:00:00+09:00", "Mars/Olympus_Mons"),
 			OFFSET,
 		);
 	});

@@ -1,3 +1,5 @@
+import { anchorZoneFor } from "./instance";
+
 /**
  * The few properties a reading pane needs that the occurrence listing does not
  * carry, read off the stored resource.
@@ -72,3 +74,31 @@ export const textFromIcalData = (icalData: string): CalendarResourceText => ({
 	location: unescapeText(firstProperty(icalData, "LOCATION")),
 	description: unescapeText(firstProperty(icalData, "DESCRIPTION")),
 });
+
+/**
+ * The zone an edit writes an existing event back in: the one its master's
+ * DTSTART is stored in. A UTC start stays UTC (`""`), a floating one stays in
+ * the collection's zone, and a TZID nothing can resolve is read the way the
+ * server reads it, in the collection's zone. Only a resource with no DTSTART
+ * falls back to where a new event would be anchored.
+ */
+export function storedAnchorZone(
+	icalData: string,
+	collectionZone: string,
+): string {
+	const line = unfold(icalData)
+		.split(/\r?\n/)
+		.find(
+			(candidate) =>
+				candidate.startsWith("DTSTART") &&
+				valueAt(candidate, "DTSTART") !== undefined,
+		);
+	if (line === undefined) return anchorZoneFor(collectionZone);
+	const tzid = /;TZID="?([^;:"]+)"?/i.exec(line)?.[1];
+	if (tzid !== undefined)
+		return Intl.supportedValuesOf("timeZone").includes(tzid)
+			? tzid
+			: collectionZone;
+	if (valueAt(line, "DTSTART")?.toUpperCase().endsWith("Z")) return "";
+	return collectionZone;
+}

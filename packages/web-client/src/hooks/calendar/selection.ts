@@ -15,6 +15,7 @@ import type {
 } from "@remit/ui";
 import { useMemo } from "react";
 import {
+	deviceTimeZone,
 	isDrawnInstance,
 	toCalendarEventData,
 	UNZONED_CALENDAR,
@@ -79,10 +80,10 @@ export function useCalendarSelection(
 }
 
 /**
- * Occurrences as rows: the ones on a calendar being drawn, on the clock their
- * collection keeps. A collection with no zone of its own is sent as unzoned
- * rather than as the reader's — answering with the device's clock would rewrite
- * every time they saved by the difference between the two.
+ * Occurrences as rows: the ones on a calendar being drawn, on the device's
+ * clock, which is the one the grid, the strip and the free time all read. Each
+ * row still carries its collection's zone, unzoned where the collection names
+ * none, because that is the zone a write anchors the event in.
  */
 export function useDrawnEvents(
 	instances: readonly RemitImapCalendarEventInstance[],
@@ -91,6 +92,7 @@ export function useDrawnEvents(
 ): CalendarEventData[] {
 	const shownKey = shown.join(",");
 	return useMemo(() => {
+		const clockZone = deviceTimeZone();
 		const drawn = new Set(shownKey === "" ? [] : shownKey.split(","));
 		return instances
 			.filter(
@@ -101,6 +103,7 @@ export function useDrawnEvents(
 				toCalendarEventData(
 					instance,
 					timeZoneByCalendarId[instance.calendarId] ?? UNZONED_CALENDAR,
+					clockZone,
 				),
 			);
 	}, [instances, timeZoneByCalendarId, shownKey]);

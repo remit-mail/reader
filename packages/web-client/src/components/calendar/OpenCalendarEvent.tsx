@@ -9,11 +9,15 @@ import { CalendarEventPane } from "@/components/calendar/CalendarEventPane";
 import {
 	type CalendarWriteOutcome,
 	calendarInstanceId,
+	deviceTimeZone,
 	draftFromEvent,
 	emptyDraft,
+	isoOnClock,
+	moveRule,
 	patchFromDrafts,
 	rruleFromIcalData,
 	type ScopedWrite,
+	storedAnchorZone,
 	textFromIcalData,
 	textFromRrule,
 	UNZONED_CALENDAR,
@@ -87,8 +91,22 @@ export function OpenCalendarEvent({
 	const stored = resource ? textFromIcalData(resource.icalData) : undefined;
 	const rrule = resource ? rruleFromIcalData(resource.icalData) : "";
 	const startTime = event && !event.allDay ? event.start.slice(11, 16) : "";
+	const anchor = resource
+		? storedAnchorZone(
+				resource.icalData,
+				timeZoneByCalendarId[event?.calendarId ?? ""] ?? UNZONED_CALENDAR,
+			)
+		: UNZONED_CALENDAR;
+	const shownRule =
+		event && !event.allDay
+			? moveRule(
+					rrule,
+					isoOnClock(event.start, anchor === "" ? "UTC" : anchor).slice(0, 10),
+					event.start.slice(0, 10),
+				)
+			: rrule;
 	const repeat =
-		rrule === "" ? "" : (textFromRrule(rrule, startTime) ?? "Repeats");
+		rrule === "" ? "" : (textFromRrule(shownRule, startTime) ?? "Repeats");
 
 	// Scoping needs the occurrence to anchor at, so it is offered only where the
 	// address names one. A series opened by itself has one honest answer, which
@@ -141,11 +159,10 @@ export function OpenCalendarEvent({
 
 	const saveEdit = () => {
 		if (!editing || !draft) return;
-		const patch = patchFromDrafts(
-			editing.before,
-			draft,
-			timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR,
-		);
+		const patch = patchFromDrafts(editing.before, draft, {
+			clock: deviceTimeZone(),
+			anchor,
+		});
 		if (!patch.ok) {
 			setProblem(patch.problem);
 			return;

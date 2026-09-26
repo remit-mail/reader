@@ -3,7 +3,9 @@ import { useEffect, useState } from "react";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
 import { useCalendarComposeSeed } from "@/components/calendar/CalendarComposeSeed";
 import {
+	anchorZoneFor,
 	createInputFromDraft,
+	deviceTimeZone,
 	emptyDraft,
 	UNZONED_CALENDAR,
 	useCalendars,
@@ -59,10 +61,12 @@ export function WriteCalendarEvent({ onClose }: WriteCalendarEventProps) {
 	}, [firstCalendarId]);
 
 	const save = () => {
-		const built = createInputFromDraft(
-			draft,
-			timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR,
-		);
+		const built = createInputFromDraft(draft, {
+			clock: deviceTimeZone(),
+			anchor: anchorZoneFor(
+				timeZoneByCalendarId[draft.calendarId] ?? UNZONED_CALENDAR,
+			),
+		});
 		if (!built.ok) {
 			setProblem(built.problem);
 			return;

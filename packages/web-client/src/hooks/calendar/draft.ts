@@ -14,10 +14,22 @@ import type {
 	RemitImapUpdateCalendarEventInput,
 } from "@remit/api-http-client/types.gen.ts";
 import { type CalendarEventData, type EventDraft, lastDayOf } from "@remit/ui";
-import { rruleFromText } from "./recurrence-rule";
-import { addDays, isoAtInZone } from "./window";
+import { moveRule, rruleFromText } from "./recurrence-rule";
+import { addDays, isoAtInZone, isoOnClock } from "./window";
 
 export type DraftRefusal = { ok: false; problem: string };
+
+/**
+ * The two zones a write needs. `clock` is the one the form's digits were read
+ * on — the device's, which every surface draws on — and it decides the offset,
+ * so the instant saved is the instant shown. `anchor` is the zone the event is
+ * stored in, written as the TZID a series keeps its wall time in across a DST
+ * change (`anchorZoneFor`); `""` anchors it in UTC.
+ */
+export interface DraftZones {
+	clock: string;
+	anchor: string;
+}
 
 export type CreateInput =
 	| { ok: true; input: RemitImapCreateCalendarEventInput }
@@ -69,24 +81,39 @@ export function draftFromEvent(
 }
 
 /**
- * The draft's wall clock, pinned to an instant in the calendar's own zone.
- *
- * The zone is the calendar's rather than the device's because that is the clock
- * the times were read on: the listing returns an occurrence in the collection's
- * zone, and the form shows those digits. Stamping the device's offset back onto
- * them moves the event by the difference between the two — silently, and only
- * for whoever is travelling.
+ * The draft's wall clock, pinned to an instant on the clock it was read on.
+ * Stamping any other zone's offset onto those digits moves the event by the
+ * difference between the two — silently, and only for whoever is travelling.
  */
 function timesFor(
 	draft: EventDraft,
-	timeZone: string,
+	clock: string,
 ): { start: string; end: string } {
 	if (draft.allDay)
 		return { start: draft.date, end: addDays(draft.endDate, 1) };
 	return {
-		start: isoAtInZone(draft.date, draft.startTime, timeZone),
-		end: isoAtInZone(draft.endDate, draft.endTime, timeZone),
+		start: isoAtInZone(draft.date, draft.startTime, clock),
+		end: isoAtInZone(draft.endDate, draft.endTime, clock),
 	};
+}
+
+/**
+ * The picked rule, stored on the day the event's own zone starts it on rather
+ * than on the day the device showed when it was picked.
+ */
+function storedRule(
+	draft: EventDraft,
+	start: string,
+	zones: DraftZones,
+): string {
+	const rule = rruleFromText(draft.repeat) ?? "";
+	const anchorDate = draft.allDay
+		? draft.date
+		: isoOnClock(start, zones.anchor === "" ? "UTC" : zones.anchor).slice(
+				0,
+				10,
+			);
+	return moveRule(rule, draft.date, anchorDate);
 }
 
 /**
@@ -116,11 +143,11 @@ function refuse(draft: EventDraft, checkRepeat: boolean): string {
 
 export function createInputFromDraft(
 	draft: EventDraft,
-	timeZone: string,
+	zones: DraftZones,
 ): CreateInput {
 	const problem = refuse(draft, true);
 	if (problem !== "") return { ok: false, problem };
-	const { start, end } = timesFor(draft, timeZone);
+	const { start, end } = timesFor(draft, zones.clock);
 	return {
 		ok: true,
 		input: {
@@ -131,11 +158,8 @@ export function createInputFromDraft(
 			start,
 			end,
 			allDay: draft.allDay,
-			// Absent anchors the event in UTC, which is exactly what a collection
-			// naming no zone means. There is no spelling of UTC the server takes
-			// as a TZID, so sending one instead is not an option.
-			...(timeZone === "" ? {} : { timeZone }),
-			recurrenceRule: rruleFromText(draft.repeat) ?? "",
+			...(zones.anchor === "" ? {} : { timeZone: zones.anchor }),
+			recurrenceRule: storedRule(draft, start, zones),
 		},
 	};
 }
@@ -143,9 +167,18 @@ export function createInputFromDraft(
 export function patchFromDrafts(
 	before: EventDraft,
 	after: EventDraft,
-	timeZone: string,
+	zones: DraftZones,
 ): UpdatePatch {
 	const repeatChanged = after.repeat !== before.repeat;
+	const allDayChanged = after.allDay !== before.allDay;
+	const startMoved =
+		allDayChanged ||
+		after.date !== before.date ||
+		after.startTime !== before.startTime;
+	const endMoved =
+		startMoved ||
+		after.endDate !== before.endDate ||
+		after.endTime !== before.endTime;
 	const problem = refuse(after, repeatChanged);
 	if (problem !== "") return { ok: false, problem };
 
@@ -155,24 +188,17 @@ export function patchFromDrafts(
 	if (after.location !== before.location) patch.location = after.location;
 	if (after.notes !== before.notes) patch.description = after.notes;
 
-	const moved =
-		after.date !== before.date ||
-		after.startTime !== before.startTime ||
-		after.endDate !== before.endDate ||
-		after.endTime !== before.endTime ||
-		after.allDay !== before.allDay;
-	if (moved) {
-		const { start, end } = timesFor(after, timeZone);
-		patch.start = start;
+	const { start, end } = timesFor(after, zones.clock);
+	if (startMoved) patch.start = start;
+	if (endMoved) {
 		patch.end = end;
 		patch.allDay = after.allDay;
 		// The offset pins the instant; the zone is what a series needs to keep
-		// meeting at nine when the clocks go back. A collection with none of its
-		// own says so by sending nothing.
-		if (timeZone !== "") patch.timeZone = timeZone;
+		// meeting at nine when the clocks go back.
+		if (zones.anchor !== "") patch.timeZone = zones.anchor;
 	}
 
-	if (repeatChanged) patch.recurrenceRule = rruleFromText(after.repeat) ?? "";
+	if (repeatChanged) patch.recurrenceRule = storedRule(after, start, zones);
 
 	return { ok: true, patch };
 }
