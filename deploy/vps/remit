@@ -178,6 +178,13 @@ Usage: $PROG <command> [args]
                        deployment is configured with. Reads the index and
                        writes nothing. Vectors under an older model still
                        answer queries, in a vector space of their own.
+  reembed [--model <id> | --all]
+                       Queue indexed messages for the search-index worker to
+                       embed again with the configured model. By default every
+                       message with vectors from another model; --model takes
+                       only those from the named one ('unknown' for vectors
+                       that recorded none); --all takes every indexed message.
+                       'check-index' shows the model names and the progress.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -888,6 +895,38 @@ cmd_check_index() {
 	require_deployment
 	[ $# -eq 0 ] || die "check-index: takes no arguments"
 	semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-report.mjs
+}
+
+cmd_reembed() {
+	require_deployment
+	_scope=stale
+	_model=""
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--all)
+			[ "$_scope" = stale ] || die "reembed: pass one of --all or --model, not both"
+			_scope=all
+			shift
+			;;
+		--model)
+			[ $# -ge 2 ] || die "reembed: --model needs a value"
+			[ "$_scope" = stale ] || die "reembed: pass one of --all or --model, not both"
+			[ -n "$2" ] || die "reembed: --model needs a value"
+			_scope=model
+			_model=$2
+			shift 2
+			;;
+		*) die "reembed: unknown option '$1'" ;;
+		esac
+	done
+	if semantic_is_off; then
+		die "reembed: semantic search is off ($SEMANTIC_VAR=$(semantic_provider)), so there is no model to re-embed with and every message would be queued. Run '$PROG semantic on' first."
+	fi
+	case "$_scope" in
+	all) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --all ;;
+	model) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --model "$_model" ;;
+	*) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs ;;
+	esac
 }
 
 # What the operator wants after a command that leaves the stack serving is the
@@ -3907,6 +3946,7 @@ main() {
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
 	check-index) cmd_check_index "$@" ;;
+	reembed) cmd_reembed "$@" ;;
 	cert) cmd_cert "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"

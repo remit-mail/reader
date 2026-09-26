@@ -133,9 +133,9 @@ const buildFilterClause = (
 };
 
 /**
- * Count the stored index by the embedder that wrote each vector (#455), read
- * straight off the vec0 table rather than through the store: a report is not a
- * search, and the caller has no query to run.
+ * Stream every stored chunk with the embedder that wrote it (#455), read
+ * straight off the vec0 table rather than through the store: a report or a
+ * re-embed is not a search, and the caller has no query to run.
  *
  * Reads only. `fileMustExist` keeps a report on a box that has never indexed
  * anything from creating the vector database as a side effect of asking about
@@ -144,20 +144,20 @@ const buildFilterClause = (
  * opened read-only: these files are WAL, and a read-only connection cannot
  * initialize the shared-memory index when no writer is attached.
  *
- * The rows are streamed into the summary. One row per chunk means several per
+ * The rows are streamed into `consume`. One row per chunk means several per
  * message, and a full mailbox's worth of metadata JSON must not be materialized
- * to be counted.
+ * to be read.
  */
-export const readSqliteIndexProvenance = async (config: {
-	path: string;
-	configuredEmbeddingId: string;
-}): Promise<IndexProvenance> => {
-	if (!existsSync(config.path)) {
-		return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+export const readSqliteIndexedChunks = async <T>(
+	path: string,
+	consume: (chunks: Iterable<IndexedChunkProvenance>) => T,
+): Promise<T> => {
+	if (!existsSync(path)) {
+		return consume([]);
 	}
 	const { default: Database } =
 		await runtimeImport<BetterSqlite3Module>("better-sqlite3");
-	const db = new Database(config.path, { fileMustExist: true });
+	const db = new Database(path, { fileMustExist: true });
 	try {
 		await loadSqliteVec(db);
 		const table = db
@@ -166,19 +166,24 @@ export const readSqliteIndexProvenance = async (config: {
 			)
 			.get();
 		if (!table) {
-			return summarizeIndexProvenance(config.configuredEmbeddingId, []);
+			return consume([]);
 		}
 		const rows = db
 			.prepare("SELECT message_id AS messageId, meta FROM vec_chunks")
 			.iterate() as IterableIterator<{ messageId: string; meta: string }>;
-		return summarizeIndexProvenance(
-			config.configuredEmbeddingId,
-			provenanceOf(rows),
-		);
+		return consume(provenanceOf(rows));
 	} finally {
 		db.close();
 	}
 };
+
+export const readSqliteIndexProvenance = (config: {
+	path: string;
+	configuredEmbeddingId: string;
+}): Promise<IndexProvenance> =>
+	readSqliteIndexedChunks(config.path, (chunks) =>
+		summarizeIndexProvenance(config.configuredEmbeddingId, chunks),
+	);
 
 function* provenanceOf(
 	rows: Iterable<{ messageId: string; meta: string }>,

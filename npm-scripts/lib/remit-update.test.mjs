@@ -3240,6 +3240,54 @@ describe("remit check-index", () => {
 	});
 });
 
+describe("remit reembed", () => {
+	const box = sandbox({
+		scenario: { probe: "ok" },
+		dotenv: ["SEARCH_EMBEDDING_PROVIDER=local"],
+	});
+	const result = box.run(["reembed", "--model", "local:MiniLM@384"]);
+
+	it("queues the re-embed from the worker's image", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(
+			box
+				.log()
+				.split("\n")
+				.some(
+					(line) =>
+						line ===
+						"compose run --rm --no-deps search-index-worker node index-reembed.mjs --model local:MiniLM@384",
+				),
+			`no re-embed run in:\n${box.log()}`,
+		);
+	});
+
+	it("starts no dependency", () => {
+		const log = box.log();
+		assert.ok(!log.includes("compose up"), log);
+		assert.ok(!log.includes("volume-init"), log);
+	});
+
+	it("refuses an option it does not know", () => {
+		const rejected = box.run(["reembed", "--repair"]);
+		assert.equal(rejected.status, 1);
+		assert.match(rejected.stderr, /unknown option '--repair'/);
+	});
+
+	for (const provider of ["off", "deterministic"]) {
+		it(`refuses while the provider is ${provider}, and queues nothing`, () => {
+			const off = sandbox({
+				scenario: { probe: "ok" },
+				dotenv: [`SEARCH_EMBEDDING_PROVIDER=${provider}`],
+			});
+			const rejected = off.run(["reembed"]);
+			assert.equal(rejected.status, 1);
+			assert.match(rejected.stderr, /reembed: semantic search is off/);
+			assert.ok(!off.log().includes("index-reembed.mjs"), off.log());
+		});
+	}
+});
+
 describe("shellcheck", () => {
 	it("is clean on the wrapper under POSIX sh", () => {
 		const probe = spawnSync("shellcheck", ["--version"], { encoding: "utf8" });

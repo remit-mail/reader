@@ -6,7 +6,7 @@ import type {
 	MessageItem,
 	PlacementPredicate,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or, type SQL } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
 
 import type { Db } from "../db.js";
 import {
@@ -46,6 +46,13 @@ import {
 } from "./mappers.js";
 
 type DB = Db<MessageDataSchema>;
+
+const REEMBED_BATCH_SIZE = 500;
+
+export interface ReembedRequest {
+	queued: number;
+	alreadyQueued: number;
+}
 
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
@@ -631,5 +638,49 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			return updated;
 		});
 		return toMessageItem(rows[0]);
+	}
+
+	async requestReembed(messageIds: string[]): Promise<ReembedRequest> {
+		const request: ReembedRequest = { queued: 0, alreadyQueued: 0 };
+		for (
+			let start = 0;
+			start < messageIds.length;
+			start += REEMBED_BATCH_SIZE
+		) {
+			const batch = messageIds.slice(start, start + REEMBED_BATCH_SIZE);
+			await runInTransaction(this.db, async (tx) => {
+				const present = await tx
+					.select({ messageId: messageTable.messageId })
+					.from(messageTable)
+					.where(inArray(messageTable.messageId, batch));
+				const pending = await tx
+					.selectDistinct({ messageId: outboxTable.messageId })
+					.from(outboxTable)
+					.where(
+						and(
+							inArray(outboxTable.messageId, batch),
+							eq(outboxTable.event, "message.moved"),
+							isNull(outboxTable.processedAt),
+						),
+					);
+				const pendingIds = new Set(pending.map(({ messageId }) => messageId));
+				const toQueue = present.filter(
+					({ messageId }) => !pendingIds.has(messageId),
+				);
+				request.alreadyQueued += present.length - toQueue.length;
+				request.queued += toQueue.length;
+				if (toQueue.length === 0) return;
+				await tx.insert(outboxTable).values(
+					toQueue.map(({ messageId }) => ({
+						id: randomUUID(),
+						messageId,
+						event: "message.moved" as const,
+						payload: { messageId },
+						createdAt: new Date(),
+					})),
+				);
+			});
+		}
+		return request;
 	}
 }

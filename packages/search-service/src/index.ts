@@ -49,6 +49,8 @@ export {
 	type IndexedChunkProvenance,
 	type IndexProvenance,
 	type IndexProvenanceGroup,
+	type ReembedScope,
+	selectMessagesToReembed,
 	summarizeIndexProvenance,
 } from "./index-report.js";
 export {

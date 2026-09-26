@@ -159,6 +159,12 @@ export const TARGETS = [
 		outfile: "dist-docker/search-index-worker/index-report.mjs",
 		external: [SQLITE, ...SEARCH_NATIVE],
 	},
+	{
+		name: "search-index-reembed",
+		entry: "packages/search-index-worker/src/index-reembed.ts",
+		outfile: "dist-docker/search-index-worker/index-reembed.mjs",
+		external: [SQLITE, ...SEARCH_NATIVE],
+	},
 	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
 	// is a native module reached through @remit/queue-sidecar's store; keep it
 	// external and install it in the runtime stage, the same treatment the other
