@@ -101,7 +101,7 @@ import {
 import { type ChoicePicks, parseAgendaPhrase } from "../lib/agenda-phrase.js";
 import { applyDraft, applyScopedEdit } from "../lib/calendar-edit.js";
 import { railShare } from "../lib/calendar-rail.js";
-import { MailShell } from "./mail-shell.js";
+import { ProposedShell } from "../lib/proposed-shell.js";
 
 /** Wednesday 10 June 2026, 09:30 — the same fixed now as the mail fixtures. */
 const NOW = new Date(2026, 5, 10, 9, 30);
@@ -1153,7 +1153,7 @@ export function CalendarAgenda({
 
 	if (isPhone)
 		return (
-			<MailShell
+			<ProposedShell
 				width={width}
 				selectedNavId="calendar"
 				calendarNav="shown"
@@ -1187,7 +1187,7 @@ export function CalendarAgenda({
 		);
 
 	return (
-		<MailShell
+		<ProposedShell
 			width={width}
 			selectedNavId="calendar"
 			calendarNav="shown"

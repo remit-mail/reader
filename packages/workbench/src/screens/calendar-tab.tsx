@@ -38,7 +38,7 @@ import {
 	slotOffers,
 } from "../fixtures/calendar-mail.js";
 import { q3Intelligence, q3Thread } from "../fixtures/workspace.js";
-import { MailShell } from "./mail-shell.js";
+import { ProposedShell } from "../lib/proposed-shell.js";
 
 /** Half an hour is what Sofia asked for, and what an offer is worth. */
 const OFFER_MINUTES = 30;
@@ -152,7 +152,7 @@ export function CalendarTab({
 	};
 
 	return (
-		<MailShell
+		<ProposedShell
 			width={width}
 			selectedNavId="mbx_work_inbox"
 			calendarNav="shown"

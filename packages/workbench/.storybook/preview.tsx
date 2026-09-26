@@ -52,6 +52,11 @@ const appViewports = {
 		type: "desktop",
 		styles: { width: "1512px", height: "827px" },
 	},
+	twoPane: {
+		name: "Two-pane",
+		type: "desktop",
+		styles: { width: "1100px", height: "760px" },
+	},
 } as const;
 
 const preview: Preview = {

@@ -1,6 +1,6 @@
-import type { SearchConversion, WizardMessage } from "@remit/ui";
+import type { SearchConversion } from "../lib/search-rule.js";
+import type { WizardMessage } from "./selection-wizard.js";
 
-/** A row of the mail list the selection wizard opens from. */
 export interface SelectionMessage extends WizardMessage {
 	email: string;
 	preview: string;
@@ -169,12 +169,6 @@ export const SELECTION_SAMPLE: SelectionMessage[] = [
 	},
 ];
 
-/**
- * A page of results for the query "npm". The rows are deliberately of three
- * kinds, so the two widened doors pull apart: mail that carries the word,
- * ecosystem mail that does not (a semantic reach), and unrelated mail that a
- * literal subject clause would still miss or catch by accident.
- */
 export const SELECTION_SEARCH_SAMPLE: SelectionMessage[] = [
 	{
 		id: "s1",
@@ -274,11 +268,6 @@ export const SELECTION_SEARCH_SAMPLE: SelectionMessage[] = [
 	},
 ];
 
-/**
- * Three receipts from three different senders whose subjects share a run of
- * words. Senders that neither repeat nor share a domain are what pushes the
- * property prefill off the sender and onto the shared subject fragment.
- */
 export const SELECTION_RECEIPTS_SAMPLE: SelectionMessage[] = [
 	{
 		id: "r1",
@@ -325,12 +314,6 @@ export const SELECTION_FOLDERS = [
 	"Junk",
 ];
 
-/**
- * What `convertSearchToRule` hands the wizard for
- * `npm in:Archive is:unread before:2026-01-01` — a query carrying everything a
- * filter cannot: a folder it was limited to, two attribute facets, and free text
- * whose semantic reach a literal clause loses.
- */
 export const RICH_CONVERSION: SearchConversion = {
 	clauses: [{ field: "HasWords", value: "npm" }],
 	matchOperator: "all",
@@ -343,21 +326,10 @@ export const RICH_CONVERSION: SearchConversion = {
 	droppedSemantic: true,
 };
 
-/** Plain words, nothing scoped or faceted: one clause and nothing to report. */
 export const PLAIN_CONVERSION: SearchConversion = {
 	clauses: [{ field: "HasWords", value: "npm" }],
 	matchOperator: "all",
 	droppedFacets: [],
 	keptTerms: true,
-	droppedSemantic: false,
-};
-
-/** `in:Archive is:unread` — nothing in it converts, so there is no filter to open. */
-export const FACETS_ONLY_CONVERSION: SearchConversion = {
-	clauses: [],
-	matchOperator: "all",
-	scopedOut: { mailboxId: "mbx-archive", label: "Archive" },
-	droppedFacets: [{ type: "isUnread", label: "Unread" }],
-	keptTerms: false,
 	droppedSemantic: false,
 };
