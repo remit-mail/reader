@@ -2,6 +2,7 @@ import {
 	AppShellSlotted,
 	type AppShellSlottedProps,
 	Avatar,
+	ComposeFab,
 	type IntelligenceCalendarSurface,
 	type IntelligenceData,
 	IntelligencePanel,
@@ -14,7 +15,6 @@ import {
 	type ThreadData,
 	type ThreadSection,
 } from "@remit/ui";
-import { Pencil } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { navAccounts } from "../fixtures/workspace.js";
 
@@ -67,18 +67,6 @@ function TopBar() {
 				</button>
 			}
 		/>
-	);
-}
-
-function ComposeFab() {
-	return (
-		<button
-			type="button"
-			aria-label="Compose new message"
-			className="absolute bottom-4 right-4 z-30 flex size-14 items-center justify-center rounded-full bg-accent text-accent-fg shadow-lg"
-		>
-			<Pencil className="size-6" />
-		</button>
 	);
 }
 
@@ -159,7 +147,10 @@ export function ProposedShell({
 			}
 			intelligenceOpen={railOpen}
 			hasThread={Boolean(thread)}
-			overlay={overlay ?? (singlePane ? <ComposeFab /> : undefined)}
+			overlay={
+				overlay ??
+				(singlePane ? <ComposeFab onCompose={() => undefined} /> : undefined)
+			}
 			navOpen={navOpen}
 			onOpenNav={() => setNavOpen(true)}
 			onCloseNav={() => setNavOpen(false)}

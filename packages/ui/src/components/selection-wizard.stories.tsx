@@ -369,11 +369,7 @@ function WizardDriver({
 						? searchConversionNotice(conversion)
 						: undefined,
 				semanticFallbackTaken,
-				sample: {
-					...sample,
-					label: "What this matches",
-					count: { status: "uncounted" },
-				},
+				sample: { ...sample, label: "What this matches" },
 			}}
 			folder={{
 				folders: mailboxes,
@@ -567,21 +563,6 @@ export const SearchConvertedDesktop: Story = {
 
 export const SearchConvertedPlain: Story = {
 	name: "Search — make this a filter, plain query",
-	play: shows(
-		["Which properties have to match?", "npm"],
-		[/Your search was limited/],
-	),
-	render: () => (
-		<Flow
-			messages={SELECTION_SEARCH_SAMPLE}
-			conversion={PLAIN_CONVERSION}
-			openAt={{ verb: "organize", fromSearch: true }}
-		/>
-	),
-};
-
-export const SearchConvertedFromStarred: Story = {
-	name: "Search — make this a filter, from Starred",
 	play: shows(
 		["Which properties have to match?", "npm"],
 		[/Your search was limited/],
@@ -938,7 +919,12 @@ export const OrganizeNothingMatches: Story = {
 
 export const OrganizeUncountable: Story = {
 	name: "Organize — the count that can't be taken",
-	play: shows(["Has the words", "invoice"]),
+	play: shows(
+		["Has the words", /only a saved rule does/],
+		[
+			"Nothing matches this yet. Widen a property, or match on a different one.",
+		],
+	),
 	render: () => (
 		<Flow
 			preselected={3}
