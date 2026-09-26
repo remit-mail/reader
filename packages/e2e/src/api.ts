@@ -298,6 +298,7 @@ export interface ConfigAccount {
 	accountId: string;
 	email: string;
 	authType: string;
+	syncedServices: string[];
 	isActive: boolean;
 	connectionState: string;
 	imapHost: string;

@@ -8,7 +8,6 @@ import { AccountServiceChangeDialog } from "./account-service-change-dialog.js";
  */
 const meta: Meta<typeof AccountServiceChangeDialog> = {
 	title: "Design System/Settings/AccountServiceChangeDialog",
-	tags: ["proposed"],
 	component: AccountServiceChangeDialog,
 	parameters: { layout: "fullscreen" },
 	args: {

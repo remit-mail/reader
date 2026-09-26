@@ -77,6 +77,7 @@
 		"@remit/api-http-client": "*",
 		"@remit/data-ports": "*",
 		"@remit/domain-enums": "*",
+		"@remit/mail-oauth-service": "*",
 		"@remit/ui": "*",
 		"@tanstack/react-query": "^5",
 		"@tanstack/react-query-devtools": "^5",

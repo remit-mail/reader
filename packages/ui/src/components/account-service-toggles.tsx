@@ -22,6 +22,8 @@ export interface AccountServiceTogglesProps {
 	enabled: AccountService[];
 	/** Services the account's grant already covers. The rest cost a sign-in. */
 	consented: AccountService[];
+	/** Holds every switch still while the host has a change in flight. */
+	disabled?: boolean;
 	/** Asks the host for a change. The host owns the question and the commit. */
 	onRequestChange: (
 		service: AccountService,
@@ -33,11 +35,13 @@ function ServiceSwitch({
 	checked,
 	label,
 	describedBy,
+	disabled,
 	onToggle,
 }: {
 	checked: boolean;
 	label: string;
 	describedBy: string;
+	disabled: boolean;
 	onToggle: () => void;
 }) {
 	return (
@@ -47,10 +51,11 @@ function ServiceSwitch({
 			aria-checked={checked}
 			aria-label={label}
 			aria-describedby={describedBy}
+			disabled={disabled}
 			onClick={onToggle}
 			className={cn(
 				"relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors",
-				"outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
+				"outline-none disabled:cursor-not-allowed disabled:opacity-60 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-surface",
 				checked
 					? "border-positive bg-positive"
 					: "border-line-strong bg-surface-sunken",
@@ -80,6 +85,7 @@ export function AccountServiceToggles({
 	offered,
 	enabled,
 	consented,
+	disabled = false,
 	onRequestChange,
 }: AccountServiceTogglesProps) {
 	const groupId = useId();
@@ -114,6 +120,7 @@ export function AccountServiceToggles({
 								checked={on}
 								label={`Sync ${row.label.toLowerCase()}`}
 								describedBy={noteId}
+								disabled={disabled}
 								onToggle={() => onRequestChange(row.id, on ? "off" : "on")}
 							/>
 						</div>

@@ -12,8 +12,7 @@ import {
  * host confirms and commits.
  */
 const meta: Meta<typeof AccountServiceToggles> = {
-	title: "Playground/Proposed/Settings/AccountServiceToggles",
-	tags: ["proposed"],
+	title: "Playground/Shipped/Settings/Accounts/AccountServiceToggles",
 	component: AccountServiceToggles,
 	parameters: { layout: "padded" },
 	decorators: [
@@ -119,4 +118,24 @@ export const ImapAccount: Story = {
 			</p>
 		</>
 	),
+};
+
+/** A change is in flight: neither switch takes a press until it lands. */
+export const Saving: Story = {
+	render: () => (
+		<AccountServiceToggles
+			providerName="Microsoft"
+			offered={bothServices}
+			enabled={bothServices}
+			consented={bothServices}
+			disabled
+			onRequestChange={() => {}}
+		/>
+	),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			canvas.getByRole("switch", { name: "Sync mail" }),
+		).toBeDisabled();
+	},
 };
