@@ -10,7 +10,10 @@
 		"esModuleInterop": true,
 		"skipLibCheck": true,
 		"noEmit": true,
-		"types": ["node"]
+		"types": ["node"],
+		"paths": {
+			"@/*": ["../web-client/src/*"]
+		}
 	},
 	"include": ["src/**/*", ".storybook/**/*", "vitest.config.ts"]
 }
