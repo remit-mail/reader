@@ -27,6 +27,8 @@ import {
 const CALENDAR = "cal_work";
 const AMSTERDAM = "Europe/Amsterdam";
 const NEW_YORK = "America/New_York";
+const TOKYO = "Asia/Tokyo";
+const IN_AMSTERDAM = { clock: AMSTERDAM, anchor: AMSTERDAM };
 
 const draft = (over: Partial<EventDraft> = {}): EventDraft => ({
 	...emptyDraft("2026-06-10", CALENDAR),
@@ -68,7 +70,7 @@ const refusal = (result: CreateInput | UpdatePatch): string => {
 
 describe("creating an event", () => {
 	it("sends the calendar, the summary and a start with an offset", () => {
-		const built = createInputFromDraft(draft(), AMSTERDAM);
+		const built = createInputFromDraft(draft(), IN_AMSTERDAM);
 		assert.ok(built.ok);
 		assert.equal(built.input.calendarId, CALENDAR);
 		assert.equal(built.input.summary, "Roadmap review");
@@ -80,7 +82,7 @@ describe("creating an event", () => {
 	it("makes an all-day event a civil date ending on the next one", () => {
 		const built = createInputFromDraft(
 			draft({ allDay: true, startTime: "", endTime: "" }),
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-06-10");
@@ -90,7 +92,7 @@ describe("creating an event", () => {
 	it("ends a night that runs past midnight on the next day", () => {
 		const built = createInputFromDraft(
 			draft({ startTime: "22:00", endDate: "2026-06-11", endTime: "01:00" }),
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-06-10T22:00:00+02:00");
@@ -105,7 +107,7 @@ describe("creating an event", () => {
 				endTime: "",
 				endDate: "2026-06-12",
 			}),
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-06-10");
@@ -115,7 +117,7 @@ describe("creating an event", () => {
 	it("turns a picked repeat sentence into the rule it means", () => {
 		const built = createInputFromDraft(
 			draft({ repeat: "Every weekday, 09:00" }),
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(
@@ -128,7 +130,7 @@ describe("creating an event", () => {
 describe("a refusal", () => {
 	it("names the missing title", () => {
 		assert.match(
-			refusal(createInputFromDraft(draft({ title: "  " }), AMSTERDAM)),
+			refusal(createInputFromDraft(draft({ title: "  " }), IN_AMSTERDAM)),
 			/title/i,
 		);
 	});
@@ -138,7 +140,7 @@ describe("a refusal", () => {
 			refusal(
 				createInputFromDraft(
 					draft({ startTime: "11:00", endTime: "10:00" }),
-					AMSTERDAM,
+					IN_AMSTERDAM,
 				),
 			),
 			/end is not after the start/i,
@@ -155,7 +157,7 @@ describe("a refusal", () => {
 						endTime: "",
 						endDate: "2026-06-09",
 					}),
-					AMSTERDAM,
+					IN_AMSTERDAM,
 				),
 			),
 			/last day is before the first/i,
@@ -164,7 +166,7 @@ describe("a refusal", () => {
 
 	it("names a missing time rather than saving a day-long event nobody asked for", () => {
 		assert.match(
-			refusal(createInputFromDraft(draft({ endTime: "" }), AMSTERDAM)),
+			refusal(createInputFromDraft(draft({ endTime: "" }), IN_AMSTERDAM)),
 			/start and an end time/i,
 		);
 	});
@@ -174,7 +176,7 @@ describe("a refusal", () => {
 			refusal(
 				createInputFromDraft(
 					draft({ repeat: "Every other Tuesday" }),
-					AMSTERDAM,
+					IN_AMSTERDAM,
 				),
 			),
 			/repeat rule/i,
@@ -188,7 +190,7 @@ describe("editing an event", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, title: "Roadmap" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, { summary: "Roadmap" });
@@ -199,7 +201,7 @@ describe("editing an event", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, startTime: "08:00" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.allDay, false);
@@ -212,7 +214,7 @@ describe("editing an event", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, title: "Standup" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, { summary: "Standup" });
@@ -220,7 +222,11 @@ describe("editing an event", () => {
 
 	it("drops the rule when the reader turns the repeat off", () => {
 		const before = draft({ repeat: "Every weekday, 09:00" });
-		const patch = patchFromDrafts(before, { ...before, repeat: "" }, AMSTERDAM);
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, repeat: "" },
+			IN_AMSTERDAM,
+		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.recurrenceRule, "");
 	});
@@ -237,7 +243,7 @@ describe("editing an event", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, title: "Night shift" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, { summary: "Night shift" });
@@ -253,7 +259,7 @@ describe("editing an event", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, date: "2026-06-17", endDate: "2026-06-19" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.start, "2026-06-17");
@@ -262,30 +268,35 @@ describe("editing an event", () => {
 
 	it("changes nothing when nothing was touched", () => {
 		const before = draft();
-		const patch = patchFromDrafts(before, { ...before }, AMSTERDAM);
+		const patch = patchFromDrafts(before, { ...before }, IN_AMSTERDAM);
 		assert.ok(patch.ok);
 		assert.deepEqual(patch.patch, {});
 	});
 });
 
 /**
- * The clock the form shows is the calendar's, not the device's.
+ * The clock the form shows is the device's; the zone the event is anchored in
+ * is the calendar's.
  *
- * An occurrence is returned in the collection's zone and the form displays
- * those digits, so rebuilding them with whatever offset the reader's laptop
- * happens to be on moves the event by the difference — six hours for the same
- * meeting looked at from New York, with nothing on screen saying it moved.
+ * Every surface draws occurrences on the device's clock and the form shows
+ * those digits, so the offset has to be the device's — stamping the calendar's
+ * onto them moves the event by the difference, six hours for an Amsterdam
+ * calendar looked at from New York. The calendar's zone still travels as the
+ * TZID, which is what keeps a series at its hour across a DST change.
  *
  * Both assertions are absolute rather than "whatever this runner is on": the
  * bug is precisely that the runner's zone leaked in, so a test that reads it is
  * a test that cannot see the bug.
  */
 describe("an event anchored somewhere other than the device", () => {
-	it("keeps a new event on the calendar's clock", () => {
-		const built = createInputFromDraft(draft(), NEW_YORK);
+	it("pins a new event to the device's clock and anchors it in the calendar's zone", () => {
+		const built = createInputFromDraft(draft(), {
+			clock: NEW_YORK,
+			anchor: AMSTERDAM,
+		});
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-06-10T09:00:00-04:00");
-		assert.equal(built.input.timeZone, NEW_YORK);
+		assert.equal(built.input.timeZone, AMSTERDAM);
 	});
 
 	it("moves an event to another day without moving it to another hour", () => {
@@ -293,7 +304,7 @@ describe("an event anchored somewhere other than the device", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, date: "2026-06-17", endDate: "2026-06-17" },
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.start, "2026-06-17T09:00:00+02:00");
@@ -308,14 +319,17 @@ describe("an event anchored somewhere other than the device", () => {
 	it("reads the zone's own winter offset rather than one it saw in June", () => {
 		const built = createInputFromDraft(
 			draft({ date: "2026-01-14", endDate: "2026-01-14" }),
-			AMSTERDAM,
+			IN_AMSTERDAM,
 		);
 		assert.ok(built.ok);
 		assert.equal(built.input.start, "2026-01-14T09:00:00+01:00");
 	});
 
 	it("falls back to the device rather than refusing a zone nothing can resolve", () => {
-		const built = createInputFromDraft(draft(), "Mars/Olympus_Mons");
+		const built = createInputFromDraft(draft(), {
+			clock: "Mars/Olympus_Mons",
+			anchor: AMSTERDAM,
+		});
 		assert.ok(built.ok);
 		assert.match(built.input.start, /^2026-06-10T09:00:00[+-]\d{2}:\d{2}$/);
 	});
@@ -327,7 +341,7 @@ describe("an event anchored somewhere other than the device", () => {
 	 * outright on a UTC runner.
 	 */
 	it("sends no zone at all where the collection names none", () => {
-		const built = createInputFromDraft(draft(), "");
+		const built = createInputFromDraft(draft(), { clock: "UTC", anchor: "" });
 		assert.ok(built.ok);
 		assert.equal(built.input.timeZone, undefined);
 		assert.equal(built.input.start, "2026-06-10T09:00:00+00:00");
@@ -339,7 +353,7 @@ describe("an event anchored somewhere other than the device", () => {
 		const patch = patchFromDrafts(
 			before,
 			{ ...before, date: "2026-06-17", endDate: "2026-06-17" },
-			"",
+			{ clock: "UTC", anchor: "" },
 		);
 		assert.ok(patch.ok);
 		assert.equal(patch.patch.timeZone, undefined);
@@ -384,5 +398,140 @@ describe("the form moving its own dates", () => {
 	it("keeps the days of a timed event that spans them when made all day", () => {
 		const span = draft({ endDate: "2026-06-12", endTime: "17:00" });
 		assert.equal(withAllDay(span, true).endDate, "2026-06-12");
+	});
+});
+
+/**
+ * A Tokyo afternoon read in New York runs 23:30 to 00:30. The end digits are
+ * before the start digits and the event is still an hour long.
+ */
+describe("an event that crosses midnight on the device's clock", () => {
+	const FROM_NEW_YORK = { clock: NEW_YORK, anchor: TOKYO };
+	const crossing = draft({
+		startTime: "23:30",
+		endDate: "2026-06-11",
+		endTime: "00:30",
+	});
+
+	it("still takes an edit that leaves the times alone", () => {
+		const patch = patchFromDrafts(
+			crossing,
+			{ ...crossing, title: "Roadmap" },
+			FROM_NEW_YORK,
+		);
+		assert.ok(patch.ok);
+		assert.deepEqual(patch.patch, { summary: "Roadmap" });
+	});
+
+	it("ends it the next morning when it moves day", () => {
+		const patch = patchFromDrafts(
+			crossing,
+			{ ...crossing, date: "2026-06-17", endDate: "2026-06-18" },
+			FROM_NEW_YORK,
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.start, "2026-06-17T23:30:00-04:00");
+		assert.equal(patch.patch.end, "2026-06-18T00:30:00-04:00");
+		assert.equal(patch.patch.timeZone, TOKYO);
+	});
+});
+
+describe("a repeat picked on the device's day", () => {
+	const FROM_NEW_YORK = { clock: NEW_YORK, anchor: TOKYO };
+	const sundayNight = draft({
+		date: "2026-06-14",
+		endDate: "2026-06-14",
+		startTime: "21:00",
+		endTime: "22:00",
+	});
+
+	it("is stored on the day the event's own zone starts it on", () => {
+		const built = createInputFromDraft(
+			{ ...sundayNight, repeat: "Every week on Sunday, 21:00" },
+			FROM_NEW_YORK,
+		);
+		assert.ok(built.ok);
+		assert.equal(built.input.recurrenceRule, "FREQ=WEEKLY;BYDAY=MO");
+	});
+
+	it("keeps the day it was picked on where both clocks agree", () => {
+		const built = createInputFromDraft(
+			{ ...sundayNight, repeat: "Every week on Sunday, 21:00" },
+			{ clock: NEW_YORK, anchor: NEW_YORK },
+		);
+		assert.ok(built.ok);
+		assert.equal(built.input.recurrenceRule, "FREQ=WEEKLY;BYDAY=SU");
+	});
+});
+
+describe("an edit to the end alone", () => {
+	it("leaves the stored start as it is", () => {
+		const before = draft();
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, endTime: "11:00" },
+			IN_AMSTERDAM,
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.start, undefined);
+		assert.equal(patch.patch.end, "2026-06-10T11:00:00+02:00");
+	});
+});
+
+/**
+ * An event stored as the UTC instant 2026-06-15T01:00Z: Sunday 21:00 in New
+ * York, Monday 03:00 in Amsterdam. The server expands its rule in UTC, where
+ * it is a Monday, whichever device picked the rule.
+ */
+describe("a repeat added to an event stored in UTC", () => {
+	const inUtc = (clock: string) => ({ clock, anchor: "" });
+
+	it("is stored on the UTC day from a New York device", () => {
+		const before = draft({
+			date: "2026-06-14",
+			endDate: "2026-06-14",
+			startTime: "21:00",
+			endTime: "22:00",
+		});
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, repeat: "Every week on Sunday, 21:00" },
+			inUtc(NEW_YORK),
+		);
+		assert.ok(patch.ok);
+		assert.deepEqual(patch.patch, { recurrenceRule: "FREQ=WEEKLY;BYDAY=MO" });
+	});
+
+	it("is stored on the UTC day from an Amsterdam device", () => {
+		const before = draft({
+			date: "2026-06-15",
+			endDate: "2026-06-15",
+			startTime: "03:00",
+			endTime: "04:00",
+		});
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, repeat: "Every week on Monday, 03:00" },
+			inUtc(AMSTERDAM),
+		);
+		assert.ok(patch.ok);
+		assert.deepEqual(patch.patch, { recurrenceRule: "FREQ=WEEKLY;BYDAY=MO" });
+	});
+
+	it("stays anchored in UTC when its time moves", () => {
+		const before = draft({
+			date: "2026-06-14",
+			endDate: "2026-06-14",
+			startTime: "21:00",
+			endTime: "22:00",
+		});
+		const patch = patchFromDrafts(
+			before,
+			{ ...before, startTime: "21:30" },
+			inUtc(NEW_YORK),
+		);
+		assert.ok(patch.ok);
+		assert.equal(patch.patch.start, "2026-06-14T21:30:00-04:00");
+		assert.equal(patch.patch.timeZone, undefined);
 	});
 });

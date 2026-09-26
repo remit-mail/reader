@@ -131,3 +131,47 @@ export function textFromRrule(
 
 	return undefined;
 }
+
+const dayNumber = (date: string): number =>
+	Date.parse(`${date}T00:00:00Z`) / 86_400_000;
+
+/**
+ * A rule picked on one civil date, rewritten for the same moment read on
+ * another. The picker offers rules off the day the device shows, and the
+ * server expands them on the day the event's own zone shows; 21:00 on a New
+ * York Sunday is a Tokyo Monday, so "every Sunday" has to be stored as BYDAY=MO
+ * or the series lands on Saturday evenings. Weekdays shift with the day; a
+ * monthly or yearly position is read off the new date itself, because the day
+ * after the second Wednesday is not always the second Thursday.
+ */
+export function moveRule(
+	rule: string,
+	fromDate: string,
+	toDate: string,
+): string {
+	const shift = dayNumber(toDate) - dayNumber(fromDate);
+	if (rule === "" || shift === 0 || Number.isNaN(shift)) return rule;
+	const [year, month, dayOfMonth] = toDate.split("-").map(Number);
+	const weekday = new Date(Date.UTC(year, month - 1, dayOfMonth)).getUTCDay();
+	const frequency = /FREQ=(\w+)/i.exec(rule)?.[1]?.toUpperCase();
+	return rule
+		.split(";")
+		.map((part) => {
+			const [name, value = ""] = part.split("=");
+			const key = name.toUpperCase();
+			if (key === "BYDAY" && frequency === "MONTHLY")
+				return `BYDAY=${ORDINAL_NUMBERS[Math.min(Math.floor((dayOfMonth - 1) / 7), 4)]}${BYDAY[weekday]}`;
+			if (key === "BYDAY")
+				return `BYDAY=${value
+					.split(",")
+					.map((code) => {
+						const index = BYDAY.indexOf(code.toUpperCase());
+						return index === -1 ? code : BYDAY[(index + shift + 7) % 7];
+					})
+					.join(",")}`;
+			if (key === "BYMONTH") return `BYMONTH=${month}`;
+			if (key === "BYMONTHDAY") return `BYMONTHDAY=${dayOfMonth}`;
+			return part;
+		})
+		.join(";");
+}

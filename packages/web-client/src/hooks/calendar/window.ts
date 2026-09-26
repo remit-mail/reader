@@ -112,6 +112,26 @@ export function isoAtInZone(
 	)}`;
 }
 
+/**
+ * An instant written again as the wall time it reads as on a zone's clock.
+ *
+ * The listing serves each occurrence on its collection's clock, and the grid,
+ * the strip and the form all read the digits. Drawing those digits as they came
+ * puts a Tokyo calendar's 08:00 at 08:00 in New York; re-reading the instant on
+ * the device's clock is what puts it at 18:00 the evening before.
+ */
+export function isoOnClock(iso: string, timeZone: string): string {
+	const instant = Date.parse(iso);
+	const zoned = zoneOffsetAt(timeZone, instant);
+	const offset = Number.isNaN(zoned)
+		? -new Date(instant).getTimezoneOffset()
+		: zoned;
+	const wall = new Date(instant + offset * 60_000);
+	return `${civil(wall)}T${pad(wall.getUTCHours())}:${pad(
+		wall.getUTCMinutes(),
+	)}:${pad(wall.getUTCSeconds())}${formatOffset(offset)}`;
+}
+
 /** Midnight on a civil date, carrying the offset the device is on that day. */
 export const startOfDay = (date: string): string => isoAt(date, "00:00");
 

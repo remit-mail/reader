@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { repeatChoices } from "@remit/ui";
-import { rruleFromText, textFromRrule } from "./recurrence-rule";
+import { moveRule, rruleFromText, textFromRrule } from "./recurrence-rule";
 
 const DATE = "2026-06-10";
 const TIME = "09:15";
@@ -88,5 +88,47 @@ describe("a rule written by something else", () => {
 		);
 		assert.equal(textFromRrule("FREQ=HOURLY", ""), undefined);
 		assert.equal(textFromRrule("FREQ=WEEKLY", ""), undefined);
+	});
+});
+
+describe("a rule moved onto the day the event's own zone shows", () => {
+	it("shifts the weekdays of a weekly rule with the day", () => {
+		assert.equal(
+			moveRule("FREQ=WEEKLY;BYDAY=SU", "2026-06-14", "2026-06-15"),
+			"FREQ=WEEKLY;BYDAY=MO",
+		);
+		assert.equal(
+			moveRule("FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR", "2026-06-15", "2026-06-14"),
+			"FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH",
+		);
+	});
+
+	it("reads a monthly position off the new date rather than shifting it", () => {
+		assert.equal(
+			moveRule("FREQ=MONTHLY;BYDAY=2WE", "2026-06-10", "2026-06-11"),
+			"FREQ=MONTHLY;BYDAY=2TH",
+		);
+		assert.equal(
+			moveRule("FREQ=MONTHLY;BYDAY=2WE", "2026-07-14", "2026-07-15"),
+			"FREQ=MONTHLY;BYDAY=3WE",
+		);
+	});
+
+	it("moves a yearly date, month and all", () => {
+		assert.equal(
+			moveRule(
+				"FREQ=YEARLY;BYMONTH=5;BYMONTHDAY=31",
+				"2026-05-31",
+				"2026-06-01",
+			),
+			"FREQ=YEARLY;BYMONTH=6;BYMONTHDAY=1",
+		);
+	});
+
+	it("leaves a rule alone on the same day", () => {
+		assert.equal(
+			moveRule("FREQ=WEEKLY;BYDAY=SU", "2026-06-14", "2026-06-14"),
+			"FREQ=WEEKLY;BYDAY=SU",
+		);
 	});
 });

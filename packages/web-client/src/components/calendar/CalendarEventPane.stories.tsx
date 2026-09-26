@@ -83,6 +83,22 @@ export const Occurrence: Story = {
 	},
 };
 
+/**
+ * An all-day event is a civil date, so the pane names that day on every
+ * device — a reader west of UTC does not see it on the day before.
+ */
+export const AllDay: Story = {
+	args: {
+		event: {
+			...event,
+			title: "Audit day",
+			start: "2026-06-12",
+			end: "2026-06-13",
+			allDay: true,
+		},
+	},
+};
+
 /** An old link, or a week the event is not in. Never a blank pane. */
 export const NotOnThisWeek: Story = {
 	args: { event: undefined, calendar: undefined },

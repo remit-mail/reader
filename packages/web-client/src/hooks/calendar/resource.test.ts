@@ -8,7 +8,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { rruleFromIcalData, textFromIcalData } from "./resource";
+import {
+	rruleFromIcalData,
+	storedAnchorZone,
+	textFromIcalData,
+} from "./resource";
 
 const ics = (...lines: string[]): string =>
 	[
@@ -94,5 +98,44 @@ describe("the text a listing does not carry", () => {
 			location: "",
 			description: "",
 		});
+	});
+});
+
+describe("the zone an edit writes an event back in", () => {
+	const vevent = (dtstart: string): string =>
+		`BEGIN:VEVENT\r\n${dtstart}\r\nEND:VEVENT`;
+
+	it("is the TZID the stored start names", () => {
+		assert.equal(
+			storedAnchorZone(
+				vevent("DTSTART;TZID=Asia/Tokyo:20340222T080000"),
+				"Europe/Amsterdam",
+			),
+			"Asia/Tokyo",
+		);
+	});
+
+	it("is UTC for a start stored as a UTC instant, whatever the calendar says", () => {
+		assert.equal(
+			storedAnchorZone(vevent("DTSTART:20260615T010000Z"), "Europe/Amsterdam"),
+			"",
+		);
+	});
+
+	it("is the calendar's zone for a floating start", () => {
+		assert.equal(
+			storedAnchorZone(vevent("DTSTART:20260615T010000"), "Europe/Amsterdam"),
+			"Europe/Amsterdam",
+		);
+	});
+
+	it("is the calendar's zone for a TZID nothing can resolve", () => {
+		assert.equal(
+			storedAnchorZone(
+				vevent("DTSTART;TZID=W. Europe Standard Time:20260615T010000"),
+				"Europe/Amsterdam",
+			),
+			"Europe/Amsterdam",
+		);
 	});
 });

@@ -30,12 +30,14 @@ export {
 	type CreateInput,
 	createInputFromDraft,
 	type DraftRefusal,
+	type DraftZones,
 	draftFromEvent,
 	emptyDraft,
 	patchFromDrafts,
 	type UpdatePatch,
 } from "./draft";
 export {
+	anchorZoneFor,
 	type CalendarInstanceRef,
 	calendarInstanceId,
 	deviceTimeZone,
@@ -45,10 +47,11 @@ export {
 	toCalendarEventData,
 	UNZONED_CALENDAR,
 } from "./instance";
-export { rruleFromText, textFromRrule } from "./recurrence-rule";
+export { moveRule, rruleFromText, textFromRrule } from "./recurrence-rule";
 export {
 	type CalendarResourceText,
 	rruleFromIcalData,
+	storedAnchorZone,
 	textFromIcalData,
 } from "./resource";
 export {
@@ -103,5 +106,6 @@ export {
 	calendarWindowOfDays,
 	isoAt,
 	isoAtInZone,
+	isoOnClock,
 	startOfDay,
 } from "./window";

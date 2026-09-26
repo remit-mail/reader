@@ -296,30 +296,47 @@ describe("deleting an event from the event route", () => {
 	});
 });
 
+const askedOnDevice = async (clock: string): Promise<void> => {
+	await mount(
+		`${WEEK}/${OBJECT}/${RECURRENCE}`,
+		answering(() => ({}), [occurrence], series),
+	);
+
+	assert.doesNotMatch(
+		harness?.text() ?? "",
+		/What should the change apply to/,
+		"the question is asked when Edit is pressed, not before",
+	);
+	harness?.click(harness.byText("button", "Edit"));
+	await settle();
+
+	const asked = harness?.text() ?? "";
+	assert.match(asked, /Standup repeats/);
+	assert.match(asked, /What should the change apply to/);
+	assert.match(
+		asked,
+		new RegExp(`Every weekday, ${clock}`),
+		"the rule is read back in words, not as an RRULE",
+	);
+};
+
 describe("editing one morning of a repeating event", () => {
-	it("asks what the change applies to before opening the form", async () => {
-		await mount(
-			`${WEEK}/${OBJECT}/${RECURRENCE}`,
-			answering(() => ({}), [occurrence], series),
-		);
-
-		assert.doesNotMatch(
-			harness?.text() ?? "",
-			/What should the change apply to/,
-			"the question is asked when Edit is pressed, not before",
-		);
-		harness?.click(harness.byText("button", "Edit"));
-		await settle();
-
-		const asked = harness?.text() ?? "";
-		assert.match(asked, /Standup repeats/);
-		assert.match(asked, /What should the change apply to/);
-		assert.match(
-			asked,
-			/Every weekday, 09:15/,
-			"the rule is read back in words, not as an RRULE",
-		);
-	});
+	for (const [zone, clock] of [
+		["UTC", "07:15"],
+		["Europe/Amsterdam", "09:15"],
+		["America/New_York", "03:15"],
+	]) {
+		it(`asks what the change applies to before opening the form, on ${zone}`, async () => {
+			const runner = process.env.TZ;
+			process.env.TZ = zone;
+			try {
+				await askedOnDevice(clock);
+			} finally {
+				if (runner === undefined) Reflect.deleteProperty(process.env, "TZ");
+				else process.env.TZ = runner;
+			}
+		});
+	}
 
 	it("sends the answer with the edit, naming the occurrence it meant", async () => {
 		await mount(

@@ -42,12 +42,17 @@ export function formatCivilDay(date: string): string {
 /** A span as the kit is handed it: when it starts, when it ends, whether it has hours. */
 export type CalendarSpan = Pick<CalendarEventData, "start" | "end" | "allDay">;
 
-/** "Wed 10 June, 10:00 – 11:00", or the day alone when it runs all of it. */
+/**
+ * "Wed 10 June, 10:00 – 11:00", or the day alone when it runs all of it. An
+ * all-day span is read off its civil date: parsed as an instant, it lands on
+ * the day before anywhere west of UTC.
+ */
 export function formatEventWhen(event: CalendarSpan): string {
+	if (event.allDay)
+		return `${formatCivilDay(event.start.slice(0, 10))}, all day`;
 	const start = new Date(event.start);
 	const end = new Date(event.end);
 	const day = DAY.format(start);
-	if (event.allDay) return `${day}, all day`;
 	const sameDay = DAY.format(end) === day;
 	if (sameDay) return `${day}, ${CLOCK.format(start)} – ${CLOCK.format(end)}`;
 	return `${day}, ${CLOCK.format(start)} – ${DAY.format(end)}, ${CLOCK.format(end)}`;
