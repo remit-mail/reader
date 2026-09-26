@@ -130,7 +130,10 @@ describe("AccountServices", () => {
 		const mounted = await mount(outlook());
 
 		mounted.click(switchFor(mounted, "calendar"));
-		await mounted.waitFor(() => patches().length > 0, "the save to start");
+		await mounted.waitFor(
+			() => patches().length > 0 && switchFor(mounted, "calendar").disabled,
+			"the save to start",
+		);
 
 		assert.equal(checked(mounted, "calendar"), "true");
 		assert.equal(switchFor(mounted, "mail").disabled, true);
