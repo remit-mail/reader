@@ -218,6 +218,13 @@
       "when": 1790385846240,
       "tag": "0031_mailbox_path_unique",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "6",
+      "when": 1790387867406,
+      "tag": "0032_account_granted_scopes",
+      "breakpoints": true
     }
   ]
 }

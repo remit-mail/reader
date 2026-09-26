@@ -209,7 +209,7 @@ export const AccountOperations: Record<
 		assertPasswordProvided(input.authType, input.password);
 
 		const syncedServices = resolveSyncedServices(
-			AccountAuthType.Password,
+			{ authType: AccountAuthType.Password, grantedScopes: [] },
 			input.syncedServices ?? [AccountService.Mail],
 		);
 
@@ -418,7 +418,7 @@ export const AccountDetailOperations: Record<
 
 		if (input.syncedServices !== undefined) {
 			updates.syncedServices = resolveSyncedServices(
-				existing.authType,
+				existing,
 				input.syncedServices,
 			);
 		}

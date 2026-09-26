@@ -34,6 +34,13 @@ describe("mapOauthError", () => {
 		);
 	});
 
+	test("scope_not_granted sends the person back through the consent", () => {
+		assert.match(
+			mapOauthError("scope_not_granted"),
+			/did not grant access to every service you picked/,
+		);
+	});
+
 	test("consent_required returns admin consent message", () => {
 		const result = mapOauthError("consent_required");
 		assert.ok(
@@ -99,6 +106,7 @@ const REAUTH_ACCOUNT = {
 	displayName: "Matthijs",
 	authType: "oauthMicrosoft",
 	connectionState: "reauth_required",
+	syncedServices: ["Mail", "Calendar"],
 };
 
 // The router reads `self` at construction; the shared jsdom globals stop at
@@ -193,6 +201,16 @@ describe("the Reconnect button and the redirect it starts", () => {
 		http?.restore();
 		http = undefined;
 		Reflect.deleteProperty(document, "visibilityState");
+	});
+
+	test("asks Microsoft again for every service the account syncs", async () => {
+		const dom = await mountAccounts();
+		await startReconnect(dom);
+
+		assert.deepEqual(http?.to("/oauth/microsoft/start")[0]?.body, {
+			email: REAUTH_ACCOUNT.email,
+			services: ["Mail", "Calendar"],
+		});
 	});
 
 	test("goes busy and stays busy while the redirect is in flight", async () => {

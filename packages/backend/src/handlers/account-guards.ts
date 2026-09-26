@@ -6,6 +6,10 @@ import type {
 import type { AccountItem } from "@remit/data-ports";
 import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { AccountAuthType, AccountService } from "@remit/domain-enums";
+import {
+	microsoftServicesGranted,
+	orderServices,
+} from "@remit/mail-oauth-service";
 import type { AccountOverrides } from "./account-overrides.js";
 import type { AccountSignature } from "./account-signature.js";
 
@@ -85,23 +89,17 @@ export const assertPasswordProvided = (
 	}
 };
 
-const MICROSOFT_GRANT_SERVICES: readonly AccountServiceName[] = [
-	AccountService.Mail,
-];
-
 export const resolveSyncedServices = (
-	authType: string,
+	account: Pick<AccountItem, "authType" | "grantedScopes">,
 	requested: readonly AccountServiceName[],
 ): AccountServiceName[] => {
-	const services = Object.values(AccountService).filter((service) =>
-		requested.includes(service),
-	);
+	const services = orderServices(requested);
 	if (services.length === 0) {
 		throw new BadRequestError(
 			"syncedServices must name at least one service. To stop syncing an account entirely, delete it with DELETE /accounts/{accountId}.",
 		);
 	}
-	if (authType !== AccountAuthType.OauthMicrosoft) {
+	if (account.authType !== AccountAuthType.OauthMicrosoft) {
 		if (services.some((service) => service !== AccountService.Mail)) {
 			throw new BadRequestError(
 				`A password account syncs mail only, so syncedServices must be ["${AccountService.Mail}"].`,
@@ -109,12 +107,11 @@ export const resolveSyncedServices = (
 		}
 		return services;
 	}
-	const uncovered = services.filter(
-		(service) => !MICROSOFT_GRANT_SERVICES.includes(service),
-	);
+	const granted = microsoftServicesGranted(account.grantedScopes);
+	const uncovered = services.filter((service) => !granted.includes(service));
 	if (uncovered.length > 0) {
 		throw new BadRequestError(
-			`This account's Microsoft consent does not cover ${uncovered.join(", ")}. Grant it through POST /accounts/oauth/microsoft/start.`,
+			`This account's granted scopes lack ${uncovered.join(", ")}. Consent to them through POST /accounts/oauth/microsoft/start with services ${JSON.stringify(services)}, then sign in to Microsoft again.`,
 		);
 	}
 	return services;
@@ -140,6 +137,7 @@ export const toAccountResponse = (
 	email: account.email,
 	authType: account.authType ?? AccountAuthType.Password,
 	syncedServices: account.syncedServices,
+	grantedScopes: account.grantedScopes,
 	imapHost: account.imapHost,
 	imapPort: account.imapPort,
 	imapTls: account.imapTls,

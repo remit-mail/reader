@@ -2,6 +2,7 @@ import {
 	classifyMicrosoftError,
 	type MicrosoftTokenErrorResponse,
 } from "./microsoft-errors.js";
+import { normalizeMicrosoftScopes } from "./microsoft-scopes.js";
 import {
 	type OAuthProviderConfig,
 	RefreshTokenError,
@@ -50,6 +51,7 @@ interface RawTokenResponse {
 	expires_in: number;
 	refresh_token?: string;
 	id_token?: string;
+	scope?: string;
 	error?: string;
 	error_codes?: number[];
 	error_description?: string;
@@ -70,6 +72,7 @@ function parseTokenResponse(
 	return {
 		accessToken: raw.access_token,
 		expiresAt: Math.floor(Date.now() / 1000) + raw.expires_in,
+		grantedScopes: normalizeMicrosoftScopes(raw.scope),
 		...(raw.refresh_token ? { refreshToken: raw.refresh_token } : {}),
 		...(raw.id_token ? { idToken: raw.id_token } : {}),
 	};
@@ -147,6 +150,7 @@ export function createMailOAuthService(
 				redirect_uri: redirectUri,
 				client_id: config.clientId,
 				client_secret: config.clientSecret,
+				scope: config.scopes.join(" "),
 			};
 			if (codeVerifier) {
 				params.code_verifier = codeVerifier;

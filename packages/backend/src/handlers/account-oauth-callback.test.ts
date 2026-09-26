@@ -14,6 +14,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
+import { AccountService } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import {
 	_resetForTest,
@@ -51,6 +52,8 @@ const startTokenEndpoint = async (): Promise<string> => {
 				access_token: "access-token",
 				refresh_token: "refresh-token",
 				id_token: jwt({ preferred_username: "matthijs@example.com" }),
+				scope:
+					"https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send",
 				expires_in: 3600,
 			}),
 		);
@@ -117,7 +120,12 @@ describe("the Microsoft OAuth callback", () => {
 	it("sends the consenting browser on to the connected account", async () => {
 		const accountConfigId = randomUUID();
 		const state = await signState(
-			{ accountConfigId, nonce: "nonce", timestamp: Date.now() },
+			{
+				accountConfigId,
+				nonce: "nonce",
+				timestamp: Date.now(),
+				services: [AccountService.Mail],
+			},
 			CLIENT_SECRET,
 		);
 

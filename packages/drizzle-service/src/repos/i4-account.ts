@@ -40,6 +40,7 @@ export function rowToAccount(
 		email: row.email,
 		authType: row.authType as AccountItem["authType"],
 		syncedServices: row.syncedServices as AccountItem["syncedServices"],
+		grantedScopes: row.grantedScopes as AccountItem["grantedScopes"],
 		passwordHash: row.passwordHash ?? undefined,
 		oauthRefreshTokenHash: row.oauthRefreshTokenHash ?? undefined,
 		oauthTokenUpdatedAt: row.oauthTokenUpdatedAt ?? undefined,
@@ -83,6 +84,7 @@ export class AccountRepo implements IAccountRepository {
 				email: input.email,
 				authType: input.authType ?? "password",
 				syncedServices: input.syncedServices ?? [AccountService.Mail],
+				grantedScopes: input.grantedScopes ?? [],
 				passwordHash: input.passwordHash,
 				oauthRefreshTokenHash: input.oauthRefreshTokenHash,
 				oauthTokenUpdatedAt: input.oauthTokenUpdatedAt,
@@ -148,6 +150,8 @@ export class AccountRepo implements IAccountRepository {
 		if (input.authType !== undefined) updates.authType = input.authType;
 		if (input.syncedServices !== undefined)
 			updates.syncedServices = input.syncedServices;
+		if (input.grantedScopes !== undefined)
+			updates.grantedScopes = input.grantedScopes;
 		if (input.passwordHash !== undefined)
 			updates.passwordHash = input.passwordHash;
 		if (input.oauthRefreshTokenHash !== undefined)

@@ -56,6 +56,7 @@ export const makeAccount = (
 	email: "matthijs@ischen.nl",
 	authType: "password",
 	syncedServices: ["Mail"],
+	grantedScopes: [],
 	imapHost: "imap.ischen.nl",
 	imapPort: 993,
 	imapTls: true,

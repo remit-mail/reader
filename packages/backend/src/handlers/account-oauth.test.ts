@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import { AccountService } from "@remit/domain-enums";
 import {
 	getWebOrigin,
 	type OAuthState,
@@ -41,6 +42,7 @@ describe("HMAC state signing", () => {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now(),
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(payload, SECRET);
@@ -55,6 +57,7 @@ describe("HMAC state signing", () => {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now(),
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(payload, SECRET);
@@ -80,6 +83,7 @@ describe("HMAC state signing", () => {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now(),
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(payload, SECRET);
@@ -95,6 +99,7 @@ describe("HMAC state signing", () => {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now(),
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(payload, SECRET);
@@ -111,11 +116,61 @@ describe("HMAC state signing", () => {
 		);
 	});
 
+	it("reads a state signed before services existed as mail only", async () => {
+		const state = await signState(
+			{
+				accountConfigId: "acc-config-1",
+				nonce: "deadbeef",
+				timestamp: Date.now(),
+			} as OAuthState,
+			SECRET,
+		);
+
+		assert.deepEqual((await verifyState(state, SECRET)).services, [
+			AccountService.Mail,
+		]);
+	});
+
+	it("rejects a state that names no requested services", async () => {
+		const state = await signState(
+			{
+				accountConfigId: "acc-config-1",
+				nonce: "deadbeef",
+				timestamp: Date.now(),
+				services: [],
+			},
+			SECRET,
+		);
+
+		await assert.rejects(
+			() => verifyState(state, SECRET),
+			/State names no requested services/,
+		);
+	});
+
+	it("carries the requested services through the signed state", async () => {
+		const state = await signState(
+			{
+				accountConfigId: "acc-config-1",
+				nonce: "deadbeef",
+				timestamp: Date.now(),
+				services: [AccountService.Mail, AccountService.Calendar],
+			},
+			SECRET,
+		);
+
+		assert.deepEqual((await verifyState(state, SECRET)).services, [
+			AccountService.Mail,
+			AccountService.Calendar,
+		]);
+	});
+
 	it("rejects an expired state (timestamp > 10 minutes ago)", async () => {
 		const expired: OAuthState = {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now() - STATE_TTL_MS - 1000, // 1 second past expiry
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(expired, SECRET);
@@ -128,6 +183,7 @@ describe("HMAC state signing", () => {
 			accountConfigId: "acc-config-1",
 			nonce: "deadbeef",
 			timestamp: Date.now() - STATE_TTL_MS + 2000, // 2 seconds before expiry
+			services: [AccountService.Mail],
 		};
 
 		const state = await signState(almostExpired, SECRET);

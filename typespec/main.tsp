@@ -710,6 +710,10 @@ namespace RemitApi {
   model MicrosoftOAuthStartRequest {
     @doc("Optional email hint for the Microsoft login page")
     email?: string;
+
+    @doc("Services to request consent for. The authorization URL asks for the scopes these map to. Defaults to `#[Mail]`; refused when empty. Adding a service to a connected account is this same request carrying the full set the account should sync.")
+    @minItems(1)
+    services?: AccountService[];
   }
 
   model MicrosoftOAuthStartResponse {
@@ -725,7 +729,7 @@ namespace RemitApi {
     @route("/start")
     op microsoftOAuthStart(
       @body input: MicrosoftOAuthStartRequest,
-    ): MicrosoftOAuthStartResponse | UnauthorizedError;
+    ): MicrosoftOAuthStartResponse | ValidationError | UnauthorizedError;
 
     @doc("Microsoft OAuth2 callback endpoint — receives the authorization code from Microsoft and exchanges it for tokens. This endpoint is intentionally unauthenticated: the browser is redirected here by Microsoft after the user grants consent, before any Cognito session is available. CSRF is prevented by an HMAC-signed state parameter.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
