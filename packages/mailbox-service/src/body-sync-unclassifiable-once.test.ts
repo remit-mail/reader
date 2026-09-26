@@ -167,8 +167,12 @@ const imapConnection = () =>
 	}) as unknown as IImapConnection;
 
 const syncPass = (harness: Harness) =>
-	harness.service.syncBodies(["m-1"], "acc-1", "cfg-1", "INBOX", async () =>
-		imapConnection(),
+	harness.service.syncBodies(
+		["m-1"],
+		"acc-1",
+		"cfg-1",
+		{ fullPath: "INBOX", placement: "inbox" },
+		async () => imapConnection(),
 	);
 
 describe("a body the classifier declined to categorize is examined once", () => {

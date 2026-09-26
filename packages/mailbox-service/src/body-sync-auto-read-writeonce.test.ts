@@ -160,7 +160,7 @@ describe("unsubscribed auto-mark-read is decided once (issue #499)", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => bodyConnection(),
 		);
 
@@ -181,7 +181,7 @@ describe("unsubscribed auto-mark-read is decided once (issue #499)", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => bodyConnection(),
 		);
 
@@ -204,7 +204,7 @@ describe("unsubscribed auto-mark-read is decided once (issue #499)", () => {
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => bodyConnection(),
 			true,
 		);

@@ -275,7 +275,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 			true,
 		);
@@ -330,7 +330,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 			true,
 		);
@@ -374,7 +374,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => noSuchKeyConn(DEMOTE_EML),
 		);
 
@@ -415,7 +415,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => noSuchKeyConn(INVITATION_EML),
 		);
 
@@ -569,7 +569,7 @@ describe("issue #1011: forced re-store does not re-fire standing rules", () => {
 			["m-stored", "m-new"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 			true,
 		);

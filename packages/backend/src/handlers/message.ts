@@ -26,6 +26,7 @@ import {
 	MailboxCursorPausedError,
 	MoveNotSettledError,
 	NoJunkMailboxError,
+	resolveFolderPlacement,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -605,6 +606,14 @@ export const MessageOperations: Record<
 					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
 				);
 			} else {
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
+						accountId,
+						mailbox.mailboxId,
+					),
+				};
 				const scope = await client.createConnectionScope(accountId);
 				// Guard at the one choke point every UID-based IMAP op already
 				// passes through: openBox. A mismatch trips the mailbox to
@@ -619,12 +628,8 @@ export const MessageOperations: Record<
 				);
 
 				await client.bodySync
-					.fetchAndGetBody(
-						messageId,
-						accountId,
-						accountConfigId,
-						mailbox.fullPath,
-						() => Promise.resolve(connection),
+					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
+						Promise.resolve(connection),
 					)
 					.catch((error: unknown) => {
 						if (error instanceof MailboxCursorPausedError) {
@@ -742,6 +747,14 @@ export const MessageOperations: Record<
 					"Mailbox cursor not normal; skipping IMAP body backfill for this request",
 				);
 			} else {
+				const folder = {
+					fullPath: mailbox.fullPath,
+					placement: await resolveFolderPlacement(
+						client.mailboxSpecialUse,
+						accountId,
+						mailbox.mailboxId,
+					),
+				};
 				const scope = await client.createConnectionScope(accountId);
 				// Guard at the openBox choke point — a fresh mismatch trips the
 				// mailbox and throws once the SELECT reveals it; caught below.
@@ -752,12 +765,8 @@ export const MessageOperations: Record<
 					mailbox,
 				);
 				await client.bodySync
-					.fetchAndGetBody(
-						messageId,
-						accountId,
-						accountConfigId,
-						mailbox.fullPath,
-						() => Promise.resolve(connection),
+					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
+						Promise.resolve(connection),
 					)
 					.catch((error: unknown) => {
 						if (error instanceof MailboxCursorPausedError) {

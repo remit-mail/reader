@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { AddressItem, IAddressRepository } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import { parseMessageBody } from "./body-parse.js";
 import {
 	classifyParsedMessage,
@@ -43,6 +44,18 @@ const LIST_EML = Buffer.from(
 	].join("\r\n"),
 );
 
+const IMPERSONATION_EML = Buffer.from(
+	[
+		"From: InfoMedics <billing@serviceupdatebank.atlassian.net>",
+		"To: me@example.com",
+		"Subject: Openstaande factuur",
+		"DKIM-Signature: v=1; a=rsa-sha256; d=atlassian.net; s=sel; b=xxx",
+		"Content-Type: text/html",
+		"",
+		'<a href="https://betaal-vordering.example.org/pay">Betaal uw factuur</a>',
+	].join("\r\n"),
+);
+
 const addressService = (
 	behavior: (accountConfigId: string, addressId: string) => unknown,
 ): Pick<IAddressRepository, "getAddress"> => ({
@@ -68,6 +81,7 @@ describe("classifyParsedMessage", () => {
 			}),
 			"acc-1",
 			parsed,
+			"inbox",
 		);
 
 		assert.equal(classification.category, "newsletter");
@@ -81,6 +95,7 @@ describe("classifyParsedMessage", () => {
 			addressService(withFlags({ category: { value: "marketing", setAt: 1 } })),
 			"acc-1",
 			parsed,
+			"inbox",
 		);
 
 		// The header table alone would answer `personal`; the override wins
@@ -98,6 +113,7 @@ describe("classifyParsedMessage", () => {
 				}),
 				"acc-1",
 				parsed,
+				"inbox",
 			),
 			/throttled/,
 		);
@@ -124,10 +140,53 @@ describe("classifyParsedMessage", () => {
 			}),
 			"acc-1",
 			parsed,
+			"inbox",
 		);
 
 		assert.equal(reads, 0);
 		assert.equal(classification.category, "personal");
+	});
+});
+
+describe("classifyParsedMessage sender mismatch", () => {
+	const noAddress = addressService(async () => {
+		throw new NotFoundError("no Address row");
+	});
+
+	it("compares the sender of mail in Junk the provider rated clean", async () => {
+		const parsed = await parseMessageBody(IMPERSONATION_EML);
+
+		const classification = await classifyParsedMessage(
+			noAddress,
+			"acc-1",
+			parsed,
+			"junk",
+		);
+
+		assert.equal(
+			classification.authenticity?.displayNameCorrespondence,
+			DisplayNameCorrespondence.Unrelated,
+		);
+		assert.deepEqual(classification.authenticity?.offDomainLinkDomains, [
+			"example.org",
+		]);
+	});
+
+	it("compares nothing for the same mail outside Junk without a provider verdict", async () => {
+		const parsed = await parseMessageBody(IMPERSONATION_EML);
+
+		const classification = await classifyParsedMessage(
+			noAddress,
+			"acc-1",
+			parsed,
+			"inbox",
+		);
+
+		assert.equal(
+			classification.authenticity?.displayNameCorrespondence,
+			undefined,
+		);
+		assert.equal(classification.authenticity?.offDomainLinkDomains, undefined);
 	});
 });
 

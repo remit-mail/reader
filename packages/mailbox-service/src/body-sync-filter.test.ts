@@ -181,7 +181,7 @@ const readBody = async (service: BodySyncService, mailboxPath = "INBOX") => {
 		"m-1",
 		"acc-1",
 		"cfg-1",
-		mailboxPath,
+		{ fullPath: mailboxPath, placement: "other" },
 		async () => connection,
 	);
 };

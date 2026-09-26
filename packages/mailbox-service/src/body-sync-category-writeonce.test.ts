@@ -150,7 +150,7 @@ describe("Message.category survives a re-entrant classification pass", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -188,7 +188,7 @@ describe("Message.category survives a re-entrant classification pass", () => {
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 			true,
 		);
@@ -220,7 +220,7 @@ describe("Message.category survives a re-entrant classification pass", () => {
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 

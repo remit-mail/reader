@@ -13,8 +13,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type {
 	AccountConfigItem,
+	AccountItem,
 	AddressItem,
 	IAccountConfigRepository,
+	IAccountRepository,
 	IAddressRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -25,8 +27,10 @@ import type {
 	UpdateThreadMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
 import { backfillClassifications } from "./classification-backfill.js";
+import type { FolderPlacementLookup } from "./folder-placement.js";
 
 const PLAIN_EML = Buffer.from(
 	[
@@ -51,6 +55,20 @@ const LIST_EML = Buffer.from(
 		"this week in news",
 	].join("\r\n"),
 );
+
+const IMPERSONATION_EML = Buffer.from(
+	[
+		"From: InfoMedics <billing@serviceupdatebank.atlassian.net>",
+		"To: me@example.com",
+		"Subject: Openstaande factuur",
+		"DKIM-Signature: v=1; a=rsa-sha256; d=atlassian.net; s=sel; b=xxx",
+		"Content-Type: text/plain",
+		"",
+		"Betaal uw factuur",
+	].join("\r\n"),
+);
+
+const JUNK_MAILBOX_ID = "mb-junk";
 
 const row = (overrides: Partial<ThreadMessageItem>): ThreadMessageItem =>
 	({
@@ -97,6 +115,8 @@ const asAccount = (accountConfigId: string): AccountConfigItem =>
 
 interface Harness {
 	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
+	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
+	mailboxSpecialUseService: FolderPlacementLookup;
 	addressService: Pick<IAddressRepository, "getAddress">;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
@@ -132,6 +152,20 @@ const buildHarness = (options: {
 
 	const accountConfigService: Pick<IAccountConfigRepository, "listAll"> = {
 		listAll: async () => accounts,
+	};
+
+	const accountService: Pick<IAccountRepository, "listAllByAccountConfig"> = {
+		listAllByAccountConfig: async (accountConfigId: string) => [
+			{ accountId: `account-${accountConfigId}` } as unknown as AccountItem,
+		],
+	};
+
+	const mailboxSpecialUseService: FolderPlacementLookup = {
+		findJunkMailbox: async () => ({
+			mailboxId: JUNK_MAILBOX_ID,
+			fullPath: "Junk",
+		}),
+		findInboxMailbox: async () => ({ mailboxId: "mb-1", fullPath: "INBOX" }),
 	};
 
 	const addressService = {
@@ -203,6 +237,8 @@ const buildHarness = (options: {
 
 	return {
 		accountConfigService,
+		accountService,
+		mailboxSpecialUseService,
 		addressService,
 		threadMessageService,
 		messageService,
@@ -235,6 +271,42 @@ describe("backfillClassifications", () => {
 			harness.messageUpdates[0].input.classificationState,
 			"Examined",
 		);
+	});
+
+	it("compares the sender of a Junk row the provider rated clean, and not of an inbox row", async () => {
+		const harness = buildHarness({
+			rows: [
+				row({
+					threadMessageId: "tm-junk",
+					messageId: "m-junk",
+					mailboxId: JUNK_MAILBOX_ID,
+				}),
+				row({ threadMessageId: "tm-inbox", messageId: "m-inbox" }),
+			],
+			messages: [
+				message({
+					messageId: "m-junk",
+					mailboxId: JUNK_MAILBOX_ID,
+					bodyStorageKey: "s3://m-junk",
+				}),
+				message({ messageId: "m-inbox", bodyStorageKey: "s3://m-inbox" }),
+			],
+			retrieve: async () => IMPERSONATION_EML,
+		});
+
+		await backfillClassifications(harness);
+
+		const correspondence = new Map(
+			harness.messageUpdates.map((update) => [
+				update.messageId,
+				update.input.authenticity?.displayNameCorrespondence,
+			]),
+		);
+		assert.equal(
+			correspondence.get("m-junk"),
+			DisplayNameCorrespondence.Unrelated,
+		);
+		assert.equal(correspondence.get("m-inbox"), undefined);
 	});
 
 	it("denormalizes the classifier's answer onto the thread row", async () => {

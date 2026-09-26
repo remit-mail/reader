@@ -187,7 +187,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -233,7 +233,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 			["m-1"],
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 			true,
 		);
@@ -268,7 +268,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 
@@ -309,7 +309,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 			"m-1",
 			"acc-1",
 			"cfg-1",
-			"INBOX",
+			{ fullPath: "INBOX", placement: "inbox" },
 			async () => connection,
 		);
 

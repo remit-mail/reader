@@ -227,7 +227,10 @@ describe("syncMessageBody — DLQ propagation (integrated, #1270)", () => {
 		setClient({
 			account: { get: async () => cappedAccount() },
 			mailbox: { get: async () => cappedMailbox() },
-			mailboxSpecialUse: {},
+			mailboxSpecialUse: {
+				findJunkMailbox: async () => null,
+				findInboxMailbox: async () => null,
+			},
 			message: {},
 			threadMessage: {},
 			address: {},

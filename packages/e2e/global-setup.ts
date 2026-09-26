@@ -104,7 +104,9 @@ const CONVERSATION = {
 const SPAM_SEED = {
 	subject: "Reminder: please verify your account",
 	senderName: "npm support",
+	senderDomain: "npmjs.com",
 	senderEmail: "support@npmjs.com",
+	offDomainLinkDomain: "npm-account-verify.test",
 };
 
 const cookiesToStorageState = (cookie: string): string =>
@@ -163,7 +165,13 @@ const globalSetup = async (): Promise<void> => {
 			{
 				subject: SPAM_SEED.subject,
 				from: `${SPAM_SEED.senderName} <${SPAM_SEED.senderEmail}>`,
-				body: "This one does not belong in Spam.",
+				body: `This one does not belong in Spam. Verify at https://${SPAM_SEED.offDomainLinkDomain}/login`,
+				headers: [
+					[
+						"DKIM-Signature",
+						`v=1; a=rsa-sha256; d=${SPAM_SEED.senderDomain}; s=s1; h=from:to; b=xxx`,
+					],
+				],
 			},
 		],
 		"Junk",
@@ -285,6 +293,8 @@ const globalSetup = async (): Promise<void> => {
 		spamSubject: SPAM_SEED.subject,
 		spamSenderName: SPAM_SEED.senderName,
 		spamSenderEmail: SPAM_SEED.senderEmail,
+		spamSenderDomain: SPAM_SEED.senderDomain,
+		spamOffDomainLinkDomain: SPAM_SEED.offDomainLinkDomain,
 		preFlaggedSubject: PRE_FLAGGED_SUBJECT,
 		starredElsewhereSubject: STARRED_ELSEWHERE_SUBJECT,
 	});

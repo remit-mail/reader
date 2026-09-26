@@ -25,6 +25,7 @@ export {
 	parseMessageBody,
 } from "./body-parse.js";
 export {
+	type BodySyncFolder,
 	type BodySyncLogger,
 	BodySyncService,
 	type ConnectionGetter,
@@ -125,6 +126,11 @@ export {
 	type UpdateFlagsInput,
 	type UpdateFlagsResult,
 } from "./flag-queue.js";
+export {
+	type FolderPlacementLookup,
+	resolveAccountFolderPlacements,
+	resolveFolderPlacement,
+} from "./folder-placement.js";
 export {
 	classifyByHeaders,
 	extractAuthenticity,

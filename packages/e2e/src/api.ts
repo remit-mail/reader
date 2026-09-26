@@ -85,6 +85,12 @@ export interface ThreadMessage {
 	fromEmail?: string;
 	fromName?: string;
 	sentDate?: number;
+	authenticity?: {
+		fromDomain: string;
+		dkimMismatch: boolean;
+		displayNameCorrespondence?: string;
+		offDomainLinkDomains?: string[];
+	};
 }
 
 export interface Address {
