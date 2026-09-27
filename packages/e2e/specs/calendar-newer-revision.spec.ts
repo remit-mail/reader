@@ -86,6 +86,8 @@ const revisionMessage = (revision: Revision, recipient: string): string => {
 	].join("\r\n");
 };
 
+const deliveredMessageIds: string[] = [];
+
 const rail = (page: Page): Locator =>
 	page.getByRole("complementary").filter({ hasText: "Intelligence" }).first();
 
@@ -112,6 +114,7 @@ const deliver = async (
 		run.inboxId,
 		revision.subject,
 	);
+	deliveredMessageIds.push(messageId);
 	await openRow(page, run, revision.subject);
 	await waitFor(
 		() => api.listMessageCalendarSuggestions(messageId),
@@ -127,6 +130,14 @@ const deliver = async (
 test.afterAll(async () => {
 	const run = readRunState();
 	const api = new ApiClient(run);
+	for (const messageId of deliveredMessageIds) {
+		for (const suggestion of await api.listMessageCalendarSuggestions(
+			messageId,
+		)) {
+			if (suggestion.state === "Pending")
+				await api.dismissCalendarSuggestion(suggestion.suggestionId);
+		}
+	}
 	for (const mailbox of await api.listMailboxes(run.accountId)) {
 		const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, TAG);
 		if (ids.length > 0) await api.deleteMessages(ids);
