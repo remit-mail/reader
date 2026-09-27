@@ -73,6 +73,7 @@ export const OpenEvent: Story = {
 export const RecurrenceScope: Story = {
 	args: { url: `${STORY_WEEK}/${STANDUP_OBJECT}/${STANDUP_RECURRENCE}` },
 	play: async () => {
+		await expect((await page().findAllByText("Standup"))[0]).toBeVisible();
 		await userEvent.click(await page().findByRole("button", { name: "Edit" }));
 		await expect(
 			await page().findByText("What should the change apply to?"),
