@@ -68,6 +68,7 @@ function PanelDemo({
 		calendar.invite?.rsvp ?? "noReply",
 	);
 	const [removed, setRemoved] = useState(false);
+	const [dismissed, setDismissed] = useState(false);
 	const [offering, setOffering] = useState(calendar.prose !== undefined);
 	const [picked, setPicked] = useState<string[]>([]);
 	const [dropped, setDropped] = useState<string[]>([]);
@@ -85,7 +86,14 @@ function PanelDemo({
 		...calendar,
 		invite:
 			calendar.invite && !removed
-				? { ...calendar.invite, rsvp, sender: sender.sender.name }
+				? {
+						...calendar.invite,
+						invite: dismissed
+							? { ...calendar.invite.invite, state: "dismissed" }
+							: calendar.invite.invite,
+						rsvp,
+						sender: sender.sender.name,
+					}
 				: undefined,
 		prose,
 		suggestions: calendar.suggestions.filter(
@@ -111,8 +119,11 @@ function PanelDemo({
 						onReopenInvite:
 							calendar.invite?.invite.state === "cancelled"
 								? () => setRemoved(true)
-								: undefined,
-						onMuteInvite: () => setRemoved(true),
+								: () => {
+										setRsvp("noReply");
+										setDismissed(false);
+									},
+						onMuteInvite: () => setDismissed(true),
 						onOfferOtherTimes: () => setOffering(true),
 						onRemoveInvite: () => setRemoved(true),
 						onOpenNewerInvite:
@@ -317,6 +328,19 @@ export const Declined = rail(KICKOFF, organiserSender, {
 	invite: inviteWithClash.invite && {
 		...inviteWithClash.invite,
 		rsvp: "declined",
+	},
+});
+
+/**
+ * Dismissed, or muted, without an answer. The card stays beside the message,
+ * and Change brings the answers back.
+ */
+export const Dismissed = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		invite: { ...inviteWithClash.invite.invite, state: "dismissed" },
+		clashes: [],
 	},
 });
 

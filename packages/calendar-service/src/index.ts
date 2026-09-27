@@ -61,9 +61,16 @@ export {
 	putCalendarObject,
 } from "./put.js";
 export {
+	answersOvertakenBy,
+	type ReopenCalendarSuggestionInput,
+	reopenCalendarSuggestion,
+} from "./reopen.js";
+export {
 	applyScopedDelete,
 	applyScopedUpdate,
 	findOccurrence,
+	followingUidOf,
+	followingUidPrefix,
 	type RecurrenceScopeValue,
 	type ScopedWrite,
 	type ScopedWriteInput,

@@ -296,6 +296,73 @@ test.describe("An invitation beside the message it came in", () => {
 		expect(resource.icalData).not.toContain("NEEDS-ACTION");
 	});
 
+	test("changing an answer takes the event off the calendar and asks again", async ({
+		page,
+		api,
+		run,
+	}) => {
+		const invite = invitation("change");
+		const pending = await deliverAndOpen(page, api, run, invite, 10);
+		const onCalendar = (items: { summary: string }[]): boolean =>
+			items.some((item) => item.summary === invite.summary);
+
+		const card = rail(page);
+		await card
+			.getByRole("button", { name: "Add to calendar", exact: true })
+			.click();
+		await expect(card.getByText("On your calendar")).toBeVisible({
+			timeout: 30_000,
+		});
+		const accepted = (
+			await settledState(api, pending.messageId, "Accepted")
+		).find((item) => item.state === "Accepted");
+		expect(accepted?.acceptedCalendarObjectId).not.toBe("");
+		await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			onCalendar,
+			{
+				what: `"${invite.summary}" to be on the calendar`,
+			},
+		);
+
+		await card.getByRole("button", { name: "Change", exact: true }).click();
+
+		await expect(card.getByRole("alert")).toHaveCount(0);
+		await expect(
+			card.getByRole("button", { name: "Add to calendar", exact: true }),
+		).toBeVisible({ timeout: 30_000 });
+		const reopened = (
+			await settledState(api, pending.messageId, "Pending")
+		).find((item) => item.state === "Pending");
+		expect(reopened?.suggestionId).toBe(pending.suggestionId);
+		expect(reopened?.acceptedCalendarObjectId).toBe("");
+		await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			(items) => !onCalendar(items),
+			{ what: `"${invite.summary}" to be off the calendar` },
+		);
+
+		await card.getByRole("button", { name: "Maybe", exact: true }).click();
+		await expect(card.getByText("On your calendar")).toBeVisible({
+			timeout: 30_000,
+		});
+		const tentative = (
+			await settledState(api, pending.messageId, "Tentative")
+		).find((item) => item.state === "Tentative");
+		const events = await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			onCalendar,
+			{ what: `"${invite.summary}" to be back on the calendar` },
+		);
+		const stored = events.find((item) => item.summary === invite.summary);
+		if (!stored) throw new Error("unreachable: matched but not found");
+		createdObjects.push({
+			calendarObjectId: stored.calendarObjectId,
+			calendarId: stored.calendarId,
+		});
+		expect(stored.calendarObjectId).toBe(tentative?.acceptedCalendarObjectId);
+	});
+
 	test("declining writes nothing to the calendar", async ({
 		page,
 		api,
@@ -336,7 +403,7 @@ test.describe("An invitation beside the message it came in", () => {
 				exact: true,
 			})
 			.click();
-		await expect(card.getByText(invite.summary)).toHaveCount(0, {
+		await expect(card.getByText("You dismissed this")).toBeVisible({
 			timeout: 30_000,
 		});
 

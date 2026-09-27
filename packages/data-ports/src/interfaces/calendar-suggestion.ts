@@ -37,6 +37,10 @@ export interface ICalendarSuggestionRepository {
 		accountConfigId: string,
 		messageId: string,
 	): Promise<CalendarSuggestionItem[]>;
+	listByAcceptedCalendarObjects(
+		accountConfigId: string,
+		calendarObjectIds: string[],
+	): Promise<CalendarSuggestionItem[]>;
 	/**
 	 * The account's suggestions in one state, newest first. Also how the
 	 * producer finds the revision a new message supersedes: only a `Pending`

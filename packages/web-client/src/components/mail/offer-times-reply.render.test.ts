@@ -153,6 +153,7 @@ const invitation: RemitImapCalendarSuggestionResponse = {
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 };
 
 const sender: IntelligenceData = {

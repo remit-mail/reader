@@ -35,6 +35,7 @@ const allDay = {
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 } as const;
 
 describe("an all-day invitation, west of where it was sent", () => {

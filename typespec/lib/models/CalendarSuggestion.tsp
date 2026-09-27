@@ -1,5 +1,7 @@
 import "typespec-electrodb-emitter";
+import "@kattebak/typespec-drizzle-orm-generator";
 
+import "../enums/CalendarAnswerOvertaken.tsp";
 import "../enums/CalendarInviteAnswer.tsp";
 import "../enums/CalendarInviteMethod.tsp";
 import "../enums/CalendarSuggestionSource.tsp";
@@ -71,6 +73,13 @@ namespace RemitImap;
       CalendarSuggestion.suggestionId
     ],
   }
+)
+@Drizzle.indexDef(
+  "calendar_suggestion_by_accepted_calendar_object",
+  [
+    CalendarSuggestion.accountConfigId,
+    CalendarSuggestion.acceptedCalendarObjectId
+  ]
 )
 model CalendarSuggestion {
   @doc("Primary identifier, derived from messageId + bodyPartId + icalUid")
@@ -190,4 +199,7 @@ model CalendarSuggestionResponse {
 
   @doc("The conversation holding `supersededByMessageId`, which is what the reading pane opens. `\"\"` when this revision was not superseded, or when that message sits in no conversation any more.")
   supersededByThreadId: string;
+
+  @doc("Whether an answered cancellation holds the event this answer wrote. `Cancellation` means `reopen` answers 400.")
+  answerOvertakenBy: CalendarAnswerOvertaken;
 }

@@ -35,6 +35,14 @@ export interface ScopedWriteInput {
 	followingUid: string;
 }
 
+const FOLLOWING_UID_SEPARATOR = "/following/";
+
+export const followingUidPrefix = (icalUid: string): string =>
+	`${icalUid.split(FOLLOWING_UID_SEPARATOR)[0]}${FOLLOWING_UID_SEPARATOR}`;
+
+export const followingUidOf = (icalUid: string, id: string): string =>
+	`${followingUidPrefix(icalUid)}${id}`;
+
 interface FoundOccurrence {
 	/** The rule slot, in whatever form the master's DTSTART is written in. */
 	slot: ICAL.Time;

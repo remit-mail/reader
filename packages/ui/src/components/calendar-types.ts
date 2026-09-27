@@ -194,11 +194,13 @@ export type CalendarParseMethod = "ics" | "markup" | "pattern";
  * Where an invitation stands. `superseded` is a later message carrying a higher
  * SEQUENCE for the same UID. `cancelled` is a METHOD:CANCEL that still needs
  * the reader to act, because nothing leaves the calendar without a person
- * saying so either.
+ * saying so either. `dismissed` was waved away without an answer, and can
+ * still be taken back.
  */
 export type CalendarInviteState =
 	| "pending"
 	| "answered"
+	| "dismissed"
 	| "superseded"
 	| "cancelled";
 

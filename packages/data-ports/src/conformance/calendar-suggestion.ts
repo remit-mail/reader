@@ -213,6 +213,56 @@ export function calendarSuggestionRepositoryConformance(
 			assert.equal(new Set(seen).size, 3);
 		});
 
+		test("listByAcceptedCalendarObjects returns, in one read, the account's suggestions answered into any of the resources", async () => {
+			const accountConfigId = harness.makeId();
+			const first = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			const second = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			const elsewhere = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			const unasked = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			const stranger = harness.makeId();
+			const strangers = await repo.put(
+				suggestion(stranger, harness.makeId(), harness.makeId(), "uid"),
+			);
+			for (const [owner, row, objectId] of [
+				[accountConfigId, first, "cal-object-1"],
+				[accountConfigId, second, "cal-object-1"],
+				[accountConfigId, elsewhere, "cal-object-2"],
+				[accountConfigId, unasked, "cal-object-3"],
+				[stranger, strangers, "cal-object-1"],
+			] as const) {
+				await repo.settle(owner, row.suggestionId, {
+					state: CalendarSuggestionState.Accepted,
+					acceptedCalendarObjectId: objectId,
+				});
+			}
+
+			const rows = await repo.listByAcceptedCalendarObjects(accountConfigId, [
+				"cal-object-1",
+				"cal-object-2",
+			]);
+
+			assert.deepEqual(
+				rows.map((row) => row.suggestionId).sort(),
+				[
+					first.suggestionId,
+					second.suggestionId,
+					elsewhere.suggestionId,
+				].sort(),
+			);
+			assert.deepEqual(
+				await repo.listByAcceptedCalendarObjects(accountConfigId, []),
+				[],
+			);
+		});
+
 		test("settle records the accepted resource", async () => {
 			const accountConfigId = harness.makeId();
 			const written = await repo.put(

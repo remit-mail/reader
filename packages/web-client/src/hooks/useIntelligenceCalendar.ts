@@ -9,6 +9,7 @@
  * outlives the message it is about.
  */
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import { CalendarAnswerOvertaken } from "@remit/domain-enums";
 import type {
 	CalendarDayEntry,
 	CalendarSlotPick,
@@ -261,6 +262,9 @@ export function useIntelligenceCalendar(
 	};
 	const pickedText =
 		date === "" ? "" : slotsAsText(date, slots, working.picked);
+	const overtaken =
+		invitation !== undefined &&
+		invitation.answerOvertakenBy !== CalendarAnswerOvertaken.None;
 
 	const actions: IntelligenceCalendarActions = {
 		onAddInvite: () => {
@@ -295,7 +299,12 @@ export function useIntelligenceCalendar(
 					answer(invitationId, "keep this on your calendar", () =>
 						answers.dismiss(invitationId, false),
 					)
-			: undefined,
+			: overtaken
+				? undefined
+				: () =>
+						answer(invitationId, "take this answer back", () =>
+							answers.reopen(invitationId),
+						),
 		onOpenNewerInvite:
 			openThread && invitation && invitation.supersededByThreadId !== ""
 				? () =>

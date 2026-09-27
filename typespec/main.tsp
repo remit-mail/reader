@@ -1348,5 +1348,32 @@ namespace RemitApi {
       | ValidationError
       | NotFoundError
       | UnauthorizedError;
+
+    @doc("""
+      Take an answer back. An accepted, tentative, declined or dismissed
+      suggestion returns to `Pending`, so the card asks again. One
+      transaction: the suggestion is settled `Pending` with
+      `acceptedCalendarObjectId: ""`, and the calendar object an accept or a
+      maybe wrote is removed with its occurrences and every remainder a
+      this-and-following edit split off it in that calendar, unless another
+      suggestion is still answered into that object; then the object stays with
+      that answer. A sender rule written by
+      `dismiss{muteSender}` stays; it is a rule of its own, edited where rules
+      are.
+      
+      No mail is sent. Idempotent: a `Pending` suggestion is returned as it is.
+      
+      400 when the suggestion is `Superseded`, which a later revision retired,
+      a `Cancel`, whose answer rewrote an event it cannot restore, or its
+      `answerOvertakenBy` is `Cancellation`, because a cancellation is terminal.
+      """)
+    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
+    @post
+    @route("/reopen")
+    op reopenCalendarSuggestion(@path suggestionId: UUID):
+      | CalendarSuggestionResponse
+      | ValidationError
+      | NotFoundError
+      | UnauthorizedError;
   }
 }

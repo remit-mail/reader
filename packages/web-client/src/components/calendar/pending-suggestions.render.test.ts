@@ -67,6 +67,7 @@ const pending: RemitImapCalendarSuggestionResponse = {
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 };
 
 let harness: DomHarness | undefined;

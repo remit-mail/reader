@@ -83,6 +83,7 @@ import "./RecurrenceScope.tsp";
 import "./ZoneCertainty.tsp";
 
 // Calendar Suggestion Enums (issue #1033 stage 0.3)
+import "./CalendarAnswerOvertaken.tsp";
 import "./CalendarInviteAnswer.tsp";
 import "./CalendarInviteMethod.tsp";
 import "./CalendarSuggestionSource.tsp";

@@ -85,6 +85,20 @@ export const Declined: Story = {
 	args: { ...base, rsvp: "declined", clashes: [] },
 };
 
+/** Answered, then the organiser's cancellation was answered into the same event, so this one offers no Change. */
+export const AnsweredThenCancelled: Story = {
+	args: { ...base, rsvp: "accepted", clashes: [], onReopen: undefined },
+};
+
+/** Dismissed without an answer. Change brings the answers back. */
+export const Dismissed: Story = {
+	args: {
+		...base,
+		invite: { ...kickoffInvite, state: "dismissed" },
+		clashes: [],
+	},
+};
+
 /** A later message carried a higher SEQUENCE, so this one is not the question. */
 export const OvertakenByANewerRevision: Story = {
 	args: { ...base, invite: superseded, onOpenNewer: () => undefined },
@@ -119,18 +133,30 @@ export const Touch: Story = {
 	args: { ...base, touch: true },
 };
 
-/** The card answering for real, so the review is a click-through. */
+/**
+ * The card answering for real, so the review is a click-through. Every answer,
+ * dismissing included, offers Change, which asks again.
+ */
 export const Answering: Story = {
 	render: () => {
 		const [rsvp, setRsvp] = useState<RsvpState>("noReply");
+		const [dismissed, setDismissed] = useState(false);
 		return (
 			<CalendarInviteCard
 				{...base}
+				invite={{
+					...kickoffInvite,
+					state: dismissed ? "dismissed" : "pending",
+				}}
 				rsvp={rsvp}
 				onAdd={() => setRsvp("accepted")}
 				onTentative={() => setRsvp("tentative")}
 				onDecline={() => setRsvp("declined")}
-				onReopen={() => setRsvp("noReply")}
+				mute={{ sender: "Priya Natarajan", onMute: () => setDismissed(true) }}
+				onReopen={() => {
+					setRsvp("noReply");
+					setDismissed(false);
+				}}
 			/>
 		);
 	},

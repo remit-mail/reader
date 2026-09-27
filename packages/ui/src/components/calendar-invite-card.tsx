@@ -99,6 +99,14 @@ const tallyWord: Record<RsvpState, string> = {
 	noReply: "no reply",
 };
 
+const answeredText = (
+	state: CalendarInvite["state"],
+	rsvp: RsvpState,
+): string => {
+	if (state === "dismissed") return "You dismissed this";
+	return rsvp === "declined" ? "You declined" : "On your calendar";
+};
+
 export function CalendarInviteCard({
 	invite,
 	whenText,
@@ -253,7 +261,7 @@ export function CalendarInviteCard({
 			)}
 
 			{!stale &&
-				(rsvp === "noReply" ? (
+				(rsvp === "noReply" && invite.state !== "dismissed" ? (
 					<div className="flex flex-col gap-2 border-t border-line pt-3">
 						<div className={cn("flex gap-2", touch && "flex-wrap")}>
 							<Button
@@ -317,8 +325,8 @@ export function CalendarInviteCard({
 					<div className="flex flex-col gap-2 border-t border-line pt-3">
 						<div className="flex flex-wrap items-center gap-3">
 							<span className="flex items-center gap-1.5 text-sm text-fg">
-								{rsvp === "declined" ? "You declined" : "On your calendar"}
-								<RsvpBadge rsvp={rsvp} />
+								{answeredText(invite.state, rsvp)}
+								{invite.state !== "dismissed" && <RsvpBadge rsvp={rsvp} />}
 							</span>
 							{onReopen && (
 								<Button

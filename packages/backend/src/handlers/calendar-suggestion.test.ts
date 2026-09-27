@@ -1,20 +1,27 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import {
+	acceptCalendarSuggestion,
+	reopenCalendarSuggestion,
+} from "@remit/calendar-service";
 import type {
 	CalendarSuggestionItem,
 	CreateFilterInput,
 	FilterItem,
 	ICalendarSuggestionRepository,
+	ICalendarUnitOfWork,
 	MessageData,
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
 import {
+	CalendarAnswerOvertaken,
 	CalendarInviteAnswer,
 	CalendarInviteMethod,
 	CalendarSuggestionSource,
 	CalendarSuggestionState,
 	FilterState,
+	RecurrenceScope,
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -24,6 +31,11 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { calendarDepsOf } from "./calendar.js";
+import {
+	calendarEventDepsOf,
+	updateCalendarEventFor,
+} from "./calendar-event.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import {
 	assertSettleable,
@@ -135,7 +147,10 @@ const muteRule = (sender: string): FilterItem =>
 
 describe("toCalendarSuggestionResponse", () => {
 	test("keeps the raw invitation bytes on the server", async () => {
-		const response = toCalendarSuggestionResponse(suggestion());
+		const response = toCalendarSuggestionResponse(
+			suggestion(),
+			CalendarAnswerOvertaken.None,
+		);
 
 		assert.equal("icalData" in response, false);
 		assert.equal(response.summary, "Quarterly review");
@@ -312,6 +327,8 @@ const dismissSuggestion =
 	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion as Handler;
 const listMessageSuggestions =
 	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions as Handler;
+const reopenSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_reopenCalendarSuggestion as Handler;
 
 interface Card {
 	suggestionId: string;
@@ -761,6 +778,385 @@ describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", ()
 		assert.deepEqual(
 			await client.calendarObject.listByCalendar(calendar.calendarId),
 			[],
+		);
+	});
+});
+
+describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
+	const answeredInto = async (
+		accountConfigId: string,
+		messageId: string,
+		answer: (typeof CalendarInviteAnswer)[keyof typeof CalendarInviteAnswer],
+	): Promise<{ calendarId: string; card: CalendarSuggestionItem }> => {
+		const calendar = await client.calendarCollection.create({
+			accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
+			accountConfigId,
+			calendarId: calendar.calendarId,
+			suggestion: await putSuggestion(accountConfigId, messageId),
+			attendee: "user@example.test",
+			answer,
+		});
+		assert.ok(accepted.ok);
+		return { calendarId: calendar.calendarId, card: accepted.value.suggestion };
+	};
+
+	for (const answer of [
+		CalendarInviteAnswer.Accepted,
+		CalendarInviteAnswer.Tentative,
+	]) {
+		test(`takes a ${answer} answer back and removes the event it wrote`, async () => {
+			const { accountConfigId, event } = anAccount();
+			const { calendarId, card } = await answeredInto(
+				accountConfigId,
+				`msg-reopen-${answer}`,
+				answer,
+			);
+			assert.equal(
+				(await client.calendarObject.listByCalendar(calendarId)).length,
+				1,
+			);
+
+			const reopened = (await reopenSuggestion(
+				contextOf({ params: { suggestionId: card.suggestionId } }),
+				event,
+			)) as unknown as CalendarSuggestionItem;
+
+			assert.equal(reopened.state, CalendarSuggestionState.Pending);
+			assert.equal(reopened.acceptedCalendarObjectId, "");
+			assert.deepEqual(
+				await client.calendarObject.listByCalendar(calendarId),
+				[],
+			);
+			const stored = await client.calendarSuggestion.get(
+				accountConfigId,
+				card.suggestionId,
+			);
+			assert.equal(stored.state, CalendarSuggestionState.Pending);
+		});
+	}
+
+	for (const state of [
+		CalendarSuggestionState.Declined,
+		CalendarSuggestionState.Dismissed,
+	]) {
+		test(`returns a ${state} card to Pending`, async () => {
+			const { accountConfigId, event } = anAccount();
+			const card = await putSuggestion(accountConfigId, `msg-reopen-${state}`);
+			await client.calendarSuggestion.settle(
+				accountConfigId,
+				card.suggestionId,
+				{ state, acceptedCalendarObjectId: "" },
+			);
+
+			const reopened = (await reopenSuggestion(
+				contextOf({ params: { suggestionId: card.suggestionId } }),
+				event,
+			)) as unknown as Card;
+
+			assert.equal(reopened.state, CalendarSuggestionState.Pending);
+		});
+	}
+
+	test("refuses a superseded card and leaves it as it is", async () => {
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-reopen-superseded");
+		await client.calendarSuggestion.supersedeIfPending(
+			accountConfigId,
+			card.suggestionId,
+			"msg-reopen-newer",
+		);
+
+		await assert.rejects(
+			() =>
+				reopenSuggestion(
+					contextOf({ params: { suggestionId: card.suggestionId } }),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+		);
+
+		const untouched = await client.calendarSuggestion.get(
+			accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Superseded);
+	});
+
+	test("refuses a cancellation, whose answer it cannot undo", async () => {
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(
+			accountConfigId,
+			"msg-reopen-cancel",
+			CalendarInviteMethod.Cancel,
+		);
+		await client.calendarSuggestion.settle(accountConfigId, card.suggestionId, {
+			state: CalendarSuggestionState.Dismissed,
+			acceptedCalendarObjectId: "",
+		});
+
+		await assert.rejects(
+			() =>
+				reopenSuggestion(
+					contextOf({ params: { suggestionId: card.suggestionId } }),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+		);
+	});
+
+	test("answers not-found for a card on another account", async () => {
+		const stranger = anAccount();
+		const { card } = await answeredInto(
+			stranger.accountConfigId,
+			"msg-reopen-stranger",
+			CalendarInviteAnswer.Accepted,
+		);
+		const { event } = anAccount();
+
+		await assert.rejects(
+			() =>
+				reopenSuggestion(
+					contextOf({ params: { suggestionId: card.suggestionId } }),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
+		);
+		const untouched = await client.calendarSuggestion.get(
+			stranger.accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Accepted);
+	});
+});
+
+describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else holds the event", () => {
+	const recurring = (sequence: number): string =>
+		INVITATION.replace(
+			"SUMMARY:Quarterly review",
+			`SEQUENCE:${sequence}\r\nRRULE:FREQ=WEEKLY;COUNT=4\r\nSUMMARY:Quarterly review`,
+		);
+
+	const putInvite = (
+		accountConfigId: string,
+		messageId: string,
+		sequence: number,
+	): Promise<CalendarSuggestionItem> =>
+		client.calendarSuggestion.put({
+			accountConfigId,
+			messageId,
+			bodyPartId: "part-1",
+			icalUid: "invite@example.test",
+			sequence,
+			method: CalendarInviteMethod.Request,
+			source: CalendarSuggestionSource.IcalendarPart,
+			summary: "Quarterly review",
+			dtStart: "2026-09-01T10:00:00+02:00",
+			dtEnd: "2026-09-01T11:00:00+02:00",
+			allDay: false,
+			location: "Room 4",
+			organizer: "organizer@example.test",
+			zoneCertainty: "Explicit",
+			icalData: recurring(sequence),
+		} as PutCalendarSuggestionInput);
+
+	const acceptInto = async (
+		accountConfigId: string,
+		calendarId: string,
+		suggestion: CalendarSuggestionItem,
+	): Promise<CalendarSuggestionItem> => {
+		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
+			accountConfigId,
+			calendarId,
+			suggestion,
+			attendee: "user@example.test",
+			answer: CalendarInviteAnswer.Accepted,
+		});
+		assert.ok(accepted.ok);
+		return accepted.value.suggestion;
+	};
+
+	const calendarOf = (accountConfigId: string) =>
+		client.calendarCollection.create({
+			accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+
+	test("refuses a request's answer once its cancellation was answered into the event, and says so on the card", async () => {
+		const { accountConfigId, event } = anAccount();
+		const calendar = await calendarOf(accountConfigId);
+		const first = await acceptInto(
+			accountConfigId,
+			calendar.calendarId,
+			await putInvite(accountConfigId, "msg-overtaken-0", 0),
+		);
+		await acceptInto(
+			accountConfigId,
+			calendar.calendarId,
+			await putSuggestion(
+				accountConfigId,
+				"msg-overtaken-cancel",
+				CalendarInviteMethod.Cancel,
+			),
+		);
+
+		await assert.rejects(
+			() =>
+				reopenSuggestion(
+					contextOf({ params: { suggestionId: first.suggestionId } }),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+		);
+
+		assert.equal(
+			(await client.calendarObject.listByCalendar(calendar.calendarId)).length,
+			1,
+		);
+		const listed = (await listMessageSuggestions(
+			contextOf({ params: { messageId: "msg-overtaken-0" } }),
+			event,
+		)) as unknown as { items: { answerOvertakenBy: string }[] };
+		assert.deepEqual(
+			listed.items.map((item) => item.answerOvertakenBy),
+			[CalendarAnswerOvertaken.Cancellation],
+		);
+	});
+
+	test("takes back both halves of a this-and-following split, and a re-add writes one event", async () => {
+		const { accountConfigId, event } = anAccount();
+		const calendar = await calendarOf(accountConfigId);
+		const card = await acceptInto(
+			accountConfigId,
+			calendar.calendarId,
+			await putInvite(accountConfigId, "msg-split", 0),
+		);
+		const split = await updateCalendarEventFor(
+			calendarEventDepsOf(calendarDepsOf(client)),
+			accountConfigId,
+			{
+				calendarId: calendar.calendarId,
+				calendarObjectId: card.acceptedCalendarObjectId,
+				scope: RecurrenceScope.Following,
+				recurrenceId: "2026-09-15T08:00:00Z",
+				ifMatch: undefined,
+			},
+			{ summary: "Quarterly review (moved)" },
+		);
+		assert.ok(split.ok, JSON.stringify(split));
+		assert.equal(
+			(await client.calendarObject.listByCalendar(calendar.calendarId)).length,
+			2,
+		);
+
+		const reopened = (await reopenSuggestion(
+			contextOf({ params: { suggestionId: card.suggestionId } }),
+			event,
+		)) as unknown as CalendarSuggestionItem;
+
+		assert.equal(reopened.state, CalendarSuggestionState.Pending);
+		assert.deepEqual(
+			await client.calendarObject.listByCalendar(calendar.calendarId),
+			[],
+		);
+		await acceptInto(accountConfigId, calendar.calendarId, {
+			...card,
+			...reopened,
+		});
+		assert.equal(
+			(await client.calendarObject.listByCalendar(calendar.calendarId)).length,
+			1,
+		);
+	});
+
+	test("keeps the sender rule a mute wrote", async () => {
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-mute-reopen");
+		await seedMessageFrom("msg-mute-reopen", "organizer@example.test");
+		await dismissSuggestion(
+			contextOf({
+				params: { suggestionId: card.suggestionId },
+				requestBody: { muteSender: true },
+			}),
+			event,
+		);
+
+		const reopened = (await reopenSuggestion(
+			contextOf({ params: { suggestionId: card.suggestionId } }),
+			event,
+		)) as unknown as Card;
+
+		assert.equal(reopened.state, CalendarSuggestionState.Pending);
+		const rules = await client.filter.listByAccountAndState(
+			accountConfigId,
+			FilterState.Active,
+		);
+		assert.deepEqual(
+			rules.map((rule) => rule.literalClauses),
+			[[{ field: "From", value: "organizer@example.test" }]],
+		);
+	});
+
+	test("a delete that fails part-way leaves the event and the answer as they were", async () => {
+		const { accountConfigId } = anAccount();
+		const calendar = await calendarOf(accountConfigId);
+		const card = await acceptInto(
+			accountConfigId,
+			calendar.calendarId,
+			await putInvite(accountConfigId, "msg-rollback", 0),
+		);
+		const failing: ICalendarUnitOfWork = {
+			transaction: (fn) =>
+				client.calendarUnitOfWork.transaction((repos) =>
+					fn({
+						...repos,
+						calendarCollection: Object.assign(
+							Object.create(repos.calendarCollection),
+							{
+								bumpSyncSequence: async () => {
+									throw new Error("disk full");
+								},
+							},
+						),
+					}),
+				),
+		};
+
+		await assert.rejects(
+			() =>
+				reopenCalendarSuggestion(failing, {
+					accountConfigId,
+					suggestion: card,
+				}),
+			/disk full/,
+		);
+
+		const object = await client.calendarObject.find(
+			calendar.calendarId,
+			card.acceptedCalendarObjectId,
+		);
+		assert.ok(object, "the event is still on the calendar");
+		assert.ok(
+			(
+				await client.calendarEventIndex.listForObject(
+					calendar.calendarId,
+					card.acceptedCalendarObjectId,
+				)
+			).length > 0,
+			"and so are its occurrences",
+		);
+		const untouched = await client.calendarSuggestion.get(
+			accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Accepted);
+		assert.equal(
+			untouched.acceptedCalendarObjectId,
+			card.acceptedCalendarObjectId,
 		);
 	});
 });

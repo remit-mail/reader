@@ -103,6 +103,25 @@ describe("CalendarInviteCard", () => {
 		assert.match(html, /Offer other times/);
 	});
 
+	it("offers Change on every answered card, dismissed included", () => {
+		for (const html of [
+			render({ rsvp: "accepted" }),
+			render({ rsvp: "tentative" }),
+			render({ rsvp: "declined" }),
+			render({ invite: { ...kickoffInvite, state: "dismissed" } }),
+		]) {
+			assert.match(html, />Change</);
+			assert.doesNotMatch(html, />Add to calendar</);
+		}
+	});
+
+	it("says a dismissed card was dismissed, and names no reply", () => {
+		const html = render({ invite: { ...kickoffInvite, state: "dismissed" } });
+		assert.match(html, /You dismissed this/);
+		assert.doesNotMatch(html, /On your calendar/);
+		assert.doesNotMatch(html, /No reply/);
+	});
+
 	it("gives a thumb targets it can hit", () => {
 		assert.match(render({ touch: true }), /min-h-11/);
 		assert.doesNotMatch(render(), /min-h-11/);

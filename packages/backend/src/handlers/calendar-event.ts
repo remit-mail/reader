@@ -13,6 +13,7 @@ import {
 	type CalendarInstance,
 	type CalendarWindow,
 	deleteCalendarObject,
+	followingUidOf,
 	listBusySpans,
 	listCalendarInstances,
 	listObjectInstances,
@@ -445,7 +446,10 @@ export const updateCalendarEventFor = async (
 		{
 			scope: request.scope,
 			recurrenceId: request.recurrenceId,
-			followingUid: `${deps.newId()}@reader.remit`,
+			followingUid: followingUidOf(
+				object.icalUid,
+				`${deps.newId()}@reader.remit`,
+			),
 		},
 		patch,
 	);

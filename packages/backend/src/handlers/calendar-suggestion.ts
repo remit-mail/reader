@@ -5,7 +5,9 @@ import type {
 } from "@remit/api-openapi-types";
 import {
 	acceptCalendarSuggestion,
+	answersOvertakenBy,
 	correctCalendarSuggestion,
+	reopenCalendarSuggestion,
 } from "@remit/calendar-service";
 import {
 	type CalendarSuggestionItem,
@@ -44,27 +46,53 @@ import { pickEventUpdate } from "./calendar-event.js";
  */
 export const toCalendarSuggestionResponse = (
 	item: CalendarSuggestionItem,
+	answerOvertakenBy: CalendarSuggestionResponse["answerOvertakenBy"],
 ): CalendarSuggestionResponse => {
 	const { icalData: _icalData, ...response } = item;
-	return { ...response, supersededByThreadId: "" };
+	return { ...response, supersededByThreadId: "", answerOvertakenBy };
 };
 
-export const toCalendarSuggestionResponses = (
-	threads: Pick<IThreadMessageRepository, "findByMessageId">,
+export const toCalendarSuggestionResponses = async (
+	deps: {
+		threadMessage: Pick<IThreadMessageRepository, "findByMessageId">;
+		calendarSuggestion: Pick<
+			ICalendarSuggestionRepository,
+			"listByAcceptedCalendarObjects"
+		>;
+	},
 	accountConfigId: string,
 	items: CalendarSuggestionItem[],
 ): Promise<CalendarSuggestionResponse[]> =>
 	Promise.all(
-		items.map(async (item) => {
-			const response = toCalendarSuggestionResponse(item);
-			if (item.supersededByMessageId === "") return response;
-			const newer = await threads.findByMessageId(
+		(
+			await answersOvertakenBy(deps.calendarSuggestion, accountConfigId, items)
+		).map(async ({ suggestion, answerOvertakenBy }) => {
+			const response = toCalendarSuggestionResponse(
+				suggestion,
+				answerOvertakenBy,
+			);
+			if (suggestion.supersededByMessageId === "") return response;
+			const newer = await deps.threadMessage.findByMessageId(
 				accountConfigId,
-				item.supersededByMessageId,
+				suggestion.supersededByMessageId,
 			);
 			return { ...response, supersededByThreadId: newer?.threadId ?? "" };
 		}),
 	);
+
+const respondOne = async (
+	client: RemitClient,
+	accountConfigId: string,
+	item: CalendarSuggestionItem,
+): Promise<CalendarSuggestionResponse> => {
+	const [response] = await toCalendarSuggestionResponses(
+		client,
+		accountConfigId,
+		[item],
+	);
+	if (!response) throw new Error("unreachable: one item in, one response out");
+	return response;
+};
 
 /**
  * The states a person can move a pending card into. `Superseded` is the
@@ -196,7 +224,7 @@ export const CalendarSuggestionOperations: Record<
 
 		return {
 			items: await toCalendarSuggestionResponses(
-				client.threadMessage,
+				client,
 				accountConfigId,
 				page.items,
 			),
@@ -225,7 +253,7 @@ export const MessageCalendarSuggestionOperations: Record<
 
 		return {
 			items: await toCalendarSuggestionResponses(
-				client.threadMessage,
+				client,
 				accountConfigId,
 				items,
 			),
@@ -312,7 +340,7 @@ export const CalendarSuggestionActionOperations: Record<
 			throw new BadRequestError(accepted.error.message);
 		}
 
-		return toCalendarSuggestionResponse(accepted.value.suggestion);
+		return respondOne(client, accountConfigId, accepted.value.suggestion);
 	},
 
 	CalendarSuggestionActionOperations_declineCalendarSuggestion: async (
@@ -333,7 +361,7 @@ export const CalendarSuggestionActionOperations: Record<
 			CalendarSuggestionState.Declined,
 		);
 
-		return toCalendarSuggestionResponse(declined);
+		return respondOne(client, accountConfigId, declined);
 	},
 
 	CalendarSuggestionActionOperations_dismissCalendarSuggestion: async (
@@ -360,6 +388,32 @@ export const CalendarSuggestionActionOperations: Record<
 			await muteSender(client, accountConfigId, dismissed.messageId);
 		}
 
-		return toCalendarSuggestionResponse(dismissed);
+		return respondOne(client, accountConfigId, dismissed);
+	},
+
+	CalendarSuggestionActionOperations_reopenCalendarSuggestion: async (
+		context,
+		...args: unknown[]
+	) => {
+		const event = args[0] as APIGatewayProxyEvent;
+		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const { suggestionId } = context.request.params as {
+			suggestionId: string;
+		};
+
+		const client = await getClient();
+		const suggestion = await client.calendarSuggestion.get(
+			accountConfigId,
+			suggestionId,
+		);
+		const reopened = await reopenCalendarSuggestion(client.calendarUnitOfWork, {
+			accountConfigId,
+			suggestion,
+		});
+		if (!reopened.ok) {
+			throw new BadRequestError(reopened.error.message);
+		}
+
+		return respondOne(client, accountConfigId, reopened.value);
 	},
 };

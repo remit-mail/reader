@@ -7,7 +7,7 @@ import type {
 } from "@remit/data-ports";
 import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import { CalendarSuggestionState } from "@remit/domain-enums";
-import { and, asc, desc, eq, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -97,6 +97,26 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 			throw new NotFoundError(`Calendar suggestion not found: ${suggestionId}`);
 		}
 		return rowToCalendarSuggestion(row);
+	}
+
+	async listByAcceptedCalendarObjects(
+		accountConfigId: string,
+		calendarObjectIds: string[],
+	): Promise<CalendarSuggestionItem[]> {
+		if (calendarObjectIds.length === 0) return [];
+		const rows = await this.db
+			.select()
+			.from(calendarSuggestionTable)
+			.where(
+				and(
+					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
+					inArray(
+						calendarSuggestionTable.acceptedCalendarObjectId,
+						calendarObjectIds,
+					),
+				),
+			);
+		return rows.map(rowToCalendarSuggestion);
 	}
 
 	async listByMessage(
