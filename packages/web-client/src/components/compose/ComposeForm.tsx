@@ -327,57 +327,67 @@ const WiredComposeHeader = ({
 	// the keyboard down with it and started the cycle over.
 	const [expandedFor, setExpandedFor] = useState<number | undefined>(undefined);
 	const expanded = expandedFor === documentGeneration;
+	const [focusWithin, setFocusWithin] = useState(false);
 
 	return (
-		<ComposeHeader
-			collapsed={!isDesktop && isKeyboardOpen && !expanded}
-			onExpand={() => setExpandedFor(documentGeneration)}
-			summary={composeHeaderSummary({
-				to: toAddresses,
-				cc: ccAddresses,
-				bcc: bccAddresses,
-				subject,
-			})}
-			from={
-				<FromSelector
-					selectedAccountId={selectedAccountId}
-					onSelect={onAccountChange}
-				/>
-			}
-			to={
-				<AddressField
-					label="To"
-					addresses={toAddresses}
-					onChange={setToAddresses}
-					placeholder="Recipients"
-					onPendingChange={onToPendingChange}
-					ref={fieldHandles.to}
-				/>
-			}
-			cc={
-				showCc ? (
-					<AddressField
-						label="Cc"
-						addresses={ccAddresses}
-						onChange={setCcAddresses}
-						ref={fieldHandles.cc}
+		<div
+			className="contents"
+			onFocusCapture={() => setFocusWithin(true)}
+			onBlurCapture={(event) => {
+				if (event.currentTarget.contains(event.relatedTarget)) return;
+				setFocusWithin(false);
+			}}
+		>
+			<ComposeHeader
+				collapsed={!isDesktop && isKeyboardOpen && !expanded && !focusWithin}
+				onExpand={() => setExpandedFor(documentGeneration)}
+				summary={composeHeaderSummary({
+					to: toAddresses,
+					cc: ccAddresses,
+					bcc: bccAddresses,
+					subject,
+				})}
+				from={
+					<FromSelector
+						selectedAccountId={selectedAccountId}
+						onSelect={onAccountChange}
 					/>
-				) : undefined
-			}
-			bcc={
-				showBcc ? (
+				}
+				to={
 					<AddressField
-						label="Bcc"
-						addresses={bccAddresses}
-						onChange={setBccAddresses}
-						ref={fieldHandles.bcc}
+						label="To"
+						addresses={toAddresses}
+						onChange={setToAddresses}
+						placeholder="Recipients"
+						onPendingChange={onToPendingChange}
+						ref={fieldHandles.to}
 					/>
-				) : undefined
-			}
-			subject={<ComposeSubjectField value={subject} onChange={setSubject} />}
-			onShowCc={() => setShowCc(true)}
-			onShowBcc={() => setShowBcc(true)}
-		/>
+				}
+				cc={
+					showCc ? (
+						<AddressField
+							label="Cc"
+							addresses={ccAddresses}
+							onChange={setCcAddresses}
+							ref={fieldHandles.cc}
+						/>
+					) : undefined
+				}
+				bcc={
+					showBcc ? (
+						<AddressField
+							label="Bcc"
+							addresses={bccAddresses}
+							onChange={setBccAddresses}
+							ref={fieldHandles.bcc}
+						/>
+					) : undefined
+				}
+				subject={<ComposeSubjectField value={subject} onChange={setSubject} />}
+				onShowCc={() => setShowCc(true)}
+				onShowBcc={() => setShowBcc(true)}
+			/>
+		</div>
 	);
 };
 
