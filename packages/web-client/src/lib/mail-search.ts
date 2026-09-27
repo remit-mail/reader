@@ -55,6 +55,13 @@ export const composeSeedSearch = z.object({ body: z.string().optional() });
 
 export type ComposeSeed = Required<z.infer<typeof composeSeedSearch>>;
 
+export const withoutComposeSeed = (
+	prev: Record<string, unknown>,
+): Record<string, unknown> => {
+	const { body: _seed, ...rest } = prev;
+	return rest;
+};
+
 export const replySearchSchemas = {
 	brief: briefSearchSchema.extend(composeSeedSearch.shape),
 	flagged: flaggedSearchSchema.extend(composeSeedSearch.shape),

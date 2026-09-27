@@ -22,6 +22,7 @@ import {
 	calendarUnavailable,
 	calendarWriteGate,
 } from "@/components/calendar/CalendarUnavailable";
+import type { ReplyWithText } from "@/components/compose/reply-with-times";
 import {
 	calendarWindowOfDays,
 	deviceTimeZone,
@@ -49,7 +50,7 @@ import {
 	toCalendarInvite,
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
-import { useOpenEventOnCalendar, useOpenReply } from "@/routing";
+import { useOpenEventOnCalendar } from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
 interface Working {
@@ -90,6 +91,7 @@ export interface IntelligenceCalendar {
 
 export function useIntelligenceCalendar(
 	thread: RemitImapThreadMessageResponse,
+	replyWithText?: ReplyWithText,
 ): IntelligenceCalendar {
 	const messageId = thread.messageId;
 	const { suggestions, isLoading, error } =
@@ -105,7 +107,6 @@ export function useIntelligenceCalendar(
 	const answers = useCalendarSuggestionAnswers();
 
 	const openEvent = useOpenEventOnCalendar();
-	const openReply = useOpenReply();
 
 	const [held, setHeld] = useState<Working>(() => fresh(messageId));
 	const working = held.messageId === messageId ? held : fresh(messageId);
@@ -270,11 +271,10 @@ export function useIntelligenceCalendar(
 					? working.picked.filter((start) => start !== slot.startTime)
 					: [...working.picked, slot.startTime],
 			}),
-		onReplyWithSlots: () =>
-			openReply(
-				{ threadId: thread.threadId, messageId, mode: "reply" },
-				{ body: pickedText },
-			),
+		onReplyWithSlots: replyWithText
+			? () =>
+					replyWithText({ threadId: thread.threadId, messageId }, pickedText)
+			: undefined,
 		onAddSuggestion: (suggestionId) =>
 			answer(suggestionId, "add this to your calendar", () =>
 				answers.accept(suggestionId, defaultCalendarId),

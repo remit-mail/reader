@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { withoutComposeSeed } from "@/lib/mail-search";
 import { useNavigateToBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
@@ -29,7 +30,7 @@ export function useOpenOutboxDraft(): (outboxMessageId: string) => void {
 			navigate({
 				to: "/mail/outbox/draft/$outboxMessageId",
 				params: { outboxMessageId },
-				search: (prev: Record<string, unknown>) => prev,
+				search: withoutComposeSeed,
 				hash: retainPanels,
 			});
 		},

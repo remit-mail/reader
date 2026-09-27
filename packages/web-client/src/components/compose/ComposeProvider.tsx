@@ -9,6 +9,7 @@ import {
 	useContext,
 	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { isNotFound, softErrorStatuses } from "@/lib/error-classifier";
@@ -30,8 +31,15 @@ export type ComposeMode = ReplyMode | "new";
  * the address's answers — `useComposeDraftId` and `useIsComposing`. A second
  * copy here is what let a reply's draft turn up in the next new message.
  */
+type InsertIntoReply = (text: string) => void;
+
 interface ComposeContextValue {
 	startSendPolling: (outboxMessageId: string) => void;
+	insertIntoOpenReply: (sourceMessageId: string, text: string) => boolean;
+	registerOpenReply: (
+		sourceMessageId: string,
+		insert: InsertIntoReply,
+	) => () => void;
 }
 
 const ComposeContext = createContext<ComposeContextValue | undefined>(
@@ -124,7 +132,33 @@ export const ComposeProvider = ({
 		setPollingMessageId(outboxMessageId);
 	}, []);
 
-	const value = useMemo(() => ({ startSendPolling }), [startSendPolling]);
+	const openReplies = useRef(new Map<string, InsertIntoReply>());
+
+	const insertIntoOpenReply = useCallback(
+		(sourceMessageId: string, text: string): boolean => {
+			const insert = openReplies.current.get(sourceMessageId);
+			if (!insert) return false;
+			insert(text);
+			return true;
+		},
+		[],
+	);
+
+	const registerOpenReply = useCallback(
+		(sourceMessageId: string, insert: InsertIntoReply) => {
+			openReplies.current.set(sourceMessageId, insert);
+			return () => {
+				if (openReplies.current.get(sourceMessageId) === insert)
+					openReplies.current.delete(sourceMessageId);
+			};
+		},
+		[],
+	);
+
+	const value = useMemo(
+		() => ({ startSendPolling, insertIntoOpenReply, registerOpenReply }),
+		[startSendPolling, insertIntoOpenReply, registerOpenReply],
+	);
 
 	return (
 		<ComposeContext.Provider value={value}>{children}</ComposeContext.Provider>

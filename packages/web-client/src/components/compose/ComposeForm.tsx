@@ -30,7 +30,7 @@ import {
 	sanitizeQuotedHtml,
 	unwrapLanguage,
 } from "@remit/ui";
-import type { ComposeBodyMode } from "@remit/ui/rich-text";
+import type { ComposeBodyMode, ComposeInsertion } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import {
@@ -96,6 +96,7 @@ interface ComposeFormProps {
 	 */
 	outboxMessageId?: string;
 	seed?: ComposeSeed;
+	insertion?: ComposeInsertion;
 	/** The draft the first autosave created, for the owner to record. */
 	onDraftCreated: (outboxMessageId: string) => void;
 	onClose: () => void;
@@ -398,6 +399,7 @@ export const ComposeForm = ({
 	sourceMessage,
 	outboxMessageId,
 	seed,
+	insertion,
 	onDraftCreated,
 	onClose,
 	onAccountChange,
@@ -546,7 +548,6 @@ export const ComposeForm = ({
 		seededMyEmailRef.current = undefined;
 		// A draft brings its own body along in a moment; a new message opens on
 		// the signature, the same document a fresh mount would have started on.
-		appliedSeedRef.current = seedRef.current;
 		const opening = outboxMessageId
 			? { html: "", text: "" }
 			: freshDocument(signatureRef.current, seedRef.current);
@@ -576,7 +577,6 @@ export const ComposeForm = ({
 	signatureRef.current = signature.plainText;
 	const seedRef = useRef(seed);
 	seedRef.current = seed;
-	const appliedSeedRef = useRef(seed);
 	// The editor reads its document once, so this is the document it opens on,
 	// not the live value, and it is remounted when the generation changes. Only
 	// loading a different document bumps that — remounting mid-compose would take
@@ -598,17 +598,6 @@ export const ComposeForm = ({
 		...freshDocument(signature.plainText, seed),
 		formatting: [],
 	}));
-
-	useEffect(() => {
-		if (!seed || seed.body === appliedSeedRef.current?.body) return;
-		if (outboxMessageId !== undefined) return;
-		appliedSeedRef.current = seed;
-		const opening = freshDocument(signatureRef.current, seed);
-		setInitialHtml(opening.html);
-		setInitialText(opening.text);
-		setBody({ ...opening, formatting: [] });
-		setDocumentGeneration((generation) => generation + 1);
-	}, [seed, outboxMessageId]);
 
 	const { data: draftData, error: draftError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -1371,6 +1360,7 @@ export const ComposeForm = ({
 					initialLanguage={draftLanguage}
 					onLanguageChange={setComposeLanguage}
 					spellcheck={spellcheck}
+					insertion={insertion}
 				/>
 			</Suspense>
 		</ComposeFormShell>

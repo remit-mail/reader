@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, before, describe, it } from "node:test";
 import type {
 	RemitImapCalendarResponse,
 	RemitImapCalendarSuggestionResponse,
@@ -10,14 +10,14 @@ import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
 import {
 	type AnyRouter,
 	createMemoryHistory,
-	createRootRoute,
-	createRoute,
-	createRouter,
 	RouterContextProvider,
 } from "@tanstack/react-router";
-import { createElement, useState } from "react";
+import { createElement } from "react";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
+import { useReplyWithText } from "@/components/compose/reply-with-times";
 import { useIntelligenceCalendar } from "@/hooks/useIntelligenceCalendar";
+import { noopTelemetry } from "@/lib/telemetry";
+import { createAppRouter } from "@/router";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import {
 	makeAccount,
@@ -166,6 +166,22 @@ const sender: IntelligenceData = {
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 
+before(() => {
+	Object.defineProperty(Range.prototype, "getBoundingClientRect", {
+		value: () => ({
+			top: 0,
+			bottom: 0,
+			left: 0,
+			right: 0,
+			width: 0,
+			height: 0,
+			x: 0,
+			y: 0,
+		}),
+		configurable: true,
+	});
+});
+
 afterEach(() => {
 	harness?.close();
 	harness = undefined;
@@ -178,7 +194,7 @@ afterEach(() => {
 const MESSAGE_PATH = `/mail/${MAILBOX_ID}/${THREAD_ID}/${MESSAGE_ID}`;
 
 const CalendarRail = () => {
-	const calendar = useIntelligenceCalendar(thread);
+	const calendar = useIntelligenceCalendar(thread, useReplyWithText());
 	return createElement(IntelligencePanel, {
 		data: sender,
 		calendar: calendar.surface,
@@ -187,22 +203,10 @@ const CalendarRail = () => {
 	});
 };
 
-const RENDER_AGAIN = "Render again";
-
-const Surface = () => {
-	const [renders, setRenders] = useState(0);
-	return createElement(
+const Surface = () =>
+	createElement(
 		ComposeProvider,
 		null,
-		createElement(
-			"button",
-			{
-				type: "button",
-				"aria-label": RENDER_AGAIN,
-				onClick: () => setRenders(renders + 1),
-			},
-			String(renders),
-		),
 		createElement(ConversationView, {
 			threadId: THREAD_ID,
 			mailboxId: MAILBOX_ID,
@@ -211,35 +215,20 @@ const Surface = () => {
 		}),
 		createElement(CalendarRail),
 	);
-};
 
-const testRouter = (): AnyRouter => {
-	const rootRoute = createRootRoute();
-	const mailboxRoute = createRoute({
-		getParentRoute: () => rootRoute,
-		path: "/mail/$mailboxId",
-		validateSearch: (search: Record<string, unknown>) => search,
-	});
-	const threadRoute = createRoute({
-		getParentRoute: () => mailboxRoute,
-		path: "$threadId",
-	});
-	const messageRoute = createRoute({
-		getParentRoute: () => threadRoute,
-		path: "$messageId",
-	});
-	const replyRoute = createRoute({
-		getParentRoute: () => messageRoute,
-		path: "$mode/{-$outboxMessageId}",
-	});
-	return createRouter({
-		routeTree: rootRoute.addChildren([
-			mailboxRoute.addChildren([
-				threadRoute.addChildren([messageRoute.addChildren([replyRoute])]),
-			]),
-		]),
-		history: createMemoryHistory({ initialEntries: [MESSAGE_PATH] }),
-	}) as unknown as AnyRouter;
+const savedDraft = {
+	outboxMessageId: DRAFT_ID,
+	accountId: ACCOUNT_ID,
+	fromAddress: "me@example.com",
+	toAddresses: ["organizer@example.test"],
+	ccAddresses: [],
+	bccAddresses: [],
+	attachments: [],
+	references: [],
+	subject: "Re: Quarterly review",
+	textBody: "See you then",
+	htmlBody: "<p>See you then</p>",
+	status: "draft",
 };
 
 const creates = (): HttpCall[] =>
@@ -247,8 +236,10 @@ const creates = (): HttpCall[] =>
 		(call) => call.method === "POST" && call.path.endsWith("/outbox"),
 	);
 
-const mount = async (): Promise<{ mounted: DomHarness; router: AnyRouter }> => {
-	let saved: Record<string, unknown> = {};
+const mount = async (
+	href: string,
+): Promise<{ mounted: DomHarness; router: AnyRouter; redraw: () => void }> => {
+	let saved: Record<string, unknown> = savedDraft;
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		if (call.path.endsWith(`/accounts/${ACCOUNT_ID}/mailboxes`))
@@ -261,11 +252,8 @@ const mount = async (): Promise<{ mounted: DomHarness; router: AnyRouter }> => {
 			return { items: [invitation] };
 		if (call.method === "POST" && call.path.endsWith("/outbox")) {
 			saved = {
+				...savedDraft,
 				...(call.body as Record<string, unknown>),
-				outboxMessageId: DRAFT_ID,
-				attachments: [],
-				references: [],
-				status: "draft",
 			};
 			return saved;
 		}
@@ -273,68 +261,90 @@ const mount = async (): Promise<{ mounted: DomHarness; router: AnyRouter }> => {
 		return { items: [] };
 	});
 
-	const router = testRouter();
-	await router.load();
 	const mounted = createDomHarness();
 	harness = mounted;
-	mounted.renderApp(
-		createElement(RouterContextProvider, {
-			router,
-			// biome-ignore lint/correctness/noChildrenProp: RouterContextProvider types `children` as a required prop, which createElement's rest-argument form does not satisfy
-			children: createElement(Surface),
-		}),
-	);
+	const router = createAppRouter(
+		mounted.queryClient,
+		noopTelemetry,
+		createMemoryHistory({ initialEntries: [href] }),
+	) as unknown as AnyRouter;
+	await router.load();
+	const redraw = () =>
+		mounted.renderApp(
+			createElement(RouterContextProvider, {
+				router,
+				// biome-ignore lint/correctness/noChildrenProp: RouterContextProvider types `children` as a required prop, which createElement's rest-argument form does not satisfy
+				children: createElement(Surface),
+			}),
+		);
+	redraw();
 	await mounted.waitFor(
 		() => mounted.text().includes("Offer other times"),
 		"the invitation card to be drawn",
 	);
-	return { mounted, router };
+	return { mounted, router, redraw };
+};
+
+const drawnUntil = async (
+	mounted: DomHarness,
+	redraw: () => void,
+	predicate: () => boolean,
+	description: string,
+): Promise<void> => {
+	const deadline = Date.now() + 5000;
+	while (!predicate()) {
+		if (Date.now() > deadline)
+			throw new Error(`gave up waiting for ${description}`);
+		redraw();
+		await mounted.wait(50);
+	}
 };
 
 const composerText = (mounted: DomHarness): string =>
 	mounted.query("[data-testid=compose-body]")?.textContent ?? "";
 
-const renderUntil = async (
-	mounted: DomHarness,
-	predicate: () => boolean,
-	description: string,
-): Promise<void> => {
-	for (let attempt = 0; attempt < 60; attempt += 1) {
-		mounted.click(mounted.byLabel(RENDER_AGAIN));
-		await mounted.wait(50);
-		if (predicate()) return;
-	}
-	throw new Error(`gave up waiting for ${description}`);
+const plainBody = (mounted: DomHarness): HTMLTextAreaElement | null =>
+	mounted.query<HTMLTextAreaElement>("[data-testid=compose-body-plain]");
+
+const freeSlot = (mounted: DomHarness): HTMLElement | undefined =>
+	mounted
+		.queryAll("button[aria-pressed]")
+		.find((button) =>
+			/\d{2}:\d{2} – \d{2}:\d{2}/.test(button.textContent ?? ""),
+		);
+
+const pickAndReply = async (mounted: DomHarness): Promise<string> => {
+	mounted.click(mounted.byText("button", "Offer other times"));
+	await mounted.waitFor(
+		() => freeSlot(mounted) !== undefined,
+		"free half-hours to be offered",
+	);
+	const slot = freeSlot(mounted);
+	assert.ok(slot, "a free half-hour is offered");
+	const picked = (slot.textContent ?? "").trim();
+	mounted.click(slot);
+	await mounted.flush();
+	mounted.click(mounted.byText("button", "Reply with these times"));
+	return picked;
 };
+
+const seedInAddress = (router: AnyRouter): unknown =>
+	(router.state.location.search as Record<string, unknown>).body;
 
 describe("offering other times from an invitation", () => {
 	it("opens the reply with the picked times written into it", async () => {
-		const { mounted, router } = await mount();
+		const { mounted, router, redraw } = await mount(MESSAGE_PATH);
 
-		mounted.click(mounted.byText("button", "Offer other times"));
-		await mounted.waitFor(
-			() => mounted.query("[aria-pressed]") !== null,
-			"free half-hours to be offered",
-		);
-		const slot = mounted.query("[aria-pressed]");
-		assert.ok(slot, "a free half-hour is offered");
-		const picked = (slot.textContent ?? "").trim();
-		mounted.click(slot);
-		await mounted.flush();
+		const picked = await pickAndReply(mounted);
 
-		mounted.click(mounted.byText("button", "Reply with these times"));
-
-		await renderUntil(
+		await drawnUntil(
 			mounted,
+			redraw,
 			() => composerText(mounted).includes(picked),
 			"the picked time to be written into the reply",
 		);
 		assert.match(composerText(mounted), /September/);
-		assert.equal(
-			router.state.location.pathname,
-			`${MESSAGE_PATH}/reply`,
-			"the reply answers the message the invitation came in",
-		);
+		assert.equal(router.state.location.pathname, `${MESSAGE_PATH}/reply`);
 
 		await mounted.wait(AUTOSAVE_DEBOUNCE_MS + 300);
 		await mounted.waitFor(
@@ -347,20 +357,72 @@ describe("offering other times from an invitation", () => {
 			`the saved draft holds the picked time, got ${JSON.stringify(draft.textBody)}`,
 		);
 
-		await renderUntil(
+		await drawnUntil(
 			mounted,
+			redraw,
 			() => router.state.location.pathname.endsWith(`/reply/${DRAFT_ID}`),
 			"the address to adopt the draft",
 		);
 		assert.equal(
-			(router.state.location.search as Record<string, unknown>).body,
+			seedInAddress(router),
 			undefined,
 			"once the draft holds the times, the address no longer carries them",
 		);
-		await renderUntil(
+		await drawnUntil(
 			mounted,
+			redraw,
 			() => composerText(mounted).includes(picked),
 			"the composer to keep the times once the draft is adopted",
 		);
+	});
+
+	it("keeps what was typed when the times go into a reply already open", async () => {
+		const { mounted, router } = await mount(`${MESSAGE_PATH}/reply`);
+		await mounted.waitFor(
+			() => mounted.query("[data-testid=compose-mode-toggle]") !== null,
+			"the reply composer to open",
+			5000,
+		);
+		const toggle = mounted.query("[data-testid=compose-mode-toggle]");
+		assert.ok(toggle);
+		mounted.click(toggle);
+		await mounted.waitFor(
+			() => plainBody(mounted) !== null,
+			"the plain writing surface",
+		);
+		const typing = plainBody(mounted);
+		assert.ok(typing);
+		mounted.type(typing, "Hi");
+		await mounted.flush();
+
+		const picked = await pickAndReply(mounted);
+
+		await mounted.waitFor(
+			() => plainBody(mounted)?.value.includes(picked) === true,
+			"the picked time to go into the open reply",
+		);
+		assert.match(plainBody(mounted)?.value ?? "", /^Hi/);
+		assert.equal(router.state.location.pathname, `${MESSAGE_PATH}/reply`);
+		assert.equal(seedInAddress(router), undefined);
+	});
+
+	it("keeps an open reply-all a reply-all and adds the times to it", async () => {
+		const href = `${MESSAGE_PATH}/reply-all/${DRAFT_ID}`;
+		const { mounted, router } = await mount(href);
+		await mounted.waitFor(
+			() => composerText(mounted).includes("See you then"),
+			"the saved reply-all to reopen",
+			5000,
+		);
+
+		const picked = await pickAndReply(mounted);
+
+		await mounted.waitFor(
+			() => composerText(mounted).includes(picked),
+			"the picked time to go into the open reply-all",
+		);
+		assert.ok(composerText(mounted).includes("See you then"));
+		assert.equal(router.state.location.pathname, href);
+		assert.equal(seedInAddress(router), undefined);
 	});
 });

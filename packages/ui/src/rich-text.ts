@@ -59,6 +59,7 @@ export {
 	normaliseWord,
 	SUGGESTION_LIMIT,
 } from "./components/rich-text-spellcheck-words.js";
+export type { ComposeInsertion } from "./components/rich-text-value.js";
 export {
 	type ComposeCaret,
 	EMPTY_RICH_TEXT,

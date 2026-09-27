@@ -10,7 +10,7 @@ import {
 import { Banner } from "./banner.js";
 import { isWritingElsewhere } from "./editor-focus.js";
 import { htmlToMarkdown } from "./rich-text-document.js";
-import type { ComposeCaret } from "./rich-text-value.js";
+import type { ComposeCaret, ComposeInsertion } from "./rich-text-value.js";
 
 export interface PlainTextEditorProps {
 	value: string;
@@ -21,6 +21,7 @@ export interface PlainTextEditorProps {
 	 * does not take focus.
 	 */
 	initialCaret?: ComposeCaret;
+	insertion?: ComposeInsertion;
 	placeholder?: string;
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
@@ -70,11 +71,25 @@ export const PlainTextEditor = ({
 	ariaLabel = "Message body",
 	trailing,
 	lang,
+	insertion,
 }: PlainTextEditorProps) => {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const pendingCaret = useRef<number | null>(null);
 	const plainRequested = useRef(false);
 	const [emptyPaste, setEmptyPaste] = useState(false);
+	const appliedInsertion = useRef(insertion?.version);
+
+	useEffect(() => {
+		if (!insertion || insertion.version === appliedInsertion.current) return;
+		appliedInsertion.current = insertion.version;
+		const textarea = textareaRef.current;
+		if (!textarea) return;
+		textarea.focus();
+		const spliced = insertAtCaret(textarea, insertion.text);
+		if (!spliced) return;
+		pendingCaret.current = spliced.caret;
+		onChange(spliced.value);
+	}, [insertion, onChange]);
 
 	// Grows to its content rather than scrolling inside itself: one scroller in
 	// the compose body keeps the caret in view for free, which a nested one is

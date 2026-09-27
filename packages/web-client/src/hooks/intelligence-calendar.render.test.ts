@@ -14,14 +14,6 @@ import type {
 	RemitImapCalendarSuggestionResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
-import {
-	type AnyRouter,
-	createMemoryHistory,
-	createRootRoute,
-	createRoute,
-	createRouter,
-	RouterProvider,
-} from "@tanstack/react-router";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
@@ -109,23 +101,6 @@ const Harness = () => {
 	});
 };
 
-(globalThis as { self?: typeof globalThis }).self ??= globalThis;
-
-const testRouter = (): AnyRouter => {
-	const rootRoute = createRootRoute();
-	const messageRoute = createRoute({
-		getParentRoute: () => rootRoute,
-		path: "/mail/$mailboxId/$threadId/$messageId",
-		component: Harness,
-	});
-	return createRouter({
-		routeTree: rootRoute.addChildren([messageRoute]),
-		history: createMemoryHistory({
-			initialEntries: [`/mail/mbx-1/${thread.threadId}/msg-1`],
-		}),
-	}) as unknown as AnyRouter;
-};
-
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 
@@ -165,10 +140,8 @@ const server = (
 
 const mount = async (respond: (call: HttpCall) => unknown) => {
 	http = mockFetch(respond);
-	const router = testRouter();
-	await router.load();
 	harness = createDomHarness();
-	harness.renderApp(createElement(RouterProvider, { router }));
+	harness.renderApp(createElement(Harness));
 	await harness.waitFor(
 		() => harness?.text().includes("Quarterly review") === true,
 		"the invitation to be drawn",

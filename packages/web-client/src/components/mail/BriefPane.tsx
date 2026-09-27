@@ -23,6 +23,7 @@ import {
 	useContext,
 	useMemo,
 } from "react";
+import { useReplyWithText } from "@/components/compose/reply-with-times";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DailyBrief } from "@/components/mail/DailyBrief";
 import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
@@ -317,6 +318,7 @@ function BriefList() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function BriefReading() {
+	const replyWithText = useReplyWithText();
 	const {
 		conversation,
 		selectedThread,
@@ -374,6 +376,7 @@ function BriefReading() {
 				mailboxId={selectedThread?.mailboxId}
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
+				onReplyWithText={replyWithText}
 			/>
 		</>
 	);
@@ -384,6 +387,7 @@ function BriefReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function BriefIntelligence() {
+	const replyWithText = useReplyWithText();
 	const { selectedThread, handleDeselectIfRemoved } = useBriefPane();
 	const { onToggleIntelligence } = useMailContext();
 
@@ -394,6 +398,7 @@ function BriefIntelligence() {
 			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
+			onReplyWithText={replyWithText}
 		/>
 	);
 }
@@ -402,6 +407,7 @@ function BriefIntelligence() {
  * Phone view: ConversationView when thread is open, or the DailyBrief list.
  */
 function BriefPhone() {
+	const replyWithText = useReplyWithText();
 	const {
 		selectedThread,
 		conversation,
@@ -437,6 +443,7 @@ function BriefPhone() {
 					mailboxId={selectedThread?.mailboxId}
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
+					onReplyWithText={replyWithText}
 				/>
 			</>
 		);

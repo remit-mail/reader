@@ -2,7 +2,7 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
 import type { MailListRoute } from "@/lib/mail-route";
-import type { ComposeSeed } from "@/lib/mail-search";
+import { type ComposeSeed, withoutComposeSeed } from "@/lib/mail-search";
 import { useBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
@@ -90,10 +90,10 @@ function useReplySeed(): string | undefined {
 
 const seededSearch =
 	(seed: ComposeSeed | undefined) =>
-	(prev: Record<string, unknown>): Record<string, unknown> => {
-		const { body: _replaced, ...rest } = prev;
-		return seed === undefined ? rest : { ...rest, body: seed.body };
-	};
+	(prev: Record<string, unknown>): Record<string, unknown> =>
+		seed === undefined
+			? withoutComposeSeed(prev)
+			: { ...withoutComposeSeed(prev), body: seed.body };
 
 /**
  * The reply surface the address names, or none.

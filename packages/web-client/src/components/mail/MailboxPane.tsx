@@ -45,6 +45,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { useReplyWithText } from "@/components/compose/reply-with-times";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { DraftsView } from "@/components/mail/DraftsView";
 import { EmptyTrashBar } from "@/components/mail/EmptyTrashBar";
@@ -1115,6 +1116,7 @@ function MailboxList() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function MailboxReading() {
+	const replyWithText = useReplyWithText();
 	const {
 		mailboxId,
 		mailboxAccountId,
@@ -1204,6 +1206,7 @@ function MailboxReading() {
 				mailboxId={mailboxId}
 				accountId={mailboxAccountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
+				onReplyWithText={replyWithText}
 			/>
 		</>
 	);
@@ -1214,6 +1217,7 @@ function MailboxReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function MailboxIntelligence() {
+	const replyWithText = useReplyWithText();
 	const {
 		mailboxId,
 		mailboxAccountId,
@@ -1229,6 +1233,7 @@ function MailboxIntelligence() {
 			mailboxId={mailboxId}
 			accountId={mailboxAccountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
+			onReplyWithText={replyWithText}
 		/>
 	);
 }
@@ -1238,6 +1243,7 @@ function MailboxIntelligence() {
  * Use this on phones instead of the slot sub-views.
  */
 function MailboxPhone() {
+	const replyWithText = useReplyWithText();
 	const {
 		mailboxId,
 		mailboxAccountId,
@@ -1281,6 +1287,7 @@ function MailboxPhone() {
 					mailboxId={mailboxId}
 					accountId={mailboxAccountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
+					onReplyWithText={replyWithText}
 				/>
 			</>
 		);
