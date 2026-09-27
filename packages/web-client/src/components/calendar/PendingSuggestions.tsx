@@ -7,7 +7,11 @@ import {
 	usePendingCalendarSuggestions,
 } from "@/hooks/calendar";
 import { calendarReportHref } from "@/lib/calendar-report";
-import { suggestionWhen, toEventSuggestion } from "@/lib/calendar-suggestion";
+import {
+	suggestionDate,
+	suggestionWhen,
+	toEventSuggestion,
+} from "@/lib/calendar-suggestion";
 import { calendarUnavailable, calendarWriteGate } from "./CalendarUnavailable";
 import { CalendarWaiting } from "./CalendarWaiting";
 
@@ -19,7 +23,11 @@ const refusal = (what: string, answer: SuggestionAnswer): string =>
  * through it. Nothing is drawn when nothing is waiting: an empty column beside
  * the grid is width the week could have had.
  */
-export function PendingSuggestions() {
+export interface PendingSuggestionsProps {
+	onChangeFirst: (suggestionId: string, date: string) => void;
+}
+
+export function PendingSuggestions({ onChangeFirst }: PendingSuggestionsProps) {
 	const { suggestions, error } = usePendingCalendarSuggestions();
 	const calendars = useCalendars();
 	const { defaultCalendarId } = calendars;
@@ -45,6 +53,23 @@ export function PendingSuggestions() {
 		readFailure || failure || "pending invitations could not be answered",
 	);
 
+	const changeFirst = (suggestionId: string) => {
+		const suggestion = suggestions.find(
+			(candidate) => candidate.suggestionId === suggestionId,
+		);
+		if (suggestion) onChangeFirst(suggestionId, suggestionDate(suggestion));
+	};
+	const unplaced = (suggestionId: string): boolean => {
+		const suggestion = suggestions.find(
+			(candidate) => candidate.suggestionId === suggestionId,
+		);
+		return (
+			suggestion?.zoneCertainty === "Ambiguous" &&
+			suggestion.method !== "Cancel"
+		);
+	};
+	const topIsCancellation = suggestions[0]?.method === "Cancel";
+
 	const answer = (what: string, request: () => Promise<SuggestionAnswer>) => {
 		setFailure("");
 		void request().then((result) => setFailure(refusal(what, result)));
@@ -57,11 +82,16 @@ export function PendingSuggestions() {
 			failure={readFailure || failure}
 			reportHref={reportHref}
 			addBlocked={calendarUnavailable(calendarWriteGate(calendars), reportHref)}
-			onAdd={(suggestionId) =>
+			onAdd={(suggestionId) => {
+				if (unplaced(suggestionId)) {
+					changeFirst(suggestionId);
+					return;
+				}
 				answer("add this to your calendar", () =>
 					answers.accept(suggestionId, defaultCalendarId),
-				)
-			}
+				);
+			}}
+			onChangeFirst={topIsCancellation ? undefined : changeFirst}
 			onDismiss={(suggestionId) =>
 				answer("dismiss this", () => answers.dismiss(suggestionId, false))
 			}

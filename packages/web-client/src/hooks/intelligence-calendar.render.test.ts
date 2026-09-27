@@ -14,6 +14,14 @@ import type {
 	RemitImapCalendarSuggestionResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
+import {
+	type AnyRouter,
+	createMemoryHistory,
+	createRootRoute,
+	createRoute,
+	createRouter,
+	RouterProvider,
+} from "@tanstack/react-router";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
@@ -259,5 +267,132 @@ describe("the invitation beside the open message", () => {
 			http?.to(`/calendar-suggestions/${SUGGESTION}/dismiss`) ?? [];
 		assert.equal(dismissed.length, 1);
 		assert.deepEqual(dismissed[0].body, { muteSender: true });
+	});
+});
+
+(globalThis as { self?: typeof globalThis }).self ??= globalThis;
+
+const READING = "33333333-3333-4333-8333-333333333333";
+
+const routedMount = async (
+	items: RemitImapCalendarSuggestionResponse[],
+): Promise<AnyRouter> => {
+	http = mockFetch((call: HttpCall): unknown => {
+		if (call.path.endsWith("/calendars")) return { items: calendars };
+		if (call.path.endsWith("/messages/msg-1/calendar-suggestions"))
+			return { items };
+		return { items: [] };
+	});
+	const rootRoute = createRootRoute({ component: Harness });
+	const routeTree = rootRoute.addChildren([
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path: "/mail",
+			component: () => null,
+		}),
+		createRoute({
+			getParentRoute: () => rootRoute,
+			path: "/calendar/$view/$date/suggestion/$suggestionId",
+			component: () => null,
+		}),
+	]);
+	const router = createRouter({
+		routeTree,
+		history: createMemoryHistory({ initialEntries: ["/mail"] }),
+	}) as unknown as AnyRouter;
+	await router.load();
+	harness = createDomHarness();
+	harness.renderApp(createElement(RouterProvider, { router }));
+	await harness.waitFor(
+		() => harness?.text().includes("Quarterly review") === true,
+		"the invitation to be drawn",
+	);
+	return router;
+};
+
+const answered = (): HttpCall[] =>
+	(http?.calls ?? []).filter((call) => call.method === "POST");
+
+describe("changing a suggestion beside the message before adding it", () => {
+	it("opens the editor for a reading from the thread on the day it falls", async () => {
+		const router = await routedMount([
+			invitation("Pending"),
+			{
+				...invitation("Pending"),
+				suggestionId: READING,
+				source: "TextHeuristic",
+				summary: "Lunch with Sam",
+			},
+		]);
+		await harness?.waitFor(
+			() => harness?.text().includes("Lunch with Sam") === true,
+			"the reading to be drawn",
+		);
+
+		press("Change first");
+		await harness?.waitFor(
+			() => router.state.location.pathname.includes(READING),
+			"the editor to be opened",
+		);
+
+		assert.equal(
+			router.state.location.pathname,
+			`/calendar/day/2026-09-01/suggestion/${READING}`,
+		);
+		assert.deepEqual(answered(), []);
+	});
+
+	it("sends an invitation nobody could put on a clock to the editor instead of adding it", async () => {
+		const router = await routedMount([
+			{ ...invitation("Pending"), zoneCertainty: "Ambiguous" },
+		]);
+
+		press("Add to calendar");
+		await harness?.waitFor(
+			() => router.state.location.pathname.includes(SUGGESTION),
+			"the editor to be opened",
+		);
+
+		assert.equal(
+			router.state.location.pathname,
+			`/calendar/day/2026-09-01/suggestion/${SUGGESTION}`,
+		);
+		assert.deepEqual(answered(), []);
+	});
+
+	it("applies a cancellation read out of the thread, and offers no editor for it", async () => {
+		const router = await routedMount([
+			invitation("Accepted"),
+			{
+				...invitation("Pending"),
+				suggestionId: READING,
+				source: "TextHeuristic",
+				method: "Cancel",
+				zoneCertainty: "Ambiguous",
+				summary: "Lunch with Sam",
+			},
+		]);
+		await harness?.waitFor(
+			() => harness?.text().includes("Lunch with Sam") === true,
+			"the reading to be drawn",
+		);
+		const card = harness?.query('article[aria-label="Lunch with Sam"]');
+		if (!card) throw new Error("the reading's card is not drawn");
+		const buttons = [...card.querySelectorAll("button")];
+		assert.equal(
+			buttons.some((button) => button.textContent?.includes("Change first")),
+			false,
+		);
+		const add = buttons.find((button) =>
+			button.textContent?.includes("Add to calendar"),
+		);
+		if (!add) throw new Error("the reading offers no Add");
+		harness?.click(add);
+
+		await harness?.waitFor(
+			() => answered().some((call) => call.path.endsWith(`/${READING}/accept`)),
+			"the cancellation to be applied",
+		);
+		assert.equal(router.state.location.pathname, "/mail");
 	});
 });

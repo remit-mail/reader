@@ -64,6 +64,11 @@ export {
 	useDrawnEvents,
 } from "./selection";
 export {
+	type AcceptEditedInput,
+	acceptEditedInputFromDrafts,
+	draftFromSuggestion,
+} from "./suggestion-draft";
+export {
 	type CalendarCollectionOutcome,
 	type CalendarCollectionWrites,
 	useCalendarCollectionWrites,
@@ -89,9 +94,11 @@ export { type CalendarJumpSearch, useCalendarJump } from "./useCalendarJump";
 export {
 	type CalendarSuggestionAnswers,
 	type CalendarSuggestionsResult,
+	type PendingCalendarSuggestionResult,
 	type SuggestionAnswer,
 	useCalendarSuggestionAnswers,
 	useMessageCalendarSuggestions,
+	usePendingCalendarSuggestion,
 	usePendingCalendarSuggestions,
 } from "./useCalendarSuggestions";
 export { type CalendarsResult, useCalendars } from "./useCalendars";

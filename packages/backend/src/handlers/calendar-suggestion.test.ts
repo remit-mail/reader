@@ -597,3 +597,74 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 		);
 	});
 });
+
+describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", () => {
+	test("answers not-found for a calendar on another account, before writing anything", async () => {
+		const stranger = anAccount();
+		const strangersCalendar = await client.calendarCollection.create({
+			accountConfigId: stranger.accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+		const { accountConfigId, event } = anAccount();
+		const card = await putSuggestion(accountConfigId, "msg-edited-cross");
+
+		await assert.rejects(
+			() =>
+				acceptSuggestion(
+					contextOf({
+						params: { suggestionId: card.suggestionId },
+						requestBody: {
+							calendarId: strangersCalendar.calendarId,
+							event: { summary: "Quarterly review, moved" },
+						},
+					}),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
+		);
+
+		assert.deepEqual(
+			await client.calendarObject.listByCalendar(strangersCalendar.calendarId),
+			[],
+		);
+		const untouched = await client.calendarSuggestion.get(
+			accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Pending);
+	});
+
+	test("refuses a card the reader already declined", async () => {
+		const { accountConfigId, event } = anAccount();
+		const calendar = await client.calendarCollection.create({
+			accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+		const card = await putSuggestion(accountConfigId, "msg-edited-declined");
+		await client.calendarSuggestion.settle(accountConfigId, card.suggestionId, {
+			state: CalendarSuggestionState.Declined,
+			acceptedCalendarObjectId: "",
+		});
+
+		await assert.rejects(
+			() =>
+				acceptSuggestion(
+					contextOf({
+						params: { suggestionId: card.suggestionId },
+						requestBody: {
+							calendarId: calendar.calendarId,
+							event: { summary: "Quarterly review, moved" },
+						},
+					}),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+		);
+		assert.deepEqual(
+			await client.calendarObject.listByCalendar(calendar.calendarId),
+			[],
+		);
+	});
+});

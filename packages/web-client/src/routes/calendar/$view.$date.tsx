@@ -86,8 +86,14 @@ function CalendarView({ isPhone }: { isPhone: boolean }) {
 	const drawsGrid = !calendarViewMountsAgenda(view);
 	const { events, colorByCalendarId, isLoading, error, retry, instanceOf } =
 		useCalendarData({ view, date, calendarIds, enabled: drawsGrid });
-	const { goToView, goToToday, step, openEvent, openComposer } =
-		useCalendarNavigation();
+	const {
+		goToView,
+		goToToday,
+		step,
+		openEvent,
+		openComposer,
+		changeSuggestionFirst,
+	} = useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
 	const isWriting = useIsWritingEvent();
 	// Held in state rather than read back from storage each render: how much of
@@ -123,7 +129,7 @@ function CalendarView({ isPhone }: { isPhone: boolean }) {
 			events={events}
 			colorByCalendarId={colorByCalendarId}
 			agenda={<AgendaView density={density} onPickSlot={pickSlot} />}
-			waiting={<PendingSuggestions />}
+			waiting={<PendingSuggestions onChangeFirst={changeSuggestionFirst} />}
 			isLoading={isLoading}
 			error={error}
 			onRetry={retry}

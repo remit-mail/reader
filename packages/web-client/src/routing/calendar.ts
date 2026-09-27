@@ -9,6 +9,8 @@ import {
 import { useRetainOpenPanels } from "./fragment";
 
 const VIEW_ROUTE = "/calendar/$view/$date" as const;
+const SUGGESTION_ROUTE =
+	"/calendar/$view/$date/suggestion/$suggestionId" as const;
 
 /** Which zoom the calendar is at, on which day, over which calendars. */
 export interface CalendarAddress {
@@ -67,12 +69,21 @@ export function useOpenCalendarEvent(): OpenCalendarEvent | undefined {
 }
 
 /** Whether the composer is up, which is a route rather than a flag. */
+export function useChangingSuggestionId(): string | undefined {
+	return useParams({ from: SUGGESTION_ROUTE, shouldThrow: false })
+		?.suggestionId;
+}
+
 export function useIsWritingEvent(): boolean {
 	const composer = useParams({
 		from: "/calendar/$view/$date/new",
 		shouldThrow: false,
 	});
-	return composer !== undefined;
+	const changing = useParams({
+		from: SUGGESTION_ROUTE,
+		shouldThrow: false,
+	});
+	return composer !== undefined || changing !== undefined;
 }
 
 export interface CalendarNavigation {
@@ -97,6 +108,7 @@ export interface CalendarNavigation {
 	openEvent: (calendarObjectId: string, recurrenceId?: string) => void;
 	closeEvent: () => void;
 	openComposer: () => void;
+	changeSuggestionFirst: (suggestionId: string, date: string) => void;
 }
 
 /**
@@ -161,6 +173,13 @@ export function useCalendarNavigation(): CalendarNavigation {
 					search: true,
 					hash: retainPanels,
 				}),
+			changeSuggestionFirst: (suggestionId: string, on: string) =>
+				navigate({
+					to: SUGGESTION_ROUTE,
+					params: { view, date: on, suggestionId },
+					search: true,
+					hash: retainPanels,
+				}),
 		}),
 		[goTo, navigate, retainPanels, view, date],
 	);
@@ -189,6 +208,22 @@ export function useOpenEventOnCalendar(): (
 			navigate({
 				to: "/calendar/$view/$date/$calendarObjectId/$recurrenceId",
 				params: { view: "day", date, calendarObjectId, recurrenceId },
+			});
+		},
+		[navigate],
+	);
+}
+
+export function useChangeSuggestionOnCalendar(): (
+	date: string,
+	suggestionId: string,
+) => void {
+	const navigate = useNavigate();
+	return useCallback(
+		(date: string, suggestionId: string) => {
+			navigate({
+				to: SUGGESTION_ROUTE,
+				params: { view: "day", date, suggestionId },
 			});
 		},
 		[navigate],
