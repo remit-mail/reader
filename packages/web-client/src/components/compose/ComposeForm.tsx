@@ -30,7 +30,7 @@ import {
 	sanitizeQuotedHtml,
 	unwrapLanguage,
 } from "@remit/ui";
-import type { ComposeBodyMode } from "@remit/ui/rich-text";
+import type { ComposeBodyMode, ComposeInsertion } from "@remit/ui/rich-text";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import {
@@ -50,6 +50,7 @@ import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
 import { isNotFound, softErrorMeta } from "../../lib/error-classifier";
+import type { ComposeSeed } from "../../lib/mail-search";
 import { accountIsMissingSmtp } from "../settings/account-form-helpers.js";
 import { useErrorBanners } from "../ui/ErrorBannerProvider.js";
 import {
@@ -94,6 +95,8 @@ interface ComposeFormProps {
 	 * shared would open on the last draft any other composer touched.
 	 */
 	outboxMessageId?: string;
+	seed?: ComposeSeed;
+	insertion?: ComposeInsertion;
 	/** The draft the first autosave created, for the owner to record. */
 	onDraftCreated: (outboxMessageId: string) => void;
 	onClose: () => void;
@@ -118,10 +121,19 @@ const buildInitialHtml = (signaturePlainText: string): string => {
  */
 const freshDocument = (
 	signaturePlainText: string,
-): { html: string; text: string } => ({
-	html: buildInitialHtml(signaturePlainText),
-	text: signaturePlainText,
-});
+	seed?: ComposeSeed,
+): { html: string; text: string } => {
+	if (!seed) {
+		return {
+			html: buildInitialHtml(signaturePlainText),
+			text: signaturePlainText,
+		};
+	}
+	return {
+		html: `${textToHtml(seed.body)}${buildInitialHtml(signaturePlainText)}`,
+		text: [seed.body, signaturePlainText].filter(Boolean).join("\n\n"),
+	};
+};
 
 const buildReplySubject = (subject?: string): string => {
 	if (!subject) return "Re: ";
@@ -396,6 +408,8 @@ export const ComposeForm = ({
 	account,
 	sourceMessage,
 	outboxMessageId,
+	seed,
+	insertion,
 	onDraftCreated,
 	onClose,
 	onAccountChange,
@@ -546,7 +560,7 @@ export const ComposeForm = ({
 		// the signature, the same document a fresh mount would have started on.
 		const opening = outboxMessageId
 			? { html: "", text: "" }
-			: freshDocument(signatureRef.current);
+			: freshDocument(signatureRef.current, seedRef.current);
 		setToAddresses([]);
 		setCcAddresses([]);
 		setBccAddresses([]);
@@ -571,15 +585,19 @@ export const ComposeForm = ({
 	// not a reason to reopen the document somebody is typing in.
 	const signatureRef = useRef(signature.plainText);
 	signatureRef.current = signature.plainText;
+	const seedRef = useRef(seed);
+	seedRef.current = seed;
 	// The editor reads its document once, so this is the document it opens on,
 	// not the live value, and it is remounted when the generation changes. Only
 	// loading a different document bumps that — remounting mid-compose would take
 	// the caret, the focus and the undo history with it.
 	const [documentGeneration, setDocumentGeneration] = useState(0);
 	const [initialHtml, setInitialHtml] = useState(
-		() => freshDocument(signature.plainText).html,
+		() => freshDocument(signature.plainText, seed).html,
 	);
-	const [initialText, setInitialText] = useState(signature.plainText);
+	const [initialText, setInitialText] = useState(
+		() => freshDocument(signature.plainText, seed).text,
+	);
 	const [bodyMode, setBodyMode] = useState<ComposeBodyMode>("rich");
 	// What the body is tagged with on the way out. The composer owns the value —
 	// it is the surface that has the text detection reads — and reports it here,
@@ -587,9 +605,18 @@ export const ComposeForm = ({
 	const [composeLanguage, setComposeLanguage] = useState("en");
 	const [draftLanguage, setDraftLanguage] = useState<string | undefined>();
 	const [body, setBody] = useState<RichTextValue>(() => ({
-		...freshDocument(signature.plainText),
+		...freshDocument(signature.plainText, seed),
 		formatting: [],
 	}));
+	const [insertedVersion, setInsertedVersion] = useState(
+		() => insertion?.version ?? 0,
+	);
+	const pendingInsertion =
+		insertion &&
+		insertion.version > insertedVersion &&
+		(outboxMessageId === undefined || draftLoaded)
+			? insertion
+			: undefined;
 
 	const { data: draftData, error: draftError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -1352,6 +1379,8 @@ export const ComposeForm = ({
 					initialLanguage={draftLanguage}
 					onLanguageChange={setComposeLanguage}
 					spellcheck={spellcheck}
+					insertion={pendingInsertion}
+					onInserted={setInsertedVersion}
 				/>
 			</Suspense>
 		</ComposeFormShell>

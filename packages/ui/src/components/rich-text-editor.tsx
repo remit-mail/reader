@@ -47,7 +47,11 @@ import {
 	SUGGESTION_LIMIT,
 } from "./rich-text-spellcheck-words.js";
 import { RichTextToolbar } from "./rich-text-toolbar.js";
-import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
+import type {
+	ComposeCaret,
+	ComposeInsertion,
+	RichTextValue,
+} from "./rich-text-value.js";
 
 export interface RichTextEditorProps {
 	/**
@@ -81,6 +85,8 @@ export interface RichTextEditorProps {
 	 * `lang`, which is also when the browser keeps checking.
 	 */
 	spellcheck?: SpellcheckOptions;
+	insertion?: ComposeInsertion;
+	onInserted?: (version: number) => void;
 }
 
 /**
@@ -906,6 +912,32 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 	return null;
 };
 
+const InsertionPlugin = ({
+	insertion,
+	onInserted,
+}: {
+	insertion: ComposeInsertion | undefined;
+	onInserted: ((version: number) => void) | undefined;
+}) => {
+	const [editor] = useLexicalComposerContext();
+	const applied = useRef<number | undefined>(undefined);
+
+	useEffect(() => {
+		if (!insertion || insertion.version === applied.current) return;
+		applied.current = insertion.version;
+		editor.update(() => {
+			const selection = $getSelection();
+			const target = $isRangeSelection(selection)
+				? selection
+				: $getRoot().selectEnd();
+			target.insertRawText(insertion.text);
+		});
+		onInserted?.(insertion.version);
+	}, [editor, insertion, onInserted]);
+
+	return null;
+};
+
 const seedDocument =
 	(html: string) =>
 	(editor: LexicalEditor): void => {
@@ -925,6 +957,8 @@ export const RichTextEditor = ({
 	trailing,
 	lang,
 	spellcheck,
+	insertion,
+	onInserted,
 }: RichTextEditorProps) => {
 	const [checkedHere, setCheckedHere] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
@@ -997,6 +1031,7 @@ export const RichTextEditor = ({
 			<TablePlugin />
 			<PastePlugin />
 			<AutoFocus caret={initialCaret} />
+			<InsertionPlugin insertion={insertion} onInserted={onInserted} />
 			{onChange && <ChangePlugin onChange={onChange} />}
 		</LexicalComposer>
 	);

@@ -22,6 +22,7 @@ import {
 	calendarUnavailable,
 	calendarWriteGate,
 } from "@/components/calendar/CalendarUnavailable";
+import type { ReplyWithText } from "@/components/compose/reply-with-times";
 import {
 	calendarWindowOfDays,
 	deviceTimeZone,
@@ -57,7 +58,6 @@ interface Working {
 	tab: IntelligenceTabId | undefined;
 	offering: boolean;
 	picked: string[];
-	copy: "idle" | "copied" | "failed";
 	answering: string;
 	/** The card the last refusal was about, and what it said. */
 	failure: { suggestionId: string; text: string };
@@ -68,7 +68,6 @@ const fresh = (messageId: string): Working => ({
 	tab: undefined,
 	offering: false,
 	picked: [],
-	copy: "idle",
 	answering: "",
 	failure: { suggestionId: "", text: "" },
 });
@@ -92,6 +91,7 @@ export interface IntelligenceCalendar {
 
 export function useIntelligenceCalendar(
 	thread: RemitImapThreadMessageResponse,
+	replyWithText?: ReplyWithText,
 ): IntelligenceCalendar {
 	const messageId = thread.messageId;
 	const { suggestions, isLoading, error } =
@@ -238,7 +238,8 @@ export function useIntelligenceCalendar(
 			: "Couldn't read the invitations in this message. Reopen it to try again.";
 
 	const cancellation = invitation?.method === "Cancel";
-	const copyText = date === "" ? "" : slotsAsText(date, slots, working.picked);
+	const pickedText =
+		date === "" ? "" : slotsAsText(date, slots, working.picked);
 
 	const actions: IntelligenceCalendarActions = {
 		onAddInvite: () =>
@@ -272,24 +273,14 @@ export function useIntelligenceCalendar(
 		onOfferOtherTimes: () => update({ offering: true }),
 		onToggleSlot: (slot) =>
 			update({
-				copy: "idle",
 				picked: working.picked.includes(slot.startTime)
 					? working.picked.filter((start) => start !== slot.startTime)
 					: [...working.picked, slot.startTime],
 			}),
-		onCopySlots: () => {
-			// Outside a secure context — plain http on a tailnet host — the
-			// browser exposes no clipboard at all, so the absence is the failure.
-			const clipboard: Clipboard | undefined = navigator.clipboard;
-			if (!clipboard) {
-				update({ copy: "failed" });
-				return;
-			}
-			void Promise.resolve()
-				.then(() => clipboard.writeText(copyText))
-				.then(() => update({ copy: "copied" }))
-				.catch(() => update({ copy: "failed" }));
-		},
+		onReplyWithSlots: replyWithText
+			? () =>
+					replyWithText({ threadId: thread.threadId, messageId }, pickedText)
+			: undefined,
 		onAddSuggestion: (suggestionId) =>
 			answer(suggestionId, "add this to your calendar", () =>
 				answers.accept(suggestionId, defaultCalendarId),
@@ -334,8 +325,6 @@ export function useIntelligenceCalendar(
 								proposals: [],
 								slots,
 								picked: working.picked,
-								copy: working.copy,
-								copyText,
 							}
 						: undefined,
 				suggestions: deck,

@@ -8,7 +8,8 @@
  * The conversation reads it off the address and opens it at its head.
  */
 import { createFileRoute } from "@tanstack/react-router";
+import { replySearchSchemas } from "@/lib/mail-search";
 
 export const Route = createFileRoute(
 	"/mail/flagged/$threadId/$messageId/$mode/{-$outboxMessageId}",
-)({});
+)({ validateSearch: replySearchSchemas.flagged });

@@ -20,6 +20,7 @@ import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { useTelemetry } from "@/lib/telemetry-context";
 import { NavLink } from "@/routing";
+import type { ReplyWithText } from "../compose/reply-with-times";
 
 export interface IntelligencePaneProps {
 	onClose: () => void;
@@ -53,6 +54,7 @@ export interface IntelligencePaneProps {
 	 * occasional unneeded pane-close — not a bug; see `useReportSpam`.
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
+	onReplyWithText?: ReplyWithText;
 }
 
 /**
@@ -251,6 +253,7 @@ interface WiredPanelProps {
 	accountId?: string;
 	hideCloseButton?: boolean;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
+	onReplyWithText?: ReplyWithText;
 }
 
 /**
@@ -263,6 +266,7 @@ function WiredPanel({
 	accountId,
 	hideCloseButton,
 	onAfterOptimisticRemove,
+	onReplyWithText,
 }: WiredPanelProps) {
 	const {
 		data,
@@ -273,7 +277,7 @@ function WiredPanel({
 		similarErrorIsFatal,
 		semanticEnabled,
 	} = useIntelligenceData(thread, mailboxId);
-	const calendar = useIntelligenceCalendar(thread);
+	const calendar = useIntelligenceCalendar(thread, onReplyWithText);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
@@ -432,6 +436,7 @@ export const IntelligencePane = ({
 	accountId,
 	hideCloseButton,
 	onAfterOptimisticRemove,
+	onReplyWithText,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -461,6 +466,7 @@ export const IntelligencePane = ({
 			accountId={accountId}
 			hideCloseButton={hideCloseButton}
 			onAfterOptimisticRemove={onAfterOptimisticRemove}
+			onReplyWithText={onReplyWithText}
 		/>
 	);
 };

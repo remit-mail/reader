@@ -218,25 +218,6 @@ describe("the invitation beside the open message", () => {
 		);
 	});
 
-	it("offers the picked times to select by hand where the page has no clipboard", async () => {
-		await mount(server(() => "Accepted"));
-		Object.defineProperty(navigator, "clipboard", {
-			value: undefined,
-			configurable: true,
-		});
-		press("Offer other times");
-		const slot = harness?.query("[aria-pressed]");
-		if (!slot) throw new Error("no slot offered");
-		harness?.click(slot);
-		press("Copy picked times");
-
-		await harness?.waitFor(
-			() => harness?.query('textarea[aria-label="Picked times"]') !== null,
-			"the times to be offered for selecting",
-		);
-		assert.match(harness?.text() ?? "", /can't copy for you/);
-	});
-
 	it("declines through the API", async () => {
 		await mount(server(() => "Declined"));
 		press("Decline");

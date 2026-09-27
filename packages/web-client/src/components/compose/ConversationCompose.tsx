@@ -2,7 +2,9 @@ import {
 	configOperationsGetConfigOptions,
 	messageOperationsDescribeMessageOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { ComposeInsertion } from "@remit/ui/rich-text";
 import { useQuery } from "@tanstack/react-query";
+import { useCallback, useEffect, useState } from "react";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import {
 	type ReplyAddress,
@@ -10,6 +12,7 @@ import {
 	useCloseReply,
 } from "@/routing";
 import { ComposeForm } from "./ComposeForm";
+import { useCompose } from "./ComposeProvider";
 
 /**
  * The answer to a message, as the top block of the conversation it answers.
@@ -27,6 +30,19 @@ import { ComposeForm } from "./ComposeForm";
 export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 	const adoptCreatedDraft = useAdoptReplyDraft();
 	const closeReply = useCloseReply();
+	const { registerOpenReply } = useCompose();
+	const [insertion, setInsertion] = useState<ComposeInsertion>();
+	const insert = useCallback(
+		(text: string) =>
+			setInsertion((prev) => ({ version: (prev?.version ?? 0) + 1, text })),
+		[],
+	);
+	const answering = surface.sourceMessageId;
+
+	useEffect(
+		() => registerOpenReply(answering, insert),
+		[answering, insert, registerOpenReply],
+	);
 
 	const { data: sourceMessage } = useQuery({
 		...messageOperationsDescribeMessageOptions({
@@ -56,11 +72,14 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 			    the address, and remounting the form on that would take the caret out
 			    of the sentence being typed. */}
 			<ComposeForm
+				key={surface.sourceMessageId}
 				layout="flow"
 				mode={surface.mode}
 				account={account}
 				sourceMessage={sourceMessage}
 				outboxMessageId={surface.outboxMessageId}
+				seed={surface.seed}
+				insertion={insertion}
 				onDraftCreated={adoptCreatedDraft}
 				onClose={closeReply}
 			/>

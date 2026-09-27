@@ -1,4 +1,5 @@
 import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/types.gen.ts";
+import type { ReplyWithText } from "@/components/compose/reply-with-times";
 import { Drawer } from "@/components/layout/Drawer";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
 
@@ -16,6 +17,7 @@ export function IntelligenceDrawer({
 	mailboxId,
 	accountId,
 	onAfterOptimisticRemove,
+	onReplyWithText,
 }: {
 	isOpen: boolean;
 	onClose: () => void;
@@ -23,6 +25,7 @@ export function IntelligenceDrawer({
 	mailboxId?: string;
 	accountId?: string;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
+	onReplyWithText?: ReplyWithText;
 }) {
 	return (
 		<Drawer
@@ -41,6 +44,7 @@ export function IntelligenceDrawer({
 				accountId={accountId}
 				hideCloseButton
 				onAfterOptimisticRemove={onAfterOptimisticRemove}
+				onReplyWithText={onReplyWithText}
 			/>
 		</Drawer>
 	);

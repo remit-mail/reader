@@ -10,7 +10,11 @@ import { PlainTextEditor } from "./plain-text-editor.js";
 import { markdownToHtml } from "./rich-text-document.js";
 import { RichTextEditor } from "./rich-text-editor.js";
 import type { SpellcheckOptions } from "./rich-text-spellcheck.js";
-import type { ComposeCaret, RichTextValue } from "./rich-text-value.js";
+import type {
+	ComposeCaret,
+	ComposeInsertion,
+	RichTextValue,
+} from "./rich-text-value.js";
 import { useComposeLanguage } from "./use-compose-language.js";
 
 export interface ConversionFailure {
@@ -69,6 +73,8 @@ export interface ComposeBodyProps {
 	 * the browser's.
 	 */
 	spellcheck?: SpellcheckOptions;
+	insertion?: ComposeInsertion;
+	onInserted?: (version: number) => void;
 }
 
 /**
@@ -91,6 +97,8 @@ export const ComposeBody = ({
 	initialLanguage,
 	onLanguageChange,
 	spellcheck,
+	insertion,
+	onInserted,
 }: ComposeBodyProps) => {
 	const [richHtml, setRichHtml] = useState(initialHtml);
 	const [richGeneration, setRichGeneration] = useState(0);
@@ -195,6 +203,8 @@ export const ComposeBody = ({
 					initialCaret={focusSwitchedSurface ? "end" : initialCaret}
 					lang={language}
 					trailing={trailing}
+					insertion={insertion}
+					onInserted={onInserted}
 				/>
 			) : (
 				<RichTextEditor
@@ -206,6 +216,8 @@ export const ComposeBody = ({
 					lang={language}
 					trailing={trailing}
 					spellcheck={spellcheck}
+					insertion={insertion}
+					onInserted={onInserted}
 				/>
 			)}
 			<ConfirmDialog

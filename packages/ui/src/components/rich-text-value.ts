@@ -23,6 +23,11 @@ export interface RichTextValue {
  */
 export type ComposeCaret = "start" | "end";
 
+export interface ComposeInsertion {
+	version: number;
+	text: string;
+}
+
 export const EMPTY_RICH_TEXT: RichTextValue = {
 	html: "",
 	text: "",

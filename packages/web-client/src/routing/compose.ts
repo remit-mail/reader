@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "@tanstack/react-router";
 import { useCallback } from "react";
+import { withoutComposeSeed } from "@/lib/mail-search";
 import { useBrowsedList, useNavigateToBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
@@ -108,7 +109,7 @@ function useComposeNavigate(): (
 		) => {
 			navigate({
 				...composeTarget(list, mailboxId, outboxMessageId),
-				search: (prev: Record<string, unknown>) => prev,
+				search: withoutComposeSeed,
 				// Opening or closing the surface is going somewhere, so the panes the
 				// reader keeps up travel and the overlays they were reading over do
 				// not. Recording the draft is not going anywhere — the address is

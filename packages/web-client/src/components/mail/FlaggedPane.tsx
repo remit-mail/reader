@@ -33,6 +33,7 @@ import {
 	useContext,
 	useMemo,
 } from "react";
+import { useReplyWithText } from "@/components/compose/reply-with-times";
 import { ConversationView } from "@/components/mail/ConversationView";
 import { FlaggedList } from "@/components/mail/FlaggedList";
 import { IntelligenceDrawer } from "@/components/mail/IntelligenceDrawer";
@@ -320,6 +321,7 @@ function FlaggedListSlot() {
  * Mount in the `reading` slot of `AppShellSlotted`. Only rendered ≥ 1024px.
  */
 function FlaggedReading() {
+	const replyWithText = useReplyWithText();
 	const {
 		conversation,
 		selectedThread,
@@ -377,6 +379,7 @@ function FlaggedReading() {
 				mailboxId={selectedThread?.mailboxId}
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
+				onReplyWithText={replyWithText}
 			/>
 		</>
 	);
@@ -387,6 +390,7 @@ function FlaggedReading() {
  * Mount in the `intelligence` slot of `AppShellSlotted`. Only rendered ≥ 1280px.
  */
 function FlaggedIntelligence() {
+	const replyWithText = useReplyWithText();
 	const { selectedThread, handleDeselectIfRemoved } = useFlaggedPane();
 	const { onToggleIntelligence } = useMailContext();
 
@@ -397,12 +401,14 @@ function FlaggedIntelligence() {
 			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
+			onReplyWithText={replyWithText}
 		/>
 	);
 }
 
 /** Phone view: ConversationView when a thread is open, else the flat list. */
 function FlaggedPhone() {
+	const replyWithText = useReplyWithText();
 	const {
 		selectedThread,
 		conversation,
@@ -438,6 +444,7 @@ function FlaggedPhone() {
 					mailboxId={selectedThread?.mailboxId}
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
+					onReplyWithText={replyWithText}
 				/>
 			</>
 		);
