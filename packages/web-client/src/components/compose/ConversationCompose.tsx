@@ -61,6 +61,7 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 				account={account}
 				sourceMessage={sourceMessage}
 				outboxMessageId={surface.outboxMessageId}
+				seed={surface.seed}
 				onDraftCreated={adoptCreatedDraft}
 				onClose={closeReply}
 			/>

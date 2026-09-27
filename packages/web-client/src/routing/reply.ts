@@ -1,7 +1,8 @@
-import { useNavigate, useParams } from "@tanstack/react-router";
+import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import { z } from "zod";
 import type { MailListRoute } from "@/lib/mail-route";
+import type { ComposeSeed } from "@/lib/mail-search";
 import { useBrowsedList } from "./browsed-list";
 import { useRetainOpenPanels } from "./fragment";
 
@@ -53,6 +54,7 @@ export interface ReplyAddress {
 	sourceMessageId: string;
 	/** The draft it writes to, once the first autosave has made one. */
 	outboxMessageId: string | undefined;
+	seed: ComposeSeed | undefined;
 }
 
 export type ReplySurface =
@@ -79,6 +81,20 @@ function useReplyParams(): ReplyParams | undefined {
 	return brief ?? flagged ?? mailbox;
 }
 
+function useReplySeed(): string | undefined {
+	const brief = useSearch({ from: BRIEF_REPLY, shouldThrow: false });
+	const flagged = useSearch({ from: FLAGGED_REPLY, shouldThrow: false });
+	const mailbox = useSearch({ from: MAILBOX_REPLY, shouldThrow: false });
+	return (brief ?? flagged ?? mailbox)?.body;
+}
+
+const seededSearch =
+	(seed: ComposeSeed | undefined) =>
+	(prev: Record<string, unknown>): Record<string, unknown> => {
+		const { body: _replaced, ...rest } = prev;
+		return seed === undefined ? rest : { ...rest, body: seed.body };
+	};
+
 /**
  * The reply surface the address names, or none.
  *
@@ -89,6 +105,7 @@ function useReplyParams(): ReplyParams | undefined {
  */
 export function useReplySurface(): ReplySurface | undefined {
 	const params = useReplyParams();
+	const seedBody = useReplySeed();
 	return useMemo(() => {
 		if (!params) return undefined;
 		const mode = replyModeSchema.safeParse(params.mode);
@@ -99,8 +116,9 @@ export function useReplySurface(): ReplySurface | undefined {
 			threadId: params.threadId,
 			sourceMessageId: params.messageId,
 			outboxMessageId: params.outboxMessageId,
+			seed: seedBody === undefined ? undefined : { body: seedBody },
 		};
-	}, [params]);
+	}, [params, seedBody]);
 }
 
 /**
@@ -183,17 +201,25 @@ function inheritedDraft(
  * A push, so Back leaves the reply and returns the message it was written
  * under, and the query travels with it.
  */
-export function useOpenReply(): (target: ReplyTarget) => void {
+export function useOpenReply(): (
+	target: ReplyTarget,
+	seed?: ComposeSeed,
+) => void {
 	const navigate = useNavigate();
 	const retainPanels = useRetainOpenPanels();
 	const { list, mailboxId } = useBrowsedList();
 	const open = useReplySurface();
 
 	return useCallback(
-		(target: ReplyTarget) => {
+		(target: ReplyTarget, seed?: ComposeSeed) => {
 			navigate({
-				...replyTarget(list, mailboxId, target, inheritedDraft(open, target)),
-				search: (prev: Record<string, unknown>) => prev,
+				...replyTarget(
+					list,
+					mailboxId,
+					target,
+					seed === undefined ? inheritedDraft(open, target) : undefined,
+				),
+				search: seededSearch(seed),
 				hash: retainPanels,
 			});
 		},
@@ -254,7 +280,7 @@ export function useAdoptReplyDraft(): (outboxMessageId: string) => void {
 					},
 					outboxMessageId,
 				),
-				search: (prev: Record<string, unknown>) => prev,
+				search: seededSearch(undefined),
 				hash: true,
 				replace: true,
 			});
@@ -278,7 +304,7 @@ export function useCloseReply(): () => void {
 
 	return useCallback(() => {
 		if (!params) return;
-		const search = (prev: Record<string, unknown>) => prev;
+		const search = seededSearch(undefined);
 		const hash = retainPanels;
 		const message = { threadId: params.threadId, messageId: params.messageId };
 		if (list === "flagged") {

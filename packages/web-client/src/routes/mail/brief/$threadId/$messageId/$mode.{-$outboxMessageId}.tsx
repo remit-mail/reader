@@ -20,7 +20,8 @@
  * the pane reads the reply off the address, the way the shell reads compose.
  */
 import { createFileRoute } from "@tanstack/react-router";
+import { replySearchSchemas } from "@/lib/mail-search";
 
 export const Route = createFileRoute(
 	"/mail/brief/$threadId/$messageId/$mode/{-$outboxMessageId}",
-)({});
+)({ validateSearch: replySearchSchemas.brief });

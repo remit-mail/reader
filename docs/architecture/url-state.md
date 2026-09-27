@@ -8,7 +8,7 @@ Which list, which thread, which message, which surface. A path matches one thing
 
 ## R2. Query: sub-state that modifies the current view
 
-`q`, filters, the wizard step (`wizard` / `wizardFrom`). Test: if this changed and the mounted component set stayed identical, it is query.
+`q`, filters, the wizard step (`wizard` / `wizardFrom`), and the text a reply opens on (`body`), which the address drops once the first autosave holds it in the draft. Test: if this changed and the mounted component set stayed identical, it is query.
 
 ## R3. Fragment: panel and pane visibility, nothing else
 

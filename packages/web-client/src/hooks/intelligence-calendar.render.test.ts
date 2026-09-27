@@ -14,6 +14,14 @@ import type {
 	RemitImapCalendarSuggestionResponse,
 } from "@remit/api-http-client/types.gen.ts";
 import { type IntelligenceData, IntelligencePanel } from "@remit/ui";
+import {
+	type AnyRouter,
+	createMemoryHistory,
+	createRootRoute,
+	createRoute,
+	createRouter,
+	RouterProvider,
+} from "@tanstack/react-router";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
@@ -101,6 +109,23 @@ const Harness = () => {
 	});
 };
 
+(globalThis as { self?: typeof globalThis }).self ??= globalThis;
+
+const testRouter = (): AnyRouter => {
+	const rootRoute = createRootRoute();
+	const messageRoute = createRoute({
+		getParentRoute: () => rootRoute,
+		path: "/mail/$mailboxId/$threadId/$messageId",
+		component: Harness,
+	});
+	return createRouter({
+		routeTree: rootRoute.addChildren([messageRoute]),
+		history: createMemoryHistory({
+			initialEntries: [`/mail/mbx-1/${thread.threadId}/msg-1`],
+		}),
+	}) as unknown as AnyRouter;
+};
+
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
 
@@ -140,8 +165,10 @@ const server = (
 
 const mount = async (respond: (call: HttpCall) => unknown) => {
 	http = mockFetch(respond);
+	const router = testRouter();
+	await router.load();
 	harness = createDomHarness();
-	harness.renderApp(createElement(Harness));
+	harness.renderApp(createElement(RouterProvider, { router }));
 	await harness.waitFor(
 		() => harness?.text().includes("Quarterly review") === true,
 		"the invitation to be drawn",
@@ -216,25 +243,6 @@ describe("the invitation beside the open message", () => {
 			() => harness?.text().includes("You declined") === true,
 			"the decline to land without a calendar",
 		);
-	});
-
-	it("offers the picked times to select by hand where the page has no clipboard", async () => {
-		await mount(server(() => "Accepted"));
-		Object.defineProperty(navigator, "clipboard", {
-			value: undefined,
-			configurable: true,
-		});
-		press("Offer other times");
-		const slot = harness?.query("[aria-pressed]");
-		if (!slot) throw new Error("no slot offered");
-		harness?.click(slot);
-		press("Copy picked times");
-
-		await harness?.waitFor(
-			() => harness?.query('textarea[aria-label="Picked times"]') !== null,
-			"the times to be offered for selecting",
-		);
-		assert.match(harness?.text() ?? "", /can't copy for you/);
 	});
 
 	it("declines through the API", async () => {

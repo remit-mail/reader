@@ -54,7 +54,6 @@ function PanelDemo({
 	hideCloseButton,
 	touch,
 	className,
-	copyFails = false,
 }: {
 	sender: IntelligenceData;
 	calendar: IntelligenceCalendarData;
@@ -62,8 +61,6 @@ function PanelDemo({
 	hideCloseButton?: boolean;
 	touch?: boolean;
 	className?: string;
-	/** The page cannot reach the clipboard, as on plain http. */
-	copyFails?: boolean;
 }) {
 	const [tab, setTab] = useState<IntelligenceTabId>(initialTab);
 	const [rsvp, setRsvp] = useState<RsvpState>(
@@ -72,9 +69,6 @@ function PanelDemo({
 	const [removed, setRemoved] = useState(false);
 	const [offering, setOffering] = useState(calendar.prose !== undefined);
 	const [picked, setPicked] = useState<string[]>([]);
-	const [copy, setCopy] = useState<"idle" | "copied" | "failed">(
-		calendar.prose?.copy ?? "idle",
-	);
 	const [dropped, setDropped] = useState<string[]>([]);
 	const [selectedEventId, setSelectedEventId] = useState("");
 	const [lastAction, setLastAction] = useState("");
@@ -83,8 +77,6 @@ function PanelDemo({
 		? {
 				...(calendar.prose ?? thursdayProse),
 				picked,
-				copy,
-				copyText: `${(calendar.prose ?? thursdayProse).dayLabel}: ${picked.join(", ")}`,
 			}
 		: undefined;
 
@@ -119,14 +111,16 @@ function PanelDemo({
 						onOfferOtherTimes: () => setOffering(true),
 						onRemoveInvite: () => setRemoved(true),
 						onToggleSlot: (slot) => {
-							setCopy("idle");
 							setPicked((prev) =>
 								prev.includes(slot.startTime)
 									? prev.filter((start) => start !== slot.startTime)
 									: [...prev, slot.startTime],
 							);
 						},
-						onCopySlots: () => setCopy(copyFails ? "failed" : "copied"),
+						onReplyWithSlots: () =>
+							setLastAction(
+								`opened a reply holding ${(calendar.prose ?? thursdayProse).dayLabel}: ${picked.join(", ")}`,
+							),
 						onAddSuggestion: (id, timeZone) => {
 							setDropped((prev) => [...prev, id]);
 							setLastAction(
@@ -231,7 +225,6 @@ function rail(
 	sender: IntelligenceData,
 	calendar: IntelligenceCalendarData,
 	initialTab: IntelligenceTabId = "calendar",
-	copyFails = false,
 ): Story {
 	return {
 		render: () => (
@@ -240,7 +233,6 @@ function rail(
 					sender={sender}
 					calendar={calendar}
 					initialTab={initialTab}
-					copyFails={copyFails}
 					className="h-full"
 				/>
 			</RailHost>
@@ -350,18 +342,6 @@ export const ReadFailure = rail(PLAIN, organiserSender, {
 		"Couldn't read the invitations in this message. Reopen it to try again.",
 	reportHref: REPORT,
 });
-
-/**
- * Picked times on a page that cannot reach the clipboard, as on plain http.
- * The failure is stated and the times are there to select by hand.
- */
-export const CopyFailed = rail(
-	THURSDAY,
-	organiserSender,
-	proseTimeThread,
-	"calendar",
-	true,
-);
 
 /**
  * The same invitation an hour later. Nothing is booked over it, and the panel

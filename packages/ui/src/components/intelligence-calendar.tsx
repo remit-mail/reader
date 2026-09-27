@@ -1,4 +1,4 @@
-import { CalendarDays, Copy } from "lucide-react";
+import { CalendarDays, Reply } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
 import { Button } from "./button.js";
@@ -82,10 +82,6 @@ export interface CalendarProseIntel {
 	slots: CalendarSlotPick[];
 	/** Start clocks already ticked into the reply. */
 	picked: readonly string[];
-	/** What became of the last copy of the picked times. */
-	copy?: "idle" | "copied" | "failed";
-	/** The picked times as text, offered to select by hand when copying failed. */
-	copyText?: string;
 }
 
 export interface IntelligenceCalendarData {
@@ -123,7 +119,7 @@ export interface IntelligenceCalendarActions {
 	onRemoveInvite?: () => void;
 	onOpenNewerInvite?: () => void;
 	onToggleSlot: (slot: CalendarSlotPick) => void;
-	onCopySlots?: () => void;
+	onReplyWithSlots?: () => void;
 	onAddSuggestion: (suggestionId: string, timeZone: string) => void;
 	onReviewSuggestion?: (suggestionId: string, timeZone: string) => void;
 	onDismissSuggestion: (suggestionId: string) => void;
@@ -277,41 +273,20 @@ export function IntelligenceCalendar({
 						touch={touch}
 						scroll
 					/>
-					{actions.onCopySlots ? (
+					{actions.onReplyWithSlots ? (
 						<div className="mt-2 flex flex-col gap-1.5">
 							<Button
 								variant="secondary"
 								size={touch ? "md" : "sm"}
-								icon={<Copy className="size-3.5" />}
-								onClick={actions.onCopySlots}
+								icon={<Reply className="size-3.5" />}
+								onClick={actions.onReplyWithSlots}
 								disabled={picked.size === 0}
 								className={cn("self-start", touch && "min-h-11")}
 							>
-								Copy picked times
+								Reply with these times
 							</Button>
-							{prose.copy === "copied" && (
-								<p role="status" className="text-2xs text-positive">
-									Copied. Paste them into your reply.
-								</p>
-							)}
-							{prose.copy === "failed" && (
-								<div role="alert" className="flex flex-col gap-1">
-									<p className="text-2xs text-danger">
-										This page can't copy for you. Select the times below and
-										copy them yourself.
-									</p>
-									<textarea
-										readOnly
-										aria-label="Picked times"
-										value={prose.copyText ?? ""}
-										onFocus={(event) => event.currentTarget.select()}
-										rows={2}
-										className="w-full resize-none rounded-md border border-line bg-surface p-1.5 text-xs text-fg"
-									/>
-								</div>
-							)}
 							<p className="text-2xs text-fg-subtle">
-								Picked slots are copied as plain text. Nothing is booked.
+								Picked slots go into the reply as plain text. Nothing is booked.
 							</p>
 						</div>
 					) : (

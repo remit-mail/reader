@@ -174,6 +174,19 @@ export const Reply: Story = {
 	},
 };
 
+const OFFERED_TIMES = "Thursday 11 June: 12:30 – 13:00, 15:00 – 15:30";
+
+export const ReplyWithOfferedTimes: Story = {
+	args: {
+		url: `${messageUrl("lunch")}/reply?body=${encodeURIComponent(OFFERED_TIMES)}`,
+	},
+	play: async () => {
+		const subject = await page().findByPlaceholderText("Subject");
+		await waitFor(() => expect(subject).toHaveValue(`Re: ${LUNCH_SUBJECT}`));
+		await expect(await writingSurface(OFFERED_TIMES)).toBeVisible();
+	},
+};
+
 export const Forward: Story = {
 	args: { url: `${messageUrl("lunch")}/forward` },
 	play: async () => {
