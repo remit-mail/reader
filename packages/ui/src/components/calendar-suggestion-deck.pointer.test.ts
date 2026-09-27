@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { CalendarSuggestionDeck } from "./calendar-suggestion-deck.js";
+import {
+	CalendarSuggestionDeck,
+	type CalendarSuggestionDeckProps,
+} from "./calendar-suggestion-deck.js";
 
 let container: HTMLElement;
 let root: Root;
@@ -23,32 +26,31 @@ beforeEach(() => {
 	};
 	HTMLElement.prototype.hasPointerCapture = (pointerId: number) =>
 		captured.includes(pointerId);
+	const deckProps: CalendarSuggestionDeckProps = {
+		hasCard: true,
+		remaining: 1,
+		blocked: false,
+		blockedReason: "",
+		onConfirm: () => {
+			confirmed += 1;
+		},
+		onReject: () => undefined,
+		children: createElement(
+			"button",
+			{
+				type: "button",
+				onClick: () => {
+					pressed += 1;
+				},
+			},
+			"Change first",
+		),
+	};
 	container = document.createElement("div");
 	document.body.append(container);
 	root = createRoot(container);
 	act(() => {
-		root.render(
-			createElement(CalendarSuggestionDeck, {
-				hasCard: true,
-				remaining: 1,
-				blocked: false,
-				blockedReason: "",
-				onConfirm: () => {
-					confirmed += 1;
-				},
-				onReject: () => undefined,
-				children: createElement(
-					"button",
-					{
-						type: "button",
-						onClick: () => {
-							pressed += 1;
-						},
-					},
-					"Change first",
-				),
-			}),
-		);
+		root.render(createElement(CalendarSuggestionDeck, deckProps));
 	});
 });
 
