@@ -1,8 +1,12 @@
 import type {
 	CalendarInviteAnswer as CalendarInviteAnswerValue,
 	CalendarSuggestionResponse,
+	UpdateCalendarEventInput,
 } from "@remit/api-openapi-types";
-import { acceptCalendarSuggestion } from "@remit/calendar-service";
+import {
+	acceptCalendarSuggestion,
+	correctCalendarSuggestion,
+} from "@remit/calendar-service";
 import {
 	type CalendarSuggestionItem,
 	type ICalendarSuggestionRepository,
@@ -30,6 +34,7 @@ import type {
 	MessageCalendarSuggestionOperationIds,
 	OperationHandler,
 } from "../types.js";
+import { pickEventUpdate } from "./calendar-event.js";
 
 /**
  * The raw invitation bytes stay on the server. A client renders the projected
@@ -255,10 +260,25 @@ export const CalendarSuggestionActionOperations: Record<
 			);
 		}
 
+		const { event: corrections } = context.request.requestBody as {
+			event?: UpdateCalendarEventInput;
+		};
+		const corrected =
+			corrections === undefined
+				? { ok: true as const, value: suggestion }
+				: await correctCalendarSuggestion(
+						suggestion,
+						pickEventUpdate(corrections),
+						collection.timezone,
+					);
+		if (!corrected.ok) {
+			throw new BadRequestError(corrected.error.message);
+		}
+
 		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
 			accountConfigId,
 			calendarId,
-			suggestion,
+			suggestion: corrected.value,
 			attendee: await accountEmailForMessage(client, suggestion.messageId),
 			answer,
 		});

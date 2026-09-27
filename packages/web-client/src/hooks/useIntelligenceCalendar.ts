@@ -50,7 +50,10 @@ import {
 	toCalendarInvite,
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
-import { useOpenEventOnCalendar } from "@/routing";
+import {
+	useChangeSuggestionOnCalendar,
+	useOpenEventOnCalendar,
+} from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
 interface Working {
@@ -107,6 +110,7 @@ export function useIntelligenceCalendar(
 	const answers = useCalendarSuggestionAnswers();
 
 	const openEvent = useOpenEventOnCalendar();
+	const changeOnCalendar = useChangeSuggestionOnCalendar();
 
 	const [held, setHeld] = useState<Working>(() => fresh(messageId));
 	const working = held.messageId === messageId ? held : fresh(messageId);
@@ -238,14 +242,34 @@ export function useIntelligenceCalendar(
 			: "Couldn't read the invitations in this message. Reopen it to try again.";
 
 	const cancellation = invitation?.method === "Cancel";
+	const changeFirst = (suggestionId: string) => {
+		const suggestion = suggestions.find(
+			(candidate) => candidate.suggestionId === suggestionId,
+		);
+		if (suggestion) changeOnCalendar(suggestionDate(suggestion), suggestionId);
+	};
+	const unplaced = (suggestionId: string): boolean => {
+		const suggestion = suggestions.find(
+			(candidate) => candidate.suggestionId === suggestionId,
+		);
+		return (
+			suggestion?.zoneCertainty === "Ambiguous" &&
+			suggestion.method !== "Cancel"
+		);
+	};
 	const pickedText =
 		date === "" ? "" : slotsAsText(date, slots, working.picked);
 
 	const actions: IntelligenceCalendarActions = {
-		onAddInvite: () =>
+		onAddInvite: () => {
+			if (unplaced(invitationId)) {
+				changeFirst(invitationId);
+				return;
+			}
 			answer(invitationId, "add this to your calendar", () =>
 				answers.accept(invitationId, defaultCalendarId),
-			),
+			);
+		},
 		onTentativeInvite: cancellation
 			? undefined
 			: () =>
@@ -281,10 +305,17 @@ export function useIntelligenceCalendar(
 			? () =>
 					replyWithText({ threadId: thread.threadId, messageId }, pickedText)
 			: undefined,
-		onAddSuggestion: (suggestionId) =>
+		onAddSuggestion: (suggestionId) => {
+			if (unplaced(suggestionId)) {
+				changeFirst(suggestionId);
+				return;
+			}
 			answer(suggestionId, "add this to your calendar", () =>
 				answers.accept(suggestionId, defaultCalendarId),
-			),
+			);
+		},
+		onReviewSuggestion:
+			readings[0]?.method === "Cancel" ? undefined : changeFirst,
 		onDismissSuggestion: (suggestionId) =>
 			answer(suggestionId, "dismiss this", () =>
 				answers.dismiss(suggestionId, false),

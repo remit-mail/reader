@@ -113,9 +113,18 @@ describe("toEventSuggestion", () => {
 			suggestion({ zoneCertainty: "Ambiguous", source: "TextHeuristic" }),
 			{ ...context, sender: "Organizer" },
 		);
-		assert.match(reading.ambiguity, /hours out/);
+		assert.match(reading.ambiguity, /Add opens the editor/);
 		assert.equal(reading.zoneCertainty, "ambiguous");
 		assert.ok(reading.confidence < 1);
+	});
+
+	it("promises no editor for a cancellation, which Add applies as it is", () => {
+		const reading = toEventSuggestion(
+			suggestion({ zoneCertainty: "Ambiguous", method: "Cancel" }),
+			{ ...context, sender: "Organizer" },
+		);
+		assert.match(reading.ambiguity, /could not be resolved/);
+		assert.doesNotMatch(reading.ambiguity, /editor/);
 	});
 });
 

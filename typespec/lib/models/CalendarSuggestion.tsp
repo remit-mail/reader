@@ -165,6 +165,9 @@ model AcceptCalendarSuggestionInput {
 
   @doc("How the user answers. `Tentative` adds the event as a maybe. Refused with 400 on a `Cancel` suggestion, which has nothing to answer tentatively.")
   answer?: CalendarInviteAnswer = CalendarInviteAnswer.Accepted;
+
+  @doc("Corrections the reader made before adding it, applied to the invitation's master VEVENT. A field left out keeps what the invitation said; omitted, the invitation is added as it arrived. Refused with 400 on a `Cancel` suggestion, which names no event to correct.")
+  event?: UpdateCalendarEventInput;
 }
 
 @doc("Body of `POST /calendar-suggestions/{suggestionId}/dismiss`.")

@@ -18,7 +18,11 @@ import {
 	calendarSuggestionOperationsListCalendarSuggestionsOptions,
 	messageCalendarSuggestionOperationsListMessageCalendarSuggestionsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import type { RemitImapCalendarSuggestionResponse } from "@remit/api-http-client/types.gen.ts";
+import { calendarSuggestionOperationsListCalendarSuggestions } from "@remit/api-http-client/sdk.gen.ts";
+import type {
+	RemitImapAcceptCalendarSuggestionInput,
+	RemitImapCalendarSuggestionResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import {
 	type QueryClient,
 	useMutation,
@@ -89,6 +93,46 @@ export function usePendingCalendarSuggestions(): CalendarSuggestionsResult {
 	};
 }
 
+const findPending = async (
+	suggestionId: string,
+	signal: AbortSignal,
+): Promise<RemitImapCalendarSuggestionResponse | null> => {
+	let continuationToken: string | undefined;
+	do {
+		const { data } = await calendarSuggestionOperationsListCalendarSuggestions({
+			query: { state: "Pending", continuationToken },
+			signal,
+			throwOnError: true,
+		});
+		const found = data.items.find((item) => item.suggestionId === suggestionId);
+		if (found) return found;
+		continuationToken = data.continuationToken;
+	} while (continuationToken);
+	return null;
+};
+
+export interface PendingCalendarSuggestionResult {
+	suggestion: RemitImapCalendarSuggestionResponse | null | undefined;
+	isLoading: boolean;
+	error: unknown;
+}
+
+export function usePendingCalendarSuggestion(
+	suggestionId: string,
+): PendingCalendarSuggestionResult {
+	const { data, isLoading, error } = useQuery({
+		queryKey: [
+			{
+				_id: "calendarSuggestionOperationsListCalendarSuggestions",
+				suggestionId,
+			},
+		],
+		queryFn: ({ signal }) => findPending(suggestionId, signal),
+		meta: SUGGESTION_META,
+	});
+	return { suggestion: data, isLoading, error: error ?? null };
+}
+
 export type SuggestionAnswer =
 	| { kind: "answered" }
 	| { kind: "refused"; message: string };
@@ -108,6 +152,10 @@ export interface CalendarSuggestionAnswers {
 	tentative: (
 		suggestionId: string,
 		calendarId: string,
+	) => Promise<SuggestionAnswer>;
+	acceptEdited: (
+		suggestionId: string,
+		input: RemitImapAcceptCalendarSuggestionInput,
 	) => Promise<SuggestionAnswer>;
 	decline: (suggestionId: string) => Promise<SuggestionAnswer>;
 	dismiss: (
@@ -159,6 +207,14 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 				.catch(refused),
 		[accept],
 	);
+	const acceptEditedSuggestion = useCallback(
+		(suggestionId: string, input: RemitImapAcceptCalendarSuggestionInput) =>
+			accept
+				.mutateAsync({ path: { suggestionId }, body: input })
+				.then(() => ANSWERED)
+				.catch(refused),
+		[accept],
+	);
 	const declineSuggestion = useCallback(
 		(suggestionId: string) =>
 			decline
@@ -180,6 +236,7 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 		() => ({
 			accept: acceptSuggestion,
 			tentative: tentativeSuggestion,
+			acceptEdited: acceptEditedSuggestion,
 			decline: declineSuggestion,
 			dismiss: dismissSuggestion,
 			isAnswering: accept.isPending || decline.isPending || dismiss.isPending,
@@ -187,6 +244,7 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 		[
 			acceptSuggestion,
 			tentativeSuggestion,
+			acceptEditedSuggestion,
 			declineSuggestion,
 			dismissSuggestion,
 			accept.isPending,

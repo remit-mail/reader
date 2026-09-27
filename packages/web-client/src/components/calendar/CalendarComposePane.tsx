@@ -6,7 +6,7 @@ import {
 	EventEditor,
 	EventEditorPane,
 } from "@remit/ui";
-import { AlertCircle } from "lucide-react";
+import { AlertCircle, AlertTriangle } from "lucide-react";
 
 /**
  * Writing an event, and editing one.
@@ -25,6 +25,7 @@ export interface CalendarComposePaneProps {
 	title: string;
 	/** The one line of context the title cannot carry — which day, which series. */
 	subtitle?: string;
+	notice?: string;
 	calendars: CalendarDescriptor[];
 	draft: EventDraft;
 	onChange: (draft: EventDraft) => void;
@@ -58,6 +59,7 @@ export interface CalendarComposePaneProps {
 export function CalendarComposePane({
 	title,
 	subtitle,
+	notice = "",
 	calendars,
 	draft,
 	onChange,
@@ -83,8 +85,19 @@ export function CalendarComposePane({
 				onSave={onSave}
 				onCancel={onCancel}
 				header={
-					problem === "" && clashes === undefined ? undefined : (
+					problem === "" &&
+					notice === "" &&
+					clashes === undefined ? undefined : (
 						<div className="space-y-2">
+							{notice !== "" && (
+								<p className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-fg">
+									<AlertTriangle
+										className="mt-0.5 size-4 shrink-0 text-warning"
+										aria-hidden="true"
+									/>
+									<span className="min-w-0 flex-1 break-words">{notice}</span>
+								</p>
+							)}
 							{problem !== "" && (
 								<div
 									role="alert"

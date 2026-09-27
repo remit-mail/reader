@@ -28,6 +28,7 @@ export interface CalendarWaitingProps {
 	/** Why nothing can be added yet, with the way past it; holds Add. */
 	addBlocked?: ReactNode;
 	onAdd: (suggestionId: string) => void;
+	onChangeFirst?: (suggestionId: string) => void;
 	onDismiss: (suggestionId: string) => void;
 }
 
@@ -38,6 +39,7 @@ export function CalendarWaiting({
 	reportHref,
 	addBlocked,
 	onAdd,
+	onChangeFirst,
 	onDismiss,
 }: CalendarWaitingProps) {
 	const top = suggestions[0];
@@ -83,6 +85,7 @@ export function CalendarWaiting({
 						suggestion={top.suggestion}
 						whenText={top.whenText}
 						onAdd={() => onAdd(top.suggestion.id)}
+						onReview={onChangeFirst && (() => onChangeFirst(top.suggestion.id))}
 						onDismiss={() => onDismiss(top.suggestion.id)}
 						addLabel="Add to calendar"
 						busy={busy}

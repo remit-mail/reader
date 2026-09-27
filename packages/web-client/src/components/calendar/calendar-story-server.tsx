@@ -84,6 +84,11 @@ function storyRouter(
 				path: "new",
 				component: leaf,
 			}),
+			createRoute({
+				getParentRoute: () => viewRoute,
+				path: "suggestion/$suggestionId",
+				component: leaf,
+			}),
 			eventRoute.addChildren([
 				createRoute({
 					getParentRoute: () => eventRoute,

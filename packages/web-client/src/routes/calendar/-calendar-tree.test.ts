@@ -31,6 +31,7 @@ import { Route as EventIndexRoute } from "./$view.$date/$calendarObjectId/index.
 import { Route as EventRoute } from "./$view.$date/$calendarObjectId.js";
 import { Route as ReadingPaneRoute } from "./$view.$date/index.js";
 import { Route as ComposeRoute } from "./$view.$date/new.js";
+import { Route as SuggestionRoute } from "./$view.$date/suggestion.$suggestionId.js";
 import { Route as ViewRoute } from "./$view.$date.js";
 import { Route as CalendarIndexRoute } from "./index.js";
 
@@ -68,6 +69,10 @@ eventRoute.addChildren([
 viewRoute.addChildren([
 	attach(ReadingPaneRoute, { path: "/", getParentRoute: () => viewRoute }),
 	attach(ComposeRoute, { path: "new", getParentRoute: () => viewRoute }),
+	attach(SuggestionRoute, {
+		path: "suggestion/$suggestionId",
+		getParentRoute: () => viewRoute,
+	}),
 	eventRoute,
 ]);
 const routeTree = rootRoute.addChildren([
@@ -251,6 +256,19 @@ describe("the composer and the open event cannot both be addressed", () => {
 		]);
 		assert.equal(mounted.params.calendarObjectId, "evt_1");
 		assert.equal(mounted.routeIds.includes("/calendar/$view/$date/new"), false);
+	});
+
+	it("mounts the editor for a suggestion, and nothing of the event route", () => {
+		const mounted = match("/calendar/day/2026-06-11/suggestion/sug_1");
+		assert.equal(
+			mounted.routeIds.at(-1),
+			"/calendar/$view/$date/suggestion/$suggestionId",
+		);
+		assert.equal(mounted.params.suggestionId, "sug_1");
+		assert.equal(
+			mounted.routeIds.some((id) => id.includes("$calendarObjectId")),
+			false,
+		);
 	});
 
 	it("keeps the series matched under one of its occurrences", () => {

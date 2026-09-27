@@ -47,7 +47,10 @@ const ZONES: Record<CalendarSuggestion["zoneCertainty"], ZoneCertainty> = {
 };
 
 const AMBIGUOUS_ZONE =
-	"The invitation named a time zone nothing could resolve, so this time may be hours out.";
+	"The invitation's time zone could not be resolved. Add opens the editor so you can set the time.";
+
+const AMBIGUOUS_CANCELLATION =
+	"The invitation's time zone could not be resolved.";
 
 /** Where the card stands, or nothing when there is no card left to draw. */
 export interface InviteStanding {
@@ -163,6 +166,13 @@ export function toCalendarInvite(
 	};
 }
 
+function ambiguityOf(suggestion: CalendarSuggestion): string {
+	if (suggestion.zoneCertainty !== "Ambiguous") return "";
+	return suggestion.method === "Cancel"
+		? AMBIGUOUS_CANCELLATION
+		: AMBIGUOUS_ZONE;
+}
+
 export function toEventSuggestion(
 	suggestion: CalendarSuggestion,
 	context: Omit<InviteContext, "senderName"> & { sender: string },
@@ -179,7 +189,7 @@ export function toEventSuggestion(
 		sender: context.sender,
 		senderAddress: suggestion.organizer,
 		confidence: isFromInvitation(suggestion) ? 1 : 0.6,
-		ambiguity: suggestion.zoneCertainty === "Ambiguous" ? AMBIGUOUS_ZONE : "",
+		ambiguity: ambiguityOf(suggestion),
 		suggestedCalendarId: context.calendarId,
 		timeZone: "",
 		zoneCertainty: ZONES[suggestion.zoneCertainty],

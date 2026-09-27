@@ -1068,6 +1068,15 @@ export class ApiClient {
 		return result.items ?? [];
 	}
 
+	dismissCalendarSuggestion(
+		suggestionId: string,
+		muteSender = false,
+	): Promise<CalendarSuggestion> {
+		return this.json("POST", `/calendar-suggestions/${suggestionId}/dismiss`, {
+			muteSender,
+		});
+	}
+
 	deleteCalendarEvent(
 		calendarObjectId: string,
 		calendarId: string,

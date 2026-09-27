@@ -14,6 +14,7 @@ export {
 	readEventTime,
 	readRecurrenceRule,
 } from "./build.js";
+export { correctCalendarSuggestion } from "./correct.js";
 export type {
 	CalendarResult,
 	CalendarValidationCode,

@@ -9,6 +9,7 @@ import { cn } from "../lib/cn.js";
  */
 
 const COMMIT_DISTANCE = 96;
+const DRAG_SLOP = 6;
 
 export interface CalendarSuggestionDeckProps {
 	children: ReactNode;
@@ -68,12 +69,17 @@ export function CalendarSuggestionDeck({
 						transition: from === null ? "transform 180ms ease-out" : "none",
 					}}
 					onPointerDown={(e) => {
-						e.currentTarget.setPointerCapture(e.pointerId);
 						setFrom(e.clientX);
 					}}
 					onPointerMove={(e) => {
 						if (from === null) return;
-						setDrag(e.clientX - from);
+						const moved = e.clientX - from;
+						if (
+							Math.abs(moved) > DRAG_SLOP &&
+							!e.currentTarget.hasPointerCapture(e.pointerId)
+						)
+							e.currentTarget.setPointerCapture(e.pointerId);
+						setDrag(moved);
 					}}
 					onPointerUp={() => {
 						if (Math.abs(drag) > COMMIT_DISTANCE) {

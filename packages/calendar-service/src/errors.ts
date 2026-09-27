@@ -36,6 +36,7 @@ export type CalendarValidationCode =
 	/** A RECURRENCE-ID naming no occurrence this series produces. */
 	| "UnknownOccurrence"
 	| "UnmovableRecurrenceRule"
+	| "UneditableCancellation"
 	/** A subscription address that is not an http, https or webcal URL. */
 	| "InvalidSubscriptionUrl";
 

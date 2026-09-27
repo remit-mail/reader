@@ -85,7 +85,7 @@ export function draftFromEvent(
  * Stamping any other zone's offset onto those digits moves the event by the
  * difference between the two — silently, and only for whoever is travelling.
  */
-function timesFor(
+export function timesFor(
 	draft: EventDraft,
 	clock: string,
 ): { start: string; end: string } {

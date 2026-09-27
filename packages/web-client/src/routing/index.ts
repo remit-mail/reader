@@ -9,6 +9,8 @@ export {
 	type OpenCalendarEvent,
 	useCalendarAddress,
 	useCalendarNavigation,
+	useChangeSuggestionOnCalendar,
+	useChangingSuggestionId,
 	useIsWritingEvent,
 	useOpenCalendarEvent,
 	useOpenEventOnCalendar,

@@ -69,16 +69,21 @@ const pending: RemitImapCalendarSuggestionResponse = {
 
 let harness: DomHarness | undefined;
 let http: HttpMock | undefined;
+let changedFirst: { suggestionId: string; date: string }[] = [];
 
 afterEach(() => {
 	harness?.close();
 	harness = undefined;
 	http?.restore();
 	http = undefined;
+	changedFirst = [];
 });
 
-const server = (accept: () => Response | undefined) => {
-	let waiting = [pending];
+const server = (
+	accept: () => Response | undefined,
+	reading: RemitImapCalendarSuggestionResponse = pending,
+) => {
+	let waiting = [reading];
 	return (call: HttpCall): unknown => {
 		if (call.path.endsWith("/calendars")) return { items: calendars };
 		if (call.path.endsWith("/calendar-suggestions")) return { items: waiting };
@@ -95,7 +100,12 @@ const server = (accept: () => Response | undefined) => {
 const mount = async (respond: (call: HttpCall) => unknown) => {
 	http = mockFetch(respond);
 	harness = createDomHarness();
-	harness.renderApp(createElement(PendingSuggestions));
+	harness.renderApp(
+		createElement(PendingSuggestions, {
+			onChangeFirst: (suggestionId: string, date: string) =>
+				changedFirst.push({ suggestionId, date }),
+		}),
+	);
 	await harness.waitFor(
 		() => harness?.text().includes("Quarterly review") === true,
 		"the waiting reading to be drawn",
@@ -133,5 +143,60 @@ describe("what the mail is waiting on, beside the calendar", () => {
 		);
 		assert.match(harness?.text() ?? "", /Couldn't add this to your calendar/);
 		assert.match(harness?.text() ?? "", /Quarterly review/);
+	});
+
+	it("hands the top reading to the editor on the day it falls", async () => {
+		await mount(server(() => undefined));
+		harness?.click(harness.byText("button", "Change first"));
+
+		assert.deepEqual(changedFirst, [
+			{ suggestionId: SUGGESTION, date: "2026-09-01" },
+		]);
+		assert.equal(
+			http?.to(`/calendar-suggestions/${SUGGESTION}/accept`).length,
+			0,
+		);
+	});
+
+	it("sends a reading nobody could put on a clock to the editor instead of adding it", async () => {
+		await mount(
+			server(() => undefined, { ...pending, zoneCertainty: "Ambiguous" }),
+		);
+		harness?.click(harness.byText("button", "Add"));
+
+		assert.deepEqual(
+			changedFirst.map((entry) => entry.suggestionId),
+			[SUGGESTION],
+		);
+		assert.equal(
+			http?.to(`/calendar-suggestions/${SUGGESTION}/accept`).length,
+			0,
+		);
+		assert.match(harness?.text() ?? "", /Quarterly review/);
+	});
+
+	it("applies a cancellation nobody could put on a clock, and offers no editor for it", async () => {
+		await mount(
+			server(() => undefined, {
+				...pending,
+				method: "Cancel",
+				zoneCertainty: "Ambiguous",
+			}),
+		);
+		assert.equal(
+			harness
+				?.queryAll("button")
+				.some((button) => button.textContent?.includes("Change first")),
+			false,
+		);
+
+		harness?.click(harness.byText("button", "Add"));
+		await harness?.waitFor(
+			() =>
+				(http?.to(`/calendar-suggestions/${SUGGESTION}/accept`).length ?? 0) >
+				0,
+			"the cancellation to be applied",
+		);
+		assert.deepEqual(changedFirst, []);
 	});
 });
