@@ -37,13 +37,12 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 			setInsertion((prev) => ({ version: (prev?.version ?? 0) + 1, text })),
 		[],
 	);
-	const answering =
-		surface.mode === "forward" ? undefined : surface.sourceMessageId;
+	const answering = surface.sourceMessageId;
 
-	useEffect(() => {
-		if (answering === undefined) return;
-		return registerOpenReply(answering, insert);
-	}, [answering, insert, registerOpenReply]);
+	useEffect(
+		() => registerOpenReply(answering, insert),
+		[answering, insert, registerOpenReply],
+	);
 
 	const { data: sourceMessage } = useQuery({
 		...messageOperationsDescribeMessageOptions({
@@ -73,6 +72,7 @@ export const ConversationCompose = ({ surface }: { surface: ReplyAddress }) => {
 			    the address, and remounting the form on that would take the caret out
 			    of the sentence being typed. */}
 			<ComposeForm
+				key={surface.sourceMessageId}
 				layout="flow"
 				mode={surface.mode}
 				account={account}

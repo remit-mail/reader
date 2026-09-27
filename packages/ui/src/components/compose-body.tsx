@@ -74,6 +74,7 @@ export interface ComposeBodyProps {
 	 */
 	spellcheck?: SpellcheckOptions;
 	insertion?: ComposeInsertion;
+	onInserted?: (version: number) => void;
 }
 
 /**
@@ -97,6 +98,7 @@ export const ComposeBody = ({
 	onLanguageChange,
 	spellcheck,
 	insertion,
+	onInserted,
 }: ComposeBodyProps) => {
 	const [richHtml, setRichHtml] = useState(initialHtml);
 	const [richGeneration, setRichGeneration] = useState(0);
@@ -202,6 +204,7 @@ export const ComposeBody = ({
 					lang={language}
 					trailing={trailing}
 					insertion={insertion}
+					onInserted={onInserted}
 				/>
 			) : (
 				<RichTextEditor
@@ -214,6 +217,7 @@ export const ComposeBody = ({
 					trailing={trailing}
 					spellcheck={spellcheck}
 					insertion={insertion}
+					onInserted={onInserted}
 				/>
 			)}
 			<ConfirmDialog

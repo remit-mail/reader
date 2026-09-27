@@ -86,6 +86,7 @@ export interface RichTextEditorProps {
 	 */
 	spellcheck?: SpellcheckOptions;
 	insertion?: ComposeInsertion;
+	onInserted?: (version: number) => void;
 }
 
 /**
@@ -913,11 +914,13 @@ const AutoFocus = ({ caret }: { caret?: ComposeCaret }) => {
 
 const InsertionPlugin = ({
 	insertion,
+	onInserted,
 }: {
 	insertion: ComposeInsertion | undefined;
+	onInserted: ((version: number) => void) | undefined;
 }) => {
 	const [editor] = useLexicalComposerContext();
-	const applied = useRef(insertion?.version);
+	const applied = useRef<number | undefined>(undefined);
 
 	useEffect(() => {
 		if (!insertion || insertion.version === applied.current) return;
@@ -929,7 +932,8 @@ const InsertionPlugin = ({
 				: $getRoot().selectEnd();
 			target.insertRawText(insertion.text);
 		});
-	}, [editor, insertion]);
+		onInserted?.(insertion.version);
+	}, [editor, insertion, onInserted]);
 
 	return null;
 };
@@ -954,6 +958,7 @@ export const RichTextEditor = ({
 	lang,
 	spellcheck,
 	insertion,
+	onInserted,
 }: RichTextEditorProps) => {
 	const [checkedHere, setCheckedHere] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
@@ -1026,7 +1031,7 @@ export const RichTextEditor = ({
 			<TablePlugin />
 			<PastePlugin />
 			<AutoFocus caret={initialCaret} />
-			<InsertionPlugin insertion={insertion} />
+			<InsertionPlugin insertion={insertion} onInserted={onInserted} />
 			{onChange && <ChangePlugin onChange={onChange} />}
 		</LexicalComposer>
 	);

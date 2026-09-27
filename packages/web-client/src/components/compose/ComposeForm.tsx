@@ -598,6 +598,15 @@ export const ComposeForm = ({
 		...freshDocument(signature.plainText, seed),
 		formatting: [],
 	}));
+	const [insertedVersion, setInsertedVersion] = useState(
+		() => insertion?.version ?? 0,
+	);
+	const pendingInsertion =
+		insertion &&
+		insertion.version > insertedVersion &&
+		(outboxMessageId === undefined || draftLoaded)
+			? insertion
+			: undefined;
 
 	const { data: draftData, error: draftError } = useQuery({
 		...outboxDetailOperationsGetOutboxMessageOptions({
@@ -1360,7 +1369,8 @@ export const ComposeForm = ({
 					initialLanguage={draftLanguage}
 					onLanguageChange={setComposeLanguage}
 					spellcheck={spellcheck}
-					insertion={insertion}
+					insertion={pendingInsertion}
+					onInserted={setInsertedVersion}
 				/>
 			</Suspense>
 		</ComposeFormShell>

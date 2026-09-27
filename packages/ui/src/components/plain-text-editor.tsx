@@ -22,6 +22,7 @@ export interface PlainTextEditorProps {
 	 */
 	initialCaret?: ComposeCaret;
 	insertion?: ComposeInsertion;
+	onInserted?: (version: number) => void;
 	placeholder?: string;
 	ariaLabel?: string;
 	/** Pinned to the right of the toolbar strip. The mode toggle rides here. */
@@ -72,12 +73,13 @@ export const PlainTextEditor = ({
 	trailing,
 	lang,
 	insertion,
+	onInserted,
 }: PlainTextEditorProps) => {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 	const pendingCaret = useRef<number | null>(null);
 	const plainRequested = useRef(false);
 	const [emptyPaste, setEmptyPaste] = useState(false);
-	const appliedInsertion = useRef(insertion?.version);
+	const appliedInsertion = useRef<number | undefined>(undefined);
 
 	useEffect(() => {
 		if (!insertion || insertion.version === appliedInsertion.current) return;
@@ -86,10 +88,11 @@ export const PlainTextEditor = ({
 		if (!textarea) return;
 		textarea.focus();
 		const spliced = insertAtCaret(textarea, insertion.text);
+		onInserted?.(insertion.version);
 		if (!spliced) return;
 		pendingCaret.current = spliced.caret;
 		onChange(spliced.value);
-	}, [insertion, onChange]);
+	}, [insertion, onChange, onInserted]);
 
 	// Grows to its content rather than scrolling inside itself: one scroller in
 	// the compose body keeps the caret in view for free, which a nested one is

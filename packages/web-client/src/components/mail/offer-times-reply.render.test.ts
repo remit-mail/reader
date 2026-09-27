@@ -31,6 +31,7 @@ const ACCOUNT_ID = "acc-1";
 const MAILBOX_ID = "mbx-inbox";
 const THREAD_ID = "thread-1";
 const MESSAGE_ID = "msg-1";
+const OTHER_ID = "msg-2";
 const DRAFT_ID = "ob-times";
 const CALENDAR = "11111111-1111-4111-8111-111111111111";
 const SUGGESTION = "22222222-2222-4222-8222-222222222222";
@@ -59,6 +60,11 @@ const thread: RemitImapThreadMessageResponse = makeThreadMessage({
 	fromEmail: "organizer@example.test",
 	isRead: true,
 });
+
+const otherThread: RemitImapThreadMessageResponse = {
+	...thread,
+	messageId: OTHER_ID,
+};
 
 const describeMessage: RemitImapDescribeMessageResponse = {
 	message: {
@@ -193,8 +199,22 @@ afterEach(() => {
 
 const MESSAGE_PATH = `/mail/${MAILBOX_ID}/${THREAD_ID}/${MESSAGE_ID}`;
 
-const CalendarRail = () => {
-	const calendar = useIntelligenceCalendar(thread, useReplyWithText());
+const describeOther: RemitImapDescribeMessageResponse = {
+	...describeMessage,
+	message: { ...describeMessage.message, messageId: OTHER_ID, uid: 2 },
+	envelope: {
+		...describeMessage.envelope,
+		messageId: OTHER_ID,
+		messageIdValue: "<review-2@example.test>",
+	},
+};
+
+const CalendarRail = ({
+	railThread,
+}: {
+	railThread: RemitImapThreadMessageResponse;
+}) => {
+	const calendar = useIntelligenceCalendar(railThread, useReplyWithText());
 	return createElement(IntelligencePanel, {
 		data: sender,
 		calendar: calendar.surface,
@@ -203,7 +223,11 @@ const CalendarRail = () => {
 	});
 };
 
-const Surface = () =>
+const Surface = ({
+	railThread,
+}: {
+	railThread: RemitImapThreadMessageResponse;
+}) =>
 	createElement(
 		ComposeProvider,
 		null,
@@ -213,7 +237,7 @@ const Surface = () =>
 			subject: "Quarterly review",
 			selectedMessageId: MESSAGE_ID,
 		}),
-		createElement(CalendarRail),
+		createElement(CalendarRail, { railThread }),
 	);
 
 const savedDraft = {
@@ -238,15 +262,25 @@ const creates = (): HttpCall[] =>
 
 const mount = async (
 	href: string,
+	{
+		railThread = thread,
+		draftArrives = Promise.resolve(),
+	}: {
+		railThread?: RemitImapThreadMessageResponse;
+		draftArrives?: Promise<void>;
+	} = {},
 ): Promise<{ mounted: DomHarness; router: AnyRouter; redraw: () => void }> => {
 	let saved: Record<string, unknown> = savedDraft;
-	http = mockFetch((call) => {
+	http = mockFetch(async (call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		if (call.path.endsWith(`/accounts/${ACCOUNT_ID}/mailboxes`))
 			return { items: [inbox] };
 		if (call.path.endsWith(`/threads/${THREAD_ID}/messages`))
-			return { items: [thread] };
+			return { items: [thread, otherThread] };
 		if (call.path.endsWith(`/messages/${MESSAGE_ID}`)) return describeMessage;
+		if (call.path.endsWith(`/messages/${OTHER_ID}`)) return describeOther;
+		if (call.path.endsWith(`/messages/${OTHER_ID}/calendar-suggestions`))
+			return { items: [{ ...invitation, messageId: OTHER_ID }] };
 		if (call.path.endsWith("/calendars")) return { items: calendars };
 		if (call.path.endsWith(`/messages/${MESSAGE_ID}/calendar-suggestions`))
 			return { items: [invitation] };
@@ -257,7 +291,10 @@ const mount = async (
 			};
 			return saved;
 		}
-		if (call.path.endsWith(`/outbox/${DRAFT_ID}`)) return saved;
+		if (call.path.endsWith(`/outbox/${DRAFT_ID}`)) {
+			await draftArrives;
+			return saved;
+		}
 		return { items: [] };
 	});
 
@@ -274,7 +311,7 @@ const mount = async (
 			createElement(RouterContextProvider, {
 				router,
 				// biome-ignore lint/correctness/noChildrenProp: RouterContextProvider types `children` as a required prop, which createElement's rest-argument form does not satisfy
-				children: createElement(Surface),
+				children: createElement(Surface, { railThread }),
 			}),
 		);
 	redraw();
@@ -424,5 +461,69 @@ describe("offering other times from an invitation", () => {
 		assert.ok(composerText(mounted).includes("See you then"));
 		assert.equal(router.state.location.pathname, href);
 		assert.equal(seedInAddress(router), undefined);
+	});
+
+	it("adds the times to a forward of the same message already open", async () => {
+		const href = `${MESSAGE_PATH}/forward`;
+		const { mounted, router } = await mount(href);
+		await mounted.waitFor(
+			() => mounted.query("[data-testid=compose-body]") !== null,
+			"the forward to open",
+			5000,
+		);
+
+		const picked = await pickAndReply(mounted);
+
+		await mounted.waitFor(
+			() => composerText(mounted).includes(picked),
+			"the picked time to go into the open forward",
+		);
+		assert.equal(router.state.location.pathname, href);
+	});
+
+	it("opens a reply holding the times when the open reply answers another message", async () => {
+		const { mounted, router, redraw } = await mount(`${MESSAGE_PATH}/reply`, {
+			railThread: otherThread,
+		});
+		await mounted.waitFor(
+			() => mounted.query("[data-testid=compose-body]") !== null,
+			"the reply to the first message to open",
+			5000,
+		);
+
+		const picked = await pickAndReply(mounted);
+
+		await drawnUntil(
+			mounted,
+			redraw,
+			() => composerText(mounted).includes(picked),
+			"a reply to the other message holding the times",
+		);
+		assert.equal(
+			router.state.location.pathname,
+			`/mail/${MAILBOX_ID}/${THREAD_ID}/${OTHER_ID}/reply`,
+		);
+	});
+
+	it("adds the times on top of a draft still loading when they were picked", async () => {
+		let deliver = () => {};
+		const draftArrives = new Promise<void>((resolve) => {
+			deliver = resolve;
+		});
+		const { mounted } = await mount(`${MESSAGE_PATH}/reply-all/${DRAFT_ID}`, {
+			draftArrives,
+		});
+
+		const picked = await pickAndReply(mounted);
+		await mounted.wait(100);
+		deliver();
+
+		await mounted.waitFor(
+			() =>
+				composerText(mounted).includes("See you then") &&
+				composerText(mounted).includes(picked),
+			"the loaded draft to hold the picked time",
+			5000,
+		);
 	});
 });
