@@ -29,6 +29,8 @@ export class ImageNode extends DecoratorNode<null> {
 	__src: string;
 	/** @internal */
 	__alt: string;
+	/** @internal */
+	__preview = "";
 
 	$config() {
 		return this.config("image", {
@@ -48,22 +50,25 @@ export class ImageNode extends DecoratorNode<null> {
 		super.afterCloneFrom(prevNode);
 		this.__src = prevNode.__src;
 		this.__alt = prevNode.__alt;
+		this.__preview = prevNode.__preview;
 	}
 
 	createDOM(config: EditorConfig): HTMLImageElement {
-		const element = this.buildImage();
+		const element = this.buildImage(this.__preview || this.__src);
 		addClassNamesToElement(element, config.theme.image);
 		return element;
 	}
 
 	updateDOM(prevNode: this, element: HTMLImageElement): boolean {
-		if (prevNode.__src !== this.__src) element.setAttribute("src", this.__src);
+		const shown = this.__preview || this.__src;
+		if ((prevNode.__preview || prevNode.__src) !== shown)
+			element.setAttribute("src", shown);
 		if (prevNode.__alt !== this.__alt) element.setAttribute("alt", this.__alt);
 		return false;
 	}
 
 	exportDOM(): DOMExportOutput {
-		return { element: this.buildImage() };
+		return { element: this.buildImage(this.__src) };
 	}
 
 	exportJSON(): SerializedImageNode {
@@ -87,6 +92,16 @@ export class ImageNode extends DecoratorNode<null> {
 		return writable;
 	}
 
+	getPreview(): string {
+		return this.getLatest().__preview;
+	}
+
+	setPreview(preview: string): this {
+		const writable = this.getWritable();
+		writable.__preview = preview;
+		return writable;
+	}
+
 	getAlt(): string {
 		return this.getLatest().__alt;
 	}
@@ -106,9 +121,9 @@ export class ImageNode extends DecoratorNode<null> {
 		return true;
 	}
 
-	private buildImage(): HTMLImageElement {
+	private buildImage(src: string): HTMLImageElement {
 		const element = $getDocument().createElement("img");
-		element.setAttribute("src", this.__src);
+		element.setAttribute("src", src);
 		element.setAttribute("alt", this.__alt);
 		return element;
 	}

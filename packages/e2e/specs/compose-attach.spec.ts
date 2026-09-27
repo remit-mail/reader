@@ -23,6 +23,7 @@ import {
 } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
 import { waitForAcceptedMessage } from "../src/smtp-sink.js";
+import { MAILBOX_ROW_LINK, MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const DESKTOP = { width: 1512, height: 864 };
 
@@ -132,6 +133,8 @@ test.describe("Attaching a file to a message (#679)", () => {
 		expect(attachedPart(wire)).toEqual({
 			contentType: ATTACHED.mimeType,
 			filename: ATTACHED.name,
+			contentId: null,
+			disposition: "attachment",
 			content: ATTACHED.content,
 		});
 
@@ -144,5 +147,23 @@ test.describe("Attaching a file to a message (#679)", () => {
 			throw new Error("unreachable: the Sent copy was matched as present");
 		expect(filed.contentType).toBe("multipart/mixed");
 		expect(attachedPart(filed)).toEqual(attachedPart(wire));
+
+		const sent = (await api.listMailboxes(run.accountId)).find(
+			(box) => box.fullPath === "Sent",
+		);
+		if (!sent) throw new Error("the account has no Sent folder");
+		const sentRow = page.locator(MAILBOX_ROW_LINK).filter({ hasText: subject });
+		await expect(async () => {
+			await api.triggerSync(run.accountId);
+			await page.goto(`/mail/${sent.mailboxId}`);
+			await expect(sentRow).toHaveCount(1, { timeout: 5_000 });
+		}).toPass({ timeout: 120_000 });
+		await sentRow.click();
+		await page.waitForURL(MAILBOX_THREAD_URL);
+
+		const listed = page.getByRole("article").getByTestId("attachment-list");
+		await expect(listed.getByText(ATTACHED.name, { exact: true })).toBeVisible({
+			timeout: 30_000,
+		});
 	});
 });

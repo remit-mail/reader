@@ -106,6 +106,19 @@ describe("sanitizeAdoptedHtml", () => {
 		assert.equal(result.includes("cid:part1"), false);
 	});
 
+	it("keeps a cid: image only when it names one of the draft's own files", () => {
+		const result = sanitizeAdoptedHtml(
+			[
+				'<img src="cid:att-1@remit" alt="Ours">',
+				'<img src="cid:part1" alt="Another message">',
+			].join(""),
+			(contentId) => contentId === "att-1@remit",
+		);
+
+		assert.match(result, /src="cid:att-1@remit"/);
+		assert.equal(result.includes("cid:part1"), false);
+	});
+
 	it("caps an image at the width the recipient has for it", () => {
 		const result = sanitizeAdoptedHtml(
 			'<img src="https://example.com/screenshot.png" width="1600">',

@@ -123,6 +123,9 @@ model MintOutboxAttachmentResponse {
   @minValue(1)
   sizeBytes: int64;
 
+  @doc("Content-ID the body refers to this file by, as `cid:<contentId>`. A file the HTML body refers to goes out inline.")
+  contentId: String256;
+
   @doc("Where to PUT the raw bytes. Single use, one attachment, expires.")
   uploadUrl: String2048;
 
@@ -131,8 +134,8 @@ model MintOutboxAttachmentResponse {
 }
 
 @doc("A file on a draft, as the composer sees it")
-model OutboxAttachmentResponse
-  is PickProperties<
+model OutboxAttachmentResponse {
+  ...PickProperties<
     OutboxAttachment,
 
       | "outboxAttachmentId"
@@ -142,6 +145,13 @@ model OutboxAttachmentResponse
       | "sizeBytes"
       | "state"
   >;
+
+  @doc("Content-ID the body refers to this file by, as `cid:<contentId>`")
+  contentId: String256;
+
+  @doc("URL the composer fetches the stored bytes from, the same /content route a received part is read through")
+  contentUrl: url;
+}
 
 @doc("A file the server refused, with everything the composer needs to say why")
 model OutboxAttachmentRejection {

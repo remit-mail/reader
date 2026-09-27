@@ -132,7 +132,7 @@ describe("buildMailMessage", () => {
 			},
 		];
 		const message = buildMailMessage(baseOutbox(), attachments);
-		assert.equal(message.attachments, attachments);
+		assert.deepEqual(message.attachments, attachments);
 	});
 
 	it("leaves attachments undefined when none are provided", () => {
@@ -255,6 +255,53 @@ describe("renderRawMessage", () => {
 		assert.match(raw, /Content-ID: <logo-cid>/);
 		assert.ok(raw.includes(Buffer.from("pdf-bytes").toString("base64")));
 		assert.ok(raw.includes(Buffer.from("png-bytes").toString("base64")));
+	});
+
+	it("puts a file the html body refers to inline, next to the html", async () => {
+		const raw = String(
+			await renderRawMessage(
+				buildMailMessage(
+					baseOutbox({
+						textBody: "see below",
+						htmlBody: '<p>see below</p><p><img src="cid:shot-1@remit"></p>',
+					}),
+					[
+						{
+							filename: "shot.png",
+							content: Buffer.from("png-bytes"),
+							contentType: "image/png",
+							cid: "shot-1@remit",
+						},
+					],
+				),
+			),
+		);
+
+		assert.match(raw, /Content-Type: multipart\/related; type="text\/html"/);
+		assert.match(raw, /Content-Disposition: inline; filename=shot\.png/);
+		assert.match(raw, /Content-ID: <shot-1@remit>/);
+	});
+
+	it("sends a file the html body does not refer to as an ordinary attachment", async () => {
+		const raw = String(
+			await renderRawMessage(
+				buildMailMessage(
+					baseOutbox({ textBody: "attached", htmlBody: "<p>attached</p>" }),
+					[
+						{
+							filename: "photo.png",
+							content: Buffer.from("png-bytes"),
+							contentType: "image/png",
+							cid: "photo-1@remit",
+						},
+					],
+				),
+			),
+		);
+
+		assert.match(raw, /Content-Disposition: attachment; filename=photo\.png/);
+		assert.ok(!raw.includes("Content-ID"));
+		assert.ok(!raw.includes("multipart/related"));
 	});
 
 	it("dates the rendered copy from the moment the send was recorded", async () => {

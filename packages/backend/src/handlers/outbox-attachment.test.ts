@@ -53,6 +53,8 @@ import {
 	mintOutboxAttachment,
 } from "./outbox-attachment.js";
 
+process.env.CONTENT_DELIVERY_DOMAIN = "https://content.test";
+
 const SUB = "cognito-sub-679";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const OTHER_ACCOUNT_CONFIG_ID = deriveAccountConfigId("cognito-sub-stranger");

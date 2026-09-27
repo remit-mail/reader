@@ -8,6 +8,7 @@ import {
 	ComposeModeToggle,
 } from "./compose-mode-toggle.js";
 import { RichTextEditor } from "./rich-text-editor.js";
+import type { InlineImages } from "./rich-text-inline-images.js";
 import type {
 	CheckRequest,
 	Finding,
@@ -1108,5 +1109,85 @@ export const StickyToolbar: Story = {
 		await expect(
 			toggle.getBoundingClientRect().top - frame.getBoundingClientRect().top,
 		).toBeLessThan(60);
+	},
+};
+
+const pasteScreenshot = async (editable: HTMLElement): Promise<void> => {
+	const canvas = document.createElement("canvas");
+	canvas.width = 480;
+	canvas.height = 200;
+	const context = canvas.getContext("2d");
+	if (!context) throw new Error("no 2d canvas to draw the screenshot on");
+	context.fillStyle = "#e2e8f0";
+	context.fillRect(0, 0, 480, 200);
+	context.fillStyle = "#3780f6";
+	for (const [index, height] of [60, 120, 90, 160].entries()) {
+		context.fillRect(40 + index * 110, 180 - height, 70, height);
+	}
+	const blob = await new Promise<Blob | null>((resolve) =>
+		canvas.toBlob(resolve, "image/png"),
+	);
+	if (!blob) throw new Error("the screenshot could not be encoded");
+	const clipboard = new DataTransfer();
+	clipboard.items.add(new File([blob], "chart.png", { type: "image/png" }));
+	editable.dispatchEvent(
+		new ClipboardEvent("paste", {
+			clipboardData: clipboard,
+			bubbles: true,
+			cancelable: true,
+		}),
+	);
+};
+
+const storyInlineImages: InlineImages = {
+	attach: (files, placement) => {
+		for (const file of files) placement?.stored(file, `${file.name}@remit`);
+	},
+	owns: (contentId) => contentId.endsWith("@remit"),
+	resolve: async () => null,
+	onRemoved: () => () => {},
+};
+
+const InlineImageComposer = () => {
+	const [outgoing, setOutgoing] = useState("");
+	return (
+		<>
+			<RichTextEditor
+				initialHtml="<p>This week's numbers:</p>"
+				onChange={(value) => setOutgoing(value.html)}
+				inlineImages={storyInlineImages}
+			/>
+			<output data-testid="outgoing-html" className="sr-only">
+				{outgoing}
+			</output>
+		</>
+	);
+};
+
+export const PastedInlineImage: Story = {
+	name: "Pasting a screenshot inline",
+	render: () => <InlineImageComposer />,
+	play: async ({ canvasElement }) => {
+		const editable = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=compose-body]",
+		);
+		const outgoing = canvasElement.querySelector<HTMLElement>(
+			"[data-testid=outgoing-html]",
+		);
+		if (!editable || !outgoing) throw new Error("the editor is not mounted");
+
+		await userEvent.click(editable);
+		await pasteScreenshot(editable);
+
+		const image = await waitFor(() => {
+			const shown = editable.querySelector("img");
+			if (!shown) throw new Error("the screenshot is not in the body");
+			return shown;
+		});
+		await expect(image).toHaveAttribute("alt", "chart.png");
+		await waitFor(() => expect(image.naturalWidth).toBe(480));
+		await waitFor(() =>
+			expect(outgoing.textContent).toContain('src="cid:chart.png@remit"'),
+		);
 	},
 };

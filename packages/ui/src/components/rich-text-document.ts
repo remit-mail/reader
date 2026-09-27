@@ -13,7 +13,10 @@ import {
 	type LexicalNode,
 	type TextFormatType,
 } from "lexical";
-import { sanitizeAdoptedHtml } from "../lib/adopted-html.js";
+import {
+	type ContentIdOwner,
+	sanitizeAdoptedHtml,
+} from "../lib/adopted-html.js";
 import { COMPOSE_TRANSFORMERS } from "./rich-text-markdown.js";
 import { RICH_TEXT_NODES } from "./rich-text-nodes.js";
 import type { RichTextValue } from "./rich-text-value.js";
@@ -21,9 +24,10 @@ import type { RichTextValue } from "./rich-text-value.js";
 export const $adoptHtml = (
 	editor: LexicalEditor,
 	html: string,
+	owns?: ContentIdOwner,
 ): LexicalNode[] => {
 	const document = new DOMParser().parseFromString(
-		sanitizeAdoptedHtml(html),
+		sanitizeAdoptedHtml(html, owns),
 		"text/html",
 	);
 	return $generateNodesFromDOM(editor, document);
@@ -85,8 +89,11 @@ export const $documentFormatting = (): string[] => {
  * outgoing document goes back through the same profile a paste comes in
  * through.
  */
-export const $readRichText = (editor: LexicalEditor): RichTextValue => ({
-	html: sanitizeAdoptedHtml($generateHtmlFromNodes(editor, null)),
+export const $readRichText = (
+	editor: LexicalEditor,
+	owns?: ContentIdOwner,
+): RichTextValue => ({
+	html: sanitizeAdoptedHtml($generateHtmlFromNodes(editor, null), owns),
 	text: $convertToMarkdownString(COMPOSE_TRANSFORMERS),
 	formatting: $documentFormatting(),
 });
