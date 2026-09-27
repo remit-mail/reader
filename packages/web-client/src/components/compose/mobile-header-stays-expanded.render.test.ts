@@ -14,7 +14,10 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
+import type {
+	RemitImapAccountResponse,
+	RemitImapDescribeMessageResponse,
+} from "@remit/api-http-client/types.gen.ts";
 import {
 	type AnyRouter,
 	createMemoryHistory,
@@ -43,6 +46,20 @@ const account = {
 	email: "me@example.com",
 	smtpEnabled: true,
 } as unknown as RemitImapAccountResponse;
+
+const sourceMessage = {
+	message: { messageId: "msg-1" },
+	envelope: {
+		subject: "Lunch",
+		messageIdValue: "<m1@example.com>",
+		from: [{ normalizedEmail: "them@example.com", displayName: "Them" }],
+		replyTo: [],
+		to: [],
+		cc: [],
+	},
+	references: [],
+	bodyParts: [],
+} as unknown as RemitImapDescribeMessageResponse;
 
 interface VisualViewportStub {
 	height: number;
@@ -97,15 +114,22 @@ const testRouter = (): AnyRouter =>
 		history: createMemoryHistory({ initialEntries: ["/mail/mbx-1"] }),
 	}) as unknown as AnyRouter;
 
-const Opened = () =>
+const Opened = ({ mode }: { mode: "new" | "reply" }) =>
 	createElement(ComposeForm, {
-		mode: "new",
+		mode,
 		account,
+		sourceMessage: mode === "reply" ? sourceMessage : undefined,
 		onDraftCreated: () => {},
 		onClose: () => {},
 	});
 
-const mount = async (): Promise<void> => {
+const mount = async ({
+	mode = "new",
+	keyboardOpen = true,
+}: {
+	mode?: "new" | "reply";
+	keyboardOpen?: boolean;
+} = {}): Promise<void> => {
 	http = mockFetch(async (call) => {
 		if (call.path.endsWith("/config")) return { accounts: [account] };
 		return { items: [] };
@@ -115,7 +139,9 @@ const mount = async (): Promise<void> => {
 		configurable: true,
 		value: viewport,
 	});
-	viewport.height = globalThis.window.innerHeight - KEYBOARD_HEIGHT;
+	viewport.height = keyboardOpen
+		? globalThis.window.innerHeight - KEYBOARD_HEIGHT
+		: globalThis.window.innerHeight;
 
 	harness = createDomHarness(PHONE);
 	harness.renderApp(
@@ -125,7 +151,7 @@ const mount = async (): Promise<void> => {
 			children: createElement(
 				ComposeProvider,
 				null,
-				createElement(Opened, null),
+				createElement(Opened, { mode }),
 			),
 		}),
 	);
@@ -164,6 +190,35 @@ describe("the phone compose header and the software keyboard", () => {
 		assert.ok(
 			recipientInput(),
 			"the recipient field survived the keyboard coming back",
+		);
+		assert.equal(
+			collapsedBar(),
+			null,
+			"the header did not collapse over the field being typed into",
+		);
+	});
+
+	it("keeps To mounted when a reply brings the keyboard up over it", async () => {
+		await mount({ mode: "reply", keyboardOpen: false });
+
+		const input = recipientInput();
+		assert.ok(input, "the rows are there while the keyboard is down");
+
+		act(() => {
+			input.focus();
+		});
+		setKeyboard(true);
+		await harness?.flush();
+
+		assert.equal(
+			recipientInput(),
+			input,
+			"the recipient field stayed mounted under the keyboard",
+		);
+		assert.equal(
+			globalThis.document.activeElement,
+			input,
+			"the recipient field kept focus",
 		);
 		assert.equal(
 			collapsedBar(),
