@@ -110,6 +110,10 @@ function PanelDemo({
 					selectedEventId,
 					actions: {
 						onAddInvite: () => setRsvp("accepted"),
+						onTentativeInvite:
+							calendar.invite?.invite.state === "cancelled"
+								? undefined
+								: () => setRsvp("tentative"),
 						onDeclineInvite: () => setRsvp("declined"),
 						onReopenInvite:
 							calendar.invite?.invite.state === "cancelled"
@@ -319,7 +323,19 @@ export const Declined = rail(KICKOFF, organiserSender, {
 });
 
 /**
- * No calendar to write to yet. Adding waits for one, with the way to make it;
+ * Answered maybe. The event is on the calendar as tentative, and the organiser
+ * was not told.
+ */
+export const AnsweredMaybe = rail(KICKOFF, organiserSender, {
+	...inviteWithClash,
+	invite: inviteWithClash.invite && {
+		...inviteWithClash.invite,
+		rsvp: "tentative",
+	},
+});
+
+/**
+ * No calendar to write to yet. Adding and maybe wait for one, with the way to make it;
  * declining and muting write nothing to a calendar and stay live.
  */
 export const NoCalendarYet = rail(KICKOFF, organiserSender, {

@@ -78,7 +78,7 @@ export interface CalendarInviteCardProps {
 	reportHref?: string;
 	/**
 	 * Why nothing can be written to a calendar yet, and the way to fix it. Set,
-	 * it holds Add and Remove; the answers that write nothing stay live.
+	 * it holds Add, Maybe and Remove; the answers that write nothing stay live.
 	 */
 	addBlocked?: ReactNode;
 	touch?: boolean;
@@ -271,7 +271,7 @@ export function CalendarInviteCard({
 									variant="secondary"
 									size={touch ? "md" : "sm"}
 									onClick={onTentative}
-									disabled={busy}
+									disabled={busy || addBlocked !== undefined}
 									className={cn(touch && "min-h-11 flex-1")}
 								>
 									Maybe

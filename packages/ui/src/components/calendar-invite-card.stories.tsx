@@ -75,6 +75,11 @@ export const AlreadyOnTheCalendar: Story = {
 	args: { ...base, rsvp: "accepted", clashes: [] },
 };
 
+/** Answered maybe. On the calendar as tentative, and the organiser was not told. */
+export const AnsweredMaybe: Story = {
+	args: { ...base, rsvp: "tentative", clashes: [] },
+};
+
 /** Declined, with the way back to offering other times still open. */
 export const Declined: Story = {
 	args: { ...base, rsvp: "declined", clashes: [] },

@@ -1,9 +1,11 @@
+import type { CalendarInviteAnswer as CalendarInviteAnswerValue } from "@remit/api-openapi-types";
 import type {
 	CalendarObjectItem,
 	CalendarSuggestionItem,
 	ICalendarUnitOfWork,
 } from "@remit/data-ports";
 import {
+	CalendarInviteAnswer,
 	CalendarInviteMethod,
 	CalendarSuggestionState,
 } from "@remit/domain-enums";
@@ -16,15 +18,32 @@ import { mailAddressOf } from "./suggest.js";
 const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
 	component.getAllSubcomponents("vevent");
 
+const partstatOf: Record<CalendarInviteAnswerValue, string> = {
+	[CalendarInviteAnswer.Accepted]: "ACCEPTED",
+	[CalendarInviteAnswer.Tentative]: "TENTATIVE",
+};
+
+const stateOf: Record<
+	CalendarInviteAnswerValue,
+	CalendarSuggestionItem["state"]
+> = {
+	[CalendarInviteAnswer.Accepted]: CalendarSuggestionState.Accepted,
+	[CalendarInviteAnswer.Tentative]: CalendarSuggestionState.Tentative,
+};
+
 /**
- * Marks one address as having accepted, on every VEVENT of the resource — the
+ * Marks one address with its answer, on every VEVENT of the resource — the
  * master and each override alike, since an attendee's answer is to the series.
  *
  * An ATTENDEE line already naming the user has its PARTSTAT rewritten rather
  * than a second one appended: two ATTENDEE lines for one person is a resource
  * every other client reads as two people.
  */
-const markAccepted = (component: ICAL.Component, attendee: string): void => {
+const markAnswered = (
+	component: ICAL.Component,
+	attendee: string,
+	answer: CalendarInviteAnswerValue,
+): void => {
 	const wanted = attendee.toLowerCase();
 	for (const event of eventsOf(component)) {
 		const existing = event
@@ -36,7 +55,7 @@ const markAccepted = (component: ICAL.Component, attendee: string): void => {
 			);
 		const property =
 			existing ?? new ICAL.Property("attendee", event as ICAL.Component);
-		property.setParameter("partstat", "ACCEPTED");
+		property.setParameter("partstat", partstatOf[answer]);
 		if (!existing) {
 			property.setValue(`mailto:${attendee}`);
 			event.addProperty(property);
@@ -69,13 +88,14 @@ const markCancelled = (component: ICAL.Component): void => {
 export const buildAcceptedCalendar = async (
 	suggestion: Pick<CalendarSuggestionItem, "icalData" | "method">,
 	attendee: string,
+	answer: CalendarInviteAnswerValue,
 ): Promise<CalendarResult<string>> => {
 	const parsed = await parseCalendar(suggestion.icalData);
 	if (!parsed.ok) return parsed;
 
 	const { component } = parsed.value;
 	component.removeAllProperties("method");
-	markAccepted(component, attendee);
+	markAnswered(component, attendee, answer);
 	if (suggestion.method === CalendarInviteMethod.Cancel) {
 		markCancelled(component);
 	}
@@ -89,6 +109,7 @@ export interface AcceptCalendarSuggestionInput {
 	suggestion: CalendarSuggestionItem;
 	/** Mail address of the person accepting — the account the message arrived on. */
 	attendee: string;
+	answer: CalendarInviteAnswerValue;
 }
 
 /**
@@ -142,6 +163,7 @@ export const acceptCalendarSuggestion = async (
 	const icalData = await buildAcceptedCalendar(
 		input.suggestion,
 		input.attendee,
+		input.answer,
 	);
 	if (!icalData.ok) return icalData;
 
@@ -190,7 +212,7 @@ export const acceptCalendarSuggestion = async (
 			input.accountConfigId,
 			input.suggestion.suggestionId,
 			{
-				state: CalendarSuggestionState.Accepted,
+				state: stateOf[input.answer],
 				acceptedCalendarObjectId: written.value.calendarObjectId,
 			},
 		);

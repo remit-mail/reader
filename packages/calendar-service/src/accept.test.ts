@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CalendarSuggestionItem } from "@remit/data-ports";
 import {
+	CalendarInviteAnswer,
 	CalendarSuggestionSource,
 	CalendarSuggestionState,
 } from "@remit/domain-enums";
@@ -99,6 +100,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({ sequence: 3 })),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -110,6 +112,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({})),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -122,6 +125,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({ attendees: [] })),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -137,6 +141,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({})),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -147,6 +152,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({})),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -157,6 +163,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf(invitation({ method: "CANCEL" }), { method: "Cancel" }),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.ok(built.ok);
@@ -167,6 +174,7 @@ describe("buildAcceptedCalendar", () => {
 		const built = await buildAcceptedCalendar(
 			suggestionOf("", { source: CalendarSuggestionSource.TextHeuristic }),
 			ATTENDEE,
+			CalendarInviteAnswer.Accepted,
 		);
 
 		assert.equal(built.ok, false);
@@ -183,6 +191,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(accepted.ok);
@@ -198,6 +207,32 @@ describe("acceptCalendarSuggestion", () => {
 		assert.equal(store.objects.size, 1);
 	});
 
+	it("a maybe writes the resource as tentative and settles the card Tentative", async () => {
+		const { store, calendarId } = await provisioned();
+		const suggestion = await recorded(store, invitation({}), "message-1");
+
+		const answered = await acceptCalendarSuggestion(store, {
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			calendarId,
+			suggestion,
+			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Tentative,
+		});
+
+		assert.ok(answered.ok);
+		assert.equal(
+			answered.value.suggestion.state,
+			CalendarSuggestionState.Tentative,
+		);
+		assert.equal(
+			answered.value.suggestion.acceptedCalendarObjectId,
+			answered.value.object?.calendarObjectId,
+		);
+		assert.match(answered.value.object?.icalData ?? "", /PARTSTAT=TENTATIVE/);
+		assert.doesNotMatch(answered.value.object?.icalData ?? "", /ACCEPTED/);
+		assert.equal(store.objects.size, 1);
+	});
+
 	it("expands the accepted event into the occurrence index", async () => {
 		const { store, calendarId } = await provisioned();
 		const suggestion = await recorded(store, invitation({}), "message-1");
@@ -207,6 +242,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(accepted.ok);
@@ -226,12 +262,14 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 		const second = await acceptCalendarSuggestion(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			suggestion,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(first.ok);
@@ -255,6 +293,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: first,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		const revision = await recorded(
@@ -267,6 +306,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: revision,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(accepted.ok);
@@ -292,6 +332,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: cancel,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(accepted.ok);
@@ -319,6 +360,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: request,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		const cancel = await recorded(
@@ -334,6 +376,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: cancel,
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.ok(accepted.ok);
@@ -349,6 +392,7 @@ describe("acceptCalendarSuggestion", () => {
 			calendarId,
 			suggestion: suggestionOf("BEGIN:VCALENDAR"),
 			attendee: ATTENDEE,
+			answer: CalendarInviteAnswer.Accepted,
 		});
 
 		assert.equal(accepted.ok, false);

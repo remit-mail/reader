@@ -10,6 +10,7 @@ import type {
 	SettleCalendarSuggestionInput,
 } from "@remit/data-ports";
 import {
+	CalendarInviteAnswer,
 	CalendarInviteMethod,
 	CalendarSuggestionSource,
 	CalendarSuggestionState,
@@ -354,6 +355,7 @@ const INVITATION = [
 const putSuggestion = (
 	accountConfigId: string,
 	messageId: string,
+	method: CalendarSuggestionItem["method"] = CalendarInviteMethod.Request,
 ): Promise<CalendarSuggestionItem> =>
 	client.calendarSuggestion.put({
 		accountConfigId,
@@ -361,7 +363,7 @@ const putSuggestion = (
 		bodyPartId: "part-1",
 		icalUid: "invite@example.test",
 		sequence: 0,
-		method: CalendarInviteMethod.Request,
+		method,
 		source: CalendarSuggestionSource.IcalendarPart,
 		summary: "Quarterly review",
 		dtStart: "2026-09-01T10:00:00+02:00",
@@ -505,6 +507,45 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 		);
 		assert.equal(untouched.state, CalendarSuggestionState.Pending);
 		assert.equal(untouched.acceptedCalendarObjectId, "");
+	});
+
+	test("refuses a maybe to a cancellation, before writing anything", async () => {
+		const { accountConfigId, event } = anAccount();
+		const calendar = await client.calendarCollection.create({
+			accountConfigId,
+			urlSegment: "default",
+			displayName: "Calendar",
+		});
+		const card = await putSuggestion(
+			accountConfigId,
+			"msg-cancel-maybe",
+			CalendarInviteMethod.Cancel,
+		);
+
+		await assert.rejects(
+			() =>
+				acceptSuggestion(
+					contextOf({
+						params: { suggestionId: card.suggestionId },
+						requestBody: {
+							calendarId: calendar.calendarId,
+							answer: CalendarInviteAnswer.Tentative,
+						},
+					}),
+					event,
+				),
+			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
+		);
+
+		assert.deepEqual(
+			await client.calendarObject.listByCalendar(calendar.calendarId),
+			[],
+		);
+		const untouched = await client.calendarSuggestion.get(
+			accountConfigId,
+			card.suggestionId,
+		);
+		assert.equal(untouched.state, CalendarSuggestionState.Pending);
 	});
 });
 

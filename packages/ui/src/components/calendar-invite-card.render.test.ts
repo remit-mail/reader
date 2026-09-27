@@ -148,6 +148,7 @@ describe("CalendarInviteCard", () => {
 			return upTo.slice(upTo.lastIndexOf("<button"));
 		};
 		assert.match(before("Add to calendar"), /disabled=""/);
+		assert.match(before("Maybe"), /disabled=""/);
 		assert.doesNotMatch(before("Decline"), /disabled=""/);
 		assert.doesNotMatch(before("Stop offering"), /disabled=""/);
 	});
