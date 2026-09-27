@@ -145,6 +145,10 @@ model CalendarSuggestion {
   @visibility(Lifecycle.Read)
   acceptedCalendarObjectId: string = "";
 
+  @doc("The message whose revision retired this one. `\"\"` until it is `Superseded` — the named absent state, never a missing attribute — and the newer message's id afterwards, so the card can open the revision to answer.")
+  @visibility(Lifecycle.Read)
+  supersededByMessageId: string = "";
+
   @visibility(Lifecycle.Read)
   @createdAt
   createdAt: int64;
@@ -183,4 +187,7 @@ model DismissCalendarSuggestionInput {
 @doc("A suggestion as the API returns it. The raw `icalData` is not surfaced: a client renders the projected fields, and the bytes exist so that accepting can write them into a calendar unchanged.")
 model CalendarSuggestionResponse {
   ...OmitProperties<CalendarSuggestion, "icalData">;
+
+  @doc("The conversation holding `supersededByMessageId`, which is what the reading pane opens. `\"\"` when this revision was not superseded, or when that message sits in no conversation any more.")
+  supersededByThreadId: string;
 }

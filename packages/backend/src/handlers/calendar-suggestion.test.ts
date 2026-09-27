@@ -29,6 +29,7 @@ import {
 	assertSettleable,
 	CalendarSuggestionActionOperations,
 	CalendarSuggestionOperations,
+	MessageCalendarSuggestionOperations,
 	type MuteSenderDeps,
 	muteSender,
 	settleSuggestion,
@@ -58,6 +59,7 @@ const suggestion = (
 	zoneCertainty: "Explicit",
 	icalData: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
 	acceptedCalendarObjectId: "",
+	supersededByMessageId: "",
 	createdAt: 1,
 	updatedAt: 1,
 	...overrides,
@@ -308,11 +310,37 @@ const acceptSuggestion =
 	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion as Handler;
 const dismissSuggestion =
 	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion as Handler;
+const listMessageSuggestions =
+	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions as Handler;
 
 interface Card {
 	suggestionId: string;
 	state: string;
+	supersededByMessageId: string;
+	supersededByThreadId: string;
 }
+
+const fileInThread = async (
+	accountConfigId: string,
+	messageId: string,
+	threadId: string,
+): Promise<void> => {
+	await client.threadMessage.create({
+		accountConfigId,
+		threadId,
+		messageId,
+		mailboxId: "mbx-inbox",
+		uid: 1,
+		referenceOrder: 0,
+		internalDate: 1,
+		sentDate: 1,
+		subject: "Invitation: Quarterly review",
+		isRead: false,
+		isDeleted: false,
+		hasAttachment: false,
+		hasStars: false,
+	});
+};
 
 let client: RemitClient;
 let cleanup: () => void;
@@ -470,6 +498,74 @@ describe("GET /calendar-suggestions", () => {
 			[CalendarSuggestionState.Pending],
 		);
 		assert.equal("icalData" in (pending.items[0] ?? {}), false);
+	});
+});
+
+describe("GET /messages/{messageId}/calendar-suggestions", () => {
+	test("names the conversation of the revision that retired a card", async () => {
+		const { accountConfigId, event } = anAccount();
+		const older = await putSuggestion(accountConfigId, "msg-revision-0");
+		await client.calendarSuggestion.supersedeIfPending(
+			accountConfigId,
+			older.suggestionId,
+			"msg-revision-1",
+		);
+		await fileInThread(accountConfigId, "msg-revision-1", "thread-revision-1");
+
+		const listed = (await listMessageSuggestions(
+			contextOf({ params: { messageId: "msg-revision-0" } }),
+			event,
+		)) as unknown as { items: Card[] };
+
+		assert.deepEqual(
+			listed.items.map((card) => [
+				card.state,
+				card.supersededByMessageId,
+				card.supersededByThreadId,
+			]),
+			[
+				[
+					CalendarSuggestionState.Superseded,
+					"msg-revision-1",
+					"thread-revision-1",
+				],
+			],
+		);
+	});
+
+	test("names no conversation when the newer message sits in none", async () => {
+		const { accountConfigId, event } = anAccount();
+		const older = await putSuggestion(accountConfigId, "msg-orphan-0");
+		await client.calendarSuggestion.supersedeIfPending(
+			accountConfigId,
+			older.suggestionId,
+			"msg-orphan-1",
+		);
+
+		const listed = (await listMessageSuggestions(
+			contextOf({ params: { messageId: "msg-orphan-0" } }),
+			event,
+		)) as unknown as { items: Card[] };
+
+		assert.equal(listed.items[0]?.supersededByThreadId, "");
+	});
+
+	test("names no conversation for a card nothing retired", async () => {
+		const { accountConfigId, event } = anAccount();
+		await putSuggestion(accountConfigId, "msg-current");
+
+		const listed = (await listMessageSuggestions(
+			contextOf({ params: { messageId: "msg-current" } }),
+			event,
+		)) as unknown as { items: Card[] };
+
+		assert.deepEqual(
+			listed.items.map((card) => [
+				card.supersededByMessageId,
+				card.supersededByThreadId,
+			]),
+			[["", ""]],
+		);
 	});
 });
 

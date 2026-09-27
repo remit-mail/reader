@@ -150,6 +150,7 @@ class MemorySuggestions implements ICalendarSuggestionRepository {
 			suggestionId,
 			state: existing?.state ?? CalendarSuggestionState.Pending,
 			acceptedCalendarObjectId: existing?.acceptedCalendarObjectId ?? "",
+			supersededByMessageId: existing?.supersededByMessageId ?? "",
 			createdAt: existing?.createdAt ?? 1,
 			updatedAt: 1,
 		};
@@ -201,6 +202,7 @@ class MemorySuggestions implements ICalendarSuggestionRepository {
 	async supersedeIfPending(
 		_accountConfigId: string,
 		suggestionId: string,
+		supersededByMessageId: string,
 	): Promise<CalendarSuggestionItem | null> {
 		const row = this.rows.get(suggestionId);
 		if (!row || row.state !== CalendarSuggestionState.Pending) return null;
@@ -208,9 +210,22 @@ class MemorySuggestions implements ICalendarSuggestionRepository {
 			...row,
 			state: CalendarSuggestionState.Superseded,
 			acceptedCalendarObjectId: "",
+			supersededByMessageId,
 		};
 		this.rows.set(suggestionId, retired);
 		return retired;
+	}
+
+	async repointSuperseded(
+		_accountConfigId: string,
+		suggestionId: string,
+		supersededByMessageId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const row = this.rows.get(suggestionId);
+		if (!row || row.state !== CalendarSuggestionState.Superseded) return null;
+		const repointed = { ...row, supersededByMessageId };
+		this.rows.set(suggestionId, repointed);
+		return repointed;
 	}
 }
 

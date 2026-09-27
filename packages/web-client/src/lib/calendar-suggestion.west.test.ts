@@ -31,6 +31,8 @@ const allDay = {
 	organizer: "organizer@example.test",
 	zoneCertainty: "Explicit",
 	acceptedCalendarObjectId: "",
+	supersededByMessageId: "",
+	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
 } as const;

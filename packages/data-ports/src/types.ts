@@ -788,13 +788,15 @@ export type CalendarSuggestionItem = z.infer<typeof CalendarSuggestionSchema>;
  * `state` and `acceptedCalendarObjectId` are excluded: a producer only ever
  * writes a `Pending` suggestion, and the two fields that record what a person
  * decided move exclusively through `settle`, so a re-sync can never walk an
- * answered card back to Pending.
+ * answered card back to Pending. `supersededByMessageId` moves only through
+ * `supersedeIfPending`, with the state it explains.
  */
 export type PutCalendarSuggestionInput = Omit<
 	CalendarSuggestionItem,
 	| "suggestionId"
 	| "state"
 	| "acceptedCalendarObjectId"
+	| "supersededByMessageId"
 	| "createdAt"
 	| "updatedAt"
 >;

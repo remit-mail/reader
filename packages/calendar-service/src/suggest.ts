@@ -111,23 +111,22 @@ export interface RecordedCalendarSuggestion {
 }
 
 /**
- * Every pending suggestion the account holds. Drained rather than read as one
- * page: the page size is a repository detail, and a supersession that missed
- * the older revision because it sat on page two would leave two live cards for
- * one event.
+ * Every suggestion the account holds in one state. Drained rather than read as
+ * one page: the page size is a repository detail, and a supersession that
+ * missed the older revision because it sat on page two would leave two live
+ * cards for one event.
  */
-const listPending = async (
+const listInState = async (
 	repo: ICalendarSuggestionRepository,
 	accountConfigId: string,
+	state: CalendarSuggestionItem["state"],
 ): Promise<CalendarSuggestionItem[]> => {
 	const items: CalendarSuggestionItem[] = [];
 	let continuationToken: string | undefined;
 	do {
-		const page = await repo.listByState(
-			accountConfigId,
-			CalendarSuggestionState.Pending,
-			{ continuationToken },
-		);
+		const page = await repo.listByState(accountConfigId, state, {
+			continuationToken,
+		});
 		items.push(...page.items);
 		continuationToken = page.continuationToken;
 	} while (continuationToken);
@@ -157,6 +156,10 @@ const listPending = async (
  * write would replace their acceptance with `Superseded` and blank the id of
  * the event it put in their calendar. A card answered in the gap keeps its
  * answer and is simply not reported as superseded.
+ *
+ * Every earlier revision already retired is pointed at this one too, so a
+ * card three revisions back opens the newest in one step rather than walking
+ * the chain a revision at a time.
  */
 export const recordCalendarSuggestion = async (
 	repo: ICalendarSuggestionRepository,
@@ -174,20 +177,46 @@ export const recordCalendarSuggestion = async (
 		...projection.value,
 	});
 
-	const stale = (await listPending(repo, input.accountConfigId)).filter(
-		(candidate) =>
-			candidate.icalUid === suggestion.icalUid &&
-			candidate.suggestionId !== suggestion.suggestionId &&
-			candidate.sequence < suggestion.sequence,
-	);
+	const olderRevision = (candidate: CalendarSuggestionItem): boolean =>
+		candidate.icalUid === suggestion.icalUid &&
+		candidate.suggestionId !== suggestion.suggestionId &&
+		candidate.sequence < suggestion.sequence;
+
+	const stale = (
+		await listInState(
+			repo,
+			input.accountConfigId,
+			CalendarSuggestionState.Pending,
+		)
+	).filter(olderRevision);
 
 	const superseded: CalendarSuggestionItem[] = [];
 	for (const candidate of stale) {
 		const retired = await repo.supersedeIfPending(
 			input.accountConfigId,
 			candidate.suggestionId,
+			suggestion.messageId,
 		);
 		if (retired) superseded.push(retired);
+	}
+
+	const retiredEarlier = (
+		await listInState(
+			repo,
+			input.accountConfigId,
+			CalendarSuggestionState.Superseded,
+		)
+	).filter(
+		(candidate) =>
+			olderRevision(candidate) &&
+			candidate.supersededByMessageId !== suggestion.messageId,
+	);
+	for (const candidate of retiredEarlier) {
+		await repo.repointSuperseded(
+			input.accountConfigId,
+			candidate.suggestionId,
+			suggestion.messageId,
+		);
 	}
 
 	return { ok: true, value: { suggestion, superseded } };

@@ -234,12 +234,38 @@ export function calendarSuggestionRepositoryConformance(
 				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
 			);
 
+			const newerMessageId = harness.makeId();
 			const retired = await repo.supersedeIfPending(
 				accountConfigId,
 				written.suggestionId,
+				newerMessageId,
 			);
 
 			assert.equal(retired?.state, CalendarSuggestionState.Superseded);
+			const reread = await repo.get(accountConfigId, written.suggestionId);
+			assert.equal(reread.supersededByMessageId, newerMessageId);
+		});
+
+		test("a re-read of the retired message keeps the revision that retired it", async () => {
+			const accountConfigId = harness.makeId();
+			const input = suggestion(
+				accountConfigId,
+				harness.makeId(),
+				harness.makeId(),
+				"uid",
+			);
+			const written = await repo.put(input);
+			const newerMessageId = harness.makeId();
+			await repo.supersedeIfPending(
+				accountConfigId,
+				written.suggestionId,
+				newerMessageId,
+			);
+
+			const rewritten = await repo.put(input);
+
+			assert.equal(rewritten.state, CalendarSuggestionState.Superseded);
+			assert.equal(rewritten.supersededByMessageId, newerMessageId);
 		});
 
 		test("supersedeIfPending leaves an answered card alone and says so", async () => {
@@ -258,11 +284,13 @@ export function calendarSuggestionRepositoryConformance(
 			const retired = await repo.supersedeIfPending(
 				accountConfigId,
 				written.suggestionId,
+				harness.makeId(),
 			);
 
 			assert.equal(retired, null);
 			const reread = await repo.get(accountConfigId, written.suggestionId);
 			assert.equal(reread.state, CalendarSuggestionState.Accepted);
+			assert.equal(reread.supersededByMessageId, "");
 			assert.equal(reread.acceptedCalendarObjectId, "cal-object-7");
 		});
 
@@ -273,9 +301,56 @@ export function calendarSuggestionRepositoryConformance(
 			);
 
 			assert.equal(
-				await repo.supersedeIfPending(harness.makeId(), written.suggestionId),
+				await repo.supersedeIfPending(
+					harness.makeId(),
+					written.suggestionId,
+					harness.makeId(),
+				),
 				null,
 			);
+		});
+
+		test("repointSuperseded moves a retired card to a later revision", async () => {
+			const accountConfigId = harness.makeId();
+			const written = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+			await repo.supersedeIfPending(
+				accountConfigId,
+				written.suggestionId,
+				harness.makeId(),
+			);
+			const newest = harness.makeId();
+
+			const repointed = await repo.repointSuperseded(
+				accountConfigId,
+				written.suggestionId,
+				newest,
+			);
+
+			assert.equal(repointed?.supersededByMessageId, newest);
+			const reread = await repo.get(accountConfigId, written.suggestionId);
+			assert.equal(reread.state, CalendarSuggestionState.Superseded);
+			assert.equal(reread.supersededByMessageId, newest);
+		});
+
+		test("repointSuperseded leaves a card that is not superseded alone", async () => {
+			const accountConfigId = harness.makeId();
+			const written = await repo.put(
+				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
+			);
+
+			assert.equal(
+				await repo.repointSuperseded(
+					accountConfigId,
+					written.suggestionId,
+					harness.makeId(),
+				),
+				null,
+			);
+			const reread = await repo.get(accountConfigId, written.suggestionId);
+			assert.equal(reread.state, CalendarSuggestionState.Pending);
+			assert.equal(reread.supersededByMessageId, "");
 		});
 
 		test("settle rejects a suggestion that is not there", async () => {

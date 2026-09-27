@@ -23,6 +23,7 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
+import { useOpenThread } from "@/routing";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
 import {
@@ -31,6 +32,7 @@ import {
 	httpError,
 	mockFetch,
 } from "@/test-support/http";
+import { threadRouter } from "@/test-support/thread-router";
 import { useIntelligenceCalendar } from "./useIntelligenceCalendar";
 
 const CALENDAR = "11111111-1111-4111-8111-111111111111";
@@ -95,12 +97,14 @@ const invitation = (
 	organizer: "organizer@example.test",
 	zoneCertainty: "Explicit",
 	acceptedCalendarObjectId: "",
+	supersededByMessageId: "",
+	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
 });
 
 const Harness = () => {
-	const calendar = useIntelligenceCalendar(thread);
+	const calendar = useIntelligenceCalendar(thread, undefined, useOpenThread());
 	return createElement(IntelligencePanel, {
 		data: sender,
 		calendar: calendar.surface,
@@ -146,14 +150,19 @@ const server = (
 	};
 };
 
-const mount = async (respond: (call: HttpCall) => unknown) => {
+const mount = async (
+	respond: (call: HttpCall) => unknown,
+): Promise<AnyRouter> => {
 	http = mockFetch(respond);
 	harness = createDomHarness();
-	harness.renderApp(createElement(Harness));
+	const router = threadRouter(Harness, "/mail/brief/thread-1/msg-1");
+	await router.load();
+	harness.renderApp(createElement(RouterProvider, { router }));
 	await harness.waitFor(
 		() => harness?.text().includes("Quarterly review") === true,
 		"the invitation to be drawn",
 	);
+	return router;
 };
 
 const press = (label: string) => {
@@ -394,5 +403,50 @@ describe("changing a suggestion beside the message before adding it", () => {
 			"the cancellation to be applied",
 		);
 		assert.equal(router.state.location.pathname, "/mail");
+	});
+});
+
+describe("an invitation a newer revision replaced", () => {
+	const retired = (
+		supersededByThreadId: string,
+	): RemitImapCalendarSuggestionResponse => ({
+		...invitation("Superseded"),
+		supersededByMessageId: "msg-2",
+		supersededByThreadId,
+	});
+
+	const serving =
+		(suggestion: RemitImapCalendarSuggestionResponse) =>
+		(call: HttpCall): unknown => {
+			if (call.path.endsWith("/calendars")) return { items: calendars };
+			if (call.path.endsWith("/messages/msg-1/calendar-suggestions"))
+				return { items: [suggestion] };
+			return { items: [] };
+		};
+
+	it("opens the conversation that carries the newer revision", async () => {
+		const router = await mount(serving(retired("thread-2")));
+		assert.match(harness?.text() ?? "", /has sent a newer version of this/);
+
+		press("Open the newer invitation");
+
+		await harness?.waitFor(
+			() => router.state.location.pathname === "/mail/brief/thread-2/msg-2",
+			"the reading pane to move to the newer revision",
+		);
+	});
+
+	it("offers no way there when the newer message sits in no conversation", async () => {
+		await mount(serving(retired("")));
+
+		assert.match(harness?.text() ?? "", /has sent a newer version of this/);
+		assert.equal(
+			harness
+				?.queryAll("button")
+				.some((button) =>
+					button.textContent?.includes("Open the newer invitation"),
+				),
+			false,
+		);
 	});
 });

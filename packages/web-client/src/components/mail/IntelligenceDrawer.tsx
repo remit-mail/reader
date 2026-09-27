@@ -2,6 +2,7 @@ import type { RemitImapThreadMessageResponse } from "@remit/api-http-client/type
 import type { ReplyWithText } from "@/components/compose/reply-with-times";
 import { Drawer } from "@/components/layout/Drawer";
 import { IntelligencePane } from "@/components/mail/IntelligencePane";
+import type { OpenThreadTarget } from "@/routing";
 
 /**
  * The intelligence pane as a modal drawer — the surface every list pane uses
@@ -18,6 +19,7 @@ export function IntelligenceDrawer({
 	accountId,
 	onAfterOptimisticRemove,
 	onReplyWithText,
+	onOpenThread,
 }: {
 	isOpen: boolean;
 	onClose: () => void;
@@ -26,6 +28,7 @@ export function IntelligenceDrawer({
 	accountId?: string;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 	onReplyWithText?: ReplyWithText;
+	onOpenThread?: (target: OpenThreadTarget) => void;
 }) {
 	return (
 		<Drawer
@@ -45,6 +48,7 @@ export function IntelligenceDrawer({
 				hideCloseButton
 				onAfterOptimisticRemove={onAfterOptimisticRemove}
 				onReplyWithText={onReplyWithText}
+				onOpenThread={onOpenThread}
 			/>
 		</Drawer>
 	);

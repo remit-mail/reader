@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react";
 import { type ReactNode, useState } from "react";
+import { expect, userEvent, within } from "storybook/test";
 import type { RsvpState } from "./calendar-types.js";
 import type { IntelligenceCalendarData } from "./intelligence-calendar.js";
 import {
@@ -114,6 +115,11 @@ function PanelDemo({
 						onMuteInvite: () => setRemoved(true),
 						onOfferOtherTimes: () => setOffering(true),
 						onRemoveInvite: () => setRemoved(true),
+						onOpenNewerInvite:
+							calendar.invite?.invite.state === "superseded"
+								? () =>
+										setLastAction("opened the newer revision's conversation")
+								: undefined,
 						onToggleSlot: (slot) => {
 							setPicked((prev) =>
 								prev.includes(slot.startTime)
@@ -374,13 +380,20 @@ export const InviteWithNothingBooked = rail(
  * A later message carried a higher SEQUENCE for the same UID. The stale one is
  * dimmed and its buttons are gone: answering a revision that has been replaced
  * puts the wrong hour on the calendar, so the card offers the newer one instead
- * of an answer.
+ * of an answer, and pressing it opens the conversation that carries it.
  */
-export const SupersededInvitation = rail(
-	KICKOFF,
-	organiserSender,
-	supersededInvite,
-);
+export const SupersededInvitation: Story = {
+	...rail(KICKOFF, organiserSender, supersededInvite),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await userEvent.click(
+			canvas.getByRole("button", { name: "Open the newer invitation" }),
+		);
+		await expect(
+			canvas.getByText("Prototype: opened the newer revision's conversation"),
+		).toBeVisible();
+	},
+};
 
 /**
  * METHOD:CANCEL on something already accepted. Reader does not take it off by

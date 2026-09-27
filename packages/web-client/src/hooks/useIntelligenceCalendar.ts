@@ -51,6 +51,7 @@ import {
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
 import {
+	type OpenThreadTarget,
 	useChangeSuggestionOnCalendar,
 	useOpenEventOnCalendar,
 } from "@/routing";
@@ -95,6 +96,7 @@ export interface IntelligenceCalendar {
 export function useIntelligenceCalendar(
 	thread: RemitImapThreadMessageResponse,
 	replyWithText?: ReplyWithText,
+	openThread?: (target: OpenThreadTarget) => void,
 ): IntelligenceCalendar {
 	const messageId = thread.messageId;
 	const { suggestions, isLoading, error } =
@@ -294,6 +296,14 @@ export function useIntelligenceCalendar(
 						answers.dismiss(invitationId, false),
 					)
 			: undefined,
+		onOpenNewerInvite:
+			openThread && invitation && invitation.supersededByThreadId !== ""
+				? () =>
+						openThread({
+							threadId: invitation.supersededByThreadId,
+							messageId: invitation.supersededByMessageId,
+						})
+				: undefined,
 		onOfferOtherTimes: () => update({ offering: true }),
 		onToggleSlot: (slot) =>
 			update({

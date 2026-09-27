@@ -12,6 +12,7 @@ import {
 	type ICalendarSuggestionRepository,
 	type IEnvelopeRepository,
 	type IFilterRepository,
+	type IThreadMessageRepository,
 	isSenderMuted,
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
@@ -45,8 +46,25 @@ export const toCalendarSuggestionResponse = (
 	item: CalendarSuggestionItem,
 ): CalendarSuggestionResponse => {
 	const { icalData: _icalData, ...response } = item;
-	return response;
+	return { ...response, supersededByThreadId: "" };
 };
+
+export const toCalendarSuggestionResponses = (
+	threads: Pick<IThreadMessageRepository, "findByMessageId">,
+	accountConfigId: string,
+	items: CalendarSuggestionItem[],
+): Promise<CalendarSuggestionResponse[]> =>
+	Promise.all(
+		items.map(async (item) => {
+			const response = toCalendarSuggestionResponse(item);
+			if (item.supersededByMessageId === "") return response;
+			const newer = await threads.findByMessageId(
+				accountConfigId,
+				item.supersededByMessageId,
+			);
+			return { ...response, supersededByThreadId: newer?.threadId ?? "" };
+		}),
+	);
 
 /**
  * The states a person can move a pending card into. `Superseded` is the
@@ -177,7 +195,11 @@ export const CalendarSuggestionOperations: Record<
 		);
 
 		return {
-			items: page.items.map(toCalendarSuggestionResponse),
+			items: await toCalendarSuggestionResponses(
+				client.threadMessage,
+				accountConfigId,
+				page.items,
+			),
 			continuationToken: page.continuationToken,
 		};
 	},
@@ -202,7 +224,11 @@ export const MessageCalendarSuggestionOperations: Record<
 		);
 
 		return {
-			items: items.map(toCalendarSuggestionResponse),
+			items: await toCalendarSuggestionResponses(
+				client.threadMessage,
+				accountConfigId,
+				items,
+			),
 			continuationToken: undefined,
 		};
 	},

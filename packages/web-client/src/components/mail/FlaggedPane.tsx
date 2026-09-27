@@ -328,6 +328,7 @@ function FlaggedReading() {
 		actions,
 		onReply,
 		handleDeselectIfRemoved,
+		onOpenThread,
 	} = useFlaggedPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -380,6 +381,7 @@ function FlaggedReading() {
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
+				onOpenThread={onOpenThread}
 			/>
 		</>
 	);
@@ -391,7 +393,8 @@ function FlaggedReading() {
  */
 function FlaggedIntelligence() {
 	const replyWithText = useReplyWithText();
-	const { selectedThread, handleDeselectIfRemoved } = useFlaggedPane();
+	const { selectedThread, handleDeselectIfRemoved, onOpenThread } =
+		useFlaggedPane();
 	const { onToggleIntelligence } = useMailContext();
 
 	return (
@@ -402,6 +405,7 @@ function FlaggedIntelligence() {
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
+			onOpenThread={onOpenThread}
 		/>
 	);
 }
@@ -445,6 +449,7 @@ function FlaggedPhone() {
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}
+					onOpenThread={onOpenThread}
 				/>
 			</>
 		);

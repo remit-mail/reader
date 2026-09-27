@@ -37,6 +37,7 @@ function rowToCalendarSuggestion(
 		zoneCertainty: row.zoneCertainty,
 		icalData: row.icalData,
 		acceptedCalendarObjectId: row.acceptedCalendarObjectId,
+		supersededByMessageId: row.supersededByMessageId,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 	};
@@ -61,6 +62,7 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 				suggestionId,
 				state: CalendarSuggestionState.Pending,
 				acceptedCalendarObjectId: "",
+				supersededByMessageId: "",
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -200,12 +202,14 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 	async supersedeIfPending(
 		accountConfigId: string,
 		suggestionId: string,
+		supersededByMessageId: string,
 	): Promise<CalendarSuggestionItem | null> {
 		const [row] = await this.db
 			.update(calendarSuggestionTable)
 			.set({
 				state: CalendarSuggestionState.Superseded,
 				acceptedCalendarObjectId: "",
+				supersededByMessageId,
 				updatedAt: Date.now(),
 			})
 			.where(
@@ -215,6 +219,25 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 					// The condition is the point: a card the user answered between
 					// the producer's read and this write must keep their answer.
 					eq(calendarSuggestionTable.state, CalendarSuggestionState.Pending),
+				),
+			)
+			.returning();
+		return row ? rowToCalendarSuggestion(row) : null;
+	}
+
+	async repointSuperseded(
+		accountConfigId: string,
+		suggestionId: string,
+		supersededByMessageId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const [row] = await this.db
+			.update(calendarSuggestionTable)
+			.set({ supersededByMessageId, updatedAt: Date.now() })
+			.where(
+				and(
+					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
+					eq(calendarSuggestionTable.suggestionId, suggestionId),
+					eq(calendarSuggestionTable.state, CalendarSuggestionState.Superseded),
 				),
 			)
 			.returning();
