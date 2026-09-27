@@ -38,7 +38,9 @@ export type CalendarValidationCode =
 	| "UnmovableRecurrenceRule"
 	| "UneditableCancellation"
 	/** A subscription address that is not an http, https or webcal URL. */
-	| "InvalidSubscriptionUrl";
+	| "InvalidSubscriptionUrl"
+	| "NotReopenable"
+	| "AnswerOvertaken";
 
 export interface CalendarValidationError {
 	code: CalendarValidationCode;

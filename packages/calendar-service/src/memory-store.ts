@@ -169,6 +169,11 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 				(object) =>
 					object.calendarId === calendarId && object.icalUid === icalUid,
 			) ?? null,
+		listByUidPrefix: async (calendarId: string, prefix: string) =>
+			[...this.objects.values()].filter(
+				(object) =>
+					object.calendarId === calendarId && object.icalUid.startsWith(prefix),
+			),
 		listByCalendar: async (calendarId: string) =>
 			[...this.objects.values()].filter(
 				(object) => object.calendarId === calendarId,
@@ -250,6 +255,15 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			}
 			return suggestion;
 		},
+		listByAcceptedCalendarObjects: async (
+			accountConfigId: string,
+			calendarObjectIds: string[],
+		) =>
+			[...this.suggestions.values()].filter(
+				(suggestion) =>
+					suggestion.accountConfigId === accountConfigId &&
+					calendarObjectIds.includes(suggestion.acceptedCalendarObjectId),
+			),
 		listByMessage: async (accountConfigId: string, messageId: string) =>
 			[...this.suggestions.values()].filter(
 				(suggestion) =>

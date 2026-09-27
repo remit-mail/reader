@@ -88,7 +88,8 @@ export type OperationIds =
 	| "MessageCalendarSuggestionOperations_listMessageCalendarSuggestions"
 	| "CalendarSuggestionActionOperations_acceptCalendarSuggestion"
 	| "CalendarSuggestionActionOperations_declineCalendarSuggestion"
-	| "CalendarSuggestionActionOperations_dismissCalendarSuggestion";
+	| "CalendarSuggestionActionOperations_dismissCalendarSuggestion"
+	| "CalendarSuggestionActionOperations_reopenCalendarSuggestion";
 
 export type MeOperationIds = MatchPrefix<"MeOperations_", OperationIds>;
 

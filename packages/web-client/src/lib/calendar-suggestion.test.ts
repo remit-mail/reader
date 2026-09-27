@@ -40,6 +40,7 @@ const suggestion = (
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 	...over,
 });
 
@@ -70,8 +71,15 @@ describe("inviteStanding", () => {
 		});
 	});
 
-	it("draws no card for one the reader waved away", () => {
-		assert.equal(inviteStanding(suggestion({ state: "Dismissed" })), undefined);
+	it("keeps a card the reader waved away, so it can be taken back", () => {
+		assert.deepEqual(inviteStanding(suggestion({ state: "Dismissed" })), {
+			state: "dismissed",
+			rsvp: "noReply",
+		});
+		assert.equal(
+			inviteStanding(suggestion({ method: "Cancel", state: "Dismissed" })),
+			undefined,
+		);
 	});
 
 	it("asks about a cancellation only until it is taken or kept", () => {

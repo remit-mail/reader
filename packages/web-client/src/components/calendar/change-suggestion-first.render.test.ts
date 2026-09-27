@@ -78,6 +78,7 @@ const reading = (
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 	...overrides,
 });
 

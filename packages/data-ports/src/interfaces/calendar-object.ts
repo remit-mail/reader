@@ -30,6 +30,10 @@ export interface ICalendarObjectRepository {
 		calendarId: string,
 		icalUid: string,
 	): Promise<CalendarObjectItem | null>;
+	listByUidPrefix(
+		calendarId: string,
+		prefix: string,
+	): Promise<CalendarObjectItem[]>;
 	listByCalendar(calendarId: string): Promise<CalendarObjectItem[]>;
 	/**
 	 * The resources whose occurrence rows stop before `instant` — the series a

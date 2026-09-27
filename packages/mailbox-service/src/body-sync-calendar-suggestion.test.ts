@@ -7,20 +7,17 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { MemoryCalendarStore } from "@remit/calendar-service/memory-store";
 import type {
 	CalendarSuggestionItem,
 	FilterItem,
 	IAddressRepository,
-	ICalendarSuggestionRepository,
 	ICalendarUnitOfWork,
 	IEnvelopeRepository,
 	IFilterRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
-	PutCalendarSuggestionInput,
-	ResultList,
 } from "@remit/data-ports";
-import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import {
 	CalendarInviteMethod,
 	CalendarSuggestionSource,
@@ -133,105 +130,9 @@ const PLAIN_EML = Buffer.from(
 	].join("\r\n"),
 );
 
-class MemorySuggestions implements ICalendarSuggestionRepository {
-	readonly rows = new Map<string, CalendarSuggestionItem>();
-
-	async put(
-		input: PutCalendarSuggestionInput,
-	): Promise<CalendarSuggestionItem> {
-		const suggestionId = deriveCalendarSuggestionId(
-			input.messageId,
-			input.bodyPartId,
-			input.icalUid,
-		);
-		const existing = this.rows.get(suggestionId);
-		const row: CalendarSuggestionItem = {
-			...input,
-			suggestionId,
-			state: existing?.state ?? CalendarSuggestionState.Pending,
-			acceptedCalendarObjectId: existing?.acceptedCalendarObjectId ?? "",
-			supersededByMessageId: existing?.supersededByMessageId ?? "",
-			createdAt: existing?.createdAt ?? 1,
-			updatedAt: 1,
-		};
-		this.rows.set(suggestionId, row);
-		return row;
-	}
-
-	async get(
-		_accountConfigId: string,
-		suggestionId: string,
-	): Promise<CalendarSuggestionItem> {
-		const row = this.rows.get(suggestionId);
-		if (!row) throw new Error(`missing ${suggestionId}`);
-		return row;
-	}
-
-	async listByMessage(
-		_accountConfigId: string,
-		messageId: string,
-	): Promise<CalendarSuggestionItem[]> {
-		return [...this.rows.values()].filter((row) => row.messageId === messageId);
-	}
-
-	async listByState(
-		_accountConfigId: string,
-		state: CalendarSuggestionItem["state"],
-	): Promise<ResultList<CalendarSuggestionItem>> {
-		return {
-			items: [...this.rows.values()].filter((row) => row.state === state),
-			continuationToken: undefined,
-		};
-	}
-
-	async settle(
-		_accountConfigId: string,
-		suggestionId: string,
-		input: {
-			state: CalendarSuggestionItem["state"];
-			acceptedCalendarObjectId: string;
-		},
-	): Promise<CalendarSuggestionItem> {
-		const row = this.rows.get(suggestionId);
-		if (!row) throw new Error(`missing ${suggestionId}`);
-		const settled = { ...row, ...input };
-		this.rows.set(suggestionId, settled);
-		return settled;
-	}
-
-	async supersedeIfPending(
-		_accountConfigId: string,
-		suggestionId: string,
-		supersededByMessageId: string,
-	): Promise<CalendarSuggestionItem | null> {
-		const row = this.rows.get(suggestionId);
-		if (!row || row.state !== CalendarSuggestionState.Pending) return null;
-		const retired = {
-			...row,
-			state: CalendarSuggestionState.Superseded,
-			acceptedCalendarObjectId: "",
-			supersededByMessageId,
-		};
-		this.rows.set(suggestionId, retired);
-		return retired;
-	}
-
-	async repointSuperseded(
-		_accountConfigId: string,
-		suggestionId: string,
-		supersededByMessageId: string,
-	): Promise<CalendarSuggestionItem | null> {
-		const row = this.rows.get(suggestionId);
-		if (!row || row.state !== CalendarSuggestionState.Superseded) return null;
-		const repointed = { ...row, supersededByMessageId };
-		this.rows.set(suggestionId, repointed);
-		return repointed;
-	}
-}
-
 interface Harness {
 	service: BodySyncService;
-	suggestions: MemorySuggestions;
+	suggestions: Map<string, CalendarSuggestionItem>;
 }
 
 const buildHarness = ({
@@ -245,7 +146,8 @@ const buildHarness = ({
 	withCalendarConfig?: boolean;
 	mutedSenderFilters?: FilterItem[];
 } = {}): Harness => {
-	const suggestions = new MemorySuggestions();
+	const store = new MemoryCalendarStore();
+	const suggestions = store.calendarSuggestion;
 
 	const messageService = {
 		get: async (messageId: string) => ({
@@ -345,7 +247,7 @@ const buildHarness = ({
 			: undefined,
 	);
 
-	return { service, suggestions };
+	return { service, suggestions: store.suggestions };
 };
 
 const readBody = async (
@@ -372,7 +274,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		const rows = [...harness.suggestions.rows.values()];
+		const rows = [...harness.suggestions.values()];
 		assert.equal(rows.length, 1);
 		assert.equal(rows[0]?.state, CalendarSuggestionState.Pending);
 		assert.equal(rows[0]?.icalUid, UID);
@@ -387,7 +289,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		const row = [...harness.suggestions.rows.values()][0];
+		const row = [...harness.suggestions.values()][0];
 		assert.match(row?.icalData ?? "", /BEGIN:VCALENDAR/);
 		assert.match(row?.icalData ?? "", /UID:invite-4711@example\.test/);
 	});
@@ -400,7 +302,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, FLOATING_INVITATION_EML);
 
-		const row = [...harness.suggestions.rows.values()][0];
+		const row = [...harness.suggestions.values()][0];
 		assert.equal(row?.dtStart, "2026-09-01T10:00:00+02:00");
 		assert.equal(row?.zoneCertainty, "Local");
 	});
@@ -415,7 +317,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		assert.equal(harness.suggestions.rows.size, 0);
+		assert.equal(harness.suggestions.size, 0);
 	});
 
 	it("still offers a card when the rule names a different sender", async () => {
@@ -425,7 +327,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		assert.equal(harness.suggestions.rows.size, 1);
+		assert.equal(harness.suggestions.size, 1);
 	});
 
 	it("still offers a card when the rule about this sender does something", async () => {
@@ -442,7 +344,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		assert.equal(harness.suggestions.rows.size, 1);
+		assert.equal(harness.suggestions.size, 1);
 	});
 
 	it("offers nothing for a message carrying no calendar part", async () => {
@@ -450,7 +352,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, PLAIN_EML);
 
-		assert.equal(harness.suggestions.rows.size, 0);
+		assert.equal(harness.suggestions.size, 0);
 	});
 
 	it("offers nothing on a forced body re-sync", async () => {
@@ -465,7 +367,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 		// The pass genuinely ran — the body was re-fetched and re-stored — and
 		// still offered nothing.
 		assert.equal(result.storedAt, "s3://bodies/m-1");
-		assert.equal(harness.suggestions.rows.size, 0);
+		assert.equal(harness.suggestions.size, 0);
 	});
 
 	it("supersedes the earlier revision when a higher SEQUENCE arrives", async () => {
@@ -474,7 +376,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 		await readBody(harness.service, INVITATION_EML(0), "m-1");
 		await readBody(harness.service, INVITATION_EML(1), "m-2");
 
-		const rows = [...harness.suggestions.rows.values()];
+		const rows = [...harness.suggestions.values()];
 		assert.equal(rows.length, 2);
 		assert.deepEqual(
 			rows.map((row) => `${row.messageId}:${row.state}`).sort(),
@@ -487,7 +389,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML(1, "CANCEL"));
 
-		const row = [...harness.suggestions.rows.values()][0];
+		const row = [...harness.suggestions.values()][0];
 		assert.equal(row?.method, CalendarInviteMethod.Cancel);
 		assert.equal(row?.state, CalendarSuggestionState.Pending);
 		assert.equal(row?.acceptedCalendarObjectId, "");
@@ -518,7 +420,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 		const result = await readBody(harness.service, broken);
 
 		assert.equal(result.storedAt, "newly-stored");
-		assert.equal(harness.suggestions.rows.size, 0);
+		assert.equal(harness.suggestions.size, 0);
 	});
 
 	it("is a no-op when body sync was built without a CalendarSuggestionConfig", async () => {
@@ -526,6 +428,6 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		await readBody(harness.service, INVITATION_EML());
 
-		assert.equal(harness.suggestions.rows.size, 0);
+		assert.equal(harness.suggestions.size, 0);
 	});
 });

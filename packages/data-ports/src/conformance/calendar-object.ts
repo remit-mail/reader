@@ -170,6 +170,45 @@ export function calendarObjectRepositoryConformance(
 			);
 		});
 
+		test("listByUidPrefix finds the resources whose UID starts with the prefix, in one collection", async () => {
+			const calendarId = harness.makeId();
+			const other = harness.makeId();
+			const tail = await repo.put(
+				objectInput(calendarId, {
+					resourceName: "tail.ics",
+					icalUid: "root@example.com/following/1",
+				}),
+			);
+			await repo.put(
+				objectInput(calendarId, {
+					resourceName: "root.ics",
+					icalUid: "root@example.com",
+				}),
+			);
+			await repo.put(
+				objectInput(calendarId, {
+					resourceName: "lookalike.ics",
+					icalUid: "root@example.comx/following/2",
+				}),
+			);
+			await repo.put(
+				objectInput(other, {
+					resourceName: "elsewhere.ics",
+					icalUid: "root@example.com/following/3",
+				}),
+			);
+
+			const found = await repo.listByUidPrefix(
+				calendarId,
+				"root@example.com/following/",
+			);
+
+			assert.deepEqual(
+				found.map((object) => object.calendarObjectId),
+				[tail.calendarObjectId],
+			);
+		});
+
 		test("listByCalendar scopes to the collection", async () => {
 			const calendarId = harness.makeId();
 			const other = harness.makeId();

@@ -15,6 +15,7 @@ import {
 	calendarSuggestionActionOperationsAcceptCalendarSuggestionMutation,
 	calendarSuggestionActionOperationsDeclineCalendarSuggestionMutation,
 	calendarSuggestionActionOperationsDismissCalendarSuggestionMutation,
+	calendarSuggestionActionOperationsReopenCalendarSuggestionMutation,
 	calendarSuggestionOperationsListCalendarSuggestionsOptions,
 	messageCalendarSuggestionOperationsListMessageCalendarSuggestionsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
@@ -162,6 +163,7 @@ export interface CalendarSuggestionAnswers {
 		suggestionId: string,
 		muteSender: boolean,
 	) => Promise<SuggestionAnswer>;
+	reopen: (suggestionId: string) => Promise<SuggestionAnswer>;
 	isAnswering: boolean;
 }
 
@@ -184,6 +186,12 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 	});
 	const dismiss = useMutation({
 		...calendarSuggestionActionOperationsDismissCalendarSuggestionMutation(),
+		meta: SUGGESTION_META,
+		onSuccess,
+	});
+
+	const reopen = useMutation({
+		...calendarSuggestionActionOperationsReopenCalendarSuggestionMutation(),
 		meta: SUGGESTION_META,
 		onSuccess,
 	});
@@ -231,6 +239,14 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 				.catch(refused),
 		[dismiss],
 	);
+	const reopenSuggestion = useCallback(
+		(suggestionId: string) =>
+			reopen
+				.mutateAsync({ path: { suggestionId } })
+				.then(() => ANSWERED)
+				.catch(refused),
+		[reopen],
+	);
 
 	return useMemo(
 		() => ({
@@ -239,7 +255,12 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 			acceptEdited: acceptEditedSuggestion,
 			decline: declineSuggestion,
 			dismiss: dismissSuggestion,
-			isAnswering: accept.isPending || decline.isPending || dismiss.isPending,
+			reopen: reopenSuggestion,
+			isAnswering:
+				accept.isPending ||
+				decline.isPending ||
+				dismiss.isPending ||
+				reopen.isPending,
 		}),
 		[
 			acceptSuggestion,
@@ -247,9 +268,11 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 			acceptEditedSuggestion,
 			declineSuggestion,
 			dismissSuggestion,
+			reopenSuggestion,
 			accept.isPending,
 			decline.isPending,
 			dismiss.isPending,
+			reopen.isPending,
 		],
 	);
 }

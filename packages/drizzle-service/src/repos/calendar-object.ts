@@ -4,7 +4,7 @@ import type {
 	PutCalendarObjectInput,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { and, asc, eq, gt, lt, ne } from "drizzle-orm";
+import { and, asc, eq, gt, gte, lt, ne } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { calendarObjectTable } from "../schema.js";
@@ -144,6 +144,23 @@ export class CalendarObjectRepo implements ICalendarObjectRepository {
 				),
 			);
 		return row ? rowToCalendarObject(row) : null;
+	}
+
+	async listByUidPrefix(
+		calendarId: string,
+		prefix: string,
+	): Promise<CalendarObjectItem[]> {
+		const rows = await this.db
+			.select()
+			.from(calendarObjectTable)
+			.where(
+				and(
+					eq(calendarObjectTable.calendarId, calendarId),
+					gte(calendarObjectTable.icalUid, prefix),
+					lt(calendarObjectTable.icalUid, `${prefix}\uffff`),
+				),
+			);
+		return rows.map(rowToCalendarObject);
 	}
 
 	async listByCalendar(calendarId: string): Promise<CalendarObjectItem[]> {

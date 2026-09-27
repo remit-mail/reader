@@ -61,18 +61,20 @@ export interface InviteStanding {
 /**
  * What a suggestion's state means for its card.
  *
- * A dismissed card was waved away and is gone. A cancellation asks for an
- * answer only while it is pending: once taken or kept, the event it named is
- * settled and there is nothing left to say beside the message.
+ * A dismissed card was waved away without an answer, and stays so it can be
+ * taken back. A cancellation asks for an answer only while it is pending: once
+ * taken or kept, the event it named is settled and there is nothing left to
+ * say beside the message.
  */
 export function inviteStanding(
 	suggestion: CalendarSuggestion,
 ): InviteStanding | undefined {
-	if (suggestion.state === "Dismissed") return undefined;
 	if (suggestion.method === "Cancel")
 		return suggestion.state === "Pending"
 			? { state: "cancelled", rsvp: "noReply" }
 			: undefined;
+	if (suggestion.state === "Dismissed")
+		return { state: "dismissed", rsvp: "noReply" };
 	if (suggestion.state === "Superseded")
 		return { state: "superseded", rsvp: "noReply" };
 	if (suggestion.state === "Accepted")

@@ -101,6 +101,7 @@ const invitation = (
 	supersededByThreadId: "",
 	createdAt: 0,
 	updatedAt: 0,
+	answerOvertakenBy: "None",
 });
 
 const Harness = () => {
@@ -264,18 +265,62 @@ describe("the invitation beside the open message", () => {
 		press("Stop offering invitations from Alice");
 
 		await harness?.waitFor(
-			() => harness?.text().includes("Add to calendar") === false,
-			"the card to leave once the server dismissed it",
+			() => harness?.text().includes("You dismissed this") === true,
+			"the card to read back the dismissed state",
 		);
-		assert.match(
-			harness?.text() ?? "",
-			/Nothing in this message is about a time/,
-			"answering the last card keeps the Calendar tab",
-		);
+		assert.doesNotMatch(harness?.text() ?? "", /Add to calendar/);
 		const dismissed =
 			http?.to(`/calendar-suggestions/${SUGGESTION}/dismiss`) ?? [];
 		assert.equal(dismissed.length, 1);
 		assert.deepEqual(dismissed[0].body, { muteSender: true });
+	});
+
+	for (const [label, state] of [
+		["Add to calendar", "Accepted"],
+		["Maybe", "Tentative"],
+		["Decline", "Declined"],
+		["Stop offering invitations from Alice", "Dismissed"],
+	] as const) {
+		it(`takes a ${state} answer back through the API, and asks again`, async () => {
+			await mount(
+				server((call) => (call.path.endsWith("/reopen") ? "Pending" : state)),
+			);
+			press(label);
+			await harness?.waitFor(
+				() => harness?.text().includes("Change") === true,
+				"the card to offer Change once answered",
+			);
+
+			press("Change");
+
+			await harness?.waitFor(
+				() => harness?.text().includes("Add to calendar") === true,
+				"the answers to be offered again once the server reopened it",
+			);
+			assert.equal(
+				http?.to(`/calendar-suggestions/${SUGGESTION}/reopen`).length,
+				1,
+			);
+		});
+	}
+
+	it("offers no Change on an answer its cancellation was answered over", async () => {
+		await mount((call) => {
+			if (call.path.endsWith("/calendars")) return { items: calendars };
+			if (call.path.endsWith("/messages/msg-1/calendar-suggestions"))
+				return {
+					items: [
+						{ ...invitation("Accepted"), answerOvertakenBy: "Cancellation" },
+					],
+				};
+			return { items: [] };
+		});
+
+		await harness?.waitFor(
+			() => harness?.text().includes("On your calendar") === true,
+			"the card to read back the accepted state",
+		);
+		assert.equal(harness?.text().includes("Change"), false);
 	});
 });
 
