@@ -31,7 +31,7 @@ import {
 	unwrapLanguage,
 } from "@remit/ui";
 import type { ComposeBodyMode, ComposeInsertion } from "@remit/ui/rich-text";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { RefObject } from "react";
 import {
 	lazy,
@@ -46,6 +46,7 @@ import {
 	type DraftForAttachment,
 	useComposeAttachments,
 } from "../../hooks/useComposeAttachments";
+import { useInlineImages } from "../../hooks/useInlineImages";
 import { useMessageBodyContent } from "../../hooks/useMessageBodyContent";
 import { useSaveDraft } from "../../hooks/useSaveDraft";
 import { useSignature } from "../../hooks/useSignature.js";
@@ -462,9 +463,7 @@ export const ComposeForm = ({
 	 * failure to `draft` (#933), so opening a Failed message and pressing Escape
 	 * would take it out of the Outbox with the reader having changed nothing. The
 	 * first run after a load records what was loaded; only a payload that differs
-	 * from it is an edit. Nothing updates it afterwards — once the reader has
-	 * touched the document, every later run saves as it always did, retries of a
-	 * failed write included.
+	 * from it is an edit.
 	 */
 	const loadedPayloadRef = useRef<string | undefined>(undefined);
 	const captureLoadedPayloadRef = useRef(false);
@@ -877,9 +876,39 @@ export const ComposeForm = ({
 		remove: removeAttachment,
 		load: loadAttachments,
 		reset: resetAttachments,
+		owns: ownsAttachment,
+		isLoaded: attachmentsLoaded,
+		refreshLinks: refreshAttachmentLinks,
+		storedContent,
+		onRemoved: onAttachmentRemoved,
 		blockingReason: attachmentBlockingReason,
 	} = useComposeAttachments({
 		ensureDraft: ensureDraftForAttachment,
+	});
+
+	const queryClient = useQueryClient();
+	const inlineImages = useInlineImages({
+		attach,
+		owns: ownsAttachment,
+		isLoaded: attachmentsLoaded,
+		storedContent,
+		refreshLinks: () => {
+			if (!outboxMessageId) return Promise.resolve();
+			return queryClient
+				.fetchQuery({
+					...outboxDetailOperationsGetOutboxMessageOptions({
+						path: { outboxMessageId },
+					}),
+					staleTime: 0,
+				})
+				.then((draft) => refreshAttachmentLinks(draft.attachments));
+		},
+		onRemoved: onAttachmentRemoved,
+		draftAttachments:
+			draftData && draftData.outboxMessageId === outboxMessageId
+				? draftData.attachments
+				: [],
+		pushError,
 	});
 
 	const attachmentDocumentRef = useRef(outboxMessageId);
@@ -1086,6 +1115,7 @@ export const ComposeForm = ({
 			return;
 		}
 		if (loadedPayloadRef.current === fingerprint) return;
+		loadedPayloadRef.current = undefined;
 
 		saveDraft(payload);
 	}, [
@@ -1283,6 +1313,9 @@ export const ComposeForm = ({
 	return (
 		<ComposeFormShell
 			layout={layout}
+			onDropFiles={(files) => {
+				void attach(files);
+			}}
 			banner={
 				<>
 					{selectedAccount && selectedAccountMissingSmtp ? (
@@ -1381,6 +1414,7 @@ export const ComposeForm = ({
 					spellcheck={spellcheck}
 					insertion={pendingInsertion}
 					onInserted={setInsertedVersion}
+					inlineImages={inlineImages}
 				/>
 			</Suspense>
 		</ComposeFormShell>

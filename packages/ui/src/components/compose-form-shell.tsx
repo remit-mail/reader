@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { type DragEvent, type ReactNode, useState } from "react";
 
 /**
  * How the surface gets its height. `fill` takes the one its container hands it
@@ -23,7 +23,11 @@ export interface ComposeFormShellProps {
 	/** The ComposeActionBar. */
 	actionBar: ReactNode;
 	layout?: ComposeShellLayout;
+	onDropFiles?: (files: File[]) => void;
 }
+
+const carriesFiles = (event: DragEvent): boolean =>
+	Array.from(event.dataTransfer?.types ?? []).includes("Files");
 
 /**
  * Presentational compose layout: banner / header / body+quote / action bar.
@@ -51,10 +55,46 @@ export function ComposeFormShell({
 	attachments,
 	actionBar,
 	layout = "fill",
+	onDropFiles,
 }: ComposeFormShellProps) {
 	const fills = layout === "fill";
+	const [dropping, setDropping] = useState(false);
+	const dropTarget = onDropFiles
+		? {
+				onDragOver: (event: DragEvent<HTMLDivElement>) => {
+					if (!carriesFiles(event)) return;
+					event.preventDefault();
+					setDropping(true);
+				},
+				onDragLeave: (event: DragEvent<HTMLDivElement>) => {
+					if (
+						event.relatedTarget instanceof Node &&
+						event.currentTarget.contains(event.relatedTarget)
+					)
+						return;
+					setDropping(false);
+				},
+				onDrop: (event: DragEvent<HTMLDivElement>) => {
+					setDropping(false);
+					const files = Array.from(event.dataTransfer?.files ?? []);
+					if (files.length === 0) return;
+					event.preventDefault();
+					onDropFiles(files);
+				},
+			}
+		: {};
 	return (
-		<div className={fills ? "flex h-full min-h-0 flex-col" : "flex flex-col"}>
+		<div
+			className={[
+				fills ? "flex h-full min-h-0 flex-col" : "flex flex-col",
+				dropping && "outline-2 -outline-offset-2 outline-dashed outline-accent",
+			]
+				.filter(Boolean)
+				.join(" ")}
+			data-testid="compose-drop-target"
+			data-dropping={dropping || undefined}
+			{...dropTarget}
+		>
 			{banner}
 			{header}
 			<div

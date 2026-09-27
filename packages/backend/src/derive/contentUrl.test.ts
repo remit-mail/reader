@@ -4,7 +4,11 @@ import {
 	createContentSigner,
 	verifyContentSignature,
 } from "./contentSignature.js";
-import { buildContentUrl, getContentDeliveryDomain } from "./contentUrl.js";
+import {
+	buildContentUrl,
+	buildStorageContentUrl,
+	getContentDeliveryDomain,
+} from "./contentUrl.js";
 
 describe("buildContentUrl", () => {
 	it("produces the /content/accounts/{cfg}/{acc}/messages/{msg}/parts/{part} layout the Lambda@Edge expects", () => {
@@ -61,6 +65,18 @@ describe("buildContentUrl", () => {
 		assert.equal(
 			url,
 			"https://cdn.test/content/accounts/cfg/acc/messages/msg/parts/1/strange%20path/3",
+		);
+	});
+
+	it("addresses an outbox attachment by its storage key", () => {
+		const url = buildStorageContentUrl({
+			domain: "https://cdn.test",
+			storageKey: "accounts/cfg/acc/outbox/ob-1/attachments/att-1",
+		});
+
+		assert.equal(
+			url,
+			"https://cdn.test/content/accounts/cfg/acc/outbox/ob-1/attachments/att-1",
 		);
 	});
 

@@ -21,24 +21,14 @@ import type {
 import {
 	completeOutboxAttachment,
 	mintOutboxAttachment,
+	toOutboxAttachmentResponse,
 } from "./outbox-attachment.js";
-
-const toAttachmentResponse = (
-	item: OutboxAttachmentItem,
-): OutboxMessageResponse["attachments"][number] => ({
-	outboxAttachmentId: item.outboxAttachmentId,
-	outboxMessageId: item.outboxMessageId,
-	filename: item.filename,
-	contentType: item.contentType,
-	sizeBytes: item.sizeBytes,
-	state: item.state,
-});
 
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
 	attachments: OutboxAttachmentItem[] = [],
 ): OutboxMessageResponse => ({
-	attachments: attachments.map(toAttachmentResponse),
+	attachments: attachments.map(toOutboxAttachmentResponse),
 	outboxMessageId: item.outboxMessageId,
 	accountId: item.accountId,
 	fromAddress: item.fromAddress,

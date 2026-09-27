@@ -30,9 +30,16 @@ import {
 	useRef,
 	useState,
 } from "react";
+import type { ContentIdOwner } from "../lib/adopted-html.js";
 import { isWritingElsewhere } from "./editor-focus.js";
 import { RichTextCorrectionMenu } from "./rich-text-correction-menu.js";
 import { $adoptHtml, $readRichText } from "./rich-text-document.js";
+import {
+	$pasteFiles,
+	InlineImagePlugin,
+	type InlineImages,
+	pastedFiles,
+} from "./rich-text-inline-images.js";
 import { RICH_TEXT_NODES, richTextTheme } from "./rich-text-nodes.js";
 import type {
 	CheckSpan,
@@ -87,6 +94,7 @@ export interface RichTextEditorProps {
 	spellcheck?: SpellcheckOptions;
 	insertion?: ComposeInsertion;
 	onInserted?: (version: number) => void;
+	inlineImages?: InlineImages;
 }
 
 /**
@@ -98,7 +106,13 @@ export interface RichTextEditorProps {
  * Apple Mail. The clipboard event carries no modifier state, so the keystroke
  * that triggered it is what records the intent.
  */
-const PastePlugin = () => {
+const PastePlugin = ({
+	inlineImages,
+	owns,
+}: {
+	inlineImages: RefObject<InlineImages | undefined>;
+	owns: ContentIdOwner;
+}) => {
 	const [editor] = useLexicalComposerContext();
 	const plainRequested = useRef(false);
 
@@ -130,6 +144,14 @@ const PastePlugin = () => {
 						const wasPlainRequested = plainRequested.current;
 						plainRequested.current = false;
 
+						const images = inlineImages.current;
+						const files = images ? pastedFiles(clipboard) : [];
+						if (images && files.length > 0) {
+							event.preventDefault();
+							$pasteFiles(editor, files, images);
+							return true;
+						}
+
 						if (wasPlainRequested) {
 							const selection = $getSelection();
 							if (!$isRangeSelection(selection)) return false;
@@ -142,13 +164,13 @@ const PastePlugin = () => {
 						if (!html) return false;
 
 						event.preventDefault();
-						$insertNodes($adoptHtml(editor, html));
+						$insertNodes($adoptHtml(editor, html, owns));
 						return true;
 					},
 					COMMAND_PRIORITY_CRITICAL,
 				),
 			),
-		[editor],
+		[editor, inlineImages, owns],
 	);
 
 	return null;
@@ -162,8 +184,10 @@ const PastePlugin = () => {
  */
 const ChangePlugin = ({
 	onChange,
+	owns,
 }: {
 	onChange: (value: RichTextValue) => void;
+	owns: ContentIdOwner;
 }) => {
 	const [editor] = useLexicalComposerContext();
 	const report = useRef(onChange);
@@ -173,13 +197,14 @@ const ChangePlugin = ({
 	}, [onChange]);
 
 	useEffect(() => {
-		const emit = () => report.current(editor.read(() => $readRichText(editor)));
+		const emit = () =>
+			report.current(editor.read(() => $readRichText(editor, owns)));
 		emit();
 		return editor.registerUpdateListener(({ dirtyElements, dirtyLeaves }) => {
 			if (dirtyElements.size === 0 && dirtyLeaves.size === 0) return;
 			emit();
 		});
-	}, [editor]);
+	}, [editor, owns]);
 
 	return null;
 };
@@ -939,9 +964,9 @@ const InsertionPlugin = ({
 };
 
 const seedDocument =
-	(html: string) =>
+	(html: string, owns: ContentIdOwner) =>
 	(editor: LexicalEditor): void => {
-		const nodes = $adoptHtml(editor, html);
+		const nodes = $adoptHtml(editor, html, owns);
 		if (nodes.length === 0) return;
 		$getRoot().select();
 		$insertNodes(nodes);
@@ -959,9 +984,16 @@ export const RichTextEditor = ({
 	spellcheck,
 	insertion,
 	onInserted,
+	inlineImages,
 }: RichTextEditorProps) => {
 	const [checkedHere, setCheckedHere] = useState(false);
 	const bodyRef = useRef<HTMLDivElement>(null);
+	const inlineRef = useRef(inlineImages);
+	inlineRef.current = inlineImages;
+	const owns = useCallback(
+		(contentId: string) => inlineRef.current?.owns(contentId) ?? false,
+		[],
+	);
 
 	return (
 		<LexicalComposer
@@ -969,7 +1001,7 @@ export const RichTextEditor = ({
 				namespace: "compose",
 				nodes: RICH_TEXT_NODES,
 				theme: richTextTheme,
-				editorState: initialHtml ? seedDocument(initialHtml) : undefined,
+				editorState: initialHtml ? seedDocument(initialHtml, owns) : undefined,
 				onError: (error) => {
 					throw error;
 				},
@@ -1029,10 +1061,11 @@ export const RichTextEditor = ({
 			<ListPlugin />
 			<LinkPlugin />
 			<TablePlugin />
-			<PastePlugin />
+			<PastePlugin inlineImages={inlineRef} owns={owns} />
+			<InlineImagePlugin inlineImages={inlineRef} />
 			<AutoFocus caret={initialCaret} />
 			<InsertionPlugin insertion={insertion} onInserted={onInserted} />
-			{onChange && <ChangePlugin onChange={onChange} />}
+			{onChange && <ChangePlugin onChange={onChange} owns={owns} />}
 		</LexicalComposer>
 	);
 };

@@ -12,7 +12,24 @@ export type DraftForAttachment =
 export interface MintedAttachment {
 	outboxAttachmentId: string;
 	filename: string;
+	contentType: string;
+	contentId: string;
 	uploadUrl: string;
+}
+
+export interface CompletedAttachment {
+	contentUrl: string;
+}
+
+export interface AttachmentPlacement {
+	stored: (file: File, contentId: string) => void;
+	failed: (file: File) => void;
+}
+
+export interface StoredContent {
+	filename: string;
+	contentType: string;
+	contentUrl: string;
 }
 
 /** The four requests a file on a draft is made of. Each throws on failure. */
@@ -22,7 +39,7 @@ export interface AttachmentTransport {
 	complete: (
 		outboxMessageId: string,
 		outboxAttachmentId: string,
-	) => Promise<void>;
+	) => Promise<CompletedAttachment>;
 	keep: (outboxMessageId: string, attachmentIds: string[]) => Promise<void>;
 }
 
@@ -34,6 +51,10 @@ export interface ComposeAttachmentControllerDeps {
 interface Entry extends ComposeAttachmentItem {
 	serverId: string | null;
 	file: File | null;
+	placement: AttachmentPlacement | null;
+	contentId: string | null;
+	contentType: string;
+	contentUrl: string | null;
 }
 
 interface AttachmentRejection {
@@ -91,6 +112,10 @@ const fromServer = (attachment: RemitImapOutboxAttachmentResponse): Entry => ({
 	key: attachment.outboxAttachmentId,
 	serverId: attachment.outboxAttachmentId,
 	file: null,
+	placement: null,
+	contentId: attachment.contentId,
+	contentType: attachment.contentType,
+	contentUrl: attachment.contentUrl,
 	filename: attachment.filename,
 	sizeBytes: attachment.sizeBytes,
 	state:
@@ -124,6 +149,8 @@ export class ComposeAttachmentController {
 	private readonly inFlight = new Map<string, AbortController>();
 	private readonly mintedAfterRemoval = new Map<string, string>();
 	private readonly removing = new Map<string, string>();
+	private readonly removedListeners = new Set<(contentId: string) => void>();
+	private loaded = false;
 
 	constructor(private readonly deps: ComposeAttachmentControllerDeps) {}
 
@@ -133,6 +160,47 @@ export class ComposeAttachmentController {
 	};
 
 	getSnapshot = (): ComposeAttachmentItem[] => this.snapshot;
+
+	owns = (contentId: string): boolean =>
+		this.entries.some((entry) => entry.contentId === contentId);
+
+	storedContent = (contentId: string): StoredContent | null => {
+		const entry = this.entries.find(
+			(candidate) =>
+				candidate.contentId === contentId && candidate.contentUrl !== null,
+		);
+		if (!entry?.contentUrl) return null;
+		return {
+			filename: entry.filename,
+			contentType: entry.contentType,
+			contentUrl: entry.contentUrl,
+		};
+	};
+
+	isLoaded = (): boolean => this.loaded;
+
+	refreshLinks = (
+		attachments: readonly RemitImapOutboxAttachmentResponse[],
+	): void => {
+		const links = new Map(
+			attachments.map((attachment) => [
+				attachment.outboxAttachmentId,
+				attachment.contentUrl,
+			]),
+		);
+		this.set(
+			this.entries.map((entry) => {
+				const contentUrl =
+					entry.serverId === null ? undefined : links.get(entry.serverId);
+				return contentUrl === undefined ? entry : { ...entry, contentUrl };
+			}),
+		);
+	};
+
+	onRemoved = (listener: (contentId: string) => void): (() => void) => {
+		this.removedListeners.add(listener);
+		return () => this.removedListeners.delete(listener);
+	};
 
 	blockingReason = (): string | undefined => {
 		const [removing] = this.removing.values();
@@ -210,6 +278,8 @@ export class ComposeAttachmentController {
 			this.patch(generation, key, {
 				serverId: minted.outboxAttachmentId,
 				filename: minted.filename,
+				contentId: minted.contentId,
+				contentType: minted.contentType,
 			});
 		}
 		settle();
@@ -232,18 +302,28 @@ export class ComposeAttachmentController {
 
 		const completed = await transport
 			.complete(outboxMessageId, minted.outboxAttachmentId)
-			.then(
-				() => true,
-				(error: unknown) => {
-					this.patch(generation, key, {
-						state: refusalOf(minted.filename, error),
-					});
-					return false;
-				},
-			);
-		if (!completed || signal.aborted) return;
-		this.patch(generation, key, { state: ATTACHED });
+			.catch((error: unknown) => {
+				this.patch(generation, key, {
+					state: refusalOf(minted.filename, error),
+				});
+				return null;
+			});
+		if (completed === null || signal.aborted) return;
+		this.patch(generation, key, {
+			state: ATTACHED,
+			contentUrl: completed.contentUrl,
+		});
+		if (generation !== this.generation) return;
+		this.entries
+			.find((entry) => entry.key === key)
+			?.placement?.stored(file, minted.contentId);
 	};
+
+	private settleFailure(generation: number, key: string, file: File): void {
+		if (generation !== this.generation) return;
+		const entry = this.entries.find((candidate) => candidate.key === key);
+		if (entry?.state.status === "failed") entry.placement?.failed(file);
+	}
 
 	private run = async (
 		generation: number,
@@ -254,6 +334,7 @@ export class ComposeAttachmentController {
 	): Promise<void> => {
 		await this.upload(generation, key, file, outboxMessageId, signal);
 		if (this.inFlight.get(key)?.signal === signal) this.inFlight.delete(key);
+		this.settleFailure(generation, key, file);
 	};
 
 	/**
@@ -282,7 +363,10 @@ export class ComposeAttachmentController {
 			);
 	};
 
-	attach = async (files: File[]): Promise<void> => {
+	attach = async (
+		files: File[],
+		placement?: AttachmentPlacement,
+	): Promise<void> => {
 		const generation = this.generation;
 		const added = files.map((file) => {
 			this.nextKey += 1;
@@ -290,6 +374,10 @@ export class ComposeAttachmentController {
 				key: `local-${this.nextKey}`,
 				serverId: null,
 				file,
+				placement: placement ?? null,
+				contentId: null,
+				contentType: file.type || "application/octet-stream",
+				contentUrl: null,
 				filename: file.name,
 				sizeBytes: file.size,
 				state: UPLOADING,
@@ -302,11 +390,12 @@ export class ComposeAttachmentController {
 
 		const draft = await this.deps.ensureDraft();
 		if (draft.outcome === "refused") {
-			for (const { entry } of added) {
+			for (const { entry, file } of added) {
 				this.inFlight.delete(entry.key);
 				this.patch(generation, entry.key, {
 					state: failed(draft.reason, true),
 				});
+				this.settleFailure(generation, entry.key, file);
 			}
 			return;
 		}
@@ -379,7 +468,12 @@ export class ComposeAttachmentController {
 		this.set(this.entries);
 		const serverId = entry.serverId ?? this.mintedAfterRemoval.get(key) ?? null;
 		this.mintedAfterRemoval.delete(key);
-		if (failure === null || generation !== this.generation) return;
+		if (generation !== this.generation) return;
+		if (failure === null) {
+			if (entry.contentId === null) return;
+			for (const listener of this.removedListeners) listener(entry.contentId);
+			return;
+		}
 		if (serverId === null) return;
 		this.set([
 			...this.entries,
@@ -400,7 +494,16 @@ export class ComposeAttachmentController {
 		attachments: readonly RemitImapOutboxAttachmentResponse[],
 	): void => {
 		this.draftId = outboxMessageId;
-		this.set(attachments.map(fromServer));
+		this.loaded = true;
+		const listed = new Set(
+			attachments.map((attachment) => attachment.outboxAttachmentId),
+		);
+		const attachedHere = this.entries.filter(
+			(entry) =>
+				entry.file !== null &&
+				(entry.serverId === null || !listed.has(entry.serverId)),
+		);
+		this.set([...attachments.map(fromServer), ...attachedHere]);
 	};
 
 	reset = (outboxMessageId: string | undefined): void => {
@@ -410,6 +513,7 @@ export class ComposeAttachmentController {
 		this.mintedAfterRemoval.clear();
 		this.removing.clear();
 		this.draftId = outboxMessageId;
+		this.loaded = false;
 		this.set([]);
 	};
 }

@@ -30,6 +30,18 @@ export interface MailAttachment {
 const formatFrom = (address: string, name: string | undefined): string =>
 	name ? `"${name.replace(/(["\\])/g, "\\$1")}" <${address}>` : address;
 
+const placeAttachment = (
+	attachment: MailAttachment,
+	html: string | undefined,
+): MailAttachment => {
+	if (!attachment.cid || attachment.contentDisposition) return attachment;
+	if (html?.includes(`cid:${attachment.cid}`)) {
+		return { ...attachment, contentDisposition: "inline" };
+	}
+	const { cid: _unreferenced, ...standalone } = attachment;
+	return standalone;
+};
+
 /** The one description of an outgoing message: the wire copy and the Sent copy. */
 export const buildMailMessage = (
 	outbox: OutboxMessageItem,
@@ -50,7 +62,9 @@ export const buildMailMessage = (
 	// submission is accepted, so on the wire path this is always absent and
 	// nodemailer dates the message as it goes out.
 	date: outbox.sentAt ? new Date(outbox.sentAt) : undefined,
-	attachments,
+	attachments: attachments?.map((attachment) =>
+		placeAttachment(attachment, outbox.htmlBody),
+	),
 });
 
 export const toNodemailerOptions = (message: MailMessage): SendMailOptions => ({

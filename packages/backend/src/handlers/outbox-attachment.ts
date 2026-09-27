@@ -4,14 +4,21 @@ import type {
 	OutboxAttachmentRejection,
 	OutboxAttachmentResponse,
 } from "@remit/api-openapi-types";
+import type { OutboxAttachmentItem } from "@remit/data-ports";
 import { OutboxAttachmentRejectionReason } from "@remit/domain-enums";
 import type {
 	OutboxAttachmentRejectionDetail,
 	OutboxAttachmentRejectionReasonValue,
 } from "@remit/mailbox-service";
+import { outboxAttachmentContentId } from "@remit/mailbox-service/outbox-attachment-content";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { getContentSigner } from "../derive/contentSignature.js";
+import {
+	buildStorageContentUrl,
+	getContentDeliveryDomain,
+} from "../derive/contentUrl.js";
 import { getClient } from "../service/data-client.js";
 
 // Every error body the API emits carries a `code` (issue #371). A refusal here
@@ -23,6 +30,23 @@ const TOO_LARGE: ReadonlySet<OutboxAttachmentRejectionReasonValue> = new Set([
 	OutboxAttachmentRejectionReason.MessageTooLarge,
 	OutboxAttachmentRejectionReason.TooManyAttachments,
 ]);
+
+export const toOutboxAttachmentResponse = (
+	item: OutboxAttachmentItem,
+): OutboxAttachmentResponse => ({
+	outboxAttachmentId: item.outboxAttachmentId,
+	outboxMessageId: item.outboxMessageId,
+	filename: item.filename,
+	contentType: item.contentType,
+	sizeBytes: item.sizeBytes,
+	state: item.state,
+	contentId: outboxAttachmentContentId(item.outboxAttachmentId),
+	contentUrl: buildStorageContentUrl({
+		domain: getContentDeliveryDomain(),
+		storageKey: item.storageKey,
+		sign: getContentSigner(),
+	}),
+});
 
 interface RejectionResponse {
 	statusCode: number;
@@ -98,5 +122,5 @@ export const completeOutboxAttachment = async (
 
 	if (result.outcome === "Rejected") return refuse(result.rejection);
 
-	return result.attachment;
+	return toOutboxAttachmentResponse(result.attachment);
 };

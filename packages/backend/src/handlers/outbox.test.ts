@@ -50,6 +50,9 @@ import {
 } from "../service/data-client.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 
+const CONTENT_DOMAIN = "https://content.test";
+process.env.CONTENT_DELIVERY_DOMAIN = CONTENT_DOMAIN;
+
 const SUB = "cognito-sub-604";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const ACCOUNT_ID = "acc-604";
@@ -614,6 +617,31 @@ describe("attachmentIds on a draft update (#679)", () => {
 		const body = JSON.parse(response.body) as { attachments: unknown[] };
 		assert.equal(body.attachments.length, 2);
 		assert.equal(attachmentRows.size, 2);
+	});
+
+	it("names each file by its content-id and where its bytes are read from", async () => {
+		installClient();
+		const { outboxMessageId, ids } = await seed();
+
+		const response = await patch(outboxMessageId, { subject: "still typing" });
+
+		const body = JSON.parse(response.body) as {
+			attachments: {
+				outboxAttachmentId: string;
+				contentId: string;
+				contentUrl: string;
+			}[];
+		};
+		const [first] = body.attachments.filter(
+			(item) => item.outboxAttachmentId === ids[0],
+		);
+		assert.equal(first.contentId, `${ids[0]}@remit`);
+		assert.ok(
+			first.contentUrl.startsWith(
+				`${CONTENT_DOMAIN}/content/${attachmentRows.get(ids[0])?.storageKey}`,
+			),
+			first.contentUrl,
+		);
 	});
 
 	it("present and empty removes every file", async () => {

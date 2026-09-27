@@ -6,7 +6,11 @@ export interface OutboxAttachmentContent {
 	filename: string;
 	contentType: string;
 	content: Buffer;
+	cid: string;
 }
+
+export const outboxAttachmentContentId = (outboxAttachmentId: string): string =>
+	`${outboxAttachmentId}@remit`;
 
 /**
  * A file on a message that cannot be put into it. Carries the file's name so
@@ -93,6 +97,7 @@ export const loadOutboxAttachmentContents = async (
 				filename: item.filename,
 				contentType: item.contentType,
 				content,
+				cid: outboxAttachmentContentId(item.outboxAttachmentId),
 			};
 		}),
 	);

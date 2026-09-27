@@ -70,6 +70,14 @@ describe("loadOutboxAttachmentContents", () => {
 		);
 	});
 
+	it("gives each file the content-id its reservation handed out", async () => {
+		const deps = await setup([row("shot")], ["shot"]);
+
+		const [content] = await loadOutboxAttachmentContents(deps, OWNER, NOW);
+
+		assert.equal(content.cid, "shot@remit");
+	});
+
 	it("leaves out a reservation that lapsed without its bytes", async () => {
 		const deps = await setup(
 			[

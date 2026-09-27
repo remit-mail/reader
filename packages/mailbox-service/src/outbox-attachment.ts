@@ -16,6 +16,7 @@ import {
 import {
 	loadOutboxAttachmentContents,
 	type OutboxAttachmentContent,
+	outboxAttachmentContentId,
 } from "./outbox-attachment-content.js";
 import {
 	normalizeAttachmentContentType,
@@ -45,6 +46,7 @@ export interface OutboxAttachmentReservation {
 	filename: string;
 	contentType: string;
 	sizeBytes: number;
+	contentId: string;
 	uploadUrl: string;
 	uploadExpiresAt: number;
 }
@@ -271,6 +273,7 @@ export class OutboxAttachmentService {
 				filename: reserved.item.filename,
 				contentType: reserved.item.contentType,
 				sizeBytes: reserved.item.sizeBytes,
+				contentId: outboxAttachmentContentId(reserved.item.outboxAttachmentId),
 				uploadUrl: target.uploadUrl,
 				uploadExpiresAt: reservationExpiresAt,
 			},

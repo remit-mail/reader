@@ -9,6 +9,7 @@ import { ConfirmDialog } from "./confirm-dialog.js";
 import { PlainTextEditor } from "./plain-text-editor.js";
 import { markdownToHtml } from "./rich-text-document.js";
 import { RichTextEditor } from "./rich-text-editor.js";
+import type { InlineImages } from "./rich-text-inline-images.js";
 import type { SpellcheckOptions } from "./rich-text-spellcheck.js";
 import type {
 	ComposeCaret,
@@ -75,6 +76,7 @@ export interface ComposeBodyProps {
 	spellcheck?: SpellcheckOptions;
 	insertion?: ComposeInsertion;
 	onInserted?: (version: number) => void;
+	inlineImages?: InlineImages;
 }
 
 /**
@@ -99,6 +101,7 @@ export const ComposeBody = ({
 	spellcheck,
 	insertion,
 	onInserted,
+	inlineImages,
 }: ComposeBodyProps) => {
 	const [richHtml, setRichHtml] = useState(initialHtml);
 	const [richGeneration, setRichGeneration] = useState(0);
@@ -218,6 +221,7 @@ export const ComposeBody = ({
 					spellcheck={spellcheck}
 					insertion={insertion}
 					onInserted={onInserted}
+					inlineImages={inlineImages}
 				/>
 			)}
 			<ConfirmDialog

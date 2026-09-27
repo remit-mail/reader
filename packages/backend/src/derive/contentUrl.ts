@@ -26,9 +26,16 @@ export interface BuildContentUrlInput {
 	sign?: ContentSigner;
 }
 
-export const buildContentUrl = (input: BuildContentUrlInput): string => {
-	const { domain, accountConfigId, accountId, messageId, partPath, sign } =
-		input;
+export interface BuildStorageContentUrlInput {
+	domain: string;
+	storageKey: string;
+	sign?: ContentSigner;
+}
+
+export const buildStorageContentUrl = (
+	input: BuildStorageContentUrlInput,
+): string => {
+	const { domain, storageKey, sign } = input;
 	const normalizedDomain = domain.replace(/\/+$/, "");
 	const base = normalizedDomain.startsWith("http")
 		? normalizedDomain
@@ -36,15 +43,24 @@ export const buildContentUrl = (input: BuildContentUrlInput): string => {
 	// The signed message is the decoded, account-scoped storage path — the same
 	// value the `/content` route recomputes from `req.path`. Keep it in lockstep
 	// with the verifier's `req.path.replace(/^\/content\//, "")`.
-	const relativePath = `accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
-	const safePart = partPath
+	const safeKey = storageKey
 		.split("/")
 		.map((segment) => encodeURIComponent(segment))
 		.join("/");
-	const url = `${base}/content/accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${safePart}`;
+	const url = `${base}/content/${safeKey}`;
 	if (!sign) return url;
-	const { exp, sig } = sign(relativePath);
+	const { exp, sig } = sign(storageKey);
 	return `${url}?exp=${exp}&sig=${encodeURIComponent(sig)}`;
+};
+
+export const buildContentUrl = (input: BuildContentUrlInput): string => {
+	const { domain, accountConfigId, accountId, messageId, partPath, sign } =
+		input;
+	return buildStorageContentUrl({
+		domain,
+		storageKey: `accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`,
+		sign,
+	});
 };
 
 /**

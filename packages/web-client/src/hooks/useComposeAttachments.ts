@@ -61,7 +61,7 @@ export const useComposeAttachments = ({
 		complete: (outboxMessageId, outboxAttachmentId) =>
 			completeMutation
 				.mutateAsync({ path: { outboxMessageId, outboxAttachmentId } })
-				.then(() => undefined),
+				.then((attachment) => ({ contentUrl: attachment.contentUrl })),
 		keep: (outboxMessageId, attachmentIds) =>
 			updateMutation
 				.mutateAsync({
@@ -98,6 +98,11 @@ export const useComposeAttachments = ({
 		remove: controller.remove,
 		load: controller.load,
 		reset: controller.reset,
+		owns: controller.owns,
+		isLoaded: controller.isLoaded,
+		refreshLinks: controller.refreshLinks,
+		storedContent: controller.storedContent,
+		onRemoved: controller.onRemoved,
 		blockingReason: controller.blockingReason(),
 	};
 };

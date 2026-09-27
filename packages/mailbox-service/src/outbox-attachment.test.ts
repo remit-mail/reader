@@ -224,6 +224,23 @@ describe("reserving room on a draft", () => {
 		assert.ok(row?.storageKey.endsWith(result.reservation.outboxAttachmentId));
 	});
 
+	it("names the content-id a body can refer to the file by", async () => {
+		const { service } = build();
+
+		const result = await mint(service, {
+			filename: "shot.png",
+			contentType: "image/png",
+			sizeBytes: 64,
+		});
+
+		assert.equal(result.outcome, "Minted");
+		if (result.outcome !== "Minted") return;
+		assert.equal(
+			result.reservation.contentId,
+			`${result.reservation.outboxAttachmentId}@remit`,
+		);
+	});
+
 	it("refuses a declared size over the cap", async () => {
 		const { service } = build();
 

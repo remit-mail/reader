@@ -37,6 +37,10 @@ export {
 	RichTextEditor,
 	type RichTextEditorProps,
 } from "./components/rich-text-editor.js";
+export type {
+	InlineImagePlacement,
+	InlineImages,
+} from "./components/rich-text-inline-images.js";
 export { COMPOSE_TRANSFORMERS } from "./components/rich-text-markdown.js";
 export type {
 	CheckRequest,

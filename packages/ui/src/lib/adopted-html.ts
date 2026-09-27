@@ -62,6 +62,18 @@ const ADOPTED_ATTR = [
 
 const LINK_SCHEMES = /^(?:https?:|mailto:)/i;
 const IMAGE_SCHEMES = /^(?:https:|data:image\/)/i;
+const CONTENT_ID_SOURCE = /^cid:(.+)$/i;
+
+export type ContentIdOwner = (contentId: string) => boolean;
+
+const ownsNone: ContentIdOwner = () => false;
+let ownsContentId: ContentIdOwner = ownsNone;
+
+const keepsImage = (src: string): boolean => {
+	const reference = CONTENT_ID_SOURCE.exec(src);
+	if (reference) return ownsContentId(reference[1]);
+	return IMAGE_SCHEMES.test(src);
+};
 
 /**
  * A pasted screenshot is as wide as the screen it came off, and the class the
@@ -107,7 +119,7 @@ const createPurifier = (profile: Profile): ReturnType<typeof DOMPurify> => {
 			node.remove();
 			return;
 		}
-		if (!IMAGE_SCHEMES.test(node.getAttribute("src") ?? "")) {
+		if (!keepsImage(node.getAttribute("src") ?? "")) {
 			node.remove();
 			return;
 		}
@@ -142,8 +154,17 @@ const sanitize = (html: string, profile: Profile): string =>
  * It runs on the way in over a clipboard, and again on the way out over the
  * editor's own serialization, which carries the app's stylesheet with it.
  */
-export const sanitizeAdoptedHtml = (html: string): string =>
-	sanitize(html, "outgoing");
+export const sanitizeAdoptedHtml = (
+	html: string,
+	owns: ContentIdOwner = ownsNone,
+): string => {
+	ownsContentId = owns;
+	try {
+		return sanitize(html, "outgoing");
+	} finally {
+		ownsContentId = ownsNone;
+	}
+};
 
 /** The same profile for mail quoted back at its sender, links and images defanged. */
 export const sanitizeQuotedHtml = (html: string): string =>

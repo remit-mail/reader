@@ -464,6 +464,8 @@ export interface MimePart {
 	contentType: string;
 	/** The name the part is filed under, or null for a body part that has none. */
 	filename: string | null;
+	contentId: string | null;
+	disposition: string | null;
 	content: string;
 }
 
@@ -478,7 +480,13 @@ export interface MimeShape {
 
 const leafNodes = (
 	node: MessageStructureObject,
-): Array<{ part: string; type: string; filename: string | null }> => {
+): Array<{
+	part: string;
+	type: string;
+	filename: string | null;
+	contentId: string | null;
+	disposition: string | null;
+}> => {
 	if (!node.childNodes?.length) {
 		// A single-part message has no part number at all; ImapFlow maps "1" onto
 		// the whole body for exactly that case.
@@ -488,6 +496,8 @@ const leafNodes = (
 				type: node.type,
 				filename:
 					node.dispositionParameters?.filename ?? node.parameters?.name ?? null,
+				contentId: node.id ?? null,
+				disposition: node.disposition?.toLowerCase() ?? null,
 			},
 		];
 	}
@@ -527,6 +537,8 @@ const downloadShape = async (
 		parts.push({
 			contentType: leaf.type,
 			filename: leaf.filename,
+			contentId: leaf.contentId,
+			disposition: leaf.disposition,
 			content: await readStream(download.content),
 		});
 	}
