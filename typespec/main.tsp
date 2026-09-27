@@ -1360,9 +1360,9 @@ namespace RemitApi {
       that answer. A sender rule written by
       `dismiss{muteSender}` stays; it is a rule of its own, edited where rules
       are.
-      
+
       No mail is sent. Idempotent: a `Pending` suggestion is returned as it is.
-      
+
       400 when the suggestion is `Superseded`, which a later revision retired,
       a `Cancel`, whose answer rewrote an event it cannot restore, or its
       `answerOvertakenBy` is `Cancellation`, because a cancellation is terminal.
