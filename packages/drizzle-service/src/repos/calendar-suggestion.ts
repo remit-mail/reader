@@ -224,4 +224,23 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 			.returning();
 		return row ? rowToCalendarSuggestion(row) : null;
 	}
+
+	async repointSuperseded(
+		accountConfigId: string,
+		suggestionId: string,
+		supersededByMessageId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const [row] = await this.db
+			.update(calendarSuggestionTable)
+			.set({ supersededByMessageId, updatedAt: Date.now() })
+			.where(
+				and(
+					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
+					eq(calendarSuggestionTable.suggestionId, suggestionId),
+					eq(calendarSuggestionTable.state, CalendarSuggestionState.Superseded),
+				),
+			)
+			.returning();
+		return row ? rowToCalendarSuggestion(row) : null;
+	}
 }

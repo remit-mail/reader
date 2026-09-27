@@ -325,6 +325,7 @@ function BriefReading() {
 		actions,
 		onReply,
 		handleDeselectIfRemoved,
+		onOpenThread,
 	} = useBriefPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -377,6 +378,7 @@ function BriefReading() {
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
+				onOpenThread={onOpenThread}
 			/>
 		</>
 	);
@@ -388,7 +390,8 @@ function BriefReading() {
  */
 function BriefIntelligence() {
 	const replyWithText = useReplyWithText();
-	const { selectedThread, handleDeselectIfRemoved } = useBriefPane();
+	const { selectedThread, handleDeselectIfRemoved, onOpenThread } =
+		useBriefPane();
 	const { onToggleIntelligence } = useMailContext();
 
 	return (
@@ -399,6 +402,7 @@ function BriefIntelligence() {
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
+			onOpenThread={onOpenThread}
 		/>
 	);
 }
@@ -444,6 +448,7 @@ function BriefPhone() {
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}
+					onOpenThread={onOpenThread}
 				/>
 			</>
 		);

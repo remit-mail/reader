@@ -51,9 +51,9 @@ import {
 	toEventSuggestion,
 } from "@/lib/calendar-suggestion";
 import {
+	type OpenThreadTarget,
 	useChangeSuggestionOnCalendar,
 	useOpenEventOnCalendar,
-	useOpenThread,
 } from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
@@ -96,6 +96,7 @@ export interface IntelligenceCalendar {
 export function useIntelligenceCalendar(
 	thread: RemitImapThreadMessageResponse,
 	replyWithText?: ReplyWithText,
+	openThread?: (target: OpenThreadTarget) => void,
 ): IntelligenceCalendar {
 	const messageId = thread.messageId;
 	const { suggestions, isLoading, error } =
@@ -112,7 +113,6 @@ export function useIntelligenceCalendar(
 
 	const openEvent = useOpenEventOnCalendar();
 	const changeOnCalendar = useChangeSuggestionOnCalendar();
-	const openThread = useOpenThread();
 
 	const [held, setHeld] = useState<Working>(() => fresh(messageId));
 	const working = held.messageId === messageId ? held : fresh(messageId);
@@ -297,7 +297,7 @@ export function useIntelligenceCalendar(
 					)
 			: undefined,
 		onOpenNewerInvite:
-			invitation && invitation.supersededByThreadId !== ""
+			openThread && invitation && invitation.supersededByThreadId !== ""
 				? () =>
 						openThread({
 							threadId: invitation.supersededByThreadId,

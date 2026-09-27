@@ -1130,6 +1130,7 @@ function MailboxReading() {
 		onToolbarMove,
 		handleDeselectIfRemoved,
 		intelligenceRef,
+		onOpenThread,
 	} = useMailboxPane();
 	const hasThread = Boolean(conversation);
 	const intelligence = useIntelligenceSurface(conversation?.threadId);
@@ -1207,6 +1208,7 @@ function MailboxReading() {
 				accountId={mailboxAccountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
+				onOpenThread={onOpenThread}
 			/>
 		</>
 	);
@@ -1224,6 +1226,7 @@ function MailboxIntelligence() {
 		selectedThread,
 		onToggleIntelligence,
 		handleDeselectIfRemoved,
+		onOpenThread,
 	} = useMailboxPane();
 
 	return (
@@ -1234,6 +1237,7 @@ function MailboxIntelligence() {
 			accountId={mailboxAccountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
+			onOpenThread={onOpenThread}
 		/>
 	);
 }
@@ -1288,6 +1292,7 @@ function MailboxPhone() {
 					accountId={mailboxAccountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}
+					onOpenThread={onOpenThread}
 				/>
 			</>
 		);

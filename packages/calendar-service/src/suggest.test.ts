@@ -186,6 +186,24 @@ describe("recordCalendarSuggestion", () => {
 		);
 	});
 
+	it("points every retired revision at the newest one", async () => {
+		const store = new MemoryCalendarStore();
+
+		const first = await record(store, invitation({ sequence: 0 }), "message-1");
+		await record(store, invitation({ sequence: 1 }), "message-2");
+		await record(store, invitation({ sequence: 2 }), "message-3");
+
+		assert.ok(first.ok);
+		const retired = [...store.suggestions.values()]
+			.filter((row) => row.state === CalendarSuggestionState.Superseded)
+			.map((row) => [row.messageId, row.supersededByMessageId])
+			.sort();
+		assert.deepEqual(retired, [
+			["message-1", "message-3"],
+			["message-2", "message-3"],
+		]);
+	});
+
 	it("leaves the earlier revision alone when the sequence did not move", async () => {
 		// SEQUENCE is the organizer's revision counter. A resend of the same
 		// revision — a redelivery, a second copy filed elsewhere — is not a new

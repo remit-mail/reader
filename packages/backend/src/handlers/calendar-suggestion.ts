@@ -41,9 +41,6 @@ import { pickEventUpdate } from "./calendar-event.js";
  * The raw invitation bytes stay on the server. A client renders the projected
  * fields; the bytes exist so accepting can write them into a calendar
  * unchanged, and shipping them would invite a second, divergent renderer.
- *
- * An answer's response names no newer revision: only a pending card is ever
- * superseded, so a card a person could answer was never retired.
  */
 export const toCalendarSuggestionResponse = (
 	item: CalendarSuggestionItem,
@@ -52,12 +49,6 @@ export const toCalendarSuggestionResponse = (
 	return { ...response, supersededByThreadId: "" };
 };
 
-/**
- * Cards as a list returns them, each superseded one carrying the conversation
- * of the message that retired it. A suggestion knows the newer message, and
- * the reading pane opens a thread, so the thread is resolved here once rather
- * than asked for card by card.
- */
 export const toCalendarSuggestionResponses = (
 	threads: Pick<IThreadMessageRepository, "findByMessageId">,
 	accountConfigId: string,

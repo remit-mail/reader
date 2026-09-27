@@ -23,6 +23,7 @@ import {
 	RouterProvider,
 } from "@tanstack/react-router";
 import { createElement } from "react";
+import { useOpenThread } from "@/routing";
 import { createDomHarness, type DomHarness } from "@/test-support/dom";
 import { makeThreadMessage } from "@/test-support/fixtures";
 import {
@@ -103,7 +104,7 @@ const invitation = (
 });
 
 const Harness = () => {
-	const calendar = useIntelligenceCalendar(thread);
+	const calendar = useIntelligenceCalendar(thread, undefined, useOpenThread());
 	return createElement(IntelligencePanel, {
 		data: sender,
 		calendar: calendar.surface,

@@ -215,6 +215,18 @@ class MemorySuggestions implements ICalendarSuggestionRepository {
 		this.rows.set(suggestionId, retired);
 		return retired;
 	}
+
+	async repointSuperseded(
+		_accountConfigId: string,
+		suggestionId: string,
+		supersededByMessageId: string,
+	): Promise<CalendarSuggestionItem | null> {
+		const row = this.rows.get(suggestionId);
+		if (!row || row.state !== CalendarSuggestionState.Superseded) return null;
+		const repointed = { ...row, supersededByMessageId };
+		this.rows.set(suggestionId, repointed);
+		return repointed;
+	}
 }
 
 interface Harness {

@@ -303,6 +303,27 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 			this.suggestions.set(suggestionId, retired);
 			return retired;
 		},
+		repointSuperseded: async (
+			accountConfigId: string,
+			suggestionId: string,
+			supersededByMessageId: string,
+		) => {
+			const suggestion = this.suggestions.get(suggestionId);
+			if (
+				!suggestion ||
+				suggestion.accountConfigId !== accountConfigId ||
+				suggestion.state !== CalendarSuggestionState.Superseded
+			) {
+				return null;
+			}
+			const repointed = {
+				...suggestion,
+				supersededByMessageId,
+				updatedAt: Date.now(),
+			};
+			this.suggestions.set(suggestionId, repointed);
+			return repointed;
+		},
 	};
 
 	private readonly feedTokenRepo: ICalendarFeedTokenRepository = {

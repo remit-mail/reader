@@ -72,4 +72,14 @@ export interface ICalendarSuggestionRepository {
 		suggestionId: string,
 		supersededByMessageId: string,
 	): Promise<CalendarSuggestionItem | null>;
+	/**
+	 * Points a card already `Superseded` at a later revision, so every retired
+	 * revision of an event opens the newest one. Returns the updated row, or
+	 * `null` when the card is not superseded and nothing was written.
+	 */
+	repointSuperseded(
+		accountConfigId: string,
+		suggestionId: string,
+		supersededByMessageId: string,
+	): Promise<CalendarSuggestionItem | null>;
 }

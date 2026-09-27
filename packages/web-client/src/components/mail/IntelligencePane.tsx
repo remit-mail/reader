@@ -19,7 +19,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { useTelemetry } from "@/lib/telemetry-context";
-import { NavLink } from "@/routing";
+import { NavLink, type OpenThreadTarget } from "@/routing";
 import type { ReplyWithText } from "../compose/reply-with-times";
 
 export interface IntelligencePaneProps {
@@ -55,6 +55,7 @@ export interface IntelligencePaneProps {
 	 */
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 	onReplyWithText?: ReplyWithText;
+	onOpenThread?: (target: OpenThreadTarget) => void;
 }
 
 /**
@@ -254,6 +255,7 @@ interface WiredPanelProps {
 	hideCloseButton?: boolean;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 	onReplyWithText?: ReplyWithText;
+	onOpenThread?: (target: OpenThreadTarget) => void;
 }
 
 /**
@@ -267,6 +269,7 @@ function WiredPanel({
 	hideCloseButton,
 	onAfterOptimisticRemove,
 	onReplyWithText,
+	onOpenThread,
 }: WiredPanelProps) {
 	const {
 		data,
@@ -277,7 +280,11 @@ function WiredPanel({
 		similarErrorIsFatal,
 		semanticEnabled,
 	} = useIntelligenceData(thread, mailboxId);
-	const calendar = useIntelligenceCalendar(thread, onReplyWithText);
+	const calendar = useIntelligenceCalendar(
+		thread,
+		onReplyWithText,
+		onOpenThread,
+	);
 	const [reclassifyOpen, setReclassifyOpen] = useState(false);
 	const senderEmail = thread.fromEmail ?? undefined;
 
@@ -437,6 +444,7 @@ export const IntelligencePane = ({
 	hideCloseButton,
 	onAfterOptimisticRemove,
 	onReplyWithText,
+	onOpenThread,
 }: IntelligencePaneProps) => {
 	if (!thread) {
 		return (
@@ -467,6 +475,7 @@ export const IntelligencePane = ({
 			hideCloseButton={hideCloseButton}
 			onAfterOptimisticRemove={onAfterOptimisticRemove}
 			onReplyWithText={onReplyWithText}
+			onOpenThread={onOpenThread}
 		/>
 	);
 };
