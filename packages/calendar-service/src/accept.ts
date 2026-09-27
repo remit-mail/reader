@@ -1,3 +1,4 @@
+import type { CalendarInviteAnswer as CalendarInviteAnswerValue } from "@remit/api-openapi-types";
 import type {
 	CalendarObjectItem,
 	CalendarSuggestionItem,
@@ -16,9 +17,6 @@ import { mailAddressOf } from "./suggest.js";
 
 const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
 	component.getAllSubcomponents("vevent");
-
-export type CalendarInviteAnswerValue =
-	(typeof CalendarInviteAnswer)[keyof typeof CalendarInviteAnswer];
 
 const partstatOf: Record<CalendarInviteAnswerValue, string> = {
 	[CalendarInviteAnswer.Accepted]: "ACCEPTED",

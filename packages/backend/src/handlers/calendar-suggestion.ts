@@ -1,8 +1,8 @@
-import type { CalendarSuggestionResponse } from "@remit/api-openapi-types";
-import {
-	acceptCalendarSuggestion,
-	type CalendarInviteAnswerValue,
-} from "@remit/calendar-service";
+import type {
+	CalendarInviteAnswer as CalendarInviteAnswerValue,
+	CalendarSuggestionResponse,
+} from "@remit/api-openapi-types";
+import { acceptCalendarSuggestion } from "@remit/calendar-service";
 import {
 	type CalendarSuggestionItem,
 	type ICalendarSuggestionRepository,

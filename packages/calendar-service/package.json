@@ -20,6 +20,7 @@
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/memory-store.ts' --test-coverage-lines=90 --test 'src/**/*.test.ts'"
 	},
 	"dependencies": {
+		"@remit/api-openapi-types": "*",
 		"@remit/data-ports": "*",
 		"@remit/domain-enums": "*",
 		"ical.js": "^2.2.1"

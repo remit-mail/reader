@@ -3,7 +3,6 @@ export {
 	type AcceptedCalendarSuggestion,
 	acceptCalendarSuggestion,
 	buildAcceptedCalendar,
-	type CalendarInviteAnswerValue,
 } from "./accept.js";
 export {
 	applyEventFields,
