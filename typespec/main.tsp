@@ -1300,6 +1300,9 @@ namespace RemitApi {
       edit and a native edit of that event cannot diverge. Accepting a `Cancel`
       suggestion writes `STATUS:CANCELLED` on the resource the same way.
       
+      `answer: Tentative` writes the same resource with `PARTSTAT=TENTATIVE`
+      and moves the suggestion to `Tentative` instead of `Accepted`.
+      
       No reply is sent to the organizer. This endpoint sends no mail at all,
       and the card says so.
       
@@ -1308,7 +1311,8 @@ namespace RemitApi {
       and the suggestion id are derived rather than minted.
       
       400 when the suggestion is not one that can be accepted — already
-      declined, dismissed or superseded — or when its iCalendar will not parse.
+      answered otherwise, dismissed or superseded — when a `Cancel` suggestion
+      is answered `Tentative`, or when its iCalendar will not parse.
       """)
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post

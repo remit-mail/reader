@@ -1,5 +1,8 @@
 import type { CalendarSuggestionResponse } from "@remit/api-openapi-types";
-import { acceptCalendarSuggestion } from "@remit/calendar-service";
+import {
+	acceptCalendarSuggestion,
+	type CalendarInviteAnswerValue,
+} from "@remit/calendar-service";
 import {
 	type CalendarSuggestionItem,
 	type ICalendarSuggestionRepository,
@@ -9,6 +12,8 @@ import {
 } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import {
+	CalendarInviteAnswer,
+	CalendarInviteMethod,
 	CalendarSource,
 	CalendarSuggestionState,
 	FilterClauseField,
@@ -211,8 +216,10 @@ export const CalendarSuggestionActionOperations: Record<
 		const { suggestionId } = context.request.params as {
 			suggestionId: string;
 		};
-		const { calendarId } = context.request.requestBody as {
+		const { calendarId, answer = CalendarInviteAnswer.Accepted } = context
+			.request.requestBody as {
 			calendarId: string;
+			answer?: CalendarInviteAnswerValue;
 		};
 
 		const client = await getClient();
@@ -220,7 +227,20 @@ export const CalendarSuggestionActionOperations: Record<
 			accountConfigId,
 			suggestionId,
 		);
-		assertSettleable(suggestion, CalendarSuggestionState.Accepted);
+		if (
+			answer === CalendarInviteAnswer.Tentative &&
+			suggestion.method === CalendarInviteMethod.Cancel
+		) {
+			throw new BadRequestError(
+				"This is a cancellation, so there is nothing to answer maybe to.",
+			);
+		}
+		assertSettleable(
+			suggestion,
+			answer === CalendarInviteAnswer.Tentative
+				? CalendarSuggestionState.Tentative
+				: CalendarSuggestionState.Accepted,
+		);
 
 		// Reads the collection through the caller's own account config, so a
 		// calendarId naming somebody else's collection is a 404 before anything
@@ -240,6 +260,7 @@ export const CalendarSuggestionActionOperations: Record<
 			calendarId,
 			suggestion,
 			attendee: await accountEmailForMessage(client, suggestion.messageId),
+			answer,
 		});
 		if (!accepted.ok) {
 			throw new BadRequestError(accepted.error.message);

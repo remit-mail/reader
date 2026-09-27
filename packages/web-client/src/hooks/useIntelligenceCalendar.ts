@@ -245,6 +245,12 @@ export function useIntelligenceCalendar(
 			answer(invitationId, "add this to your calendar", () =>
 				answers.accept(invitationId, defaultCalendarId),
 			),
+		onTentativeInvite: cancellation
+			? undefined
+			: () =>
+					answer(invitationId, "add this as a maybe", () =>
+						answers.tentative(invitationId, defaultCalendarId),
+					),
 		onDeclineInvite: () =>
 			answer(invitationId, "decline this", () => answers.decline(invitationId)),
 		onMuteInvite: () =>

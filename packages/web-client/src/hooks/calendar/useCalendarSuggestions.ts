@@ -105,6 +105,10 @@ export interface CalendarSuggestionAnswers {
 		suggestionId: string,
 		calendarId: string,
 	) => Promise<SuggestionAnswer>;
+	tentative: (
+		suggestionId: string,
+		calendarId: string,
+	) => Promise<SuggestionAnswer>;
 	decline: (suggestionId: string) => Promise<SuggestionAnswer>;
 	dismiss: (
 		suggestionId: string,
@@ -144,6 +148,17 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 				.catch(refused),
 		[accept],
 	);
+	const tentativeSuggestion = useCallback(
+		(suggestionId: string, calendarId: string) =>
+			accept
+				.mutateAsync({
+					path: { suggestionId },
+					body: { calendarId, answer: "Tentative" },
+				})
+				.then(() => ANSWERED)
+				.catch(refused),
+		[accept],
+	);
 	const declineSuggestion = useCallback(
 		(suggestionId: string) =>
 			decline
@@ -164,12 +179,14 @@ export function useCalendarSuggestionAnswers(): CalendarSuggestionAnswers {
 	return useMemo(
 		() => ({
 			accept: acceptSuggestion,
+			tentative: tentativeSuggestion,
 			decline: declineSuggestion,
 			dismiss: dismissSuggestion,
 			isAnswering: accept.isPending || decline.isPending || dismiss.isPending,
 		}),
 		[
 			acceptSuggestion,
+			tentativeSuggestion,
 			declineSuggestion,
 			dismissSuggestion,
 			accept.isPending,

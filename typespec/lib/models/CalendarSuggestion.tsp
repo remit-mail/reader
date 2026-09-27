@@ -1,5 +1,6 @@
 import "typespec-electrodb-emitter";
 
+import "../enums/CalendarInviteAnswer.tsp";
 import "../enums/CalendarInviteMethod.tsp";
 import "../enums/CalendarSuggestionSource.tsp";
 import "../enums/CalendarSuggestionState.tsp";
@@ -140,7 +141,7 @@ model CalendarSuggestion {
   @visibility(Lifecycle.Read)
   icalData: string = "";
 
-  @doc("The `CalendarObject` that accepting this suggestion wrote. `\"\"` until it is accepted — the named absent state, never a missing attribute — and the resource's id afterwards, so the card can link to the event it produced.")
+  @doc("The `CalendarObject` that accepting this suggestion wrote. `\"\"` until it is accepted or answered tentatively — the named absent state, never a missing attribute — and the resource's id afterwards, so the card can link to the event it produced.")
   @visibility(Lifecycle.Read)
   acceptedCalendarObjectId: string = "";
 
@@ -161,6 +162,9 @@ model CalendarSuggestion {
 model AcceptCalendarSuggestionInput {
   @doc("Collection the accepted event is written into.")
   calendarId: UUID;
+
+  @doc("How the user answers. `Tentative` adds the event as a maybe. Refused with 400 on a `Cancel` suggestion, which has nothing to answer tentatively.")
+  answer?: CalendarInviteAnswer = CalendarInviteAnswer.Accepted;
 }
 
 @doc("Body of `POST /calendar-suggestions/{suggestionId}/dismiss`.")

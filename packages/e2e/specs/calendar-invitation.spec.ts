@@ -245,6 +245,57 @@ test.describe("An invitation beside the message it came in", () => {
 		);
 	});
 
+	test("answering maybe writes a tentative event and settles the card Tentative", async ({
+		page,
+		api,
+		run,
+	}) => {
+		const invite = invitation("maybe");
+		const pending = await deliverAndOpen(page, api, run, invite, 17);
+
+		const card = rail(page);
+		await card.getByRole("button", { name: "Maybe", exact: true }).click();
+
+		await expect(card.getByRole("alert")).toHaveCount(0);
+		await expect(card.getByText("On your calendar")).toBeVisible({
+			timeout: 30_000,
+		});
+
+		const settled = await settledState(api, pending.messageId, "Tentative");
+		const tentative = settled.find((item) => item.state === "Tentative");
+		expect(tentative?.acceptedCalendarObjectId).not.toBe("");
+
+		const events = await waitFor(
+			() => api.listCalendarEvents(WINDOW.from, WINDOW.to),
+			(items) => items.some((item) => item.summary === invite.summary),
+			{ what: `"${invite.summary}" to be on the calendar` },
+		);
+		const stored = events.find((item) => item.summary === invite.summary);
+		if (!stored) throw new Error("unreachable: matched but not found");
+		createdObjects.push({
+			calendarObjectId: stored.calendarObjectId,
+			calendarId: stored.calendarId,
+		});
+		expect(stored.calendarObjectId).toBe(tentative?.acceptedCalendarObjectId);
+
+		const resource = await api.getCalendarEvent(
+			stored.calendarObjectId,
+			stored.calendarId,
+		);
+		const attendee = resource.icalData
+			.replace(/\r\n[ \t]/g, "")
+			.split("\r\n")
+			.find((line) =>
+				line.toLowerCase().includes(`mailto:${run.imapUser}`.toLowerCase()),
+			);
+		expect(
+			attendee,
+			"the stored event names the user as an attendee",
+		).toBeTruthy();
+		expect(attendee).toContain("PARTSTAT=TENTATIVE");
+		expect(resource.icalData).not.toContain("NEEDS-ACTION");
+	});
+
 	test("declining writes nothing to the calendar", async ({
 		page,
 		api,
