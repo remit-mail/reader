@@ -90,6 +90,7 @@ const deliver = async (
 	);
 	await api.triggerSync(run.accountId);
 	const messageId = await api.messageIdForSubject(run.inboxId, invite.subject);
+	deliveredMessages.push(messageId);
 
 	await page.goto(`/mail/${run.inboxId}`);
 	const row = page
@@ -145,6 +146,7 @@ const settledOnServer = async (
 };
 
 const createdObjects: { calendarObjectId: string; calendarId: string }[] = [];
+const deliveredMessages: string[] = [];
 
 const servedAs = async (api: ApiClient, summary: string) => {
 	const events = await waitFor(
@@ -166,6 +168,14 @@ test.afterAll(async () => {
 	const api = new ApiClient(run);
 	for (const created of createdObjects)
 		await api.deleteCalendarEvent(created.calendarObjectId, created.calendarId);
+	for (const messageId of deliveredMessages) {
+		for (const suggestion of await api.listMessageCalendarSuggestions(
+			messageId,
+		)) {
+			if (suggestion.state === "Pending")
+				await api.dismissCalendarSuggestion(suggestion.suggestionId);
+		}
+	}
 	for (const mailbox of await api.listMailboxes(run.accountId)) {
 		const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, TAG);
 		if (ids.length > 0) await api.deleteMessages(ids);
