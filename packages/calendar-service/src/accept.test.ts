@@ -64,6 +64,7 @@ const suggestionOf = (
 	zoneCertainty: "Explicit",
 	icalData,
 	acceptedCalendarObjectId: "",
+	supersededByMessageId: "",
 	createdAt: 0,
 	updatedAt: 0,
 	...overrides,

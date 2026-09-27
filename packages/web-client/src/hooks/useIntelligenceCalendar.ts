@@ -53,6 +53,7 @@ import {
 import {
 	useChangeSuggestionOnCalendar,
 	useOpenEventOnCalendar,
+	useOpenThread,
 } from "@/routing";
 
 /** What the reader is in the middle of, for one message and no other. */
@@ -111,6 +112,7 @@ export function useIntelligenceCalendar(
 
 	const openEvent = useOpenEventOnCalendar();
 	const changeOnCalendar = useChangeSuggestionOnCalendar();
+	const openThread = useOpenThread();
 
 	const [held, setHeld] = useState<Working>(() => fresh(messageId));
 	const working = held.messageId === messageId ? held : fresh(messageId);
@@ -294,6 +296,14 @@ export function useIntelligenceCalendar(
 						answers.dismiss(invitationId, false),
 					)
 			: undefined,
+		onOpenNewerInvite:
+			invitation && invitation.supersededByThreadId !== ""
+				? () =>
+						openThread({
+							threadId: invitation.supersededByThreadId,
+							messageId: invitation.supersededByMessageId,
+						})
+				: undefined,
 		onOfferOtherTimes: () => update({ offering: true }),
 		onToggleSlot: (slot) =>
 			update({

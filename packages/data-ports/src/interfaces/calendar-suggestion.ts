@@ -56,8 +56,9 @@ export interface ICalendarSuggestionRepository {
 		input: SettleCalendarSuggestionInput,
 	): Promise<CalendarSuggestionItem>;
 	/**
-	 * Retires a card as `Superseded`, but only while it is still `Pending`.
-	 * Returns the retired row, or `null` when the card had already been
+	 * Retires a card as `Superseded`, but only while it is still `Pending`, and
+	 * records the message whose revision retired it so the card can open that
+	 * one. Returns the retired row, or `null` when the card had already been
 	 * answered and nothing was written.
 	 *
 	 * A compare-and-set rather than a plain `settle` because the producer reads
@@ -69,5 +70,6 @@ export interface ICalendarSuggestionRepository {
 	supersedeIfPending(
 		accountConfigId: string,
 		suggestionId: string,
+		supersededByMessageId: string,
 	): Promise<CalendarSuggestionItem | null>;
 }

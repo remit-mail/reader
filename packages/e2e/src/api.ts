@@ -289,6 +289,8 @@ export interface CalendarSuggestion {
 	dtEnd: string;
 	organizer: string;
 	acceptedCalendarObjectId: string;
+	supersededByMessageId: string;
+	supersededByThreadId: string;
 }
 
 /** A calendar's secret feed address, as the one write that mints it answers. */

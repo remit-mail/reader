@@ -236,6 +236,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 				suggestionId,
 				state: existing?.state ?? CalendarSuggestionState.Pending,
 				acceptedCalendarObjectId: existing?.acceptedCalendarObjectId ?? "",
+				supersededByMessageId: existing?.supersededByMessageId ?? "",
 				createdAt: existing?.createdAt ?? now,
 				updatedAt: now,
 			};
@@ -282,6 +283,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 		supersedeIfPending: async (
 			accountConfigId: string,
 			suggestionId: string,
+			supersededByMessageId: string,
 		) => {
 			const suggestion = this.suggestions.get(suggestionId);
 			if (
@@ -295,6 +297,7 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 				...suggestion,
 				state: CalendarSuggestionState.Superseded,
 				acceptedCalendarObjectId: "",
+				supersededByMessageId,
 				updatedAt: Date.now(),
 			};
 			this.suggestions.set(suggestionId, retired);

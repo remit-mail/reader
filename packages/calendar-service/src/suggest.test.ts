@@ -180,6 +180,10 @@ describe("recordCalendarSuggestion", () => {
 			first.value.suggestion.suggestionId,
 		);
 		assert.equal(superseded.state, CalendarSuggestionState.Superseded);
+		assert.equal(
+			superseded.supersededByMessageId,
+			second.value.suggestion.messageId,
+		);
 	});
 
 	it("leaves the earlier revision alone when the sequence did not move", async () => {

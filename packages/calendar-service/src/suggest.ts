@@ -186,6 +186,7 @@ export const recordCalendarSuggestion = async (
 		const retired = await repo.supersedeIfPending(
 			input.accountConfigId,
 			candidate.suggestionId,
+			suggestion.messageId,
 		);
 		if (retired) superseded.push(retired);
 	}

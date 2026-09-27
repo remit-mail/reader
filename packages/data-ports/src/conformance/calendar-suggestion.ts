@@ -234,12 +234,38 @@ export function calendarSuggestionRepositoryConformance(
 				suggestion(accountConfigId, harness.makeId(), harness.makeId(), "uid"),
 			);
 
+			const newerMessageId = harness.makeId();
 			const retired = await repo.supersedeIfPending(
 				accountConfigId,
 				written.suggestionId,
+				newerMessageId,
 			);
 
 			assert.equal(retired?.state, CalendarSuggestionState.Superseded);
+			const reread = await repo.get(accountConfigId, written.suggestionId);
+			assert.equal(reread.supersededByMessageId, newerMessageId);
+		});
+
+		test("a re-read of the retired message keeps the revision that retired it", async () => {
+			const accountConfigId = harness.makeId();
+			const input = suggestion(
+				accountConfigId,
+				harness.makeId(),
+				harness.makeId(),
+				"uid",
+			);
+			const written = await repo.put(input);
+			const newerMessageId = harness.makeId();
+			await repo.supersedeIfPending(
+				accountConfigId,
+				written.suggestionId,
+				newerMessageId,
+			);
+
+			const rewritten = await repo.put(input);
+
+			assert.equal(rewritten.state, CalendarSuggestionState.Superseded);
+			assert.equal(rewritten.supersededByMessageId, newerMessageId);
 		});
 
 		test("supersedeIfPending leaves an answered card alone and says so", async () => {
@@ -258,11 +284,13 @@ export function calendarSuggestionRepositoryConformance(
 			const retired = await repo.supersedeIfPending(
 				accountConfigId,
 				written.suggestionId,
+				harness.makeId(),
 			);
 
 			assert.equal(retired, null);
 			const reread = await repo.get(accountConfigId, written.suggestionId);
 			assert.equal(reread.state, CalendarSuggestionState.Accepted);
+			assert.equal(reread.supersededByMessageId, "");
 			assert.equal(reread.acceptedCalendarObjectId, "cal-object-7");
 		});
 
@@ -273,7 +301,11 @@ export function calendarSuggestionRepositoryConformance(
 			);
 
 			assert.equal(
-				await repo.supersedeIfPending(harness.makeId(), written.suggestionId),
+				await repo.supersedeIfPending(
+					harness.makeId(),
+					written.suggestionId,
+					harness.makeId(),
+				),
 				null,
 			);
 		});
