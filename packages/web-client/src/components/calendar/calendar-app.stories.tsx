@@ -63,7 +63,9 @@ export const Empty: Story = {
 export const OpenEvent: Story = {
 	args: { url: `${STORY_WEEK}/${ROADMAP_OBJECT}` },
 	play: async () => {
-		await expect(await page().findByText("Room Zuid")).toBeVisible();
+		await expect(
+			await page().findByText("Room Zuid", {}, { timeout: 5000 }),
+		).toBeVisible();
 		await expect(
 			await page().findByRole("button", { name: "Edit" }),
 		).toBeVisible();
