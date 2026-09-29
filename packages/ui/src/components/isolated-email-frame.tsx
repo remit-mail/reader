@@ -67,16 +67,23 @@ export const measureContentAxis = (
 ): number => Math.min(Math.ceil(Math.max(bodyScroll, rootScroll)), max);
 
 /**
+ * The smallest a mail is scaled to. Below it text stops being readable, so mail
+ * wider still is shown at this scale and scrolls sideways for the rest.
+ */
+export const MIN_FIT_SCALE = 0.5;
+
+/**
  * How far a document laid out wider than the frame is scaled down to fit it, the
  * way K-9 Mail and Gmail show a fixed-width newsletter on a phone. Never above 1:
- * mail that fits is shown at its own size.
+ * mail that fits is shown at its own size, and a pixel of rounding against a
+ * fractional column is not a reason to blur it.
  */
 export const fitScale = (
 	contentWidth: number,
 	viewportWidth: number,
 ): number =>
-	viewportWidth > 0 && contentWidth > viewportWidth
-		? viewportWidth / contentWidth
+	viewportWidth > 0 && contentWidth > viewportWidth + 1
+		? Math.max(viewportWidth / contentWidth, MIN_FIT_SCALE)
 		: 1;
 
 const FIT_PROPERTIES = [
@@ -86,6 +93,7 @@ const FIT_PROPERTIES = [
 	"transform",
 	"transform-origin",
 	"margin-bottom",
+	"overflow-x",
 ];
 
 /**
@@ -93,7 +101,10 @@ const FIT_PROPERTIES = [
  * measured unscaled first, so every pass starts from the mail's natural layout
  * and a wider or narrower frame refits from scratch. The negative bottom margin
  * takes back the height the transform removed, so the document's scroll height
- * is the scaled one.
+ * is the scaled one. Content that overflows the width it was given, such as a
+ * `width:100%` block with padding, is measured after that width is set and
+ * shown rather than scrolled, since the scale covers it. Mail too wide to fit at
+ * the floor scale keeps scrolling sideways inside a body as wide as the frame.
  */
 const fitToFrame = (body: HTMLElement): number => {
 	for (const property of FIT_PROPERTIES) body.style.removeProperty(property);
@@ -105,9 +116,10 @@ const fitToFrame = (body: HTMLElement): number => {
 	set("box-sizing", "border-box");
 	set("max-width", "none");
 	set("width", `${natural}px`);
-	const width = Math.max(natural, body.scrollWidth);
-	if (width > natural) set("width", `${width}px`);
-	const scale = fitScale(width, viewport);
+	const laidOut = Math.max(natural, body.scrollWidth);
+	const scale = fitScale(laidOut, viewport);
+	if (scale > MIN_FIT_SCALE) set("overflow-x", "visible");
+	else set("width", `${viewport / MIN_FIT_SCALE}px`);
 	set("transform-origin", "0 0");
 	set("transform", `scale(${scale})`);
 	set("margin-bottom", `${-body.offsetHeight * (1 - scale)}px`);

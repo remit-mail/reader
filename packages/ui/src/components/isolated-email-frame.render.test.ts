@@ -14,6 +14,7 @@ import {
 import {
 	fitScale,
 	IsolatedEmailFrame,
+	MIN_FIT_SCALE,
 	measureContentAxis,
 } from "./isolated-email-frame.js";
 
@@ -107,6 +108,18 @@ describe("fitScale (a wide mail shrinks to the frame, never grows)", () => {
 
 	it("never scales narrow mail up to fill a wide frame", () => {
 		assert.equal(fitScale(200, 1200), 1);
+	});
+
+	it("ignores the pixel a fractional column rounds the mail over by", () => {
+		assert.equal(fitScale(391, 390), 1);
+		assert.ok(fitScale(392, 390) < 1);
+	});
+
+	it("stops at a readable floor however wide the mail is", () => {
+		assert.equal(MIN_FIT_SCALE, 0.5);
+		assert.equal(fitScale(3000, 390), MIN_FIT_SCALE);
+		assert.equal(fitScale(100_000, 390), MIN_FIT_SCALE);
+		assert.equal(fitScale(780, 390), MIN_FIT_SCALE);
 	});
 
 	it("leaves a frame that has not laid out yet alone", () => {
