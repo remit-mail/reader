@@ -66,6 +66,66 @@ export const measureContentAxis = (
 	max: number,
 ): number => Math.min(Math.ceil(Math.max(bodyScroll, rootScroll)), max);
 
+/**
+ * The smallest a mail is scaled to. Below it text stops being readable, so mail
+ * wider still is shown at this scale and scrolls sideways for the rest.
+ */
+export const MIN_FIT_SCALE = 0.5;
+
+/**
+ * How far a document laid out wider than the frame is scaled down to fit it, the
+ * way K-9 Mail and Gmail show a fixed-width newsletter on a phone. Never above 1:
+ * mail that fits is shown at its own size, and a pixel of rounding against a
+ * fractional column is not a reason to blur it.
+ */
+export const fitScale = (
+	contentWidth: number,
+	viewportWidth: number,
+): number =>
+	viewportWidth > 0 && contentWidth > viewportWidth + 1
+		? Math.max(viewportWidth / contentWidth, MIN_FIT_SCALE)
+		: 1;
+
+const FIT_PROPERTIES = [
+	"box-sizing",
+	"width",
+	"max-width",
+	"transform",
+	"transform-origin",
+	"margin-bottom",
+	"overflow-x",
+];
+
+/**
+ * Lay the mail out at its own width and scale it into the frame. The body is
+ * measured unscaled first, so every pass starts from the mail's natural layout
+ * and a wider or narrower frame refits from scratch. The negative bottom margin
+ * takes back the height the transform removed, so the document's scroll height
+ * is the scaled one. Content that overflows the width it was given, such as a
+ * `width:100%` block with padding, is measured after that width is set and
+ * shown rather than scrolled, since the scale covers it. Mail too wide to fit at
+ * the floor scale keeps scrolling sideways inside a body as wide as the frame.
+ */
+const fitToFrame = (body: HTMLElement): number => {
+	for (const property of FIT_PROPERTIES) body.style.removeProperty(property);
+	const viewport = body.clientWidth;
+	const natural = body.scrollWidth;
+	if (fitScale(natural, viewport) === 1) return 1;
+	const set = (property: string, value: string) =>
+		body.style.setProperty(property, value, "important");
+	set("box-sizing", "border-box");
+	set("max-width", "none");
+	set("width", `${natural}px`);
+	const laidOut = Math.max(natural, body.scrollWidth);
+	const scale = fitScale(laidOut, viewport);
+	if (scale > MIN_FIT_SCALE) set("overflow-x", "visible");
+	else set("width", `${viewport / MIN_FIT_SCALE}px`);
+	set("transform-origin", "0 0");
+	set("transform", `scale(${scale})`);
+	set("margin-bottom", `${-body.offsetHeight * (1 - scale)}px`);
+	return scale;
+};
+
 /** Named (non-character) keys worth replaying: moving around and closing. */
 const FORWARDED_NAMED_KEYS = new Set([
 	"Enter",
@@ -130,9 +190,9 @@ const forwardKeyDown = (event: KeyboardEvent) => {
  * the srcDoc assembly and the height. The width is the app's layout and nothing
  * else — the frame is never widened to fit the mail, so no measurement of the
  * email can move a box the reader can see. Content that genuinely cannot wrap (a
- * fixed-width table, an oversized image, a `pre` the author pinned) scrolls
- * inside the document, where it lives; the pane and the page never learn about
- * it.
+ * fixed-width table, an oversized image, a `pre` the author pinned) is laid out
+ * at its own width and scaled down inside the document to fit the frame; the
+ * pane and the page never learn about it.
  *
  * Height is the one axis the frame reads off its content: a seamless inline
  * frame has to grow to the mail it shows or it would scroll internally against
@@ -161,12 +221,26 @@ export const IsolatedEmailFrame = ({
 			const doc = iframe.contentDocument;
 			if (!doc?.body) return;
 			const root = doc.documentElement;
-			const next = measureContentAxis(
-				doc.body.scrollHeight,
-				root?.scrollHeight ?? 0,
-				MAX_HEIGHT_PX,
-			);
+			const scale = fitToFrame(doc.body);
+			const next =
+				scale < 1
+					? measureContentAxis(
+							doc.body.getBoundingClientRect().height,
+							0,
+							MAX_HEIGHT_PX,
+						)
+					: measureContentAxis(
+							doc.body.scrollHeight,
+							root?.scrollHeight ?? 0,
+							MAX_HEIGHT_PX,
+						);
 			setHeight((prev) => (prev === next ? prev : next));
+		};
+
+		let pendingFrame = 0;
+		const measureNextFrame = () => {
+			cancelAnimationFrame(pendingFrame);
+			pendingFrame = requestAnimationFrame(measure);
 		};
 
 		let observer: ResizeObserver | undefined;
@@ -183,7 +257,7 @@ export const IsolatedEmailFrame = ({
 			keyDoc = undefined;
 			const doc = iframe.contentDocument;
 			if (!doc?.body) return;
-			observer = new ResizeObserver(measure);
+			observer = new ResizeObserver(measureNextFrame);
 			observer.observe(doc.body);
 			if (doc.documentElement) observer.observe(doc.documentElement);
 			// A ResizeObserver watches the body's BOX, which reflows with the pane
@@ -204,6 +278,7 @@ export const IsolatedEmailFrame = ({
 			keyDoc?.removeEventListener("keydown", forwardKeyDown);
 			keyDoc?.removeEventListener("load", measure, true);
 			observer?.disconnect();
+			cancelAnimationFrame(pendingFrame);
 		};
 	}, []);
 

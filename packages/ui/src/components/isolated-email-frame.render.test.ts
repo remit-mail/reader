@@ -12,7 +12,9 @@ import {
 	VIEWPORT_META,
 } from "./email-frame-css.js";
 import {
+	fitScale,
 	IsolatedEmailFrame,
+	MIN_FIT_SCALE,
 	measureContentAxis,
 } from "./isolated-email-frame.js";
 
@@ -90,6 +92,38 @@ describe("measureContentAxis (the frame's height, and only its height)", () => {
 	it("returns an exact integer for already-integral content (no spurious +1)", () => {
 		assert.equal(measureContentAxis(672, 0, 50_000), 672);
 		assert.equal(measureContentAxis(0, 0, 50_000), 0);
+	});
+});
+
+describe("fitScale (a wide mail shrinks to the frame, never grows)", () => {
+	it("scales a 600px newsletter into a 390px phone frame", () => {
+		assert.equal(fitScale(600, 390), 0.65);
+		assert.equal(600 * fitScale(600, 390), 390);
+	});
+
+	it("leaves mail that fits at its own size", () => {
+		assert.equal(fitScale(320, 390), 1);
+		assert.equal(fitScale(390, 390), 1);
+	});
+
+	it("never scales narrow mail up to fill a wide frame", () => {
+		assert.equal(fitScale(200, 1200), 1);
+	});
+
+	it("ignores the pixel a fractional column rounds the mail over by", () => {
+		assert.equal(fitScale(391, 390), 1);
+		assert.ok(fitScale(392, 390) < 1);
+	});
+
+	it("stops at a readable floor however wide the mail is", () => {
+		assert.equal(MIN_FIT_SCALE, 0.5);
+		assert.equal(fitScale(3000, 390), MIN_FIT_SCALE);
+		assert.equal(fitScale(100_000, 390), MIN_FIT_SCALE);
+		assert.equal(fitScale(780, 390), MIN_FIT_SCALE);
+	});
+
+	it("leaves a frame that has not laid out yet alone", () => {
+		assert.equal(fitScale(600, 0), 1);
 	});
 });
 
