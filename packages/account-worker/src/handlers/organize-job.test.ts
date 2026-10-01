@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { randomUUID } from "node:crypto";
+import { afterEach, describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
-import type { OrganizeMatchDeps } from "@remit/backend/organize";
+import {
+	buildOrganizeMatchDeps,
+	type OrganizeMatchDeps,
+} from "@remit/backend/organize";
 import type { FilterItem } from "@remit/data-ports";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { DrizzleThreadMessageRepository } from "@remit/drizzle-service";
+import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { OrganizeJobEvent } from "../events.js";
 import {
@@ -116,12 +123,13 @@ interface Move {
 	destinationMailboxId: string;
 }
 
+const CONFIG = "cfg-1";
 const INBOX = "mbx-inbox";
 const ARCHIVE = "mbx-archive";
 
 const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 	filterId: "flt-1",
-	accountConfigId: "cfg-1",
+	accountConfigId: CONFIG,
 	name: "Invoices",
 	scope: "Standing",
 	state: "Active",
@@ -139,24 +147,65 @@ const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 });
 
 /**
- * One account whose inbox holds `msg-inbox` and whose archive holds
- * `msg-archive`, both from the filter's sender, plus the account's standing
- * filters. The job row names `flt-1`.
+ * The thread rows live in the shipped SQLite schema, read through the real
+ * repository, so the inbox narrowing is the store's own query. One invoice
+ * sits in the inbox and one in the archive, both from the filter's sender
+ * and both saying "overdue" in their preview.
  */
-const filterJobClient = (
-	updates: Update[],
-	labeled: string[],
-	filters: FilterItem[],
-): RemitClient => {
-	const mailboxOf: Record<string, string> = {
-		"msg-inbox": INBOX,
-		"msg-archive": ARCHIVE,
+const seedThreads = async (
+	threadMessage: DrizzleThreadMessageRepository,
+): Promise<{ inbox: string; archive: string }> => {
+	const seed = async (mailboxId: string, uid: number): Promise<string> => {
+		const messageId = randomUUID();
+		await threadMessage.create({
+			accountConfigId: CONFIG,
+			threadId: randomUUID(),
+			messageId,
+			mailboxId,
+			uid,
+			referenceOrder: 0,
+			internalDate: uid,
+			sentDate: uid,
+			subject: "Your invoice",
+			fromEmail: "billing@example.com",
+			fromName: "Billing",
+			snippet: "This invoice is overdue",
+			isRead: false,
+			isDeleted: false,
+			hasAttachment: false,
+			hasStars: false,
+		});
+		return messageId;
 	};
-	return {
+	return { inbox: await seed(INBOX, 1), archive: await seed(ARCHIVE, 2) };
+};
+
+interface World {
+	client: RemitClient;
+	inbox: string;
+	archive: string;
+	updates: Update[];
+	moves: Move[];
+	labeled: string[];
+	close: () => void;
+}
+
+const world = async (filters: FilterItem[]): Promise<World> => {
+	const store = createShippedSqliteDb();
+	const threadMessage = new DrizzleThreadMessageRepository(store.db as never);
+	const { inbox, archive } = await seedThreads(threadMessage);
+	const updates: Update[] = [];
+	const labeled: string[] = [];
+	const mailboxOf: Record<string, string> = {
+		[inbox]: INBOX,
+		[archive]: ARCHIVE,
+	};
+	const client = {
+		threadMessage,
 		organizeJobRequest: {
 			get: async () => ({
 				organizeJobId: "job-1",
-				accountConfigId: "cfg-1",
+				accountConfigId: CONFIG,
 				filterId: "flt-1",
 				anchorMessageId: "None",
 				matchOperator: "And",
@@ -172,11 +221,12 @@ const filterJobClient = (
 		filter: {
 			get: async (_cfg: string, filterId: string) => {
 				const found = filters.find((f) => f.filterId === filterId);
-				if (!found) throw new Error(`no filter ${filterId}`);
+				if (!found) throw new NotFoundError(`Filter not found: ${filterId}`);
 				return found;
 			},
 			refreshExpiry: async (filter: FilterItem) => filter,
-			listByAccountAndState: async () => filters,
+			listByAccountAndState: async (_cfg: string, state: string) =>
+				filters.filter((f) => f.state === state),
 		},
 		filterAnchor: { get: async () => null },
 		account: {
@@ -199,44 +249,16 @@ const filterJobClient = (
 			},
 		},
 	} as unknown as RemitClient;
+	return {
+		client,
+		inbox,
+		archive,
+		updates,
+		moves: [],
+		labeled,
+		close: store.close,
+	};
 };
-
-/** The literal corpus, honouring the mailbox narrowing the way the store does. */
-const corpusMatchDeps = (): OrganizeMatchDeps =>
-	({
-		semantic: () => {
-			throw new Error("a literal filter must not reach the vector pipeline");
-		},
-		listAccountFilterMessages: async (
-			_cfg: string,
-			query: { mailboxIds?: readonly string[] },
-		) => ({
-			items: [
-				{ messageId: "msg-inbox", mailbox: INBOX },
-				{ messageId: "msg-archive", mailbox: ARCHIVE },
-			]
-				.filter(
-					(row) => !query.mailboxIds || query.mailboxIds.includes(row.mailbox),
-				)
-				.map((row) => ({
-					messageId: row.messageId,
-					message: {
-						from: "billing@example.com",
-						fromName: "Billing",
-						subject: "Your invoice",
-						text: "",
-						listId: "",
-					},
-				})),
-		}),
-		filterAnchors: {
-			get: async () => null,
-			listByAccountConfig: async () => [],
-			put: async () => {
-				throw new Error("unreachable");
-			},
-		},
-	}) as unknown as OrganizeMatchDeps;
 
 const recordingMoves = (moves: Move[]) =>
 	({
@@ -249,31 +271,48 @@ const recordingMoves = (moves: Move[]) =>
 		},
 	}) as unknown as NonNullable<ProcessOrganizeJobDeps["moveService"]>;
 
+const runFilterJob = (w: World) =>
+	processOrganizeJob(event, noopLogger, {
+		client: w.client,
+		matchDeps: buildOrganizeMatchDeps(w.client),
+		moveService: recordingMoves(w.moves),
+	});
+
 describe("processOrganizeJob for a filter job (#1354)", () => {
-	it("moves a pre-existing matching inbox message into the filter's folder", async () => {
-		const updates: Update[] = [];
-		const moves: Move[] = [];
+	let current: World | undefined;
+	afterEach(() => current?.close());
 
-		await processOrganizeJob(event, noopLogger, {
-			client: filterJobClient(updates, [], [standingFilter()]),
-			matchDeps: corpusMatchDeps(),
-			moveService: recordingMoves(moves),
-		});
+	it("moves the pre-existing matching inbox message and leaves the archive alone", async () => {
+		current = await world([standingFilter()]);
 
-		assert.deepEqual(moves, [
-			{ messageId: "msg-inbox", destinationMailboxId: "mbx-invoices" },
+		await runFilterJob(current);
+
+		assert.deepEqual(current.moves, [
+			{ messageId: current.inbox, destinationMailboxId: "mbx-invoices" },
 		]);
-		const done = updates.at(-1);
+		const done = current.updates.at(-1);
 		assert.equal(done?.state, "Complete");
 		assert.equal(done?.matchedCount, 1);
 		assert.equal(done?.appliedCount, 1);
 	});
 
+	it("matches a free-text rule from search on the stored preview", async () => {
+		current = await world([
+			standingFilter({
+				literalClauses: [{ field: "HasWords", value: "overdue" }],
+			}),
+		]);
+
+		await runFilterJob(current);
+
+		assert.deepEqual(current.moves, [
+			{ messageId: current.inbox, destinationMailboxId: "mbx-invoices" },
+		]);
+		assert.equal(current.updates.at(-1)?.state, "Complete");
+	});
+
 	it("leaves the move to a newer filter that also matches, and still labels", async () => {
-		const updates: Update[] = [];
-		const moves: Move[] = [];
-		const labeled: string[] = [];
-		const filters = [
+		current = await world([
 			standingFilter({ actionLabelId: "lbl-bills" }),
 			standingFilter({
 				filterId: "flt-2",
@@ -281,35 +320,33 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 				actionChangedAt: 2,
 				actionMailboxId: "mbx-receipts",
 			}),
-		];
+		]);
 
-		await processOrganizeJob(event, noopLogger, {
-			client: filterJobClient(updates, labeled, filters),
-			matchDeps: corpusMatchDeps(),
-			moveService: recordingMoves(moves),
-		});
+		await runFilterJob(current);
 
-		assert.deepEqual(moves, []);
-		assert.deepEqual(labeled, ["msg-inbox"]);
-		assert.equal(updates.at(-1)?.state, "Complete");
+		assert.deepEqual(current.moves, []);
+		assert.deepEqual(current.labeled, [current.inbox]);
+		assert.equal(current.updates.at(-1)?.state, "Complete");
 	});
 
 	it("fails the job without a retry when the filter is turned off", async () => {
-		const updates: Update[] = [];
-		const moves: Move[] = [];
+		current = await world([
+			standingFilter({ state: "Disabled", disabledReason: "UserDisabled" }),
+		]);
 
-		await processOrganizeJob(event, noopLogger, {
-			client: filterJobClient(
-				updates,
-				[],
-				[standingFilter({ state: "Disabled", disabledReason: "UserDisabled" })],
-			),
-			matchDeps: corpusMatchDeps(),
-			moveService: recordingMoves(moves),
-		});
+		await runFilterJob(current);
 
-		assert.deepEqual(moves, []);
-		assert.equal(updates.at(-1)?.state, "Failed");
-		assert.match(String(updates.at(-1)?.errorMessage), /turned off/);
+		assert.deepEqual(current.moves, []);
+		assert.equal(current.updates.at(-1)?.state, "Failed");
+		assert.match(String(current.updates.at(-1)?.errorMessage), /turned off/);
+	});
+
+	it("fails the job without a retry when the filter was deleted", async () => {
+		current = await world([]);
+
+		await runFilterJob(current);
+
+		assert.equal(current.updates.at(-1)?.state, "Failed");
+		assert.match(String(current.updates.at(-1)?.errorMessage), /deleted/);
 	});
 });

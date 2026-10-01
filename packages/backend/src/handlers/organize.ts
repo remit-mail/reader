@@ -11,15 +11,15 @@ import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient, type RemitClient } from "../service/data-client.js";
 import {
 	buildOrganizeMatchDeps,
-	loadFilterBackApply,
-	matchFilterInbox,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
-	type OrganizeMatchResult,
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
-import { queueOrganizeJob } from "../service/organize-queue.js";
+import {
+	type OrganizeJobRequest,
+	queueOrganizeJob,
+} from "../service/organize-queue.js";
 import type {
 	OperationHandler,
 	OrganizeJobDetailOperationIds,
@@ -79,51 +79,24 @@ const toOrganizeJobResponse = (
 });
 
 /**
- * The predicate a request asks for: the body's own, or the named standing
- * filter's. A rule the matcher can never honour is answered here, not with a
- * 202 the worker has to fail later (reader #463).
+ * What a create asks the worker to run. A saved filter is named and read when
+ * the job runs, so Run now and a filter's create share one path (#1354); an
+ * "all like these" predicate the matcher can never honour is answered here,
+ * not with a 202 the worker has to fail later (reader #463).
  */
-const requestedPredicate = async (
+const requestedJob = async (
 	client: RemitClient,
-	accountConfigId: string,
+	owner: { accountConfigId: string; userId: string },
 	input: OrganizeInput,
-): Promise<OrganizePredicate> => {
+): Promise<OrganizeJobRequest> => {
 	if (input.filterId) {
-		const loaded = await loadFilterBackApply(
-			client,
-			accountConfigId,
-			input.filterId,
-		);
-		if (loaded.rejected) throw new BadRequestError(loaded.rejected.message);
-		return loaded.predicate;
+		await client.filter.get(owner.accountConfigId, input.filterId);
+		return { ...owner, filterId: input.filterId };
 	}
 	const predicate = predicateFromInput(input);
 	const rejection = organizePredicateRejection(predicate);
 	if (rejection) throw new BadRequestError(rejection.message);
-	return predicate;
-};
-
-const previewMatch = async (
-	client: RemitClient,
-	accountConfigId: string,
-	input: OrganizeInput,
-): Promise<OrganizeMatchResult> => {
-	const deps = buildOrganizeMatchDeps(client);
-	if (!input.filterId) {
-		return matchOrganize(
-			deps,
-			accountConfigId,
-			predicateFromInput(input),
-			ORGANIZE_MATCH_LIMIT,
-		);
-	}
-	const loaded = await loadFilterBackApply(
-		client,
-		accountConfigId,
-		input.filterId,
-	);
-	if (loaded.rejected) return loaded;
-	return matchFilterInbox(client, deps, accountConfigId, loaded);
+	return { ...owner, predicate };
 };
 
 export const OrganizeOperations: Record<
@@ -149,13 +122,10 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "act");
 
-		const predicate = await requestedPredicate(client, accountConfigId, input);
-		const job = await queueOrganizeJob(client, {
-			accountConfigId,
-			userId,
-			predicate,
-			filterId: input.filterId,
-		});
+		const job = await queueOrganizeJob(
+			client,
+			await requestedJob(client, { accountConfigId, userId }, input),
+		);
 
 		return {
 			statusCode: 202,
@@ -176,7 +146,17 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
-		const result = await previewMatch(client, accountConfigId, input);
+		if (input.filterId) {
+			throw new BadRequestError(
+				"Preview takes a rule, not a saved filter. Run the filter to apply it.",
+			);
+		}
+		const result = await matchOrganize(
+			buildOrganizeMatchDeps(client),
+			accountConfigId,
+			predicateFromInput(input),
+			ORGANIZE_MATCH_LIMIT,
+		);
 		if (result.rejected) throw new BadRequestError(result.rejected.message);
 
 		const response: OrganizePreviewResponse = {

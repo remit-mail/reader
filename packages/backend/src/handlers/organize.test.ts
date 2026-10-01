@@ -9,7 +9,7 @@ import type {
 	IOrganizeJobRequestRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -230,9 +230,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 			},
 			filter: {
 				get: async () => filter,
-				refreshExpiry: async (item: FilterItem) => item,
 			},
-			filterAnchor: { get: async () => null },
 			organizeJobRequest: {
 				create: async (row: CreateOrganizeJobRequestInput) => {
 					createdRows.push(row);
@@ -242,24 +240,37 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		} as unknown as RemitClient);
 	};
 
-	it("queues a job that names the filter and carries its rule", async () => {
+	it("queues a job that names only the filter", async () => {
 		withFilter(standing("Active"));
 
 		const response = await postOrganize(input({ filterId: "flt-1" }));
 
 		assert.equal(response.statusCode, 202);
 		assert.equal(createdRows[0]?.filterId, "flt-1");
-		assert.equal(createdRows[0]?.actionMailboxId, "mbx-invoices");
+		assert.equal(createdRows[0]?.actionMailboxId, "None");
+		assert.deepEqual(createdRows[0]?.literalClauses, []);
 		assert.equal(enqueued.length, 1);
 	});
 
-	it("refuses a turned-off filter with a 400 and queues nothing", async () => {
-		withFilter(standing("Disabled"));
+	it("answers an unknown filter with a 404 and queues nothing", async () => {
+		withFilter(standing("Active"));
+		setClient({
+			account: {
+				get: async () => ({
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+				}),
+			},
+			filter: {
+				get: async () => {
+					throw new NotFoundError("Filter not found: flt-gone");
+				},
+			},
+		} as unknown as RemitClient);
 
-		const response = await postOrganize(input({ filterId: "flt-1" }));
+		const response = await postOrganize(input({ filterId: "flt-gone" }));
 
-		assert.equal(response.statusCode, 400);
-		assert.match(JSON.parse(response.body).message, /turned off/);
+		assert.equal(response.statusCode, 404);
 		assert.deepEqual(createdRows, []);
 		assert.deepEqual(enqueued, []);
 	});

@@ -33,6 +33,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	useFolderAppointments,
+	useInboxMailbox,
 	useJunkMailbox,
 } from "@/hooks/useArchiveMailbox";
 import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
@@ -388,6 +389,26 @@ function SelectionWizardSession({
 	const anchorMessageId = messageIds[0];
 	const subjects = useSelectedSubjects(messageIds);
 	const { junkMailboxId } = useJunkMailbox(accountId);
+	const { inboxMailboxId } = useInboxMailbox(accountId);
+	// A saved rule's first pass runs over the inbox. Ticked rows in any other
+	// folder take the action directly, so a rule made from Archive or from a
+	// search across folders still files the mail it was made from.
+	const outsideInbox = useMemo<BulkActionTarget[]>(
+		() =>
+			inboxMailboxId
+				? selection
+						.filter(
+							(message) =>
+								message.mailboxId !== undefined &&
+								message.mailboxId !== inboxMailboxId,
+						)
+						.map((message) => ({
+							id: message.id,
+							accountId: message.accountId,
+						}))
+				: [],
+		[selection, inboxMailboxId],
+	);
 
 	// No door is offered over an escalated predicate, so nothing here has a widen
 	// to probe for.
@@ -747,14 +768,16 @@ function SelectionWizardSession({
 		if (scope === "standing" || scope === "temporary") {
 			// Creating a filter also runs it over the inbox: the server queues that
 			// pass with the create and hands back its job id, which this screen
-			// follows. A rule the pass cannot run (a body-content clause with no
-			// anchor) saves without one and applies to incoming mail.
+			// follows. Ticked rows outside the inbox are not the job's to reach, so
+			// they take the action directly.
 			void createFilterAsync(
 				organizeDraft,
 				scope,
 				(named.name ?? "").trim(),
 			).then((created) => {
-				if (created?.organizeJobId) watchJob(created.organizeJobId);
+				if (!created) return;
+				watchJob(created.organizeJobId);
+				if (outsideInbox.length > 0) void runBulk(outsideInbox);
 			});
 			return;
 		}
@@ -781,6 +804,7 @@ function SelectionWizardSession({
 		matchedIds,
 		createFilterAsync,
 		watchJob,
+		outsideInbox,
 		startJob,
 		runBulk,
 	]);
@@ -868,6 +892,13 @@ function SelectionWizardSession({
 	}, [bulkRun, runProgress, rowsById]);
 
 	const createdFilter = createFilter.data;
+	// The direct action on ticked rows outside the inbox fell short. Its
+	// failures are reported over the job's progress: they are mail the user
+	// picked, and the job will never reach them.
+	const bulkFellShort =
+		bulkRun !== undefined &&
+		(bulkRun.failureReason !== undefined ||
+			(bulkRun.outcome?.failedIds.length ?? 0) > 0);
 
 	const runSnapshot = (): RunSnapshot => {
 		if (escalated) return bulkSnapshot();
@@ -875,9 +906,7 @@ function SelectionWizardSession({
 			if (createFilter.isError)
 				return { ...NOT_STARTED, state: "commitFailed" };
 			if (!createFilter.isSuccess) return NOT_STARTED;
-			if (!createdFilter?.organizeJobId) {
-				return { ...NOT_STARTED, state: "filterSaved" };
-			}
+			if (bulkFellShort) return bulkSnapshot();
 			return jobSnapshot(true);
 		}
 		if (committedScope === "all-like-these" && widenedRunsAsJob(verb)) {
@@ -892,12 +921,23 @@ function SelectionWizardSession({
 	// walking back to Review, which would push an entry the wizard does not own
 	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
+		const ruleSaved =
+			committedScope === "standing" || committedScope === "temporary";
+		if (ruleSaved && bulkFellShort && bulkRun) {
+			const failed = new Set(bulkRun.outcome?.failedIds ?? []);
+			void runBulk(
+				failed.size > 0
+					? bulkRun.sent.filter((target) => failed.has(target.id))
+					: bulkRun.sent,
+			);
+			return;
+		}
 		const intent = retryIntent({
 			runState: run.state,
 			isEscalated: escalated !== undefined,
 			committedScope,
 			createFilterFailed: createFilter.isError,
-			backApplyPending: createdFilter?.organizeJobId !== undefined,
+			backApplyPending: createdFilter !== undefined,
 			widenRunsAsJob: widenedRunsAsJob(verb),
 			failedIds: bulkRun?.outcome?.failedIds ?? [],
 			sent: bulkRun?.sent ?? bulkTargets,

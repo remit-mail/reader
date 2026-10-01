@@ -4,6 +4,7 @@ import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.t
 import type { LabelOption } from "@remit/ui";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import type { FilterRunStatus } from "@/lib/organize/filter-run";
 import { FiltersList } from "./FiltersList";
 
 // The node test loader transpiles remit-ui's `.tsx` with the classic JSX
@@ -38,7 +39,7 @@ const render = (
 	filters: RemitImapFilterResponse[],
 	semanticUnavailable = false,
 	labelById: Map<string, LabelOption> = new Map(),
-	run: { runningFilterId?: string; queuedFilterId?: string } = {},
+	run: { runFilterId?: string; runStatus?: FilterRunStatus } = {},
 ) =>
 	renderToString(
 		createElement(FiltersList, {
@@ -183,22 +184,38 @@ describe("FiltersList", () => {
 		assert.doesNotMatch(html, /Run now/);
 	});
 
-	it("says the run was queued on the filter that was run", () => {
+	it("says the run is going on the filter that was run, and holds the button", () => {
 		const html = render([filter({})], false, new Map(), {
-			queuedFilterId: "f-1",
+			runFilterId: "f-1",
+			runStatus: { kind: "running" },
 		});
 		assert.match(html, /role="status"/);
-		assert.match(
-			html,
-			/Queued\. Matching mail in the inbox is being filed now\./,
-		);
+		assert.match(html, /Running over the inbox/);
+		assert.match(html, /disabled=""/);
 	});
 
-	it("disables Run now while the request is in flight", () => {
+	it("reports what the run filed once the job is done", () => {
 		const html = render([filter({})], false, new Map(), {
-			runningFilterId: "f-1",
+			runFilterId: "f-1",
+			runStatus: { kind: "done", matched: 3, applied: 2 },
 		});
-		assert.match(html, /Queuing/);
-		assert.match(html, /disabled=""/);
+		assert.match(html, /Filed 2 of 3 matching messages in the inbox/);
+	});
+
+	it("says so when nothing in the inbox matched", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "done", matched: 0, applied: 0 },
+		});
+		assert.match(html, /Nothing in the inbox matched/);
+	});
+
+	it("puts no stale status on the row when the run failed", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "failed", error: new Error("turned off") },
+		});
+		assert.doesNotMatch(html, /role="status"/);
+		assert.match(html, />Run now</);
 	});
 });

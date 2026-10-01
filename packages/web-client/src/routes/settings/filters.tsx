@@ -14,17 +14,18 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useDeleteFilter,
 	useFilterList,
-	useRunFilter,
 	useToggleFilter,
 } from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
+import { useOrganizeJob } from "@/hooks/useOrganizeJob";
 import {
 	filterRunReportHref,
 	filterToggleReportHref,
 } from "@/lib/filter-report";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
+import { filterRunStatus } from "@/lib/organize/filter-run";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
 
 export const Route = createFileRoute("/settings/filters")({
@@ -59,7 +60,17 @@ export function AccountFilters({
 		useFilterList(accountId);
 	const { deleteFilter, deletingFilterId } = useDeleteFilter(accountId);
 	const toggle = useToggleFilter(accountId);
-	const run = useRunFilter(accountId);
+	const run = useOrganizeJob(accountId);
+	const { startForFilter } = run;
+	const [runFilterId, setRunFilterId] = useState<string | undefined>();
+	const runNow = useCallback(
+		(filterId: string) => {
+			setRunFilterId(filterId);
+			startForFilter(filterId);
+		},
+		[startForFilter],
+	);
+	const runStatus = filterRunStatus(run);
 	const [editingFilterId, setEditingFilterId] = useState<string | undefined>();
 
 	const { data: mailboxesData } = useQuery({
@@ -113,8 +124,8 @@ export function AccountFilters({
 	const editingFilter = filters.find(
 		(filter) => filter.filterId === editingFilterId,
 	);
-	const failedRunName = filters.find(
-		(filter) => filter.filterId === run.failedFilterId,
+	const runName = filters.find(
+		(filter) => filter.filterId === runFilterId,
 	)?.name;
 
 	return (
@@ -160,11 +171,15 @@ export function AccountFilters({
 							reportHref={filterToggleReportHref}
 						/>
 					)}
-					{run.failedFilterId && (
+					{runFilterId && runStatus?.kind === "failed" && (
 						<FilterActionError
-							title={`Couldn't run ${failedRunName ?? "the filter"} over the inbox`}
-							error={run.error}
-							onRetry={run.retry}
+							title={`Couldn't run ${runName ?? "the filter"} over the inbox`}
+							error={runStatus.error}
+							onRetry={
+								run.failure?.kind === "statusUnreadable"
+									? run.refreshStatus
+									: () => runNow(runFilterId)
+							}
 							reportHref={filterRunReportHref}
 						/>
 					)}
@@ -177,9 +192,9 @@ export function AccountFilters({
 						deletingFilterId={deletingFilterId}
 						onToggle={toggle.toggleFilter}
 						togglingFilterId={toggle.togglingFilterId}
-						onRunNow={run.runFilter}
-						runningFilterId={run.runningFilterId}
-						queuedFilterId={run.queuedFilterId}
+						onRunNow={runNow}
+						runFilterId={runFilterId}
+						runStatus={runStatus}
 					/>
 				</>
 			)}

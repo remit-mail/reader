@@ -171,6 +171,6 @@ model FilterResponse {
 model CreateFilterResponse {
   ...FilterResponse;
 
-  @doc("The organize job queued to run the new filter over the inbox. Absent when the filter has no action, is not active, or carries a rule the back-apply refuses on this deployment.")
-  organizeJobId?: string;
+  @doc("The organize job queued to run the new filter over the inbox. Poll GET /accounts/{accountId}/organize/{organizeJobId}; a filter with nothing to run reports Failed with the reason.")
+  organizeJobId: string;
 }

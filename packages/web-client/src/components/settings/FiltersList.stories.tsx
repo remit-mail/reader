@@ -89,10 +89,26 @@ export const Toggling: Story = {
 	},
 };
 
-export const RunNowQueuing: Story = {
-	args: { filters: [makeFilter({})], runningFilterId: "flt-1" },
+export const RunNowRunning: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "running" },
+	},
 };
 
-export const RunNowQueued: Story = {
-	args: { filters: [makeFilter({})], queuedFilterId: "flt-1" },
+export const RunNowDone: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "done", matched: 3, applied: 3 },
+	},
+};
+
+export const RunNowMatchedNothing: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "done", matched: 0, applied: 0 },
+	},
 };

@@ -74,7 +74,8 @@ export const hasCommittableAction = (draft: OrganizeDraft): boolean =>
 
 /**
  * Ask for a saved filter's pass over the inbox. The server reads the filter's
- * own rule and action, so the body fields stay at their empty defaults.
+ * own rule and action when the job runs and ignores the predicate fields,
+ * which the request shape still requires.
  */
 export const buildRunFilterInput = (
 	filterId: string,

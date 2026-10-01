@@ -625,36 +625,20 @@ describe("createFilter queues the new filter's pass over the inbox (#1354)", () 
 
 		assert.equal(jobs.length, 1);
 		assert.equal(jobs[0]?.filterId, "flt-new");
-		assert.equal(jobs[0]?.actionMailboxId, "mbx-invoices");
-		assert.deepEqual(jobs[0]?.literalClauses, created.literalClauses);
 		assert.equal(enqueued.length, 1);
 		assert.match(String(enqueued[0]?.input.MessageBody), /job-new/);
 		assert.equal(response.organizeJobId, "job-new");
 		assert.equal(response.filterId, "flt-new");
 	});
 
-	it("queues nothing for a rule the back-apply refuses, and still creates it", async () => {
-		const bodyRule: FilterItem = {
-			...created,
-			literalClauses: [{ field: "HasWords", value: "invoice" }],
-		};
-		const { jobs, enqueued } = world(bodyRule);
+	it("names only the filter: the predicate columns stay at their sentinels", async () => {
+		const { jobs } = world(created);
 
-		const response = await createFilter({
-			literalClauses: bodyRule.literalClauses,
-		});
+		await createFilter({});
 
-		assert.deepEqual(jobs, []);
-		assert.deepEqual(enqueued, []);
-		assert.equal(response.filterId, "flt-new");
-		assert.equal("organizeJobId" in response, false);
-	});
-
-	it("queues nothing for a filter with no action", async () => {
-		const { jobs } = world({ ...created, actionMailboxId: "None" });
-
-		await createFilter({ actionMailboxId: "None" });
-
-		assert.deepEqual(jobs, []);
+		assert.equal(jobs[0]?.anchorMessageId, "None");
+		assert.deepEqual(jobs[0]?.literalClauses, []);
+		assert.equal(jobs[0]?.actionLabelId, "None");
+		assert.equal(jobs[0]?.actionMailboxId, "None");
 	});
 });

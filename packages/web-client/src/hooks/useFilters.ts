@@ -4,14 +4,12 @@ import {
 	filterOperationsCreateFilterMutation,
 	filterOperationsListFiltersOptions,
 	filterOperationsListFiltersQueryKey,
-	organizeOperationsCreateOrganizeJobMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapCreateFilterResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import {
 	buildCreateFilterInput,
-	buildRunFilterInput,
 	type OrganizeDraft,
 	type OrganizeScope,
 } from "@/lib/organize/organize-model";
@@ -186,36 +184,5 @@ export const useToggleFilter = (accountId: string | undefined) => {
 		isError: mutation.isError,
 		error: mutation.error,
 		enabling: variables?.body?.state === "Active",
-	};
-};
-
-/**
- * Run now: queue a saved filter's pass over the inbox, the same job its create
- * queued. Reports which filter is being queued, which one was, and the failure.
- */
-export const useRunFilter = (accountId: string | undefined) => {
-	const mutation = useMutation(organizeOperationsCreateOrganizeJobMutation());
-	const { mutate, variables } = mutation;
-
-	const runFilter = useCallback(
-		(filterId: string) => {
-			if (!accountId) return;
-			mutate({ path: { accountId }, body: buildRunFilterInput(filterId) });
-		},
-		[accountId, mutate],
-	);
-
-	const retry = useCallback(() => {
-		if (variables) mutate(variables);
-	}, [mutate, variables]);
-
-	const filterId = variables?.body.filterId;
-	return {
-		runFilter,
-		retry,
-		runningFilterId: mutation.isPending ? filterId : undefined,
-		queuedFilterId: mutation.isSuccess ? filterId : undefined,
-		failedFilterId: mutation.isError ? filterId : undefined,
-		error: mutation.error,
 	};
 };
