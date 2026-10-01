@@ -5,6 +5,7 @@ import {
 	backApplyFilter,
 	buildOrganizeMatchDeps,
 	buildOrganizeMoveService,
+	type FilterBackApplyDeps,
 	isFilterJob,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
@@ -19,6 +20,7 @@ export interface ProcessOrganizeJobDeps {
 	client?: RemitClient;
 	matchDeps?: OrganizeMatchDeps;
 	moveService?: ApplyOrganizeDeps["moveService"];
+	embedder?: FilterBackApplyDeps["embedder"];
 }
 
 interface OrganizeOutcome {
@@ -112,7 +114,7 @@ export const processOrganizeJob = async (
 		const moveService = deps.moveService ?? buildOrganizeMoveService(client);
 		const outcome = isFilterJob(job)
 			? await backApplyFilter(
-					{ client, matchDeps, moveService },
+					{ client, matchDeps, moveService, embedder: deps.embedder },
 					accountConfigId,
 					job.filterId,
 				).then((result) =>

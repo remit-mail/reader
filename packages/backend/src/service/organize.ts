@@ -937,10 +937,13 @@ export interface FilterBackApplyDeps {
 
 /**
  * Run one standing filter over the inbox as if each matching message had just
- * arrived. The matcher finds this filter's candidates; the index-time
- * {@link FilterPipeline} then decides each one against every active filter,
- * and this filter's label and move apply only where that decision gives them
- * to it.
+ * arrived. Every message the matcher returns is a match: its label always
+ * applies, being additive. The index-time {@link FilterPipeline} only orders
+ * the exclusive move, so the move is skipped where it names another active
+ * filter. The pipeline re-scores a similarity filter against the stored
+ * preview rather than the full body, so its verdict on whether this filter
+ * matches is not asked; and an evaluate it could not finish names no other
+ * filter, so the move goes ahead rather than silently dropping out.
  */
 export const backApplyFilter = async (
 	deps: FilterBackApplyDeps,
@@ -986,7 +989,11 @@ export const backApplyFilter = async (
 	if (match.rejected) return match;
 
 	const { filter, predicate } = loaded;
-	const result = { ...nothing, semanticUnavailable: match.semanticUnavailable };
+	const result: FilterBackApplyResult = {
+		...nothing,
+		matched: match.messageIds.length,
+		semanticUnavailable: match.semanticUnavailable,
+	};
 	for (const messageId of match.messageIds) {
 		const message = await filterMessageOf(client, accountConfigId, messageId);
 		if (!message) continue;
@@ -995,19 +1002,14 @@ export const backApplyFilter = async (
 			messageId,
 			message,
 		);
-		const move = decision.move?.filterId === filterId;
-		const label =
-			filter.actionLabelId !== NO_ACTION &&
-			decision.labels.some((entry) => entry.labelId === filter.actionLabelId);
-		if (!move && !label) continue;
-		result.matched += 1;
+		const move = (decision.move?.filterId ?? filterId) === filterId;
+		if (!move && filter.actionLabelId === NO_ACTION) continue;
 		const outcome = await applyOrganize(
 			{ client, moveService },
 			accountConfigId,
 			[messageId],
 			{
 				...predicate,
-				actionLabelId: label ? filter.actionLabelId : NO_ACTION,
 				actionMailboxId: move ? filter.actionMailboxId : NO_ACTION,
 			},
 		);
