@@ -49,6 +49,20 @@ export interface FilterMessage {
 const includesFold = (haystack: string, needle: string): boolean =>
 	haystack.toLowerCase().includes(needle.toLowerCase());
 
+/**
+ * Whether every whitespace-separated word of `value` appears somewhere in the
+ * sender address, sender name, subject or body — the shape free-text search
+ * matches with (`buildSearchConditions`), so a filter made from a search keeps
+ * the mail that search showed.
+ */
+const hasEveryWord = (value: string, msg: FilterMessage): boolean => {
+	const fields = [msg.from, msg.fromName, msg.subject, msg.text];
+	return value
+		.split(/\s+/)
+		.filter(Boolean)
+		.every((word) => fields.some((field) => includesFold(field, word)));
+};
+
 const hostOf = (address: string): string => {
 	const at = address.lastIndexOf("@");
 	return at >= 0 ? address.slice(at + 1) : address;
@@ -65,8 +79,8 @@ const registrableDomain = (addressOrHost: string): string | null =>
 
 /**
  * Whether one literal clause matches the message. From matches against the
- * sender address and display name; Subject against the subject; HasWords against
- * subject or body; ListId against the exact normalized `List-Id`; FromDomain
+ * sender address and display name; Subject against the subject; HasWords
+ * requires every word somewhere in sender, subject or body; ListId against the exact normalized `List-Id`; FromDomain
  * against the sender's registrable domain. An empty clause value never matches.
  */
 export const clauseMatches = (
@@ -81,7 +95,7 @@ export const clauseMatches = (
 		case FilterClauseField.Subject:
 			return includesFold(msg.subject, value);
 		case FilterClauseField.HasWords:
-			return includesFold(msg.subject, value) || includesFold(msg.text, value);
+			return hasEveryWord(value, msg);
 		case FilterClauseField.ListId: {
 			const target = normalizeListId(value);
 			return target !== "" && normalizeListId(msg.listId) === target;
