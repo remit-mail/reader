@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import {
@@ -196,6 +197,15 @@ const world = async (
 	anchors: FilterAnchorItem[] = [],
 ): Promise<World> => {
 	const store = createShippedSqliteDb();
+	store.sqlite.exec(
+		readFileSync(
+			new URL(
+				"../../../../npm-scripts/sqlite-search-index.sql",
+				import.meta.url,
+			),
+			"utf8",
+		),
+	);
 	const threadMessage = new DrizzleThreadMessageRepository(store.db as never);
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];

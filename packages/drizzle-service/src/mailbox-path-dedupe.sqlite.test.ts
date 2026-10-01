@@ -35,6 +35,16 @@ const filterAtDedupe = sqliteTable("filter", {
 	updatedAt: integer("updated_at").notNull(),
 });
 
+const organizeJobAtDedupe = sqliteTable("organize_job_request", {
+	organizeJobId: text("organize_job_id").primaryKey(),
+	accountConfigId: text("account_config_id").notNull(),
+	userId: text("user_id").notNull(),
+	actionMailboxId: text("action_mailbox_id").notNull(),
+	ttl: integer("ttl").notNull(),
+	createdAt: integer("created_at").notNull(),
+	updatedAt: integer("updated_at").notNull(),
+});
+
 type Handle = { sqlite: Database.Database; db: Db<Record<string, unknown>> };
 
 const atPredecessor = (): Handle => {
@@ -229,7 +239,7 @@ describe("(account_id, full_path) becomes unique", () => {
 			createdAt: 0,
 			updatedAt: 0,
 		});
-		await handle.db.insert(entities.organizeJobRequests).values({
+		await handle.db.insert(organizeJobAtDedupe).values({
 			organizeJobId: "job-1",
 			accountConfigId: CONFIG,
 			userId: "user",
@@ -272,7 +282,7 @@ describe("(account_id, full_path) becomes unique", () => {
 		assert.equal(child?.parent, "with-mail");
 		const [filter] = await handle.db.select().from(filterAtDedupe);
 		assert.equal(filter?.actionMailboxId, "with-mail");
-		const [job] = await handle.db.select().from(entities.organizeJobRequests);
+		const [job] = await handle.db.select().from(organizeJobAtDedupe);
 		assert.equal(job?.actionMailboxId, "with-mail");
 		const [copied] = await handle.db
 			.select({ original: entities.messages.originalMailboxId })
