@@ -22,6 +22,7 @@ const meta: Meta<typeof FiltersList> = {
 		onEdit: () => undefined,
 		onDelete: () => undefined,
 		onToggle: () => undefined,
+		onRunNow: () => undefined,
 		now: NOW,
 	},
 };
@@ -86,4 +87,12 @@ export const Toggling: Story = {
 		filters: disabled("UserDisabled"),
 		togglingFilterId: "flt-1",
 	},
+};
+
+export const RunNowQueuing: Story = {
+	args: { filters: [makeFilter({})], runningFilterId: "flt-1" },
+};
+
+export const RunNowQueued: Story = {
+	args: { filters: [makeFilter({})], queuedFilterId: "flt-1" },
 };

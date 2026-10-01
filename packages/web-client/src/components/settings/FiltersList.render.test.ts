@@ -38,6 +38,7 @@ const render = (
 	filters: RemitImapFilterResponse[],
 	semanticUnavailable = false,
 	labelById: Map<string, LabelOption> = new Map(),
+	run: { runningFilterId?: string; queuedFilterId?: string } = {},
 ) =>
 	renderToString(
 		createElement(FiltersList, {
@@ -47,6 +48,8 @@ const render = (
 			onEdit: () => undefined,
 			onDelete: () => undefined,
 			onToggle: () => undefined,
+			onRunNow: () => undefined,
+			...run,
 			semanticUnavailable,
 			now: NOW,
 		}) as never,
@@ -153,4 +156,49 @@ describe("FiltersList", () => {
 			assert.match(html, /Turn on filter Travel/);
 		});
 	}
+
+	it("offers Run now on an active filter with an action (#1354)", () => {
+		const html = render([filter({})]);
+		assert.match(html, /Run now: filter Travel/);
+		assert.match(html, />Run now</);
+	});
+
+	it("offers no Run now on a turned-off or expired filter", () => {
+		const html = render([
+			filter({ state: "Disabled", disabledReason: "UserDisabled" }),
+			filter({
+				filterId: "f-2",
+				name: "Lisbon trip",
+				scope: "Temporary",
+				expiresAt: "2026-07-10T00:00:00Z",
+			}),
+		]);
+		assert.doesNotMatch(html, /Run now/);
+	});
+
+	it("offers no Run now on a filter with nothing to do", () => {
+		const html = render([
+			filter({ actionMailboxId: "None", actionLabelId: "None" }),
+		]);
+		assert.doesNotMatch(html, /Run now/);
+	});
+
+	it("says the run was queued on the filter that was run", () => {
+		const html = render([filter({})], false, new Map(), {
+			queuedFilterId: "f-1",
+		});
+		assert.match(html, /role="status"/);
+		assert.match(
+			html,
+			/Queued\. Matching mail in the inbox is being filed now\./,
+		);
+	});
+
+	it("disables Run now while the request is in flight", () => {
+		const html = render([filter({})], false, new Map(), {
+			runningFilterId: "f-1",
+		});
+		assert.match(html, /Queuing/);
+		assert.match(html, /disabled=""/);
+	});
 });

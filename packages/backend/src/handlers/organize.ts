@@ -1,4 +1,3 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	CreateOrganizeJobResponse,
 	OrganizeInput,
@@ -6,20 +5,21 @@ import type {
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient, type RemitClient } from "../service/data-client.js";
 import {
 	buildOrganizeMatchDeps,
+	loadFilterBackApply,
+	matchFilterInbox,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
+	type OrganizeMatchResult,
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
-import { sqsClient } from "../service/sqs.js";
+import { queueOrganizeJob } from "../service/organize-queue.js";
 import type {
 	OperationHandler,
 	OrganizeJobDetailOperationIds,
@@ -28,13 +28,6 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 const NONE = "None";
-
-/**
- * How long a finished (or abandoned) job row lingers before the table-wide TTL
- * reclaims it (RFC 034 Decision 1). A back-apply runs once and needs no standing
- * lifetime; a week is ample for a client to poll the result.
- */
-const ORGANIZE_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Normalize the request body into the flattened predicate the job row and the
@@ -70,6 +63,7 @@ const toOrganizeJobResponse = (
 	accountConfigId: job.accountConfigId,
 	userId: job.userId,
 	state: job.state,
+	filterId: job.filterId,
 	anchorMessageId: job.anchorMessageId,
 	matchOperator: job.matchOperator,
 	literalClauses: job.literalClauses,
@@ -83,6 +77,54 @@ const toOrganizeJobResponse = (
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
 });
+
+/**
+ * The predicate a request asks for: the body's own, or the named standing
+ * filter's. A rule the matcher can never honour is answered here, not with a
+ * 202 the worker has to fail later (reader #463).
+ */
+const requestedPredicate = async (
+	client: RemitClient,
+	accountConfigId: string,
+	input: OrganizeInput,
+): Promise<OrganizePredicate> => {
+	if (input.filterId) {
+		const loaded = await loadFilterBackApply(
+			client,
+			accountConfigId,
+			input.filterId,
+		);
+		if (loaded.rejected) throw new BadRequestError(loaded.rejected.message);
+		return loaded.predicate;
+	}
+	const predicate = predicateFromInput(input);
+	const rejection = organizePredicateRejection(predicate);
+	if (rejection) throw new BadRequestError(rejection.message);
+	return predicate;
+};
+
+const previewMatch = async (
+	client: RemitClient,
+	accountConfigId: string,
+	input: OrganizeInput,
+): Promise<OrganizeMatchResult> => {
+	const deps = buildOrganizeMatchDeps(client);
+	if (!input.filterId) {
+		return matchOrganize(
+			deps,
+			accountConfigId,
+			predicateFromInput(input),
+			ORGANIZE_MATCH_LIMIT,
+		);
+	}
+	const loaded = await loadFilterBackApply(
+		client,
+		accountConfigId,
+		input.filterId,
+	);
+	if (loaded.rejected) return loaded;
+	return matchFilterInbox(client, deps, accountConfigId, loaded);
+};
 
 export const OrganizeOperations: Record<
 	OrganizeOperationIds,
@@ -107,43 +149,13 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "act");
 
-		const predicate = predicateFromInput(input);
-
-		// A rule the matcher can never honour is answered here, not with a 202
-		// the worker has to fail later (reader #463).
-		const rejection = organizePredicateRejection(predicate);
-		if (rejection) throw new BadRequestError(rejection.message);
-
-		const ttl = Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS;
-
-		const job = await client.organizeJobRequest.create({
+		const predicate = await requestedPredicate(client, accountConfigId, input);
+		const job = await queueOrganizeJob(client, {
 			accountConfigId,
 			userId,
-			anchorMessageId: predicate.anchorMessageId,
-			matchOperator: predicate.matchOperator,
-			literalClauses: predicate.literalClauses,
-			similarityThreshold: predicate.similarityThreshold,
-			actionLabelId: predicate.actionLabelId,
-			actionMailboxId: predicate.actionMailboxId,
-			ttl,
+			predicate,
+			filterId: input.filterId,
 		});
-
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-				MessageBody: JSON.stringify({
-					type: "OrganizeJob",
-					accountConfigId,
-					organizeJobId: job.organizeJobId,
-				}),
-			}),
-		);
-
-		// biome-ignore lint/plugin/no-logger-info: a back-apply is an audit-grade signal
-		logger.info(
-			{ accountConfigId, organizeJobId: job.organizeJobId },
-			"Organize back-apply job initiated",
-		);
 
 		return {
 			statusCode: 202,
@@ -164,12 +176,7 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
-		const result = await matchOrganize(
-			buildOrganizeMatchDeps(client),
-			accountConfigId,
-			predicateFromInput(input),
-			ORGANIZE_MATCH_LIMIT,
-		);
+		const result = await previewMatch(client, accountConfigId, input);
 		if (result.rejected) throw new BadRequestError(result.rejected.message);
 
 		const response: OrganizePreviewResponse = {

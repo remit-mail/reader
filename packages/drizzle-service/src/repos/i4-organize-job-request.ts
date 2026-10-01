@@ -22,6 +22,7 @@ function rowToItem(
 		accountConfigId: row.accountConfigId,
 		userId: row.userId,
 		state: row.state as OrganizeJobRequestItem["state"],
+		filterId: row.filterId,
 		anchorMessageId: row.anchorMessageId,
 		matchOperator: row.matchOperator as OrganizeJobRequestItem["matchOperator"],
 		literalClauses:
@@ -53,6 +54,7 @@ export class OrganizeJobRequestRepo implements IOrganizeJobRequestRepository {
 				accountConfigId: input.accountConfigId,
 				userId: input.userId,
 				state: input.state ?? "Pending",
+				filterId: input.filterId,
 				anchorMessageId: input.anchorMessageId,
 				matchOperator: input.matchOperator,
 				literalClauses: input.literalClauses,

@@ -18,6 +18,9 @@ namespace RemitImap;
   vectors at match time and never persisted as a FilterAnchor row.
   """)
 model OrganizeInput {
+  @doc("Back-apply this standing filter instead of the predicate in this body. The server reads the filter's persisted predicate, action and FilterAnchor, runs the pass over the inbox, and skips a move another active filter outranks, as index time does. The predicate and action fields of this body are ignored when it is set.")
+  filterId?: UUID;
+
   @doc("Anchor message for the semantic half — \"all like this one\". Absent for a purely-literal back-apply. The anchor vector is pooled transiently from this message's indexed chunk vectors and never written to a FilterAnchor row.")
   anchorMessageId?: UUID;
 
@@ -79,6 +82,10 @@ model OrganizeJobRequest {
   @doc("Current lifecycle state of the job")
   @visibility(Lifecycle.Read)
   state: OrganizeJobState = OrganizeJobState.Pending;
+
+  @doc("The standing filter this job back-applies, or the `\"None\"` sentinel for an \"all like these\" pass. A sentinel, not an optional field, so the persisted entity has no optional attributes (RFC 032).")
+  @visibility(Lifecycle.Read)
+  filterId: string = "None";
 
   @doc("Snapshot of the anchor message id, or the `\"None\"` sentinel for a purely-literal back-apply. A sentinel, not an optional field, so the persisted entity has no optional attributes (RFC 032).")
   @visibility(Lifecycle.Read)
@@ -159,6 +166,7 @@ model OrganizeJobResponse
       | "accountConfigId"
       | "userId"
       | "state"
+      | "filterId"
       | "anchorMessageId"
       | "matchOperator"
       | "literalClauses"

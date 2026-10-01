@@ -1,5 +1,6 @@
 import type {
 	CreateFilterInput,
+	CreateFilterResponse,
 	FilterResponse,
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
@@ -19,9 +20,18 @@ import {
 } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
+import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
+import { getClient, type RemitClient } from "../service/data-client.js";
 import { buildFilterAnchor } from "../service/filter.js";
+import {
+	filterHasAction,
+	organizePredicateRejection,
+	predicateFromFilter,
+} from "../service/organize.js";
+import {
+	type OrganizeJobRequest,
+	queueOrganizeJob,
+} from "../service/organize-queue.js";
 import type {
 	FilterDetailOperationIds,
 	FilterOperationIds,
@@ -340,6 +350,56 @@ export const createFilterWithAnchor = async (
 	);
 };
 
+export interface FilterBackApplyDeps {
+	queueOrganizeJob: (request: OrganizeJobRequest) => Promise<{
+		organizeJobId: string;
+	}>;
+}
+
+/**
+ * Queue a new filter's first pass over the inbox, so the mail already there is
+ * filed the way the next message will be. Returns the job id, or `undefined`
+ * when there is nothing to run: a filter with no action, one that is not
+ * active, or a rule the back-apply refuses (a body-content clause with no
+ * anchor), which still works on incoming mail.
+ */
+export const queueFilterBackApply = async (
+	deps: FilterBackApplyDeps,
+	filter: FilterItem,
+	anchorMessageId: string | undefined,
+	userId: string,
+): Promise<string | undefined> => {
+	if (filter.state !== FilterState.Active || !filterHasAction(filter)) {
+		return undefined;
+	}
+	const predicate = predicateFromFilter(
+		filter,
+		filter.hasAnchor && anchorMessageId ? anchorMessageId : FILTER_NO_ACTION,
+	);
+	if (organizePredicateRejection(predicate)) return undefined;
+	const job = await deps.queueOrganizeJob({
+		accountConfigId: filter.accountConfigId,
+		userId,
+		predicate,
+		filterId: filter.filterId,
+	});
+	return job.organizeJobId;
+};
+
+const requireUserId = (event: APIGatewayProxyEvent): string => {
+	const userId = getSubFromEvent(event);
+	if (!userId) {
+		throw new Error(
+			"Missing Cognito `sub`: cannot attribute an organize job to a user",
+		);
+	}
+	return userId;
+};
+
+const queueWith = (client: RemitClient): FilterBackApplyDeps => ({
+	queueOrganizeJob: (request) => queueOrganizeJob(client, request),
+});
+
 /**
  * A filter's `actionMailboxId` is a durable reference, so its target has to be
  * a folder the mail server has settled (D12, first row) — 422 otherwise. The
@@ -393,11 +453,15 @@ export const FilterOperations: Record<
 		};
 	},
 
-	FilterOperations_createFilter: async (context, ...args: unknown[]) => {
+	FilterOperations_createFilter: async (
+		context,
+		...args: unknown[]
+	): Promise<CreateFilterResponse> => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as CreateFilterInput;
+		const userId = requireUserId(event);
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
@@ -412,7 +476,16 @@ export const FilterOperations: Record<
 			accountConfigId,
 			input,
 		);
-		return toFilterResponse(filter);
+		const organizeJobId = await queueFilterBackApply(
+			queueWith(client),
+			filter,
+			input.anchorMessageId,
+			userId,
+		);
+		return {
+			...toFilterResponse(filter),
+			...(organizeJobId ? { organizeJobId } : {}),
+		};
 	},
 };
 

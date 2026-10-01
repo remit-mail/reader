@@ -4,11 +4,14 @@ import {
 	filterOperationsCreateFilterMutation,
 	filterOperationsListFiltersOptions,
 	filterOperationsListFiltersQueryKey,
+	organizeOperationsCreateOrganizeJobMutation,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import type { RemitImapCreateFilterResponse } from "@remit/api-http-client/types.gen.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import {
 	buildCreateFilterInput,
+	buildRunFilterInput,
 	type OrganizeDraft,
 	type OrganizeScope,
 } from "@/lib/organize/organize-model";
@@ -84,23 +87,23 @@ export const useCreateFilter = (accountId: string | undefined) => {
 	 * to the request rather than to the surface is what keeps it running when the
 	 * surface is closed while the create is still in flight.
 	 *
-	 * `false` means the create did not land. The failure itself is on `isError`,
-	 * which is what the surface reports and retries from, so it is not raised a
-	 * second time here.
+	 * `undefined` means the create did not land. The failure itself is on
+	 * `isError`, which is what the surface reports and retries from, so it is not
+	 * raised a second time here.
 	 */
 	const createFilterAsync = useCallback(
 		async (
 			draft: OrganizeDraft,
 			scope: Extract<OrganizeScope, "standing" | "temporary">,
 			name: string,
-		): Promise<boolean> => {
-			if (!accountId) return false;
+		): Promise<RemitImapCreateFilterResponse | undefined> => {
+			if (!accountId) return undefined;
 			return mutateAsync({
 				path: { accountId },
 				body: buildCreateFilterInput(draft, scope, name),
 			}).then(
-				() => true,
-				() => false,
+				(created) => created,
+				() => undefined,
 			);
 		},
 		[accountId, mutateAsync],
@@ -109,6 +112,7 @@ export const useCreateFilter = (accountId: string | undefined) => {
 	return {
 		createFilter,
 		createFilterAsync,
+		data: mutation.data,
 		isPending: mutation.isPending,
 		isSuccess: mutation.isSuccess,
 		isError: mutation.isError,
@@ -182,5 +186,36 @@ export const useToggleFilter = (accountId: string | undefined) => {
 		isError: mutation.isError,
 		error: mutation.error,
 		enabling: variables?.body?.state === "Active",
+	};
+};
+
+/**
+ * Run now: queue a saved filter's pass over the inbox, the same job its create
+ * queued. Reports which filter is being queued, which one was, and the failure.
+ */
+export const useRunFilter = (accountId: string | undefined) => {
+	const mutation = useMutation(organizeOperationsCreateOrganizeJobMutation());
+	const { mutate, variables } = mutation;
+
+	const runFilter = useCallback(
+		(filterId: string) => {
+			if (!accountId) return;
+			mutate({ path: { accountId }, body: buildRunFilterInput(filterId) });
+		},
+		[accountId, mutate],
+	);
+
+	const retry = useCallback(() => {
+		if (variables) mutate(variables);
+	}, [mutate, variables]);
+
+	const filterId = variables?.body.filterId;
+	return {
+		runFilter,
+		retry,
+		runningFilterId: mutation.isPending ? filterId : undefined,
+		queuedFilterId: mutation.isSuccess ? filterId : undefined,
+		failedFilterId: mutation.isError ? filterId : undefined,
+		error: mutation.error,
 	};
 };

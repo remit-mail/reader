@@ -26,6 +26,12 @@ interface FiltersListProps {
 	deletingFilterId?: string;
 	onToggle: (filterId: string, enabled: boolean) => void;
 	togglingFilterId?: string;
+	/** Run the filter over the inbox now (#1354). */
+	onRunNow: (filterId: string) => void;
+	/** The filter whose Run now request is in flight. */
+	runningFilterId?: string;
+	/** The filter whose Run now was queued; its row says so. */
+	queuedFilterId?: string;
 	/**
 	 * This deployment ships no vector pipeline (RFC 038 D4). A filter carrying a
 	 * semantic anchor lists with its widen chip inactive — it matches by its
@@ -52,6 +58,9 @@ export function FiltersList({
 	deletingFilterId,
 	onToggle,
 	togglingFilterId,
+	onRunNow,
+	runningFilterId,
+	queuedFilterId,
 	semanticUnavailable = false,
 	now = Date.now(),
 }: FiltersListProps) {
@@ -80,6 +89,10 @@ export function FiltersList({
 						? labelById.get(filter.actionLabelId)
 						: undefined;
 				const expiresLabel = formatExpiresAt(filter.expiresAt);
+				const runnable =
+					status === "Active" &&
+					(filter.actionMailboxId !== NO_ACTION ||
+						filter.actionLabelId !== NO_ACTION);
 
 				return (
 					<li
@@ -120,6 +133,11 @@ export function FiltersList({
 							{reason && (
 								<p className="mt-0.5 text-xs text-warning">{reason}</p>
 							)}
+							{queuedFilterId === filter.filterId && (
+								<p role="status" className="mt-0.5 text-xs text-positive">
+									Queued. Matching mail in the inbox is being filed now.
+								</p>
+							)}
 							{(filter.hasAnchor || label) && (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
 									{filter.hasAnchor && (
@@ -142,6 +160,17 @@ export function FiltersList({
 								</div>
 							)}
 						</button>
+						{runnable && (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => onRunNow(filter.filterId)}
+								disabled={runningFilterId === filter.filterId}
+								aria-label={`Run now: filter ${filter.name}`}
+							>
+								{runningFilterId === filter.filterId ? "Queuing…" : "Run now"}
+							</Button>
+						)}
 						{!expired && (
 							<Button
 								variant="ghost"

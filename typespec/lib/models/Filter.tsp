@@ -166,3 +166,11 @@ model UpdateFilterInput is Update<Filter>;
 model FilterResponse {
   ...OmitProperties<Filter, "ttl">;
 }
+
+@doc("Response body for POST /accounts/{accountId}/filters: the created filter, plus the back-apply job that runs it over the inbox.")
+model CreateFilterResponse {
+  ...FilterResponse;
+
+  @doc("The organize job queued to run the new filter over the inbox. Absent when the filter has no action, is not active, or carries a rule the back-apply refuses on this deployment.")
+  organizeJobId?: string;
+}

@@ -7,18 +7,22 @@ import { type LabelOption, SettingsShell } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
+import { FilterActionError } from "@/components/settings/FilterActionError";
 import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
-import { FilterToggleError } from "@/components/settings/FilterToggleError";
 import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useDeleteFilter,
 	useFilterList,
+	useRunFilter,
 	useToggleFilter,
 } from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useLabelList } from "@/hooks/useLabels";
-import { filterToggleReportHref } from "@/lib/filter-report";
+import {
+	filterRunReportHref,
+	filterToggleReportHref,
+} from "@/lib/filter-report";
 import { buildMailboxRoleMap, labelForMailbox } from "@/lib/folder-roles";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
@@ -55,6 +59,7 @@ export function AccountFilters({
 		useFilterList(accountId);
 	const { deleteFilter, deletingFilterId } = useDeleteFilter(accountId);
 	const toggle = useToggleFilter(accountId);
+	const run = useRunFilter(accountId);
 	const [editingFilterId, setEditingFilterId] = useState<string | undefined>();
 
 	const { data: mailboxesData } = useQuery({
@@ -108,6 +113,9 @@ export function AccountFilters({
 	const editingFilter = filters.find(
 		(filter) => filter.filterId === editingFilterId,
 	);
+	const failedRunName = filters.find(
+		(filter) => filter.filterId === run.failedFilterId,
+	)?.name;
 
 	return (
 		<section className="space-y-2">
@@ -141,11 +149,23 @@ export function AccountFilters({
 			) : (
 				<>
 					{toggle.isError && (
-						<FilterToggleError
-							enabling={toggle.enabling}
+						<FilterActionError
+							title={
+								toggle.enabling
+									? "Couldn't turn the filter on"
+									: "Couldn't turn the filter off"
+							}
 							error={toggle.error}
 							onRetry={toggle.retry}
 							reportHref={filterToggleReportHref}
+						/>
+					)}
+					{run.failedFilterId && (
+						<FilterActionError
+							title={`Couldn't run ${failedRunName ?? "the filter"} over the inbox`}
+							error={run.error}
+							onRetry={run.retry}
+							reportHref={filterRunReportHref}
 						/>
 					)}
 					<FiltersList
@@ -157,6 +177,9 @@ export function AccountFilters({
 						deletingFilterId={deletingFilterId}
 						onToggle={toggle.toggleFilter}
 						togglingFilterId={toggle.togglingFilterId}
+						onRunNow={run.runFilter}
+						runningFilterId={run.runningFilterId}
+						queuedFilterId={run.queuedFilterId}
 					/>
 				</>
 			)}

@@ -1,8 +1,8 @@
 import { ErrorState, formatErrorMessage } from "@/components/ui/ErrorState";
 import { getErrorStatus } from "@/lib/error-classifier";
 
-interface FilterToggleErrorProps {
-	enabling: boolean;
+interface FilterActionErrorProps {
+	title: string;
 	error: unknown;
 	onRetry: () => void;
 	reportHref: (message: string) => string;
@@ -13,21 +13,17 @@ const isRefusal = (error: unknown): boolean => {
 	return status !== undefined && status >= 400 && status < 500;
 };
 
-export function FilterToggleError({
-	enabling,
+export function FilterActionError({
+	title,
 	error,
 	onRetry,
 	reportHref,
-}: FilterToggleErrorProps) {
+}: FilterActionErrorProps) {
 	return (
 		<div className="space-y-1">
 			<ErrorState
 				variant="inline"
-				title={
-					enabling
-						? "Couldn't turn the filter on"
-						: "Couldn't turn the filter off"
-				}
+				title={title}
 				error={error}
 				onRetry={isRefusal(error) ? undefined : onRetry}
 			/>
