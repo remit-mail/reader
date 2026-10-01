@@ -1,11 +1,16 @@
 import { getClient, type RemitClient } from "@remit/backend/client";
 import {
+	type ApplyOrganizeDeps,
 	applyOrganize,
+	backApplyFilter,
 	buildOrganizeMatchDeps,
 	buildOrganizeMoveService,
+	type FilterBackApplyDeps,
+	isFilterJob,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
 	type OrganizeMatchDeps,
+	type OrganizeRejection,
 	predicateFromJob,
 } from "@remit/backend/organize";
 import type { Logger } from "@remit/logger-lambda";
@@ -14,12 +19,64 @@ import type { OrganizeJobEvent } from "../events.js";
 export interface ProcessOrganizeJobDeps {
 	client?: RemitClient;
 	matchDeps?: OrganizeMatchDeps;
+	moveService?: ApplyOrganizeDeps["moveService"];
+	embedder?: FilterBackApplyDeps["embedder"];
 }
 
+interface OrganizeOutcome {
+	rejected: OrganizeRejection | null;
+	matched: number;
+	applied: number;
+	failed: number;
+	semanticUnavailable: boolean;
+}
+
+const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
+	rejected,
+	matched: 0,
+	applied: 0,
+	failed: 0,
+	semanticUnavailable: false,
+});
+
 /**
- * Run a "all like these" back-apply job (RFC 034, #1278): match the corpus
- * against the job's snapshotted predicate and apply the action to every match,
- * in one pass, then record the counts. Mirrors the export job's lifecycle —
+ * The "all like these" pass: the predicate snapshotted on the row, over every
+ * folder, every requested move applied (reader #497).
+ */
+const runSnapshot = async (
+	client: RemitClient,
+	matchDeps: OrganizeMatchDeps,
+	moveService: ApplyOrganizeDeps["moveService"],
+	job: Awaited<ReturnType<RemitClient["organizeJobRequest"]["get"]>>,
+): Promise<OrganizeOutcome> => {
+	const predicate = predicateFromJob(job);
+	const match = await matchOrganize(
+		matchDeps,
+		job.accountConfigId,
+		predicate,
+		ORGANIZE_MATCH_LIMIT,
+	);
+	if (match.rejected) return rejectedOutcome(match.rejected);
+	const { applied, failed } = await applyOrganize(
+		{ client, moveService },
+		job.accountConfigId,
+		match.messageIds,
+		predicate,
+	);
+	return {
+		rejected: null,
+		matched: match.messageIds.length,
+		applied,
+		failed,
+		semanticUnavailable: match.semanticUnavailable,
+	};
+};
+
+/**
+ * Run a back-apply job (RFC 034, #1278): an "all like these" pass matches the
+ * corpus against the job's snapshotted predicate; a filter job (#1354) runs the
+ * named standing filter over the inbox with index-time move precedence. Either
+ * applies the action to every match in one pass, then records the counts. Mirrors the export job's lifecycle —
  * Running, then Complete/Failed — on the same fanout seam.
  *
  * Reuses the shared matcher (so the applied set equals what preview returned)
@@ -53,41 +110,37 @@ export const processOrganizeJob = async (
 	);
 
 	try {
-		const predicate = predicateFromJob(job);
 		const matchDeps = deps.matchDeps ?? buildOrganizeMatchDeps(client);
-		const match = await matchOrganize(
-			matchDeps,
-			accountConfigId,
-			predicate,
-			ORGANIZE_MATCH_LIMIT,
-		);
+		const moveService = deps.moveService ?? buildOrganizeMoveService(client);
+		const outcome = isFilterJob(job)
+			? await backApplyFilter(
+					{ client, matchDeps, moveService, embedder: deps.embedder },
+					accountConfigId,
+					job.filterId,
+				).then((result) =>
+					result.rejected ? rejectedOutcome(result.rejected) : result,
+				)
+			: await runSnapshot(client, matchDeps, moveService, job);
 
-		if (match.rejected) {
+		if (outcome.rejected) {
 			await client.organizeJobRequest.update(organizeJobId, {
 				state: "Failed",
 				matchedCount: 0,
 				appliedCount: 0,
 				failedCount: 0,
-				errorMessage: match.rejected.message,
+				errorMessage: outcome.rejected.message,
 			});
 			log.warn(
-				{ accountConfigId, organizeJobId, reason: match.rejected.reason },
+				{ accountConfigId, organizeJobId, reason: outcome.rejected.reason },
 				"Organize back-apply refused the job's rule; failing the job without a retry",
 			);
 			return;
 		}
 
-		const { messageIds, semanticUnavailable } = match;
-		const { applied, failed } = await applyOrganize(
-			{ client, moveService: buildOrganizeMoveService(client) },
-			accountConfigId,
-			messageIds,
-			predicate,
-		);
-
+		const { matched, applied, failed, semanticUnavailable } = outcome;
 		await client.organizeJobRequest.update(organizeJobId, {
 			state: "Complete",
-			matchedCount: messageIds.length,
+			matchedCount: matched,
 			appliedCount: applied,
 			failedCount: failed,
 		});
@@ -95,7 +148,8 @@ export const processOrganizeJob = async (
 			{
 				accountConfigId,
 				organizeJobId,
-				matched: messageIds.length,
+				filterId: job.filterId,
+				matched,
 				applied,
 				failed,
 				semanticUnavailable,

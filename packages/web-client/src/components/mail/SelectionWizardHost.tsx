@@ -33,6 +33,7 @@ import { useBlocker } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
 	useFolderAppointments,
+	useInboxMailbox,
 	useJunkMailbox,
 } from "@/hooks/useArchiveMailbox";
 import { useClauseSuggestions } from "@/hooks/useClauseSuggestions";
@@ -61,8 +62,6 @@ import { useMailContext } from "@/lib/mail-context";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import {
 	buildWizardDraft,
-	canBackApplyDraft,
-	type OrganizeDraft,
 	type OrganizeScope,
 	organizeScopeFor,
 } from "@/lib/organize/organize-model";
@@ -367,11 +366,6 @@ function SelectionWizardSession({
 		  }
 		| undefined
 	>(undefined);
-	// The predicate the create chains its pass to. Undefined when the rule cannot
-	// be back-applied — a `HasWords` clause the vector-free pass cannot evaluate —
-	// in which case the filter still saves and applies to incoming mail. Kept, not
-	// cleared, so a failed start can be retried.
-	const [backApplyDraft, setBackApplyDraft] = useState<OrganizeDraft>();
 	const commitSent = useRef(false);
 
 	const messageIds = useMemo(
@@ -395,6 +389,26 @@ function SelectionWizardSession({
 	const anchorMessageId = messageIds[0];
 	const subjects = useSelectedSubjects(messageIds);
 	const { junkMailboxId } = useJunkMailbox(accountId);
+	const { inboxMailboxId } = useInboxMailbox(accountId);
+	// A saved rule's first pass runs over the inbox. Ticked rows in any other
+	// folder take the action directly, so a rule made from Archive or from a
+	// search across folders still files the mail it was made from.
+	const outsideInbox = useMemo<BulkActionTarget[]>(
+		() =>
+			inboxMailboxId
+				? selection
+						.filter(
+							(message) =>
+								message.mailboxId !== undefined &&
+								message.mailboxId !== inboxMailboxId,
+						)
+						.map((message) => ({
+							id: message.id,
+							accountId: message.accountId,
+						}))
+				: [],
+		[selection, inboxMailboxId],
+	);
 
 	// No door is offered over an escalated predicate, so nothing here has a widen
 	// to probe for.
@@ -728,7 +742,7 @@ function SelectionWizardSession({
 		});
 	}, [escalated, verb, named.moveMailboxId, junkMailboxId, claimEnding]);
 
-	const { start: startJob } = organizeJob;
+	const { start: startJob, watch: watchJob } = organizeJob;
 	const { createFilterAsync } = createFilter;
 
 	const sendCommit = useCallback(() => {
@@ -752,21 +766,18 @@ function SelectionWizardSession({
 		setCommittedScope(scope);
 
 		if (scope === "standing" || scope === "temporary") {
-			// Creating a filter also moves the mail that already matches, not only
-			// the mail that arrives next. The pass is chained to the create's own
-			// request rather than to this screen: the screen offers a Close while
-			// the create is still in flight, and a rule that saved with no pass
-			// behind it — and nothing left to retry from — is a silent no-op.
-			const backApply = canBackApplyDraft(organizeDraft)
-				? organizeDraft
-				: undefined;
-			setBackApplyDraft(backApply);
+			// Creating a filter also runs it over the inbox: the server queues that
+			// pass with the create and hands back its job id, which this screen
+			// follows. Ticked rows outside the inbox are not the job's to reach, so
+			// they take the action directly.
 			void createFilterAsync(
 				organizeDraft,
 				scope,
 				(named.name ?? "").trim(),
 			).then((created) => {
-				if (created && backApply) startJob(backApply);
+				if (!created) return;
+				watchJob(created.organizeJobId);
+				if (outsideInbox.length > 0) void runBulk(outsideInbox);
 			});
 			return;
 		}
@@ -792,6 +803,8 @@ function SelectionWizardSession({
 		bulkTargets,
 		matchedIds,
 		createFilterAsync,
+		watchJob,
+		outsideInbox,
 		startJob,
 		runBulk,
 	]);
@@ -878,13 +891,22 @@ function SelectionWizardSession({
 		};
 	}, [bulkRun, runProgress, rowsById]);
 
+	const createdFilter = createFilter.data;
+	// The direct action on ticked rows outside the inbox fell short. Its
+	// failures are reported over the job's progress: they are mail the user
+	// picked, and the job will never reach them.
+	const bulkFellShort =
+		bulkRun !== undefined &&
+		(bulkRun.failureReason !== undefined ||
+			(bulkRun.outcome?.failedIds.length ?? 0) > 0);
+
 	const runSnapshot = (): RunSnapshot => {
 		if (escalated) return bulkSnapshot();
 		if (committedScope === "standing" || committedScope === "temporary") {
 			if (createFilter.isError)
 				return { ...NOT_STARTED, state: "commitFailed" };
 			if (!createFilter.isSuccess) return NOT_STARTED;
-			if (!backApplyDraft) return { ...NOT_STARTED, state: "filterSaved" };
+			if (bulkFellShort) return bulkSnapshot();
 			return jobSnapshot(true);
 		}
 		if (committedScope === "all-like-these" && widenedRunsAsJob(verb)) {
@@ -899,12 +921,23 @@ function SelectionWizardSession({
 	// walking back to Review, which would push an entry the wizard does not own
 	// and leave Cancel rewinding to a step instead of out.
 	const retry = (): void => {
+		const ruleSaved =
+			committedScope === "standing" || committedScope === "temporary";
+		if (ruleSaved && bulkFellShort && bulkRun) {
+			const failed = new Set(bulkRun.outcome?.failedIds ?? []);
+			void runBulk(
+				failed.size > 0
+					? bulkRun.sent.filter((target) => failed.has(target.id))
+					: bulkRun.sent,
+			);
+			return;
+		}
 		const intent = retryIntent({
 			runState: run.state,
 			isEscalated: escalated !== undefined,
 			committedScope,
 			createFilterFailed: createFilter.isError,
-			backApplyPending: backApplyDraft !== undefined,
+			backApplyPending: createdFilter !== undefined,
 			widenRunsAsJob: widenedRunsAsJob(verb),
 			failedIds: bulkRun?.outcome?.failedIds ?? [],
 			sent: bulkRun?.sent ?? bulkTargets,
@@ -924,7 +957,7 @@ function SelectionWizardSession({
 				sendCommit();
 				return;
 			case "startBackApply":
-				if (backApplyDraft) startJob(backApplyDraft);
+				if (createdFilter) organizeJob.startForFilter(createdFilter.filterId);
 				return;
 			case "waitOnJob":
 				return;

@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
+import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	CreateFilterInput,
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
 import type {
 	CreateFilterAnchorInput,
+	CreateOrganizeJobRequestInput,
 	CreateFilterInput as FilterAnchorTxCreateInput,
 	FilterItem,
 } from "@remit/data-ports";
@@ -16,9 +18,19 @@ import {
 	FilterState,
 } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
+import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { Context } from "openapi-backend";
+import { deriveAccountConfigId } from "../auth.js";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import {
 	createFilterWithAnchor,
 	type FilterCrudDeps,
+	FilterOperations,
 	pickFilterUpdate,
 	rejectAnchorMutation,
 	resolveFilterScopeExpiry,
@@ -514,5 +526,119 @@ describe("createFilterWithAnchor (#351)", () => {
 			createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input),
 			/anchor write failed/,
 		);
+	});
+});
+
+describe("createFilter queues the new filter's pass over the inbox (#1354)", () => {
+	const SUB = "cognito-sub-1354";
+	const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
+	const ACCOUNT_ID = "acc-1354";
+
+	const created: FilterItem = {
+		filterId: "flt-new",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		name: "Invoices",
+		scope: FilterScope.Standing,
+		state: FilterState.Active,
+		disabledReason: "None",
+		hasAnchor: false,
+		ruleChangedAt: 1,
+		actionChangedAt: 1,
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [{ field: "From", value: "billing@example.com" }],
+		actionLabelId: "None",
+		actionMailboxId: "mbx-invoices",
+		createdAt: 0,
+		updatedAt: 0,
+	};
+
+	afterEach(() => {
+		mock.restoreAll();
+		_resetForTest();
+	});
+
+	const world = (filter: FilterItem) => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		const jobs: CreateOrganizeJobRequestInput[] = [];
+		const enqueued: SendMessageCommand[] = [];
+		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
+			enqueued.push(command);
+			return {};
+		});
+		setClient({
+			account: {
+				get: async () => ({
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+				}),
+			},
+			mailbox: {
+				get: async () => ({
+					mailboxId: "mbx-invoices",
+					accountId: ACCOUNT_ID,
+					fullPath: "Invoices",
+					syncStatus: "synced",
+				}),
+			},
+			filterAnchorTransaction: { createWithAnchor: async () => filter },
+			organizeJobRequest: {
+				create: async (input: CreateOrganizeJobRequestInput) => {
+					jobs.push(input);
+					return { ...input, organizeJobId: "job-new", state: "Pending" };
+				},
+			},
+		} as unknown as RemitClient);
+		return { jobs, enqueued };
+	};
+
+	const createFilter = (body: Partial<CreateFilterInput>) =>
+		(
+			FilterOperations.FilterOperations_createFilter as (
+				context: Context,
+				event: APIGatewayProxyEvent,
+			) => Promise<Record<string, unknown>>
+		)(
+			{
+				request: {
+					params: { accountId: ACCOUNT_ID },
+					requestBody: {
+						name: created.name,
+						scope: created.scope,
+						matchOperator: created.matchOperator,
+						literalClauses: created.literalClauses,
+						actionLabelId: created.actionLabelId,
+						actionMailboxId: created.actionMailboxId,
+						...body,
+					},
+				},
+			} as unknown as Context,
+			{
+				requestContext: { authorizer: { claims: { sub: SUB } } },
+			} as unknown as APIGatewayProxyEvent,
+		);
+
+	it("queues an organize job for the created filter and returns its id", async () => {
+		const { jobs, enqueued } = world(created);
+
+		const response = await createFilter({});
+
+		assert.equal(jobs.length, 1);
+		assert.equal(jobs[0]?.filterId, "flt-new");
+		assert.equal(enqueued.length, 1);
+		assert.match(String(enqueued[0]?.input.MessageBody), /job-new/);
+		assert.equal(response.organizeJobId, "job-new");
+		assert.equal(response.filterId, "flt-new");
+	});
+
+	it("names only the filter: the predicate columns stay at their sentinels", async () => {
+		const { jobs } = world(created);
+
+		await createFilter({});
+
+		assert.equal(jobs[0]?.anchorMessageId, "None");
+		assert.deepEqual(jobs[0]?.literalClauses, []);
+		assert.equal(jobs[0]?.actionLabelId, "None");
+		assert.equal(jobs[0]?.actionMailboxId, "None");
 	});
 });

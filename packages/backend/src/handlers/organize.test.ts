@@ -4,11 +4,12 @@ import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { OrganizeInput } from "@remit/api-openapi-types";
 import type {
 	CreateOrganizeJobRequestInput,
+	FilterItem,
 	IAccountRepository,
 	IOrganizeJobRequestRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
+import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -184,5 +185,93 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 			String(enqueued[0]?.input.MessageBody),
 			new RegExp(String(JSON.parse(response.body).organizeJobId)),
 		);
+	});
+});
+
+describe("createOrganizeJob by filterId — Run now (#1354)", () => {
+	afterEach(() => {
+		mock.restoreAll();
+		_resetForTest();
+	});
+
+	const standing = (state: FilterItem["state"]): FilterItem => ({
+		filterId: "flt-1",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		name: "Invoices",
+		scope: "Standing",
+		state,
+		disabledReason: state === "Active" ? "None" : "UserDisabled",
+		hasAnchor: false,
+		ruleChangedAt: 1,
+		actionChangedAt: 1,
+		matchOperator: FilterMatchOperator.And,
+		literalClauses: [{ field: "From", value: "billing@example.com" }],
+		actionLabelId: "None",
+		actionMailboxId: "mbx-invoices",
+		createdAt: 0,
+		updatedAt: 0,
+	});
+
+	const withFilter = (filter: FilterItem): void => {
+		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+			"http://localhost:9324/queue/account-fanout-test";
+		enqueued.length = 0;
+		createdRows.length = 0;
+		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
+			enqueued.push(command);
+			return {};
+		});
+		setClient({
+			account: {
+				get: async () => ({
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+				}),
+			},
+			filter: {
+				get: async () => filter,
+			},
+			organizeJobRequest: {
+				create: async (row: CreateOrganizeJobRequestInput) => {
+					createdRows.push(row);
+					return { ...row, organizeJobId: "job-run", state: "Pending" };
+				},
+			},
+		} as unknown as RemitClient);
+	};
+
+	it("queues a job that names only the filter", async () => {
+		withFilter(standing("Active"));
+
+		const response = await postOrganize(input({ filterId: "flt-1" }));
+
+		assert.equal(response.statusCode, 202);
+		assert.equal(createdRows[0]?.filterId, "flt-1");
+		assert.equal(createdRows[0]?.actionMailboxId, "None");
+		assert.deepEqual(createdRows[0]?.literalClauses, []);
+		assert.equal(enqueued.length, 1);
+	});
+
+	it("answers an unknown filter with a 404 and queues nothing", async () => {
+		withFilter(standing("Active"));
+		setClient({
+			account: {
+				get: async () => ({
+					accountId: ACCOUNT_ID,
+					accountConfigId: ACCOUNT_CONFIG_ID,
+				}),
+			},
+			filter: {
+				get: async () => {
+					throw new NotFoundError("Filter not found: flt-gone");
+				},
+			},
+		} as unknown as RemitClient);
+
+		const response = await postOrganize(input({ filterId: "flt-gone" }));
+
+		assert.equal(response.statusCode, 404);
+		assert.deepEqual(createdRows, []);
+		assert.deepEqual(enqueued, []);
 	});
 });

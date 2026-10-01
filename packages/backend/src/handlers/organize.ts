@@ -1,4 +1,3 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	CreateOrganizeJobResponse,
 	OrganizeInput,
@@ -6,9 +5,7 @@ import type {
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient, type RemitClient } from "../service/data-client.js";
@@ -19,7 +16,10 @@ import {
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
-import { sqsClient } from "../service/sqs.js";
+import {
+	type OrganizeJobRequest,
+	queueOrganizeJob,
+} from "../service/organize-queue.js";
 import type {
 	OperationHandler,
 	OrganizeJobDetailOperationIds,
@@ -28,13 +28,6 @@ import type {
 import { assertAccountOwnership } from "./account-ownership.js";
 
 const NONE = "None";
-
-/**
- * How long a finished (or abandoned) job row lingers before the table-wide TTL
- * reclaims it (RFC 034 Decision 1). A back-apply runs once and needs no standing
- * lifetime; a week is ample for a client to poll the result.
- */
-const ORGANIZE_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 /**
  * Normalize the request body into the flattened predicate the job row and the
@@ -70,6 +63,7 @@ const toOrganizeJobResponse = (
 	accountConfigId: job.accountConfigId,
 	userId: job.userId,
 	state: job.state,
+	filterId: job.filterId,
 	anchorMessageId: job.anchorMessageId,
 	matchOperator: job.matchOperator,
 	literalClauses: job.literalClauses,
@@ -83,6 +77,27 @@ const toOrganizeJobResponse = (
 	createdAt: job.createdAt,
 	updatedAt: job.updatedAt,
 });
+
+/**
+ * What a create asks the worker to run. A saved filter is named and read when
+ * the job runs, so Run now and a filter's create share one path (#1354); an
+ * "all like these" predicate the matcher can never honour is answered here,
+ * not with a 202 the worker has to fail later (reader #463).
+ */
+const requestedJob = async (
+	client: RemitClient,
+	owner: { accountConfigId: string; userId: string },
+	input: OrganizeInput,
+): Promise<OrganizeJobRequest> => {
+	if (input.filterId) {
+		await client.filter.get(owner.accountConfigId, input.filterId);
+		return { ...owner, filterId: input.filterId };
+	}
+	const predicate = predicateFromInput(input);
+	const rejection = organizePredicateRejection(predicate);
+	if (rejection) throw new BadRequestError(rejection.message);
+	return { ...owner, predicate };
+};
 
 export const OrganizeOperations: Record<
 	OrganizeOperationIds,
@@ -107,42 +122,9 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "act");
 
-		const predicate = predicateFromInput(input);
-
-		// A rule the matcher can never honour is answered here, not with a 202
-		// the worker has to fail later (reader #463).
-		const rejection = organizePredicateRejection(predicate);
-		if (rejection) throw new BadRequestError(rejection.message);
-
-		const ttl = Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS;
-
-		const job = await client.organizeJobRequest.create({
-			accountConfigId,
-			userId,
-			anchorMessageId: predicate.anchorMessageId,
-			matchOperator: predicate.matchOperator,
-			literalClauses: predicate.literalClauses,
-			similarityThreshold: predicate.similarityThreshold,
-			actionLabelId: predicate.actionLabelId,
-			actionMailboxId: predicate.actionMailboxId,
-			ttl,
-		});
-
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-				MessageBody: JSON.stringify({
-					type: "OrganizeJob",
-					accountConfigId,
-					organizeJobId: job.organizeJobId,
-				}),
-			}),
-		);
-
-		// biome-ignore lint/plugin/no-logger-info: a back-apply is an audit-grade signal
-		logger.info(
-			{ accountConfigId, organizeJobId: job.organizeJobId },
-			"Organize back-apply job initiated",
+		const job = await queueOrganizeJob(
+			client,
+			await requestedJob(client, { accountConfigId, userId }, input),
 		);
 
 		return {
@@ -164,6 +146,11 @@ export const OrganizeOperations: Record<
 		const client = await getClient();
 		await assertAccount(client, accountId, accountConfigId, "read");
 
+		if (input.filterId) {
+			throw new BadRequestError(
+				"Preview takes a rule, not a saved filter. Run the filter to apply it.",
+			);
+		}
 		const result = await matchOrganize(
 			buildOrganizeMatchDeps(client),
 			accountConfigId,

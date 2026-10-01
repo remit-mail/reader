@@ -664,6 +664,7 @@ export class DrizzleThreadMessageRepository
 			limit?: number;
 			continuationToken?: string;
 			excludeDeleted?: boolean;
+			mailboxIds?: readonly string[];
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
 		const order = options?.order ?? "desc";
@@ -680,6 +681,9 @@ export class DrizzleThreadMessageRepository
 					eq(threadMessageTable.accountConfigId, accountConfigId),
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
+						: undefined,
+					options?.mailboxIds
+						? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
 						: undefined,
 					buildFieldTermCondition(terms, options?.operator ?? "and"),
 					sentDateCursorCond(order, cursor),

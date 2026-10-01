@@ -73,15 +73,19 @@ export const hasCommittableAction = (draft: OrganizeDraft): boolean =>
 	(draft.labelId !== undefined && draft.labelId !== NO_ACTION);
 
 /**
- * Whether the draft's predicate can be back-applied over the existing corpus. A
- * `HasWords` clause matches the full message body, which only the live
- * index-time filter and the vector widen evaluate — the vector-free back-apply
- * projection carries no body and rejects it (`bodyContentRejection`,
- * organize.ts). A rule that carries one is still a valid standing filter for
- * incoming mail, so the back-apply is skipped, not run into that guard.
+ * Ask for a saved filter's pass over the inbox. The server reads the filter's
+ * own rule and action when the job runs and ignores the predicate fields,
+ * which the request shape still requires.
  */
-export const canBackApplyDraft = (draft: OrganizeDraft): boolean =>
-	!draft.literalClauses.some((clause) => clause.field === "HasWords");
+export const buildRunFilterInput = (
+	filterId: string,
+): RemitImapOrganizeInput => ({
+	filterId,
+	matchOperator: "And",
+	literalClauses: [],
+	actionLabelId: NO_ACTION,
+	actionMailboxId: NO_ACTION,
+});
 
 /**
  * Build the read-only preview / back-apply matcher input. The action fields do

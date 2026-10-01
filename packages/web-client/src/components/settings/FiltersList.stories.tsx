@@ -22,6 +22,7 @@ const meta: Meta<typeof FiltersList> = {
 		onEdit: () => undefined,
 		onDelete: () => undefined,
 		onToggle: () => undefined,
+		onRunNow: () => undefined,
 		now: NOW,
 	},
 };
@@ -85,5 +86,29 @@ export const Toggling: Story = {
 	args: {
 		filters: disabled("UserDisabled"),
 		togglingFilterId: "flt-1",
+	},
+};
+
+export const RunNowRunning: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "running" },
+	},
+};
+
+export const RunNowDone: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "done", matched: 3, applied: 3 },
+	},
+};
+
+export const RunNowMatchedNothing: Story = {
+	args: {
+		filters: [makeFilter({})],
+		runFilterId: "flt-1",
+		runStatus: { kind: "done", matched: 0, applied: 0 },
 	},
 };

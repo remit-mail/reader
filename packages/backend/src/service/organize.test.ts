@@ -289,6 +289,7 @@ const matchDeps = (
 		},
 		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
+			get: async () => null,
 			listByAccountConfig: async () => filterAnchorRows,
 			put: async () => {
 				throw new Error("matchDeps must not repair an anchor");
@@ -330,6 +331,7 @@ const vectorlessDeps = (
 		},
 		listAccountFilterMessages: async () => ({ items: corpus }),
 		filterAnchors: {
+			get: async () => null,
 			listByAccountConfig: async () => [],
 			put: async () => {
 				throw moduleNotFound();
@@ -471,6 +473,7 @@ describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => 
 			}),
 			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
+				get: async () => null,
 				listByAccountConfig: async () => [persistedAnchor],
 				put: async () => {
 					throw new Error("a current anchor must not be rewritten");
@@ -757,6 +760,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			}),
 			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
+				get: async () => null,
 				listByAccountConfig: async () => [drifted],
 				put: async () => {
 					throw new Error("an unrepairable anchor must not be rewritten");
@@ -798,6 +802,7 @@ describe("matchOrganize on a deployment without the vector pipeline", () => {
 			}),
 			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
+				get: async () => null,
 				listByAccountConfig: async () => [],
 				put: async () => {
 					throw new Error("unreachable");
@@ -1120,6 +1125,7 @@ describe("back-apply repairs a drifted anchor the way index-time matching does (
 			}),
 			listAccountFilterMessages: async () => ({ items: [] }),
 			filterAnchors: {
+				get: async () => null,
 				listByAccountConfig: async () => anchors,
 				put: async (input: CreateFilterAnchorInput) => {
 					anchorPuts.push(input);
@@ -1319,6 +1325,7 @@ const storeBackedDeps = (
 			};
 		},
 		filterAnchors: {
+			get: async () => null,
 			listByAccountConfig: async () => [],
 			put: async () => {
 				throw new Error("unreachable");

@@ -236,7 +236,7 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createFilter(@path accountId: UUID, @body input: CreateFilterInput):
-      | FilterResponse
+      | CreateFilterResponse
       | ValidationError
       | MailboxNotSettled
       | NotFoundError

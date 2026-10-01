@@ -13,6 +13,11 @@ export interface WizardSelectionMessage extends WizardMessage {
 	 * which every account of one user shares (#456).
 	 */
 	accountId: string | undefined;
+	/**
+	 * The folder the row sits in, when the listing says. A saved rule's first
+	 * pass runs over the inbox, so a row elsewhere takes the action directly.
+	 */
+	mailboxId: string | undefined;
 }
 
 /**
@@ -34,4 +39,5 @@ export const wizardSelectionFrom = (
 			subject: row.subject,
 			date: row.timeLabel,
 			accountId: row.accountId,
+			mailboxId: row.mailboxId,
 		}));

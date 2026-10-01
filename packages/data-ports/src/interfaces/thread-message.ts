@@ -110,7 +110,8 @@ export interface IThreadMessageRepository {
 	 * substring over the same folded columns.
 	 *
 	 * Rows are per mailbox, not per conversation: the same mail filed in two
-	 * folders is two rows sharing a `threadId`.
+	 * folders is two rows sharing a `threadId`. `mailboxIds` narrows the rows
+	 * to those folders; omitting it reads every mailbox.
 	 */
 	listByFieldTerms(
 		accountConfigId: string,
@@ -121,6 +122,7 @@ export interface IThreadMessageRepository {
 			limit?: number;
 			continuationToken?: string;
 			excludeDeleted?: boolean;
+			mailboxIds?: readonly string[];
 		},
 	): Promise<ResultList<ThreadMessageItem>>;
 	/**

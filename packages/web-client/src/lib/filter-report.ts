@@ -8,3 +8,12 @@ export function filterToggleReportHref(message: string): string {
 		}),
 	);
 }
+
+export function filterRunReportHref(message: string): string {
+	return buildGitHubIssueUrl(
+		buildBugReportContext({
+			title: `Filter run now: ${message}`,
+			errorMessage: message,
+		}),
+	);
+}

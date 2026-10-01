@@ -7,12 +7,27 @@ import {
 	WidenChip,
 } from "@remit/ui";
 import { Trash2 } from "lucide-react";
+import type { FilterRunStatus } from "@/lib/organize/filter-run";
 import {
 	disabledReasonCopy,
 	filterDisplayStatus,
 	formatExpiresAt,
 } from "@/lib/organize/filter-status";
 import { NO_ACTION } from "@/lib/organize/organize-model";
+
+const runStatusLine = (status: FilterRunStatus): string | undefined => {
+	switch (status.kind) {
+		case "queuing":
+		case "running":
+			return "Running over the inbox…";
+		case "done":
+			return status.matched === 0
+				? "Done. Nothing in the inbox matched."
+				: `Done. Filed ${status.applied} of ${status.matched} matching messages in the inbox.`;
+		case "failed":
+			return undefined;
+	}
+};
 
 interface FiltersListProps {
 	filters: RemitImapFilterResponse[];
@@ -26,6 +41,12 @@ interface FiltersListProps {
 	deletingFilterId?: string;
 	onToggle: (filterId: string, enabled: boolean) => void;
 	togglingFilterId?: string;
+	/** Run the filter over the inbox now (#1354). */
+	onRunNow: (filterId: string) => void;
+	/** The filter the last Run now was for. */
+	runFilterId?: string;
+	/** How that run stands; a failure is reported above the list. */
+	runStatus?: FilterRunStatus;
 	/**
 	 * This deployment ships no vector pipeline (RFC 038 D4). A filter carrying a
 	 * semantic anchor lists with its widen chip inactive — it matches by its
@@ -52,6 +73,9 @@ export function FiltersList({
 	deletingFilterId,
 	onToggle,
 	togglingFilterId,
+	onRunNow,
+	runFilterId,
+	runStatus,
 	semanticUnavailable = false,
 	now = Date.now(),
 }: FiltersListProps) {
@@ -80,6 +104,13 @@ export function FiltersList({
 						? labelById.get(filter.actionLabelId)
 						: undefined;
 				const expiresLabel = formatExpiresAt(filter.expiresAt);
+				const run = runFilterId === filter.filterId ? runStatus : undefined;
+				const busy = run?.kind === "queuing" || run?.kind === "running";
+				const runLine = run ? runStatusLine(run) : undefined;
+				const runnable =
+					status === "Active" &&
+					(filter.actionMailboxId !== NO_ACTION ||
+						filter.actionLabelId !== NO_ACTION);
 
 				return (
 					<li
@@ -120,6 +151,11 @@ export function FiltersList({
 							{reason && (
 								<p className="mt-0.5 text-xs text-warning">{reason}</p>
 							)}
+							{runLine && (
+								<p role="status" className="mt-0.5 text-xs text-fg-muted">
+									{runLine}
+								</p>
+							)}
 							{(filter.hasAnchor || label) && (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
 									{filter.hasAnchor && (
@@ -142,6 +178,17 @@ export function FiltersList({
 								</div>
 							)}
 						</button>
+						{runnable && (
+							<Button
+								variant="ghost"
+								size="sm"
+								onClick={() => onRunNow(filter.filterId)}
+								disabled={busy}
+								aria-label={`Run now: filter ${filter.name}`}
+							>
+								{busy ? "Running…" : "Run now"}
+							</Button>
+						)}
 						{!expired && (
 							<Button
 								variant="ghost"

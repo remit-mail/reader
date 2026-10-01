@@ -515,6 +515,7 @@ export const MessageList = ({
 				subject: thread.subject ?? "(No subject)",
 				date: formatEmailDate(thread.sentDate),
 				accountId,
+				mailboxId: thread.mailboxId,
 			});
 		}
 		return rows;

@@ -244,6 +244,7 @@ test.describe("Organize through the selection wizard", () => {
 					filterId: "filter-1",
 					name: tag,
 					scope: "Temporary",
+					organizeJobId: "job-1",
 				}),
 			});
 		});
@@ -300,7 +301,7 @@ test.describe("Organize through the selection wizard", () => {
 		}
 	});
 
-	test("closing while the rule is saving still runs the pass over existing mail", async ({
+	test("closing while the rule is saving still saves it, and the pass rides on the save", async ({
 		page,
 		run,
 		api,
@@ -309,10 +310,14 @@ test.describe("Organize through the selection wizard", () => {
 		const { first, second, cleanup } = await seedScratch(page, run, api, tag);
 
 		// The create is held long enough for the saving screen — which offers a
-		// Close — to be the screen when Close is pressed.
+		// Close — to be the screen when Close is pressed. The server queues the
+		// pass over the inbox with the create itself (#1354), so the create
+		// landing is the pass being queued.
+		const creates: string[] = [];
 		await page.route(/\/filters$/, async (route) => {
 			if (route.request().method() !== "POST") return route.continue();
 			await new Promise((resolve) => setTimeout(resolve, 2_000));
+			creates.push(route.request().url());
 			await route.fulfill({
 				status: 201,
 				contentType: "application/json",
@@ -320,26 +325,16 @@ test.describe("Organize through the selection wizard", () => {
 					filterId: "filter-1",
 					name: tag,
 					scope: "Standing",
+					organizeJobId: "job-1",
 				}),
 			});
 		});
 
-		// The pass over the mail already in the mailbox, counted rather than
-		// watched: nothing is on screen to watch it by the time it starts.
+		// The client never starts a second pass of its own.
 		const passes: string[] = [];
 		await page.route(/\/organize$/, (route) => {
 			passes.push(route.request().url());
-			return route.fulfill({
-				status: 200,
-				contentType: "application/json",
-				body: JSON.stringify({
-					organizeJobId: "job-1",
-					state: "Running",
-					matchedCount: 2,
-					appliedCount: 0,
-					failedCount: 0,
-				}),
-			});
+			return route.abort();
 		});
 
 		try {
@@ -369,8 +364,9 @@ test.describe("Organize through the selection wizard", () => {
 			await expect(wizardStep(page)).toHaveCount(0);
 
 			await expect(async () => {
-				expect(passes.length).toBeGreaterThan(0);
+				expect(creates).toHaveLength(1);
 			}).toPass({ timeout: 20_000 });
+			expect(passes).toHaveLength(0);
 		} finally {
 			await cleanup();
 		}

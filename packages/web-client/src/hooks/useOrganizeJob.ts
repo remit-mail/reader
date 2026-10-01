@@ -7,6 +7,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
 import {
 	buildOrganizeInput,
+	buildRunFilterInput,
 	type OrganizeDraft,
 } from "@/lib/organize/organize-model";
 import {
@@ -92,6 +93,18 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 		[accountId, createJob],
 	);
 
+	/** Run a saved filter over the inbox, the same pass its create queued. */
+	const startForFilter = useCallback(
+		(filterId: string) => {
+			if (!accountId) return;
+			createJob({
+				path: { accountId },
+				body: buildRunFilterInput(filterId),
+			});
+		},
+		[accountId, createJob],
+	);
+
 	const { refetch } = jobQuery;
 	// Looks at the job already in flight again. Distinct from `start`, which
 	// queues a second pass over the same mail.
@@ -117,6 +130,8 @@ export const useOrganizeJob = (accountId: string | undefined) => {
 
 	return {
 		start,
+		startForFilter,
+		watch: setOrganizeJobId,
 		refreshStatus,
 		progress,
 		isStarting: createMutation.isPending,

@@ -1,5 +1,6 @@
 import type {
 	CreateFilterInput,
+	CreateFilterResponse,
 	FilterResponse,
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
@@ -19,9 +20,10 @@ import {
 } from "@remit/domain-enums";
 import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
+import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 import { buildFilterAnchor } from "../service/filter.js";
+import { queueOrganizeJob } from "../service/organize-queue.js";
 import type {
 	FilterDetailOperationIds,
 	FilterOperationIds,
@@ -340,6 +342,16 @@ export const createFilterWithAnchor = async (
 	);
 };
 
+const requireUserId = (event: APIGatewayProxyEvent): string => {
+	const userId = getSubFromEvent(event);
+	if (!userId) {
+		throw new Error(
+			"Missing Cognito `sub`: cannot attribute an organize job to a user",
+		);
+	}
+	return userId;
+};
+
 /**
  * A filter's `actionMailboxId` is a durable reference, so its target has to be
  * a folder the mail server has settled (D12, first row) — 422 otherwise. The
@@ -393,11 +405,15 @@ export const FilterOperations: Record<
 		};
 	},
 
-	FilterOperations_createFilter: async (context, ...args: unknown[]) => {
+	FilterOperations_createFilter: async (
+		context,
+		...args: unknown[]
+	): Promise<CreateFilterResponse> => {
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as CreateFilterInput;
+		const userId = requireUserId(event);
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
@@ -412,7 +428,14 @@ export const FilterOperations: Record<
 			accountConfigId,
 			input,
 		);
-		return toFilterResponse(filter);
+		// The new filter's first pass over the inbox. The worker reads the filter
+		// when it runs and refuses one that has nothing to run (#1354).
+		const job = await queueOrganizeJob(client, {
+			accountConfigId,
+			userId,
+			filterId: filter.filterId,
+		});
+		return { ...toFilterResponse(filter), organizeJobId: job.organizeJobId };
 	},
 };
 

@@ -9,7 +9,7 @@
  * only removed by the user, so a `mailboxId` that names nothing never exists.
  */
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -20,6 +20,7 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import { MessageBulkOperations } from "./message.js";
@@ -55,6 +56,9 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 		copies: [],
 	};
 	const row = target(syncStatus);
+	process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+		"http://localhost:9324/queue/account-fanout-test";
+	mock.method(sqsClient, "send", async () => ({}));
 
 	setClient({
 		account: {
@@ -84,6 +88,13 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 				writes.filters.push(input);
 				return { filterId: "flt-1" };
 			},
+		},
+		organizeJobRequest: {
+			create: async (input: Record<string, unknown>) => ({
+				...input,
+				organizeJobId: "job-1",
+				state: "Pending",
+			}),
 		},
 		accountSetting: {
 			get: async () => null,
@@ -168,6 +179,7 @@ const SITES = [
 
 describe("a write that binds to a folder requires a settled folder", () => {
 	afterEach(() => {
+		mock.restoreAll();
 		_resetForTest();
 	});
 

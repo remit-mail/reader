@@ -5,18 +5,22 @@ import type {
 	IFilterAnchorRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
-import { FilterClauseField } from "@remit/domain-enums";
+import { NotFoundError } from "@remit/data-ports/errors";
+import { FilterClauseField, FilterState } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
+	FilterPipeline,
 	type LiteralClauseNarrowing,
 	literalClausesMatch,
 	literalClauseTerms,
+	type MessageEmbedder,
 	NO_ACTION,
 	PlacementMoveService,
 	refreshAnchorForEmbedder,
 } from "@remit/mailbox-service";
+import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
 	type AnchorPayload,
 	buildMessageAnchor,
@@ -135,6 +139,18 @@ export interface OrganizeCandidatePage {
 export interface OrganizeCandidateQuery extends LiteralClauseNarrowing {
 	limit: number;
 	continuationToken?: string;
+	mailboxIds?: readonly string[];
+}
+
+/**
+ * Where a pass looks and which standing filter it runs for. A filter
+ * back-apply reads that filter's own FilterAnchor row by id, narrows both the
+ * literal corpus and the vector query to the inbox, and matches a body-content
+ * clause on the stored preview; an "all like these" pass sets neither.
+ */
+export interface OrganizeMatchScope {
+	filterId?: string;
+	mailboxIds?: readonly string[];
 }
 
 export interface OrganizeMatchDeps {
@@ -159,16 +175,19 @@ export interface OrganizeMatchDeps {
 	/**
 	 * Every persisted FilterAnchor for the account — read-only, always
 	 * available (never gated behind {@link semantic}, since it never touches
-	 * the vector store). A back-apply predicate carries only a bare
-	 * `anchorMessageId`, never a `filterId` (RFC 034 recap: this job is
-	 * deliberately not a Filter), so this is how {@link matchSemantic} finds
-	 * "the standing filter this anchor came from," if one still exists, to
-	 * read its fixed-at-save-time vector instead of re-deriving one from the
-	 * anchor message's current chunks (reader #350 / RFC 039 Decision 1).
+	 * the vector store). A filter back-apply reads its own row by `filterId`
+	 * (#1354); an "all like these" predicate carries only a bare
+	 * `anchorMessageId`, so this is how {@link matchSemantic} finds "the
+	 * standing filter this anchor came from," if one still exists, to read its
+	 * fixed-at-save-time vector instead of re-deriving one from the anchor
+	 * message's current chunks (reader #350 / RFC 039 Decision 1).
 	 * `put` is the write half of the lazy anchor-drift repair
 	 * ({@link refreshAnchorForEmbedder}), never a new standing rule.
 	 */
-	filterAnchors: Pick<IFilterAnchorRepository, "listByAccountConfig" | "put">;
+	filterAnchors: Pick<
+		IFilterAnchorRepository,
+		"get" | "listByAccountConfig" | "put"
+	>;
 }
 
 /**
@@ -179,7 +198,10 @@ export interface OrganizeMatchDeps {
  * make it (reader #463).
  */
 export interface OrganizeRejection {
-	reason: "BodyContentWithoutVectorPipeline";
+	reason:
+		| "BodyContentWithoutVectorPipeline"
+		| "FilterNotActive"
+		| "FilterMissing";
 	message: string;
 }
 
@@ -246,9 +268,9 @@ const filterMessageFromChunks = (
 /**
  * The persisted FilterAnchor whose `anchorMessageId` matches this predicate's
  * anchor, if the account has a standing filter built from that message (RFC
- * 034 Decision 2 / RFC 039 Decision 1, reader #350). A back-apply predicate
- * never carries a `filterId` — this job structurally is not a Filter — so the
- * only way to recover "the filter this anchor came from" is by the value it
+ * 034 Decision 2 / RFC 039 Decision 1, reader #350). An "all like these"
+ * predicate carries no `filterId` — that job structurally is not a Filter — so
+ * the only way to recover "the filter this anchor came from" is by the value it
  * was anchored on. The scan is over one account's (small, bounded) anchor
  * rows, read-only, and never touches the vector store. Returns `undefined`
  * when no standing filter was ever anchored on this message (or it has since
@@ -331,24 +353,38 @@ const matchSemantic = async (
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
+	scope: OrganizeMatchScope,
 ): Promise<{ messageIds: string[]; indexEmpty: boolean }> => {
 	const semantic = deps.semantic();
-	const persisted = await findPersistedAnchor(
-		deps.filterAnchors,
-		accountConfigId,
-		predicate.anchorMessageId,
-	);
+	const persisted = scope.filterId
+		? ((await deps.filterAnchors.get(accountConfigId, scope.filterId)) ??
+			undefined)
+		: await findPersistedAnchor(
+				deps.filterAnchors,
+				accountConfigId,
+				predicate.anchorMessageId,
+			);
 	const anchor: AnchorPayload | null = persisted
 		? await anchorForWiden(deps, semantic, persisted)
 		: await semantic.buildAnchor(accountConfigId, predicate.anchorMessageId);
 	if (!anchor) return { messageIds: [], indexEmpty: true };
 	const threshold =
 		predicate.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
-	const matches = await semantic.vectorStore.query({
-		vector: anchor.anchorEmbedding,
-		topK: limit * VECTOR_CHUNK_FACTOR,
-		filter: { accountConfigId },
-	});
+	const folders: readonly (string | undefined)[] = scope.mailboxIds ?? [
+		undefined,
+	];
+	const pages = await Promise.all(
+		folders.map((mailboxId) =>
+			semantic.vectorStore.query({
+				vector: anchor.anchorEmbedding,
+				topK: limit * VECTOR_CHUNK_FACTOR,
+				filter: mailboxId
+					? { accountConfigId, mailboxId }
+					: { accountConfigId },
+			}),
+		),
+	);
+	const matches = pages.flat();
 	if (matches.length === 0) return { messageIds: [], indexEmpty: true };
 	const bestScore = new Map<string, number>();
 	for (const match of matches) {
@@ -436,6 +472,7 @@ const matchLiteral = async (
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number,
+	scope: OrganizeMatchScope,
 ): Promise<string[]> => {
 	const clauses = predicate.literalClauses;
 	const narrowing = literalClauseTerms(clauses, predicate.matchOperator);
@@ -449,6 +486,7 @@ const matchLiteral = async (
 			...narrowing,
 			limit,
 			continuationToken,
+			mailboxIds: scope.mailboxIds,
 		});
 		for (const { messageId, message } of page.items) {
 			if (seen.has(messageId)) continue;
@@ -488,6 +526,7 @@ export const matchOrganize = async (
 	accountConfigId: string,
 	predicate: OrganizePredicate,
 	limit: number = ORGANIZE_MATCH_LIMIT,
+	scope: OrganizeMatchScope = {},
 ): Promise<OrganizeMatchResult> => {
 	const anchored = hasAnchor(predicate);
 	const clauses = predicate.literalClauses;
@@ -501,13 +540,16 @@ export const matchOrganize = async (
 	}
 
 	if (!anchored) {
-		const rejection = organizePredicateRejection(predicate);
+		const rejection = scope.filterId
+			? null
+			: organizePredicateRejection(predicate);
 		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
+			scope,
 		);
 		return {
 			rejected: null,
@@ -523,6 +565,7 @@ export const matchOrganize = async (
 			accountConfigId,
 			predicate,
 			limit,
+			scope,
 		);
 		return {
 			rejected: null,
@@ -543,13 +586,14 @@ export const matchOrganize = async (
 				semanticIndexEmpty: false,
 			};
 		}
-		const rejection = bodyContentRejection(clauses);
+		const rejection = scope.filterId ? null : bodyContentRejection(clauses);
 		if (rejection) return { rejected: rejection };
 		const messageIds = await matchLiteral(
 			deps,
 			accountConfigId,
 			predicate,
 			limit,
+			scope,
 		);
 		return {
 			rejected: null,
@@ -591,12 +635,11 @@ const buildSemanticFromEnv = (): OrganizeSemanticDeps => {
  *
  * `From`/`Subject`/`listId` come from the row verbatim (full fidelity), so a
  * `From`, `Subject`, `FromDomain` or `ListId` clause matches here exactly as it
- * does at index time. `text` (the body) is left empty: the thread row carries
- * only a truncated `snippet`, and matching
- * a body-content clause against a preview would silently diverge from the live
- * index-time filter's full-body match. Body-content (`HasWords`) clauses are
- * rejected before this is read (see {@link bodyContentRejection}), so the
- * empty `text` is never matched against.
+ * does at index time. `text` is the row's stored body preview (`snippet`),
+ * the same text search matches free words against. An "all like these" pass
+ * refuses a body-content (`HasWords`) clause before reading it (see
+ * {@link bodyContentRejection}); a filter back-apply matches it on the
+ * preview, the mail search showed the user when the rule was made (#1354).
  */
 const listAccountFilterMessagesFromClient =
 	(client: RemitClient): OrganizeMatchDeps["listAccountFilterMessages"] =>
@@ -609,6 +652,7 @@ const listAccountFilterMessagesFromClient =
 				limit: query.limit,
 				continuationToken: query.continuationToken,
 				excludeDeleted: true,
+				mailboxIds: query.mailboxIds,
 			},
 		);
 		return {
@@ -618,7 +662,7 @@ const listAccountFilterMessagesFromClient =
 					from: row.fromEmail ?? "",
 					fromName: row.fromName ?? "",
 					subject: row.subject ?? "",
-					text: "",
+					text: row.snippet ?? "",
 					listId: row.listId ?? "",
 				},
 			})),
@@ -754,3 +798,228 @@ export const applyOrganize = async (
 	}
 	return { applied, failed };
 };
+
+const FILTER_NOT_ACTIVE_MESSAGE =
+	"This filter is turned off or has expired. Turn it on to run it over the inbox.";
+
+const FILTER_MISSING_MESSAGE =
+	"This filter was deleted before it could run over the inbox.";
+
+const rejectFilter = (
+	reason: OrganizeRejection["reason"],
+	message: string,
+): OrganizeMatchRejected => ({ rejected: { reason, message } });
+
+/**
+ * A standing filter's predicate and action, read the way index time reads
+ * them. `matchSemantic` reads the anchor vector by `filterId`; the anchor
+ * message id here only says the filter widens.
+ */
+const predicateFromFilter = (
+	filter: FilterItem,
+	anchorMessageId: string,
+): OrganizePredicate => ({
+	anchorMessageId,
+	matchOperator: filter.matchOperator,
+	literalClauses: filter.literalClauses,
+	similarityThreshold: DEFAULT_SEMANTIC_MATCH_THRESHOLD,
+	actionLabelId: filter.actionLabelId,
+	actionMailboxId: filter.actionMailboxId,
+});
+
+interface LoadedFilter {
+	rejected: null;
+	filter: FilterItem;
+	predicate: OrganizePredicate;
+	/**
+	 * Marked `hasAnchor` with its FilterAnchor row gone. Index time matches
+	 * such a filter against nothing, so the back-apply does too.
+	 */
+	matchesNothing: boolean;
+}
+
+/**
+ * Read the filter a job names: refused when it was deleted or is not Active,
+ * since index time evaluates neither.
+ */
+const loadFilter = async (
+	client: Pick<RemitClient, "filter" | "filterAnchor">,
+	accountConfigId: string,
+	filterId: string,
+): Promise<LoadedFilter | OrganizeMatchRejected> => {
+	const stored = await client.filter
+		.get(accountConfigId, filterId)
+		.catch((error: unknown) => {
+			if (error instanceof NotFoundError) return null;
+			throw error;
+		});
+	if (!stored) return rejectFilter("FilterMissing", FILTER_MISSING_MESSAGE);
+	const filter = await client.filter.refreshExpiry(stored);
+	if (filter.state !== FilterState.Active) {
+		return rejectFilter("FilterNotActive", FILTER_NOT_ACTIVE_MESSAGE);
+	}
+	if (!filter.hasAnchor) {
+		return {
+			rejected: null,
+			filter,
+			predicate: predicateFromFilter(filter, NO_ACTION),
+			matchesNothing: false,
+		};
+	}
+	const anchor = await client.filterAnchor.get(accountConfigId, filterId);
+	return {
+		rejected: null,
+		filter,
+		predicate: predicateFromFilter(
+			filter,
+			anchor?.anchorMessageId ?? NO_ACTION,
+		),
+		matchesNothing: anchor === null,
+	};
+};
+
+/** Every inbox under the config — the folders a filter back-apply runs over. */
+const inboxMailboxIds = async (
+	client: Pick<RemitClient, "account" | "mailboxSpecialUse">,
+	accountConfigId: string,
+): Promise<string[]> => {
+	const accounts =
+		await client.account.listMailSourcesByAccountConfig(accountConfigId);
+	const inboxes = await Promise.all(
+		accounts.map((account) =>
+			client.mailboxSpecialUse.findInboxMailbox(account.accountId),
+		),
+	);
+	return inboxes.flatMap((inbox) => (inbox ? [inbox.mailboxId] : []));
+};
+
+/**
+ * The message as the index-time pipeline reads it, from its thread row. The
+ * body is the stored preview, so a `HasWords` clause matches what search
+ * matched. A message deleted since its vector was written has no row.
+ */
+const filterMessageOf = async (
+	client: Pick<RemitClient, "threadMessage">,
+	accountConfigId: string,
+	messageId: string,
+): Promise<FilterMessage | null> => {
+	const row = await client.threadMessage
+		.getByMessageId(accountConfigId, messageId)
+		.catch((error: unknown) => {
+			if (error instanceof NotFoundError) return null;
+			throw error;
+		});
+	if (!row) return null;
+	return {
+		from: row.fromEmail ?? "",
+		fromName: row.fromName ?? "",
+		subject: row.subject ?? "",
+		text: row.snippet ?? "",
+		listId: row.listId ?? "",
+	};
+};
+
+export interface FilterBackApplyResult {
+	rejected: null;
+	matched: number;
+	applied: number;
+	failed: number;
+	semanticUnavailable: boolean;
+}
+
+export interface FilterBackApplyDeps {
+	client: RemitClient;
+	matchDeps: OrganizeMatchDeps;
+	moveService?: PlacementMoveService;
+	/** The embedder index time uses; read from env when absent. */
+	embedder?: MessageEmbedder;
+}
+
+/**
+ * Run one standing filter over the inbox as if each matching message had just
+ * arrived. Every message the matcher returns is a match: its label always
+ * applies, being additive. The index-time {@link FilterPipeline} only orders
+ * the exclusive move, so the move is skipped where it names another active
+ * filter. The pipeline re-scores a similarity filter against the stored
+ * preview rather than the full body, so its verdict on whether this filter
+ * matches is not asked; and an evaluate it could not finish names no other
+ * filter, so the move goes ahead rather than silently dropping out.
+ */
+export const backApplyFilter = async (
+	deps: FilterBackApplyDeps,
+	accountConfigId: string,
+	filterId: string,
+): Promise<FilterBackApplyResult | OrganizeMatchRejected> => {
+	const { client, matchDeps, moveService } = deps;
+	const loaded = await loadFilter(client, accountConfigId, filterId);
+	if (loaded.rejected) return loaded;
+	const config = buildFilterConfig(
+		{
+			filterService: client.filter,
+			filterAnchorService: client.filterAnchor,
+			messageLabelService: client.messageLabel,
+			placementMoveService: moveService,
+		},
+		deps.embedder,
+	);
+	if (!config) {
+		throw new Error(
+			"Filter back-apply needs the message-management queue to move mail",
+		);
+	}
+	const pipeline = new FilterPipeline(config, logger);
+
+	const mailboxIds = await inboxMailboxIds(client, accountConfigId);
+	const nothing: FilterBackApplyResult = {
+		rejected: null,
+		matched: 0,
+		applied: 0,
+		failed: 0,
+		semanticUnavailable: false,
+	};
+	if (loaded.matchesNothing || mailboxIds.length === 0) return nothing;
+
+	const match = await matchOrganize(
+		matchDeps,
+		accountConfigId,
+		loaded.predicate,
+		ORGANIZE_MATCH_LIMIT,
+		{ filterId, mailboxIds },
+	);
+	if (match.rejected) return match;
+
+	const { filter, predicate } = loaded;
+	const result: FilterBackApplyResult = {
+		...nothing,
+		matched: match.messageIds.length,
+		semanticUnavailable: match.semanticUnavailable,
+	};
+	for (const messageId of match.messageIds) {
+		const message = await filterMessageOf(client, accountConfigId, messageId);
+		if (!message) continue;
+		const decision = await pipeline.evaluate(
+			accountConfigId,
+			messageId,
+			message,
+		);
+		const move = (decision.move?.filterId ?? filterId) === filterId;
+		if (!move && filter.actionLabelId === NO_ACTION) continue;
+		const outcome = await applyOrganize(
+			{ client, moveService },
+			accountConfigId,
+			[messageId],
+			{
+				...predicate,
+				actionMailboxId: move ? filter.actionMailboxId : NO_ACTION,
+			},
+		);
+		result.applied += outcome.applied;
+		result.failed += outcome.failed;
+	}
+	return result;
+};
+
+/** Whether a job row runs a standing filter rather than its own snapshot. */
+export const isFilterJob = (
+	job: Pick<OrganizeJobRequestItem, "filterId">,
+): boolean => job.filterId !== NO_ACTION;

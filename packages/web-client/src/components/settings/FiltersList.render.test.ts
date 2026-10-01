@@ -4,6 +4,7 @@ import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.t
 import type { LabelOption } from "@remit/ui";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
+import type { FilterRunStatus } from "@/lib/organize/filter-run";
 import { FiltersList } from "./FiltersList";
 
 // The node test loader transpiles remit-ui's `.tsx` with the classic JSX
@@ -38,6 +39,7 @@ const render = (
 	filters: RemitImapFilterResponse[],
 	semanticUnavailable = false,
 	labelById: Map<string, LabelOption> = new Map(),
+	run: { runFilterId?: string; runStatus?: FilterRunStatus } = {},
 ) =>
 	renderToString(
 		createElement(FiltersList, {
@@ -47,6 +49,8 @@ const render = (
 			onEdit: () => undefined,
 			onDelete: () => undefined,
 			onToggle: () => undefined,
+			onRunNow: () => undefined,
+			...run,
 			semanticUnavailable,
 			now: NOW,
 		}) as never,
@@ -153,4 +157,65 @@ describe("FiltersList", () => {
 			assert.match(html, /Turn on filter Travel/);
 		});
 	}
+
+	it("offers Run now on an active filter with an action (#1354)", () => {
+		const html = render([filter({})]);
+		assert.match(html, /Run now: filter Travel/);
+		assert.match(html, />Run now</);
+	});
+
+	it("offers no Run now on a turned-off or expired filter", () => {
+		const html = render([
+			filter({ state: "Disabled", disabledReason: "UserDisabled" }),
+			filter({
+				filterId: "f-2",
+				name: "Lisbon trip",
+				scope: "Temporary",
+				expiresAt: "2026-07-10T00:00:00Z",
+			}),
+		]);
+		assert.doesNotMatch(html, /Run now/);
+	});
+
+	it("offers no Run now on a filter with nothing to do", () => {
+		const html = render([
+			filter({ actionMailboxId: "None", actionLabelId: "None" }),
+		]);
+		assert.doesNotMatch(html, /Run now/);
+	});
+
+	it("says the run is going on the filter that was run, and holds the button", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "running" },
+		});
+		assert.match(html, /role="status"/);
+		assert.match(html, /Running over the inbox/);
+		assert.match(html, /disabled=""/);
+	});
+
+	it("reports what the run filed once the job is done", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "done", matched: 3, applied: 2 },
+		});
+		assert.match(html, /Filed 2 of 3 matching messages in the inbox/);
+	});
+
+	it("says so when nothing in the inbox matched", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "done", matched: 0, applied: 0 },
+		});
+		assert.match(html, /Nothing in the inbox matched/);
+	});
+
+	it("puts no stale status on the row when the run failed", () => {
+		const html = render([filter({})], false, new Map(), {
+			runFilterId: "f-1",
+			runStatus: { kind: "failed", error: new Error("turned off") },
+		});
+		assert.doesNotMatch(html, /role="status"/);
+		assert.match(html, />Run now</);
+	});
 });
