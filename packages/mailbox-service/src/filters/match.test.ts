@@ -65,6 +65,42 @@ describe("clauseMatches", () => {
 		);
 	});
 
+	it("matches HasWords on the sender display name alone, as search does", () => {
+		const msg = message({
+			from: "booking@mail.example",
+			fromName: "Austrian Airlines Booking",
+			subject: "Your trip to Vienna",
+			text: "Check in opens 24 hours before departure.",
+		});
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "Austrian airlines"),
+				msg,
+			),
+			true,
+		);
+	});
+
+	it("matches HasWords regardless of word order and case", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "ALICE invoice"),
+				message(),
+			),
+			true,
+		);
+	});
+
+	it("does not match HasWords when one word is missing", () => {
+		assert.equal(
+			clauseMatches(
+				clause(FilterClauseField.HasWords, "invoice receipt"),
+				message(),
+			),
+			false,
+		);
+	});
+
 	it("never matches an empty clause value", () => {
 		assert.equal(
 			clauseMatches(clause(FilterClauseField.HasWords, "   "), message()),
