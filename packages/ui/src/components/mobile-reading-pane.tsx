@@ -131,7 +131,7 @@ export function MobileReadingPane({
 
 			<div
 				className="flex-1 overflow-y-auto"
-				style={touchHandlers ? { touchAction: "pan-y" } : undefined}
+				style={touchHandlers ? { touchAction: "pan-y pinch-zoom" } : undefined}
 				{...touchHandlers}
 			>
 				{/* Newest first, as on the wide pane. */}

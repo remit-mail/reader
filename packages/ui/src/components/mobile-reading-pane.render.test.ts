@@ -113,4 +113,15 @@ describe("MobileReadingPane", () => {
 		assert.match(html, /title="Reply"/);
 		assert.doesNotMatch(html, /title="Reply \(r\)"/);
 	});
+
+	it("keeps pinch-zoom enabled on the scroll area when swipe handlers are set", () => {
+		const html = renderToString(
+			createElement(MobileReadingPane, {
+				thread,
+				onBack: () => undefined,
+				touchHandlers: { onTouchStart: () => undefined },
+			}),
+		);
+		assert.match(html, /touch-action:\s*pan-y pinch-zoom/);
+	});
 });
