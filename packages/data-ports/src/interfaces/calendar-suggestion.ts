@@ -45,11 +45,19 @@ export interface ICalendarSuggestionRepository {
 	 * The account's suggestions in one state, newest first. Also how the
 	 * producer finds the revision a new message supersedes: only a `Pending`
 	 * suggestion can be superseded, so the candidate set is this one.
+	 *
+	 * When `excludePast` is true, suggestions whose `dtEnd` is in the past are
+	 * omitted. This is used for the "Suggested from mail" view, which should
+	 * not offer events that have already ended.
 	 */
 	listByState(
 		accountConfigId: string,
 		state: CalendarSuggestionItem["state"],
-		options?: { limit?: number; continuationToken?: string },
+		options?: {
+			limit?: number;
+			continuationToken?: string;
+			excludePast?: boolean;
+		},
 	): Promise<ResultList<CalendarSuggestionItem>>;
 	/**
 	 * Records the outcome of a person's decision. Returns the settled row.

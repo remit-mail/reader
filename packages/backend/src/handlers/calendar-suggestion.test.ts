@@ -335,6 +335,7 @@ interface Card {
 	state: string;
 	supersededByMessageId: string;
 	supersededByThreadId: string;
+	summary: string;
 }
 
 const fileInThread = async (
@@ -397,6 +398,9 @@ const INVITATION = [
 	"",
 ].join("\r\n");
 
+const futureStart = new Date(Date.now() + 86400000).toISOString();
+const futureEnd = new Date(Date.now() + 172800000).toISOString();
+
 const putSuggestion = (
 	accountConfigId: string,
 	messageId: string,
@@ -411,8 +415,8 @@ const putSuggestion = (
 		method,
 		source: CalendarSuggestionSource.IcalendarPart,
 		summary: "Quarterly review",
-		dtStart: "2026-09-01T10:00:00+02:00",
-		dtEnd: "2026-09-01T11:00:00+02:00",
+		dtStart: futureStart,
+		dtEnd: futureEnd,
 		allDay: false,
 		location: "Room 4",
 		organizer: "organizer@example.test",
@@ -954,8 +958,8 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			method: CalendarInviteMethod.Request,
 			source: CalendarSuggestionSource.IcalendarPart,
 			summary: "Quarterly review",
-			dtStart: "2026-09-01T10:00:00+02:00",
-			dtEnd: "2026-09-01T11:00:00+02:00",
+			dtStart: futureStart,
+			dtEnd: futureEnd,
 			allDay: false,
 			location: "Room 4",
 			organizer: "organizer@example.test",
@@ -1158,5 +1162,57 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			untouched.acceptedCalendarObjectId,
 			card.acceptedCalendarObjectId,
 		);
+	});
+});
+
+describe("GET /calendar-suggestions excludes past events", () => {
+	test("omits Pending suggestions whose dtEnd is in the past", async () => {
+		const { accountConfigId, event } = anAccount();
+		const past = new Date(Date.now() - 86400000).toISOString();
+		const future = new Date(Date.now() + 86400000).toISOString();
+
+		await client.calendarSuggestion.put({
+			accountConfigId,
+			messageId: "msg-past",
+			bodyPartId: "part-1",
+			icalUid: "past@example.test",
+			sequence: 0,
+			method: CalendarInviteMethod.Request,
+			source: CalendarSuggestionSource.IcalendarPart,
+			summary: "Past meeting",
+			dtStart: past,
+			dtEnd: past,
+			allDay: false,
+			location: "Room 1",
+			organizer: "organizer@example.test",
+			zoneCertainty: "Explicit",
+			icalData: INVITATION,
+		} as PutCalendarSuggestionInput);
+
+		await client.calendarSuggestion.put({
+			accountConfigId,
+			messageId: "msg-future",
+			bodyPartId: "part-1",
+			icalUid: "future@example.test",
+			sequence: 0,
+			method: CalendarInviteMethod.Request,
+			source: CalendarSuggestionSource.IcalendarPart,
+			summary: "Future meeting",
+			dtStart: future,
+			dtEnd: future,
+			allDay: false,
+			location: "Room 2",
+			organizer: "organizer@example.test",
+			zoneCertainty: "Explicit",
+			icalData: INVITATION,
+		} as PutCalendarSuggestionInput);
+
+		const pending = (await listSuggestions(
+			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
+			event,
+		)) as unknown as { items: Card[] };
+
+		assert.equal(pending.items.length, 1);
+		assert.equal(pending.items[0]?.summary, "Future meeting");
 	});
 });
