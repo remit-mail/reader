@@ -32,7 +32,7 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { clearPendingSyncMessages, emitEvent } from "../emit.js";
+import { emitEvent, SYNC_MESSAGES_PENDING } from "../emit.js";
 import type {
 	FlagPushEvent,
 	SyncMessageBodyEvent,
@@ -101,7 +101,12 @@ export const syncMessages = async (
 		secrets,
 	} = await deps.getClient();
 
-	await clearPendingSyncMessages(mailboxLockService, event);
+	await mailboxLockService.releaseLock(
+		event.accountId,
+		event.mailboxId,
+		SYNC_MESSAGES_PENDING,
+		event.eventId,
+	);
 
 	// A deleted account never has its DDB row purged in lockstep with the queued
 	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup

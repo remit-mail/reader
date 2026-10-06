@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { getClient } from "@remit/backend/client";
-import type { IMailboxLockRepository } from "@remit/data-ports";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	createQueueProducer,
 	isLocalEndpoint,
 } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
-import type { ImapEvent, SyncMessagesEvent } from "./events.js";
+import type { ImapEvent } from "./events.js";
 
 type EventInput = Omit<ImapEvent, "eventId" | "timestamp">;
 
@@ -99,12 +98,6 @@ export const emitEvent = async (
 				// within five minutes was discarded before any worker saw it, so mail
 				// that arrived after a sync could not be fetched until the window
 				// elapsed (issue #37).
-				//
-				// What bounds repeated work is the freshness gate in the
-				// sync-mailboxes fan-out and, for SYNC_MESSAGES, the pending marker
-				// taken below: a folder with a sync queued and not yet started takes
-				// no second one, and the marker clears when a worker starts it, so a
-				// sync asked for after that is never dropped.
 				...(useFifo && {
 					MessageGroupId: event.accountId,
 					MessageDeduplicationId: fullEvent.eventId,
@@ -145,14 +138,3 @@ export const emitEvent = async (
 		throw error;
 	});
 };
-
-export const clearPendingSyncMessages = (
-	mailboxLock: Pick<IMailboxLockRepository, "releaseLock">,
-	event: Pick<SyncMessagesEvent, "accountId" | "mailboxId" | "eventId">,
-): Promise<void> =>
-	mailboxLock.releaseLock(
-		event.accountId,
-		event.mailboxId,
-		SYNC_MESSAGES_PENDING,
-		event.eventId,
-	);

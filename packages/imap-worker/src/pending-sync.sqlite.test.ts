@@ -9,10 +9,7 @@ import {
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { mockClient } from "aws-sdk-client-mock";
-import type {
-	clearPendingSyncMessages as ClearPendingSyncMessages,
-	emitEvent as EmitEvent,
-} from "./emit.js";
+import type * as Emit from "./emit.js";
 import type { SyncMessagesEvent } from "./events.js";
 import { emitMailboxResync, emitMoveResync } from "./handlers/message-move.js";
 import { emitSyncMessagesEvents } from "./handlers/sync-mailboxes.js";
@@ -26,8 +23,8 @@ const FOLDERS = [
 
 const sqsMock = mockClient(SQSClient);
 
-let emitEvent: typeof EmitEvent;
-let clearPendingSyncMessages: typeof ClearPendingSyncMessages;
+let emitEvent: typeof Emit.emitEvent;
+let SYNC_MESSAGES_PENDING: typeof Emit.SYNC_MESSAGES_PENDING;
 let locks: MailboxLockRepo;
 let closeStore: () => void;
 
@@ -54,7 +51,7 @@ before(async () => {
 	process.env.SQS_QUEUE_URL_MAILBOXES = fifo("mailboxes");
 	process.env.SQS_QUEUE_URL_MESSAGES = fifo("messages");
 	process.env.SQS_QUEUE_URL_FLAGS = fifo("flags");
-	({ emitEvent, clearPendingSyncMessages } = await import("./emit.js"));
+	({ emitEvent, SYNC_MESSAGES_PENDING } = await import("./emit.js"));
 });
 
 beforeEach(() => {
@@ -88,7 +85,12 @@ describe("SYNC_MESSAGES under explicit refreshes (#1366)", () => {
 		const inbox = queued().find((event) => event.mailboxId === "mbx-inbox");
 		if (!inbox) throw new Error("INBOX was not queued");
 
-		await clearPendingSyncMessages(locks, { accountId: ACCOUNT, ...inbox });
+		await locks.releaseLock(
+			ACCOUNT,
+			inbox.mailboxId,
+			SYNC_MESSAGES_PENDING,
+			inbox.eventId,
+		);
 		await fanOut();
 
 		assert.equal(queued().length, FOLDERS.length + 1);
@@ -97,11 +99,12 @@ describe("SYNC_MESSAGES under explicit refreshes (#1366)", () => {
 
 	it("keeps a folder's pending marker when a stale event starts", async () => {
 		await fanOut();
-		await clearPendingSyncMessages(locks, {
-			accountId: ACCOUNT,
-			mailboxId: "mbx-inbox",
-			eventId: "an-event-from-before-the-marker",
-		});
+		await locks.releaseLock(
+			ACCOUNT,
+			"mbx-inbox",
+			SYNC_MESSAGES_PENDING,
+			"an-event-from-before-the-marker",
+		);
 		await fanOut();
 
 		assert.equal(queued().length, FOLDERS.length);

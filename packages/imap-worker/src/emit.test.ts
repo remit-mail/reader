@@ -9,10 +9,7 @@ import {
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { mockClient } from "aws-sdk-client-mock";
-import type {
-	clearPendingSyncMessages as ClearPendingSyncMessages,
-	emitEvent as EmitEvent,
-} from "./emit.js";
+import type * as Emit from "./emit.js";
 import type {
 	FlagPushEvent,
 	SyncMailboxesEvent,
@@ -30,8 +27,8 @@ const fifo = (name: string) =>
 
 const sqsMock = mockClient(SQSClient);
 
-let emitEvent: typeof EmitEvent;
-let clearPendingSyncMessages: typeof ClearPendingSyncMessages;
+let emitEvent: typeof Emit.emitEvent;
+let SYNC_MESSAGES_PENDING: typeof Emit.SYNC_MESSAGES_PENDING;
 let locks: MailboxLockRepo;
 let closeStore: () => void;
 
@@ -45,7 +42,7 @@ before(async () => {
 	process.env.SQS_QUEUE_URL_MAILBOXES = fifo("mailboxes");
 	process.env.SQS_QUEUE_URL_MESSAGES = fifo("messages");
 	process.env.SQS_QUEUE_URL_FLAGS = fifo("flags");
-	({ emitEvent, clearPendingSyncMessages } = await import("./emit.js"));
+	({ emitEvent, SYNC_MESSAGES_PENDING } = await import("./emit.js"));
 });
 
 beforeEach(() => {
@@ -93,11 +90,12 @@ describe("emitEvent on a FIFO queue", () => {
 		await emitEvent(event);
 		const [first] = sentCommands();
 		if (!first) throw new Error("expected a send");
-		await clearPendingSyncMessages(locks, {
-			accountId: "acc-1",
-			mailboxId: "mbx-1",
-			eventId: String(bodyOf(first).eventId),
-		});
+		await locks.releaseLock(
+			"acc-1",
+			"mbx-1",
+			SYNC_MESSAGES_PENDING,
+			String(bodyOf(first).eventId),
+		);
 		await emitEvent(event);
 
 		const sent = sentCommands();

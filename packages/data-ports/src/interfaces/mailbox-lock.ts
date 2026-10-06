@@ -6,7 +6,7 @@ export interface IMailboxLockRepository {
 		eventName: string,
 		accountId: string,
 		lockId: string,
-		ttlSeconds?: number,
+		ttlSeconds: number,
 	): Promise<boolean>;
 	releaseLock(
 		accountId: string,
