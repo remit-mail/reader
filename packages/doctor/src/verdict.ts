@@ -10,7 +10,7 @@ export type ReasonCode =
 	| "scrape_failed"
 	| "worker_heartbeat_stale"
 	| "dead_letter_queue_not_empty"
-	| "queue_backlog"
+	| "queue_stalled"
 	| "account_sync_stalled"
 	| "mail_auth_failing"
 	| "signal_missing"
@@ -170,33 +170,30 @@ const deadLetterDepth = (
 	};
 };
 
-export const QUEUE_OLDEST_AGE_MAX_SECONDS = 15 * 60;
-export const QUEUE_DEPTH_MAX = 5000;
+export const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
 
-const queueBacklog = (samples: readonly ScrapeResult[]): Reason | undefined => {
+const stalledQueues = (
+	samples: readonly ScrapeResult[],
+): Reason | undefined => {
 	const all = samples.flatMap((scrape) => [...scrape.samples]);
-	const named = (metric: string, limit: number): string[] =>
-		seriesNamed(all, metric)
-			.filter((sample) => sample.labels.role === "work" && sample.value > limit)
-			.map((sample) => sample.labels.queue ?? "unknown");
-	const old = named(
-		"remit_queue_oldest_message_age_seconds",
-		QUEUE_OLDEST_AGE_MAX_SECONDS,
+	const waiting = new Set(
+		seriesNamed(all, "remit_queue_messages")
+			.filter((sample) => sample.labels.role === "work" && sample.value > 0)
+			.map((sample) => sample.labels.queue ?? "unknown"),
 	);
-	const deep = named("remit_queue_messages", QUEUE_DEPTH_MAX);
-	const queues = [...new Set([...old, ...deep])].sort();
-	if (queues.length === 0) return undefined;
-	const causes = [
-		old.length > 0
-			? `oldest message waiting over ${formatDuration(QUEUE_OLDEST_AGE_MAX_SECONDS)}`
-			: undefined,
-		deep.length > 0
-			? `more than ${QUEUE_DEPTH_MAX} messages waiting`
-			: undefined,
-	].filter((cause): cause is string => cause !== undefined);
+	const stalled = seriesNamed(all, "remit_queue_last_receive_age_seconds")
+		.filter(
+			(sample) =>
+				sample.labels.role === "work" &&
+				sample.value > QUEUE_RECEIVE_IDLE_MAX_SECONDS &&
+				waiting.has(sample.labels.queue ?? "unknown"),
+		)
+		.map((sample) => sample.labels.queue ?? "unknown")
+		.sort();
+	if (stalled.length === 0) return undefined;
 	return {
-		code: "queue_backlog",
-		summary: `${queues.length} ${plural(queues.length, "queue", "queues")} backed up: ${causes.join(", ")} (${queues.join(", ")})`,
+		code: "queue_stalled",
+		summary: `${stalled.length} ${plural(stalled.length, "queue has", "queues have")} messages waiting and nothing received for over ${formatDuration(QUEUE_RECEIVE_IDLE_MAX_SECONDS)} (${stalled.join(", ")})`,
 		detail: undefined,
 	};
 };
@@ -389,7 +386,7 @@ const ORDER: readonly ReasonCode[] = [
 	"worker_heartbeat_stale",
 	"account_sync_stalled",
 	"mail_auth_failing",
-	"queue_backlog",
+	"queue_stalled",
 	"dead_letter_queue_not_empty",
 ];
 
@@ -429,7 +426,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		staleHeartbeats(input.heartbeats, input.heartbeatMaxAgeSeconds),
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
 		authFailures(counters, input.authFailureHoldSeconds, now),
-		queueBacklog(input.scrapes),
+		stalledQueues(input.scrapes),
 		deadLetterDepth(input.scrapes),
 	].filter((reason): reason is Reason => reason !== undefined);
 

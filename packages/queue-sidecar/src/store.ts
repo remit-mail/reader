@@ -97,6 +97,8 @@ const toQueueRecord = (row: QueueRow): QueueRecord => ({
 export class QueueStore {
 	private readonly db: Database.Database;
 	private sequenceCounter: bigint;
+	private readonly startedAt = Date.now();
+	private readonly lastReceiveAt = new Map<string, number>();
 
 	constructor(filename: string) {
 		this.db = new Database(filename);
@@ -357,7 +359,15 @@ export class QueueStore {
 			return picked;
 		});
 
-		return receive();
+		const received = receive();
+		if (received.length > 0) this.lastReceiveAt.set(input.queueName, now);
+		return received;
+	}
+
+	lastReceiveAgeSeconds(queueName: string, now = Date.now()): number {
+		this.requireQueue(queueName);
+		const since = this.lastReceiveAt.get(queueName) ?? this.startedAt;
+		return Math.max(0, Math.floor((now - since) / 1000));
 	}
 
 	deleteMessage(queueName: string, receiptHandle: string): void {
@@ -372,17 +382,6 @@ export class QueueStore {
 	purgeQueue(queueName: string): void {
 		this.requireQueue(queueName);
 		this.db.prepare("DELETE FROM messages WHERE queue_name = ?").run(queueName);
-	}
-
-	oldestMessageAgeSeconds(queueName: string, now = Date.now()): number {
-		this.requireQueue(queueName);
-		const oldest = this.db
-			.prepare(
-				"SELECT sent_at FROM messages WHERE queue_name = ? ORDER BY id ASC LIMIT 1",
-			)
-			.get(queueName) as { sent_at: number } | undefined;
-		if (oldest === undefined) return 0;
-		return Math.max(0, Math.floor((now - oldest.sent_at) / 1000));
 	}
 
 	getQueueAttributes(queueName: string, now = Date.now()): QueueAttributes {

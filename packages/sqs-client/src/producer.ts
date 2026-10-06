@@ -12,7 +12,10 @@ export interface CreateQueueProducerOptions {
 	 * sign with and a self-hosted stack has no credential chain to fall back on.
 	 */
 	readonly localCredentials?: SqsStaticCredentials;
+	readonly requestTimeoutMs?: number;
 }
+
+export const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -59,8 +62,10 @@ export const createQueueProducer = (
 	options: CreateQueueProducerOptions,
 ): SQSClient => {
 	const { queueUrl, endpoint, env, localCredentials } = options;
+	const requestTimeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 	const local = isLocalEndpoint(queueUrl);
 	return new SQSClient({
+		requestHandler: { requestTimeout, throwOnRequestTimeout: true },
 		endpoint: endpoint ?? (local ? new URL(queueUrl).origin : undefined),
 		...(local && { protocol: AwsQueryProtocol }),
 		credentials:

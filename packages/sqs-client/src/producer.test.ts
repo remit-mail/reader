@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { describe, it } from "node:test";
-import type { SQSClient } from "@aws-sdk/client-sqs";
+import { ReceiveMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { createQueueProducer, isLocalEndpoint } from "./producer.js";
 
@@ -146,5 +148,32 @@ describe("createQueueProducer", () => {
 			env: { SQS_ACCESS_KEY_ID: "real", SQS_SECRET_ACCESS_KEY: "real" },
 		});
 		assert.equal((await remote.config.credentials()).accessKeyId, "real");
+	});
+});
+
+describe("createQueueProducer request timeout", () => {
+	it("fails a receive the queue server never answers", async () => {
+		const server = createServer(() => {});
+		await new Promise<void>((resolve) => {
+			server.listen(0, "127.0.0.1", resolve);
+		});
+		const { port } = server.address() as AddressInfo;
+		const queueUrl = `http://127.0.0.1:${port}/000000000000/hung`;
+		const client = createQueueProducer({
+			queueUrl,
+			requestTimeoutMs: 100,
+			localCredentials: { accessKeyId: "test", secretAccessKey: "test" },
+		});
+
+		try {
+			await assert.rejects(
+				() => client.send(new ReceiveMessageCommand({ QueueUrl: queueUrl })),
+				{ name: "TimeoutError" },
+			);
+		} finally {
+			client.destroy();
+			server.closeAllConnections();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		}
 	});
 });

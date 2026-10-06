@@ -141,15 +141,24 @@ describe("the sidecar /metrics endpoint", () => {
 		assert.equal(post.status, 400);
 	});
 
-	it("reports how long the oldest message on a queue has waited", () => {
+	it("exports how long each queue has gone without handing out a message", async () => {
 		store.purgeQueue("work");
-		store.sendMessage({ queueName: "work", body: "old" });
-		assert.equal(
-			store.oldestMessageAgeSeconds("work", Date.now() + 1_000_000),
-			1000,
+		store.sendMessage({ queueName: "work", body: "waiting" });
+		const idle = await get("/metrics");
+		assert.match(
+			idle.body,
+			/^remit_queue_last_receive_age_seconds\{queue="work",role="work"\} \d+$/m,
 		);
-		assert.equal(store.oldestMessageAgeSeconds("work-dlq"), 0);
-		collectQueueDepths(store);
+		assert.match(
+			idle.body,
+			/^remit_queue_last_receive_age_seconds\{queue="work-dlq",role="dead_letter"\} \d+$/m,
+		);
+
+		const quiet = store.lastReceiveAgeSeconds("work", Date.now() + 901_000);
+		assert.ok(quiet >= 900);
+
+		store.receiveMessages({ queueName: "work", maxMessages: 1 });
+		assert.equal(store.lastReceiveAgeSeconds("work"), 0);
 		store.purgeQueue("work");
 	});
 
@@ -177,7 +186,7 @@ describe("a store that cannot answer for any queue", () => {
 					getQueueAttributes: () => {
 						throw new Error("never reached");
 					},
-					oldestMessageAgeSeconds: () => 0,
+					lastReceiveAgeSeconds: () => 0,
 				}),
 			/holds no queues/,
 		);
