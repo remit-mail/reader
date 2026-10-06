@@ -51,6 +51,9 @@ export interface RunQueuePollerOptions {
 	readonly signals?: readonly NodeJS.Signals[];
 	/** One per target. Defaults to a file under `WORKER_HEARTBEAT_PREFIX`. */
 	readonly createHeartbeat?: (name: string) => Heartbeat;
+	readonly requestTimeoutMs?: number;
+	readonly staleLoopMs?: number;
+	readonly exit?: (code: number) => void;
 }
 
 // One message per receive, not the SQS maximum of 10. Handlers process a batch
@@ -61,6 +64,13 @@ export interface RunQueuePollerOptions {
 // the extra receive per message is a millisecond against the local queue
 // sidecar — the same total work either way.
 const DEFAULT_MAX_MESSAGES = 1;
+const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
+const DEFAULT_STALE_LOOP_MS = 600_000;
+const WATCHDOG_INTERVAL_MS = 15_000;
+
+type HandlerOutcome =
+	| { readonly kind: "returned"; readonly result: SQSBatchResponse | undefined }
+	| { readonly kind: "threw"; readonly error: unknown };
 /**
  * What a handler has before the queue redelivers the record underneath it.
  * Exported because a handler that budgets its own wait has to agree with it;
@@ -75,6 +85,8 @@ const pollTarget = async (
 	isShuttingDown: () => boolean,
 	shutdownSignal: AbortSignal,
 	buildHeartbeat: (name: string) => Heartbeat,
+	markBeat: (loop: string) => void,
+	requestTimeoutMs: number,
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
 	const heartbeat = buildHeartbeat(queueName ?? target.functionName);
@@ -91,7 +103,11 @@ const pollTarget = async (
 	// continuous.
 	const LONG_POLL_WAIT_SECONDS = 20;
 
+	const requestSignal = (): AbortSignal =>
+		AbortSignal.any([shutdownSignal, AbortSignal.timeout(requestTimeoutMs)]);
+
 	while (!isShuttingDown()) {
+		markBeat(target.queueUrl);
 		// Top of the receive attempt, before the long poll: this loop's own file,
 		// so a loop that stops turning — wedged in a socket read, or in a handler
 		// that never returns — goes stale on its own however busy its siblings are.
@@ -126,7 +142,7 @@ const pollTarget = async (
 					VisibilityTimeout: visibilityTimeout,
 					MessageSystemAttributeNames: ["ApproximateReceiveCount"],
 				}),
-				{ abortSignal: shutdownSignal },
+				{ abortSignal: requestSignal() },
 			);
 		} catch (error) {
 			if (shutdownSignal.aborted) break;
@@ -193,12 +209,31 @@ const pollTarget = async (
 			})),
 		};
 
-		const result = (await target.handler(event, lambdaContext, () => {})) as
-			| SQSBatchResponse
-			| undefined;
+		const outcome: HandlerOutcome = await Promise.resolve(
+			target.handler(event, lambdaContext, () => {}),
+		).then(
+			(result): HandlerOutcome => ({
+				kind: "returned",
+				result: result as SQSBatchResponse | undefined,
+			}),
+			(error: unknown): HandlerOutcome => ({ kind: "threw", error }),
+		);
+
+		if (outcome.kind === "threw") {
+			log.error(
+				{
+					queue: queueName,
+					count: messages.length,
+					requestId: lambdaContext.awsRequestId,
+					error: inspect(outcome.error),
+				},
+				"poller: handler threw, batch left for redelivery",
+			);
+			continue;
+		}
 
 		const failedIds = new Set(
-			(result?.batchItemFailures ?? []).map((f) => f.itemIdentifier),
+			(outcome.result?.batchItemFailures ?? []).map((f) => f.itemIdentifier),
 		);
 		const succeeded = messages.filter((m) => !failedIds.has(m.messageId));
 
@@ -212,6 +247,7 @@ const pollTarget = async (
 						QueueUrl: target.queueUrl,
 						ReceiptHandle: message.receiptHandle,
 					}),
+					{ abortSignal: requestSignal() },
 				),
 			),
 		);
@@ -275,9 +311,44 @@ export const runQueuePoller = async (
 
 	log.info({ queues: targets.map((t) => t.queueUrl) }, "poller: starting");
 
+	const staleLoopMs = options.staleLoopMs ?? DEFAULT_STALE_LOOP_MS;
+	const requestTimeoutMs =
+		options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+	const exit = options.exit ?? ((code: number) => process.exit(code));
+	const lastBeats = new Map<string, number>();
+	const markBeat = (loop: string) => {
+		lastBeats.set(loop, Date.now());
+	};
+	for (const target of targets) markBeat(target.queueUrl);
+
+	const watchdog = setInterval(
+		() => {
+			const now = Date.now();
+			const stale = [...lastBeats].filter(
+				([, beatAt]) => now - beatAt > staleLoopMs,
+			);
+			if (stale.length === 0) return;
+			log.error(
+				{ loops: stale.map(([loop]) => loop), staleLoopMs },
+				"poller: loop stopped turning, exiting so the restart policy recovers it",
+			);
+			exit(1);
+		},
+		Math.min(WATCHDOG_INTERVAL_MS, Math.max(10, Math.floor(staleLoopMs / 4))),
+	);
+	watchdog.unref();
+
 	await Promise.all(
 		targets.map((target) =>
-			pollTarget(target, log, isShuttingDown, shutdown.signal, buildHeartbeat),
+			pollTarget(
+				target,
+				log,
+				isShuttingDown,
+				shutdown.signal,
+				buildHeartbeat,
+				markBeat,
+				requestTimeoutMs,
+			),
 		),
-	);
+	).finally(() => clearInterval(watchdog));
 };

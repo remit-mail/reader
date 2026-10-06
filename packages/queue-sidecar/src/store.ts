@@ -374,6 +374,17 @@ export class QueueStore {
 		this.db.prepare("DELETE FROM messages WHERE queue_name = ?").run(queueName);
 	}
 
+	oldestMessageAgeSeconds(queueName: string, now = Date.now()): number {
+		this.requireQueue(queueName);
+		const oldest = this.db
+			.prepare(
+				"SELECT sent_at FROM messages WHERE queue_name = ? ORDER BY id ASC LIMIT 1",
+			)
+			.get(queueName) as { sent_at: number } | undefined;
+		if (oldest === undefined) return 0;
+		return Math.max(0, Math.floor((now - oldest.sent_at) / 1000));
+	}
+
 	getQueueAttributes(queueName: string, now = Date.now()): QueueAttributes {
 		const queue = this.requireQueue(queueName);
 		const visible = this.db

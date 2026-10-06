@@ -141,6 +141,18 @@ describe("the sidecar /metrics endpoint", () => {
 		assert.equal(post.status, 400);
 	});
 
+	it("reports how long the oldest message on a queue has waited", () => {
+		store.purgeQueue("work");
+		store.sendMessage({ queueName: "work", body: "old" });
+		assert.equal(
+			store.oldestMessageAgeSeconds("work", Date.now() + 1_000_000),
+			1000,
+		);
+		assert.equal(store.oldestMessageAgeSeconds("work-dlq"), 0);
+		collectQueueDepths(store);
+		store.purgeQueue("work");
+	});
+
 	it("counts only visible messages as depth", () => {
 		store.sendMessage({ queueName: "work", body: "c" });
 		store.receiveMessages({ queueName: "work", maxMessages: 1 });
@@ -165,6 +177,7 @@ describe("a store that cannot answer for any queue", () => {
 					getQueueAttributes: () => {
 						throw new Error("never reached");
 					},
+					oldestMessageAgeSeconds: () => 0,
 				}),
 			/holds no queues/,
 		);

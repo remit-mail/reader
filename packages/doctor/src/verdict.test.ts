@@ -379,6 +379,43 @@ describe("evaluate", () => {
 		);
 	});
 
+	it("degrades on a work queue whose oldest message has waited over 15 minutes", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					scrape(
+						"queue",
+						'remit_queue_messages{queue="messages",role="work"} 40\nremit_queue_oldest_message_age_seconds{queue="messages",role="work"} 901\nremit_queue_oldest_message_age_seconds{queue="messages-dlq",role="dead_letter"} 99999\n',
+					),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.deepEqual(
+			result.reasons.map((reason) => reason.code),
+			["queue_backlog"],
+		);
+		assert.match(result.reasons[0].summary, /15m.*\(messages\)/);
+	});
+
+	it("degrades on a work queue deeper than 5000 messages", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					scrape(
+						"queue",
+						'remit_queue_messages{queue="messages",role="work"} 5001\nremit_queue_oldest_message_age_seconds{queue="messages",role="work"} 3\n',
+					),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.equal(result.reasons[0].code, "queue_backlog");
+		assert.match(result.reasons[0].summary, /5000 messages/);
+	});
+
 	it("degrades when a required series answered but exported nothing", () => {
 		const result = evaluate(
 			input({

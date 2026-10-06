@@ -17,9 +17,16 @@ const queueMessages = new Gauge({
 	registers: [registry],
 });
 
+const queueOldestMessageAge = new Gauge({
+	name: "remit_queue_oldest_message_age_seconds",
+	help: "Seconds since the oldest message on a queue was sent, 0 when empty.",
+	labelNames: ["queue", "role"],
+	registers: [registry],
+});
+
 export type QueueDepthSource = Pick<
 	QueueStore,
-	"listQueues" | "getQueueAttributes"
+	"listQueues" | "getQueueAttributes" | "oldestMessageAgeSeconds"
 >;
 
 export const queueRoles = (
@@ -59,11 +66,14 @@ export const collectQueueDepths = (store: QueueDepthSource): void => {
 	}
 	const roles = queueRoles(queues);
 	queueMessages.reset();
+	queueOldestMessageAge.reset();
 	for (const queue of queues) {
 		const attributes = store.getQueueAttributes(queue.name);
-		queueMessages.set(
-			{ queue: queue.name, role: roles.get(queue.name) ?? "work" },
-			attributes.approximateNumberOfMessages,
+		const labels = { queue: queue.name, role: roles.get(queue.name) ?? "work" };
+		queueMessages.set(labels, attributes.approximateNumberOfMessages);
+		queueOldestMessageAge.set(
+			labels,
+			store.oldestMessageAgeSeconds(queue.name),
 		);
 	}
 };

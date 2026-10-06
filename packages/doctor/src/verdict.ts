@@ -10,6 +10,7 @@ export type ReasonCode =
 	| "scrape_failed"
 	| "worker_heartbeat_stale"
 	| "dead_letter_queue_not_empty"
+	| "queue_backlog"
 	| "account_sync_stalled"
 	| "mail_auth_failing"
 	| "signal_missing"
@@ -165,6 +166,37 @@ const deadLetterDepth = (
 	return {
 		code: "dead_letter_queue_not_empty",
 		summary: `${total} ${plural(total, "message is", "messages are")} quarantined on ${occupied.length} ${plural(occupied.length, "dead-letter queue", "dead-letter queues")} (${names})`,
+		detail: undefined,
+	};
+};
+
+export const QUEUE_OLDEST_AGE_MAX_SECONDS = 15 * 60;
+export const QUEUE_DEPTH_MAX = 5000;
+
+const queueBacklog = (samples: readonly ScrapeResult[]): Reason | undefined => {
+	const all = samples.flatMap((scrape) => [...scrape.samples]);
+	const named = (metric: string, limit: number): string[] =>
+		seriesNamed(all, metric)
+			.filter((sample) => sample.labels.role === "work" && sample.value > limit)
+			.map((sample) => sample.labels.queue ?? "unknown");
+	const old = named(
+		"remit_queue_oldest_message_age_seconds",
+		QUEUE_OLDEST_AGE_MAX_SECONDS,
+	);
+	const deep = named("remit_queue_messages", QUEUE_DEPTH_MAX);
+	const queues = [...new Set([...old, ...deep])].sort();
+	if (queues.length === 0) return undefined;
+	const causes = [
+		old.length > 0
+			? `oldest message waiting over ${formatDuration(QUEUE_OLDEST_AGE_MAX_SECONDS)}`
+			: undefined,
+		deep.length > 0
+			? `more than ${QUEUE_DEPTH_MAX} messages waiting`
+			: undefined,
+	].filter((cause): cause is string => cause !== undefined);
+	return {
+		code: "queue_backlog",
+		summary: `${queues.length} ${plural(queues.length, "queue", "queues")} backed up: ${causes.join(", ")} (${queues.join(", ")})`,
 		detail: undefined,
 	};
 };
@@ -357,6 +389,7 @@ const ORDER: readonly ReasonCode[] = [
 	"worker_heartbeat_stale",
 	"account_sync_stalled",
 	"mail_auth_failing",
+	"queue_backlog",
 	"dead_letter_queue_not_empty",
 ];
 
@@ -396,6 +429,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		staleHeartbeats(input.heartbeats, input.heartbeatMaxAgeSeconds),
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
 		authFailures(counters, input.authFailureHoldSeconds, now),
+		queueBacklog(input.scrapes),
 		deadLetterDepth(input.scrapes),
 	].filter((reason): reason is Reason => reason !== undefined);
 
