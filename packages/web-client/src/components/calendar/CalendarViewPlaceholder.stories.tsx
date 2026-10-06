@@ -14,9 +14,9 @@ const meta: Meta<typeof CalendarViewPlaceholder> = {
 	title: "Playground/Shipped/Calendar/Not built yet",
 	component: CalendarViewPlaceholder,
 	parameters: { layout: "fullscreen" },
-	render: (args) => (
+	render: () => (
 		<div className="h-dvh bg-canvas">
-			<CalendarViewPlaceholder {...args} />
+			<CalendarViewPlaceholder />
 		</div>
 	),
 };
@@ -26,7 +26,6 @@ type Story = StoryObj<typeof CalendarViewPlaceholder>;
 
 /** It names the zoom it is waiting on, and the four that work today. */
 export const Year: Story = {
-	args: { view: "year" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(

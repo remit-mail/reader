@@ -143,6 +143,17 @@ export function useCalendarNavigation(): CalendarNavigation {
 		[navigate, retainPanels],
 	);
 
+	const dayHref = useCallback(
+		(next: string) =>
+			router.buildLocation({
+				to: VIEW_ROUTE,
+				params: { view: "day", date: next },
+				search: true,
+				hash: retainPanels,
+			}).href,
+		[router, retainPanels],
+	);
+
 	return useMemo(
 		() => ({
 			goToView: (next: CalendarViewId) => goTo({ view: next, date }),
@@ -157,14 +168,8 @@ export function useCalendarNavigation(): CalendarNavigation {
 					hash: retainPanels,
 					replace: true,
 				}),
-			zoomToDay: (next: string) => goTo({ view: "day", date: next }),
-			dayHref: (next: string) =>
-				router.buildLocation({
-					to: VIEW_ROUTE,
-					params: { view: "day", date: next },
-					search: true,
-					hash: retainPanels,
-				}).href,
+			zoomToDay: (next: string) => router.history.push(dayHref(next)),
+			dayHref,
 			openEvent: (calendarObjectId: string, recurrenceId?: string) =>
 				recurrenceId === undefined || recurrenceId === ""
 					? navigate({
@@ -195,7 +200,7 @@ export function useCalendarNavigation(): CalendarNavigation {
 					hash: retainPanels,
 				}),
 		}),
-		[goTo, navigate, router, retainPanels, view, date],
+		[goTo, navigate, router, dayHref, retainPanels, view, date],
 	);
 }
 

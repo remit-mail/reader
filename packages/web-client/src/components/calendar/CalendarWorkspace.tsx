@@ -248,7 +248,7 @@ export function CalendarWorkspace({
 								}
 							/>
 						) : (
-							<CalendarViewPlaceholder view={view} />
+							<CalendarViewPlaceholder />
 						)}
 					</div>
 				)}
