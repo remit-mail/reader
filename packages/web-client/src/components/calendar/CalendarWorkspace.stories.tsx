@@ -286,8 +286,8 @@ export const Month: Story = {
 				/July 2026/,
 			),
 		);
-		const day = canvas.getByRole("link", {
-			name: "Open Wednesday, 15 July 2026",
+		const day = await canvas.findByRole("link", {
+			name: /15 July 2026$/,
 		});
 		await expect(day).toHaveAttribute("href", "/calendar/day/2026-07-15");
 		await userEvent.click(day);
