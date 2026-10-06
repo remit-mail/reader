@@ -168,7 +168,7 @@ export function useCalendarNavigation(): CalendarNavigation {
 					hash: retainPanels,
 					replace: true,
 				}),
-			zoomToDay: (next: string) => router.history.push(dayHref(next)),
+			zoomToDay: (next: string) => navigate({ href: dayHref(next) }),
 			dayHref,
 			openEvent: (calendarObjectId: string, recurrenceId?: string) =>
 				recurrenceId === undefined || recurrenceId === ""
