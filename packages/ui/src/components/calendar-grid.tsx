@@ -104,6 +104,8 @@ export interface CalendarGridProps {
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	/** The range title the grid computed, e.g. "8 – 14 Jun 2026". */
 	onRangeChange: (title: string) => void;
+	/** Makes each day's number a link that opens that day. */
+	onZoomDay?: (date: string) => void;
 	className?: string;
 }
 
@@ -141,6 +143,12 @@ function toInput(event: CalendarEventData): EventInput {
 	};
 }
 
+const pad = (value: number): string => String(value).padStart(2, "0");
+
+/* The engine hands a day back as a UTC midnight, whatever zone it draws in. */
+const isoDay = (day: Date): string =>
+	`${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}`;
+
 export function CalendarGrid({
 	view,
 	date,
@@ -153,6 +161,7 @@ export function CalendarGrid({
 	onSelectEvent,
 	onPickSlot,
 	onRangeChange,
+	onZoomDay,
 	className,
 }: CalendarGridProps) {
 	const calendarRef = useRef<CalendarRef>(null);
@@ -241,6 +250,7 @@ export function CalendarGrid({
 				height="100%"
 				headerToolbar={false}
 				firstDay={1}
+				fixedWeekCount={false}
 				nowIndicator
 				selectable
 				selectMirror
@@ -252,6 +262,9 @@ export function CalendarGrid({
 				allDayText="All day"
 				dayMaxEvents={isTight ? 2 : 3}
 				eventMaxStack={3}
+				navLinks={onZoomDay !== undefined && view === "month"}
+				navLinkDayClick={(day) => onZoomDay?.(isoDay(day))}
+				navLinkClass="hover:underline"
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
 				scrollTime="08:30:00"

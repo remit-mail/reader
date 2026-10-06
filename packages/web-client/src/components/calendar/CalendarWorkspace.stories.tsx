@@ -8,6 +8,7 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, waitFor, within } from "storybook/test";
 import { CalendarWaiting } from "./CalendarWaiting";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 
@@ -236,6 +237,7 @@ function Workspace({
 			onChangeView={setView}
 			onToday={() => undefined}
 			onStep={() => undefined}
+			onZoomDay={() => undefined}
 			onChangeDensity={setDensity}
 			onSelectEvent={setSelected}
 			onPickSlot={() => undefined}
@@ -263,6 +265,20 @@ export const Week: Story = {};
 
 export const Day: Story = { args: { initialView: "day" } };
 
+export const Month: Story = {
+	args: { initialView: "month" },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await waitFor(() =>
+			expect(canvas.getAllByText("Roadmap review").length).toBeGreaterThan(0),
+		);
+		await expect(canvas.getByRole("button", { name: "Next" })).toBeVisible();
+		await expect(
+			canvas.getByRole("button", { name: "Previous" }),
+		).toBeVisible();
+	},
+};
+
 /** A phone: two rows of thumb-sized controls, and no year on the ladder. */
 export const Phone: Story = {
 	args: { touch: true },
@@ -288,12 +304,10 @@ export const CouldNotLoad: Story = {
 };
 
 /**
- * The three zooms that are named but not drawn yet. Each says what it is
- * waiting on, so the route is addressable without pretending to be finished.
+ * The zoom that is named but not drawn yet. It says what it is waiting on, so
+ * the route is addressable without pretending to be finished.
  */
 export const YearNotBuiltYet: Story = { args: { initialView: "year" } };
-
-export const MonthNotBuiltYet: Story = { args: { initialView: "month" } };
 
 /**
  * Invitations the mail is still asking about, beside the week they would land

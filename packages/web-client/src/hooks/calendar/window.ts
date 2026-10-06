@@ -154,7 +154,7 @@ function bounds(view: CalendarViewId, date: string): [string, string] {
 		const first = `${year}-${pad(month)}-01`;
 		const next =
 			month === 12 ? `${year + 1}-01-01` : `${year}-${pad(month + 1)}-01`;
-		return [first, next];
+		return [weekStart(first), addDays(weekStart(addDays(next, -1)), 7)];
 	}
 	if (view === "day") return [date, addDays(date, 1)];
 	const start = weekStart(date);

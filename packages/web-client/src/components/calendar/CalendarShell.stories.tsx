@@ -115,6 +115,7 @@ function Shell({
 							onChangeView={() => undefined}
 							onToday={() => undefined}
 							onStep={() => undefined}
+							onZoomDay={() => undefined}
 							onChangeDensity={setDensity}
 							onSelectEvent={() => undefined}
 							onPickSlot={() => undefined}

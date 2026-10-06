@@ -47,14 +47,27 @@ describe("the window a view covers", () => {
 		assert.equal(day(window.to), "2026-06-11");
 	});
 
-	it("takes the calendar month, ending on the first of the next", () => {
-		const window = calendarWindow("month", "2026-06-10");
-		assert.equal(day(window.from), "2026-06-01");
-		assert.equal(day(window.to), "2026-07-01");
+	it("takes every week the month touches, so the grid's edge days are read", () => {
+		const window = calendarWindow("month", "2026-07-10");
+		assert.equal(day(window.from), "2026-06-29");
+		assert.equal(day(window.to), "2026-08-03");
+	});
+
+	it("takes exactly the month when it starts on a Monday and ends on a Sunday", () => {
+		const window = calendarWindow("month", "2027-02-14");
+		assert.equal(day(window.from), "2027-02-01");
+		assert.equal(day(window.to), "2027-03-01");
+	});
+
+	it("gives every day of one month the same window", () => {
+		const first = calendarWindow("month", "2026-06-01");
+		for (const date of ["2026-06-15", "2026-06-30"]) {
+			assert.deepEqual(calendarWindow("month", date), first);
+		}
 	});
 
 	it("rolls a December month into the next year", () => {
-		assert.equal(day(calendarWindow("month", "2026-12-31").to), "2027-01-01");
+		assert.equal(day(calendarWindow("month", "2026-12-31").to), "2027-01-04");
 	});
 
 	it("takes the calendar year", () => {

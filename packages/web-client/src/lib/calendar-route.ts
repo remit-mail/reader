@@ -32,11 +32,11 @@ const calendarViewSchema = z.enum(calendarViews);
 export const DEFAULT_CALENDAR_VIEW: CalendarViewId = "week";
 
 /**
- * The views the grid draws. Year and month are named surfaces that arrive in
- * later stages, and they say so on screen rather than matching a route that
- * renders nothing.
+ * The views the grid draws. The year is a named surface that arrives in a later
+ * stage, and it says so on screen rather than matching a route that renders
+ * nothing.
  */
-const GRID_VIEWS = new Set<CalendarViewId>(["week", "day"]);
+const GRID_VIEWS = new Set<CalendarViewId>(["month", "week", "day"]);
 
 export const calendarViewMountsGrid = (view: CalendarViewId): boolean =>
 	GRID_VIEWS.has(view);

@@ -85,14 +85,14 @@ describe("canonicalCalendarParams", () => {
 });
 
 describe("calendarViewMountsGrid", () => {
-	it("draws the week and the day", () => {
+	it("draws the month, the week and the day", () => {
+		assert.equal(calendarViewMountsGrid("month"), true);
 		assert.equal(calendarViewMountsGrid("week"), true);
 		assert.equal(calendarViewMountsGrid("day"), true);
 	});
 
-	it("leaves the agenda to the strip and the other two to a later stage", () => {
+	it("leaves the agenda to the strip and the year to a later stage", () => {
 		assert.equal(calendarViewMountsGrid("year"), false);
-		assert.equal(calendarViewMountsGrid("month"), false);
 		assert.equal(calendarViewMountsGrid("agenda"), false);
 	});
 });

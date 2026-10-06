@@ -70,6 +70,7 @@ const workspaceProps = (
 	onChangeView: noop,
 	onToday: noop,
 	onStep: noop,
+	onZoomDay: noop,
 	onChangeDensity: noop,
 	onSelectEvent: noop,
 	onPickSlot: noop,
@@ -103,8 +104,8 @@ const render = (
 	renderQuietly(createElement(CalendarWorkspace, workspaceProps(view, events)));
 
 describe("the zoom the address names", () => {
-	it("draws the grid for the week and the day", () => {
-		for (const view of ["week", "day"] as const) {
+	it("draws the grid for the month, the week and the day", () => {
+		for (const view of ["month", "week", "day"] as const) {
 			const html = render(view);
 			assert.ok(
 				html.includes("Roadmap review"),
@@ -122,15 +123,10 @@ describe("the zoom the address names", () => {
 	});
 
 	it("says so for a zoom that is not drawn yet", () => {
-		for (const view of ["year", "month"] as const) {
-			const html = render(view);
-			assert.ok(
-				html.includes(`calendar-placeholder-${view}`),
-				`${view} rendered no placeholder`,
-			);
-			assert.ok(html.includes("Not built yet"));
-			assert.ok(html.includes("Week, Day and Agenda work now."));
-		}
+		const html = render("year");
+		assert.ok(html.includes("calendar-placeholder-year"));
+		assert.ok(html.includes("Not built yet"));
+		assert.ok(html.includes("Month, Week, Day and Agenda work now."));
 	});
 });
 
@@ -143,7 +139,7 @@ describe("the toolbar", () => {
 	});
 
 	it("offers back, forward and today at a zoom that draws no grid", () => {
-		const html = render("month");
+		const html = render("year");
 		assert.ok(html.includes('aria-label="Previous"'));
 		assert.ok(html.includes('aria-label="Next"'));
 		assert.ok(html.includes(">Today<"));

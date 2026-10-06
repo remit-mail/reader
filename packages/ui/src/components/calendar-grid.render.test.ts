@@ -182,6 +182,107 @@ describe("CalendarGrid placement", () => {
 	});
 });
 
+const monthDays = (root: HTMLElement): string[] =>
+	Array.from(
+		new Set(
+			Array.from(root.querySelectorAll<HTMLElement>("[data-date]")).map(
+				(cell) => cell.dataset.date ?? "",
+			),
+		),
+	).sort();
+
+const nextWeek = "2026-06-17";
+const lastOfMonth = anEvent({
+	id: "close",
+	title: "Month close",
+	start: "2026-06-30T15:00:00+02:00",
+	end: "2026-06-30T16:00:00+02:00",
+});
+const spill = anEvent({
+	id: "spill",
+	title: "Kickoff",
+	start: "2026-07-02T09:00:00+02:00",
+	end: "2026-07-02T10:00:00+02:00",
+});
+const later = anEvent({
+	id: "later",
+	title: "Planning",
+	start: `${nextWeek}T13:00:00+02:00`,
+	end: `${nextWeek}T14:00:00+02:00`,
+});
+
+describe("CalendarGrid month", () => {
+	it("draws whole weeks from the Monday on or before the 1st to the Sunday on or after the last", () => {
+		const days = monthDays(grid({ view: "month", date: "2026-07-10" }));
+		assert.equal(days.length, 35);
+		assert.equal(days[0], "2026-06-29");
+		assert.equal(days[34], "2026-08-02");
+	});
+
+	it("draws exactly the month's days when it fills its weeks", () => {
+		const days = monthDays(grid({ view: "month", date: "2027-02-14" }));
+		assert.equal(days.length, 28);
+		assert.equal(days[0], "2027-02-01");
+		assert.equal(days[27], "2027-02-28");
+	});
+
+	it("puts each event on its own day, including the neighbouring month's edge days", () => {
+		const root = grid({
+			view: "month",
+			date: TODAY,
+			events: [roadmap, handover, later, lastOfMonth, spill],
+		});
+		assert.equal(chip(root, "Roadmap review").date, TODAY);
+		assert.equal(chip(root, "Handover").date, TOMORROW);
+		assert.equal(chip(root, "Planning").date, nextWeek);
+		assert.equal(chip(root, "Month close").date, "2026-06-30");
+		assert.equal(chip(root, "Kickoff").date, "2026-07-02");
+	});
+
+	it("draws every event as a row, never a column block", () => {
+		const drawn = chips(
+			grid({ view: "month", date: TODAY, events: [roadmap, handover] }),
+		);
+		assert.equal(drawn.length, 2);
+		assert.ok(drawn.every((one) => one.timed === false));
+	});
+
+	it("marks today in the month", () => {
+		assert.ok(
+			grid({ view: "month", date: TODAY }).querySelector(
+				`[data-date="${TODAY}"][aria-current="date"]`,
+			),
+		);
+	});
+
+	it("moves to the previous and the next month with the date it is given", () => {
+		const first = (date: string) =>
+			monthDays(grid({ view: "month", date }))[10];
+		assert.equal(first("2026-05-15").slice(0, 7), "2026-05");
+		assert.equal(first("2026-06-15").slice(0, 7), "2026-06");
+		assert.equal(first("2026-07-15").slice(0, 7), "2026-07");
+	});
+
+	it("makes each day's number a link that opens the day", () => {
+		const root = grid({
+			view: "month",
+			date: TODAY,
+			onZoomDay: () => undefined,
+		});
+		const links = root.querySelectorAll("[role=link][aria-label^='Go to']");
+		assert.equal(links.length, 35);
+		assert.equal(
+			root.querySelector("[role=link][aria-label='Go to June 10, 2026']")
+				?.textContent,
+			"10",
+		);
+		assert.equal(
+			grid({ view: "month", date: TODAY }).querySelector("[role=link]"),
+			null,
+		);
+	});
+});
+
 describe("CalendarGrid all-day band", () => {
 	it("gives the week a band of its own, named", () => {
 		assert.match(grid().innerHTML, /All day/);

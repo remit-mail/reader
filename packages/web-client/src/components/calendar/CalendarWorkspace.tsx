@@ -76,6 +76,7 @@ export interface CalendarWorkspaceProps {
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	onStep: (direction: -1 | 1) => void;
+	onZoomDay: (date: string) => void;
 	/**
 	 * A phone: the toolbar splits into two rows of thumb-sized controls, because
 	 * one row of them is wider than the screen and pushes the grid off it.
@@ -137,6 +138,7 @@ export function CalendarWorkspace({
 	onSelectEvent,
 	onPickSlot,
 	onStep,
+	onZoomDay,
 	touch = false,
 }: CalendarWorkspaceProps) {
 	// Held against the address it was measured for, so leaving a view does not
@@ -237,6 +239,7 @@ export function CalendarWorkspace({
 								now={now}
 								onSelectEvent={onSelectEvent}
 								onPickSlot={onPickSlot}
+								onZoomDay={onZoomDay}
 								onRangeChange={(measuredTitle) =>
 									setMeasured({ key: addressKey, title: measuredTitle })
 								}

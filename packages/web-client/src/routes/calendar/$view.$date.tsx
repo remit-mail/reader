@@ -93,6 +93,7 @@ function CalendarView({ isPhone }: { isPhone: boolean }) {
 		openEvent,
 		openComposer,
 		changeSuggestionFirst,
+		zoomToDay,
 	} = useCalendarNavigation();
 	const openedEvent = useOpenCalendarEvent();
 	const isWriting = useIsWritingEvent();
@@ -147,6 +148,7 @@ function CalendarView({ isPhone }: { isPhone: boolean }) {
 			onChangeView={goToView}
 			onToday={goToToday}
 			onStep={step}
+			onZoomDay={zoomToDay}
 			onChangeDensity={changeDensity}
 			onSelectEvent={selectEvent}
 			onPickSlot={pickSlot}
