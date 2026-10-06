@@ -319,8 +319,7 @@ describe("QueueStore", () => {
 		);
 	});
 
-	it("reads a bounded number of rows however deep the FIFO backlog is", () => {
-		const backlog = 120_000;
+	const seedBacklog = (rows: number, groups: number): void => {
 		const path = join(dir, "queue.db");
 		store.close();
 		const seed = new Database(path);
@@ -334,45 +333,42 @@ describe("QueueStore", () => {
 					sequence_number, receive_count, visible_at, receipt_handle,
 					sent_at, first_received_at
 				)
-				SELECT 'm' || i, 'orders.fifo', 'x', 'x', 'g' || (i % 3), NULL,
+				SELECT 'm' || i, 'orders.fifo', 'x', 'x', 'g' || CAST(i % CAST(? AS INTEGER) AS INTEGER), NULL,
 					i, 0, 0, NULL, 0, NULL
 				FROM n`,
 			)
-			.run(backlog);
+			.run(rows, groups);
 		seed.close();
-
 		store = new QueueStore(path);
-		const db = (store as unknown as { db: Database.Database }).db;
-		const rowsReturned: number[] = [];
-		const prepare = db.prepare.bind(db);
-		db.prepare = ((source: string) => {
-			const statement = prepare(source);
-			const all = statement.all.bind(statement);
-			statement.all = (...params: unknown[]) => {
-				const rows = all(...params);
-				rowsReturned.push(rows.length);
-				return rows;
-			};
-			return statement;
-		}) as typeof db.prepare;
+	};
 
+	it("receives only the head of each group from a FIFO backlog", () => {
+		seedBacklog(30, 3);
 		const received = store.receiveMessages({
 			queueName: "orders.fifo",
 			maxMessages: 10,
 			now: 1_000,
 		});
+		assert.deepEqual(
+			received.map((m) => [m.messageId, m.groupId]),
+			[
+				["m1", "g1"],
+				["m2", "g2"],
+				["m3", "g0"],
+			],
+		);
+	});
 
-		assert.deepEqual(
-			received.map((m) => m.messageId),
-			["m1", "m2", "m3"],
-		);
-		assert.deepEqual(
-			received.map((m) => m.groupId),
-			["g1", "g2", "g0"],
-		);
-		assert.ok(
-			Math.max(...rowsReturned) <= 10,
-			`a statement returned ${Math.max(...rowsReturned)} rows`,
-		);
+	it("receives from a 200k-row FIFO backlog within a fixed time budget", () => {
+		seedBacklog(200_000, 5);
+		const started = performance.now();
+		const received = store.receiveMessages({
+			queueName: "orders.fifo",
+			maxMessages: 10,
+			now: 1_000,
+		});
+		const elapsed = performance.now() - started;
+		assert.equal(received.length, 5);
+		assert.ok(elapsed < 100, `receive took ${elapsed.toFixed(1)} ms`);
 	});
 });
