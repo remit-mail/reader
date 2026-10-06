@@ -1,9 +1,3 @@
-/**
- * use-swipe-navigation — the reading pane's swipe between messages, driven
- * through the real @use-gesture/react recogniser on a mounted pane. Each test
- * asserts which pointer sequence is bound to next, previous, or nothing.
- */
-
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";

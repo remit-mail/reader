@@ -1,11 +1,11 @@
 import { DragGesture } from "@use-gesture/vanilla";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useContext, useEffect, useMemo, useRef, useState } from "react";
+import { SWIPE_DRAG_CONFIG } from "../lib/swipe-config.js";
 import {
 	isZoomed,
 	releasedSwipe,
-	SWIPE_AXIS_THRESHOLD,
-	SWIPE_CONFIG,
 	SWIPE_EVENT,
+	SwipeSurface,
 	subscribeToZoom,
 } from "../lib/use-swipe-navigation.js";
 import {
@@ -216,6 +216,7 @@ export const IsolatedEmailFrame = ({
 }: IsolatedEmailFrameProps) => {
 	const ref = useRef<HTMLIFrameElement>(null);
 	const [height, setHeight] = useState(0);
+	const swipeSurface = useContext(SwipeSurface);
 
 	const srcDoc = useMemo(
 		() => buildEmailSrcDoc(html, variant, isDark, declares),
@@ -260,7 +261,7 @@ export const IsolatedEmailFrame = ({
 
 		const syncTouchAction = () => {
 			const doc = iframe.contentDocument;
-			if (!doc?.documentElement) return;
+			if (!swipeSurface || !doc?.documentElement) return;
 			doc.documentElement.style.touchAction = claimsSideways(doc)
 				? "auto"
 				: "pan-y pinch-zoom";
@@ -269,7 +270,9 @@ export const IsolatedEmailFrame = ({
 		let observer: ResizeObserver | undefined;
 		let keyDoc: Document | undefined;
 		let gesture: DragGesture | undefined;
-		const unsubscribeZoom = subscribeToZoom(syncTouchAction);
+		const unsubscribeZoom = swipeSurface
+			? subscribeToZoom(syncTouchAction)
+			: undefined;
 		const handleLoad = () => {
 			measure();
 			// The srcDoc is rebuilt whenever the mail, theme or treatment changes,
@@ -285,27 +288,25 @@ export const IsolatedEmailFrame = ({
 			const doc = iframe.contentDocument;
 			if (!doc?.body) return;
 			syncTouchAction();
-			gesture = new DragGesture(
-				doc.documentElement,
-				(state) => {
-					const direction = releasedSwipe(state);
-					if (!direction || claimsSideways(doc)) return;
-					iframe.dispatchEvent(
-						new CustomEvent(SWIPE_EVENT, { bubbles: true, detail: direction }),
-					);
-				},
-				{
-					axis: "x",
-					axisThreshold: {
-						mouse: SWIPE_AXIS_THRESHOLD,
-						touch: SWIPE_AXIS_THRESHOLD,
-						pen: SWIPE_AXIS_THRESHOLD,
+			if (swipeSurface)
+				gesture = new DragGesture(
+					doc.documentElement,
+					(state) => {
+						const direction = releasedSwipe(state);
+						if (!direction || isZoomed()) return;
+						iframe.dispatchEvent(
+							new CustomEvent(SWIPE_EVENT, {
+								bubbles: true,
+								detail: direction,
+							}),
+						);
 					},
-					swipe: SWIPE_CONFIG,
-					pointer: { keys: false },
-					window: doc.defaultView ?? undefined,
-				},
-			);
+					{
+						...SWIPE_DRAG_CONFIG,
+						axis: "x",
+						window: doc.defaultView ?? undefined,
+					},
+				);
 			observer = new ResizeObserver(measureNextFrame);
 			observer.observe(doc.body);
 			if (doc.documentElement) observer.observe(doc.documentElement);
@@ -328,10 +329,10 @@ export const IsolatedEmailFrame = ({
 			keyDoc?.removeEventListener("load", measure, true);
 			observer?.disconnect();
 			gesture?.destroy();
-			unsubscribeZoom();
+			unsubscribeZoom?.();
 			cancelAnimationFrame(pendingFrame);
 		};
-	}, []);
+	}, [swipeSurface]);
 
 	return (
 		<iframe

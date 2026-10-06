@@ -4,10 +4,14 @@ import { useRef, useState } from "react";
 import { mergeProps } from "react-aria";
 import { cn } from "../lib/cn.js";
 import {
+	SWIPE_AXIS_THRESHOLD,
+	SWIPE_DRAG_CONFIG,
+} from "../lib/swipe-config.js";
+import {
 	holdConfig,
+	isHold,
 	LONG_PRESS_DELAY_MS,
 	touchMenuSuppressionProps,
-	withHold,
 } from "../lib/use-long-press.js";
 import type { ThreadRowData } from "./app-shell-types.js";
 import { Avatar } from "./avatar.js";
@@ -21,7 +25,6 @@ export type SwipePeek = "none" | "leading" | "trailing";
 /** Width a peeked row settles at to reveal its action; also the drag distance
  *  past which a release commits the peek rather than snapping back. */
 const SWIPE_ACTION_WIDTH = 72;
-const SWIPE_AXIS_THRESHOLD = 10;
 
 function peekOffset(peek: SwipePeek): number {
 	if (peek === "leading") return SWIPE_ACTION_WIDTH;
@@ -95,12 +98,12 @@ export function SwipeableRow({
 	};
 
 	const bind = useDrag(
-		withHold((state, holdFired) => {
+		(state) => {
 			if (!state.down) {
 				release(state);
 				return;
 			}
-			if (holdFired) {
+			if (isHold(state)) {
 				if (selectionMode) return;
 				held.current = true;
 				onLongPress();
@@ -115,15 +118,11 @@ export function SwipeableRow({
 					Math.min(SWIPE_ACTION_WIDTH, peekOffset(peek) + travelled),
 				),
 			);
-		}),
+		},
 		{
 			...holdConfig(LONG_PRESS_DELAY_MS),
 			tapsThreshold: SWIPE_AXIS_THRESHOLD,
-			axisThreshold: {
-				mouse: SWIPE_AXIS_THRESHOLD,
-				touch: SWIPE_AXIS_THRESHOLD,
-				pen: SWIPE_AXIS_THRESHOLD,
-			},
+			axisThreshold: SWIPE_DRAG_CONFIG.axisThreshold,
 		},
 	);
 

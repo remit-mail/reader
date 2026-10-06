@@ -1,10 +1,3 @@
-/**
- * Touch gestures on the phone layout (#1362), driven as a finger and not as a
- * mouse: the context has touch support, and every hold, swipe and pinch goes
- * through Chromium's trusted touch input (`Input.dispatchTouchEvent` and
- * `Input.synthesizePinchGesture`), so the pointers the app sees report
- * `pointerType: "touch"`.
- */
 import type { CDPSession, Locator, Page } from "@playwright/test";
 import { expect, test } from "../src/fixtures.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";

@@ -1,37 +1,32 @@
 import { useDrag } from "@use-gesture/react";
 import type { FullGestureState } from "@use-gesture/vanilla";
-import { type RefObject, useEffect, useRef, useSyncExternalStore } from "react";
+import {
+	createContext,
+	type RefObject,
+	useEffect,
+	useRef,
+	useSyncExternalStore,
+} from "react";
+import { SWIPE_DRAG_CONFIG } from "./swipe-config.js";
 
 export type SwipeDirection = "left" | "right";
 
 export const SWIPE_EVENT = "remit:swipe";
 
-export const SWIPE_CONFIG = {
-	distance: 60,
-	velocity: 0.3,
-	duration: 600,
-} as const;
-
-export const SWIPE_AXIS_THRESHOLD = 10;
+export const SwipeSurface = createContext(false);
 
 const ZOOMED_SCALE = 1.01;
-
-export const isSwipeDirection = (value: unknown): value is SwipeDirection =>
-	value === "left" || value === "right";
-
-export const swipeDirection = (sign: number): SwipeDirection | null => {
-	if (sign < 0) return "left";
-	if (sign > 0) return "right";
-	return null;
-};
 
 export const releasedSwipe = (
 	state: FullGestureState<"drag">,
 ): SwipeDirection | null => {
 	const { event } = state;
-	if ("pointerType" in event && event.pointerType === "mouse") return null;
+	if ("pointerType" in event && event.pointerType !== "touch") return null;
 	if (event.type !== "pointerup") return null;
-	return swipeDirection(state.swipe[0]);
+	const sign = state.swipe[0];
+	if (sign < 0) return "left";
+	if (sign > 0) return "right";
+	return null;
 };
 
 export const subscribeToZoom = (notify: () => void): (() => void) => {
@@ -42,9 +37,6 @@ export const subscribeToZoom = (notify: () => void): (() => void) => {
 
 export const isZoomed = (): boolean =>
 	(window.visualViewport?.scale ?? 1) > ZOOMED_SCALE;
-
-export const useViewportZoomed = (): boolean =>
-	useSyncExternalStore(subscribeToZoom, isZoomed, () => false);
 
 interface UseSwipeNavigationOptions {
 	onSwipeLeft?: () => void;
@@ -62,7 +54,7 @@ export const useSwipeNavigation = ({
 	onSwipeRight,
 }: UseSwipeNavigationOptions): SwipeNavigation => {
 	const ref = useRef<HTMLDivElement>(null);
-	const zoomed = useViewportZoomed();
+	const zoomed = useSyncExternalStore(subscribeToZoom, isZoomed, () => false);
 
 	const go = (direction: SwipeDirection | null): void => {
 		if (direction === "left") onSwipeLeft?.();
@@ -70,10 +62,9 @@ export const useSwipeNavigation = ({
 	};
 
 	const bind = useDrag((state) => go(releasedSwipe(state)), {
+		...SWIPE_DRAG_CONFIG,
 		axis: "x",
 		enabled: !zoomed,
-		swipe: SWIPE_CONFIG,
-		pointer: { keys: false },
 	});
 
 	useEffect(() => {
@@ -81,7 +72,8 @@ export const useSwipeNavigation = ({
 		if (!element || zoomed) return;
 		const onFrameSwipe = (event: Event) => {
 			if (!(event instanceof CustomEvent)) return;
-			if (isSwipeDirection(event.detail)) go(event.detail);
+			const { detail } = event;
+			if (detail === "left" || detail === "right") go(detail);
 		};
 		element.addEventListener(SWIPE_EVENT, onFrameSwipe);
 		return () => element.removeEventListener(SWIPE_EVENT, onFrameSwipe);

@@ -1,9 +1,3 @@
-/**
- * SwipeableRow — jsdom gesture tests against the real @use-gesture/react
- * wiring: one drag recogniser owns the hold, the swipe and the tap, so each
- * test asserts which action a pointer sequence is bound to.
- */
-
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";

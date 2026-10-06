@@ -1,6 +1,3 @@
-// Re-exported so a consumer can chain useLongPress's longPressProps with its
-// own DOM props instead of a spread dropping one side's handler, without
-// importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
 	type BriefCategoryFilter,

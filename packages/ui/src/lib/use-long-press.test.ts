@@ -1,14 +1,3 @@
-/**
- * use-long-press — exercises the real hook (a @use-gesture/react drag with a
- * hold delay) against a jsdom-mounted element: real PointerEvents at a real
- * mounted node, asserting on the callback and the contextmenu suppression.
- *
- * The clock is mocked. Every timing assertion here is about one boundary —
- * the press crossed the threshold, or it ended first — and racing that
- * boundary against a wall clock on a loaded runner turns a passing test red
- * (#645). Time only moves when `advance` moves it.
- */
-
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";

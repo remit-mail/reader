@@ -477,8 +477,7 @@ export const ConversationView = ({
 	// Mobile: the kit MobileReadingPane owns the chrome — a top app bar with
 	// back, the email subject and the intelligence toggle (the host owns the
 	// drawer). Each expanded card owns its per-message action bar; there is no
-	// thread-level reply footer. The phishing warning leads the scroll content;
-	// horizontal swipe between messages is wired through onSwipeNext / onSwipePrevious (#693).
+	// thread-level reply footer. The phishing warning leads the scroll content.
 	if (!isDesktop) {
 		return (
 			<MobileReadingPane

@@ -27,7 +27,7 @@ const MAX_ARMED_MS = 5_000;
  * release disarms too, which is what keeps a keyboard-invoked menu
  * (Context-Menu key / Shift+F10) raised later from inheriting a press that is
  * long over. Deliberately keyed to `pointerup` and not to `pointercancel`: on
- * Android the browser — and react-aria's own long-press timer — can cancel the
+ * Android the browser can cancel the
  * pointer before the `contextmenu` it raised arrives, which would race the
  * suppression away.
  */
@@ -77,17 +77,8 @@ export const holdConfig = (delayMs: number) =>
 		pointer: { keys: false },
 	}) as const;
 
-export const withHold =
-	(handler: (state: FullGestureState<"drag">, holdFired: boolean) => void) =>
-	(state: FullGestureState<"drag">): string => {
-		const startType: unknown = state.memo;
-		if (typeof startType !== "string") {
-			handler(state, false);
-			return state.event.type;
-		}
-		handler(state, state.event.type === startType);
-		return startType;
-	};
+export const isHold = (state: FullGestureState<"drag">): boolean =>
+	state.event.type === "pointerdown" && !state._delayed;
 
 export const touchMenuSuppressionProps = {
 	onPointerDown: (event: PointerEvent) => {
@@ -103,9 +94,9 @@ export function useLongPress({
 	accessibilityDescription,
 }: UseLongPressOptions): UseLongPressResult {
 	const bind = useDrag(
-		withHold((_state, holdFired) => {
-			if (holdFired) onLongPress();
-		}),
+		(state) => {
+			if (isHold(state)) onLongPress();
+		},
 		{ ...holdConfig(delayMs), enabled: !isDisabled },
 	);
 
