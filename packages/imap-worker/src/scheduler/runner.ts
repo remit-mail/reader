@@ -70,12 +70,11 @@ const runLoop = async (): Promise<void> => {
 
 	await clearHeartbeats().catch(onClearError);
 	const client = await getClient();
-	const { account, mailboxLock } = client;
+	const { account } = client;
 	await runSchedulerLoop({
 		tick: runSchedulerTick,
 		tickDeps: {
 			accountService: account,
-			markers: mailboxLock,
 			sqsClient,
 			queueUrl: mailboxesQueueUrl,
 			log,

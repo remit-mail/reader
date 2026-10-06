@@ -506,7 +506,7 @@ export const MicrosoftOAuthOperations: Record<
 			);
 		}
 
-		const { account, accountConfig, mailboxLock, secrets } = await getClient();
+		const { account, accountConfig, secrets } = await getClient();
 
 		// Reconnect when an active OAuth account already onboards this mailbox.
 		// Same natural key as the IMAP create guard (#635); the OAuth flow returns
@@ -625,7 +625,7 @@ export const MicrosoftOAuthOperations: Record<
 		}
 
 		if (services.includes(AccountService.Mail)) {
-			await triggerAccountSyncSafe(accountId, mailboxLock);
+			await triggerAccountSyncSafe(accountId);
 		}
 
 		return redirect(

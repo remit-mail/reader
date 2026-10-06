@@ -49,11 +49,6 @@ const failingSqsClient = (error: Error): SQSClient =>
 		},
 	}) as unknown as SQSClient;
 
-const openMarkers = {
-	tryAcquireLock: async (): Promise<boolean> => true,
-	releaseLock: async (): Promise<void> => {},
-};
-
 describe("triggerConfigLoadSyncs", () => {
 	it("enqueues a sync for each account and logs success", async () => {
 		const sent: SendMessageCommand[] = [];
@@ -64,7 +59,6 @@ describe("triggerConfigLoadSyncs", () => {
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
 				sqsClient: okSqsClient(sent),
-				markers: openMarkers,
 				queueUrl: QUEUE_URL,
 				logger,
 			},
@@ -85,12 +79,7 @@ describe("triggerConfigLoadSyncs", () => {
 				{ accountId: "imported-no-password" },
 				withPassword("acc-with-password"),
 			],
-			{
-				sqsClient: okSqsClient(sent),
-				markers: openMarkers,
-				queueUrl: QUEUE_URL,
-				logger,
-			},
+			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
 		);
 
 		assert.equal(sent.length, 1);
@@ -113,12 +102,7 @@ describe("triggerConfigLoadSyncs", () => {
 					authType: AccountAuthType.OauthMicrosoft,
 				},
 			],
-			{
-				sqsClient: okSqsClient(sent),
-				markers: openMarkers,
-				queueUrl: QUEUE_URL,
-				logger,
-			},
+			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
 		);
 
 		assert.equal(sent.length, 0);
@@ -134,7 +118,6 @@ describe("triggerConfigLoadSyncs", () => {
 		await assert.doesNotReject(
 			triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 				sqsClient: failingSqsClient(econnrefused),
-				markers: openMarkers,
 				queueUrl: QUEUE_URL,
 				logger,
 			}),
@@ -150,7 +133,6 @@ describe("triggerConfigLoadSyncs", () => {
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 			sqsClient: failingSqsClient(econnrefused),
-			markers: openMarkers,
 			queueUrl: QUEUE_URL,
 			logger,
 		});
@@ -185,7 +167,6 @@ describe("triggerConfigLoadSyncs", () => {
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
 				sqsClient,
-				markers: openMarkers,
 				queueUrl: QUEUE_URL,
 				logger,
 			},
@@ -205,7 +186,6 @@ describe("triggerConfigLoadSyncs", () => {
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
 			sqsClient: failingSqsClient(sdkError),
-			markers: openMarkers,
 			queueUrl: QUEUE_URL,
 			logger,
 		});
@@ -243,7 +223,6 @@ describe("triggerConfigLoadSyncs", () => {
 				[withPassword("acc-a"), withPassword("acc-b")],
 				{
 					sqsClient: failingSqsClient(econnrefused),
-					markers: openMarkers,
 					queueUrl: QUEUE_URL,
 					logger,
 				},

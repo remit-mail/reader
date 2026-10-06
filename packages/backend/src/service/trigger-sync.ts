@@ -1,24 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import type { IMailboxLockRepository } from "@remit/data-ports";
-
-export type PendingMarkers = Pick<
-	IMailboxLockRepository,
-	"tryAcquireLock" | "releaseLock"
->;
-
-export const SYNC_MAILBOXES_PENDING = "SYNC_MAILBOXES_PENDING";
-export const SYNC_MAILBOXES_EXPLICIT_PENDING =
-	"SYNC_MAILBOXES_EXPLICIT_PENDING";
-
-export const syncMailboxesPendingName = (
-	explicitRequest: boolean | undefined,
-): string =>
-	explicitRequest ? SYNC_MAILBOXES_EXPLICIT_PENDING : SYNC_MAILBOXES_PENDING;
-
-export type TriggerSyncOutcome =
-	| { enqueued: true; eventId: string }
-	| { enqueued: false };
 
 interface SyncMailboxesEvent {
 	type: "SYNC_MAILBOXES";
@@ -30,7 +11,6 @@ interface SyncMailboxesEvent {
 
 interface TriggerAccountSyncInput {
 	sqsClient: SQSClient;
-	markers: PendingMarkers;
 	queueUrl: string;
 	accountId: string;
 	/**
@@ -86,7 +66,7 @@ export const buildScheduledSyncDedupId = (
 };
 
 export const buildSyncMailboxesCommand = (
-	input: Omit<TriggerAccountSyncInput, "sqsClient" | "markers">,
+	input: Omit<TriggerAccountSyncInput, "sqsClient">,
 ): SendMessageCommand => {
 	const { queueUrl, accountId, dedupId, explicitRequest } = input;
 	const event: SyncMailboxesEvent = {
@@ -111,28 +91,10 @@ export const buildSyncMailboxesCommand = (
 
 export const triggerAccountSync = async (
 	input: TriggerAccountSyncInput,
-): Promise<TriggerSyncOutcome> => {
+): Promise<{ eventId: string }> => {
 	const command = buildSyncMailboxesCommand(input);
+	await input.sqsClient.send(command);
 	const body = command.input.MessageBody ?? "{}";
-	const { eventId } = JSON.parse(body) as SyncMailboxesEvent;
-	const markerName = syncMailboxesPendingName(input.explicitRequest);
-
-	const acquired = await input.markers.tryAcquireLock(
-		input.accountId,
-		markerName,
-		input.accountId,
-		eventId,
-	);
-	if (!acquired) return { enqueued: false };
-
-	await input.sqsClient.send(command).catch(async (error: unknown) => {
-		await input.markers.releaseLock(
-			input.accountId,
-			input.accountId,
-			markerName,
-			eventId,
-		);
-		throw error;
-	});
-	return { enqueued: true, eventId };
+	const parsed = JSON.parse(body) as SyncMailboxesEvent;
+	return { eventId: parsed.eventId };
 };

@@ -23,7 +23,6 @@ export const MESSAGE_MGMT_QUEUE = "remit-message-mgmt";
 /** Where a record that exhausts its redrive budget on that queue ends up. */
 export const MESSAGE_MGMT_DLQ = "remit-message-mgmt-dlq";
 
-/** Where SYNC_MAILBOXES is delivered, one FIFO group per account. */
 export const MAILBOXES_QUEUE = "remit-mailboxes.fifo";
 
 /** Where MESSAGE_DELETE is delivered, one FIFO group per account. */
@@ -158,10 +157,6 @@ const attributesOf = async (
 	return attributes;
 };
 
-/**
- * Records waiting for a consumer, not counting any already in flight — the
- * depth a backlog grows in.
- */
 export const waitingMessages = async (queueName: string): Promise<number> =>
 	Number((await attributesOf(queueName)).ApproximateNumberOfMessages);
 

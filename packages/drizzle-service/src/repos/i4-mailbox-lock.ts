@@ -32,10 +32,11 @@ export class MailboxLockRepo implements IMailboxLockRepository {
 		eventName: string,
 		accountId: string,
 		lockId: string,
+		ttlSeconds: number = TTL_SECONDS,
 	): Promise<boolean> {
 		const now = Date.now();
 		const nowSeconds = Math.floor(now / 1000);
-		const ttl = nowSeconds + TTL_SECONDS;
+		const ttl = nowSeconds + ttlSeconds;
 
 		const rows = await this.db
 			.insert(mailboxLockTable)

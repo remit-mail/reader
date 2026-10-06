@@ -136,7 +136,6 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 	} as unknown as SQSClient;
 	const result = await runSchedulerTick({
 		accountService: accounts,
-		markers: locks,
 		sqsClient,
 		queueUrl: "https://queue.test/mailboxes",
 		log: silentLogger,

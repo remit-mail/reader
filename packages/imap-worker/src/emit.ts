@@ -1,13 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { getClient } from "@remit/backend/client";
+import type { IMailboxLockRepository } from "@remit/data-ports";
+import { recordImapFailure } from "@remit/logger-lambda";
 import {
 	createQueueProducer,
 	isLocalEndpoint,
 } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
-import type { ImapEvent } from "./events.js";
+import type { ImapEvent, SyncMessagesEvent } from "./events.js";
 
 type EventInput = Omit<ImapEvent, "eventId" | "timestamp">;
+
+export const SYNC_MESSAGES_PENDING = "SYNC_MESSAGES_PENDING";
+
+const SYNC_MESSAGES_PENDING_TTL_SECONDS = 300;
 
 const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
 const messagesQueueUrl = env.SQS_QUEUE_URL_MESSAGES;
@@ -59,7 +66,6 @@ export interface EmitEventOptions {
 	 * Useful for retry backoff to avoid overwhelming IMAP servers.
 	 */
 	delaySeconds?: number;
-	eventId?: string;
 }
 
 export const emitEvent = async (
@@ -68,7 +74,7 @@ export const emitEvent = async (
 ) => {
 	const fullEvent: ImapEvent = {
 		...event,
-		eventId: options?.eventId ?? randomUUID(),
+		eventId: randomUUID(),
 		timestamp: Date.now(),
 	} as ImapEvent;
 
@@ -78,29 +84,75 @@ export const emitEvent = async (
 	// ElasticMQ FIFO queues don't support per-message DelaySeconds
 	const useDelay = options?.delaySeconds && !isLocal;
 
-	await sqs.send(
-		new SendMessageCommand({
-			QueueUrl: queueUrl,
-			MessageBody: JSON.stringify(fullEvent),
-			// Delay delivery for retry backoff (skip for local ElasticMQ)
-			...(useDelay && { DelaySeconds: options.delaySeconds }),
-			// FIFO queue parameters — only set if the queue is FIFO. The
-			// deduplication id is the event's own id, so the queue suppresses a
-			// re-send of one event (the retry SQS's own idempotency guard is for)
-			// and nothing else. A shared id per account or per mailbox instead made
-			// the 5-minute window a rate limiter: the second sync of a mailbox
-			// within five minutes was discarded before any worker saw it, so mail
-			// that arrived after a sync could not be fetched until the window
-			// elapsed (issue #37).
-			//
-			// Dropping events is not how repeated work is bounded — that is the
-			// freshness gate in the sync-mailboxes fan-out, which decides whether
-			// a mailbox is worth enumerating at all. MessageGroupId only orders an
-			// account's events; it makes duplicates serial, not cheap.
-			...(useFifo && {
-				MessageGroupId: event.accountId,
-				MessageDeduplicationId: fullEvent.eventId,
+	const send = () =>
+		sqs.send(
+			new SendMessageCommand({
+				QueueUrl: queueUrl,
+				MessageBody: JSON.stringify(fullEvent),
+				// Delay delivery for retry backoff (skip for local ElasticMQ)
+				...(useDelay && { DelaySeconds: options.delaySeconds }),
+				// FIFO queue parameters — only set if the queue is FIFO. The
+				// deduplication id is the event's own id, so the queue suppresses a
+				// re-send of one event (the retry SQS's own idempotency guard is for)
+				// and nothing else. A shared id per account or per mailbox instead made
+				// the 5-minute window a rate limiter: the second sync of a mailbox
+				// within five minutes was discarded before any worker saw it, so mail
+				// that arrived after a sync could not be fetched until the window
+				// elapsed (issue #37).
+				//
+				// What bounds repeated work is the freshness gate in the
+				// sync-mailboxes fan-out and, for SYNC_MESSAGES, the pending marker
+				// taken below: a folder with a sync queued and not yet started takes
+				// no second one, and the marker clears when a worker starts it, so a
+				// sync asked for after that is never dropped.
+				...(useFifo && {
+					MessageGroupId: event.accountId,
+					MessageDeduplicationId: fullEvent.eventId,
+				}),
 			}),
-		}),
+		);
+	if (fullEvent.type !== "SYNC_MESSAGES") {
+		await send();
+		return;
+	}
+
+	const { mailboxLock } = await getClient();
+	const { accountId, mailboxId, eventId } = fullEvent;
+	const previous = await mailboxLock.get(
+		accountId,
+		mailboxId,
+		SYNC_MESSAGES_PENDING,
 	);
+	const acquired = await mailboxLock.tryAcquireLock(
+		mailboxId,
+		SYNC_MESSAGES_PENDING,
+		accountId,
+		eventId,
+		SYNC_MESSAGES_PENDING_TTL_SECONDS,
+	);
+	if (!acquired) return;
+	if (previous && previous.ttl < Math.floor(Date.now() / 1000)) {
+		recordImapFailure("SYNC_PENDING_EXPIRED", "other");
+	}
+
+	await send().catch(async (error: unknown) => {
+		await mailboxLock.releaseLock(
+			accountId,
+			mailboxId,
+			SYNC_MESSAGES_PENDING,
+			eventId,
+		);
+		throw error;
+	});
 };
+
+export const clearPendingSyncMessages = (
+	mailboxLock: Pick<IMailboxLockRepository, "releaseLock">,
+	event: Pick<SyncMessagesEvent, "accountId" | "mailboxId" | "eventId">,
+): Promise<void> =>
+	mailboxLock.releaseLock(
+		event.accountId,
+		event.mailboxId,
+		SYNC_MESSAGES_PENDING,
+		event.eventId,
+	);

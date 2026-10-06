@@ -4,7 +4,6 @@ import type {
 	IAccountRepository,
 	IAddressRepository,
 	IEnvelopeRepository,
-	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
@@ -33,16 +32,12 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { emitEvent } from "../emit.js";
+import { clearPendingSyncMessages, emitEvent } from "../emit.js";
 import type {
 	FlagPushEvent,
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
-import {
-	clearPendingSyncMessages,
-	emitSyncMessagesOnce,
-} from "../pending-sync.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -208,7 +203,6 @@ export const syncMessages = async (
 								quarantineService,
 								flagPushMarkerService,
 								messageFlagService,
-								mailboxLockService,
 								unitOfWork,
 							},
 							log,
@@ -287,7 +281,6 @@ interface SyncDeps {
 	quarantineService: IQuarantineRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
-	mailboxLockService: IMailboxLockRepository;
 	unitOfWork?: IUnitOfWork;
 }
 
@@ -381,7 +374,6 @@ const syncMailboxMessages = async (
 		quarantineService,
 		flagPushMarkerService,
 		messageFlagService,
-		mailboxLockService,
 		unitOfWork,
 	} = deps;
 
@@ -493,7 +485,7 @@ const syncMailboxMessages = async (
 			accountId: event.accountId,
 			mailboxId,
 		};
-		await emitSyncMessagesOnce(mailboxLockService, nextSyncEvent);
+		await emitEvent(nextSyncEvent);
 		return;
 	}
 

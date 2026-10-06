@@ -1,20 +1,3 @@
-/**
- * A burst of refreshes, the messages queue holding no more than one waiting
- * sync per folder.
- *
- * POST /sync is what the refresh control and every open tab's poll call, and it
- * asks for every folder of the account to be synced. Each call used to put one
- * SYNC_MESSAGES per folder on `remit-messages.fifo` whether or not one was
- * already waiting there, so a few tabs polling every 30s grew the queue by
- * thousands an hour while a sync ran for seconds (#1366). A sync that has not
- * started yet already covers whatever a second request would have fetched, so
- * the queue never needs more than one per folder.
- *
- * The depth is read with the burst still landing and until both queues have
- * drained, because the fan-out happens after the POSTs return.
- *
- * A throwaway user, so no other account's events share the queue.
- */
 import { ApiClient } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";

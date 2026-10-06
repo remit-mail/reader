@@ -1,8 +1,18 @@
 import assert from "node:assert/strict";
-import { before, beforeEach, describe, it } from "node:test";
+import { afterEach, before, beforeEach, describe, it } from "node:test";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "@remit/backend/client";
+import { MailboxLockRepo } from "@remit/drizzle-service";
+import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { mockClient } from "aws-sdk-client-mock";
-import type { emitEvent as EmitEvent } from "./emit.js";
+import type {
+	clearPendingSyncMessages as ClearPendingSyncMessages,
+	emitEvent as EmitEvent,
+} from "./emit.js";
 import type {
 	FlagPushEvent,
 	SyncMailboxesEvent,
@@ -21,6 +31,9 @@ const fifo = (name: string) =>
 const sqsMock = mockClient(SQSClient);
 
 let emitEvent: typeof EmitEvent;
+let clearPendingSyncMessages: typeof ClearPendingSyncMessages;
+let locks: MailboxLockRepo;
+let closeStore: () => void;
 
 const sentCommands = (): SendMessageCommand["input"][] =>
 	sqsMock.commandCalls(SendMessageCommand).map((call) => call.args[0].input);
@@ -32,11 +45,21 @@ before(async () => {
 	process.env.SQS_QUEUE_URL_MAILBOXES = fifo("mailboxes");
 	process.env.SQS_QUEUE_URL_MESSAGES = fifo("messages");
 	process.env.SQS_QUEUE_URL_FLAGS = fifo("flags");
-	({ emitEvent } = await import("./emit.js"));
+	({ emitEvent, clearPendingSyncMessages } = await import("./emit.js"));
 });
 
 beforeEach(() => {
 	sqsMock.reset();
+	sqsMock.on(SendMessageCommand).resolves({});
+	const store = createShippedSqliteDb();
+	closeStore = store.close;
+	locks = new MailboxLockRepo(store.db);
+	setClient({ mailboxLock: locks } as unknown as RemitClient);
+});
+
+afterEach(() => {
+	_resetForTest();
+	closeStore();
 });
 
 describe("emitEvent on a FIFO queue", () => {
@@ -68,6 +91,13 @@ describe("emitEvent on a FIFO queue", () => {
 		};
 
 		await emitEvent(event);
+		const [first] = sentCommands();
+		if (!first) throw new Error("expected a send");
+		await clearPendingSyncMessages(locks, {
+			accountId: "acc-1",
+			mailboxId: "mbx-1",
+			eventId: String(bodyOf(first).eventId),
+		});
 		await emitEvent(event);
 
 		const sent = sentCommands();

@@ -9,26 +9,21 @@ import {
 	fireAndForget,
 } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
-import {
-	type PendingMarkers,
-	triggerAccountSync,
-} from "../service/trigger-sync.js";
+import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
 
 interface SyncTriggerDeps {
 	sqsClient: SQSClient;
-	markers: PendingMarkers;
 	queueUrl: string;
 	logger: FireAndForgetLogger & {
 		info: (fields: Record<string, unknown>, message: string) => void;
 	};
 }
 
-const defaultSyncTriggerDeps = (markers: PendingMarkers): SyncTriggerDeps => ({
+const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
 	sqsClient,
-	markers,
 	queueUrl: env.SQS_QUEUE_URL,
 	logger,
 });
@@ -51,26 +46,22 @@ const defaultSyncTriggerDeps = (markers: PendingMarkers): SyncTriggerDeps => ({
 export const triggerSyncSafe = async (
 	accountId: string,
 	accountConfigId: string,
-	deps: SyncTriggerDeps,
+	deps: SyncTriggerDeps = defaultSyncTriggerDeps(),
 ): Promise<void> => {
 	await fireAndForget(
 		async () => {
-			const outcome = await triggerAccountSync({
+			const { eventId } = await triggerAccountSync({
 				sqsClient: deps.sqsClient,
-				markers: deps.markers,
 				queueUrl: deps.queueUrl,
 				accountId,
 				// POST /sync asks for a sync of this account by name — the refresh
 				// control, pull-to-refresh, and the client's automatic poll all land
 				// here — so it syncs every mailbox regardless of how recently one
-				// ran. The poll's cadence is floored client-side at the fan-out
-				// gate's window, so this branch cannot be driven faster than the
-				// gate would allow.
+				// ran.
 				explicitRequest: true,
 			});
-			if (!outcome.enqueued) return;
 			deps.logger.info(
-				{ accountId, eventId: outcome.eventId },
+				{ accountId, eventId },
 				"Sync triggered - enqueued SYNC_MAILBOXES event",
 			);
 		},
@@ -92,15 +83,10 @@ export const SyncOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = await getClient();
-		const account = await client.account.get(accountId);
+		const account = await (await getClient()).account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		void triggerSyncSafe(
-			account.accountId,
-			accountConfigId,
-			defaultSyncTriggerDeps(client.mailboxLock),
-		);
+		void triggerSyncSafe(account.accountId, accountConfigId);
 
 		return {
 			triggered: true,
