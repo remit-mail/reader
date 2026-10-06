@@ -200,7 +200,7 @@ export function useCalendarNavigation(): CalendarNavigation {
 					hash: retainPanels,
 				}),
 		}),
-		[goTo, navigate, router, dayHref, retainPanels, view, date],
+		[goTo, navigate, dayHref, retainPanels, view, date],
 	);
 }
 
