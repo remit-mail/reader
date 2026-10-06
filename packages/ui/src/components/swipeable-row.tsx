@@ -11,6 +11,7 @@ import {
 	holdConfig,
 	isHold,
 	LONG_PRESS_DELAY_MS,
+	swallowReleaseClick,
 	touchMenuSuppressionProps,
 } from "../lib/use-long-press.js";
 import type { ThreadRowData } from "./app-shell-types.js";
@@ -106,6 +107,7 @@ export function SwipeableRow({
 			if (isHold(state)) {
 				if (selectionMode) return;
 				held.current = true;
+				swallowReleaseClick();
 				onLongPress();
 				return;
 			}

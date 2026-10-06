@@ -54,6 +54,29 @@ function arm(): void {
 	armedTimer = setTimeout(disarm, MAX_ARMED_MS);
 }
 
+let clickTimer: ReturnType<typeof setTimeout> | undefined;
+
+function swallowClick(event: Event): void {
+	event.preventDefault();
+	event.stopPropagation();
+	releaseClick();
+}
+
+function releaseClick(): void {
+	if (clickTimer === undefined) return;
+	clearTimeout(clickTimer);
+	clickTimer = undefined;
+	document.removeEventListener("click", swallowClick, true);
+	document.removeEventListener("pointerdown", releaseClick, true);
+}
+
+export function swallowReleaseClick(): void {
+	releaseClick();
+	document.addEventListener("click", swallowClick, true);
+	document.addEventListener("pointerdown", releaseClick, true);
+	clickTimer = setTimeout(releaseClick, MAX_ARMED_MS);
+}
+
 export const LONG_PRESS_DELAY_MS = 500;
 
 export const LONG_PRESS_DRIFT_PX = 36;
@@ -95,7 +118,9 @@ export function useLongPress({
 }: UseLongPressOptions): UseLongPressResult {
 	const bind = useDrag(
 		(state) => {
-			if (isHold(state)) onLongPress();
+			if (!isHold(state)) return;
+			swallowReleaseClick();
+			onLongPress();
 		},
 		{ ...holdConfig(delayMs), enabled: !isDisabled },
 	);

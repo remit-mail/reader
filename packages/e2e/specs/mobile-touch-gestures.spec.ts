@@ -1,5 +1,8 @@
 import type { CDPSession, Locator, Page } from "@playwright/test";
+import { ApiClient } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
+import { appendMessages } from "../src/imap.js";
+import { type RunState, readRunState } from "../src/state.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const MOBILE = { width: 390, height: 844 };
@@ -71,14 +74,29 @@ const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 const selectionStatus = (page: Page): Locator =>
 	page.locator("[data-selection-count]");
 
+const TAG = `touch-gestures ${Date.now()}`;
+const NEWER = `${TAG} newer`;
+const MIDDLE = `${TAG} middle`;
+const OLDER = `${TAG} older`;
+
+const htmlMessage = (subject: string, date: Date) => ({
+	subject,
+	date,
+	contentType: "text/html" as const,
+	body: `<p style="font-size:18px">${subject}</p><p>Body of ${subject}.</p>`,
+});
+
+const fixtureRow = (page: Page, subject: string): Locator =>
+	rows(page).filter({ hasText: subject });
+
 const messageIdOf = async (row: Locator): Promise<string> => {
 	const id = await row.getAttribute("data-message-id");
 	if (!id) throw new Error("row has no message id");
 	return id;
 };
 
-const openSecondMessage = async (page: Page): Promise<Locator> => {
-	await rows(page).nth(1).tap();
+const openMiddleMessage = async (page: Page): Promise<Locator> => {
+	await fixtureRow(page, MIDDLE).tap();
 	await page.waitForURL(MAILBOX_THREAD_URL);
 	const body = page.locator('iframe[title="Email content"]').first();
 	await expect(body).toBeVisible({ timeout: 30_000 });
@@ -132,11 +150,40 @@ test.describe("Touch gestures", () => {
 		).toBeVisible();
 	});
 
-	test("a swipe left over the message body opens the next message", async ({
-		page,
-	}) => {
-		const nextId = await messageIdOf(rows(page).nth(2));
-		const body = await openSecondMessage(page);
+});
+
+test.describe("Touch gestures over the message body", () => {
+	let run: RunState;
+	let api: ApiClient;
+
+	test.beforeAll(async () => {
+		run = readRunState();
+		api = new ApiClient(run);
+		await appendMessages(run.imapUser, [
+			htmlMessage(NEWER, new Date("2001-03-01T12:00:00Z")),
+			htmlMessage(MIDDLE, new Date("2001-02-01T12:00:00Z")),
+			htmlMessage(OLDER, new Date("2001-01-01T12:00:00Z")),
+		]);
+		await api.triggerSync(run.accountId);
+	});
+
+	test.afterAll(async () => {
+		for (const mailbox of await api.listMailboxes(run.accountId)) {
+			const ids = await api.searchMatchingMessageIds(mailbox.mailboxId, TAG);
+			if (ids.length > 0) await api.deleteMessages(ids);
+		}
+	});
+
+	test.beforeEach(async ({ page }) => {
+		await expect(async () => {
+			await gotoInbox(page, run.inboxId);
+			await expect(fixtureRow(page, MIDDLE)).toHaveCount(1, { timeout: 5_000 });
+		}).toPass({ timeout: 90_000 });
+	});
+
+	test("a swipe left opens the next message", async ({ page }) => {
+		const nextId = await messageIdOf(fixtureRow(page, OLDER));
+		const body = await openMiddleMessage(page);
 		const at = await centerOf(body);
 
 		await swipe(page, { x: at.x + 120, y: at.y }, { x: at.x - 120, y: at.y });
@@ -144,11 +191,9 @@ test.describe("Touch gestures", () => {
 		await expect.poll(() => page.url()).toContain(nextId);
 	});
 
-	test("a swipe right over the message body opens the previous message", async ({
-		page,
-	}) => {
-		const previousId = await messageIdOf(rows(page).nth(0));
-		const body = await openSecondMessage(page);
+	test("a swipe right opens the previous message", async ({ page }) => {
+		const previousId = await messageIdOf(fixtureRow(page, NEWER));
+		const body = await openMiddleMessage(page);
 		const at = await centerOf(body);
 
 		await swipe(page, { x: at.x - 120, y: at.y }, { x: at.x + 120, y: at.y });
@@ -156,8 +201,8 @@ test.describe("Touch gestures", () => {
 		await expect.poll(() => page.url()).toContain(previousId);
 	});
 
-	test("a pinch over the message body zooms the page", async ({ page }) => {
-		const body = await openSecondMessage(page);
+	test("a pinch zooms the page", async ({ page }) => {
+		const body = await openMiddleMessage(page);
 		expect(await pageZoom(page)).toBeLessThan(1.01);
 
 		await pinchOut(page, await centerOf(body));
