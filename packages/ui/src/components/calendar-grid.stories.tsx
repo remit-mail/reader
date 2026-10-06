@@ -126,6 +126,8 @@ const meta: Meta<typeof CalendarGrid> = {
 		onSelectEvent: () => undefined,
 		onPickSlot: () => undefined,
 		onRangeChange: () => undefined,
+		dayHref: (day) => `#${day}`,
+		onZoomDay: () => undefined,
 	},
 };
 export default meta;

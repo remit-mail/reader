@@ -10,7 +10,7 @@ import interactionPlugin from "@fullcalendar/react/interaction";
 import listPlugin from "@fullcalendar/react/list";
 import multiMonthPlugin from "@fullcalendar/react/multimonth";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import { useEffect, useMemo, useRef } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef } from "react";
 import { calendarEventBodyClasses } from "../lib/calendar-event-shell.js";
 import {
 	isDraggedSelection,
@@ -104,8 +104,8 @@ export interface CalendarGridProps {
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	/** The range title the grid computed, e.g. "8 – 14 Jun 2026". */
 	onRangeChange: (title: string) => void;
-	/** Makes each day's number a link that opens that day. */
-	onZoomDay?: (date: string) => void;
+	dayHref: (date: string) => string;
+	onZoomDay: (date: string) => void;
 	className?: string;
 }
 
@@ -143,11 +143,12 @@ function toInput(event: CalendarEventData): EventInput {
 	};
 }
 
-const pad = (value: number): string => String(value).padStart(2, "0");
-
-/* The engine hands a day back as a UTC midnight, whatever zone it draws in. */
-const isoDay = (day: Date): string =>
-	`${day.getUTCFullYear()}-${pad(day.getUTCMonth() + 1)}-${pad(day.getUTCDate())}`;
+const isModifiedClick = (click: MouseEvent<HTMLElement>): boolean =>
+	click.button !== 0 ||
+	click.metaKey ||
+	click.ctrlKey ||
+	click.shiftKey ||
+	click.altKey;
 
 export function CalendarGrid({
 	view,
@@ -161,6 +162,7 @@ export function CalendarGrid({
 	onSelectEvent,
 	onPickSlot,
 	onRangeChange,
+	dayHref,
 	onZoomDay,
 	className,
 }: CalendarGridProps) {
@@ -262,9 +264,24 @@ export function CalendarGrid({
 				allDayText="All day"
 				dayMaxEvents={isTight ? 2 : 3}
 				eventMaxStack={3}
-				navLinks={onZoomDay !== undefined && view === "month"}
-				navLinkDayClick={(day) => onZoomDay?.(isoDay(day))}
-				navLinkClass="hover:underline"
+				dayCellTopContent={(info) => {
+					if (view !== "month") return;
+					const day = info.date.toISOString().slice(0, 10);
+					return (
+						<a
+							href={dayHref(day)}
+							aria-label={`Open ${info.date.toLocaleDateString("en-GB", { dateStyle: "full", timeZone: "UTC" })}`}
+							className="hover:underline"
+							onClick={(click) => {
+								if (isModifiedClick(click)) return;
+								click.preventDefault();
+								onZoomDay(day);
+							}}
+						>
+							{info.date.getUTCDate()}
+						</a>
+					);
+				}}
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
 				scrollTime="08:30:00"

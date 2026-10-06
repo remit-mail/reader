@@ -88,6 +88,8 @@ const base: CalendarGridProps = {
 	onSelectEvent: () => undefined,
 	onPickSlot: () => undefined,
 	onRangeChange: () => undefined,
+	dayHref: (day) => `/day/${day}`,
+	onZoomDay: () => undefined,
 };
 
 interface Chip {
@@ -255,31 +257,53 @@ describe("CalendarGrid month", () => {
 		);
 	});
 
-	it("moves to the previous and the next month with the date it is given", () => {
-		const first = (date: string) =>
-			monthDays(grid({ view: "month", date }))[10];
-		assert.equal(first("2026-05-15").slice(0, 7), "2026-05");
-		assert.equal(first("2026-06-15").slice(0, 7), "2026-06");
-		assert.equal(first("2026-07-15").slice(0, 7), "2026-07");
+	it("makes each day's number a real link to that day", () => {
+		const root = grid({ view: "month", date: TODAY });
+		const link = root.querySelector<HTMLAnchorElement>(
+			"a[aria-label='Open Wednesday, 10 June 2026']",
+		);
+		assert.ok(link);
+		assert.equal(link.getAttribute("href"), "/day/2026-06-10");
+		assert.equal(link.textContent, "10");
+		assert.equal(root.querySelectorAll("a[href^='/day/']").length, 35);
 	});
 
-	it("makes each day's number a link that opens the day", () => {
+	it("draws an event that crosses Sunday into Monday on both days", () => {
+		const drawn = chips(
+			grid({
+				view: "month",
+				date: TODAY,
+				events: [
+					anEvent({
+						id: "overnight",
+						title: "Overnight deploy",
+						start: "2026-06-28T22:00:00+02:00",
+						end: "2026-06-29T02:00:00+02:00",
+					}),
+				],
+			}),
+		).filter((one) => one.title === "Overnight deploy");
+		assert.deepEqual(
+			drawn.map((one) => one.date),
+			["2026-06-28", "2026-06-29"],
+		);
+	});
+
+	it("places an event on the day it falls on in the grid's zone, not its own", () => {
 		const root = grid({
 			view: "month",
 			date: TODAY,
-			onZoomDay: () => undefined,
+			events: [
+				anEvent({
+					id: "newyork",
+					title: "Late call",
+					timeZone: "America/New_York",
+					start: "2026-06-30T23:30:00-04:00",
+					end: "2026-07-01T00:30:00-04:00",
+				}),
+			],
 		});
-		const links = root.querySelectorAll("[role=link][aria-label^='Go to']");
-		assert.equal(links.length, 35);
-		assert.equal(
-			root.querySelector("[role=link][aria-label='Go to June 10, 2026']")
-				?.textContent,
-			"10",
-		);
-		assert.equal(
-			grid({ view: "month", date: TODAY }).querySelector("[role=link]"),
-			null,
-		);
+		assert.equal(chip(root, "Late call").date, "2026-07-01");
 	});
 });
 

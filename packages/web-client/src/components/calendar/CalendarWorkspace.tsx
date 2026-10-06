@@ -76,6 +76,7 @@ export interface CalendarWorkspaceProps {
 	onSelectEvent: (eventId: string) => void;
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	onStep: (direction: -1 | 1) => void;
+	dayHref: (date: string) => string;
 	onZoomDay: (date: string) => void;
 	/**
 	 * A phone: the toolbar splits into two rows of thumb-sized controls, because
@@ -138,6 +139,7 @@ export function CalendarWorkspace({
 	onSelectEvent,
 	onPickSlot,
 	onStep,
+	dayHref,
 	onZoomDay,
 	touch = false,
 }: CalendarWorkspaceProps) {
@@ -239,6 +241,7 @@ export function CalendarWorkspace({
 								now={now}
 								onSelectEvent={onSelectEvent}
 								onPickSlot={onPickSlot}
+								dayHref={dayHref}
 								onZoomDay={onZoomDay}
 								onRangeChange={(measuredTitle) =>
 									setMeasured({ key: addressKey, title: measuredTitle })

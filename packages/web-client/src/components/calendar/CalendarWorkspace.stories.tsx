@@ -8,7 +8,8 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { expect, waitFor, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
+import { stepCalendarDate } from "@/lib/calendar-route";
 import { CalendarWaiting } from "./CalendarWaiting";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 
@@ -207,12 +208,13 @@ function Workspace({
 	waiting?: "none" | "some" | "refused";
 }) {
 	const [view, setView] = useState<CalendarViewId>(initialView);
+	const [date, setDate] = useState(DATE);
 	const [density, setDensity] = useState<Density>("comfortable");
 	const [selected, setSelected] = useState("");
 	return (
 		<CalendarWorkspace
 			view={view}
-			date={DATE}
+			date={date}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
 			// The strip loads its own days and is storied on its own; here it
@@ -236,8 +238,14 @@ function Workspace({
 			now={NOW}
 			onChangeView={setView}
 			onToday={() => undefined}
-			onStep={() => undefined}
-			onZoomDay={() => undefined}
+			onStep={(direction) =>
+				setDate((current) => stepCalendarDate(current, view, direction))
+			}
+			dayHref={(day) => `/calendar/day/${day}`}
+			onZoomDay={(day) => {
+				setView("day");
+				setDate(day);
+			}}
 			onChangeDensity={setDensity}
 			onSelectEvent={setSelected}
 			onPickSlot={() => undefined}
@@ -272,10 +280,23 @@ export const Month: Story = {
 		await waitFor(() =>
 			expect(canvas.getAllByText("Roadmap review").length).toBeGreaterThan(0),
 		);
-		await expect(canvas.getByRole("button", { name: "Next" })).toBeVisible();
-		await expect(
-			canvas.getByRole("button", { name: "Previous" }),
-		).toBeVisible();
+		await userEvent.click(canvas.getByRole("button", { name: "Next" }));
+		await waitFor(() =>
+			expect(canvas.getByRole("heading", { level: 2 })).toHaveTextContent(
+				/July 2026/,
+			),
+		);
+		const day = canvas.getByRole("link", {
+			name: "Open Wednesday, 15 July 2026",
+		});
+		await expect(day).toHaveAttribute("href", "/calendar/day/2026-07-15");
+		await userEvent.click(day);
+		await waitFor(() =>
+			expect(canvas.getByRole("radio", { name: "Day" })).toBeChecked(),
+		);
+		await expect(canvas.getByRole("heading", { level: 2 })).toHaveTextContent(
+			/15 July 2026|July 15, 2026/,
+		);
 	},
 };
 

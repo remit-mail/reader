@@ -1,5 +1,10 @@
 import type { CalendarViewId } from "@remit/ui";
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import {
+	useNavigate,
+	useParams,
+	useRouter,
+	useSearch,
+} from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
 	canonicalCalendarParams,
@@ -101,6 +106,7 @@ export interface CalendarNavigation {
 	setAnchorDate: (date: string) => void;
 	/** Out of the list and into the grid for one day. */
 	zoomToDay: (date: string) => void;
+	dayHref: (date: string) => string;
 	/**
 	 * One occurrence names the series it belongs to and the instance under it;
 	 * a resource that does not recur names only itself.
@@ -121,6 +127,7 @@ export interface CalendarNavigation {
  */
 export function useCalendarNavigation(): CalendarNavigation {
 	const navigate = useNavigate();
+	const router = useRouter();
 	const retainPanels = useRetainOpenPanels();
 	const { view, date } = useCalendarAddress();
 
@@ -151,6 +158,13 @@ export function useCalendarNavigation(): CalendarNavigation {
 					replace: true,
 				}),
 			zoomToDay: (next: string) => goTo({ view: "day", date: next }),
+			dayHref: (next: string) =>
+				router.buildLocation({
+					to: VIEW_ROUTE,
+					params: { view: "day", date: next },
+					search: true,
+					hash: retainPanels,
+				}).href,
 			openEvent: (calendarObjectId: string, recurrenceId?: string) =>
 				recurrenceId === undefined || recurrenceId === ""
 					? navigate({
@@ -181,7 +195,7 @@ export function useCalendarNavigation(): CalendarNavigation {
 					hash: retainPanels,
 				}),
 		}),
-		[goTo, navigate, retainPanels, view, date],
+		[goTo, navigate, router, retainPanels, view, date],
 	);
 }
 

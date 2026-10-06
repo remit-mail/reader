@@ -70,6 +70,7 @@ const workspaceProps = (
 	onChangeView: noop,
 	onToday: noop,
 	onStep: noop,
+	dayHref: (day) => `/calendar/day/${day}`,
 	onZoomDay: noop,
 	onChangeDensity: noop,
 	onSelectEvent: noop,

@@ -115,6 +115,7 @@ function Shell({
 							onChangeView={() => undefined}
 							onToday={() => undefined}
 							onStep={() => undefined}
+							dayHref={(day) => `#${day}`}
 							onZoomDay={() => undefined}
 							onChangeDensity={setDensity}
 							onSelectEvent={() => undefined}
