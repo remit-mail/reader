@@ -141,6 +141,23 @@ describe("the sidecar /metrics endpoint", () => {
 		assert.equal(post.status, 400);
 	});
 
+	it("exports how long each queue has gone without handing out a message", async () => {
+		store.purgeQueue("work");
+		store.sendMessage({ queueName: "work", body: "waiting" });
+		const idle = await get("/metrics");
+		assert.match(
+			idle.body,
+			/^remit_queue_last_receive_age_seconds\{queue="work",role="work"\} \d+$/m,
+		);
+
+		const quiet = store.lastReceiveAgeSeconds("work", Date.now() + 901_000);
+		assert.ok(quiet >= 900);
+
+		store.receiveMessages({ queueName: "work", maxMessages: 1 });
+		assert.equal(store.lastReceiveAgeSeconds("work"), 0);
+		store.purgeQueue("work");
+	});
+
 	it("counts only visible messages as depth", () => {
 		store.sendMessage({ queueName: "work", body: "c" });
 		store.receiveMessages({ queueName: "work", maxMessages: 1 });
@@ -165,6 +182,7 @@ describe("a store that cannot answer for any queue", () => {
 					getQueueAttributes: () => {
 						throw new Error("never reached");
 					},
+					lastReceiveAgeSeconds: () => 0,
 				}),
 			/holds no queues/,
 		);

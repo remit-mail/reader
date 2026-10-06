@@ -17,9 +17,16 @@ const queueMessages = new Gauge({
 	registers: [registry],
 });
 
+const queueLastReceiveAge = new Gauge({
+	name: "remit_queue_last_receive_age_seconds",
+	help: "Seconds since a queue last handed a message to a consumer, or since the sidecar started if it has not.",
+	labelNames: ["queue", "role"],
+	registers: [registry],
+});
+
 export type QueueDepthSource = Pick<
 	QueueStore,
-	"listQueues" | "getQueueAttributes"
+	"listQueues" | "getQueueAttributes" | "lastReceiveAgeSeconds"
 >;
 
 export const queueRoles = (
@@ -59,11 +66,13 @@ export const collectQueueDepths = (store: QueueDepthSource): void => {
 	}
 	const roles = queueRoles(queues);
 	queueMessages.reset();
+	queueLastReceiveAge.reset();
 	for (const queue of queues) {
 		const attributes = store.getQueueAttributes(queue.name);
-		queueMessages.set(
-			{ queue: queue.name, role: roles.get(queue.name) ?? "work" },
-			attributes.approximateNumberOfMessages,
-		);
+		const labels = { queue: queue.name, role: roles.get(queue.name) ?? "work" };
+		queueMessages.set(labels, attributes.approximateNumberOfMessages);
+		if (labels.role === "work") {
+			queueLastReceiveAge.set(labels, store.lastReceiveAgeSeconds(queue.name));
+		}
 	}
 };

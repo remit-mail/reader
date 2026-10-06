@@ -231,7 +231,8 @@ const pollTarget = async (
 };
 
 /**
- * received (default: SIGINT, SIGTERM). The signal aborts each loop's in-flight
+ * Runs every target's poll loop until one of `signals` is received (default:
+ * SIGINT, SIGTERM). The signal aborts each loop's in-flight
  * long-poll receive so an idle worker returns at once instead of waiting out
  * the current 20s poll; a loop mid-handler finishes that handler first. Rejects
  * (crashes the process) if any loop throws — a stuck poller should exit loudly,

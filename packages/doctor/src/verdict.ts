@@ -10,6 +10,7 @@ export type ReasonCode =
 	| "scrape_failed"
 	| "worker_heartbeat_stale"
 	| "dead_letter_queue_not_empty"
+	| "queue_stalled"
 	| "account_sync_stalled"
 	| "mail_auth_failing"
 	| "signal_missing"
@@ -165,6 +166,34 @@ const deadLetterDepth = (
 	return {
 		code: "dead_letter_queue_not_empty",
 		summary: `${total} ${plural(total, "message is", "messages are")} quarantined on ${occupied.length} ${plural(occupied.length, "dead-letter queue", "dead-letter queues")} (${names})`,
+		detail: undefined,
+	};
+};
+
+const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
+
+const stalledQueues = (
+	samples: readonly ScrapeResult[],
+): Reason | undefined => {
+	const all = samples.flatMap((scrape) => [...scrape.samples]);
+	const waiting = new Set(
+		seriesNamed(all, "remit_queue_messages")
+			.filter((sample) => sample.labels.role === "work" && sample.value > 0)
+			.map((sample) => sample.labels.queue),
+	);
+	const stalled = seriesNamed(all, "remit_queue_last_receive_age_seconds")
+		.filter(
+			(sample) =>
+				sample.labels.role === "work" &&
+				sample.value > QUEUE_RECEIVE_IDLE_MAX_SECONDS &&
+				waiting.has(sample.labels.queue),
+		)
+		.map((sample) => sample.labels.queue)
+		.sort();
+	if (stalled.length === 0) return undefined;
+	return {
+		code: "queue_stalled",
+		summary: `${stalled.length} ${plural(stalled.length, "queue has", "queues have")} messages waiting and nothing received for over ${formatDuration(QUEUE_RECEIVE_IDLE_MAX_SECONDS)} (${stalled.join(", ")})`,
 		detail: undefined,
 	};
 };
@@ -357,6 +386,7 @@ const ORDER: readonly ReasonCode[] = [
 	"worker_heartbeat_stale",
 	"account_sync_stalled",
 	"mail_auth_failing",
+	"queue_stalled",
 	"dead_letter_queue_not_empty",
 ];
 
@@ -396,6 +426,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		staleHeartbeats(input.heartbeats, input.heartbeatMaxAgeSeconds),
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
 		authFailures(counters, input.authFailureHoldSeconds, now),
+		stalledQueues(input.scrapes),
 		deadLetterDepth(input.scrapes),
 	].filter((reason): reason is Reason => reason !== undefined);
 

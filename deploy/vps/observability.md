@@ -19,6 +19,7 @@ Nothing is ever pushed. If you run none and want one on the box, the optional
 | Series | From |
 |---|---|
 | `remit_queue_messages{queue,role}` | `queue` — depth per queue; `role="dead_letter"` is a DLQ |
+| `remit_queue_last_receive_age_seconds{queue,role}` | `queue` — seconds since the queue last handed a message to a consumer, or since the sidecar started if it has not |
 | `remit_account_sync_age_seconds{account_id}` | `backend` — seconds since that account last completed a message-sync round |
 | `remit_imap_failures_total{operation,kind}` | `imap-worker` — `kind="auth"` is counted apart from other failures |
 | `remit_smtp_failures_total{kind}` | `smtp-worker` — same split |
@@ -60,6 +61,7 @@ It is degraded when any of these is true:
 |---|---|
 | `scrape_failed` | A service is not answering `/metrics` |
 | `worker_heartbeat_stale` | A worker's slowest poll loop has not written for 7 minutes, or has written nothing at all. `search-index-worker` is watched only where semantic search is on, so an instance that never opted in is not reported as missing it |
+| `queue_stalled` | A work queue has messages waiting and nothing has been received from it for 15 minutes. A deep queue that is still being drained does not trigger it |
 | `account_sync_stalled` | An account has not completed a sync round in an hour, against a healthy peak of about 25 minutes at the default [sync cadence](README.md#mail-sync-cadence) |
 | `mail_auth_failing` | An IMAP or SMTP authentication failure counter has gone up in the last hour |
 | `dead_letter_queue_not_empty` | Anything is quarantined on any DLQ |

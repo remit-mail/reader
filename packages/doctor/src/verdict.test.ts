@@ -379,6 +379,42 @@ describe("evaluate", () => {
 		);
 	});
 
+	it("degrades on a work queue with messages waiting and nothing received for 15 minutes", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					scrape(
+						"queue",
+						'remit_queue_messages{queue="messages",role="work"} 40\nremit_queue_last_receive_age_seconds{queue="messages",role="work"} 901\nremit_queue_last_receive_age_seconds{queue="messages-dlq",role="dead_letter"} 99999\n',
+					),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.deepEqual(
+			result.reasons.map((reason) => reason.code),
+			["queue_stalled"],
+		);
+		assert.match(result.reasons[0].summary, /15m.*\(messages\)/);
+	});
+
+	it("stays quiet when a queue is busy, empty, or idle only because nothing is waiting", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					scrape(
+						"queue",
+						'remit_queue_messages{queue="busy",role="work"} 390000\nremit_queue_last_receive_age_seconds{queue="busy",role="work"} 2\nremit_queue_messages{queue="empty",role="work"} 0\nremit_queue_last_receive_age_seconds{queue="empty",role="work"} 86400\n',
+					),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.equal(result.verdict, "healthy");
+	});
+
 	it("degrades when a required series answered but exported nothing", () => {
 		const result = evaluate(
 			input({
