@@ -1,23 +1,3 @@
-/**
- * SwipeableRow — jsdom gesture tests against the real react-aria long-press
- * wiring interacting with axis arbitration.
- *
- * The one this guards against: react-aria's `useLongPress` dispatches its
- * own synthetic `pointercancel` right before calling `onLongPress` (to
- * preempt other pointer consumers). SwipeableRow's `onPointerCancel` was
- * originally aliased straight to `onPointerUp`, whose "no axis claimed"
- * branch reads as a tap and calls `onOpen`/`onToggleCheck` — so a clean long
- * press would fire onLongPress AND a spurious onOpen in the same gesture.
- * The fix tags SwipeableRow's own axis-abort cancel so it can tell the two
- * apart; these tests exercise both paths against the real hook, not a
- * description of the fix.
- *
- * The second: a finger held on glass drifts, and it drifts past the distance
- * at which the drag starts tracking. Cancelling the press there meant a real
- * hold on a phone never entered selection mode — the row followed the drift
- * and snapped back, and nothing else happened.
- */
-
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
@@ -26,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import type { ThreadRowData } from "./app-shell-types.js";
 import { SwipeableRow, type SwipePeek } from "./swipeable-row.js";
 
-const THRESHOLD_WAIT = 560; // default react-aria threshold (500ms) + margin
+const THRESHOLD_WAIT = 560;
 
 const thread: ThreadRowData = {
 	id: "thread-1",
@@ -58,6 +38,8 @@ interface Handlers {
 	onLongPress: () => void;
 	onOpen: () => void;
 	onPeek: (next: SwipePeek) => void;
+	onToggleCheck?: () => void;
+	selectionMode?: boolean;
 }
 
 function mount(handlers: Handlers) {
@@ -65,12 +47,12 @@ function mount(handlers: Handlers) {
 		root.render(
 			createElement(SwipeableRow, {
 				thread,
-				selectionMode: false,
+				selectionMode: handlers.selectionMode ?? false,
 				checked: false,
 				active: false,
 				peek: "none",
 				onPeek: handlers.onPeek,
-				onToggleCheck: () => undefined,
+				onToggleCheck: handlers.onToggleCheck ?? (() => undefined),
 				onLongPress: handlers.onLongPress,
 				onOpen: handlers.onOpen,
 				onAct: () => undefined,
@@ -107,6 +89,7 @@ function pointerDown(row: Element, x = 10, y = 10) {
 		row.dispatchEvent(
 			new PointerEvent("pointerdown", {
 				bubbles: true,
+				buttons: 1,
 				pointerType: "touch",
 				pointerId: 1,
 				clientX: x,
@@ -121,10 +104,23 @@ function pointerMove(row: Element, x: number, y: number) {
 		row.dispatchEvent(
 			new PointerEvent("pointermove", {
 				bubbles: true,
+				buttons: 1,
 				pointerType: "touch",
 				pointerId: 1,
 				clientX: x,
 				clientY: y,
+			}),
+		);
+	});
+}
+
+function pointerCancel(row: Element) {
+	act(() => {
+		row.dispatchEvent(
+			new PointerEvent("pointercancel", {
+				bubbles: true,
+				pointerType: "touch",
+				pointerId: 1,
 			}),
 		);
 	});
@@ -153,8 +149,8 @@ function wait(ms: number) {
 	return act(() => new Promise((resolve) => setTimeout(resolve, ms)));
 }
 
-describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)", () => {
-	it("fires onLongPress on an unmoved press, with no spurious onOpen", async () => {
+describe("SwipeableRow gesture wiring", () => {
+	it("fires onLongPress on an unmoved press, with no tap action on release", async () => {
 		let longPressed = 0;
 		let opened = 0;
 		const row = mount({
@@ -168,11 +164,7 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 		pointerUp(row);
 
 		assert.equal(longPressed, 1);
-		assert.equal(
-			opened,
-			0,
-			"react-aria's own pointercancel (dispatched right before onLongPress) must not be read as a tap-to-open",
-		);
+		assert.equal(opened, 0, "a release after the hold is not a tap");
 	});
 
 	it("a horizontal drag past the escape distance cancels the long press and commits a swipe peek, not onOpen", async () => {
@@ -282,23 +274,91 @@ describe("SwipeableRow gesture wiring (react-aria long press + axis arbitration)
 	});
 
 	it("an aborted short drag opens nothing on release", async () => {
-		// The drag claimed the axis but never reached the escape distance, so the
-		// press was still live, and react-aria synthesizes a click for an
-		// unresolved press.
-		let clicks = 0;
+		let opened = 0;
+		const peeks: SwipePeek[] = [];
 		const row = mount({
 			onLongPress: () => undefined,
+			onOpen: () => opened++,
+			onPeek: (next) => peeks.push(next),
+		});
+
+		pointerDown(row, 100, 200);
+		pointerMove(row, 120, 201);
+		pointerUp(row);
+		await wait(200);
+
+		assert.equal(opened, 0);
+		assert.deepEqual(peeks, []);
+	});
+
+	it("a short press opens the message", async () => {
+		let opened = 0;
+		let longPressed = 0;
+		const row = mount({
+			onLongPress: () => longPressed++,
+			onOpen: () => opened++,
+			onPeek: () => undefined,
+		});
+
+		pointerDown(row);
+		pointerUp(row);
+		await wait(THRESHOLD_WAIT);
+
+		assert.equal(opened, 1);
+		assert.equal(longPressed, 0);
+	});
+
+	it("a short press in selection mode toggles the row and opens nothing", async () => {
+		let opened = 0;
+		let toggled = 0;
+		const row = mount({
+			selectionMode: true,
+			onLongPress: () => undefined,
+			onOpen: () => opened++,
+			onToggleCheck: () => toggled++,
+			onPeek: () => undefined,
+		});
+
+		pointerDown(row);
+		pointerUp(row);
+
+		assert.equal(toggled, 1);
+		assert.equal(opened, 0);
+	});
+
+	it("a browser pointercancel resets the gesture and fires nothing", async () => {
+		let longPressed = 0;
+		let opened = 0;
+		const peeks: SwipePeek[] = [];
+		const row = mount({
+			onLongPress: () => longPressed++,
+			onOpen: () => opened++,
+			onPeek: (next) => peeks.push(next),
+		});
+
+		pointerDown(row);
+		pointerMove(row, 50, 10);
+		pointerCancel(row);
+		await wait(THRESHOLD_WAIT);
+
+		assert.equal(longPressed, 0);
+		assert.equal(opened, 0);
+		assert.deepEqual(peeks, []);
+	});
+
+	it("a press cancelled before the hold fires no long press", async () => {
+		let longPressed = 0;
+		const row = mount({
+			onLongPress: () => longPressed++,
 			onOpen: () => undefined,
 			onPeek: () => undefined,
 		});
-		row.addEventListener("click", () => clicks++);
 
-		pointerDown(row, 100, 200);
-		pointerMove(row, 120, 201); // dx=20 — past the axis threshold, under the escape
-		pointerUp(row);
-		await wait(200); // react-aria synthesizes its click 80ms after release
+		pointerDown(row);
+		pointerCancel(row);
+		await wait(THRESHOLD_WAIT);
 
-		assert.equal(clicks, 0);
+		assert.equal(longPressed, 0);
 	});
 
 	it("suppresses the native context menu raised over a drifting hold", async () => {

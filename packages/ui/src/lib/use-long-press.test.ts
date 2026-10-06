@@ -1,24 +1,3 @@
-/**
- * use-long-press — exercises the real hook (react-aria's `useLongPress`)
- * against a jsdom-mounted element, not a reimplementation of its logic. The
- * hook this replaces (`packages/web-client/src/hooks/useLongPress.ts`) had a
- * decoy test that reimplemented the timer/threshold logic locally and so
- * gave zero regression coverage on the actual hook; these tests dispatch
- * real PointerEvents at a real mounted node and assert on the callback and
- * the DOM side effects react-aria owns (contextmenu suppression).
- *
- * react-aria's pointerdown → threshold timer → onLongPress path, its global
- * pointerup/pointercancel listeners, and its contextmenu suppression all
- * need a real `document`/`window`/`PointerEvent`, which `renderToString`
- * (the pattern used elsewhere in this repo for presentational components)
- * cannot exercise.
- *
- * The clock is mocked. Every timing assertion here is about one boundary —
- * the press crossed the threshold, or it ended first — and racing that
- * boundary against a wall clock on a loaded runner turns a passing test red
- * (#645). Time only moves when `advance` moves it.
- */
-
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
@@ -28,8 +7,7 @@ import { useLongPress } from "./use-long-press.js";
 
 const THRESHOLD = 40;
 
-/** Past react-aria's own teardown of its transient post-pointerup contextmenu listener. */
-const AFTER_ARIA_CONTEXTMENU_TEARDOWN = 100;
+const AFTER_RELEASE = 100;
 
 let container: HTMLElement;
 let root: Root;
@@ -69,10 +47,24 @@ function pointerDown(row: Element, pointerType = "touch") {
 	row.dispatchEvent(
 		new PointerEvent("pointerdown", {
 			bubbles: true,
+			buttons: 1,
 			pointerType,
 			pointerId: 1,
 			clientX: 10,
 			clientY: 10,
+		}),
+	);
+}
+
+function pointerMove(row: Element, x: number, y: number) {
+	row.dispatchEvent(
+		new PointerEvent("pointermove", {
+			bubbles: true,
+			buttons: 1,
+			pointerType: "touch",
+			pointerId: 1,
+			clientX: x,
+			clientY: y,
 		}),
 	);
 }
@@ -111,7 +103,13 @@ function pointerUpOn(row: Element) {
 }
 
 function pointerCancel(row: Element) {
-	row.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+	row.dispatchEvent(
+		new PointerEvent("pointercancel", {
+			bubbles: true,
+			pointerType: "touch",
+			pointerId: 1,
+		}),
+	);
 }
 
 function advance(ms: number) {
@@ -130,17 +128,19 @@ beforeEach(() => {
 afterEach(() => {
 	// The hook's contextmenu arming is module state bounded by a timer, and a
 	// test that leaves the finger down leaves it armed. Release the pointer so
-	// the next test starts disarmed rather than inheriting a dead timer id.
+	// the next test starts disarmed rather than inheriting a dead timer id. The
+	// click swallow armed by a fired hold expires on the same clock.
 	act(() => {
 		pointerUp();
 	});
+	mock.timers.tick(10_000);
 	mock.timers.reset();
 	act(() => {
 		root.unmount();
 	});
 });
 
-describe("useLongPress (react-aria wrapper)", () => {
+describe("useLongPress", () => {
 	it("fires onLongPress after the threshold with no interruption", async () => {
 		let fired = 0;
 		const row = mount({ onLongPress: () => fired++ });
@@ -160,22 +160,41 @@ describe("useLongPress (react-aria wrapper)", () => {
 
 		pointerDown(row);
 		await advance(THRESHOLD - 1);
-		pointerUp();
+		pointerUpOn(row);
 		await advance(THRESHOLD);
 
 		assert.equal(fired, 0);
 	});
 
 	it("does not fire when cancelled via a pointercancel before the threshold", async () => {
-		// This is the mechanism SwipeableRow's axis arbitration relies on: it
-		// dispatches a synthetic pointercancel to abort a pending long press
-		// once a horizontal or vertical drag claims the gesture.
 		let fired = 0;
 		const row = mount({ onLongPress: () => fired++ });
 
 		pointerDown(row);
 		await advance(THRESHOLD - 1);
 		pointerCancel(row);
+		await advance(THRESHOLD);
+
+		assert.equal(fired, 0);
+	});
+
+	it("fires when the finger drifts less than the drift tolerance", async () => {
+		let fired = 0;
+		const row = mount({ onLongPress: () => fired++ });
+
+		pointerDown(row);
+		pointerMove(row, 30, 12);
+		await advance(THRESHOLD);
+
+		assert.equal(fired, 1);
+	});
+
+	it("does not fire once the finger has moved past the drift tolerance", async () => {
+		let fired = 0;
+		const row = mount({ onLongPress: () => fired++ });
+
+		pointerDown(row);
+		pointerMove(row, 80, 12);
 		await advance(THRESHOLD);
 
 		assert.equal(fired, 0);
@@ -249,7 +268,7 @@ describe("useLongPress (react-aria wrapper)", () => {
 			"the touch long-press menu is still suppressed",
 		);
 		pointerUpOn(row);
-		await advance(AFTER_ARIA_CONTEXTMENU_TEARDOWN);
+		await advance(AFTER_RELEASE);
 
 		assert.equal(
 			dispatchContextMenu(row).defaultPrevented,
@@ -259,15 +278,13 @@ describe("useLongPress (react-aria wrapper)", () => {
 	});
 
 	it("does not suppress the keyboard menu after a touch tap that raised no menu", async () => {
-		// A tap that lifts without a menu must still disarm suppression. The
-		// advance clears react-aria's own transient post-touch contextmenu
-		// listener, which it removes shortly after pointerup — in a browser a
-		// keyboard menu arrives long after that, so only this hook's ref decides.
+		// A tap that lifts without a menu must still disarm suppression; a
+		// keyboard menu arrives long after the release.
 		const row = mount({ onLongPress: () => undefined });
 
 		pointerDown(row, "touch");
 		pointerUpOn(row);
-		await advance(AFTER_ARIA_CONTEXTMENU_TEARDOWN);
+		await advance(AFTER_RELEASE);
 
 		assert.equal(dispatchContextMenu(row).defaultPrevented, false);
 	});

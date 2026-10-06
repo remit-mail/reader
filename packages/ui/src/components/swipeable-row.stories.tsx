@@ -132,7 +132,7 @@ const rowElement = (canvasElement: HTMLElement) =>
 
 /**
  * The long press is the way into multi-select on touch. Press and hold the row
- * (mouse hold works too — react-aria fires the long press for both) and it
+ * (a mouse hold works too) and it
  * flips into the selection state the `SelectionChecked` story shows: the
  * leading avatar becomes a filled, ticked checkbox and a tap toggles the row
  * instead of opening it.
@@ -162,7 +162,7 @@ export const LongPressToSelect: Story = {
  * The same gesture with a real finger's drift. A hand holding still on glass
  * wanders several pixels over the 500ms hold — further than the distance at
  * which the drag starts tracking the row, which is why a hold used to nudge
- * the row and then do nothing. The swipe only takes the gesture once it has
+ * the row and then do nothing. The drag only claims the gesture once it has
  * travelled far enough to commit a peek, so the drifting hold below still ends
  * in selection mode. The play step drives the press, the drift and the hold.
  */
@@ -192,6 +192,7 @@ export const LongPressWithDrift: Story = {
 			row.dispatchEvent(
 				new PointerEvent(type, {
 					bubbles: true,
+					buttons: type === "pointerup" ? 0 : 1,
 					pointerType: "touch",
 					pointerId: 1,
 					clientX,

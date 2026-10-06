@@ -1,6 +1,10 @@
 import { ArrowLeft, Info } from "lucide-react";
-import { type HTMLAttributes, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import {
+	SwipeSurface,
+	useSwipeNavigation,
+} from "../lib/use-swipe-navigation.js";
 import type { ThreadData } from "./app-shell-types.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -49,8 +53,10 @@ export interface MobileReadingPaneProps {
 	 * still drives the top bar.
 	 */
 	children?: ReactNode;
-	/** Touch handlers attached to the scroll area (swipe-between-messages). */
-	touchHandlers?: HTMLAttributes<HTMLDivElement>;
+	/** Swipe left on the reading area: open the next message. */
+	onSwipeNext?: () => void;
+	/** Swipe right on the reading area: open the previous message. */
+	onSwipePrevious?: () => void;
 }
 
 /**
@@ -71,8 +77,13 @@ export function MobileReadingPane({
 	onToggleIntelligence,
 	actions,
 	children,
-	touchHandlers,
+	onSwipeNext,
+	onSwipePrevious,
 }: MobileReadingPaneProps) {
+	const swipe = useSwipeNavigation({
+		onSwipeLeft: onSwipeNext,
+		onSwipeRight: onSwipePrevious,
+	});
 	const [localIntelligenceOpen, setLocalIntelligenceOpen] = useState(false);
 	const controlled = onToggleIntelligence !== undefined;
 	const isOpen = controlled
@@ -129,49 +140,52 @@ export function MobileReadingPane({
 				)}
 			</header>
 
-			<div
-				className="flex-1 overflow-y-auto"
-				style={touchHandlers ? { touchAction: "pan-y pinch-zoom" } : undefined}
-				{...touchHandlers}
-			>
-				{/* Newest first, as on the wide pane. */}
-				{children ??
-					[...thread.messages].reverse().map((message) => {
-						const bind = (handler?: (id: string) => void) =>
-							handler ? () => handler(message.id) : undefined;
+			<SwipeSurface.Provider value={swipe.enabled}>
+				<div
+					ref={swipe.ref}
+					className="flex-1 overflow-y-auto"
+					style={{ touchAction: swipe.touchAction }}
+					{...swipe.bind()}
+				>
+					{/* Newest first, as on the wide pane. */}
+					{children ??
+						[...thread.messages].reverse().map((message) => {
+							const bind = (handler?: (id: string) => void) =>
+								handler ? () => handler(message.id) : undefined;
 
-						if (!message.expanded) {
+							if (!message.expanded) {
+								return (
+									<CollapsedMessage
+										key={message.id}
+										message={message}
+										onClick={bind(actions?.onToggleExpand)}
+									/>
+								);
+							}
+
 							return (
-								<CollapsedMessage
+								<ExpandedMessage
 									key={message.id}
 									message={message}
-									onClick={bind(actions?.onToggleExpand)}
+									warning={thread.warning}
+									onHeaderClick={bind(actions?.onToggleExpand)}
+									actionBar={
+										<MobileMessageActionBar
+											hasThread
+											onReply={bind(actions?.onReply)}
+											onReplyAll={bind(actions?.onReplyAll)}
+											onForward={bind(actions?.onForward)}
+											onToggleStar={bind(actions?.onToggleStar)}
+											onDelete={bind(actions?.onDelete)}
+											onToggleRead={bind(actions?.onToggleRead)}
+											moveSlot={actions?.moveSlot?.(message.id)}
+										/>
+									}
 								/>
 							);
-						}
-
-						return (
-							<ExpandedMessage
-								key={message.id}
-								message={message}
-								warning={thread.warning}
-								onHeaderClick={bind(actions?.onToggleExpand)}
-								actionBar={
-									<MobileMessageActionBar
-										hasThread
-										onReply={bind(actions?.onReply)}
-										onReplyAll={bind(actions?.onReplyAll)}
-										onForward={bind(actions?.onForward)}
-										onToggleStar={bind(actions?.onToggleStar)}
-										onDelete={bind(actions?.onDelete)}
-										onToggleRead={bind(actions?.onToggleRead)}
-										moveSlot={actions?.moveSlot?.(message.id)}
-									/>
-								}
-							/>
-						);
-					})}
-			</div>
+						})}
+				</div>
+			</SwipeSurface.Provider>
 
 			{intelligence && !controlled && (
 				<Dialog
