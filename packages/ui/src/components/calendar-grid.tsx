@@ -297,6 +297,13 @@ export function CalendarGrid({
 					info.el
 						.querySelector(":scope [aria-hidden='true']:has(> a)")
 						?.removeAttribute("aria-hidden");
+					/* A press on the link must not start the engine's cell click: it
+					   finishes a task after the pointer is up, by which time the link
+					   has already moved the view and the cell it wants is gone. */
+					const link = info.el.querySelector("a");
+					for (const type of ["mousedown", "touchstart", "pointerdown"]) {
+						link?.addEventListener(type, (press) => press.stopPropagation());
+					}
 				}}
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
