@@ -170,7 +170,7 @@ const deadLetterDepth = (
 	};
 };
 
-export const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
+const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
 
 const stalledQueues = (
 	samples: readonly ScrapeResult[],
@@ -179,16 +179,16 @@ const stalledQueues = (
 	const waiting = new Set(
 		seriesNamed(all, "remit_queue_messages")
 			.filter((sample) => sample.labels.role === "work" && sample.value > 0)
-			.map((sample) => sample.labels.queue ?? "unknown"),
+			.map((sample) => sample.labels.queue),
 	);
 	const stalled = seriesNamed(all, "remit_queue_last_receive_age_seconds")
 		.filter(
 			(sample) =>
 				sample.labels.role === "work" &&
 				sample.value > QUEUE_RECEIVE_IDLE_MAX_SECONDS &&
-				waiting.has(sample.labels.queue ?? "unknown"),
+				waiting.has(sample.labels.queue),
 		)
-		.map((sample) => sample.labels.queue ?? "unknown")
+		.map((sample) => sample.labels.queue)
 		.sort();
 	if (stalled.length === 0) return undefined;
 	return {

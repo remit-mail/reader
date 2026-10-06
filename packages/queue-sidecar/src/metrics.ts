@@ -71,6 +71,8 @@ export const collectQueueDepths = (store: QueueDepthSource): void => {
 		const attributes = store.getQueueAttributes(queue.name);
 		const labels = { queue: queue.name, role: roles.get(queue.name) ?? "work" };
 		queueMessages.set(labels, attributes.approximateNumberOfMessages);
-		queueLastReceiveAge.set(labels, store.lastReceiveAgeSeconds(queue.name));
+		if (labels.role === "work") {
+			queueLastReceiveAge.set(labels, store.lastReceiveAgeSeconds(queue.name));
+		}
 	}
 };

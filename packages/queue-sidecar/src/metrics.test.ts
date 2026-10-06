@@ -149,10 +149,6 @@ describe("the sidecar /metrics endpoint", () => {
 			idle.body,
 			/^remit_queue_last_receive_age_seconds\{queue="work",role="work"\} \d+$/m,
 		);
-		assert.match(
-			idle.body,
-			/^remit_queue_last_receive_age_seconds\{queue="work-dlq",role="dead_letter"\} \d+$/m,
-		);
 
 		const quiet = store.lastReceiveAgeSeconds("work", Date.now() + 901_000);
 		assert.ok(quiet >= 900);

@@ -15,7 +15,7 @@ export interface CreateQueueProducerOptions {
 	readonly requestTimeoutMs?: number;
 }
 
-export const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
+const DEFAULT_REQUEST_TIMEOUT_MS = 45_000;
 
 const LOOPBACK_HOSTNAMES = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
