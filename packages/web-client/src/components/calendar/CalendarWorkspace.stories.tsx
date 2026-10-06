@@ -8,6 +8,8 @@ import {
 } from "@remit/ui";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
+import { expect, userEvent, waitFor, within } from "storybook/test";
+import { stepCalendarDate } from "@/lib/calendar-route";
 import { CalendarWaiting } from "./CalendarWaiting";
 import { CalendarWorkspace } from "./CalendarWorkspace";
 
@@ -206,12 +208,13 @@ function Workspace({
 	waiting?: "none" | "some" | "refused";
 }) {
 	const [view, setView] = useState<CalendarViewId>(initialView);
+	const [date, setDate] = useState(DATE);
 	const [density, setDensity] = useState<Density>("comfortable");
 	const [selected, setSelected] = useState("");
 	return (
 		<CalendarWorkspace
 			view={view}
-			date={DATE}
+			date={date}
 			events={events}
 			colorByCalendarId={colorByCalendarId}
 			// The strip loads its own days and is storied on its own; here it
@@ -235,7 +238,14 @@ function Workspace({
 			now={NOW}
 			onChangeView={setView}
 			onToday={() => undefined}
-			onStep={() => undefined}
+			onStep={(direction) =>
+				setDate((current) => stepCalendarDate(current, view, direction))
+			}
+			dayHref={(day) => `/calendar/day/${day}`}
+			onZoomDay={(day) => {
+				setView("day");
+				setDate(day);
+			}}
 			onChangeDensity={setDensity}
 			onSelectEvent={setSelected}
 			onPickSlot={() => undefined}
@@ -263,6 +273,33 @@ export const Week: Story = {};
 
 export const Day: Story = { args: { initialView: "day" } };
 
+export const Month: Story = {
+	args: { initialView: "month" },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await waitFor(() =>
+			expect(canvas.getAllByText("Roadmap review").length).toBeGreaterThan(0),
+		);
+		await userEvent.click(canvas.getByRole("button", { name: "Next" }));
+		await waitFor(() =>
+			expect(canvas.getByRole("heading", { level: 2 })).toHaveTextContent(
+				/July 2026/,
+			),
+		);
+		const day = await canvas.findByRole("link", {
+			name: /15 July 2026$/,
+		});
+		await expect(day).toHaveAttribute("href", "/calendar/day/2026-07-15");
+		await userEvent.click(day);
+		await waitFor(() =>
+			expect(canvas.getByRole("radio", { name: "Day" })).toBeChecked(),
+		);
+		await expect(canvas.getByRole("heading", { level: 2 })).toHaveTextContent(
+			/15 July 2026|July 15, 2026/,
+		);
+	},
+};
+
 /** A phone: two rows of thumb-sized controls, and no year on the ladder. */
 export const Phone: Story = {
 	args: { touch: true },
@@ -288,12 +325,10 @@ export const CouldNotLoad: Story = {
 };
 
 /**
- * The three zooms that are named but not drawn yet. Each says what it is
- * waiting on, so the route is addressable without pretending to be finished.
+ * The zoom that is named but not drawn yet. It says what it is waiting on, so
+ * the route is addressable without pretending to be finished.
  */
 export const YearNotBuiltYet: Story = { args: { initialView: "year" } };
-
-export const MonthNotBuiltYet: Story = { args: { initialView: "month" } };
 
 /**
  * Invitations the mail is still asking about, beside the week they would land

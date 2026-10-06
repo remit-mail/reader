@@ -10,7 +10,7 @@ import interactionPlugin from "@fullcalendar/react/interaction";
 import listPlugin from "@fullcalendar/react/list";
 import multiMonthPlugin from "@fullcalendar/react/multimonth";
 import timeGridPlugin from "@fullcalendar/react/timegrid";
-import { useEffect, useMemo, useRef } from "react";
+import { type MouseEvent, useEffect, useMemo, useRef } from "react";
 import { calendarEventBodyClasses } from "../lib/calendar-event-shell.js";
 import {
 	isDraggedSelection,
@@ -104,6 +104,8 @@ export interface CalendarGridProps {
 	onPickSlot: (pick: CalendarSlotPick) => void;
 	/** The range title the grid computed, e.g. "8 – 14 Jun 2026". */
 	onRangeChange: (title: string) => void;
+	dayHref: (date: string) => string;
+	onZoomDay: (date: string) => void;
 	className?: string;
 }
 
@@ -141,6 +143,21 @@ function toInput(event: CalendarEventData): EventInput {
 	};
 }
 
+const isoDayInZone = (instant: Date, timeZone: string): string =>
+	new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).format(instant);
+
+const isModifiedClick = (click: MouseEvent<HTMLElement>): boolean =>
+	click.button !== 0 ||
+	click.metaKey ||
+	click.ctrlKey ||
+	click.shiftKey ||
+	click.altKey;
+
 export function CalendarGrid({
 	view,
 	date,
@@ -153,6 +170,8 @@ export function CalendarGrid({
 	onSelectEvent,
 	onPickSlot,
 	onRangeChange,
+	dayHref,
+	onZoomDay,
 	className,
 }: CalendarGridProps) {
 	const calendarRef = useRef<CalendarRef>(null);
@@ -241,6 +260,7 @@ export function CalendarGrid({
 				height="100%"
 				headerToolbar={false}
 				firstDay={1}
+				fixedWeekCount={false}
 				nowIndicator
 				selectable
 				selectMirror
@@ -252,6 +272,39 @@ export function CalendarGrid({
 				allDayText="All day"
 				dayMaxEvents={isTight ? 2 : 3}
 				eventMaxStack={3}
+				dayCellTopContent={(info) => {
+					if (view !== "month") return;
+					const day = isoDayInZone(info.date, timeZone);
+					return (
+						<a
+							href={dayHref(day)}
+							aria-label={`Open ${info.date.toLocaleDateString("en-GB", { dateStyle: "full", timeZone })}`}
+							className="hover:underline"
+							onClick={(click) => {
+								if (isModifiedClick(click)) return;
+								click.preventDefault();
+								onZoomDay(day);
+							}}
+						>
+							{Number(day.slice(8))}
+						</a>
+					);
+				}}
+				dayCellDidMount={(info) => {
+					if (view !== "month") return;
+					/* The engine hides a day number from assistive tech unless it is its
+					   own nav link, and a link inside a hidden wrapper is unreachable. */
+					info.el
+						.querySelector(":scope [aria-hidden='true']:has(> a)")
+						?.removeAttribute("aria-hidden");
+					/* A press on the link must not start the engine's cell click: it
+					   finishes a task after the pointer is up, by which time the link
+					   has already moved the view and the cell it wants is gone. */
+					const link = info.el.querySelector("a");
+					for (const type of ["mousedown", "touchstart", "pointerdown"]) {
+						link?.addEventListener(type, (press) => press.stopPropagation());
+					}
+				}}
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
 				scrollTime="08:30:00"

@@ -88,6 +88,8 @@ const base: CalendarGridProps = {
 	onSelectEvent: () => undefined,
 	onPickSlot: () => undefined,
 	onRangeChange: () => undefined,
+	dayHref: (day) => `/day/${day}`,
+	onZoomDay: () => undefined,
 };
 
 interface Chip {
@@ -179,6 +181,129 @@ describe("CalendarGrid placement", () => {
 	it("falls back to the first hue for a calendar nobody coloured", () => {
 		const root = grid({ events: [roadmap], colorByCalendarId: {} });
 		assert.ok(chip(root, "Roadmap review").classes.includes("bg-cal-1-soft"));
+	});
+});
+
+const monthDays = (root: HTMLElement): string[] =>
+	Array.from(
+		new Set(
+			Array.from(root.querySelectorAll<HTMLElement>("[data-date]")).map(
+				(cell) => cell.dataset.date ?? "",
+			),
+		),
+	).sort();
+
+const nextWeek = "2026-06-17";
+const lastOfMonth = anEvent({
+	id: "close",
+	title: "Month close",
+	start: "2026-06-30T15:00:00+02:00",
+	end: "2026-06-30T16:00:00+02:00",
+});
+const spill = anEvent({
+	id: "spill",
+	title: "Kickoff",
+	start: "2026-07-02T09:00:00+02:00",
+	end: "2026-07-02T10:00:00+02:00",
+});
+const later = anEvent({
+	id: "later",
+	title: "Planning",
+	start: `${nextWeek}T13:00:00+02:00`,
+	end: `${nextWeek}T14:00:00+02:00`,
+});
+
+describe("CalendarGrid month", () => {
+	it("draws whole weeks from the Monday on or before the 1st to the Sunday on or after the last", () => {
+		const days = monthDays(grid({ view: "month", date: "2026-07-10" }));
+		assert.equal(days.length, 35);
+		assert.equal(days[0], "2026-06-29");
+		assert.equal(days[34], "2026-08-02");
+	});
+
+	it("draws exactly the month's days when it fills its weeks", () => {
+		const days = monthDays(grid({ view: "month", date: "2027-02-14" }));
+		assert.equal(days.length, 28);
+		assert.equal(days[0], "2027-02-01");
+		assert.equal(days[27], "2027-02-28");
+	});
+
+	it("puts each event on its own day, including the neighbouring month's edge days", () => {
+		const root = grid({
+			view: "month",
+			date: TODAY,
+			events: [roadmap, handover, later, lastOfMonth, spill],
+		});
+		assert.equal(chip(root, "Roadmap review").date, TODAY);
+		assert.equal(chip(root, "Handover").date, TOMORROW);
+		assert.equal(chip(root, "Planning").date, nextWeek);
+		assert.equal(chip(root, "Month close").date, "2026-06-30");
+		assert.equal(chip(root, "Kickoff").date, "2026-07-02");
+	});
+
+	it("draws every event as a row, never a column block", () => {
+		const drawn = chips(
+			grid({ view: "month", date: TODAY, events: [roadmap, handover] }),
+		);
+		assert.equal(drawn.length, 2);
+		assert.ok(drawn.every((one) => one.timed === false));
+	});
+
+	it("marks today in the month", () => {
+		assert.ok(
+			grid({ view: "month", date: TODAY }).querySelector(
+				`[data-date="${TODAY}"][aria-current="date"]`,
+			),
+		);
+	});
+
+	it("makes each day's number a real link to that day", () => {
+		const root = grid({ view: "month", date: TODAY });
+		const link = root.querySelector<HTMLAnchorElement>(
+			"a[aria-label='Open Wednesday, 10 June 2026']",
+		);
+		assert.ok(link);
+		assert.equal(link.getAttribute("href"), "/day/2026-06-10");
+		assert.equal(link.textContent, "10");
+		assert.equal(root.querySelectorAll("a[href^='/day/']").length, 35);
+	});
+
+	it("draws an event that crosses Sunday into Monday on both days", () => {
+		const drawn = chips(
+			grid({
+				view: "month",
+				date: TODAY,
+				events: [
+					anEvent({
+						id: "overnight",
+						title: "Overnight deploy",
+						start: "2026-06-28T22:00:00+02:00",
+						end: "2026-06-29T02:00:00+02:00",
+					}),
+				],
+			}),
+		).filter((one) => one.title === "Overnight deploy");
+		assert.deepEqual(
+			drawn.map((one) => one.date),
+			["2026-06-28", "2026-06-29"],
+		);
+	});
+
+	it("places an event on the day it falls on in the grid's zone, not its own", () => {
+		const root = grid({
+			view: "month",
+			date: TODAY,
+			events: [
+				anEvent({
+					id: "newyork",
+					title: "Late call",
+					timeZone: "America/New_York",
+					start: "2026-06-30T23:30:00-04:00",
+					end: "2026-07-01T00:30:00-04:00",
+				}),
+			],
+		});
+		assert.equal(chip(root, "Late call").date, "2026-07-01");
 	});
 });
 
