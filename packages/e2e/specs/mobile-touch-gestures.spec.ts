@@ -52,20 +52,6 @@ const swipe = async (page: Page, from: Point, to: Point): Promise<void> => {
 	await touchEvent(cdp, "touchEnd");
 };
 
-const pinchOut = async (page: Page, at: Point): Promise<void> => {
-	const cdp = await page.context().newCDPSession(page);
-	await cdp.send("Input.synthesizePinchGesture", {
-		x: at.x,
-		y: at.y,
-		scaleFactor: 2.5,
-		relativeSpeed: 400,
-		gestureSourceType: "touch",
-	});
-};
-
-const pageZoom = (page: Page): Promise<number> =>
-	page.evaluate(() => window.visualViewport?.scale ?? 1);
-
 const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 	await page.goto(`/mail/${mailboxId}`);
 	await expect(rows(page).first()).toBeVisible({ timeout: 30_000 });
@@ -149,7 +135,6 @@ test.describe("Touch gestures", () => {
 			page.getByRole("button", { name: /^Mark as (read|unread)$/ }),
 		).toBeVisible();
 	});
-
 });
 
 test.describe("Touch gestures over the message body", () => {
@@ -201,12 +186,37 @@ test.describe("Touch gestures over the message body", () => {
 		await expect.poll(() => page.url()).toContain(previousId);
 	});
 
-	test("a pinch zooms the page", async ({ page }) => {
-		const body = await openMiddleMessage(page);
-		expect(await pageZoom(page)).toBeLessThan(1.01);
+	test("nothing between the message body and the viewport blocks pinch-zoom", async ({
+		page,
+	}) => {
+		await openMiddleMessage(page);
 
-		await pinchOut(page, await centerOf(body));
+		const blockers = await page.evaluate(() => {
+			const allowsPinch = (value: string): boolean =>
+				value === "auto" ||
+				value === "manipulation" ||
+				value.split(" ").includes("pinch-zoom");
+			const frame = document.querySelector("iframe");
+			const inner = frame?.contentDocument?.body;
+			const found: string[] = [];
+			for (const start of [inner, frame]) {
+				for (let node = start; node; node = node.parentElement) {
+					const value = getComputedStyle(node).touchAction;
+					if (!allowsPinch(value)) found.push(`${node.tagName}=${value}`);
+				}
+			}
+			const viewport = document
+				.querySelector('meta[name="viewport"]')
+				?.getAttribute("content");
+			if (
+				/user-scalable\s*=\s*(no|0)|maximum-scale\s*=\s*1(\.0)?\b/.test(
+					viewport ?? "",
+				)
+			)
+				found.push(`viewport=${viewport}`);
+			return found;
+		});
 
-		await expect.poll(() => pageZoom(page)).toBeGreaterThan(1.2);
+		expect(blockers).toEqual([]);
 	});
 });

@@ -261,10 +261,10 @@ export const IsolatedEmailFrame = ({
 
 		const syncTouchAction = () => {
 			const doc = iframe.contentDocument;
-			if (!swipeSurface || !doc?.documentElement) return;
-			doc.documentElement.style.touchAction = claimsSideways(doc)
-				? "auto"
-				: "pan-y pinch-zoom";
+			if (!swipeSurface || !doc?.body) return;
+			const touchAction = claimsSideways(doc) ? "auto" : "pan-y pinch-zoom";
+			doc.documentElement.style.touchAction = touchAction;
+			doc.body.style.touchAction = touchAction;
 		};
 
 		let observer: ResizeObserver | undefined;
