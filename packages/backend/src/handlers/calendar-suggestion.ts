@@ -219,7 +219,13 @@ export const CalendarSuggestionOperations: Record<
 		const page = await client.calendarSuggestion.listByState(
 			accountConfigId,
 			state,
-			{ continuationToken },
+			{
+				continuationToken,
+				endsAfter:
+					state === CalendarSuggestionState.Pending
+						? new Date().toISOString()
+						: new Date(0).toISOString(),
+			},
 		);
 
 		return {

@@ -7,7 +7,7 @@ import type {
 } from "@remit/data-ports";
 import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import { CalendarSuggestionState } from "@remit/domain-enums";
-import { and, asc, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -31,6 +31,7 @@ function rowToCalendarSuggestion(
 		summary: row.summary,
 		dtStart: row.dtStart,
 		dtEnd: row.dtEnd,
+		endsAtUtc: row.endsAtUtc,
 		allDay: row.allDay,
 		location: row.location,
 		organizer: row.organizer,
@@ -147,10 +148,14 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 	async listByState(
 		accountConfigId: string,
 		state: CalendarSuggestionItem["state"],
-		options?: { limit?: number; continuationToken?: string },
+		options: {
+			endsAfter: string;
+			limit?: number;
+			continuationToken?: string;
+		},
 	): Promise<ResultList<CalendarSuggestionItem>> {
-		const limit = options?.limit ?? 100;
-		const cursor = options?.continuationToken
+		const limit = options.limit ?? 100;
+		const cursor = options.continuationToken
 			? decodeToken(options.continuationToken)
 			: undefined;
 		const after = cursor
@@ -167,6 +172,7 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 				and(
 					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
 					eq(calendarSuggestionTable.state, state),
+					gte(calendarSuggestionTable.endsAtUtc, options.endsAfter),
 					after
 						? or(
 								lt(calendarSuggestionTable.createdAt, after.createdAt),

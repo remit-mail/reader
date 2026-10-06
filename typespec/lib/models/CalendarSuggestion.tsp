@@ -130,6 +130,10 @@ model CalendarSuggestion {
   @visibility(Lifecycle.Read)
   dtEnd: String64;
 
+  @doc("The UTC instant (ISO 8601, `Z` suffix) after which nothing of this event remains to attend: the end of the last occurrence of a bounded series, `9999-12-31T23:59:59Z` for an open-ended one. Unlike `dtEnd` it compares correctly as a string across offsets, which is what lets a list drop events that are over.")
+  @visibility(Lifecycle.Read)
+  endsAtUtc: String64;
+
   @doc("Whether DTSTART is a DATE rather than a DATE-TIME (RFC 5545 3.3.4) — an all-day or multi-day event, whose end is exclusive.")
   @visibility(Lifecycle.Read)
   allDay: boolean = false;

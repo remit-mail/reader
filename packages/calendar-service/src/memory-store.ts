@@ -273,11 +273,17 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 		listByState: async (
 			accountConfigId: string,
 			state: CalendarSuggestionItem["state"],
+			options: {
+				endsAfter: string;
+				limit?: number;
+				continuationToken?: string;
+			},
 		) => ({
 			items: [...this.suggestions.values()].filter(
 				(suggestion) =>
 					suggestion.accountConfigId === accountConfigId &&
-					suggestion.state === state,
+					suggestion.state === state &&
+					suggestion.endsAtUtc >= options.endsAfter,
 			),
 			continuationToken: undefined,
 		}),

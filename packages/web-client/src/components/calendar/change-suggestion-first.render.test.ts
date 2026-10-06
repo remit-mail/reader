@@ -69,6 +69,7 @@ const reading = (
 	summary: "Billing migration kickoff",
 	dtStart: "2026-06-11T12:00:00+00:00",
 	dtEnd: "2026-06-11T13:00:00+00:00",
+	endsAtUtc: "2026-06-11T13:00:00Z",
 	allDay: false,
 	location: "Room Noord",
 	organizer: "priya@example.test",
@@ -233,6 +234,7 @@ describe("changing a suggestion before adding it", () => {
 				reading({
 					dtStart: "2026-06-11T09:00:00+00:00",
 					dtEnd: "2026-06-11T10:00:00+00:00",
+					endsAtUtc: "2026-06-11T10:00:00Z",
 					zoneCertainty: "Ambiguous",
 				}),
 			),

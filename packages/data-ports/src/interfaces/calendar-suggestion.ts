@@ -49,7 +49,11 @@ export interface ICalendarSuggestionRepository {
 	listByState(
 		accountConfigId: string,
 		state: CalendarSuggestionItem["state"],
-		options?: { limit?: number; continuationToken?: string },
+		options: {
+			endsAfter: string;
+			limit?: number;
+			continuationToken?: string;
+		},
 	): Promise<ResultList<CalendarSuggestionItem>>;
 	/**
 	 * Records the outcome of a person's decision. Returns the settled row.

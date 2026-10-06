@@ -242,6 +242,7 @@ describe("the calendar tables under the shipped migrations", () => {
 			summary: "Design review",
 			dtStart: "2026-09-01T10:00:00+02:00",
 			dtEnd: "2026-09-01T11:00:00+02:00",
+			endsAtUtc: "2026-09-01T09:00:00Z",
 			allDay: false,
 			location: "",
 			organizer: "organizer@example.test",
@@ -254,5 +255,91 @@ describe("the calendar tables under the shipped migrations", () => {
 		assert.equal(fetched.state, CalendarSuggestionState.Pending);
 		assert.equal(fetched.acceptedCalendarObjectId, "");
 		assert.equal(fetched.organizer, "organizer@example.test");
+	});
+});
+
+describe("the ends_at_utc backfill of existing suggestions", () => {
+	const TAG = "0039_calendar_suggestion_ends_at_utc";
+	const VTIMEZONE = [
+		"BEGIN:VTIMEZONE",
+		"TZID:Europe/Amsterdam",
+		"BEGIN:DAYLIGHT",
+		"DTSTART:19700329T020000",
+		"RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+		"END:DAYLIGHT",
+		"END:VTIMEZONE",
+	];
+	const invite = (...eventLines: string[]): string =>
+		[
+			"BEGIN:VCALENDAR",
+			...VTIMEZONE,
+			"BEGIN:VEVENT",
+			...eventLines,
+			"END:VEVENT",
+			"END:VCALENDAR",
+			"",
+		].join("\r\n");
+
+	const backfilled = (
+		rows: Record<string, { dtEnd: string; icalData: string }>,
+	): Record<string, string> => {
+		const sqlite = new Database(":memory:");
+		for (const entry of migrationJournal()) {
+			if (entry.tag === TAG) break;
+			applyMigration(sqlite, entry.tag);
+		}
+		const columns = sqlite
+			.prepare("PRAGMA table_info(calendar_suggestion)")
+			.all() as { name: string; type: string }[];
+		for (const [id, row] of Object.entries(rows)) {
+			const values: Record<string, string | number> = {};
+			for (const column of columns) {
+				values[column.name] = column.type === "integer" ? 0 : "";
+			}
+			values.suggestion_id = id;
+			values.dt_end = row.dtEnd;
+			values.ical_data = row.icalData;
+			const names = Object.keys(values);
+			sqlite
+				.prepare(
+					`INSERT INTO calendar_suggestion (${names.join(",")}) VALUES (${names.map(() => "?").join(",")})`,
+				)
+				.run(...Object.values(values));
+		}
+		applyMigration(sqlite, TAG);
+		const result = Object.fromEntries(
+			(
+				sqlite
+					.prepare("SELECT suggestion_id, ends_at_utc FROM calendar_suggestion")
+					.all() as { suggestion_id: string; ends_at_utc: string }[]
+			).map((row) => [row.suggestion_id, row.ends_at_utc]),
+		);
+		sqlite.close();
+		return result;
+	};
+
+	test("converts a past non-recurring invite carrying a VTIMEZONE to its UTC end", () => {
+		const result = backfilled({
+			plain: {
+				dtEnd: "2024-03-01T11:00:00+02:00",
+				icalData: invite(
+					"UID:a@example.test",
+					"DTSTART;TZID=Europe/Amsterdam:20240301T100000",
+					"DTEND;TZID=Europe/Amsterdam:20240301T110000",
+				),
+			},
+			weekly: {
+				dtEnd: "2024-03-01T11:00:00+02:00",
+				icalData: invite(
+					"UID:b@example.test",
+					"DTSTART;TZID=Europe/Amsterdam:20240301T100000",
+					"DTEND;TZID=Europe/Amsterdam:20240301T110000",
+					"RRULE:FREQ=WEEKLY",
+				),
+			},
+		});
+
+		assert.equal(result.plain, "2024-03-01T09:00:00Z");
+		assert.equal(result.weekly, "9999-12-31T23:59:59Z");
 	});
 });

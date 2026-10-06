@@ -71,7 +71,30 @@ describe("projectSuggestion", () => {
 		assert.equal(projected.value.organizer, "organizer@example.test");
 		assert.equal(projected.value.dtStart, "2026-09-01T10:00:00+02:00");
 		assert.equal(projected.value.dtEnd, "2026-09-01T11:00:00+02:00");
+		assert.equal(projected.value.endsAtUtc, "2026-09-01T09:00:00Z");
 		assert.equal(projected.value.allDay, false);
+	});
+
+	const withRule = (rule: string): string => invitation({ extra: [rule] });
+
+	it("ends a bounded series with its last occurrence", async () => {
+		const projected = await projectSuggestion(
+			withRule("RRULE:FREQ=WEEKLY;COUNT=3"),
+			"Europe/Amsterdam",
+		);
+
+		assert.ok(projected.ok);
+		assert.equal(projected.value.endsAtUtc, "2026-09-15T09:00:00Z");
+	});
+
+	it("never ends an open-ended series", async () => {
+		const projected = await projectSuggestion(
+			withRule("RRULE:FREQ=WEEKLY"),
+			"Europe/Amsterdam",
+		);
+
+		assert.ok(projected.ok);
+		assert.equal(projected.value.endsAtUtc, "9999-12-31T23:59:59Z");
 	});
 
 	it("reads a cancellation as a cancellation", async () => {
@@ -289,10 +312,12 @@ describe("recordCalendarSuggestion", () => {
 			listByState: async (
 				accountConfigId: string,
 				state: CalendarSuggestionItem["state"],
+				options: { endsAfter: string },
 			) => {
 				const page = await store.calendarSuggestion.listByState(
 					accountConfigId,
 					state,
+					options,
 				);
 				// The user accepts, right here.
 				await store.calendarSuggestion.settle(ACCOUNT_CONFIG_ID, target, {
