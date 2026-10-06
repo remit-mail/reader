@@ -17,6 +17,7 @@ import {
 import {
 	AccountRepo,
 	DrizzleMessageRepository,
+	MailboxLockRepo,
 	MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -47,6 +48,7 @@ const silentLogger: Logger = (() => {
 let accounts: AccountRepo;
 let mailboxes: MailboxRepo;
 let messages: DrizzleMessageRepository;
+let locks: MailboxLockRepo;
 let client: RemitClient;
 let close: () => void;
 
@@ -56,10 +58,12 @@ beforeEach(() => {
 	accounts = new AccountRepo(store.db);
 	mailboxes = new MailboxRepo(store.db);
 	messages = new DrizzleMessageRepository(store.db as never);
+	locks = new MailboxLockRepo(store.db);
 	client = {
 		account: accounts,
 		mailbox: mailboxes,
 		message: messages,
+		mailboxLock: locks,
 	} as unknown as RemitClient;
 	setClient(client);
 });
@@ -132,6 +136,7 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 	} as unknown as SQSClient;
 	const result = await runSchedulerTick({
 		accountService: accounts,
+		markers: locks,
 		sqsClient,
 		queueUrl: "https://queue.test/mailboxes",
 		log: silentLogger,

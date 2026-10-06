@@ -9,21 +9,26 @@ import {
 	fireAndForget,
 } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
-import { triggerAccountSync } from "../service/trigger-sync.js";
+import {
+	type PendingMarkers,
+	triggerAccountSync,
+} from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
 
 interface SyncTriggerDeps {
 	sqsClient: SQSClient;
+	markers: PendingMarkers;
 	queueUrl: string;
 	logger: FireAndForgetLogger & {
 		info: (fields: Record<string, unknown>, message: string) => void;
 	};
 }
 
-const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
+const defaultSyncTriggerDeps = (markers: PendingMarkers): SyncTriggerDeps => ({
 	sqsClient,
+	markers,
 	queueUrl: env.SQS_QUEUE_URL,
 	logger,
 });
@@ -46,12 +51,13 @@ const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
 export const triggerSyncSafe = async (
 	accountId: string,
 	accountConfigId: string,
-	deps: SyncTriggerDeps = defaultSyncTriggerDeps(),
+	deps: SyncTriggerDeps,
 ): Promise<void> => {
 	await fireAndForget(
 		async () => {
-			const { eventId } = await triggerAccountSync({
+			const outcome = await triggerAccountSync({
 				sqsClient: deps.sqsClient,
+				markers: deps.markers,
 				queueUrl: deps.queueUrl,
 				accountId,
 				// POST /sync asks for a sync of this account by name — the refresh
@@ -62,8 +68,9 @@ export const triggerSyncSafe = async (
 				// gate would allow.
 				explicitRequest: true,
 			});
+			if (!outcome.enqueued) return;
 			deps.logger.info(
-				{ accountId, eventId },
+				{ accountId, eventId: outcome.eventId },
 				"Sync triggered - enqueued SYNC_MAILBOXES event",
 			);
 		},
@@ -85,10 +92,15 @@ export const SyncOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 
-		const account = await (await getClient()).account.get(accountId);
+		const client = await getClient();
+		const account = await client.account.get(accountId);
 		assertAccountOwnership(account, accountConfigId, "act");
 
-		void triggerSyncSafe(account.accountId, accountConfigId);
+		void triggerSyncSafe(
+			account.accountId,
+			accountConfigId,
+			defaultSyncTriggerDeps(client.mailboxLock),
+		);
 
 		return {
 			triggered: true,

@@ -36,6 +36,7 @@ export const handler: ScheduledHandler = withTelemetry(async (event) => {
 
 	await runSchedulerTick({
 		accountService: client.account,
+		markers: client.mailboxLock,
 		sqsClient,
 		queueUrl: mailboxesQueueUrl,
 		log,

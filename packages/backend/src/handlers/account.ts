@@ -36,7 +36,10 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
-import { triggerAccountSync } from "../service/trigger-sync.js";
+import {
+	type PendingMarkers,
+	triggerAccountSync,
+} from "../service/trigger-sync.js";
 import type {
 	AccountDetailOperationIds,
 	AccountOperationIds,
@@ -67,6 +70,7 @@ export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
 export const triggerAccountSyncSafe = async (
 	accountId: string,
+	markers: PendingMarkers,
 ): Promise<void> => {
 	const queueUrl = env.SQS_QUEUE_URL;
 	// Best-effort: account creation must still return 200 even if the sync
@@ -76,13 +80,18 @@ export const triggerAccountSyncSafe = async (
 	// unhandled rejection onto an unrelated in-flight request.
 	await fireAndForget(
 		async () => {
-			const { eventId } = await triggerAccountSync({
+			const outcome = await triggerAccountSync({
 				sqsClient,
+				markers,
 				queueUrl,
 				accountId,
 			});
+			if (!outcome.enqueued) return;
 			// biome-ignore lint/plugin/no-logger-info: sync-triggered-for-new-account is an audit-grade signal
-			logger.info({ accountId, eventId }, "Sync triggered for new account");
+			logger.info(
+				{ accountId, eventId: outcome.eventId },
+				"Sync triggered for new account",
+			);
 		},
 		{
 			source: "account_create",
@@ -213,8 +222,14 @@ export const AccountOperations: Record<
 			input.syncedServices ?? [AccountService.Mail],
 		);
 
-		const { account, accountConfig, accountSetting, mailbox, secrets } =
-			await getClient();
+		const {
+			account,
+			accountConfig,
+			accountSetting,
+			mailbox,
+			mailboxLock,
+			secrets,
+		} = await getClient();
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
 
@@ -277,7 +292,7 @@ export const AccountOperations: Record<
 			);
 		}
 
-		await triggerAccountSyncSafe(newAccount.accountId);
+		await triggerAccountSyncSafe(newAccount.accountId, mailboxLock);
 
 		const [overrides, folderAppointments] = await Promise.all([
 			loadAccountOverrides(

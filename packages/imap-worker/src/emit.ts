@@ -59,6 +59,7 @@ export interface EmitEventOptions {
 	 * Useful for retry backoff to avoid overwhelming IMAP servers.
 	 */
 	delaySeconds?: number;
+	eventId?: string;
 }
 
 export const emitEvent = async (
@@ -67,7 +68,7 @@ export const emitEvent = async (
 ) => {
 	const fullEvent: ImapEvent = {
 		...event,
-		eventId: randomUUID(),
+		eventId: options?.eventId ?? randomUUID(),
 		timestamp: Date.now(),
 	} as ImapEvent;
 

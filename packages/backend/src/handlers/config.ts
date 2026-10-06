@@ -31,7 +31,10 @@ import { getClient } from "../service/data-client.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
-import { triggerAccountSync } from "../service/trigger-sync.js";
+import {
+	type PendingMarkers,
+	triggerAccountSync,
+} from "../service/trigger-sync.js";
 import type { ConfigOperationIds, OperationHandler } from "../types.js";
 import { toAccountResponse } from "./account-guards.js";
 import {
@@ -52,12 +55,16 @@ type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 
 interface ConfigSyncTriggerDeps {
 	sqsClient: SQSClient;
+	markers: PendingMarkers;
 	queueUrl: string;
 	logger: { info: StructuredLog; error: StructuredLog };
 }
 
-const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
+const defaultConfigSyncTriggerDeps = (
+	markers: PendingMarkers,
+): ConfigSyncTriggerDeps => ({
 	sqsClient,
+	markers,
 	queueUrl: env.SQS_QUEUE_URL,
 	logger,
 });
@@ -91,19 +98,21 @@ const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
 export const triggerConfigLoadSyncs = async (
 	accountConfigId: string,
 	accounts: ReadonlyArray<{ accountId: string } & StoredCredentialFields>,
-	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
+	deps: ConfigSyncTriggerDeps,
 ): Promise<void> => {
 	await Promise.all(
 		accounts.filter(hasStoredCredential).map(({ accountId }) =>
 			fireAndForget(
 				async () => {
-					const { eventId } = await triggerAccountSync({
+					const outcome = await triggerAccountSync({
 						sqsClient: deps.sqsClient,
+						markers: deps.markers,
 						queueUrl: deps.queueUrl,
 						accountId,
 					});
+					if (!outcome.enqueued) return;
 					deps.logger.info(
-						{ accountId, eventId },
+						{ accountId, eventId: outcome.eventId },
 						"Sync triggered on config load",
 					);
 				},
@@ -234,7 +243,11 @@ export const ConfigOperations: Record<
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
 		// with an alertable structured field — but it also never rejects, so the
 		// `void` here cannot leak an unhandled rejection into a later request.
-		void triggerConfigLoadSyncs(accountConfigId, activeAccounts);
+		void triggerConfigLoadSyncs(
+			accountConfigId,
+			activeAccounts,
+			defaultConfigSyncTriggerDeps(client.mailboxLock),
+		);
 
 		// An import that named folders IMAP had not produced yet rides the config
 		// read rather than a route of its own, so nothing has to poll for it.

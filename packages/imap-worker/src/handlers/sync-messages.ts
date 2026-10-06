@@ -4,6 +4,7 @@ import type {
 	IAccountRepository,
 	IAddressRepository,
 	IEnvelopeRepository,
+	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessageFlagPushRepository,
@@ -38,6 +39,10 @@ import type {
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
+import {
+	clearPendingSyncMessages,
+	emitSyncMessagesOnce,
+} from "../pending-sync.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -100,6 +105,8 @@ export const syncMessages = async (
 		unitOfWork,
 		secrets,
 	} = await deps.getClient();
+
+	await clearPendingSyncMessages(mailboxLockService, event);
 
 	// A deleted account never has its DDB row purged in lockstep with the queued
 	// SYNC_MESSAGES triggers, so a trigger can outlive its account. The lookup
@@ -201,6 +208,7 @@ export const syncMessages = async (
 								quarantineService,
 								flagPushMarkerService,
 								messageFlagService,
+								mailboxLockService,
 								unitOfWork,
 							},
 							log,
@@ -279,6 +287,7 @@ interface SyncDeps {
 	quarantineService: IQuarantineRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
+	mailboxLockService: IMailboxLockRepository;
 	unitOfWork?: IUnitOfWork;
 }
 
@@ -372,6 +381,7 @@ const syncMailboxMessages = async (
 		quarantineService,
 		flagPushMarkerService,
 		messageFlagService,
+		mailboxLockService,
 		unitOfWork,
 	} = deps;
 
@@ -483,7 +493,7 @@ const syncMailboxMessages = async (
 			accountId: event.accountId,
 			mailboxId,
 		};
-		await emitEvent(nextSyncEvent);
+		await emitSyncMessagesOnce(mailboxLockService, nextSyncEvent);
 		return;
 	}
 

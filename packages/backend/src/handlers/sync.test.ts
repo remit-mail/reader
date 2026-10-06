@@ -46,6 +46,11 @@ const deferredFailingSqsClient = (error: Error): SQSClient =>
 			}),
 	}) as unknown as SQSClient;
 
+const openMarkers = {
+	tryAcquireLock: async (): Promise<boolean> => true,
+	releaseLock: async (): Promise<void> => {},
+};
+
 describe("triggerSyncSafe", () => {
 	it("enqueues a SYNC_MAILBOXES event and logs success", async () => {
 		const sent: SendMessageCommand[] = [];
@@ -53,6 +58,7 @@ describe("triggerSyncSafe", () => {
 
 		await triggerSyncSafe("acc-a", "config-1", {
 			sqsClient: okSqsClient(sent),
+			markers: openMarkers,
 			queueUrl: QUEUE_URL,
 			logger,
 		});
@@ -74,6 +80,7 @@ describe("triggerSyncSafe", () => {
 
 		await triggerSyncSafe("acc-a", "config-1", {
 			sqsClient: okSqsClient(sent),
+			markers: openMarkers,
 			queueUrl: QUEUE_URL,
 			logger,
 		});
@@ -94,6 +101,7 @@ describe("triggerSyncSafe", () => {
 		await assert.doesNotReject(
 			triggerSyncSafe("acc-a", "config-1", {
 				sqsClient: deferredFailingSqsClient(econnrefused),
+				markers: openMarkers,
 				queueUrl: QUEUE_URL,
 				logger,
 			}),
@@ -109,6 +117,7 @@ describe("triggerSyncSafe", () => {
 
 		await triggerSyncSafe("acc-a", "config-1", {
 			sqsClient: deferredFailingSqsClient(econnrefused),
+			markers: openMarkers,
 			queueUrl: QUEUE_URL,
 			logger,
 		});
@@ -147,6 +156,7 @@ describe("triggerSyncSafe", () => {
 			// Fire-and-forget exactly as SyncOperations_triggerSync does.
 			void triggerSyncSafe("acc-a", "config-1", {
 				sqsClient: deferredFailingSqsClient(econnrefused),
+				markers: openMarkers,
 				queueUrl: QUEUE_URL,
 				logger,
 			});

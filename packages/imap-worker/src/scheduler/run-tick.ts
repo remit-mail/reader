@@ -1,6 +1,7 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	buildScheduledSyncDedupId,
+	type PendingMarkers,
 	triggerAccountSync,
 } from "@remit/backend/trigger-sync";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
@@ -22,6 +23,7 @@ import { isSyncDue } from "./decide-due.js";
 
 export interface RunSchedulerTickDeps {
 	accountService: Pick<IAccountRepository, "listAllAccountsPage">;
+	markers: PendingMarkers;
 	sqsClient: SQSClient;
 	queueUrl: string;
 	log: Logger;
@@ -121,6 +123,7 @@ export const runSchedulerTick = async (
 ): Promise<SchedulerTickResult> => {
 	const {
 		accountService,
+		markers,
 		sqsClient,
 		queueUrl,
 		log,
@@ -154,6 +157,7 @@ export const runSchedulerTick = async (
 			(account) =>
 				triggerAccountSync({
 					sqsClient,
+					markers,
 					queueUrl,
 					accountId: account.accountId,
 					dedupId: buildScheduledSyncDedupId(

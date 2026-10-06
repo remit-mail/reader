@@ -83,6 +83,11 @@ const fakeAccountService = (pages: AccountSchedulerPage[]) => {
 	};
 };
 
+const openMarkers = {
+	tryAcquireLock: async (): Promise<boolean> => true,
+	releaseLock: async (): Promise<void> => {},
+};
+
 const fakeSqsClient = (): {
 	sqsClient: SQSClient;
 	sent: SendMessageCommand[];
@@ -116,6 +121,7 @@ describe("runSchedulerTick", () => {
 
 		const result = await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -151,6 +157,7 @@ describe("runSchedulerTick", () => {
 
 		const result = await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -179,6 +186,7 @@ describe("runSchedulerTick", () => {
 
 		const result = await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -214,6 +222,7 @@ describe("runSchedulerTick", () => {
 
 		await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -242,6 +251,7 @@ describe("runSchedulerTick", () => {
 
 		await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -266,6 +276,7 @@ describe("runSchedulerTick", () => {
 
 		const result = await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl:
 				"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
@@ -297,6 +308,7 @@ describe("the attachment sweep inside a tick", () => {
 
 		const result = await runSchedulerTick({
 			accountService: fakeAccountService(twoAccounts()),
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log: createNoopLogger(),
@@ -322,6 +334,7 @@ describe("the attachment sweep inside a tick", () => {
 
 		const result = await runSchedulerTick({
 			accountService: fakeAccountService(twoAccounts()),
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log,
@@ -354,6 +367,7 @@ describe("the attachment sweep inside a tick", () => {
 
 		const result = await runSchedulerTick({
 			accountService: fakeAccountService(twoAccounts()),
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log: createNoopLogger(),
@@ -378,6 +392,7 @@ describe("runSchedulerTick and the account's synced services", () => {
 		const { sqsClient, sent } = fakeSqsClient();
 		const result = await runSchedulerTick({
 			accountService,
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log: createNoopLogger(),
@@ -428,6 +443,7 @@ describe("the calendar subscription refresh inside a tick", () => {
 
 		const result = await runSchedulerTick({
 			accountService: fakeAccountService(oneAccount()),
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log: createNoopLogger(),
@@ -452,6 +468,7 @@ describe("the calendar subscription refresh inside a tick", () => {
 
 		const result = await runSchedulerTick({
 			accountService: fakeAccountService(oneAccount()),
+			markers: openMarkers,
 			sqsClient,
 			queueUrl: "https://queue.test/mailboxes",
 			log,

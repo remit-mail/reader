@@ -17,6 +17,11 @@ const parseBody = (cmd: SendMessageCommand): Record<string, unknown> => {
 	return JSON.parse(body) as Record<string, unknown>;
 };
 
+const openMarkers = {
+	tryAcquireLock: async (): Promise<boolean> => true,
+	releaseLock: async (): Promise<void> => {},
+};
+
 describe("buildSyncMailboxesCommand", () => {
 	it("sets MessageGroupId to accountId for FIFO queues", () => {
 		const cmd = buildSyncMailboxesCommand({
@@ -174,6 +179,7 @@ describe("triggerAccountSync", () => {
 
 		const result = await triggerAccountSync({
 			sqsClient,
+			markers: openMarkers,
 			queueUrl: FIFO_QUEUE_URL,
 			accountId: "account-xyz",
 		});
@@ -183,7 +189,130 @@ describe("triggerAccountSync", () => {
 		if (!cmd) throw new Error("expected command");
 		assert.ok(cmd instanceof SendMessageCommand);
 		assert.equal(cmd.input.MessageGroupId, "account-xyz");
-		assert.equal(typeof result.eventId, "string");
+		assert.equal(result.enqueued, true);
+		assert.equal(result.enqueued && typeof result.eventId, "string");
+	});
+
+	it("holds the pending marker under the event's own id once it is queued", async () => {
+		const held: Array<{
+			mailboxId: string;
+			eventName: string;
+			lockId: string;
+		}> = [];
+		const markers = {
+			tryAcquireLock: async (
+				mailboxId: string,
+				eventName: string,
+				_accountId: string,
+				lockId: string,
+			): Promise<boolean> => {
+				held.push({ mailboxId, eventName, lockId });
+				return true;
+			},
+			releaseLock: async (): Promise<void> => {},
+		};
+		const sqsClient = {
+			send: async () => ({}),
+		} as unknown as SQSClient;
+
+		const result = await triggerAccountSync({
+			sqsClient,
+			markers,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-xyz",
+			explicitRequest: true,
+		});
+
+		assert.equal(result.enqueued, true);
+		assert.deepEqual(held, [
+			{
+				mailboxId: "account-xyz",
+				eventName: "SYNC_MAILBOXES_EXPLICIT_PENDING",
+				lockId: result.enqueued ? result.eventId : "",
+			},
+		]);
+	});
+
+	it("sends nothing while a sync of the account is already pending", async () => {
+		const sent: SendMessageCommand[] = [];
+		const sqsClient = {
+			send: async (cmd: SendMessageCommand) => {
+				sent.push(cmd);
+				return {};
+			},
+		} as unknown as SQSClient;
+		const markers = {
+			tryAcquireLock: async (): Promise<boolean> => false,
+			releaseLock: async (): Promise<void> => {},
+		};
+
+		const result = await triggerAccountSync({
+			sqsClient,
+			markers,
+			queueUrl: FIFO_QUEUE_URL,
+			accountId: "account-xyz",
+			explicitRequest: true,
+		});
+
+		assert.deepEqual(result, { enqueued: false });
+		assert.equal(sent.length, 0);
+	});
+
+	it("fails loudly when the marker store cannot be reached", async () => {
+		const sent: SendMessageCommand[] = [];
+		const sqsClient = {
+			send: async (cmd: SendMessageCommand) => {
+				sent.push(cmd);
+				return {};
+			},
+		} as unknown as SQSClient;
+		const markers = {
+			tryAcquireLock: async (): Promise<boolean> => {
+				throw new Error("marker store down");
+			},
+			releaseLock: async (): Promise<void> => {},
+		};
+
+		await assert.rejects(
+			triggerAccountSync({
+				sqsClient,
+				markers,
+				queueUrl: FIFO_QUEUE_URL,
+				accountId: "account-xyz",
+			}),
+			/marker store down/,
+		);
+		assert.equal(sent.length, 0);
+	});
+
+	it("releases the marker when the send fails so the next trigger is not swallowed", async () => {
+		const released: string[] = [];
+		const markers = {
+			tryAcquireLock: async (): Promise<boolean> => true,
+			releaseLock: async (
+				_accountId: string,
+				_mailboxId: string,
+				eventName: string,
+			): Promise<void> => {
+				released.push(eventName);
+			},
+		};
+		const sqsClient = {
+			send: async () => {
+				throw new Error("queue unreachable");
+			},
+		} as unknown as SQSClient;
+
+		await assert.rejects(
+			triggerAccountSync({
+				sqsClient,
+				markers,
+				queueUrl: FIFO_QUEUE_URL,
+				accountId: "account-xyz",
+			}),
+			/queue unreachable/,
+		);
+		assert.deepEqual(released, ["SYNC_MAILBOXES_PENDING"]);
 	});
 
 	it("propagates SQS send errors to the caller", async () => {
@@ -196,6 +325,7 @@ describe("triggerAccountSync", () => {
 		await assert.rejects(
 			triggerAccountSync({
 				sqsClient,
+				markers: openMarkers,
 				queueUrl: FIFO_QUEUE_URL,
 				accountId: "account-xyz",
 			}),

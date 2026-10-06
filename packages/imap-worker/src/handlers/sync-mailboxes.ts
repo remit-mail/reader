@@ -1,5 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointments";
+import { syncMailboxesPendingName } from "@remit/backend/trigger-sync";
 import {
 	bindImportedFolders,
 	type ConfigBinderDeps,
@@ -8,6 +9,7 @@ import {
 import type {
 	AccountItem,
 	IAccountRepository,
+	IMailboxLockRepository,
 	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 } from "@remit/data-ports";
@@ -29,8 +31,8 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
+import { emitSyncMessagesOnce } from "../pending-sync.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { createImportedFolder } from "./imported-folder.js";
@@ -101,6 +103,7 @@ export const syncMailboxes = async (
 		account: accountService,
 		mailbox: mailboxService,
 		mailboxSpecialUse: mailboxSpecialUseService,
+		mailboxLock: mailboxLockService,
 		secrets,
 	} = client;
 	const binder: ConfigBinderDeps = {
@@ -126,6 +129,13 @@ export const syncMailboxes = async (
 
 	const { accountId } = event;
 	log.info({ event: event.type, accountId }, "Handling event");
+
+	await mailboxLockService.releaseLock(
+		accountId,
+		accountId,
+		syncMailboxesPendingName(event.explicitRequest),
+		event.eventId,
+	);
 
 	const account = await accountService.get(accountId);
 	if (!account) {
@@ -164,6 +174,7 @@ export const syncMailboxes = async (
 					mailboxService,
 					mailboxSpecialUseService,
 					accountService,
+					mailboxLockService,
 					binder,
 					log,
 				);
@@ -197,6 +208,7 @@ const syncMailboxesForAccount = async (
 	mailboxService: IMailboxRepository,
 	mailboxSpecialUseService: IMailboxSpecialUseRepository,
 	accountService: IAccountRepository,
+	mailboxLockService: IMailboxLockRepository,
 	binder: ConfigBinderDeps,
 	log: Logger,
 ): Promise<void> => {
@@ -330,7 +342,9 @@ const syncMailboxesForAccount = async (
 		mailboxCountSynced: skipped,
 	});
 
-	await emitSyncMessagesEvents(accountId, mailboxes, emitEvent);
+	await emitSyncMessagesEvents(accountId, mailboxes, (input) =>
+		emitSyncMessagesOnce(mailboxLockService, input),
+	);
 };
 
 type SyncMessagesInput = Omit<SyncMessagesEvent, "eventId" | "timestamp">;

@@ -287,6 +287,7 @@ const buildSyncDeps = (opts: {
 			mailbox: {
 				get: opts.mailboxGet,
 			},
+			mailboxLock: { releaseLock: async () => {} },
 			secrets: {},
 		}),
 		buildLifecycleDeps: () => ({}),
@@ -425,6 +426,7 @@ const buildRunningSyncDeps = (
 				},
 			},
 			mailboxLock: {
+				releaseLock: async () => {},
 				withMailboxLock: async (
 					_mailboxId: string,
 					_operation: string,
