@@ -31,6 +31,7 @@ function rowToCalendarSuggestion(
 		summary: row.summary,
 		dtStart: row.dtStart,
 		dtEnd: row.dtEnd,
+		endsAtUtc: row.endsAtUtc,
 		allDay: row.allDay,
 		location: row.location,
 		organizer: row.organizer,
@@ -147,14 +148,14 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 	async listByState(
 		accountConfigId: string,
 		state: CalendarSuggestionItem["state"],
-		options?: {
+		options: {
+			endsAfter: string;
 			limit?: number;
 			continuationToken?: string;
-			excludePast?: boolean;
 		},
 	): Promise<ResultList<CalendarSuggestionItem>> {
-		const limit = options?.limit ?? 100;
-		const cursor = options?.continuationToken
+		const limit = options.limit ?? 100;
+		const cursor = options.continuationToken
 			? decodeToken(options.continuationToken)
 			: undefined;
 		const after = cursor
@@ -163,7 +164,6 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 					suggestionId: cursor.suggestionId as string,
 				}
 			: undefined;
-		const now = new Date().toISOString();
 
 		const rows = await this.db
 			.select()
@@ -172,9 +172,7 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 				and(
 					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
 					eq(calendarSuggestionTable.state, state),
-					options?.excludePast
-						? gte(calendarSuggestionTable.dtEnd, now)
-						: undefined,
+					gte(calendarSuggestionTable.endsAtUtc, options.endsAfter),
 					after
 						? or(
 								lt(calendarSuggestionTable.createdAt, after.createdAt),

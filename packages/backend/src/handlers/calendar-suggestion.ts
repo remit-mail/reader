@@ -221,7 +221,10 @@ export const CalendarSuggestionOperations: Record<
 			state,
 			{
 				continuationToken,
-				excludePast: state === CalendarSuggestionState.Pending,
+				endsAfter:
+					state === CalendarSuggestionState.Pending
+						? new Date().toISOString()
+						: new Date(0).toISOString(),
 			},
 		);
 

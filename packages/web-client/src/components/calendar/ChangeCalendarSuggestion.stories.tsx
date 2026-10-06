@@ -28,6 +28,7 @@ const suggestion = (
 	summary: "Billing migration kickoff",
 	dtStart: "2026-06-11T14:00:00+02:00",
 	dtEnd: "2026-06-11T15:00:00+02:00",
+	endsAtUtc: "2026-06-11T13:00:00Z",
 	allDay: false,
 	location: "Room Noord",
 	organizer: "priya@example.invalid",
@@ -130,6 +131,7 @@ export const ZoneNobodyCouldPlace: Story = {
 			suggestion({
 				dtStart: "2026-06-11T09:00:00+00:00",
 				dtEnd: "2026-06-11T10:00:00+00:00",
+				endsAtUtc: "2026-06-11T10:00:00Z",
 				zoneCertainty: "Ambiguous",
 			}),
 		],

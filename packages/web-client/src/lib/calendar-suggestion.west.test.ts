@@ -26,6 +26,7 @@ const allDay = {
 	summary: "Offsite",
 	dtStart: "2027-03-10T00:00:00+00:00",
 	dtEnd: "2027-03-11T00:00:00+00:00",
+	endsAtUtc: "2027-03-11T00:00:00Z",
 	allDay: true,
 	location: "",
 	organizer: "organizer@example.test",
@@ -52,6 +53,7 @@ describe("an all-day invitation, west of where it was sent", () => {
 		const when = suggestionWhen({
 			...allDay,
 			dtEnd: "2027-03-13T00:00:00+00:00",
+			endsAtUtc: "2027-03-13T00:00:00Z",
 		});
 		assert.match(when, /Wed.*\b10\b.*–.*Fri.*\b12\b/);
 		assert.doesNotMatch(when, /Sat|\b13\b/);

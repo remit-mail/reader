@@ -28,6 +28,7 @@ const suggestion = (
 	summary: "Design review",
 	dtStart: "2026-09-01T10:00:00+02:00",
 	dtEnd: "2026-09-01T11:00:00+02:00",
+	endsAtUtc: "2026-09-01T09:00:00Z",
 	allDay: false,
 	location: "",
 	organizer: "organizer@example.test",
@@ -35,6 +36,8 @@ const suggestion = (
 	icalData: "BEGIN:VCALENDAR\r\nEND:VCALENDAR\r\n",
 	...overrides,
 });
+
+const EARLIEST_INSTANT = "1970-01-01T00:00:00.000Z";
 
 export function calendarSuggestionRepositoryConformance(
 	harness: RepositoryConformanceHarness<ICalendarSuggestionRepository>,
@@ -166,10 +169,74 @@ export function calendarSuggestionRepositoryConformance(
 			const page = await repo.listByState(
 				accountConfigId,
 				CalendarSuggestionState.Pending,
+				{ endsAfter: EARLIEST_INSTANT },
 			);
 			assert.deepEqual(
 				page.items.map((row) => row.suggestionId),
 				[pending.suggestionId],
+			);
+		});
+
+		test("listByState drops a suggestion that ended before endsAfter, comparing instants across offsets", async () => {
+			const accountConfigId = harness.makeId();
+			await repo.put(
+				suggestion(
+					accountConfigId,
+					harness.makeId(),
+					harness.makeId(),
+					"ended",
+					{
+						dtEnd: "2026-10-06T23:00:00+14:00",
+						endsAtUtc: "2026-10-06T09:00:00Z",
+					},
+				),
+			);
+			const running = await repo.put(
+				suggestion(
+					accountConfigId,
+					harness.makeId(),
+					harness.makeId(),
+					"running",
+					{
+						dtEnd: "2026-10-06T01:00:00-12:00",
+						endsAtUtc: "2026-10-06T13:00:00Z",
+					},
+				),
+			);
+
+			const page = await repo.listByState(
+				accountConfigId,
+				CalendarSuggestionState.Pending,
+				{ endsAfter: "2026-10-06T10:00:00Z" },
+			);
+			assert.deepEqual(
+				page.items.map((row) => row.suggestionId),
+				[running.suggestionId],
+			);
+		});
+
+		test("listByState keeps a suggestion ending exactly at endsAfter", async () => {
+			const accountConfigId = harness.makeId();
+			const boundary = await repo.put(
+				suggestion(
+					accountConfigId,
+					harness.makeId(),
+					harness.makeId(),
+					"edge",
+					{
+						endsAtUtc: "2026-10-06T10:00:00Z",
+					},
+				),
+			);
+
+			const page = await repo.listByState(
+				accountConfigId,
+				CalendarSuggestionState.Pending,
+				{ endsAfter: "2026-10-06T10:00:00Z" },
+			);
+			assert.deepEqual(
+				page.items.map((row) => row.suggestionId),
+				[boundary.suggestionId],
 			);
 		});
 
@@ -182,6 +249,7 @@ export function calendarSuggestionRepositoryConformance(
 			const page = await repo.listByState(
 				accountConfigId,
 				CalendarSuggestionState.Pending,
+				{ endsAfter: EARLIEST_INSTANT },
 			);
 			assert.equal(page.items.length, 0);
 		});
@@ -197,7 +265,7 @@ export function calendarSuggestionRepositoryConformance(
 			const first = await repo.listByState(
 				accountConfigId,
 				CalendarSuggestionState.Pending,
-				{ limit: 2 },
+				{ endsAfter: EARLIEST_INSTANT, limit: 2 },
 			);
 			assert.equal(first.items.length, 2);
 			assert.ok(first.continuationToken);
@@ -205,7 +273,11 @@ export function calendarSuggestionRepositoryConformance(
 			const second = await repo.listByState(
 				accountConfigId,
 				CalendarSuggestionState.Pending,
-				{ limit: 2, continuationToken: first.continuationToken },
+				{
+					endsAfter: EARLIEST_INSTANT,
+					limit: 2,
+					continuationToken: first.continuationToken,
+				},
 			);
 			const seen = [...first.items, ...second.items].map(
 				(row) => row.suggestionId,

@@ -22,6 +22,7 @@ import {
 	CalendarSuggestionState,
 	FilterState,
 	RecurrenceScope,
+	ZoneCertainty,
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -65,6 +66,7 @@ const suggestion = (
 	summary: "Quarterly review",
 	dtStart: "2026-09-01T10:00:00+02:00",
 	dtEnd: "2026-09-01T11:00:00+02:00",
+	endsAtUtc: "2026-09-01T09:00:00Z",
 	allDay: false,
 	location: "Room 4",
 	organizer: "organizer@example.test",
@@ -405,6 +407,15 @@ const putSuggestion = (
 	accountConfigId: string,
 	messageId: string,
 	method: CalendarSuggestionItem["method"] = CalendarInviteMethod.Request,
+	times: Pick<
+		PutCalendarSuggestionInput,
+		"dtStart" | "dtEnd" | "endsAtUtc" | "icalData"
+	> = {
+		dtStart: futureStart,
+		dtEnd: futureEnd,
+		endsAtUtc: futureEnd,
+		icalData: INVITATION,
+	},
 ): Promise<CalendarSuggestionItem> =>
 	client.calendarSuggestion.put({
 		accountConfigId,
@@ -415,14 +426,12 @@ const putSuggestion = (
 		method,
 		source: CalendarSuggestionSource.IcalendarPart,
 		summary: "Quarterly review",
-		dtStart: futureStart,
-		dtEnd: futureEnd,
 		allDay: false,
 		location: "Room 4",
 		organizer: "organizer@example.test",
-		zoneCertainty: "Explicit",
-		icalData: INVITATION,
-	} as PutCalendarSuggestionInput);
+		zoneCertainty: ZoneCertainty.Explicit,
+		...times,
+	});
 
 /** A message with a From address, which is all muting a sender reads. */
 const seedMessageFrom = async (
@@ -960,6 +969,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			summary: "Quarterly review",
 			dtStart: futureStart,
 			dtEnd: futureEnd,
+			endsAtUtc: futureEnd,
 			allDay: false,
 			location: "Room 4",
 			organizer: "organizer@example.test",
@@ -1165,54 +1175,95 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 	});
 });
 
-describe("GET /calendar-suggestions excludes past events", () => {
-	test("omits Pending suggestions whose dtEnd is in the past", async () => {
+describe("GET /calendar-suggestions leaves out events that are over", () => {
+	const hoursFromNow = (hours: number): string =>
+		new Date(Date.now() + hours * 3600000).toISOString();
+
+	const past = {
+		dtStart: hoursFromNow(-48),
+		dtEnd: hoursFromNow(-47),
+		endsAtUtc: hoursFromNow(-47),
+		icalData: INVITATION,
+	};
+
+	const listState = async (
+		event: APIGatewayProxyEvent,
+		state: CalendarSuggestionItem["state"],
+	): Promise<Card[]> =>
+		(
+			(await listSuggestions(
+				contextOf({ query: { state } }),
+				event,
+			)) as unknown as { items: Card[] }
+		).items;
+
+	test("omits a Pending suggestion that ended and keeps one still ahead", async () => {
 		const { accountConfigId, event } = anAccount();
-		const past = new Date(Date.now() - 86400000).toISOString();
-		const future = new Date(Date.now() + 86400000).toISOString();
-
-		await client.calendarSuggestion.put({
+		await putSuggestion(
 			accountConfigId,
-			messageId: "msg-past",
-			bodyPartId: "part-1",
-			icalUid: "past@example.test",
-			sequence: 0,
-			method: CalendarInviteMethod.Request,
-			source: CalendarSuggestionSource.IcalendarPart,
-			summary: "Past meeting",
-			dtStart: past,
-			dtEnd: past,
-			allDay: false,
-			location: "Room 1",
-			organizer: "organizer@example.test",
-			zoneCertainty: "Explicit",
-			icalData: INVITATION,
-		} as PutCalendarSuggestionInput);
+			"msg-past",
+			CalendarInviteMethod.Request,
+			past,
+		);
+		const ahead = await putSuggestion(accountConfigId, "msg-ahead");
 
-		await client.calendarSuggestion.put({
+		const pending = await listState(event, CalendarSuggestionState.Pending);
+
+		assert.deepEqual(
+			pending.map((card) => card.suggestionId),
+			[ahead.suggestionId],
+		);
+	});
+
+	test("keeps a weekly series that began two years ago and has no end", async () => {
+		const { accountConfigId, event } = anAccount();
+		const twoYearsAgo = hoursFromNow(-2 * 365 * 24);
+		const stamp = twoYearsAgo.replace(/[-:]/g, "").slice(0, 15).concat("Z");
+		const series = await putSuggestion(
 			accountConfigId,
-			messageId: "msg-future",
-			bodyPartId: "part-1",
-			icalUid: "future@example.test",
-			sequence: 0,
-			method: CalendarInviteMethod.Request,
-			source: CalendarSuggestionSource.IcalendarPart,
-			summary: "Future meeting",
-			dtStart: future,
-			dtEnd: future,
-			allDay: false,
-			location: "Room 2",
-			organizer: "organizer@example.test",
-			zoneCertainty: "Explicit",
-			icalData: INVITATION,
-		} as PutCalendarSuggestionInput);
+			"msg-series",
+			CalendarInviteMethod.Request,
+			{
+				dtStart: twoYearsAgo,
+				dtEnd: twoYearsAgo,
+				endsAtUtc: "9999-12-31T23:59:59Z",
+				icalData: INVITATION.replace(
+					/DTSTART[^\r\n]*/,
+					`DTSTART:${stamp}`,
+				).replace(/DTEND[^\r\n]*/, `DTEND:${stamp}\r\nRRULE:FREQ=WEEKLY`),
+			},
+		);
 
-		const pending = (await listSuggestions(
-			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
-			event,
-		)) as unknown as { items: Card[] };
+		const pending = await listState(event, CalendarSuggestionState.Pending);
 
-		assert.equal(pending.items.length, 1);
-		assert.equal(pending.items[0]?.summary, "Future meeting");
+		assert.deepEqual(
+			pending.map((card) => card.suggestionId),
+			[series.suggestionId],
+		);
+	});
+
+	test("still returns an Accepted suggestion whose event is over", async () => {
+		const { accountConfigId, event } = anAccount();
+		const stored = await putSuggestion(
+			accountConfigId,
+			"msg-accepted",
+			CalendarInviteMethod.Request,
+			past,
+		);
+		await client.calendarSuggestion.settle(
+			accountConfigId,
+			stored.suggestionId,
+			{
+				state: CalendarSuggestionState.Accepted,
+				acceptedCalendarObjectId: "",
+			},
+		);
+
+		const accepted = await listState(event, CalendarSuggestionState.Accepted);
+
+		assert.deepEqual(
+			accepted.map((card) => card.suggestionId),
+			[stored.suggestionId],
+		);
 	});
 });

@@ -9,8 +9,14 @@ import {
 } from "@remit/domain-enums";
 import type ICAL from "ical.js";
 import type { CalendarResult } from "./errors.js";
+import { expandCalendar } from "./expand.js";
+import type { ParsedCalendar } from "./parse.js";
 import { parseCalendar } from "./parse.js";
 import { projectCalendar, readString } from "./project.js";
+import { toUtcIso } from "./time.js";
+
+const OPEN_ENDED_SERIES = "9999-12-31T23:59:59Z";
+const EARLIEST_INSTANT = new Date(0).toISOString();
 
 const METHOD_BY_ICAL: Record<string, CalendarSuggestionItem["method"]> = {
 	REQUEST: CalendarInviteMethod.Request,
@@ -48,11 +54,24 @@ export type CalendarSuggestionProjection = Pick<
 	| "summary"
 	| "dtStart"
 	| "dtEnd"
+	| "endsAtUtc"
 	| "allDay"
 	| "location"
 	| "organizer"
 	| "zoneCertainty"
 >;
+
+const endsAtUtcOf = (
+	calendar: ParsedCalendar,
+	timezone: string,
+	dtEnd: string,
+): string => {
+	const expansion = expandCalendar(calendar, timezone);
+	if (expansion.expandedThrough !== "") return OPEN_ENDED_SERIES;
+	const ends = expansion.occurrences.map((occurrence) => occurrence.endAt);
+	if (ends.length === 0) return toUtcIso(Date.parse(dtEnd));
+	return ends.reduce((latest, end) => (end > latest ? end : latest));
+};
 
 /**
  * Reads a message's `text/calendar` bytes into the facts a card is drawn from.
@@ -80,6 +99,7 @@ export const projectSuggestion = async (
 			summary: projection.value.summary,
 			dtStart: projection.value.dtStart,
 			dtEnd: projection.value.dtEnd,
+			endsAtUtc: endsAtUtcOf(parsed.value, timezone, projection.value.dtEnd),
 			allDay: projection.value.allDay,
 			location: readString(parsed.value.master, "location"),
 			organizer: mailAddressOf(readString(parsed.value.master, "organizer")),
@@ -125,6 +145,7 @@ const listInState = async (
 	let continuationToken: string | undefined;
 	do {
 		const page = await repo.listByState(accountConfigId, state, {
+			endsAfter: EARLIEST_INSTANT,
 			continuationToken,
 		});
 		items.push(...page.items);

@@ -242,6 +242,7 @@ describe("the calendar tables under the shipped migrations", () => {
 			summary: "Design review",
 			dtStart: "2026-09-01T10:00:00+02:00",
 			dtEnd: "2026-09-01T11:00:00+02:00",
+			endsAtUtc: "2026-09-01T09:00:00Z",
 			allDay: false,
 			location: "",
 			organizer: "organizer@example.test",
