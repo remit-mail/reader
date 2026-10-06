@@ -293,7 +293,7 @@ export const IsolatedEmailFrame = ({
 					doc.documentElement,
 					(state) => {
 						const direction = releasedSwipe(state);
-						if (!direction || isZoomed()) return;
+						if (!direction) return;
 						iframe.dispatchEvent(
 							new CustomEvent(SWIPE_EVENT, {
 								bubbles: true,

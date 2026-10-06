@@ -78,7 +78,7 @@ export const holdConfig = (delayMs: number) =>
 	}) as const;
 
 export const isHold = (state: FullGestureState<"drag">): boolean =>
-	state.event.type === "pointerdown" && !state._delayed;
+	state.event.type === "pointerdown" && state.first;
 
 export const touchMenuSuppressionProps = {
 	onPointerDown: (event: PointerEvent) => {

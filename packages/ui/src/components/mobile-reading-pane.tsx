@@ -84,8 +84,6 @@ export function MobileReadingPane({
 		onSwipeLeft: onSwipeNext,
 		onSwipeRight: onSwipePrevious,
 	});
-	const swipeEnabled =
-		onSwipeNext !== undefined || onSwipePrevious !== undefined;
 	const [localIntelligenceOpen, setLocalIntelligenceOpen] = useState(false);
 	const controlled = onToggleIntelligence !== undefined;
 	const isOpen = controlled
@@ -142,12 +140,12 @@ export function MobileReadingPane({
 				)}
 			</header>
 
-			<SwipeSurface.Provider value={swipeEnabled}>
+			<SwipeSurface.Provider value={swipe.enabled}>
 				<div
 					ref={swipe.ref}
 					className="flex-1 overflow-y-auto"
-					style={swipeEnabled ? { touchAction: swipe.touchAction } : undefined}
-					{...(swipeEnabled ? swipe.bind() : {})}
+					style={{ touchAction: swipe.touchAction }}
+					{...swipe.bind()}
 				>
 					{/* Newest first, as on the wide pane. */}
 					{children ??

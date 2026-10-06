@@ -47,6 +47,7 @@ interface SwipeNavigation {
 	ref: RefObject<HTMLDivElement | null>;
 	bind: ReturnType<typeof useDrag>;
 	touchAction: "pan-y pinch-zoom" | "auto";
+	enabled: boolean;
 }
 
 export const useSwipeNavigation = ({
@@ -54,6 +55,7 @@ export const useSwipeNavigation = ({
 	onSwipeRight,
 }: UseSwipeNavigationOptions): SwipeNavigation => {
 	const ref = useRef<HTMLDivElement>(null);
+	const swipeEnabled = onSwipeLeft !== undefined || onSwipeRight !== undefined;
 	const zoomed = useSyncExternalStore(subscribeToZoom, isZoomed, () => false);
 
 	const go = (direction: SwipeDirection | null): void => {
@@ -64,12 +66,12 @@ export const useSwipeNavigation = ({
 	const bind = useDrag((state) => go(releasedSwipe(state)), {
 		...SWIPE_DRAG_CONFIG,
 		axis: "x",
-		enabled: !zoomed,
+		enabled: swipeEnabled && !zoomed,
 	});
 
 	useEffect(() => {
 		const element = ref.current;
-		if (!element || zoomed) return;
+		if (!element || !swipeEnabled || zoomed) return;
 		const onFrameSwipe = (event: Event) => {
 			if (!(event instanceof CustomEvent)) return;
 			const { detail } = event;
@@ -82,6 +84,7 @@ export const useSwipeNavigation = ({
 	return {
 		ref,
 		bind,
-		touchAction: zoomed ? "auto" : "pan-y pinch-zoom",
+		touchAction: swipeEnabled && !zoomed ? "pan-y pinch-zoom" : "auto",
+		enabled: swipeEnabled,
 	};
 };

@@ -71,6 +71,12 @@ const gotoInbox = async (page: Page, mailboxId: string): Promise<void> => {
 const selectionStatus = (page: Page): Locator =>
 	page.locator("[data-selection-count]");
 
+const messageIdOf = async (row: Locator): Promise<string> => {
+	const id = await row.getAttribute("data-message-id");
+	if (!id) throw new Error("row has no message id");
+	return id;
+};
+
 const openSecondMessage = async (page: Page): Promise<Locator> => {
 	await rows(page).nth(1).tap();
 	await page.waitForURL(MAILBOX_THREAD_URL);
@@ -129,25 +135,25 @@ test.describe("Touch gestures", () => {
 	test("a swipe left over the message body opens the next message", async ({
 		page,
 	}) => {
+		const nextId = await messageIdOf(rows(page).nth(2));
 		const body = await openSecondMessage(page);
-		const opened = page.url();
 		const at = await centerOf(body);
 
 		await swipe(page, { x: at.x + 120, y: at.y }, { x: at.x - 120, y: at.y });
 
-		await expect.poll(() => page.url()).not.toBe(opened);
+		await expect.poll(() => page.url()).toContain(nextId);
 	});
 
 	test("a swipe right over the message body opens the previous message", async ({
 		page,
 	}) => {
+		const previousId = await messageIdOf(rows(page).nth(0));
 		const body = await openSecondMessage(page);
-		const opened = page.url();
 		const at = await centerOf(body);
 
 		await swipe(page, { x: at.x - 120, y: at.y }, { x: at.x + 120, y: at.y });
 
-		await expect.poll(() => page.url()).not.toBe(opened);
+		await expect.poll(() => page.url()).toContain(previousId);
 	});
 
 	test("a pinch over the message body zooms the page", async ({ page }) => {
