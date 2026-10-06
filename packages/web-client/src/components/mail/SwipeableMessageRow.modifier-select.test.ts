@@ -117,6 +117,7 @@ const press = (
 	const event = new PointerEvent("pointerdown", {
 		bubbles: true,
 		cancelable: true,
+		buttons: 1,
 		pointerId: 1,
 		clientX: 10,
 		clientY: 10,

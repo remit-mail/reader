@@ -10,7 +10,6 @@ import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
-import { useSwipeNavigation } from "@/hooks/useSwipeNavigation";
 import { useToggleStar } from "@/hooks/useToggleStar";
 import { type ReplyMode, useOpenReply, useReplySurface } from "@/routing";
 import { AuthenticityBanner } from "./AuthenticityBanner";
@@ -98,10 +97,6 @@ export const ConversationView = ({
 	listOnScreen = false,
 }: ConversationViewProps) => {
 	const isDesktop = useIsDesktop();
-	const { handlers: swipeHandlers } = useSwipeNavigation({
-		onSwipeLeft: onSwipeNext,
-		onSwipeRight: onSwipePrevious,
-	});
 	const { accountId: mailboxAccountId } = useMailboxAccount(mailboxId);
 	const {
 		data: messagesResponse,
@@ -483,7 +478,7 @@ export const ConversationView = ({
 	// back, the email subject and the intelligence toggle (the host owns the
 	// drawer). Each expanded card owns its per-message action bar; there is no
 	// thread-level reply footer. The phishing warning leads the scroll content;
-	// horizontal swipe between messages is wired through touchHandlers (#693).
+	// horizontal swipe between messages is wired through onSwipeNext / onSwipePrevious (#693).
 	if (!isDesktop) {
 		return (
 			<MobileReadingPane
@@ -491,7 +486,8 @@ export const ConversationView = ({
 				onBack={onBack ?? (() => undefined)}
 				intelligenceOpen={mobileIntelligenceOpen}
 				onToggleIntelligence={onOpenIntelligence}
-				touchHandlers={swipeHandlers}
+				onSwipeNext={onSwipeNext}
+				onSwipePrevious={onSwipePrevious}
 			>
 				{authenticity?.dkimMismatch && (
 					<AuthenticityBanner

@@ -1,6 +1,6 @@
-import type { DOMAttributes } from "@react-types/shared";
-import { type PointerEvent, useCallback } from "react";
-import { mergeProps, useLongPress as useAriaLongPress } from "react-aria";
+import { type FullGestureState, useDrag } from "@use-gesture/react";
+import type { HTMLAttributes, PointerEvent } from "react";
+import { mergeProps } from "react-aria";
 
 /**
  * Suppression lives on the document, not on the row.
@@ -54,74 +54,64 @@ function arm(): void {
 	armedTimer = setTimeout(disarm, MAX_ARMED_MS);
 }
 
+export const LONG_PRESS_DELAY_MS = 500;
+
+export const LONG_PRESS_DRIFT_PX = 36;
+
 export interface UseLongPressOptions {
-	/** Called once the threshold elapses while the press stays over the target. */
 	onLongPress: () => void;
-	/** Long press is a no-op while true (e.g. a row already in selection mode). */
 	isDisabled?: boolean;
-	/** @default 500 */
 	delayMs?: number;
-	/**
-	 * Announced to assistive technology as the long-press action, e.g.
-	 * "Select message". TalkBack/VoiceOver have no gesture equivalent for a
-	 * timed hold, so this description — not the gesture itself — is what
-	 * makes the action discoverable to a screen reader user.
-	 */
 	accessibilityDescription?: string;
 }
 
 export interface UseLongPressResult {
-	/** Spread onto the pressable element (anchor, button, or row container). */
-	longPressProps: DOMAttributes;
+	longPressProps: HTMLAttributes<HTMLElement>;
 }
 
-/**
- * Long-press detection backed by react-aria's `useLongPress`. Owns
- * `contextmenu` suppression and iOS text-selection suppression, and treats
- * `<a href>` targets specially so link navigation and middle-click survive
- * outside the press. It does not, and cannot, suppress iOS's native callout
- * (share sheet) on an anchor — that still requires
- * `-webkit-touch-callout: none` in CSS at the call site, since iOS fires no
- * cancelable event for it.
- *
- * The `contextmenu` suppression is armed by a touch or pen `pointerdown` and
- * runs on the document in the capture phase: a touch press suppresses the menu
- * Android Chrome and iOS Safari raise on a long press over a link, while a mouse
- * right-click is left alone so the desktop context menu keeps working. Two
- * reasons it is neither react-aria's own suppression nor a handler on the row.
- * react-aria's listener is transient — added on press start, scoped to the
- * touched node, torn down shortly after pointerup — so a press ended early by
- * the swipe gesture's axis arbitration slips past it. And the row itself does
- * not survive the press: the long press enters selection mode, which replaces
- * the swipeable row with the plain one while the finger is still down, so a
- * handler bound to the pressed node is gone by the time the menu arrives.
- *
- * Single source of truth for the app's long-press threshold — both mobile
- * row consumers (the plain row and the swipeable row) go through this hook
- * so their timing can't drift apart again.
- */
+export const holdConfig = (delayMs: number) =>
+	({
+		delay: delayMs,
+		threshold: LONG_PRESS_DRIFT_PX,
+		triggerAllEvents: true,
+		pointer: { keys: false },
+	}) as const;
+
+export const withHold =
+	(handler: (state: FullGestureState<"drag">, holdFired: boolean) => void) =>
+	(state: FullGestureState<"drag">): string => {
+		const startType: unknown = state.memo;
+		if (typeof startType !== "string") {
+			handler(state, false);
+			return state.event.type;
+		}
+		handler(state, state.event.type === startType);
+		return startType;
+	};
+
+export const touchMenuSuppressionProps = {
+	onPointerDown: (event: PointerEvent) => {
+		if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
+		arm();
+	},
+};
+
 export function useLongPress({
 	onLongPress,
 	isDisabled,
-	delayMs = 500,
+	delayMs = LONG_PRESS_DELAY_MS,
 	accessibilityDescription,
 }: UseLongPressOptions): UseLongPressResult {
-	const { longPressProps } = useAriaLongPress({
-		isDisabled,
-		threshold: delayMs,
-		accessibilityDescription,
-		onLongPress,
-	});
-
-	// Only a touch or pen press arms it: a mouse right-click, and a keyboard menu
-	// (Context-Menu key / Shift+F10) that is preceded by no press at all, keep
-	// the native menu.
-	const onPointerDown = useCallback((event: PointerEvent) => {
-		if (event.pointerType !== "touch" && event.pointerType !== "pen") return;
-		arm();
-	}, []);
+	const bind = useDrag(
+		withHold((_state, holdFired) => {
+			if (holdFired) onLongPress();
+		}),
+		{ ...holdConfig(delayMs), enabled: !isDisabled },
+	);
 
 	return {
-		longPressProps: mergeProps(longPressProps, { onPointerDown }),
+		longPressProps: mergeProps(bind(), touchMenuSuppressionProps, {
+			"aria-description": accessibilityDescription,
+		}),
 	};
 }

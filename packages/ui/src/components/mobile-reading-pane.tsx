@@ -1,6 +1,7 @@
 import { ArrowLeft, Info } from "lucide-react";
-import { type HTMLAttributes, type ReactNode, useState } from "react";
+import { type ReactNode, useState } from "react";
 import { cn } from "../lib/cn.js";
+import { useSwipeNavigation } from "../lib/use-swipe-navigation.js";
 import type { ThreadData } from "./app-shell-types.js";
 import { Button } from "./button.js";
 import { Dialog } from "./dialog.js";
@@ -49,8 +50,10 @@ export interface MobileReadingPaneProps {
 	 * still drives the top bar.
 	 */
 	children?: ReactNode;
-	/** Touch handlers attached to the scroll area (swipe-between-messages). */
-	touchHandlers?: HTMLAttributes<HTMLDivElement>;
+	/** Swipe left on the reading area: open the next message. */
+	onSwipeNext?: () => void;
+	/** Swipe right on the reading area: open the previous message. */
+	onSwipePrevious?: () => void;
 }
 
 /**
@@ -71,8 +74,15 @@ export function MobileReadingPane({
 	onToggleIntelligence,
 	actions,
 	children,
-	touchHandlers,
+	onSwipeNext,
+	onSwipePrevious,
 }: MobileReadingPaneProps) {
+	const swipe = useSwipeNavigation({
+		onSwipeLeft: onSwipeNext,
+		onSwipeRight: onSwipePrevious,
+	});
+	const swipeEnabled =
+		onSwipeNext !== undefined || onSwipePrevious !== undefined;
 	const [localIntelligenceOpen, setLocalIntelligenceOpen] = useState(false);
 	const controlled = onToggleIntelligence !== undefined;
 	const isOpen = controlled
@@ -130,9 +140,10 @@ export function MobileReadingPane({
 			</header>
 
 			<div
+				ref={swipe.ref}
 				className="flex-1 overflow-y-auto"
-				style={touchHandlers ? { touchAction: "pan-y pinch-zoom" } : undefined}
-				{...touchHandlers}
+				style={swipeEnabled ? { touchAction: swipe.touchAction } : undefined}
+				{...(swipeEnabled ? swipe.bind() : {})}
 			>
 				{/* Newest first, as on the wide pane. */}
 				{children ??

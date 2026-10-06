@@ -5,6 +5,7 @@ const touch = (target: HTMLElement, type: string) => {
 	target.dispatchEvent(
 		new PointerEvent(type, {
 			bubbles: true,
+			buttons: type === "pointerup" ? 0 : 1,
 			pointerType: "touch",
 			pointerId: 1,
 			isPrimary: true,

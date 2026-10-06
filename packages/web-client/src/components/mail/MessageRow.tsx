@@ -188,10 +188,8 @@ const MessageRowComponent = ({
 	}, [prefetchMessage, onFocusRow, messageId]);
 
 	// Listbox semantics + roving tabindex, shared by both densities. Merged (not
-	// spread) with the mobile long-press props: react-aria's pressProps carries
-	// its own onClick for its internal press bookkeeping, and a plain object
-	// spread would silently drop whichever onClick landed second instead of
-	// running both.
+	// spread) with the mobile long-press props, so the gesture's pointer
+	// handlers chain with the row's own instead of replacing them.
 	const interactionProps = mergeProps(
 		{
 			"data-list-row": "",

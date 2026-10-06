@@ -1,7 +1,6 @@
-// Re-exported so a consumer can compose useLongPress's longPressProps with its
-// own DOM props (its pressProps include an onClick react-aria uses for its
-// own bookkeeping; a plain object spread silently drops one side's handler
-// instead of chaining them) without importing react-aria directly.
+// Re-exported so a consumer can chain useLongPress's longPressProps with its
+// own DOM props instead of a spread dropping one side's handler, without
+// importing react-aria directly.
 export { mergeProps } from "react-aria";
 export {
 	type BriefCategoryFilter,
