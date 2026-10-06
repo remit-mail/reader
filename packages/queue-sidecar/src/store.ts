@@ -139,6 +139,8 @@ export class QueueStore {
 			);
 			CREATE INDEX IF NOT EXISTS messages_queue_order
 				ON messages (queue_name, id);
+			CREATE INDEX IF NOT EXISTS messages_queue_group
+				ON messages (queue_name, group_id, id);
 			CREATE TABLE IF NOT EXISTS dedup (
 				queue_name TEXT NOT NULL,
 				dedup_id TEXT NOT NULL,
@@ -305,76 +307,60 @@ export class QueueStore {
 			input.visibilityTimeoutSeconds ?? queue.visibilityTimeoutSeconds;
 
 		const receive = this.db.transaction((): ReceivedMessage[] => {
-			const inFlightGroups = new Set(
-				(
+			const picked: ReceivedMessage[] = [];
+			const seenIds = new Set<number>();
+
+			while (picked.length < input.maxMessages) {
+				const batch = this.nextCandidates(
+					queue,
+					now,
+					input.maxMessages - picked.length + seenIds.size,
+				).filter((candidate) => !seenIds.has(candidate.id));
+				if (batch.length === 0) break;
+
+				for (const candidate of batch) {
+					if (picked.length >= input.maxMessages) break;
+					seenIds.add(candidate.id);
+
+					if (
+						queue.maxReceiveCount !== null &&
+						queue.deadLetterTargetName !== null &&
+						candidate.receive_count >= queue.maxReceiveCount
+					) {
+						this.moveToDeadLetter(candidate, queue.deadLetterTargetName, now);
+						continue;
+					}
+
+					const receiptHandle = randomUUID();
+					const receiveCount = candidate.receive_count + 1;
+					const firstReceived = candidate.first_received_at ?? now;
 					this.db
 						.prepare(
-							`SELECT DISTINCT group_id FROM messages
-							WHERE queue_name = ? AND group_id IS NOT NULL
-							AND visible_at > ?`,
+							`UPDATE messages SET
+								receive_count = ?, visible_at = ?, receipt_handle = ?,
+								first_received_at = ?
+							WHERE id = ?`,
 						)
-						.all(input.queueName, now) as { group_id: string }[]
-				).map((r) => r.group_id),
-			);
+						.run(
+							receiveCount,
+							now + visibilityTimeout * 1000,
+							receiptHandle,
+							firstReceived,
+							candidate.id,
+						);
 
-			const candidates = this.db
-				.prepare(
-					`SELECT * FROM messages
-					WHERE queue_name = ? AND visible_at <= ?
-					ORDER BY id ASC`,
-				)
-				.all(input.queueName, now) as MessageRow[];
-
-			const picked: ReceivedMessage[] = [];
-			const claimedGroups = new Set<string>();
-
-			for (const candidate of candidates) {
-				if (picked.length >= input.maxMessages) break;
-
-				if (
-					queue.maxReceiveCount !== null &&
-					queue.deadLetterTargetName !== null &&
-					candidate.receive_count >= queue.maxReceiveCount
-				) {
-					this.moveToDeadLetter(candidate, queue.deadLetterTargetName, now);
-					continue;
-				}
-
-				if (queue.fifo && candidate.group_id !== null) {
-					if (inFlightGroups.has(candidate.group_id)) continue;
-					if (claimedGroups.has(candidate.group_id)) continue;
-					claimedGroups.add(candidate.group_id);
-				}
-
-				const receiptHandle = randomUUID();
-				const receiveCount = candidate.receive_count + 1;
-				const firstReceived = candidate.first_received_at ?? now;
-				this.db
-					.prepare(
-						`UPDATE messages SET
-							receive_count = ?, visible_at = ?, receipt_handle = ?,
-							first_received_at = ?
-						WHERE id = ?`,
-					)
-					.run(
-						receiveCount,
-						now + visibilityTimeout * 1000,
+					picked.push({
+						messageId: candidate.message_id,
+						body: candidate.body,
+						md5OfBody: candidate.md5_body,
 						receiptHandle,
-						firstReceived,
-						candidate.id,
-					);
-
-				picked.push({
-					messageId: candidate.message_id,
-					body: candidate.body,
-					md5OfBody: candidate.md5_body,
-					receiptHandle,
-					receiveCount,
-					sentTimestamp: candidate.sent_at,
-					firstReceivedTimestamp: firstReceived,
-					groupId: candidate.group_id,
-					sequenceNumber: candidate.sequence_number,
-				});
+						receiveCount,
+						sentTimestamp: candidate.sent_at,
+						firstReceivedTimestamp: firstReceived,
+						groupId: candidate.group_id,
+						sequenceNumber: candidate.sequence_number,
+					});
+				}
 			}
 
 			return picked;
@@ -423,6 +409,53 @@ export class QueueStore {
 						})
 					: null,
 		};
+	}
+
+	private nextCandidates(
+		queue: QueueRecord,
+		now: number,
+		limit: number,
+	): MessageRow[] {
+		if (!queue.fifo) {
+			return this.db
+				.prepare(
+					`SELECT * FROM messages
+					WHERE queue_name = ? AND visible_at <= ?
+					ORDER BY id ASC LIMIT ?`,
+				)
+				.all(queue.name, now, limit) as MessageRow[];
+		}
+
+		return this.db
+			.prepare(
+				`SELECT * FROM (
+					SELECT * FROM messages WHERE id IN (
+						SELECT MIN(id) FROM messages
+						WHERE queue_name = ? AND group_id IS NOT NULL AND visible_at <= ?
+						AND group_id NOT IN (
+							SELECT group_id FROM messages
+							WHERE queue_name = ? AND group_id IS NOT NULL AND visible_at > ?
+						)
+						GROUP BY group_id
+					)
+					UNION ALL
+					SELECT * FROM (
+						SELECT * FROM messages
+						WHERE queue_name = ? AND group_id IS NULL AND visible_at <= ?
+						ORDER BY id ASC LIMIT ?
+					)
+				) ORDER BY id ASC LIMIT ?`,
+			)
+			.all(
+				queue.name,
+				now,
+				queue.name,
+				now,
+				queue.name,
+				now,
+				limit,
+				limit,
+			) as MessageRow[];
 	}
 
 	private moveToDeadLetter(

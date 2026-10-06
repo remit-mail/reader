@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import { bootstrapQueues, parseQueuesConfig } from "./queues-config.js";
 import {
 	InvalidParameterValueError,
@@ -315,6 +316,63 @@ describe("QueueStore", () => {
 		assert.equal(
 			store.receiveMessages({ queueName: "jobs", maxMessages: 10 }).length,
 			0,
+		);
+	});
+
+	it("reads a bounded number of rows however deep the FIFO backlog is", () => {
+		const backlog = 120_000;
+		const path = join(dir, "queue.db");
+		store.close();
+		const seed = new Database(path);
+		seed
+			.prepare(
+				`WITH RECURSIVE n(i) AS (
+					SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?
+				)
+				INSERT INTO messages (
+					message_id, queue_name, body, md5_body, group_id, dedup_id,
+					sequence_number, receive_count, visible_at, receipt_handle,
+					sent_at, first_received_at
+				)
+				SELECT 'm' || i, 'orders.fifo', 'x', 'x', 'g' || (i % 3), NULL,
+					i, 0, 0, NULL, 0, NULL
+				FROM n`,
+			)
+			.run(backlog);
+		seed.close();
+
+		store = new QueueStore(path);
+		const db = (store as unknown as { db: Database.Database }).db;
+		const rowsReturned: number[] = [];
+		const prepare = db.prepare.bind(db);
+		db.prepare = ((source: string) => {
+			const statement = prepare(source);
+			const all = statement.all.bind(statement);
+			statement.all = (...params: unknown[]) => {
+				const rows = all(...params);
+				rowsReturned.push(rows.length);
+				return rows;
+			};
+			return statement;
+		}) as typeof db.prepare;
+
+		const received = store.receiveMessages({
+			queueName: "orders.fifo",
+			maxMessages: 10,
+			now: 1_000,
+		});
+
+		assert.deepEqual(
+			received.map((m) => m.messageId),
+			["m1", "m2", "m3"],
+		);
+		assert.deepEqual(
+			received.map((m) => m.groupId),
+			["g1", "g2", "g0"],
+		);
+		assert.ok(
+			Math.max(...rowsReturned) <= 10,
+			`a statement returned ${Math.max(...rowsReturned)} rows`,
 		);
 	});
 });
