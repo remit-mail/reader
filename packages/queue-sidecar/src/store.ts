@@ -139,6 +139,8 @@ export class QueueStore {
 			);
 			CREATE INDEX IF NOT EXISTS messages_queue_order
 				ON messages (queue_name, id);
+			CREATE INDEX IF NOT EXISTS messages_queue_group
+				ON messages (queue_name, group_id, id);
 			CREATE TABLE IF NOT EXISTS dedup (
 				queue_name TEXT NOT NULL,
 				dedup_id TEXT NOT NULL,
@@ -305,32 +307,13 @@ export class QueueStore {
 			input.visibilityTimeoutSeconds ?? queue.visibilityTimeoutSeconds;
 
 		const receive = this.db.transaction((): ReceivedMessage[] => {
-			const inFlightGroups = new Set(
-				(
-					this.db
-						.prepare(
-							`SELECT DISTINCT group_id FROM messages
-							WHERE queue_name = ? AND group_id IS NOT NULL
-							AND visible_at > ?`,
-						)
-						.all(input.queueName, now) as { group_id: string }[]
-				).map((r) => r.group_id),
-			);
-
-			const candidates = this.db
-				.prepare(
-					`SELECT * FROM messages
-					WHERE queue_name = ? AND visible_at <= ?
-					ORDER BY id ASC`,
-				)
-				.all(input.queueName, now) as MessageRow[];
-
 			const picked: ReceivedMessage[] = [];
-			const claimedGroups = new Set<string>();
 
-			for (const candidate of candidates) {
-				if (picked.length >= input.maxMessages) break;
-
+			for (const candidate of this.nextCandidates(
+				queue,
+				now,
+				input.maxMessages,
+			)) {
 				if (
 					queue.maxReceiveCount !== null &&
 					queue.deadLetterTargetName !== null &&
@@ -338,12 +321,6 @@ export class QueueStore {
 				) {
 					this.moveToDeadLetter(candidate, queue.deadLetterTargetName, now);
 					continue;
-				}
-
-				if (queue.fifo && candidate.group_id !== null) {
-					if (inFlightGroups.has(candidate.group_id)) continue;
-					if (claimedGroups.has(candidate.group_id)) continue;
-					claimedGroups.add(candidate.group_id);
 				}
 
 				const receiptHandle = randomUUID();
@@ -425,19 +402,67 @@ export class QueueStore {
 		};
 	}
 
+	private nextCandidates(
+		queue: QueueRecord,
+		now: number,
+		limit: number,
+	): MessageRow[] {
+		if (!queue.fifo) {
+			return this.db
+				.prepare(
+					`SELECT * FROM messages
+					WHERE queue_name = ? AND visible_at <= ?
+					ORDER BY id ASC LIMIT ?`,
+				)
+				.all(queue.name, now, limit) as MessageRow[];
+		}
+
+		return this.db
+			.prepare(
+				`WITH RECURSIVE g(gid) AS (
+					SELECT MIN(group_id) FROM messages WHERE queue_name = @queue
+					UNION ALL
+					SELECT (
+						SELECT MIN(group_id) FROM messages
+						WHERE queue_name = @queue AND group_id > g.gid
+					)
+					FROM g WHERE g.gid IS NOT NULL
+				)
+				SELECT m.* FROM g
+				JOIN messages m ON m.id = (
+					SELECT MIN(id) FROM messages
+					WHERE queue_name = @queue AND group_id = g.gid
+				)
+				WHERE m.visible_at <= @now
+				ORDER BY m.id ASC LIMIT @limit`,
+			)
+			.all({ queue: queue.name, now, limit }) as MessageRow[];
+	}
+
 	private moveToDeadLetter(
 		message: MessageRow,
 		deadLetterName: string,
 		now: number,
 	): void {
+		this.db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
 		this.db
 			.prepare(
-				`UPDATE messages SET
-					queue_name = ?, receive_count = 0, visible_at = 0,
-					receipt_handle = NULL, first_received_at = NULL, sent_at = ?
-				WHERE id = ?`,
+				`INSERT INTO messages (
+					message_id, queue_name, body, md5_body, group_id, dedup_id,
+					sequence_number, receive_count, visible_at, receipt_handle,
+					sent_at, first_received_at
+				) VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, NULL, ?, NULL)`,
 			)
-			.run(deadLetterName, now, message.id);
+			.run(
+				message.message_id,
+				deadLetterName,
+				message.body,
+				message.md5_body,
+				message.group_id,
+				message.dedup_id,
+				message.sequence_number,
+				now,
+			);
 	}
 
 	private pruneDedup(queueName: string, now: number): void {

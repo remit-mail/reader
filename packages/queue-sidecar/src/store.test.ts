@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import Database from "better-sqlite3";
 import { bootstrapQueues, parseQueuesConfig } from "./queues-config.js";
 import {
 	InvalidParameterValueError,
@@ -316,5 +317,58 @@ describe("QueueStore", () => {
 			store.receiveMessages({ queueName: "jobs", maxMessages: 10 }).length,
 			0,
 		);
+	});
+
+	const seedBacklog = (rows: number, groups: number): void => {
+		const path = join(dir, "queue.db");
+		store.close();
+		const seed = new Database(path);
+		seed
+			.prepare(
+				`WITH RECURSIVE n(i) AS (
+					SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?
+				)
+				INSERT INTO messages (
+					message_id, queue_name, body, md5_body, group_id, dedup_id,
+					sequence_number, receive_count, visible_at, receipt_handle,
+					sent_at, first_received_at
+				)
+				SELECT 'm' || i, 'orders.fifo', 'x', 'x', 'g' || CAST(i % CAST(? AS INTEGER) AS INTEGER), NULL,
+					i, 0, 0, NULL, 0, NULL
+				FROM n`,
+			)
+			.run(rows, groups);
+		seed.close();
+		store = new QueueStore(path);
+	};
+
+	it("receives only the head of each group from a FIFO backlog", () => {
+		seedBacklog(30, 3);
+		const received = store.receiveMessages({
+			queueName: "orders.fifo",
+			maxMessages: 10,
+			now: 1_000,
+		});
+		assert.deepEqual(
+			received.map((m) => [m.messageId, m.groupId]),
+			[
+				["m1", "g1"],
+				["m2", "g2"],
+				["m3", "g0"],
+			],
+		);
+	});
+
+	it("receives from a 200k-row FIFO backlog within a fixed time budget", () => {
+		seedBacklog(200_000, 5);
+		const started = performance.now();
+		const received = store.receiveMessages({
+			queueName: "orders.fifo",
+			maxMessages: 10,
+			now: 1_000,
+		});
+		const elapsed = performance.now() - started;
+		assert.equal(received.length, 5);
+		assert.ok(elapsed < 500, `receive took ${elapsed.toFixed(1)} ms`);
 	});
 });
