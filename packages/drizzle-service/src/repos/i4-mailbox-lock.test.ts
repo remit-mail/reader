@@ -43,6 +43,7 @@ describe("MailboxLockRepo", () => {
 			eventName,
 			accountId,
 			lockId,
+			3600,
 		);
 		assert.equal(acquired, true, "should acquire lock");
 
@@ -71,6 +72,7 @@ describe("MailboxLockRepo", () => {
 			eventName,
 			accountId,
 			lockId1,
+			3600,
 		);
 		assert.equal(first, true, "first acquire should succeed");
 
@@ -79,6 +81,7 @@ describe("MailboxLockRepo", () => {
 			eventName,
 			accountId,
 			lockId2,
+			3600,
 		);
 		assert.equal(second, false, "second acquire should fail");
 
@@ -104,6 +107,7 @@ describe("MailboxLockRepo", () => {
 			eventName,
 			accountId,
 			freshLockId,
+			3600,
 		);
 		assert.equal(acquired, true, "should steal the expired lock");
 
@@ -129,13 +133,20 @@ describe("MailboxLockRepo", () => {
 		const contenderLockId = randomId();
 		const eventName = "SYNC_MESSAGES";
 
-		await repo.tryAcquireLock(mailboxId, eventName, accountId, liveLockId);
+		await repo.tryAcquireLock(
+			mailboxId,
+			eventName,
+			accountId,
+			liveLockId,
+			3600,
+		);
 
 		const acquired = await repo.tryAcquireLock(
 			mailboxId,
 			eventName,
 			accountId,
 			contenderLockId,
+			3600,
 		);
 		assert.equal(acquired, false, "should not steal a live lock");
 
@@ -166,8 +177,8 @@ describe("MailboxLockRepo", () => {
 		});
 
 		const results = await Promise.all([
-			repo.tryAcquireLock(mailboxId, eventName, accountId, contenderA),
-			repo.tryAcquireLock(mailboxId, eventName, accountId, contenderB),
+			repo.tryAcquireLock(mailboxId, eventName, accountId, contenderA, 3600),
+			repo.tryAcquireLock(mailboxId, eventName, accountId, contenderB, 3600),
 		]);
 
 		assert.equal(
@@ -187,7 +198,7 @@ describe("MailboxLockRepo", () => {
 		const lockId = randomId();
 		const eventName = "SYNC_MESSAGES";
 
-		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId);
+		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId, 3600);
 		await repo.releaseLock(accountId, mailboxId, eventName, lockId);
 
 		const lock = await repo.get(accountId, mailboxId, eventName);
@@ -201,7 +212,7 @@ describe("MailboxLockRepo", () => {
 		const lockId2 = randomId();
 		const eventName = "SYNC_MESSAGES";
 
-		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId1);
+		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId1, 3600);
 		await repo.releaseLock(accountId, mailboxId, eventName, lockId2); // wrong lockId
 
 		const lock = await repo.get(accountId, mailboxId, eventName);
@@ -241,7 +252,7 @@ describe("MailboxLockRepo", () => {
 		const lockId = randomId();
 		const eventName = "SYNC_MESSAGES";
 
-		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId);
+		await repo.tryAcquireLock(mailboxId, eventName, accountId, lockId, 3600);
 
 		const result = await repo.withMailboxLock(
 			mailboxId,
@@ -287,12 +298,14 @@ describe("MailboxLockRepo", () => {
 			"SYNC_MESSAGES",
 			accountId,
 			lockId1,
+			3600,
 		);
 		const a2 = await repo.tryAcquireLock(
 			mailboxId,
 			"SYNC_FLAGS",
 			accountId,
 			lockId2,
+			3600,
 		);
 
 		assert.equal(a1, true);
@@ -311,8 +324,8 @@ describe("MailboxLockRepo", () => {
 		const lockId2 = randomId();
 		const eventName = "SYNC_MESSAGES";
 
-		await repo.tryAcquireLock(mailboxId1, eventName, accountId1, lockId1);
-		await repo.tryAcquireLock(mailboxId2, eventName, accountId2, lockId2);
+		await repo.tryAcquireLock(mailboxId1, eventName, accountId1, lockId1, 3600);
+		await repo.tryAcquireLock(mailboxId2, eventName, accountId2, lockId2, 3600);
 
 		const locks = await repo.listByAccount(accountId1);
 		assert.equal(locks.filter((l) => l.lockId === lockId1).length, 1);
@@ -329,8 +342,8 @@ describe("MailboxLockRepo", () => {
 		const mb1 = randomId();
 		const mb2 = randomId();
 
-		await repo.tryAcquireLock(mb1, "SYNC_MESSAGES", accountId, lockId1);
-		await repo.tryAcquireLock(mb2, "SYNC_FLAGS", accountId, lockId2);
+		await repo.tryAcquireLock(mb1, "SYNC_MESSAGES", accountId, lockId1, 3600);
+		await repo.tryAcquireLock(mb2, "SYNC_FLAGS", accountId, lockId2, 3600);
 
 		await repo.deleteByAccount(accountId);
 
@@ -343,7 +356,13 @@ describe("MailboxLockRepo", () => {
 		const other = randomId();
 		const mailboxId = randomId();
 		const lockId = randomId();
-		await repo.tryAcquireLock(mailboxId, "SYNC_MESSAGES", accountId, lockId);
+		await repo.tryAcquireLock(
+			mailboxId,
+			"SYNC_MESSAGES",
+			accountId,
+			lockId,
+			3600,
+		);
 
 		assert.ok(await repo.get(accountId, mailboxId, "SYNC_MESSAGES"));
 		assert.equal(await repo.get(other, mailboxId, "SYNC_MESSAGES"), null);
@@ -356,7 +375,13 @@ describe("MailboxLockRepo", () => {
 		const other = randomId();
 		const mailboxId = randomId();
 		const lockId = randomId();
-		await repo.tryAcquireLock(mailboxId, "SYNC_MESSAGES", accountId, lockId);
+		await repo.tryAcquireLock(
+			mailboxId,
+			"SYNC_MESSAGES",
+			accountId,
+			lockId,
+			3600,
+		);
 
 		// Foreign account with the (leaked) lockId still cannot release it.
 		await repo.releaseLock(other, mailboxId, "SYNC_MESSAGES", lockId);

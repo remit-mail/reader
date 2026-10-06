@@ -57,9 +57,7 @@ export const triggerSyncSafe = async (
 				// POST /sync asks for a sync of this account by name — the refresh
 				// control, pull-to-refresh, and the client's automatic poll all land
 				// here — so it syncs every mailbox regardless of how recently one
-				// ran. The poll's cadence is floored client-side at the fan-out
-				// gate's window, so this branch cannot be driven faster than the
-				// gate would allow.
+				// ran.
 				explicitRequest: true,
 			});
 			deps.logger.info(
