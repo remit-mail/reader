@@ -143,6 +143,14 @@ function toInput(event: CalendarEventData): EventInput {
 	};
 }
 
+const isoDayInZone = (instant: Date, timeZone: string): string =>
+	new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+	}).format(instant);
+
 const isModifiedClick = (click: MouseEvent<HTMLElement>): boolean =>
 	click.button !== 0 ||
 	click.metaKey ||
@@ -266,11 +274,11 @@ export function CalendarGrid({
 				eventMaxStack={3}
 				dayCellTopContent={(info) => {
 					if (view !== "month") return;
-					const day = info.date.toISOString().slice(0, 10);
+					const day = isoDayInZone(info.date, timeZone);
 					return (
 						<a
 							href={dayHref(day)}
-							aria-label={`Open ${info.date.toLocaleDateString("en-GB", { dateStyle: "full", timeZone: "UTC" })}`}
+							aria-label={`Open ${info.date.toLocaleDateString("en-GB", { dateStyle: "full", timeZone })}`}
 							className="hover:underline"
 							onClick={(click) => {
 								if (isModifiedClick(click)) return;
@@ -278,9 +286,17 @@ export function CalendarGrid({
 								onZoomDay(day);
 							}}
 						>
-							{info.date.getUTCDate()}
+							{Number(day.slice(8))}
 						</a>
 					);
+				}}
+				dayCellDidMount={(info) => {
+					if (view !== "month") return;
+					/* The engine hides a day number from assistive tech unless it is its
+					   own nav link, and a link inside a hidden wrapper is unreachable. */
+					info.el
+						.querySelector(":scope [aria-hidden='true']:has(> a)")
+						?.removeAttribute("aria-hidden");
 				}}
 				moreLinkClick="popover"
 				moreLinkText={(num) => `+${num}`}
