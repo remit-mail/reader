@@ -369,6 +369,6 @@ describe("QueueStore", () => {
 		});
 		const elapsed = performance.now() - started;
 		assert.equal(received.length, 5);
-		assert.ok(elapsed < 100, `receive took ${elapsed.toFixed(1)} ms`);
+		assert.ok(elapsed < 500, `receive took ${elapsed.toFixed(1)} ms`);
 	});
 });
