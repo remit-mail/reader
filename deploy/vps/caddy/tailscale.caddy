@@ -4,6 +4,8 @@
 # is needed. Requires the tailscaled API socket mounted into this container
 # (docker-compose.yml: TAILSCALED_SOCKET) and HTTPS enabled for the tailnet.
 # PUBLIC_ORIGIN must be https://<name>.<tailnet>.ts.net
+import /etc/caddy/routes.caddy
+
 {$PUBLIC_ORIGIN} {
-	import /etc/caddy/routes.caddy
+	import routes
 }

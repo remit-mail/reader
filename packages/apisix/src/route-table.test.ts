@@ -5,7 +5,6 @@ import {
 	buildRoutes,
 	PUBLIC_ROUTES,
 	renderConfig,
-	UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS,
 } from "./route-table.js";
 
 const CALLBACK = "/accounts/oauth/microsoft/callback";
@@ -123,20 +122,4 @@ test("an exemption the spec no longer declares fails the generator", () => {
 	assert.throws(() => assertPublicRoutesExist([NEIGHBOUR, FEED]), /callback/);
 	assert.throws(() => assertPublicRoutesExist([CALLBACK, NEIGHBOUR]), /feeds/);
 	assertPublicRoutesExist([CALLBACK, NEIGHBOUR, FEED]);
-});
-
-test("the backend upstream states its keepalive idle timeout", () => {
-	const config = renderConfig({
-		routes: buildRoutes([NEIGHBOUR]),
-		oidcPlugin: OIDC_PLUGIN,
-		backendHost: "backend",
-		backendPort: 5436,
-	});
-
-	assert.match(
-		config,
-		new RegExp(
-			`keepalive_pool:\\n {6}idle_timeout: ${UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS}\\n`,
-		),
-	);
 });

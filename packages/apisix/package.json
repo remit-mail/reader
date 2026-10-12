@@ -16,5 +16,9 @@
 	"dependencies": {
 		"@remit/auth-service": "*"
 	},
-	"license": "MIT"
+	"license": "MIT",
+	"devDependencies": {
+		"yaml": "^2.8.4",
+		"zod": "^3.25.0"
+	}
 }

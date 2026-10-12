@@ -137,7 +137,7 @@ const serveFile = async (res, filePath, cacheControl, acceptEncoding = "") => {
 	return true;
 };
 
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
 	if (req.url === "/health") {
 		res
 			.writeHead(200, { "Content-Type": "application/json" })
@@ -190,11 +190,8 @@ const server = http.createServer(async (req, res) => {
 	res.writeHead(500).end("internal server error");
 });
 
-// Node drops an idle keep-alive socket after 5s, inside the window Caddy holds
-// the same connection for reuse; the server has to outlast its proxy or a
-// request lands on a socket that is already closing.
+// Outlasts Caddy's upstream keepalive in deploy/vps/caddy/routes.caddy.
 server.keepAliveTimeout = 65_000;
-server.headersTimeout = 66_000;
 
 server.listen(PORT, "0.0.0.0", () => {
 	console.log(`web: serving ${DIST_DIR} on :${PORT}`);

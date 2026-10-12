@@ -32,7 +32,7 @@ const AUTH = readFileSync(
 // Captured with \S+ rather than the bare name: a `+` prefix would make Caddy
 // append instead of replace, and that spelling must fail the match below
 // rather than pass as the same header.
-const stated = ROUTES.match(/^request_header (\S+) \{client_ip\}$/m)?.[1];
+const stated = ROUTES.match(/^\s*request_header (\S+) \{client_ip\}$/m)?.[1];
 const read = AUTH.match(/^export const CLIENT_IP_HEADER = "(.+)";$/m)?.[1];
 
 describe("the client address the edge states", () => {
@@ -55,10 +55,16 @@ describe("the client address the edge states", () => {
 
 	it("is stated in every TLS mode", () => {
 		for (const file of MODE_FILES) {
+			const mode = readFileSync(join(CADDY_DIR, file), "utf8");
 			assert.match(
-				readFileSync(join(CADDY_DIR, file), "utf8"),
-				/^\s*import \/etc\/caddy\/routes\.caddy$/m,
+				mode,
+				/^import \/etc\/caddy\/routes\.caddy$/m,
 				`${file}: no routes.caddy import, so this mode states no address`,
+			);
+			assert.match(
+				mode,
+				/^\s+import routes$/m,
+				`${file}: places no routes, so this mode states no address`,
 			);
 		}
 	});
