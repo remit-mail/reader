@@ -54,6 +54,7 @@
     "serve": "node --import tsx dev-server/server.ts"
   },
   "devDependencies": {
+    "@remit/apisix": "*",
     "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.3",
     "@types/swagger-ui-express": "^4.1.8",

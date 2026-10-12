@@ -95,6 +95,15 @@ export const buildRoutes = (paths: readonly string[]): Route[] =>
 		};
 	});
 
+/**
+ * How long APISIX keeps an idle connection to the backend open for reuse.
+ *
+ * It must stay below the backend's own keep-alive timeout. When the backend
+ * closes an idle socket first, APISIX can send the next request down the
+ * connection just as it closes; a GET is retried, a POST surfaces as a 502.
+ */
+export const UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS = 60;
+
 interface ConfigInput {
 	routes: readonly Route[];
 	oidcPlugin: string;
@@ -139,6 +148,8 @@ ${routes.map((route) => renderRoute(route, oidcPlugin)).join("\n")}
 upstreams:
   - id: backend
     type: roundrobin
+    keepalive_pool:
+      idle_timeout: ${UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS}
     nodes:
       '${backendHost}:${backendPort}': 1
 #END

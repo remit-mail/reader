@@ -350,6 +350,8 @@ app.all(/(.*)/, async (req: Request, res: Response) => {
 
 const port = env.SERVER_PORT;
 
+const KEEP_ALIVE_TIMEOUT_MS = 65_000;
+
 // This file is the backend image's entrypoint, so its startup output is the
 // first thing a log collector reads from the container. It goes through the
 // logger for the same reason every other line does: one JSON object per line is
@@ -377,5 +379,12 @@ export const listener = app.listen(Number(port), "0.0.0.0", () => {
 
 	process.send?.("ready");
 });
+
+// Node closes an idle keep-alive socket after 5s by default, well inside the
+// window APISIX holds the same connection open for reuse. The backend has to
+// outlast its upstream's idle timeout, and headersTimeout has to outlast
+// keepAliveTimeout or Node drops a reused socket mid-request.
+listener.keepAliveTimeout = KEEP_ALIVE_TIMEOUT_MS;
+listener.headersTimeout = KEEP_ALIVE_TIMEOUT_MS + 1_000;
 
 export default app;
