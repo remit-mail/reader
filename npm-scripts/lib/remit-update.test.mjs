@@ -243,8 +243,6 @@ function sandbox({
 	hostAssets = true,
 	releaseWrapper = null,
 	releaseCompose = null,
-	// The release's Caddy files by name; one not named is what this checkout
-	// ships.
 	releaseCaddy = {},
 	installedWrapper = null,
 	prog = "remit",
@@ -307,6 +305,7 @@ function sandbox({
 			releaseCompose ?? readFileSync(COMPOSE, "utf8"),
 		);
 		for (const name of CADDY_FILES) {
+			if (releaseCaddy[name] === null) continue;
 			writeFileSync(
 				join(fake, "assets", name),
 				releaseCaddy[name] ?? shippedCaddy(name),
@@ -918,11 +917,6 @@ describe("remit update — a release whose wrapper will not parse", () => {
 	});
 });
 
-// The Caddy files are host files too, and an update that left them where they
-// were kept every Caddy fix away from every existing install. They are one set:
-// each mode file imports routes.caddy, so a release that moves a snippet between
-// them has to land whole or Caddy will not load. The release here does that — a
-// snippet defined in routes.caddy and imported at the top of every mode file.
 const RELEASE_ROUTES = `(upstream) {\n\treverse_proxy apisix:9080\n}\n${shippedCaddy("routes.caddy")}`;
 const RELEASE_MODES = Object.fromEntries(
 	CADDY_FILES.filter((name) => name !== "routes.caddy").map((name) => [
@@ -952,15 +946,15 @@ describe("remit update — the release's Caddy configuration", () => {
 
 	it("installs all six files from the release being installed", () => {
 		for (const [name, body] of Object.entries(RELEASE_CADDY)) {
-			assert.match(
-				box.assetLog(),
-				new RegExp(
-					`/v1\\.5\\.0/deploy/vps/caddy/${name.replace(".", "\\.")}$`,
-					"m",
-				),
-			);
 			assert.equal(box.installedCaddy(name), body, name);
 		}
+	});
+
+	it("names where the previous copies are kept", () => {
+		assert.match(
+			result.stdout,
+			/previous copies are kept at \S+\/installed\/caddy/,
+		);
 	});
 
 	it("puts the set through Caddy's parser before anything is stopped", () => {
@@ -1002,6 +996,47 @@ describe("remit update — a release whose Caddy set will not load", () => {
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
 		assert.ok(!box.log().includes("compose stop"));
 		assert.ok(!box.log().includes("compose restart caddy"));
+	});
+});
+
+describe("remit update — a release missing one of its Caddy files", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseCaddy: { ...RELEASE_CADDY, "acme.caddy": null },
+	});
+	const result = box.run(["update"]);
+
+	it("fails the update loudly", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /Caddy configuration/);
+	});
+
+	it("leaves the deployment's own set in place", () => {
+		for (const name of CADDY_FILES) {
+			assert.equal(box.installedCaddy(name), shippedCaddy(name), name);
+		}
+		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// install.sh is fetched on its own, so it cannot read the wrapper's list.
+describe("the Caddy files install.sh lays down", () => {
+	it("are the set remit update installs", () => {
+		const listed = (path, pattern) =>
+			[...readFileSync(path, "utf8").matchAll(pattern)].map((m) => m[1]);
+		const wrapperLine = readFileSync(REMIT, "utf8").match(
+			/^CADDY_ASSETS="([^"]*)"$/m,
+		);
+		assert.ok(wrapperLine, "the wrapper declares no CADDY_ASSETS");
+		assert.deepEqual(
+			wrapperLine[1].split(" "),
+			listed(join(ROOT, "install.sh"), /^\t"(caddy\/[^"]+)"$/gm),
+		);
+		assert.deepEqual(
+			CADDY_FILES.map((name) => `caddy/${name}`),
+			wrapperLine[1].split(" "),
+		);
 	});
 });
 

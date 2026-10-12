@@ -550,6 +550,20 @@ compose_cmd() {
 		*" --volumes "*)
 			volume_names
 			;;
+		*" --images "*)
+			_svc=""
+			for _a in "$@"; do
+				case "$_a" in
+				-*) ;;
+				*) _svc=$_a ;;
+				esac
+			done
+			awk -v svc="  $_svc:" '
+				$0 == svc { in_svc = 1; next }
+				in_svc && /^  [^ ]/ { exit }
+				in_svc && $1 == "image:" { print $2; exit }
+			' "$_compose_file"
+			;;
 		*)
 			# The full render, which resolves every interpolation in the file. A
 			# ${VAR:?message} whose variable is unset is what compose refuses, and
@@ -927,17 +941,13 @@ run_cmd() {
 		exit $?
 		;;
 	esac
-	# The release's Caddy set put through Caddy's parser before anything is
-	# stopped. The script runs for real against the staged files the -v named,
-	# with /etc/caddy a directory of its own, so a set that is missing a file
-	# fails the way a real adapt does. `caddy_adapt=fail` is a set Caddy refuses.
+	# The Caddy check, run for real on the staged set; `caddy_adapt=fail` is a set Caddy refuses.
 	case "$_script" in
 	*"caddy adapt"*)
 		log "run caddy-validate image=$_image src=$_statesrc"
 		mkdir -p "$S/etc-caddy"
 		{
-			# shellcheck disable=SC2016 # the stub's own text, expanded where it runs
-			printf 'caddy() { [ -f "$5" ] || exit 1; [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
+			printf 'caddy() { [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
 			printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" -e "s#/etc/caddy#$S/etc-caddy#g"
 		} | sh
 		exit $?

@@ -2365,19 +2365,12 @@ validate_host_files() {
 	done
 }
 
-# The Caddy set goes through Caddy's own parser, in the image the release runs
-# it in, laid out the way the compose file mounts it: routes.caddy at the path
-# every mode file imports it from. Every mode is adapted, not only this
-# deployment's, because switching TLS_MODE is an .env edit and must not meet a
-# broken file later. Adapt rather than validate: validate provisions the TLS
-# automation, which reaches for ACME and the tailscale socket from a container
-# that has neither.
+# Adapt rather than validate: validate provisions TLS automation, which reaches
+# for ACME and the tailscale socket from a container that has neither.
 validate_caddy_files() {
-	_vcf_image=$(awk '
-		/^  caddy:$/ { in_caddy = 1; next }
-		in_caddy && /^  [^ ]/ { exit }
-		in_caddy && $1 == "image:" { print $2; exit }
-	' "$2/$(host_asset_local docker-compose.sqlite.yml)")
+	_vcf_image=$(docker compose --project-directory "$REMIT_DIR" \
+		-f "$2/$(host_asset_local docker-compose.sqlite.yml)" \
+		--env-file "$REMIT_DIR/.env" config --images caddy | sed -n 1p) || return 1
 	[ -n "$_vcf_image" ] || return 1
 	_vcf_modes=""
 	for _a in $CADDY_ASSETS; do
@@ -2407,15 +2400,8 @@ snapshot_host_files() {
 	done
 }
 
-# Every file is copied beside its target before any is renamed over it, so a
-# copy that fails — a full disk, a directory the updater cannot write — leaves
-# the deployment's set as it was rather than half of each. Rename, never a write
-# in place: /bin/sh reads a script as it runs it, so the running copy keeps the
-# inode it was opened on while the directory entry already names the new one
-# (reader#1051). The owner and mode of what is being replaced are carried onto
-# the replacement, the way set_var carries .env's: the updater is root against a
-# bind-mounted deployment, and a wrapper it leaves root:root locks the host user
-# out of their own directory (reader#273). Only the files $1 holds are placed.
+# Copy every file beside its target before renaming any, so a failed copy
+# leaves the whole set as it was; rename, never write in place (reader#1051).
 place_host_files() {
 	for _a in $HOST_ASSETS; do
 		_l=$(host_asset_local "$_a")
@@ -2443,14 +2429,8 @@ discard_placed_files() {
 	done
 }
 
-# Caddy is never stopped by an update, and the compose file bind-mounts each of
-# its files on its own, which pins the inode the container started with: a
-# rename leaves it serving the set it was started on, and a reload re-reads the
-# same. A restart re-resolves the mounts. It runs whenever the release's set
-# differs from the deployment's copy taken before the run, which is a fact about
-# the run rather than about the files on disk now, so a recovery that re-runs
-# the install still restarts a Caddy the interrupted run never reached. A Caddy
-# the operator had stopped stays stopped.
+# Restart, not reload: each Caddy file is its own bind mount, which pins the
+# inode the container started with, so only a restart sees the renamed files.
 caddy_set_changed() {
 	_csc_dir=$(host_files_dir "$1")
 	for _a in $CADDY_ASSETS; do
@@ -2473,6 +2453,10 @@ install_host_files() {
 	done
 	place_host_files "$_src" incoming || return 1
 	host_files_current "$1" || return 1
+	if caddy_set_changed "$1"; then
+		printf '%s: replaced the Caddy files in %s/caddy; the previous copies are kept at %s/installed/caddy until the next successful update.\n' \
+			"$PROG" "$REMIT_DIR" "$(host_files_dir "$1")"
+	fi
 	restart_caddy "$1"
 }
 
