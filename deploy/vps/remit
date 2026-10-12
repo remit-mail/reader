@@ -79,10 +79,13 @@ LOCK_STALE_CEILING="${REMIT_UPDATE_LOCK_STALE:-3600}"
 # to. Unset falls back to the install-directory copy; empty skips the mount.
 SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh}"
 
-# The two host-side files a release owns, under the names it serves them by. The
+# The host-side files a release owns, under the names it serves them by. The
 # compose file is installed under $COMPOSE_FILE instead, which install.sh stamps
-# as a basename and a second deployment may have set to its own.
-HOST_ASSETS="remit docker-compose.sqlite.yml"
+# as a basename and a second deployment may have set to its own. The Caddy files
+# are one set: every mode file imports routes.caddy, so half a set is a Caddy
+# that will not load.
+CADDY_ASSETS="caddy/routes.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
+HOST_ASSETS="remit docker-compose.sqlite.yml $CADDY_ASSETS"
 
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
 # migrates a large mailbox index is the normal slow case, and rolling back a
@@ -2269,8 +2272,8 @@ https_origin() {
 # installs it under.
 host_asset_local() {
 	case "$1" in
-	remit) printf 'remit' ;;
-	*) printf '%s' "$(installed_stamp COMPOSE_FILE)" ;;
+	docker-compose.sqlite.yml) printf '%s' "$(installed_stamp COMPOSE_FILE)" ;;
+	*) printf '%s' "$1" ;;
 	esac
 }
 
@@ -2329,10 +2332,13 @@ stage_host_files() {
 	_base=$(host_asset_base) || return 1
 	_base=$(printf '%s' "$_base" | sed "s#@TAG@#$2#g")
 	for _a in $HOST_ASSETS; do
-		fetch_asset "$_base/$_a" "$_dest/$(host_asset_local "$_a")" || return 1
+		_shf_l=$(host_asset_local "$_a")
+		mkdir -p "$(dirname "$_dest/$_shf_l")"
+		fetch_asset "$_base/$_a" "$_dest/$_shf_l" || return 1
 	done
 	stamp_wrapper "$_dest/remit" || return 1
 	validate_host_files "$_dest" || return 1
+	validate_caddy_files "$1" "$_dest" || return 1
 	_shf_own=$(owner_mode_of "$REMIT_DIR/.env")
 	touch "$REMIT_DIR/.remit-update-probe" 2>/dev/null || return 1
 	restore_owner_mode "$REMIT_DIR/.remit-update-probe" "$_shf_own"
@@ -2347,13 +2353,38 @@ stage_host_files() {
 validate_host_files() {
 	for _a in $HOST_ASSETS; do
 		_l=$(host_asset_local "$_a")
-		if [ "$_l" = remit ]; then
+		case "$_l" in
+		remit)
 			sh -n "$1/$_l" || return 1
 			continue
-		fi
+			;;
+		caddy/*) continue ;;
+		esac
 		docker compose --project-directory "$REMIT_DIR" -f "$1/$_l" \
 			--env-file "$REMIT_DIR/.env" config >/dev/null || return 1
 	done
+}
+
+# Adapt rather than validate: validate provisions TLS automation, which reaches
+# for ACME and the tailscale socket from a container that has neither.
+validate_caddy_files() {
+	_vcf_image=$(docker compose --project-directory "$REMIT_DIR" \
+		-f "$2/$(host_asset_local docker-compose.sqlite.yml)" \
+		--env-file "$REMIT_DIR/.env" config --images caddy | sed -n 1p) || return 1
+	[ -n "$_vcf_image" ] || return 1
+	_vcf_modes=""
+	for _a in $CADDY_ASSETS; do
+		[ "$_a" = caddy/routes.caddy ] || _vcf_modes="$_vcf_modes ${_a#caddy/}"
+	done
+	capped_run "$HELPER_RUN_TIMEOUT" docker run --rm \
+		-v "$STATE_MOUNT:/state:ro" \
+		-e "PUBLIC_ORIGIN=$(get_var PUBLIC_ORIGIN)" \
+		--entrypoint sh "$_vcf_image" -c "set -eu
+src=/state/host-files/$1/incoming/caddy
+cp \"\$src/routes.caddy\" /etc/caddy/routes.caddy
+for mode in$_vcf_modes; do
+  caddy adapt --adapter caddyfile --config \"\$src/\$mode\" >/dev/null
+done"
 }
 
 snapshot_host_files() {
@@ -2363,36 +2394,74 @@ snapshot_host_files() {
 	for _a in $HOST_ASSETS; do
 		_l=$(host_asset_local "$_a")
 		if [ -f "$REMIT_DIR/$_l" ]; then
+			mkdir -p "$(dirname "$_dest/$_l")"
 			cp "$REMIT_DIR/$_l" "$_dest/$_l" || return 1
 		fi
 	done
 }
 
-# Rename, never a write in place: /bin/sh reads a script as it runs it, so the
-# running copy keeps the inode it was opened on while the directory entry
-# already names the new one (reader#1051). The owner and mode of what is being
-# replaced are carried onto the replacement, the way set_var carries .env's: the
-# updater is root against a bind-mounted deployment, and a wrapper it leaves
-# root:root locks the host user out of their own directory (reader#273).
+# Copy every file beside its target before renaming any, so a failed copy
+# leaves the whole set as it was; rename, never write in place (reader#1051).
+place_host_files() {
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$1/$_l" ] || continue
+		_phf_own=$(owner_mode_of "$REMIT_DIR/$_l")
+		if ! { mkdir -p "$(dirname "$REMIT_DIR/$_l")" && cp "$1/$_l" "$REMIT_DIR/$_l.$2"; }; then
+			discard_placed_files "$2"
+			return 1
+		fi
+		restore_owner_mode "$REMIT_DIR/$_l.$2" "$_phf_own"
+		if [ "$_l" = "remit" ]; then
+			chmod +x "$REMIT_DIR/$_l.$2"
+		fi
+	done
+	for _a in $HOST_ASSETS; do
+		_l=$(host_asset_local "$_a")
+		[ -f "$1/$_l" ] || continue
+		mv "$REMIT_DIR/$_l.$2" "$REMIT_DIR/$_l" || return 1
+	done
+}
+
+discard_placed_files() {
+	for _a in $HOST_ASSETS; do
+		rm -f "$REMIT_DIR/$(host_asset_local "$_a").$1"
+	done
+}
+
+# Restart, not reload: each Caddy file is its own bind mount, which pins the
+# inode the container started with, so only a restart sees the renamed files.
+caddy_set_changed() {
+	_csc_dir=$(host_files_dir "$1")
+	for _a in $CADDY_ASSETS; do
+		cmp -s "$_csc_dir/incoming/$_a" "$_csc_dir/installed/$_a" || return 0
+	done
+	return 1
+}
+
+restart_caddy() {
+	caddy_set_changed "$1" || return 0
+	running_services | tr ' ' '\n' | grep -qx caddy || return 0
+	compose restart caddy
+}
+
 install_host_files() {
 	_src=$(host_files_dir "$1")/incoming
 	[ -d "$_src" ] || return 1
 	for _a in $HOST_ASSETS; do
-		_l=$(host_asset_local "$_a")
-		[ -f "$_src/$_l" ] || return 1
-		_ihf_own=$(owner_mode_of "$REMIT_DIR/$_l")
-		cp "$_src/$_l" "$REMIT_DIR/$_l.incoming" || return 1
-		restore_owner_mode "$REMIT_DIR/$_l.incoming" "$_ihf_own"
-		if [ "$_l" = "remit" ]; then
-			chmod +x "$REMIT_DIR/$_l.incoming"
-		fi
-		mv "$REMIT_DIR/$_l.incoming" "$REMIT_DIR/$_l" || return 1
+		[ -f "$_src/$(host_asset_local "$_a")" ] || return 1
 	done
-	host_files_current "$1"
+	place_host_files "$_src" incoming || return 1
+	host_files_current "$1" || return 1
+	if caddy_set_changed "$1"; then
+		printf '%s: replaced the Caddy files in %s/caddy; the previous copies are kept at %s/installed/caddy until the next successful update.\n' \
+			"$PROG" "$REMIT_DIR" "$(host_files_dir "$1")"
+	fi
+	restart_caddy "$1"
 }
 
-# What keeps a release whose wrapper or compose file changed from reporting
-# success while either is still the previous one's.
+# What keeps a release whose wrapper, compose file or Caddy set changed from
+# reporting success while any of them is still the previous one's.
 host_files_current() {
 	_src=$(host_files_dir "$1")/incoming
 	for _a in $HOST_ASSETS; do
@@ -2412,17 +2481,8 @@ resume_host_files() {
 restore_host_files() {
 	_src=$(host_files_dir "$1")/installed
 	[ -d "$_src" ] || return 0
-	for _a in $HOST_ASSETS; do
-		_l=$(host_asset_local "$_a")
-		[ -f "$_src/$_l" ] || continue
-		_rhf_own=$(owner_mode_of "$REMIT_DIR/$_l")
-		cp "$_src/$_l" "$REMIT_DIR/$_l.restoring" || return 1
-		restore_owner_mode "$REMIT_DIR/$_l.restoring" "$_rhf_own"
-		if [ "$_l" = "remit" ]; then
-			chmod +x "$REMIT_DIR/$_l.restoring"
-		fi
-		mv "$REMIT_DIR/$_l.restoring" "$REMIT_DIR/$_l" || return 1
-	done
+	place_host_files "$_src" restoring || return 1
+	restart_caddy "$1"
 }
 
 # Housekeeping, never a gate. A snapshot the updater cannot remove — one left
@@ -2940,7 +3000,7 @@ roll_back() {
 	# the previous release's images.
 	if ! restore_host_files "$RUN_ID"; then
 		terminate rollbackFailed \
-			"$_why, and the deployment's own wrapper and compose file could not be put back. Copies from before the update are at $(host_files_dir "$RUN_ID")/installed and the previous version is $RUN_FROM." \
+			"$_why, and the deployment's own wrapper, compose file and Caddy configuration could not be put back. Copies from before the update are at $(host_files_dir "$RUN_ID")/installed and the previous version is $RUN_FROM." \
 			"remit logs backend"
 		return 1
 	fi
@@ -3021,12 +3081,12 @@ run_update() {
 		return 1
 	fi
 
-	# The release's wrapper and compose file come down with its images and on the
-	# same terms: a release that cannot be obtained whole is not installed, and
-	# failing here aborts having changed nothing.
+	# The release's wrapper, compose file and Caddy configuration come down with
+	# its images and on the same terms: a release that cannot be obtained whole is
+	# not installed, and failing here aborts having changed nothing.
 	if ! stage_host_files "$RUN_ID" "$_target"; then
 		abandon_run \
-			"$_target's wrapper and compose file could not be fetched and checked, so nothing was changed and this instance is still running $RUN_FROM." \
+			"$_target's wrapper, compose file and Caddy configuration could not be fetched and checked, so nothing was changed and this instance is still running $RUN_FROM." \
 			"remit update"
 		return 1
 	fi
@@ -3043,7 +3103,7 @@ run_update() {
 	fi
 	if ! snapshot_host_files "$RUN_ID"; then
 		abandon_run \
-			"This deployment's own wrapper and compose file could not be copied aside, so nothing was changed and this instance is still running $RUN_FROM. A rollback has to be able to put them back." \
+			"This deployment's own wrapper, compose file and Caddy configuration could not be copied aside, so nothing was changed and this instance is still running $RUN_FROM. A rollback has to be able to put them back." \
 			"remit status"
 		return 1
 	fi
@@ -3062,7 +3122,7 @@ run_update() {
 	# own definition. A gate that passed against the file it was about to replace
 	# would be a verdict on a configuration that never runs.
 	if ! install_host_files "$RUN_ID"; then
-		roll_back "$_target's wrapper and compose file could not be installed into $REMIT_DIR"
+		roll_back "$_target's wrapper, compose file and Caddy configuration could not be installed into $REMIT_DIR"
 		return 1
 	fi
 
@@ -3118,7 +3178,7 @@ recover_run() {
 		# is what keeps the gate below about the release's own definition. A
 		# breadcrumb from a release that staged nothing has nothing to install.
 		if ! resume_host_files "$RUN_ID"; then
-			roll_back "$RUN_TARGET's wrapper and compose file could not be installed into $REMIT_DIR"
+			roll_back "$RUN_TARGET's wrapper, compose file and Caddy configuration could not be installed into $REMIT_DIR"
 			return 1
 		fi
 		# A fresh `compose up` here is what re-reads .env: `unless-stopped` does
@@ -3143,7 +3203,7 @@ recover_run() {
 		phase committing "Finishing the update to $RUN_TARGET." "remit logs backend"
 		if ! resume_host_files "$RUN_ID"; then
 			terminate rollbackFailed \
-				"The update to $RUN_TARGET was interrupted after its gate passed, and its wrapper and compose file could not be installed into $REMIT_DIR. The database is $RUN_TARGET's and must not be rolled back; make $REMIT_DIR writable and run '$PROG update --tag $RUN_TARGET'." \
+				"The update to $RUN_TARGET was interrupted after its gate passed, and its wrapper, compose file and Caddy configuration could not be installed into $REMIT_DIR. The database is $RUN_TARGET's and must not be rolled back; make $REMIT_DIR writable and run '$PROG update --tag $RUN_TARGET'." \
 				"remit status"
 			return 1
 		fi
