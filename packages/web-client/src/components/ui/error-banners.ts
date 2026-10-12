@@ -68,6 +68,9 @@ export const formatErrorDetail = (error: unknown): string | undefined => {
 	return undefined;
 };
 
+export const isMessageGoneFromServerError = (error: unknown): boolean =>
+	codedApiErrorBody(error)?.code === "message_gone_from_server";
+
 /**
  * Detect a "describeMessage hit a deleted/missing row" error.
  *
@@ -82,9 +85,6 @@ export const formatErrorDetail = (error: unknown): string | undefined => {
  * (see `packages/backend/src/error.ts`). The hey-api fetch client
  * throws the parsed JSON body as the error, so we match by message prefix.
  */
-export const isMessageGoneFromServerError = (error: unknown): boolean =>
-	codedApiErrorBody(error)?.code === "message_gone_from_server";
-
 export const isMessageNotFoundError = (error: unknown): boolean => {
 	const detail = formatErrorDetail(error);
 	if (!detail) return false;

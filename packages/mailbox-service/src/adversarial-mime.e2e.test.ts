@@ -221,16 +221,9 @@ describe("Adversarial MIME corpus (Dovecot) — #402", {
 				// Fetch the message we just appended back. fetchMessageBody
 				// returns the raw RFC822 source; mailparser handles the rest
 				// (multipart walking, base64/qp decoding, charset folding).
-				const fetched = await connection.fetchMessageBody(appendResult.uid);
-				assert.equal(
-					fetched.outcome,
-					"fetched",
-					`fetchMessageBody should find the appended ${name}`,
-				);
-				const rfc822 =
-					fetched.outcome === "fetched" ? fetched.body : Buffer.alloc(0);
+				const rfc822 = await connection.fetchMessageBody(appendResult.uid);
 				assert.ok(
-					rfc822.length > 0,
+					rfc822 && rfc822.length > 0,
 					`fetchMessageBody should return bytes for ${name}`,
 				);
 

@@ -180,7 +180,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => ({ outcome: "fetched", body: DEMOTE_EML }),
+			fetchMessageBody: async () => DEMOTE_EML,
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -261,7 +261,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => ({ outcome: "fetched", body: DEMOTE_EML }),
+			fetchMessageBody: async () => DEMOTE_EML,
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -302,7 +302,7 @@ describe("placement survives a re-entrant computePlacement pass (issue #383)", (
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => ({ outcome: "fetched", body: DEMOTE_EML }),
+			fetchMessageBody: async () => DEMOTE_EML,
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(

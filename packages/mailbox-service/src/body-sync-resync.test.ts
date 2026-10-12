@@ -238,7 +238,7 @@ const buildHarness = (
 const noSuchKeyConn = (body: Buffer): IImapConnection =>
 	({
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "fetched", body: body }),
+		fetchMessageBody: async () => body,
 	}) as unknown as IImapConnection;
 
 const streamBody = (body: Buffer): Readable =>

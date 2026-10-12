@@ -257,7 +257,7 @@ const readBody = async (
 ) => {
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "fetched", body: eml }),
+		fetchMessageBody: async () => eml,
 	} as unknown as IImapConnection;
 	return service.fetchAndGetBody(
 		messageId,
@@ -366,10 +366,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		// The pass genuinely ran — the body was re-fetched and re-stored — and
 		// still offered nothing.
-		assert.deepEqual(
-			result.outcome === "fetched" ? result.storedAt : result.outcome,
-			"s3://bodies/m-1",
-		);
+		assert.equal(result.storedAt, "s3://bodies/m-1");
 		assert.equal(harness.suggestions.size, 0);
 	});
 
@@ -422,10 +419,7 @@ describe("mail-derived calendar suggestions (issue #1033)", () => {
 
 		const result = await readBody(harness.service, broken);
 
-		assert.deepEqual(
-			result.outcome === "fetched" ? result.storedAt : result.outcome,
-			"newly-stored",
-		);
+		assert.equal(result.storedAt, "newly-stored");
 		assert.equal(harness.suggestions.size, 0);
 	});
 

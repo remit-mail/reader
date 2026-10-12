@@ -93,8 +93,7 @@ model NotFoundError {
   No message answers to this id, or the caller may not learn that one does.
   `code` is `not_found`, or `message_gone_from_server` when the mail server no
   longer holds the message at its UID — another client expunged it or moved it
-  away before its body was stored. That answer carries `details.messageId`, and
-  the local record of the message is removed with it.
+  away before its body was stored. That answer carries `details.messageId`.
   """)
 model MessageNotFoundError {
   @statusCode statusCode: 404;

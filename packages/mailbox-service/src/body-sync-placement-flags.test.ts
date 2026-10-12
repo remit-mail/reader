@@ -155,7 +155,7 @@ const readBody = async (
 ) => {
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "fetched", body: body }),
+		fetchMessageBody: async () => body,
 	} as unknown as IImapConnection;
 	return service.fetchAndGetBody(
 		"m-1",

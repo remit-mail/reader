@@ -216,10 +216,7 @@ const syncFromImap = (harness: Harness) =>
 		async () =>
 			({
 				openBox: async () => {},
-				fetchMessageBody: async () => ({
-					outcome: "fetched",
-					body: LINKEDIN_EML,
-				}),
+				fetchMessageBody: async () => LINKEDIN_EML,
 			}) as unknown as IImapConnection,
 	);
 

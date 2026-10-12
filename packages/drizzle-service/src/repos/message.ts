@@ -492,6 +492,27 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		await this.deleteMany([messageId]);
 	}
 
+	async deleteIfPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+	): Promise<boolean> {
+		return runInTransaction(this.db, async (tx) => {
+			const claimed = await tx
+				.update(messageTable)
+				.set({ updatedAt: Date.now() })
+				.where(
+					and(
+						eq(messageTable.messageId, messageId),
+						...placementTerms(expected),
+					),
+				)
+				.returning({ messageId: messageTable.messageId });
+			if (claimed.length === 0) return false;
+			await deleteMessageSubtree(tx as unknown as SubtreeDb, [messageId]);
+			return true;
+		});
+	}
+
 	async deleteMany(messageIds: string[]): Promise<void> {
 		if (messageIds.length === 0) return;
 		await runInTransaction(this.db, (tx) =>

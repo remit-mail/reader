@@ -13,12 +13,17 @@ import {
 	type IMailboxSpecialUseRepository,
 	type IMessageRepository,
 	type IThreadMessageRepository,
+	type IUnitOfWork,
 	isSenderMuted,
 	type MessageItem,
 	type ThreadMessageItem,
 	type UpdateMessageInput,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
+import {
+	MessageGoneFromServerError,
+	MessagePlacementUnsettledError,
+	NotFoundError,
+} from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
@@ -62,16 +67,13 @@ import {
 	denormalizeMessageCategory,
 	hasDecidedCategory,
 } from "./message-category.js";
+import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
+import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
-import { reconcileStaleMessage } from "./stale-message-reconcile.js";
-import {
-	type IImapConnection,
-	MailConnectionError,
-	type MessageBodyFetchResult,
-} from "./types.js";
+import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
 
@@ -240,15 +242,6 @@ export interface FetchBodyResult {
 	storedAt: string;
 }
 
-/**
- * `gone`: the server no longer has the message at the row's UID (another
- * client expunged or moved it). A settled row is deleted on the spot; a row
- * with a move or delete in flight is left for that mutation to settle.
- */
-export type FetchAndGetBodyResult =
-	| ({ outcome: "fetched" } & FetchBodyResult)
-	| { outcome: "gone" };
-
 export interface StoreBodyPartContentsResult {
 	stored: number;
 }
@@ -323,6 +316,7 @@ export interface CalendarSuggestionConfig {
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
+	private readonly unitOfWork: IUnitOfWork;
 
 	constructor(
 		private messageService: IMessageRepository,
@@ -336,8 +330,17 @@ export class BodySyncService {
 		private readonly quarantineConfig?: QuarantineConfig,
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
+		unitOfWork?: IUnitOfWork,
 	) {
 		this.log = logger ?? noopLogger;
+		this.unitOfWork =
+			unitOfWork ??
+			new PassThroughUnitOfWork({
+				message: messageService,
+				envelope: envelopeService,
+				address: addressService,
+				threadMessage: threadMessageService,
+			});
 		this.filterPipeline = filterConfig
 			? new FilterPipeline(filterConfig, this.log)
 			: undefined;
@@ -1027,7 +1030,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		folder: BodySyncFolder,
 		getConnection: ConnectionGetter,
-	): Promise<FetchAndGetBodyResult> {
+	): Promise<FetchBodyResult> {
 		const message = await this.messageService.get(messageId);
 
 		let body: Buffer;
@@ -1061,27 +1064,24 @@ export class BodySyncService {
 					"Body object missing (NoSuchKey), falling back to IMAP",
 				);
 				needsStore = true;
-				const fetched = await this.fetchFromImap(
-					message.uid,
+				body = await this.fetchFromImap(
+					message,
+					accountId,
+					accountConfigId,
 					folder.fullPath,
 					getConnection,
 				);
-				if (fetched.outcome === "gone") {
-					return this.reconcileGoneMessage(message, accountConfigId, folder);
-				}
-				body = fetched.body;
 			}
 		} else {
+			// Fetch from IMAP and store
 			needsStore = true;
-			const fetched = await this.fetchFromImap(
-				message.uid,
+			body = await this.fetchFromImap(
+				message,
+				accountId,
+				accountConfigId,
 				folder.fullPath,
 				getConnection,
 			);
-			if (fetched.outcome === "gone") {
-				return this.reconcileGoneMessage(message, accountConfigId, folder);
-			}
-			body = fetched.body;
 		}
 
 		let parsed: ParsedMail;
@@ -1114,61 +1114,104 @@ export class BodySyncService {
 		}
 
 		return {
-			outcome: "fetched",
 			text: parsed.text ?? null,
 			html: typeof parsed.html === "string" ? parsed.html : null,
 			storedAt: message.bodyStorageKey ?? "newly-stored",
 		};
 	}
 
-	private async reconcileGoneMessage(
-		message: MessageItem,
-		accountConfigId: string,
-		folder: BodySyncFolder,
-	): Promise<FetchAndGetBodyResult> {
-		if (isPlacementUnsettled(message)) {
-			this.log.info(
-				{
-					messageId: message.messageId,
-					uid: message.uid,
-					mailboxPath: folder.fullPath,
-					status: message.status,
-				},
-				"Message no longer at its UID while a move or delete is in flight; leaving the row to that mutation",
-			);
-			return { outcome: "gone" };
-		}
-
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			{
-				messageService: this.messageService,
-				threadMessageService: this.threadMessageService,
-			},
-			accountConfigId,
-			message.messageId,
-		);
-		this.log.info(
-			{
-				metric: "message_gone_stale_row_reconciled",
-				messageId: message.messageId,
-				uid: message.uid,
-				mailboxPath: folder.fullPath,
-				threadMessagesDeleted,
-			},
-			"Message no longer on the mail server (expunged or moved by another client); stale row reconciled",
-		);
-		return { outcome: "gone" };
-	}
-
 	private async fetchFromImap(
-		uid: number,
+		message: MessageItem,
+		accountId: string,
+		accountConfigId: string,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
-	): Promise<MessageBodyFetchResult> {
+	): Promise<Buffer> {
+		const { uid } = message;
 		this.log.debug?.({ uid }, "Fetching body from IMAP");
 		const connection = await getConnection();
 		await connection.openBox(mailboxPath);
-		return connection.fetchMessageBody(uid);
+		const body = await connection.fetchMessageBody(uid);
+		if (body) return body;
+
+		if (!(await isMessageGoneFromOpenMailbox(connection, uid))) {
+			throw new Error(
+				`IMAP FETCH returned no source for UID ${uid} in ${mailboxPath}, which the server still lists`,
+			);
+		}
+
+		return this.reconcileGoneMessage(
+			message,
+			accountId,
+			accountConfigId,
+			mailboxPath,
+		);
+	}
+
+	/**
+	 * The server no longer holds the message at the row's UID. A row with our
+	 * own move or delete in flight belongs to that mutation (409). A settled row
+	 * is removed with its thread entries, but only while its placement still
+	 * matches what was read (imap-mutations R3); losing that predicate is a 409
+	 * like any other lost placement transition.
+	 */
+	private async reconcileGoneMessage(
+		message: MessageItem,
+		accountId: string,
+		accountConfigId: string,
+		mailboxPath: string,
+	): Promise<never> {
+		const { messageId, uid } = message;
+		if (isPlacementUnsettled(message)) {
+			throw new MessagePlacementUnsettledError(
+				`Message ${messageId} is not at its UID while a move or delete is in flight`,
+				accountId,
+				messageId,
+				"in_flight",
+			);
+		}
+
+		const reconciled = await this.unitOfWork.transaction(async (repos) => {
+			const deleted = await repos.message.deleteIfPlacement(messageId, {
+				status: message.status,
+				mailboxId: message.mailboxId,
+				uid,
+			});
+			if (!deleted) return false;
+			const threadMessages = await repos.threadMessage.findAllByMessageId(
+				accountConfigId,
+				messageId,
+			);
+			if (threadMessages.length > 0) {
+				await repos.threadMessage.deleteMany(
+					threadMessages.map((row) => ({
+						accountConfigId: row.accountConfigId,
+						threadMessageId: row.threadMessageId,
+					})),
+				);
+			}
+			return true;
+		});
+
+		if (!reconciled) {
+			throw new MessagePlacementUnsettledError(
+				`Message ${messageId} changed placement while its absence from ${mailboxPath} was being reconciled`,
+				accountId,
+				messageId,
+				"in_flight",
+			);
+		}
+
+		this.log.info(
+			{
+				metric: "message_gone_stale_row_reconciled",
+				messageId,
+				uid,
+				mailboxPath,
+			},
+			"Message no longer on the mail server (expunged or moved by another client); stale row reconciled",
+		);
+		throw new MessageGoneFromServerError(messageId);
 	}
 
 	/**

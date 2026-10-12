@@ -143,10 +143,7 @@ describe("Message.category survives a re-entrant classification pass", () => {
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => ({
-				outcome: "fetched",
-				body: LINKEDIN_EML,
-			}),
+			fetchMessageBody: async () => LINKEDIN_EML,
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -216,10 +213,7 @@ describe("Message.category survives a re-entrant classification pass", () => {
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => ({
-				outcome: "fetched",
-				body: PERSONAL_EML,
-			}),
+			fetchMessageBody: async () => PERSONAL_EML,
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(

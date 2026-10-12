@@ -7,7 +7,6 @@ import type { MailboxItem } from "@remit/data-ports";
 import {
 	BadRequestError,
 	ForbiddenError,
-	MessageGoneFromServerError,
 	MessagePlacementUnsettledError,
 	NotFoundError,
 	UnrecoverableBodyError,
@@ -628,7 +627,7 @@ export const MessageOperations: Record<
 					mailbox,
 				);
 
-				const backfill = await client.bodySync
+				await client.bodySync
 					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
 						Promise.resolve(connection),
 					)
@@ -648,10 +647,6 @@ export const MessageOperations: Record<
 						throw error;
 					})
 					.finally(() => scope.disconnect());
-
-				if (backfill?.outcome === "gone") {
-					throw new MessageGoneFromServerError(messageId);
-				}
 
 				// Body just landed via IMAP — re-read so the response includes the
 				// parts the worker just wrote. Without this the first describe of a
@@ -769,7 +764,7 @@ export const MessageOperations: Record<
 					accountId,
 					mailbox,
 				);
-				const backfill = await client.bodySync
+				await client.bodySync
 					.fetchAndGetBody(messageId, accountId, accountConfigId, folder, () =>
 						Promise.resolve(connection),
 					)
@@ -789,10 +784,6 @@ export const MessageOperations: Record<
 						throw error;
 					})
 					.finally(() => scope.disconnect());
-
-				if (backfill?.outcome === "gone") {
-					throw new MessageGoneFromServerError(messageId);
-				}
 			}
 		}
 

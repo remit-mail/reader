@@ -158,7 +158,7 @@ const readBodyThroughClient = async (
 	});
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "fetched", body: eml(message) }),
+		fetchMessageBody: async () => eml(message),
 	} as unknown as IImapConnection;
 
 	await client.bodySync.fetchAndGetBody(

@@ -142,7 +142,7 @@ const noSuchKeyError = () =>
 const bodyConnection = () =>
 	({
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "fetched", body: PLAIN_EML }),
+		fetchMessageBody: async () => PLAIN_EML,
 		async *fetchMessageBodies(uids: number[]) {
 			for (const uid of uids) {
 				yield { uid, source: Readable.from([PLAIN_EML]) };

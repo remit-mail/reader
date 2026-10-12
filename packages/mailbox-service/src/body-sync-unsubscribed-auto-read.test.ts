@@ -123,10 +123,7 @@ const readBody = async (
 ) => {
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => ({
-			outcome: "fetched",
-			body: PLAIN_EML(fromEmail),
-		}),
+		fetchMessageBody: async () => PLAIN_EML(fromEmail),
 	} as unknown as IImapConnection;
 	return service.fetchAndGetBody(
 		"m-1",

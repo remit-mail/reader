@@ -6,14 +6,30 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 	MessageItem,
+	PlacementPredicate,
 } from "@remit/data-ports";
+import {
+	MessageGoneFromServerError,
+	MessagePlacementUnsettledError,
+} from "@remit/data-ports/errors";
 import type { StorageService } from "@remit/storage-service";
 import { BodySyncService } from "./body-sync.js";
 import type { IImapConnection } from "./types.js";
 
 const MESSAGE_ID = "m-gone";
 
-const readGoneMessage = async (status: MessageItem["status"]) => {
+interface Scenario {
+	status: MessageItem["status"];
+	rowStillMatches?: boolean;
+	serverStillLists?: boolean;
+}
+
+const readUnstoredMessage = async ({
+	status,
+	rowStillMatches = true,
+	serverStillLists = false,
+}: Scenario) => {
+	const predicates: PlacementPredicate[] = [];
 	const deletedMessages: string[] = [];
 	const deletedThreadMessages: string[] = [];
 
@@ -25,8 +41,14 @@ const readGoneMessage = async (status: MessageItem["status"]) => {
 				uid: 42,
 				status,
 			}) as unknown as MessageItem,
-		delete: async (messageId: string) => {
+		deleteIfPlacement: async (
+			messageId: string,
+			expected: PlacementPredicate,
+		) => {
+			predicates.push(expected);
+			if (!rowStillMatches) return false;
 			deletedMessages.push(messageId);
+			return true;
 		},
 	} as unknown as IMessageRepository;
 
@@ -50,36 +72,68 @@ const readGoneMessage = async (status: MessageItem["status"]) => {
 
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => ({ outcome: "gone" }),
+		fetchMessageBody: async () => null,
+		fetchMessages: async () => [],
+		search: async () => (serverStillLists ? [42] : []),
 	} as unknown as IImapConnection;
 
-	const result = await service.fetchAndGetBody(
-		MESSAGE_ID,
-		"acc-1",
-		"cfg-1",
-		{ fullPath: "INBOX", placement: "inbox" },
-		async () => connection,
-	);
+	const outcome = await service
+		.fetchAndGetBody(
+			MESSAGE_ID,
+			"acc-1",
+			"cfg-1",
+			{ fullPath: "INBOX", placement: "inbox" },
+			async () => connection,
+		)
+		.then(
+			() => assert.fail("expected the read to be refused"),
+			(error: unknown) => error,
+		);
 
-	return { result, deletedMessages, deletedThreadMessages };
+	return { outcome, predicates, deletedMessages, deletedThreadMessages };
 };
 
 describe("reading a message the mail server no longer holds", () => {
-	it("answers gone and removes the settled row with its thread entries", async () => {
-		const { result, deletedMessages, deletedThreadMessages } =
-			await readGoneMessage("active");
+	it("answers 404 and removes the settled row with its thread entries", async () => {
+		const { outcome, predicates, deletedMessages, deletedThreadMessages } =
+			await readUnstoredMessage({ status: "active" });
 
-		assert.deepEqual(result, { outcome: "gone" });
+		assert.ok(outcome instanceof MessageGoneFromServerError);
+		assert.equal(outcome.statusCode, 404);
+		assert.deepEqual(predicates, [
+			{ status: "active", mailboxId: "mb-inbox", uid: 42 },
+		]);
 		assert.deepEqual(deletedMessages, [MESSAGE_ID]);
 		assert.deepEqual(deletedThreadMessages, ["tm-1"]);
 	});
 
-	it("leaves a row with a move in flight to that move", async () => {
-		const { result, deletedMessages, deletedThreadMessages } =
-			await readGoneMessage("moving");
+	it("answers 409 and deletes nothing while our own move is in flight", async () => {
+		const { outcome, predicates, deletedThreadMessages } =
+			await readUnstoredMessage({ status: "moving" });
 
-		assert.deepEqual(result, { outcome: "gone" });
+		assert.ok(outcome instanceof MessagePlacementUnsettledError);
+		assert.equal(outcome.statusCode, 409);
+		assert.deepEqual(predicates, []);
+		assert.deepEqual(deletedThreadMessages, []);
+	});
+
+	it("answers 409 and keeps the thread entries when the row changed after it was read", async () => {
+		const { outcome, deletedMessages, deletedThreadMessages } =
+			await readUnstoredMessage({ status: "active", rowStillMatches: false });
+
+		assert.ok(outcome instanceof MessagePlacementUnsettledError);
 		assert.deepEqual(deletedMessages, []);
 		assert.deepEqual(deletedThreadMessages, []);
+	});
+
+	it("fails loudly and deletes nothing when the server still lists the UID", async () => {
+		const { outcome, predicates } = await readUnstoredMessage({
+			status: "active",
+			serverStillLists: true,
+		});
+
+		assert.ok(outcome instanceof Error);
+		assert.ok(!(outcome instanceof MessageGoneFromServerError));
+		assert.deepEqual(predicates, []);
 	});
 });

@@ -22,6 +22,15 @@ export interface IMessageRepository {
 	clearSpamReport(messageId: string): Promise<MessageItem>;
 	delete(messageId: string): Promise<void>;
 	deleteMany(messageIds: string[]): Promise<void>;
+	/**
+	 * Delete the row only while its placement still matches what the caller
+	 * read (imap-mutations R3). Resolves `false` when the predicate did not
+	 * match and nothing was deleted.
+	 */
+	deleteIfPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+	): Promise<boolean>;
 	listByMailbox(
 		mailboxId: string,
 		options?: { limit?: number; continuationToken?: string },
