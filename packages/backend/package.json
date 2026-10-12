@@ -62,7 +62,8 @@
     "esbuild": "^0.28.1",
     "express": "^5.1.0",
     "swagger-ui-express": "^5.0.1",
-    "tsx": "*"
+    "tsx": "*",
+    "yaml": "^2.8.4"
   },
   "dependencies": {
     "@remit/config-format": "*",

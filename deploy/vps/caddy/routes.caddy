@@ -51,16 +51,16 @@ request_header X-Remit-Client-IP {client_ip}
 # is a real outage surfacing rather than a redeploy blip being hidden.
 #
 # Caddy keeps an idle upstream connection for 2m by default, longer than the
-# backend (65s) or apisix (60s) keep one open. Whichever side closes first
-# races Caddy's next request onto a dead socket, which a POST surfaces as a
-# 502, so every hop that reaches the backend lets go of an idle connection
-# before its upstream does.
+# backend (65s), apisix (60s) or the web server (65s) keep one open. An
+# upstream that closes first races Caddy's next request onto a dead socket,
+# which Caddy does not retry and answers with a 502, so every hop lets go of an
+# idle connection before its upstream does.
 route /api/auth/* {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -71,7 +71,7 @@ route /api/* {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -81,7 +81,7 @@ route /feeds/calendar/* {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -91,7 +91,7 @@ route /content/* {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -101,7 +101,7 @@ route /outbox-upload/* {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -111,7 +111,7 @@ route /health {
 		lb_try_duration 30s
 		lb_try_interval 250ms
 		transport http {
-			keepalive 30s
+			keepalive 10s
 		}
 	}
 }
@@ -120,5 +120,8 @@ route {
 	reverse_proxy web:8080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 10s
+		}
 	}
 }

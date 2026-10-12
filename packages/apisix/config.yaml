@@ -25,3 +25,6 @@ nginx_config:
     # it — so the cap matches the backend's own json limit rather than making
     # room for a file that no longer passes through here.
     client_max_body_size: 10m
+    # How long apisix holds an idle client connection. Caddy's upstream
+    # keepalive in deploy/vps/caddy/routes.caddy stays below it.
+    keepalive_timeout: 60s

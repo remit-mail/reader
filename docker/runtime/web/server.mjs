@@ -190,6 +190,12 @@ const server = http.createServer(async (req, res) => {
 	res.writeHead(500).end("internal server error");
 });
 
+// Node drops an idle keep-alive socket after 5s, inside the window Caddy holds
+// the same connection for reuse; the server has to outlast its proxy or a
+// request lands on a socket that is already closing.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+
 server.listen(PORT, "0.0.0.0", () => {
 	console.log(`web: serving ${DIST_DIR} on :${PORT}`);
 });
