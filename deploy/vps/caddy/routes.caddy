@@ -49,10 +49,19 @@ request_header X-Remit-Client-IP {client_ip}
 # written upstream, so the retry is safe for every method, not only GETs, and
 # the window is bounded: an upstream that stays down past it still errors, which
 # is a real outage surfacing rather than a redeploy blip being hidden.
+#
+# Caddy keeps an idle upstream connection for 2m by default, longer than the
+# backend (65s) or apisix (60s) keep one open. Whichever side closes first
+# races Caddy's next request onto a dead socket, which a POST surfaces as a
+# 502, so every hop that reaches the backend lets go of an idle connection
+# before its upstream does.
 route /api/auth/* {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
@@ -61,6 +70,9 @@ route /api/* {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
@@ -68,6 +80,9 @@ route /feeds/calendar/* {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
@@ -75,6 +90,9 @@ route /content/* {
 	reverse_proxy backend:8080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
@@ -82,6 +100,9 @@ route /outbox-upload/* {
 	reverse_proxy backend:8080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
@@ -89,6 +110,9 @@ route /health {
 	reverse_proxy apisix:9080 {
 		lb_try_duration 30s
 		lb_try_interval 250ms
+		transport http {
+			keepalive 30s
+		}
 	}
 }
 
