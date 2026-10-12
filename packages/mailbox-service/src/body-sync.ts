@@ -63,9 +63,15 @@ import {
 	hasDecidedCategory,
 } from "./message-category.js";
 import type { PlacementMoveService } from "./placement-move.js";
+import { isPlacementUnsettled } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
-import { type IImapConnection, MailConnectionError } from "./types.js";
+import { reconcileStaleMessage } from "./stale-message-reconcile.js";
+import {
+	type IImapConnection,
+	MailConnectionError,
+	type MessageBodyFetchResult,
+} from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
 
@@ -233,6 +239,15 @@ export interface FetchBodyResult {
 	html: string | null;
 	storedAt: string;
 }
+
+/**
+ * `gone`: the server no longer has the message at the row's UID (another
+ * client expunged or moved it). A settled row is deleted on the spot; a row
+ * with a move or delete in flight is left for that mutation to settle.
+ */
+export type FetchAndGetBodyResult =
+	| ({ outcome: "fetched" } & FetchBodyResult)
+	| { outcome: "gone" };
 
 export interface StoreBodyPartContentsResult {
 	stored: number;
@@ -1012,7 +1027,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		folder: BodySyncFolder,
 		getConnection: ConnectionGetter,
-	): Promise<FetchBodyResult> {
+	): Promise<FetchAndGetBodyResult> {
 		const message = await this.messageService.get(messageId);
 
 		let body: Buffer;
@@ -1046,20 +1061,27 @@ export class BodySyncService {
 					"Body object missing (NoSuchKey), falling back to IMAP",
 				);
 				needsStore = true;
-				body = await this.fetchFromImap(
+				const fetched = await this.fetchFromImap(
 					message.uid,
 					folder.fullPath,
 					getConnection,
 				);
+				if (fetched.outcome === "gone") {
+					return this.reconcileGoneMessage(message, accountConfigId, folder);
+				}
+				body = fetched.body;
 			}
 		} else {
-			// Fetch from IMAP and store
 			needsStore = true;
-			body = await this.fetchFromImap(
+			const fetched = await this.fetchFromImap(
 				message.uid,
 				folder.fullPath,
 				getConnection,
 			);
+			if (fetched.outcome === "gone") {
+				return this.reconcileGoneMessage(message, accountConfigId, folder);
+			}
+			body = fetched.body;
 		}
 
 		let parsed: ParsedMail;
@@ -1092,17 +1114,57 @@ export class BodySyncService {
 		}
 
 		return {
+			outcome: "fetched",
 			text: parsed.text ?? null,
 			html: typeof parsed.html === "string" ? parsed.html : null,
 			storedAt: message.bodyStorageKey ?? "newly-stored",
 		};
 	}
 
+	private async reconcileGoneMessage(
+		message: MessageItem,
+		accountConfigId: string,
+		folder: BodySyncFolder,
+	): Promise<FetchAndGetBodyResult> {
+		if (isPlacementUnsettled(message)) {
+			this.log.info(
+				{
+					messageId: message.messageId,
+					uid: message.uid,
+					mailboxPath: folder.fullPath,
+					status: message.status,
+				},
+				"Message no longer at its UID while a move or delete is in flight; leaving the row to that mutation",
+			);
+			return { outcome: "gone" };
+		}
+
+		const { threadMessagesDeleted } = await reconcileStaleMessage(
+			{
+				messageService: this.messageService,
+				threadMessageService: this.threadMessageService,
+			},
+			accountConfigId,
+			message.messageId,
+		);
+		this.log.info(
+			{
+				metric: "message_gone_stale_row_reconciled",
+				messageId: message.messageId,
+				uid: message.uid,
+				mailboxPath: folder.fullPath,
+				threadMessagesDeleted,
+			},
+			"Message no longer on the mail server (expunged or moved by another client); stale row reconciled",
+		);
+		return { outcome: "gone" };
+	}
+
 	private async fetchFromImap(
 		uid: number,
 		mailboxPath: string,
 		getConnection: ConnectionGetter,
-	): Promise<Buffer> {
+	): Promise<MessageBodyFetchResult> {
 		this.log.debug?.({ uid }, "Fetching body from IMAP");
 		const connection = await getConnection();
 		await connection.openBox(mailboxPath);

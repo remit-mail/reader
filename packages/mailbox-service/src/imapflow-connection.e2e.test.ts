@@ -112,11 +112,43 @@ describe("Message bodies (Dovecot)", {
 			const uids = await connection.search(["ALL"]);
 			assert.ok(uids.length > 0, "Should have messages to fetch body for");
 
-			const body = await connection.fetchMessageBody(uids[0]);
+			const fetched = await connection.fetchMessageBody(uids[0]);
+			assert.equal(fetched.outcome, "fetched");
+			const body =
+				fetched.outcome === "fetched" ? fetched.body : Buffer.alloc(0);
 			assert.ok(body.length > 0, "Body should not be empty");
 
 			const bodyText = body.toString("utf-8");
 			assert.ok(bodyText.length > 0, "Body text should not be empty");
+		});
+	});
+});
+
+describe("A message another client expunged (Dovecot)", {
+	skip: !process.env.RUN_E2E_TESTS,
+}, () => {
+	test("answers gone for the expunged UID and still fetches its sibling", async () => {
+		const mailbox = uniqueMailboxName("E2E_gone");
+		await withMailfuzzConnection(async (setup) => {
+			const [goneUid, keptUid] = await seedMailbox(setup, mailbox, 2);
+			try {
+				await setup.openBox(mailbox, false);
+				await setup.deleteMessages([goneUid]);
+				await setup.closeBox();
+
+				await withMailfuzzConnection(async (reader) => {
+					await reader.openBox(mailbox, true);
+
+					assert.deepEqual(await reader.fetchMessageBody(goneUid), {
+						outcome: "gone",
+					});
+
+					const kept = await reader.fetchMessageBody(keptUid);
+					assert.equal(kept.outcome, "fetched");
+				});
+			} finally {
+				await setup.deleteMailbox(mailbox).catch(() => {});
+			}
 		});
 	});
 });

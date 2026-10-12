@@ -30,6 +30,7 @@ export {
 	BodySyncService,
 	type ConnectionGetter,
 	extractSnippet,
+	type FetchAndGetBodyResult,
 	type FetchBodyResult,
 	type PlacementConfig,
 	type QuarantineConfig,
@@ -346,5 +347,6 @@ export type {
 	MailboxSyncResult,
 	MailConnectionErrorKind,
 	MailCredentials,
+	MessageBodyFetchResult,
 } from "./types.js";
 export { MailConnectionError } from "./types.js";

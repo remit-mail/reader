@@ -1156,7 +1156,7 @@ namespace RemitApi {
     @get
     op describeMessage(@path messageId: UUID):
       | DescribeMessageResponse
-      | NotFoundError
+      | MessageNotFoundError
       | UnprocessableEntityError
       | UnauthorizedError;
 
@@ -1166,7 +1166,7 @@ namespace RemitApi {
     @route("/raw")
     op getRawMessage(
       @path messageId: UUID,
-    ): RawMessageResponse | NotFoundError | UnauthorizedError;
+    ): RawMessageResponse | MessageNotFoundError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })

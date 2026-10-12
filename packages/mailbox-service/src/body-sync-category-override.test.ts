@@ -192,7 +192,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => LINKEDIN_EML,
+			fetchMessageBody: async () => ({
+				outcome: "fetched",
+				body: LINKEDIN_EML,
+			}),
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -222,7 +225,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => LINKEDIN_EML,
+			fetchMessageBody: async () => ({
+				outcome: "fetched",
+				body: LINKEDIN_EML,
+			}),
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -244,7 +250,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => LINKEDIN_EML,
+			fetchMessageBody: async () => ({
+				outcome: "fetched",
+				body: LINKEDIN_EML,
+			}),
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -269,7 +278,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => LINKEDIN_EML,
+			fetchMessageBody: async () => ({
+				outcome: "fetched",
+				body: LINKEDIN_EML,
+			}),
 		} as unknown as IImapConnection;
 
 		await harness.service.fetchAndGetBody(
@@ -369,7 +381,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 			const connection = {
 				openBox: async () => {},
-				fetchMessageBody: async () => LINKEDIN_EML,
+				fetchMessageBody: async () => ({
+					outcome: "fetched",
+					body: LINKEDIN_EML,
+				}),
 			} as unknown as IImapConnection;
 
 			await harness.service.fetchAndGetBody(
@@ -484,7 +499,10 @@ describe("Address.flags.category overrides classification at sync time (issue #2
 
 		const connection = {
 			openBox: async () => {},
-			fetchMessageBody: async () => LINKEDIN_EML,
+			fetchMessageBody: async () => ({
+				outcome: "fetched",
+				body: LINKEDIN_EML,
+			}),
 		} as unknown as IImapConnection;
 
 		await assert.rejects(

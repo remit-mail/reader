@@ -10,7 +10,10 @@ import { BadgeCheck, Paperclip, Star } from "lucide-react";
 import { useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { isMessageNotFoundError } from "@/components/ui/error-banners";
+import {
+	isMessageGoneFromServerError,
+	isMessageNotFoundError,
+} from "@/components/ui/error-banners";
 import { toDisplayCategory } from "@/lib/display-category";
 import { formatDatePreset } from "@/lib/format";
 import { AutoMovedIndicator } from "./AutoMovedIndicator";
@@ -309,6 +312,10 @@ const ExpandedCard = ({
 							<div className="h-4 bg-surface-sunken rounded w-full" />
 							<div className="h-4 bg-surface-sunken rounded w-3/4" />
 							<div className="h-4 bg-surface-sunken rounded w-1/2" />
+						</div>
+					) : isError && isMessageGoneFromServerError(error) ? (
+						<div className="mt-3">
+							<EmptyState message="This message is no longer on the mail server. It was moved or deleted in another mail app." />
 						</div>
 					) : isError && isMessageNotFoundError(error) ? (
 						<div className="mt-3">

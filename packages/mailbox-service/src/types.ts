@@ -27,6 +27,15 @@ export type MailConnectionErrorKind = "auth" | "network";
  *
  * IMPORTANT: access tokens must NEVER appear in error messages or causes.
  */
+/**
+ * A single-message body fetch: the bytes, or `gone` when the server confirmed
+ * the UID is no longer in the open mailbox (expunged or moved by another
+ * client). A connection fault is not an outcome — it throws.
+ */
+export type MessageBodyFetchResult =
+	| { outcome: "fetched"; body: Buffer }
+	| { outcome: "gone" };
+
 export class MailConnectionError extends Error {
 	readonly kind: MailConnectionErrorKind;
 
@@ -253,7 +262,7 @@ export interface IImapConnection {
 	 * no body. Requires a mailbox to be open.
 	 */
 	fetchEnvelopeSnapshots(uids: number[]): Promise<ImapEnvelopeSnapshot[]>;
-	fetchMessageBody(uid: number): Promise<Buffer>;
+	fetchMessageBody(uid: number): Promise<MessageBodyFetchResult>;
 	/**
 	 * Fetch full message bodies for many UIDs in ONE pipelined ranged UID FETCH.
 	 * Yields `{ uid, source }` per message; `source` is a readable stream the

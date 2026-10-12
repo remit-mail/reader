@@ -19,6 +19,7 @@ import type {
 	ImapMessage,
 	ImapNamespaces,
 	MailCredentials,
+	MessageBodyFetchResult,
 } from "./types.js";
 import { MailConnectionError } from "./types.js";
 
@@ -720,10 +721,15 @@ export class ImapFlowConnection {
 	/**
 	 * Fetch the full message body (RFC822 source) for a single message by UID.
 	 *
-	 * @param uid - The UID of the message to fetch
-	 * @returns The raw message body as a Buffer
+	 * imapflow's `download` answers `{}` both when the UID FETCH matched no
+	 * message and when the connection dropped out of the selected state, so an
+	 * empty answer is read against the connection: a client that is no longer
+	 * usable is a connection fault, and on a healthy one a UID SEARCH decides
+	 * whether the message left the mailbox (expunged or moved by another
+	 * client). An empty FETCH for a UID the SEARCH still lists is neither, and
+	 * throws.
 	 */
-	fetchMessageBody = async (uid: number): Promise<Buffer> => {
+	fetchMessageBody = async (uid: number): Promise<MessageBodyFetchResult> => {
 		this.ensureConnected();
 		const { client } = this;
 
@@ -739,19 +745,29 @@ export class ImapFlowConnection {
 			uid: true,
 		});
 
-		// Connection may have been lost during download
-		if (!result || !result.content) {
-			throw new Error(
+		if (result?.content) {
+			const chunks: Buffer[] = [];
+			for await (const chunk of result.content) {
+				chunks.push(chunk);
+			}
+			return { outcome: "fetched", body: Buffer.concat(chunks) };
+		}
+
+		if (!client.usable || !client.mailbox) {
+			throw new MailConnectionError(
+				"network",
 				`IMAP connection lost while downloading message UID ${uid}`,
 			);
 		}
 
-		const chunks: Buffer[] = [];
-		for await (const chunk of result.content) {
-			chunks.push(chunk);
+		const listed = await this.search([["UID", String(uid)]]);
+		if (!listed.includes(uid)) {
+			return { outcome: "gone" };
 		}
 
-		return Buffer.concat(chunks);
+		throw new Error(
+			`IMAP FETCH returned no source for UID ${uid} in ${this.currentMailbox}, which SEARCH still lists`,
+		);
 	};
 
 	/**

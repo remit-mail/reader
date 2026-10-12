@@ -132,6 +132,24 @@ export class MessagePlacementUnsettledError extends ConflictError {
 }
 
 /**
+ * The row named a message the mail server no longer holds at that UID —
+ * another client expunged it or moved it away. Distinct from a plain
+ * not-found so the client can say where the message went rather than
+ * claiming the user deleted it.
+ */
+export class MessageGoneFromServerError extends NotFoundError {
+	name = "MessageGoneFromServerError";
+
+	constructor(messageId: string) {
+		super("This message is no longer on the mail server.");
+		this.publicApiError = {
+			code: "message_gone_from_server",
+			details: { messageId },
+		};
+	}
+}
+
+/**
  * A configuration import refused because this configuration is not empty
  * (#1021). The default is to refuse rather than to fold the file in: a person
  * importing over a configuration they forgot they had should hear about it

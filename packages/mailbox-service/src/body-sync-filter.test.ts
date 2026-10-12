@@ -175,7 +175,10 @@ const buildHarness = (
 const readBody = async (service: BodySyncService, mailboxPath = "INBOX") => {
 	const connection = {
 		openBox: async () => {},
-		fetchMessageBody: async () => INVITATION_EML,
+		fetchMessageBody: async () => ({
+			outcome: "fetched",
+			body: INVITATION_EML,
+		}),
 	} as unknown as IImapConnection;
 	return service.fetchAndGetBody(
 		"m-1",
