@@ -927,6 +927,22 @@ run_cmd() {
 		exit $?
 		;;
 	esac
+	# The release's Caddy set put through Caddy's parser before anything is
+	# stopped. The script runs for real against the staged files the -v named,
+	# with /etc/caddy a directory of its own, so a set that is missing a file
+	# fails the way a real adapt does. `caddy_adapt=fail` is a set Caddy refuses.
+	case "$_script" in
+	*"caddy adapt"*)
+		log "run caddy-validate image=$_image src=$_statesrc"
+		mkdir -p "$S/etc-caddy"
+		{
+			# shellcheck disable=SC2016 # the stub's own text, expanded where it runs
+			printf 'caddy() { [ -f "$5" ] || exit 1; [ "%s" = ok ] || { printf "Error: adapting config using caddyfile\\n" >&2; exit 1; }; }\n' "$(val caddy_adapt ok)"
+			printf '%s' "$_script" | sed -e "s#/state#$_statesrc#g" -e "s#/etc/caddy#$S/etc-caddy#g"
+		} | sh
+		exit $?
+		;;
+	esac
 	{
 		printf -- '--- volume script ---\n'
 		printf '%s\n' "$_script"

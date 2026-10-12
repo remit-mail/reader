@@ -473,20 +473,24 @@ in order:
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
 2. Every image is pulled at the target version, and the release's own `remit`
-   wrapper and compose file are fetched with them, stamped for this deployment
-   and put through `sh -n` and `docker compose config`. A failure here — a
-   refused pull, a compose file this deployment's `.env` cannot resolve — has
-   touched nothing and a retry is safe.
+   wrapper, compose file and `caddy/` files are fetched with them. The wrapper
+   is stamped for this deployment and put through `sh -n`, the compose file
+   through `docker compose config`, and every Caddy mode file through
+   `caddy adapt` against the release's `routes.caddy`. A failure here — a
+   refused pull, a compose file this deployment's `.env` cannot resolve, a
+   Caddy file that will not load — has touched nothing and a retry is safe.
 3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
-   still live**, and the wrapper and compose file the deployment carries are
-   snapshotted beside them. The work queue is deliberately not part of the
+   still live**, and the wrapper, compose file and Caddy files the deployment
+   carries are snapshotted beside them. The work queue is deliberately not part of the
    snapshot.
 4. `REMIT_TAG` is written to `.env`, before the stop, so a host that reboots
    mid-update comes back on binaries that match the migrated database.
 5. Every service stops. The instance is offline from here.
-6. The release's wrapper and compose file are installed, so everything below is
-   the release's own definition of this deployment rather than the one it
-   replaces.
+6. The release's wrapper, compose file and Caddy files are installed as one
+   set, so everything below is the release's own definition of this deployment
+   rather than the one it replaces. Caddy restarts when its files changed.
+   Local edits to these files are replaced, the same as a reinstall replaces
+   them.
 7. Only `queue`, `migrate` and `backend` start, so nothing is served and nothing
    is sent, purged or indexed between the snapshot and the verdict.
 8. The gate: this run's `migrate` exited `0`, every recreated service is up and
@@ -495,8 +499,8 @@ in order:
 9. On a pass the held-back services start and the update is done. Held back is
    what was running when the run began, so a service you had stopped stays
    stopped; on a box where nothing was running it is the whole always-on stack.
-10. On a failure the snapshot, the wrapper, the compose file and the previous
-    tag are restored, the gate runs again, and the outcome is `rolledBack`, or
+10. On a failure the snapshot, the wrapper, the compose file, the Caddy files
+    and the previous tag are restored, the gate runs again, and the outcome is `rolledBack`, or
     `rollbackFailed`.
 
 `remit status` reports the running version, the last check and the last run's

@@ -30,6 +30,16 @@ const ROOT = join(HERE, "..", "..");
 const REMIT = join(ROOT, "deploy", "vps", "remit");
 const COMPOSE = join(ROOT, "deploy", "vps", "docker-compose.sqlite.yml");
 const SNAPSHOT_LIB = join(ROOT, "deploy", "vps", "backup", "snapshot-db.sh");
+const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
+const CADDY_FILES = [
+	"routes.caddy",
+	"off.caddy",
+	"internal.caddy",
+	"tailscale.caddy",
+	"acme.caddy",
+	"tunnel.caddy",
+];
+const shippedCaddy = (name) => readFileSync(join(CADDY_DIR, name), "utf8");
 const FAKES = join(HERE, "remit-test");
 const SQLITE_SHIM = join(FAKES, "sqlite3-shim.mjs");
 
@@ -233,6 +243,9 @@ function sandbox({
 	hostAssets = true,
 	releaseWrapper = null,
 	releaseCompose = null,
+	// The release's Caddy files by name; one not named is what this checkout
+	// ships.
+	releaseCaddy = {},
 	installedWrapper = null,
 	prog = "remit",
 	// An operator at a host shell, where REMIT_UPDATE_STATE_DIR is unset and
@@ -268,6 +281,10 @@ function sandbox({
 	}
 	copyFileSync(COMPOSE, join(deployment, "docker-compose.sqlite.yml"));
 	copyFileSync(SNAPSHOT_LIB, join(deployment, "backup", "snapshot-db.sh"));
+	mkdirSync(join(deployment, "caddy"), { recursive: true });
+	for (const name of CADDY_FILES) {
+		writeFileSync(join(deployment, "caddy", name), shippedCaddy(name));
+	}
 	writeExecutable(
 		join(deployment, "remit"),
 		typeof installedWrapper === "function"
@@ -289,6 +306,12 @@ function sandbox({
 			join(fake, "assets", "docker-compose.sqlite.yml"),
 			releaseCompose ?? readFileSync(COMPOSE, "utf8"),
 		);
+		for (const name of CADDY_FILES) {
+			writeFileSync(
+				join(fake, "assets", name),
+				releaseCaddy[name] ?? shippedCaddy(name),
+			);
+		}
 	}
 	writeFileSync(
 		join(deployment, ".env"),
@@ -469,6 +492,9 @@ function sandbox({
 				join(deployment, "docker-compose.sqlite.yml"),
 				"utf8",
 			);
+		},
+		installedCaddy(name) {
+			return readFileSync(join(deployment, "caddy", name), "utf8");
 		},
 		assetLog() {
 			try {
@@ -827,7 +853,10 @@ describe("remit update — the release's host-side files cannot be fetched", () 
 	it("abandons the run rather than installing half a release", () => {
 		assert.notEqual(result.status, 0);
 		assert.equal(box.stateJson().run.outcome, "abandoned");
-		assert.match(box.stateJson().run.message, /wrapper and compose file/);
+		assert.match(
+			box.stateJson().run.message,
+			/wrapper, compose file and Caddy configuration/,
+		);
 	});
 
 	it("changes nothing", () => {
@@ -886,6 +915,127 @@ describe("remit update — a release whose wrapper will not parse", () => {
 		assert.equal(box.stateJson().run.outcome, "abandoned");
 		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
 		assert.ok(!box.log().includes("compose stop"));
+	});
+});
+
+// The Caddy files are host files too, and an update that left them where they
+// were kept every Caddy fix away from every existing install. They are one set:
+// each mode file imports routes.caddy, so a release that moves a snippet between
+// them has to land whole or Caddy will not load. The release here does that — a
+// snippet defined in routes.caddy and imported at the top of every mode file.
+const RELEASE_ROUTES = `(upstream) {\n\treverse_proxy apisix:9080\n}\n${shippedCaddy("routes.caddy")}`;
+const RELEASE_MODES = Object.fromEntries(
+	CADDY_FILES.filter((name) => name !== "routes.caddy").map((name) => [
+		name,
+		`import /etc/caddy/routes.caddy\n${shippedCaddy(name)}`,
+	]),
+);
+const RELEASE_CADDY = { "routes.caddy": RELEASE_ROUTES, ...RELEASE_MODES };
+
+const logIndex = (box, pattern) =>
+	box
+		.log()
+		.split("\n")
+		.findIndex((line) => pattern.test(line));
+
+describe("remit update — the release's Caddy configuration", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0 },
+		releaseCaddy: RELEASE_CADDY,
+	});
+	const result = box.run(["update"]);
+
+	it("succeeds", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+	});
+
+	it("installs all six files from the release being installed", () => {
+		for (const [name, body] of Object.entries(RELEASE_CADDY)) {
+			assert.match(
+				box.assetLog(),
+				new RegExp(
+					`/v1\\.5\\.0/deploy/vps/caddy/${name.replace(".", "\\.")}$`,
+					"m",
+				),
+			);
+			assert.equal(box.installedCaddy(name), body, name);
+		}
+	});
+
+	it("puts the set through Caddy's parser before anything is stopped", () => {
+		const validated = logIndex(
+			box,
+			/^run caddy-validate image=caddy:2-alpine /,
+		);
+		assert.ok(validated >= 0, "the Caddy set was never validated");
+		assert.ok(validated < logIndex(box, /^compose stop /));
+	});
+
+	it("restarts Caddy onto the new set before the gate starts", () => {
+		const restarted = logIndex(box, /^compose restart caddy$/);
+		assert.ok(restarted >= 0, "Caddy was never restarted");
+		assert.ok(restarted > logIndex(box, /^compose stop /));
+		assert.ok(
+			restarted < logIndex(box, /^compose up -d queue migrate backend$/),
+		);
+	});
+});
+
+describe("remit update — a release whose Caddy set will not load", () => {
+	const box = sandbox({
+		scenario: { probe: "ok", migrate_exit: 0, caddy_adapt: "fail" },
+		releaseCaddy: RELEASE_CADDY,
+	});
+	const result = box.run(["update"]);
+
+	it("fails the update loudly", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /Caddy configuration/);
+	});
+
+	it("leaves the deployment's own set in place and Caddy alone", () => {
+		for (const name of CADDY_FILES) {
+			assert.equal(box.installedCaddy(name), shippedCaddy(name), name);
+		}
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+		assert.ok(!box.log().includes("compose restart caddy"));
+	});
+});
+
+describe("remit update — the gate fails on a release with a new Caddy set", () => {
+	const box = sandbox({
+		scenario: { probe: "fail", probe2: "ok" },
+		releaseCaddy: RELEASE_CADDY,
+	});
+	const result = box.run(["update"]);
+
+	it("rolls back", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "rolledBack");
+	});
+
+	it("puts the deployment's own set back and restarts Caddy onto it", () => {
+		for (const name of CADDY_FILES) {
+			assert.equal(box.installedCaddy(name), shippedCaddy(name), name);
+		}
+		const restarts = box
+			.log()
+			.split("\n")
+			.filter((line) => line === "compose restart caddy");
+		assert.equal(restarts.length, 2);
+	});
+});
+
+describe("remit update — a release that leaves the Caddy set unchanged", () => {
+	const box = sandbox({ scenario: { probe: "ok", migrate_exit: 0 } });
+	const result = box.run(["update"]);
+
+	it("does not restart Caddy", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.ok(!box.log().includes("compose restart caddy"));
 	});
 });
 
