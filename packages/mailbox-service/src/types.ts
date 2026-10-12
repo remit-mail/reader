@@ -253,7 +253,7 @@ export interface IImapConnection {
 	 * no body. Requires a mailbox to be open.
 	 */
 	fetchEnvelopeSnapshots(uids: number[]): Promise<ImapEnvelopeSnapshot[]>;
-	fetchMessageBody(uid: number): Promise<Buffer>;
+	fetchMessageBody(uid: number): Promise<Buffer | null>;
 	/**
 	 * Fetch full message bodies for many UIDs in ONE pipelined ranged UID FETCH.
 	 * Yields `{ uid, source }` per message; `source` is a readable stream the

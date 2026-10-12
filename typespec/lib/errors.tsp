@@ -90,6 +90,17 @@ model NotFoundError {
 }
 
 @doc("""
+  No message answers to this id, or the caller may not learn that one does.
+  `code` is `not_found`, or `message_gone_from_server` when the mail server no
+  longer holds the message at its UID — another client expunged it or moved it
+  away before its body was stored. That answer carries `details.messageId`.
+  """)
+model MessageNotFoundError {
+  @statusCode statusCode: 404;
+  ...ApiError;
+}
+
+@doc("""
   The request contradicts the state the resource is in. `code` is `conflict`
   unless the refusal names its own — see `FolderRoleConflict`,
   `MessagePlacementConflict` and `ConfigImportConflict`.

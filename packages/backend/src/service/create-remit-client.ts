@@ -448,6 +448,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 			calendarUnitOfWork: repositories.calendarUnitOfWork,
 			filterService: repositories.filter,
 		},
+		repositories.unitOfWork,
 	);
 
 	return {

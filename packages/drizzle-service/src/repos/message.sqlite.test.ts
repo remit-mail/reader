@@ -249,6 +249,40 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		});
 	});
 
+	describe("deleteIfPlacement", () => {
+		const GONE_ID = "00000000-0000-0000-2222-00000000000c";
+
+		before(async () => {
+			await repo.create({
+				...BASE_INPUT,
+				messageId: GONE_ID,
+				uid: 9,
+				envelopeId: deriveEnvelopeId(GONE_ID),
+				rootBodyPartId: deriveRootBodyPartId(GONE_ID),
+			});
+		});
+
+		test("keeps the row when its placement no longer matches what was read", async () => {
+			const deleted = await repo.deleteIfPlacement(GONE_ID, {
+				mailboxId: MAILBOX_ID,
+				uid: 8,
+			});
+
+			assert.equal(deleted, false);
+			assert.equal((await repo.get(GONE_ID)).uid, 9);
+		});
+
+		test("deletes the row while its placement still matches", async () => {
+			const deleted = await repo.deleteIfPlacement(GONE_ID, {
+				mailboxId: MAILBOX_ID,
+				uid: 9,
+			});
+
+			assert.equal(deleted, true);
+			await assert.rejects(() => repo.get(GONE_ID));
+		});
+	});
+
 	test("requestReembed queues a forced re-index for each message that still exists", async () => {
 		const movedRows = () =>
 			db

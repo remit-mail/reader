@@ -1,3 +1,4 @@
+import { codedApiErrorBody } from "@/lib/api";
 export type ErrorBannerSeverity = "error" | "warning" | "info";
 
 /**
@@ -66,6 +67,9 @@ export const formatErrorDetail = (error: unknown): string | undefined => {
 	}
 	return undefined;
 };
+
+export const isMessageGoneFromServerError = (error: unknown): boolean =>
+	codedApiErrorBody(error)?.code === "message_gone_from_server";
 
 /**
  * Detect a "describeMessage hit a deleted/missing row" error.

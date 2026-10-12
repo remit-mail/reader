@@ -721,9 +721,9 @@ export class ImapFlowConnection {
 	 * Fetch the full message body (RFC822 source) for a single message by UID.
 	 *
 	 * @param uid - The UID of the message to fetch
-	 * @returns The raw message body as a Buffer
+	 * @returns The raw message body, or null when the UID FETCH matched no message
 	 */
-	fetchMessageBody = async (uid: number): Promise<Buffer> => {
+	fetchMessageBody = async (uid: number): Promise<Buffer | null> => {
 		this.ensureConnected();
 		const { client } = this;
 
@@ -739,19 +739,22 @@ export class ImapFlowConnection {
 			uid: true,
 		});
 
-		// Connection may have been lost during download
-		if (!result || !result.content) {
-			throw new Error(
+		if (result?.content) {
+			const chunks: Buffer[] = [];
+			for await (const chunk of result.content) {
+				chunks.push(chunk);
+			}
+			return Buffer.concat(chunks);
+		}
+
+		if (!client.usable || !client.mailbox) {
+			throw new MailConnectionError(
+				"network",
 				`IMAP connection lost while downloading message UID ${uid}`,
 			);
 		}
 
-		const chunks: Buffer[] = [];
-		for await (const chunk of result.content) {
-			chunks.push(chunk);
-		}
-
-		return Buffer.concat(chunks);
+		return null;
 	};
 
 	/**

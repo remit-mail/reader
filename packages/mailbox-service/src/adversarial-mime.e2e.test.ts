@@ -223,7 +223,7 @@ describe("Adversarial MIME corpus (Dovecot) — #402", {
 				// (multipart walking, base64/qp decoding, charset folding).
 				const rfc822 = await connection.fetchMessageBody(appendResult.uid);
 				assert.ok(
-					rfc822.length > 0,
+					rfc822 && rfc822.length > 0,
 					`fetchMessageBody should return bytes for ${name}`,
 				);
 

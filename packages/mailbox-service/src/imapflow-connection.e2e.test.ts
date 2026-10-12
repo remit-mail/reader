@@ -113,7 +113,7 @@ describe("Message bodies (Dovecot)", {
 			assert.ok(uids.length > 0, "Should have messages to fetch body for");
 
 			const body = await connection.fetchMessageBody(uids[0]);
-			assert.ok(body.length > 0, "Body should not be empty");
+			assert.ok(body && body.length > 0, "Body should not be empty");
 
 			const bodyText = body.toString("utf-8");
 			assert.ok(bodyText.length > 0, "Body text should not be empty");
