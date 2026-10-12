@@ -1,42 +1,8 @@
-# Shared reverse-proxy routes, imported by the per-mode site file that
-# TLS_MODE selects (docker-compose.yml). This is the only copy of the routing
-# table; the mode files add nothing but the site address and TLS behaviour.
-#
-# Caddy is the only component that talks to the client, so it is the only one
-# that knows the real peer, and it states that peer here for everything behind
-# it. `{client_ip}` is the connection's remote address — Caddy trusts no proxy
-# by default, so a client-supplied forwarded header never feeds it. This
-# replaces any inbound copy of the header rather than appending to it.
-#
-# The address needs a header of its own because neither standard one survives
-# the hop to the backend: apisix appends its own hop to X-Forwarded-For (the
-# multi-hop value better-auth cannot resolve to one client) and overwrites
-# X-Real-IP with the caddy container's address. Consumed by
-# packages/auth-service (CLIENT_IP_HEADER).
-request_header X-Remit-Client-IP {client_ip}
+# Shared reverse-proxy routes. The per-mode site file that TLS_MODE selects
+# (docker-compose.yml) imports this file at the top level and places the routes
+# with `import routes`. This is the only copy of the routing table; the mode
+# files add nothing but the site address and TLS behaviour.
 
-#
-# Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
-#   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
-#   /api/*       -> apisix, with the /api prefix stripped (business routes,
-#                   matching the openapi-generated apisix route table, which
-#                   has no /api prefix)
-#   /feeds/calendar/* -> apisix, path unchanged. A calendar feed is polled by
-#                   Apple Calendar, Google Calendar and Thunderbird, which sign
-#                   in to nothing: the address they were handed is the whole
-#                   credential, so it is served where it was minted rather than
-#                   under /api. It goes through apisix and not straight to the
-#                   backend because the edge exemption for it is narrow — one
-#                   method, and a uri regex over the token's exact shape.
-#   /content/*   -> backend directly, path unchanged (signed-URL content
-#                   delivery; not part of the openapi/JWT-gated surface, so
-#                   it does not go through apisix's business routes)
-#   /outbox-upload/* -> backend directly, path unchanged (the write-side twin:
-#                   an attachment upload authorized by the signature in its own
-#                   URL, so apisix's bearer gate would refuse it and there is no
-#                   openapi route for it to match)
-#   everything else -> the web static server (the SPA and its assets)
-#
 # Every upstream here is a single-replica container a redeploy replaces in
 # place: `docker compose up -d` stops the old container and starts the new one,
 # and for the seconds in between the service name does not dial. Caddy stays up
@@ -49,52 +15,89 @@ request_header X-Remit-Client-IP {client_ip}
 # written upstream, so the retry is safe for every method, not only GETs, and
 # the window is bounded: an upstream that stays down past it still errors, which
 # is a real outage surfacing rather than a redeploy blip being hidden.
-route /api/auth/* {
-	reverse_proxy apisix:9080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+(upstream) {
+	lb_try_duration 30s
+	lb_try_interval 250ms
+	transport http {
+		# Below every upstream's own idle timeout (Caddy's default is 2m).
+		keepalive 10s
 	}
 }
 
-route /api/* {
-	uri strip_prefix /api
-	reverse_proxy apisix:9080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
-	}
-}
+(routes) {
+	# Caddy is the only component that talks to the client, so it is the only one
+	# that knows the real peer, and it states that peer here for everything behind
+	# it. `{client_ip}` is the connection's remote address — Caddy trusts no proxy
+	# by default, so a client-supplied forwarded header never feeds it. This
+	# replaces any inbound copy of the header rather than appending to it.
+	#
+	# The address needs a header of its own because neither standard one survives
+	# the hop to the backend: apisix appends its own hop to X-Forwarded-For (the
+	# multi-hop value better-auth cannot resolve to one client) and overwrites
+	# X-Real-IP with the caddy container's address. Consumed by
+	# packages/auth-service (CLIENT_IP_HEADER).
+	request_header X-Remit-Client-IP {client_ip}
 
-route /feeds/calendar/* {
-	reverse_proxy apisix:9080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+	# Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
+	#   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
+	#   /api/*       -> apisix, with the /api prefix stripped (business routes,
+	#                   matching the openapi-generated apisix route table, which
+	#                   has no /api prefix)
+	#   /feeds/calendar/* -> apisix, path unchanged. A calendar feed is polled by
+	#                   Apple Calendar, Google Calendar and Thunderbird, which sign
+	#                   in to nothing: the address they were handed is the whole
+	#                   credential, so it is served where it was minted rather than
+	#                   under /api. It goes through apisix and not straight to the
+	#                   backend because the edge exemption for it is narrow — one
+	#                   method, and a uri regex over the token's exact shape.
+	#   /content/*   -> backend directly, path unchanged (signed-URL content
+	#                   delivery; not part of the openapi/JWT-gated surface, so
+	#                   it does not go through apisix's business routes)
+	#   /outbox-upload/* -> backend directly, path unchanged (the write-side twin:
+	#                   an attachment upload authorized by the signature in its own
+	#                   URL, so apisix's bearer gate would refuse it and there is no
+	#                   openapi route for it to match)
+	#   everything else -> the web static server (the SPA and its assets)
+	route /api/auth/* {
+		reverse_proxy apisix:9080 {
+			import upstream
+		}
 	}
-}
 
-route /content/* {
-	reverse_proxy backend:8080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+	route /api/* {
+		uri strip_prefix /api
+		reverse_proxy apisix:9080 {
+			import upstream
+		}
 	}
-}
 
-route /outbox-upload/* {
-	reverse_proxy backend:8080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+	route /feeds/calendar/* {
+		reverse_proxy apisix:9080 {
+			import upstream
+		}
 	}
-}
 
-route /health {
-	reverse_proxy apisix:9080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+	route /content/* {
+		reverse_proxy backend:8080 {
+			import upstream
+		}
 	}
-}
 
-route {
-	reverse_proxy web:8080 {
-		lb_try_duration 30s
-		lb_try_interval 250ms
+	route /outbox-upload/* {
+		reverse_proxy backend:8080 {
+			import upstream
+		}
+	}
+
+	route /health {
+		reverse_proxy apisix:9080 {
+			import upstream
+		}
+	}
+
+	route {
+		reverse_proxy web:8080 {
+			import upstream
+		}
 	}
 }

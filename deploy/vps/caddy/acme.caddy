@@ -2,6 +2,8 @@
 # certificate itself over the public ACME challenge. Ports 80 and 443 must be
 # reachable from the internet, and PUBLIC_ORIGIN's host must resolve in public
 # DNS to this box. PUBLIC_ORIGIN must be https://…
+import /etc/caddy/routes.caddy
+
 {$PUBLIC_ORIGIN} {
-	import /etc/caddy/routes.caddy
+	import routes
 }

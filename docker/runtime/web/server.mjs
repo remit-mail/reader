@@ -137,7 +137,7 @@ const serveFile = async (res, filePath, cacheControl, acceptEncoding = "") => {
 	return true;
 };
 
-const server = http.createServer(async (req, res) => {
+export const server = http.createServer(async (req, res) => {
 	if (req.url === "/health") {
 		res
 			.writeHead(200, { "Content-Type": "application/json" })
@@ -189,6 +189,9 @@ const server = http.createServer(async (req, res) => {
 	if (await serveFile(res, join(DIST_DIR, "index.html"), "no-cache")) return;
 	res.writeHead(500).end("internal server error");
 });
+
+// Outlasts Caddy's upstream keepalive in deploy/vps/caddy/routes.caddy.
+server.keepAliveTimeout = 65_000;
 
 server.listen(PORT, "0.0.0.0", () => {
 	console.log(`web: serving ${DIST_DIR} on :${PORT}`);

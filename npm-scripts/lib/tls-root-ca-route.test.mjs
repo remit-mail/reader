@@ -1,7 +1,7 @@
 // The Settings > Advanced download row (packages/web-client) fetches the
 // deployment's TLS root CA from a stable Caddy route (deploy/vps/README.md,
 // "TLS", has the rationale). Guards: the route exists in internal.caddy only,
-// ordered before the routes.caddy import so its catch-all cannot swallow it,
+// ordered before the `import routes` placement so its catch-all cannot swallow it,
 // and it never rewrites to a key file instead of the certificate.
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -41,18 +41,15 @@ describe("the TLS root CA route", () => {
 		}
 	});
 
-	it("is declared before the routes.caddy import, so its catch-all cannot swallow it", () => {
+	it("is declared before the routes are placed, so its catch-all cannot swallow it", () => {
 		const source = read("internal.caddy");
 		const routeIndex = source.indexOf("/tls-root-ca.crt");
-		const importIndex = source.indexOf("import /etc/caddy/routes.caddy");
+		const importIndex = source.indexOf("\timport routes\n");
 		assert.ok(routeIndex >= 0, "route not found in internal.caddy");
-		assert.ok(
-			importIndex >= 0,
-			"routes.caddy import not found in internal.caddy",
-		);
+		assert.ok(importIndex >= 0, "import routes not found in internal.caddy");
 		assert.ok(
 			routeIndex < importIndex,
-			"the CA route must be declared before the routes.caddy import",
+			"the CA route must be declared before import routes",
 		);
 	});
 

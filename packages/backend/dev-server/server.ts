@@ -378,4 +378,7 @@ export const listener = app.listen(Number(port), "0.0.0.0", () => {
 	process.send?.("ready");
 });
 
+// Outlasts the idle timeout of every proxy that reuses connections to it.
+listener.keepAliveTimeout = 65_000;
+
 export default app;

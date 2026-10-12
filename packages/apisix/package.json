@@ -4,6 +4,9 @@
 	"private": true,
 	"type": "module",
 	"description": "APISIX edge route table, generated from the OpenAPI spec and baked into the apisix image.",
+	"exports": {
+		"./route-table": "./src/route-table.ts"
+	},
 	"scripts": {
 		"generate": "node --import tsx generate-config.ts",
 		"test:typecheck": "tsgo --noEmit",
@@ -13,5 +16,9 @@
 	"dependencies": {
 		"@remit/auth-service": "*"
 	},
-	"license": "MIT"
+	"license": "MIT",
+	"devDependencies": {
+		"yaml": "^2.8.4",
+		"zod": "^3.25.0"
+	}
 }

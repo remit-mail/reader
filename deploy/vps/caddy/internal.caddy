@@ -3,6 +3,8 @@
 # hostname or IP you point at the box. Browsers show a warning until you trust
 # Caddy's root CA on the client (README: TLS). PUBLIC_ORIGIN must be https://…
 # and its host is the name on the certificate.
+import /etc/caddy/routes.caddy
+
 {$PUBLIC_ORIGIN} {
 	tls internal
 
@@ -18,5 +20,5 @@
 		file_server
 	}
 
-	import /etc/caddy/routes.caddy
+	import routes
 }

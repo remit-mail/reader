@@ -84,12 +84,12 @@ function caddyRoutes(source) {
 	const routes = [];
 	const lines = source.split("\n");
 	for (let index = 0; index < lines.length; index += 1) {
-		const opened = lines[index].match(/^route\s*(\S*)\s*\{/);
+		const opened = lines[index].match(/^\troute\s*(\S*)\s*\{/);
 		if (!opened) continue;
 		const matcher = opened[1] || "*";
 		const upstreams = [];
 		for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-			if (/^\}/.test(lines[cursor])) break;
+			if (/^\t\}/.test(lines[cursor])) break;
 			const proxy = lines[cursor].match(/reverse_proxy\s+(\S+)/);
 			if (proxy) upstreams.push(proxy[1]);
 		}

@@ -11,6 +11,8 @@
 	}
 }
 
+import /etc/caddy/routes.caddy
+
 :80 {
-	import /etc/caddy/routes.caddy
+	import routes
 }

@@ -95,6 +95,9 @@ export const buildRoutes = (paths: readonly string[]): Route[] =>
 		};
 	});
 
+// Below the backend's keepAliveTimeout, so apisix never reuses a closed socket.
+export const UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS = 60;
+
 interface ConfigInput {
 	routes: readonly Route[];
 	oidcPlugin: string;
@@ -139,6 +142,8 @@ ${routes.map((route) => renderRoute(route, oidcPlugin)).join("\n")}
 upstreams:
   - id: backend
     type: roundrobin
+    keepalive_pool:
+      idle_timeout: ${UPSTREAM_KEEPALIVE_IDLE_TIMEOUT_SECONDS}
     nodes:
       '${backendHost}:${backendPort}': 1
 #END

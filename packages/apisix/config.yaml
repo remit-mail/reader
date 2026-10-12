@@ -25,3 +25,5 @@ nginx_config:
     # it — so the cap matches the backend's own json limit rather than making
     # room for a file that no longer passes through here.
     client_max_body_size: 10m
+    # Above Caddy's upstream keepalive in deploy/vps/caddy/routes.caddy.
+    keepalive_timeout: 60s
