@@ -3,9 +3,10 @@ import type {
 	FilterItem,
 	IFilterAnchorRepository,
 	IFilterRepository,
+	IMailboxRepository,
 	IMessageLabelRepository,
 } from "@remit/data-ports";
-import { FilterState } from "@remit/domain-enums";
+import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
 import {
 	isEmbeddingCapabilityAbsence,
 	isEmbeddingCapabilityUnavailable,
@@ -57,6 +58,8 @@ export interface FilterConfig {
 	filterService: IFilterRepository;
 	filterAnchorService: IFilterAnchorRepository;
 	messageLabelService: IMessageLabelRepository;
+	/** Names the account a filter's folder belongs to. */
+	mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
 	placementMoveService: PlacementMoveService;
 	embedder?: MessageEmbedder;
 	similarityThreshold?: number;
@@ -96,10 +99,11 @@ export class FilterPipeline {
 
 	async evaluate(
 		accountConfigId: string,
+		accountId: string,
 		messageId: string,
 		msg: FilterMessage,
 	): Promise<FilterDecision> {
-		return this.match(accountConfigId, msg).catch((error: unknown) => {
+		return this.match(accountConfigId, accountId, msg).catch((error: unknown) => {
 			this.log.error?.(
 				{
 					alert: "body_sync_filter_match_failed",
@@ -114,8 +118,36 @@ export class FilterPipeline {
 		});
 	}
 
+	/**
+	 * A filter sits on the account config and sees every account's mail, but its
+	 * folder is one account's: mail of another account is not this filter's to
+	 * act on, exactly as if it had not matched. A folder no account holds any
+	 * more turns the filter off, with the reason the filter list shows.
+	 */
+	private async appliesTo(
+		accountConfigId: string,
+		accountId: string,
+		filter: FilterItem,
+	): Promise<boolean> {
+		if (filter.actionMailboxId === NO_ACTION) return true;
+		const owner = await this.config.mailboxService.resolveAccountId(
+			filter.actionMailboxId,
+		);
+		if (owner !== null) return owner === accountId;
+		await this.config.filterService.update(accountConfigId, filter.filterId, {
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.FolderMissing,
+		});
+		this.log.warn?.(
+			{ filterId: filter.filterId, accountConfigId },
+			"Filter turned off: the folder it moves mail into no longer exists",
+		);
+		return false;
+	}
+
 	private async match(
 		accountConfigId: string,
+		accountId: string,
 		msg: FilterMessage,
 	): Promise<FilterDecision> {
 		const active = await this.config.filterService.listByAccountAndState(
@@ -169,6 +201,7 @@ export class FilterPipeline {
 			// evaluation, independent of whether the TTL delete has run.
 			const usable = await this.config.filterService.refreshExpiry(filter);
 			if (usable.state !== FilterState.Active) continue;
+			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
 			// A bad or stale anchor vector (a dimension mismatch under a changed
 			// embedding model) throws from cosineSimilarity. Isolate it to this
 			// filter: it is skipped and loudly logged, and every other filter on

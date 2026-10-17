@@ -29,7 +29,6 @@ interface OrganizeOutcome {
 	applied: number;
 	failed: number;
 	failures: string[];
-	refusals: string[];
 	semanticUnavailable: boolean;
 }
 
@@ -39,7 +38,6 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 	applied: 0,
 	failed: 0,
 	failures: [],
-	refusals: [],
 	semanticUnavailable: false,
 });
 
@@ -61,7 +59,7 @@ const runSnapshot = async (
 		ORGANIZE_MATCH_LIMIT,
 	);
 	if (match.rejected) return rejectedOutcome(match.rejected);
-	const { applied, failed, failures, refusals } = await applyOrganize(
+	const { applied, failed, failures } = await applyOrganize(
 		{ client, moveService },
 		job.accountConfigId,
 		match.messageIds,
@@ -73,7 +71,6 @@ const runSnapshot = async (
 		applied,
 		failed,
 		failures,
-		refusals,
 		semanticUnavailable: match.semanticUnavailable,
 	};
 };
@@ -143,28 +140,14 @@ export const processOrganizeJob = async (
 			return;
 		}
 
-		const {
-			matched,
-			applied,
-			failed,
-			failures,
-			refusals,
-			semanticUnavailable,
-		} = outcome;
-		const [refusal] = refusals;
+		const { matched, applied, failed, failures, semanticUnavailable } = outcome;
 		await client.organizeJobRequest.update(organizeJobId, {
-			state: refusal ? "Failed" : "Complete",
+			state: "Complete",
 			matchedCount: matched,
 			appliedCount: applied,
 			failedCount: failed,
-			errorMessage: refusal ?? failures[0] ?? "",
+			errorMessage: failures[0] ?? "",
 		});
-		if (refusal) {
-			log.warn(
-				{ accountConfigId, organizeJobId, filterId: job.filterId, refusal },
-				"Organize back-apply refused a move into another account's folder",
-			);
-		}
 		log.info(
 			{
 				accountConfigId,

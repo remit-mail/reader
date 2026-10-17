@@ -16,7 +16,4 @@ enum FilterDisabledReason {
 
   @doc("The folder this filter moves mail into no longer exists")
   FolderMissing: "FolderMissing",
-
-  @doc("The folder this filter moves mail into belongs to another account, and IMAP cannot move mail between accounts")
-  ForeignFolder: "ForeignFolder",
 }

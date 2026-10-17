@@ -29,7 +29,6 @@ import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
-	FilterDisabledReason,
 	FilterState,
 	MessageClassificationState,
 	PlacementAction,
@@ -789,6 +788,7 @@ export class BodySyncService {
 		// The DECISION is computed here; the applies below are unswallowed.
 		const filterDecision = await this.evaluateFilters(
 			accountConfigId,
+			accountId,
 			messageId,
 			parsed,
 		);
@@ -831,7 +831,6 @@ export class BodySyncService {
 		// enqueued. A non-confident/leave verdict with no filter move is a no-op.
 		let filterMove: MessageFilterMove | undefined;
 		let filterMoved = false;
-		let blockedFilterId: string | undefined;
 		if (filterDecision.move) {
 			const destinationMailboxId = filterDecision.move.destinationMailboxId;
 			// Capture the source mailbox BEFORE the move rewrites mailboxId, so the
@@ -856,17 +855,7 @@ export class BodySyncService {
 			// there matches but was not moved by Remit. `moveMessage` no-ops in that
 			// case; record neither the marker nor `movedByRemit`, so the badge never
 			// claims a move that did not happen and its Undo is never a no-op.
-			if (filed === "refused") {
-				blockedFilterId = filterDecision.move.filterId;
-				await this.filterConfig?.filterService.update(
-					accountConfigId,
-					blockedFilterId,
-					{
-						state: FilterState.Disabled,
-						disabledReason: FilterDisabledReason.ForeignFolder,
-					},
-				);
-			} else if (sourceMailboxId !== destinationMailboxId) {
+			if (sourceMailboxId !== destinationMailboxId && filed !== "refused") {
 				filterMoved = true;
 				filterMove = {
 					filterId: filterDecision.move.filterId,
@@ -889,7 +878,6 @@ export class BodySyncService {
 		// requeue after a later failure re-applies safely; UNSWALLOWED, so a DDB
 		// write failure propagates before bodyStorageKey is written.
 		for (const label of filterDecision.labels) {
-			if (label.filterId === blockedFilterId) continue;
 			await this.filterConfig?.messageLabelService.apply({
 				messageId,
 				labelId: label.labelId,
@@ -1484,12 +1472,14 @@ export class BodySyncService {
 	 */
 	private async evaluateFilters(
 		accountConfigId: string,
+		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
 	): Promise<FilterDecision> {
 		if (!this.filterPipeline) return { labels: [] };
 		return this.filterPipeline.evaluate(
 			accountConfigId,
+			accountId,
 			messageId,
 			toFilterMessage(parsed),
 		);

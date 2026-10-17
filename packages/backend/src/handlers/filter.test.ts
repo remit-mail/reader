@@ -580,7 +580,6 @@ describe("createFilter queues the new filter's pass over the inbox (#1354)", () 
 					fullPath: "Invoices",
 					syncStatus: "synced",
 				}),
-				resolveAccountId: async () => ACCOUNT_ID,
 			},
 			filterAnchorTransaction: { createWithAnchor: async () => filter },
 			organizeJobRequest: {

@@ -228,6 +228,7 @@ export const syncMessageBody = async (
 				filterService,
 				filterAnchorService,
 				messageLabelService,
+				mailboxService,
 				placementMoveService,
 			});
 

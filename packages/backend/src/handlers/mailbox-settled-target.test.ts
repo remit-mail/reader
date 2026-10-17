@@ -71,7 +71,6 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 					? mailboxId.map((id) => ({ mailboxId: id, accountId: ACCOUNT_ID }))
 					: row,
 			listAllByAccount: async () => [row],
-			resolveAccountId: async () => ACCOUNT_ID,
 		},
 		message: {
 			get: async () => ({ mailboxId: "mbx-source" }),

@@ -36,7 +36,6 @@ import {
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
 import type { RemitClient } from "./data-client.js";
-import { foreignFolderReason } from "./foreign-folder.js";
 import {
 	isSemanticCapabilityAbsence,
 	noteSemanticCapabilityAbsence,
@@ -206,7 +205,8 @@ export interface OrganizeRejection {
 	reason:
 		| "BodyContentWithoutVectorPipeline"
 		| "FilterNotActive"
-		| "FilterMissing";
+		| "FilterMissing"
+		| "FolderMissing";
 	message: string;
 }
 
@@ -724,8 +724,6 @@ export interface ApplyOrganizeResult {
 	failed: number;
 	/** Why each failed message failed, as the job reports it. */
 	failures: string[];
-	/** Moves refused because the folder is another account's; none was made. */
-	refusals: string[];
 }
 
 /**
@@ -756,9 +754,9 @@ export const applyOrganize = async (
 	const applyMove =
 		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
 
-	type MessageOutcome =
-		| { kind: "applied" }
-		| { kind: "refused"; reason: string };
+	// A folder of another account is not this action's to fill: that mail is
+	// skipped, label and all, as if it had not matched.
+	type MessageOutcome = { kind: "applied" } | { kind: "skipped" };
 
 	const applyToMessage = async (messageId: string): Promise<MessageOutcome> => {
 		if (applyMove) {
@@ -785,20 +783,7 @@ export const applyOrganize = async (
 				predicate.actionMailboxId,
 				accountId,
 			);
-			if (outcome === "refused") {
-				const owner = await client.mailbox.resolveAccountId(
-					predicate.actionMailboxId,
-				);
-				return {
-					kind: "refused",
-					reason: await foreignFolderReason(
-						client,
-						accountId,
-						owner ?? accountId,
-						predicate.actionMailboxId,
-					),
-				};
-			}
+			if (outcome === "refused") return { kind: "skipped" };
 		}
 		if (applyLabel) {
 			await client.messageLabel.apply({
@@ -814,7 +799,6 @@ export const applyOrganize = async (
 		applied: 0,
 		failed: 0,
 		failures: [],
-		refusals: [],
 	};
 	for (const messageId of messageIds) {
 		// Per-message isolation: one poisoned message is counted, its reason kept
@@ -823,15 +807,12 @@ export const applyOrganize = async (
 			kind: "failed" as const,
 			reason: error instanceof Error ? error.message : String(error),
 		}));
+		if (outcome.kind === "skipped") continue;
 		if (outcome.kind === "applied") {
 			result.applied += 1;
 			continue;
 		}
 		result.failed += 1;
-		if (outcome.kind === "refused") {
-			result.refusals.push(outcome.reason);
-			continue;
-		}
 		result.failures.push(outcome.reason);
 		logger.warn(
 			{ accountConfigId, messageId, reason: outcome.reason },
@@ -843,6 +824,9 @@ export const applyOrganize = async (
 
 const FILTER_NOT_ACTIVE_MESSAGE =
 	"This filter is turned off or has expired. Turn it on to run it over the inbox.";
+
+const FOLDER_MISSING_MESSAGE =
+	"The folder this filter moves mail into no longer exists, so the filter was turned off. Pick another folder in the rule, then turn it on.";
 
 const FILTER_MISSING_MESSAGE =
 	"This filter was deleted before it could run over the inbox.";
@@ -967,7 +951,6 @@ export interface FilterBackApplyResult {
 	applied: number;
 	failed: number;
 	failures: string[];
-	refusals: string[];
 	semanticUnavailable: boolean;
 }
 
@@ -1002,6 +985,7 @@ export const backApplyFilter = async (
 			filterService: client.filter,
 			filterAnchorService: client.filterAnchor,
 			messageLabelService: client.messageLabel,
+			mailboxService: client.mailbox,
 			placementMoveService: moveService,
 		},
 		deps.embedder,
@@ -1020,7 +1004,6 @@ export const backApplyFilter = async (
 		applied: 0,
 		failed: 0,
 		failures: [],
-		refusals: [],
 		semanticUnavailable: false,
 	};
 	if (loaded.matchesNothing || mailboxIds.length === 0) return nothing;
@@ -1035,6 +1018,17 @@ export const backApplyFilter = async (
 	if (match.rejected) return match;
 
 	const { filter, predicate } = loaded;
+	const folderAccountId =
+		filter.actionMailboxId === NO_ACTION
+			? undefined
+			: await client.mailbox.resolveAccountId(filter.actionMailboxId);
+	if (folderAccountId === null) {
+		await client.filter.update(accountConfigId, filterId, {
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.FolderMissing,
+		});
+		return rejectFilter("FolderMissing", FOLDER_MISSING_MESSAGE);
+	}
 	const result: FilterBackApplyResult = {
 		...nothing,
 		matched: match.messageIds.length,
@@ -1043,8 +1037,16 @@ export const backApplyFilter = async (
 	for (const messageId of match.messageIds) {
 		const message = await filterMessageOf(client, accountConfigId, messageId);
 		if (!message) continue;
+		const accountId = await client.mailbox.resolveAccountId(
+			(await client.message.get(messageId)).mailboxId,
+		);
+		if (!accountId) continue;
+		if (folderAccountId !== undefined && folderAccountId !== accountId) {
+			continue;
+		}
 		const decision = await pipeline.evaluate(
 			accountConfigId,
+			accountId,
 			messageId,
 			message,
 		);
@@ -1062,16 +1064,6 @@ export const backApplyFilter = async (
 		result.applied += outcome.applied;
 		result.failed += outcome.failed;
 		result.failures.push(...outcome.failures);
-		if (outcome.refusals.length > 0) {
-			// A folder of another account blocks the filter itself, where the user
-			// edits it; the rest of the pass would only be refused the same way.
-			result.refusals.push(...outcome.refusals);
-			await client.filter.update(accountConfigId, filterId, {
-				state: FilterState.Disabled,
-				disabledReason: FilterDisabledReason.ForeignFolder,
-			});
-			break;
-		}
 	}
 	return result;
 };

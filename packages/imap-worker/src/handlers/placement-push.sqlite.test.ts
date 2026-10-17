@@ -51,6 +51,7 @@ const arrange = async (): Promise<Arranged> => {
 		markerService: w.client.placementMove,
 		addressService: w.client.address,
 		mailboxSpecialUseService: w.client.mailboxSpecialUse,
+		mailboxService: w.client.mailbox,
 		sqsQueueUrl: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? "",
 	});
 	return { w, inbox, junk, message, placement };

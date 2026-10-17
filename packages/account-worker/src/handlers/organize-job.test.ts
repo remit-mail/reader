@@ -274,7 +274,11 @@ const world = async (
 		},
 		mailbox: {
 			resolveAccountId: async (mailboxId: string) =>
-				mailboxId === "mbx-sibling-travel" ? "acct-2" : "acct-1",
+				mailboxId === "mbx-gone"
+					? null
+					: mailboxId === "mbx-sibling-travel"
+						? "acct-2"
+						: "acct-1",
 			get: async (_accountId: string, mailboxId: string) => ({
 				mailboxId,
 				fullPath: mailboxId === "mbx-sibling-travel" ? "Travel" : "Invoices",
@@ -412,7 +416,7 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 		assert.equal(current.updates.at(-1)?.state, "Complete");
 	});
 
-	it("blocks a filter whose folder is another account's, fails the job with why, and labels nothing", async () => {
+	it("skips another account's mail, as if the filter had not matched", async () => {
 		current = await world([
 			standingFilter({
 				actionLabelId: "lbl-trips",
@@ -420,29 +424,32 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 			}),
 		]);
 
-		await processOrganizeJob(event, noopLogger, {
-			client: current.client,
-			matchDeps: buildOrganizeMatchDeps(current.client),
-			moveService: {
-				moveMessage: async () => "refused",
-			} as unknown as NonNullable<ProcessOrganizeJobDeps["moveService"]>,
-		});
+		await runFilterJob(current);
 
+		assert.deepEqual(current.moves, []);
 		assert.deepEqual(current.labeled, []);
+		assert.deepEqual(current.filterUpdates, []);
+		const done = current.updates.at(-1);
+		assert.equal(done?.state, "Complete");
+		assert.equal(done?.appliedCount, 0);
+		assert.equal(done?.failedCount, 0);
+	});
+
+	it("turns the filter off and fails the job when no account holds its folder", async () => {
+		current = await world([standingFilter({ actionMailboxId: "mbx-gone" })]);
+
+		await runFilterJob(current);
+
+		assert.deepEqual(current.moves, []);
 		assert.deepEqual(current.filterUpdates, [
 			{
 				filterId: "flt-1",
-				patch: { state: "Disabled", disabledReason: "ForeignFolder" },
+				patch: { state: "Disabled", disabledReason: "FolderMissing" },
 			},
 		]);
 		const done = current.updates.at(-1);
 		assert.equal(done?.state, "Failed");
-		assert.equal(done?.appliedCount, 0);
-		assert.equal(done?.failedCount, 1);
-		assert.match(
-			String(done?.errorMessage),
-			/“Travel” is a folder of me-too@example\.com, not me@example\.com/,
-		);
+		assert.match(String(done?.errorMessage), /no longer exists/);
 	});
 
 	it("fails the job without a retry when the filter is turned off", async () => {

@@ -169,8 +169,7 @@ export interface Filter {
 		| "UserDisabled"
 		| "AwaitingFolder"
 		| "FolderCreateFailed"
-		| "FolderMissing"
-		| "ForeignFolder";
+		| "FolderMissing";
 	expiresAt?: string;
 	actionMailboxId: string;
 }
