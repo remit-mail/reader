@@ -73,6 +73,11 @@ export interface DepartureVerdicts {
 	 * rebuild, which is the silent never-repair this whole change is about.
 	 */
 	settled: Set<string>;
+	/**
+	 * Message ids whose sighting has to go through the save pipeline: departed,
+	 * or contested with no verdict. Every other sighting changes no placement.
+	 */
+	needsSave: Set<string>;
 }
 
 export interface DepartureProbeDeps {
@@ -119,6 +124,7 @@ export const confirmDepartures = async (
 	const verdicts: DepartureVerdicts = {
 		departed: new Set<string>(),
 		settled: new Set<string>(),
+		needsSave: new Set<string>(),
 	};
 	if (messageIds.length === 0) return verdicts;
 
@@ -152,6 +158,13 @@ export const confirmDepartures = async (
 			rows,
 			verdicts,
 		);
+	}
+
+	for (const row of contested) {
+		const key = placementKey(row.messageId, row.mailboxId, row.uid);
+		if (verdicts.departed.has(key) || !verdicts.settled.has(key)) {
+			verdicts.needsSave.add(row.messageId);
+		}
 	}
 
 	return verdicts;

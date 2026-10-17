@@ -190,6 +190,7 @@ const sync = async (
 				? new Set()
 				: new Set([answeredFor]),
 		settled: verdict === "none" ? new Set() : new Set([answeredFor]),
+		needsSave: new Set(),
 	};
 
 	const result = (await (
