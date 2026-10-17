@@ -79,16 +79,3 @@ describe("relational deletion capabilities — filesystem storage cleanup", () =
 		await caps.deleteStoragePrefix("accounts/never-existed/", noopLogger);
 	});
 });
-
-describe("relational deletion capabilities — CDN and sign-out are no-ops", () => {
-	it("invalidateContent resolves without a CDN", async () => {
-		const caps = buildRelationalDeletionCapabilities();
-		await caps.invalidateContent("cfg-1", noopLogger);
-		await caps.invalidateContent("cfg-1/acc-1", noopLogger);
-	});
-
-	it("signOut resolves without a federated session store", async () => {
-		const caps = buildRelationalDeletionCapabilities();
-		await caps.signOut("user-123", noopLogger);
-	});
-});

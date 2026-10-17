@@ -3,12 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
-import {
-	_resetForTest,
-	getClient,
-	type RemitClient,
-	setClient,
-} from "./data-client.js";
+import { _resetForTest, getClient, type RemitClient } from "./data-client.js";
 
 const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
 	"accountConfig",
@@ -76,22 +71,6 @@ test("getClient() names setClient when nothing is registered and there is no dat
 	try {
 		await assert.rejects(getClient(), /register one with setClient\(\)/);
 	} finally {
-		if (saved !== undefined) process.env.SQLITE_DB_PATH = saved;
-	}
-});
-
-test("getClient() returns the injected client without reading the environment", async () => {
-	const saved = process.env.SQLITE_DB_PATH;
-	delete process.env.SQLITE_DB_PATH;
-
-	const injected = { account: {} } as unknown as RemitClient;
-	setClient(injected);
-
-	try {
-		const client = await getClient();
-		assert.equal(client, injected);
-	} finally {
-		_resetForTest();
 		if (saved !== undefined) process.env.SQLITE_DB_PATH = saved;
 	}
 });

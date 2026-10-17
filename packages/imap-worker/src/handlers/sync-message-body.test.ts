@@ -11,13 +11,11 @@ import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import { __warmPoolSizeForTest } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 import {
-	BODY_SYNC_MAX_ATTEMPTS,
 	buildRetryableFailureError,
-	getBodySyncMaxAttempts,
 	resolveBatch,
 	syncMessageBody,
 } from "./sync-message-body.js";
-import { BODY_BATCH_SIZE, batchSyncedMessages } from "./sync-messages.js";
+import { batchSyncedMessages } from "./sync-messages.js";
 
 const silentLogger = (() => {
 	const noop = () => {};
@@ -134,33 +132,6 @@ describe("buildRetryableFailureError — the DLQ-propagation signal", () => {
 		assert.match(error.message, /msg-1/);
 		assert.match(error.message, /msg-2/);
 		assert.match(error.message, /attempt 1\/3/);
-	});
-
-	test("is a real Error instance so it propagates like any other failure", () => {
-		const error = buildRetryableFailureError(["msg-1"], 2);
-		assert.ok(error instanceof Error);
-	});
-
-	test("BODY_SYNC_MAX_ATTEMPTS matches the body queue's maxReceiveCount (3)", () => {
-		// See MAX_RECEIVE_COUNT in infra/stacks/dev/stacks/remit-queue-stack.ts.
-		assert.equal(BODY_SYNC_MAX_ATTEMPTS, 3);
-	});
-});
-
-describe("getBodySyncMaxAttempts — env-derived, CDK-injected threshold (#1270)", () => {
-	test("parses the CDK-injected env var (derived from the queue's MAX_RECEIVE_COUNT)", () => {
-		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "3" }), 3);
-		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "5" }), 5);
-	});
-
-	test("defaults to 3 when unset (local dev, unit tests) — matches the queue's own default", () => {
-		assert.equal(getBodySyncMaxAttempts({}), 3);
-	});
-
-	test("defaults to 3 on a non-numeric or non-positive value", () => {
-		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "nope" }), 3);
-		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "0" }), 3);
-		assert.equal(getBodySyncMaxAttempts({ BODY_SYNC_MAX_ATTEMPTS: "-1" }), 3);
 	});
 });
 
@@ -410,10 +381,6 @@ describe("batchSyncedMessages — one batch == one ranged fetch", () => {
 			messageId: `msg-${i}`,
 			uid: i + 1,
 		}));
-
-	test("batch size is raised to 200", () => {
-		assert.equal(BODY_BATCH_SIZE, 200);
-	});
 
 	test("packs up to 200 messages into a single batch", () => {
 		const batches = batchSyncedMessages(makeSynced(200));

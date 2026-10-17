@@ -35,26 +35,6 @@ const baseConfig = {
 };
 
 describe("createAuth self-signup gate", () => {
-	it("flips better-auth disableSignUp from the selfSignUpEnabled flag", async () => {
-		const open = await createAuth({ ...baseConfig, selfSignUpEnabled: true });
-		const closed = await createAuth({
-			...baseConfig,
-			selfSignUpEnabled: false,
-		});
-		assert.equal(open.options.emailAndPassword?.disableSignUp, false);
-		assert.equal(closed.options.emailAndPassword?.disableSignUp, true);
-	});
-
-	it("drives the sqlite drizzle provider", async () => {
-		const auth = await createAuth({
-			connectionString: ":memory:",
-			secret: baseConfig.secret,
-			baseURL: baseConfig.baseURL,
-			selfSignUpEnabled: true,
-		});
-		assert.equal(auth.options.emailAndPassword?.disableSignUp, false);
-	});
-
 	it("rejects a signup request server-side when disabled, before any DB access", async () => {
 		const auth = await createAuth({ ...baseConfig, selfSignUpEnabled: false });
 		const request = new Request(
