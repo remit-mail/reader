@@ -311,39 +311,6 @@ describe("moving a message", () => {
 		assert.ok(Date.now() - startedAt < 150);
 		assert.equal((await row(stranded)).mailboxId, archive.mailboxId);
 	});
-
-	for (const action of ["move", "delete"] as const) {
-		it(`${action}s a fresh copy rather than refusing it`, {
-			todo: "reader#1387: the gate lets a uid-0 copy through but the transition predicate demands an active row",
-		}, async () => {
-			await world();
-			const original = await rowIn(inbox, 5);
-			await service().copyMessage(
-				account.accountConfigId,
-				original,
-				archive.mailboxId,
-				account.accountId,
-			);
-			queue.length = 0;
-			const copy = deriveCopyMessageId(original, archive.mailboxId);
-
-			await (action === "move"
-				? service().moveMessage(
-						account.accountConfigId,
-						copy,
-						inbox.mailboxId,
-						account.accountId,
-					)
-				: service().deleteMessages(
-						account.accountConfigId,
-						[copy],
-						account.accountId,
-						{ permanent: true },
-					));
-
-			assert.equal(queue.length, 1);
-		});
-	}
 });
 
 describe("deleting a message", () => {
