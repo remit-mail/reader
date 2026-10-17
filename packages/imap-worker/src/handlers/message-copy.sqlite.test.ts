@@ -10,12 +10,6 @@ import type { MessageCopyEvent } from "../events.js";
 import { mail, openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageCopy } from "./message-copy.js";
 
-// The sync writes the Message-ID onto the listing row only, never the Message
-// row these handlers probe with, so on the SQLite store every probe by
-// Message-ID has nothing to ask. Pinned here until the sync writes it.
-const MESSAGE_ID_NOT_SYNCED =
-	"message sync leaves Message.messageIdHeader empty on SQLite";
-
 let store: Awaited<ReturnType<typeof openStore>>;
 
 before(async () => {
@@ -91,9 +85,7 @@ describe("a message copy", () => {
 		assert.equal((await a.w.row(a.sourceMessageId))?.mailboxId, a.inboxId);
 	});
 
-	it("settles on the copy this event made when the server sends no COPYUID", {
-		todo: MESSAGE_ID_NOT_SYNCED,
-	}, async () => {
+	it("settles on the copy this event made when the server sends no COPYUID", async () => {
 		const a = await arrange({ olderCopyInProjects: true });
 		a.w.imap.uidplus = false;
 
@@ -104,9 +96,7 @@ describe("a message copy", () => {
 		assert.equal((await a.w.row(a.copyId))?.uid, Math.max(...copies));
 	});
 
-	it("reconciles the copy row away when the destination does not hold the copy", {
-		todo: MESSAGE_ID_NOT_SYNCED,
-	}, async () => {
+	it("reconciles the copy row away when the destination does not hold the copy", async () => {
 		const a = await arrange();
 		a.w.imap.uidplus = false;
 		a.w.imap.ignoreNext.add("COPY");
@@ -124,9 +114,7 @@ describe("a message copy", () => {
 
 	// COPY has no source-side effect, so a second one is a duplicate the user
 	// then has to find and delete.
-	it("never copies twice when a redelivery finds the copy already landed", {
-		todo: MESSAGE_ID_NOT_SYNCED,
-	}, async () => {
+	it("never copies twice when a redelivery finds the copy already landed", async () => {
 		const a = await arrange();
 		a.w.imap.deliver("Projects", mail(a.messageIdHeader));
 
@@ -180,9 +168,7 @@ describe("a message copy", () => {
 		);
 	});
 
-	it("settles on the destination's copy at the ceiling instead of dead-lettering", {
-		todo: MESSAGE_ID_NOT_SYNCED,
-	}, async () => {
+	it("settles on the destination's copy at the ceiling instead of dead-lettering", async () => {
 		const a = await arrange();
 		a.w.imap.deliver("Projects", mail(a.messageIdHeader));
 		a.w.imap.failNext.COPY = new Error("Connection reset");
@@ -195,9 +181,7 @@ describe("a message copy", () => {
 		assert.equal(row?.status, MessageStatus.active);
 	});
 
-	it("reconciles the copy row away at the ceiling when nothing reached the destination", {
-		todo: MESSAGE_ID_NOT_SYNCED,
-	}, async () => {
+	it("reconciles the copy row away at the ceiling when nothing reached the destination", async () => {
 		const a = await arrange();
 		a.w.imap.failNext.COPY = new Error("Connection reset");
 
