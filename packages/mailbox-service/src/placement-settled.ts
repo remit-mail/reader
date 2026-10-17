@@ -65,6 +65,15 @@ export const bindsForeignUid = (
 ): boolean => isPlacementUnsettled(message) && carriesForeignUid(message);
 
 /**
+ * A copy the server has not confirmed yet: `copyMessage` writes the row at
+ * `uid: 0`, which names no message on the server, until COPYUID lands. A move
+ * or delete has nothing to address until then, so it waits (issue #1387).
+ */
+export const awaitsCopiedUid = (
+	message: Pick<MessageItem, "status" | "uid">,
+): boolean => message.status === MessageStatus.moving && message.uid === 0;
+
+/**
  * `in_flight` — a mutation is still working on the row, so waiting resolves it.
  * That includes a row mid-retry: `message-move`, `message-delete` and
  * `message-copy` write `syncStatus: failed` on an ordinary transient attempt

@@ -35,6 +35,7 @@ import {
 } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
+	awaitsCopiedUid,
 	carriesForeignUid,
 	placementBindingOf,
 	waitForPlacementToSettle,
@@ -1124,11 +1125,29 @@ export class MessageMoveService {
 		);
 	};
 
+	private refuseUnconfirmedCopy = (
+		message: MessageItem,
+		accountId: string,
+	): never => {
+		this.log.error(
+			{ accountId, messageId: message.messageId },
+			"Refused: this copy has not reached the mail server yet",
+		);
+		throw new MessagePlacementUnsettledError(
+			`Message ${message.messageId} was not acted on: it is a copy the mail server has not confirmed yet`,
+			accountId,
+			message.messageId,
+			"in_flight",
+		);
+	};
+
 	private settledPlacement = async (
 		message: MessageItem,
 		accountId: string,
 	): Promise<MessageItem> => {
-		if (placementBindingOf(message) === "consistent") return message;
+		const bindable = (row: MessageItem): boolean =>
+			placementBindingOf(row) === "consistent" && !awaitsCopiedUid(row);
+		if (bindable(message)) return message;
 
 		const settled = await waitForPlacementToSettle(
 			this.messageService,
@@ -1138,7 +1157,9 @@ export class MessageMoveService {
 				pollMs: this.moveSettlePollMs,
 			},
 		);
-		if (placementBindingOf(settled) === "consistent") return settled;
+		if (bindable(settled)) return settled;
+		if (awaitsCopiedUid(settled))
+			return this.refuseUnconfirmedCopy(settled, accountId);
 		return this.refusePlacement(settled, accountId);
 	};
 

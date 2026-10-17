@@ -6,9 +6,15 @@ import {
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import type { MessageCopyEvent } from "../events.js";
+import type {
+	MessageCopyEvent,
+	MessageDeleteEvent,
+	MessageMoveEvent,
+} from "../events.js";
 import { mail, openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageCopy } from "./message-copy.js";
+import { handleMessageDelete } from "./message-delete.js";
+import { handleMessageMove } from "./message-move.js";
 
 // The sync writes the Message-ID onto the listing row only, never the Message
 // row these handlers probe with, so on the SQLite store every probe by
@@ -245,5 +251,56 @@ describe("a message copy", () => {
 		await run(a);
 
 		assert.equal(a.w.imap.connections, 0);
+	});
+});
+
+describe("a fresh copy acted on before the server confirms it", () => {
+	const queuedOf = <T>(a: Arranged, type: string): T =>
+		a.w.queued().find((body) => body.type === type) as unknown as T;
+
+	it("waits for the copy to settle, then moves the copy and leaves the original", async () => {
+		const a = await arrange();
+
+		const moving = a.w.client.messageMove.moveMessage(
+			a.w.account.accountConfigId,
+			a.copyId,
+			a.inboxId,
+			a.w.account.accountId,
+		);
+		await run(a);
+		await moving;
+		const [copyUid] = a.w.imap.uids("Projects", a.messageIdHeader);
+		const event = queuedOf<MessageMoveEvent>(a, "MESSAGE_MOVE");
+		assert.equal(event.uid, copyUid);
+
+		await handleMessageMove(event, a.w.log, 1, a.w.scope);
+
+		assert.deepEqual(a.w.imap.uids("Projects", a.messageIdHeader), []);
+		assert.equal(a.w.imap.uids("INBOX", a.messageIdHeader).length, 2);
+		const row = await a.w.row(a.copyId);
+		assert.equal(row?.mailboxId, a.inboxId);
+		assert.equal(row?.status, MessageStatus.active);
+		assert.equal((await a.w.row(a.sourceMessageId))?.uid, a.uid);
+	});
+
+	it("waits for the copy to settle, then expunges the copy and leaves the original", async () => {
+		const a = await arrange();
+
+		const deleting = a.w.client.messageMove.deleteMessages(
+			a.w.account.accountConfigId,
+			[a.copyId],
+			a.w.account.accountId,
+			{ permanent: true },
+		);
+		await run(a);
+		assert.deepEqual((await deleting).refusedMessageIds, []);
+		const event = queuedOf<MessageDeleteEvent>(a, "MESSAGE_DELETE");
+
+		await handleMessageDelete(event, a.w.log, 1, a.w.scope);
+
+		assert.deepEqual(a.w.imap.uids("Projects", a.messageIdHeader), []);
+		assert.deepEqual(a.w.imap.uids("INBOX"), [a.uid]);
+		assert.equal(await a.w.row(a.copyId), undefined);
+		assert.equal((await a.w.row(a.sourceMessageId))?.mailboxId, a.inboxId);
 	});
 });
