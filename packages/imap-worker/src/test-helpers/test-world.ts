@@ -140,7 +140,6 @@ export interface World {
 	queued: () => Array<Record<string, unknown>>;
 	refuseSends: (error: Error | undefined) => void;
 	queue: QueueCapture;
-	queue: QueueCapture;
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
@@ -393,7 +392,6 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		threadRows,
 		queued,
 		refuseSends,
-		queue,
 		queue,
 		draft,
 		scope,
