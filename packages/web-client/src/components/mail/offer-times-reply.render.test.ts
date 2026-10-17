@@ -264,6 +264,28 @@ const creates = (): HttpCall[] =>
 		(call) => call.method === "POST" && call.path.endsWith("/outbox"),
 	);
 
+const draftWrites = (): HttpCall[] => [
+	...creates(),
+	...(http?.calls ?? []).filter(
+		(call) =>
+			call.method === "PATCH" && call.path.endsWith(`/outbox/${DRAFT_ID}`),
+	),
+];
+
+// An autosave still waiting out its debounce outlives the test that scheduled
+// it and lands on the next test's server, so a test that writes waits for it.
+const savedHolding = (mounted: DomHarness, text: string): Promise<void> =>
+	mounted.waitFor(
+		() =>
+			draftWrites().some(
+				(call) =>
+					(call.body as { textBody?: string }).textBody?.includes(text) ===
+					true,
+			),
+		`the draft to be saved holding ${JSON.stringify(text)}`,
+		AUTOSAVE_DEBOUNCE_MS + 3000,
+	);
+
 const mount = async (
 	href: string,
 	{
@@ -445,6 +467,7 @@ describe("offering other times from an invitation", () => {
 		assert.match(plainBody(mounted)?.value ?? "", /^Hi/);
 		assert.equal(router.state.location.pathname, `${MESSAGE_PATH}/reply`);
 		assert.equal(seedInAddress(router), undefined);
+		await savedHolding(mounted, picked);
 	});
 
 	it("keeps an open reply-all a reply-all and adds the times to it", async () => {
@@ -465,6 +488,7 @@ describe("offering other times from an invitation", () => {
 		assert.ok(composerText(mounted).includes("See you then"));
 		assert.equal(router.state.location.pathname, href);
 		assert.equal(seedInAddress(router), undefined);
+		await savedHolding(mounted, picked);
 	});
 
 	it("adds the times to a forward of the same message already open", async () => {
@@ -507,6 +531,7 @@ describe("offering other times from an invitation", () => {
 			router.state.location.pathname,
 			`/mail/${MAILBOX_ID}/${THREAD_ID}/${OTHER_ID}/reply`,
 		);
+		await savedHolding(mounted, picked);
 	});
 
 	it("adds the times on top of a draft still loading when they were picked", async () => {
