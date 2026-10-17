@@ -23,6 +23,7 @@ import {
 	emitMoveResync,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
+import { probeableMessageIdHeader } from "./probe-message-id.js";
 
 export const getPlacementMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -284,7 +285,11 @@ export const handlePlacementMovePush = async (
 						sourceMailbox.fullPath,
 						destinationMailbox.fullPath,
 						message.uid,
-						message.messageIdHeader,
+						await probeableMessageIdHeader(
+							threadMessageService,
+							accountConfigId,
+							messageId,
+						),
 					);
 
 					if (outcome.kind === "trycreate") {

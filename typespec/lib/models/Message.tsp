@@ -188,10 +188,6 @@ model Message {
   @visibility(Lifecycle.Read)
   internalDate: int64;
 
-  @doc("Message-ID header value for quick reference")
-  @visibility(Lifecycle.Read)
-  messageIdHeader?: string;
-
   @doc("Reference to parsed envelope data")
   @visibility(Lifecycle.Read)
   envelopeId: UUID;
@@ -339,12 +335,14 @@ model MessageSummaryResponse {
       | "uid"
       | "rfc822Size"
       | "internalDate"
-      | "messageIdHeader"
       | "authenticity"
       | "status"
       | "syncStatus"
       | "abandonedMutation"
   >;
+
+  @doc("Message-ID header value")
+  messageIdHeader?: string;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
   autoMoved?: AutoMovedInfo;

@@ -23,6 +23,7 @@ import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
+import { probeableMessageIdHeader } from "./probe-message-id.js";
 
 export const getMessageMoveMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -480,7 +481,11 @@ export const handleMessageMove = async (
 
 				const placement: PausedPlacement = mayHaveIssued
 					? await probePausedPlacement(await scope.getConnection(), {
-							messageIdHeader: message.messageIdHeader,
+							messageIdHeader: await probeableMessageIdHeader(
+								threadMessageService,
+								account.accountConfigId,
+								messageId,
+							),
 							sourceMailboxPath,
 							destinationMailboxPath,
 						})
@@ -578,13 +583,19 @@ export const handleMessageMove = async (
 							// because a handler that returns never redelivers.
 							const newUid =
 								result.uidMap.get(uid) ??
-								(message.messageIdHeader
-									? await searchMailboxForHighestMessageIdUid(
-											rawConnection,
-											destinationMailboxPath,
-											message.messageIdHeader,
-										)
-									: null);
+								(await probeableMessageIdHeader(
+									threadMessageService,
+									account.accountConfigId,
+									messageId,
+								).then((messageIdHeader) =>
+									messageIdHeader
+										? searchMailboxForHighestMessageIdUid(
+												rawConnection,
+												destinationMailboxPath,
+												messageIdHeader,
+											)
+										: null,
+								));
 
 							if (!newUid) {
 								throw new Error(

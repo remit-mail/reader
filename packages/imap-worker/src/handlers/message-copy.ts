@@ -24,6 +24,7 @@ import {
 	emitMoveResync,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
+import { probeableMessageIdHeader } from "./probe-message-id.js";
 
 export const getMessageCopyMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
@@ -33,8 +34,8 @@ export const MESSAGE_COPY_MAX_ATTEMPTS = getMessageCopyMaxAttempts();
 
 /**
  * Where the destination says this copy is. `unprobeable` is the row that
- * carries no Message-ID header (`messageIdHeader` is optional on Message, and
- * drafts and automated senders do arrive without one): the server was never
+ * carries no usable Message-ID header (drafts, automated senders and bounces
+ * do arrive without one): the server was never
  * asked, so its silence says nothing.
  */
 export type CopyProbe =
@@ -203,11 +204,16 @@ export const handleMessageCopy = async (
 			const probeDestination = async (
 				connection: IImapConnection,
 			): Promise<CopyProbe> => {
-				if (!copyRow.messageIdHeader) return { kind: "unprobeable" };
+				const messageIdHeader = await probeableMessageIdHeader(
+					threadMessageService,
+					account.accountConfigId,
+					newMessageId,
+				);
+				if (!messageIdHeader) return { kind: "unprobeable" };
 				const probedUid = await searchMailboxForHighestMessageIdUid(
 					connection,
 					destinationMailboxPath,
-					copyRow.messageIdHeader,
+					messageIdHeader,
 				);
 				return probedUid === null
 					? { kind: "absent" }

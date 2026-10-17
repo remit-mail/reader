@@ -448,6 +448,10 @@ export const MessageOperations: Record<
 
 		const message = description.message[0];
 		const envelope = description.envelope[0];
+		const threadMessage = await client.threadMessage.findByMessageId(
+			accountConfigId,
+			messageId,
+		);
 
 		const autoMoved = deriveAutoMoved(message);
 
@@ -475,7 +479,7 @@ export const MessageOperations: Record<
 			uid: message.uid,
 			rfc822Size: message.rfc822Size,
 			internalDate: message.internalDate,
-			messageIdHeader: message.messageIdHeader,
+			messageIdHeader: threadMessage?.messageIdHeader,
 			authenticity: message.authenticity,
 			status: message.status,
 			syncStatus: message.syncStatus,

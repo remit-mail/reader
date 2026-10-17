@@ -37,6 +37,7 @@ import {
 	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
+import { probeableMessageIdHeader } from "./probe-message-id.js";
 
 interface FolderPaths {
 	source: string;
@@ -109,6 +110,8 @@ const confirmTrashMoveUid = async (
 	sourceConnection: IImapConnection,
 	destinationConnection: IImapConnection,
 	messageService: Pick<IMessageRepository, "get">,
+	threadMessageService: Pick<IThreadMessageRepository, "findByMessageId">,
+	accountConfigId: string,
 	messageId: string,
 	sourceMailboxPath: string,
 	destinationMailboxPath: string,
@@ -121,12 +124,17 @@ const confirmTrashMoveUid = async (
 
 	const [message] = await messageService.get([messageId]);
 	if (!message) return { outcome: "row-gone" };
-	if (!message.messageIdHeader) return { outcome: "unprobeable" };
+	const messageIdHeader = await probeableMessageIdHeader(
+		threadMessageService,
+		accountConfigId,
+		messageId,
+	);
+	if (!messageIdHeader) return { outcome: "unprobeable" };
 
 	const probedUid = await searchMailboxForHighestMessageIdUid(
 		destinationConnection,
 		destinationMailboxPath,
-		message.messageIdHeader,
+		messageIdHeader,
 	);
 	return probedUid === null
 		? { outcome: "unconfirmed" }
@@ -422,8 +430,11 @@ export const handleMessageDelete = async (
 
 		const placement: PausedPlacement = isProbeableTrashMove
 			? await probePausedPlacement(await getRawConnection(), {
-					messageIdHeader: (await messageService.get([messageId]))[0]
-						?.messageIdHeader,
+					messageIdHeader: await probeableMessageIdHeader(
+						threadMessageService,
+						account.accountConfigId,
+						messageId,
+					),
 					sourceMailboxPath: paths.source,
 					destinationMailboxPath,
 				})
@@ -713,6 +724,8 @@ export const handleMessageDelete = async (
 									connection,
 									rawConnection,
 									messageService,
+									threadMessageService,
+									account.accountConfigId,
 									messageId,
 									mailboxPath,
 									destinationMailboxPath,
