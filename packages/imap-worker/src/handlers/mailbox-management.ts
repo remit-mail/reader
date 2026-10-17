@@ -24,20 +24,6 @@ import type {
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 
-export interface MailboxManagementDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-}
-
-const defaultDeps: MailboxManagementDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-};
-
 /**
  * The outcome of a create, written against the state a create in flight is:
  * `pending` with no recorded rename target (D3, D10). Without the absence
@@ -85,15 +71,8 @@ const recordCreateOutcome = async (
 const handleCreate = async (
 	event: MailboxCreateEvent,
 	log: Logger,
-	deps: MailboxManagementDeps,
+	createConnectionScope: typeof createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-	} = deps;
-
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -118,7 +97,7 @@ const handleCreate = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -209,15 +188,8 @@ const handleCreate = async (
 const handleRename = async (
 	event: MailboxRenameEvent,
 	log: Logger,
-	deps: MailboxManagementDeps,
+	createConnectionScope: typeof createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-	} = deps;
-
 	const {
 		account: accountService,
 		accountSetting: accountSettingService,
@@ -246,7 +218,7 @@ const handleRename = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -387,15 +359,8 @@ const handleRename = async (
 const handleDelete = async (
 	event: MailboxDeleteEvent,
 	log: Logger,
-	deps: MailboxManagementDeps,
+	createConnectionScope: typeof createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-	} = deps;
-
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -420,7 +385,7 @@ const handleDelete = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -509,14 +474,14 @@ const handleDelete = async (
 export const processMailboxManagement = async (
 	event: MailboxManagementEvent,
 	log: Logger,
-	deps: MailboxManagementDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
 	switch (event.type) {
 		case "MAILBOX_CREATE":
-			return handleCreate(event, log, deps);
+			return handleCreate(event, log, createConnectionScope);
 		case "MAILBOX_RENAME":
-			return handleRename(event, log, deps);
+			return handleRename(event, log, createConnectionScope);
 		case "MAILBOX_DELETE":
-			return handleDelete(event, log, deps);
+			return handleDelete(event, log, createConnectionScope);
 	}
 };

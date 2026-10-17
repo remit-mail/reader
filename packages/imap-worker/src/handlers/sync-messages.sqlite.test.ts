@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { SyncMessagesEvent } from "../events.js";
 import { openStore, type World } from "../test-helpers/test-world.js";
 import { drainPendingFlagPushes, syncMessages } from "./sync-messages.js";
@@ -10,6 +10,8 @@ before(async () => {
 	store = await openStore();
 });
 
+after(() => store.close());
+
 const syncEvent = (w: World, mailboxId: string): SyncMessagesEvent => ({
 	type: "SYNC_MESSAGES",
 	accountId: w.account.accountId,
@@ -18,20 +20,9 @@ const syncEvent = (w: World, mailboxId: string): SyncMessagesEvent => ({
 	timestamp: Date.now(),
 });
 
-/**
- * The lifecycle is the door to the server: it decrypts the credential and the
- * sync behind it opens a connection. Counting who reaches it is how these
- * gates are observed without a mail server behind them.
- */
 const sync = async (w: World, mailboxId: string): Promise<number> => {
-	let reached = 0;
-	await syncMessages(syncEvent(w, mailboxId), w.log, {
-		...w.deps(),
-		withOAuthLifecycle: async () => {
-			reached += 1;
-		},
-	} as never);
-	return reached;
+	await syncMessages(syncEvent(w, mailboxId), w.log, w.connectionFactory);
+	return w.imap.connections;
 };
 
 describe("which SYNC_MESSAGES events reach the server", () => {
@@ -81,12 +72,44 @@ describe("which SYNC_MESSAGES events reach the server", () => {
 				lastSyncUid: 0,
 				highWaterMarkUid: 0,
 				lastMessageSyncAt: 0,
-			} as never,
+			},
 			w.account.accountId,
 		);
 		if (created.outcome !== "Created") throw new Error("path taken");
 
 		assert.equal(await sync(w, created.mailbox.mailboxId), 0);
+	});
+});
+
+// Issue #339: a delete asked for while the round is in flight lands inside
+// the guard, and the round then fails deeper on a folder that is gone.
+describe("a folder deleted while its sync is in flight", () => {
+	it("resolves the event and records no error phase on the account", async () => {
+		const w = await store.world();
+		const old = await w.folder("Old");
+		const connectionFactory = () => {
+			const factory = w.connectionFactory();
+			const connection = factory.getConnection();
+			const openBox = connection.openBox;
+			let first = true;
+			connection.openBox = async (path, readOnly) => {
+				if (first) {
+					first = false;
+					await w.client.mailboxQueue.deleteMailbox(
+						old.mailboxId,
+						w.account.accountId,
+					);
+					w.imap.folders.delete("Old");
+				}
+				return openBox(path, readOnly);
+			};
+			return { getConnection: () => connection, close: factory.close };
+		};
+
+		await syncMessages(syncEvent(w, old.mailboxId), w.log, connectionFactory);
+
+		const account = await w.client.account.get(w.account.accountId);
+		assert.notEqual(account.syncPhase, "error");
 	});
 });
 

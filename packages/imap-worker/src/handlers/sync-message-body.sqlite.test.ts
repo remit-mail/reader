@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, before, beforeEach, describe, it } from "node:test";
+import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { MailboxItem } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
@@ -20,6 +20,8 @@ let store: Awaited<ReturnType<typeof openStore>>;
 before(async () => {
 	store = await openStore();
 });
+
+after(() => store.close());
 
 const bodySync = (enabled: boolean) =>
 	ssm
@@ -62,7 +64,7 @@ const arrange = async (): Promise<Arranged> => {
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	syncMessageBody(a.event, a.w.log, receiveCount, a.w.deps() as never);
+	syncMessageBody(a.event, a.w.log, receiveCount, a.w.scope);
 
 const bodyFetches = (a: Arranged): string[] => a.w.imap.commands("BODY");
 

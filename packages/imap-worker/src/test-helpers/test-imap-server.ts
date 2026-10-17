@@ -3,6 +3,7 @@ import type {
 	FlatMailboxInfo,
 	IImapConnection,
 	ImapBoxStatus,
+	ImapEnvelope,
 	ImapMessage,
 } from "@remit/mailbox-service/types";
 
@@ -18,6 +19,7 @@ export interface StoredMessage {
 	messageIdHeader?: string;
 	flags: Set<string>;
 	raw: Buffer;
+	internalDate: Date;
 }
 
 export interface Folder {
@@ -28,8 +30,12 @@ export interface Folder {
 }
 
 type Verb =
+	| "NAMESPACE"
+	| "LIST"
+	| "STATUS"
 	| "SELECT"
 	| "EXAMINE"
+	| "CLOSE"
 	| "SEARCH"
 	| "FETCH"
 	| "BODY"
@@ -40,6 +46,7 @@ type Verb =
 	| "RENAME"
 	| "DELETE"
 	| "SUBSCRIBE"
+	| "UNSUBSCRIBE"
 	| "APPEND"
 	| "STORE";
 
@@ -52,19 +59,38 @@ export const imapError = (code: string, text: string): Error =>
 		responseText: text,
 	});
 
-const messageIdOf = (raw: Buffer): string | undefined =>
-	/^Message-ID:\s*(.+?)\s*$/im.exec(raw.toString("utf8"))?.[1];
+const header = (raw: Buffer, name: string): string | undefined =>
+	new RegExp(`^${name}:\\s*(.+?)\\s*$`, "im").exec(raw.toString("utf8"))?.[1];
+
+const address = (value: string | undefined) => {
+	const match = /<?([^<>\s@]+)@([^<>\s]+?)>?$/.exec(value ?? "");
+	return match ? [{ mailbox: match[1] ?? "", host: match[2] ?? "" }] : [];
+};
+
+const envelopeOf = (message: StoredMessage): ImapEnvelope => {
+	const from = address(header(message.raw, "From"));
+	return {
+		date: header(message.raw, "Date") ?? message.internalDate.toUTCString(),
+		subject: header(message.raw, "Subject") ?? "",
+		from,
+		sender: from,
+		replyTo: from,
+		to: address(header(message.raw, "To")),
+		cc: [],
+		bcc: [],
+		inReplyTo: header(message.raw, "In-Reply-To") ?? "",
+		messageId: message.messageIdHeader ?? "",
+	};
+};
 
 export class FakeImapServer {
 	readonly folders = new Map<string, Folder>();
 	readonly log: string[] = [];
-	/** Failures the next command of a verb answers with, consumed once. */
 	readonly failNext: Failure = {};
-	/** RFC 4315. Without it a MOVE or COPY answers with no COPYUID. */
 	uidplus = true;
-	/** Verbs whose next command the server answers OK and then does nothing. */
 	readonly ignoreNext = new Set<Verb>();
 	connections = 0;
+	private nextUidValidity = 1000;
 
 	addFolder(path: string, uidValidity = 1): Folder {
 		const folder: Folder = {
@@ -85,8 +111,18 @@ export class FakeImapServer {
 			uid: assigned,
 			messageIdHeader,
 			flags: new Set(),
+			internalDate: new Date(1_700_000_000_000),
 			raw: Buffer.from(
-				`Message-ID: ${messageIdHeader ?? ""}\r\nSubject: test\r\n\r\nbody`,
+				[
+					`Message-ID: ${messageIdHeader ?? ""}`,
+					"From: Friend <friend@example.com>",
+					"To: Person <person@example.com>",
+					"Date: Tue, 14 Nov 2023 22:13:20 +0000",
+					"Subject: test",
+					"Content-Type: text/plain; charset=utf-8",
+					"",
+					"body",
+				].join("\r\n"),
 			),
 		});
 		return assigned;
@@ -108,8 +144,9 @@ export class FakeImapServer {
 
 	folder(path: string): Folder {
 		const folder = this.folders.get(path);
-		if (!folder)
+		if (!folder) {
 			throw imapError("NONEXISTENT", `Mailbox doesn't exist: ${path}`);
+		}
 		return folder;
 	}
 
@@ -137,8 +174,9 @@ export class FakeImapServer {
 		) => {
 			server.run(verb, `${selected} ${uids.join(",")} ${destination}`);
 			const target = server.folders.get(destination);
-			if (!target)
+			if (!target) {
 				throw new Error("Command failed: [TRYCREATE] no such mailbox");
+			}
 			if (server.ignoreNext.delete(verb)) {
 				return {
 					destination,
@@ -167,30 +205,41 @@ export class FakeImapServer {
 		};
 		const toImapMessage = (
 			message: StoredMessage,
-			seq: number,
+			index: number,
 		): ImapMessage => ({
 			uid: message.uid,
-			seq,
+			seq: index + 1,
 			flags: [...message.flags],
-			internalDate: new Date(0),
+			internalDate: message.internalDate,
 			size: message.raw.length,
-			envelope: { messageId: message.messageIdHeader } as never,
+			envelope: envelopeOf(message),
+			bodyStructure: {
+				type: "text/plain",
+				parameters: { charset: "utf-8" },
+				encoding: "7bit",
+				size: message.raw.length,
+			},
 		});
 		const store = (uids: number[], apply: (flags: Set<string>) => void) => {
 			for (const message of box().messages) {
 				if (uids.includes(message.uid)) apply(message.flags);
 			}
 		};
+		const selectedMessages = (uids: number[]) =>
+			box().messages.filter((m) => uids.includes(m.uid));
 
-		const connection: IImapConnection = {
+		return {
 			state: "connected" as never,
 			isConnected: true,
 			connect: async () => {},
 			disconnect: async () => {},
-			getNamespaces: async () =>
-				({ personal: [{ prefix: "", delimiter: "/" }] }) as never,
-			listMailboxes: async (): Promise<FlatMailboxInfo[]> =>
-				[...server.folders.keys()].map((fullPath) => ({
+			getNamespaces: async () => {
+				server.run("NAMESPACE", "");
+				return { personal: [{ prefix: "", delimiter: "/" }] } as never;
+			},
+			listMailboxes: async (): Promise<FlatMailboxInfo[]> => {
+				server.run("LIST", "");
+				return [...server.folders.keys()].map((fullPath) => ({
 					fullPath,
 					name: fullPath.split("/").at(-1) ?? fullPath,
 					delimiter: "/",
@@ -198,7 +247,8 @@ export class FakeImapServer {
 					parentPath: fullPath.includes("/")
 						? fullPath.slice(0, fullPath.lastIndexOf("/"))
 						: null,
-				})),
+				}));
+			},
 			openBox: async (
 				path: string,
 				readOnly = false,
@@ -219,48 +269,57 @@ export class FakeImapServer {
 				};
 			},
 			closeBox: async () => {
+				server.run("CLOSE", `${selected}`);
 				selected = undefined;
 			},
 			search: async (criteria: unknown[]) => {
 				server.run("SEARCH", `${selected} ${JSON.stringify(criteria)}`);
-				const [first] = criteria;
 				const messages = box().messages;
+				const [first] = criteria;
+				if (criteria.length === 1 && first === "ALL") {
+					return messages.map((m) => m.uid);
+				}
 				if (Array.isArray(first) && first[0] === "UID") {
 					const uid = Number(first[1]);
 					return messages.filter((m) => m.uid === uid).map((m) => m.uid);
 				}
 				if (
 					Array.isArray(first) &&
-					String(first[0]).toUpperCase() === "HEADER"
+					first[0] === "HEADER" &&
+					String(first[1]).toLowerCase() === "message-id"
 				) {
 					return messages
 						.filter((m) => m.messageIdHeader === first[2])
 						.map((m) => m.uid);
 				}
-				return messages.map((m) => m.uid);
+				throw new Error(
+					`the fake server does not answer SEARCH ${JSON.stringify(criteria)}`,
+				);
 			},
 			fetchMessages: async (uids: number[]) => {
 				server.run("FETCH", `${selected} ${uids.join(",")}`);
-				return box()
-					.messages.filter((m) => uids.includes(m.uid))
-					.map(toImapMessage);
+				return selectedMessages(uids).map(toImapMessage);
 			},
 			supportsCondstore: () => false,
-			fetchMessagesChangedSince: async () => [],
-			fetchEnvelopeSnapshots: async (uids: number[]) =>
-				box()
-					.messages.filter((m) => uids.includes(m.uid))
-					.map((m) => ({ uid: m.uid, messageId: m.messageIdHeader })) as never,
+			fetchMessagesChangedSince: async () => {
+				throw new Error("the fake server has no CONDSTORE");
+			},
+			fetchEnvelopeSnapshots: async (uids: number[]) => {
+				server.run("FETCH", `${selected} ${uids.join(",")} ENVELOPE`);
+				return selectedMessages(uids).map((m) => ({
+					uid: m.uid,
+					messageId: m.messageIdHeader ?? "",
+					internalDate: m.internalDate,
+				}));
+			},
 			fetchMessageBody: async (uid: number) => {
 				server.run("BODY", `${selected} ${uid}`);
 				return box().messages.find((m) => m.uid === uid)?.raw ?? null;
 			},
 			fetchMessageBodies: async function* (uids: number[]) {
 				server.run("BODY", `${selected} ${uids.join(",")}`);
-				for (const message of box().messages) {
-					if (uids.includes(message.uid)) {
-						yield { uid: message.uid, source: Readable.from([message.raw]) };
-					}
+				for (const message of selectedMessages(uids)) {
+					yield { uid: message.uid, source: Readable.from([message.raw]) };
 				}
 			},
 			addFlags: async (uids: number[], flags: string[]) => {
@@ -291,16 +350,20 @@ export class FakeImapServer {
 			createMailbox: async (path: string) => {
 				server.run("CREATE", path);
 				if (server.folders.has(path)) return { path, created: false };
-				server.addFolder(path, Date.now() % 1_000_000);
+				server.nextUidValidity += 1;
+				server.addFolder(path, server.nextUidValidity);
 				return { path, created: true };
 			},
 			deleteMailbox: async (path: string) => {
 				server.run("DELETE", path);
-				if (path === "INBOX") throw imapError("CANNOT", "Cannot delete INBOX");
+				if (path === "INBOX") {
+					throw imapError("CANNOT", "Cannot delete INBOX");
+				}
 				server.folder(path);
 				for (const key of [...server.folders.keys()]) {
-					if (key === path || key.startsWith(`${path}/`))
+					if (key === path || key.startsWith(`${path}/`)) {
 						server.folders.delete(key);
+					}
 				}
 				return { path };
 			},
@@ -327,6 +390,7 @@ export class FakeImapServer {
 				server.folder(path).subscribed = true;
 			},
 			unsubscribeMailbox: async (path: string) => {
+				server.run("UNSUBSCRIBE", path);
 				server.folder(path).subscribed = false;
 			},
 			moveMessages: async (uids: number[], destination: string) =>
@@ -341,6 +405,7 @@ export class FakeImapServer {
 				return before - folder.messages.length;
 			},
 			getMailboxStatus: async (path: string) => {
+				server.run("STATUS", path);
 				const folder = server.folder(path);
 				return {
 					messages: folder.messages.length,
@@ -362,13 +427,13 @@ export class FakeImapServer {
 				folder.uidNext += 1;
 				folder.messages.push({
 					uid,
-					messageIdHeader: messageIdOf(raw),
+					messageIdHeader: header(raw, "Message-ID"),
 					flags: new Set(flags),
 					raw,
+					internalDate: new Date(),
 				});
 				return { destination: path, uidValidity: folder.uidValidity, uid };
 			},
 		};
-		return connection;
 	}
 }

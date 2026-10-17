@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { openStore, type World } from "../test-helpers/test-world.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 
@@ -9,6 +9,8 @@ let store: Awaited<ReturnType<typeof openStore>>;
 before(async () => {
 	store = await openStore();
 });
+
+after(() => store.close());
 
 /**
  * A draft holding one uploaded file, and one object under the same draft that

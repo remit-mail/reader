@@ -5,7 +5,7 @@
  * move that has not settled (#496).
  */
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it, mock } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	MailboxCursorState,
@@ -19,7 +19,7 @@ import {
 	type SeededMessage,
 	type World,
 } from "../test-helpers/test-world.js";
-import { handleFlagPush } from "./flag-push.js";
+import { FLAG_PUSH_DEFER_MAX_MS, handleFlagPush } from "./flag-push.js";
 import { handlePlacementMovePush } from "./placement-move-push.js";
 
 const SEEN = "\\Seen";
@@ -29,6 +29,8 @@ let store: Awaited<ReturnType<typeof openStore>>;
 before(async () => {
 	store = await openStore();
 });
+
+after(() => store.close());
 
 interface Arranged {
 	w: World;
@@ -83,13 +85,13 @@ const moveToJunk = async (a: Arranged): Promise<PlacementMovePushEvent> => {
 };
 
 const pushFlag = (a: Arranged, event: FlagPushEvent, receiveCount = 1) =>
-	handleFlagPush(event, a.w.log, receiveCount, a.w.deps() as never);
+	handleFlagPush(event, a.w.log, receiveCount, a.w.scope);
 
 const pushMove = (
 	a: Arranged,
 	event: PlacementMovePushEvent,
 	receiveCount = 1,
-) => handlePlacementMovePush(event, a.w.log, receiveCount, a.w.deps() as never);
+) => handlePlacementMovePush(event, a.w.log, receiveCount, a.w.scope);
 
 const seenOnServer = (a: Arranged, path: string): boolean[] =>
 	a.w.imap
@@ -141,6 +143,28 @@ describe("a flag push", () => {
 			await a.w.client.flagPush.find(a.message.messageId, SEEN),
 			null,
 		);
+	});
+
+	// A move that never settles would otherwise park the flag forever, one
+	// queue round trip per sync tick.
+	it("drops the marker without connecting once the move has been stuck past the window", async (t) => {
+		const a = await arrange();
+		await moveToJunk(a);
+		const event = await markAsRead(a);
+		mock.timers.enable({
+			apis: ["Date"],
+			now: Date.now() + FLAG_PUSH_DEFER_MAX_MS + 1,
+		});
+		t.after(() => mock.timers.reset());
+
+		await pushFlag(a, event);
+
+		assert.equal(a.w.imap.connections, 0);
+		assert.equal(
+			await a.w.client.flagPush.find(a.message.messageId, SEEN),
+			null,
+		);
+		assert.deepEqual(seenOnServer(a, "INBOX"), [false]);
 	});
 
 	it("drops the marker without connecting when the mailbox was deleted", async () => {

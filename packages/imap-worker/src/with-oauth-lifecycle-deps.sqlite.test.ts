@@ -14,6 +14,7 @@ import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { AccountRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { MailConnectionError } from "@remit/mailbox-service/types";
 import type { SecretsService } from "@remit/secrets-service";
@@ -22,16 +23,6 @@ import {
 	withOAuthLifecycle,
 } from "./with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "./with-oauth-lifecycle-deps.js";
-
-const silentLogger = {
-	info: () => {},
-	warn: () => {},
-	error: () => {},
-	debug: () => {},
-	trace: () => {},
-	fatal: () => {},
-	child: () => silentLogger,
-} as never;
 
 const secrets = {
 	decrypt: async () => "decrypted",
@@ -87,7 +78,7 @@ describe("the reason an account card reads back", () => {
 	it("keeps the refusal the mail server gave", async () => {
 		const created = await account();
 
-		await withOAuthLifecycle(deps(), created, silentLogger, async () => {
+		await withOAuthLifecycle(deps(), created, noopLogger, async () => {
 			throw new MailConnectionError("auth", REFUSAL);
 		});
 
@@ -107,7 +98,7 @@ describe("the reason an account card reads back", () => {
 		await withOAuthLifecycle(
 			deps(),
 			await repo.get(created.accountId),
-			silentLogger,
+			noopLogger,
 			async () => {
 				throw new RefreshTokenError({
 					kind: "reauth-required",
@@ -128,7 +119,7 @@ describe("the reason an account card reads back", () => {
 	it("stores a chatty refusal at a length a card can hold", async () => {
 		const created = await account();
 
-		await withOAuthLifecycle(deps(), created, silentLogger, async () => {
+		await withOAuthLifecycle(deps(), created, noopLogger, async () => {
 			throw new MailConnectionError("auth", "x".repeat(4000));
 		});
 
@@ -163,7 +154,7 @@ describe("which failures stop the work, and what the account row says after", ()
 		await withOAuthLifecycle(
 			deps(),
 			await repo.get(created.accountId),
-			silentLogger,
+			noopLogger,
 			async () => {
 				worked = true;
 			},
@@ -181,7 +172,7 @@ describe("which failures stop the work, and what the account row says after", ()
 		await withOAuthLifecycle(
 			buildLifecycleDeps(secrets, repo),
 			created,
-			silentLogger,
+			noopLogger,
 			async () => {
 				worked = true;
 			},
@@ -211,7 +202,7 @@ describe("which failures stop the work, and what the account row says after", ()
 		await withOAuthLifecycle(
 			buildLifecycleDeps(secrets, repo),
 			created,
-			silentLogger,
+			noopLogger,
 			async () => {},
 		);
 
@@ -232,7 +223,7 @@ describe("which failures stop the work, and what the account row says after", ()
 			const created = await passwordAccount('{"ciphertext":"x"}');
 
 			await assert.rejects(
-				withOAuthLifecycle(deps(), created, silentLogger, async () => {
+				withOAuthLifecycle(deps(), created, noopLogger, async () => {
 					throw error;
 				}),
 				error,
@@ -257,7 +248,7 @@ describe("which failures stop the work, and what the account row says after", ()
 					},
 				},
 				created,
-				silentLogger,
+				noopLogger,
 				async () => {},
 			),
 			/transient/,

@@ -71,8 +71,9 @@ const recording =
 	};
 
 describe("refreshDueCalendarSubscriptions", () => {
-	it("fetches the subscriptions that are due and skips the rest", async () => {
-		const { client } = await openStore();
+	it("fetches the subscriptions that are due and skips the rest", async (t) => {
+		const { client, close } = await openStore();
+		t.after(close);
 		const due = await subscription(client, "due", NOW - INTERVAL_MS);
 		await subscription(client, "fresh", NOW - 60_000);
 		const paused = await subscription(client, "paused", 0);
@@ -103,8 +104,9 @@ describe("refreshDueCalendarSubscriptions", () => {
 		);
 	});
 
-	it("counts a feed that fails, keeps refreshing the others, and never logs an address", async () => {
-		const { client } = await openStore();
+	it("counts a feed that fails, keeps refreshing the others, and never logs an address", async (t) => {
+		const { client, close } = await openStore();
+		t.after(close);
 		const broken = await subscription(client, "broken", 0);
 		const working = await subscription(client, "working", 0);
 		const { log, lines } = logged();

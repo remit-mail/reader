@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { MailboxManagementEvent } from "../events.js";
@@ -13,6 +13,8 @@ before(async () => {
 	store = await openStore();
 });
 
+after(() => store.close());
+
 const lastEvent = (w: World, type: string): MailboxManagementEvent => {
 	const event = w
 		.queued()
@@ -23,7 +25,7 @@ const lastEvent = (w: World, type: string): MailboxManagementEvent => {
 };
 
 const run = (w: World, event: MailboxManagementEvent) =>
-	processMailboxManagement(event, w.log, w.deps() as never);
+	processMailboxManagement(event, w.log, w.scope);
 
 const mailbox = (
 	w: World,
@@ -55,7 +57,7 @@ const requestCreate = async (
 			lastSyncUid: 0,
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
-		} as never,
+		},
 		w.account.accountId,
 		subscribe,
 	);

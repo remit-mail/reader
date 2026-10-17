@@ -1,265 +1,133 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
-import type { IImapConnection } from "@remit/mailbox-service";
+import { FakeImapServer } from "../test-helpers/test-imap-server.js";
 import { attemptMove } from "./placement-move-push.js";
 
-const _silentLogger = (() => {
-	const noop = () => {};
-	const log = {
-		info: noop,
-		warn: noop,
-		error: noop,
-		debug: noop,
-		fatal: noop,
-		trace: noop,
-		child: () => log,
-	} as unknown as Logger;
-	return log;
-})();
+const HEADER = "<abc@example.com>";
 
-const buildConnection = (opts: {
-	uidMap?: Map<number, number>;
-	moveError?: Error;
-	/** Message-ID search hits in the destination mailbox — the verification probe. */
-	destinationSearchUids?: number[];
-	/** Whether the message is still in the source mailbox. */
-	stillAtSource?: boolean;
-	/** The source FETCH drops the row for a message that is still there. */
-	sourceFetchDrops?: boolean;
-}): IImapConnection =>
-	({
-		openBox: async () => ({}) as never,
-		moveMessages: async (_uids: number[], destination: string) => {
-			if (opts.moveError) throw opts.moveError;
-			return {
-				destination,
-				uidValidity: 1,
-				uidMap: opts.uidMap ?? new Map(),
-			};
-		},
-		search: async (criteria: unknown[]) => {
-			const [first] = criteria;
-			if (Array.isArray(first) && first[0] === "UID") {
-				return opts.stillAtSource ? [Number(first[1])] : [];
-			}
-			return opts.destinationSearchUids ?? [];
-		},
-		fetchMessages: async (uids: number[]) =>
-			opts.stillAtSource && !opts.sourceFetchDrops
-				? uids.map((uid) => ({ uid }) as unknown as never)
-				: [],
-	}) as unknown as IImapConnection;
+/** Junk holds the message at uid 42; INBOX is where the placement sends it. */
+const arrange = (
+	options: { inJunk?: boolean; inInbox?: boolean; inboxExists?: boolean } = {},
+) => {
+	const server = new FakeImapServer();
+	server.addFolder("Junk");
+	if (options.inboxExists !== false) server.addFolder("INBOX");
+	if (options.inJunk !== false) server.deliver("Junk", HEADER, 42);
+	if (options.inInbox) server.deliver("INBOX", HEADER);
+	return server;
+};
 
-const MESSAGE_ID_HEADER = "<abc@example.com>";
+const move = (
+	server: FakeImapServer,
+	header: string | undefined = HEADER,
+	source = server.connection(),
+) => attemptMove(source, server.connection(), "Junk", "INBOX", 42, header);
 
 describe("attemptMove — the IMAP push (issue #1271)", () => {
-	// Tests use the SAME fake connection for both the source and destination
-	// params — attemptMove treats them as independent handles (real cursor
-	// guarding per mailbox is #1272's `guardConnectionCursor`, tested in
-	// remit-mailbox-service; not re-tested here).
-	it("moved: returns the new uid from the COPYUID map", async () => {
-		const connection = buildConnection({ uidMap: new Map([[42, 99]]) });
+	it("moves the message and returns the uid from the COPYUID map", async () => {
+		const server = arrange();
 
-		const outcome = await attemptMove(
-			connection,
-			connection,
-			"Junk",
-			"INBOX",
-			42,
-			MESSAGE_ID_HEADER,
-		);
+		const outcome = await move(server);
 
-		assert.equal(outcome.kind, "moved");
-		assert.equal(outcome.newUid, 99);
+		assert.deepEqual(outcome, {
+			kind: "moved",
+			newUid: server.uids("INBOX", HEADER)[0],
+		});
+		assert.deepEqual(server.uids("Junk"), []);
 	});
 
-	it("trycreate: the destination mailbox does not exist yet", async () => {
-		const connection = buildConnection({
-			moveError: new Error("Command failed: TRYCREATE"),
-		});
+	it("answers trycreate when the destination does not exist yet", async () => {
+		const server = arrange({ inboxExists: false });
 
-		const outcome = await attemptMove(
-			connection,
-			connection,
-			"Junk",
-			"NewLabel",
-			42,
-			MESSAGE_ID_HEADER,
-		);
-
-		assert.equal(outcome.kind, "trycreate");
+		assert.equal((await move(server)).kind, "trycreate");
 	});
 
-	it("propagates any other error untouched (transient/infra failure, retried by the caller)", async () => {
-		const connection = buildConnection({
-			moveError: new Error("ECONNRESET"),
-		});
+	it("propagates any other failure untouched for the caller to retry", async () => {
+		const server = arrange();
+		server.failNext.MOVE = new Error("ECONNRESET");
 
-		await assert.rejects(
-			() =>
-				attemptMove(
-					connection,
-					connection,
-					"Junk",
-					"INBOX",
-					42,
-					MESSAGE_ID_HEADER,
-				),
-			/ECONNRESET/,
-		);
+		await assert.rejects(move(server), /ECONNRESET/);
 	});
 
-	describe("no COPYUID entry / explicit not-found — never trust either without verification (PR #1289 review finding 2)", () => {
-		it("moved: no COPYUID entry, but a Message-ID search finds it at the destination (non-UIDPLUS server, genuine success)", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				destinationSearchUids: [77],
-			});
+	// PR #1289 review finding 2: neither a missing COPYUID entry nor an explicit
+	// not-found is trusted without asking the server.
+	it("confirms a move by Message-ID when the server sends no COPYUID", async () => {
+		const server = arrange();
+		server.uidplus = false;
 
-			const outcome = await attemptMove(
-				connection,
-				connection,
-				"Junk",
-				"INBOX",
-				42,
-				MESSAGE_ID_HEADER,
-			);
+		const outcome = await move(server);
 
-			assert.equal(outcome.kind, "moved");
-			assert.equal(outcome.newUid, 77);
+		assert.deepEqual(outcome, {
+			kind: "moved",
+			newUid: server.uids("INBOX", HEADER)[0],
 		});
+	});
 
-		it("moved: explicit NONEXISTENT error, but a Message-ID search finds it at the destination", async () => {
-			const connection = buildConnection({
-				moveError: new Error("Command failed: NONEXISTENT no such message"),
-				destinationSearchUids: [77],
-			});
+	it("confirms a move by Message-ID when the server answers NONEXISTENT for one that landed", async () => {
+		const server = arrange({ inJunk: false, inInbox: true });
+		server.failNext.MOVE = new Error(
+			"Command failed: NONEXISTENT no such message",
+		);
 
-			const outcome = await attemptMove(
-				connection,
-				connection,
-				"Junk",
-				"INBOX",
-				42,
-				MESSAGE_ID_HEADER,
-			);
+		const outcome = await move(server);
 
-			assert.equal(outcome.kind, "moved");
-			assert.equal(outcome.newUid, 77);
+		assert.deepEqual(outcome, {
+			kind: "moved",
+			newUid: server.uids("INBOX", HEADER)[0],
 		});
+	});
 
-		// Issue #1122. The destination already held an older copy of this
-		// Message-ID; the marker must bind to the copy this MOVE delivered, or
-		// the placement row names mail this push never touched.
-		it("moved: binds to the newest copy when the destination already held an older one", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				destinationSearchUids: [15, 77],
-			});
+	// Issue #1122: the destination already held an older copy, and the row must
+	// bind to the one this MOVE delivered.
+	it("binds to the newest copy when the destination already held an older one", async () => {
+		const server = arrange({ inInbox: true });
+		server.uidplus = false;
 
-			const outcome = await attemptMove(
-				connection,
-				connection,
-				"Junk",
-				"INBOX",
-				42,
-				MESSAGE_ID_HEADER,
-			);
+		const outcome = await move(server);
 
-			assert.equal(outcome.kind, "moved");
-			assert.equal(outcome.newUid, 77);
+		assert.deepEqual(outcome, {
+			kind: "moved",
+			newUid: Math.max(...server.uids("INBOX", HEADER)),
 		});
+	});
 
-		it("throws (never deletes) when unconfirmed at the destination but STILL present at the source", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				destinationSearchUids: [],
-				stillAtSource: true,
-			});
+	it("never settles a move the destination does not confirm while the source still holds it", async () => {
+		const server = arrange();
+		server.uidplus = false;
+		server.ignoreNext.add("MOVE");
 
-			await assert.rejects(
-				() =>
-					attemptMove(
-						connection,
-						connection,
-						"Junk",
-						"INBOX",
-						42,
-						MESSAGE_ID_HEADER,
-					),
-				/unresolved/,
-			);
-		});
+		await assert.rejects(move(server), /unresolved/);
+	});
 
-		it("throws (never deletes) when the source FETCH drops the row for a message the server still lists", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				destinationSearchUids: [],
-				stillAtSource: true,
-				sourceFetchDrops: true,
-			});
+	it("never settles when the source FETCH drops the row for a message the server still lists", async () => {
+		const server = arrange();
+		server.uidplus = false;
+		server.ignoreNext.add("MOVE");
+		const source = server.connection();
+		source.fetchMessages = async () => [];
 
-			await assert.rejects(
-				() =>
-					attemptMove(
-						connection,
-						connection,
-						"Junk",
-						"INBOX",
-						42,
-						MESSAGE_ID_HEADER,
-					),
-				/unresolved/,
-			);
-		});
+		await assert.rejects(move(server, HEADER, source), /unresolved/);
+	});
 
-		it("not-found: confirmed absent from BOTH destination (search miss) AND source (search miss)", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				destinationSearchUids: [],
-				stillAtSource: false,
-			});
+	it("answers not-found once neither folder holds the message", async () => {
+		const server = arrange({ inJunk: false });
+		server.uidplus = false;
 
-			const outcome = await attemptMove(
-				connection,
-				connection,
-				"Junk",
-				"INBOX",
-				42,
-				MESSAGE_ID_HEADER,
-			);
+		assert.equal((await move(server)).kind, "not-found");
+	});
 
-			assert.equal(outcome.kind, "not-found");
-		});
+	it("falls back to the source alone without a Message-ID, and still never settles while it holds the message", async () => {
+		const server = arrange();
+		server.uidplus = false;
+		server.ignoreNext.add("MOVE");
 
-		it("no messageIdHeader to verify with: falls back to the source-presence check alone — still never deletes while present at source", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				stillAtSource: true,
-			});
+		await assert.rejects(move(server, undefined));
+	});
 
-			await assert.rejects(() =>
-				attemptMove(connection, connection, "Junk", "INBOX", 42, undefined),
-			);
-		});
+	it("answers not-found without a Message-ID once the source no longer holds the message", async () => {
+		const server = arrange({ inJunk: false });
+		server.uidplus = false;
 
-		it("no messageIdHeader to verify with: resolves not-found once confirmed absent from source", async () => {
-			const connection = buildConnection({
-				uidMap: new Map(),
-				stillAtSource: false,
-			});
-
-			const outcome = await attemptMove(
-				connection,
-				connection,
-				"Junk",
-				"INBOX",
-				42,
-				undefined,
-			);
-
-			assert.equal(outcome.kind, "not-found");
-		});
+		assert.equal((await move(server, undefined)).kind, "not-found");
 	});
 });

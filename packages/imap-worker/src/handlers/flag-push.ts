@@ -30,34 +30,7 @@ export const FLAG_PUSH_MAX_ATTEMPTS = getFlagPushMaxAttempts();
  * cycle one SQS round trip per sync tick forever instead of surfacing the
  * stall.
  */
-const DEFAULT_FLAG_PUSH_DEFER_MAX_MS = 10 * 60 * 1000;
-
-export const getFlagPushDeferMaxMs = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => {
-	const raw = processEnv.FLAG_PUSH_DEFER_MAX_MS;
-	if (!raw) return DEFAULT_FLAG_PUSH_DEFER_MAX_MS;
-	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0
-		? parsed
-		: DEFAULT_FLAG_PUSH_DEFER_MAX_MS;
-};
-
-export const FLAG_PUSH_DEFER_MAX_MS = getFlagPushDeferMaxMs();
-
-export interface FlagPushDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-}
-
-const defaultDeps: FlagPushDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-};
+export const FLAG_PUSH_DEFER_MAX_MS = 10 * 60 * 1000;
 
 /**
  * Handle FLAG_PUSH events (issue #1273, epic #1281). Drains ONE pending
@@ -89,15 +62,8 @@ export const handleFlagPush = async (
 	event: FlagPushEvent,
 	log: Logger,
 	receiveCount = 1,
-	deps: FlagPushDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-	} = deps;
-
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -224,7 +190,7 @@ export const handleFlagPush = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			await scope
 				.getConnection()

@@ -39,20 +39,6 @@ export const getAppendSentMaxAttempts = (
 
 export const APPEND_SENT_MAX_ATTEMPTS = getAppendSentMaxAttempts();
 
-export interface AppendSentMessageDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-}
-
-const defaultDeps: AppendSentMessageDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-};
-
 export const handleAppendSentMessage = async (
 	event: AppendSentMessageEvent,
 	log: Logger,
@@ -63,15 +49,8 @@ export const handleAppendSentMessage = async (
 	 * leaves the row at `sent`, which no view shows.
 	 */
 	receiveCount = 1,
-	deps: AppendSentMessageDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-	} = deps;
-
 	const {
 		account: accountService,
 		outboxMessage: outboxMessageService,
@@ -199,7 +178,7 @@ export const handleAppendSentMessage = async (
 				accountId,
 				outboxMessageId,
 			);
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			await scope
 				.getConnection()

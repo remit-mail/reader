@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { OutboxMessageItem } from "@remit/data-ports";
 import { MailboxSpecialUse, OutboxMessageStatus } from "@remit/domain-enums";
 import type { AppendSentMessageEvent } from "../events.js";
@@ -11,6 +11,8 @@ let store: Awaited<ReturnType<typeof openStore>>;
 before(async () => {
 	store = await openStore();
 });
+
+after(() => store.close());
 
 interface Arranged {
 	w: World;
@@ -54,7 +56,7 @@ const arrange = async (
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	handleAppendSentMessage(a.event, a.w.log, receiveCount, a.w.deps() as never);
+	handleAppendSentMessage(a.event, a.w.log, receiveCount, a.w.scope);
 
 const outboxRow = (a: Arranged) =>
 	a.w.client.outboxMessage

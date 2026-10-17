@@ -1,6 +1,5 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
 import type { SyncedMessage } from "@remit/mailbox-service";
 import type { SyncMessageBodyEvent } from "../events.js";
 import {
@@ -8,20 +7,6 @@ import {
 	resolveBatch,
 } from "./sync-message-body.js";
 import { batchSyncedMessages } from "./sync-messages.js";
-
-const _silentLogger = (() => {
-	const noop = () => {};
-	const log = {
-		info: noop,
-		warn: noop,
-		error: noop,
-		debug: noop,
-		fatal: noop,
-		trace: noop,
-		child: () => log,
-	} as unknown as Logger;
-	return log;
-})();
 
 const baseEvent = {
 	type: "SYNC_MESSAGE_BODY" as const,

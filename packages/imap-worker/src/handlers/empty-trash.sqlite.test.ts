@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { before, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	MailboxCursorState,
@@ -19,6 +19,8 @@ let store: Awaited<ReturnType<typeof openStore>>;
 before(async () => {
 	store = await openStore();
 });
+
+after(() => store.close());
 
 interface Arranged {
 	w: World;
@@ -52,7 +54,7 @@ const emptyTrash = async (a: Arranged): Promise<EmptyTrashEvent> => {
 };
 
 const run = (a: Arranged, event: EmptyTrashEvent) =>
-	handleEmptyTrash(event, a.w.log, a.w.deps() as never);
+	handleEmptyTrash(event, a.w.log, a.w.scope);
 
 const visible = async (a: Arranged): Promise<boolean[]> =>
 	Promise.all(

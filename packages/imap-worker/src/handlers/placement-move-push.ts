@@ -124,22 +124,6 @@ export const attemptMove = async (
 	return { kind: "not-found" };
 };
 
-export interface PlacementMovePushDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-	emitEvent: typeof emitEvent;
-}
-
-const defaultDeps: PlacementMovePushDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-	emitEvent,
-};
-
 /**
  * Handle PLACEMENT_MOVE_PUSH events (issue #1271, epic #1281). Drains ONE
  * pending placement-move marker: resolves the UID fresh from the Message row
@@ -166,16 +150,8 @@ export const handlePlacementMovePush = async (
 	event: PlacementMovePushEvent,
 	log: Logger,
 	receiveCount = 1,
-	deps: PlacementMovePushDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-		emitEvent,
-	} = deps;
-
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -281,7 +257,7 @@ export const handlePlacementMovePush = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			await scope
 				.getConnection()

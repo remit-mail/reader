@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -28,12 +28,12 @@ import {
 } from "@remit/domain-enums";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger-lambda";
+import type { ManagedConnectionFactory } from "@remit/mailbox-service";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import { mockClient } from "aws-sdk-client-mock";
 import Database from "better-sqlite3";
-import { emitEvent } from "../emit.js";
-import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
-import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
+import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import { syncMessages } from "../handlers/sync-messages.js";
 import { FakeImapServer } from "./test-imap-server.js";
 
 export interface LogLine {
@@ -77,12 +77,15 @@ const sqs = mockClient(SQSClient);
 /**
  * One SQLite store per test file, over the shipped migrations, composed by the
  * backend's own SQLite composition root over filesystem storage — every
- * repository and service a handler reaches is the one a self-host process runs. Each `world()` is a
- * fresh account on it, with its own in-memory mail server at the IMAP port.
+ * repository and service a handler reaches is the one a self-host process
+ * runs. Each `world()` is a fresh account on it, with its own in-memory mail
+ * server at the IMAP port, and a message reaches the store the way mail does:
+ * delivered to the server, then synced.
  */
 export const openStore = async (): Promise<{
 	client: RemitClient;
 	world: () => Promise<World>;
+	close: () => void;
 }> => {
 	const directory = mkdtempSync(join(tmpdir(), "imap-worker-world-"));
 	const path = join(directory, "remit.db");
@@ -97,7 +100,14 @@ export const openStore = async (): Promise<{
 	_resetForTest();
 	const client = await getClient();
 	setClient(client);
-	return { client, world: () => createWorld(client) };
+	return {
+		client,
+		world: () => createWorld(client),
+		close: () => {
+			_resetForTest();
+			rmSync(directory, { recursive: true, force: true });
+		},
+	};
 };
 
 export interface World {
@@ -119,16 +129,8 @@ export interface World {
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
-	deps: () => {
-		getClient: typeof getClient;
-		buildLifecycleDeps: typeof buildLifecycleDeps;
-		withOAuthLifecycle: typeof withOAuthLifecycle;
-		createConnectionScope: () => {
-			getConnection: () => Promise<ReturnType<FakeImapServer["connection"]>>;
-			disconnect: () => Promise<void>;
-		};
-		emitEvent: typeof emitEvent;
-	};
+	scope: typeof createConnectionScopeWithCredentials;
+	connectionFactory: () => ManagedConnectionFactory;
 }
 
 const createWorld = async (client: RemitClient): Promise<World> => {
@@ -152,7 +154,7 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		imapStartTls: false,
 		isActive: true,
 		connectionState: ConnectionState.Authenticated,
-	} as Parameters<RemitClient["account"]["create"]>[0]);
+	});
 
 	const folder = async (
 		path: string,
@@ -176,7 +178,7 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 			highWaterMarkUid: 0,
 			lastMessageSyncAt: 0,
 			syncStatus: "synced",
-		} as Parameters<RemitClient["mailbox"]["create"]>[0]);
+		});
 		if (created.outcome !== "Created") {
 			throw new Error(`${path} could not be created: ${created.outcome}`);
 		}
@@ -206,36 +208,36 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		const messageIdHeader =
 			options.messageIdHeader ?? `<${randomUUID()}@example.com>`;
 		const uid = imap.deliver(mailbox.fullPath, messageIdHeader, options.uid);
-		const messageId = randomUUID();
-		await client.message.create({
-			messageId,
-			mailboxId: mailbox.mailboxId,
-			uid,
-			sequenceNumber: 1,
-			rfc822Size: 10,
-			internalDate: 1_700_000_000_000,
-			messageIdHeader,
-			envelopeId: randomUUID(),
-			rootBodyPartId: randomUUID(),
-			status: "active",
-			syncStatus: "synced",
-		} as Parameters<RemitClient["message"]["create"]>[0]);
-		const threadMessage = await client.threadMessage.create({
+		const baseline = {
+			connections: imap.connections,
+			commands: imap.log.length,
+		};
+		await syncMessages(
+			{
+				type: "SYNC_MESSAGES",
+				eventId: randomUUID(),
+				timestamp: Date.now(),
+				accountId: account.accountId,
+				mailboxId: mailbox.mailboxId,
+			},
+			capturingLogger([]),
+			connectionFactory,
+		);
+		imap.connections = baseline.connections;
+		imap.log.length = baseline.commands;
+		const synced = (
+			await client.message.listAllByMailbox(mailbox.mailboxId)
+		).find((row) => row.uid === uid);
+		if (!synced)
+			throw new Error(`uid ${uid} in ${mailbox.fullPath} did not sync`);
+		const [threadMessage] = await client.threadMessage.findAllByMessageId(
 			accountConfigId,
-			threadId: `thread-${messageId}`,
-			messageId,
-			mailboxId: mailbox.mailboxId,
-			uid,
-			referenceOrder: 0,
-			internalDate: 1_700_000_000_000,
-			sentDate: 1_700_000_000_000,
-			isRead: false,
-			isDeleted: false,
-			hasAttachment: false,
-			hasStars: false,
-		} as Parameters<RemitClient["threadMessage"]["create"]>[0]);
+			synced.messageId,
+		);
+		if (!threadMessage)
+			throw new Error(`uid ${uid} synced without a listing row`);
 		return {
-			messageId,
+			messageId: synced.messageId,
 			uid,
 			messageIdHeader,
 			threadMessageId: threadMessage.threadMessageId,
@@ -267,7 +269,6 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 			),
 	];
 
-	/** A draft composed through the service the API calls, with an uploaded file. */
 	const draft = async (
 		attachment?: Buffer,
 	): Promise<{ outbox: OutboxMessageItem; attachmentId?: string }> => {
@@ -306,24 +307,31 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		return { outbox, attachmentId };
 	};
 
-	const deps = () => ({
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: () => {
-			let open: ReturnType<FakeImapServer["connection"]> | undefined;
-			return {
-				getConnection: async () => {
-					open ??= imap.connection();
-					return open;
-				},
-				disconnect: async () => {
-					open = undefined;
-				},
-			};
-		},
-		emitEvent,
-	});
+	const scope = () => {
+		let open: ReturnType<FakeImapServer["connection"]> | undefined;
+		return {
+			getConnection: async () => {
+				open ??= imap.connection();
+				return open;
+			},
+			disconnect: async () => {
+				open = undefined;
+			},
+		};
+	};
+
+	const connectionFactory = (): ManagedConnectionFactory => {
+		let open: ReturnType<FakeImapServer["connection"]> | undefined;
+		return {
+			getConnection: () => {
+				open ??= imap.connection();
+				return open;
+			},
+			close: async () => {
+				open = undefined;
+			},
+		};
+	};
 
 	return {
 		client,
@@ -337,6 +345,7 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		threadRows,
 		queued,
 		draft,
-		deps,
+		scope,
+		connectionFactory,
 	};
 };
