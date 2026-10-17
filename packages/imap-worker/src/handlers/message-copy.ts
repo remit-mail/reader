@@ -25,22 +25,6 @@ import {
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 
-export interface MessageCopyDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-	emitEvent: typeof emitEvent;
-}
-
-const defaultDeps: MessageCopyDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-	emitEvent,
-};
-
 export const getMessageCopyMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
 ): number => attemptBudget("MESSAGE_COPY_MAX_ATTEMPTS", 3, processEnv);
@@ -85,16 +69,8 @@ export const handleMessageCopy = async (
 	event: MessageCopyEvent,
 	log: Logger,
 	receiveCount = 1,
-	deps: MessageCopyDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-		emitEvent,
-	} = deps;
-
 	const {
 		account: accountService,
 		message: messageService,
@@ -352,7 +328,7 @@ export const handleMessageCopy = async (
 				);
 			};
 
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			// A paused cursor settles rather than acks: acking leaves the optimistic
 			// row at `uid: 0`/`moving` with nothing to re-enqueue it and no folder

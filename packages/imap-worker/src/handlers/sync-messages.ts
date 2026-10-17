@@ -22,6 +22,7 @@ import {
 	isMailboxMutationInFlight,
 	MailConnectionError,
 	type MailCredentials,
+	type ManagedConnectionFactory,
 	MessageSyncService,
 	QuarantineService,
 	type SyncedMessage,
@@ -59,22 +60,22 @@ export const batchSyncedMessages = (
 	return batches;
 };
 
-export interface SyncMessagesDeps {
-	getClient: typeof getClient;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-}
-
-const defaultDeps: SyncMessagesDeps = {
-	getClient,
-	withOAuthLifecycle,
-	buildLifecycleDeps,
-};
+export const managedConnectionFor = (
+	account: Pick<AccountItem, "username" | "imapHost" | "imapPort" | "imapTls">,
+	credentials: MailCredentials,
+): ManagedConnectionFactory =>
+	createManagedConnectionFactory({
+		user: account.username,
+		credentials,
+		host: account.imapHost,
+		port: account.imapPort,
+		tls: account.imapTls,
+	});
 
 export const syncMessages = async (
 	event: SyncMessagesEvent,
 	log: Logger,
-	deps: SyncMessagesDeps = defaultDeps,
+	createConnectionFactory = managedConnectionFor,
 ): Promise<void> => {
 	log.info(
 		{
@@ -99,7 +100,7 @@ export const syncMessages = async (
 		messageFlag: messageFlagService,
 		unitOfWork,
 		secrets,
-	} = await deps.getClient();
+	} = await getClient();
 
 	await mailboxLockService.releaseLock(
 		event.accountId,
@@ -181,8 +182,8 @@ export const syncMessages = async (
 	// withOAuthLifecycle owns the reauth/ACK contract (skip-if-reauth, resolve
 	// credentials, flip on terminal auth failure, rethrow transient). The
 	// mailbox lock and the actual sync run inside the wrapper callback.
-	await deps.withOAuthLifecycle(
-		deps.buildLifecycleDeps(secrets, accountService),
+	await withOAuthLifecycle(
+		buildLifecycleDeps(secrets, accountService),
 		account,
 		log,
 		async (credentials) => {
@@ -196,7 +197,7 @@ export const syncMessages = async (
 						await syncMailboxMessages(
 							event,
 							account,
-							credentials,
+							createConnectionFactory(account, credentials),
 							{
 								accountService,
 								mailboxService,
@@ -364,7 +365,7 @@ export const drainPendingFlagPushes = async (
 const syncMailboxMessages = async (
 	event: SyncMessagesEvent,
 	account: AccountItem,
-	credentials: MailCredentials,
+	connectionFactory: ManagedConnectionFactory,
 	deps: SyncDeps,
 	log: Logger,
 ): Promise<void> => {
@@ -381,15 +382,6 @@ const syncMailboxMessages = async (
 		messageFlagService,
 		unitOfWork,
 	} = deps;
-
-	// Create a managed connection factory that caches and reuses the connection
-	const connectionFactory = createManagedConnectionFactory({
-		user: account.username,
-		credentials,
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-	});
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
 	const mailbox = await mailboxService.get(account.accountId, event.mailboxId);

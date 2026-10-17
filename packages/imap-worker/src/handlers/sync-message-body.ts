@@ -81,6 +81,7 @@ export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
 	log: Logger,
 	receiveCount = 1,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
 	const { accountId, mailboxId } = event;
 
@@ -205,7 +206,7 @@ export const syncMessageBody = async (
 			// warm container skips TCP+TLS+LOGIN+SELECT; a dead pooled connection is
 			// liveness-checked and replaced inside borrowWarmConnection.
 			const borrowed = borrowWarmConnection(accountId, () =>
-				createConnectionScopeWithCredentials(account, credentials),
+				createConnectionScope(account, credentials),
 			);
 
 			// A confident, actionable placement verdict moves mail directly on

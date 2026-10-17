@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { CalendarFeedFetcher } from "@remit/calendar-service";
-import { MemoryCalendarStore } from "@remit/calendar-service/memory-store";
 import type { CalendarCollectionItem } from "@remit/data-ports";
 import { CalendarSource } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
+import { openStore } from "../test-helpers/test-world.js";
 import { refreshDueCalendarSubscriptions } from "./calendar-subscriptions.js";
 
 const INTERVAL_MS = 15 * 60 * 1000;
@@ -41,27 +41,25 @@ const logged = (): { log: Logger; lines: string[] } => {
 	return { log, lines };
 };
 
+type Client = Awaited<ReturnType<typeof openStore>>["client"];
+
 const subscription = async (
-	store: MemoryCalendarStore,
+	client: Client,
 	urlSegment: string,
 	checkedAt: number,
 ): Promise<CalendarCollectionItem> => {
-	const created = await store.transaction((repos) =>
-		repos.calendarCollection.create({
-			accountConfigId: "account-config-1",
-			urlSegment,
-			displayName: urlSegment,
-			source: CalendarSource.Subscribed,
-			subscriptionUrl: `https://calendar.example/${urlSegment}/private-feedfacecafe.ics`,
-			subscriptionEnabled: true,
-		}),
-	);
-	return store.transaction((repos) =>
-		repos.calendarCollection.update(
-			created.accountConfigId,
-			created.calendarId,
-			{ subscriptionCheckedAt: checkedAt },
-		),
+	const created = await client.calendarCollection.create({
+		accountConfigId: "account-config-1",
+		urlSegment,
+		displayName: urlSegment,
+		source: CalendarSource.Subscribed,
+		subscriptionUrl: `https://calendar.example/${urlSegment}/private-feedfacecafe.ics`,
+		subscriptionEnabled: true,
+	});
+	return client.calendarCollection.update(
+		created.accountConfigId,
+		created.calendarId,
+		{ subscriptionCheckedAt: checkedAt },
 	);
 };
 
@@ -73,29 +71,23 @@ const recording =
 	};
 
 describe("refreshDueCalendarSubscriptions", () => {
-	it("fetches the subscriptions that are due and skips the rest", async () => {
-		const store = new MemoryCalendarStore();
-		const due = await subscription(store, "due", NOW - INTERVAL_MS);
-		await subscription(store, "fresh", NOW - 60_000);
-		const paused = await subscription(store, "paused", 0);
-		await store.transaction((repos) =>
-			repos.calendarCollection.update(
-				paused.accountConfigId,
-				paused.calendarId,
-				{ subscriptionEnabled: false },
-			),
+	it("fetches the subscriptions that are due and skips the rest", async (t) => {
+		const { client, close } = await openStore();
+		t.after(close);
+		const due = await subscription(client, "due", NOW - INTERVAL_MS);
+		await subscription(client, "fresh", NOW - 60_000);
+		const paused = await subscription(client, "paused", 0);
+		await client.calendarCollection.update(
+			paused.accountConfigId,
+			paused.calendarId,
+			{ subscriptionEnabled: false },
 		);
 		const asked: string[] = [];
 
 		const tally = await refreshDueCalendarSubscriptions(
 			{
-				calendarCollection: {
-					listEnabledSubscriptions: () =>
-						store.transaction((repos) =>
-							repos.calendarCollection.listEnabledSubscriptions(),
-						),
-				},
-				calendarUnitOfWork: store,
+				calendarCollection: client.calendarCollection,
+				calendarUnitOfWork: client.calendarUnitOfWork,
 				log: logged().log,
 				fetcher: recording(asked, () => new Response(FEED, { status: 200 })),
 			},
@@ -105,30 +97,24 @@ describe("refreshDueCalendarSubscriptions", () => {
 
 		assert.deepEqual(asked, [due.subscriptionUrl]);
 		assert.deepEqual(tally, { refreshed: 1, failed: 0, notDue: 1 });
-		const objects = await store.transaction((repos) =>
-			repos.calendarObject.listByCalendar(due.calendarId),
-		);
+		const objects = await client.calendarObject.listByCalendar(due.calendarId);
 		assert.deepEqual(
 			objects.map((object) => object.summary),
 			["Ferry crossing"],
 		);
 	});
 
-	it("counts a feed that fails, keeps refreshing the others, and never logs an address", async () => {
-		const store = new MemoryCalendarStore();
-		const broken = await subscription(store, "broken", 0);
-		const working = await subscription(store, "working", 0);
+	it("counts a feed that fails, keeps refreshing the others, and never logs an address", async (t) => {
+		const { client, close } = await openStore();
+		t.after(close);
+		const broken = await subscription(client, "broken", 0);
+		const working = await subscription(client, "working", 0);
 		const { log, lines } = logged();
 
 		const tally = await refreshDueCalendarSubscriptions(
 			{
-				calendarCollection: {
-					listEnabledSubscriptions: () =>
-						store.transaction((repos) =>
-							repos.calendarCollection.listEnabledSubscriptions(),
-						),
-				},
-				calendarUnitOfWork: store,
+				calendarCollection: client.calendarCollection,
+				calendarUnitOfWork: client.calendarUnitOfWork,
 				log,
 				fetcher: recording([], (url) =>
 					url === broken.subscriptionUrl
@@ -141,13 +127,15 @@ describe("refreshDueCalendarSubscriptions", () => {
 		);
 
 		assert.deepEqual(tally, { refreshed: 1, failed: 1, notDue: 0 });
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(broken.accountConfigId, broken.calendarId),
+		const stored = await client.calendarCollection.get(
+			broken.accountConfigId,
+			broken.calendarId,
 		);
 		assert.equal(stored.subscriptionError, "the feed answered HTTP 410");
 		assert.equal(stored.subscriptionCheckedAt, NOW);
-		const refreshed = await store.transaction((repos) =>
-			repos.calendarCollection.get(working.accountConfigId, working.calendarId),
+		const refreshed = await client.calendarCollection.get(
+			working.accountConfigId,
+			working.calendarId,
 		);
 		assert.equal(refreshed.subscriptionFetchedAt, NOW);
 		assert.ok(lines.some((line) => line.includes(broken.calendarId)));

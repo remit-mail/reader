@@ -229,22 +229,6 @@ export const buildThreadMessageMoveUpdate = (
 	},
 });
 
-export interface MessageMoveDeps {
-	getClient: typeof getClient;
-	buildLifecycleDeps: typeof buildLifecycleDeps;
-	withOAuthLifecycle: typeof withOAuthLifecycle;
-	createConnectionScope: typeof createConnectionScopeWithCredentials;
-	emitEvent: typeof emitEvent;
-}
-
-const defaultDeps: MessageMoveDeps = {
-	getClient,
-	buildLifecycleDeps,
-	withOAuthLifecycle,
-	createConnectionScope: createConnectionScopeWithCredentials,
-	emitEvent,
-};
-
 /**
  * Handle MESSAGE_MOVE events.
  * Executes IMAP MOVE command and updates local state with new UID.
@@ -260,16 +244,8 @@ export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
 	receiveCount = 1,
-	deps: MessageMoveDeps = defaultDeps,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
-	const {
-		getClient,
-		buildLifecycleDeps,
-		withOAuthLifecycle,
-		createConnectionScope: createConnectionScopeWithCredentials,
-		emitEvent,
-	} = deps;
-
 	const {
 		account: accountService,
 		message: messageService,
@@ -462,7 +438,7 @@ export const handleMessageMove = async (
 			}
 			const destinationMailboxPath = destination.mailbox.fullPath;
 
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			// The terminal resolver opens the source itself, and its answer now
 			// WRITES a placement, so it has to reach IMAP through the same

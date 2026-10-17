@@ -150,6 +150,7 @@ export const handlePlacementMovePush = async (
 	event: PlacementMovePushEvent,
 	log: Logger,
 	receiveCount = 1,
+	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
 	const {
 		account: accountService,
@@ -256,7 +257,7 @@ export const handlePlacementMovePush = async (
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScopeWithCredentials(account, credentials);
+			const scope = createConnectionScope(account, credentials);
 
 			await scope
 				.getConnection()

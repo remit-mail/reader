@@ -23,10 +23,7 @@ import {
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger-lambda";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
-import {
-	type SyncMessagesDeps,
-	syncMessages,
-} from "./handlers/sync-messages.js";
+import { syncMessages } from "./handlers/sync-messages.js";
 import { runSchedulerTick } from "./scheduler/run-tick.js";
 
 const NOW = 1_700_000_000_000;
@@ -176,14 +173,7 @@ describe("turning mail sync off and on again", () => {
 			silentLogger,
 		);
 
-		let lifecycleCalls = 0;
-		const deps = {
-			getClient: async () => client,
-			buildLifecycleDeps: () => ({}),
-			withOAuthLifecycle: async () => {
-				lifecycleCalls += 1;
-			},
-		} as unknown as SyncMessagesDeps;
+		let connections = 0;
 		await syncMessages(
 			{
 				type: "SYNC_MESSAGES",
@@ -193,9 +183,12 @@ describe("turning mail sync off and on again", () => {
 				mailboxId,
 			},
 			silentLogger,
-			deps,
+			() => {
+				connections += 1;
+				throw new Error("a sync that is off must not connect");
+			},
 		);
-		assert.equal(lifecycleCalls, 0);
+		assert.equal(connections, 0);
 
 		assert.deepEqual(
 			await mailboxes.listAllByAccount(account.accountId),
