@@ -281,6 +281,13 @@
       "when": 1792238339498,
       "tag": "0040_message_drop_message_id_header",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "6",
+      "when": 1792242722947,
+      "tag": "0041_body_structure_refetch",
+      "breakpoints": true
     }
   ]
 }
