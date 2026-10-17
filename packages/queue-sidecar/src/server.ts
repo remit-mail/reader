@@ -17,6 +17,7 @@ import {
 	receiveMessageResult,
 	sendMessageBatchResult,
 	sendMessageResult,
+	taskHandleResult,
 } from "./protocol.js";
 import {
 	QueueDoesNotExistError,
@@ -72,6 +73,12 @@ class InvalidRequestError extends SqsError {
 		super("InvalidParameterValue", message);
 	}
 }
+
+const queueNameFromArn = (arn: string): string => {
+	const name = arn.split(":").at(-1);
+	if (!name) throw new InvalidRequestError(`malformed queue ARN: ${arn}`);
+	return name;
+};
 
 const collectIndexed = (params: URLSearchParams, prefix: string): string[] => {
 	const values: string[] = [];
@@ -205,6 +212,28 @@ export const createSidecarServer = (options: CreateSidecarOptions): Server => {
 					queueUrlResult(queueUrlFor(host, name)),
 					requestId,
 				),
+			};
+		}
+
+		if (action === "StartMessageMoveTask") {
+			const sourceArn = params.get("SourceArn");
+			if (!sourceArn) {
+				throw new InvalidRequestError(
+					"StartMessageMoveTask requires SourceArn",
+				);
+			}
+			const destinationArn = params.get("DestinationArn");
+			const moved = store.redriveDeadLetters(
+				queueNameFromArn(sourceArn),
+				destinationArn ? queueNameFromArn(destinationArn) : undefined,
+			);
+			log.info(
+				{ sourceArn, destinationArn, moved },
+				"sidecar: dead letters redriven",
+			);
+			return {
+				status: 200,
+				body: queryResponse(action, taskHandleResult(randomUUID()), requestId),
 			};
 		}
 

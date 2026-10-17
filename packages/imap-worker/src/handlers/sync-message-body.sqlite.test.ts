@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { MailboxItem } from "@remit/data-ports";
-import { MailboxCursorState } from "@remit/domain-enums";
+import {
+	FilterClauseField,
+	FilterScope,
+	MailboxCursorState,
+	MessageStatus,
+} from "@remit/domain-enums";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import type { SyncMessageBodyEvent } from "../events.js";
@@ -133,5 +138,142 @@ describe("a body sync", () => {
 			(await a.w.row(a.message.messageId))?.bodyStorageKey,
 			undefined,
 		);
+	});
+});
+
+const batchOf = (
+	w: World,
+	inbox: MailboxItem,
+	messages: SeededMessage[],
+): SyncMessageBodyEvent => ({
+	type: "SYNC_MESSAGE_BODY",
+	eventId: `evt-${messages.map((m) => m.messageId).join("-")}`,
+	timestamp: Date.now(),
+	accountId: w.account.accountId,
+	mailboxId: inbox.mailboxId,
+	messageIds: messages.map((m) => m.messageId),
+	messages: messages.map((m) => ({ messageId: m.messageId, uid: m.uid })),
+});
+
+const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
+	syncMessageBody(event, w.log, receiveCount, w.scope);
+
+describe("a body batch whose filter files mail while the queue is refusing", () => {
+	const arrangeFiling = async () => {
+		const w = await store.world();
+		const inbox = await w.folder("INBOX");
+		const travel = await w.folder("Travel");
+		await w.client.filter.create({
+			accountConfigId: w.account.accountConfigId,
+			name: "From a friend",
+			scope: FilterScope.Standing,
+			literalClauses: [
+				{ field: FilterClauseField.From, value: "friend@example.com" },
+			],
+			actionMailboxId: travel.mailboxId,
+		});
+		const first = await w.message(inbox);
+		const second = await w.message(inbox);
+		return { w, travel, first, second, event: batchOf(w, inbox, [first, second]) };
+	};
+
+	it("fails at the first filing it cannot enqueue and leaves the rest untouched", async () => {
+		const { w, first, second, event } = await arrangeFiling();
+		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
+
+		await assert.rejects(runBatch(w, event), /ECONNREFUSED/);
+
+		const untouched = await w.row(second.messageId);
+		assert.equal(untouched?.status, MessageStatus.active);
+		assert.equal(untouched?.bodyStorageKey, undefined);
+		assert.equal(await w.client.placementMove.find(second.messageId), null);
+		assert.equal(
+			(await w.client.placementMove.find(first.messageId))?.state,
+			"pending",
+		);
+	});
+
+	it("files and stores the whole batch on the redelivery once the queue accepts", async () => {
+		const { w, travel, first, second, event } = await arrangeFiling();
+		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
+		await assert.rejects(runBatch(w, event), /ECONNREFUSED/);
+
+		w.refuseSends(undefined);
+		await runBatch(w, event, 2);
+
+		for (const message of [first, second]) {
+			const row = await w.row(message.messageId);
+			assert.equal(row?.mailboxId, travel.mailboxId);
+			assert.ok(row?.bodyStorageKey, `${message.messageId} body stored`);
+			assert.equal(row?.movedByRemit, true);
+			assert.equal(row?.filterMove?.sourceMailboxId, event.mailboxId);
+			assert.equal(
+				(await w.client.placementMove.find(message.messageId))?.state,
+				"queued",
+			);
+		}
+	});
+});
+
+describe("a body batch that has gone stale", () => {
+	it("does not fetch a message from a folder its confirmed move took it out of", async () => {
+		const w = await store.world();
+		const inbox = await w.folder("INBOX");
+		const travel = await w.folder("Travel");
+		const moved = await w.message(inbox);
+		const neighbour = await w.message(inbox);
+		await w.client.message.transitionPlacement(
+			moved.messageId,
+			{ status: MessageStatus.active, mailboxId: inbox.mailboxId, uid: moved.uid },
+			{
+				mailboxId: travel.mailboxId,
+				status: MessageStatus.moving,
+				originalMailboxId: inbox.mailboxId,
+				originalUid: moved.uid,
+			},
+		);
+		await w.client.message.updateUid(
+			moved.messageId,
+			neighbour.uid,
+			travel.mailboxId,
+		);
+
+		await runBatch(w, batchOf(w, inbox, [moved]));
+
+		assert.deepEqual(w.imap.commands("BODY"), []);
+		assert.equal((await w.row(moved.messageId))?.bodyStorageKey, undefined);
+	});
+
+	it("fetches a message whose move has not confirmed from the folder its uid is in", async () => {
+		const w = await store.world();
+		const inbox = await w.folder("INBOX");
+		const travel = await w.folder("Travel");
+		const filing = await w.message(inbox);
+		await w.client.message.transitionPlacement(
+			filing.messageId,
+			{ status: MessageStatus.active, mailboxId: inbox.mailboxId, uid: filing.uid },
+			{
+				mailboxId: travel.mailboxId,
+				status: MessageStatus.moving,
+				originalMailboxId: inbox.mailboxId,
+				originalUid: filing.uid,
+			},
+		);
+
+		await runBatch(w, batchOf(w, inbox, [filing]));
+
+		assert.equal(w.imap.commands("BODY").length, 1);
+		assert.ok((await w.row(filing.messageId))?.bodyStorageKey);
+	});
+
+	it("acks a batch whose message row has been deleted since", async () => {
+		const w = await store.world();
+		const inbox = await w.folder("INBOX");
+		const gone = await w.message(inbox);
+		await w.client.message.delete(gone.messageId);
+
+		await runBatch(w, batchOf(w, inbox, [gone]));
+
+		assert.equal(w.imap.connections, 0);
 	});
 });

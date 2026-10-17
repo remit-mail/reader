@@ -310,10 +310,19 @@ looks at it.
 them, and exits non-zero. Per-queue depth, rather than the total, is
 `remit_queue_messages{queue,role}`.
 
-Draining one is manual SQS work: `ReceiveMessage` on the `-dlq` queue for the
-body, then `SendMessage` back to the source queue and `DeleteMessage` from the
-DLQ once you have fixed the bug or the bad data, or `DeleteMessage` alone to
-discard it. Any SQS-compatible client works. The `queue` image ships `node`, so
+Once the cause is fixed, `remit redrive <dlq>` moves everything on that
+dead-letter queue back to the queue it came from, each message with a fresh
+retry budget; whatever fails again lands back on it. Body syncs and filings are
+safe to redrive: a body already stored is skipped, and a message that has since
+left the folder its batch was cut from is not fetched there.
+
+```bash
+remit redrive remit-body-dlq
+```
+
+To look at a message first, or to discard one, use SQS directly:
+`ReceiveMessage` on the `-dlq` queue for the body, `DeleteMessage` to discard
+it. Any SQS-compatible client works. The `queue` image ships `node`, so
 the wire protocol is reachable from inside the container; the actions are
 form-encoded POSTs, unlike the plain GET the metrics read uses:
 
@@ -322,6 +331,5 @@ docker compose -f docker-compose.sqlite.yml --env-file .env exec queue \
   node -e 'const b="Action=ReceiveMessage&QueueUrl=http://localhost:9324/000000000000/remit-body-dlq&Version=2012-11-05";const r=require("http").request("http://localhost:9324/",{method:"POST",headers:{"content-type":"application/x-www-form-urlencoded"}},s=>{let d="";s.on("data",c=>d+=c);s.on("end",()=>console.log(d))});r.end(b)'
 ```
 
-`SendMessage` adds `&MessageBody=…`, `DeleteMessage` takes `&ReceiptHandle=…`
-from the receive. Run it from the install directory; `remit` has no command for
-it.
+`DeleteMessage` takes `&ReceiptHandle=…` from the receive. Run it from the
+install directory.

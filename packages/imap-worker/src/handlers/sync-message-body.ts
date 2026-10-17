@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import type { IMessageRepository } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
@@ -12,6 +13,7 @@ import {
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 	resolveFolderPlacement,
+	uidMailboxIdOf,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -76,6 +78,20 @@ export const buildRetryableFailureError = (
 		`Body sync failed for ${failedMessageIds.length} message(s) ` +
 			`(attempt ${receiveCount}/${BODY_SYNC_MAX_ATTEMPTS}): ${failedMessageIds.join(", ")}`,
 	);
+
+const selectFetchableFromFolder = async (
+	messageService: Pick<IMessageRepository, "get">,
+	messageIds: string[],
+	mailboxId: string,
+): Promise<string[]> => {
+	const rows = await messageService.get(messageIds);
+	const here = new Set(
+		rows
+			.filter((row) => uidMailboxIdOf(row) === mailboxId)
+			.map((row) => row.messageId),
+	);
+	return messageIds.filter((messageId) => here.has(messageId));
+};
 
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
@@ -201,6 +217,26 @@ export const syncMessageBody = async (
 				return;
 			}
 
+			// A row deleted since the batch was cut, or moved out of this folder
+			// for good, has no uid here; its new uid would fetch another message.
+			const fetchable = await selectFetchableFromFolder(
+				messageService,
+				messageIds,
+				mailboxId,
+			);
+			if (fetchable.length < messageIds.length) {
+				log.info(
+					{
+						accountId,
+						mailboxId,
+						skippedMessageIds: messageIds.filter(
+							(messageId) => !fetchable.includes(messageId),
+						),
+					},
+					"Skipping messages no longer at their uid in this folder",
+				);
+			}
+
 			// Warm reuse: borrow a live IMAP connection from the module-scoped pool
 			// (keyed by accountId) instead of dialing a fresh one per invocation. A
 			// warm container skips TCP+TLS+LOGIN+SELECT; a dead pooled connection is
@@ -285,7 +321,7 @@ export const syncMessageBody = async (
 
 			await (async () => {
 				const result = await bodySyncService.syncBodies(
-					messageIds,
+					fetchable,
 					accountId,
 					account.accountConfigId,
 					folder,

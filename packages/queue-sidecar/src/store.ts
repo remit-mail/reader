@@ -321,7 +321,7 @@ export class QueueStore {
 					queue.deadLetterTargetName !== null &&
 					candidate.receive_count >= queue.maxReceiveCount
 				) {
-					this.moveToDeadLetter(candidate, queue.deadLetterTargetName, now);
+					this.moveToQueue(candidate, queue.deadLetterTargetName, now);
 					continue;
 				}
 
@@ -449,9 +449,48 @@ export class QueueStore {
 			.all({ queue: queue.name, now, limit }) as MessageRow[];
 	}
 
-	private moveToDeadLetter(
-		message: MessageRow,
+	/**
+	 * Return everything a dead-letter queue holds to the queue it came from, as
+	 * SQS StartMessageMoveTask does. Each message goes to the back of that queue
+	 * with a fresh receive count, so it gets the full redelivery budget again and
+	 * a FIFO group still sees it after anything sent since. The source is the one
+	 * queue whose redrive policy names this one; `destinationName` is required
+	 * only when several do.
+	 */
+	redriveDeadLetters(
 		deadLetterName: string,
+		destinationName?: string,
+		now = Date.now(),
+	): number {
+		this.requireQueue(deadLetterName);
+		const destination = destinationName ?? this.redriveSourceOf(deadLetterName);
+		this.requireQueue(destination);
+
+		const redrive = this.db.transaction((): number => {
+			const rows = this.db
+				.prepare("SELECT * FROM messages WHERE queue_name = ? ORDER BY id ASC")
+				.all(deadLetterName) as MessageRow[];
+			for (const row of rows) this.moveToQueue(row, destination, now);
+			return rows.length;
+		});
+		return redrive();
+	}
+
+	private redriveSourceOf(deadLetterName: string): string {
+		const sources = this.listQueues().filter(
+			(queue) => queue.deadLetterTargetName === deadLetterName,
+		);
+		if (sources.length !== 1) {
+			throw new InvalidParameterValueError(
+				`${deadLetterName} is the dead-letter queue of ${sources.length} queues; name the destination`,
+			);
+		}
+		return sources[0].name;
+	}
+
+	private moveToQueue(
+		message: MessageRow,
+		targetName: string,
 		now: number,
 	): void {
 		this.db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
@@ -465,7 +504,7 @@ export class QueueStore {
 			)
 			.run(
 				message.message_id,
-				deadLetterName,
+				targetName,
 				message.body,
 				message.md5_body,
 				message.group_id,

@@ -57,6 +57,21 @@ export const carriesForeignUid = (
 	message.originalMailboxId !== undefined &&
 	message.originalMailboxId !== message.mailboxId;
 
+/**
+ * The folder the row's `uid` is a uid in: the source while a move has not
+ * confirmed, otherwise the folder the row is in. A fetch by uid is only safe
+ * from this folder; from any other the same number names a different message.
+ */
+export const uidMailboxIdOf = (
+	message: Pick<
+		MessageItem,
+		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
+	>,
+): string =>
+	carriesForeignUid(message) && message.originalMailboxId !== undefined
+		? message.originalMailboxId
+		: message.mailboxId;
+
 export const bindsForeignUid = (
 	message: Pick<
 		MessageItem,

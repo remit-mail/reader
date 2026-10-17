@@ -133,6 +133,7 @@ export interface World {
 		messageId: string,
 	) => Promise<Array<{ mailboxId: string; uid?: number; isDeleted: boolean }>>;
 	queued: () => Array<Record<string, unknown>>;
+	refuseSends: (error: Error | undefined) => void;
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
@@ -264,6 +265,11 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 	const queued = (): Array<Record<string, unknown>> =>
 		queue.sent.map((event) => event.body);
 
+	const refuseSends = (error: Error | undefined): void => {
+		if (error) sqs.on(SendMessageCommand).rejects(error);
+		else sqs.on(SendMessageCommand).resolves({});
+	};
+
 	const draft = async (
 		attachment?: Buffer,
 	): Promise<{ outbox: OutboxMessageItem; attachmentId?: string }> => {
@@ -339,6 +345,7 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		row,
 		threadRows,
 		queued,
+		refuseSends,
 		draft,
 		scope,
 		connectionFactory,

@@ -14,6 +14,7 @@ import {
 	SendMessageBatchCommand,
 	SendMessageCommand,
 	SQSClient,
+	StartMessageMoveTaskCommand,
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import { bootstrapQueues, parseQueuesConfig } from "./queues-config.js";
@@ -333,6 +334,63 @@ describe("SQS wire protocol via the AWS SDK", () => {
 		);
 		assert.equal(dlq.Messages?.length, 1);
 		assert.equal(dlq.Messages?.[0].Body, "poison");
+	});
+
+	it("moves a dead-lettered message back to its source with a fresh budget", async () => {
+		const url = h.queueUrl("work");
+		const dlqUrl = h.queueUrl("work-dlq");
+		await h.client.send(new PurgeQueueCommand({ QueueUrl: url }));
+		await h.client.send(new PurgeQueueCommand({ QueueUrl: dlqUrl }));
+		await h.client.send(
+			new SendMessageCommand({ QueueUrl: url, MessageBody: "stranded" }),
+		);
+		for (let attempt = 1; attempt <= 2; attempt += 1) {
+			await h.client.send(
+				new ReceiveMessageCommand({ QueueUrl: url, WaitTimeSeconds: 2 }),
+			);
+			await delay(1200);
+		}
+		await h.client.send(
+			new ReceiveMessageCommand({ QueueUrl: url, WaitTimeSeconds: 1 }),
+		);
+
+		const task = await h.client.send(
+			new StartMessageMoveTaskCommand({
+				SourceArn: "arn:aws:sqs:local:000000000000:work-dlq",
+			}),
+		);
+
+		assert.ok(task.TaskHandle);
+		const dlqDepth = await h.client.send(
+			new GetQueueAttributesCommand({
+				QueueUrl: dlqUrl,
+				AttributeNames: ["ApproximateNumberOfMessages"],
+			}),
+		);
+		assert.equal(dlqDepth.Attributes?.ApproximateNumberOfMessages, "0");
+		const redelivered = await h.client.send(
+			new ReceiveMessageCommand({
+				QueueUrl: url,
+				WaitTimeSeconds: 2,
+				MessageSystemAttributeNames: ["ApproximateReceiveCount"],
+			}),
+		);
+		assert.equal(redelivered.Messages?.[0]?.Body, "stranded");
+		assert.equal(
+			redelivered.Messages?.[0]?.Attributes?.ApproximateReceiveCount,
+			"1",
+		);
+	});
+
+	it("refuses to move messages out of a queue that does not exist", async () => {
+		await assert.rejects(
+			h.client.send(
+				new StartMessageMoveTaskCommand({
+					SourceArn: "arn:aws:sqs:local:000000000000:nowhere-dlq",
+				}),
+			),
+			/does not exist/,
+		);
 	});
 
 	it("reports queue attributes for DLQ depth monitoring", async () => {

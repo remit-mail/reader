@@ -70,7 +70,7 @@ import {
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { PlacementMoveService } from "./placement-move.js";
-import { isPlacementUnsettled } from "./placement-settled.js";
+import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -351,7 +351,8 @@ export class BodySyncService {
 	 *
 	 * Fail-fast on connection errors: if the IMAP connection is lost,
 	 * immediately stop processing and return all remaining messages as failed
-	 * so they can be requeued for later retry.
+	 * so they can be requeued for later retry. Any other failure but a body
+	 * that will not parse rejects the whole call.
 	 *
 	 * @param messageIds - The message IDs to sync bodies for
 	 * @param accountId - The account ID (for storage path)
@@ -472,19 +473,11 @@ export class BodySyncService {
 						reStoredMessageIds.has(messageId),
 					);
 				} catch (error) {
-					// A per-message store failure (e.g. the parsed-body S3 write) is a
-					// real fault, but it must not silently mark the message synced —
-					// that would leave parsedBody null and the message unindexed. Leave
-					// the UID in `pending` so it lands in failedMessageIds and the SQS
-					// batch requeues just this message. A dropped connection is handled
-					// by the outer catch (fail-fast on the whole remaining batch).
-					if (isConnectionDrop(error)) throw error;
-
 					// The one error in this frame that is the message's own fault. It
-					// reaches here from the parse call and nowhere else, so the S3, DDB
-					// and SQS work this same frame wraps cannot be mistaken for it and
-					// keeps requeueing below. The row is durable before the UID leaves
-					// `pending`, so the message is never let go of unrecorded.
+					// reaches here from the parse call and nowhere else, so the S3, DB
+					// and queue work this same frame wraps cannot be mistaken for it.
+					// The row is durable before the UID leaves `pending`, so the
+					// message is never let go of unrecorded.
 					if (
 						error instanceof BodyParseError &&
 						(await this.quarantineBodyParse(messageId, location, error))
@@ -495,17 +488,9 @@ export class BodySyncService {
 						continue;
 					}
 
-					this.log.error?.(
-						{
-							messageId,
-							errorName: (error as { name?: string }).name,
-							error: (error as Error).message,
-						},
-						"Body store failed for message; leaving for requeue",
-					);
-					// Drain the stream so the connection stays usable for the next UID.
-					source.resume();
-					continue;
+					// Anything else is our own storage, database or queue failing. It
+					// aborts the batch, which redelivers whole; what stored skips.
+					throw error;
 				}
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
@@ -872,9 +857,12 @@ export class BodySyncService {
 			// offer an undo back to it (issue #223). Snapshotted into the marker
 			// rather than read from `originalMailboxId` at derive time, which a
 			// later user move would overwrite — the filter's source must survive an
-			// undo to stay derivable.
-			const sourceMailboxId = (await this.messageService.get(messageId))
-				.mailboxId;
+			// undo to stay derivable. A redelivery after a failed enqueue finds
+			// the move already applied locally, so the source is the folder the
+			// uid still names, not the one the row now points at.
+			const sourceMailboxId = uidMailboxIdOf(
+				await this.messageService.get(messageId),
+			);
 			await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
