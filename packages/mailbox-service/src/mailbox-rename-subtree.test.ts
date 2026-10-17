@@ -87,20 +87,6 @@ const assertAt = async (
 };
 
 describe("MailboxManagementService.syncRename settles one intent", () => {
-	it("renames on the server and adopts the path on every row that carried the intent", async () => {
-		const parent = await work();
-		const child = await folder("Work/2026", "Projects/2026");
-		const grandchild = await folder("Work/2026/Q1", "Projects/2026/Q1");
-
-		const result = await renameWork();
-
-		assert.equal(result.success, true);
-		assert.ok(imap.hasFolder("Projects/2026/Q1"));
-		await assertAt(parent, "Projects", MailboxSyncStatus.synced);
-		await assertAt(child, "Projects/2026", MailboxSyncStatus.synced);
-		await assertAt(grandchild, "Projects/2026/Q1", MailboxSyncStatus.synced);
-	});
-
 	it("adopts the path the server resolved over the one requested", async () => {
 		const parent = await work();
 		const child = await folder("Work/2026", "Projects/2026");

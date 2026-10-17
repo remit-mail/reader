@@ -56,6 +56,16 @@ afterEach(async () => {
 	await store.close();
 });
 
+const userMoves = () =>
+	new MessageMoveService({
+		messageService: store.message,
+		mailboxService: store.mailbox,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
+		threadMessageService: store.threadMessage,
+		addressService: store.address,
+		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
+	});
+
 const spam = () =>
 	new SpamReportService({
 		messageService: store.message,
@@ -268,13 +278,16 @@ describe("SpamReportService.notSpam", () => {
 		);
 	});
 
-	it("leaves mail the provider already filed in Junk where it is", async () => {
-		const messageId = await arrive(junk);
-		await store.message.transitionPlacement(
+	it("leaves mail an earlier, unrelated move filed in Junk where it is", async () => {
+		const messageId = await arrive(other);
+		await userMoves().moveMessage(
+			account.accountConfigId,
 			messageId,
-			{ status: "active" },
-			{ originalMailboxId: other.mailboxId },
+			junk?.mailboxId as string,
+			account.accountId,
 		);
+		await settle(messageId);
+		queue.length = 0;
 
 		await report(messageId);
 		await undo(messageId);

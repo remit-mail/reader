@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	AccountItem,
 	CreateMessageInput,
@@ -201,10 +201,15 @@ describe("a classification filing", () => {
 	});
 
 	it("skips a message a delete has claimed without waiting", async () => {
-		const messageId = await rowIn(archive, 42, {
-			status: "deleting",
-			syncStatus: "pending",
-		});
+		const messageId = await rowIn(inbox, 42);
+		await userMoves().deleteMessages(
+			account.accountConfigId,
+			[messageId],
+			account.accountId,
+			{ permanent: true },
+		);
+		assert.equal((await row(messageId)).status, "deleting");
+		queue.length = 0;
 
 		const startedAt = Date.now();
 		await file(messageId, junk);

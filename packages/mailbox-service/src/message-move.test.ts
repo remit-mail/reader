@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	AccountItem,
 	CreateMessageInput,
@@ -12,12 +12,14 @@ import {
 	CanonicalMailboxRole,
 	MessageClassificationState,
 } from "@remit/domain-enums";
+import { BodySyncService } from "./body-sync.js";
 import {
 	MessageMoveService,
 	NoTrashMailboxError,
 	StaleTrashAppointmentError,
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	arriveAt,
@@ -29,6 +31,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	seedMessage,
+	silentLog,
 	syncFolder,
 } from "./test-helpers/test-store.js";
 
@@ -121,6 +124,17 @@ const midMove = async (uid = 42) => {
 		account.accountConfigId,
 		messageId,
 		archive.mailboxId,
+		account.accountId,
+	);
+	queue.length = 0;
+	return messageId;
+};
+
+const midDelete = async (uid = 42) => {
+	const messageId = await rowIn(inbox, uid);
+	await service().deleteMessages(
+		account.accountConfigId,
+		[messageId],
 		account.accountId,
 	);
 	queue.length = 0;
@@ -250,14 +264,10 @@ describe("moving a message", () => {
 		assert.equal((await row(settled)).mailboxId, inbox.mailboxId);
 	});
 
-	it("waits out a delete in flight rather than binding its borrowed uid", async () => {
+	it("waits out a delete into Trash in flight rather than binding its borrowed uid", async () => {
 		await world();
-		const messageId = await rowIn(archive, 42, {
-			status: "deleting",
-			syncStatus: "pending",
-			originalMailboxId: inbox.mailboxId,
-			originalUid: 42,
-		});
+		const messageId = await midDelete();
+		assert.equal((await row(messageId)).mailboxId, trash?.mailboxId);
 
 		await assert.rejects(
 			service().moveMessage(
@@ -273,10 +283,22 @@ describe("moving a message", () => {
 
 	it("moves a row a move gave up on without waiting", async () => {
 		await world();
-		const stranded = await rowIn(inbox, 42, {
-			syncStatus: "abandoned",
-			abandonedMutation: "move",
-		});
+		const stranded = await midMove();
+		await restoreSourcePlacement(
+			{
+				messageService: store.message,
+				threadMessageService: store.threadMessage,
+			},
+			{
+				accountConfigId: account.accountConfigId,
+				messageId: stranded,
+				sourceMailboxId: inbox.mailboxId,
+				uid: 42,
+				syncStatus: "abandoned",
+				abandonedMutation: "move",
+			},
+		);
+		assert.equal((await row(stranded)).syncStatus, "abandoned");
 
 		const startedAt = Date.now();
 		await service().moveMessage(
@@ -486,22 +508,27 @@ describe("copying a message", () => {
 			account.accountId,
 		);
 
-	const COPIED = eml({ "Message-ID": "<copied@example.com>" });
+	const COPIED = eml({
+		"Message-ID": "<copied@example.com>",
+		"List-Id": "LinkedIn Invitations <invitations.linkedin.com>",
+	});
 
 	const source = async () => {
 		const messageId = await arriveAt(store, imap, account, inbox, COPIED);
-		const [thread] = await store.threadMessage.findAllByMessageId(
+		await new BodySyncService(
+			store.message,
+			store.storage(),
+			store.threadMessage,
+			store.address,
+			store.envelope,
+			silentLog,
+		).syncBodies(
+			[messageId],
+			account.accountId,
 			account.accountConfigId,
-			messageId,
+			{ fullPath: inbox.fullPath, placement: "inbox" },
+			async () => imap.connection(),
 		);
-		await store.threadMessage.update(
-			account.accountConfigId,
-			thread.threadMessageId,
-			{ listId: "invitations.linkedin.com" },
-		);
-		await store.message.update(messageId, {
-			classificationState: MessageClassificationState.Examined,
-		});
 		return messageId;
 	};
 
@@ -652,13 +679,15 @@ describe("emptying the Trash", () => {
 		await world("flagged");
 		const bin = trash as MailboxItem;
 		const settled = await rowIn(bin, 1);
-		const pending = await rowIn(bin, 2, { syncStatus: "pending" });
-		const arriving = await rowIn(bin, 10, {
-			status: "moving",
-			syncStatus: "pending",
-			originalMailboxId: inbox.mailboxId,
-			originalUid: 10,
-		});
+		const pending = await arriveAt(store, imap, account, bin, eml({}));
+		const arriving = await rowIn(inbox, 10);
+		await service().moveMessage(
+			account.accountConfigId,
+			arriving,
+			bin.mailboxId,
+			account.accountId,
+		);
+		queue.length = 0;
 
 		const { deletedCount } = await empty();
 

@@ -1,15 +1,15 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAddressId, deriveCopyMessageId } from "@remit/data-ports/id";
 import {
 	MailboxCursorState,
-	MessageCategory,
 	MessageKeywordFlag,
 	MessageSystemFlag,
 } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
+import { MessageMoveService } from "./message-move.js";
 import { MessageSyncService } from "./message-sync.js";
 import { QuarantineService } from "./quarantine.js";
 import {
@@ -98,6 +98,24 @@ const syncService = () =>
 			silentLog,
 		),
 	);
+
+const userMoves = () =>
+	new MessageMoveService({
+		messageService: store.message,
+		mailboxService: store.mailbox,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
+		threadMessageService: store.threadMessage,
+		addressService: store.address,
+		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
+	});
+
+const flagQueue = () =>
+	new FlagQueueService({
+		messageFlagService: store.messageFlag,
+		messageService: store.message,
+		threadMessageService: store.threadMessage,
+		flagPushService: flagPushService(),
+	});
 
 const sync = (mailbox: MailboxItem, batchSize = 50) =>
 	syncService().syncMessages(
@@ -343,13 +361,18 @@ describe("a message the database already holds, sighted in another folder", () =
 
 	it("declines a sighting of a copy the user put in that folder", async () => {
 		const { message } = await arrive(inbox);
+		await userMoves().copyMessage(
+			account.accountConfigId,
+			message.messageId,
+			junk.mailboxId,
+			account.accountId,
+		);
 		const copied = imap.deliver("INBOX/Rubbish", SPAMMER);
-		await store.message.create({
-			...message,
-			messageId: deriveCopyMessageId(message.messageId, junk.mailboxId),
-			mailboxId: junk.mailboxId,
-			uid: copied,
-		});
+		await store.message.updateUid(
+			deriveCopyMessageId(message.messageId, junk.mailboxId),
+			copied,
+			junk.mailboxId,
+		);
 
 		await sync(junk);
 
@@ -374,17 +397,18 @@ describe("a message the database already holds, sighted in another folder", () =
 
 	it("holds a row whose own move has not settled", async () => {
 		const { uid, message } = await arrive(inbox);
-		await store.message.transitionPlacement(
+		await userMoves().moveMessage(
+			account.accountConfigId,
 			message.messageId,
-			{ status: "active" },
-			{ status: "moving", syncStatus: "pending" },
+			receipts.mailboxId,
+			account.accountId,
 		);
 		await serverMove(inbox, uid, junk);
 
 		await sync(junk);
 
 		const row = await store.message.get(message.messageId);
-		assert.equal(row.mailboxId, inbox.mailboxId);
+		assert.equal(row.mailboxId, receipts.mailboxId);
 		assert.equal(row.status, "moving");
 	});
 });
@@ -455,12 +479,13 @@ describe("CHANGEDSINCE picks up what another client changed", () => {
 			uids: [uid],
 			messages: [message],
 		} = await seeded();
-		const thread = await threadOf(message.messageId);
-		await store.threadMessage.update(
+		await flagQueue().updateFlags(
 			account.accountConfigId,
-			thread.threadMessageId,
-			{ star: "purple" },
+			message.messageId,
+			account.accountId,
+			{ isStarred: false, starColor: "purple" },
 		);
+		await store.flagPush.delete(message.messageId, MessageSystemFlag.Flagged);
 		imap.store("INBOX", [uid], [MessageSystemFlag.Flagged]);
 
 		await sync(inbox);
