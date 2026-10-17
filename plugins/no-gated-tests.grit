@@ -1,0 +1,38 @@
+language js(typescript, jsx);
+
+or {
+  `$runner.$verb` as $hit where {
+    $runner <: r"^(?:describe|it|test|suite)(?:\.[A-Za-z]+)*$",
+    $verb <: or { `only`, `todo` },
+    register_diagnostic(span = $hit, message = "A committed .only narrows CI to one test and a .todo is a test that never runs. Delete it, or write the test so it runs in CI. (no-gated-tests)", severity = "error")
+  },
+  `$runner.$verb($cond, $...)` as $hit where {
+    $runner <: r"^(?:describe|it|test|suite)(?:\.[A-Za-z]+)*$",
+    $verb <: or { `skip`, `skipIf`, `runIf`, `fixme` },
+    $cond <: contains `process.env`,
+    register_diagnostic(span = $hit, message = "A test gated on an environment variable CI never sets reads as coverage and proves nothing. Make it run in CI, or delete it. (no-gated-tests)", severity = "error")
+  },
+  `$runner.skip()` as $hit where {
+    $runner <: r"^(?:describe|it|test|suite)(?:\.[A-Za-z]+)*$",
+    register_diagnostic(span = $hit, message = "A committed .skip is a test that never runs. Delete it, or fix it so it runs in CI. (no-gated-tests)", severity = "error")
+  },
+  `$runner.skip($title, $...)` as $hit where {
+    $runner <: r"^(?:describe|it|test|suite)(?:\.[A-Za-z]+)*$",
+    $title <: r"^[\"'`][\s\S]*",
+    register_diagnostic(span = $hit, message = "A committed .skip is a test that never runs. Delete it, or fix it so it runs in CI. (no-gated-tests)", severity = "error")
+  },
+  JsPropertyObjectMember(name = $name, value = $value) as $hit where {
+    $name <: or { `skip`, `todo`, `only` },
+    or {
+      $value <: contains `process.env`,
+      $value <: `true`,
+      $value <: r"^[\"'`][\s\S]*"
+    },
+    register_diagnostic(span = $hit, message = "A test option that skips, narrows to, or parks a test on a constant or an environment variable leaves CI green without running it. Make it run in CI, or delete it. (no-gated-tests)", severity = "error")
+  },
+  `if ($cond) $then` as $hit where {
+    $cond <: contains `process.env`,
+    $then <: contains `$_.skip`,
+    register_diagnostic(span = $hit, message = "A test gated on an environment variable CI never sets reads as coverage and proves nothing. Make it run in CI, or delete it. (no-gated-tests)", severity = "error")
+  }
+}

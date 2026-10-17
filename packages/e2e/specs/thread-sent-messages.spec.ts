@@ -1,129 +1,108 @@
 /**
  * Regression cover for #46: a conversation showed the incoming half only, because
- * the thread was read one mailbox at a time and the user's own replies live in
- * Sent.
+ * the web client scoped its thread request to the browsed mailbox and the user's
+ * own replies live in Sent.
  *
- * Global setup put a two-turn conversation on the IMAP server — the
- * correspondent's message in INBOX, the reply to it in Sent, chained by
- * References — so what is asserted here is that the deployment reassembles them
- * into one conversation, over the API and in the browser.
- *
- * Only the browser test guards the regression. The bug was the web client
- * scoping its thread request to the browsed mailbox, and this suite's own API
- * client never sent that parameter — so the API test below passes against a
- * build that still has the defect. It is kept for what it does cover: that the
- * threading and the sync of the Sent folder put both turns on one thread.
+ * The reply is sent through reader and filed by it, so the Sent half is the copy
+ * the product produced, not one planted beside it.
  */
 
-import type { ApiClient } from "../src/api.js";
-import { waitFor } from "../src/api.js";
+import type { BrowserContext } from "@playwright/test";
+import { ApiClient, waitFor } from "../src/api.js";
+import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
-import { INBOX_LIST, listOnScreen } from "../src/lists.js";
-import { MAILBOX_THREAD_URL, MAILBOX_URL } from "../src/urls.js";
+import { listServerSubjects } from "../src/imap.js";
+import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
-/**
- * The thread the seeded conversation belongs to. Sync is asynchronous per
- * mailbox and Sent is synced after INBOX, so the inbox row can exist for a
- * while before its counterpart in Sent does — every read here is a poll.
- */
-const conversationThreadId = async (
-	api: ApiClient,
-	inboxId: string,
-	subject: string,
-): Promise<string> => {
-	const threads = await waitFor(
-		() => api.listThreads(inboxId),
-		(items) => items.some((thread) => thread.subject === subject),
-		{ timeoutMs: 60_000, what: `the inbox row for "${subject}" to sync` },
-	);
-	const thread = threads.find((item) => item.subject === subject);
-	if (!thread) {
-		throw new Error("unreachable: the thread was matched but not found");
-	}
-	return thread.threadId;
-};
+const STAMP = Date.now();
+const RECEIVED_SUBJECT = `Contract renewal ${STAMP}`;
+const RECEIVED_FROM_NAME = "Dana Whitfield";
+const REPLY_SUBJECT = `Re: ${RECEIVED_SUBJECT}`;
 
 test.describe("A conversation spanning INBOX and Sent", () => {
-	test.setTimeout(180_000);
+	let run: IsolatedRun;
+	let api: ApiClient;
+	let context: BrowserContext;
 
-	test("the thread carries both the received message and the sent reply", async ({
-		api,
-		run,
-	}) => {
-		const threadId = await conversationThreadId(
-			api,
-			run.inboxId,
-			run.conversation.receivedSubject,
-		);
-
-		const messages = await waitFor(
-			() => api.listThreadMessages(threadId),
-			(items) =>
-				items.some((item) => item.subject === run.conversation.sentSubject),
+	test.beforeAll(async ({ browser }) => {
+		test.setTimeout(300_000);
+		run = await provisionIsolatedRun("E2E Thread Sent", [
 			{
-				timeoutMs: 90_000,
-				what: "the sent reply to join the thread",
+				subject: RECEIVED_SUBJECT,
+				from: `${RECEIVED_FROM_NAME} <dana@remit.test>`,
+				messageIdHeader: `<renewal-${STAMP}@remit.test>`,
+			},
+		]);
+		api = new ApiClient(run);
+		context = await browser.newContext({
+			storageState: run.storageState,
+			baseURL: baseUrl,
+		});
+	});
+
+	test.afterAll(async () => {
+		await context.close();
+	});
+
+	test("opening it from the inbox shows the reply sent from reader", async () => {
+		test.setTimeout(300_000);
+		const page = await context.newPage();
+
+		await api.messageIdForSubject(run.inboxId, RECEIVED_SUBJECT);
+		await page.goto(`/mail/${run.inboxId}`);
+		await page.getByText(RECEIVED_SUBJECT, { exact: true }).first().click();
+		await page.waitForURL(MAILBOX_THREAD_URL);
+		await expect(page.getByRole("article").first()).toBeVisible({
+			timeout: 30_000,
+		});
+
+		await page.getByRole("button", { name: "Reply", exact: true }).click();
+		await expect(page.locator("[data-subject-field]")).toHaveValue(/^Re: /, {
+			timeout: 30_000,
+		});
+		await page.getByTestId("compose-body").click();
+		await page.keyboard.type("Renewal confirmed on our side.");
+		await page.getByRole("button", { name: "Send", exact: true }).click();
+		await expect(page.getByTestId("compose-body")).toBeHidden({
+			timeout: 30_000,
+		});
+
+		await waitFor(
+			() => listServerSubjects(run.imapUser, "Sent"),
+			(subjects) => subjects.includes(REPLY_SUBJECT),
+			{ timeoutMs: 120_000, what: "the reply to be filed in Sent" },
+		);
+		const threadId = (await api.listThreads(run.inboxId)).find(
+			(thread) => thread.subject === RECEIVED_SUBJECT,
+		)?.threadId;
+		if (!threadId) throw new Error("the received message has no thread");
+		await waitFor(
+			async () => {
+				await api.triggerSync(run.accountId);
+				return api.listThreadMessages(threadId);
+			},
+			(items) => items.some((item) => item.subject === REPLY_SUBJECT),
+			{
+				timeoutMs: 120_000,
+				intervalMs: 5_000,
+				what: "the filed reply to join the thread",
 			},
 		);
 
-		// Exactly the two turns, oldest first. The reply is a distinct message in
-		// a distinct folder, so a thread of one — or of two copies of the same
-		// message — is the failure this asserts against.
-		expect(messages.map((message) => message.subject)).toEqual([
-			run.conversation.receivedSubject,
-			run.conversation.sentSubject,
-		]);
-		expect(new Set(messages.map((message) => message.mailboxId)).size).toBe(2);
-	});
-
-	test("opening it from the inbox shows both turns", async ({
-		api,
-		page,
-		run,
-	}) => {
-		const threadId = await conversationThreadId(
-			api,
-			run.inboxId,
-			run.conversation.receivedSubject,
-		);
-		await waitFor(
-			() => api.listThreadMessages(threadId),
-			(items) => items.length === 2,
-			{ timeoutMs: 90_000, what: "both turns of the conversation to sync" },
-		);
-
-		await page.goto("/mail");
-		const sidebar = page.getByRole("navigation", {
-			name: "Mailboxes",
-			exact: true,
-		});
-		await expect(sidebar).toBeVisible({ timeout: 20_000 });
-		await sidebar.getByRole("link", { name: /inbox/i }).click();
-		await page.waitForURL(MAILBOX_URL);
-		await listOnScreen(page, INBOX_LIST);
-
-		await page
-			.getByText(run.conversation.receivedSubject, { exact: true })
-			.first()
-			.click();
+		await page.goto(`/mail/${run.inboxId}`);
+		await page.getByText(RECEIVED_SUBJECT, { exact: true }).first().click();
 		await page.waitForURL(MAILBOX_THREAD_URL);
-
-		const conversation = page.getByRole("article");
-		await expect(conversation).toBeVisible({ timeout: 20_000 });
 
 		// The count the header states is the count the reader believes it has, so
 		// a conversation truncated to its inbox half fails here first.
+		const conversation = page.getByRole("article");
+		await expect(conversation).toBeVisible({ timeout: 30_000 });
 		await expect(conversation.getByText("2 messages")).toBeVisible({
-			timeout: 20_000,
+			timeout: 30_000,
 		});
-
-		// Both correspondents are on screen: the sender of the received message,
-		// and the user themselves on the reply that only exists in Sent.
 		await expect(
-			conversation.getByText(run.conversation.receivedFromName).first(),
-		).toBeVisible();
-		await expect(
-			conversation.getByText(run.conversation.sentFromName).first(),
+			conversation.getByText(RECEIVED_FROM_NAME).first(),
 		).toBeVisible();
 	});
 });

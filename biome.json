@@ -263,6 +263,18 @@
 			"plugins": ["./plugins/no-raw-landmarks.grit"]
 		},
 		{
+			"includes": [
+				"**/*.test.ts",
+				"**/*.test.tsx",
+				"**/*.test.mjs",
+				"**/*.spec.ts",
+				"**/*.browser-test.ts",
+				"packages/e2e/src/**/*.ts",
+				"packages/e2e/unit/**/*.ts"
+			],
+			"plugins": ["./plugins/no-gated-tests.grit"]
+		},
+		{
 			"includes": ["npm-scripts/lib/*.test.mjs"],
 			"linter": {
 				"rules": {
