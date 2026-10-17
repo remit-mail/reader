@@ -22,7 +22,7 @@ const accountInput = (accountConfigId: string): CreateAccountInput => ({
 	connectionState: ConnectionState.NotAuthenticated,
 });
 
-const everyUpdatableField: Required<Omit<UpdateAccountInput, "accountId">> = {
+const everyUpdatableField: Required<UpdateAccountInput> = {
 	username: "renamed@example.org",
 	email: "renamed@example.org",
 	authType: AccountAuthType.OauthMicrosoft,
@@ -135,19 +135,6 @@ export function accountRepositoryConformance(
 				sources.map((account) => account.accountId).sort(),
 				[mailOnly.accountId, both.accountId].sort(),
 			);
-		});
-
-		test("a deleted account reads back as deleted", async () => {
-			const created = await repo.create(accountInput(harness.makeId()));
-
-			await repo.update(created.accountId, {
-				deletedAt: 1_700_000_000_000,
-				isActive: false,
-			});
-
-			const stored = await repo.get(created.accountId);
-			assert.equal(stored.deletedAt, 1_700_000_000_000);
-			assert.equal(stored.isActive, false);
 		});
 
 		test("an update stores every field it is handed", async () => {

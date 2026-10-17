@@ -4,6 +4,7 @@ import type {
 	AccountSchedulerPage,
 	CreateAccountInput,
 	IAccountRepository,
+	RemovableAccountField,
 	ResultList,
 	UpdateAccountInput,
 } from "@remit/data-ports";
@@ -139,66 +140,14 @@ export class AccountRepo implements IAccountRepository {
 	async update(
 		accountId: string,
 		input: UpdateAccountInput,
-		remove?: (keyof UpdateAccountInput)[],
+		remove?: RemovableAccountField[],
 	): Promise<AccountItem> {
-		const now = Date.now();
 		const updates: Partial<typeof accountTable.$inferInsert> = {
-			updatedAt: now,
+			...input,
+			lastError: clampLastError(input.lastError),
+			updatedAt: Date.now(),
 		};
-
-		if (input.username !== undefined) updates.username = input.username;
-		if (input.email !== undefined) updates.email = input.email;
-		if (input.authType !== undefined) updates.authType = input.authType;
-		if (input.syncedServices !== undefined)
-			updates.syncedServices = input.syncedServices;
-		if (input.grantedScopes !== undefined)
-			updates.grantedScopes = input.grantedScopes;
-		if (input.passwordHash !== undefined)
-			updates.passwordHash = input.passwordHash;
-		if (input.oauthRefreshTokenHash !== undefined)
-			updates.oauthRefreshTokenHash = input.oauthRefreshTokenHash;
-		if (input.oauthTokenUpdatedAt !== undefined)
-			updates.oauthTokenUpdatedAt = input.oauthTokenUpdatedAt;
-		if (input.imapHost !== undefined) updates.imapHost = input.imapHost;
-		if (input.imapPort !== undefined) updates.imapPort = input.imapPort;
-		if (input.imapTls !== undefined) updates.imapTls = input.imapTls;
-		if (input.imapStartTls !== undefined)
-			updates.imapStartTls = input.imapStartTls;
-		if (input.smtpEnabled !== undefined)
-			updates.smtpEnabled = input.smtpEnabled;
-		if (input.smtpHost !== undefined) updates.smtpHost = input.smtpHost;
-		if (input.smtpPort !== undefined) updates.smtpPort = input.smtpPort;
-		if (input.smtpTls !== undefined) updates.smtpTls = input.smtpTls;
-		if (input.smtpStartTls !== undefined)
-			updates.smtpStartTls = input.smtpStartTls;
-		if (input.smtpUsername !== undefined)
-			updates.smtpUsername = input.smtpUsername;
-		if (input.smtpPasswordHash !== undefined)
-			updates.smtpPasswordHash = input.smtpPasswordHash;
-		if (input.isActive !== undefined) updates.isActive = input.isActive;
-		if (input.deletedAt !== undefined) updates.deletedAt = input.deletedAt;
-		if (input.connectionState !== undefined)
-			updates.connectionState = input.connectionState;
-		if (input.lastConnectedAt !== undefined)
-			updates.lastConnectedAt = input.lastConnectedAt;
-		if (input.lastSyncAt !== undefined) updates.lastSyncAt = input.lastSyncAt;
-		if (input.lastError !== undefined)
-			updates.lastError = clampLastError(input.lastError);
-		if (input.syncPhase !== undefined) updates.syncPhase = input.syncPhase;
-		if (input.mailboxCountTotal !== undefined)
-			updates.mailboxCountTotal = input.mailboxCountTotal;
-		if (input.mailboxCountSynced !== undefined)
-			updates.mailboxCountSynced = input.mailboxCountSynced;
-
-		// Handle field removal (set to null)
-		if (remove) {
-			for (const field of remove) {
-				if (field === "lastError") updates.lastError = null;
-				if (field === "lastConnectedAt") updates.lastConnectedAt = null;
-				if (field === "lastSyncAt") updates.lastSyncAt = null;
-				if (field === "syncPhase") updates.syncPhase = null;
-			}
-		}
+		for (const field of remove ?? []) updates[field] = null;
 
 		const [row] = await this.db
 			.update(accountTable)
