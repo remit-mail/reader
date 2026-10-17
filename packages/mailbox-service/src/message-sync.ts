@@ -21,8 +21,8 @@ import {
 	deriveEnvelopeId,
 	deriveMessageIdFromSource,
 	deriveThreadId,
-	isValidMessageId,
 } from "@remit/data-ports/id";
+import { bareMessageId, wireMessageId } from "@remit/data-ports/message-id";
 import {
 	AddressRole,
 	MailboxCursorState,
@@ -292,6 +292,9 @@ export const selectUidsToSync = (
 
 	return uidsToSync.sort((a, b) => b - a);
 };
+
+const usableWireMessageId = (value: string | undefined): string | undefined =>
+	value && bareMessageId(value) !== "" ? wireMessageId(value) : undefined;
 
 /** A FETCH row that names a message: everything downstream needs the envelope. */
 const hasEnvelope = (
@@ -1838,27 +1841,18 @@ export class MessageSyncService {
 		references?: string[],
 		hasAttachment = false,
 	): Promise<void> {
-		// Determine the thread root Message-ID
-		let rootMessageIdHeader: string;
-
-		if (references && references.length > 0) {
-			// References header exists - first entry is the thread root (RFC 2822)
-			rootMessageIdHeader = references[0];
-		} else if (envelope.inReplyTo) {
-			// No References, but has In-Reply-To - use as thread root
-			// (This is a reply to a single message, which becomes the root)
-			rootMessageIdHeader = envelope.inReplyTo;
-		} else if (isValidMessageId(envelope.messageId)) {
-			// No References, no In-Reply-To - this message is a thread root
-			rootMessageIdHeader = envelope.messageId;
-		} else {
-			// No usable header (missing, empty, or a "<>" delivery-failure
-			// placeholder). Fall back to the always-present internal messageId so
-			// this message becomes a standalone thread-of-one. Distinct headerless
-			// messages keep distinct ids, so they never collide into one bogus
-			// thread, and every persisted Message gets exactly one ThreadMessage.
-			rootMessageIdHeader = messageId;
-		}
+		// The root is the first entry of References (RFC 5322), else the parent
+		// In-Reply-To names, else this message itself. Each is read in its wire
+		// spelling, so a `<<id>>` some client sent threads with `<id>`. With no
+		// usable header at all (missing, empty, or a "<>" delivery-failure
+		// placeholder) the internal messageId stands in, so this message becomes a
+		// standalone thread-of-one and distinct headerless messages never collide.
+		const inReplyTo = usableWireMessageId(envelope.inReplyTo);
+		const rootMessageIdHeader =
+			usableWireMessageId(references?.[0]) ??
+			inReplyTo ??
+			usableWireMessageId(envelope.messageId) ??
+			messageId;
 
 		// Derive threadId from the root Message-ID (deterministic)
 		const threadId = deriveThreadId(accountConfigId, rootMessageIdHeader);
@@ -1897,7 +1891,7 @@ export class MessageSyncService {
 				mailboxId,
 				uid,
 				messageIdHeader: envelope.messageId,
-				inReplyTo: envelope.inReplyTo,
+				inReplyTo: inReplyTo ?? envelope.inReplyTo,
 				referenceOrder,
 				fromEmail,
 				fromName,

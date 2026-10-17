@@ -1,4 +1,5 @@
 import type { OutboxMessageItem } from "@remit/data-ports";
+import { bareMessageId, wireMessageId } from "@remit/data-ports/message-id";
 import type { Logger } from "@remit/logger-lambda";
 import type { EngagementCounterDeps, SendTenant } from "./send-message-core.js";
 
@@ -119,8 +120,7 @@ const collectReferenceHeaders = (outbox: OutboxMessageItem): string[] => {
 	return result;
 };
 
-const headerVariants = (header: string): string[] => {
-	const stripped = header.replace(/^<|>$/g, "");
-	if (stripped === header) return [`<${header}>`, header];
-	return [header, stripped];
-};
+const headerVariants = (header: string): string[] => [
+	wireMessageId(header),
+	bareMessageId(header),
+];

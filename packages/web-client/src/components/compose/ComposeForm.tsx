@@ -8,6 +8,7 @@ import type {
 	RemitImapAccountResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { bareMessageId } from "@remit/data-ports/message-id";
 import {
 	Banner,
 	ComposeActionBar,
@@ -184,11 +185,13 @@ const getReplyAddresses = (
 const getReferences = (
 	msg: RemitImapDescribeMessageResponse,
 ): { inReplyTo?: string; references: string[] } => {
-	const messageIdValue = msg.envelope.messageIdValue;
+	const messageIdValue = msg.envelope.messageIdValue
+		? bareMessageId(msg.envelope.messageIdValue)
+		: undefined;
 	const existingRefs = msg.references
 		.filter((r) => r.referenceType === "references")
 		.sort((a, b) => a.referenceOrder - b.referenceOrder)
-		.map((r) => r.messageIdValue);
+		.map((r) => bareMessageId(r.messageIdValue));
 
 	const references = [...existingRefs];
 	if (messageIdValue && !references.includes(messageIdValue)) {
