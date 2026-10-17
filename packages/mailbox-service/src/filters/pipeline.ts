@@ -103,19 +103,21 @@ export class FilterPipeline {
 		messageId: string,
 		msg: FilterMessage,
 	): Promise<FilterDecision> {
-		return this.match(accountConfigId, accountId, msg).catch((error: unknown) => {
-			this.log.error?.(
-				{
-					alert: "body_sync_filter_match_failed",
-					messageId,
-					accountConfigId,
-					errorName: (error as { name?: string })?.name,
-					error: inspect(error),
-				},
-				"Filter matching failed; body already stored, continuing without filter actions (best-effort, non-fatal)",
-			);
-			return EMPTY_DECISION;
-		});
+		return this.match(accountConfigId, accountId, msg).catch(
+			(error: unknown) => {
+				this.log.error?.(
+					{
+						alert: "body_sync_filter_match_failed",
+						messageId,
+						accountConfigId,
+						errorName: (error as { name?: string })?.name,
+						error: inspect(error),
+					},
+					"Filter matching failed; body already stored, continuing without filter actions (best-effort, non-fatal)",
+				);
+				return EMPTY_DECISION;
+			},
+		);
 	}
 
 	/**
