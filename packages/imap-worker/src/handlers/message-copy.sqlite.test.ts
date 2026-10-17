@@ -255,8 +255,14 @@ describe("a message copy", () => {
 });
 
 describe("a fresh copy acted on before the server confirms it", () => {
-	const queuedOf = <T>(a: Arranged, type: string): T =>
-		a.w.queued().find((body) => body.type === type) as unknown as T;
+	const isMove = (
+		body: Record<string, unknown>,
+	): body is Record<string, unknown> & MessageMoveEvent =>
+		body.type === "MESSAGE_MOVE";
+	const isDelete = (
+		body: Record<string, unknown>,
+	): body is Record<string, unknown> & MessageDeleteEvent =>
+		body.type === "MESSAGE_DELETE";
 
 	it("waits for the copy to settle, then moves the copy and leaves the original", async () => {
 		const a = await arrange();
@@ -270,7 +276,8 @@ describe("a fresh copy acted on before the server confirms it", () => {
 		await run(a);
 		await moving;
 		const [copyUid] = a.w.imap.uids("Projects", a.messageIdHeader);
-		const event = queuedOf<MessageMoveEvent>(a, "MESSAGE_MOVE");
+		const event = a.w.queued().find(isMove);
+		assert.ok(event, "the move enqueued a MESSAGE_MOVE");
 		assert.equal(event.uid, copyUid);
 
 		await handleMessageMove(event, a.w.log, 1, a.w.scope);
@@ -294,7 +301,8 @@ describe("a fresh copy acted on before the server confirms it", () => {
 		);
 		await run(a);
 		assert.deepEqual((await deleting).refusedMessageIds, []);
-		const event = queuedOf<MessageDeleteEvent>(a, "MESSAGE_DELETE");
+		const event = a.w.queued().find(isDelete);
+		assert.ok(event, "the delete enqueued a MESSAGE_DELETE");
 
 		await handleMessageDelete(event, a.w.log, 1, a.w.scope);
 

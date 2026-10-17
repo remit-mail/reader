@@ -312,72 +312,38 @@ describe("moving a message", () => {
 		assert.equal((await row(stranded)).mailboxId, archive.mailboxId);
 	});
 
-	const freshCopy = async () => {
-		const original = await rowIn(inbox, 5);
-		await service().copyMessage(
-			account.accountConfigId,
-			original,
-			archive.mailboxId,
-			account.accountId,
-		);
-		queue.length = 0;
-		return deriveCopyMessageId(original, archive.mailboxId);
-	};
-
-	const actOn = (action: "move" | "delete", copy: string) =>
-		action === "move"
-			? service().moveMessage(
-					account.accountConfigId,
-					copy,
-					inbox.mailboxId,
-					account.accountId,
-				)
-			: service().deleteMessages(
-					account.accountConfigId,
-					[copy],
-					account.accountId,
-					{ permanent: true },
-				);
-
-	for (const action of ["move", "delete"] as const) {
-		it(`${action}s a fresh copy once the server confirms its uid`, async () => {
-			await world();
-			const copy = await freshCopy();
-
-			settleLater(copy, 61);
-			await actOn(action, copy);
-
-			assert.deepEqual(
-				queue.map((event) => [
-					event.body.type,
-					event.body.sourceMailboxPath ?? event.body.mailboxPath,
-					event.body.uid,
-				]),
-				[
-					[
-						action === "move" ? "MESSAGE_MOVE" : "MESSAGE_DELETE",
-						"Archive",
-						61,
-					],
-				],
-			);
-			assert.equal(
-				(await row(copy)).status,
-				action === "move" ? "moving" : "deleting",
-			);
-		});
-
+	for (const action of ["move", "delete", "copy"] as const) {
 		it(`refuses to ${action} a copy the server never confirms, writing nothing`, async () => {
 			await world();
-			const copy = await freshCopy();
+			const original = await rowIn(inbox, 5);
+			await service().copyMessage(
+				account.accountConfigId,
+				original,
+				archive.mailboxId,
+				account.accountId,
+			);
+			queue.length = 0;
+			const copy = deriveCopyMessageId(original, archive.mailboxId);
 			const before = await row(copy);
 
 			await assert.rejects(
-				actOn(action, copy),
+				action === "delete"
+					? service().deleteMessages(
+							account.accountConfigId,
+							[copy],
+							account.accountId,
+							{ permanent: true },
+						)
+					: service()[`${action}Message`](
+							account.accountConfigId,
+							copy,
+							inbox.mailboxId,
+							account.accountId,
+						),
 				(error: unknown) =>
 					error instanceof MessagePlacementUnsettledError &&
 					error.statusCode === 409 &&
-					/copy the mail server has not confirmed/.test(error.message),
+					error.publicApiError?.details?.reason === "in_flight",
 			);
 
 			assert.equal(queue.length, 0);
