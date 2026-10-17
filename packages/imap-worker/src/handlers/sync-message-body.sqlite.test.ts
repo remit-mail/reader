@@ -8,6 +8,7 @@ import {
 	MailboxCursorState,
 	MessageStatus,
 } from "@remit/domain-enums";
+import { isMessageBodySyncBroken } from "@remit/mailbox-service";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import type { SyncMessageBodyEvent } from "../events.js";
@@ -16,7 +17,10 @@ import {
 	type SeededMessage,
 	type World,
 } from "../test-helpers/test-world.js";
-import { syncMessageBody } from "./sync-message-body.js";
+import {
+	BODY_SYNC_MAX_ATTEMPTS,
+	syncMessageBody,
+} from "./sync-message-body.js";
 
 const ssm = mockClient(SSMClient);
 
@@ -158,25 +162,31 @@ const batchOf = (
 const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
 	syncMessageBody(event, w.log, receiveCount, w.scope);
 
-describe("a body batch whose filter files mail while the queue is refusing", () => {
-	const arrangeFiling = async () => {
-		const w = await store.world();
-		const inbox = await w.folder("INBOX");
-		const travel = await w.folder("Travel");
-		await w.client.filter.create({
-			accountConfigId: w.account.accountConfigId,
-			name: "From a friend",
-			scope: FilterScope.Standing,
-			literalClauses: [
-				{ field: FilterClauseField.From, value: "friend@example.com" },
-			],
-			actionMailboxId: travel.mailboxId,
-		});
-		const first = await w.message(inbox);
-		const second = await w.message(inbox);
-		return { w, travel, first, second, event: batchOf(w, inbox, [first, second]) };
+const arrangeFiling = async () => {
+	const w = await store.world();
+	const inbox = await w.folder("INBOX");
+	const travel = await w.folder("Travel");
+	await w.client.filter.create({
+		accountConfigId: w.account.accountConfigId,
+		name: "From a friend",
+		scope: FilterScope.Standing,
+		literalClauses: [
+			{ field: FilterClauseField.From, value: "friend@example.com" },
+		],
+		actionMailboxId: travel.mailboxId,
+	});
+	const first = await w.message(inbox);
+	const second = await w.message(inbox);
+	return {
+		w,
+		travel,
+		first,
+		second,
+		event: batchOf(w, inbox, [first, second]),
 	};
+};
 
+describe("a body batch whose filter files mail while the queue is refusing", () => {
 	it("fails at the first filing it cannot enqueue and leaves the rest untouched", async () => {
 		const { w, first, second, event } = await arrangeFiling();
 		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
@@ -215,6 +225,49 @@ describe("a body batch whose filter files mail while the queue is refusing", () 
 	});
 });
 
+describe("a body batch on its last attempt while the queue is refusing", () => {
+	it("throws, so the batch dead-letters instead of its messages being marked broken", async () => {
+		const { w, first: message, event } = await arrangeFiling();
+		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
+
+		await assert.rejects(
+			runBatch(w, event, BODY_SYNC_MAX_ATTEMPTS),
+			/ECONNREFUSED/,
+		);
+
+		assert.equal(
+			await isMessageBodySyncBroken(
+				w.client.storage,
+				w.account.accountConfigId,
+				w.account.accountId,
+				message.messageId,
+			),
+			false,
+		);
+	});
+});
+
+const startMove = (
+	w: World,
+	message: SeededMessage,
+	from: MailboxItem,
+	to: MailboxItem,
+) =>
+	w.client.message.transitionPlacement(
+		message.messageId,
+		{
+			status: MessageStatus.active,
+			mailboxId: from.mailboxId,
+			uid: message.uid,
+		},
+		{
+			mailboxId: to.mailboxId,
+			status: MessageStatus.moving,
+			originalMailboxId: from.mailboxId,
+			originalUid: message.uid,
+		},
+	);
+
 describe("a body batch that has gone stale", () => {
 	it("does not fetch a message from a folder its confirmed move took it out of", async () => {
 		const w = await store.world();
@@ -222,16 +275,7 @@ describe("a body batch that has gone stale", () => {
 		const travel = await w.folder("Travel");
 		const moved = await w.message(inbox);
 		const neighbour = await w.message(inbox);
-		await w.client.message.transitionPlacement(
-			moved.messageId,
-			{ status: MessageStatus.active, mailboxId: inbox.mailboxId, uid: moved.uid },
-			{
-				mailboxId: travel.mailboxId,
-				status: MessageStatus.moving,
-				originalMailboxId: inbox.mailboxId,
-				originalUid: moved.uid,
-			},
-		);
+		await startMove(w, moved, inbox, travel);
 		await w.client.message.updateUid(
 			moved.messageId,
 			neighbour.uid,
@@ -249,16 +293,7 @@ describe("a body batch that has gone stale", () => {
 		const inbox = await w.folder("INBOX");
 		const travel = await w.folder("Travel");
 		const filing = await w.message(inbox);
-		await w.client.message.transitionPlacement(
-			filing.messageId,
-			{ status: MessageStatus.active, mailboxId: inbox.mailboxId, uid: filing.uid },
-			{
-				mailboxId: travel.mailboxId,
-				status: MessageStatus.moving,
-				originalMailboxId: inbox.mailboxId,
-				originalUid: filing.uid,
-			},
-		);
+		await startMove(w, filing, inbox, travel);
 
 		await runBatch(w, batchOf(w, inbox, [filing]));
 

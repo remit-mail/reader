@@ -46,12 +46,14 @@ export const isPlacementUnsettled = (
  * untouched, so anything that resolves a uid off a row it did not settle
  * itself asks this rather than the binding below (issue #1217).
  */
-export const carriesForeignUid = (
-	message: Pick<
+export const carriesForeignUid = <
+	T extends Pick<
 		MessageItem,
 		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
 	>,
-): boolean =>
+>(
+	message: T,
+): message is T & { originalMailboxId: string; originalUid: number } =>
 	message.originalUid !== undefined &&
 	message.originalUid === message.uid &&
 	message.originalMailboxId !== undefined &&
@@ -68,9 +70,7 @@ export const uidMailboxIdOf = (
 		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
 	>,
 ): string =>
-	carriesForeignUid(message) && message.originalMailboxId !== undefined
-		? message.originalMailboxId
-		: message.mailboxId;
+	carriesForeignUid(message) ? message.originalMailboxId : message.mailboxId;
 
 export const bindsForeignUid = (
 	message: Pick<

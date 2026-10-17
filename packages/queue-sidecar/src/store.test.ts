@@ -284,7 +284,7 @@ describe("QueueStore", () => {
 		});
 		assert.equal(dlq.length, 1);
 		assert.equal(dlq[0].body, "poison");
-		assert.equal(dlq[0].receiveCount, 1, "receive count resets in the DLQ");
+		assert.equal(dlq[0].receiveCount, 3, "the DLQ keeps the receive count");
 	});
 
 	it("persists enqueued messages across a store restart", () => {

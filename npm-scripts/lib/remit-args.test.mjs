@@ -320,6 +320,22 @@ const CASES = {
 			{ args: ["--out"], message: /^remit: cert: unknown option/m },
 		],
 	},
+	redrive: {
+		refusal: /^remit: redrive: name one dead-letter queue/m,
+		takes: [
+			{
+				args: ["remit-body-dlq"],
+				proof: /exec -T queue node redrive\.mjs remit-body-dlq/,
+			},
+		],
+		refuses: [
+			{ args: [], message: /^remit: redrive: name one dead-letter queue/m },
+			{
+				args: ["remit-body-dlq", "remit-flags-dlq.fifo"],
+				message: /^remit: redrive: name one dead-letter queue/m,
+			},
+		],
+	},
 	"probe-host": {
 		refusal: /^remit: probe-host: needs one origin/m,
 		takes: [{ args: ["127.0.0.1"], proof: /loopback 127\.0\.0\.1/ }],

@@ -174,6 +174,13 @@ export const TARGETS = [
 		entry: "packages/queue-sidecar/src/main.ts",
 		external: [SQLITE],
 	},
+	// `remit redrive`, as an alternate entrypoint in the same image: it asks
+	// the running sidecar to move the messages, so the store keeps one writer.
+	{
+		name: "queue-sidecar-redrive",
+		entry: "packages/queue-sidecar/src/redrive-cli.ts",
+		outfile: "dist-docker/queue-sidecar/redrive.mjs",
+	},
 	// The checker (standalone-observability D9). No `external`: it imports
 	// nothing outside Node's standard library, which is what lets its runtime
 	// image install no packages at all.

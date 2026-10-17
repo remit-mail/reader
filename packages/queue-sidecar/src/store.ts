@@ -321,7 +321,9 @@ export class QueueStore {
 					queue.deadLetterTargetName !== null &&
 					candidate.receive_count >= queue.maxReceiveCount
 				) {
-					this.moveToQueue(candidate, queue.deadLetterTargetName, now);
+					this.db
+						.prepare("UPDATE messages SET queue_name = ? WHERE id = ?")
+						.run(queue.deadLetterTargetName, candidate.id);
 					continue;
 				}
 
@@ -453,18 +455,19 @@ export class QueueStore {
 	 * Return everything a dead-letter queue holds to the queue it came from, as
 	 * SQS StartMessageMoveTask does. Each message goes to the back of that queue
 	 * with a fresh receive count, so it gets the full redelivery budget again and
-	 * a FIFO group still sees it after anything sent since. The source is the one
-	 * queue whose redrive policy names this one; `destinationName` is required
-	 * only when several do.
+	 * a FIFO group still sees it after anything sent since.
 	 */
-	redriveDeadLetters(
-		deadLetterName: string,
-		destinationName?: string,
-		now = Date.now(),
-	): number {
+	redriveDeadLetters(deadLetterName: string, now = Date.now()): number {
 		this.requireQueue(deadLetterName);
-		const destination = destinationName ?? this.redriveSourceOf(deadLetterName);
-		this.requireQueue(destination);
+		const source = this.listQueues().find(
+			(queue) => queue.deadLetterTargetName === deadLetterName,
+		);
+		if (!source) {
+			throw new InvalidParameterValueError(
+				`${deadLetterName} is not the dead-letter queue of any queue`,
+			);
+		}
+		const destination = source.name;
 
 		const redrive = this.db.transaction((): number => {
 			const rows = this.db
@@ -474,18 +477,6 @@ export class QueueStore {
 			return rows.length;
 		});
 		return redrive();
-	}
-
-	private redriveSourceOf(deadLetterName: string): string {
-		const sources = this.listQueues().filter(
-			(queue) => queue.deadLetterTargetName === deadLetterName,
-		);
-		if (sources.length !== 1) {
-			throw new InvalidParameterValueError(
-				`${deadLetterName} is the dead-letter queue of ${sources.length} queues; name the destination`,
-			);
-		}
-		return sources[0].name;
 	}
 
 	private moveToQueue(

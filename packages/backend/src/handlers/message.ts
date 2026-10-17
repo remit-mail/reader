@@ -607,6 +607,7 @@ export const MessageOperations: Record<
 				);
 			} else {
 				const folder = {
+					mailboxId: mailbox.mailboxId,
 					fullPath: mailbox.fullPath,
 					placement: await resolveFolderPlacement(
 						client.mailboxSpecialUse,
@@ -748,6 +749,7 @@ export const MessageOperations: Record<
 				);
 			} else {
 				const folder = {
+					mailboxId: mailbox.mailboxId,
 					fullPath: mailbox.fullPath,
 					placement: await resolveFolderPlacement(
 						client.mailboxSpecialUse,

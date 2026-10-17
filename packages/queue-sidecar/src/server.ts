@@ -222,15 +222,8 @@ export const createSidecarServer = (options: CreateSidecarOptions): Server => {
 					"StartMessageMoveTask requires SourceArn",
 				);
 			}
-			const destinationArn = params.get("DestinationArn");
-			const moved = store.redriveDeadLetters(
-				queueNameFromArn(sourceArn),
-				destinationArn ? queueNameFromArn(destinationArn) : undefined,
-			);
-			log.info(
-				{ sourceArn, destinationArn, moved },
-				"sidecar: dead letters redriven",
-			);
+			const moved = store.redriveDeadLetters(queueNameFromArn(sourceArn));
+			log.info({ sourceArn, moved }, "sidecar: dead letters redriven");
 			return {
 				status: 200,
 				body: queryResponse(action, taskHandleResult(randomUUID()), requestId),
