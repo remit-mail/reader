@@ -39,7 +39,7 @@ model BodyPart {
   @visibility(Lifecycle.Read)
   parentBodyPartId?: UUID;
 
-  @doc("IMAP section path (e.g., '1', '1.2', '2.1.3')")
+  @doc("Storage path of the part within its message: '0' is the root, otherwise the IMAP section number (e.g., '1', '1.2', '2.1.3'). '<path>.0' is the root of the forwarded message a message/rfc822 part at <path> carries, which is not an IMAP section.")
   @visibility(Lifecycle.Read)
   @minLength(1)
   partPath: string;
@@ -170,6 +170,7 @@ model BodyPartResponse {
     BodyPart,
 
       | "bodyPartId"
+      | "partPath"
       | "mediaType"
       | "mediaSubtype"
       | "disposition"

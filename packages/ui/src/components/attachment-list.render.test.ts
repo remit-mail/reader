@@ -4,13 +4,19 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { AttachmentList, type AttachmentListProps } from "./attachment-list.js";
 
-const render = (props: AttachmentListProps): string =>
-	renderToString(createElement(AttachmentList, props));
+const render = (
+	props: Omit<AttachmentListProps, "onToggleOpen"> &
+		Partial<Pick<AttachmentListProps, "onToggleOpen">>,
+): string =>
+	renderToString(
+		createElement(AttachmentList, { onToggleOpen: () => undefined, ...props }),
+	);
 
 const item = (
 	overrides: Partial<AttachmentListProps["attachments"][number]>,
 ) => ({
 	attachmentId: "part-1",
+	kind: "file" as const,
 	filename: "Quarterly report.pdf",
 	typeLabel: "PDF",
 	sizeOctets: 1024 * 512,
@@ -94,5 +100,38 @@ describe("AttachmentList", () => {
 		});
 		assert.match(html, /carries an attachment, but none of/);
 		assert.match(html, /Attachment</);
+	});
+
+	it("opens a forwarded message in place and still offers to save it", () => {
+		const forwarded = item({
+			attachmentId: "part-2",
+			kind: "message",
+			filename: "forwarded.eml",
+		});
+		const closed = render({
+			attachments: [forwarded],
+			onDownload: () => undefined,
+			onToggleOpen: () => undefined,
+		});
+		assert.match(closed, /aria-label="Open forwarded\.eml"/);
+		assert.match(closed, /aria-expanded="false"/);
+		assert.match(closed, /aria-label="Download forwarded\.eml"/);
+		assert.doesNotMatch(closed, /data-testid="forwarded-message"/);
+
+		const open = render({
+			attachments: [forwarded],
+			onDownload: () => undefined,
+			onToggleOpen: () => undefined,
+			opened: {
+				attachmentId: "part-2",
+				content: createElement("p", null, "Original message body"),
+			},
+		});
+		assert.match(open, /aria-label="Close forwarded\.eml"/);
+		assert.match(open, /aria-expanded="true"/);
+		assert.match(
+			open,
+			/data-testid="forwarded-message"[^>]*>.*Original message body/,
+		);
 	});
 });

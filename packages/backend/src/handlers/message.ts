@@ -11,6 +11,7 @@ import {
 	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
+import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import {
 	ContentDisposition,
 	MediaType,
@@ -213,6 +214,13 @@ const assertDisposition = (
 	return value;
 };
 
+export const FORWARDED_MESSAGE_FILENAME = "Forwarded message.eml";
+
+const responseFilename = (part: BodyPartLike): string | undefined => {
+	if (part.dispositionFilename !== undefined) return part.dispositionFilename;
+	return isEncapsulatedMessage(part) ? FORWARDED_MESSAGE_FILENAME : undefined;
+};
+
 export const buildBodyPartResponses = (
 	parts: readonly BodyPartLike[],
 	context: {
@@ -225,11 +233,12 @@ export const buildBodyPartResponses = (
 ): BodyPartResponse[] => {
 	return parts.map((part) => ({
 		bodyPartId: part.bodyPartId,
+		partPath: part.partPath,
 		mediaType: assertMediaType(part.mediaType, part.bodyPartId),
 		mediaSubtype: part.mediaSubtype,
 		sizeOctets: part.sizeOctets,
 		disposition: assertDisposition(part.disposition, part.bodyPartId),
-		dispositionFilename: part.dispositionFilename,
+		dispositionFilename: responseFilename(part),
 		isMultipart: part.isMultipart,
 		contentId: part.contentId,
 		contentUrl: buildContentUrl({

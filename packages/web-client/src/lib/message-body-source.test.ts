@@ -6,6 +6,7 @@ import {
 } from "./message-body-source";
 
 const make = (overrides: Partial<RenderableBodyPart>): RenderableBodyPart => ({
+	partPath: "1",
 	mediaType: "TEXT",
 	mediaSubtype: "PLAIN",
 	contentUrl: "https://cdn.test/content/x",
@@ -90,5 +91,25 @@ describe("pickRenderablePart", () => {
 	it("skips parts with an empty contentUrl so the fetch never fires against the API root", () => {
 		const broken = make({ mediaSubtype: "HTML", contentUrl: "" });
 		assert.equal(pickRenderablePart([broken]), null);
+	});
+
+	it("never renders a forwarded message's body as the body carrying it", () => {
+		const outer = make({ partPath: "1", contentUrl: "https://cdn.test/outer" });
+		const forwarded = make({
+			partPath: "2",
+			mediaType: "MESSAGE",
+			mediaSubtype: "rfc822",
+			disposition: "attachment",
+			contentUrl: "https://cdn.test/forwarded",
+		});
+		const innerHtml = make({
+			partPath: "2.1",
+			mediaSubtype: "HTML",
+			contentUrl: "https://cdn.test/inner",
+		});
+		assert.deepEqual(pickRenderablePart([outer, forwarded, innerHtml]), {
+			kind: "text",
+			contentUrl: "https://cdn.test/outer",
+		});
 	});
 });

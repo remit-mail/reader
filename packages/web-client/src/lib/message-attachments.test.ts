@@ -8,6 +8,7 @@ const part = (
 ): RemitImapBodyPartResponse =>
 	({
 		bodyPartId: "part-1",
+		partPath: "2",
 		mediaType: "APPLICATION",
 		mediaSubtype: "PDF",
 		sizeOctets: 2048,
@@ -82,5 +83,81 @@ describe("selectMessageAttachments", () => {
 			part({ mediaSubtype: "OCTET-STREAM" }),
 		]);
 		assert.equal(attachment.typeLabel, "FILE");
+	});
+
+	describe("a forwarded message", () => {
+		const forwarded = part({
+			bodyPartId: "forwarded",
+			partPath: "2",
+			mediaType: "MESSAGE",
+			mediaSubtype: "rfc822",
+			dispositionFilename: "forwarded.eml",
+		});
+		const inner = [
+			part({
+				bodyPartId: "inner-root",
+				partPath: "2.0",
+				mediaType: "MULTIPART",
+				mediaSubtype: "mixed",
+				isMultipart: true,
+				disposition: undefined,
+			}),
+			part({
+				bodyPartId: "inner-text",
+				partPath: "2.1",
+				mediaType: "TEXT",
+				mediaSubtype: "plain",
+				disposition: undefined,
+			}),
+			part({
+				bodyPartId: "inner-pdf",
+				partPath: "2.2",
+				dispositionFilename: "original.pdf",
+			}),
+		];
+
+		it("is listed as a message, and the attachment inside it is not", () => {
+			const attachments = selectMessageAttachments([
+				forwarded,
+				...inner,
+				part({ bodyPartId: "outer-pdf", partPath: "3" }),
+			]);
+			assert.deepEqual(
+				attachments.map((a) => [a.bodyPartId, a.kind, a.filename]),
+				[
+					["forwarded", "message", "forwarded.eml"],
+					["outer-pdf", "file", "report.pdf"],
+				],
+			);
+		});
+
+		it("is listed whatever disposition the sender gave it", () => {
+			const [attachment] = selectMessageAttachments([
+				{ ...forwarded, disposition: undefined },
+			]);
+			assert.equal(attachment?.kind, "message");
+			assert.equal(attachment?.filename, "forwarded.eml");
+			assert.equal(attachment?.typeLabel, "MESSAGE");
+		});
+
+		it("lists its own attachment once it is the message being read", () => {
+			assert.deepEqual(
+				selectMessageAttachments(inner).map((a) => a.bodyPartId),
+				["inner-pdf"],
+			);
+		});
+
+		it("is not confused with a delivery report", () => {
+			assert.deepEqual(
+				selectMessageAttachments([
+					part({
+						mediaType: "MESSAGE",
+						mediaSubtype: "delivery-status",
+						disposition: undefined,
+					}),
+				]),
+				[],
+			);
+		});
 	});
 });

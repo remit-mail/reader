@@ -1,15 +1,22 @@
 import type { RemitImapBodyPartResponse } from "@remit/api-http-client/types.gen.ts";
+import {
+	isEncapsulatedMessage,
+	ownParts,
+} from "@remit/data-ports/message-parts";
 import { ContentDisposition } from "@remit/domain-enums";
-import { sanitizeAttachmentFilename } from "@remit/ui";
+import { type AttachmentKind, sanitizeAttachmentFilename } from "@remit/ui";
 
 /**
  * The attachment-disposition body parts of a message, in the order the message
  * declares them. `pickRenderablePart` (message-body-source.ts) drops exactly
  * these parts so the renderer never treats a PDF as a body; this is the other
- * half of that split.
+ * half of that split. A forwarded message is listed whatever its disposition,
+ * and the parts inside it are its own, not the carrying message's.
  */
 export interface MessageAttachment {
 	bodyPartId: string;
+	partPath: string;
+	kind: AttachmentKind;
 	/** Display and save name — sanitized once, used for both. */
 	filename: string;
 	typeLabel: string;
@@ -17,7 +24,8 @@ export interface MessageAttachment {
 	contentUrl: string;
 }
 
-const typeLabelFor = (mediaSubtype: string): string => {
+const typeLabelFor = (kind: AttachmentKind, mediaSubtype: string): string => {
+	if (kind === "message") return "MESSAGE";
 	const label = mediaSubtype.toUpperCase();
 	return label === "OCTET-STREAM" ? "FILE" : label;
 };
@@ -35,20 +43,28 @@ const fallbackFilenameFor = (mediaSubtype: string): string => {
 export const selectMessageAttachments = (
 	parts: readonly RemitImapBodyPartResponse[],
 ): MessageAttachment[] =>
-	parts
+	ownParts(parts)
 		.filter(
 			(part) =>
 				!part.isMultipart &&
-				part.disposition === ContentDisposition.Attachment &&
+				(part.disposition === ContentDisposition.Attachment ||
+					isEncapsulatedMessage(part)) &&
 				part.contentUrl.length > 0,
 		)
-		.map((part) => ({
-			bodyPartId: part.bodyPartId,
-			filename: sanitizeAttachmentFilename(
-				part.dispositionFilename ?? "",
-				fallbackFilenameFor(part.mediaSubtype),
-			),
-			typeLabel: typeLabelFor(part.mediaSubtype),
-			sizeOctets: part.sizeOctets,
-			contentUrl: part.contentUrl,
-		}));
+		.map((part) => {
+			const kind: AttachmentKind = isEncapsulatedMessage(part)
+				? "message"
+				: "file";
+			return {
+				bodyPartId: part.bodyPartId,
+				partPath: part.partPath,
+				kind,
+				filename: sanitizeAttachmentFilename(
+					part.dispositionFilename ?? "",
+					fallbackFilenameFor(part.mediaSubtype),
+				),
+				typeLabel: typeLabelFor(kind, part.mediaSubtype),
+				sizeOctets: part.sizeOctets,
+				contentUrl: part.contentUrl,
+			};
+		});

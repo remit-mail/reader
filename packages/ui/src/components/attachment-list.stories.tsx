@@ -20,6 +20,7 @@ type Story = StoryObj<typeof AttachmentList>;
 
 const report: AttachmentItem = {
 	attachmentId: "part-2",
+	kind: "file",
 	filename: "Q3 board pack.pdf",
 	typeLabel: "PDF",
 	sizeOctets: 2_411_724,
@@ -28,11 +29,45 @@ const report: AttachmentItem = {
 
 const sitePlan: AttachmentItem = {
 	attachmentId: "part-3",
+	kind: "file",
 	filename: "site-plan.png",
 	typeLabel: "PNG",
 	sizeOctets: 486_120,
 	download: { status: "idle" },
 };
+
+const forwarded: AttachmentItem = {
+	attachmentId: "part-9",
+	kind: "message",
+	filename: "forwarded.eml",
+	typeLabel: "MESSAGE",
+	sizeOctets: 617,
+	download: { status: "idle" },
+};
+
+const innerPdf: AttachmentItem = {
+	attachmentId: "part-9-2",
+	kind: "file",
+	filename: "original.pdf",
+	typeLabel: "PDF",
+	sizeOctets: 33,
+	download: { status: "idle" },
+};
+
+/**
+ * Stands in for the app's body renderer: the forwarded message's own body,
+ * and its own attachment list underneath.
+ */
+const ForwardedBody = () => (
+	<div className="space-y-3 text-sm text-fg">
+		<p>Original message body before forwarding.</p>
+		<AttachmentList
+			attachments={[innerPdf]}
+			onDownload={() => {}}
+			onToggleOpen={() => {}}
+		/>
+	</div>
+);
 
 /** How long the app's own fetch takes on a small attachment, near enough. */
 const DOWNLOAD_MS = 900;
@@ -46,11 +81,14 @@ const DOWNLOAD_MS = 900;
 const Harness = ({
 	attachments,
 	hasUnlistedAttachment,
+	initiallyOpen = null,
 }: {
 	attachments: readonly AttachmentItem[];
 	hasUnlistedAttachment?: boolean;
+	initiallyOpen?: string | null;
 }) => {
 	const [rows, setRows] = useState<readonly AttachmentItem[]>(attachments);
+	const [openId, setOpenId] = useState<string | null>(initiallyOpen);
 
 	const setDownload = (attachmentId: string, item: AttachmentItem) =>
 		setRows((current) =>
@@ -72,6 +110,14 @@ const Harness = ({
 			attachments={rows}
 			onDownload={download}
 			hasUnlistedAttachment={hasUnlistedAttachment}
+			onToggleOpen={(attachmentId) =>
+				setOpenId((current) => (current === attachmentId ? null : attachmentId))
+			}
+			opened={
+				openId === null
+					? undefined
+					: { attachmentId: openId, content: <ForwardedBody /> }
+			}
 		/>
 	);
 };
@@ -88,6 +134,7 @@ export const SeveralAttachments: Story = {
 				sitePlan,
 				{
 					attachmentId: "part-4",
+					kind: "file",
 					filename: "notes.txt",
 					typeLabel: "PLAIN",
 					sizeOctets: 812,
@@ -95,6 +142,7 @@ export const SeveralAttachments: Story = {
 				},
 				{
 					attachmentId: "part-5",
+					kind: "file",
 					filename: "archive",
 					typeLabel: "FILE",
 					sizeOctets: 1024 ** 3 + 1024 ** 2 * 200,
@@ -156,6 +204,7 @@ export const HostileFilename: Story = {
 			attachments={[
 				{
 					attachmentId: "part-6",
+					kind: "file",
 					filename: "passwd",
 					typeLabel: "FILE",
 					sizeOctets: 3_120,
@@ -163,6 +212,7 @@ export const HostileFilename: Story = {
 				},
 				{
 					attachmentId: "part-7",
+					kind: "file",
 					filename: "invoicegnp.exe",
 					typeLabel: "FILE",
 					sizeOctets: 118_400,
@@ -170,6 +220,7 @@ export const HostileFilename: Story = {
 				},
 				{
 					attachmentId: "part-8",
+					kind: "file",
 					filename: `${"long-name-".repeat(11)}report.pdf`,
 					typeLabel: "PDF",
 					sizeOctets: 44_000,
@@ -187,4 +238,20 @@ export const HostileFilename: Story = {
  */
 export const UnlistedAttachment: Story = {
 	render: () => <Harness attachments={[]} hasUnlistedAttachment />,
+};
+
+/**
+ * A forwarded message, carried whole (message/rfc822). It is listed under its
+ * own name and opens in place; the PDF it carries belongs to it, so it is not
+ * a row of the outer list.
+ */
+export const ForwardedMessage: Story = {
+	render: () => <Harness attachments={[forwarded, report]} />,
+};
+
+/** The forwarded message opened: its body and its own attachment list. */
+export const ForwardedMessageOpen: Story = {
+	render: () => (
+		<Harness attachments={[forwarded, report]} initiallyOpen="part-9" />
+	),
 };

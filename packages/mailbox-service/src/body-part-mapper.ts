@@ -46,7 +46,12 @@
 
 import { Buffer } from "node:buffer";
 import type { BodyPartItem } from "@remit/data-ports";
-import type { Attachment, ParsedMail } from "mailparser";
+import {
+	encapsulatedParts,
+	outermostMessages,
+	ownParts,
+} from "@remit/data-ports/message-parts";
+import { type Attachment, type ParsedMail, simpleParser } from "mailparser";
 
 export interface BodyPartContentPair {
 	partPath: string;
@@ -354,6 +359,51 @@ export const mapBodyPartsToContent = (
 			"body-part-mapper: no source bytes for leaf; pairing with zero-byte buffer",
 		);
 		pairs.push({ partPath: part.partPath, contentType, content: EMPTY_BUFFER });
+	}
+
+	return pairs;
+};
+
+/**
+ * The parse every part's bytes are paired against. A message/rfc822 part stays
+ * one leaf holding the raw forwarded message whatever its disposition, so the
+ * forwarded message's own parts come only from parsing it in turn.
+ */
+export const parsePartSource = (source: Buffer): Promise<ParsedMail> =>
+	simpleParser(source, { ignoreEmbedded: true });
+
+/**
+ * `mapBodyPartsToContent`, extended to forwarded messages. mailparser hands a
+ * message/rfc822 part over as one attachment holding the raw forwarded
+ * message, so the parts inside it have no bytes in `parsed`. Each forwarded
+ * message is parsed on its own and its parts are paired against that parse,
+ * with their paths rebased so `<messagePath>.0` is the forwarded message's
+ * root — the shape `walkMimeStructure` stores.
+ */
+export const mapMessagePartsToContent = async (
+	bodyParts: readonly MapperInput[],
+	parsed: ParsedMail,
+	context: MapperContext = {},
+): Promise<BodyPartContentPair[]> => {
+	const messages = outermostMessages(bodyParts);
+	const pairs = mapBodyPartsToContent(ownParts(bodyParts), parsed, context);
+
+	for (const message of messages) {
+		const raw = pairs.find((pair) => pair.partPath === message.partPath);
+		const inner = encapsulatedParts(bodyParts, message.partPath);
+		if (!raw || inner.length === 0) continue;
+		const prefix = `${message.partPath}.`;
+		const nested = await mapMessagePartsToContent(
+			inner.map((part) => ({
+				...part,
+				partPath: part.partPath.slice(prefix.length),
+			})),
+			await parsePartSource(raw.content),
+			context,
+		);
+		for (const pair of nested) {
+			pairs.push({ ...pair, partPath: `${prefix}${pair.partPath}` });
+		}
 	}
 
 	return pairs;

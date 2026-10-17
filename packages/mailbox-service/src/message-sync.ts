@@ -337,7 +337,7 @@ export class MessageSyncService {
 		 */
 		private mailboxSpecialUseService: IMailboxSpecialUseRepository,
 		private messageService: IMessageRepository,
-		envelopeService: IEnvelopeRepository,
+		private envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
 		logger?: SyncLogger,
@@ -431,6 +431,17 @@ export class MessageSyncService {
 				"UIDVALIDITY changed; mailbox cursor tripped, pausing outbound sync this round",
 			);
 			return emptySyncResult();
+		}
+
+		if (
+			await this.restoreMissingStructure(
+				mailbox,
+				accountId,
+				accountConfigId,
+				batchSize,
+			)
+		) {
+			await connection.openBox(mailboxPath);
 		}
 
 		const cursor = parseChangeCursor(mailbox.highestModseq);
@@ -1402,6 +1413,72 @@ export class MessageSyncService {
 		if (hasFlag === present) return;
 
 		await this.setMessageFlag(messageId, flagName, present);
+	}
+
+	/**
+	 * Messages the forwarded-message repair queued — their part rows dropped,
+	 * the lost row only on the mail server — are fetched again by UID and saved
+	 * through the same path as any other sighting, which writes their parts. No
+	 * watermark moves: these UIDs are already behind them. Each leaves the queue
+	 * once saved or once the server returns no usable row for it, whatever
+	 * parts came back; only a failed save keeps it for the next round. Resolves
+	 * `true` when it touched the connection, which the probe of departures may
+	 * have left on another folder.
+	 */
+	private async restoreMissingStructure(
+		mailbox: MailboxItem,
+		accountId: string,
+		accountConfigId: string,
+		batchSize: number,
+	): Promise<boolean> {
+		const queued = await this.envelopeService.listQueuedStructureRefetches(
+			mailbox.mailboxId,
+			batchSize,
+		);
+		if (queued.length === 0) return false;
+
+		const applicable = (
+			await this.fetchMessageBatch(queued.map(({ uid }) => uid))
+		).filter(hasEnvelope);
+		const roles = await this.folderRolesFor(accountId, accountConfigId);
+		const departures = await this.probeDepartures(
+			mailbox,
+			accountId,
+			applicable,
+		);
+		const outcomes = await pMap(
+			applicable,
+			(msg) =>
+				this.trySaveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					roles,
+					departures,
+				),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+		const failedUids = new Set(
+			outcomes.flatMap((outcome) =>
+				outcome.kind === "failed" ? [outcome.uid] : [],
+			),
+		);
+		await this.envelopeService.clearStructureRefetches(
+			queued
+				.filter(({ uid }) => !failedUids.has(uid))
+				.map(({ messageId }) => messageId),
+		);
+		this.log.info(
+			{
+				mailboxId: mailbox.mailboxId,
+				requested: queued.length,
+				saved: outcomes.length - failedUids.size,
+				failed: failedUids.size,
+			},
+			"Re-read the structure of messages the forwarded-message repair queued",
+		);
+		return true;
 	}
 
 	/**

@@ -10,6 +10,14 @@ declare module "mailparser" {
 	interface Attachment {
 		partId?: string;
 	}
+	/**
+	 * Not a mailparser option: mailparser hands its options to its MIME
+	 * splitter, mailsplit, whose `ignoreEmbedded` keeps a message/rfc822 part
+	 * one leaf.
+	 */
+	interface MailParserOptions {
+		ignoreEmbedded?: boolean;
+	}
 }
 
 export {};

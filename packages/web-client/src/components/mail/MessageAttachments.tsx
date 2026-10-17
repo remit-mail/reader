@@ -3,6 +3,7 @@ import type {
 	RemitImapBodyPartResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { encapsulatedParts } from "@remit/data-ports/message-parts";
 import { type AttachmentDownloadState, AttachmentList } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -20,6 +21,7 @@ import {
 	type MessageAttachment,
 	selectMessageAttachments,
 } from "@/lib/message-attachments";
+import { MessageBody } from "./MessageBody";
 
 interface MessageAttachmentsProps {
 	messageId: string;
@@ -38,6 +40,9 @@ const IDLE: AttachmentDownloadState = { status: "idle" };
  * Download state is per row and lives here rather than in a query: a download is
  * a one-shot user action with no cached result to hold, and the bytes are handed
  * to the browser rather than rendered.
+ *
+ * A forwarded message also opens in place: its own parts render through the
+ * same body and attachment components as the message carrying it.
  */
 export const MessageAttachments = ({
 	messageId,
@@ -50,6 +55,7 @@ export const MessageAttachments = ({
 	const [downloads, setDownloads] = useState<
 		Record<string, AttachmentDownloadState>
 	>({});
+	const [openedId, setOpenedId] = useState<string | null>(null);
 
 	const attachments = useMemo(
 		() => selectMessageAttachments(bodyParts ?? []),
@@ -136,11 +142,20 @@ export const MessageAttachments = ({
 	const hasUnlistedAttachment =
 		hasAttachment && bodyParts !== undefined && attachments.length === 0;
 
+	const openedMessage = attachments.find(
+		(attachment) =>
+			attachment.kind === "message" && attachment.bodyPartId === openedId,
+	);
+	const openedParts = openedMessage
+		? encapsulatedParts(bodyParts ?? [], openedMessage.partPath)
+		: [];
+
 	return (
 		<AttachmentList
 			className={className}
 			attachments={attachments.map((attachment) => ({
 				attachmentId: attachment.bodyPartId,
+				kind: attachment.kind,
 				filename: attachment.filename,
 				typeLabel: attachment.typeLabel,
 				sizeOctets: attachment.sizeOctets,
@@ -148,6 +163,26 @@ export const MessageAttachments = ({
 			}))}
 			onDownload={download}
 			hasUnlistedAttachment={hasUnlistedAttachment}
+			onToggleOpen={(bodyPartId) =>
+				setOpenedId((current) => (current === bodyPartId ? null : bodyPartId))
+			}
+			opened={
+				openedMessage
+					? {
+							attachmentId: openedMessage.bodyPartId,
+							content: (
+								<>
+									<MessageBody bodyParts={openedParts} messageId={messageId} />
+									<MessageAttachments
+										messageId={messageId}
+										bodyParts={openedParts}
+										className="mt-4"
+									/>
+								</>
+							),
+						}
+					: undefined
+			}
 		/>
 	);
 };

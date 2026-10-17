@@ -8,9 +8,12 @@
  * type without standing up jsdom or DOMPurify.
  */
 
+import { ownParts } from "@remit/data-ports/message-parts";
+
 export type BodyContentKind = "html" | "text";
 
 export interface RenderableBodyPart {
+	partPath: string;
 	mediaType: string;
 	mediaSubtype: string;
 	disposition?: string;
@@ -27,13 +30,13 @@ export interface PickedBodyPart {
  * Pick the best body part to render: prefer the first inline `text/html`,
  * fall back to the first inline `text/plain`. Multipart container rows and
  * attachment-disposition parts are ignored — they carry no renderable
- * payload at this position. Returns `null` when nothing renderable is
+ * payload at this position — and so are the parts of a forwarded message. Returns `null` when nothing renderable is
  * available so callers can show an empty-body affordance.
  */
 export const pickRenderablePart = (
 	parts: readonly RenderableBodyPart[],
 ): PickedBodyPart | null => {
-	const renderable = parts.filter(
+	const renderable = ownParts(parts).filter(
 		(p) =>
 			!p.isMultipart &&
 			p.disposition !== "attachment" &&

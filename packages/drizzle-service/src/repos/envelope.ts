@@ -28,10 +28,12 @@ import {
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
+	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
 	type MessageDataSchema,
 	messageReferenceTable,
+	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
@@ -366,5 +368,28 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			.from(bodyPartTable)
 			.where(eq(bodyPartTable.messageId, messageId));
 		return rows.map(toBodyPartItem);
+	}
+
+	async listQueuedStructureRefetches(
+		mailboxId: string,
+		limit: number,
+	): Promise<Array<{ messageId: string; uid: number }>> {
+		return this.db
+			.select({ messageId: messageTable.messageId, uid: messageTable.uid })
+			.from(bodyStructureRefetchTable)
+			.innerJoin(
+				messageTable,
+				eq(messageTable.messageId, bodyStructureRefetchTable.messageId),
+			)
+			.where(eq(messageTable.mailboxId, mailboxId))
+			.orderBy(messageTable.uid)
+			.limit(limit);
+	}
+
+	async clearStructureRefetches(messageIds: string[]): Promise<void> {
+		if (messageIds.length === 0) return;
+		await this.db
+			.delete(bodyStructureRefetchTable)
+			.where(inArray(bodyStructureRefetchTable.messageId, messageIds));
 	}
 }
