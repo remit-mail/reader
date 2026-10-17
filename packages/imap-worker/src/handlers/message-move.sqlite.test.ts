@@ -8,7 +8,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageMoveEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/test-world.js";
+import { mail, openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageMove } from "./message-move.js";
 
 // The sync writes the Message-ID onto the listing row only, never the Message
@@ -46,7 +46,7 @@ const arrange = async (
 	});
 	const seeded = await w.message(inbox);
 	if (options.olderCopyInArchive) {
-		w.imap.deliver("Archive", seeded.messageIdHeader);
+		w.imap.deliver("Archive", mail(seeded.messageIdHeader));
 	}
 
 	await w.client.messageMove.moveMessage(
@@ -159,7 +159,7 @@ describe("a message move", () => {
 	// row goes and the resync re-projects it wherever it actually is.
 	it("reconciles the row away at the ceiling when the source no longer holds it", async () => {
 		const a = await arrange();
-		a.w.imap.folder("INBOX").messages = [];
+		a.w.imap.empty("INBOX");
 		a.w.imap.failNext.MOVE = new Error("Connection reset");
 
 		await run(a, 3);
@@ -170,7 +170,7 @@ describe("a message move", () => {
 
 	it("creates a destination the server does not have and redelivers", async () => {
 		const a = await arrange();
-		a.w.imap.folders.delete("Archive");
+		a.w.imap.removeFolder("Archive");
 
 		await assert.rejects(run(a), /TRYCREATE/);
 
@@ -226,7 +226,7 @@ describe("a message move", () => {
 	// row to mail this move never touched.
 	it("never settles a redelivered paused move off a sighting at the destination", async () => {
 		const a = await arrange({ olderCopyInArchive: true });
-		a.w.imap.folder("INBOX").messages = [];
+		a.w.imap.empty("INBOX");
 		await a.w.client.mailbox.update(a.w.account.accountId, a.inboxId, {
 			cursorState: MailboxCursorState.rebuilding,
 		});
@@ -247,7 +247,7 @@ describe("a message move", () => {
 
 	it("moves nothing when the source's UIDVALIDITY changed under it", async () => {
 		const a = await arrange();
-		a.w.imap.folder("INBOX").uidValidity = 2;
+		a.w.imap.setUidValidity("INBOX", 2);
 
 		await run(a);
 
@@ -257,9 +257,7 @@ describe("a message move", () => {
 
 	it("moves under the destination's current path when it was renamed after enqueue", async () => {
 		const a = await arrange();
-		const folder = a.w.imap.folder("Archive");
-		a.w.imap.folders.delete("Archive");
-		a.w.imap.folders.set("Records", folder);
+		a.w.imap.renameFolder("Archive", "Records");
 		await a.w.client.mailbox.update(a.w.account.accountId, a.archiveId, {
 			fullPath: "Records",
 		});

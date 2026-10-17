@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
+import { imapError } from "@remit/mailbox-service/test-helpers/fake-imap";
 import type { MailboxManagementEvent } from "../events.js";
-import { imapError } from "../test-helpers/test-imap-server.js";
 import { openStore, type World } from "../test-helpers/test-world.js";
 import { processMailboxManagement } from "./mailbox-management.js";
 
@@ -76,10 +76,10 @@ describe("creating a folder", () => {
 
 		await run(w, event);
 
-		assert.ok(w.imap.folders.has("Receipts"));
+		assert.ok(w.imap.hasFolder("Receipts"));
 		const row = await mailbox(w, mailboxId);
 		assert.equal(row?.syncStatus, MailboxSyncStatus.synced);
-		assert.equal(row?.uidValidity, w.imap.folder("Receipts").uidValidity);
+		assert.equal(row?.uidValidity, w.imap.uidValidityOf("Receipts"));
 	});
 
 	it("subscribes only when the request asks for it", async () => {
@@ -96,7 +96,7 @@ describe("creating a folder", () => {
 	it("settles a folder the server already has as created", async () => {
 		const w = await store.world();
 		const { mailboxId, event } = await requestCreate(w, "Receipts");
-		w.imap.addFolder("Receipts", 7);
+		w.imap.addFolder("Receipts", { uidValidity: 7 });
 
 		await run(w, event);
 
@@ -159,7 +159,7 @@ describe("renaming a folder", () => {
 
 		await run(w, event);
 
-		assert.ok(w.imap.folders.has("Projects/Clients"));
+		assert.ok(w.imap.hasFolder("Projects/Clients"));
 		assert.equal((await mailbox(w, work.mailboxId))?.fullPath, "Projects");
 		const settledChild = await mailbox(w, child.mailboxId);
 		assert.equal(settledChild?.fullPath, "Projects/Clients");
@@ -168,8 +168,8 @@ describe("renaming a folder", () => {
 
 	it("removes the folder, its children and their mail when the source is gone on the server", async () => {
 		const { w, work, child, message, event } = await arrange();
-		w.imap.folders.delete("Work");
-		w.imap.folders.delete("Work/Clients");
+		w.imap.removeFolder("Work");
+		w.imap.removeFolder("Work/Clients");
 
 		await run(w, event);
 
@@ -187,7 +187,7 @@ describe("renaming a folder", () => {
 		const row = await mailbox(w, work.mailboxId);
 		assert.equal(row?.fullPath, "Work");
 		assert.equal(row?.syncStatus, MailboxSyncStatus.failed);
-		assert.ok(w.imap.folders.has("Work"));
+		assert.ok(w.imap.hasFolder("Work"));
 	});
 
 	it("issues no RENAME when a redelivery finds the rename already settled", async () => {
@@ -217,14 +217,14 @@ describe("deleting a folder", () => {
 
 		await run(w, event);
 
-		assert.equal(w.imap.folders.has("Old"), false);
+		assert.equal(w.imap.hasFolder("Old"), false);
 		assert.equal(await mailbox(w, old.mailboxId), undefined);
 		assert.equal(await w.row(message.messageId), undefined);
 	});
 
 	it("removes the folder and its mail when the server no longer has it", async () => {
 		const { w, old, message, event } = await arrange();
-		w.imap.folders.delete("Old");
+		w.imap.removeFolder("Old");
 
 		await run(w, event);
 
@@ -243,7 +243,7 @@ describe("deleting a folder", () => {
 			MailboxSyncStatus.failed,
 		);
 		assert.ok(await w.row(message.messageId));
-		assert.ok(w.imap.folders.has("Old"));
+		assert.ok(w.imap.hasFolder("Old"));
 	});
 
 	it("issues no DELETE for a folder that is not being deleted", async () => {

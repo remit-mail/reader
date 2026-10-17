@@ -86,7 +86,7 @@ describe("Empty Trash", () => {
 	it("hands every row back when another client emptied the Trash first", async () => {
 		const a = await arrange();
 		const event = await emptyTrash(a);
-		a.w.imap.folder("Trash").messages = [];
+		a.w.imap.empty("Trash");
 
 		await run(a, event);
 
@@ -97,9 +97,7 @@ describe("Empty Trash", () => {
 		const a = await arrange();
 		const event = await emptyTrash(a);
 		const [kept, gone] = a.trashed;
-		a.w.imap.folder("Trash").messages = a.w.imap
-			.folder("Trash")
-			.messages.filter((message) => message.uid !== kept?.uid);
+		a.w.imap.expunge("Trash", kept?.uid as number);
 
 		await run(a, event);
 
@@ -134,7 +132,7 @@ describe("Empty Trash", () => {
 	it("expunges nothing and hands the rows back when the folder at the path is not the one emptied", async () => {
 		const a = await arrange();
 		const event = await emptyTrash(a);
-		a.w.imap.folder("Trash").uidValidity = 99;
+		a.w.imap.setUidValidity("Trash", 99);
 
 		await run(a, event);
 
@@ -189,9 +187,7 @@ describe("Empty Trash", () => {
 	it("empties Trash under its current path when the folder was renamed after enqueue", async () => {
 		const a = await arrange();
 		const event = await emptyTrash(a);
-		const folder = a.w.imap.folder("Trash");
-		a.w.imap.folders.delete("Trash");
-		a.w.imap.folders.set("Deleted Items", folder);
+		a.w.imap.renameFolder("Trash", "Deleted Items");
 		await a.w.client.mailbox.update(a.w.account.accountId, a.trash.mailboxId, {
 			fullPath: "Deleted Items",
 		});

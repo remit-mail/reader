@@ -36,6 +36,10 @@
     "./test-helpers/fake-imap": {
       "types": "./src/test-helpers/fake-imap.ts",
       "default": "./src/test-helpers/fake-imap.ts"
+    },
+    "./test-helpers/test-queue": {
+      "types": "./src/test-helpers/test-queue.ts",
+      "default": "./src/test-helpers/test-queue.ts"
     }
   },
   "scripts": {

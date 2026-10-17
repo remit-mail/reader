@@ -51,7 +51,7 @@ export type FakeImapVerb =
 
 /** An error shaped the way ImapFlow reports a tagged NO from the server. */
 export const imapError = (code: string, text: string): Error =>
-	Object.assign(new Error(`Command failed: ${text}`), {
+	Object.assign(new Error(`Command failed: [${code}] ${text}`), {
 		serverResponseCode: code,
 		responseText: text,
 	});
@@ -88,6 +88,9 @@ const toAddresses = (
 
 const single = <T>(value: T | T[] | undefined): T | undefined =>
 	Array.isArray(value) ? value[0] : value;
+
+const messageIdOf = (raw: Buffer): string =>
+	/^Message-ID:\s*(.+?)\s*$/im.exec(raw.toString("utf8"))?.[1] ?? "";
 
 const UID_RANGE = /^(\d+)(?::(\d+|\*))?$/;
 
@@ -164,12 +167,19 @@ export class FakeImapServer {
 		return [...this.folders.keys()];
 	}
 
-	deliver(path: string, raw: Buffer, flags: string[] = []): number {
+	deliver(
+		path: string,
+		raw: Buffer,
+		options: { flags?: string[]; uid?: number } = {},
+	): number {
 		const folder = this.folder(path);
-		const uid = folder.uidNext++;
+		const uid = options.uid ?? folder.uidNext;
+		if (folder.messages.has(uid))
+			throw new Error(`uid ${uid} is taken in ${path}`);
+		folder.uidNext = Math.max(folder.uidNext, uid + 1);
 		folder.messages.set(uid, {
 			raw,
-			flags: new Set(flags),
+			flags: new Set(options.flags ?? []),
 			modseq: this.modseq++,
 			internalDate: new Date(1_700_000_000_000 + uid * 1000),
 		});
@@ -181,6 +191,11 @@ export class FakeImapServer {
 		if (!this.folder(path).messages.delete(uid)) {
 			throw new Error(`no uid ${uid} in ${path}`);
 		}
+	}
+
+	/** Another client expunged everything in the folder. */
+	empty(path: string): void {
+		this.folder(path).messages.clear();
 	}
 
 	/** One STORE from another client: every message it touches shares the new mod-sequence. */
@@ -207,8 +222,38 @@ export class FakeImapServer {
 		return [...(this.folder(path).messages.get(uid)?.flags ?? [])].sort();
 	}
 
-	uids(path: string): number[] {
-		return [...this.folder(path).messages.keys()];
+	uids(path: string, messageIdHeader?: string): number[] {
+		return [...this.folder(path).messages]
+			.filter(
+				([, message]) =>
+					messageIdHeader === undefined ||
+					messageIdOf(message.raw) === messageIdHeader,
+			)
+			.map(([uid]) => uid);
+	}
+
+	/** What the server holds in a folder, as another client would read it. */
+	messages(path: string): Array<{
+		uid: number;
+		messageIdHeader: string;
+		flags: string[];
+		raw: Buffer;
+	}> {
+		return [...this.folder(path).messages].map(([uid, message]) => ({
+			uid,
+			messageIdHeader: messageIdOf(message.raw),
+			flags: [...message.flags].sort(),
+			raw: message.raw,
+		}));
+	}
+
+	/** The server changed UIDVALIDITY without renumbering what it serves. */
+	setUidValidity(path: string, uidValidity: number): void {
+		this.folder(path).uidValidity = uidValidity;
+	}
+
+	uidValidityOf(path: string): number {
+		return this.folder(path).uidValidity;
 	}
 
 	highestModseq(): bigint {
@@ -341,6 +386,19 @@ export class FakeImapConnection implements IImapConnection {
 		) {
 			const highest = Math.max(0, ...all);
 			return all.filter((uid) => inUidSet(String(first[1]), uid, highest));
+		}
+		if (
+			criteria.length === 1 &&
+			Array.isArray(first) &&
+			first.length === 3 &&
+			first[0] === "HEADER" &&
+			String(first[1]).toLowerCase() === "message-id"
+		) {
+			return all.filter(
+				(uid) =>
+					messageIdOf(folder.messages.get(uid)?.raw ?? Buffer.alloc(0)) ===
+					first[2],
+			);
 		}
 		throw new Error(
 			`the fake server does not answer SEARCH ${JSON.stringify(criteria)}`,
@@ -609,7 +667,7 @@ export class FakeImapConnection implements IImapConnection {
 		const uid = this.server.deliver(
 			mailbox,
 			Buffer.isBuffer(message) ? message : Buffer.from(message),
-			flags,
+			{ flags },
 		);
 		return {
 			destination: mailbox,

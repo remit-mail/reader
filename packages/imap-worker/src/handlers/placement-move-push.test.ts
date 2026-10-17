@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { FakeImapServer } from "../test-helpers/test-imap-server.js";
+import {
+	eml,
+	FakeImapServer,
+} from "@remit/mailbox-service/test-helpers/fake-imap";
 import { attemptMove } from "./placement-move-push.js";
 
 const HEADER = "<abc@example.com>";
@@ -12,8 +15,9 @@ const arrange = (
 	const server = new FakeImapServer();
 	server.addFolder("Junk");
 	if (options.inboxExists !== false) server.addFolder("INBOX");
-	if (options.inJunk !== false) server.deliver("Junk", HEADER, 42);
-	if (options.inInbox) server.deliver("INBOX", HEADER);
+	if (options.inJunk !== false)
+		server.deliver("Junk", eml({ "Message-ID": HEADER }), { uid: 42 });
+	if (options.inInbox) server.deliver("INBOX", eml({ "Message-ID": HEADER }));
 	return server;
 };
 

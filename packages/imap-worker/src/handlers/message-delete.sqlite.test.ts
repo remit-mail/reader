@@ -9,7 +9,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageDeleteEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/test-world.js";
+import { mail, openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageDelete } from "./message-delete.js";
 
 // The sync writes the Message-ID onto the listing row only, never the Message
@@ -50,7 +50,8 @@ const arrange = async (
 		specialUse: MailboxSpecialUse.Trash,
 	});
 	const seeded = await w.message(inbox);
-	if (options.olderCopyInTrash) w.imap.deliver("Trash", seeded.messageIdHeader);
+	if (options.olderCopyInTrash)
+		w.imap.deliver("Trash", mail(seeded.messageIdHeader));
 
 	await w.client.messageMove.deleteMessage(
 		w.account.accountConfigId,
@@ -181,7 +182,7 @@ describe("a move to Trash", () => {
 
 	it("hands the row back without creating a Trash the server does not have", async () => {
 		const a = await arrange();
-		a.w.imap.folders.delete("Trash");
+		a.w.imap.removeFolder("Trash");
 
 		await run(a);
 
@@ -218,7 +219,7 @@ describe("a move to Trash", () => {
 	// whatever the server put there. Nothing may be moved by it.
 	it("moves nothing when the source's UIDVALIDITY changed under it", async () => {
 		const a = await arrange();
-		a.w.imap.folder("INBOX").uidValidity = 2;
+		a.w.imap.setUidValidity("INBOX", 2);
 
 		await run(a);
 
@@ -230,9 +231,7 @@ describe("a move to Trash", () => {
 
 	it("moves from the folder's current path when it was renamed after enqueue", async () => {
 		const a = await arrange();
-		const folder = a.w.imap.folder("INBOX");
-		a.w.imap.folders.delete("INBOX");
-		a.w.imap.folders.set("Old/Inbox", folder);
+		a.w.imap.renameFolder("INBOX", "Old/Inbox");
 		await client().mailbox.update(a.w.account.accountId, a.inboxId, {
 			fullPath: "Old/Inbox",
 		});
@@ -280,7 +279,7 @@ describe("a permanent delete", () => {
 
 	it("cleans up locally when another client already expunged it", async () => {
 		const a = await arrange({ permanent: true });
-		a.w.imap.folder("INBOX").messages = [];
+		a.w.imap.empty("INBOX");
 		a.w.imap.failNext.EXPUNGE = new Error("Message not found (NONEXISTENT)");
 
 		await run(a);

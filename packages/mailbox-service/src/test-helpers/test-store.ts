@@ -2,11 +2,6 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-	SendMessageBatchCommand,
-	SendMessageCommand,
-	SQSClient,
-} from "@aws-sdk/client-sqs";
 import type {
 	AccountItem,
 	CreateMessageInput,
@@ -25,10 +20,15 @@ import {
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import { mockClient } from "aws-sdk-client-mock";
 import Database from "better-sqlite3";
 import { MessageSyncService } from "../message-sync.js";
 import type { FakeImapServer } from "./fake-imap.js";
+
+export {
+	captureQueue,
+	type QueueCapture,
+	type QueuedEvent,
+} from "./test-queue.js";
 
 const UPLOAD_URLS = {
 	origin: "https://reader.test",
@@ -194,49 +194,6 @@ export const seedMessage = async (
 	});
 	return { message, threadMessage };
 };
-
-export interface QueuedEvent {
-	queueUrl: string;
-	body: Record<string, unknown>;
-}
-
-/** Every SQS send in the test, answered by `answer` instead of the wire. */
-export const captureQueue = () => {
-	const stub = mockClient(SQSClient);
-	const sent: QueuedEvent[] = [];
-	let answer: () => Promise<unknown> = async () => ({});
-	const record = (
-		queueUrl: string | undefined,
-		bodies: Array<string | undefined>,
-	) => {
-		for (const body of bodies) {
-			sent.push({ queueUrl: queueUrl ?? "", body: JSON.parse(body ?? "{}") });
-		}
-		return answer();
-	};
-	stub
-		.on(SendMessageCommand)
-		.callsFake((input) => record(input.QueueUrl, [input.MessageBody]));
-	stub.on(SendMessageBatchCommand).callsFake((input) =>
-		record(
-			input.QueueUrl,
-			(input.Entries ?? []).map(
-				(entry: { MessageBody?: string }) => entry.MessageBody,
-			),
-		),
-	);
-	return {
-		sent,
-		inputs: () =>
-			stub.commandCalls(SendMessageCommand).map((call) => call.args[0].input),
-		answer: (next: () => Promise<unknown>) => {
-			answer = next;
-		},
-		restore: () => stub.restore(),
-	};
-};
-
-export type QueueCapture = ReturnType<typeof captureQueue>;
 
 export const silentLog = {
 	info: () => {},

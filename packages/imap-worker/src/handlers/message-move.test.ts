@@ -1,7 +1,10 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import type { ThreadMessageItem } from "@remit/data-ports";
-import { FakeImapServer } from "../test-helpers/test-imap-server.js";
+import {
+	eml,
+	FakeImapServer,
+} from "@remit/mailbox-service/test-helpers/fake-imap";
 import {
 	buildThreadMessageMoveUpdate,
 	probePausedPlacement,
@@ -88,7 +91,8 @@ describe("probePausedPlacement — which folder a paused mutation left the messa
 		server.addFolder("INBOX");
 		server.addFolder("Archive");
 		for (const [path, uids] of Object.entries(holdings)) {
-			for (const uid of uids) server.deliver(path, HEADER, uid);
+			for (const uid of uids)
+				server.deliver(path, eml({ "Message-ID": HEADER }), { uid: uid });
 		}
 		return server;
 	};
@@ -163,7 +167,7 @@ describe("searchMailboxForHighestMessageIdUid — the probe that binds a move to
 		const server = new FakeImapServer();
 		server.addFolder("Archive");
 		for (const [uid, header] of messages)
-			server.deliver("Archive", header, uid);
+			server.deliver("Archive", eml({ "Message-ID": header }), { uid: uid });
 		return server;
 	};
 
