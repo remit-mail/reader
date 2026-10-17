@@ -3,11 +3,6 @@
  * embedded-vector stack). Proves upsert, cosine ranking, content-hash lookup,
  * the getByMessage anchor-pooling read path, and delete round-trip through the
  * native extension.
- *
- * Gated behind RUN_INTEG_TESTS because it loads the native better-sqlite3 and
- * sqlite-vec binaries.
- *
- *   npm run test:integ:local -w packages/search-service
  */
 import assert from "node:assert";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -21,7 +16,6 @@ import {
 	readSqliteIndexProvenance,
 } from "./sqlite-vec.js";
 
-const RUN = process.env.RUN_INTEG_TESTS === "1";
 const DIMENSIONS = 4;
 
 const meta = (
@@ -44,7 +38,7 @@ const record = (
 	over: Partial<ChunkMetadata> & { messageId: string },
 ): VectorRecord => ({ chunkId, vector, metadata: meta(over) });
 
-describe("sqlite-vec store (integration)", { skip: !RUN }, () => {
+describe("sqlite-vec store (integration)", () => {
 	let store: VectorStoreService;
 
 	before(() => {
@@ -159,9 +153,7 @@ describe("sqlite-vec store (integration)", { skip: !RUN }, () => {
  * The musl build of that .so is asserted to dlopen at image-build time in the
  * Dockerfile's sqlite-vec-musl stage.
  */
-describe("sqlite-vec store — SQLITE_VEC_EXTENSION_PATH override (integration)", {
-	skip: !RUN,
-}, () => {
+describe("sqlite-vec store — SQLITE_VEC_EXTENSION_PATH override (integration)", () => {
 	let store: VectorStoreService;
 	let previous: string | undefined;
 
@@ -207,7 +199,7 @@ describe("sqlite-vec store — SQLITE_VEC_EXTENSION_PATH override (integration)"
 // #455. The report reads the stored index rather than the store's query path,
 // so it has to be proved against a real vec0 table on disk: an in-memory store
 // would never show that a report can read a file it did not create.
-describe("index provenance (integration)", { skip: !RUN }, () => {
+describe("index provenance (integration)", () => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-index-report-"));
 	const path = join(dir, "vec.db");
 	let store: VectorStoreService;

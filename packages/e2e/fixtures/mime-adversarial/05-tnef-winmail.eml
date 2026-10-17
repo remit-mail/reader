@@ -1,4 +1,4 @@
-X-Remit-Fixture-Note: Synthetic TNEF stub for fixture 05. mailparser surfaces this as an application/ms-tnef attachment with filename "winmail.dat" — which is the #402 contract. The trailing BODYSTRUCTURE round-trip via imapflow is skipped for this shape (see EXPECTATIONS in adversarial-mime.e2e.test.ts). TODO(#402): replace with a real-world winmail.dat capture once we have one to ship.
+X-Remit-Fixture-Note: Synthetic TNEF stub for fixture 05: an application/ms-tnef attachment named "winmail.dat", which is the #402 contract. TODO(#402): replace with a real-world winmail.dat capture once we have one to ship.
 From: alice@example.com
 To: bob@example.com
 Subject: Adversarial fixture 05 Outlook TNEF winmail.dat

@@ -122,6 +122,14 @@ export interface OutboxRow {
 	textBody?: string;
 }
 
+export interface MessageBodyPart {
+	mediaType: string;
+	mediaSubtype: string;
+	disposition?: string;
+	dispositionFilename?: string;
+	sizeOctets: number;
+}
+
 export interface MessageSummary {
 	messageId: string;
 	mailboxId: string;
@@ -663,6 +671,14 @@ export class ApiClient {
 			`/messages/${messageId}`,
 		);
 		return result.message;
+	}
+
+	async describeMessageParts(messageId: string): Promise<MessageBodyPart[]> {
+		const result = await this.json<{ bodyParts: MessageBodyPart[] }>(
+			"GET",
+			`/messages/${messageId}`,
+		);
+		return result.bodyParts;
 	}
 
 	/** The same read/star PATCH the reading pane issues — proves outbound flag push works at all. */

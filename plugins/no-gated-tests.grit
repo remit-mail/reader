@@ -1,0 +1,40 @@
+language js(typescript, jsx);
+
+pattern test_runner() {
+  r"^(?:describe|it|test|suite)(?:\.[A-Za-z]+)*$"
+}
+
+pattern ci_gate() {
+  or { contains `process.env`, contains `existsSync($_)` }
+}
+
+or {
+  `$runner.$verb` as $hit where {
+    $runner <: test_runner(),
+    $verb <: or { `only`, `todo` },
+    register_diagnostic(span = $hit, message = "A committed .only narrows CI to one test and a .todo is a test that never runs. Delete it, or write the test so it runs in CI. (no-gated-tests)", severity = "error")
+  },
+  `$runner.$verb($args)` as $hit where {
+    $runner <: test_runner(),
+    $verb <: or { `skip`, `skipIf`, `runIf`, `fixme` },
+    or {
+      $args <: [],
+      $args <: [r"^[\"'`][\s\S]*", ...],
+      $args <: [ci_gate(), ...]
+    },
+    register_diagnostic(span = $hit, message = "A committed or environment-gated skip is a test CI never runs, and it reads as coverage. Make it run in CI, or delete it. (no-gated-tests)", severity = "error")
+  },
+  `process.env.$name` as $hit where {
+    $name <: r"^RUN_[A-Z0-9_]*$",
+    register_diagnostic(span = $hit, message = "A RUN_* switch gates a test on a variable CI never sets. Make the test run in CI, or delete it. (no-gated-tests)", severity = "error")
+  },
+  `$runner($title, $opts, $...)` where {
+    $runner <: test_runner(),
+    $opts <: JsObjectExpression(),
+    $opts <: contains JsPropertyObjectMember(name = $name, value = $value) as $hit where {
+      $name <: or { `skip`, `todo`, `only` },
+      $value <: or { ci_gate(), `true`, r"^[\"'`][\s\S]*" },
+      register_diagnostic(span = $hit, message = "A test option that skips, narrows to or parks a test on a constant, a file or an environment variable leaves CI green without running it. Make it run in CI, or delete it. (no-gated-tests)", severity = "error")
+    }
+  }
+}

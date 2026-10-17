@@ -178,3 +178,17 @@ export const expectNothingAccepted = async (
 	await new Promise((resolve) => setTimeout(resolve, quietWindowMs));
 	expect(await countAcceptedMessages(subject, options)).toBe(0);
 };
+
+/** One header's value from raw RFC 5322 source, unfolded. */
+export const rawHeader = (raw: string, name: string): string | undefined => {
+	const head = (raw.split(/\r?\n\r?\n/, 1)[0] ?? "").replace(
+		/\r?\n[ \t]+/g,
+		" ",
+	);
+	const prefix = `${name.toLowerCase()}:`;
+	return head
+		.split(/\r?\n/)
+		.find((line) => line.toLowerCase().startsWith(prefix))
+		?.slice(prefix.length)
+		.trim();
+};

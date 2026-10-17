@@ -74,26 +74,6 @@ const SEEDED_SUBJECTS = SEEDED_MESSAGES.map((message) => message.subject);
 const STARRED_ELSEWHERE_SUBJECT = "Filed away, and starred";
 
 /**
- * The conversation that spans two folders. The correspondent's message lands in
- * INBOX; the user's reply to it sits in Sent, where a real client would have
- * filed it after sending. The two are chained by In-Reply-To and References, so
- * a reader that threads by the RFC 5322 headers has everything it needs to show
- * them as one conversation.
- *
- * The received subject joins `seededSubjects` because it is a fourth INBOX
- * message, and the specs that assert an exact inbox count have to keep counting
- * what is actually there. The reply is not in INBOX and so is not listed.
- */
-const CONVERSATION = {
-	receivedSubject: "Databricks contract renewal",
-	receivedFromName: "Dana Whitfield",
-	receivedFrom: "Dana Whitfield <dana@remit.test>",
-	sentSubject: "Re: Databricks contract renewal",
-	sentFromName: "Robin Vance",
-	replyTo: "dana@remit.test",
-};
-
-/**
  * One message in Junk, from a sender who has a display name — the ordinary
  * shape, and the one the address lookup used to miss. The spam-rescue spec
  * works from this.
@@ -177,38 +157,6 @@ const globalSetup = async (): Promise<void> => {
 		"Junk",
 	);
 
-	// The cross-folder conversation. Message-IDs are minted per run so a reused
-	// stack cannot let one run's thread satisfy another's assertions, and the
-	// reply is dated after the message it answers so the conversation has an
-	// order to get right.
-	console.log("e2e setup: appending the cross-folder conversation over IMAP");
-	const receivedMessageId = `<renewal-${Date.now()}@remit.test>`;
-	const receivedAt = new Date();
-	await appendMessages(imapUser, [
-		{
-			subject: CONVERSATION.receivedSubject,
-			from: CONVERSATION.receivedFrom,
-			to: imapUser,
-			messageIdHeader: receivedMessageId,
-			date: receivedAt,
-		},
-	]);
-	await appendMessages(
-		imapUser,
-		[
-			{
-				subject: CONVERSATION.sentSubject,
-				from: `${CONVERSATION.sentFromName} <${imapUser}>`,
-				to: CONVERSATION.replyTo,
-				messageIdHeader: `<renewal-reply-${Date.now()}@remit.test>`,
-				inReplyTo: receivedMessageId,
-				references: [receivedMessageId],
-				date: new Date(receivedAt.getTime() + 60_000),
-			},
-		],
-		"Sent",
-	);
-
 	// Classification fixtures ride the same pre-onboarding append: they have to
 	// be on the server before the account is connected to reach the API at all.
 	const classificationFixtures = buildClassificationFixtures();
@@ -264,25 +212,10 @@ const globalSetup = async (): Promise<void> => {
 		accountId,
 		inboxId: inbox.mailboxId,
 		imapUser,
-		// Everything this run appended to the INBOX, in one list. Specs that
-		// assert the inbox holds EXACTLY what was seeded read this, so a fixture
-		// added for one spec must appear here or it reads as an unexplained
-		// extra message. Three seeded messages are deliberately absent: the
-		// conversation's reply (appended to Sent), the spam fixture (appended to
-		// Junk), and the starred message filed in Sent — none is in the inbox.
-		// The pre-flagged message IS listed: it is inbox mail that happens to
-		// carry \Flagged.
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
-			CONVERSATION.receivedSubject,
 			...classificationFixtures.map((fixture) => fixture.subject),
 		],
-		conversation: {
-			receivedSubject: CONVERSATION.receivedSubject,
-			receivedFromName: CONVERSATION.receivedFromName,
-			sentSubject: CONVERSATION.sentSubject,
-			sentFromName: CONVERSATION.sentFromName,
-		},
 		classificationExpectations: classificationFixtures.map((fixture) => ({
 			subject: fixture.subject,
 			expectedCategory: fixture.expectedCategory,
