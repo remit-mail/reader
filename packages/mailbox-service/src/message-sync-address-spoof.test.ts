@@ -54,6 +54,8 @@ const harvest = async (envelope: Partial<ImapEnvelope>): Promise<Saved> => {
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {
+		findByMessageId: async () => null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		create: async (input: CreateThreadMessageInput) => {
 			saved.threadMessages.push(input);
 			return input as unknown as ThreadMessageItem;

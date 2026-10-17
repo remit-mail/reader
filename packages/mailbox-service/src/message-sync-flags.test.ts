@@ -46,6 +46,8 @@ const captureCreate = (): {
 } => {
 	const inputs: CreateThreadMessageInput[] = [];
 	const repo = {
+		findByMessageId: async () => null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		create: async (input: CreateThreadMessageInput) => {
 			inputs.push(input);
 			return input as unknown as ThreadMessageItem;

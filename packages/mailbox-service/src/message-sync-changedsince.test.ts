@@ -184,6 +184,7 @@ const buildHarness = (options: HarnessOptions): Harness => {
 	// answers by UID — the one field a test can state up front.
 	const threadMessageService = {
 		findByMessageId: async () => rows[0] ?? null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		findAllByMessageId: async () => rows,
 		listByMailbox: async () => ({ items: rows, continuationToken: undefined }),
 		update: async (

@@ -76,6 +76,8 @@ const save = async (
 	} as unknown as IMessageRepository;
 
 	const threadMessageService = {
+		findByMessageId: async () => null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		create: async (input: CreateThreadMessageInput) =>
 			input as unknown as ThreadMessageItem,
 	} as unknown as IThreadMessageRepository;

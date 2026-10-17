@@ -1,8 +1,7 @@
 import { deriveThreadId, wireMessageId } from "@remit/data-ports/id";
-import { and, eq, like } from "drizzle-orm";
+import { and, count, eq, like } from "drizzle-orm";
 import type { Db } from "../db.js";
-import { DrizzleMessageRepository } from "../repos/message.js";
-import { deriveThreadMessageId } from "../repos/thread-message.js";
+import { DrizzleThreadMessageRepository } from "../repos/thread-message.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { runInTransaction } from "../tx.js";
 
@@ -15,14 +14,13 @@ export interface ThreadRootReport {
 	readonly misfiled: number;
 	readonly moved: number;
 	readonly dropped: number;
-	readonly reindexed: number;
 }
 
-interface MisfiledRow {
-	readonly threadMessageId: string;
-	readonly messageId: string;
+interface MisfiledThread {
 	readonly accountConfigId: string;
+	readonly from: string;
 	readonly parent: string;
+	readonly rows: number;
 }
 
 const DOUBLED = "<<%";
@@ -52,7 +50,7 @@ const doubledSpellings = async (
 	);
 };
 
-const misfiledRows = async (db: ThreadRootDb): Promise<MisfiledRow[]> => {
+const misfiledThreads = async (db: ThreadRootDb): Promise<MisfiledThread[]> => {
 	const rekeys = new Map<
 		string,
 		{ accountConfigId: string; from: string; parent: string }
@@ -66,99 +64,77 @@ const misfiledRows = async (db: ThreadRootDb): Promise<MisfiledRow[]> => {
 		});
 	}
 
-	const rows: MisfiledRow[] = [];
-	for (const { accountConfigId, from, parent } of rekeys.values()) {
-		const found = await db
-			.select({
-				threadMessageId: threadMessageTable.threadMessageId,
-				messageId: threadMessageTable.messageId,
-			})
+	const threads: MisfiledThread[] = [];
+	for (const rekey of rekeys.values()) {
+		const [found] = await db
+			.select({ rows: count() })
 			.from(threadMessageTable)
 			.where(
 				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.threadId, from),
+					eq(threadMessageTable.accountConfigId, rekey.accountConfigId),
+					eq(threadMessageTable.threadId, rekey.from),
 				),
 			);
-		rows.push(...found.map((row) => ({ ...row, accountConfigId, parent })));
+		const rows = found?.rows ?? 0;
+		if (rows > 0) threads.push({ ...rekey, rows });
 	}
-	return rows;
+	return threads;
 };
 
 const threadOfParent = async (
 	tx: ThreadRootDb,
-	row: MisfiledRow,
+	thread: MisfiledThread,
 ): Promise<string> => {
 	const [stored] = await tx
 		.select({ threadId: threadMessageTable.threadId })
 		.from(threadMessageTable)
 		.where(
 			and(
-				eq(threadMessageTable.accountConfigId, row.accountConfigId),
-				eq(threadMessageTable.messageIdHeader, row.parent),
+				eq(threadMessageTable.accountConfigId, thread.accountConfigId),
+				eq(threadMessageTable.messageIdHeader, thread.parent),
 			),
 		)
 		.limit(1);
-	return stored?.threadId ?? deriveThreadId(row.accountConfigId, row.parent);
+	return (
+		stored?.threadId ?? deriveThreadId(thread.accountConfigId, thread.parent)
+	);
 };
 
-const moveRow = async (
-	tx: ThreadRootDb,
-	row: MisfiledRow,
-): Promise<"moved" | "dropped"> => {
-	const to = await threadOfParent(tx, row);
-	const target = deriveThreadMessageId(to, row.messageId);
-	const [existing] = await tx
-		.select({ threadMessageId: threadMessageTable.threadMessageId })
-		.from(threadMessageTable)
-		.where(eq(threadMessageTable.threadMessageId, target));
-	if (existing) {
-		await tx
-			.delete(threadMessageTable)
-			.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-		return "dropped";
-	}
-	await tx
-		.update(threadMessageTable)
-		.set({ threadId: to, threadMessageId: target })
-		.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-	return "moved";
-};
+const rowsIn = (threads: readonly MisfiledThread[]): number =>
+	threads.reduce((total, thread) => total + thread.rows, 0);
 
 export const moveMisfiledThreadRows = async (
 	db: ThreadRootDb,
 	mode: ThreadRootRepairMode,
 ): Promise<ThreadRootReport> => {
-	const found = await misfiledRows(db);
-	if (mode === "check" || found.length === 0) {
-		return { mode, misfiled: found.length, moved: 0, dropped: 0, reindexed: 0 };
+	const found = await misfiledThreads(db);
+	const misfiled = rowsIn(found);
+	if (mode === "check" || misfiled === 0) {
+		return { mode, misfiled, moved: 0, dropped: 0 };
 	}
 
 	return runInTransaction(db, async (tx) => {
-		const touched = new Set<string>();
+		const threadMessages = new DrizzleThreadMessageRepository(tx);
 		let moved = 0;
 		let dropped = 0;
 		for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-			const rows = await misfiledRows(tx);
-			if (rows.length === 0) break;
-			for (const row of rows) {
-				touched.add(row.messageId);
-				if ((await moveRow(tx, row)) === "moved") moved += 1;
-				else dropped += 1;
+			const threads = await misfiledThreads(tx);
+			if (threads.length === 0) return { mode, misfiled, moved, dropped };
+			for (const thread of threads) {
+				const result = await threadMessages.rekeyThread(
+					thread.accountConfigId,
+					thread.from,
+					await threadOfParent(tx, thread),
+				);
+				moved += result.moved;
+				dropped += result.dropped;
 			}
 		}
-		const { queued } = await new DrizzleMessageRepository(
-			tx as unknown as ConstructorParameters<
-				typeof DrizzleMessageRepository
-			>[0],
-		).requestReembed([...touched]);
-		return {
-			mode,
-			misfiled: found.length,
-			moved,
-			dropped,
-			reindexed: queued,
-		};
+		const left = await misfiledThreads(tx);
+		if (left.length === 0) return { mode, misfiled, moved, dropped };
+		throw new Error(
+			`${rowsIn(left)} thread row(s) still filed under a doubled-bracket root after ${MAX_PASSES} passes: ${left.map((thread) => `${thread.from} (parent ${thread.parent})`).join(", ")}`,
+		);
 	});
 };
 
@@ -174,6 +150,5 @@ export const formatThreadRootReport = (report: ThreadRootReport): string[] => {
 	return [
 		`${report.moved} of ${report.misfiled} message(s) moved to the thread they answer`,
 		`${report.dropped} of ${report.misfiled} stale duplicate(s) dropped`,
-		`${report.reindexed} moved message(s) queued for re-indexing`,
 	];
 };

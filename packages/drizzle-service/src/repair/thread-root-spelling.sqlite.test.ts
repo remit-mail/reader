@@ -139,6 +139,16 @@ describe("thread rows filed under a doubled-bracket root", () => {
 		);
 	});
 
+	test("refuses to report success while rows stay misfiled", async () => {
+		await insert("m-parent", splitThread, PARENT, null);
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+
+		await assert.rejects(
+			moveMisfiledThreadRows(handle.db, "repair"),
+			/still filed under a doubled-bracket root/,
+		);
+	});
+
 	test("check mode reports the split and writes nothing", async () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 

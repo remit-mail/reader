@@ -27,6 +27,8 @@ import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { runInTransaction } from "../tx.js";
+import { DrizzleMessageRepository } from "./message.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -872,6 +874,55 @@ export class DrizzleThreadMessageRepository
 					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
 					: undefined,
 		};
+	}
+
+	async rekeyThread(
+		accountConfigId: string,
+		fromThreadId: string,
+		toThreadId: string,
+	): Promise<{ moved: number; dropped: number }> {
+		if (fromThreadId === toThreadId) return { moved: 0, dropped: 0 };
+		return runInTransaction(this.db, async (tx) => {
+			const rows = await tx
+				.select({
+					threadMessageId: threadMessageTable.threadMessageId,
+					messageId: threadMessageTable.messageId,
+				})
+				.from(threadMessageTable)
+				.where(
+					and(
+						eq(threadMessageTable.accountConfigId, accountConfigId),
+						eq(threadMessageTable.threadId, fromThreadId),
+					),
+				);
+			if (rows.length === 0) return { moved: 0, dropped: 0 };
+
+			let moved = 0;
+			for (const row of rows) {
+				const target = deriveThreadMessageId(toThreadId, row.messageId);
+				const [existing] = await tx
+					.select({ threadMessageId: threadMessageTable.threadMessageId })
+					.from(threadMessageTable)
+					.where(eq(threadMessageTable.threadMessageId, target));
+				if (existing) {
+					await tx
+						.delete(threadMessageTable)
+						.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
+					continue;
+				}
+				await tx
+					.update(threadMessageTable)
+					.set({ threadId: toThreadId, threadMessageId: target })
+					.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
+				moved += 1;
+			}
+			await new DrizzleMessageRepository(
+				tx as unknown as ConstructorParameters<
+					typeof DrizzleMessageRepository
+				>[0],
+			).requestReembed([...new Set(rows.map((row) => row.messageId))]);
+			return { moved, dropped: rows.length - moved };
+		});
 	}
 
 	async findByMessageId(

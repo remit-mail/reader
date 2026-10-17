@@ -22,6 +22,8 @@ import {
 	deriveMessageId,
 	deriveMessageIdFromSource,
 	deriveThreadId,
+	isValidMessageId,
+	wireMessageId,
 } from "@remit/data-ports/id";
 import {
 	AddressRole,
@@ -1822,15 +1824,53 @@ export class MessageSyncService {
 	/**
 	 * Create or update Thread and ThreadMessage for a synced message.
 	 *
-	 * A reply joins the thread its parent is already stored in. Without a stored
-	 * parent the thread is derived from the root `threadRootOf` names — the first
-	 * References entry, else In-Reply-To, else this message — so messages arriving
-	 * out of order still meet.
+	 * A message keeps the thread it is already stored in; a reply joins the
+	 * thread its parent is stored in; otherwise the thread is derived from the
+	 * root `threadRootOf` names. Replies that arrived before this message, and
+	 * so were keyed on its own id, follow it into its thread.
 	 *
 	 * `category` is the value the caller already holds from the Message it just
 	 * wrote, so the row starts out agreeing with it rather than defaulting to
 	 * `uncategorized` behind an already-classified message.
 	 */
+	private async threadFor(
+		threadMessageService: IThreadMessageRepository,
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		envelope: ImapEnvelope,
+		references: string[] | undefined,
+	): Promise<string> {
+		const own = await threadMessageService.findByMessageId(
+			accountConfigId,
+			messageId,
+		);
+		if (own) return own.threadId;
+
+		const parent = parentOf(envelope, references);
+		const parentRow = parent
+			? await threadMessageService.findByMessageId(
+					accountConfigId,
+					deriveMessageId(accountId, parent),
+				)
+			: null;
+		const threadId =
+			parentRow?.threadId ??
+			deriveThreadId(
+				accountConfigId,
+				threadRootOf(envelope, references, messageId),
+			);
+
+		if (isValidMessageId(envelope.messageId)) {
+			await threadMessageService.rekeyThread(
+				accountConfigId,
+				deriveThreadId(accountConfigId, wireMessageId(envelope.messageId)),
+				threadId,
+			);
+		}
+		return threadId;
+	}
+
 	private async createThreadForMessage(
 		threadMessageService: IThreadMessageRepository,
 		messageId: string,
@@ -1846,19 +1886,14 @@ export class MessageSyncService {
 		references?: string[],
 		hasAttachment = false,
 	): Promise<void> {
-		const parent = parentOf(envelope, references);
-		const parentRow = parent
-			? await threadMessageService.findByMessageId(
-					accountConfigId,
-					deriveMessageId(accountId, parent),
-				)
-			: null;
-		const threadId =
-			parentRow?.threadId ??
-			deriveThreadId(
-				accountConfigId,
-				threadRootOf(envelope, references, messageId),
-			);
+		const threadId = await this.threadFor(
+			threadMessageService,
+			messageId,
+			accountId,
+			accountConfigId,
+			envelope,
+			references,
+		);
 
 		const isRead = flags.includes(MessageSystemFlag.Seen);
 

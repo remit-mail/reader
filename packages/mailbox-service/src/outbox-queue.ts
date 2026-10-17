@@ -70,6 +70,13 @@ export interface UpdateDraftInput {
 	references?: string[];
 }
 
+const MAX_REFERENCES = 21;
+
+const capReferences = (ids: string[]): string[] =>
+	ids.length <= MAX_REFERENCES
+		? ids
+		: [ids[0], ...ids.slice(ids.length - (MAX_REFERENCES - 1))];
+
 const bareThreadingHeaders = (input: {
 	inReplyTo?: string;
 	references?: string[];
@@ -78,9 +85,9 @@ const bareThreadingHeaders = (input: {
 		inReplyTo: bareMessageId(input.inReplyTo),
 	}),
 	...(input.references !== undefined && {
-		references: [
+		references: capReferences([
 			...new Set(input.references.map(bareMessageId).filter((id) => id !== "")),
-		],
+		]),
 	}),
 });
 
