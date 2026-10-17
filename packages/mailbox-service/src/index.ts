@@ -20,7 +20,6 @@ export {
 	type ParsedAttributes,
 	parseImapAttributes,
 } from "./attribute-mapper.js";
-export { isEncapsulatedMessage } from "./encapsulated-message.js";
 export {
 	BodyParseError,
 	parseMessageBody,
@@ -81,6 +80,7 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
+export { isEncapsulatedMessage } from "./encapsulated-message.js";
 export {
 	type AnchorDriftDeps,
 	type AnchorEmbedder,

@@ -72,17 +72,6 @@ test.afterAll(async () => {
 });
 
 test.describe("A forwarded message attached to a received mail", () => {
-	test("the server describes the forwarded message as one attachment part", async () => {
-		const messageId = await api.messageIdForSubject(run.inboxId, SUBJECT);
-		const parts = await api.describeMessageParts(messageId);
-		const forwarded = parts.filter(
-			(part) => part.mediaType === "MESSAGE" && part.mediaSubtype === "rfc822",
-		);
-		expect(forwarded).toHaveLength(1);
-		expect(forwarded[0]?.dispositionFilename).toBe("forwarded.eml");
-		expect(forwarded[0]?.sizeOctets).toBeGreaterThan(0);
-	});
-
 	test("the mail lists the forwarded message, not the attachment inside it", async () => {
 		const page = await context.newPage();
 		const list = await openFixture(page);

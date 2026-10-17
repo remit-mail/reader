@@ -99,7 +99,7 @@ describe("a forwarded message repaired on an instance already running", () => {
 					mailboxId: inbox.mailboxId,
 				},
 				capturingLogger([]),
-				w.connectionFactory(),
+				() => w.connectionFactory(),
 			);
 		await sync();
 		await sync();
@@ -142,7 +142,11 @@ describe("a forwarded message repaired on an instance already running", () => {
 		assert.equal(byPath.get("2")?.mediaType, "MESSAGE");
 		assert.equal(byPath.get("2")?.dispositionFilename, "forwarded.eml");
 
-		assert.equal((await w.row(seeded.messageId))?.hasStars, true);
+		const [listed] = await w.client.threadMessage.findAllByMessageId(
+			w.account.accountConfigId,
+			seeded.messageId,
+		);
+		assert.equal(listed?.hasStars, true);
 
 		const after = await w.client.mailbox.get(
 			w.account.accountId,

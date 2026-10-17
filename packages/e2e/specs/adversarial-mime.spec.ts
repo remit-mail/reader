@@ -38,7 +38,7 @@ const EXPECTATIONS: Record<string, FixtureExpectation> = {
 	},
 	"04-forwarded-rfc822-with-attachments.eml": {
 		subject: "Adversarial fixture 04 forwarded rfc822 with inner attachment",
-		attachments: [],
+		attachments: ["forwarded.eml"],
 		bodyContains: "Forwarding",
 	},
 	"05-tnef-winmail.eml": {

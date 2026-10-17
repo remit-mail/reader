@@ -1435,9 +1435,7 @@ export class MessageSyncService {
 		);
 		if (uids.length === 0) return false;
 
-		const applicable = (await this.fetchMessageBatch(uids)).filter(
-			hasEnvelope,
-		);
+		const applicable = (await this.fetchMessageBatch(uids)).filter(hasEnvelope);
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const departures = await this.probeDepartures(
 			mailbox,

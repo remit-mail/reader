@@ -87,7 +87,9 @@ const createThreadWithFlags = async (
 		stub<IMailboxRepository>(),
 		noFolderRoles,
 		stub<IMessageRepository>(),
-		stub<IEnvelopeRepository>(),
+		{
+			listUidsWithoutBodyParts: async () => [],
+		} as unknown as IEnvelopeRepository,
 		stub<IAddressRepository>(),
 		stub<IThreadMessageRepository>(),
 	);

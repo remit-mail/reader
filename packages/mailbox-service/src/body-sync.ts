@@ -47,12 +47,12 @@ import {
 	mapMessagePartsToContent,
 	parsePartSource,
 } from "./body-part-mapper.js";
-import { isEncapsulatedMessage } from "./encapsulated-message.js";
 import { calendarParts } from "./calendar-parts.js";
 import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";
+import { isEncapsulatedMessage } from "./encapsulated-message.js";
 import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {
