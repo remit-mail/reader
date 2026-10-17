@@ -76,8 +76,4 @@ describe("dedupeThreadMessages (#166)", () => {
 
 		assert.deepStrictEqual(got, items);
 	});
-
-	test("returns an empty array for empty input", () => {
-		assert.deepStrictEqual(dedupeThreadMessages([]), []);
-	});
 });

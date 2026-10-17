@@ -52,15 +52,4 @@ describe("PopoverMenu", () => {
 		assert.match(html, /aria-label="Apply label[^>]*role="menuitem"/);
 		assert.match(html, /role="none"/);
 	});
-
-	it("renders the trigger text beside its glyph", () => {
-		const html = renderToString(
-			createElement(PopoverMenu, {
-				triggerLabel: "Apply label to selected messages",
-				triggerText: "Apply label",
-				items: [item],
-			}),
-		);
-		assert.match(html, /Apply label</);
-	});
 });

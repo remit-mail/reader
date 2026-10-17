@@ -19,9 +19,11 @@ import {
 	deriveBodyPartId,
 	deriveCopyMessageId,
 	deriveEnvelopeId,
+	deriveMessageId,
 	deriveMessageIdFromSource,
 	deriveThreadId,
 	isValidMessageId,
+	wireMessageId,
 } from "@remit/data-ports/id";
 import {
 	AddressRole,
@@ -59,6 +61,7 @@ import {
 	parseChangeCursor,
 	parseModseq,
 } from "./sync-watermarks.js";
+import { messageReferencesOf, parentOf, threadRootOf } from "./thread-root.js";
 import type {
 	ImapAddress,
 	ImapBodyStructure,
@@ -1574,6 +1577,14 @@ export class MessageSyncService {
 				messageIdValue: envelope.messageId,
 			});
 
+			const messageReferences = messageReferencesOf(envelope, msg.references);
+			if (messageReferences.length > 0) {
+				await repos.envelope.replaceMessageReferences(
+					messageId,
+					messageReferences,
+				);
+			}
+
 			for (const { addresses, role } of addressOps) {
 				await this.saveAddresses(
 					repos.address,
@@ -1653,6 +1664,7 @@ export class MessageSyncService {
 				repos.threadMessage,
 				messageId,
 				mailboxId,
+				accountId,
 				accountConfigId,
 				msg.uid,
 				msg.internalDate.getTime(),
@@ -1812,22 +1824,58 @@ export class MessageSyncService {
 	/**
 	 * Create or update Thread and ThreadMessage for a synced message.
 	 *
-	 * Thread ID derivation (RFC 2822 compliant):
-	 * 1. If References header exists, use the FIRST entry as thread root
-	 *    (References format: <root> <parent1> ... <direct-parent>)
-	 * 2. Fall back to In-Reply-To if no References
-	 * 3. Fall back to Message-ID (this message is a thread root)
-	 *
-	 * This ensures proper threading even when messages arrive out of order.
+	 * A message keeps the thread it is already stored in; a reply joins the
+	 * thread its parent is stored in; otherwise the thread is derived from the
+	 * root `threadRootOf` names. Replies that arrived before this message, and
+	 * so were keyed on its own id, follow it into its thread.
 	 *
 	 * `category` is the value the caller already holds from the Message it just
 	 * wrote, so the row starts out agreeing with it rather than defaulting to
 	 * `uncategorized` behind an already-classified message.
 	 */
+	private async threadFor(
+		threadMessageService: IThreadMessageRepository,
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		envelope: ImapEnvelope,
+		references: string[] | undefined,
+	): Promise<string> {
+		const own = await threadMessageService.findByMessageId(
+			accountConfigId,
+			messageId,
+		);
+		if (own) return own.threadId;
+
+		const parent = parentOf(envelope, references);
+		const parentRow = parent
+			? await threadMessageService.findByMessageId(
+					accountConfigId,
+					deriveMessageId(accountId, parent),
+				)
+			: null;
+		const threadId =
+			parentRow?.threadId ??
+			deriveThreadId(
+				accountConfigId,
+				threadRootOf(envelope, references, messageId),
+			);
+
+		if (isValidMessageId(envelope.messageId)) {
+			await threadMessageService.rekeyThread(
+				accountConfigId,
+				deriveThreadId(accountConfigId, wireMessageId(envelope.messageId)),
+				threadId,
+			);
+		}
+		return threadId;
+	}
+
 	private async createThreadForMessage(
 		threadMessageService: IThreadMessageRepository,
 		messageId: string,
 		mailboxId: string,
+		accountId: string,
 		accountConfigId: string,
 		uid: number,
 		internalDate: number,
@@ -1838,30 +1886,14 @@ export class MessageSyncService {
 		references?: string[],
 		hasAttachment = false,
 	): Promise<void> {
-		// Determine the thread root Message-ID
-		let rootMessageIdHeader: string;
-
-		if (references && references.length > 0) {
-			// References header exists - first entry is the thread root (RFC 2822)
-			rootMessageIdHeader = references[0];
-		} else if (envelope.inReplyTo) {
-			// No References, but has In-Reply-To - use as thread root
-			// (This is a reply to a single message, which becomes the root)
-			rootMessageIdHeader = envelope.inReplyTo;
-		} else if (isValidMessageId(envelope.messageId)) {
-			// No References, no In-Reply-To - this message is a thread root
-			rootMessageIdHeader = envelope.messageId;
-		} else {
-			// No usable header (missing, empty, or a "<>" delivery-failure
-			// placeholder). Fall back to the always-present internal messageId so
-			// this message becomes a standalone thread-of-one. Distinct headerless
-			// messages keep distinct ids, so they never collide into one bogus
-			// thread, and every persisted Message gets exactly one ThreadMessage.
-			rootMessageIdHeader = messageId;
-		}
-
-		// Derive threadId from the root Message-ID (deterministic)
-		const threadId = deriveThreadId(accountConfigId, rootMessageIdHeader);
+		const threadId = await this.threadFor(
+			threadMessageService,
+			messageId,
+			accountId,
+			accountConfigId,
+			envelope,
+			references,
+		);
 
 		const isRead = flags.includes(MessageSystemFlag.Seen);
 

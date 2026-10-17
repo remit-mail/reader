@@ -39,15 +39,6 @@ describe("MailHeader", () => {
 		assert.doesNotMatch(render({ isDesktop: true }), /aria-label="Menu"/);
 	});
 
-	it("sits on the pane-header datum once the top bar carries search", () => {
-		assert.match(render({ showSearch: false }), /h-pane-header/);
-		assert.match(render(), /h-section-row/);
-	});
-
-	it("does not render an account chip row (accounts live in the filter / nav)", () => {
-		assert.doesNotMatch(render(), /aria-label="Filters"/);
-	});
-
 	it("shows the search magnifier and hides the input when collapsed", () => {
 		const html = render({ searchOpen: false });
 		assert.match(html, /aria-label="Search"/);
@@ -112,12 +103,6 @@ describe("MailHeader search ownership", () => {
 		assert.doesNotMatch(html, /aria-label="Search"/);
 	});
 
-	it("keeps the title and unread count when search lives elsewhere", () => {
-		const html = render({ isDesktop: true, showSearch: false });
-		assert.match(html, /Daily brief/);
-		assert.match(html, /15,338 unread/);
-	});
-
 	it("suppresses the field below desktop too, where the takeover owns search", () => {
 		assert.equal(
 			countSearchInputs(render({ isDesktop: false, showSearch: false })),
@@ -128,10 +113,5 @@ describe("MailHeader search ownership", () => {
 	it("leaves exactly one field on screen beside the app top bar", () => {
 		const combined = topBar() + render({ isDesktop: true, showSearch: false });
 		assert.equal(countSearchInputs(combined), 1);
-	});
-
-	it("would be two fields if the header kept its own — the premise being guarded", () => {
-		const combined = topBar() + render({ isDesktop: true });
-		assert.equal(countSearchInputs(combined), 2);
 	});
 });

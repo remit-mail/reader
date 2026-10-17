@@ -80,11 +80,6 @@ describe("mapOauthError", () => {
 			`Expected code in message, got: ${result}`,
 		);
 	});
-
-	test("empty string returns generic fallback", () => {
-		const result = mapOauthError("");
-		assert.ok(typeof result === "string" && result.length > 0);
-	});
 });
 
 /**

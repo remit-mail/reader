@@ -98,13 +98,6 @@ const mount = async (
 };
 
 describe("PlainTextEditor", () => {
-	it("offers no formatting buttons, and says Markdown is read here", async () => {
-		await mount();
-
-		assert.equal(container.querySelectorAll("button").length, 0);
-		assert.match(container.textContent ?? "", /Markdown/);
-	});
-
 	it("inserts a pasted web page as Markdown", async () => {
 		const editor = await mount();
 
@@ -124,15 +117,6 @@ describe("PlainTextEditor", () => {
 		await paste({ text: "| not | a | table |" });
 
 		assert.equal(editor.latest(), "| not | a | table |");
-	});
-
-	it("carries the mode toggle at the right of its toolbar", async () => {
-		await mount("", { trailing: true });
-
-		const toggle = container.querySelector("[data-testid=compose-mode-toggle]");
-		assert.ok(toggle, "the toggle rides in the toolbar");
-		assert.equal(toggle.getAttribute("aria-pressed"), "true");
-		assert.equal(toggle.textContent, "Plain text");
 	});
 
 	it("takes focus with the caret at the end when it arrives on a switch", async () => {

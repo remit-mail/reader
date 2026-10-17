@@ -175,6 +175,7 @@ const buildWorld = () => {
 			if (!row) throw new Error(`no thread message ${messageId}`);
 			return row;
 		},
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		findByMessageId: async (_cfg: string, messageId: string) =>
 			threadRows.find((r) => r.messageId === messageId) ?? null,
 		findAllByMessageId: async (_cfg: string, messageId: string) =>

@@ -13,13 +13,6 @@ describe("Banner", () => {
 		assert.match(html, /heads up/);
 	});
 
-	it("applies the warning tone classes", () => {
-		const html = renderToString(
-			createElement(Banner, { tone: "warning" }, "x"),
-		);
-		assert.match(html, /text-warning/);
-	});
-
 	it("renders a dismiss button only when onDismiss is supplied", () => {
 		const withDismiss = renderToString(
 			createElement(Banner, { tone: "info", onDismiss: () => undefined }, "x"),

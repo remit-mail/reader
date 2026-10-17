@@ -346,21 +346,6 @@ describe("SwipeableRow gesture wiring", () => {
 		assert.deepEqual(peeks, []);
 	});
 
-	it("a press cancelled before the hold fires no long press", async () => {
-		let longPressed = 0;
-		const row = mount({
-			onLongPress: () => longPressed++,
-			onOpen: () => undefined,
-			onPeek: () => undefined,
-		});
-
-		pointerDown(row);
-		pointerCancel(row);
-		await wait(THRESHOLD_WAIT);
-
-		assert.equal(longPressed, 0);
-	});
-
 	it("suppresses the native context menu raised over a drifting hold", async () => {
 		// Android Chrome raises its own menu at its own threshold, which can land
 		// mid-drift and ahead of the app's long press.

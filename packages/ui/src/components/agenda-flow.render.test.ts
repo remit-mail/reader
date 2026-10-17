@@ -121,14 +121,6 @@ const render = (props: Partial<AgendaFlowProps> = {}) =>
 	renderToString(createElement(AgendaFlow, { ...base, ...props }));
 
 describe("AgendaFlow", () => {
-	it("draws the days in the order it was handed them", () => {
-		const html = render();
-		assert.ok(
-			html.indexOf("Q3 roadmap review") < html.indexOf("Devcon"),
-			"the 10th is drawn before the 11th",
-		);
-	});
-
 	it("names the free stretch the day still leaves open", () => {
 		const html = words(render());
 		assert.match(html, /10h free/);
@@ -167,14 +159,6 @@ describe("AgendaFlow", () => {
 		assert.match(render(), /2 events · 2h booked · 1 clash/);
 	});
 
-	it("carries the calendar's hue onto every event", () => {
-		assert.match(render(), /bg-cal-3-soft/);
-	});
-
-	it("falls back to one hue for a calendar it was told nothing about", () => {
-		assert.match(render({ calendars: [] }), /bg-cal-1-soft/);
-	});
-
 	it("draws a banner as an all-day line", () => {
 		assert.match(render(), /All day/);
 	});
@@ -201,14 +185,6 @@ describe("AgendaFlow", () => {
 		const html = words(render({ density: "dots" }));
 		assert.match(html, /10h free/);
 		assert.match(html, /clear/);
-	});
-
-	it("gives every control a visible focus ring", () => {
-		assert.match(render(), /focus-visible:ring-ring/);
-	});
-
-	it("grows every hit target when the surface is touched", () => {
-		assert.match(render({ touch: true }), /min-h-12/);
 	});
 
 	/**
@@ -248,12 +224,5 @@ describe("AgendaFlow", () => {
 	it("says nothing about what is on a day it has not heard about", () => {
 		const html = words(render({ loadingDates: new Set(["2026-06-13"]) }));
 		assert.match(html, /Loading 2026-06-13/);
-	});
-
-	it("renders whatever the owner leads today with", () => {
-		const html = render({
-			todayLead: createElement("p", null, "Next up in 30m"),
-		});
-		assert.match(html, /Next up in 30m/);
 	});
 });

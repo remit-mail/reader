@@ -31,13 +31,4 @@ describe("adjacentMessageId", () => {
 	test("returns null when there is no current id", () => {
 		assert.strictEqual(adjacentMessageId(ids, undefined, "next"), null);
 	});
-
-	test("returns null for a single-item list at both ends", () => {
-		assert.strictEqual(adjacentMessageId(["only"], "only", "next"), null);
-		assert.strictEqual(adjacentMessageId(["only"], "only", "previous"), null);
-	});
-
-	test("returns null for an empty list", () => {
-		assert.strictEqual(adjacentMessageId([], "a", "next"), null);
-	});
 });

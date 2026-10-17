@@ -116,6 +116,17 @@ test("returns failed for a corrupt PDF instead of throwing", async () => {
 	assert.match(result.reason, /^pdf:/);
 });
 
+test("returns failed for a legacy .doc that is not a Word file", async () => {
+	const result = await extractAttachmentText({
+		bytes: Buffer.from("not an OLE compound document"),
+		declaredMediaType: "application/msword",
+	});
+
+	assert.strictEqual(result.status, "failed");
+	if (result.status !== "failed") return;
+	assert.match(result.reason, /^doc:/);
+});
+
 test("sniffs the media type from magic bytes when the declared type is octet-stream", async () => {
 	const result = await extractAttachmentText({
 		bytes: pdfBytes,

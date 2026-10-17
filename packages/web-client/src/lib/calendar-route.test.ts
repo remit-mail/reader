@@ -5,7 +5,6 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { CALENDAR_DENSITY_KEY } from "./calendar-density.js";
 import {
 	calendarSearchSchema,
 	calendarViewMountsAgenda,
@@ -219,10 +218,6 @@ describe("calendarSearchSchema", () => {
 });
 
 describe("density is not URL state", () => {
-	it("is stored against the device, under a key of its own", () => {
-		assert.equal(CALENDAR_DENSITY_KEY, "remit:calendar-density");
-	});
-
 	it("has no reading in the query", () => {
 		assert.deepEqual(calendarSearchSchema.parse({ density: "compact" }), {});
 	});

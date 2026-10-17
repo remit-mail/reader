@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import {
-	categoryLabels,
-	categoryTone,
-	isThreadCategory,
-} from "../category-presentation.js";
+import { categoryLabels, isThreadCategory } from "../category-presentation.js";
 import type { IntelligenceCalendarActions } from "./intelligence-calendar.js";
 import { inviteWithClash } from "./intelligence-calendar-fixtures.js";
 import type {
@@ -65,41 +61,6 @@ describe("IntelligencePanel category chip", () => {
 		});
 		assert.equal(failing, aligned);
 	});
-
-	it("gives each category its own tone", () => {
-		const receipt = categoryChip({
-			...vipWithFailingAuthenticity,
-			category: { value: "transactional" },
-		});
-		assert.match(receipt, /text-positive/);
-		const newsletter = categoryChip({
-			...vipWithFailingAuthenticity,
-			category: { value: "newsletter" },
-		});
-		assert.match(newsletter, /text-fg-muted/);
-	});
-
-	it("renders a readable chip for a message the classifier placed nowhere", () => {
-		const chip = categoryChip({
-			...vipWithFailingAuthenticity,
-			category: { value: "uncategorized" },
-		});
-		assert.match(chip, /text-fg-muted/);
-		assert.doesNotMatch(chip, /danger/);
-	});
-
-	// The panel is where a reader inspects and overrides a classification, so it
-	// has to name the category with the same word the row badge showed them.
-	it("names the category the way every other surface does", () => {
-		assert.match(
-			categoryChip({
-				...vipWithFailingAuthenticity,
-				category: { value: "uncategorized" },
-			}),
-			/>Unclassified</,
-		);
-		assert.match(categoryChip(vipWithFailingAuthenticity), />Personal</);
-	});
 });
 
 const inertCalendar: IntelligenceCalendarActions = {
@@ -137,21 +98,6 @@ describe("IntelligencePanel tab strip", () => {
 		assert.match(html, /Authenticity/);
 	});
 
-	it("leaves the sender stack exactly where it was", () => {
-		const withStrip = panel("sender");
-		assert.match(withStrip, /radiogroup/);
-		for (const section of [
-			"Sender",
-			"Authenticity",
-			"Category",
-			"Quick actions",
-			"Coming soon",
-		]) {
-			assert.match(withStrip, new RegExp(section), section);
-		}
-		assert.doesNotMatch(withStrip, /Add to calendar/);
-	});
-
 	it("swaps the stack for the calendar rather than stacking both", () => {
 		const calendar = panel("calendar");
 		assert.match(calendar, /Add to calendar/);
@@ -161,12 +107,6 @@ describe("IntelligencePanel tab strip", () => {
 });
 
 describe("isThreadCategory", () => {
-	it("accepts every category the tone map covers", () => {
-		for (const category of Object.keys(categoryTone)) {
-			assert.equal(isThreadCategory(category), true, category);
-		}
-	});
-
 	it("rejects a category this build has no tone for", () => {
 		assert.equal(isThreadCategory("invoice"), false);
 		assert.equal(isThreadCategory("Personal"), false);

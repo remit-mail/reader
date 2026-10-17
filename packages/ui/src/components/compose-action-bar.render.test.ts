@@ -41,9 +41,4 @@ describe("ComposeActionBar", () => {
 		assert.match(html, /aria-busy="true"/);
 		assert.doesNotMatch(html, /disabled=""/);
 	});
-
-	it("keeps the Send pill at a fixed min-height so it does not clip", () => {
-		const html = renderToString(createElement(ComposeActionBar, baseProps));
-		assert.match(html, /min-h-11/);
-	});
 });

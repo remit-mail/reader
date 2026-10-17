@@ -185,12 +185,17 @@ const getReferences = (
 	msg: RemitImapDescribeMessageResponse,
 ): { inReplyTo?: string; references: string[] } => {
 	const messageIdValue = msg.envelope.messageIdValue;
-	const existingRefs = msg.references
-		.filter((r) => r.referenceType === "references")
-		.sort((a, b) => a.referenceOrder - b.referenceOrder)
-		.map((r) => r.messageIdValue);
+	const ofType = (
+		type: RemitImapDescribeMessageResponse["references"][number]["referenceType"],
+	): string[] =>
+		msg.references
+			.filter((r) => r.referenceType === type)
+			.sort((a, b) => a.referenceOrder - b.referenceOrder)
+			.map((r) => r.messageIdValue);
+	const existingRefs = ofType("references");
 
-	const references = [...existingRefs];
+	const references =
+		existingRefs.length > 0 ? [...existingRefs] : ofType("in_reply_to");
 	if (messageIdValue && !references.includes(messageIdValue)) {
 		references.push(messageIdValue);
 	}

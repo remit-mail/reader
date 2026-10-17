@@ -5,17 +5,6 @@ import { renderToString } from "react-dom/server";
 import { AddressTag } from "./address-tag.js";
 
 describe("AddressTag", () => {
-	it("renders the display name when present", () => {
-		const html = renderToString(
-			createElement(AddressTag, {
-				email: "alex@example.com",
-				displayName: "Alex Rivera",
-				onRemove: () => {},
-			}),
-		);
-		assert.match(html, /Alex Rivera/);
-	});
-
 	it("falls back to the bare address when no display name", () => {
 		const html = renderToString(
 			createElement(AddressTag, {

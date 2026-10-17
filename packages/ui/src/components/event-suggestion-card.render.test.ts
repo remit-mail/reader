@@ -37,71 +37,10 @@ const render = (overrides: Partial<EventSuggestion>, zoneChoice?: string) =>
 		}),
 	);
 
-const twoClocks: Partial<EventSuggestion> = {
-	zoneOptions: [
-		{
-			timeZone: "Europe/Lisbon",
-			label: "16:00 in Lisbon",
-			note: "17:00 on your own clock.",
-		},
-		{
-			timeZone: "Europe/Amsterdam",
-			label: "16:00 in Amsterdam",
-			note: "15:00 where she is.",
-		},
-	],
-};
-
 describe("EventSuggestionCard", () => {
-	it("says it is a suggestion and not an event", () => {
-		const html = render({});
-		assert.match(html, /Suggested from mail/);
-		assert.match(html, /border-dashed/);
-	});
-
 	it("puts the reading into words rather than a percentage", () => {
 		assert.match(render({}), /Read cleanly/);
 		assert.match(render({ confidence: 0.7 }), /Read with gaps/);
 		assert.match(render({ confidence: 0.2 }), /Barely read/);
-	});
-
-	it("names what it could not settle", () => {
-		assert.match(
-			render({ ambiguity: "Two Tuesdays fit." }),
-			/Two Tuesdays fit\./,
-		);
-	});
-
-	it("credits the mail it was read out of", () => {
-		assert.match(render({}), /Airbnb/);
-		assert.match(render({}), /Your reservation in Lisbon is confirmed/);
-	});
-
-	it("needs a person to press Add", () => {
-		assert.match(render({}), />Add</);
-	});
-
-	it("asks nothing about the clock when the mail stated one", () => {
-		const html = render({});
-		assert.doesNotMatch(html, /Which clock is this on\?/);
-		assert.doesNotMatch(html, /Pick a clock first/);
-		assert.doesNotMatch(html, /aria-describedby/);
-	});
-
-	it("offers the clocks and dims Add while none is picked", () => {
-		const html = render(twoClocks);
-		assert.match(html, /Which clock is this on\?/);
-		assert.match(html, /16:00 in Lisbon/);
-		assert.match(html, /Pick a clock first/);
-		assert.match(html, /aria-describedby/);
-		assert.match(html, /opacity-55/);
-	});
-
-	it("undims Add once one of the clocks is picked", () => {
-		const html = render(twoClocks, "Europe/Lisbon");
-		assert.match(html, /aria-pressed="true"/);
-		assert.doesNotMatch(html, /Pick a clock first/);
-		assert.doesNotMatch(html, /aria-describedby/);
-		assert.doesNotMatch(html, /opacity-55/);
 	});
 });

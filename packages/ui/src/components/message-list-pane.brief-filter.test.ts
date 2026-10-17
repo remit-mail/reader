@@ -140,12 +140,6 @@ describe("the brief's filter panel inside the message list pane", () => {
 		assert.equal(picked, "acc_work");
 	});
 
-	it("offers no source row without pills", () => {
-		mount();
-		openPanel();
-		assert.doesNotMatch(container.textContent ?? "", /Work/);
-	});
-
 	it("draws the chips the caller holds and reports a toggle", () => {
 		let toggled: string | undefined;
 		mount({

@@ -37,6 +37,11 @@ import {
 	readResidual,
 	repairThreadMessageCategory,
 } from "../../drizzle-service/src/repair/thread-message-category.js";
+import {
+	formatThreadRootReport,
+	moveMisfiledThreadRows,
+	type ThreadRootRepairMode,
+} from "../../drizzle-service/src/repair/thread-root-spelling.js";
 import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { searchIndexShapeIsCurrent } from "../../drizzle-service/src/repos/search-index-shape.js";
 // Reached by module path rather than through either package's entry point: this
@@ -236,6 +241,16 @@ const junkOnlyAddressStep = async (
 	}
 };
 
+const threadRootStep = async (
+	db: Parameters<typeof moveMisfiledThreadRows>[0],
+	mode: ThreadRootRepairMode,
+): Promise<void> => {
+	const report = await moveMisfiledThreadRows(db, mode);
+	for (const line of formatThreadRootReport(report)) {
+		logStep({ step: "thread-root-repair" }, line);
+	}
+};
+
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
@@ -277,6 +292,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await strandedSentStep(paramRepairClient, "check");
 			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
+			await threadRootStep(db, "check");
 			return;
 		}
 
@@ -325,6 +341,8 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await strandedSentStep(paramRepairClient, "repair");
 
 		await duplicateMailStep(db, "repair");
+
+		await threadRootStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);

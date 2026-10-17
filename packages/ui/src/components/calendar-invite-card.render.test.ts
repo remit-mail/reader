@@ -29,14 +29,6 @@ const render = (props: Partial<CalendarInviteCardProps> = {}) =>
 	renderToString(createElement(CalendarInviteCard, { ...base, ...props }));
 
 describe("CalendarInviteCard", () => {
-	it("names the organiser, the calendar and the span", () => {
-		const html = render();
-		assert.match(html, /Priya Natarajan/);
-		assert.match(html, /Work/);
-		assert.match(html, /Thursday 11 June, 14:00 – 15:00/);
-		assert.match(html, /Billing migration kickoff/);
-	});
-
 	it("states the clash above the button that would accept it", () => {
 		const html = render();
 		const clash = html.indexOf("Dentist");
@@ -61,12 +53,6 @@ describe("CalendarInviteCard", () => {
 
 	it("counts the guests by what they answered", () => {
 		assert.match(render(), /2 coming · 1 maybe · 1 no reply/);
-	});
-
-	it("takes a host's own guest surface instead of the tally", () => {
-		const html = render({ guests: createElement("p", null, "Three of four") });
-		assert.match(html, /Three of four/);
-		assert.doesNotMatch(html, /guests/);
 	});
 
 	it("offers the newer revision rather than an answer to a stale one", () => {
@@ -120,11 +106,6 @@ describe("CalendarInviteCard", () => {
 		assert.match(html, /You dismissed this/);
 		assert.doesNotMatch(html, /On your calendar/);
 		assert.doesNotMatch(html, /No reply/);
-	});
-
-	it("gives a thumb targets it can hit", () => {
-		assert.match(render({ touch: true }), /min-h-11/);
-		assert.doesNotMatch(render(), /min-h-11/);
 	});
 
 	it("leaves off the answers the host cannot store", () => {

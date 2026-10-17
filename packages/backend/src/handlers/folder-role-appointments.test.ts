@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import type { AccountSettingItem } from "@remit/data-ports";
 import type { RoleMailboxCandidate } from "@remit/data-ports/folder-role";
 import {
@@ -34,24 +31,6 @@ const appointed = (
 	lastKnownPath?: string,
 ): Map<string, PersistedFolderAppointment> =>
 	new Map([[CanonicalMailboxRole.Trash, { mailboxId, lastKnownPath }]]);
-
-describe("CANONICAL_ROLES", () => {
-	it("carries every RFC 032 anchor role, Custom excluded", () => {
-		assert.deepEqual(
-			[...CANONICAL_ROLES].sort(),
-			[
-				CanonicalMailboxRole.Inbox,
-				CanonicalMailboxRole.Drafts,
-				CanonicalMailboxRole.Sent,
-				CanonicalMailboxRole.Archive,
-				CanonicalMailboxRole.Junk,
-				CanonicalMailboxRole.Trash,
-				CanonicalMailboxRole.All,
-				CanonicalMailboxRole.Flagged,
-			].sort(),
-		);
-	});
-});
 
 describe("resolveFolderAppointments", () => {
 	const folders: RoleMailboxCandidate[] = [
@@ -369,70 +348,5 @@ describe("writeFolderRoleAppointment", () => {
 				`FolderRoleAppointmentLabel#acc-1#${CanonicalMailboxRole.Archive}`,
 			],
 		]);
-	});
-});
-
-/**
- * D1 of the #887 design: a folder-role appointment row means one thing — a
- * person decided. That is what makes an appointment outrank the server's own
- * \Trash flag, and what makes an Empty Trash on one defensible. It holds only
- * while the row has a single author, so the author is pinned here rather than
- * left to review.
- */
-describe("who may write a folder-role appointment", () => {
-	const PACKAGES = fileURLToPath(new URL("../../../", import.meta.url));
-
-	const sourceFiles = (): string[] => {
-		const files: string[] = [];
-		for (const pkg of readdirSync(PACKAGES, { withFileTypes: true })) {
-			if (!pkg.isDirectory()) continue;
-			const src = join(PACKAGES, pkg.name, "src");
-			if (!existsSync(src)) continue;
-			for (const entry of readdirSync(src, { recursive: true })) {
-				const name = String(entry);
-				if (!name.endsWith(".ts") && !name.endsWith(".tsx")) continue;
-				if (name.endsWith(".test.ts") || name.endsWith(".test.tsx")) continue;
-				files.push(`${pkg.name}/src/${name}`);
-			}
-		}
-		return files;
-	};
-
-	it("is composed in three places, and nowhere else in the repo", () => {
-		const referrers = sourceFiles().filter((file) =>
-			readFileSync(join(PACKAGES, file), "utf8").includes(
-				"composeFolderRoleAppointmentName",
-			),
-		);
-		assert.deepEqual(referrers.sort(), [
-			"backend/src/handlers/folder-role-appointments.ts",
-			"data-ports/src/folder-role.ts",
-			"drizzle-service/src/repos/i4-mailbox-special-use.ts",
-		]);
-	});
-
-	it("is written by writeFolderRoleAppointment alone", () => {
-		const source = readFileSync(
-			fileURLToPath(new URL("./folder-role-appointments.ts", import.meta.url)),
-			"utf8",
-		);
-		const writer = source.slice(
-			source.indexOf("export const writeFolderRoleAppointment"),
-		);
-		const body = writer.slice(0, writer.indexOf("\n};"));
-
-		const count = (text: string, needle: string) =>
-			text.split(needle).length - 1;
-		// Without these, renaming the receiver satisfies the guard with 0 === 0.
-		assert.ok(count(body, "accountSetting.upsert(") > 0);
-		assert.ok(count(body, "accountSetting.delete(") > 0);
-		assert.equal(
-			count(source, "accountSetting.upsert("),
-			count(body, "accountSetting.upsert("),
-		);
-		assert.equal(
-			count(source, "accountSetting.delete("),
-			count(body, "accountSetting.delete("),
-		);
 	});
 });

@@ -99,6 +99,17 @@ describe("buildMailMessage", () => {
 		assert.equal(message.inReplyTo, "<parent@example.com>");
 	});
 
+	it("puts exactly one pair of brackets on an id stored with its own", () => {
+		const message = buildMailMessage(
+			baseOutbox({
+				inReplyTo: "<parent@example.com>",
+				references: ["<<root@example.com>>", "<parent@example.com>"],
+			}),
+		);
+		assert.equal(message.inReplyTo, "<parent@example.com>");
+		assert.equal(message.references, "<root@example.com> <parent@example.com>");
+	});
+
 	it("leaves inReplyTo undefined when absent", () => {
 		const message = buildMailMessage(baseOutbox({ inReplyTo: undefined }));
 		assert.equal(message.inReplyTo, undefined);

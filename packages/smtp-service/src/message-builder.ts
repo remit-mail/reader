@@ -1,4 +1,5 @@
 import type { OutboxMessageItem } from "@remit/data-ports";
+import { wireMessageId } from "@remit/data-ports/id";
 import nodemailer, { type SendMailOptions } from "nodemailer";
 
 export interface MailMessage {
@@ -55,9 +56,9 @@ export const buildMailMessage = (
 	subject: outbox.subject,
 	text: outbox.textBody,
 	html: outbox.htmlBody,
-	messageId: `<${outbox.messageIdValue}>`,
-	inReplyTo: outbox.inReplyTo ? `<${outbox.inReplyTo}>` : undefined,
-	references: outbox.references?.map((r) => `<${r}>`).join(" "),
+	messageId: wireMessageId(outbox.messageIdValue),
+	inReplyTo: outbox.inReplyTo ? wireMessageId(outbox.inReplyTo) : undefined,
+	references: outbox.references?.map(wireMessageId).join(" "),
 	// Only the Sent copy has one to carry: the row is stamped after the
 	// submission is accepted, so on the wire path this is always absent and
 	// nodemailer dates the message as it goes out.

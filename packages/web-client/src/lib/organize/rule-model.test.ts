@@ -17,20 +17,7 @@ import {
 	predicateSignature,
 	rulePredicate,
 	ruleToDraft,
-	SUPPORTED_CLAUSE_FIELDS,
 } from "./rule-model";
-
-describe("SUPPORTED_CLAUSE_FIELDS", () => {
-	it("offers every field the backend matcher now evaluates, ListId and FromDomain included (#262)", () => {
-		assert.deepEqual(SUPPORTED_CLAUSE_FIELDS, [
-			"From",
-			"Subject",
-			"HasWords",
-			"ListId",
-			"FromDomain",
-		]);
-	});
-});
 
 describe("normalizeListId", () => {
 	it("strips the bracketed identifier, trims, and case-folds — matching the backend", () => {

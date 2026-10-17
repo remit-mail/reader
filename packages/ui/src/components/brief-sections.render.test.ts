@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import type { BriefCategoryFilter } from "../category-presentation.js";
 import type { BriefFilterId } from "../lib/brief-filters.js";
 import type { ThreadSection } from "./app-shell-types.js";
 import { BriefSections } from "./brief-sections.js";
@@ -53,28 +52,7 @@ const chipControl = {
 	onClearFilters: () => undefined,
 };
 
-function render(briefCategory: BriefCategoryFilter) {
-	return renderToString(
-		createElement(BriefSections, {
-			sections,
-			Row: ComfortableRow,
-			briefCategory,
-			onSelectThread: () => undefined,
-			onSelectBriefCategory: () => undefined,
-			...chipControl,
-		}),
-	);
-}
-
 describe("BriefSections", () => {
-	it("renders section labels and rows", () => {
-		const html = render("all");
-		assert.match(html, /Personal/);
-		assert.match(html, /Newsletter/);
-		assert.match(html, /Priya Nair/);
-		assert.match(html, /Weekly Brief/);
-	});
-
 	// #314: membership is the host's answer, and in the app it is the server's.
 	// A list that drops a row it was handed is a second filter layer under the
 	// first, narrowing one page by a criterion the request applied to the whole

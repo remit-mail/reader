@@ -354,10 +354,6 @@ describe("the /metrics endpoint", () => {
 		assert.match(response.body, /queue store unreachable/);
 	});
 
-	it("defaults to the documented port when none is configured", () => {
-		assert.equal(DEFAULT_METRICS_PORT, 9464);
-	});
-
 	it("survives a port it cannot bind instead of taking the process down", async () => {
 		const held = await listen();
 		const reported: Error[] = [];

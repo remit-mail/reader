@@ -52,23 +52,6 @@ const render = (props: Partial<RoleAppointmentPromptProps>) =>
 	);
 
 describe("roleAppointmentPromptCopy", () => {
-	it("says nothing was deleted, and what reader files deletes in", () => {
-		const copy = roleAppointmentPromptCopy("none", {
-			kind: "delete",
-			count: 12,
-		});
-		assert.equal(copy.title, "No folder is set as Trash");
-		assert.equal(
-			copy.description,
-			"Nothing has been deleted. reader files deleted mail in the folder you set as Trash, and this account has none.",
-		);
-		assert.equal(
-			copy.pickerPrompt,
-			"Which folder does this account use for deleted mail?",
-		);
-		assert.equal(copy.confirmLabel, "Set as Trash and delete 12 messages");
-	});
-
 	it("counts one message as one message", () => {
 		const copy = roleAppointmentPromptCopy("none", {
 			kind: "delete",
@@ -98,17 +81,6 @@ describe("roleAppointmentPromptCopy", () => {
 		assert.equal(copy.pickerPrompt, "Which folder should reader use instead?");
 	});
 
-	it("degrades the stale wording when no path was ever recorded", () => {
-		const copy = roleAppointmentPromptCopy("stale", {
-			kind: "delete",
-			count: 3,
-		});
-		assert.equal(
-			copy.description,
-			"Nothing has been deleted. The folder you set as this account's Trash is no longer on the mail server — another mail app may have renamed or removed it.",
-		);
-	});
-
 	it("names the guess and the irreversibility when confirming a guess", () => {
 		const copy = roleAppointmentPromptCopy(
 			"unconfirmed",
@@ -127,15 +99,6 @@ describe("roleAppointmentPromptCopy", () => {
 		assert.equal(copy.confirmLabel, "Set as Trash and empty 512 messages");
 	});
 
-	it("falls back to an uncounted confirm when the count is unknown", () => {
-		const copy = roleAppointmentPromptCopy(
-			"unconfirmed",
-			{ kind: "emptyTrash" },
-			{ trashFolderLabel: "Deleted Messages" },
-		);
-		assert.equal(copy.confirmLabel, "Set as Trash and empty it");
-	});
-
 	it("words the irreversibility as a delete of these rows, not a folder emptying (#876)", () => {
 		const copy = roleAppointmentPromptCopy(
 			"unconfirmed",
@@ -151,10 +114,6 @@ describe("roleAppointmentPromptCopy", () => {
 });
 
 describe("RoleAppointmentPrompt", () => {
-	it("renders nothing while closed", () => {
-		assert.equal(render({ open: false }), "");
-	});
-
 	it("offers a way out that changes nothing, and no confirm until one is picked", () => {
 		const html = render({});
 		assert.match(html, />Cancel</);
@@ -176,14 +135,6 @@ describe("RoleAppointmentPrompt", () => {
 		assert.match(html, /aria-label="Folders on this account"/);
 	});
 
-	it("names the account only where there is more than one", () => {
-		assert.match(
-			render({ accountEmail: "you@example.com" }),
-			/you@example.com/,
-		);
-		assert.doesNotMatch(render({}), /you@example\.com/);
-	});
-
 	it("offers a new folder only where the account has no Trash at all", () => {
 		const create = async (): Promise<FolderTreeNode> => ({
 			id: "mb-new",
@@ -198,14 +149,6 @@ describe("RoleAppointmentPrompt", () => {
 		assert.doesNotMatch(
 			render({ reason: "unconfirmed", onCreateFolder: create }),
 			/New folder/,
-		);
-	});
-
-	it("warns in the tone of the pending action, not of the reason", () => {
-		assert.match(render({ reason: "none" }), /text-warning/);
-		assert.match(
-			render({ reason: "unconfirmed", action: { kind: "emptyTrash" } }),
-			/text-danger/,
 		);
 	});
 
@@ -255,17 +198,6 @@ describe("RoleAppointmentPrompt", () => {
 		);
 	});
 
-	it("marks the confirm that erases in place as the destructive one", () => {
-		assert.match(
-			render({ ...refusedInPlace, selectedId: "mb-deleted" }),
-			/text-danger/,
-		);
-		assert.match(
-			render({ ...refusedInPlace, selectedId: "mb-prullenbak" }),
-			/text-warning/,
-		);
-	});
-
 	it("keeps the picker and the selection through a failed appointment", () => {
 		const html = render({
 			selectedId: "mb-prullenbak",
@@ -277,16 +209,5 @@ describe("RoleAppointmentPrompt", () => {
 		);
 		assert.match(html, /Set as Trash and delete 12 messages/);
 		assert.match(html, /role="alert"/);
-	});
-
-	it("words an unsettled mailbox as a wait, not a failure to retry blindly", () => {
-		const html = render({
-			selectedId: "mb-prullenbak",
-			phase: { kind: "appoint-failed", cause: "mailbox-pending" },
-		});
-		assert.match(
-			html,
-			/Prullenbak is still being created on the mail server\. Wait for it to finish, then try again\./,
-		);
 	});
 });

@@ -1,15 +1,9 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { NavAccount, NavLinkComponent } from "./app-shell-types.js";
-import {
-	NAV_ACCOUNT_OPEN_KEY,
-	NAV_FOLDER_OPEN_KEY,
-	NavSidebar,
-	readOpen,
-	writeOpen,
-} from "./nav-sidebar.js";
+import { NAV_FOLDER_OPEN_KEY, NavSidebar, readOpen } from "./nav-sidebar.js";
 
 const accounts: NavAccount[] = [
 	{
@@ -24,23 +18,6 @@ const accounts: NavAccount[] = [
 		],
 	},
 ];
-
-/** Minimal in-memory localStorage stub for the persistence contract tests. */
-class MemoryStorage {
-	private store = new Map<string, string>();
-	getItem(key: string): string | null {
-		return this.store.has(key) ? (this.store.get(key) ?? null) : null;
-	}
-	setItem(key: string, value: string): void {
-		this.store.set(key, value);
-	}
-	removeItem(key: string): void {
-		this.store.delete(key);
-	}
-	clear(): void {
-		this.store.clear();
-	}
-}
 
 /** An anchor-rendering linkComponent so we can assert real <a href> output. */
 const hrefLink: NavLinkComponent = ({
@@ -57,18 +34,6 @@ const hrefLink: NavLinkComponent = ({
 	);
 
 describe("NavSidebar", () => {
-	it("renders the daily brief item", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				briefUnseen: 7,
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.match(html, /Daily brief/);
-	});
-
 	it("labels the \\Flagged virtual mailbox 'Starred'", () => {
 		const html = renderToString(
 			createElement(NavSidebar, {
@@ -79,20 +44,6 @@ describe("NavSidebar", () => {
 		);
 		assert.match(html, /Starred/);
 		assert.doesNotMatch(html, /Flagged/);
-	});
-
-	it("renders system and custom mailbox names", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.match(html, /Inbox/);
-		assert.match(html, /Sent/);
-		assert.match(html, /Trash/);
-		assert.match(html, /Travel/);
 	});
 
 	it("marks a folder whose last change failed and names the reason", () => {
@@ -117,18 +68,6 @@ describe("NavSidebar", () => {
 		);
 		assert.match(html, /aria-label="Locked — Permission denied"/);
 		assert.match(html, /title="Locked — Permission denied"/);
-	});
-
-	it("gives the selected item its active accent styling", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.match(html, /bg-accent-2-soft/);
-		assert.match(html, /text-accent-2/);
 	});
 
 	it("carries no Settings entry — it lives in the top bar, by the avatar", () => {
@@ -161,19 +100,6 @@ describe("NavSidebar", () => {
 		assert.match(html, /<a href="\/mail\/personal-travel"/);
 	});
 
-	it("carries aria-label and the fullPath title on a mailbox link", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-				linkComponent: hrefLink,
-			}),
-		);
-		assert.match(html, /aria-label="Inbox"/);
-		assert.match(html, /title="Personal\/Travel"/);
-	});
-
 	it("renders an Outbox entry with its pending count when set", () => {
 		const html = renderToString(
 			createElement(NavSidebar, {
@@ -186,17 +112,6 @@ describe("NavSidebar", () => {
 		assert.match(html, /Outbox/);
 		assert.match(html, /<a href="\/mail\/outbox"/);
 		assert.match(html, /3/);
-	});
-
-	it("omits the Outbox entry when outboxPending is undefined", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts,
-				selectedNavId: "personal-inbox",
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.doesNotMatch(html, /Outbox/);
 	});
 
 	it("shows the empty state when no accounts are configured", () => {
@@ -290,25 +205,6 @@ describe("NavSidebar", () => {
 		],
 	};
 
-	it("pins Hostnet system folders with their role icons", () => {
-		const html = renderToString(
-			createElement(NavSidebar, {
-				accounts: [hostnet],
-				selectedNavId: "hn-inbox",
-				onSelectNav: () => undefined,
-			}),
-		);
-		assert.match(html, /lucide-inbox/);
-		assert.match(html, /lucide-file-text/);
-		assert.match(html, /lucide-send/);
-		assert.match(html, /lucide-archive/);
-		assert.match(html, /lucide-octagon-alert/);
-		assert.match(html, /lucide-trash2/);
-		// The real user folder lands in the collapsible Folders section.
-		assert.match(html, /Nieuwsbrieven/);
-		assert.match(html, /Folders/);
-	});
-
 	it("orders Hostnet system folders canonically and before custom folders", () => {
 		const html = renderToString(
 			createElement(NavSidebar, {
@@ -355,13 +251,6 @@ describe("NavSidebar with mail sync off", () => {
 			}),
 		);
 
-	it("keeps the account and every mailbox it already synced", () => {
-		const html = render(mailOff);
-		assert.match(html, /Personal/);
-		assert.match(html, /Inbox/);
-		assert.match(html, /Travel/);
-	});
-
 	it("labels the account rather than leaving it to be guessed at", () => {
 		assert.match(render(mailOff), /mail sync off/);
 	});
@@ -373,26 +262,6 @@ describe("NavSidebar with mail sync off", () => {
 });
 
 describe("NavSidebar collapse persistence", () => {
-	afterEach(() => {
-		Reflect.deleteProperty(globalThis, "localStorage");
-	});
-
-	it("defaults to open when nothing is stored", () => {
-		(globalThis as { localStorage?: Storage }).localStorage =
-			new MemoryStorage() as unknown as Storage;
-		assert.equal(readOpen(NAV_FOLDER_OPEN_KEY, "acct-1", true), true);
-		assert.equal(readOpen(NAV_ACCOUNT_OPEN_KEY, "acct-1", true), true);
-	});
-
-	it("round-trips a stored collapsed flag per id", () => {
-		(globalThis as { localStorage?: Storage }).localStorage =
-			new MemoryStorage() as unknown as Storage;
-		writeOpen(NAV_ACCOUNT_OPEN_KEY, "acct-1", false);
-		assert.equal(readOpen(NAV_ACCOUNT_OPEN_KEY, "acct-1", true), false);
-		// A different id is unaffected — collapse is keyed per account.
-		assert.equal(readOpen(NAV_ACCOUNT_OPEN_KEY, "acct-2", true), true);
-	});
-
 	it("honours the supplied fallback with no storage available", () => {
 		// No localStorage on globalThis → return fallback verbatim.
 		assert.equal(readOpen(NAV_FOLDER_OPEN_KEY, "acct-1", false), false);

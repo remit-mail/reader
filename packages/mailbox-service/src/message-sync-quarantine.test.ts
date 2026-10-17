@@ -139,6 +139,7 @@ const buildHarness = (options: {
 
 	const threadMessageService = {
 		findByMessageId: async () => null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		findAllByMessageId: async () => [],
 		listByMailbox: async () => ({ items: [], continuationToken: undefined }),
 		create: async () => ({ threadMessageId: "tm-1" }),

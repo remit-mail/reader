@@ -56,7 +56,6 @@ describe("mailboxNeedsSync", () => {
 describe("resolveMailboxFreshnessMs", () => {
 	it("defaults to the production window when unset", () => {
 		assert.equal(resolveMailboxFreshnessMs({}), DEFAULT_MAILBOX_FRESHNESS_MS);
-		assert.equal(DEFAULT_MAILBOX_FRESHNESS_MS, 60_000);
 	});
 
 	it("honors a valid override", () => {

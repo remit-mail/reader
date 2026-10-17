@@ -5,6 +5,7 @@ import type {
 	CreateEnvelopeInput,
 	EnvelopeItem,
 	MessageData,
+	MessageReferenceInput,
 	UpdateEnvelopeInput,
 } from "../types.js";
 
@@ -26,6 +27,10 @@ export interface IEnvelopeRepository {
 	upsertBodyPartContents(
 		messageId: string,
 		contents: BodyPartContentUpsertInput[],
+	): Promise<void>;
+	replaceMessageReferences(
+		messageId: string,
+		references: MessageReferenceInput[],
 	): Promise<void>;
 	getMessageData(messageId: string): Promise<MessageData>;
 	listBodyParts(messageId: string): Promise<BodyPartItem[]>;

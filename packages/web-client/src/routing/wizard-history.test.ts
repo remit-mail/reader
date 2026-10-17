@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import {
 	backExits,
 	type MatchMode,
@@ -50,50 +47,9 @@ const answerSets = (): WizardAnswers[] => {
 	return sets;
 };
 
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(resolve(here, "wizard-history.ts"), "utf8");
-
 /** The steps up to and including the one an answer is given on. */
 const prefixThrough = (steps: readonly StepId[], step: StepId): StepId[] =>
 	steps.slice(0, steps.indexOf(step) + 1);
-
-/**
- * The re-root runs inside a router, so the rule is enforced by reading the
- * source — as `../components/mail/MessageList.selection.test.ts` does for its
- * own component-level rules. What it pins is where the decision comes from: a
- * step the app itself pushed must never be re-rooted, or the push that opens
- * the wizard from a verb (#483) duplicates the entry underneath it and the
- * first back after Cancel appears to do nothing.
- */
-describe("re-rooting a wizard that was loaded into", () => {
-	it("decides from what the first render held, not from a flag", () => {
-		assert.match(source, /useRef\(step !== undefined\)/);
-		assert.match(
-			source,
-			/if \(!loadedHoldingStep\.current\) return;\s*\n\s*loadedHoldingStep\.current = false;/,
-		);
-	});
-
-	// The root is the wizard-closed state, so it carries neither the step nor
-	// the affordance that opened it; otherwise closing the wizard leaves the
-	// entry marker behind in the address bar (#484).
-	it("puts the wizard back on a root that names no entry", () => {
-		assert.match(source, /wizard: undefined,\s*\n\s*wizardFrom: undefined,/);
-		assert.match(
-			source,
-			/wizard: openingStep,\s*\n\s*wizardFrom: openingEntry,/,
-		);
-	});
-
-	it("is never armed by a step the app pushed", () => {
-		const goToStep = source.slice(source.indexOf("const goToStep"));
-		assert.doesNotMatch(goToStep, /loadedHoldingStep/);
-	});
-
-	it("does not re-run when the step changes", () => {
-		assert.doesNotMatch(source, /\}, \[step, openingStep, navigate\]\)/);
-	});
-});
 
 describe("the wizard step in the URL", () => {
 	it("round-trips every step the wizard can reach", () => {

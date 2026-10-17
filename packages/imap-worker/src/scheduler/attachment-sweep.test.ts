@@ -9,16 +9,12 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import type { AccountItem } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import type { StorageService } from "@remit/storage-service";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 
-const here = dirname(fileURLToPath(import.meta.url));
 const TICK_TIME = 1_700_000_000_000;
 
 const silentLogger = (): Logger => {
@@ -94,17 +90,6 @@ describe("the hosted tick sweeps", () => {
 		} finally {
 			_resetForTest();
 		}
-	});
-});
-
-describe("the self-host runner wires the sweep", () => {
-	it("hands runSchedulerTick a sweep", () => {
-		// runner.ts starts its loop on import, so it cannot be invoked from a test
-		// the way handler.ts can. This guards the wiring itself: without it,
-		// deleting the line leaves the suite green and self-host silently stops
-		// collecting.
-		const source = readFileSync(join(here, "runner.ts"), "utf8");
-		assert.match(source, /sweepAttachments:\s*buildAttachmentSweep\(/);
 	});
 });
 

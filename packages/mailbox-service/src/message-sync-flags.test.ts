@@ -46,6 +46,8 @@ const captureCreate = (): {
 } => {
 	const inputs: CreateThreadMessageInput[] = [];
 	const repo = {
+		findByMessageId: async () => null,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		create: async (input: CreateThreadMessageInput) => {
 			inputs.push(input);
 			return input as unknown as ThreadMessageItem;
@@ -65,6 +67,7 @@ type CreateThreadForMessage = (
 	threadMessageService: IThreadMessageRepository,
 	messageId: string,
 	mailboxId: string,
+	accountId: string,
 	accountConfigId: string,
 	uid: number,
 	internalDate: number,
@@ -97,6 +100,7 @@ const createThreadWithFlags = async (
 		repo,
 		MESSAGE_ID,
 		MAILBOX_ID,
+		"acct-1",
 		ACCOUNT_CONFIG_ID,
 		42,
 		now,

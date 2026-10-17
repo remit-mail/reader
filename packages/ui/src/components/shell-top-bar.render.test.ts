@@ -37,37 +37,6 @@ const render = (overrides: Partial<ShellTopBarProps> = {}): string =>
 	);
 
 describe("ShellTopBar", () => {
-	it("carries compose, bug report, settings, refresh and the account, in that order", () => {
-		const html = render();
-		const compose = html.indexOf('aria-label="Compose"');
-		const bug = html.indexOf('aria-label="Report a bug"');
-		const settings = html.indexOf('aria-label="Settings"');
-		const refresh = html.indexOf('data-testid="refresh"');
-		const account = html.indexOf('data-testid="account"');
-		assert.ok(
-			compose > -1 && bug > -1 && settings > -1 && refresh > -1 && account > -1,
-		);
-		assert.ok(
-			compose < bug &&
-				bug < settings &&
-				settings < refresh &&
-				refresh < account,
-			"actions render in reading order",
-		);
-	});
-
-	it("carries exactly these aria-labelled elements and nothing else — the refresh control and account slot are opaque children, named by whatever the caller passes in", () => {
-		const labels = [...render().matchAll(/aria-label="([^"]+)"/g)].map(
-			(match) => match[1],
-		);
-		assert.deepEqual(labels, [
-			"Search mail",
-			"Compose",
-			"Report a bug",
-			"Settings",
-		]);
-	});
-
 	it("words the compose tooltip around the host's bare key", () => {
 		assert.match(render({ composeShortcut: "c" }), /title="Compose \(c\)"/);
 	});

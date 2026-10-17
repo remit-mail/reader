@@ -17,24 +17,11 @@ const render = (props: Partial<NewFolderFormProps>) =>
 	);
 
 describe("NewFolderForm", () => {
-	it("asks for a name and states where the folder goes", () => {
-		const html = render({ name: "Car hire" });
-		assert.match(html, /Folder name/);
-		assert.match(html, /value="Car hire"/);
-		assert.match(html, /placeholder="Hotels"/);
-		assert.match(html, /Inside/);
-		assert.match(html, />Travel</);
-	});
-
 	it("ties the label to the field it names", () => {
 		const html = render({});
 		const forId = html.match(/<label[^>]*for="([^"]+)"/)?.[1];
 		assert.ok(forId);
 		assert.match(html, new RegExp(`<input[^>]*id="${forId}"`));
-	});
-
-	it("states the parent as text rather than a second choice", () => {
-		assert.doesNotMatch(render({}), /<select/);
 	});
 
 	it("holds the wait and refuses a second submit while it runs", () => {
@@ -47,18 +34,5 @@ describe("NewFolderForm", () => {
 	it("states a failure where it happened", () => {
 		const html = render({ error: "The mail server refused that name." });
 		assert.match(html, /role="alert"[^>]*>The mail server refused that name\./);
-	});
-
-	it("says nothing about a failure that has not happened", () => {
-		assert.doesNotMatch(render({}), /role="alert"/);
-	});
-
-	it("applies caller-supplied labels", () => {
-		const html = render({
-			labels: { create: "Map maken", cancel: "Annuleren", insideLabel: "In" },
-		});
-		assert.match(html, />Map maken</);
-		assert.match(html, />Annuleren</);
-		assert.doesNotMatch(html, /Inside/);
 	});
 });

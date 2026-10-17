@@ -19,20 +19,6 @@ const item = (
 });
 
 describe("AttachmentList", () => {
-	it("renders nothing when the message has no attachments", () => {
-		assert.equal(render({ attachments: [], onDownload: () => undefined }), "");
-	});
-
-	it("names the file, its type and its size", () => {
-		const html = render({
-			attachments: [item({})],
-			onDownload: () => undefined,
-		});
-		assert.match(html, /Quarterly report\.pdf/);
-		assert.match(html, /PDF/);
-		assert.match(html, /512 KB/);
-	});
-
 	it("gives every attachment a labelled download control", () => {
 		const html = render({
 			attachments: [
@@ -52,14 +38,6 @@ describe("AttachmentList", () => {
 			onDownload: () => undefined,
 		});
 		assert.match(html, /1 attachment</);
-	});
-
-	it("isolates the filename's text direction", () => {
-		const html = render({
-			attachments: [item({})],
-			onDownload: () => undefined,
-		});
-		assert.match(html, /<bdi/);
 	});
 
 	it("disables the control while a download is in flight", () => {

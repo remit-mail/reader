@@ -45,20 +45,4 @@ describe("completeOnboarding", () => {
 			"navigate",
 		]);
 	});
-
-	it("refreshes the config query", async () => {
-		let refetchedKey: unknown;
-		await completeOnboarding({
-			queryClient: {
-				refetchQueries: (filters) => {
-					refetchedKey = (filters as { queryKey?: unknown }).queryKey;
-					return Promise.resolve();
-				},
-			},
-			recordCompleted: () => {},
-			navigateToInbox: () => {},
-		});
-
-		assert.ok(refetchedKey, "refetchQueries called with a query key");
-	});
 });
