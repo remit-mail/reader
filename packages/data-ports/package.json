@@ -53,6 +53,10 @@
 			"types": "./src/update-manifest.ts",
 			"default": "./src/update-manifest.ts"
 		},
+		"./message-parts": {
+			"types": "./src/message-parts.ts",
+			"default": "./src/message-parts.ts"
+		},
 		"./message-settlement": {
 			"types": "./src/message-settlement.ts",
 			"default": "./src/message-settlement.ts"

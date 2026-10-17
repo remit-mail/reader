@@ -1,7 +1,10 @@
 import type { RemitImapBodyPartResponse } from "@remit/api-http-client/types.gen.ts";
+import {
+	isEncapsulatedMessage,
+	ownParts,
+} from "@remit/data-ports/message-parts";
 import { ContentDisposition } from "@remit/domain-enums";
 import { type AttachmentKind, sanitizeAttachmentFilename } from "@remit/ui";
-import { isEncapsulatedMessage, ownParts } from "./encapsulated-message";
 
 /**
  * The attachment-disposition body parts of a message, in the order the message

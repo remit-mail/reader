@@ -3,6 +3,7 @@ import type {
 	RemitImapBodyPartResponse,
 	RemitImapDescribeMessageResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { encapsulatedParts } from "@remit/data-ports/message-parts";
 import { type AttachmentDownloadState, AttachmentList } from "@remit/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
@@ -16,7 +17,6 @@ import {
 	isRepairableByRefetch,
 	saveBlob,
 } from "@/lib/attachment-download";
-import { encapsulatedParts } from "@/lib/encapsulated-message";
 import {
 	type MessageAttachment,
 	selectMessageAttachments,
@@ -147,7 +147,7 @@ export const MessageAttachments = ({
 			attachment.kind === "message" && attachment.bodyPartId === openedId,
 	);
 	const openedParts = openedMessage
-		? encapsulatedParts(bodyParts ?? [], openedMessage)
+		? encapsulatedParts(bodyParts ?? [], openedMessage.partPath)
 		: [];
 
 	return (

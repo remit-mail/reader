@@ -46,8 +46,12 @@
 
 import { Buffer } from "node:buffer";
 import type { BodyPartItem } from "@remit/data-ports";
+import {
+	encapsulatedParts,
+	outermostMessages,
+	ownParts,
+} from "@remit/data-ports/message-parts";
 import { type Attachment, type ParsedMail, simpleParser } from "mailparser";
-import { isEncapsulatedMessage } from "./encapsulated-message.js";
 
 export interface BodyPartContentPair {
 	partPath: string;
@@ -368,9 +372,6 @@ export const mapBodyPartsToContent = (
 export const parsePartSource = (source: Buffer): Promise<ParsedMail> =>
 	simpleParser(source, { ignoreEmbedded: true });
 
-const isWithin = (part: MapperInput, messagePath: string): boolean =>
-	part.partPath.startsWith(`${messagePath}.`);
-
 /**
  * `mapBodyPartsToContent`, extended to forwarded messages. mailparser hands a
  * message/rfc822 part over as one attachment holding the raw forwarded
@@ -384,22 +385,12 @@ export const mapMessagePartsToContent = async (
 	parsed: ParsedMail,
 	context: MapperContext = {},
 ): Promise<BodyPartContentPair[]> => {
-	const messages = bodyParts.filter(
-		(part) =>
-			isEncapsulatedMessage(part) &&
-			!bodyParts.some(
-				(outer) =>
-					isEncapsulatedMessage(outer) && isWithin(part, outer.partPath),
-			),
-	);
-	const own = bodyParts.filter(
-		(part) => !messages.some((message) => isWithin(part, message.partPath)),
-	);
-	const pairs = mapBodyPartsToContent(own, parsed, context);
+	const messages = outermostMessages(bodyParts);
+	const pairs = mapBodyPartsToContent(ownParts(bodyParts), parsed, context);
 
 	for (const message of messages) {
 		const raw = pairs.find((pair) => pair.partPath === message.partPath);
-		const inner = bodyParts.filter((part) => isWithin(part, message.partPath));
+		const inner = encapsulatedParts(bodyParts, message.partPath);
 		if (!raw || inner.length === 0) continue;
 		const prefix = `${message.partPath}.`;
 		const nested = await mapMessagePartsToContent(

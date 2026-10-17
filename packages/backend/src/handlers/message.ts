@@ -11,6 +11,7 @@ import {
 	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
+import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import {
 	ContentDisposition,
 	MediaType,
@@ -22,7 +23,6 @@ import { logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
-	isEncapsulatedMessage,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	MoveNotSettledError,

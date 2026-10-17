@@ -8,7 +8,7 @@
  * type without standing up jsdom or DOMPurify.
  */
 
-import { ownParts } from "./encapsulated-message";
+import { ownParts } from "@remit/data-ports/message-parts";
 
 export type BodyContentKind = "html" | "text";
 

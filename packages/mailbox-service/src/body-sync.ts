@@ -26,6 +26,7 @@ import {
 	NotFoundError,
 } from "@remit/data-ports/errors";
 import { deriveAddressId, deriveBodyPartId } from "@remit/data-ports/id";
+import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
 import { isBulkSender } from "@remit/data-ports/wellknown";
 import {
 	FilterState,
@@ -52,7 +53,7 @@ import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";
-import { isEncapsulatedMessage } from "./encapsulated-message.js";
+
 import { extractListId } from "./filters/list-id.js";
 import type { FilterMessage } from "./filters/match.js";
 import {

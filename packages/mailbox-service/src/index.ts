@@ -80,7 +80,6 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
-export { isEncapsulatedMessage } from "./encapsulated-message.js";
 export {
 	type AnchorDriftDeps,
 	type AnchorEmbedder,
