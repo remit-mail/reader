@@ -12,6 +12,7 @@ import {
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
+	reconcileStaleMessage,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -318,17 +319,35 @@ export const handleMessageMove = async (
 			// a queued event pointing at a gone row. The lookup then throws
 			// NotFoundError forever, and on the account's per-group FIFO that head
 			// message stalls the whole pipeline (issues #287, #289, #290). A deleted
-			// source mailbox makes the move moot: ack with a WARN.
+			// source mailbox makes the move moot, but not the row: left `moving`, it
+			// names the destination with a uid from a folder that no longer exists,
+			// and nothing else settles it. It is reconciled away, and the destination
+			// resync re-projects the message if the MOVE did land there.
 			const source = await findMailboxRow(
 				mailboxService,
 				accountId,
 				sourceMailboxId,
 			);
 			if (source.kind === "gone") {
-				log.warn(
-					{ accountId, messageId, mailboxId: sourceMailboxId },
-					"Skipping MESSAGE_MOVE: source mailbox no longer exists (deleted)",
+				const { threadMessagesDeleted } = await reconcileStaleMessage(
+					{ messageService, threadMessageService },
+					account.accountConfigId,
+					messageId,
 				);
+				log.warn(
+					{
+						metric: "message_move_source_gone",
+						accountId,
+						messageId,
+						mailboxId: sourceMailboxId,
+						threadMessagesDeleted,
+					},
+					"MESSAGE_MOVE not pushed: source mailbox no longer exists (deleted); stale row reconciled",
+				);
+				await emitMailboxResync(emitEvent, {
+					accountId,
+					mailboxId: destinationMailboxId,
+				});
 				return;
 			}
 			const mailbox = source.mailbox;

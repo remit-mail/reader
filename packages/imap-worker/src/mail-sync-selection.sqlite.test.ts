@@ -132,6 +132,7 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 		},
 	} as unknown as SQSClient;
 	const result = await runSchedulerTick({
+		redriveStrandedPlacements: async () => 0,
 		accountService: accounts,
 		sqsClient,
 		queueUrl: "https://queue.test/mailboxes",

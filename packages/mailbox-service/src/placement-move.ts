@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	IAddressRepository,
+	IMailboxRepository,
 	IMailboxSpecialUseRepository,
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
@@ -34,6 +35,9 @@ export interface PlacementMovePushEvent {
 	messageId: string;
 }
 
+/** Whether a filing happened. `refused` names a destination outside the message's account. */
+export type PlacementMoveOutcome = "filed" | "skipped" | "refused";
+
 export interface PlacementMoveLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 	error(obj: Record<string, unknown>, msg: string): void;
@@ -55,6 +59,7 @@ export interface PlacementMoveConfig {
 	 * every auto-filed spam suggestible in the compose picker.
 	 */
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
 	sqsQueueUrl: string;
 	sqsEndpoint?: string;
 	logger?: PlacementMoveLogger;
@@ -99,6 +104,7 @@ export class PlacementMoveService {
 	private markerService: IMessagePlacementMoveRepository;
 	private addressService: IAddressRepository;
 	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
+	private mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
 	private sqs: SQSClient;
 	private queueUrl: string;
 	private log: PlacementMoveLogger;
@@ -111,6 +117,7 @@ export class PlacementMoveService {
 		this.markerService = config.markerService;
 		this.addressService = config.addressService;
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
+		this.mailboxService = config.mailboxService;
 		this.queueUrl = config.sqsQueueUrl;
 		this.log = config.logger ?? noopLogger;
 		this.moveSettleTimeoutMs =
@@ -128,7 +135,7 @@ export class PlacementMoveService {
 		messageId: string,
 		destinationMailboxId: string,
 		accountId: string,
-	): Promise<void> => {
+	): Promise<PlacementMoveOutcome> => {
 		let message = await this.messageService.get(messageId);
 
 		// Recovery: a marker already exists for THIS message and destination —
@@ -156,7 +163,7 @@ export class PlacementMoveService {
 			// queued / processing / processed already has its own driver in
 			// flight (the SQS message, or the reconciler currently running) —
 			// nothing to do here either way.
-			return;
+			return "filed";
 		}
 
 		// A different destination, decided while an earlier move is still
@@ -176,7 +183,7 @@ export class PlacementMoveService {
 				{ messageId, accountId, destinationMailboxId },
 				"Placement move not applied: this message is being deleted",
 			);
-			return;
+			return "skipped";
 		}
 
 		if (isPlacementUnsettled(message)) {
@@ -189,7 +196,7 @@ export class PlacementMoveService {
 					{ messageId, accountId, destinationMailboxId },
 					"Placement move not applied: a delete claimed this message while the earlier move settled",
 				);
-				return;
+				return "skipped";
 			}
 			if (isPlacementUnsettled(message)) {
 				throw new Error(
@@ -203,7 +210,26 @@ export class PlacementMoveService {
 		// Genuine no-op: nothing pending for this destination, and the message
 		// is already there (a duplicate verdict recomputed after a confirmed
 		// move).
-		if (sourceMailboxId === destinationMailboxId) return;
+		if (sourceMailboxId === destinationMailboxId) return "skipped";
+
+		// IMAP has no MOVE between accounts, so a filing into a folder this
+		// account does not own would only ever be handed back.
+		if (
+			(await this.mailboxService.resolveAccountId(destinationMailboxId)) !==
+			accountId
+		) {
+			this.log.error(
+				{
+					alert: "placement_move_foreign_folder",
+					messageId,
+					accountId,
+					sourceMailboxId,
+					destinationMailboxId,
+				},
+				"Placement move refused: the destination is not a folder of this message's account",
+			);
+			return "refused";
+		}
 
 		// Fresh move. Strictly sequential — nothing here is parallel: the local
 		// move (marker + ThreadMessage + Message row) fully commits BEFORE the
@@ -256,7 +282,7 @@ export class PlacementMoveService {
 				{ messageId, accountId, sourceMailboxId, destinationMailboxId },
 				"Placement move not applied: something else claimed this message's placement first",
 			);
-			return;
+			return "skipped";
 		}
 
 		await this.updateThreadMessageMailbox(
@@ -286,6 +312,7 @@ export class PlacementMoveService {
 			{ messageId, accountId, sourceMailboxId, destinationMailboxId },
 			"Placement move applied locally; pending marker queued for IMAP push",
 		);
+		return "filed";
 	};
 
 	private updateThreadMessageMailbox = async (

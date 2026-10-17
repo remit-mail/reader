@@ -8,6 +8,7 @@ import {
 	deriveFilterTtl,
 	FILTER_NO_ACTION,
 	type FilterItem,
+	type IAccountRepository,
 	type IFilterAnchorTransaction,
 	type IMailboxRepository,
 	type UpdateFilterInput,
@@ -23,6 +24,7 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
 import { buildFilterAnchor } from "../service/filter.js";
+import { foreignFolderReason } from "../service/foreign-folder.js";
 import { queueOrganizeJob } from "../service/organize-queue.js";
 import type {
 	FilterDetailOperationIds,
@@ -266,6 +268,7 @@ export const resolveFilterUpdate = (
 
 const assertEnabledTargetExists = async (
 	client: {
+		account: Pick<IAccountRepository, "get">;
 		mailbox: Pick<IMailboxRepository, "get" | "resolveAccountId">;
 	},
 	accountId: string,
@@ -359,12 +362,21 @@ const requireUserId = (event: APIGatewayProxyEvent): string => {
  * and neither is a filter that touches the field at all.
  */
 const assertActionMailboxSettled = async (
-	client: { mailbox: Pick<IMailboxRepository, "get"> },
+	client: {
+		account: Pick<IAccountRepository, "get">;
+		mailbox: Pick<IMailboxRepository, "get" | "resolveAccountId">;
+	},
 	accountId: string,
 	actionMailboxId: string | undefined,
 ): Promise<void> => {
 	if (actionMailboxId === undefined || actionMailboxId === FILTER_NO_ACTION) {
 		return;
+	}
+	const owner = await client.mailbox.resolveAccountId(actionMailboxId);
+	if (owner !== null && owner !== accountId) {
+		throw new BadRequestError(
+			await foreignFolderReason(client, accountId, owner, actionMailboxId),
+		);
 	}
 	const target = await client.mailbox.get(accountId, actionMailboxId);
 	assertMailboxInAccount(target, accountId, "act");

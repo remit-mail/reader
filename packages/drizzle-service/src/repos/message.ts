@@ -6,7 +6,18 @@ import type {
 	MessageItem,
 	PlacementPredicate,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	gt,
+	inArray,
+	isNotNull,
+	isNull,
+	lt,
+	or,
+	type SQL,
+} from "drizzle-orm";
 
 import type { Db } from "../db.js";
 import {
@@ -569,6 +580,35 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.from(messageTable)
 			.where(eq(messageTable.mailboxId, mailboxId))
 			.orderBy(asc(messageTable.uid), asc(messageTable.messageId));
+		return rows.map(toMessageItem);
+	}
+
+	async listStrandedPlacements(
+		mailboxIds: readonly string[],
+		untouchedSince: number,
+	): ReturnType<IMessageRepository["listStrandedPlacements"]> {
+		if (mailboxIds.length === 0) return [];
+		const ids = [...mailboxIds];
+		const rows = await this.db
+			.select()
+			.from(messageTable)
+			.where(
+				and(
+					lt(messageTable.updatedAt, untouchedSince),
+					or(
+						and(
+							eq(messageTable.status, "moving"),
+							inArray(messageTable.originalMailboxId, ids),
+							isNotNull(messageTable.originalUid),
+						),
+						and(
+							eq(messageTable.status, "deleting"),
+							inArray(messageTable.mailboxId, ids),
+						),
+					),
+				),
+			)
+			.orderBy(asc(messageTable.updatedAt), asc(messageTable.messageId));
 		return rows.map(toMessageItem);
 	}
 

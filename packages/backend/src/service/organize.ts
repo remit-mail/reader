@@ -6,7 +6,11 @@ import type {
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { FilterClauseField, FilterState } from "@remit/domain-enums";
+import {
+	FilterClauseField,
+	FilterDisabledReason,
+	FilterState,
+} from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
@@ -32,6 +36,7 @@ import {
 	buildVectorStoreFromEnv,
 } from "@remit/search-service/from-env";
 import type { RemitClient } from "./data-client.js";
+import { foreignFolderReason } from "./foreign-folder.js";
 import {
 	isSemanticCapabilityAbsence,
 	noteSemanticCapabilityAbsence,
@@ -704,6 +709,7 @@ export const buildOrganizeMoveService = (
 		markerService: client.placementMove,
 		addressService: client.address,
 		mailboxSpecialUseService: client.mailboxSpecialUse,
+		mailboxService: client.mailbox,
 		sqsQueueUrl: queueUrl,
 	});
 };
@@ -716,6 +722,10 @@ export interface ApplyOrganizeDeps {
 export interface ApplyOrganizeResult {
 	applied: number;
 	failed: number;
+	/** Why each failed message failed, as the job reports it. */
+	failures: string[];
+	/** Moves refused because the folder is another account's; none was made. */
+	refusals: string[];
 }
 
 /**
@@ -746,14 +756,11 @@ export const applyOrganize = async (
 	const applyMove =
 		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
 
-	const applyToMessage = async (messageId: string): Promise<void> => {
-		if (applyLabel) {
-			await client.messageLabel.apply({
-				messageId,
-				labelId: predicate.actionLabelId,
-				accountConfigId,
-			});
-		}
+	type MessageOutcome =
+		| { kind: "applied" }
+		| { kind: "refused"; reason: string };
+
+	const applyToMessage = async (messageId: string): Promise<MessageOutcome> => {
 		if (applyMove) {
 			if (!moveService) {
 				// An exclusive move was requested but this caller wired no move
@@ -772,31 +779,66 @@ export const applyOrganize = async (
 					`Cannot resolve owning account for mailbox ${message.mailboxId}`,
 				);
 			}
-			await moveService.moveMessage(
+			const outcome = await moveService.moveMessage(
 				accountConfigId,
 				messageId,
 				predicate.actionMailboxId,
 				accountId,
 			);
+			if (outcome === "refused") {
+				const owner = await client.mailbox.resolveAccountId(
+					predicate.actionMailboxId,
+				);
+				return {
+					kind: "refused",
+					reason: await foreignFolderReason(
+						client,
+						accountId,
+						owner ?? accountId,
+						predicate.actionMailboxId,
+					),
+				};
+			}
 		}
+		if (applyLabel) {
+			await client.messageLabel.apply({
+				messageId,
+				labelId: predicate.actionLabelId,
+				accountConfigId,
+			});
+		}
+		return { kind: "applied" };
 	};
 
-	let applied = 0;
-	let failed = 0;
+	const result: ApplyOrganizeResult = {
+		applied: 0,
+		failed: 0,
+		failures: [],
+		refusals: [],
+	};
 	for (const messageId of messageIds) {
-		// Per-message isolation: one poisoned message is counted and skipped, the
-		// pass continues. `.catch()` (not a block try/catch) keeps this inside the
-		// no-silent-catch ban.
-		const ok = await applyToMessage(messageId)
-			.then(() => true)
-			.catch(() => false);
-		if (ok) {
-			applied += 1;
-		} else {
-			failed += 1;
+		// Per-message isolation: one poisoned message is counted, its reason kept
+		// for the job, and the pass continues.
+		const outcome = await applyToMessage(messageId).catch((error: unknown) => ({
+			kind: "failed" as const,
+			reason: error instanceof Error ? error.message : String(error),
+		}));
+		if (outcome.kind === "applied") {
+			result.applied += 1;
+			continue;
 		}
+		result.failed += 1;
+		if (outcome.kind === "refused") {
+			result.refusals.push(outcome.reason);
+			continue;
+		}
+		result.failures.push(outcome.reason);
+		logger.warn(
+			{ accountConfigId, messageId, reason: outcome.reason },
+			"Organize could not apply its action to a message",
+		);
 	}
-	return { applied, failed };
+	return result;
 };
 
 const FILTER_NOT_ACTIVE_MESSAGE =
@@ -924,6 +966,8 @@ export interface FilterBackApplyResult {
 	matched: number;
 	applied: number;
 	failed: number;
+	failures: string[];
+	refusals: string[];
 	semanticUnavailable: boolean;
 }
 
@@ -975,6 +1019,8 @@ export const backApplyFilter = async (
 		matched: 0,
 		applied: 0,
 		failed: 0,
+		failures: [],
+		refusals: [],
 		semanticUnavailable: false,
 	};
 	if (loaded.matchesNothing || mailboxIds.length === 0) return nothing;
@@ -1015,6 +1061,17 @@ export const backApplyFilter = async (
 		);
 		result.applied += outcome.applied;
 		result.failed += outcome.failed;
+		result.failures.push(...outcome.failures);
+		if (outcome.refusals.length > 0) {
+			// A folder of another account blocks the filter itself, where the user
+			// edits it; the rest of the pass would only be refused the same way.
+			result.refusals.push(...outcome.refusals);
+			await client.filter.update(accountConfigId, filterId, {
+				state: FilterState.Disabled,
+				disabledReason: FilterDisabledReason.ForeignFolder,
+			});
+			break;
+		}
 	}
 	return result;
 };

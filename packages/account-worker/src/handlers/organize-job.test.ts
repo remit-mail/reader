@@ -187,6 +187,7 @@ interface World {
 	inbox: string;
 	archive: string;
 	updates: Update[];
+	filterUpdates: Array<{ filterId: string; patch: Record<string, unknown> }>;
 	moves: Move[];
 	labeled: string[];
 	close: () => void;
@@ -209,6 +210,7 @@ const world = async (
 	const threadMessage = new DrizzleThreadMessageRepository(store.db as never);
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];
+	const filterUpdates: World["filterUpdates"] = [];
 	const labeled: string[] = [];
 	const mailboxOf: Record<string, string> = {
 		[inbox]: INBOX,
@@ -241,6 +243,14 @@ const world = async (
 			refreshExpiry: async (filter: FilterItem) => filter,
 			listByAccountAndState: async (_cfg: string, state: string) =>
 				filters.filter((f) => f.state === state),
+			update: async (
+				_cfg: string,
+				filterId: string,
+				patch: Record<string, unknown>,
+			) => {
+				filterUpdates.push({ filterId, patch });
+				return {};
+			},
 		},
 		filterAnchor: {
 			get: async (_cfg: string, filterId: string) =>
@@ -248,6 +258,10 @@ const world = async (
 		},
 		account: {
 			listMailSourcesByAccountConfig: async () => [{ accountId: "acct-1" }],
+			get: async (accountId: string) => ({
+				accountId,
+				email: accountId === "acct-1" ? "me@example.com" : "me-too@example.com",
+			}),
 		},
 		mailboxSpecialUse: {
 			findInboxMailbox: async () => ({ mailboxId: INBOX, fullPath: "INBOX" }),
@@ -258,7 +272,14 @@ const world = async (
 				mailboxId: mailboxOf[messageId],
 			}),
 		},
-		mailbox: { resolveAccountId: async () => "acct-1" },
+		mailbox: {
+			resolveAccountId: async (mailboxId: string) =>
+				mailboxId === "mbx-sibling-travel" ? "acct-2" : "acct-1",
+			get: async (_accountId: string, mailboxId: string) => ({
+				mailboxId,
+				fullPath: mailboxId === "mbx-sibling-travel" ? "Travel" : "Invoices",
+			}),
+		},
 		messageLabel: {
 			apply: async (input: { messageId: string }) => {
 				labeled.push(input.messageId);
@@ -271,6 +292,7 @@ const world = async (
 		inbox,
 		archive,
 		updates,
+		filterUpdates,
 		moves: [],
 		labeled,
 		close: store.close,
@@ -388,6 +410,39 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 		assert.deepEqual(current.moves, []);
 		assert.deepEqual(current.labeled, [current.inbox]);
 		assert.equal(current.updates.at(-1)?.state, "Complete");
+	});
+
+	it("blocks a filter whose folder is another account's, fails the job with why, and labels nothing", async () => {
+		current = await world([
+			standingFilter({
+				actionLabelId: "lbl-trips",
+				actionMailboxId: "mbx-sibling-travel",
+			}),
+		]);
+
+		await processOrganizeJob(event, noopLogger, {
+			client: current.client,
+			matchDeps: buildOrganizeMatchDeps(current.client),
+			moveService: {
+				moveMessage: async () => "refused",
+			} as unknown as NonNullable<ProcessOrganizeJobDeps["moveService"]>,
+		});
+
+		assert.deepEqual(current.labeled, []);
+		assert.deepEqual(current.filterUpdates, [
+			{
+				filterId: "flt-1",
+				patch: { state: "Disabled", disabledReason: "ForeignFolder" },
+			},
+		]);
+		const done = current.updates.at(-1);
+		assert.equal(done?.state, "Failed");
+		assert.equal(done?.appliedCount, 0);
+		assert.equal(done?.failedCount, 1);
+		assert.match(
+			String(done?.errorMessage),
+			/“Travel” is a folder of me-too@example\.com, not me@example\.com/,
+		);
 	});
 
 	it("fails the job without a retry when the filter is turned off", async () => {

@@ -82,6 +82,12 @@ export const FolderMissing: Story = {
 	},
 };
 
+export const ForeignFolder: Story = {
+	args: {
+		filters: disabled("ForeignFolder", { actionMailboxId: "mbx-travel" }),
+	},
+};
+
 export const Toggling: Story = {
 	args: {
 		filters: disabled("UserDisabled"),

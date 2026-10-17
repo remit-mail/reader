@@ -41,6 +41,8 @@ const DISABLED_REASON_COPY: Record<
 		"Off: the mail server refused to create its folder. Pick another folder in the rule, then turn it on.",
 	FolderMissing:
 		"Off: the folder it moves mail into no longer exists. Pick another folder in the rule, then turn it on.",
+	ForeignFolder:
+		"Off: its folder belongs to another account, and mail can't move between accounts. Pick a folder of this account in the rule, then turn it on.",
 };
 
 export const disabledReasonCopy = (

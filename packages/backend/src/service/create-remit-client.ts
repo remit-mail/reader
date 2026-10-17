@@ -368,6 +368,7 @@ export const buildReadPathFilterConfig = (
 					markerService: repositories.placementMove,
 					addressService: repositories.address,
 					mailboxSpecialUseService: repositories.mailboxSpecialUse,
+					mailboxService: repositories.mailbox,
 					sqsQueueUrl: placementMoveQueueUrl,
 				})
 			: undefined,

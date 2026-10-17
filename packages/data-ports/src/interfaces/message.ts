@@ -36,6 +36,11 @@ export interface IMessageRepository {
 		options?: { limit?: number; continuationToken?: string },
 	): Promise<ResultList<MessageItem>>;
 	listAllByMailbox(mailboxId: string): Promise<MessageItem[]>;
+	/** Copy rows carry no source pair and are never listed. */
+	listStrandedPlacements(
+		mailboxIds: readonly string[],
+		untouchedSince: number,
+	): Promise<MessageItem[]>;
 	describe(messageId: string): Promise<MessageDescription>;
 	updateUid(
 		messageId: string,

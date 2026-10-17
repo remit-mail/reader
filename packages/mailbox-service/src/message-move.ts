@@ -39,6 +39,7 @@ import {
 	placementBindingOf,
 	waitForPlacementToSettle,
 } from "./placement-settled.js";
+import { restoreSourcePlacement } from "./restore-source-placement.js";
 
 /**
  * What a delete batch did not claim. A row whose placement changed between the
@@ -108,6 +109,40 @@ interface MessageCopyEvent {
 	destinationMailboxPath: string;
 	uid: number;
 }
+
+/** An event, and the undo of the local write it was enqueued for. */
+interface UndoableEvent<T> {
+	event: T;
+	handBack: () => Promise<void>;
+}
+
+type BatchEnqueueOutcome =
+	| { outcome: "sent" }
+	| {
+			outcome: "unsent";
+			unsent: UndoableEvent<MessageDeleteEvent>[];
+			fault: unknown;
+	  };
+
+/** Undo every write whose event never left, then fail with the queue's error. */
+const handBackThenThrow = async (
+	fault: unknown,
+	handBacks: ReadonlyArray<() => Promise<void>>,
+): Promise<never> => {
+	const undoFaults: unknown[] = [];
+	for (const handBack of handBacks) {
+		await handBack().catch((undoFault: unknown) => {
+			undoFaults.push(undoFault);
+		});
+	}
+	if (undoFaults.length > 0) {
+		throw new AggregateError(
+			[fault, ...undoFaults],
+			"The queue refused the event, and handing the local write back failed too",
+		);
+	}
+	throw fault;
+};
 
 type MessageMoveQueueEvent =
 	| MessageDeleteEvent
@@ -443,7 +478,7 @@ export class MessageMoveService {
 		}
 
 		// Collect all events for batch SQS send
-		const events: MessageDeleteEvent[] = [];
+		const events: UndoableEvent<MessageDeleteEvent>[] = [];
 
 		// Process move to trash
 		if (trashMailbox && moveToTrashMessages.length > 0) {
@@ -504,18 +539,27 @@ export class MessageMoveService {
 				);
 
 				events.push({
-					type: "MESSAGE_DELETE",
-					schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
-					eventId: randomUUID(),
-					timestamp: Date.now(),
-					accountId,
-					messageId,
-					mailboxId: sourceMailbox.mailboxId,
-					mailboxPath: sourceMailbox.fullPath,
-					uid: message.uid,
-					operation: "move_to_trash",
-					destinationMailboxId: trashMailbox.mailboxId,
-					destinationMailboxPath: trashMailbox.fullPath,
+					event: {
+						type: "MESSAGE_DELETE",
+						schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+						eventId: randomUUID(),
+						timestamp: Date.now(),
+						accountId,
+						messageId,
+						mailboxId: sourceMailbox.mailboxId,
+						mailboxPath: sourceMailbox.fullPath,
+						uid: message.uid,
+						operation: "move_to_trash",
+						destinationMailboxId: trashMailbox.mailboxId,
+						destinationMailboxPath: trashMailbox.fullPath,
+					},
+					handBack: () =>
+						this.handBackUnsentMove(
+							accountConfigId,
+							messageId,
+							sourceMailbox.mailboxId,
+							message.uid,
+						),
 				});
 			}
 
@@ -573,16 +617,32 @@ export class MessageMoveService {
 			await this.deleteThreadMessagesForMessage(accountConfigId, messageId);
 
 			events.push({
-				type: "MESSAGE_DELETE",
-				schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
-				eventId: randomUUID(),
-				timestamp: Date.now(),
-				accountId,
-				messageId,
-				mailboxId: sourceMailbox.mailboxId,
-				mailboxPath: sourceMailbox.fullPath,
-				uid: message.uid,
-				operation: "permanent_delete",
+				event: {
+					type: "MESSAGE_DELETE",
+					schemaVersion: MUTATION_EVENT_SCHEMA_VERSION,
+					eventId: randomUUID(),
+					timestamp: Date.now(),
+					accountId,
+					messageId,
+					mailboxId: sourceMailbox.mailboxId,
+					mailboxPath: sourceMailbox.fullPath,
+					uid: message.uid,
+					operation: "permanent_delete",
+				},
+				// The listing rows went above, so the local removal finishes, as the
+				// worker's `handBackDelete` does; the folder's next sync re-projects it.
+				handBack: async () => {
+					const claimed = await this.messageService.transitionPlacement(
+						messageId,
+						{
+							status: MessageStatus.deleting,
+							mailboxId: message.mailboxId,
+							uid: message.uid,
+						},
+						{ status: MessageStatus.deleted },
+					);
+					if (claimed) await this.messageService.delete(messageId);
+				},
 			});
 		}
 
@@ -593,7 +653,6 @@ export class MessageMoveService {
 			);
 		}
 
-		// Batch send events to SQS
 		await this.enqueueEventsBatch(events);
 
 		return { refusedMessageIds: refused };
@@ -750,7 +809,14 @@ export class MessageMoveService {
 			uid: message.uid,
 		};
 
-		await this.enqueueEvent(event);
+		await this.enqueueEvent(event, () =>
+			this.handBackUnsentMove(
+				accountConfigId,
+				messageId,
+				sourceMailbox.mailboxId,
+				message.uid,
+			),
+		);
 	};
 
 	/**
@@ -839,7 +905,7 @@ export class MessageMoveService {
 		// the copy at uid=0 with an undelivered event; upsert no-ops on the row
 		// and lets the event be re-enqueued below, keeping the operation
 		// idempotent and the copy re-drivable (issue #75).
-		await this.messageService.upsert({
+		const copyRow = await this.messageService.upsertWithStatus({
 			messageId: newMessageId,
 			mailboxId: destinationMailboxId,
 			uid: 0, // Will be updated by worker after IMAP COPY
@@ -870,7 +936,7 @@ export class MessageMoveService {
 			messageId,
 		);
 
-		await this.threadMessageService.create({
+		const copyListing = await this.threadMessageService.create({
 			accountConfigId: sourceThreadMessage.accountConfigId,
 			threadId: sourceThreadMessage.threadId,
 			messageId: newMessageId,
@@ -922,7 +988,20 @@ export class MessageMoveService {
 			uid: sourceMessage.uid,
 		};
 
-		await this.enqueueEvent(event);
+		await this.enqueueEvent(event, async () => {
+			await this.threadMessageService.deleteMany([
+				{
+					accountConfigId: copyListing.accountConfigId,
+					threadMessageId: copyListing.threadMessageId,
+				},
+			]);
+			if (!copyRow.created) return;
+			await this.messageService.deleteIfPlacement(newMessageId, {
+				status: MessageStatus.moving,
+				mailboxId: destinationMailboxId,
+				uid: 0,
+			});
+		});
 
 		return newMessageId;
 	};
@@ -1052,6 +1131,7 @@ export class MessageMoveService {
 		// another lane won: the row is left alone and not counted, rather than
 		// marked `deleting` for an expunge that would bind somebody else's uid.
 		const messages: MessageItem[] = [];
+		const undo: Array<() => Promise<void>> = [];
 		for (const message of candidates) {
 			const marked = await this.messageService.transitionPlacement(
 				message.messageId,
@@ -1073,11 +1153,29 @@ export class MessageMoveService {
 				continue;
 			}
 			messages.push(marked);
-			await this.updateThreadMessageDeleted(
+			const wasDeleted = await this.updateThreadMessageDeleted(
 				accountConfigId,
 				message.messageId,
 				true,
 			);
+			undo.push(async () => {
+				const restored = await this.messageService.transitionPlacement(
+					message.messageId,
+					{
+						status: MessageStatus.deleting,
+						mailboxId: message.mailboxId,
+						uid: message.uid,
+					},
+					{ status: message.status, syncStatus: message.syncStatus },
+				);
+				if (restored && !wasDeleted) {
+					await this.updateThreadMessageDeleted(
+						accountConfigId,
+						message.messageId,
+						false,
+					);
+				}
+			});
 		}
 
 		this.log.info(
@@ -1102,7 +1200,9 @@ export class MessageMoveService {
 			trashUidValidity,
 		};
 
-		await this.enqueueEvent(event);
+		await this.enqueueEvent(event, async () => {
+			for (const restore of undo) await restore();
+		});
 
 		return { deletedCount: messages.length };
 	};
@@ -1249,7 +1349,7 @@ export class MessageMoveService {
 		accountConfigId: string,
 		messageId: string,
 		isDeleted: boolean,
-	): Promise<void> => {
+	): Promise<boolean> => {
 		const threadMessage = await this.threadMessageService.getByMessageId(
 			accountConfigId,
 			messageId,
@@ -1280,6 +1380,7 @@ export class MessageMoveService {
 			},
 			"Updated ThreadMessage.isDeleted",
 		);
+		return threadMessage.isDeleted;
 	};
 
 	/**
@@ -1291,18 +1392,21 @@ export class MessageMoveService {
 	 */
 	private enqueueEvent = async (
 		event: MessageMoveQueueEvent,
+		handBack: () => Promise<void>,
 	): Promise<void> => {
 		const useFifo = this.queueUrl.endsWith(".fifo");
-		await this.sqs.send(
-			new SendMessageCommand({
-				QueueUrl: this.queueUrl,
-				MessageBody: JSON.stringify(event),
-				...(useFifo && {
-					MessageGroupId: event.accountId,
-					MessageDeduplicationId: event.eventId,
+		await this.sqs
+			.send(
+				new SendMessageCommand({
+					QueueUrl: this.queueUrl,
+					MessageBody: JSON.stringify(event),
+					...(useFifo && {
+						MessageGroupId: event.accountId,
+						MessageDeduplicationId: event.eventId,
+					}),
 				}),
-			}),
-		);
+			)
+			.catch((fault: unknown) => handBackThenThrow(fault, [handBack]));
 
 		this.log.info(
 			{ eventId: event.eventId, type: event.type },
@@ -1318,30 +1422,97 @@ export class MessageMoveService {
 	 * reject it. We detect FIFO queues by the `.fifo` suffix.
 	 */
 	private enqueueEventsBatch = async (
-		events: MessageMoveQueueEvent[],
+		events: UndoableEvent<MessageDeleteEvent>[],
 	): Promise<void> => {
-		if (events.length === 0) return;
+		const enqueued = await this.sendEventsBatch(events);
+		if (enqueued.outcome === "sent") return;
+		await handBackThenThrow(
+			enqueued.fault,
+			enqueued.unsent.map(({ handBack }) => handBack),
+		);
+	};
 
+	// A batch send answers 200 with per-entry refusals in `Failed`.
+	private sendEventsBatch = async (
+		events: UndoableEvent<MessageDeleteEvent>[],
+	): Promise<BatchEnqueueOutcome> => {
 		const SQS_BATCH_SIZE = 10;
 		const useFifo = this.queueUrl.endsWith(".fifo");
 
 		for (let i = 0; i < events.length; i += SQS_BATCH_SIZE) {
 			const batch = events.slice(i, i + SQS_BATCH_SIZE);
-			await this.sqs.send(
-				new SendMessageBatchCommand({
-					QueueUrl: this.queueUrl,
-					Entries: batch.map((event, idx) => ({
-						Id: `${i + idx}`,
-						MessageBody: JSON.stringify(event),
-						...(useFifo && {
-							MessageGroupId: event.accountId,
-							MessageDeduplicationId: event.eventId,
-						}),
-					})),
-				}),
-			);
+			const sent = await this.sqs
+				.send(
+					new SendMessageBatchCommand({
+						QueueUrl: this.queueUrl,
+						Entries: batch.map(({ event }, idx) => ({
+							Id: `${i + idx}`,
+							MessageBody: JSON.stringify(event),
+							...(useFifo && {
+								MessageGroupId: event.accountId,
+								MessageDeduplicationId: event.eventId,
+							}),
+						})),
+					}),
+				)
+				.then(
+					(result) => ({
+						refusedIds: new Set((result.Failed ?? []).map((entry) => entry.Id)),
+					}),
+					(fault: unknown) => ({ fault }),
+				);
+			if ("fault" in sent) {
+				return {
+					outcome: "unsent",
+					unsent: events.slice(i),
+					fault: sent.fault,
+				};
+			}
+			if (sent.refusedIds.size > 0) {
+				const refused = batch.filter((_, idx) =>
+					sent.refusedIds.has(`${i + idx}`),
+				);
+				return {
+					outcome: "unsent",
+					unsent: [...refused, ...events.slice(i + SQS_BATCH_SIZE)],
+					fault: new Error(
+						`The queue refused ${refused.length} of ${events.length} delete event(s)`,
+					),
+				};
+			}
 		}
 
-		this.log.info({ count: events.length }, "Enqueued message events batch");
+		if (events.length > 0) {
+			this.log.info({ count: events.length }, "Enqueued message events batch");
+		}
+		return { outcome: "sent" };
+	};
+
+	private handBackUnsentMove = async (
+		accountConfigId: string,
+		messageId: string,
+		sourceMailboxId: string,
+		uid: number,
+	): Promise<void> => {
+		await restoreSourcePlacement(
+			{
+				messageService: this.messageService,
+				threadMessageService: this.threadMessageService,
+			},
+			{
+				accountConfigId,
+				messageId,
+				sourceMailboxId,
+				uid,
+				syncStatus: MessageSyncStatus.synced,
+				abandonedMutation: MessageMutation.none,
+			},
+		);
+		await this.addressService.reconcileJunkOnlyForMessage(
+			messageId,
+			await this.mailboxSpecialUseService.resolveJunkRolesForConfig(
+				accountConfigId,
+			),
+		);
 	};
 }
