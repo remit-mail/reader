@@ -1,4 +1,8 @@
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
+export {
+	sweepThreadRootSpelling,
+	type ThreadRootRepairClient,
+} from "./repair/thread-root-spelling.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";

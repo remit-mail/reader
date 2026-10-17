@@ -17,10 +17,18 @@
  * it moves with it; where sync already wrote the row under the new key, the
  * stale one is dropped instead.
  *
+ * The semantic index stores each message's thread id beside its vectors, so
+ * every message whose row moved is queued for the forced re-index a folder move
+ * gets: a `message.moved` outbox row, which the search-index worker answers by
+ * reading the thread row again. The row is queued before the move, so a crash
+ * between the two leaves the move for the next boot rather than an index entry
+ * nothing will refresh.
+ *
  * Message identity is untouched: a message row is keyed on its own Message-ID
  * as the server returns it, and that is not what was misspelt.
  */
 
+import { randomUUID } from "node:crypto";
 import { deriveThreadId } from "@remit/data-ports/id";
 import { bareMessageId, wireMessageId } from "@remit/data-ports/message-id";
 import { deriveThreadMessageId } from "../repos/thread-message.js";
@@ -39,6 +47,8 @@ export interface ThreadRootReport {
 	readonly moved: number;
 	/** Misfiled rows sync had already written again under the right key. */
 	readonly dropped: number;
+	/** Moved messages newly queued for re-indexing. */
+	readonly reindexed: number;
 	/** Distinct misspelt `in_reply_to` values, and how many rows were rewritten. */
 	readonly misspeltInReplyTo: number;
 	readonly rewritten: number;
@@ -65,6 +75,13 @@ const DROP_SQL = "DELETE FROM thread_message WHERE thread_message_id = ?";
 
 const MOVE_SQL = `UPDATE thread_message SET thread_id = ?, thread_message_id = ?
 WHERE thread_message_id = ?`;
+
+const REINDEX_SQL = `INSERT INTO outbox (id, message_id, event, payload, created_at)
+SELECT ?, ?, 'message.moved', ?, ?
+WHERE NOT EXISTS (
+	SELECT 1 FROM outbox
+	WHERE message_id = ? AND event = 'message.moved' AND processed_at IS NULL
+)`;
 
 const IN_REPLY_TO_SQL = `UPDATE thread_message SET in_reply_to = ?
 WHERE account_config_id = ? AND in_reply_to = ?`;
@@ -148,12 +165,20 @@ export const sweepThreadRootSpelling = async (
 	} as const;
 
 	if (mode === "check") {
-		return { ...found, moved: 0, dropped: 0, rewritten: 0 };
+		return { ...found, moved: 0, dropped: 0, reindexed: 0, rewritten: 0 };
 	}
 
 	let moved = 0;
 	let dropped = 0;
+	let reindexed = 0;
 	for (const row of rows) {
+		reindexed += await client.run(REINDEX_SQL, [
+			randomUUID(),
+			row.messageId,
+			JSON.stringify({ messageId: row.messageId }),
+			Date.now(),
+			row.messageId,
+		]);
 		const target = deriveThreadMessageId(row.to, row.messageId);
 		const existing = await client.all(EXISTS_SQL, [target]);
 		if (existing.length > 0) {
@@ -172,7 +197,7 @@ export const sweepThreadRootSpelling = async (
 		]);
 	}
 
-	return { ...found, moved, dropped, rewritten };
+	return { ...found, moved, dropped, reindexed, rewritten };
 };
 
 export const formatThreadRootReport = (report: ThreadRootReport): string[] => {
@@ -188,6 +213,7 @@ export const formatThreadRootReport = (report: ThreadRootReport): string[] => {
 	return [
 		`${report.moved} of ${report.misfiled} message(s) moved to the thread they answer`,
 		`${report.dropped} of ${report.misfiled} stale duplicate(s) dropped`,
+		`${report.reindexed} moved message(s) queued for re-indexing`,
 		`${report.rewritten} row(s) of In-Reply-To respelt`,
 	];
 };

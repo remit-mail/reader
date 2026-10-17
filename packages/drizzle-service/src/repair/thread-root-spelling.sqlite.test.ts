@@ -3,8 +3,7 @@ import { after, before, beforeEach, describe, test } from "node:test";
 import { deriveThreadId } from "@remit/data-ports/id";
 import type Database from "better-sqlite3";
 import { deriveThreadMessageId } from "../repos/thread-message.js";
-import { threadMessageTable } from "../schema/thread-message.js";
-import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { createShippedSqliteDb } from "../test-sqlite.js";
 import {
 	sweepThreadRootSpelling,
 	type ThreadRootRepairClient,
@@ -21,7 +20,7 @@ const clientOver = (sqlite: Database.Database): ThreadRootRepairClient => ({
 
 describe("threads keyed on a misspelt root Message-ID", () => {
 	let sqlite: Database.Database;
-	let close: () => Promise<void>;
+	let close: () => void;
 
 	const insert = (
 		messageId: string,
@@ -64,18 +63,17 @@ describe("threads keyed on a misspelt root Message-ID", () => {
 	const parentThread = deriveThreadId(CONFIG, PARENT);
 	const splitThread = deriveThreadId(CONFIG, DOUBLED);
 
-	before(async () => {
-		({ sqlite, close } = await createSqliteTestDb({
-			threadMessage: threadMessageTable,
-		}));
+	before(() => {
+		({ sqlite, close } = createShippedSqliteDb());
 	});
 
 	beforeEach(() => {
 		sqlite.exec("DELETE FROM thread_message");
+		sqlite.exec("DELETE FROM outbox");
 	});
 
-	after(async () => {
-		await close();
+	after(() => {
+		close();
 	});
 
 	test("moves a doubled reply and the mail that copied it into the parent's thread", async () => {
@@ -103,6 +101,23 @@ describe("threads keyed on a misspelt root Message-ID", () => {
 			);
 		}
 		assert.equal(rowsOf("m-reply")[0]?.in_reply_to, PARENT);
+	});
+
+	test("queues each moved message once for the forced re-index a move gets", async () => {
+		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+
+		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
+		await sweepThreadRootSpelling(clientOver(sqlite), "repair");
+
+		assert.equal(report.reindexed, 1);
+		assert.deepEqual(
+			sqlite
+				.prepare(
+					"SELECT message_id, event FROM outbox WHERE processed_at IS NULL",
+				)
+				.all(),
+			[{ message_id: "m-reply", event: "message.moved" }],
+		);
 	});
 
 	test("drops the stale row where sync already filed the message again", async () => {
