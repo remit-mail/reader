@@ -100,6 +100,7 @@ export { AppTopBar, type AppTopBarProps } from "./components/app-top-bar.js";
 export {
 	type AttachmentDownloadState,
 	type AttachmentItem,
+	type AttachmentKind,
 	AttachmentList,
 	type AttachmentListProps,
 } from "./components/attachment-list.js";

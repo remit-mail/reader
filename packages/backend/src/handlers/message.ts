@@ -225,6 +225,7 @@ export const buildBodyPartResponses = (
 ): BodyPartResponse[] => {
 	return parts.map((part) => ({
 		bodyPartId: part.bodyPartId,
+		partPath: part.partPath,
 		mediaType: assertMediaType(part.mediaType, part.bodyPartId),
 		mediaSubtype: part.mediaSubtype,
 		sizeOctets: part.sizeOctets,

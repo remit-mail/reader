@@ -63,6 +63,8 @@ export interface MimeNode {
 	language?: string[];
 	/** Content-Location URI. */
 	location?: string;
+	/** Envelope of the message a message/rfc822 node encapsulates. */
+	envelope?: { subject?: string };
 	/** Children for multipart nodes. */
 	childNodes?: MimeNode[];
 }
@@ -213,6 +215,20 @@ const flattenParameters = (
 	}));
 };
 
+/**
+ * A forwarded message often declares no filename; name it after the subject
+ * it carries, the way other mail clients save it.
+ */
+const encapsulatedMessageFilename = (
+	mediaType: MediaTypeValue,
+	node: MimeNode,
+): string | undefined => {
+	if (mediaType !== MediaType.Message) return undefined;
+	const subject = node.envelope?.subject?.trim();
+	if (!subject) return undefined;
+	return `${subject.replace(/[/\\]/g, "-")}.eml`;
+};
+
 const toRecord = (
 	node: MimeNode,
 	partPath: string,
@@ -225,7 +241,9 @@ const toRecord = (
 		: undefined;
 
 	const dispositionFilename =
-		node.dispositionParameters?.filename ?? node.parameters?.name ?? undefined;
+		node.dispositionParameters?.filename ??
+		node.parameters?.name ??
+		encapsulatedMessageFilename(mediaType, node);
 
 	const language = node.language?.[0];
 
@@ -263,13 +281,13 @@ const toRecord = (
  * safe default rather than throwing — one malformed part must never drop the
  * whole message.
  *
- * **Part-path uniqueness**: some IMAP servers (and the `message/rfc822`
- * inner-body convention) return child nodes with an empty `part` field.
- * Assigning ROOT_PART_PATH to every such node would produce duplicate keys
- * and make `upsertBodyParts` write the same body part twice. Non-root nodes
- * without a `part` therefore receive a
- * synthetic path `<parentPath>.<siblingIndex>` that is stable across
- * repeated syncs of the same message.
+ * **Part-path uniqueness**: imapflow gives the root of a message/rfc822
+ * node's encapsulated message the same `part` as the node itself, and some
+ * servers give it none. That root is stored as `<messagePath>.0` — the
+ * encapsulated message's own ROOT_PART_PATH — so it can neither overwrite the
+ * message/rfc822 row nor collide with its children (`<messagePath>.1`, ...).
+ * Any other non-root node without a `part` receives a synthetic path
+ * `<parentPath>.<siblingIndex>` that is stable across repeated syncs.
  */
 export const walkMimeStructure = (root: MimeNode): BodyPartRecord[] => {
 	const out: BodyPartRecord[] = [];
@@ -277,29 +295,30 @@ export const walkMimeStructure = (root: MimeNode): BodyPartRecord[] => {
 	const visit = (
 		node: MimeNode,
 		parentPath: string | null,
+		parentIsMessage: boolean,
 		siblingIndex: number,
 	) => {
 		let partPath: string;
-		if (node.part && node.part.length > 0) {
+		if (parentIsMessage && parentPath !== null) {
+			partPath = `${parentPath}.${ROOT_PART_PATH}`;
+		} else if (node.part && node.part.length > 0) {
 			partPath = node.part;
 		} else if (parentPath === null) {
 			// True root of the BODYSTRUCTURE tree.
 			partPath = ROOT_PART_PATH;
 		} else {
-			// Non-root node without an IMAP part path — synthesise one so
-			// the body-part keys remain unique. This happens most commonly
-			// for the body of a message/rfc822 attachment, whose inner
-			// structure imapflow attaches as a childNode with part="".
 			partPath = `${parentPath}.${siblingIndex}`;
 		}
-		out.push(toRecord(node, partPath, parentPath));
+		const record = toRecord(node, partPath, parentPath);
+		out.push(record);
+		const isMessage = record.mediaType === MediaType.Message;
 		const children = node.childNodes ?? [];
 		for (let i = 0; i < children.length; i++) {
 			// biome-ignore lint/style/noNonNullAssertion: value is guaranteed by caller contract
-			visit(children[i]!, partPath, i + 1);
+			visit(children[i]!, partPath, isMessage, i + 1);
 		}
 	};
 
-	visit(root, null, 0);
+	visit(root, null, false, 0);
 	return out;
 };

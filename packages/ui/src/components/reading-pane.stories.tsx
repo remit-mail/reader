@@ -284,6 +284,7 @@ const ThreadAttachments = () => {
 	const [rows, setRows] = useState<AttachmentItem[]>([
 		{
 			attachmentId: "part-2",
+			kind: "file",
 			filename: "Q3 board pack.pdf",
 			typeLabel: "PDF",
 			sizeOctets: 2_411_724,
@@ -291,6 +292,7 @@ const ThreadAttachments = () => {
 		},
 		{
 			attachmentId: "part-3",
+			kind: "file",
 			filename: "headcount.csv",
 			typeLabel: "CSV",
 			sizeOctets: 4_180,

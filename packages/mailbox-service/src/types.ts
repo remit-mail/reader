@@ -171,6 +171,8 @@ export interface ImapBodyStructure {
 	dispositionParameters?: Record<string, string>;
 	language?: string[];
 	location?: string;
+	/** Envelope of the message a message/rfc822 node encapsulates. */
+	envelope?: { subject?: string };
 	childNodes?: ImapBodyStructure[];
 }
 

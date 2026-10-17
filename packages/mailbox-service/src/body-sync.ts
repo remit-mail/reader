@@ -42,7 +42,7 @@ import {
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
-import { mapBodyPartsToContent } from "./body-part-mapper.js";
+import { mapMessagePartsToContent } from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
 import {
 	classifyParsedMessage,
@@ -1736,7 +1736,7 @@ export class BodySyncService {
 		}
 
 		const log = this.log;
-		const pairs = mapBodyPartsToContent(bodyParts, parsed, {
+		const pairs = await mapMessagePartsToContent(bodyParts, parsed, {
 			messageId,
 			logger:
 				log.warn || log.debug

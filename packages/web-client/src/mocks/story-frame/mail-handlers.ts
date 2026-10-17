@@ -65,6 +65,7 @@ const bodyPartsOf = (
 		? [
 				{
 					bodyPartId: `part-${row.messageId}`,
+					partPath: "1",
 					mediaType: "APPLICATION",
 					mediaSubtype: "pdf",
 					sizeOctets: 48_000,
@@ -77,6 +78,7 @@ const bodyPartsOf = (
 		: [
 				{
 					bodyPartId: `part-${row.messageId}`,
+					partPath: "1",
 					mediaType: "TEXT",
 					mediaSubtype: "plain",
 					sizeOctets: (row.snippet ?? "").length,

@@ -20,6 +20,7 @@ import { MessageBodyErrorBanner } from "./MessageBodyErrorBanner";
  */
 export interface MessageBodyPart {
 	bodyPartId: string;
+	partPath: string;
 	mediaType: string;
 	mediaSubtype: string;
 	contentId?: string;

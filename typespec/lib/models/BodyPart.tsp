@@ -170,6 +170,7 @@ model BodyPartResponse {
     BodyPart,
 
       | "bodyPartId"
+      | "partPath"
       | "mediaType"
       | "mediaSubtype"
       | "disposition"
