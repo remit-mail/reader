@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import type { SyncMessagesEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { drainPendingFlagPushes, syncMessages } from "./sync-messages.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

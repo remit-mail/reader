@@ -9,7 +9,7 @@ import {
 } from "@remit/domain-enums";
 import { AccountRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { capturingLogger, type LogLine } from "../test-helpers/world.js";
+import { capturingLogger, type LogLine } from "../test-helpers/test-world.js";
 import { runSchedulerTick } from "./run-tick.js";
 
 const TICK_INTERVAL_MS = 60 * 60 * 1000;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { before, describe, it } from "node:test";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

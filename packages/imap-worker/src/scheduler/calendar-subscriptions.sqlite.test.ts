@@ -4,7 +4,7 @@ import type { CalendarFeedFetcher } from "@remit/calendar-service";
 import type { CalendarCollectionItem } from "@remit/data-ports";
 import { CalendarSource } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
-import { openStore } from "../test-helpers/world.js";
+import { openStore } from "../test-helpers/test-world.js";
 import { refreshDueCalendarSubscriptions } from "./calendar-subscriptions.js";
 
 const INTERVAL_MS = 15 * 60 * 1000;

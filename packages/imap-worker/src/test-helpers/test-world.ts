@@ -34,7 +34,7 @@ import Database from "better-sqlite3";
 import { emitEvent } from "../emit.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { FakeImapServer } from "./fake-imap.js";
+import { FakeImapServer } from "./test-imap-server.js";
 
 export interface LogLine {
 	level: string;

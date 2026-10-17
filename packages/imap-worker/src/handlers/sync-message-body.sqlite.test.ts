@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, before, beforeEach, describe, it } from "node:test";
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { MailboxItem } from "@remit/data-ports";
-import { MailboxCursorState, MailboxSpecialUse } from "@remit/domain-enums";
+import { MailboxCursorState } from "@remit/domain-enums";
 import { mockClient } from "aws-sdk-client-mock";
 import { resetBodySyncGateCache } from "../body-sync-gate.js";
 import type { SyncMessageBodyEvent } from "../events.js";
@@ -10,7 +10,7 @@ import {
 	openStore,
 	type SeededMessage,
 	type World,
-} from "../test-helpers/world.js";
+} from "../test-helpers/test-world.js";
 import { syncMessageBody } from "./sync-message-body.js";
 
 const ssm = mockClient(SSMClient);

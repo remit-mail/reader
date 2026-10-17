@@ -3,7 +3,7 @@ import { before, describe, it } from "node:test";
 import type { OutboxMessageItem } from "@remit/data-ports";
 import { MailboxSpecialUse, OutboxMessageStatus } from "@remit/domain-enums";
 import type { AppendSentMessageEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { handleAppendSentMessage } from "./append-sent-message.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

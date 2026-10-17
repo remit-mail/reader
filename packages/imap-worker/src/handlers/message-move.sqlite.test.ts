@@ -8,7 +8,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageMoveEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageMove } from "./message-move.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

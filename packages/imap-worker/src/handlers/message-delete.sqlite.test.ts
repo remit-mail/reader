@@ -9,7 +9,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageDeleteEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageDelete } from "./message-delete.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;
@@ -245,7 +245,10 @@ describe("a move to Trash", () => {
 	it("refuses an event minted under an unknown contract and hands the row back", async () => {
 		const a = await arrange();
 
-		await run(a, 1, { ...a.event, schemaVersion: 99 } as unknown as MessageDeleteEvent);
+		await run(a, 1, {
+			...a.event,
+			schemaVersion: 99,
+		} as unknown as MessageDeleteEvent);
 
 		assert.equal(a.w.imap.connections, 0);
 		const row = await a.w.row(a.messageId);

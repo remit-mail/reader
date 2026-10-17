@@ -3,8 +3,8 @@ import { before, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { MailboxManagementEvent } from "../events.js";
-import { imapError } from "../test-helpers/fake-imap.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { imapError } from "../test-helpers/test-imap-server.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { processMailboxManagement } from "./mailbox-management.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

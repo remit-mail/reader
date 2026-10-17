@@ -2,13 +2,12 @@ import assert from "node:assert/strict";
 import { before, describe, it } from "node:test";
 import {
 	MailboxCursorState,
-	MailboxSpecialUse,
 	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageCopyEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/world.js";
+import { openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageCopy } from "./message-copy.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

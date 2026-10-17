@@ -11,7 +11,7 @@ import {
 	openStore,
 	type SeededMessage,
 	type World,
-} from "../test-helpers/world.js";
+} from "../test-helpers/test-world.js";
 import { handleEmptyTrash } from "./empty-trash.js";
 
 let store: Awaited<ReturnType<typeof openStore>>;

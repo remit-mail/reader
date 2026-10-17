@@ -18,7 +18,7 @@ import {
 	openStore,
 	type SeededMessage,
 	type World,
-} from "../test-helpers/world.js";
+} from "../test-helpers/test-world.js";
 import { handleFlagPush } from "./flag-push.js";
 import { handlePlacementMovePush } from "./placement-move-push.js";
 
