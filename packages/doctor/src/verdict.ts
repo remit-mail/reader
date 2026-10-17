@@ -59,6 +59,12 @@ export interface CheckResult {
 	 * failure cannot manufacture a delta when the service comes back.
 	 */
 	readonly counters: Readonly<Record<string, CounterState>>;
+	/**
+	 * Messages on each dead-letter queue, empty ones included, or `undefined`
+	 * when no queue depth was read this check. Absent is not zero: a scrape
+	 * failure must not read as a drained queue and turn its return into growth.
+	 */
+	readonly deadLetters: Readonly<Record<string, number>> | undefined;
 }
 
 export interface VerdictThresholds {
@@ -168,6 +174,21 @@ const deadLetterDepth = (
 		summary: `${total} ${plural(total, "message is", "messages are")} quarantined on ${occupied.length} ${plural(occupied.length, "dead-letter queue", "dead-letter queues")} (${names})`,
 		detail: undefined,
 	};
+};
+
+const deadLetterDepths = (
+	samples: readonly ScrapeResult[],
+): Record<string, number> | undefined => {
+	const depths = seriesNamed(
+		samples.flatMap((scrape) => [...scrape.samples]),
+		"remit_queue_messages",
+	);
+	if (depths.length === 0) return undefined;
+	return Object.fromEntries(
+		depths
+			.filter((sample) => sample.labels.role === "dead_letter")
+			.map((sample) => [sample.labels.queue ?? "unknown", sample.value]),
+	);
 };
 
 const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
@@ -390,6 +411,9 @@ const ORDER: readonly ReasonCode[] = [
 	"dead_letter_queue_not_empty",
 ];
 
+export const isReasonCode = (value: unknown): value is ReasonCode =>
+	ORDER.some((code) => code === value);
+
 /**
  * The verdict, from the signals as read. Pure: every input is a value, so the
  * loop, the exec seam and the tests all evaluate the same function.
@@ -446,5 +470,6 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		summary: verdict === "healthy" ? "remit is healthy" : "remit is degraded",
 		reasons,
 		counters: nextCounters,
+		deadLetters: deadLetterDepths(input.scrapes),
 	};
 };

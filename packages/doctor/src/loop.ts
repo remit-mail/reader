@@ -4,7 +4,7 @@ import { advance } from "./dwell.js";
 import type { Log } from "./log.js";
 import type { CounterState, DoctorState } from "./state.js";
 import type { CheckResult } from "./verdict.js";
-import type { Delivery } from "./webhook.js";
+import { type Delivery, NOT_DELIVERED } from "./webhook.js";
 
 export interface LoopDependencies {
 	readonly runCheck: (
@@ -51,7 +51,7 @@ export const runOnce = async (
 	const result = await deps.runCheck(state.counters);
 	const transition = advance(
 		{ ...state, counters: result.counters },
-		result.verdict,
+		result,
 		config.dwellChecks,
 		deps.now(),
 	);
@@ -61,31 +61,44 @@ export const runOnce = async (
 			verdict: result.verdict,
 			reasons: result.reasons.map((reason) => reason.code),
 			settledRuns: transition.state.candidateRuns,
-			fires: transition.fires ?? null,
+			fires: transition.fires?.verdict ?? null,
 		},
 		"doctor: check complete",
 	);
 
 	let next = transition.state;
 	const fired = transition.fires;
+	if (fired !== undefined && config.webhookUrl === undefined) {
+		deps.log.error(
+			{ verdict: fired.verdict, summary: fired.summary },
+			`doctor: ${NOT_DELIVERED}`,
+		);
+	}
 	if (fired !== undefined && config.webhookUrl !== undefined) {
-		const delivery = await attempt(deps.postWebhook(result));
+		const delivery = await attempt(
+			deps.postWebhook({ ...result, summary: fired.summary }),
+		);
 		const outcome: Delivery = delivery.ok
 			? delivery.value
 			: { kind: "unreachable", detail: delivery.error };
 		if (outcome.kind === "sent") {
-			deps.log.info({ verdict: fired }, "doctor: alert sent");
+			deps.log.info({ verdict: fired.verdict }, "doctor: alert sent");
 		} else if (outcome.kind === "rejected") {
 			deps.log.error(
-				{ verdict: fired, error: outcome.detail },
+				{ verdict: fired.verdict, error: outcome.detail },
 				"doctor: the webhook refused this payload; the transition is spent",
 			);
 		} else {
 			// Roll the announcement back. Everything else the check learned —
 			// the counter baselines, the settled run — is kept.
-			next = { ...next, firedVerdict: state.firedVerdict };
+			next = {
+				...next,
+				firedVerdict: state.firedVerdict,
+				firedReasons: state.firedReasons,
+				firedDeadLetters: state.firedDeadLetters,
+			};
 			deps.log.error(
-				{ verdict: fired, error: outcome.detail },
+				{ verdict: fired.verdict, error: outcome.detail },
 				"doctor: the webhook could not be reached; retrying on the next check",
 			);
 		}

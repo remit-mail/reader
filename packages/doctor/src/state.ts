@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { attempt, safeJsonParse } from "./attempt.js";
-import type { Verdict } from "./verdict.js";
+import { isReasonCode, type ReasonCode, type Verdict } from "./verdict.js";
 
 /**
  * What the checker has to remember across a restart: which verdict it last
@@ -12,7 +12,7 @@ import type { Verdict } from "./verdict.js";
  * reported, which is precisely the noise D8 exists to remove — and a checker
  * with `restart: unless-stopped` restarts on every `remit update`.
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 /**
  * A counter's last observed total, and when it last went up.
@@ -29,6 +29,17 @@ export interface CounterState {
 	readonly lastRoseAt: number | null;
 }
 
+/**
+ * How long one reason has held its current presence, so a reason that appears
+ * while the stack is already degraded is announced on the same dwell rule as
+ * the verdict, and one that flickers is never announced at all.
+ */
+export interface ReasonRun {
+	readonly present: boolean;
+	/** Consecutive checks agreeing on `present`, held at the dwell count. */
+	readonly runs: number;
+}
+
 export interface DoctorState {
 	readonly version: typeof STATE_VERSION;
 	/** The last verdict actually sent. Never null: a fresh install is healthy. */
@@ -38,6 +49,15 @@ export interface DoctorState {
 	/** Consecutive checks that have agreed on `candidateVerdict`. */
 	readonly candidateRuns: number;
 	readonly counters: Readonly<Record<string, CounterState>>;
+	/** The reasons the last announcement carried, or that have held since. */
+	readonly firedReasons: readonly ReasonCode[];
+	readonly reasonRuns: Readonly<Partial<Record<ReasonCode, ReasonRun>>>;
+	/**
+	 * Dead-letter depth per queue that growth is measured against: the depth at
+	 * the last announcement, lowered whenever a queue drains below it, so a
+	 * replay that empties a queue makes its next failure news again.
+	 */
+	readonly firedDeadLetters: Readonly<Record<string, number>>;
 	readonly updatedAt: string | undefined;
 }
 
@@ -54,6 +74,9 @@ export const initialState: DoctorState = {
 	candidateVerdict: "healthy",
 	candidateRuns: 0,
 	counters: {},
+	firedReasons: [],
+	reasonRuns: {},
+	firedDeadLetters: {},
 	updatedAt: undefined,
 };
 
@@ -67,11 +90,31 @@ const isCounterState = (value: unknown): value is CounterState =>
 	(typeof (value as CounterState).lastRoseAt === "number" ||
 		(value as CounterState).lastRoseAt === null);
 
-const isCounters = (value: unknown): value is Record<string, CounterState> =>
+const isReasonRun = (value: unknown): value is ReasonRun =>
+	typeof value === "object" &&
+	value !== null &&
+	typeof (value as ReasonRun).present === "boolean" &&
+	typeof (value as ReasonRun).runs === "number";
+
+const isRecordOf = <T>(
+	value: unknown,
+	isEntry: (entry: unknown) => entry is T,
+): value is Record<string, T> =>
 	typeof value === "object" &&
 	value !== null &&
 	!Array.isArray(value) &&
-	Object.values(value).every(isCounterState);
+	Object.values(value).every(isEntry);
+
+const isCounters = (value: unknown): value is Record<string, CounterState> =>
+	isRecordOf(value, isCounterState);
+
+const isReasonRuns = (
+	value: unknown,
+): value is Partial<Record<ReasonCode, ReasonRun>> =>
+	isRecordOf(value, isReasonRun) && Object.keys(value).every(isReasonCode);
+
+const isDepth = (value: unknown): value is number =>
+	typeof value === "number" && Number.isFinite(value);
 
 /**
  * A state file this version does not recognise is replaced by the baseline, not
@@ -87,7 +130,11 @@ export const parseState = async (raw: string): Promise<DoctorState> => {
 		!isVerdict(candidate.firedVerdict) ||
 		!isVerdict(candidate.candidateVerdict) ||
 		typeof candidate.candidateRuns !== "number" ||
-		!isCounters(candidate.counters)
+		!isCounters(candidate.counters) ||
+		!Array.isArray(candidate.firedReasons) ||
+		!candidate.firedReasons.every(isReasonCode) ||
+		!isReasonRuns(candidate.reasonRuns) ||
+		!isRecordOf(candidate.firedDeadLetters, isDepth)
 	) {
 		return initialState;
 	}
@@ -97,6 +144,9 @@ export const parseState = async (raw: string): Promise<DoctorState> => {
 		candidateVerdict: candidate.candidateVerdict,
 		candidateRuns: candidate.candidateRuns,
 		counters: candidate.counters,
+		firedReasons: candidate.firedReasons,
+		reasonRuns: candidate.reasonRuns,
+		firedDeadLetters: candidate.firedDeadLetters,
 		updatedAt:
 			typeof candidate.updatedAt === "string" ? candidate.updatedAt : undefined,
 	};

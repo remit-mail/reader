@@ -26,6 +26,7 @@ const degraded: CheckResult = {
 		},
 	],
 	counters: {},
+	deadLetters: {},
 };
 
 const healthy: CheckResult = {
@@ -34,6 +35,7 @@ const healthy: CheckResult = {
 	summary: "remit is healthy",
 	reasons: [],
 	counters: {},
+	deadLetters: {},
 };
 
 /** The parse the wrapper does: first token is the key, the rest is the value. */
@@ -48,7 +50,7 @@ const parseLines = (out: string): [string, string][] =>
 
 describe("the line format", () => {
 	it("opens with the verdict, the timestamp and the headline", () => {
-		const records = parseLines(renderLines(degraded, "off"));
+		const records = parseLines(renderLines(degraded, "off", "webhook"));
 		assert.deepEqual(records.slice(0, 3), [
 			["verdict", "degraded"],
 			["checked-at", "2026-07-27T10:00:00.000Z"],
@@ -57,7 +59,7 @@ describe("the line format", () => {
 	});
 
 	it("carries one record per reason, then the details", () => {
-		const records = parseLines(renderLines(degraded, "off"));
+		const records = parseLines(renderLines(degraded, "off", "webhook"));
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
 			[
@@ -73,9 +75,10 @@ describe("the line format", () => {
 
 	it("uses a closed key vocabulary, so an unknown key is a version skew and not a value", () => {
 		const keys = new Set(
-			parseLines(renderLines(degraded, "off")).map(([key]) => key),
+			parseLines(renderLines(degraded, "off", "webhook")).map(([key]) => key),
 		);
 		assert.deepEqual([...keys].sort(), [
+			"alerts",
 			"checked-at",
 			"detail",
 			"reason",
@@ -86,12 +89,14 @@ describe("the line format", () => {
 	});
 
 	it("puts no reason records in a healthy report", () => {
-		const records = parseLines(renderLines(healthy, "off"));
-		assert.equal(records.length, 4);
+		const records = parseLines(renderLines(healthy, "off", "webhook"));
+		assert.equal(records.length, 5);
 	});
 
 	it("never wraps a record, so one line is always one record", () => {
-		for (const line of renderLines(degraded, "off").trimEnd().split("\n")) {
+		for (const line of renderLines(degraded, "off", "webhook")
+			.trimEnd()
+			.split("\n")) {
 			assert.ok(line.length > 0);
 			assert.ok(!line.includes("\n"));
 		}
@@ -114,8 +119,8 @@ describe("the line format", () => {
 				},
 			],
 		};
-		const out = renderLines(nasty, "off");
-		assert.equal(out.trimEnd().split("\n").length, 6);
+		const out = renderLines(nasty, "off", "webhook");
+		assert.equal(out.trimEnd().split("\n").length, 7);
 		const records = parseLines(out);
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
@@ -142,8 +147,9 @@ describe("the line format", () => {
 				],
 			},
 			"off",
+			"webhook",
 		);
-		assert.equal(out.trimEnd().split("\n").length, 5);
+		assert.equal(out.trimEnd().split("\n").length, 6);
 		assert.match(out, /reason scrape_failed a b c d/);
 	});
 
@@ -152,18 +158,50 @@ describe("the line format", () => {
 	// the wrapper does not know both arrive as themselves.
 	it("carries the deployment's embedding provider", () => {
 		for (const provider of ["off", "local", "bedrock"]) {
-			const records = parseLines(renderLines(healthy, provider));
+			const records = parseLines(renderLines(healthy, provider, "webhook"));
 			assert.deepEqual(
 				records.filter(([key]) => key === "semantic"),
 				[["semantic", provider]],
 			);
 		}
 	});
+
+	it("says plainly that alerts go nowhere when no webhook is set", () => {
+		const records = parseLines(renderLines(degraded, "off", "none"));
+		assert.deepEqual(
+			records.filter(([key]) => key === "alerts"),
+			[
+				[
+					"alerts",
+					"none alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set",
+				],
+			],
+		);
+	});
+
+	it("names the webhook as the destination when one is set", () => {
+		const records = parseLines(renderLines(healthy, "off", "webhook"));
+		assert.deepEqual(
+			records.filter(([key]) => key === "alerts").map(([, value]) => value),
+			["webhook a settled change is posted to DOCTOR_WEBHOOK_URL"],
+		);
+	});
 });
 
 describe("the json format", () => {
+	it("carries where alerts are delivered", () => {
+		const none = JSON.parse(renderJson(degraded, "off", "none")) as {
+			alerts: string;
+		};
+		assert.equal(none.alerts, "none");
+		const webhook = JSON.parse(renderJson(degraded, "off", "webhook")) as {
+			alerts: string;
+		};
+		assert.equal(webhook.alerts, "webhook");
+	});
+
 	it("parses, and carries the same verdict and reasons", () => {
-		const parsed = JSON.parse(renderJson(degraded, "off")) as {
+		const parsed = JSON.parse(renderJson(degraded, "off", "webhook")) as {
 			verdict: string;
 			reasons: { code: string; summary: string; detail: string | null }[];
 		};
@@ -176,7 +214,7 @@ describe("the json format", () => {
 	});
 
 	it("renders a healthy verdict as an empty reason list, not an absent key", () => {
-		const parsed = JSON.parse(renderJson(healthy, "off")) as {
+		const parsed = JSON.parse(renderJson(healthy, "off", "webhook")) as {
 			reasons: unknown[];
 		};
 		assert.deepEqual(parsed.reasons, []);
@@ -217,16 +255,17 @@ describe("writeVerdict", () => {
 	it("does not resolve until the stream drains", async () => {
 		const sink = backPressured();
 		let settled = false;
-		const done = writeVerdict(sink.stream, renderLines(degraded, "off")).then(
-			() => {
-				settled = true;
-			},
-		);
+		const done = writeVerdict(
+			sink.stream,
+			renderLines(degraded, "off", "webhook"),
+		).then(() => {
+			settled = true;
+		});
 		await new Promise((resolve) => setImmediate(resolve));
 		assert.equal(settled, false, "resolved before the stream drained");
 		sink.release();
 		await done;
-		assert.equal(sink.chunks.join(""), renderLines(degraded, "off"));
+		assert.equal(sink.chunks.join(""), renderLines(degraded, "off", "webhook"));
 	});
 
 	it("resolves straight away when the write was taken", async () => {
@@ -240,7 +279,7 @@ describe("writeVerdict", () => {
 				assert.fail("waited on drain after a write that was taken");
 			},
 		} as unknown as NodeJS.WritableStream;
-		await writeVerdict(stream, renderJson(healthy, "off"));
-		assert.equal(chunks.join(""), renderJson(healthy, "off"));
+		await writeVerdict(stream, renderJson(healthy, "off", "webhook"));
+		assert.equal(chunks.join(""), renderJson(healthy, "off", "webhook"));
 	});
 });

@@ -142,6 +142,38 @@ describe("evaluate", () => {
 		assert.match(reason.summary, /imap-sync-dlq, smtp-send-dlq/);
 	});
 
+	it("reports each dead-letter queue's depth, empty ones included", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					scrape(
+						"queue",
+						'remit_queue_messages{queue="imap-sync",role="work"} 2\nremit_queue_messages{queue="imap-sync-dlq",role="dead_letter"} 3\nremit_queue_messages{queue="smtp-send-dlq",role="dead_letter"} 0\n',
+					),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.deepEqual(result.deadLetters, {
+			"imap-sync-dlq": 3,
+			"smtp-send-dlq": 0,
+		});
+	});
+
+	it("reports no dead-letter depths when the queue did not answer, rather than zero", () => {
+		const result = evaluate(
+			input({
+				scrapes: [
+					HEALTHY_SCRAPES[0],
+					failed("queue", "fetch failed"),
+					...HEALTHY_SCRAPES.slice(2),
+				],
+			}),
+		);
+		assert.equal(result.deadLetters, undefined);
+	});
+
 	it("degrades on a stalled account, in counts, with the ids only in detail", () => {
 		const result = evaluate(
 			input({

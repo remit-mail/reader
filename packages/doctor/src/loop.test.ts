@@ -27,6 +27,7 @@ const result = (verdict: Verdict): CheckResult => ({
 	counters: {
 		"imap-worker:imap_auth_failures": { total: 1, lastRoseAt: null },
 	},
+	deadLetters: { dlq: verdict === "healthy" ? 0 : 1 },
 });
 
 interface Recorder {
@@ -67,6 +68,8 @@ const recorder = (
 		},
 	};
 };
+
+const repeatDegraded: Verdict[] = ["degraded", "degraded", "degraded"];
 
 const configured = loadConfig({
 	DOCTOR_WEBHOOK_URL: "https://hooks.example/x",
@@ -234,6 +237,74 @@ describe("runOnce", () => {
 		assert.deepEqual(rec.pings, []);
 		// The verdict is still computed and recorded — `remit doctor` needs it.
 		assert.equal(state.firedVerdict, "degraded");
+	});
+});
+
+describe("an announcement while already degraded", () => {
+	it("posts the check under the headline naming what got worse", async () => {
+		const backlog = (depth: number): CheckResult => ({
+			...result("degraded"),
+			deadLetters: { "mailbox-sync-dlq": 556, "mailbox-body-sync-dlq": depth },
+		});
+		const checks = [backlog(0), backlog(0), backlog(0), backlog(7), backlog(7)];
+		const summaries: string[] = [];
+		let turn = 0;
+		const rec = recorder([], {
+			runCheck: async () => checks[turn],
+			postWebhook: async (check) => {
+				summaries.push(check.summary);
+				return { kind: "sent" as const };
+			},
+		});
+		let state = initialState;
+		for (; turn < checks.length; turn += 1) {
+			state = await runOnce(rec.deps, configured, state);
+		}
+		assert.deepEqual(summaries, [
+			"remit is degraded",
+			"remit is still degraded, and worse: 7 more messages on dead-letter queue mailbox-body-sync-dlq (7 in total)",
+		]);
+	});
+
+	it("retries an undelivered growth announcement on the next check", async () => {
+		const backlog = (depth: number): CheckResult => ({
+			...result("degraded"),
+			deadLetters: { dlq: depth },
+		});
+		const checks = [backlog(1), backlog(1), backlog(1), backlog(5), backlog(5)];
+		let turn = 0;
+		let attempts = 0;
+		const rec = recorder([], {
+			runCheck: async () => checks[turn],
+			postWebhook: async () => {
+				attempts += 1;
+				return attempts === 2
+					? { kind: "unreachable" as const, detail: "HTTP 503" }
+					: { kind: "sent" as const };
+			},
+		});
+		let state = initialState;
+		for (; turn < checks.length; turn += 1) {
+			state = await runOnce(rec.deps, configured, state);
+		}
+		assert.equal(attempts, 3);
+		assert.deepEqual(state.firedDeadLetters, { dlq: 5 });
+	});
+});
+
+describe("a stack with no webhook", () => {
+	it("logs that the announcement went nowhere, rather than staying silent", async () => {
+		const errors: string[] = [];
+		const rec = recorder(repeatDegraded, {
+			log: { ...silent, error: (_fields, msg) => errors.push(msg) },
+		});
+		let state = initialState;
+		for (let turn = 0; turn < 3; turn += 1) {
+			state = await runOnce(rec.deps, loadConfig({}), state);
+		}
+		assert.deepEqual(errors, [
+			"doctor: alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set",
+		]);
 	});
 });
 

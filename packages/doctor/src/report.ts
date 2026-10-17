@@ -19,6 +19,7 @@ import type { CheckResult } from "./verdict.js";
  *   reason      <code> <summary>   — zero or more, stable order
  *   detail      <code> <detail>    — zero or more, only for reasons that have one
  *   semantic    the deployment's SEARCH_EMBEDDING_PROVIDER, verbatim
+ *   alerts      webhook | none, then where a settled change is announced
  *
  * `reason` summaries carry counts, service names and queue names (D10).
  * `detail` carries the account ids behind them and is printed here because this
@@ -62,15 +63,24 @@ const oneLine = (value: string): string => {
 	return out;
 };
 
+export type AlertDelivery = "webhook" | "none";
+
+const ALERTS: Readonly<Record<AlertDelivery, string>> = {
+	webhook: "webhook a settled change is posted to DOCTOR_WEBHOOK_URL",
+	none: "none alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set",
+};
+
 export const renderLines = (
 	result: CheckResult,
 	searchEmbeddingProvider: string,
+	alerts: AlertDelivery,
 ): string => {
 	const lines = [
 		`verdict ${result.verdict}`,
 		`checked-at ${result.checkedAt}`,
 		`summary ${oneLine(result.summary)}`,
 		`semantic ${oneLine(searchEmbeddingProvider)}`,
+		`alerts ${ALERTS[alerts]}`,
 	];
 	for (const reason of result.reasons) {
 		lines.push(`reason ${reason.code} ${oneLine(reason.summary)}`);
@@ -86,6 +96,7 @@ export const renderLines = (
 export const renderJson = (
 	result: CheckResult,
 	searchEmbeddingProvider: string,
+	alerts: AlertDelivery,
 ): string =>
 	`${JSON.stringify(
 		{
@@ -93,6 +104,7 @@ export const renderJson = (
 			checkedAt: result.checkedAt,
 			summary: result.summary,
 			semantic: searchEmbeddingProvider,
+			alerts,
 			reasons: result.reasons.map((reason) => ({
 				code: reason.code,
 				summary: reason.summary,

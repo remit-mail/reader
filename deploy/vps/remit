@@ -1213,6 +1213,17 @@ report_reachability() {
 	printf 'Serving:   %s\n' "$(serve_probe "$_origin")"
 }
 
+# The doctor posts a settled change to DOCTOR_WEBHOOK_URL and nowhere else, so
+# an empty one is a stack that tells nobody when it breaks. Said here, where the
+# operator looks, because the checker itself keeps running and looks fine.
+alerts_summary() {
+	if [ -n "$(get_var DOCTOR_WEBHOOK_URL)" ]; then
+		printf "posted to DOCTOR_WEBHOOK_URL when the doctor's verdict changes or gets worse"
+		return 0
+	fi
+	printf "not delivered anywhere — DOCTOR_WEBHOOK_URL is not set in %s/.env, so nobody hears when this stack degrades" "$REMIT_DIR"
+}
+
 cmd_status() {
 	require_deployment
 	[ $# -eq 0 ] || die "status: unknown argument '$1' — status takes no arguments"
@@ -1221,6 +1232,7 @@ cmd_status() {
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
 	printf 'Origin:    %s\n' "$_origin"
 	printf 'Semantic:  %s\n' "$(semantic_summary)"
+	printf 'Alerts:    %s\n' "$(alerts_summary)"
 	report_reachability "$_origin"
 	read_update_record
 	if [ -n "$UPDATE_RECORD_UNREADABLE" ]; then
