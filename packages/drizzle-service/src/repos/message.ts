@@ -605,6 +605,12 @@ export class DrizzleMessageRepository implements IMessageRepository {
 							eq(messageTable.status, "deleting"),
 							inArray(messageTable.mailboxId, ids),
 						),
+						and(
+							eq(messageTable.status, "moving"),
+							eq(messageTable.uid, 0),
+							isNull(messageTable.originalUid),
+							inArray(messageTable.mailboxId, ids),
+						),
 					),
 				),
 			)

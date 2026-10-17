@@ -24,11 +24,66 @@ export type StrandedPlacementEvent =
 export interface StrandedPlacementRedriveDeps {
 	client: Pick<
 		RemitClient,
-		"mailbox" | "mailboxSpecialUse" | "message" | "placementMove"
+		"mailbox" | "mailboxSpecialUse" | "message" | "placementMove" | "unitOfWork"
 	>;
 	emit: (event: StrandedPlacementEvent) => Promise<void>;
 	log: Logger;
 }
+
+const isStrandedCopy = (row: MessageItem): boolean =>
+	row.status === MessageStatus.moving &&
+	row.uid === 0 &&
+	typeof row.originalUid !== "number";
+
+/**
+ * A copy row at uid 0 names nothing on the server, and with no event left
+ * nothing will bind it. Dropping it, listing row and all, is exact: a COPY that
+ * did land is an ordinary message to the destination's next sync.
+ */
+const removeStrandedCopy = async (
+	deps: StrandedPlacementRedriveDeps,
+	account: AccountItem,
+	row: MessageItem,
+	now: number,
+): Promise<boolean> => {
+	const { unitOfWork } = deps.client;
+	if (!unitOfWork) {
+		throw new Error("Removing a stranded copy needs the store's unit of work");
+	}
+	const removed = await unitOfWork.transaction(async (repos) => {
+		const deleted = await repos.message.deleteIfPlacement(row.messageId, {
+			status: MessageStatus.moving,
+			mailboxId: row.mailboxId,
+			uid: 0,
+		});
+		if (!deleted) return false;
+		const listings = await repos.threadMessage.findAllByMessageId(
+			account.accountConfigId,
+			row.messageId,
+		);
+		if (listings.length > 0) {
+			await repos.threadMessage.deleteMany(
+				listings.map((listing) => ({
+					accountConfigId: listing.accountConfigId,
+					threadMessageId: listing.threadMessageId,
+				})),
+			);
+		}
+		return true;
+	});
+	if (!removed) return false;
+	deps.log.error(
+		{
+			alert: "stranded_copy_removed",
+			accountId: account.accountId,
+			messageId: row.messageId,
+			mailboxId: row.mailboxId,
+			untouchedForMs: now - row.updatedAt,
+		},
+		"A copy never bound to a server uid was removed; the destination's next sync re-projects it if the COPY landed",
+	);
+	return true;
+};
 
 const eventFor = async (
 	client: StrandedPlacementRedriveDeps["client"],
@@ -124,6 +179,10 @@ export const redriveStrandedPlacements = async (
 
 	let redriven = 0;
 	for (const row of stranded) {
+		if (isStrandedCopy(row)) {
+			if (await removeStrandedCopy(deps, account, row, now)) redriven += 1;
+			continue;
+		}
 		const event = await eventFor(client, account, row, trashMailboxId);
 		if (!event) continue;
 

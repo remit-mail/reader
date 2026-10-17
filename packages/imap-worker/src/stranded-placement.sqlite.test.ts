@@ -596,7 +596,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 		);
 	});
 
-	it("leaves a move inside its budget, a just re-driven move, and a copy alone", async () => {
+	it("leaves a move inside its budget and a just re-driven move alone", async () => {
 		const a = await arrange();
 		queueTakes(a.w);
 		await a.w.client.messageMove.moveMessage(
@@ -605,19 +605,11 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 			a.notifications.mailboxId,
 			a.w.account.accountId,
 		);
-		const copied = await a.w.message(a.inbox);
-		await a.w.client.messageMove.copyMessage(
-			a.w.account.accountConfigId,
-			copied.messageId,
-			a.notifications.mailboxId,
-			a.w.account.accountId,
-		);
 
 		assert.deepEqual(await redriveLater(a, 0), [], "inside the budget");
 		assert.deepEqual(
 			(await redriveLater(a)).map((event) => event.type),
 			["MESSAGE_MOVE"],
-			"the copy carries no source pair to re-drive",
 		);
 		assert.deepEqual(
 			await redriveLater(a, STRANDED_PLACEMENT_AFTER_MILLIS / 2),
@@ -628,5 +620,46 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 			(await a.w.row(a.message.messageId))?.status,
 			MessageStatus.moving,
 		);
+	});
+});
+
+describe("a uid-0 copy whose event is gone", () => {
+	const strandCopy = async (a: Arranged): Promise<string> => {
+		queueTakes(a.w);
+		return a.w.client.messageMove.copyMessage(
+			a.w.account.accountConfigId,
+			a.message.messageId,
+			a.notifications.mailboxId,
+			a.w.account.accountId,
+		);
+	};
+
+	it("is removed past the budget, listing and all, and the original is untouched", async () => {
+		const a = await arrange();
+		const before = await placementOf(a);
+		const copyId = await strandCopy(a);
+
+		await redriveLater(a);
+
+		assert.equal(await a.w.row(copyId), undefined);
+		assert.deepEqual(await a.w.threadRows(copyId), []);
+		assert.deepEqual(await placementOf(a), before);
+		assert.ok(
+			a.w.logs.some(
+				(line) =>
+					line.level === "error" &&
+					line.fields.alert === "stranded_copy_removed" &&
+					line.fields.messageId === copyId,
+			),
+		);
+	});
+
+	it("is left alone inside the budget", async () => {
+		const a = await arrange();
+		const copyId = await strandCopy(a);
+
+		await redriveLater(a, 0);
+
+		assert.equal((await a.w.row(copyId))?.status, MessageStatus.moving);
 	});
 });
