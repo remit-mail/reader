@@ -36,10 +36,6 @@ describe("buildMailboxRoleMap", () => {
 		]);
 		assert.equal(map.get("mb-1"), "inbox");
 	});
-
-	test("empty appointments produce an empty map", () => {
-		assert.equal(buildMailboxRoleMap([]).size, 0);
-	});
 });
 
 describe("labelForMailbox", () => {

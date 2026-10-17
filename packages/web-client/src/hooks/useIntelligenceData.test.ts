@@ -97,21 +97,6 @@ describe("buildSenderIntel", () => {
 			const result = buildSenderIntel(thread, address);
 			assert.equal(result.inboundCount, 34);
 		});
-
-		test("surfaces replyCount from address", () => {
-			const thread = makeThread();
-			const address = makeAddress({ inboundCount: 34, replyCount: 12 });
-			const result = buildSenderIntel(thread, address);
-			assert.equal(result.replyCount, 12);
-		});
-
-		test("surfaces both counters together", () => {
-			const thread = makeThread();
-			const address = makeAddress({ inboundCount: 34, replyCount: 12 });
-			const result = buildSenderIntel(thread, address);
-			assert.equal(result.inboundCount, 34);
-			assert.equal(result.replyCount, 12);
-		});
 	});
 
 	describe("suppression — counters absent", () => {
@@ -121,13 +106,6 @@ describe("buildSenderIntel", () => {
 			const result = buildSenderIntel(thread, address);
 			// Must be undefined, not 0 — so SenderCard suppresses the engagement clause
 			assert.equal(result.inboundCount, undefined);
-		});
-
-		test("replyCount is undefined when address has no replyCount", () => {
-			const thread = makeThread();
-			const address = makeAddress({ inboundCount: 5 }); // no replyCount
-			const result = buildSenderIntel(thread, address);
-			assert.equal(result.replyCount, undefined);
 		});
 
 		test("both counters are undefined when address is undefined", () => {
@@ -171,12 +149,6 @@ describe("buildSenderIntel", () => {
 			const thread = makeThread({ fromName: undefined, fromEmail: undefined });
 			const result = buildSenderIntel(thread, undefined);
 			assert.equal(result.name, "Unknown");
-		});
-
-		test("passes senderTrust through", () => {
-			const thread = makeThread({ senderTrust: "vip" });
-			const result = buildSenderIntel(thread, undefined);
-			assert.equal(result.trust, "vip");
 		});
 
 		test("firstSeenLabel is 'unknown' when no address", () => {

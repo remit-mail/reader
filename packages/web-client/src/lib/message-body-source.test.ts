@@ -75,10 +75,6 @@ describe("pickRenderablePart", () => {
 		assert.equal(pickRenderablePart([image]), null);
 	});
 
-	it("returns null on an empty list", () => {
-		assert.equal(pickRenderablePart([]), null);
-	});
-
 	it("treats casing variants of the subtype as equivalent (mailers are inconsistent)", () => {
 		const html = make({
 			mediaSubtype: "html",

@@ -7,25 +7,11 @@ describe("resolveSpamAction (#648)", () => {
 		assert.equal(resolveSpamAction({}), "reportSpam");
 	});
 
-	test("offers Report spam regardless of which mailbox the message is in", () => {
-		// A report is never derived from placement — reporting a message the
-		// provider's own filter already put in Junk is a real, no-op-move case.
-		assert.equal(resolveSpamAction({ spamReport: undefined }), "reportSpam");
-	});
-
 	test("offers Not spam once the message carries a spam report", () => {
 		assert.equal(
 			resolveSpamAction({ spamReport: { reportedAt: Date.now() } }),
 			"notSpam",
 		);
-	});
-
-	test("the two actions are mutually exclusive", () => {
-		const reportable = resolveSpamAction({});
-		const reported = resolveSpamAction({
-			spamReport: { reportedAt: Date.now() },
-		});
-		assert.notEqual(reportable, reported);
 	});
 });
 

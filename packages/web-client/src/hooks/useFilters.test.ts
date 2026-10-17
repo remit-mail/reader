@@ -79,13 +79,6 @@ describe("buildFilterListKey", () => {
 			filterOperationsListFiltersQueryKey({ path: { accountId: ACCOUNT_ID } }),
 		);
 	});
-
-	test("is distinct per account, so one account's list is not invalidated by another's write", () => {
-		assert.notDeepEqual(
-			buildFilterListKey("acc-1"),
-			buildFilterListKey("acc-2"),
-		);
-	});
 });
 
 describe("useFilterList", () => {

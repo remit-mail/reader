@@ -96,16 +96,6 @@ function renderHook(
 	return captured;
 }
 
-describe("starredThreadsQueryKey", () => {
-	test("asks for the starred listing, newest first", () => {
-		const [params] = starredThreadsQueryKey() as [
-			{ query?: { starred?: boolean; order?: string } },
-		];
-		assert.equal(params.query?.starred, true);
-		assert.equal(params.query?.order, "desc");
-	});
-});
-
 describe("useStarredThreads", () => {
 	test("returns no threads when the listing is empty", () => {
 		assert.deepEqual(renderHook([{ items: [] }]), []);

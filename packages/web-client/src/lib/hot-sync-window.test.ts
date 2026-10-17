@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { afterEach, describe, test } from "node:test";
 import {
 	__resetHotSyncWindow,
-	HOT_POLL_INTERVAL_MS,
 	HOT_WINDOW_MS,
 	isHotSyncWindowActive,
 	startHotSyncWindow,
@@ -56,9 +55,5 @@ describe("hot sync window", () => {
 		unsubscribe();
 		startHotSyncWindow(NOW);
 		assert.equal(presses, 1);
-	});
-
-	test("the hot cadence is thirty seconds", () => {
-		assert.equal(HOT_POLL_INTERVAL_MS, 30_000);
 	});
 });

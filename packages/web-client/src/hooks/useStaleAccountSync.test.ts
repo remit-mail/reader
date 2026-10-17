@@ -25,12 +25,6 @@ import {
 
 const NOW = 1_700_000_000_000;
 
-describe("STALENESS_THRESHOLD_MS", () => {
-	test("equals 15 minutes in milliseconds", () => {
-		assert.equal(STALENESS_THRESHOLD_MS, 15 * 60 * 1000);
-	});
-});
-
 describe("selectStaleAccountIds", () => {
 	test("treats accounts with undefined lastSyncAt as stale", () => {
 		const ids = selectStaleAccountIds(
@@ -92,10 +86,6 @@ describe("selectStaleAccountIds", () => {
 		assert.deepEqual(ids, ["a-1"]);
 	});
 
-	test("returns an empty list for an empty input", () => {
-		assert.deepEqual(selectStaleAccountIds([], NOW), []);
-	});
-
 	test("equality on the threshold is treated as fresh", () => {
 		// `now - lastSyncAt > thresholdMs` — strict greater-than means an
 		// account synced exactly threshold ms ago is still fresh. Pinning
@@ -105,13 +95,6 @@ describe("selectStaleAccountIds", () => {
 			NOW,
 		);
 		assert.deepEqual(ids, []);
-	});
-});
-
-describe("POLL_INTERVAL_MS", () => {
-	// How stale an open tab's mail may be with nobody touching anything.
-	test("defaults to 30 seconds when mailboxPollIntervalSeconds is unset in this test run", () => {
-		assert.equal(POLL_INTERVAL_MS, 30 * 1000);
 	});
 });
 

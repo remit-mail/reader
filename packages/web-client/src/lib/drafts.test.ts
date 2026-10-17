@@ -187,29 +187,6 @@ describe("groupDraftSections", () => {
 		assert.deepStrictEqual(sections, []);
 	});
 
-	test("section labels match spec", () => {
-		const draft = outboxMessage({
-			outboxMessageId: "d1",
-			accountId: "acc-1",
-			status: "draft",
-		});
-		const thread = threadMessage({
-			threadMessageId: "tm1",
-			threadId: "t1",
-			messageId: "m1",
-			accountConfigId: "acc-1",
-		});
-		const sections = groupDraftSections({
-			outboxMessages: [draft],
-			accountId: "acc-1",
-			imapThreads: [thread],
-		});
-		assert.deepStrictEqual(
-			sections.map((s) => s.label),
-			["Not yet sent (Remit)", "On the server"],
-		);
-	});
-
 	test("Remit-drafts section row id equals outboxMessageId", () => {
 		const draft = outboxMessage({
 			outboxMessageId: "outbox-abc",

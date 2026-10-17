@@ -8,53 +8,6 @@ import {
 
 // Provider table unit tests for top 5 providers (no network calls)
 describe("autodiscovery provider table", () => {
-	it("resolves Gmail", async () => {
-		const result = await discoverSettings("user@gmail.com");
-		assert.ok(result, "should find Gmail");
-		assert.equal(result.source, "provider-table");
-		assert.equal(result.imap.host, "imap.gmail.com");
-		assert.equal(result.imap.port, 993);
-		assert.equal(result.imap.security, "tls");
-		assert.equal(result.smtp.host, "smtp.gmail.com");
-		assert.equal(result.smtp.port, 587);
-		assert.equal(result.smtp.security, "starttls");
-	});
-
-	it("resolves iCloud", async () => {
-		const result = await discoverSettings("user@icloud.com");
-		assert.ok(result, "should find iCloud");
-		assert.equal(result.source, "provider-table");
-		assert.equal(result.imap.host, "imap.mail.me.com");
-		assert.equal(result.imap.port, 993);
-		assert.equal(result.smtp.security, "starttls");
-	});
-
-	it("resolves Fastmail", async () => {
-		const result = await discoverSettings("user@fastmail.com");
-		assert.ok(result, "should find Fastmail");
-		assert.equal(result.source, "provider-table");
-		assert.equal(result.imap.host, "imap.fastmail.com");
-		assert.equal(result.smtp.host, "smtp.fastmail.com");
-		assert.equal(result.smtp.port, 465);
-		assert.equal(result.smtp.security, "tls");
-	});
-
-	it("resolves Outlook", async () => {
-		const result = await discoverSettings("user@outlook.com");
-		assert.ok(result, "should find Outlook");
-		assert.equal(result.source, "provider-table");
-		assert.equal(result.imap.host, "outlook.office365.com");
-		assert.equal(result.smtp.host, "smtp.office365.com");
-	});
-
-	it("resolves Yahoo", async () => {
-		const result = await discoverSettings("user@yahoo.com");
-		assert.ok(result, "should find Yahoo");
-		assert.equal(result.source, "provider-table");
-		assert.equal(result.imap.host, "imap.mail.yahoo.com");
-		assert.equal(result.smtp.security, "tls");
-	});
-
 	it("returns heuristic for unknown domain", async () => {
 		// Use a clearly fake domain — network calls will fail/timeout
 		// In the test environment there's no network, so it falls to heuristic

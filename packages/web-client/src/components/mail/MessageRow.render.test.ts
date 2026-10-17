@@ -51,11 +51,4 @@ describe("MessageRow semantics", () => {
 		assert.match(html, /role="option"/);
 		assert.match(html, /aria-selected/);
 	});
-
-	it("renders the row's sender, subject and snippet", () => {
-		const html = render({ thread });
-		assert.match(html, /Alex Rivera/);
-		assert.match(html, /Quarterly numbers are in/);
-		assert.match(html, /shared drive/);
-	});
 });

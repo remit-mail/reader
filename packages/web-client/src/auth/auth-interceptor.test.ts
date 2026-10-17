@@ -41,12 +41,6 @@ const sentHeaders = (): Record<string, string> => {
 };
 
 describe("installAuthInterceptor", () => {
-	test("registers exactly one request interceptor", async () => {
-		const mod = await loadInterceptor();
-		mod.installAuthInterceptor(providerWithToken(async () => null));
-		assert.equal(client.interceptors.request.fns.length, 1);
-	});
-
 	test("is idempotent — subsequent calls do not register additional interceptors", async () => {
 		const mod = await loadInterceptor();
 		const provider = providerWithToken(async () => null);

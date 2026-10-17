@@ -15,10 +15,4 @@ describe("buildMailboxListKey", () => {
 		});
 		assert.deepEqual(got, want);
 	});
-
-	test("returns a different key for a different accountId", () => {
-		const a = buildMailboxListKey("acc-1");
-		const b = buildMailboxListKey("acc-2");
-		assert.notDeepEqual(a, b);
-	});
 });

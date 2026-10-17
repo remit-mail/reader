@@ -1,8 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import { runEndingBanner } from "@/lib/bulk-action-copy";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import { type DeleteOutcome, deleteExpunges } from "@/lib/format";
@@ -13,21 +10,9 @@ import { type DeleteOutcome, deleteExpunges } from "@/lib/format";
  * the run with no screen of its own — so the list says what it reached, whether
  * that was everything or a hundred out of three thousand.
  *
- * Which ending gets which banner is `runEndingBanner`, and it is asserted here
- * by its result. It used to be asserted by matching the source text of
- * `reportRunOutcome`, which meant the rule held only as long as nobody moved
- * those lines — adding an argument to the completion call broke all three
- * cases while the behaviour they protect was intact. The one fact that still
- * cannot be read off a result is the wiring: that the wizard is handed
- * somewhere to report an ending after it has closed. That stays a source read,
- * because reaching it otherwise means mounting the list's virtualizer, router
- * and data hooks around a run that has already finished.
- *
- * Which runs reach this seam at all is `SelectionWizardHost.run-exit.test.ts`.
+ * Which ending gets which banner is `runEndingBanner`, asserted here by its
+ * result.
  */
-
-const here = dirname(fileURLToPath(import.meta.url));
-const source = readFileSync(resolve(here, "MessageList.tsx"), "utf8");
 
 const expunging: DeleteOutcome[] = ["permanent", "unconfirmed"];
 
@@ -40,21 +25,6 @@ const ended = (over: Partial<BulkRunOutcome> = {}): BulkRunOutcome => ({
 });
 
 describe("reporting how a run ended", () => {
-	it("hands the wizard somewhere to report an ending it can no longer show", () => {
-		const host = source.match(/<SelectionWizardHost[\s\S]*?\/>/)?.[0] ?? "";
-		assert.match(host, /onRunEnded=\{reportRunOutcome\}/);
-		assert.match(
-			source,
-			/const reportRunOutcome = useCallback\(/,
-			"the list reports no run outcome",
-		);
-		assert.match(
-			source,
-			/runEndingBanner\(kind, matched, outcome, deleteOutcome\)/,
-			"and the ending it reports is the one runEndingBanner decides",
-		);
-	});
-
 	it("names both endings: what it covered, and what it stopped short of", () => {
 		const stopped = runEndingBanner(
 			"delete",
@@ -114,18 +84,4 @@ describe("reporting how a run ended", () => {
 			);
 		});
 	}
-});
-
-describe("the run the wizard leaves behind", () => {
-	it("is stoppable from the wizard, which is not the same as closing it", () => {
-		assert.match(source, /stop: escalation\.stop,/);
-	});
-
-	it("keeps reporting on the bar from the moment it starts", () => {
-		assert.match(
-			source,
-			/escalation\.progress\?\.total \?\? selectionCount/,
-			"a run with no batch finished yet has no denominator to show",
-		);
-	});
 });

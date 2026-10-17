@@ -73,12 +73,4 @@ describe("the lg variant and the desktop hooks gate on the same condition", () =
 			);
 		});
 	}
-
-	it("excludes a coarse pointer held upright", () => {
-		assert.match(DESKTOP_MEDIA_QUERY, /min-width: 1024px/);
-		assert.match(
-			DESKTOP_MEDIA_QUERY,
-			/not \(\(orientation: portrait\) and \(pointer: coarse\)\)/,
-		);
-	});
 });

@@ -9,9 +9,7 @@ type AmplifyAuthMocks = {
 
 declare global {
 	var __AMPLIFY_AUTH_MOCKS__: AmplifyAuthMocks | undefined;
-	var __AMPLIFY_CONFIG_MOCKS__:
-		| { configured: boolean; configureCalls: number }
-		| undefined;
+	var __AMPLIFY_CONFIG_MOCKS__: { configured: boolean } | undefined;
 }
 
 let cacheBust = 2000;
@@ -32,7 +30,7 @@ const loadCognitoToken = async (
 ) => {
 	cacheBust += 1;
 	globalThis.__REMIT_CONFIG__ = {};
-	globalThis.__AMPLIFY_CONFIG_MOCKS__ = { configured, configureCalls: 0 };
+	globalThis.__AMPLIFY_CONFIG_MOCKS__ = { configured };
 	globalThis.__AMPLIFY_AUTH_MOCKS__ = {
 		session: { tokens: {} },
 		fetchCalls: 0,

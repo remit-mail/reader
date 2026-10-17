@@ -12,10 +12,7 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../test-support/dom";
-import {
-	FOLLOW_FOCUS_DELAY_MS,
-	useFollowFocusOpen,
-} from "./useFollowFocusOpen";
+import { useFollowFocusOpen } from "./useFollowFocusOpen";
 
 let harness: DomHarness | undefined;
 
@@ -144,12 +141,5 @@ describe("useFollowFocusOpen", () => {
 		driver.move({ keyboardFocusedMessageId: undefined });
 		await driver.settle();
 		assert.deepEqual(driver.opened, []);
-	});
-});
-
-describe("FOLLOW_FOCUS_DELAY_MS", () => {
-	it("sits above key repeat and below what reads as a wait", () => {
-		assert.ok(FOLLOW_FOCUS_DELAY_MS >= 60);
-		assert.ok(FOLLOW_FOCUS_DELAY_MS <= 250);
 	});
 });

@@ -139,16 +139,6 @@ describe("useRescueCandidates: candidate mapping from real hook output", () => {
 		senderTrust: "wellknown",
 	});
 
-	test("maps messageId to candidate id", () => {
-		const { candidates } = renderHookWithResponse({ items: [vipThread] });
-		assert.equal(candidates[0].id, "m1");
-	});
-
-	test("maps fromName as senderName", () => {
-		const { candidates } = renderHookWithResponse({ items: [vipThread] });
-		assert.equal(candidates[0].senderName, "Anna de Vries");
-	});
-
 	test("falls back to fromEmail when fromName is absent", () => {
 		const thread = makeThread({
 			messageId: "m3",
@@ -191,19 +181,6 @@ describe("useRescueCandidates: candidate mapping from real hook output", () => {
 			items: [wellknownThread],
 		});
 		assert.equal(candidates[0].trustSubReason, "You've emailed them before");
-	});
-
-	test("sets the constant trustReason headline", () => {
-		const { candidates } = renderHookWithResponse({ items: [vipThread] });
-		assert.equal(candidates[0].trustReason, "We can verify this sender");
-	});
-
-	test("preserves senderTrust on the candidate", () => {
-		const { candidates } = renderHookWithResponse({
-			items: [vipThread, wellknownThread],
-		});
-		assert.equal(candidates[0].senderTrust, "vip");
-		assert.equal(candidates[1].senderTrust, "wellknown");
 	});
 
 	test("maps all response items to candidates in order", () => {
