@@ -136,3 +136,136 @@ describe("the reason an account card reads back", () => {
 		assert.equal(stored.lastError?.length, 500);
 	});
 });
+
+describe("which failures stop the work, and what the account row says after", () => {
+	const passwordAccount = (passwordHash?: string): Promise<AccountItem> =>
+		repo.create({
+			accountConfigId: "cfg-1",
+			username: "person@example.com",
+			email: "person@example.com",
+			authType: AccountAuthType.Password,
+			passwordHash,
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: ConnectionState.Authenticated,
+		});
+
+	it("runs nothing for an account that has to sign in again", async () => {
+		const created = await account();
+		await repo.update(created.accountId, {
+			connectionState: ConnectionState.ReauthRequired,
+		});
+		let worked = false;
+
+		await withOAuthLifecycle(
+			deps(),
+			await repo.get(created.accountId),
+			silentLogger,
+			async () => {
+				worked = true;
+			},
+		);
+
+		assert.equal(worked, false);
+	});
+
+	// Issue #1120: a password account with nothing stored can only fail, and a
+	// failing batch item fences the account's FIFO group.
+	it("acks a password account that stores no password and says the credential is missing", async () => {
+		const created = await passwordAccount();
+		let worked = false;
+
+		await withOAuthLifecycle(
+			buildLifecycleDeps(secrets, repo),
+			created,
+			silentLogger,
+			async () => {
+				worked = true;
+			},
+		);
+
+		assert.equal(worked, false);
+		assert.equal(
+			(await repo.get(created.accountId)).connectionState,
+			ConnectionState.CredentialsMissing,
+		);
+	});
+
+	it("acks an OAuth account that holds no refresh token and asks for a sign-in", async () => {
+		const created = await repo.create({
+			accountConfigId: "cfg-1",
+			username: "matthijs@example.com",
+			email: "matthijs@example.com",
+			authType: AccountAuthType.OauthMicrosoft,
+			imapHost: "outlook.office365.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: ConnectionState.Authenticated,
+		});
+
+		await withOAuthLifecycle(
+			buildLifecycleDeps(secrets, repo),
+			created,
+			silentLogger,
+			async () => {},
+		);
+
+		assert.equal(
+			(await repo.get(created.accountId)).connectionState,
+			ConnectionState.ReauthRequired,
+		);
+	});
+
+	// A password that stopped working is the user's to fix in settings; the
+	// state flip is reserved for OAuth, where a sign-in is the fix.
+	for (const [name, error] of [
+		["a refused password", new MailConnectionError("auth", "auth failed")],
+		["a network failure", new MailConnectionError("network", "timeout")],
+		["any other error", new Error("boom")],
+	] as const) {
+		it(`redelivers ${name} on a password account and leaves its state alone`, async () => {
+			const created = await passwordAccount('{"ciphertext":"x"}');
+
+			await assert.rejects(
+				withOAuthLifecycle(deps(), created, silentLogger, async () => {
+					throw error;
+				}),
+				error,
+			);
+
+			assert.equal(
+				(await repo.get(created.accountId)).connectionState,
+				ConnectionState.Authenticated,
+			);
+		});
+	}
+
+	it("redelivers a transient token failure and leaves the state alone", async () => {
+		const created = await account();
+
+		await assert.rejects(
+			withOAuthLifecycle(
+				{
+					...deps(),
+					resolveCredentials: async () => {
+						throw new RefreshTokenError({ kind: "transient", code: "503" });
+					},
+				},
+				created,
+				silentLogger,
+				async () => {},
+			),
+			/transient/,
+		);
+
+		assert.equal(
+			(await repo.get(created.accountId)).connectionState,
+			ConnectionState.Authenticated,
+		);
+	});
+});

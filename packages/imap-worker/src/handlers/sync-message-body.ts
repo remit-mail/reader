@@ -61,6 +61,20 @@ export const resolveBatch = (event: SyncMessageBodyEvent): ResolvedBatch => {
 	return { messageIds: event.messageIds, force };
 };
 
+export interface SyncMessageBodyDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: SyncMessageBodyDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Build the loud, structured error thrown when a batch still has failed
  * messages and SQS redelivery budget left. Throwing (rather than swallowing
@@ -81,7 +95,14 @@ export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
 	log: Logger,
 	receiveCount = 1,
+	deps: SyncMessageBodyDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
 	const { accountId, mailboxId } = event;
 
 	// Prefer the messageId+uid pairs when present (one ranged FETCH, no

@@ -45,6 +45,20 @@ export const getFlagPushDeferMaxMs = (
 
 export const FLAG_PUSH_DEFER_MAX_MS = getFlagPushDeferMaxMs();
 
+export interface FlagPushDeps {
+	getClient: typeof getClient;
+	buildLifecycleDeps: typeof buildLifecycleDeps;
+	withOAuthLifecycle: typeof withOAuthLifecycle;
+	createConnectionScope: typeof createConnectionScopeWithCredentials;
+}
+
+const defaultDeps: FlagPushDeps = {
+	getClient,
+	buildLifecycleDeps,
+	withOAuthLifecycle,
+	createConnectionScope: createConnectionScopeWithCredentials,
+};
+
 /**
  * Handle FLAG_PUSH events (issue #1273, epic #1281). Drains ONE pending
  * flag-push marker: resolves the message's UID and CURRENT mailbox fresh
@@ -75,7 +89,15 @@ export const handleFlagPush = async (
 	event: FlagPushEvent,
 	log: Logger,
 	receiveCount = 1,
+	deps: FlagPushDeps = defaultDeps,
 ): Promise<void> => {
+	const {
+		getClient,
+		buildLifecycleDeps,
+		withOAuthLifecycle,
+		createConnectionScope: createConnectionScopeWithCredentials,
+	} = deps;
+
 	const {
 		account: accountService,
 		mailbox: mailboxService,
