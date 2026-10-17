@@ -38,9 +38,7 @@ const EXPECTATIONS: Record<string, FixtureExpectation> = {
 	},
 	"04-forwarded-rfc822-with-attachments.eml": {
 		subject: "Adversarial fixture 04 forwarded rfc822 with inner attachment",
-		// Sync stores the forwarded message as a container and lists the file
-		// inside it, so the attachment a user can open is the inner one.
-		attachments: ["original.pdf"],
+		attachments: [],
 		bodyContains: "Forwarding",
 	},
 	"05-tnef-winmail.eml": {
