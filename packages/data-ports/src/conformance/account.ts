@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { AccountService, ConnectionState } from "@remit/domain-enums";
+import {
+	AccountAuthType,
+	AccountService,
+	ConnectionState,
+	SyncPhase,
+} from "@remit/domain-enums";
 import type { IAccountRepository } from "../interfaces/account.js";
-import type { CreateAccountInput } from "../types.js";
+import type { CreateAccountInput, UpdateAccountInput } from "../types.js";
 import type { RepositoryConformanceHarness } from "./harness.js";
 
 const accountInput = (accountConfigId: string): CreateAccountInput => ({
@@ -16,6 +21,37 @@ const accountInput = (accountConfigId: string): CreateAccountInput => ({
 	isActive: true,
 	connectionState: ConnectionState.NotAuthenticated,
 });
+
+const everyUpdatableField: Required<Omit<UpdateAccountInput, "accountId">> = {
+	username: "renamed@example.org",
+	email: "renamed@example.org",
+	authType: AccountAuthType.OauthMicrosoft,
+	syncedServices: [AccountService.Calendar],
+	grantedScopes: ["https://outlook.office.com/SMTP.Send"],
+	passwordHash: "password-ciphertext",
+	oauthRefreshTokenHash: "refresh-token-ciphertext",
+	oauthTokenUpdatedAt: 1_700_000_000_001,
+	imapHost: "imap.example.org",
+	imapPort: 143,
+	imapTls: false,
+	imapStartTls: true,
+	smtpEnabled: true,
+	smtpHost: "smtp.example.org",
+	smtpPort: 465,
+	smtpTls: true,
+	smtpStartTls: true,
+	smtpUsername: "smtp-person",
+	smtpPasswordHash: "smtp-password-ciphertext",
+	isActive: false,
+	connectionState: ConnectionState.Authenticated,
+	deletedAt: 1_700_000_000_002,
+	lastConnectedAt: 1_700_000_000_003,
+	lastSyncAt: 1_700_000_000_004,
+	lastError: "refused",
+	syncPhase: SyncPhase.complete,
+	mailboxCountTotal: 7,
+	mailboxCountSynced: 3,
+};
 
 export function accountRepositoryConformance(
 	harness: RepositoryConformanceHarness<IAccountRepository>,
@@ -99,6 +135,32 @@ export function accountRepositoryConformance(
 				sources.map((account) => account.accountId).sort(),
 				[mailOnly.accountId, both.accountId].sort(),
 			);
+		});
+
+		test("a deleted account reads back as deleted", async () => {
+			const created = await repo.create(accountInput(harness.makeId()));
+
+			await repo.update(created.accountId, {
+				deletedAt: 1_700_000_000_000,
+				isActive: false,
+			});
+
+			const stored = await repo.get(created.accountId);
+			assert.equal(stored.deletedAt, 1_700_000_000_000);
+			assert.equal(stored.isActive, false);
+		});
+
+		test("an update stores every field it is handed", async () => {
+			const created = await repo.create(accountInput(harness.makeId()));
+
+			await repo.update(created.accountId, everyUpdatableField);
+
+			const stored = await repo.get(created.accountId);
+			assert.deepEqual(stored, {
+				...created,
+				...everyUpdatableField,
+				updatedAt: stored.updatedAt,
+			});
 		});
 	});
 }

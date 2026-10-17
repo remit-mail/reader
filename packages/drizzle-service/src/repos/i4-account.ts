@@ -107,6 +107,7 @@ export class AccountRepo implements IAccountRepository {
 				syncPhase: input.syncPhase,
 				mailboxCountTotal: input.mailboxCountTotal,
 				mailboxCountSynced: input.mailboxCountSynced,
+				deletedAt: input.deletedAt,
 				createdAt: now,
 				updatedAt: now,
 			})
@@ -172,7 +173,10 @@ export class AccountRepo implements IAccountRepository {
 			updates.smtpStartTls = input.smtpStartTls;
 		if (input.smtpUsername !== undefined)
 			updates.smtpUsername = input.smtpUsername;
+		if (input.smtpPasswordHash !== undefined)
+			updates.smtpPasswordHash = input.smtpPasswordHash;
 		if (input.isActive !== undefined) updates.isActive = input.isActive;
+		if (input.deletedAt !== undefined) updates.deletedAt = input.deletedAt;
 		if (input.connectionState !== undefined)
 			updates.connectionState = input.connectionState;
 		if (input.lastConnectedAt !== undefined)
