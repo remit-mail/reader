@@ -64,6 +64,7 @@ const filing = () =>
 		markerService: store.placementMove,
 		addressService: store.address,
 		mailboxSpecialUseService: store.mailboxSpecialUse,
+		mailboxService: store.mailbox,
 		sqsQueueUrl: "https://sqs.test/message-mgmt",
 		moveSettleTimeoutMs: 200,
 		moveSettlePollMs: 10,

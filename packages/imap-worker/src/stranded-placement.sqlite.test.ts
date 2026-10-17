@@ -6,10 +6,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
-import {
-	SendMessageBatchCommand,
-	SendMessageCommand,
-} from "@aws-sdk/client-sqs";
 import type { MailboxItem, MessageItem } from "@remit/data-ports";
 import {
 	MailboxCursorState,
@@ -123,13 +119,13 @@ const gone = {
 };
 
 const queueRefuses = (w: World): void => {
-	w.queue.on(SendMessageCommand).rejects(new Error("queue unreachable"));
-	w.queue.on(SendMessageBatchCommand).rejects(new Error("queue unreachable"));
+	w.queue.answer(async () => {
+		throw new Error("queue unreachable");
+	});
 };
 
 const queueTakes = (w: World): void => {
-	w.queue.on(SendMessageCommand).resolves({});
-	w.queue.on(SendMessageBatchCommand).resolves({ Failed: [] });
+	w.queue.answer(async () => ({ Failed: [] }));
 };
 
 const redriveLater = async (
@@ -253,9 +249,9 @@ describe("a move whose event dies leaves no row moving", () => {
 
 	it("hands back a move to Trash whose batch entry the queue refused", async () => {
 		const a = await arrange();
-		a.w.queue.on(SendMessageBatchCommand).resolves({
+		a.w.queue.answer(async () => ({
 			Failed: [{ Id: "0", Code: "InvalidParameterValue", SenderFault: true }],
-		});
+		}));
 
 		await assert.rejects(
 			a.w.client.messageMove.deleteMessages(
