@@ -3,7 +3,11 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { mock } from "node:test";
-import { type SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import type {
+	SendMessageBatchCommand,
+	SendMessageCommand,
+} from "@aws-sdk/client-sqs";
+import { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountItem,
 	CreateMessageInput,
@@ -79,7 +83,10 @@ export const openStore = () => {
 export type Store = ReturnType<typeof openStore>;
 
 export const scratchStorage = (): StorageService =>
-	createFilesystemStorageService(mkdtempSync(join(tmpdir(), "mbx-store-")));
+	createFilesystemStorageService(mkdtempSync(join(tmpdir(), "mbx-store-")), {
+		origin: "https://reader.test",
+		signingSecret: "test-signing-secret",
+	});
 
 /** Storage whose root is a plain file, so every write fails as a full disk would. */
 export const brokenStorage = (): StorageService => {
@@ -137,6 +144,7 @@ export const seedMailbox = async (
 		lastSyncUid: 0,
 		highWaterMarkUid: 0,
 		lastMessageSyncAt: 0,
+		...(options.specialUse ? { specialUse: [options.specialUse] } : {}),
 		...options.overrides,
 	});
 	if (created.outcome !== "Created") {
@@ -203,17 +211,20 @@ export interface QueuedEvent {
 	body: Record<string, unknown>;
 }
 
-/** Every SQS send in the test lands here instead of on the wire. */
 export const captureQueue = (): QueuedEvent[] => {
 	const sent: QueuedEvent[] = [];
 	mock.method(
 		SQSClient.prototype,
 		"send",
-		async (command: SendMessageCommand) => {
-			sent.push({
-				queueUrl: command.input.QueueUrl ?? "",
-				body: JSON.parse(command.input.MessageBody ?? "{}"),
-			});
+		async (command: SendMessageCommand | SendMessageBatchCommand) => {
+			const queueUrl = command.input.QueueUrl ?? "";
+			const bodies =
+				"Entries" in command.input
+					? (command.input.Entries ?? []).map((entry) => entry.MessageBody)
+					: [command.input.MessageBody];
+			for (const body of bodies) {
+				sent.push({ queueUrl, body: JSON.parse(body ?? "{}") });
+			}
 			return {};
 		},
 	);
@@ -227,7 +238,6 @@ export const silentLog = {
 	debug: () => {},
 };
 
-/** Run metadata sync over a folder the way the imap-worker does, until it has nothing left. */
 export const syncFolder = async (
 	store: Store,
 	account: Pick<AccountItem, "accountId" | "accountConfigId">,
@@ -299,4 +309,25 @@ export const storeBody = async (
 		content: raw,
 	});
 	await store.message.update(messageId, { bodyStorageKey: ref.uri });
+};
+
+/**
+ * Another writer landing between a service's read and its write: `action` runs,
+ * for real, the next time `method` is called on `target`, and the call then
+ * proceeds as normal.
+ */
+export const beforeNext = <T extends object, K extends keyof T>(
+	target: T,
+	method: K,
+	action: () => Promise<unknown>,
+): void => {
+	const original = target[method] as unknown as (...args: unknown[]) => unknown;
+	let pending = true;
+	target[method] = (async (...args: unknown[]) => {
+		if (pending) {
+			pending = false;
+			await action();
+		}
+		return original.apply(target, args);
+	}) as T[K];
 };

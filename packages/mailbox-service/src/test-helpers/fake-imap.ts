@@ -68,6 +68,8 @@ export class FakeImapServer {
 	readonly folders = new Map<string, Folder>();
 	private modseq = 1n;
 	condstore = true;
+	/** What the server prepends to a path it is asked to create or rename to. */
+	namespacePrefix = "";
 	onFetchBody: (uid: number) => Promise<void> = async () => {};
 
 	folder(path: string, attributes: string[] = [], uidValidity = 7): Folder {
@@ -100,11 +102,23 @@ export class FakeImapServer {
 		this.folder(path).messages.delete(uid);
 	}
 
-	setFlags(path: string, uid: number, flags: string[]): void {
-		const message = this.folder(path).messages.get(uid);
-		if (!message) throw new Error(`no uid ${uid} in ${path}`);
-		message.flags = new Set(flags);
-		message.modseq = this.modseq++;
+	/** One STORE from another client: every message it touches shares the new mod-sequence. */
+	store(path: string, uids: number[], flags: string[]): void {
+		const modseq = this.modseq++;
+		for (const uid of uids) {
+			const message = this.folder(path).messages.get(uid);
+			if (!message) throw new Error(`no uid ${uid} in ${path}`);
+			message.flags = new Set(flags);
+			message.modseq = modseq;
+		}
+	}
+
+	renumber(path: string, uidValidity: number): void {
+		const folder = this.folder(path);
+		const messages = [...folder.messages.values()];
+		folder.uidValidity = uidValidity;
+		folder.messages = new Map(messages.map((message, i) => [i + 1, message]));
+		folder.uidNext = messages.length + 1;
 	}
 
 	flagsOf(path: string, uid: number): string[] {
@@ -115,12 +129,8 @@ export class FakeImapServer {
 		return [...this.folder(path).messages.keys()];
 	}
 
-	highestModseq(path: string): bigint {
-		let highest = 0n;
-		for (const message of this.folder(path).messages.values()) {
-			if (message.modseq > highest) highest = message.modseq;
-		}
-		return highest;
+	highestModseq(): bigint {
+		return this.modseq - 1n;
 	}
 
 	connect(): FakeImapConnection {
@@ -307,11 +317,12 @@ export class FakeImapConnection implements IImapConnection {
 
 	private touch = (uids: number[], change: (flags: Set<string>) => void) => {
 		const folder = this.open();
+		const modseq = this.server.bumpModseq();
 		for (const uid of uids) {
 			const stored = folder.messages.get(uid);
 			if (!stored) continue;
 			change(stored.flags);
-			stored.modseq = this.server.bumpModseq();
+			stored.modseq = modseq;
 		}
 	};
 
@@ -334,9 +345,10 @@ export class FakeImapConnection implements IImapConnection {
 	createMailbox = async (
 		path: string,
 	): Promise<{ path: string; created: boolean }> => {
-		const created = !this.server.folders.has(path);
-		this.server.folder(path);
-		return { path, created };
+		const resolved = this.server.namespacePrefix + path;
+		const created = !this.server.folders.has(resolved);
+		this.server.folder(resolved);
+		return { path: resolved, created };
 	};
 
 	deleteMailbox = async (path: string): Promise<{ path: string }> => {
@@ -348,8 +360,15 @@ export class FakeImapConnection implements IImapConnection {
 
 	renameMailbox = async (
 		oldPath: string,
-		newPath: string,
+		requested: string,
 	): Promise<{ path: string; newPath: string }> => {
+		if (!this.server.folders.has(oldPath)) {
+			throw Object.assign(new Error("Command failed"), {
+				serverResponseCode: "NONEXISTENT",
+				responseText: `Mailbox doesn't exist: ${oldPath}`,
+			});
+		}
+		const newPath = this.server.namespacePrefix + requested;
 		for (const [path, folder] of [...this.server.folders]) {
 			if (path !== oldPath && !path.startsWith(`${oldPath}/`)) continue;
 			this.server.folders.delete(path);
@@ -415,7 +434,9 @@ export class FakeImapConnection implements IImapConnection {
 			unseen: messages.filter((message) => !message.flags.has("\\Seen")).length,
 			uidNext: folder.uidNext,
 			uidValidity: folder.uidValidity,
-			highestModseq: this.server.highestModseq(path).toString(),
+			highestModseq: this.server.condstore
+				? this.server.highestModseq().toString()
+				: "0",
 			deletedCount: messages.filter((message) => message.flags.has("\\Deleted"))
 				.length,
 		};
