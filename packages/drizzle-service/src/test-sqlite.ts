@@ -2,9 +2,14 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Db } from "./db.js";
 import {
+	type MessageDataSchema,
+	messageDataSchema,
+} from "./schema/message-data.js";
+import {
 	applyMigration,
 	migrationJournal,
 } from "./test-shipped-sqlite-schema.js";
+import { serializeSqliteWrites } from "./tx.js";
 
 /**
  * The store a test runs against: the committed SQLite entity migrations, in the
@@ -34,6 +39,24 @@ export const createShippedSqliteDb = (): {
 	return {
 		db: drizzle(sqlite) as unknown as Db<Record<string, unknown>>,
 		sqlite,
+		close: () => sqlite.close(),
+	};
+};
+
+/**
+ * The store the app opens, over a migrated in-memory database: the message
+ * data schema, foreign keys on, writes serialized the way
+ * `createSqliteDatabase` serializes them.
+ */
+export const createShippedSqliteStore = (): {
+	db: Db<MessageDataSchema>;
+	close: () => void;
+} => {
+	const sqlite = new Database(":memory:");
+	sqlite.pragma("foreign_keys = ON");
+	applyShippedMigrations(sqlite);
+	return {
+		db: serializeSqliteWrites(drizzle(sqlite, { schema: messageDataSchema })),
 		close: () => sqlite.close(),
 	};
 };

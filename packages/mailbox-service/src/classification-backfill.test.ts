@@ -1,604 +1,275 @@
-/**
- * Tests for the `backfillClassifications` pass (issue #1197) — the resumable,
- * checkpointed full-corpus pass that classifies rows still carrying the
- * `NotExamined` sentinel on `Message.classificationState`, from their stored
- * bodies, and marks them `Examined`.
- *
- * Mirrors `list-id-backfill.test.ts`: per-account pages, checkpoint after
- * every page, resume by account-id order, and per-message failure
- * containment via `.then(fulfilled, rejected)`.
- */
-
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
-	AccountConfigItem,
 	AccountItem,
-	AddressItem,
-	IAccountConfigRepository,
-	IAccountRepository,
-	IAddressRepository,
-	IMessageRepository,
-	IThreadMessageRepository,
-	MessageItem,
-	ResultList,
-	ThreadMessageItem,
+	MailboxItem,
 	UpdateMessageInput,
-	UpdateThreadMessageInput,
 } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
-import { DisplayNameCorrespondence } from "@remit/domain-enums";
+import { deriveAddressId } from "@remit/data-ports/id";
+import {
+	DisplayNameCorrespondence,
+	MessageCategory,
+	MessageClassificationState,
+} from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
-import { backfillClassifications } from "./classification-backfill.js";
-import type { FolderPlacementLookup } from "./folder-placement.js";
+import {
+	backfillClassifications,
+	type ClassificationBackfillCheckpoint,
+} from "./classification-backfill.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
+import {
+	arriveAt,
+	openStore,
+	type Store,
+	scratchStorage,
+	seedAccount,
+	seedMailbox,
+	storeBody,
+} from "./test-helpers/store.js";
 
-const PLAIN_EML = Buffer.from(
-	[
-		"From: Alice <alice@example.com>",
-		"To: me@example.com",
-		"Subject: Hi",
-		"Content-Type: text/plain",
-		"",
-		"hi",
-	].join("\r\n"),
+const PLAIN = eml({ From: "Alice <alice@example.com>", Subject: "Hi" }, "hi");
+
+const LIST = eml(
+	{
+		From: "Alice <alice@example.com>",
+		Subject: "Newsletter",
+		"List-Id": "<news.example.com>",
+		"List-Unsubscribe": "<https://example.com/unsub>",
+	},
+	"this week in news",
 );
 
-const LIST_EML = Buffer.from(
-	[
-		"From: Alice <alice@example.com>",
-		"To: me@example.com",
-		"Subject: Newsletter",
-		"List-Id: <news.example.com>",
-		"List-Unsubscribe: <https://example.com/unsub>",
-		"Content-Type: text/plain",
-		"",
-		"this week in news",
-	].join("\r\n"),
+const IMPERSONATION = eml(
+	{
+		From: "InfoMedics <billing@serviceupdatebank.atlassian.net>",
+		Subject: "Openstaande factuur",
+		"DKIM-Signature": "v=1; a=rsa-sha256; d=atlassian.net; s=sel; b=xxx",
+	},
+	"Betaal uw factuur",
 );
 
-const IMPERSONATION_EML = Buffer.from(
-	[
-		"From: InfoMedics <billing@serviceupdatebank.atlassian.net>",
-		"To: me@example.com",
-		"Subject: Openstaande factuur",
-		"DKIM-Signature: v=1; a=rsa-sha256; d=atlassian.net; s=sel; b=xxx",
-		"Content-Type: text/plain",
-		"",
-		"Betaal uw factuur",
-	].join("\r\n"),
-);
+let store: Store;
+let storage: StorageService;
+let imap: FakeImapServer;
+let account: AccountItem;
+let inbox: MailboxItem;
+let junk: MailboxItem;
 
-const JUNK_MAILBOX_ID = "mb-junk";
+beforeEach(async () => {
+	store = openStore();
+	storage = scratchStorage();
+	imap = new FakeImapServer();
+	account = await seedAccount(store);
+	inbox = await seedMailbox(store, account, "INBOX");
+	junk = await seedMailbox(store, account, "Junk", { specialUse: "Junk" });
+});
 
-const row = (overrides: Partial<ThreadMessageItem>): ThreadMessageItem =>
-	({
-		threadMessageId: "tm-1",
-		accountConfigId: "acc-1",
-		threadId: "thread-1",
-		messageId: "m-1",
-		mailboxId: "mb-1",
-		uid: 1,
-		referenceOrder: 0,
-		internalDate: 1,
-		sentDate: 1,
-		isRead: false,
-		hasAttachment: false,
-		star: "none",
-		hasStars: false,
-		isDeleted: false,
-		category: "uncategorized",
-		createdAt: 1,
-		updatedAt: 1,
-		...overrides,
-	}) as unknown as ThreadMessageItem;
+afterEach(() => store.close());
 
-const message = (overrides: Partial<MessageItem>): MessageItem =>
-	({
-		messageId: "m-1",
-		mailboxId: "mb-1",
-		uid: 1,
-		status: "active",
-		syncStatus: "synced",
-		category: "uncategorized",
-		classificationState: "NotExamined",
-		hasListUnsubscribe: false,
-		movedByRemit: false,
-		bodyStorageKey: "s3://m-1",
-		authenticityVerdict: "NotEvaluated",
-		createdAt: 1,
-		updatedAt: 1,
-		...overrides,
-	}) as unknown as MessageItem;
-
-const asAccount = (accountConfigId: string): AccountConfigItem =>
-	({ accountConfigId }) as unknown as AccountConfigItem;
-
-interface Harness {
-	accountConfigService: Pick<IAccountConfigRepository, "listAll">;
-	accountService: Pick<IAccountRepository, "listAllByAccountConfig">;
-	mailboxSpecialUseService: FolderPlacementLookup;
-	addressService: Pick<IAddressRepository, "getAddress">;
-	threadMessageService: Pick<
-		IThreadMessageRepository,
-		"listByAccount" | "findAllByMessageId" | "update"
-	>;
-	messageService: Pick<IMessageRepository, "get" | "update">;
-	storageService: Pick<StorageService, "retrieve">;
-	messageUpdates: Array<{ messageId: string; input: UpdateMessageInput }>;
-	threadUpdates: Array<{
-		accountConfigId: string;
-		threadMessageId: string;
-		input: UpdateThreadMessageInput;
-	}>;
-	retrieved: string[];
-}
-
-const buildHarness = (options: {
-	accounts?: AccountConfigItem[];
-	rows: ThreadMessageItem[];
-	messages: MessageItem[];
-	retrieve?: (key: string) => Promise<Buffer>;
-	pageSize?: number;
-	addressFlags?: AddressItem["flags"];
-}): Harness => {
-	const accounts = options.accounts ?? [
-		{ accountConfigId: "acc-1" } as unknown as AccountConfigItem,
-	];
-	const messagesById = new Map(options.messages.map((m) => [m.messageId, m]));
-	const messageUpdates: Harness["messageUpdates"] = [];
-	const threadUpdates: Harness["threadUpdates"] = [];
-	const retrieved: string[] = [];
-	const pageSize = options.pageSize ?? 200;
-
-	const accountConfigService: Pick<IAccountConfigRepository, "listAll"> = {
-		listAll: async () => accounts,
-	};
-
-	const accountService: Pick<IAccountRepository, "listAllByAccountConfig"> = {
-		listAllByAccountConfig: async (accountConfigId: string) => [
-			{ accountId: `account-${accountConfigId}` } as unknown as AccountItem,
-		],
-	};
-
-	const mailboxSpecialUseService: FolderPlacementLookup = {
-		findJunkMailbox: async () => ({
-			mailboxId: JUNK_MAILBOX_ID,
-			fullPath: "Junk",
-		}),
-		findInboxMailbox: async () => ({ mailboxId: "mb-1", fullPath: "INBOX" }),
-	};
-
-	const addressService = {
-		getAddress: (async () => {
-			if (options.addressFlags === undefined)
-				throw new NotFoundError("no Address row for this sender");
-			return { flags: options.addressFlags } as AddressItem;
-		}) as unknown as IAddressRepository["getAddress"],
-	} as Pick<IAddressRepository, "getAddress">;
-
-	const threadMessageService: Pick<
-		IThreadMessageRepository,
-		"listByAccount" | "findAllByMessageId" | "update"
-	> = {
-		listByAccount: async (
-			accountConfigId: string,
-			opts?: { limit?: number; continuationToken?: string },
-		): Promise<ResultList<ThreadMessageItem>> => {
-			const scoped = options.rows.filter(
-				(r) => r.accountConfigId === accountConfigId,
-			);
-			const start = opts?.continuationToken
-				? Number(opts.continuationToken)
-				: 0;
-			const limit = opts?.limit ?? pageSize;
-			const page = scoped.slice(start, start + limit);
-			const nextStart = start + page.length;
-			return {
-				items: page,
-				continuationToken:
-					nextStart < scoped.length ? String(nextStart) : undefined,
-			};
-		},
-		findAllByMessageId: async (_accountConfigId, messageId) =>
-			options.rows.filter((r) => r.messageId === messageId),
-		update: async (accountConfigId, threadMessageId, input) => {
-			threadUpdates.push({ accountConfigId, threadMessageId, input });
-			const existing = options.rows.find(
-				(r) => r.threadMessageId === threadMessageId,
-			);
-			return { ...existing, ...input } as ThreadMessageItem;
-		},
-	};
-
-	const messageService: Pick<IMessageRepository, "get" | "update"> = {
-		get: (async (messageIds: string | string[]) => {
-			if (Array.isArray(messageIds)) {
-				return messageIds
-					.map((id) => messagesById.get(id))
-					.filter((m): m is MessageItem => m !== undefined);
-			}
-			const found = messagesById.get(messageIds);
-			if (!found) throw new Error(`no fixture for ${messageIds}`);
-			return found;
-		}) as IMessageRepository["get"],
-		update: async (messageId, input) => {
-			messageUpdates.push({ messageId, input });
-			const existing = messagesById.get(messageId);
-			return { ...existing, ...input } as MessageItem;
-		},
-	};
-
-	const storageService: Pick<StorageService, "retrieve"> = {
-		retrieve: async (key: string) => {
-			retrieved.push(key);
-			return options.retrieve ? options.retrieve(key) : PLAIN_EML;
-		},
-	};
-
-	return {
-		accountConfigService,
-		accountService,
-		mailboxSpecialUseService,
-		addressService,
-		threadMessageService,
-		messageService,
-		storageService,
-		messageUpdates,
-		threadUpdates,
-		retrieved,
-	};
+const stored = async (
+	raw: Buffer,
+	mailbox: MailboxItem = inbox,
+	update: UpdateMessageInput = {},
+	owner: AccountItem = account,
+): Promise<string> => {
+	const messageId = await arriveAt(store, imap, owner, mailbox, raw);
+	await storeBody(store, storage, owner, messageId, raw);
+	await store.message.update(messageId, update);
+	return messageId;
 };
 
-describe("backfillClassifications", () => {
-	it("classifies a NotExamined candidate from its stored body and marks it Examined", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1" })],
-		});
+const deps = () => ({
+	accountConfigService: store.accountConfig,
+	accountService: store.account,
+	mailboxSpecialUseService: store.specialUse,
+	addressService: store.address,
+	threadMessageService: store.threadMessage,
+	messageService: store.message,
+	storageService: storage,
+});
 
-		const result = await backfillClassifications(harness);
+const threadRow = async (messageId: string) =>
+	(
+		await store.threadMessage.findAllByMessageId(
+			account.accountConfigId,
+			messageId,
+		)
+	)[0];
+
+describe("backfillClassifications", () => {
+	it("classifies a never-examined body and denormalizes the answer", async () => {
+		const messageId = await stored(LIST);
+
+		const result = await backfillClassifications(deps());
 
 		assert.equal(result.backfilled, 1);
-		assert.equal(result.failed, 0);
-		assert.equal(result.alreadyExamined, 0);
-		assert.deepEqual(harness.retrieved, ["s3://m-1"]);
-		assert.equal(harness.messageUpdates.length, 1);
-		assert.equal(harness.messageUpdates[0].messageId, "m-1");
-		// The plain fixture carries no bulk markers, so the header rule table
-		// answers `personal`.
-		assert.equal(harness.messageUpdates[0].input.category, "personal");
-		assert.equal(
-			harness.messageUpdates[0].input.classificationState,
-			"Examined",
-		);
+		const row = await store.message.get(messageId);
+		assert.equal(row.category, MessageCategory.newsletter);
+		assert.equal(row.hasListUnsubscribe, true);
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
+		const thread = await threadRow(messageId);
+		assert.equal(thread.category, MessageCategory.newsletter);
+		assert.equal(thread.listId, "news.example.com");
 	});
 
-	it("compares the sender of a Junk row the provider rated clean, and not of an inbox row", async () => {
-		const harness = buildHarness({
-			rows: [
-				row({
-					threadMessageId: "tm-junk",
-					messageId: "m-junk",
-					mailboxId: JUNK_MAILBOX_ID,
-				}),
-				row({ threadMessageId: "tm-inbox", messageId: "m-inbox" }),
-			],
-			messages: [
-				message({
-					messageId: "m-junk",
-					mailboxId: JUNK_MAILBOX_ID,
-					bodyStorageKey: "s3://m-junk",
-				}),
-				message({ messageId: "m-inbox", bodyStorageKey: "s3://m-inbox" }),
-			],
-			retrieve: async () => IMPERSONATION_EML,
-		});
+	it("compares the sender of a Junk row the provider rated clean, not of an inbox row", async () => {
+		const inJunk = await stored(IMPERSONATION, junk);
+		const inInbox = await stored(IMPERSONATION);
 
-		await backfillClassifications(harness);
+		await backfillClassifications(deps());
 
-		const correspondence = new Map(
-			harness.messageUpdates.map((update) => [
-				update.messageId,
-				update.input.authenticity?.displayNameCorrespondence,
-			]),
-		);
 		assert.equal(
-			correspondence.get("m-junk"),
+			(await store.message.get(inJunk)).authenticity?.displayNameCorrespondence,
 			DisplayNameCorrespondence.Unrelated,
 		);
-		assert.equal(correspondence.get("m-inbox"), undefined);
+		assert.equal(
+			(await store.message.get(inInbox)).authenticity
+				?.displayNameCorrespondence,
+			undefined,
+		);
 	});
 
-	it("denormalizes the classifier's answer onto the thread row", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1" })],
-		});
+	it("applies the sender's category override over the headers", async () => {
+		const messageId = await stored(PLAIN);
+		await store.address.updateAddress(
+			account.accountConfigId,
+			deriveAddressId(account.accountConfigId, "alice@example.com"),
+			{ flags: { category: { value: MessageCategory.marketing, setAt: 1 } } },
+		);
 
-		await backfillClassifications(harness);
+		await backfillClassifications(deps());
 
-		// The thread row is written BEFORE the Message update, so a failure
-		// between the two leaves both undone for the rerun (issue #320).
-		assert.equal(harness.threadUpdates.length, 1);
-		assert.equal(harness.threadUpdates[0].threadMessageId, "tm-1");
-		assert.equal(harness.threadUpdates[0].input.category, "personal");
+		assert.equal(
+			(await store.message.get(messageId)).category,
+			MessageCategory.marketing,
+		);
 	});
 
-	it("writes the derived bulk fields and the row's List-Id, from the same bytes", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1", bodyStorageKey: "s3://list" })],
-			retrieve: async () => LIST_EML,
+	it("marks an already-categorized row examined and keeps its category", async () => {
+		const messageId = await stored(PLAIN, inbox, {
+			category: MessageCategory.newsletter,
 		});
 
-		const result = await backfillClassifications(harness);
+		const result = await backfillClassifications(deps());
 
-		assert.equal(result.backfilled, 1);
-		assert.equal(harness.messageUpdates[0].input.category, "newsletter");
-		assert.equal(harness.messageUpdates[0].input.hasListUnsubscribe, true);
-		assert.equal(harness.threadUpdates[0].input.listId, "news.example.com");
-	});
-
-	it("applies the sender's Address.flags.category override over the header category", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1" })],
-			addressFlags: {
-				category: { value: "marketing", setAt: 1 },
-			} as AddressItem["flags"],
-		});
-
-		const result = await backfillClassifications(harness);
-
-		assert.equal(result.backfilled, 1);
-		assert.equal(harness.messageUpdates[0].input.category, "marketing");
-		assert.equal(harness.threadUpdates[0].input.category, "marketing");
-	});
-
-	it("marks an already-categorized candidate Examined without re-deriving its category", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [
-				message({
-					messageId: "m-1",
-					category: "newsletter",
-					classificationState: "NotExamined",
-				}),
-			],
-		});
-
-		const result = await backfillClassifications(harness);
-
-		// Those rows were classified by a pass that predates the field; the
-		// write-once category is carried forward, never recomputed (#355).
 		assert.equal(result.alreadyCategorized, 1);
-		assert.equal(result.backfilled, 0);
-		assert.deepEqual(harness.retrieved, []);
-		assert.equal(harness.messageUpdates.length, 1);
-		assert.deepEqual(harness.messageUpdates[0].input, {
-			classificationState: "Examined",
-		});
-		assert.deepEqual(harness.threadUpdates, []);
+		const row = await store.message.get(messageId);
+		assert.equal(row.category, MessageCategory.newsletter);
+		assert.equal(row.classificationState, MessageClassificationState.Examined);
 	});
 
-	it("skips a row already Examined, without reading storage", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [
-				message({ messageId: "m-1", classificationState: "Examined" }),
-			],
+	it("leaves examined rows and rows with no stored body alone", async () => {
+		await stored(PLAIN, inbox, {
+			classificationState: MessageClassificationState.Examined,
 		});
+		const unsynced = await arriveAt(store, imap, account, inbox, PLAIN);
 
-		const result = await backfillClassifications(harness);
+		const result = await backfillClassifications(deps());
 
 		assert.equal(result.alreadyExamined, 1);
-		assert.equal(result.backfilled, 0);
-		assert.deepEqual(harness.retrieved, []);
-		assert.deepEqual(harness.messageUpdates, []);
-	});
-
-	it("skips a candidate whose body was never synced, without reading storage", async () => {
-		const harness = buildHarness({
-			rows: [row({ threadMessageId: "tm-1", messageId: "m-1" })],
-			messages: [message({ messageId: "m-1", bodyStorageKey: undefined })],
-		});
-
-		const result = await backfillClassifications(harness);
-
 		assert.equal(result.skippedNoBody, 1);
-		assert.deepEqual(harness.retrieved, []);
-		assert.deepEqual(harness.messageUpdates, []);
+		assert.equal(
+			(await store.message.get(unsynced)).classificationState,
+			MessageClassificationState.NotExamined,
+		);
 	});
 
-	it("examines a message once, however many thread rows index it", async () => {
-		const harness = buildHarness({
-			rows: [
-				row({ threadMessageId: "tm-1", messageId: "m-1" }),
-				row({
-					threadMessageId: "tm-2",
-					messageId: "m-1",
-					threadId: "thread-2",
-				}),
-			],
-			messages: [message({ messageId: "m-1" })],
+	it("examines a message once however many thread rows index it", async () => {
+		const messageId = await stored(PLAIN);
+		await store.threadMessage.create({
+			...(await threadRow(messageId)),
+			threadId: "drifted-root",
 		});
 
-		const result = await backfillClassifications(harness);
+		const result = await backfillClassifications(deps());
 
 		assert.equal(result.backfilled, 1);
 		assert.equal(result.alreadyExamined, 1);
-		assert.deepEqual(harness.retrieved, ["s3://m-1"]);
-		assert.equal(harness.messageUpdates.length, 1);
 	});
 
-	it("contains a classify failure to the one message and keeps going", async () => {
-		const harness = buildHarness({
-			rows: [
-				row({ threadMessageId: "tm-bad", messageId: "m-bad" }),
-				row({ threadMessageId: "tm-good", messageId: "m-good" }),
-			],
-			messages: [
-				message({ messageId: "m-bad", bodyStorageKey: "s3://m-bad" }),
-				message({ messageId: "m-good", bodyStorageKey: "s3://m-good" }),
-			],
-			retrieve: async (key) => {
-				if (key === "s3://m-bad") throw new Error("AccessDenied");
-				return PLAIN_EML;
-			},
+	it("contains a failure to the one message and keeps going", async () => {
+		const lost = await stored(PLAIN, inbox, {
+			bodyStorageKey: "file:///nonexistent/remit/body.eml",
 		});
+		const fine = await stored(PLAIN);
 
-		const result = await backfillClassifications(harness);
+		const result = await backfillClassifications(deps());
 
 		assert.equal(result.failed, 1);
-		assert.deepEqual(result.failedThreadMessageIds, ["tm-bad"]);
-		assert.equal(result.backfilled, 1);
-		assert.equal(harness.messageUpdates.length, 1);
-		assert.equal(harness.messageUpdates[0].messageId, "m-good");
+		assert.deepEqual(result.failedThreadMessageIds, [
+			(await threadRow(lost)).threadMessageId,
+		]);
+		assert.equal(
+			(await store.message.get(fine)).classificationState,
+			MessageClassificationState.Examined,
+		);
 	});
 
-	it("reports progress as pages are processed", async () => {
-		const rows = Array.from({ length: 3 }, (_, i) =>
-			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
-		);
-		const messages = rows.map((r) =>
-			message({
-				messageId: r.messageId,
-				bodyStorageKey: `s3://${r.messageId}`,
-			}),
-		);
-		const harness = buildHarness({ rows, messages, pageSize: 2 });
-		const progress: Array<{ accountConfigId: string; scanned: number }> = [];
+	it("scans accounts in account-config order whatever order they were created in", async () => {
+		const second = await seedAccount(store, { accountConfigId: "cfg-a" });
+		const third = await seedAccount(store, { accountConfigId: "cfg-b" });
+		for (const owner of [third, second]) {
+			await stored(
+				PLAIN,
+				await seedMailbox(store, owner, `INBOX-${owner.accountConfigId}`),
+				{},
+				owner,
+			);
+		}
+		const order: string[] = [];
 
-		const result = await backfillClassifications(harness, {
-			batchSize: 2,
-			onProgress: (p) => progress.push({ ...p }),
+		await backfillClassifications(deps(), {
+			onProgress: (progress) => order.push(progress.accountConfigId),
 		});
 
-		assert.equal(result.backfilled, 3);
-		assert.equal(progress.length, 2);
-		assert.equal(progress[0].scanned, 2);
-		assert.equal(progress[1].scanned, 3);
-	});
-
-	it("scans every account returned by listAll, in account-id order", async () => {
-		const accountIds = ["acc-1", "acc-2", "acc-3"];
-		const rows = accountIds.map((accountConfigId) =>
-			row({
-				threadMessageId: `tm-${accountConfigId}`,
-				messageId: `m-${accountConfigId}`,
-				accountConfigId,
-			}),
-		);
-		const harness = buildHarness({
-			accounts: ["acc-3", "acc-1", "acc-2"].map(asAccount),
-			rows,
-			messages: rows.map((r) =>
-				message({
-					messageId: r.messageId,
-					bodyStorageKey: `s3://${r.messageId}`,
-				}),
-			),
-		});
-		const progress: Array<{ accountConfigId: string; scanned: number }> = [];
-
-		const result = await backfillClassifications(harness, {
-			onProgress: (p) => progress.push({ ...p }),
-		});
-
-		assert.equal(result.backfilled, 3);
 		assert.deepEqual(
-			progress.map((p) => p.accountConfigId),
-			accountIds,
+			order.filter((id) => id !== account.accountConfigId),
+			["cfg-a", "cfg-b"],
 		);
 	});
 
-	it("checkpoints after each page and clears it on completion", async () => {
-		const rows = Array.from({ length: 3 }, (_, i) =>
-			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
-		);
-		const messages = rows.map((r) =>
-			message({
-				messageId: r.messageId,
-				bodyStorageKey: `s3://${r.messageId}`,
+	it("resumes from its checkpoint after an interruption", async () => {
+		for (let i = 0; i < 3; i++) await stored(PLAIN);
+		let checkpoint: ClassificationBackfillCheckpoint | undefined;
+		let cleared = false;
+		const checkpointStore = {
+			load: async () => checkpoint,
+			save: async (next: ClassificationBackfillCheckpoint) => {
+				checkpoint = next;
+			},
+			clear: async () => {
+				checkpoint = undefined;
+				cleared = true;
+			},
+		};
+
+		await assert.rejects(
+			backfillClassifications(deps(), {
+				batchSize: 2,
+				checkpointStore,
+				onProgress: () => {
+					throw new Error("killed");
+				},
 			}),
 		);
-		const harness = buildHarness({ rows, messages, pageSize: 2 });
-
-		const saved: Array<{
-			accountConfigId: string;
-			continuationToken?: string;
-		}> = [];
-		let cleared = false;
-
-		await backfillClassifications(harness, {
+		const resumed = await backfillClassifications(deps(), {
 			batchSize: 2,
-			checkpointStore: {
-				load: async () => undefined,
-				save: async (checkpoint) => {
-					saved.push(checkpoint);
-				},
-				clear: async () => {
-					cleared = true;
-				},
-			},
+			checkpointStore,
 		});
 
-		assert.equal(saved.length, 2);
-		assert.equal(saved[0].accountConfigId, "acc-1");
-		assert.equal(saved[0].continuationToken, "2");
-		assert.equal(saved[1].continuationToken, undefined);
+		assert.equal(resumed.scanned, 1);
+		assert.equal(resumed.backfilled, 1);
 		assert.equal(cleared, true);
 	});
 
-	it("resumes from a saved checkpoint instead of rescanning from the start", async () => {
-		const rows = Array.from({ length: 3 }, (_, i) =>
-			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
-		);
-		const messages = rows.map((r) =>
-			message({
-				messageId: r.messageId,
-				bodyStorageKey: `s3://${r.messageId}`,
-			}),
-		);
-		const harness = buildHarness({ rows, messages, pageSize: 2 });
-
-		const result = await backfillClassifications(harness, {
-			batchSize: 2,
-			checkpointStore: {
-				load: async () => ({
-					accountConfigId: "acc-1",
-					continuationToken: "2",
-				}),
-				save: async () => {},
-				clear: async () => {},
-			},
-		});
-
-		assert.equal(result.scanned, 1);
-		assert.equal(result.backfilled, 1);
-		assert.deepEqual(
-			harness.messageUpdates.map((u) => u.messageId),
-			["m-2"],
-		);
-	});
-
 	it("restarts the pass when the checkpointed account no longer exists", async () => {
-		const rows = Array.from({ length: 3 }, (_, i) =>
-			row({ threadMessageId: `tm-${i}`, messageId: `m-${i}` }),
-		);
-		const messages = rows.map((r) =>
-			message({
-				messageId: r.messageId,
-				bodyStorageKey: `s3://${r.messageId}`,
-			}),
-		);
-		const harness = buildHarness({ rows, messages, pageSize: 2 });
+		for (let i = 0; i < 3; i++) await stored(PLAIN);
 
-		const result = await backfillClassifications(harness, {
+		const result = await backfillClassifications(deps(), {
 			batchSize: 2,
 			checkpointStore: {
 				load: async () => ({
-					accountConfigId: "acc-removed",
+					accountConfigId: "cfg-removed",
 					continuationToken: "2",
 				}),
 				save: async () => {},
@@ -607,9 +278,6 @@ describe("backfillClassifications", () => {
 		});
 
 		assert.equal(result.scanned, 3);
-		assert.deepEqual(
-			harness.messageUpdates.map((u) => u.messageId),
-			["m-0", "m-1", "m-2"],
-		);
+		assert.equal(result.backfilled, 3);
 	});
 });

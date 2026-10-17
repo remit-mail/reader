@@ -1,51 +1,54 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type {
-	FilterItem,
-	IFilterAnchorRepository,
-	IFilterRepository,
-	IMessageLabelRepository,
-} from "@remit/data-ports";
-import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import { FilterMatchOperator, FilterScope } from "@remit/domain-enums";
 import { _resetEmbeddingCapabilityForTest } from "@remit/search-service/capability";
-import type { PlacementMoveService } from "../placement-move.js";
+import { PlacementMoveService } from "../placement-move.js";
+import { openStore, type Store } from "../test-helpers/store.js";
 import { buildFilterConfig, type FilterConfigDeps } from "./filter-config.js";
-import { type FilterMessage, NO_ACTION } from "./match.js";
+import type { FilterMessage } from "./match.js";
 import { _resetMessageEmbedderForTest } from "./message-embedder.js";
 import { FilterPipeline, type MessageEmbedder } from "./pipeline.js";
 
-const anchorOnlyFilter = (destinationMailboxId: string): FilterItem =>
-	({
-		filterId: "flt-semantic",
-		accountConfigId: "cfg-1",
-		name: "receipts",
-		scope: "Standing",
-		state: FilterState.Active,
-		hasAnchor: true,
-		ruleChangedAt: 1,
-		matchOperator: FilterMatchOperator.Or,
-		literalClauses: [],
-		actionLabelId: NO_ACTION,
-		actionMailboxId: destinationMailboxId,
-		createdAt: 1,
-		updatedAt: 1,
-	}) as unknown as FilterItem;
-
 const CURRENT_MODEL = "test-model@3";
 
-const repos = (filter: FilterItem): FilterConfigDeps => ({
-	filterService: {
-		listByAccountAndState: async () => [filter],
-		refreshExpiry: async (f: FilterItem) => f,
-	} as unknown as IFilterRepository,
-	filterAnchorService: {
-		get: async () => ({
-			anchorEmbedding: [1, 0, 0],
-			anchorEmbeddingId: CURRENT_MODEL,
-		}),
-	} as unknown as IFilterAnchorRepository,
-	messageLabelService: {} as unknown as IMessageLabelRepository,
-	placementMoveService: {} as unknown as PlacementMoveService,
+let store: Store;
+let filterId: string;
+
+beforeEach(async () => {
+	store = openStore();
+	const filter = await store.filter.create({
+		accountConfigId: "cfg-1",
+		name: "receipts",
+		scope: FilterScope.Standing,
+		hasAnchor: true,
+		matchOperator: FilterMatchOperator.Or,
+		actionMailboxId: "mbx-archive",
+	});
+	filterId = filter.filterId;
+	await store.filterAnchor.put({
+		accountConfigId: "cfg-1",
+		filterId,
+		anchorEmbedding: [1, 0, 0],
+		anchorEmbeddingId: CURRENT_MODEL,
+		anchorSourceText: "your receipt is ready",
+		anchorMessageId: "msg-anchor",
+	});
+});
+
+afterEach(() => store.close());
+
+const repos = (): FilterConfigDeps => ({
+	filterService: store.filter,
+	filterAnchorService: store.filterAnchor,
+	messageLabelService: store.messageLabel,
+	placementMoveService: new PlacementMoveService({
+		messageService: store.message,
+		threadMessageService: store.threadMessage,
+		markerService: store.placementMove,
+		addressService: store.address,
+		mailboxSpecialUseService: store.specialUse,
+		sqsQueueUrl: "https://sqs.test/message-mgmt",
+	}),
 });
 
 const message: FilterMessage = {
@@ -58,14 +61,14 @@ const message: FilterMessage = {
 
 describe("buildFilterConfig", () => {
 	it("returns undefined without a placement mover — no move path, filters stay off", () => {
-		const deps = repos(anchorOnlyFilter("mbx-archive"));
+		const deps = repos();
 		deps.placementMoveService = undefined;
 
 		assert.equal(buildFilterConfig(deps), undefined);
 	});
 
 	it("wires an embedder into the config", () => {
-		const config = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+		const config = buildFilterConfig(repos());
 
 		assert.ok(config);
 		assert.ok(config.embedder);
@@ -80,10 +83,7 @@ describe("buildFilterConfig", () => {
 			},
 			embeddingId: CURRENT_MODEL,
 		};
-		const config = buildFilterConfig(
-			repos(anchorOnlyFilter("mbx-archive")),
-			embedder,
-		);
+		const config = buildFilterConfig(repos(), embedder);
 		assert.ok(config);
 
 		const decision = await new FilterPipeline(config, {
@@ -92,7 +92,7 @@ describe("buildFilterConfig", () => {
 
 		assert.deepEqual(decision.move, {
 			destinationMailboxId: "mbx-archive",
-			filterId: "flt-semantic",
+			filterId,
 		});
 		assert.equal(embedCalls, 1);
 	});
@@ -102,10 +102,7 @@ describe("buildFilterConfig", () => {
 			embed: async () => [0, 1, 0],
 			embeddingId: CURRENT_MODEL,
 		};
-		const config = buildFilterConfig(
-			repos(anchorOnlyFilter("mbx-archive")),
-			embedder,
-		);
+		const config = buildFilterConfig(repos(), embedder);
 		assert.ok(config);
 
 		const decision = await new FilterPipeline(config, {
@@ -140,7 +137,7 @@ describe("buildFilterConfig with semantic search off", () => {
 
 	it("wires no embedder", async () => {
 		await withProviderOff(async () => {
-			const config = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+			const config = buildFilterConfig(repos());
 
 			assert.ok(config);
 			assert.equal(config.embedder, undefined);
@@ -149,7 +146,7 @@ describe("buildFilterConfig with semantic search off", () => {
 
 	it("skips the semantic filter without logging an error", async () => {
 		await withProviderOff(async () => {
-			const config = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+			const config = buildFilterConfig(repos());
 			assert.ok(config);
 
 			const errors: unknown[] = [];
@@ -193,10 +190,7 @@ describe("buildFilterConfig when this deployment carries no embedder", () => {
 				},
 				embeddingId: CURRENT_MODEL,
 			};
-			const config = buildFilterConfig(
-				repos(anchorOnlyFilter("mbx-archive")),
-				unavailable,
-			);
+			const config = buildFilterConfig(repos(), unavailable);
 			assert.ok(config);
 
 			const errors: unknown[] = [];
@@ -213,7 +207,7 @@ describe("buildFilterConfig when this deployment carries no embedder", () => {
 
 			// Probed once, not per filter or per message: every later config on this
 			// process wires no embedder at all, so nothing else attempts the embed.
-			const next = buildFilterConfig(repos(anchorOnlyFilter("mbx-archive")));
+			const next = buildFilterConfig(repos());
 			assert.ok(next);
 			assert.equal(next.embedder, undefined);
 		} finally {

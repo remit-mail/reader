@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type {
-	IMailboxSpecialUseRepository,
-	IQuarantineRepository,
+	AccountItem,
+	MailboxItem,
 	MessageData,
 	MessageItem,
 	QuarantineItem,
-	QuarantineUpsertInput,
 } from "@remit/data-ports";
 import {
 	QuarantinedUids,
@@ -14,52 +13,29 @@ import {
 	resolveMailboxRole,
 	shapeFromMessageData,
 } from "./quarantine.js";
+import {
+	openStore,
+	seedAccount,
+	seedMailbox,
+	silentLog,
+} from "./test-helpers/store.js";
 
-const noopLog = { info: () => {}, warn: () => {} };
+const store = openStore();
+let account: AccountItem;
+let spam: MailboxItem;
 
-const buildService = (
-	specialUse: string[] = [],
-): {
-	service: QuarantineService;
-	writes: QuarantineUpsertInput[];
-	listed: string[];
-} => {
-	const writes: QuarantineUpsertInput[] = [];
-	const listed: string[] = [];
-	const repository = {
-		listByAccountConfigId: async (accountConfigId: string) => {
-			listed.push(accountConfigId);
-			return [] as QuarantineItem[];
-		},
-		upsert: async (input: QuarantineUpsertInput) => {
-			writes.push(input);
-		},
-	} satisfies IQuarantineRepository;
+before(async () => {
+	account = await seedAccount(store);
+	spam = await seedMailbox(store, account, "Spam", { specialUse: "Junk" });
+});
+after(() => store.close());
 
-	const mailboxSpecialUseService = {
-		listByMailboxId: async () => specialUse.map((use) => ({ specialUse: use })),
-	} as unknown as IMailboxSpecialUseRepository;
-
-	return {
-		service: new QuarantineService(
-			repository,
-			mailboxSpecialUseService,
-			"sha-abc",
-			noopLog,
-		),
-		writes,
-		listed,
-	};
-};
-
-const context = {
-	accountId: "acct-1",
-	accountConfigId: "cfg-1",
-	mailboxId: "mbx-1",
-	mailboxPath: "INBOX",
-	uidValidity: 1_712_000_000,
-	attempts: 2,
-};
+const service = new QuarantineService(
+	store.quarantine,
+	store.specialUse,
+	"sha-abc",
+	silentLog,
+);
 
 const failure = {
 	stage: "BodyParse" as const,
@@ -67,47 +43,48 @@ const failure = {
 	message: "the parser said no",
 };
 
+const record = (uid: number, mailboxPath = "Spam") =>
+	service.record(
+		{
+			accountId: account.accountId,
+			accountConfigId: account.accountConfigId,
+			mailboxId: spam.mailboxId,
+			mailboxPath,
+			uidValidity: 1_712_000_000,
+			attempts: 2,
+		},
+		uid,
+		failure,
+	);
+
+const rows = () =>
+	store.quarantine.listByAccountConfigId(account.accountConfigId);
+
 describe("QuarantineService.record", () => {
-	it("stamps the worker build, not the client's", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.equal(writes[0]?.workerVersion, "sha-abc");
-	});
+	it("keeps one record per uid however often the message is set aside", async () => {
+		await record(40217);
+		await record(40217);
 
-	it("names the message by mailbox, uidValidity and uid", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.deepEqual(
-			{
-				mailboxId: writes[0]?.mailboxId,
-				uidValidity: writes[0]?.uidValidity,
-				uid: writes[0]?.uid,
-			},
-			{ mailboxId: "mbx-1", uidValidity: 1_712_000_000, uid: 40217 },
-		);
-	});
-
-	it("supplies no quarantineId, so the random-id default is unreachable", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.ok(!("quarantineId" in (writes[0] as object)));
-	});
-
-	it("omits an absent diagnostic rather than writing a null through", async () => {
-		const { service, writes } = buildService();
-		await service.record(
-			{ ...context, mailboxPath: "Clients/Acme" },
-			1,
-			failure,
-		);
-		assert.ok(!("failurePartPath" in (writes[0] as object)));
-		assert.ok(!("mailboxRole" in (writes[0] as object)));
+		const recorded = (await rows()).filter((row) => row.uid === 40217);
+		assert.equal(recorded.length, 1);
+		assert.equal(recorded[0].uidValidity, 1_712_000_000);
+		assert.equal(recorded[0].workerVersion, "sha-abc");
+		assert.equal(recorded[0].failurePartPath, undefined);
 	});
 
 	it("reads the folder's role off the server's SPECIAL-USE", async () => {
-		const { service, writes } = buildService(["Junk"]);
-		await service.record({ ...context, mailboxPath: "Spam" }, 1, failure);
-		assert.equal(writes[0]?.mailboxRole, "Junk");
+		await record(7);
+
+		const [row] = (await rows()).filter((entry) => entry.uid === 7);
+		assert.equal(row.mailboxRole, "Junk");
+	});
+
+	it("loads what it recorded as the set a sync round skips", async () => {
+		await record(8);
+
+		const loaded = await service.load(account.accountConfigId);
+		assert.ok(loaded.has(spam.mailboxId, 1_712_000_000, 8));
+		assert.ok(!loaded.has(spam.mailboxId, 1_712_000_001, 8));
 	});
 });
 
