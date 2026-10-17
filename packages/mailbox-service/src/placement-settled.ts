@@ -46,16 +46,31 @@ export const isPlacementUnsettled = (
  * untouched, so anything that resolves a uid off a row it did not settle
  * itself asks this rather than the binding below (issue #1217).
  */
-export const carriesForeignUid = (
-	message: Pick<
+export const carriesForeignUid = <
+	T extends Pick<
 		MessageItem,
 		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
 	>,
-): boolean =>
+>(
+	message: T,
+): message is T & { originalMailboxId: string; originalUid: number } =>
 	message.originalUid !== undefined &&
 	message.originalUid === message.uid &&
 	message.originalMailboxId !== undefined &&
 	message.originalMailboxId !== message.mailboxId;
+
+/**
+ * The folder the row's `uid` is a uid in: the source while a move has not
+ * confirmed, otherwise the folder the row is in. A fetch by uid is only safe
+ * from this folder; from any other the same number names a different message.
+ */
+export const uidMailboxIdOf = (
+	message: Pick<
+		MessageItem,
+		"mailboxId" | "uid" | "originalMailboxId" | "originalUid"
+	>,
+): string =>
+	carriesForeignUid(message) ? message.originalMailboxId : message.mailboxId;
 
 export const bindsForeignUid = (
 	message: Pick<

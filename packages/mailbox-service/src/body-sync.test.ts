@@ -231,6 +231,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 };
 
 const placementOf = (mailbox: MailboxItem): BodySyncFolder => ({
+	mailboxId: mailbox.mailboxId,
 	fullPath: mailbox.fullPath,
 	placement:
 		mailbox === world.inbox
@@ -776,12 +777,13 @@ describe("body sync and the quarantine", () => {
 	it("requeues a storage failure rather than calling the message unreadable", async () => {
 		const messageId = await arrive(FROM_SOMEONE);
 
-		const result = await sync(
-			bodySync({ quarantine: true, storage: world.store.brokenStorage() }),
-			[messageId],
+		await assert.rejects(
+			sync(
+				bodySync({ quarantine: true, storage: world.store.brokenStorage() }),
+				[messageId],
+			),
 		);
 
-		assert.deepEqual(result.failedMessageIds, [messageId]);
 		assert.deepEqual(
 			await world.store.quarantine.listByAccountConfigId(
 				world.account.accountConfigId,

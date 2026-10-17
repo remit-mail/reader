@@ -275,6 +275,7 @@ export const syncMessageBody = async (
 			// against the SAME borrowed connection, so the mailbox stays open
 			// across the two — the connection is only released once both are done.
 			const folder = {
+				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
 				placement: await resolveFolderPlacement(
 					mailboxSpecialUseService,

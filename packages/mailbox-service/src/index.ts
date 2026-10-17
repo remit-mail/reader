@@ -293,6 +293,7 @@ export {
 	isPlacementUnsettled,
 	type PlacementBinding,
 	placementBindingOf,
+	uidMailboxIdOf,
 } from "./placement-settled.js";
 export {
 	type QuarantineContext,

@@ -321,7 +321,9 @@ export class QueueStore {
 					queue.deadLetterTargetName !== null &&
 					candidate.receive_count >= queue.maxReceiveCount
 				) {
-					this.moveToDeadLetter(candidate, queue.deadLetterTargetName, now);
+					this.db
+						.prepare("UPDATE messages SET queue_name = ? WHERE id = ?")
+						.run(queue.deadLetterTargetName, candidate.id);
 					continue;
 				}
 
@@ -449,9 +451,37 @@ export class QueueStore {
 			.all({ queue: queue.name, now, limit }) as MessageRow[];
 	}
 
-	private moveToDeadLetter(
+	/**
+	 * Return everything a dead-letter queue holds to the queue it came from, as
+	 * SQS StartMessageMoveTask does. Each message goes to the back of that queue
+	 * with a fresh receive count, so it gets the full redelivery budget again and
+	 * a FIFO group still sees it after anything sent since.
+	 */
+	redriveDeadLetters(deadLetterName: string, now = Date.now()): number {
+		this.requireQueue(deadLetterName);
+		const source = this.listQueues().find(
+			(queue) => queue.deadLetterTargetName === deadLetterName,
+		);
+		if (!source) {
+			throw new InvalidParameterValueError(
+				`${deadLetterName} is not the dead-letter queue of any queue`,
+			);
+		}
+		const destination = source.name;
+
+		const redrive = this.db.transaction((): number => {
+			const rows = this.db
+				.prepare("SELECT * FROM messages WHERE queue_name = ? ORDER BY id ASC")
+				.all(deadLetterName) as MessageRow[];
+			for (const row of rows) this.moveToQueue(row, destination, now);
+			return rows.length;
+		});
+		return redrive();
+	}
+
+	private moveToQueue(
 		message: MessageRow,
-		deadLetterName: string,
+		targetName: string,
 		now: number,
 	): void {
 		this.db.prepare("DELETE FROM messages WHERE id = ?").run(message.id);
@@ -465,7 +495,7 @@ export class QueueStore {
 			)
 			.run(
 				message.message_id,
-				deadLetterName,
+				targetName,
 				message.body,
 				message.md5_body,
 				message.group_id,

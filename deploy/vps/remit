@@ -156,6 +156,12 @@ Usage: $PROG <command> [args]
                        failing. Exits 0 healthy, 1 degraded, 2 when no verdict
                        could be produced, so cron or an external monitor can
                        call it directly.
+  redrive <dlq>        Move everything on a body, flag or filing dead-letter
+                       queue back to the queue it came from, with a fresh
+                       retry budget. 'doctor' names the ones holding work. Run
+                       it once the cause is fixed. Sends are refused, since a
+                       replay could deliver mail long after the user gave up
+                       on it; folder syncs are refused, purge those instead.
   semantic [on|off]    Store a vector for every message, or stop. That is what
                        the Organize semantic widen and semantic filters read.
                        With no argument it only prints the state. Text search
@@ -3609,6 +3615,14 @@ EOF
 	printf "'remit restart' brings up an empty stack.\n"
 }
 
+# The policy of which dead-letter queues are safe to replay lives in the
+# queue image's redrive entrypoint, next to the store it moves messages in.
+cmd_redrive() {
+	require_deployment
+	[ $# -eq 1 ] || die "redrive: name one dead-letter queue, e.g. 'remit redrive remit-body-dlq'"
+	compose exec -T queue node redrive.mjs "$1"
+}
+
 # The root CA only exists in internal mode, and only on the caddy volume: the
 # first thing an internal-mode operator has to do is get it off the box, so it
 # is a command rather than a compose invocation to copy out of the docs.
@@ -4002,6 +4016,7 @@ main() {
 	down) cmd_down "$@" ;;
 	purge) cmd_purge "$@" ;;
 	doctor) cmd_doctor "$@" ;;
+	redrive) cmd_redrive "$@" ;;
 	semantic) cmd_semantic "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;

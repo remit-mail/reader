@@ -140,6 +140,9 @@ export const receiveMessageResult = (messages: ReceiveMessageXml[]): string =>
 export const queueUrlResult = (queueUrl: string): string =>
 	tag("QueueUrl", queueUrl);
 
+export const taskHandleResult = (taskHandle: string): string =>
+	tag("TaskHandle", taskHandle);
+
 export const queueAttributesResult = (
 	attributes: Record<string, string>,
 ): string =>

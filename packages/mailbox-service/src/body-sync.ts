@@ -70,7 +70,7 @@ import {
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { PlacementMoveService } from "./placement-move.js";
-import { isPlacementUnsettled } from "./placement-settled.js";
+import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
@@ -249,6 +249,7 @@ export interface StoreBodyPartContentsResult {
 export type ConnectionGetter = () => Promise<IImapConnection>;
 
 export interface BodySyncFolder {
+	mailboxId: string;
 	fullPath: string;
 	placement: FolderPlacement;
 }
@@ -346,25 +347,6 @@ export class BodySyncService {
 			: undefined;
 	}
 
-	/**
-	 * Sync message bodies for a batch of messages.
-	 *
-	 * Fail-fast on connection errors: if the IMAP connection is lost,
-	 * immediately stop processing and return all remaining messages as failed
-	 * so they can be requeued for later retry.
-	 *
-	 * @param messageIds - The message IDs to sync bodies for
-	 * @param accountId - The account ID (for storage path)
-	 * @param accountConfigId - The account config ID (for thread updates)
-	 * @param folder - The IMAP mailbox path and its folder placement
-	 * @param getConnection - Function to get a (lazy) IMAP connection
-	 * @param force - Bypass the "already stored" skip guard and re-fetch every
-	 * message in this batch even though `bodyStorageKey` is already set. Set
-	 * only by the read-miss re-arm cue (a `/content` read found the storage
-	 * object missing despite the DB row saying otherwise); bulk metadata-sync
-	 * never sets this, so it keeps skipping on `bodyStorageKey` with no
-	 * existence check.
-	 */
 	async syncBodies(
 		messageIds: string[],
 		accountId: string,
@@ -403,8 +385,22 @@ export class BodySyncService {
 		const quarantined =
 			await this.quarantineConfig?.quarantineService.load(accountConfigId);
 
+		const rows = new Map(
+			(await this.messageService.get(messageIds)).map((row) => [
+				row.messageId,
+				row,
+			]),
+		);
+
 		for (const messageId of messageIds) {
-			const message = await this.messageService.get(messageId);
+			const message = rows.get(messageId);
+
+			// A row deleted since the batch was cut, or moved out of this folder
+			// for good, has no uid here; its new uid would fetch another message.
+			if (!message || uidMailboxIdOf(message) !== folder.mailboxId) {
+				skippedCount++;
+				continue;
+			}
 
 			// A quarantined message has no stored body, so nothing else here would
 			// stop it being fetched and re-parsed on every redelivery, forever.
@@ -472,40 +468,27 @@ export class BodySyncService {
 						reStoredMessageIds.has(messageId),
 					);
 				} catch (error) {
-					// A per-message store failure (e.g. the parsed-body S3 write) is a
-					// real fault, but it must not silently mark the message synced —
-					// that would leave parsedBody null and the message unindexed. Leave
-					// the UID in `pending` so it lands in failedMessageIds and the SQS
-					// batch requeues just this message. A dropped connection is handled
-					// by the outer catch (fail-fast on the whole remaining batch).
-					if (isConnectionDrop(error)) throw error;
-
 					// The one error in this frame that is the message's own fault. It
-					// reaches here from the parse call and nowhere else, so the S3, DDB
-					// and SQS work this same frame wraps cannot be mistaken for it and
-					// keeps requeueing below. The row is durable before the UID leaves
-					// `pending`, so the message is never let go of unrecorded.
-					if (
-						error instanceof BodyParseError &&
-						(await this.quarantineBodyParse(messageId, location, error))
-					) {
+					// reaches here from the parse call and nowhere else, so the S3, DB
+					// and queue work this same frame wraps cannot be mistaken for it.
+					// The row is durable before the UID leaves `pending`, so the
+					// message is never let go of unrecorded.
+					if (error instanceof BodyParseError && this.quarantineConfig) {
+						await this.recordQuarantine(
+							this.quarantineConfig,
+							messageId,
+							location,
+							error,
+						);
 						pending.delete(uid);
 						skippedCount++;
 						source.resume();
 						continue;
 					}
 
-					this.log.error?.(
-						{
-							messageId,
-							errorName: (error as { name?: string }).name,
-							error: (error as Error).message,
-						},
-						"Body store failed for message; leaving for requeue",
-					);
-					// Drain the stream so the connection stays usable for the next UID.
-					source.resume();
-					continue;
+					// Anything else is our own storage, database or queue failing. It
+					// aborts the batch, which redelivers whole; what stored skips.
+					throw error;
 				}
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
@@ -547,53 +530,10 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Set a message aside because its body will not parse (issue #72).
-	 *
-	 * Returns false when no record was written — either because this service was
-	 * built without a quarantine writer, or because writing it failed. The
-	 * caller then falls back to requeueing rather than dropping a message no
-	 * record survives. The failure the row carries is the parser's, and only the
-	 * parser's — see {@link BodyParseError}.
-	 *
-	 * Reading and writing the record is storage and database work, so its own
-	 * failure is contained per message the same way the save it replaces is: it
-	 * must not take down a batch that has other messages to fetch, and in the
-	 * stream loop a throw would also skip `source.resume()` and leave the
-	 * literal undrained on an otherwise usable connection.
-	 *
-	 * The fingerprint comes from the BodyPart rows metadata sync already wrote:
-	 * the body path streams raw bytes and has no FETCH result to read, and
-	 * re-reading headers the parser has just refused would be reading the very
-	 * thing that is broken.
+	 * Set a message aside because its body will not parse (issue #72). The
+	 * fingerprint comes from the BodyPart rows metadata sync already wrote: the
+	 * body path streams raw bytes and has no FETCH result to read.
 	 */
-	private async quarantineBodyParse(
-		messageId: string,
-		location: {
-			accountId: string;
-			accountConfigId: string;
-			mailboxPath: string;
-		},
-		error: BodyParseError,
-	): Promise<boolean> {
-		const config = this.quarantineConfig;
-		if (!config) return false;
-
-		return this.recordQuarantine(config, messageId, location, error).then(
-			() => true,
-			(writeError: unknown) => {
-				this.log.error?.(
-					{
-						messageId,
-						errorName: (writeError as { name?: string }).name,
-						error: inspect(writeError),
-					},
-					"Could not record quarantine; leaving the message for requeue",
-				);
-				return false;
-			},
-		);
-	}
-
 	private async recordQuarantine(
 		config: QuarantineConfig,
 		messageId: string,
@@ -880,9 +820,12 @@ export class BodySyncService {
 			// offer an undo back to it (issue #223). Snapshotted into the marker
 			// rather than read from `originalMailboxId` at derive time, which a
 			// later user move would overwrite — the filter's source must survive an
-			// undo to stay derivable.
-			const sourceMailboxId = (await this.messageService.get(messageId))
-				.mailboxId;
+			// undo to stay derivable. A redelivery after a failed enqueue finds
+			// the move already applied locally, so the source is the folder the
+			// uid still names, not the one the row now points at.
+			const sourceMailboxId = uidMailboxIdOf(
+				await this.messageService.get(messageId),
+			);
 			await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
@@ -1939,40 +1882,17 @@ export class BodySyncService {
 		return result;
 	}
 
-	/**
-	 * Persist the pre-parsed body cache. A failure here MUST fail the
-	 * surrounding body-sync: the parsed-body object is what the search-index
-	 * pipeline reads, so swallowing a write failure leaves the message marked
-	 * synced while `parsedBody` is null and it never gets indexed — a silent
-	 * search gap. Propagate so the message lands in failedMessageIds and the
-	 * SQS batch requeues it.
-	 */
 	private async storeParsedBodyCache(
 		accountConfigId: string,
 		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
 	): Promise<void> {
-		const parsedBody = toParsedBody(parsed);
-		try {
-			await this.storageService.storeParsedBody({
-				accountConfigId,
-				accountId,
-				messageId,
-				parsed: parsedBody,
-			});
-			this.log.debug?.({ messageId }, "Parsed body cache stored");
-		} catch (err: unknown) {
-			this.log.error?.(
-				{
-					messageId,
-					errorName: (err as { name?: string }).name,
-					errorCode: (err as { Code?: string }).Code,
-					error: inspect(err),
-				},
-				"Failed to store parsed body cache; failing sync to requeue",
-			);
-			throw err;
-		}
+		await this.storageService.storeParsedBody({
+			accountConfigId,
+			accountId,
+			messageId,
+			parsed: toParsedBody(parsed),
+		});
 	}
 }

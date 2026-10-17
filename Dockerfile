@@ -369,6 +369,7 @@ CMD ["node", "server.mjs"]
 ########################################################################
 FROM node-service-installed AS queue-sidecar
 COPY --from=builder --chown=node:node /app/dist-docker/queue-sidecar/server.mjs ./server.mjs
+COPY --from=builder --chown=node:node /app/dist-docker/queue-sidecar/redrive.mjs ./redrive.mjs
 ENV QUEUE_SIDECAR_PORT=9324
 ENV QUEUE_SIDECAR_DB=/data/queue/queue.db
 EXPOSE 9324
