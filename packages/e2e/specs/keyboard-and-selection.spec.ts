@@ -94,8 +94,12 @@ test.describe("Keyboard navigation", () => {
 
 		await page.keyboard.press("Enter");
 
-		await page.waitForURL(MAILBOX_THREAD_URL);
-		expect(new URL(page.url()).pathname.split("/").pop()).toBe(focused);
+		// On desktop the reading pane already follows the cursor, so a thread URL
+		// can be up before Enter lands, and it can be the first row's. Only the
+		// cursor row's own address says Enter opened what the cursor is on.
+		await expect(page).toHaveURL(
+			(url) => url.pathname.split("/").pop() === focused,
+		);
 	});
 
 	test("Enter activates a focused control instead of being swallowed", async ({

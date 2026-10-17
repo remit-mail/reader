@@ -673,8 +673,16 @@ export const MessageList = ({
 	// and the selection toolbar — not a message — is what the user is looking at.
 	// Suspended off desktop too, where the reading pane replaces the list
 	// entirely, so following the cursor would throw the user off the list.
+	//
+	// The open lands a navigation later, and the cursor may have moved on by
+	// then. The open records which row it was for, so its arrival does not drag
+	// the cursor back off the row the user has since moved to.
+	const followOpenedRef = useRef<string | undefined>(undefined);
 	const followFocusOpen = useCallback(
-		(messageId: string) => openRow(messageId, { replace: true }),
+		(messageId: string) => {
+			followOpenedRef.current = messageId;
+			openRow(messageId, { replace: true });
+		},
 		[openRow],
 	);
 	useFollowFocusOpen({
@@ -877,13 +885,18 @@ export const MessageList = ({
 	// Opening a thread (click or Enter, anywhere) seeds the focus cursor onto it
 	// so subsequent j/k continue from the open row — focus and open stay in
 	// sync on open while remaining independent during scanning.
+	// A row the cursor itself opened is the exception: the cursor was already on
+	// it, and if the user has pressed j again since, Enter must act on the row
+	// they are on now rather than the one the reading pane caught up to.
 	useEffect(() => {
-		if (selectedMessageId) {
-			// A thread going open is the list's own move, whatever opened it — a
-			// deep link arrives with the row far down and has to be scrolled to.
-			cursorMovedByPointerRef.current = false;
-			setFocusedMessageId(selectedMessageId);
-		}
+		if (!selectedMessageId) return;
+		const openedByCursor = followOpenedRef.current === selectedMessageId;
+		followOpenedRef.current = undefined;
+		if (openedByCursor) return;
+		// A thread going open is the list's own move, whatever opened it — a
+		// deep link arrives with the row far down and has to be scrolled to.
+		cursorMovedByPointerRef.current = false;
+		setFocusedMessageId(selectedMessageId);
 	}, [selectedMessageId, setFocusedMessageId]);
 
 	// Keep the focus cursor valid as the thread list changes (after delete /
