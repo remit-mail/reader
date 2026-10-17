@@ -55,7 +55,7 @@ const ALWAYS_ON =
 // does not resolve spends its whole timeout budget on every invocation.
 const ORIGIN = "https://127.0.0.1:1";
 
-function sandbox({ provider = "off", workerUp = false, dotenv = [] } = {}) {
+function sandbox({ provider = "off", workerUp = false } = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-semantic-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
@@ -70,7 +70,6 @@ function sandbox({ provider = "off", workerUp = false, dotenv = [] } = {}) {
 			"REMIT_TAG=v1.0.0",
 			`PUBLIC_ORIGIN=${ORIGIN}`,
 			`SEARCH_EMBEDDING_PROVIDER=${provider}`,
-			...dotenv,
 			"",
 		].join("\n"),
 	);
@@ -405,25 +404,6 @@ describe("remit status", () => {
 
 		const on = sandbox({ provider: "local", workerUp: true }).run(["status"]);
 		assert.match(on.stdout, /^Semantic: +on/m);
-	});
-
-	it("says alerts go nowhere when DOCTOR_WEBHOOK_URL is unset or empty", () => {
-		for (const dotenv of [[], ["DOCTOR_WEBHOOK_URL="]]) {
-			const run = sandbox({ dotenv }).run(["status"]);
-			assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
-			assert.match(
-				run.stdout,
-				/^Alerts: +not delivered anywhere — DOCTOR_WEBHOOK_URL is not set/m,
-			);
-		}
-	});
-
-	it("names the webhook when DOCTOR_WEBHOOK_URL is set, without printing it", () => {
-		const run = sandbox({
-			dotenv: ["DOCTOR_WEBHOOK_URL=https://hooks.example/secret-token"],
-		}).run(["status"]);
-		assert.match(run.stdout, /^Alerts: +posted to DOCTOR_WEBHOOK_URL/m);
-		assert.ok(!run.stdout.includes("secret-token"), run.stdout);
 	});
 });
 

@@ -98,8 +98,6 @@ describe("parseState", () => {
 	});
 
 	it("resets a state file written before the reasons and dead-letter depths were remembered", async () => {
-		// A v2 file has no baseline to measure news against while degraded, so it
-		// is replaced; the first settled check then announces the condition whole.
 		assert.deepEqual(
 			await parseState(
 				'{"version":2,"firedVerdict":"degraded","candidateVerdict":"degraded","candidateRuns":3,"counters":{}}',

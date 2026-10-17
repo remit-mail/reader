@@ -1,20 +1,10 @@
 import type { DoctorState, ReasonRun } from "./state.js";
-import type { CheckResult, ReasonCode, Verdict } from "./verdict.js";
-
-/**
- * What the caller should send: the verdict, and the headline to send it under.
- * A verdict change carries the check's own headline; news while already
- * degraded carries what got worse.
- */
-export interface Announcement {
-	readonly verdict: Verdict;
-	readonly summary: string;
-}
+import type { CheckResult, ReasonCode } from "./verdict.js";
 
 export interface Transition {
 	readonly state: DoctorState;
-	/** What to announce, or `undefined` for the silence that is normal. */
-	readonly fires: Announcement | undefined;
+	/** The headline to announce, or `undefined` for the silence that is normal. */
+	readonly fires: string | undefined;
 }
 
 const plural = (count: number, one: string, many: string): string =>
@@ -73,13 +63,6 @@ const lowered = (
  * mailbox that stopped syncing, and the dead-man's switch — which pings on
  * every completed check, settled or not — is unaffected.
  *
- * A degraded verdict that was already announced is announced again when it gets
- * worse, because a stack degraded for weeks by an old backlog otherwise hides
- * every new failure behind a verdict that never changes. Worse is a reason that
- * was not in the last announcement and has held for the dwell, or a dead-letter
- * queue deeper than its baseline. A reason drops out of the announced set only
- * once it has been absent for the dwell, so a flickering reason is not news.
- *
  * `fires` is what the caller should send. It is the caller's job to record the
  * returned state whether or not delivery succeeded: a transition is spent when
  * it is decided, so a webhook that rejects the payload does not turn into an
@@ -102,11 +85,9 @@ export const advance = (
 	const baseline = state.firedDeadLetters;
 	const depths = result.deadLetters;
 
-	const fires = ((): Announcement | undefined => {
+	const fires = ((): string | undefined => {
 		if (!settled) return undefined;
-		if (verdict !== state.firedVerdict) {
-			return { verdict, summary: result.summary };
-		}
+		if (verdict !== state.firedVerdict) return result.summary;
 		if (verdict !== "degraded") return undefined;
 		const newReasons = result.reasons.filter(
 			(reason) =>
@@ -125,10 +106,7 @@ export const advance = (
 			...grown,
 		];
 		if (changes.length === 0) return undefined;
-		return {
-			verdict,
-			summary: `remit is still degraded, and worse: ${changes.join("; ")}`,
-		};
+		return `remit is still degraded, and worse: ${changes.join("; ")}`;
 	})();
 
 	const nextDeadLetters = ((): Readonly<Record<string, number>> => {
@@ -144,7 +122,7 @@ export const advance = (
 			// ever answers "has it settled", and an unbounded integer in a file that
 			// lives for years is a number with nothing to say.
 			candidateRuns: Math.min(runs, dwellChecks),
-			firedVerdict: fires?.verdict ?? state.firedVerdict,
+			firedVerdict: fires === undefined ? state.firedVerdict : verdict,
 			firedReasons: fires !== undefined ? [...present] : firedReasons,
 			reasonRuns: Object.fromEntries(
 				Object.entries(reasonRuns).filter(

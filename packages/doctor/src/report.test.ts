@@ -166,40 +166,34 @@ describe("the line format", () => {
 		}
 	});
 
-	it("says plainly that alerts go nowhere when no webhook is set", () => {
-		const records = parseLines(renderLines(degraded, "off", "none"));
-		assert.deepEqual(
-			records.filter(([key]) => key === "alerts"),
-			[
+	it("says where alerts go, plainly when they go nowhere, in both renderings", () => {
+		const alertsOf = (alerts: "none" | "webhook") => ({
+			line: parseLines(renderLines(degraded, "off", alerts)).filter(
+				([key]) => key === "alerts",
+			),
+			json: (
+				JSON.parse(renderJson(degraded, "off", alerts)) as { alerts: string }
+			).alerts,
+		});
+		assert.deepEqual(alertsOf("none"), {
+			line: [
 				[
 					"alerts",
 					"none alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set",
 				],
 			],
-		);
-	});
-
-	it("names the webhook as the destination when one is set", () => {
-		const records = parseLines(renderLines(healthy, "off", "webhook"));
-		assert.deepEqual(
-			records.filter(([key]) => key === "alerts").map(([, value]) => value),
-			["webhook a settled change is posted to DOCTOR_WEBHOOK_URL"],
-		);
+			json: "none",
+		});
+		assert.deepEqual(alertsOf("webhook"), {
+			line: [
+				["alerts", "webhook a settled change is posted to DOCTOR_WEBHOOK_URL"],
+			],
+			json: "webhook",
+		});
 	});
 });
 
 describe("the json format", () => {
-	it("carries where alerts are delivered", () => {
-		const none = JSON.parse(renderJson(degraded, "off", "none")) as {
-			alerts: string;
-		};
-		assert.equal(none.alerts, "none");
-		const webhook = JSON.parse(renderJson(degraded, "off", "webhook")) as {
-			alerts: string;
-		};
-		assert.equal(webhook.alerts, "webhook");
-	});
-
 	it("parses, and carries the same verdict and reasons", () => {
 		const parsed = JSON.parse(renderJson(degraded, "off", "webhook")) as {
 			verdict: string;

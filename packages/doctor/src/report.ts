@@ -1,4 +1,5 @@
 import type { CheckResult } from "./verdict.js";
+import { NOT_DELIVERED } from "./webhook.js";
 
 /**
  * The exec seam (D4). `remit doctor` is a POSIX shell script whose only tool is
@@ -67,7 +68,7 @@ export type AlertDelivery = "webhook" | "none";
 
 const ALERTS: Readonly<Record<AlertDelivery, string>> = {
 	webhook: "webhook a settled change is posted to DOCTOR_WEBHOOK_URL",
-	none: "none alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set",
+	none: `none ${NOT_DELIVERED}`,
 };
 
 export const renderLines = (

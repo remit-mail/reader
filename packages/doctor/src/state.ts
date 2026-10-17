@@ -29,14 +29,8 @@ export interface CounterState {
 	readonly lastRoseAt: number | null;
 }
 
-/**
- * How long one reason has held its current presence, so a reason that appears
- * while the stack is already degraded is announced on the same dwell rule as
- * the verdict, and one that flickers is never announced at all.
- */
 export interface ReasonRun {
 	readonly present: boolean;
-	/** Consecutive checks agreeing on `present`, held at the dwell count. */
 	readonly runs: number;
 }
 

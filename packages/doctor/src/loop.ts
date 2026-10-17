@@ -61,7 +61,7 @@ export const runOnce = async (
 			verdict: result.verdict,
 			reasons: result.reasons.map((reason) => reason.code),
 			settledRuns: transition.state.candidateRuns,
-			fires: transition.fires?.verdict ?? null,
+			fires: transition.fires ?? null,
 		},
 		"doctor: check complete",
 	);
@@ -70,22 +70,22 @@ export const runOnce = async (
 	const fired = transition.fires;
 	if (fired !== undefined && config.webhookUrl === undefined) {
 		deps.log.error(
-			{ verdict: fired.verdict, summary: fired.summary },
+			{ verdict: result.verdict, summary: fired },
 			`doctor: ${NOT_DELIVERED}`,
 		);
 	}
 	if (fired !== undefined && config.webhookUrl !== undefined) {
 		const delivery = await attempt(
-			deps.postWebhook({ ...result, summary: fired.summary }),
+			deps.postWebhook({ ...result, summary: fired }),
 		);
 		const outcome: Delivery = delivery.ok
 			? delivery.value
 			: { kind: "unreachable", detail: delivery.error };
 		if (outcome.kind === "sent") {
-			deps.log.info({ verdict: fired.verdict }, "doctor: alert sent");
+			deps.log.info({ verdict: result.verdict }, "doctor: alert sent");
 		} else if (outcome.kind === "rejected") {
 			deps.log.error(
-				{ verdict: fired.verdict, error: outcome.detail },
+				{ verdict: result.verdict, error: outcome.detail },
 				"doctor: the webhook refused this payload; the transition is spent",
 			);
 		} else {
@@ -98,7 +98,7 @@ export const runOnce = async (
 				firedDeadLetters: state.firedDeadLetters,
 			};
 			deps.log.error(
-				{ verdict: fired.verdict, error: outcome.detail },
+				{ verdict: result.verdict, error: outcome.detail },
 				"doctor: the webhook could not be reached; retrying on the next check",
 			);
 		}

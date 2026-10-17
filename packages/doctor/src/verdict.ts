@@ -59,11 +59,7 @@ export interface CheckResult {
 	 * failure cannot manufacture a delta when the service comes back.
 	 */
 	readonly counters: Readonly<Record<string, CounterState>>;
-	/**
-	 * Messages on each dead-letter queue, empty ones included, or `undefined`
-	 * when no queue depth was read this check. Absent is not zero: a scrape
-	 * failure must not read as a drained queue and turn its return into growth.
-	 */
+	/** Absent is not zero: a scrape failure must not read as a drained queue. */
 	readonly deadLetters: Readonly<Record<string, number>> | undefined;
 }
 
@@ -157,18 +153,14 @@ const staleHeartbeats = (
 };
 
 const deadLetterDepth = (
-	samples: readonly ScrapeResult[],
+	depths: Readonly<Record<string, number>> | undefined,
 ): Reason | undefined => {
-	const all = samples.flatMap((scrape) => [...scrape.samples]);
-	const occupied = seriesNamed(all, "remit_queue_messages").filter(
-		(sample) => sample.labels.role === "dead_letter" && sample.value > 0,
-	);
+	const occupied = Object.entries(depths ?? {})
+		.filter(([, depth]) => depth > 0)
+		.sort(([left], [right]) => left.localeCompare(right));
 	if (occupied.length === 0) return undefined;
-	const total = occupied.reduce((sum, sample) => sum + sample.value, 0);
-	const names = occupied
-		.map((sample) => sample.labels.queue ?? "unknown")
-		.sort()
-		.join(", ");
+	const total = occupied.reduce((sum, [, depth]) => sum + depth, 0);
+	const names = occupied.map(([queue]) => queue).join(", ");
 	return {
 		code: "dead_letter_queue_not_empty",
 		summary: `${total} ${plural(total, "message is", "messages are")} quarantined on ${occupied.length} ${plural(occupied.length, "dead-letter queue", "dead-letter queues")} (${names})`,
@@ -176,19 +168,23 @@ const deadLetterDepth = (
 	};
 };
 
+// In-flight counts too, so a received-but-undeleted message returning is not growth.
 const deadLetterDepths = (
 	samples: readonly ScrapeResult[],
 ): Record<string, number> | undefined => {
-	const depths = seriesNamed(
-		samples.flatMap((scrape) => [...scrape.samples]),
-		"remit_queue_messages",
-	);
-	if (depths.length === 0) return undefined;
-	return Object.fromEntries(
-		depths
-			.filter((sample) => sample.labels.role === "dead_letter")
-			.map((sample) => [sample.labels.queue ?? "unknown", sample.value]),
-	);
+	const all = samples.flatMap((scrape) => [...scrape.samples]);
+	const visible = seriesNamed(all, "remit_queue_messages");
+	if (visible.length === 0) return undefined;
+	const depths: Record<string, number> = {};
+	for (const sample of [
+		...visible,
+		...seriesNamed(all, "remit_queue_messages_in_flight"),
+	]) {
+		if (sample.labels.role !== "dead_letter") continue;
+		const queue = sample.labels.queue ?? "unknown";
+		depths[queue] = (depths[queue] ?? 0) + sample.value;
+	}
+	return depths;
 };
 
 const QUEUE_RECEIVE_IDLE_MAX_SECONDS = 15 * 60;
@@ -443,6 +439,8 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		),
 	];
 
+	const deadLetters = deadLetterDepths(input.scrapes);
+
 	const found = [
 		scrapeFailures(input.scrapes),
 		missingSeries(input.scrapes),
@@ -451,7 +449,7 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		stalledSync(input.scrapes, input.syncAgeMaxSeconds),
 		authFailures(counters, input.authFailureHoldSeconds, now),
 		stalledQueues(input.scrapes),
-		deadLetterDepth(input.scrapes),
+		deadLetterDepth(deadLetters),
 	].filter((reason): reason is Reason => reason !== undefined);
 
 	const reasons = [...found].sort(
@@ -470,6 +468,6 @@ export const evaluate = (input: VerdictInput): CheckResult => {
 		summary: verdict === "healthy" ? "remit is healthy" : "remit is degraded",
 		reasons,
 		counters: nextCounters,
-		deadLetters: deadLetterDepths(input.scrapes),
+		deadLetters,
 	};
 };

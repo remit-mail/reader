@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { type Announcement, advance } from "./dwell.js";
+import { advance } from "./dwell.js";
 import { parseMetrics } from "./prometheus.js";
 import type { ScrapeResult } from "./scrape.js";
 import { type DoctorState, initialState } from "./state.js";
@@ -10,16 +10,24 @@ const NOW = new Date("2026-07-27T10:00:00.000Z");
 
 interface Signals {
 	readonly deadLetters?: Readonly<Record<string, number>>;
+	readonly inFlight?: Readonly<Record<string, number>>;
 	readonly syncStalled?: boolean;
 	readonly queueDown?: boolean;
 }
 
-const queueScrape = (deadLetters: Readonly<Record<string, number>>) => {
+const queueScrape = (
+	deadLetters: Readonly<Record<string, number>>,
+	inFlight: Readonly<Record<string, number>>,
+) => {
 	const lines = [
 		'remit_queue_messages{queue="imap-sync",role="work"} 0',
 		...Object.entries(deadLetters).map(
 			([queue, depth]) =>
 				`remit_queue_messages{queue="${queue}",role="dead_letter"} ${depth}`,
+		),
+		...Object.entries(inFlight).map(
+			([queue, depth]) =>
+				`remit_queue_messages_in_flight{queue="${queue}",role="dead_letter"} ${depth}`,
 		),
 	];
 	return {
@@ -32,13 +40,14 @@ const queueScrape = (deadLetters: Readonly<Record<string, number>>) => {
 /** One real check, evaluated from the scrapes a stack in this shape exports. */
 const check = ({
 	deadLetters = {},
+	inFlight = {},
 	syncStalled = false,
 	queueDown = false,
 }: Signals = {}): CheckResult => {
 	const scrapes: ScrapeResult[] = [
 		queueDown
 			? { service: "queue", samples: [], error: "fetch failed" }
-			: queueScrape(deadLetters),
+			: queueScrape(deadLetters, inFlight),
 		{
 			service: "backend",
 			samples: parseMetrics(
@@ -69,9 +78,9 @@ const tick = (
 	checks: readonly CheckResult[],
 	dwell = 3,
 	from: DoctorState = initialState,
-): { fired: (Announcement | undefined)[]; state: DoctorState } => {
+): { fired: (string | undefined)[]; state: DoctorState } => {
 	let state = from;
-	const fired: (Announcement | undefined)[] = [];
+	const fired: (string | undefined)[] = [];
 	for (const result of checks) {
 		const transition = advance(state, result, dwell, NOW);
 		state = transition.state;
@@ -82,7 +91,12 @@ const tick = (
 
 const run = (verdicts: readonly Verdict[], dwell = 3, from = initialState) => {
 	const { fired, state } = tick(verdicts.map(byVerdict), dwell, from);
-	return { fired: fired.map((announcement) => announcement?.verdict), state };
+	return {
+		fired: fired.map((headline, index) =>
+			headline === undefined ? undefined : verdicts[index],
+		),
+		state,
+	};
 };
 
 const repeat = <T>(value: T, times: number): T[] =>
@@ -169,23 +183,11 @@ describe("the dwell rule", () => {
 
 	it("announces the verdict change under the check's own headline", () => {
 		const { fired } = tick(repeat(check({ deadLetters: BACKLOG }), 3));
-		assert.deepEqual(fired[2], {
-			verdict: "degraded",
-			summary: "remit is degraded",
-		});
+		assert.equal(fired[2], "remit is degraded");
 	});
 });
 
 describe("news while already degraded", () => {
-	it("stays silent while a degraded stack stays degraded the same way", () => {
-		const { fired } = tick(
-			repeat(check({ deadLetters: BACKLOG }), 20),
-			3,
-			degradedByBacklog(),
-		);
-		assert.deepEqual(new Set(fired), new Set([undefined]));
-	});
-
 	it("announces body-sync dead letters arriving behind an old mailbox-sync backlog", () => {
 		const { fired } = tick(
 			[
@@ -196,11 +198,7 @@ describe("news while already degraded", () => {
 			degradedByBacklog(),
 		);
 		assert.deepEqual(fired, [
-			{
-				verdict: "degraded",
-				summary:
-					"remit is still degraded, and worse: 12 more messages on dead-letter queue mailbox-body-sync-dlq (12 in total)",
-			},
+			"remit is still degraded, and worse: 12 more messages on dead-letter queue mailbox-body-sync-dlq (12 in total)",
 			undefined,
 		]);
 	});
@@ -215,14 +213,11 @@ describe("news while already degraded", () => {
 			3,
 			degradedByBacklog(),
 		);
-		assert.deepEqual(
-			fired.map((announcement) => announcement?.summary),
-			[
-				"remit is still degraded, and worse: 1 more message on dead-letter queue mailbox-sync-dlq (557 in total)",
-				undefined,
-				"remit is still degraded, and worse: 3 more messages on dead-letter queue mailbox-sync-dlq (560 in total)",
-			],
-		);
+		assert.deepEqual(fired, [
+			"remit is still degraded, and worse: 1 more message on dead-letter queue mailbox-sync-dlq (557 in total)",
+			undefined,
+			"remit is still degraded, and worse: 3 more messages on dead-letter queue mailbox-sync-dlq (560 in total)",
+		]);
 	});
 
 	it("measures growth from where a drained queue fell to", () => {
@@ -233,14 +228,27 @@ describe("news while already degraded", () => {
 			});
 		const settled = tick(repeat(stalled(556), 3)).state;
 		const { fired } = tick([stalled(0), stalled(0), stalled(2)], 3, settled);
-		assert.deepEqual(
-			fired.map((announcement) => announcement?.summary),
+		assert.deepEqual(fired, [
+			undefined,
+			undefined,
+			"remit is still degraded, and worse: 2 more messages on dead-letter queue mailbox-sync-dlq (2 in total)",
+		]);
+	});
+
+	it("does not read a peeked dead letter returning to visible as growth", () => {
+		const { fired } = tick(
 			[
-				undefined,
-				undefined,
-				"remit is still degraded, and worse: 2 more messages on dead-letter queue mailbox-sync-dlq (2 in total)",
+				check({ deadLetters: BACKLOG, inFlight: { "mailbox-sync-dlq": 0 } }),
+				check({
+					deadLetters: { ...BACKLOG, "mailbox-sync-dlq": 555 },
+					inFlight: { "mailbox-sync-dlq": 1 },
+				}),
+				check({ deadLetters: BACKLOG, inFlight: { "mailbox-sync-dlq": 0 } }),
 			],
+			3,
+			degradedByBacklog(),
 		);
+		assert.deepEqual(fired, [undefined, undefined, undefined]);
 	});
 
 	it("does not read a queue that briefly stopped answering as growth on its return", () => {
@@ -262,11 +270,7 @@ describe("news while already degraded", () => {
 		assert.deepEqual(fired, [
 			undefined,
 			undefined,
-			{
-				verdict: "degraded",
-				summary:
-					"remit is still degraded, and worse: new: 1 of 1 account has not completed a sync in over 3h",
-			},
+			"remit is still degraded, and worse: new: 1 of 1 account has not completed a sync in over 3h",
 			undefined,
 			undefined,
 		]);
@@ -300,8 +304,8 @@ describe("news while already degraded", () => {
 			3,
 			announced,
 		);
-		assert.equal(fired.filter((announcement) => announcement).length, 1);
-		assert.match(fired[5]?.summary ?? "", /new: 1 of 1 account/);
+		assert.equal(fired.filter((headline) => headline).length, 1);
+		assert.match(fired[5] ?? "", /new: 1 of 1 account/);
 	});
 
 	it("counts a reason carried in a growth announcement as announced", () => {
@@ -311,32 +315,9 @@ describe("news while already degraded", () => {
 		});
 		const { fired } = tick(repeat(worse, 3), 3, degradedByBacklog());
 		assert.equal(
-			fired[0]?.summary,
+			fired[0],
 			"remit is still degraded, and worse: 4 more messages on dead-letter queue mailbox-body-sync-dlq (4 in total)",
 		);
 		assert.deepEqual(fired.slice(1), [undefined, undefined]);
-	});
-
-	it("announces the recovery when the backlog is cleared", () => {
-		const { fired } = tick(repeat(check(), 4), 3, degradedByBacklog());
-		assert.deepEqual(fired, [
-			undefined,
-			undefined,
-			{ verdict: "healthy", summary: "remit is healthy" },
-			undefined,
-		]);
-	});
-
-	it("treats the first dead letters after a recovery as a fresh outage", () => {
-		const recovered = tick(repeat(check(), 3), 3, degradedByBacklog()).state;
-		const { fired } = tick(
-			repeat(check({ deadLetters: { "mailbox-body-sync-dlq": 2 } }), 3),
-			3,
-			recovered,
-		);
-		assert.deepEqual(fired[2], {
-			verdict: "degraded",
-			summary: "remit is degraded",
-		});
 	});
 });

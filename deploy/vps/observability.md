@@ -129,9 +129,9 @@ headline names what changed, for example `remit is still degraded, and worse: 12
 more messages on dead-letter queue mailbox-body-sync-dlq (12 in total)`. A
 degraded stack that stays degraded the same way sends nothing.
 
-With no `DOCTOR_WEBHOOK_URL` nothing is sent anywhere. `remit status` and
-`remit doctor` both say so, and the checker logs an `error` line at startup and
-on every change it could not announce.
+With no `DOCTOR_WEBHOOK_URL` nothing is sent anywhere. `remit doctor` says so,
+and the checker logs an `error` line at startup and on every change it could not
+announce.
 
 The cost is three check intervals of latency: at the default 60 second interval
 an outage is reported up to three minutes after it starts, and a recovery up to

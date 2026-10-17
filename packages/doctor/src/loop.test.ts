@@ -242,27 +242,28 @@ describe("runOnce", () => {
 
 describe("an announcement while already degraded", () => {
 	it("posts the check under the headline naming what got worse", async () => {
-		const backlog = (depth: number): CheckResult => ({
-			...result("degraded"),
-			deadLetters: { "mailbox-sync-dlq": 556, "mailbox-body-sync-dlq": depth },
-		});
-		const checks = [backlog(0), backlog(0), backlog(0), backlog(7), backlog(7)];
 		const summaries: string[] = [];
-		let turn = 0;
 		const rec = recorder([], {
-			runCheck: async () => checks[turn],
+			runCheck: async () => ({
+				...result("degraded"),
+				deadLetters: { dlq: 8 },
+			}),
 			postWebhook: async (check) => {
 				summaries.push(check.summary);
 				return { kind: "sent" as const };
 			},
 		});
-		let state = initialState;
-		for (; turn < checks.length; turn += 1) {
-			state = await runOnce(rec.deps, configured, state);
-		}
+		const announced: DoctorState = {
+			...initialState,
+			firedVerdict: "degraded",
+			candidateVerdict: "degraded",
+			candidateRuns: 3,
+			firedReasons: ["dead_letter_queue_not_empty"],
+			firedDeadLetters: { dlq: 1 },
+		};
+		await runOnce(rec.deps, configured, announced);
 		assert.deepEqual(summaries, [
-			"remit is degraded",
-			"remit is still degraded, and worse: 7 more messages on dead-letter queue mailbox-body-sync-dlq (7 in total)",
+			"remit is still degraded, and worse: 7 more messages on dead-letter queue dlq (8 in total)",
 		]);
 	});
 
@@ -274,13 +275,16 @@ describe("an announcement while already degraded", () => {
 		const checks = [backlog(1), backlog(1), backlog(1), backlog(5), backlog(5)];
 		let turn = 0;
 		let attempts = 0;
+		const sent: string[] = [];
 		const rec = recorder([], {
 			runCheck: async () => checks[turn],
-			postWebhook: async () => {
+			postWebhook: async (check) => {
 				attempts += 1;
-				return attempts === 2
-					? { kind: "unreachable" as const, detail: "HTTP 503" }
-					: { kind: "sent" as const };
+				if (attempts === 2) {
+					return { kind: "unreachable" as const, detail: "HTTP 503" };
+				}
+				sent.push(check.summary);
+				return { kind: "sent" as const };
 			},
 		});
 		let state = initialState;
@@ -288,6 +292,10 @@ describe("an announcement while already degraded", () => {
 			state = await runOnce(rec.deps, configured, state);
 		}
 		assert.equal(attempts, 3);
+		assert.deepEqual(sent, [
+			"remit is degraded",
+			"remit is still degraded, and worse: 4 more messages on dead-letter queue dlq (5 in total)",
+		]);
 		assert.deepEqual(state.firedDeadLetters, { dlq: 5 });
 	});
 });
