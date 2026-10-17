@@ -788,6 +788,7 @@ export class BodySyncService {
 		// The DECISION is computed here; the applies below are unswallowed.
 		const filterDecision = await this.evaluateFilters(
 			accountConfigId,
+			accountId,
 			messageId,
 			parsed,
 		);
@@ -843,7 +844,7 @@ export class BodySyncService {
 			const sourceMailboxId = uidMailboxIdOf(
 				await this.messageService.get(messageId),
 			);
-			await this.filterConfig?.placementMoveService.moveMessage(
+			const filed = await this.filterConfig?.placementMoveService.moveMessage(
 				accountConfigId,
 				messageId,
 				destinationMailboxId,
@@ -854,7 +855,7 @@ export class BodySyncService {
 			// there matches but was not moved by Remit. `moveMessage` no-ops in that
 			// case; record neither the marker nor `movedByRemit`, so the badge never
 			// claims a move that did not happen and its Undo is never a no-op.
-			if (sourceMailboxId !== destinationMailboxId) {
+			if (sourceMailboxId !== destinationMailboxId && filed !== "refused") {
 				filterMoved = true;
 				filterMove = {
 					filterId: filterDecision.move.filterId,
@@ -1471,12 +1472,14 @@ export class BodySyncService {
 	 */
 	private async evaluateFilters(
 		accountConfigId: string,
+		accountId: string,
 		messageId: string,
 		parsed: ParsedMail,
 	): Promise<FilterDecision> {
 		if (!this.filterPipeline) return { labels: [] };
 		return this.filterPipeline.evaluate(
 			accountConfigId,
+			accountId,
 			messageId,
 			toFilterMessage(parsed),
 		);

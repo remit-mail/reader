@@ -53,6 +53,10 @@ export interface RunSchedulerTickDeps {
 		now: number,
 		intervalMs: number,
 	) => Promise<CalendarSubscriptionTally>;
+	redriveStrandedPlacements: (
+		account: AccountItem,
+		now: number,
+	) => Promise<number>;
 }
 
 export interface SchedulerTickResult {
@@ -63,6 +67,8 @@ export interface SchedulerTickResult {
 	sweepFailed: number;
 	subscriptionsRefreshed: number;
 	subscriptionsFailed: number;
+	redriven: number;
+	redriveFailed: number;
 }
 
 /**
@@ -135,6 +141,8 @@ export const runSchedulerTick = async (
 	let skipped = 0;
 	let swept = 0;
 	let sweepFailed = 0;
+	let redriven = 0;
+	let redriveFailed = 0;
 
 	do {
 		const page = await accountService.listAllAccountsPage({
@@ -202,6 +210,32 @@ export const runSchedulerTick = async (
 			sweepFailed += outcomes.filter((ok) => !ok).length;
 		}
 
+		// Contained like the sweep, and for the same reason: a failed re-drive
+		// costs one account this tick, never the scheduler. Eligible accounts
+		// only, since a re-driven event needs a connection to settle anything.
+		const redrives = await pMap(
+			page.items.filter(isEligible),
+			(account) =>
+				deps.redriveStrandedPlacements(account, now).then(
+					(count) => count,
+					(error: unknown) => {
+						log.error(
+							{ accountId: account.accountId, error },
+							"Stranded placement re-drive failed for account",
+						);
+						return null;
+					},
+				),
+			{ concurrency: SCHEDULER_ENQUEUE_CONCURRENCY },
+		);
+		for (const count of redrives) {
+			if (count === null) {
+				redriveFailed += 1;
+				continue;
+			}
+			redriven += count;
+		}
+
 		cursor = page.cursor ?? undefined;
 	} while (cursor);
 
@@ -231,6 +265,8 @@ export const runSchedulerTick = async (
 			sweepFailed,
 			subscriptionsRefreshed,
 			subscriptionsFailed,
+			redriven,
+			redriveFailed,
 		},
 		"Scheduled-sync tick complete",
 	);
@@ -243,5 +279,7 @@ export const runSchedulerTick = async (
 		sweepFailed,
 		subscriptionsRefreshed,
 		subscriptionsFailed,
+		redriven,
+		redriveFailed,
 	};
 };

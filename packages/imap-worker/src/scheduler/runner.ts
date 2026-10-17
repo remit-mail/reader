@@ -6,11 +6,13 @@ import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
 import { env } from "expect-env";
+import { emitEvent } from "../emit.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
+import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
 
 /**
  * The scheduled-sync runner for every deployment that has no EventBridge: the
@@ -85,6 +87,12 @@ const runLoop = async (): Promise<void> => {
 				client,
 				log,
 			),
+			redriveStrandedPlacements: (stranded, now) =>
+				redriveStrandedPlacements(
+					{ client, emit: emitEvent, log },
+					stranded,
+					now,
+				),
 		},
 		heartbeat: createHeartbeat("tick"),
 		onHeartbeatError: onBeatError,

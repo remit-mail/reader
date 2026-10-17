@@ -16,6 +16,7 @@ export interface FilterConfigDeps {
 	filterService: IFilterRepository;
 	filterAnchorService: IFilterAnchorRepository;
 	messageLabelService: IMessageLabelRepository;
+	mailboxService: FilterConfig["mailboxService"];
 	placementMoveService?: PlacementMoveService;
 }
 
@@ -63,6 +64,7 @@ export const buildFilterConfig = (
 		filterService: deps.filterService,
 		filterAnchorService: deps.filterAnchorService,
 		messageLabelService: deps.messageLabelService,
+		mailboxService: deps.mailboxService,
 		placementMoveService,
 		...(resolved ? { embedder: resolved } : {}),
 	};

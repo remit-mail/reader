@@ -361,6 +361,7 @@ export const buildReadPathFilterConfig = (
 		filterService: repositories.filter,
 		filterAnchorService: repositories.filterAnchor,
 		messageLabelService: repositories.messageLabel,
+		mailboxService: repositories.mailbox,
 		placementMoveService: placementMoveQueueUrl
 			? new PlacementMoveService({
 					messageService: repositories.message,
@@ -368,6 +369,7 @@ export const buildReadPathFilterConfig = (
 					markerService: repositories.placementMove,
 					addressService: repositories.address,
 					mailboxSpecialUseService: repositories.mailboxSpecialUse,
+					mailboxService: repositories.mailbox,
 					sqsQueueUrl: placementMoveQueueUrl,
 				})
 			: undefined,

@@ -173,6 +173,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		markerService: store.placementMove,
 		addressService: store.address,
 		mailboxSpecialUseService: store.mailboxSpecialUse,
+		mailboxService: store.mailbox,
 		sqsQueueUrl: "https://sqs.test/message-mgmt",
 	});
 	const flagQueueService = new FlagQueueService({
@@ -202,6 +203,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 					filterService: store.filter,
 					filterAnchorService: store.filterAnchor,
 					messageLabelService: store.messageLabel,
+					mailboxService: store.mailbox,
 					placementMoveService,
 				}
 			: undefined,

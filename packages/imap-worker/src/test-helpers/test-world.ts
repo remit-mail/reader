@@ -28,7 +28,10 @@ import {
 	eml,
 	FakeImapServer,
 } from "@remit/mailbox-service/test-helpers/fake-imap";
-import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
+import {
+	captureQueue,
+	type QueueCapture,
+} from "@remit/mailbox-service/test-helpers/test-queue";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import Database from "better-sqlite3";
 import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
@@ -124,6 +127,8 @@ export interface World {
 	logs: LogLine[];
 	log: Logger;
 	folder: (path: string, options?: FolderOptions) => Promise<MailboxItem>;
+	/** A folder of a second account on this world's account config. */
+	siblingFolder: (path: string) => Promise<MailboxItem>;
 	message: (
 		mailbox: MailboxItem,
 		options?: { messageIdHeader?: string },
@@ -134,6 +139,7 @@ export interface World {
 	) => Promise<Array<{ mailboxId: string; uid?: number; isDeleted: boolean }>>;
 	queued: () => Array<Record<string, unknown>>;
 	refuseSends: (error: Error | undefined) => void;
+	queue: QueueCapture;
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
@@ -205,6 +211,43 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 			return client.mailbox.get(account.accountId, mailbox.mailboxId);
 		}
 		return mailbox;
+	};
+
+	const siblingFolder = async (path: string): Promise<MailboxItem> => {
+		const sibling = await client.account.create({
+			accountConfigId,
+			username: "person-too@example.com",
+			email: "person-too@example.com",
+			authType: AccountAuthType.Password,
+			passwordHash: JSON.stringify(serializeEncryptedPayload(password)),
+			imapHost: "imap.example.com",
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			isActive: true,
+			connectionState: ConnectionState.Authenticated,
+		});
+		const created = await client.mailbox.create({
+			accountId: sibling.accountId,
+			namespacePrefix: "",
+			hierarchyDelimiter: "/",
+			fullPath: path,
+			uidValidity: 1,
+			uidNext: 1,
+			highestModseq: "0",
+			messageCount: 0,
+			unseenCount: 0,
+			deletedCount: 0,
+			totalSize: 0,
+			lastSyncUid: 0,
+			highWaterMarkUid: 0,
+			lastMessageSyncAt: 0,
+			syncStatus: "synced",
+		});
+		if (created.outcome !== "Created") {
+			throw new Error(`${path} could not be created: ${created.outcome}`);
+		}
+		return created.mailbox;
 	};
 
 	const message = async (
@@ -343,11 +386,13 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		logs,
 		log: capturingLogger(logs),
 		folder,
+		siblingFolder,
 		message,
 		row,
 		threadRows,
 		queued,
 		refuseSends,
+		queue,
 		draft,
 		scope,
 		connectionFactory,

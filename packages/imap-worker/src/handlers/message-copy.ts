@@ -138,6 +138,11 @@ export const handleMessageCopy = async (
 		return;
 	}
 
+	// `failed` is an earlier attempt's mark, and the re-drive's: either may
+	// have issued a COPY whose answer was lost.
+	const earlierAttempt =
+		receiveCount > 1 || copyRow.syncStatus === MessageSyncStatus.failed;
+
 	await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
 		account,
@@ -194,13 +199,6 @@ export const handleMessageCopy = async (
 			// handle: a `guardConnectionCursor` wrap is bound to the SOURCE mailbox
 			// snapshot alone, and opening the destination through it trips that
 			// mailbox into a rebuild.
-			//
-			// This is the call site with no source-side gate to fall back on
-			// (#1122): a COPY leaves the source untouched, so nothing here can rule
-			// an older destination copy out the way `confirmTrashMoveUid` does. The
-			// fresh copy is the highest matching uid, and `deriveCopyMessageId`
-			// makes a repeated copy of the same message a second server COPY, so
-			// this probe must never bind to the earlier one.
 			const probeDestination = async (
 				connection: IImapConnection,
 			): Promise<CopyProbe> => {
@@ -362,7 +360,7 @@ export const handleMessageCopy = async (
 			const settlePausedCopy = async (
 				commandIssued: boolean,
 			): Promise<void> => {
-				const mayHaveIssued = commandIssued || receiveCount > 1;
+				const mayHaveIssued = commandIssued || earlierAttempt;
 
 				if (!mayHaveIssued) {
 					await settleNeverLanded(
@@ -427,7 +425,7 @@ export const handleMessageCopy = async (
 					// duplicates the mail. `absent` is an answer the server gave, so
 					// copying again is safe; `unprobeable` is silence, and copying on
 					// silence is the duplicate this guard exists to prevent.
-					if (receiveCount > 1) {
+					if (earlierAttempt) {
 						const earlier = await probeDestination(rawConnection);
 						if (earlier.kind === "confirmed") {
 							await settleCopied(earlier.uid);

@@ -157,6 +157,7 @@ export const syncMessageBody = async (
 				markerService,
 				addressService,
 				mailboxSpecialUseService,
+				mailboxService,
 				sqsQueueUrl: placementMoveQueueUrl,
 			})
 		: undefined;
@@ -227,6 +228,7 @@ export const syncMessageBody = async (
 				filterService,
 				filterAnchorService,
 				messageLabelService,
+				mailboxService,
 				placementMoveService,
 			});
 

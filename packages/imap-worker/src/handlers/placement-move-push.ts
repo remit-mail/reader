@@ -1,5 +1,5 @@
 import { getClient } from "@remit/backend/client";
-import { isNotFoundError } from "@remit/data-ports/errors";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -10,16 +10,19 @@ import {
 	MailboxCursorPausedError,
 	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
+	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { emitEvent } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
+import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
+	emitMailboxResync,
 	emitMoveResync,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
@@ -207,32 +210,62 @@ export const handlePlacementMovePush = async (
 	// died mid-flight already left it here).
 	await markerService.updateState(messageId, "processing");
 
-	// Either folder can be deleted between enqueue and this push, leaving a
-	// marker pointing at a gone row. The lookup then throws NotFoundError forever,
-	// and on the account's per-group FIFO that head message stalls the whole
-	// pipeline (issues #287, #289, #290). The move is moot — drop the marker (as
-	// the superseded branch above does) and ack with a WARN.
-	const mailboxes = await Promise.all([
-		mailboxService.get(accountId, marker.sourceMailboxId),
-		mailboxService.get(accountId, marker.destinationMailboxId),
-	]).catch((error: unknown) => {
-		if (isNotFoundError(error)) return null;
-		throw error;
-	});
-	if (!mailboxes) {
-		await markerService.delete(messageId);
-		log.warn(
-			{
+	// No MOVE has left for this marker, so the row is settled, not just unmarked.
+	const [source, destination] = await Promise.all([
+		findMailboxRow(mailboxService, accountId, marker.sourceMailboxId),
+		findMailboxRow(mailboxService, accountId, marker.destinationMailboxId),
+	]);
+	if (source.kind === "gone" || destination.kind === "gone") {
+		const context = {
+			alert: "placement_move_mailbox_unreachable",
+			messageId,
+			accountId,
+			sourceMailboxId: marker.sourceMailboxId,
+			destinationMailboxId: marker.destinationMailboxId,
+		};
+		if (source.kind === "gone") {
+			const { threadMessagesDeleted } = await reconcileStaleMessage(
+				{ messageService, threadMessageService },
+				accountConfigId,
 				messageId,
-				accountId,
+			);
+			await markerService.delete(messageId);
+			log.error(
+				{ ...context, threadMessagesDeleted },
+				"Placement move not pushed: its source folder is gone; the stale row was reconciled",
+			);
+			if (destination.kind === "present") {
+				await emitMailboxResync(emitEvent, {
+					accountId,
+					mailboxId: marker.destinationMailboxId,
+				});
+			}
+			return;
+		}
+		await restoreSourcePlacement(
+			{ messageService, threadMessageService },
+			{
+				accountConfigId,
+				messageId,
 				sourceMailboxId: marker.sourceMailboxId,
-				destinationMailboxId: marker.destinationMailboxId,
+				uid: message.uid,
+				syncStatus: MessageSyncStatus.synced,
+				abandonedMutation: MessageMutation.none,
 			},
-			"Skipping PLACEMENT_MOVE_PUSH: a mailbox no longer exists (deleted); marker dropped",
 		);
+		await markerService.delete(messageId);
+		log.error(
+			context,
+			"Placement move not pushed: its destination folder is gone; the row was handed back to its source",
+		);
+		await emitMailboxResync(emitEvent, {
+			accountId,
+			mailboxId: marker.sourceMailboxId,
+		});
 		return;
 	}
-	const [sourceMailbox, destinationMailbox] = mailboxes;
+	const sourceMailbox = source.mailbox;
+	const destinationMailbox = destination.mailbox;
 
 	// Cheap frugal skip (epic #1281 invariant 6): either mailbox already known
 	// paused never even borrows a connection. Optimization only — the

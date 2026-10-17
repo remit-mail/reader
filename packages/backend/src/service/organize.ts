@@ -6,7 +6,11 @@ import type {
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { FilterClauseField, FilterState } from "@remit/domain-enums";
+import {
+	FilterClauseField,
+	FilterDisabledReason,
+	FilterState,
+} from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
 import {
 	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
@@ -201,7 +205,8 @@ export interface OrganizeRejection {
 	reason:
 		| "BodyContentWithoutVectorPipeline"
 		| "FilterNotActive"
-		| "FilterMissing";
+		| "FilterMissing"
+		| "FolderMissing";
 	message: string;
 }
 
@@ -704,6 +709,7 @@ export const buildOrganizeMoveService = (
 		markerService: client.placementMove,
 		addressService: client.address,
 		mailboxSpecialUseService: client.mailboxSpecialUse,
+		mailboxService: client.mailbox,
 		sqsQueueUrl: queueUrl,
 	});
 };
@@ -716,6 +722,8 @@ export interface ApplyOrganizeDeps {
 export interface ApplyOrganizeResult {
 	applied: number;
 	failed: number;
+	/** Why each failed message failed, as the job reports it. */
+	failures: string[];
 }
 
 /**
@@ -746,14 +754,11 @@ export const applyOrganize = async (
 	const applyMove =
 		predicate.actionMailboxId !== NO_ACTION && predicate.actionMailboxId !== "";
 
-	const applyToMessage = async (messageId: string): Promise<void> => {
-		if (applyLabel) {
-			await client.messageLabel.apply({
-				messageId,
-				labelId: predicate.actionLabelId,
-				accountConfigId,
-			});
-		}
+	// A folder of another account is not this action's to fill: that mail is
+	// skipped, label and all, as if it had not matched.
+	type MessageOutcome = { kind: "applied" } | { kind: "skipped" };
+
+	const applyToMessage = async (messageId: string): Promise<MessageOutcome> => {
 		if (applyMove) {
 			if (!moveService) {
 				// An exclusive move was requested but this caller wired no move
@@ -772,35 +777,56 @@ export const applyOrganize = async (
 					`Cannot resolve owning account for mailbox ${message.mailboxId}`,
 				);
 			}
-			await moveService.moveMessage(
+			const outcome = await moveService.moveMessage(
 				accountConfigId,
 				messageId,
 				predicate.actionMailboxId,
 				accountId,
 			);
+			if (outcome === "refused") return { kind: "skipped" };
 		}
+		if (applyLabel) {
+			await client.messageLabel.apply({
+				messageId,
+				labelId: predicate.actionLabelId,
+				accountConfigId,
+			});
+		}
+		return { kind: "applied" };
 	};
 
-	let applied = 0;
-	let failed = 0;
+	const result: ApplyOrganizeResult = {
+		applied: 0,
+		failed: 0,
+		failures: [],
+	};
 	for (const messageId of messageIds) {
-		// Per-message isolation: one poisoned message is counted and skipped, the
-		// pass continues. `.catch()` (not a block try/catch) keeps this inside the
-		// no-silent-catch ban.
-		const ok = await applyToMessage(messageId)
-			.then(() => true)
-			.catch(() => false);
-		if (ok) {
-			applied += 1;
-		} else {
-			failed += 1;
+		// Per-message isolation: one poisoned message is counted, its reason kept
+		// for the job, and the pass continues.
+		const outcome = await applyToMessage(messageId).catch((error: unknown) => ({
+			kind: "failed" as const,
+			reason: error instanceof Error ? error.message : String(error),
+		}));
+		if (outcome.kind === "skipped") continue;
+		if (outcome.kind === "applied") {
+			result.applied += 1;
+			continue;
 		}
+		result.failed += 1;
+		result.failures.push(outcome.reason);
+		logger.warn(
+			{ accountConfigId, messageId, reason: outcome.reason },
+			"Organize could not apply its action to a message",
+		);
 	}
-	return { applied, failed };
+	return result;
 };
 
 const FILTER_NOT_ACTIVE_MESSAGE =
 	"This filter is turned off or has expired. Turn it on to run it over the inbox.";
+
+const FOLDER_MISSING_MESSAGE =
+	"The folder this filter moves mail into no longer exists, so the filter was turned off. Pick another folder in the rule, then turn it on.";
 
 const FILTER_MISSING_MESSAGE =
 	"This filter was deleted before it could run over the inbox.";
@@ -924,6 +950,7 @@ export interface FilterBackApplyResult {
 	matched: number;
 	applied: number;
 	failed: number;
+	failures: string[];
 	semanticUnavailable: boolean;
 }
 
@@ -958,6 +985,7 @@ export const backApplyFilter = async (
 			filterService: client.filter,
 			filterAnchorService: client.filterAnchor,
 			messageLabelService: client.messageLabel,
+			mailboxService: client.mailbox,
 			placementMoveService: moveService,
 		},
 		deps.embedder,
@@ -975,6 +1003,7 @@ export const backApplyFilter = async (
 		matched: 0,
 		applied: 0,
 		failed: 0,
+		failures: [],
 		semanticUnavailable: false,
 	};
 	if (loaded.matchesNothing || mailboxIds.length === 0) return nothing;
@@ -989,6 +1018,17 @@ export const backApplyFilter = async (
 	if (match.rejected) return match;
 
 	const { filter, predicate } = loaded;
+	const folderAccountId =
+		filter.actionMailboxId === NO_ACTION
+			? undefined
+			: await client.mailbox.resolveAccountId(filter.actionMailboxId);
+	if (folderAccountId === null) {
+		await client.filter.update(accountConfigId, filterId, {
+			state: FilterState.Disabled,
+			disabledReason: FilterDisabledReason.FolderMissing,
+		});
+		return rejectFilter("FolderMissing", FOLDER_MISSING_MESSAGE);
+	}
 	const result: FilterBackApplyResult = {
 		...nothing,
 		matched: match.messageIds.length,
@@ -997,8 +1037,16 @@ export const backApplyFilter = async (
 	for (const messageId of match.messageIds) {
 		const message = await filterMessageOf(client, accountConfigId, messageId);
 		if (!message) continue;
+		const accountId = await client.mailbox.resolveAccountId(
+			(await client.message.get(messageId)).mailboxId,
+		);
+		if (!accountId) continue;
+		if (folderAccountId !== undefined && folderAccountId !== accountId) {
+			continue;
+		}
 		const decision = await pipeline.evaluate(
 			accountConfigId,
+			accountId,
 			messageId,
 			message,
 		);
@@ -1015,6 +1063,7 @@ export const backApplyFilter = async (
 		);
 		result.applied += outcome.applied;
 		result.failed += outcome.failed;
+		result.failures.push(...outcome.failures);
 	}
 	return result;
 };

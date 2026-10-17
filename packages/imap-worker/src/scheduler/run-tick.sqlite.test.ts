@@ -69,6 +69,7 @@ const tick = async (
 		tickIntervalMs: TICK_INTERVAL_MS,
 		offlineIntervalMs: OFFLINE_INTERVAL_MS,
 		now: NOW,
+		redriveStrandedPlacements: async () => 0,
 		...options,
 	});
 	const enqueued = sent.map(
@@ -167,6 +168,25 @@ describe("a scheduler tick", () => {
 		});
 
 		assert.deepEqual(enqueued, [live.accountId]);
+		assert.ok(logs.some((line) => line.level === "error"));
+	});
+
+	it("counts what each account re-drove and keeps enqueuing past one that fails", async () => {
+		const live = await account("live");
+		const busy = await account("busy");
+
+		const { enqueued, result, logs } = await tick({
+			redriveStrandedPlacements: async (redriven) => {
+				if (redriven.accountId === busy.accountId) {
+					throw new Error("SQLITE_BUSY");
+				}
+				return 2;
+			},
+		});
+
+		assert.deepEqual(enqueued.sort(), [live.accountId, busy.accountId].sort());
+		assert.equal(result.redriven, 2);
+		assert.equal(result.redriveFailed, 1);
 		assert.ok(logs.some((line) => line.level === "error"));
 	});
 });

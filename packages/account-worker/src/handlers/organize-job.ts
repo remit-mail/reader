@@ -28,6 +28,7 @@ interface OrganizeOutcome {
 	matched: number;
 	applied: number;
 	failed: number;
+	failures: string[];
 	semanticUnavailable: boolean;
 }
 
@@ -36,6 +37,7 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 	matched: 0,
 	applied: 0,
 	failed: 0,
+	failures: [],
 	semanticUnavailable: false,
 });
 
@@ -57,7 +59,7 @@ const runSnapshot = async (
 		ORGANIZE_MATCH_LIMIT,
 	);
 	if (match.rejected) return rejectedOutcome(match.rejected);
-	const { applied, failed } = await applyOrganize(
+	const { applied, failed, failures } = await applyOrganize(
 		{ client, moveService },
 		job.accountConfigId,
 		match.messageIds,
@@ -68,6 +70,7 @@ const runSnapshot = async (
 		matched: match.messageIds.length,
 		applied,
 		failed,
+		failures,
 		semanticUnavailable: match.semanticUnavailable,
 	};
 };
@@ -137,12 +140,13 @@ export const processOrganizeJob = async (
 			return;
 		}
 
-		const { matched, applied, failed, semanticUnavailable } = outcome;
+		const { matched, applied, failed, failures, semanticUnavailable } = outcome;
 		await client.organizeJobRequest.update(organizeJobId, {
 			state: "Complete",
 			matchedCount: matched,
 			appliedCount: applied,
 			failedCount: failed,
+			errorMessage: failures[0] ?? "",
 		});
 		log.info(
 			{

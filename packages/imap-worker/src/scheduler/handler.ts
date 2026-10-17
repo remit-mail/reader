@@ -3,10 +3,12 @@ import { createLogger, withTelemetry } from "@remit/logger-lambda";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
 import { env } from "expect-env";
+import { emitEvent } from "../emit.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
+import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
 
 const log = createLogger();
 
@@ -47,5 +49,11 @@ export const handler: ScheduledHandler = withTelemetry(async (event) => {
 		// already gone and this sweep is the only thing that collects it.
 		sweepAttachments: buildAttachmentSweep(client, log),
 		refreshCalendarSubscriptions: buildCalendarSubscriptionRefresh(client, log),
+		redriveStrandedPlacements: (account, tickNow) =>
+			redriveStrandedPlacements(
+				{ client, emit: emitEvent, log },
+				account,
+				tickNow,
+			),
 	});
 });
