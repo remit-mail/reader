@@ -46,6 +46,7 @@ export interface MailHandlerOptions {
 	pageSize?: number;
 	holdLaterPages?: boolean;
 	draftSave?: "saves" | "refused";
+	draftDiscard?: "discards" | "refused";
 	send?: "sends" | "holds";
 	search?: "answers" | "holds";
 	config?: "answers" | "holds";
@@ -212,6 +213,12 @@ export const mailHandlers = (
 	const refuseSave = () =>
 		HttpResponse.json(
 			{ status: 409, message: "The mail server did not accept the draft." },
+			{ status: 409 },
+		);
+
+	const refuseDiscard = () =>
+		HttpResponse.json(
+			{ status: 409, message: "The draft is already gone." },
 			{ status: 409 },
 		);
 
@@ -485,6 +492,7 @@ export const mailHandlers = (
 			return HttpResponse.json<RemitImapOutboxMessageResponse>(queued);
 		}),
 		http.delete(`${API}/outbox/:outboxMessageId`, ({ params }) => {
+			if (options.draftDiscard === "refused") return refuseDiscard();
 			outbox.delete(String(params.outboxMessageId));
 			return new HttpResponse(null, { status: 204 });
 		}),

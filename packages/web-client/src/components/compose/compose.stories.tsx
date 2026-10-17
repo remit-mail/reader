@@ -310,6 +310,24 @@ export const SaveFailed: Story = {
 	},
 };
 
+export const DiscardFailed: Story = {
+	args: { url: `/mail/${INBOX}/compose/out-plain` },
+	parameters: {
+		msw: { handlers: mailHandlers(world, { draftDiscard: "refused" }) },
+	},
+	play: async () => {
+		await userEvent.click(
+			await page().findByRole("button", { name: "Discard" }),
+		);
+		await expect(
+			await page().findByText("Couldn't discard draft"),
+		).toBeVisible();
+		await expect(
+			await page().findByText("The draft is already gone."),
+		).toBeVisible();
+	},
+};
+
 export const Sending: Story = {
 	args: { url: `/mail/${INBOX}/compose/out-misspelt` },
 	parameters: {
