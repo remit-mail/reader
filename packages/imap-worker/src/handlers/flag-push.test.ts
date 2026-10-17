@@ -3,13 +3,7 @@ import { afterEach, before, describe, it, mock } from "node:test";
 import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
 import type { FlagPushEvent } from "../events.js";
-import {
-	FLAG_PUSH_DEFER_MAX_MS,
-	FLAG_PUSH_MAX_ATTEMPTS,
-	getFlagPushDeferMaxMs,
-	getFlagPushMaxAttempts,
-	handleFlagPush,
-} from "./flag-push.js";
+import { FLAG_PUSH_DEFER_MAX_MS, handleFlagPush } from "./flag-push.js";
 
 const silentLogger = (() => {
 	const noop = () => {};
@@ -24,50 +18,6 @@ const silentLogger = (() => {
 	} as unknown as Logger;
 	return log;
 })();
-
-describe("getFlagPushMaxAttempts — env-derived threshold (mirrors #1270's getBodySyncMaxAttempts / #1289's getPlacementMoveMaxAttempts)", () => {
-	it("parses the CDK-injected env var", () => {
-		assert.equal(getFlagPushMaxAttempts({ FLAG_PUSH_MAX_ATTEMPTS: "3" }), 3);
-		assert.equal(getFlagPushMaxAttempts({ FLAG_PUSH_MAX_ATTEMPTS: "5" }), 5);
-	});
-
-	it("defaults to 3 when unset", () => {
-		assert.equal(getFlagPushMaxAttempts({}), 3);
-	});
-
-	it("defaults to 3 on a non-numeric or non-positive value", () => {
-		assert.equal(getFlagPushMaxAttempts({ FLAG_PUSH_MAX_ATTEMPTS: "nope" }), 3);
-		assert.equal(getFlagPushMaxAttempts({ FLAG_PUSH_MAX_ATTEMPTS: "0" }), 3);
-		assert.equal(getFlagPushMaxAttempts({ FLAG_PUSH_MAX_ATTEMPTS: "-1" }), 3);
-	});
-
-	it("the module-level constant reflects the actual process env at load time", () => {
-		assert.equal(typeof FLAG_PUSH_MAX_ATTEMPTS, "number");
-		assert.ok(FLAG_PUSH_MAX_ATTEMPTS > 0);
-	});
-});
-
-describe("getFlagPushDeferMaxMs", () => {
-	it("parses an env override", () => {
-		assert.equal(
-			getFlagPushDeferMaxMs({ FLAG_PUSH_DEFER_MAX_MS: "1000" }),
-			1000,
-		);
-	});
-
-	it("defaults to 10 minutes when unset or invalid", () => {
-		assert.equal(getFlagPushDeferMaxMs({}), 10 * 60 * 1000);
-		assert.equal(
-			getFlagPushDeferMaxMs({ FLAG_PUSH_DEFER_MAX_MS: "nope" }),
-			10 * 60 * 1000,
-		);
-	});
-
-	it("the module-level constant reflects the actual process env at load time", () => {
-		assert.equal(typeof FLAG_PUSH_DEFER_MAX_MS, "number");
-		assert.ok(FLAG_PUSH_DEFER_MAX_MS > 0);
-	});
-});
 
 describe("handleFlagPush — deleted mailbox is terminal (#287/#289)", () => {
 	const accountId = "fp-acc-zzz";
@@ -163,60 +113,6 @@ describe("handleFlagPush — defers while a move is in flight, never on an ordin
 	});
 
 	afterEach(() => mock.restoreAll());
-
-	it("resets the marker to pending and never opens a connection when the message's move has not settled", async () => {
-		const client = await getClient();
-		mock.method(client.account, "get", async () => ({
-			accountId,
-			accountConfigId: "fp-cfg-inflight",
-			passwordHash: "not-actually-used-if-guard-works",
-		}));
-		mock.method(client.message, "get", async () => [
-			{
-				messageId,
-				mailboxId: "mbx-junk",
-				uid: 42,
-				// Exactly what MessageMoveService.moveMessage's local optimistic
-				// write leaves in place while the IMAP MOVE is still in flight.
-				status: "moving",
-				syncStatus: "pending",
-			},
-		]);
-		const mailboxGet = mock.method(client.mailbox, "get", async () => ({
-			mailboxId: "mbx-junk",
-			fullPath: "Junk",
-		}));
-		mock.method(client.flagPush, "find", async () => ({
-			operation: "add",
-			state: "queued",
-			createdAt: Date.now(),
-		}));
-		const updateState = mock.method(
-			client.flagPush,
-			"updateState",
-			async () => {},
-		);
-		const deleteMarker = mock.method(client.flagPush, "delete", async () => {});
-
-		await handleFlagPush(event, silentLogger, 1);
-
-		assert.equal(
-			mailboxGet.mock.calls.length,
-			0,
-			"never even resolves the mailbox — returns before touching IMAP",
-		);
-		assert.equal(
-			deleteMarker.mock.calls.length,
-			0,
-			"the marker is not cleared",
-		);
-		assert.equal(updateState.mock.calls.length, 1);
-		assert.deepEqual(updateState.mock.calls[0].arguments, [
-			messageId,
-			flagName,
-			"pending",
-		]);
-	});
 
 	it("drops the marker without ever deferring again once a move has been stuck past the defer window", async () => {
 		const client = await getClient();

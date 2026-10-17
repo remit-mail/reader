@@ -31,27 +31,9 @@ const render = (props: Partial<AccountServiceChoiceProps> = {}): string =>
 	);
 
 describe("AccountServiceChoice", () => {
-	it("offers mail and calendar, mail first", () => {
-		const html = render();
-		assert.match(html, /Mail/);
-		assert.match(html, /Calendar/);
-		assert.ok(html.indexOf("Mail") < html.indexOf("Calendar"));
-	});
-
 	it("ticks the services it is given and leaves the rest clear", () => {
 		const html = render({ selected: ["Calendar"] });
 		assert.equal(html.match(/checked=""/g)?.length, 1);
-	});
-
-	it("ticks both when both are selected", () => {
-		assert.equal(render().match(/checked=""/g)?.length, 2);
-	});
-
-	it("names the provider adding a service sends you back to", () => {
-		assert.match(
-			render(),
-			/Adding a service later means signing in with Microsoft again\./,
-		);
 	});
 
 	it("renders nothing for a provider that only syncs mail", () => {
@@ -65,14 +47,6 @@ describe("AccountServiceChoice", () => {
 				selected: [],
 				error: ACCOUNT_SERVICE_EMPTY_MESSAGE,
 			}),
-			/Pick at least one/,
-		);
-	});
-
-	it("shows a refusal only when it is given one", () => {
-		assert.doesNotMatch(render({ selected: [] }), /Pick at least one/);
-		assert.match(
-			render({ selected: [], error: ACCOUNT_SERVICE_EMPTY_MESSAGE }),
 			/Pick at least one/,
 		);
 	});

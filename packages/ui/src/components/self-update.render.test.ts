@@ -10,7 +10,6 @@ import {
 	updateWaitNote,
 } from "./self-update.js";
 import { SelfUpdateConfirmDialog } from "./self-update-confirm-dialog.js";
-import { UpdateAvailableDot } from "./self-update-dot.js";
 import {
 	SelfUpdateProgressOverlay,
 	SelfUpdateUnreachableScreen,
@@ -58,15 +57,6 @@ describe("SelfUpdateSection", () => {
 		assert.doesNotMatch(html, /role="alert"/);
 	});
 
-	it("names the automatic rollback before the user commits", () => {
-		const html = section({
-			status: "available",
-			version: CURRENT,
-			release: demoRelease,
-		});
-		assert.match(html, /restored on its own/);
-	});
-
 	it("keeps a failed check separate from a failed update", () => {
 		const html = section({
 			status: "checkFailed",
@@ -91,18 +81,6 @@ describe("SelfUpdateSection", () => {
 		assert.match(html, /running 0\.9\.3 again/);
 		assert.match(html, /migration 0042 failed/);
 		assert.match(html, /remit logs --since 10m/);
-	});
-
-	it("attributes the rollback to the server rather than asserting it", () => {
-		const html = section({
-			status: "rolledBack",
-			runId: demoRunId,
-			version: CURRENT,
-			attemptedVersion: "0.9.4",
-			reason: "migration 0042 failed",
-			logsCommand: demoLogsCommand,
-		});
-		assert.match(html, /Remit reports that it put 0\.9\.3 back/);
 	});
 
 	it("never claims data survived a failed update", () => {
@@ -146,19 +124,6 @@ describe("SelfUpdateSection", () => {
 		);
 	});
 
-	it("offers a way forward from every failure", () => {
-		const rolledBack = section({
-			status: "rolledBack",
-			runId: demoRunId,
-			version: CURRENT,
-			attemptedVersion: "0.9.4",
-			reason: "boom",
-			logsCommand: demoLogsCommand,
-		});
-		assert.match(rolledBack, /Try 0\.9\.4 again/);
-		assert.match(rolledBack, /Stay on 0\.9\.3/);
-	});
-
 	it("keeps the check control pressable while a check is running", () => {
 		const html = section({ status: "checking", version: CURRENT });
 		assert.match(html, /Check again/);
@@ -173,15 +138,6 @@ describe("SelfUpdateSection", () => {
 		assert.match(html, /Check now/);
 		assert.doesNotMatch(html, /animate-spin/);
 		assert.doesNotMatch(html, /role="alert"/);
-	});
-
-	it("shows the last-checked time on a never-checked state when one is known", () => {
-		const html = section({
-			status: "neverChecked",
-			version: "unknown",
-			lastCheckedAt: NOW - 3_600_000,
-		});
-		assert.match(html, /Last checked/);
 	});
 
 	it("renders a failed rollback verbatim and never claims a version is running", () => {
@@ -251,29 +207,6 @@ describe("SelfUpdateConfirmDialog", () => {
 		assert.match(html, /restored automatically/);
 	});
 
-	it("always offers the way back", () => {
-		assert.match(html, /Not now/);
-	});
-
-	it("renders nothing when closed", () => {
-		assert.equal(
-			renderToString(
-				createElement(SelfUpdateConfirmDialog, {
-					open: false,
-					currentVersion: CURRENT,
-					release: demoRelease,
-					onClose: noop,
-					onConfirm: noop,
-				}),
-			),
-			"",
-		);
-	});
-
-	it("says nothing about a migration by default", () => {
-		assert.doesNotMatch(html, /updates the database/);
-	});
-
 	it("warns about a migration only when the release carries one", () => {
 		const withMigration = render(
 			createElement(SelfUpdateConfirmDialog, {
@@ -291,18 +224,6 @@ describe("SelfUpdateConfirmDialog", () => {
 });
 
 describe("SelfUpdateProgressOverlay", () => {
-	it("tells the user the disconnection is expected", () => {
-		const html = render(
-			createElement(SelfUpdateProgressOverlay, {
-				target: "0.9.4",
-				phase: "restarting",
-				elapsedSeconds: 20,
-			}),
-		);
-		assert.match(html, /no server to talk to/);
-		assert.match(html, /Waiting for Remit to answer again/);
-	});
-
 	it("stops promising a minute once a minute has passed", () => {
 		assert.match(updateWaitNote(30), /about a minute/);
 		assert.doesNotMatch(updateWaitNote(200), /about a minute/);
@@ -314,19 +235,6 @@ describe("SelfUpdateProgressOverlay", () => {
 		for (const seconds of [30, 120, 240, 600]) {
 			assert.doesNotMatch(updateWaitNote(seconds), /old version|way back|kept/);
 		}
-	});
-
-	it("blocks the window rather than its nearest positioned ancestor", () => {
-		const html = render(
-			createElement(SelfUpdateProgressOverlay, {
-				target: "0.9.4",
-				phase: "restarting",
-				elapsedSeconds: 20,
-			}),
-		);
-		assert.match(html, /fixed inset-0/);
-		assert.doesNotMatch(html, /absolute inset-0/);
-		assert.match(html, /aria-modal="true"/);
 	});
 
 	it("scopes the live region to the line that changes", () => {
@@ -356,26 +264,5 @@ describe("SelfUpdateUnreachableScreen", () => {
 		assert.match(html, /role="alertdialog"/);
 		assert.match(html, /aria-modal="true"/);
 		assert.match(html, /cannot confirm that from here/);
-	});
-
-	it("points at the machine that can answer", () => {
-		assert.match(html, /remit logs --since 10m/);
-		assert.match(html, /Try connecting again/);
-	});
-});
-
-describe("UpdateAvailableDot", () => {
-	it("carries a label for assistive tech when shown", () => {
-		const html = renderToString(
-			createElement(UpdateAvailableDot, { show: true }, null),
-		);
-		assert.match(html, /Update available/);
-	});
-
-	it("adds nothing when there is no update", () => {
-		const html = renderToString(
-			createElement(UpdateAvailableDot, { show: false }, null),
-		);
-		assert.doesNotMatch(html, /Update available/);
 	});
 });

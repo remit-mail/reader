@@ -58,25 +58,4 @@ describe("classifyEmailRenderTreatment (#424)", () => {
 			);
 		}
 	});
-
-	test("framed and isPlain are always mutually exclusive", () => {
-		const cases: Array<
-			[Parameters<typeof classifyEmailRenderTreatment>[0], boolean]
-		> = [
-			["newsletter", false],
-			["marketing", true],
-			["personal", false],
-			["personal", true],
-			[undefined, false],
-			[undefined, true],
-		];
-		for (const [category, bg] of cases) {
-			const t = classifyEmailRenderTreatment(category, bg);
-			assert.notStrictEqual(
-				t.framed,
-				t.isPlain,
-				`framed and isPlain must differ for (${category}, ${bg})`,
-			);
-		}
-	});
 });

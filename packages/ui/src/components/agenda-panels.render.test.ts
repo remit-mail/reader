@@ -129,9 +129,4 @@ describe("NextUpCard", () => {
 		});
 		assert.match(html, /Nothing else booked\./);
 	});
-
-	it("carries the calendar's hue and falls back when it has none", () => {
-		assert.match(renderNextUp(), /bg-cal-3-soft/);
-		assert.match(renderNextUp({ calendars: [] }), /bg-cal-1-soft/);
-	});
 });

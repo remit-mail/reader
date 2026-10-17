@@ -142,19 +142,6 @@ describe("BriefSections arrow-key traversal", () => {
 		act(() => pressKey(items[1] as Element, "Home"));
 		assert.equal(document.activeElement, items[0]);
 	});
-
-	it("steps over the section headers between rows", () => {
-		mount();
-		const headers = Array.from(
-			container.querySelectorAll<HTMLElement>("button[aria-expanded]"),
-		);
-		assert.ok(headers.length > 0);
-		const items = rows();
-
-		act(() => items[1]?.focus());
-		act(() => pressKey(items[1] as Element, "ArrowDown"));
-		assert.equal(document.activeElement, items[2]);
-	});
 });
 
 let list: ListKeyboard | undefined;

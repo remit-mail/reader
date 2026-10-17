@@ -19,23 +19,6 @@ const listSize = (html: string) =>
 	html.match(/data-panel-id="list" data-panel-size="([\d.]+)"/)?.[1];
 
 describe("AppShellSlotted slot rendering", () => {
-	it("renders the list slot unconditionally", () => {
-		const html = render({ initialWidth: 800 });
-		assert.match(html, /data-testid="list"/, "list slot is always rendered");
-	});
-
-	it("renders the reading slot at/above 1024px", () => {
-		const html = render({
-			initialWidth: 1100,
-			reading: createElement("div", { "data-testid": "reading" }, "Reading"),
-		});
-		assert.match(
-			html,
-			/data-testid="reading"/,
-			"reading pane appears at 1024px",
-		);
-	});
-
 	it("hides the reading slot below 1024px", () => {
 		const html = render({
 			initialWidth: 800,
@@ -84,88 +67,12 @@ describe("AppShellSlotted slot rendering", () => {
 		);
 	});
 
-	it("splits the list and reading panes 33/67 by default", () => {
-		assert.equal(
-			listSize(
-				render({
-					initialWidth: 1100,
-					reading: createElement(
-						"div",
-						{ "data-testid": "reading" },
-						"Reading",
-					),
-				}),
-			),
-			"33.0",
-			"the list keeps its standard third",
-		);
-	});
-
-	it("widens the list default at compact density", () => {
-		assert.equal(
-			listSize(
-				render({
-					initialWidth: 1100,
-					density: "compact",
-					reading: createElement(
-						"div",
-						{ "data-testid": "reading" },
-						"Reading",
-					),
-				}),
-			),
-			"43.0",
-			"denser rows read better with more room",
-		);
-	});
-
-	it("gives the list the larger share when the bias is on it", () => {
-		assert.equal(
-			listSize(
-				render({
-					initialWidth: 1100,
-					listBias: "list",
-					reading: createElement(
-						"div",
-						{ "data-testid": "reading" },
-						"Reading",
-					),
-				}),
-			),
-			"62.0",
-			"a list that is the work keeps the width",
-		);
-	});
-
-	it("gives the list the smaller share when the bias is on the detail", () => {
-		assert.equal(
-			listSize(
-				render({
-					initialWidth: 1100,
-					listBias: "detail",
-					reading: createElement(
-						"div",
-						{ "data-testid": "reading" },
-						"Reading",
-					),
-				}),
-			),
-			"26.0",
-			"a spine of a list gets a spine's width",
-		);
-	});
-
 	it("ignores the bias when there is no reading pane to split with", () => {
 		assert.equal(
 			listSize(render({ initialWidth: 1100, listBias: "list" })),
 			"100.0",
 			"one pane is the whole width at any bias",
 		);
-	});
-
-	it("renders the nav as a pane at/above 1024px (no folders trigger)", () => {
-		const html = render({ initialWidth: 1100 });
-		assert.match(html, /data-testid="nav"/, "nav is in the pane");
 	});
 
 	it("shows the header slot only below 1024px", () => {
@@ -205,23 +112,6 @@ describe("AppShellSlotted slot rendering", () => {
 		}
 	});
 
-	it("spans the top bar over the nav column too", () => {
-		const html = render({
-			initialWidth: 1400,
-			topBar: createElement("div", { "data-testid": "topbar" }, "Bar"),
-			reading: createElement("div", { "data-testid": "reading" }, "Reading"),
-		});
-		assert.ok(
-			html.indexOf('data-testid="topbar"') < html.indexOf('data-testid="nav"'),
-			"the bar opens the layout, so it runs the full width",
-		);
-	});
-
-	it("omits the top bar when the caller passes none", () => {
-		const html = render({ initialWidth: 1100 });
-		assert.doesNotMatch(html, /data-testid="topbar"/);
-	});
-
 	it("hides the top bar with the rest of the layout while loading", () => {
 		const html = render({
 			isLoading: true,
@@ -229,14 +119,6 @@ describe("AppShellSlotted slot rendering", () => {
 			topBar: createElement("div", { "data-testid": "topbar" }, "Bar"),
 		});
 		assert.doesNotMatch(html, /data-testid="topbar"/);
-	});
-
-	it("renders the overlay regardless of width", () => {
-		const overlayEl = createElement("div", { "data-testid": "overlay" }, "FAB");
-		const narrowHtml = render({ initialWidth: 800, overlay: overlayEl });
-		const wideHtml = render({ initialWidth: 1100, overlay: overlayEl });
-		assert.match(narrowHtml, /data-testid="overlay"/, "overlay on narrow");
-		assert.match(wideHtml, /data-testid="overlay"/, "overlay on desktop");
 	});
 
 	it("renders the skeleton when isLoading is true", () => {

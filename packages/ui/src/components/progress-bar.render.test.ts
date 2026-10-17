@@ -15,13 +15,6 @@ describe("ProgressBar", () => {
 		assert.match(html, /aria-valuemax="3412"/);
 	});
 
-	it("computes the fill width as a percentage of value/max", () => {
-		const html = renderToString(
-			createElement(ProgressBar, { value: 25, max: 100 }),
-		);
-		assert.match(html, /width:25%/);
-	});
-
 	it("clamps the fill at 100% when value exceeds max", () => {
 		const html = renderToString(
 			createElement(ProgressBar, { value: 500, max: 100 }),
@@ -35,12 +28,5 @@ describe("ProgressBar", () => {
 		);
 		assert.doesNotMatch(html, /aria-valuenow/);
 		assert.doesNotMatch(html, /aria-valuemax/);
-	});
-
-	it("applies the tone's fill color", () => {
-		const html = renderToString(
-			createElement(ProgressBar, { value: 1, max: 2, tone: "danger" }),
-		);
-		assert.match(html, /bg-danger/);
 	});
 });

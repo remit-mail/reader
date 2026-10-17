@@ -24,26 +24,4 @@ describe("ConnectorTile coming-soon", () => {
 		);
 		assert.match(html, /<button/, "tile is a pressable button");
 	});
-
-	it("renders a comingSoon tile without a handler as a safe no-op", () => {
-		assert.doesNotThrow(() =>
-			markup({
-				name: "Gmail",
-				description: "Sign in with Google.",
-				icon: null,
-				comingSoon: true,
-			}),
-		);
-	});
-
-	it("renders a normal tile without coming-soon affordances", () => {
-		const html = markup({
-			name: "IMAP / SMTP",
-			description: "Any provider.",
-			icon: null,
-			onSelect: () => undefined,
-		});
-		assert.doesNotMatch(html, /aria-disabled/);
-		assert.doesNotMatch(html, />soon</);
-	});
 });

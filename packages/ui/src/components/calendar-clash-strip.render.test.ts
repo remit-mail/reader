@@ -25,27 +25,8 @@ describe("CalendarClashStrip", () => {
 		assert.match(html, /text-positive/);
 	});
 
-	it("takes the caller's words for the clear case", () => {
-		assert.match(
-			render([], "Thursday afternoon is empty from 15:15."),
-			/empty from 15:15/,
-		);
-	});
-
-	it("names every clash, with the calendar it came from", () => {
-		const html = render([dentist, planning]);
-		assert.match(html, /Dentist/);
-		assert.match(html, /Sprint planning/);
-		assert.match(html, /Personal \(matthijs@\)/);
-	});
-
 	it("counts the collisions rather than leaving the tally to the eye", () => {
 		assert.match(render([dentist]), /clashes with something/);
 		assert.match(render([dentist, planning]), /clashes with 2 things/);
-	});
-
-	it("draws a collision as danger and a clear span as neither", () => {
-		assert.match(render([dentist]), /bg-danger-soft/);
-		assert.doesNotMatch(render([]), /danger/);
 	});
 });

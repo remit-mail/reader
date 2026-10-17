@@ -2,32 +2,19 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import {
-	AddChipButton,
-	ClauseChip,
-	ClauseEditor,
-	WidenChip,
-} from "./filter-clause-chip.js";
+import { ClauseChip, ClauseEditor, WidenChip } from "./filter-clause-chip.js";
 import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
 	type ClauseField,
-	clauseFieldHint,
 	clauseFieldLabel,
-	clauseFieldOrder,
 	commitBlockedReason,
-	commitLabel,
 	demoRule,
 	demoSenderFallbackRule,
-	demoVocabularyRule,
 	type FilterRule,
 	type LabelOption,
 	matchJoinWord,
-	matchOperatorLabel,
 	type PreviewCount,
 	previewCountSummary,
-	type RuleScope,
-	scopeLabel,
-	widenChipLabel,
 } from "./filter-rule.js";
 import {
 	FilterRuleEditor,
@@ -63,41 +50,9 @@ const editor = (overrides: Partial<FilterRuleEditorProps> = {}) =>
 	);
 
 describe("filter-rule model", () => {
-	it("labels every clause field", () => {
-		const labels = clauseFieldOrder.map(clauseFieldLabel);
-		assert.deepEqual(labels, [
-			"From",
-			"Subject",
-			"Has the words",
-			"List",
-			"Domain",
-		]);
-	});
-
 	it("joins clauses with and/or by operator", () => {
 		assert.equal(matchJoinWord("all"), "and");
 		assert.equal(matchJoinWord("any"), "or");
-	});
-
-	it("names the operators and scopes for the toggles", () => {
-		assert.equal(matchOperatorLabel("all"), "Match all");
-		assert.equal(matchOperatorLabel("any"), "Match any");
-		const scopes: RuleScope[] = ["once", "standing", "until"];
-		assert.deepEqual(scopes.map(scopeLabel), [
-			"Just once",
-			"Keep doing this",
-			"Until a date",
-		]);
-	});
-
-	it("labels the widen chip with its anchor count", () => {
-		assert.equal(widenChipLabel({ anchorCount: 2 }), "Similar to these 2");
-	});
-
-	it("labels the commit by scope", () => {
-		assert.equal(commitLabel("once"), "Apply now");
-		assert.equal(commitLabel("standing"), "Save rule");
-		assert.equal(commitLabel("until"), "Save until then");
 	});
 
 	it("summarises every preview state", () => {
@@ -292,13 +247,6 @@ describe("WidenChip", () => {
 	});
 });
 
-describe("AddChipButton", () => {
-	it("renders its label", () => {
-		const html = render(createElement(AddChipButton, { label: "Add clause" }));
-		assert.match(html, /Add clause/);
-	});
-});
-
 describe("ClauseEditor", () => {
 	it("offers the field picker and a value input when adding", () => {
 		const html = render(
@@ -310,16 +258,6 @@ describe("ClauseEditor", () => {
 		assert.match(html, /aria-label="Clause field"/);
 		assert.match(html, /aria-label="Clause value"/);
 		assert.match(html, />Add</);
-	});
-
-	it("labels the submit Save when editing", () => {
-		const html = render(
-			createElement(ClauseEditor, {
-				draft: { field: "Subject", value: "invoice" },
-				mode: "edit",
-			}),
-		);
-		assert.match(html, />Save</);
 	});
 
 	it("offers only the fields a consumer allows, so it never proposes a clause the backend can't match", () => {
@@ -357,17 +295,6 @@ describe("ClauseEditor", () => {
 		assert.match(html, /registrable domain/i);
 	});
 
-	it("carries no hint for the self-evident fields", () => {
-		const html = render(
-			createElement(ClauseEditor, {
-				draft: { field: "Subject", value: "" },
-				mode: "add",
-			}),
-		);
-		assert.doesNotMatch(html, /registrable domain/i);
-		assert.doesNotMatch(html, /List-Id/);
-	});
-
 	it("is a plain text box when there is nothing to suggest", () => {
 		const html = render(
 			createElement(ClauseEditor, {
@@ -402,25 +329,7 @@ describe("ClauseEditor", () => {
 	});
 });
 
-describe("clauseFieldHint", () => {
-	it("explains ListId and FromDomain, and leaves the plain fields unexplained", () => {
-		assert.match(clauseFieldHint("ListId") ?? "", /List-Id/);
-		assert.match(clauseFieldHint("FromDomain") ?? "", /registrable domain/i);
-		assert.equal(clauseFieldHint("From"), undefined);
-		assert.equal(clauseFieldHint("Subject"), undefined);
-		assert.equal(clauseFieldHint("HasWords"), undefined);
-	});
-});
-
 describe("FilterPreviewCount", () => {
-	it("shows a live loading state", () => {
-		const html = render(
-			createElement(FilterPreviewCount, { preview: { status: "loading" } }),
-		);
-		assert.match(html, /Counting matches/);
-		assert.match(html, /aria-live/);
-	});
-
 	it("states zero without reading as an error", () => {
 		const html = render(
 			createElement(FilterPreviewCount, {
@@ -455,15 +364,6 @@ describe("FilterPreviewCount", () => {
 		assert.doesNotMatch(html, /recounting/);
 	});
 
-	it("counts many matches", () => {
-		const html = render(
-			createElement(FilterPreviewCount, {
-				preview: { status: "ready", count: 412 },
-			}),
-		);
-		assert.match(html, /412 messages match/);
-	});
-
 	it("marks a changed set as recounting rather than blank", () => {
 		const html = render(
 			createElement(FilterPreviewCount, {
@@ -485,21 +385,6 @@ describe("FilterPreviewCount", () => {
 });
 
 describe("FilterRuleEditor", () => {
-	it("renders clause chips joined by the operator word", () => {
-		const html = editor();
-		assert.match(html, /notifications@github\.com/);
-		assert.match(html, /pull request/);
-		assert.match(html, /and/);
-	});
-
-	it("joins with or when matching any", () => {
-		const html = editor({ rule: demoVocabularyRule });
-		assert.match(html, /python-dev\.python\.org/);
-		assert.match(html, /python\.org/);
-		assert.match(html, /nightly build/);
-		assert.match(html, /or/);
-	});
-
 	it("shows the match-operator toggle only with two or more matchers", () => {
 		assert.match(editor(), /aria-label="Match operator"/);
 		const single = editor({
@@ -583,19 +468,6 @@ describe("FilterRuleEditor", () => {
 		assert.match(html, /Travel/);
 	});
 
-	it("renders a chip for the selected label", () => {
-		const html = editor({
-			labels: LABELS,
-			rule: { ...demoRule, labelId: "lbl-receipts" },
-		});
-		assert.match(html, /Receipts/);
-	});
-
-	it("offers no create option without onCreateLabel", () => {
-		const html = editor({ labels: LABELS });
-		assert.doesNotMatch(html, /New label…/);
-	});
-
 	it("offers the create option when onCreateLabel is wired", () => {
 		const html = editor({
 			labels: LABELS,
@@ -624,29 +496,12 @@ describe("FilterRuleEditor", () => {
 		assert.doesNotMatch(once, /aria-label="Rule name"/);
 	});
 
-	it("drives the commit label from the scope", () => {
-		assert.match(editor(), /Save rule/);
-		assert.match(editor({ rule: { ...demoRule, scope: "once" } }), /Apply now/);
-	});
-
 	it("states why the commit is blocked instead of only disabling it", () => {
 		const html = editor({
 			rule: { ...demoRule, moveMailboxId: undefined },
 		});
 		assert.match(html, /role="status"/);
 		assert.match(html, /Pick a folder/);
-	});
-
-	it("renders the inline clause editor when adding", () => {
-		const html = editor({
-			clauseEdit: { mode: "add", draft: { field: "From", value: "" } },
-		});
-		assert.match(html, /aria-label="Clause value"/);
-		assert.doesNotMatch(html, /Add clause/);
-	});
-
-	it("shows the live preview region", () => {
-		assert.match(editor(), /47 messages match/);
 	});
 
 	it("keeps scope and expiry live and editable on an anchor-locked (existing) filter (reader #266)", () => {

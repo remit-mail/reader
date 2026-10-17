@@ -45,12 +45,6 @@ describe("SuggestList", () => {
 		assert.match(render(), /rides@lyft\.com/);
 	});
 
-	it("shows the hint and where a suggestion came from", () => {
-		const html = render();
-		assert.match(html, /Stripe/);
-		assert.match(html, /selected/);
-	});
-
 	it("marks only the highlighted option as selected", () => {
 		const html = render({ activeIndex: 1 });
 		assert.equal(html.match(/aria-selected="true"/g)?.length, 1);

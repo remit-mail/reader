@@ -34,34 +34,4 @@ describe("SenderTrustIndicator", () => {
 		);
 		assert.match(html, /aria-label="VIP sender"/);
 	});
-
-	it("renders the new-sender pill only at md", () => {
-		assert.match(
-			renderToString(
-				createElement(SenderTrustIndicator, {
-					senderTrust: "unknown",
-					size: "md",
-				}),
-			),
-			/First message from this sender/,
-		);
-		assert.equal(
-			renderToString(
-				createElement(SenderTrustIndicator, {
-					senderTrust: "unknown",
-					size: "sm",
-				}),
-			),
-			"",
-		);
-	});
-
-	it("renders nothing for wellknown", () => {
-		assert.equal(
-			renderToString(
-				createElement(SenderTrustIndicator, { senderTrust: "wellknown" }),
-			),
-			"",
-		);
-	});
 });

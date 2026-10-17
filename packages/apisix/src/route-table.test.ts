@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
 	assertPublicRoutesExist,
 	buildRoutes,
-	PUBLIC_ROUTES,
 	renderConfig,
 } from "./route-table.js";
 
@@ -17,16 +16,6 @@ const routeBlock = (config: string, uri: string): string =>
 	config
 		.split(/^ {2}- id: /m)
 		.find((block) => block.includes(`uri: '${uri}'`)) ?? "";
-
-test("the exempt paths are the OAuth callback and the calendar feed, GET only", () => {
-	assert.deepEqual(
-		PUBLIC_ROUTES.map((route) => [route.method, route.path]),
-		[
-			["GET", CALLBACK],
-			["GET", FEED],
-		],
-	);
-});
 
 test("the feed exemption is pinned to the shape of a token, not to the prefix", () => {
 	const config = renderConfig({

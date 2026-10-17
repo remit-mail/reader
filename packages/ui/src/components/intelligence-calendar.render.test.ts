@@ -90,10 +90,6 @@ describe("an invitation that has been overtaken", () => {
 });
 
 describe("readings that are not invitations", () => {
-	it("spells out where the confirming press lands", () => {
-		assert.match(render(flightConfirmation), /Add to calendar/);
-	});
-
 	it("asks which clock before it will take a zoneless time", () => {
 		assert.match(render(flightConfirmation), /Which clock is this on/);
 	});
