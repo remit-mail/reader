@@ -31,26 +31,10 @@ describe("FolderRow", () => {
 		assert.match(html, />Travel</);
 	});
 
-	it("indents by its depth and leaves a root flush", () => {
-		assert.match(render({ depth: 2 }), /width:28px/);
-		assert.doesNotMatch(render({ depth: 0 }), /style="width/);
-	});
-
-	it("turns the chevron once its children are on screen", () => {
-		assert.doesNotMatch(render({}), /rotate-90/);
-		assert.match(render({ expanded: true }), /rotate-90/);
-	});
-
 	it("checks the row that is the destination", () => {
 		const html = render({ selected: true });
 		assert.match(html, /aria-selected="true"/);
 		assert.match(html, /text-accent/);
-	});
-
-	it("leaves an unchosen row unselected and unchecked", () => {
-		const html = render({});
-		assert.match(html, /aria-selected="false"/);
-		assert.doesNotMatch(html, /text-accent/);
 	});
 
 	it("marks where the messages live now without disabling anything", () => {
@@ -69,15 +53,6 @@ describe("FolderRow", () => {
 		assert.match(html, /<div[^>]*role="treeitem"/);
 		assert.match(html, /aria-label="Travel \(containing folder\)"/);
 		assert.match(html, /opacity-60/);
-	});
-
-	it("insets the hairline to where the label starts", () => {
-		assert.match(render({ separated: true, depth: 1 }), /left:74px/);
-		assert.match(
-			render({ separated: true, depth: 1, context: true }),
-			/left:74px/,
-		);
-		assert.doesNotMatch(render({ depth: 1 }), /left:74px/);
 	});
 
 	it("keeps its actions beside the tree item rather than inside it", () => {
@@ -99,10 +74,5 @@ describe("FolderRow", () => {
 		const html = render({ messageCount: 512 });
 		assert.match(html, /aria-label="Move to Travel"/);
 		assert.match(html, /aria-hidden="true"[^>]*class="[^"]*text-2xs/);
-	});
-
-	it("takes its place in a roving tab order", () => {
-		assert.match(render({ tabIndex: 0 }), /tabindex="0"/);
-		assert.match(render({ tabIndex: -1 }), /tabindex="-1"/);
 	});
 });

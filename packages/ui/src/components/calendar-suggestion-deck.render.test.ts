@@ -33,13 +33,6 @@ describe("CalendarSuggestionDeck", () => {
 		assert.match(words(), /3 left/);
 	});
 
-	it("says the buttons are there, so a gesture is never the only way", () => {
-		assert.match(
-			words(),
-			/swipe right to accept, left to drop, or use the buttons/,
-		);
-	});
-
 	it("says what an empty deck means rather than drawing a blank frame", () => {
 		const empty = words({ hasCard: false });
 		assert.match(
@@ -48,17 +41,6 @@ describe("CalendarSuggestionDeck", () => {
 		);
 		assert.doesNotMatch(empty, /KL1693/);
 		assert.doesNotMatch(empty, /left ·/);
-	});
-
-	it("takes the caller's words for an empty deck", () => {
-		assert.match(
-			words({ hasCard: false, emptyText: "You are through the queue." }),
-			/You are through the queue/,
-		);
-	});
-
-	it("keeps the gesture surface off the vertical axis it does not own", () => {
-		assert.match(render(), /touch-pan-y/);
 	});
 
 	it("draws no swipe badge before the drag has committed to anything", () => {

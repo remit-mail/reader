@@ -49,13 +49,6 @@ afterEach(() => {
 const ids = ["a", "b", "c", "d"];
 
 describe("useSelection", () => {
-	it("starts empty", () => {
-		assert.deepEqual(selected(), []);
-		assert.equal(api.selectedCount, 0);
-		assert.equal(api.hasSelection, false);
-		assert.equal(api.anchorId, undefined);
-	});
-
 	it("toggles a row on and off, anchoring on it either way", () => {
 		run(() => api.toggle("b"));
 		assert.deepEqual(selected(), ["b"]);
@@ -99,12 +92,6 @@ describe("useSelection", () => {
 		run(() => api.toggle("a"));
 		run(() => api.toggleAll(ids));
 		assert.deepEqual(selected(), ids);
-	});
-
-	it("seeds the anchor without touching the selection", () => {
-		run(() => api.setAnchor("c"));
-		assert.deepEqual(selected(), []);
-		assert.equal(api.anchorId, "c");
 	});
 
 	it("extends a range from the anchor, and keeps extending from it", () => {

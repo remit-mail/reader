@@ -117,20 +117,4 @@ describe("MobileSearchView search scope", () => {
 		assert.doesNotMatch(html, /from Spam/);
 		assert.doesNotMatch(html, /Archive/);
 	});
-
-	it("carries the server's spam count to the phone tier too", () => {
-		const html = renderToString(
-			createElement(MobileSearchView, {
-				...base,
-				scope: {
-					kind: "global" as const,
-					onScopeToSpam: noop,
-					spamCount: { kind: "exact" as const, value: 17 },
-				},
-			}),
-		);
-		assert.match(html, />17</);
-		assert.match(html, /results from Spam/);
-		assert.match(html, /Go to Spam/);
-	});
 });

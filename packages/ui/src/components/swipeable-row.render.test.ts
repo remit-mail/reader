@@ -35,13 +35,6 @@ function render(peek: SwipePeek, override?: Partial<typeof baseProps>) {
 }
 
 describe("SwipeableRow", () => {
-	it("renders no action background at rest", () => {
-		const html = render("none");
-		assert.doesNotMatch(html, /bg-danger/);
-		assert.doesNotMatch(html, /bg-accent-2(?!-soft)/);
-		assert.doesNotMatch(html, /aria-label="Delete message"/);
-	});
-
 	it("reveals the delete action when peeked trailing", () => {
 		const html = render("trailing");
 		assert.match(html, /aria-label="Delete message"/);

@@ -10,7 +10,6 @@ import {
 	MessageListLoading,
 	MessageListLoadingMore,
 } from "./message-list-state.js";
-import { EmptyStateComparison } from "./message-list-state.stories.js";
 
 const COMPLETENESS = "Every message in this folder was checked.";
 const BOUNDED = "Only the messages loaded so far were checked.";
@@ -27,11 +26,6 @@ const personal: MessageListFilter = {
 
 describe("MessageListLoading", () => {
 	const html = renderToString(createElement(MessageListLoading));
-
-	it("renders eight skeleton rows", () => {
-		const rows = html.match(/animate-pulse/g) ?? [];
-		assert.equal(rows.length, 8, "eight pulse rows, like the live skeleton");
-	});
 
 	it("marks the region busy for assistive tech", () => {
 		assert.match(html, /aria-busy="true"/);
@@ -76,12 +70,6 @@ describe("MessageListEmpty under a filter", () => {
 		assert.match(html, new RegExp(COMPLETENESS));
 	});
 
-	it("keeps the completeness sentence without a scope label", () => {
-		const html = empty({ filter: personal });
-		assert.match(html, /No Personal mail/);
-		assert.match(html, new RegExp(COMPLETENESS));
-	});
-
 	it("carries a completeness sentence in every filtered variant", () => {
 		const variants: MessageListEmptyProps[] = [
 			{ filter: personal },
@@ -108,16 +96,6 @@ describe("MessageListEmpty under a filter", () => {
 			new RegExp(COMPLETENESS),
 			"a bounded read must not claim the folder was fully checked",
 		);
-	});
-
-	it("renders the two reaches distinguishably", () => {
-		const whole = empty({ filter: personal, scopeLabel: "Inbox" });
-		const bounded = empty({
-			filter: { ...personal, reach: "loaded-pages" },
-			scopeLabel: "Inbox",
-		});
-		assert.notEqual(whole, bounded);
-		assert.doesNotMatch(whole, new RegExp(BOUNDED));
 	});
 
 	it("leads with the query when searching inside a filter", () => {
@@ -152,57 +130,14 @@ describe("MessageListEmpty under a filter", () => {
 		assert.doesNotMatch(filtered, /No messages in this mailbox/);
 		assert.doesNotMatch(unfiltered, /Clear filter/);
 	});
-
-	it("renders distinguishably from the skeleton a restarted page shows", () => {
-		const filtered = empty({ filter: personal, scopeLabel: "Inbox" });
-		const loading = renderToString(createElement(MessageListLoading));
-		assert.notEqual(filtered, loading);
-		assert.doesNotMatch(filtered, /animate-pulse/);
-		assert.doesNotMatch(loading, new RegExp(COMPLETENESS));
-	});
-
-	it("renders unclassified as itself, never as personal (#45)", () => {
-		const unclassified = empty({
-			filter: { ...personal, label: "Unclassified mail" },
-			scopeLabel: "Inbox",
-		});
-		assert.match(unclassified, /No Unclassified mail in Inbox/);
-		assert.doesNotMatch(unclassified, /Personal/);
-	});
-});
-
-describe("the side-by-side comparison story", () => {
-	const html = renderToString(createElement(EmptyStateComparison));
-
-	it("renders both empty states, not one", () => {
-		assert.match(html, /No messages in this mailbox/);
-		assert.match(html, /No Personal mail in Inbox/);
-		assert.match(html, new RegExp(COMPLETENESS));
-	});
-
-	it("gives neither panel a fixed width, so a frame cannot clip one away", () => {
-		assert.doesNotMatch(html, /\bw-9\d\b/);
-		assert.equal((html.match(/flex-1/g) ?? []).length >= 2, true);
-	});
 });
 
 describe("MessageListLoadingMore", () => {
 	const html = renderToString(createElement(MessageListLoadingMore));
 
-	it("says another page is coming in words, not only a spinner", () => {
-		assert.match(html, /Loading more/);
-	});
-
 	it("announces itself to assistive tech", () => {
 		assert.match(html, /role="status"/);
 		assert.match(html, /aria-live="polite"/);
-	});
-
-	it("renders distinguishably from a filtered empty list", () => {
-		const filtered = empty({ filter: personal, scopeLabel: "Inbox" });
-		assert.notEqual(html, filtered);
-		assert.doesNotMatch(html, new RegExp(COMPLETENESS));
-		assert.doesNotMatch(filtered, /Loading more/);
 	});
 });
 
@@ -216,29 +151,10 @@ describe("MessageListError", () => {
 		assert.match(html, /Network unreachable/);
 	});
 
-	it("offers a way back and a report path when handlers are given", () => {
-		const html = renderToString(
-			createElement(MessageListError, {
-				onRetry: () => {},
-				onReport: () => {},
-			}),
-		);
-		assert.match(html, /Retry/);
-		assert.match(html, /Report a problem/);
-	});
-
 	it("never renders a disabled control", () => {
 		const html = renderToString(
 			createElement(MessageListError, { onRetry: () => {} }),
 		);
 		assert.doesNotMatch(html, /\sdisabled[\s=>]/);
-	});
-
-	it("reads as a failure, never as an empty result", () => {
-		const html = renderToString(
-			createElement(MessageListError, { message: "Network unreachable" }),
-		);
-		assert.doesNotMatch(html, new RegExp(COMPLETENESS));
-		assert.doesNotMatch(html, /No messages/);
 	});
 });

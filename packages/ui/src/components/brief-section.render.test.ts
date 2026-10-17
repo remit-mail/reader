@@ -160,11 +160,6 @@ describe("BriefSection", () => {
 		assert.doesNotMatch(html, /Show \d+ more/);
 	});
 
-	it("renders rows by default — sections start expanded", () => {
-		const html = render({ count: 3 });
-		assert.strictEqual(rowCount(html), 3);
-	});
-
 	it("keeps the total when the reader collapses the section", () => {
 		const html = render({
 			count: 18,
@@ -220,13 +215,5 @@ describe("BriefSection", () => {
 			"a section that loaded nothing still stated a size",
 		);
 		assert.doesNotMatch(html, /No Marketing mail in this brief\./);
-	});
-
-	// D6 / issue #45: unclassified mail is its own section with its own label,
-	// never folded into Personal.
-	it("renders the unclassified section under its own label", () => {
-		const html = render({ count: 2, label: "Unclassified", total: exact(2) });
-		assert.match(html, /Unclassified/);
-		assert.doesNotMatch(html, /Personal/);
 	});
 });

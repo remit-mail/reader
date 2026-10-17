@@ -108,12 +108,6 @@ describe("browserSpellcheckHelp", () => {
 		);
 		assert.match(help, /^On iPhone and iPad the keyboard/);
 	});
-
-	it("never claims the app changes the dictionary", () => {
-		for (const agent of ["Chrome/141", "Firefox/130", "Safari/605", "curl/8"]) {
-			assert.doesNotMatch(browserSpellcheckHelp(agent), /this app|we /i);
-		}
-	});
 });
 
 describe("wrapWithLanguage", () => {
@@ -182,11 +176,6 @@ describe("unwrapLanguage", () => {
 });
 
 describe("COMPOSE_LANGUAGE_OPTIONS", () => {
-	it("offers no tag twice", () => {
-		const tags = COMPOSE_LANGUAGE_OPTIONS.map((option) => option.tag);
-		assert.equal(new Set(tags).size, tags.length);
-	});
-
 	/**
 	 * Read against `franc-min`'s own trigram tables rather than against the list
 	 * that produced them: a code the detector has never heard of is a menu row

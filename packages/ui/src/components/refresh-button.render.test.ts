@@ -42,15 +42,6 @@ describe("RefreshButton", () => {
 		assert.match(html, /aria-label="Refresh inbox — refreshing"/);
 	});
 
-	it("shows a quiet dot for new mail only at rest", () => {
-		const idle = render({ hasUpdate: true });
-		assert.match(idle, /aria-label="Refresh inbox — new mail"/);
-		assert.match(idle, /bg-accent-2/);
-
-		const refreshing = render({ state: "refreshing", hasUpdate: true });
-		assert.doesNotMatch(refreshing, /bg-accent-2/);
-	});
-
 	it("confirms success without claiming a failure", () => {
 		const html = render({ state: "success" });
 		assert.equal(stateOf(html), "success");

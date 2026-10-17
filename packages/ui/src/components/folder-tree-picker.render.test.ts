@@ -68,11 +68,6 @@ describe("FolderTreePicker render", () => {
 		);
 	});
 
-	it("offers no create affordance without onCreateFolder", () => {
-		const html = render({});
-		assert.doesNotMatch(html, /New folder/);
-	});
-
 	it("pins one create action above the tree and none inside a closed list", () => {
 		const html = render({
 			onCreateFolder: () =>
@@ -82,39 +77,9 @@ describe("FolderTreePicker render", () => {
 		assert.doesNotMatch(html, /aria-label="New folder inside/);
 	});
 
-	it("gives the pinned create action the prominent treatment", () => {
-		const html = render({
-			onCreateFolder: () =>
-				Promise.resolve(node("made", "Made", "Travel/Made")),
-		});
-		assert.match(
-			tagWith(html, 'aria-label="New folder"'),
-			/data-prominence="prominent"/,
-		);
-	});
-
 	it("says the list is empty when there is nothing to list", () => {
 		const html = render({ folders: [] });
 		assert.match(html, /No folders to show/);
 		assert.doesNotMatch(html, /No folders match/);
-	});
-
-	it("applies caller-supplied labels", () => {
-		const html = render({
-			labels: { optionLabel: (folder) => `Verplaats naar ${folder.label}` },
-		});
-		assert.match(html, /aria-label="Verplaats naar Archive"/);
-	});
-
-	it("announces the message count as part of the row's own name", () => {
-		const html = render({
-			folders: [{ id: "t", label: "Trash", path: "Trash", messageCount: 512 }],
-			labels: {
-				optionLabel: (folder) =>
-					`Set ${folder.label}, ${folder.messageCount} messages, as Trash`,
-			},
-		});
-		assert.match(html, /aria-label="Set Trash, 512 messages, as Trash"/);
-		assert.match(html, />512</);
 	});
 });

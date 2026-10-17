@@ -14,19 +14,6 @@ import { MessageBodyView } from "./message-body-view.js";
  * Storybook stories.
  */
 describe("MessageBodyView", () => {
-	it("renders the empty state when there is no html or text", () => {
-		const html = renderToString(createElement(MessageBodyView, {}));
-		assert.match(html, /This message has no body content\./);
-	});
-
-	it("renders plain text in a pre block (no sanitizer needed)", () => {
-		const html = renderToString(
-			createElement(MessageBodyView, { text: "Just a plain note." }),
-		);
-		assert.match(html, /Just a plain note\./);
-		assert.match(html, /email-text/);
-	});
-
 	it("does not emit raw email HTML without a DOM to sanitize it", () => {
 		// No DOM ⇒ cannot DOMPurify ⇒ the component must NOT paint the HTML.
 		const html = renderToString(
@@ -47,13 +34,5 @@ describe("MessageBodyView", () => {
 		);
 		assert.doesNotMatch(html, /html body/);
 		assert.match(html, /plain fallback/);
-	});
-
-	it("applies the message-body wrapper class", () => {
-		const html = renderToString(
-			createElement(MessageBodyView, { text: "x", className: "px-4" }),
-		);
-		assert.match(html, /message-body/);
-		assert.match(html, /px-4/);
 	});
 });

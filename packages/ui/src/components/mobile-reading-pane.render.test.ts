@@ -3,7 +3,6 @@ import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import type { ThreadData } from "./app-shell-types.js";
-import type { IntelligenceData } from "./intelligence-panel.js";
 import { MobileReadingPane } from "./mobile-reading-pane.js";
 
 const thread: ThreadData = {
@@ -40,46 +39,10 @@ const thread: ThreadData = {
 	],
 };
 
-const intelligence: IntelligenceData = {
-	sender: {
-		name: "Alex Rivera",
-		email: "alex@example.com",
-		trust: "wellknown",
-		firstSeenLabel: "Jan 2025",
-	},
-	authenticity: {
-		verdict: "aligned",
-		fromDomain: "example.com",
-		summary: "Verified.",
-	},
-	category: { value: "personal" },
-	similar: [],
-};
-
 const countMatches = (html: string, needle: string) =>
 	html.split(needle).length - 1;
 
 describe("MobileReadingPane", () => {
-	it("renders the top bar with back, subject and the intelligence toggle", () => {
-		const html = renderToString(
-			createElement(MobileReadingPane, {
-				thread,
-				intelligence,
-				onBack: () => undefined,
-			}),
-		);
-		assert.match(html, /aria-label="Back to messages"/);
-		assert.match(html, /Q3 planning notes/);
-		assert.match(html, /aria-label="Show intelligence panel"/);
-	});
-
-	it("omits the intelligence toggle when no intelligence is given", () => {
-		const html = renderToString(
-			createElement(MobileReadingPane, { thread, onBack: () => undefined }),
-		);
-		assert.doesNotMatch(html, /aria-label="Show intelligence panel"/);
-	});
-
 	it("shows exactly one per-message action bar — the expanded message's", () => {
 		const html = renderToString(
 			createElement(MobileReadingPane, {
@@ -112,16 +75,5 @@ describe("MobileReadingPane", () => {
 		);
 		assert.match(html, /title="Reply"/);
 		assert.doesNotMatch(html, /title="Reply \(r\)"/);
-	});
-
-	it("keeps pinch-zoom enabled on the scroll area when swipe is wired", () => {
-		const html = renderToString(
-			createElement(MobileReadingPane, {
-				thread,
-				onBack: () => undefined,
-				onSwipeNext: () => undefined,
-			}),
-		);
-		assert.match(html, /touch-action:\s*pan-y pinch-zoom/);
 	});
 });

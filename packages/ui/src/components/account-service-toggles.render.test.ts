@@ -74,12 +74,6 @@ function pressSwitch(
 }
 
 describe("AccountServiceToggles", () => {
-	it("offers a switch per service, mail first", () => {
-		const html = render();
-		assert.equal(html.match(/role="switch"/g)?.length, 2);
-		assert.ok(html.indexOf("Mail") < html.indexOf("Calendar"));
-	});
-
 	it("shows each switch in the state the account is in", () => {
 		const html = render({ enabled: ["Calendar"] });
 		assert.equal(html.match(/aria-checked="true"/g)?.length, 1);

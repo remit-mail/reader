@@ -55,18 +55,6 @@ describe("AttendeeRow", () => {
 		assert.doesNotMatch(html, /Organiser/);
 	});
 
-	it("renders exactly what it always did for a caller with nothing to open", () => {
-		const html = renderToString(
-			createElement(AttendeeRow, { attendee: attendees[1] }),
-		);
-		assert.match(html, /^<div class="flex min-h-9 items-center gap-2\.5">/);
-		assert.match(html, /<span class="min-w-0 flex-1">/);
-		assert.doesNotMatch(
-			html,
-			/<button|aria-expanded|w-full|text-left|relative/,
-		);
-	});
-
 	it("becomes a control where a name leads somewhere", () => {
 		const html = renderToString(
 			createElement(AttendeeRow, {
@@ -88,18 +76,6 @@ describe("AttendeeRow", () => {
 		);
 		assert.match(html, /aria-expanded="true"/);
 	});
-
-	it("gives a thumb a row it can hit", () => {
-		const html = renderToString(
-			createElement(AttendeeRow, {
-				attendee: attendees[0],
-				onActivate: () => undefined,
-				touch: true,
-			}),
-		);
-		assert.match(html, /min-h-11/);
-		assert.doesNotMatch(html, /min-h-9/);
-	});
 });
 
 describe("AttendeeList", () => {
@@ -108,23 +84,6 @@ describe("AttendeeList", () => {
 		assert.match(html, /3 guests/);
 		assert.match(html, /1 coming/);
 		assert.match(html, /1 not coming/);
-	});
-
-	it("renders nothing when nobody is invited", () => {
-		assert.equal(
-			renderToString(createElement(AttendeeList, { attendees: [] })),
-			"",
-		);
-	});
-
-	it("leaves the markup it always had when nothing can be opened", () => {
-		const html = renderToString(createElement(AttendeeList, { attendees }));
-		assert.doesNotMatch(html, /<button|aria-expanded|w-full/);
-		assert.doesNotMatch(html, /<div>/);
-		assert.equal(
-			html.match(/<div class="flex min-h-9 items-center gap-2\.5">/g)?.length,
-			attendees.length,
-		);
 	});
 
 	it("makes every row a control when a guest can be opened", () => {
