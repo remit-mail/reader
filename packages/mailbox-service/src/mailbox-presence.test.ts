@@ -1,16 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { IMailboxRepository } from "@remit/data-ports";
-import { NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	isFolderMutationInFlight,
 	isMailboxMutationInFlight,
 } from "./mailbox-presence.js";
-
-const reader = (
-	get: IMailboxRepository["get"],
-): Pick<IMailboxRepository, "get"> => ({ get });
+import {
+	openStore,
+	seedAccount,
+	seedMailbox,
+} from "./test-helpers/test-store.js";
 
 describe("isFolderMutationInFlight", () => {
 	for (const [syncStatus, inFlight] of [
@@ -38,35 +37,38 @@ describe("isFolderMutationInFlight", () => {
 });
 
 describe("isMailboxMutationInFlight", () => {
-	it("reads the row it is given", async () => {
-		const service = reader((async () => ({
-			syncStatus: MailboxSyncStatus.deleting,
-		})) as unknown as IMailboxRepository["get"]);
+	it("reads the stored row, and treats an absent one as in flight", async () => {
+		const store = await openStore();
+		const account = await seedAccount(store);
+		const deleting = await seedMailbox(store, account, "Receipts", {
+			overrides: { syncStatus: MailboxSyncStatus.deleting },
+		});
+		const settled = await seedMailbox(store, account, "Work");
 
-		assert.equal(await isMailboxMutationInFlight(service, "acc", "mbx"), true);
-	});
-
-	it("treats an absent row as in flight", async () => {
-		// The row's absence does not decide it at either end: on the way out the
-		// row is removed only after the IMAP folder is, and on the way in the row
-		// exists before the folder does.
-		const service = reader((async () => {
-			throw new NotFoundError("Mailbox not found: mbx");
-		}) as unknown as IMailboxRepository["get"]);
-
-		assert.equal(await isMailboxMutationInFlight(service, "acc", "mbx"), true);
-	});
-
-	it("rethrows a read that cannot answer", async () => {
-		// The caller uses this to classify a failure in hand; a read that fails
-		// for its own reasons must not be reported as "the folder is busy".
-		const service = reader((async () => {
-			throw new Error("connection reset by peer");
-		}) as unknown as IMailboxRepository["get"]);
-
-		await assert.rejects(
-			isMailboxMutationInFlight(service, "acc", "mbx"),
-			/connection reset by peer/,
+		assert.equal(
+			await isMailboxMutationInFlight(
+				store.mailbox,
+				account.accountId,
+				deleting.mailboxId,
+			),
+			true,
 		);
+		assert.equal(
+			await isMailboxMutationInFlight(
+				store.mailbox,
+				account.accountId,
+				settled.mailboxId,
+			),
+			false,
+		);
+		assert.equal(
+			await isMailboxMutationInFlight(
+				store.mailbox,
+				account.accountId,
+				"mbx-gone",
+			),
+			true,
+		);
+		await store.close();
 	});
 });
