@@ -114,6 +114,7 @@ it("banners a refused draft discard instead of closing as if it worked", async (
 					account,
 					sourceMessage,
 					outboxMessageId: OUTBOX_MESSAGE_ID,
+					onDraftCreated: () => {},
 					onClose: () => {},
 				}),
 			),
