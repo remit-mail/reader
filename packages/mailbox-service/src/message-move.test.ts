@@ -311,6 +311,45 @@ describe("moving a message", () => {
 		assert.ok(Date.now() - startedAt < 150);
 		assert.equal((await row(stranded)).mailboxId, archive.mailboxId);
 	});
+
+	for (const action of ["move", "delete", "copy"] as const) {
+		it(`refuses to ${action} a copy the server never confirms, writing nothing`, async () => {
+			await world();
+			const original = await rowIn(inbox, 5);
+			await service().copyMessage(
+				account.accountConfigId,
+				original,
+				archive.mailboxId,
+				account.accountId,
+			);
+			queue.length = 0;
+			const copy = deriveCopyMessageId(original, archive.mailboxId);
+			const before = await row(copy);
+
+			await assert.rejects(
+				action === "delete"
+					? service().deleteMessages(
+							account.accountConfigId,
+							[copy],
+							account.accountId,
+							{ permanent: true },
+						)
+					: service()[`${action}Message`](
+							account.accountConfigId,
+							copy,
+							inbox.mailboxId,
+							account.accountId,
+						),
+				(error: unknown) =>
+					error instanceof MessagePlacementUnsettledError &&
+					error.statusCode === 409 &&
+					error.publicApiError?.details?.reason === "in_flight",
+			);
+
+			assert.equal(queue.length, 0);
+			assert.deepEqual(await row(copy), before);
+		});
+	}
 });
 
 describe("deleting a message", () => {

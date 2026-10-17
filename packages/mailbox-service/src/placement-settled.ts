@@ -64,12 +64,18 @@ export const bindsForeignUid = (
 	>,
 ): boolean => isPlacementUnsettled(message) && carriesForeignUid(message);
 
+/** A copy at `uid: 0`, which names nothing on the server until COPYUID lands (#1387). */
+const awaitsCopiedUid = (
+	message: Pick<MessageItem, "status" | "uid">,
+): boolean => message.status === MessageStatus.moving && message.uid === 0;
+
 /**
  * `in_flight` — a mutation is still working on the row, so waiting resolves it.
  * That includes a row mid-retry: `message-move`, `message-delete` and
  * `message-copy` write `syncStatus: failed` on an ordinary transient attempt
  * and re-throw for redelivery, so a failed attempt is a mutation about to
  * succeed and the settle ceiling is exactly what it is for (imap-mutations R3).
+ * It also includes a fresh copy, whose uid names nothing until COPYUID lands.
  *
  * There is no give-up member, because a give-up cannot reach here: `abandoned`
  * is written only alongside `status: active` (a hand-back) or `deleted` (a copy
@@ -85,7 +91,10 @@ export const placementBindingOf = (
 		MessageItem,
 		"status" | "mailboxId" | "uid" | "originalMailboxId" | "originalUid"
 	>,
-): PlacementBinding => (bindsForeignUid(message) ? "in_flight" : "consistent");
+): PlacementBinding =>
+	bindsForeignUid(message) || awaitsCopiedUid(message)
+		? "in_flight"
+		: "consistent";
 
 export interface PlacementSettleOptions {
 	timeoutMs: number;
