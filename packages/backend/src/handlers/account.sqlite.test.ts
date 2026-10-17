@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { randomBytes } from "node:crypto";
+import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountResponse,
 	AccountService as AccountServiceName,
@@ -19,6 +21,11 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
+import {
+	createSecretsService,
+	deserializeEncryptedPayload,
+	type SecretsService,
+} from "@remit/secrets-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -29,6 +36,7 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { sqsClient } from "../service/sqs.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { ConfigOperations } from "./config.js";
 
@@ -45,6 +53,8 @@ const createAccount =
 	AccountOperations.AccountOperations_createAccount as Handler;
 const updateAccount =
 	AccountDetailOperations.AccountDetailOperations_updateAccount as Handler;
+const deleteAccount =
+	AccountDetailOperations.AccountDetailOperations_deleteAccount as Handler;
 
 const event = (body?: unknown): APIGatewayProxyEvent =>
 	({
@@ -66,8 +76,15 @@ const respond = async (
 const bodyOf = <T>(response: APIGatewayProxyResult): T =>
 	JSON.parse(response.body) as T;
 
+const dataKey = randomBytes(32);
+const secrets: SecretsService = createSecretsService({
+	generateDataKey: async () => ({ plaintext: dataKey, encrypted: dataKey }),
+	decryptDataKey: async () => dataKey,
+});
+
 let accounts: AccountRepo;
 let close: () => void;
+let enqueued: SendMessageCommand[];
 
 const seedAccount = (
 	authType: AccountItem["authType"],
@@ -107,6 +124,13 @@ const patchServices = (accountId: string, syncedServices: string[]) =>
 	);
 
 beforeEach(async () => {
+	process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
+		"http://localhost:9324/queue/account-fanout-test";
+	enqueued = [];
+	mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
+		enqueued.push(command);
+		return {};
+	});
 	const store = createShippedSqliteDb();
 	close = store.close;
 	accounts = new AccountRepo(store.db);
@@ -121,10 +145,12 @@ beforeEach(async () => {
 		accountSetting: new AccountSettingRepo(store.db),
 		mailbox: new MailboxRepo(store.db),
 		configImport: new ConfigImportRepo(store.db),
+		secrets,
 	} as unknown as RemitClient);
 });
 
 afterEach(() => {
+	mock.restoreAll();
 	_resetForTest();
 	close();
 });
@@ -240,6 +266,53 @@ describe("the services an account syncs", () => {
 		assert.deepEqual(
 			await accounts.listAllByAccountConfig(ACCOUNT_CONFIG_ID),
 			[],
+		);
+	});
+});
+
+const listedAccountIds = async (): Promise<string[]> =>
+	bodyOf<{ accounts: AccountResponse[] }>(
+		await respond(() => getConfig(context(), event())),
+	).accounts.map((account) => account.accountId);
+
+describe("DELETE /accounts/{accountId}", () => {
+	it("stores the account as deleted and takes it off GET /config", async () => {
+		const account = await seedAccount(AccountAuthType.Password);
+		assert.deepEqual(await listedAccountIds(), [account.accountId]);
+
+		const response = await respond(() =>
+			deleteAccount(context({ accountId: account.accountId }), event()),
+		);
+
+		assert.equal(response.statusCode, 200);
+		const { deletedAt } = bodyOf<{ deletedAt: number }>(response);
+		const stored = await accounts.get(account.accountId);
+		assert.equal(stored.deletedAt, deletedAt);
+		assert.equal(stored.isActive, false);
+		assert.equal(enqueued.length, 1);
+		assert.deepEqual(await listedAccountIds(), []);
+	});
+});
+
+describe("PATCH /accounts/{accountId}", () => {
+	it("stores a new SMTP password", async () => {
+		const account = await seedAccount(AccountAuthType.Password);
+
+		const response = await respond(() =>
+			updateAccount(
+				context({ accountId: account.accountId }),
+				event({ smtpPassword: "smtp-secret" }),
+			),
+		);
+
+		assert.equal(response.statusCode, 200);
+		const { smtpPasswordHash } = await accounts.get(account.accountId);
+		assert.ok(smtpPasswordHash, "the SMTP password is stored");
+		assert.equal(
+			await secrets.decrypt(
+				deserializeEncryptedPayload(JSON.parse(smtpPasswordHash)),
+			),
+			"smtp-secret",
 		);
 	});
 });

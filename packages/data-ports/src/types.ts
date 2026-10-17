@@ -228,8 +228,14 @@ export type CreateAccountInput = Omit<
 };
 
 export type UpdateAccountInput = Partial<
-	Omit<CreateAccountInput, "accountConfigId">
+	Omit<CreateAccountInput, "accountId" | "accountConfigId">
 >;
+
+export type RemovableAccountField =
+	| "lastError"
+	| "lastConnectedAt"
+	| "lastSyncAt"
+	| "syncPhase";
 
 export type CreateAccountConfigInput = Omit<
 	AccountConfigItem,

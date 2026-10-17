@@ -147,6 +147,7 @@ export type {
 	QuarantineMimeNodeItem,
 	QuarantineUpsertInput,
 	RawMessageStorageItem,
+	RemovableAccountField,
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,

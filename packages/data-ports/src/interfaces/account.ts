@@ -3,6 +3,7 @@ import type {
 	AccountItem,
 	AccountSchedulerPage,
 	CreateAccountInput,
+	RemovableAccountField,
 	ResultList,
 	UpdateAccountInput,
 } from "../types.js";
@@ -14,7 +15,7 @@ export interface IAccountRepository {
 	update(
 		accountId: string,
 		input: UpdateAccountInput,
-		remove?: string[],
+		remove?: RemovableAccountField[],
 	): Promise<AccountItem>;
 	markAuthenticated(accountId: string): Promise<AccountItem>;
 	delete(accountId: string): Promise<void>;

@@ -7,7 +7,11 @@ import type {
 	TestConnectionResponse,
 	UpdateAccountInput,
 } from "@remit/api-openapi-types";
-import type { AccountItem, IAccountRepository } from "@remit/data-ports";
+import type {
+	AccountItem,
+	UpdateAccountInput as AccountUpdate,
+	IAccountRepository,
+} from "@remit/data-ports";
 import {
 	AccountAuthType,
 	AccountService,
@@ -384,6 +388,28 @@ export const AccountOperations: Record<
 	},
 };
 
+const encryptedSecret = async (
+	secrets: Awaited<ReturnType<typeof getClient>>["secrets"],
+	plaintext: string | undefined,
+): Promise<string | undefined> =>
+	plaintext
+		? JSON.stringify(
+				serializeEncryptedPayload(await secrets.encrypt(plaintext)),
+			)
+		: undefined;
+
+type AccountSettingField =
+	| "displayName"
+	| "composeLanguages"
+	| "muted"
+	| "signaturePlainText"
+	| "signatureHtml";
+
+type AccountEntityField = Exclude<
+	keyof UpdateAccountInput,
+	AccountSettingField | "password" | "smtpPassword"
+>;
+
 export const AccountDetailOperations: Record<
 	AccountDetailOperationIds,
 	OperationHandler<AccountDetailOperationIds>
@@ -402,54 +428,33 @@ export const AccountDetailOperations: Record<
 		const existing = await account.get(accountId);
 		assertAccountOwnership(existing, accountConfigId, "act");
 
-		const updates: Record<string, unknown> = {};
-
-		// Handle password updates
-		if (input.password) {
-			const payload = await secrets.encrypt(input.password);
-			updates.passwordHash = JSON.stringify(serializeEncryptedPayload(payload));
-		}
-		if (input.smtpPassword) {
-			const payload = await secrets.encrypt(input.smtpPassword);
-			updates.smtpPasswordHash = JSON.stringify(
-				serializeEncryptedPayload(payload),
-			);
-		}
-
-		if (input.syncedServices !== undefined) {
-			updates.syncedServices = resolveSyncedServices(
-				existing,
-				input.syncedServices,
-			);
-		}
-
-		// Copy non-password fields
-		const fields = [
-			"imapHost",
-			"imapPort",
-			"imapTls",
-			"imapStartTls",
-			"smtpEnabled",
-			"smtpHost",
-			"smtpPort",
-			"smtpTls",
-			"smtpStartTls",
-			"smtpUsername",
-			"isActive",
-		] as const;
-
-		for (const field of fields) {
-			if (input[field] !== undefined) {
-				updates[field] = input[field];
-			}
-		}
-
-		// RFC 032 Tier 2: keep the explicit send-capability marker in sync. When a
-		// caller changes the SMTP host without passing smtpEnabled, derive it from
-		// host presence so the marker can't drift from the config.
-		if (input.smtpEnabled === undefined && input.smtpHost !== undefined) {
-			updates.smtpEnabled = Boolean(input.smtpHost);
-		}
+		const entityFields: { [K in AccountEntityField]: AccountUpdate[K] } = {
+			imapHost: input.imapHost,
+			imapPort: input.imapPort,
+			imapTls: input.imapTls,
+			imapStartTls: input.imapStartTls,
+			// RFC 032 Tier 2: keep the explicit send-capability marker in sync. When a
+			// caller changes the SMTP host without passing smtpEnabled, derive it from
+			// host presence so the marker can't drift from the config.
+			smtpEnabled:
+				input.smtpEnabled ??
+				(input.smtpHost === undefined ? undefined : Boolean(input.smtpHost)),
+			smtpHost: input.smtpHost,
+			smtpPort: input.smtpPort,
+			smtpTls: input.smtpTls,
+			smtpStartTls: input.smtpStartTls,
+			smtpUsername: input.smtpUsername,
+			isActive: input.isActive,
+			syncedServices:
+				input.syncedServices === undefined
+					? undefined
+					: resolveSyncedServices(existing, input.syncedServices),
+		};
+		const updates: AccountUpdate = {
+			...entityFields,
+			passwordHash: await encryptedSecret(secrets, input.password),
+			smtpPasswordHash: await encryptedSecret(secrets, input.smtpPassword),
+		};
 
 		// Display name and the mute flag live in per-account AccountSetting rows
 		// (RFC 032), not on the account entity. Display name upserts when supplied;
