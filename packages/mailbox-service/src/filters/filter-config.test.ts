@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { FilterMatchOperator, FilterScope } from "@remit/domain-enums";
 import { _resetEmbeddingCapabilityForTest } from "@remit/search-service/capability";
 import { PlacementMoveService } from "../placement-move.js";
-import { openStore, type Store } from "../test-helpers/store.js";
+import { openStore, type Store } from "../test-helpers/test-store.js";
 import { buildFilterConfig, type FilterConfigDeps } from "./filter-config.js";
 import type { FilterMessage } from "./match.js";
 import { _resetMessageEmbedderForTest } from "./message-embedder.js";

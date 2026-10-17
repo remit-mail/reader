@@ -14,7 +14,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	storeBody,
-} from "./test-helpers/store.js";
+} from "./test-helpers/test-store.js";
 
 const LIST = eml({
 	From: "Weekly News <news@example.com>",

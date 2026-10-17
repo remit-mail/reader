@@ -39,7 +39,7 @@ import {
 	seedMailbox,
 	silentLog,
 	syncFolder,
-} from "./test-helpers/store.js";
+} from "./test-helpers/test-store.js";
 
 const LINKEDIN = eml(
 	{

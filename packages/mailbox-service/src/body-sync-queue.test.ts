@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { BodySyncQueueService } from "./body-sync-queue.js";
-import { captureQueue, type QueueCapture } from "./test-helpers/store.js";
+import { captureQueue, type QueueCapture } from "./test-helpers/test-store.js";
 
 let capture: QueueCapture;
 let errors: Array<[Record<string, unknown>, string]>;

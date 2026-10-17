@@ -15,7 +15,7 @@ import {
 	seedMailbox,
 	silentLog,
 	syncFolder,
-} from "./test-helpers/store.js";
+} from "./test-helpers/test-store.js";
 
 let store: Store;
 let storage: StorageService;

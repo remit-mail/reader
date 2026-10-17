@@ -6,7 +6,7 @@ import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";
-import { openStore, type Store } from "./test-helpers/store.js";
+import { openStore, type Store } from "./test-helpers/test-store.js";
 
 const PLAIN_EML = Buffer.from(
 	[

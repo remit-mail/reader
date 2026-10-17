@@ -7,7 +7,7 @@ import {
 	FilterScope,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "../placement-move.js";
-import { openStore, type Store } from "../test-helpers/store.js";
+import { openStore, type Store } from "../test-helpers/test-store.js";
 import type { FilterMessage } from "./match.js";
 import { type FilterConfig, FilterPipeline } from "./pipeline.js";
 

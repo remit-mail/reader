@@ -24,7 +24,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	storeBody,
-} from "./test-helpers/store.js";
+} from "./test-helpers/test-store.js";
 
 const PLAIN = eml({ From: "Alice <alice@example.com>", Subject: "Hi" }, "hi");
 

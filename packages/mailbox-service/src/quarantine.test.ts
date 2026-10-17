@@ -14,7 +14,7 @@ import {
 	seedAccount,
 	seedMailbox,
 	silentLog,
-} from "./test-helpers/store.js";
+} from "./test-helpers/test-store.js";
 
 let store: Store;
 let account: AccountItem;
