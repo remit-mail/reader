@@ -138,6 +138,11 @@ export const handleMessageCopy = async (
 		return;
 	}
 
+	// `failed` is an earlier attempt's mark, and the re-drive's: either may
+	// have issued a COPY whose answer was lost.
+	const earlierAttempt =
+		receiveCount > 1 || copyRow.syncStatus === MessageSyncStatus.failed;
+
 	await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
 		account,
@@ -362,7 +367,7 @@ export const handleMessageCopy = async (
 			const settlePausedCopy = async (
 				commandIssued: boolean,
 			): Promise<void> => {
-				const mayHaveIssued = commandIssued || receiveCount > 1;
+				const mayHaveIssued = commandIssued || earlierAttempt;
 
 				if (!mayHaveIssued) {
 					await settleNeverLanded(
@@ -427,7 +432,7 @@ export const handleMessageCopy = async (
 					// duplicates the mail. `absent` is an answer the server gave, so
 					// copying again is safe; `unprobeable` is silence, and copying on
 					// silence is the duplicate this guard exists to prevent.
-					if (receiveCount > 1) {
+					if (earlierAttempt) {
 						const earlier = await probeDestination(rawConnection);
 						if (earlier.kind === "confirmed") {
 							await settleCopied(earlier.uid);

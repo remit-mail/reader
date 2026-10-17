@@ -1,11 +1,13 @@
 import type { RemitClient } from "@remit/backend/client";
 import type { AccountItem, MessageItem } from "@remit/data-ports";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
+import { deriveCopyMessageId } from "@remit/data-ports/id";
 import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
 import { isCursorRebuildNeeded } from "@remit/mailbox-service";
 import type {
+	MessageCopyEventV3,
 	MessageDeleteEventV3,
 	MessageMoveEventV3,
 	PlacementMovePushEvent,
@@ -19,12 +21,18 @@ type Unstamped<T> = Omit<T, "eventId" | "timestamp">;
 export type StrandedPlacementEvent =
 	| Unstamped<PlacementMovePushEvent>
 	| Unstamped<MessageDeleteEventV3>
-	| Unstamped<MessageMoveEventV3>;
+	| Unstamped<MessageMoveEventV3>
+	| Unstamped<MessageCopyEventV3>;
 
 export interface StrandedPlacementRedriveDeps {
 	client: Pick<
 		RemitClient,
-		"mailbox" | "mailboxSpecialUse" | "message" | "placementMove" | "unitOfWork"
+		| "mailbox"
+		| "mailboxSpecialUse"
+		| "message"
+		| "placementMove"
+		| "threadMessage"
+		| "unitOfWork"
 	>;
 	emit: (event: StrandedPlacementEvent) => Promise<void>;
 	log: Logger;
@@ -35,12 +43,57 @@ const isStrandedCopy = (row: MessageItem): boolean =>
 	row.uid === 0 &&
 	typeof row.originalUid !== "number";
 
+type CopyRedrive =
+	| { kind: "redrive"; event: Unstamped<MessageCopyEventV3> }
+	| { kind: "source-gone" }
+	| { kind: "wait" };
+
 /**
- * A copy row at uid 0 names nothing on the server, and with no event left
- * nothing will bind it. Dropping it, listing row and all, is exact: a COPY that
- * did land is an ordinary message to the destination's next sync.
+ * The message a uid-0 copy was made from. The copy's listing row carries the
+ * source's thread and Message-ID, and the copy's id is derived from the
+ * source's, so the one thread row whose id derives to it is the source.
  */
-const removeStrandedCopy = async (
+const copyRedriveFor = async (
+	client: StrandedPlacementRedriveDeps["client"],
+	account: AccountItem,
+	copy: MessageItem,
+): Promise<CopyRedrive> => {
+	const listing = await client.threadMessage.findByMessageId(
+		account.accountConfigId,
+		copy.messageId,
+	);
+	if (!listing) return { kind: "source-gone" };
+	const thread = await client.threadMessage.listByThread(
+		listing.threadId,
+		account.accountConfigId,
+	);
+	const candidate = thread.items.find(
+		(row) =>
+			row.messageId !== copy.messageId &&
+			row.messageIdHeader === listing.messageIdHeader &&
+			deriveCopyMessageId(row.messageId, copy.mailboxId) === copy.messageId,
+	);
+	if (!candidate) return { kind: "source-gone" };
+	const [source] = await client.message.get([candidate.messageId]);
+	if (!source) return { kind: "source-gone" };
+	if (source.status !== MessageStatus.active) return { kind: "wait" };
+	return {
+		kind: "redrive",
+		event: {
+			type: "MESSAGE_COPY",
+			schemaVersion: PATHLESS_MUTATION_EVENT_SCHEMA_VERSION,
+			accountId: account.accountId,
+			sourceMessageId: source.messageId,
+			newMessageId: copy.messageId,
+			sourceMailboxId: source.mailboxId,
+			destinationMailboxId: copy.mailboxId,
+			uid: source.uid,
+		},
+	};
+};
+
+/** A copy whose source is gone everywhere has nothing to bind and nothing to hide. */
+const removeOrphanedCopy = async (
 	deps: StrandedPlacementRedriveDeps,
 	account: AccountItem,
 	row: MessageItem,
@@ -48,7 +101,7 @@ const removeStrandedCopy = async (
 ): Promise<boolean> => {
 	const { unitOfWork } = deps.client;
 	if (!unitOfWork) {
-		throw new Error("Removing a stranded copy needs the store's unit of work");
+		throw new Error("Removing an orphaned copy needs the store's unit of work");
 	}
 	const removed = await unitOfWork.transaction(async (repos) => {
 		const deleted = await repos.message.deleteIfPlacement(row.messageId, {
@@ -74,13 +127,13 @@ const removeStrandedCopy = async (
 	if (!removed) return false;
 	deps.log.error(
 		{
-			alert: "stranded_copy_removed",
+			alert: "stranded_copy_source_gone",
 			accountId: account.accountId,
 			messageId: row.messageId,
 			mailboxId: row.mailboxId,
 			untouchedForMs: now - row.updatedAt,
 		},
-		"A copy never bound to a server uid was removed; the destination's next sync re-projects it if the COPY landed",
+		"A copy stranded at uid 0 lost its source message; the copy row was removed",
 	);
 	return true;
 };
@@ -179,17 +232,29 @@ export const redriveStrandedPlacements = async (
 
 	let redriven = 0;
 	for (const row of stranded) {
-		if (isStrandedCopy(row)) {
-			if (await removeStrandedCopy(deps, account, row, now)) redriven += 1;
+		const copy = isStrandedCopy(row)
+			? await copyRedriveFor(client, account, row)
+			: undefined;
+		if (copy?.kind === "wait") continue;
+		if (copy?.kind === "source-gone") {
+			if (await removeOrphanedCopy(deps, account, row, now)) redriven += 1;
 			continue;
 		}
-		const event = await eventFor(client, account, row, trashMailboxId);
+		const event =
+			copy?.kind === "redrive"
+				? copy.event
+				: await eventFor(client, account, row, trashMailboxId);
 		if (!event) continue;
 
+		// A copy's earlier COPY may have landed with its answer lost, so the
+		// re-drive marks it `failed`: the copy handler then asks the destination
+		// before it copies again.
 		const claimed = await client.message.transitionPlacement(
 			row.messageId,
 			{ status: row.status, mailboxId: row.mailboxId, uid: row.uid },
-			{ syncStatus: MessageSyncStatus.pending },
+			{
+				syncStatus: copy ? MessageSyncStatus.failed : MessageSyncStatus.pending,
+			},
 		);
 		if (!claimed) continue;
 

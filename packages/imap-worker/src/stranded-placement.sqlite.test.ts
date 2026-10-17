@@ -15,7 +15,12 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "@remit/mailbox-service";
-import type { MessageMoveEvent, PlacementMovePushEvent } from "./events.js";
+import type {
+	MessageCopyEvent,
+	MessageMoveEvent,
+	PlacementMovePushEvent,
+} from "./events.js";
+import { handleMessageCopy } from "./handlers/message-copy.js";
 import { handleMessageMove } from "./handlers/message-move.js";
 import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
 import {
@@ -24,6 +29,7 @@ import {
 	type StrandedPlacementEvent,
 } from "./scheduler/stranded-placement-redrive.js";
 import {
+	mail,
 	openStore,
 	type SeededMessage,
 	type World,
@@ -634,21 +640,88 @@ describe("a uid-0 copy whose event is gone", () => {
 		);
 	};
 
-	it("is removed past the budget, listing and all, and the original is untouched", async () => {
+	const redriveCopy = async (a: Arranged): Promise<void> => {
+		const [copy] = await redriveLater(a);
+		assert.equal(copy?.type, "MESSAGE_COPY");
+		await handleMessageCopy(
+			stamped<MessageCopyEvent>(copy),
+			a.w.log,
+			1,
+			a.w.scope,
+		);
+	};
+
+	it("binds a copy that did land to the destination's uid, as its one row", async () => {
 		const a = await arrange();
-		const before = await placementOf(a);
+		const copyId = await strandCopy(a);
+		const landedUid = a.w.imap.deliver(
+			a.notifications.fullPath,
+			mail(a.message.messageIdHeader),
+		);
+
+		await redriveCopy(a);
+
+		const copy = await a.w.row(copyId);
+		assert.equal(copy?.status, MessageStatus.active);
+		assert.equal(copy?.uid, landedUid);
+		assert.deepEqual(a.w.imap.commands("COPY"), []);
+		assert.deepEqual(a.w.imap.uids(a.notifications.fullPath), [landedUid]);
+		assert.deepEqual(
+			(
+				await a.w.client.message.listAllByMailbox(a.notifications.mailboxId)
+			).map((row) => row.messageId),
+			[copyId],
+		);
+		assert.deepEqual(await a.w.threadRows(copyId), [
+			{
+				mailboxId: a.notifications.mailboxId,
+				uid: landedUid,
+				isDeleted: false,
+			},
+		]);
+	});
+
+	it("copies once a copy that never landed", async () => {
+		const a = await arrange();
 		const copyId = await strandCopy(a);
 
-		await redriveLater(a);
+		await redriveCopy(a);
+
+		const copy = await a.w.row(copyId);
+		assert.equal(copy?.status, MessageStatus.active);
+		assert.equal(a.w.imap.commands("COPY").length, 1);
+		assert.deepEqual(a.w.imap.uids(a.notifications.fullPath), [copy?.uid]);
+		assert.deepEqual(await placementOf(a), {
+			...backIn(a, a.inbox),
+			syncStatus: a.seededSyncStatus,
+		});
+	});
+
+	it("removes a copy whose source message is gone everywhere", async () => {
+		const a = await arrange();
+		const copyId = await strandCopy(a);
+		await a.w.client.threadMessage.deleteMany(
+			(
+				await a.w.client.threadMessage.findAllByMessageId(
+					a.w.account.accountConfigId,
+					a.message.messageId,
+				)
+			).map((row) => ({
+				accountConfigId: row.accountConfigId,
+				threadMessageId: row.threadMessageId,
+			})),
+		);
+		await a.w.client.message.delete(a.message.messageId);
+
+		assert.deepEqual(await redriveLater(a), []);
 
 		assert.equal(await a.w.row(copyId), undefined);
 		assert.deepEqual(await a.w.threadRows(copyId), []);
-		assert.deepEqual(await placementOf(a), before);
 		assert.ok(
 			a.w.logs.some(
 				(line) =>
 					line.level === "error" &&
-					line.fields.alert === "stranded_copy_removed" &&
+					line.fields.alert === "stranded_copy_source_gone" &&
 					line.fields.messageId === copyId,
 			),
 		);
@@ -658,8 +731,10 @@ describe("a uid-0 copy whose event is gone", () => {
 		const a = await arrange();
 		const copyId = await strandCopy(a);
 
-		await redriveLater(a, 0);
+		assert.deepEqual(await redriveLater(a, 0), []);
 
-		assert.equal((await a.w.row(copyId))?.status, MessageStatus.moving);
+		const copy = await a.w.row(copyId);
+		assert.equal(copy?.status, MessageStatus.moving);
+		assert.equal(copy?.uid, 0);
 	});
 });
