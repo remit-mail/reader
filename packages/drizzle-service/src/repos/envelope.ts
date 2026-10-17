@@ -6,6 +6,7 @@ import type {
 	EnvelopeItem,
 	IEnvelopeRepository,
 	MessageData,
+	MessageReferenceInput,
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
 import { eq, inArray } from "drizzle-orm";
@@ -20,6 +21,7 @@ import {
 	bodyPartId as deriveBodyPartId,
 	bodyPartParameterId as deriveBodyPartParameterId,
 	envelopeId as deriveEnvelopeId,
+	deterministicBase36Id,
 } from "../id.js";
 import {
 	bodyPartContentTable,
@@ -201,6 +203,32 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 						},
 					});
 			}
+		});
+	}
+
+	async replaceMessageReferences(
+		messageId: string,
+		references: MessageReferenceInput[],
+	): Promise<void> {
+		const now = Date.now();
+		const envelopeId = deriveEnvelopeId(messageId);
+		await runInTransaction(this.db, async (tx) => {
+			await tx
+				.delete(messageReferenceTable)
+				.where(eq(messageReferenceTable.messageId, messageId));
+			if (references.length === 0) return;
+			await tx.insert(messageReferenceTable).values(
+				references.map((reference) => ({
+					...reference,
+					messageReferenceId: deterministicBase36Id(
+						`msgref:${messageId}:${reference.referenceType}:${reference.referenceOrder}`,
+					),
+					messageId,
+					envelopeId,
+					createdAt: now,
+					updatedAt: now,
+				})),
+			);
 		});
 	}
 

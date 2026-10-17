@@ -10,6 +10,7 @@ import {
 	ConflictError,
 	MailSyncOffError,
 } from "@remit/data-ports/errors";
+import { bareMessageId } from "@remit/data-ports/id";
 import { AccountService, OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
@@ -68,6 +69,27 @@ export interface UpdateDraftInput {
 	inReplyTo?: string;
 	references?: string[];
 }
+
+const MAX_REFERENCES = 21;
+
+const capReferences = (ids: string[]): string[] =>
+	ids.length <= MAX_REFERENCES
+		? ids
+		: [ids[0], ...ids.slice(ids.length - (MAX_REFERENCES - 1))];
+
+const bareThreadingHeaders = (input: {
+	inReplyTo?: string;
+	references?: string[];
+}): { inReplyTo?: string; references?: string[] } => ({
+	...(input.inReplyTo !== undefined && {
+		inReplyTo: bareMessageId(input.inReplyTo),
+	}),
+	...(input.references !== undefined && {
+		references: capReferences([
+			...new Set(input.references.map(bareMessageId).filter((id) => id !== "")),
+		]),
+	}),
+});
 
 /**
  * Nobody to send to. `@minItems(1)` on the create input is the only thing that
@@ -184,8 +206,7 @@ export class OutboxQueueService {
 			subject: input.subject,
 			textBody: input.textBody,
 			htmlBody: input.htmlBody,
-			inReplyTo: input.inReplyTo,
-			references: input.references,
+			...bareThreadingHeaders(input),
 			messageIdValue,
 			status: OutboxMessageStatus.draft,
 		});
@@ -244,10 +265,7 @@ export class OutboxQueueService {
 				...(input.subject !== undefined && { subject: input.subject }),
 				...(input.textBody !== undefined && { textBody: input.textBody }),
 				...(input.htmlBody !== undefined && { htmlBody: input.htmlBody }),
-				...(input.inReplyTo !== undefined && { inReplyTo: input.inReplyTo }),
-				...(input.references !== undefined && {
-					references: input.references,
-				}),
+				...bareThreadingHeaders(input),
 			},
 		);
 		if (!updated) throw new ConflictError(MOVED_WHILE_EDITING_MESSAGE);
@@ -369,8 +387,7 @@ export class OutboxQueueService {
 			subject: input.subject,
 			textBody: input.textBody,
 			htmlBody: input.htmlBody,
-			inReplyTo: input.inReplyTo,
-			references: input.references,
+			...bareThreadingHeaders(input),
 			messageIdValue,
 			status: OutboxMessageStatus.queued,
 		});

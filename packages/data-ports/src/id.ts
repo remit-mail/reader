@@ -101,11 +101,14 @@ export const deriveCalendarSuggestionId = (
 		REMIT_NAMESPACE,
 	);
 
-export const isValidMessageId = (messageId: string | undefined): boolean => {
-	if (!messageId) return false;
-	const trimmed = messageId.trim();
-	return trimmed !== "" && trimmed !== "<>";
-};
+export const bareMessageId = (value: string): string =>
+	value.replace(/^[\s<]+|[\s>]+$/g, "");
+
+export const wireMessageId = (value: string): string =>
+	`<${bareMessageId(value)}>`;
+
+export const isValidMessageId = (messageId: string | undefined): boolean =>
+	messageId !== undefined && bareMessageId(messageId) !== "";
 
 export const normalizeMessageIdHeader = (source: MessageIdSource): string => {
 	if (isValidMessageId(source.messageId)) {

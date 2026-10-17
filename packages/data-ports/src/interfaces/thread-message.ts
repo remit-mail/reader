@@ -200,6 +200,11 @@ export interface IThreadMessageRepository {
 		accountConfigId: string,
 		messageId: string,
 	): Promise<ThreadMessageItem[]>;
+	rekeyThread(
+		accountConfigId: string,
+		fromThreadId: string,
+		toThreadId: string,
+	): Promise<{ moved: number; dropped: number }>;
 	getByMessageId(
 		accountConfigId: string,
 		messageId: string,

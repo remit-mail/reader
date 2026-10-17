@@ -289,3 +289,27 @@ describe("OutboxQueueService and an account with mail off", () => {
 		assert.equal(harness.enqueued.length, 1);
 	});
 });
+
+describe("OutboxQueueService and a reply's threading headers", () => {
+	it("stores the parent's ids bare however they were bracketed", async () => {
+		const { service } = createHarness(draft({}));
+
+		const outbox = await service.createDraft(
+			sendInput({
+				toAddresses: ["them@example.com"],
+				inReplyTo: "<parent@example.com>",
+				references: [
+					"<<root@example.com>>",
+					"parent@example.com",
+					"<parent@example.com>",
+				],
+			}),
+		);
+
+		assert.equal(outbox.inReplyTo, "parent@example.com");
+		assert.deepEqual(outbox.references, [
+			"root@example.com",
+			"parent@example.com",
+		]);
+	});
+});

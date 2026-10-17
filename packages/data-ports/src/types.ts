@@ -35,6 +35,7 @@ import type {
 	SenderSignerStandingSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
+import type { ReferenceType } from "@remit/domain-enums";
 import type { z } from "zod";
 
 export type ResultList<T> = {
@@ -77,6 +78,10 @@ export type MessageReferenceItem = {
 	createdAt: number;
 	updatedAt: number;
 };
+export type MessageReferenceInput = Pick<
+	MessageReferenceItem,
+	"messageIdValue" | "referenceOrder"
+> & { referenceType: (typeof ReferenceType)[keyof typeof ReferenceType] };
 export type EnvelopeAddressItem = z.infer<typeof EnvelopeAddressSchema>;
 export type BodyPartParameterItem = z.infer<typeof BodyPartParameterSchema>;
 export type RawMessageStorageItem = z.infer<typeof RawMessageStorageSchema>;
