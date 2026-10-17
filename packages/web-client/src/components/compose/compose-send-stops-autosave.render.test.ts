@@ -273,8 +273,8 @@ describe("compose and the outbox entry it is sending (#604, #674)", () => {
 		);
 		// Autosave never writes these, so an entry autosaved before Send used to
 		// go out unchained from the message it replies to.
-		assert.equal(written?.body?.inReplyTo, "m1@example.com");
-		assert.deepEqual(written?.body?.references, ["m1@example.com"]);
+		assert.equal(written?.body?.inReplyTo, "<m1@example.com>");
+		assert.deepEqual(written?.body?.references, ["<m1@example.com>"]);
 		assert.equal(closed, 1, "compose closed on a successful send");
 	});
 

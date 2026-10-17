@@ -1,15 +1,3 @@
-/**
- * A reply from reader names its parent with one pair of brackets, and lands in
- * the parent's thread.
- *
- * The composer handed over the parent's Message-ID as the envelope holds it,
- * brackets included, and the builder wrapped it again: every reply went out as
- * `In-Reply-To: <<id>>`. Sync keyed the thread on that spelling, so the reply
- * opened a conversation of its own, and a correspondent whose client copied the
- * References carried later mail into the split thread too. The headers are read
- * off the Sent copy the server holds, and the threads off the read model.
- */
-
 import type { BrowserContext, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
@@ -25,12 +13,9 @@ const CORRESPONDENT = "correspondent@remit.test";
 const ROOT_ID = `<brackets-root-${STAMP}@remit.test>`;
 const ROOT_SUBJECT = `Brackets root ${STAMP}`;
 const PARENT_ID = `<brackets-parent-${STAMP}@remit.test>`;
-/** The message the parent answers, held by nobody here: the parent is a thread of its own. */
-const ELSEWHERE_ID = `<brackets-elsewhere-${STAMP}@remit.test>`;
 const PARENT_SUBJECT = `Brackets parent ${STAMP}`;
 const ANSWER_SUBJECT = `Brackets answer ${STAMP}`;
 
-/** One header's value, unfolded, from raw RFC 5322 source. */
 const headerOf = (raw: string, name: string): string | undefined => {
 	const head = raw.split(/\r?\n\r?\n/, 1)[0].replace(/\r?\n[ \t]+/g, " ");
 	const prefix = `${name.toLowerCase()}:`;
@@ -71,21 +56,15 @@ test.describe("A reply sent from reader", () => {
 
 	test.beforeAll(async ({ browser }) => {
 		test.setTimeout(300_000);
-		const receivedAt = Date.now();
+		const startedAt = Date.now();
 		run = await provisionIsolatedRun("E2E Reply Brackets", [
-			{
-				subject: ROOT_SUBJECT,
-				from: `Correspondent <${CORRESPONDENT}>`,
-				messageIdHeader: ROOT_ID,
-				date: new Date(receivedAt - 120_000),
-			},
 			{
 				subject: PARENT_SUBJECT,
 				from: `Correspondent <${CORRESPONDENT}>`,
 				messageIdHeader: PARENT_ID,
-				inReplyTo: ELSEWHERE_ID,
-				references: [ELSEWHERE_ID],
-				date: new Date(receivedAt - 60_000),
+				inReplyTo: ROOT_ID,
+				references: [ROOT_ID],
+				date: new Date(startedAt - 60_000),
 			},
 		]);
 		api = new ApiClient(run);
@@ -98,6 +77,20 @@ test.describe("A reply sent from reader", () => {
 		const sent = boxes.find((box) => box.fullPath === "Sent");
 		if (!sent) throw new Error("unreachable: the Sent folder was matched");
 		sentId = sent.mailboxId;
+
+		await appendMessages(
+			run.imapUser,
+			[
+				{
+					subject: ROOT_SUBJECT,
+					from: run.imapUser,
+					to: CORRESPONDENT,
+					messageIdHeader: ROOT_ID,
+					date: new Date(startedAt - 120_000),
+				},
+			],
+			"Sent",
+		);
 
 		context = await browser.newContext({
 			storageState: run.storageState,
@@ -130,9 +123,8 @@ test.describe("A reply sent from reader", () => {
 			timeout: 30_000,
 		});
 
-		const replySubject = `Re: ${subject}`;
 		const filed = await waitFor(
-			() => serverRawSourceForSubject(run.imapUser, "Sent", replySubject),
+			() => serverRawSourceForSubject(run.imapUser, "Sent", `Re: ${subject}`),
 			(source) => source !== null,
 			{ timeoutMs: 120_000, what: "the Sent copy to be filed on the server" },
 		);
@@ -140,46 +132,34 @@ test.describe("A reply sent from reader", () => {
 		return filed;
 	};
 
-	test("a reply to a reply names its parent with one pair of brackets", async () => {
+	test("a reply to a reply names its chain with single brackets and joins the root's thread", async () => {
 		test.setTimeout(300_000);
+		const rootThreadId = await threadIdForSubject(
+			api,
+			run,
+			sentId,
+			ROOT_SUBJECT,
+		);
 		const page = await context.newPage();
 
 		const filed = await replyTo(page, PARENT_SUBJECT);
 
 		expect(headerOf(filed, "In-Reply-To")).toBe(PARENT_ID);
-		const references = (headerOf(filed, "References") ?? "").split(/\s+/);
-		expect(references).toContain(PARENT_ID);
-		for (const reference of references) {
-			expect(reference).toMatch(/^<[^<>]+>$/);
-		}
-	});
-
-	test("a reply lands in the thread of the message it answers", async () => {
-		test.setTimeout(300_000);
-		const page = await context.newPage();
-
-		const filed = await replyTo(page, ROOT_SUBJECT);
-		expect(headerOf(filed, "In-Reply-To")).toBe(ROOT_ID);
-
-		const rootThreadId = await threadIdForSubject(
-			api,
-			run,
-			run.inboxId,
-			ROOT_SUBJECT,
-		);
+		expect((headerOf(filed, "References") ?? "").split(/\s+/)).toEqual([
+			ROOT_ID,
+			PARENT_ID,
+		]);
 		const replyThreadId = await threadIdForSubject(
 			api,
 			run,
 			sentId,
-			`Re: ${ROOT_SUBJECT}`,
+			`Re: ${PARENT_SUBJECT}`,
 		);
 		expect(replyThreadId).toBe(rootThreadId);
 	});
 
 	test("an answer that doubled its parent's brackets still joins the parent's thread", async () => {
 		test.setTimeout(300_000);
-		// What a correspondent's client sends back after copying one of the
-		// doubled replies reader used to send.
 		await appendMessages(run.imapUser, [
 			{
 				subject: ANSWER_SUBJECT,
@@ -193,7 +173,7 @@ test.describe("A reply sent from reader", () => {
 		const rootThreadId = await threadIdForSubject(
 			api,
 			run,
-			run.inboxId,
+			sentId,
 			ROOT_SUBJECT,
 		);
 		const answerThreadId = await threadIdForSubject(

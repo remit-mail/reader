@@ -56,10 +56,6 @@
 		"./message-settlement": {
 			"types": "./src/message-settlement.ts",
 			"default": "./src/message-settlement.ts"
-		},
-		"./message-id": {
-			"types": "./src/message-id.ts",
-			"default": "./src/message-id.ts"
 		}
 	},
 	"scripts": {

@@ -1,5 +1,5 @@
 import type { OutboxMessageItem } from "@remit/data-ports";
-import { wireMessageId } from "@remit/data-ports/message-id";
+import { wireMessageId } from "@remit/data-ports/id";
 import nodemailer, { type SendMailOptions } from "nodemailer";
 
 export interface MailMessage {

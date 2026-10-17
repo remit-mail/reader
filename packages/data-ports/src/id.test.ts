@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	bareMessageId,
 	base36uuidv5,
 	deriveAddressId,
 	deriveBodyPartId,
@@ -18,6 +19,7 @@ import {
 	quarantineMessageIdHash,
 	REMIT_NAMESPACE,
 	ROOT_PART_PATH,
+	wireMessageId,
 } from "./id.js";
 
 const ACCOUNT = "acct-1";
@@ -348,5 +350,18 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 			quarantineMessageIdHash("<golden@example.com>"),
 			"sha256:5e888fd63760269e96a61e1a09b83ddec28556d0e3cda7e480897e58c8e6a2f5",
 		);
+	});
+});
+
+describe("a Message-ID however it is bracketed", () => {
+	it("is one bare id and one wire spelling", () => {
+		for (const spelling of [
+			"x@remit.test",
+			"<x@remit.test>",
+			" <<x@remit.test>> ",
+		]) {
+			assert.equal(bareMessageId(spelling), "x@remit.test");
+			assert.equal(wireMessageId(spelling), "<x@remit.test>");
+		}
 	});
 });

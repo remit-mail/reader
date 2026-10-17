@@ -130,6 +130,7 @@ export type {
 	MessageItem,
 	MessageLabelItem,
 	MessagePlacementMoveItem,
+	MessageReferenceInput,
 	MessageReferenceItem,
 	ObserveSenderSignerStandingInput,
 	OrganizeJobRequestItem,

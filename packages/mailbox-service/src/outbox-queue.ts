@@ -10,7 +10,7 @@ import {
 	ConflictError,
 	MailSyncOffError,
 } from "@remit/data-ports/errors";
-import { bareMessageId } from "@remit/data-ports/message-id";
+import { bareMessageId } from "@remit/data-ports/id";
 import { AccountService, OutboxMessageStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
@@ -70,12 +70,6 @@ export interface UpdateDraftInput {
 	references?: string[];
 }
 
-/**
- * The threading headers as the outbox stores them: bare ids. The composer hands
- * over the parent's Message-ID as the envelope holds it, brackets included, and
- * the builder adds its own pair on the way out — stored as given, every reply
- * went out as `<<id>>` and threaded nowhere.
- */
 const bareThreadingHeaders = (input: {
 	inReplyTo?: string;
 	references?: string[];

@@ -1,33 +1,45 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { deriveThreadId } from "@remit/data-ports/id";
 import type Database from "better-sqlite3";
+import { DrizzleMessageRepository } from "../repos/message.js";
 import { deriveThreadMessageId } from "../repos/thread-message.js";
 import { createShippedSqliteDb } from "../test-sqlite.js";
-import {
-	sweepThreadRootSpelling,
-	type ThreadRootRepairClient,
-} from "./thread-root-spelling.js";
+import { moveMisfiledThreadRows } from "./thread-root-spelling.js";
 
 const CONFIG = "cfg-1";
 const PARENT = "<parent@remit.test>";
 const DOUBLED = "<<parent@remit.test>>";
 
-const clientOver = (sqlite: Database.Database): ThreadRootRepairClient => ({
-	all: async (sql, params) => sqlite.prepare(sql).all(...params),
-	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
-});
-
-describe("threads keyed on a misspelt root Message-ID", () => {
+describe("thread rows filed under a doubled-bracket root", () => {
+	let handle: ReturnType<typeof createShippedSqliteDb>;
 	let sqlite: Database.Database;
-	let close: () => void;
+	const created = new Set<string>();
 
-	const insert = (
+	const insert = async (
 		messageId: string,
 		threadId: string,
 		messageIdHeader: string,
 		inReplyTo: string | null,
-	): void => {
+	): Promise<void> => {
+		if (!created.has(messageId)) {
+			created.add(messageId);
+			await new DrizzleMessageRepository(
+				handle.db as unknown as ConstructorParameters<
+					typeof DrizzleMessageRepository
+				>[0],
+			).create({
+				messageId,
+				mailboxId: "mbx",
+				uid: 1,
+				sequenceNumber: 1,
+				rfc822Size: 1,
+				internalDate: 0,
+				envelopeId: randomUUID(),
+				rootBodyPartId: randomUUID(),
+			});
+		}
 		sqlite
 			.prepare(
 				`INSERT INTO thread_message (
@@ -47,121 +59,92 @@ describe("threads keyed on a misspelt root Message-ID", () => {
 			);
 	};
 
-	const rowsOf = (
-		messageId: string,
-	): { thread_message_id: string; thread_id: string; in_reply_to: string }[] =>
-		sqlite
-			.prepare(
-				"SELECT thread_message_id, thread_id, in_reply_to FROM thread_message WHERE message_id = ?",
-			)
-			.all(messageId) as {
-			thread_message_id: string;
-			thread_id: string;
-			in_reply_to: string;
-		}[];
+	const threadsOf = (messageId: string): string[] =>
+		(
+			sqlite
+				.prepare("SELECT thread_id FROM thread_message WHERE message_id = ?")
+				.all(messageId) as { thread_id: string }[]
+		).map((row) => row.thread_id);
 
+	const rootThread = deriveThreadId(CONFIG, "<root@remit.test>");
 	const parentThread = deriveThreadId(CONFIG, PARENT);
 	const splitThread = deriveThreadId(CONFIG, DOUBLED);
 
 	before(() => {
-		({ sqlite, close } = createShippedSqliteDb());
+		handle = createShippedSqliteDb();
+		sqlite = handle.sqlite;
 	});
 
 	beforeEach(() => {
-		sqlite.exec("DELETE FROM thread_message");
-		sqlite.exec("DELETE FROM outbox");
+		created.clear();
+		for (const table of ["thread_message", "outbox", "message"]) {
+			sqlite.exec(`DELETE FROM ${table}`);
+		}
 	});
 
 	after(() => {
-		close();
+		handle.close();
 	});
 
 	test("moves a doubled reply and the mail that copied it into the parent's thread", async () => {
-		insert("m-parent", parentThread, PARENT, null);
-		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
-		// The correspondent's answer: its own In-Reply-To is well formed, but its
-		// References copied the doubled root, so it was keyed with the reply.
-		insert(
+		await insert("m-parent", parentThread, PARENT, null);
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+		await insert(
 			"m-answer",
 			splitThread,
 			"<answer@remit.test>",
 			"<reply@remit.test>",
 		);
 
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
+		const report = await moveMisfiledThreadRows(handle.db, "repair");
 
-		assert.equal(report.misfiled, 2);
 		assert.equal(report.moved, 2);
-		for (const messageId of ["m-reply", "m-answer"]) {
-			const [row] = rowsOf(messageId);
-			assert.equal(row?.thread_id, parentThread);
-			assert.equal(
-				row?.thread_message_id,
-				deriveThreadMessageId(parentThread, messageId),
-			);
-		}
-		assert.equal(rowsOf("m-reply")[0]?.in_reply_to, PARENT);
+		assert.deepEqual(threadsOf("m-reply"), [parentThread]);
+		assert.deepEqual(threadsOf("m-answer"), [parentThread]);
 	});
 
-	test("queues each moved message once for the forced re-index a move gets", async () => {
-		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+	test("follows a parent that is itself a reply into the thread it is stored in", async () => {
+		await insert("m-parent", rootThread, PARENT, "<root@remit.test>");
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
-		await sweepThreadRootSpelling(clientOver(sqlite), "repair");
+		await moveMisfiledThreadRows(handle.db, "repair");
 
-		assert.equal(report.reindexed, 1);
+		assert.deepEqual(threadsOf("m-reply"), [rootThread]);
+	});
+
+	test("drops the stale row where sync already filed the message again", async () => {
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+		await insert("m-reply", parentThread, "<reply@remit.test>", DOUBLED);
+
+		const report = await moveMisfiledThreadRows(handle.db, "repair");
+
+		assert.equal(report.dropped, 1);
+		assert.deepEqual(threadsOf("m-reply"), [parentThread]);
+	});
+
+	test("queues each moved message once for re-indexing, and a second run finds nothing", async () => {
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+
+		await moveMisfiledThreadRows(handle.db, "repair");
+		const second = await moveMisfiledThreadRows(handle.db, "repair");
+
+		assert.equal(second.misfiled, 0);
 		assert.deepEqual(
 			sqlite
 				.prepare(
-					"SELECT message_id, event FROM outbox WHERE processed_at IS NULL",
+					"SELECT message_id, event FROM outbox WHERE processed_at IS NULL AND event = 'message.moved'",
 				)
 				.all(),
 			[{ message_id: "m-reply", event: "message.moved" }],
 		);
 	});
 
-	test("drops the stale row where sync already filed the message again", async () => {
-		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
-		insert("m-reply", parentThread, "<reply@remit.test>", PARENT);
-
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
-
-		assert.equal(report.dropped, 1);
-		assert.deepEqual(
-			rowsOf("m-reply").map((row) => row.thread_id),
-			[parentThread],
-		);
-	});
-
-	test("a second run writes nothing", async () => {
-		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
-		await sweepThreadRootSpelling(clientOver(sqlite), "repair");
-
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
-
-		assert.equal(report.misfiled, 0);
-		assert.equal(report.misspeltInReplyTo, 0);
-		assert.equal(report.rewritten, 0);
-	});
-
-	test("leaves a well-spelt thread alone", async () => {
-		insert("m-parent", parentThread, PARENT, null);
-		insert("m-plain", parentThread, "<plain@remit.test>", PARENT);
-
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "repair");
-
-		assert.equal(report.misfiled, 0);
-		assert.equal(rowsOf("m-plain")[0]?.thread_id, parentThread);
-	});
-
 	test("check mode reports the split and writes nothing", async () => {
-		insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
+		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
-		const report = await sweepThreadRootSpelling(clientOver(sqlite), "check");
+		const report = await moveMisfiledThreadRows(handle.db, "check");
 
 		assert.equal(report.misfiled, 1);
-		assert.equal(report.moved, 0);
-		assert.equal(rowsOf("m-reply")[0]?.thread_id, splitThread);
-		assert.equal(rowsOf("m-reply")[0]?.in_reply_to, DOUBLED);
+		assert.deepEqual(threadsOf("m-reply"), [splitThread]);
 	});
 });

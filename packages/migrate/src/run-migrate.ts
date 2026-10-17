@@ -39,8 +39,7 @@ import {
 } from "../../drizzle-service/src/repair/thread-message-category.js";
 import {
 	formatThreadRootReport,
-	sweepThreadRootSpelling,
-	type ThreadRootRepairClient,
+	moveMisfiledThreadRows,
 	type ThreadRootRepairMode,
 } from "../../drizzle-service/src/repair/thread-root-spelling.js";
 import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
@@ -67,7 +66,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in five places.
+ * DDL objects around them, and rewrites row content in four places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -117,12 +116,6 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * `deleteMessageSubtree`, so the search index is cleared with it. In
  * `--check` mode the report also counts the duplicate paths the pending
  * migration will merge, since nothing has been parked yet.
- *
- * The fifth is a thread keyed on a misspelt root Message-ID. Reader sent its
- * replies with doubled brackets, so each one opened a thread beside the one it
- * answered. Purge and re-sync is no remedy here either: the misspelt headers are
- * on the server, and only the key sync derives from them has changed. It moves
- * those rows to the key sync derives now and touches nothing else.
 
  */
 
@@ -248,15 +241,11 @@ const junkOnlyAddressStep = async (
 	}
 };
 
-/**
- * A count on every boot and a write only on the first one after the fix: once
- * the misfiled rows have moved, no stored header names a key that holds any.
- */
 const threadRootStep = async (
-	client: ThreadRootRepairClient,
+	db: Parameters<typeof moveMisfiledThreadRows>[0],
 	mode: ThreadRootRepairMode,
 ): Promise<void> => {
-	const report = await sweepThreadRootSpelling(client, mode);
+	const report = await moveMisfiledThreadRows(db, mode);
 	for (const line of formatThreadRootReport(report)) {
 		logStep({ step: "thread-root-repair" }, line);
 	}
@@ -264,8 +253,7 @@ const threadRootStep = async (
 
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
-	JunkOnlyRepairClient &
-	ThreadRootRepairClient;
+	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
@@ -304,7 +292,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await strandedSentStep(paramRepairClient, "check");
 			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
-			await threadRootStep(paramRepairClient, "check");
+			await threadRootStep(db, "check");
 			return;
 		}
 
@@ -354,9 +342,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		await duplicateMailStep(db, "repair");
 
-		// Before the FTS transaction: a moved row keeps its rowid, and no trigger
-		// installed below watches the columns this rewrites.
-		await threadRootStep(paramRepairClient, "repair");
+		await threadRootStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
