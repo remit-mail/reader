@@ -587,6 +587,44 @@ export class ApiClient {
 	}
 
 	/**
+	 * Sync until one folder's own message-sync round has run again. A trigger
+	 * that lands while a round is running is dropped as a duplicate (#37), so it
+	 * is re-issued until the folder's `lastSyncedAt` moves.
+	 */
+	async syncPastMailbox(
+		accountId: string,
+		fullPath: string,
+		{ timeoutMs = 120_000 }: { timeoutMs?: number } = {},
+	): Promise<void> {
+		const lastSyncedAt = (status: AccountSyncStatus): number =>
+			status.mailboxes.find((mailbox) => mailbox.fullPath === fullPath)
+				?.lastSyncedAt ?? 0;
+		const cursor = lastSyncedAt(await this.getSyncStatus(accountId));
+		const deadline = Date.now() + timeoutMs;
+
+		while (Date.now() < deadline) {
+			await this.triggerSync(accountId).catch(() => undefined);
+			const advanced = await waitFor(
+				() => this.getSyncStatus(accountId),
+				(status) => lastSyncedAt(status) > cursor,
+				{
+					timeoutMs: Math.min(20_000, Math.max(deadline - Date.now(), 1_000)),
+					intervalMs: 1_000,
+					what: `a message-sync round over "${fullPath}"`,
+				},
+			).then(
+				() => true,
+				() => false,
+			);
+			if (advanced) return;
+		}
+
+		throw new Error(
+			`"${fullPath}" ran no message-sync round within ${timeoutMs}ms of being asked`,
+		);
+	}
+
+	/**
 	 * The same bulk move the reading pane's move picker issues. Specs use it to
 	 * put a message back where they found it: the suite runs serially over one
 	 * shared mailbox, and several specs assert the inbox holds exactly the

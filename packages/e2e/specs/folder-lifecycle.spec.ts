@@ -102,22 +102,18 @@ const observe = async (
 };
 
 /**
- * Trigger one sync, then wait for that sync to reach the folder before
- * triggering another.
+ * Sync the folder one round at a time until the observation is accepted.
  *
  * Explicit syncs must not overlap: the account's mailbox operations run on one
  * ordered queue, and two reconciles in flight at once can race — one removing a
- * row the other still expects. What paces the triggers here is the deployment's
- * own per-mailbox sync cursor rather than an interval chosen to be longer than a
- * round: `lastSyncedAt` moves on every message-sync round for that folder, empty
- * rounds included, so an advance of it is the moment asking again is worth
- * anything.
+ * row the other still expects. So each round waits for the folder's own sync to
+ * run before the next is asked for.
  *
  * A wait that never settles reports the folder as the deployment last described
  * it — its phase, the count it read off the server, how far its messages got,
- * when it last synced, how many the app holds — and how many rounds were asked
- * for. That is what separates a seed that never landed from a sync that never ran
- * from a sync that ran and disagrees.
+ * when it last synced, how many the app holds. That is what separates a seed
+ * that never landed from a sync that never ran from a sync that ran and
+ * disagrees.
  */
 const nudgeUntil = async (
 	api: ApiClient,
@@ -130,32 +126,36 @@ const nudgeUntil = async (
 	let rounds = 0;
 	let observed: FolderObservation | undefined;
 	let lastError: unknown;
-	let cursor = await observe(api, accountId, ref)
-		.then((observation) => observation.folder?.lastSyncedAt ?? 0)
-		.catch(() => 0);
 
 	while (Date.now() < deadline) {
-		await api.triggerSync(accountId).catch(() => undefined);
-		rounds += 1;
-
-		const observation = await waitFor(
-			() => observe(api, accountId, ref),
-			(current) =>
-				accept(current) || (current.folder?.lastSyncedAt ?? 0) > cursor,
-			{ timeoutMs: 30_000, intervalMs: 1_000, what },
-		).then(
+		const observation = await observe(api, accountId, ref).then(
 			(value) => value,
 			(error: unknown) => {
 				lastError = error;
 				return undefined;
 			},
 		);
+		if (observation) {
+			lastError = undefined;
+			observed = observation;
+			if (accept(observed)) return;
+		}
 
-		if (!observation) continue;
-		lastError = undefined;
-		observed = observation;
-		if (accept(observed)) return;
-		cursor = Math.max(cursor, observed.folder?.lastSyncedAt ?? 0);
+		const fullPath =
+			"fullPath" in ref ? ref.fullPath : observed?.folder?.fullPath;
+		rounds += 1;
+		if (fullPath === undefined) {
+			await api.triggerSync(accountId).catch(() => undefined);
+			await new Promise((resolve) => setTimeout(resolve, 5_000));
+			continue;
+		}
+		await api
+			.syncPastMailbox(accountId, fullPath, {
+				timeoutMs: Math.min(30_000, Math.max(deadline - Date.now(), 1_000)),
+			})
+			.catch((error: unknown) => {
+				lastError = error;
+			});
 	}
 
 	const seen = lastError

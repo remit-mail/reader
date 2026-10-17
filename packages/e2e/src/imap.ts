@@ -320,11 +320,6 @@ export const serverUidsForSubject = async (
 	}
 };
 
-/**
- * MOVE one subject's message to another folder on the server, the way another
- * mail client would — behind the app's back, so the app only learns of it from
- * a later sync.
- */
 export const moveServerMessage = async (
 	user: string,
 	from: string,

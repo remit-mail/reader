@@ -15,7 +15,7 @@
  * Its own throwaway user: the spec creates a folder and seeds the same message
  * into two places, neither of which may leak into the shared account.
  */
-import { type AccountSyncStatus, ApiClient, waitFor } from "../src/api.js";
+import { ApiClient } from "../src/api.js";
 import { expect, test } from "../src/fixtures.js";
 import { appendMessages, listServerSubjects } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
@@ -24,49 +24,6 @@ const STAMP = Date.now();
 const LABEL_PATH = `Receipts ${STAMP}`;
 const SUBJECT = `Labelled and in the inbox ${STAMP}`;
 const MESSAGE_ID = `<labelled-${STAMP}@remit.test>`;
-
-const lastSyncedAt = (status: AccountSyncStatus, fullPath: string): number =>
-	status.mailboxes.find((mailbox) => mailbox.fullPath === fullPath)
-		?.lastSyncedAt ?? 0;
-
-/**
- * Sync until the label folder's own message-sync round has run again.
- *
- * The re-point this spec is about happens while that folder is being
- * enumerated, so the Inbox listing only answers for anything once it has run.
- * `lastSyncedAt` moves on every round for a folder, empty ones included, which
- * makes an advance of it the exact barrier; and the trigger is re-issued rather
- * than issued once, because a trigger that arrives while a round is already
- * running is discarded as a duplicate (#37).
- */
-const syncPastTheLabel = async (
-	api: ApiClient,
-	accountId: string,
-): Promise<void> => {
-	const cursor = lastSyncedAt(await api.getSyncStatus(accountId), LABEL_PATH);
-	const deadline = Date.now() + 120_000;
-
-	while (Date.now() < deadline) {
-		await api.triggerSync(accountId).catch(() => undefined);
-		const advanced = await waitFor(
-			() => api.getSyncStatus(accountId),
-			(status) => lastSyncedAt(status, LABEL_PATH) > cursor,
-			{
-				timeoutMs: 20_000,
-				intervalMs: 1_000,
-				what: `a message-sync round over "${LABEL_PATH}"`,
-			},
-		).then(
-			() => true,
-			() => false,
-		);
-		if (advanced) return;
-	}
-
-	throw new Error(
-		`"${LABEL_PATH}" ran no message-sync round within 120000ms of being asked`,
-	);
-};
 
 test.describe("A message in two folders at once", () => {
 	let run: IsolatedRun;
@@ -121,14 +78,14 @@ test.describe("A message in two folders at once", () => {
 			SUBJECT,
 		);
 
-		await syncPastTheLabel(api, run.accountId);
+		await api.syncPastMailbox(run.accountId, LABEL_PATH);
 
 		const afterLabel = await api.listThreads(run.inboxId);
 		expect(afterLabel.map((thread) => thread.subject)).toContain(SUBJECT);
 
 		// "The next sync": a second round over the label folder, which is where
 		// the re-point was reported.
-		await syncPastTheLabel(api, run.accountId);
+		await api.syncPastMailbox(run.accountId, LABEL_PATH);
 
 		const afterNextSync = await api.listThreads(run.inboxId);
 		expect(afterNextSync.map((thread) => thread.subject)).toContain(SUBJECT);

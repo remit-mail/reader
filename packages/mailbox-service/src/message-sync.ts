@@ -23,7 +23,6 @@ import {
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
-import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import {
 	AddressRole,
 	MailboxCursorState,
@@ -1219,17 +1218,8 @@ export class MessageSyncService {
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
-		if (
-			existing.mailboxId === mailbox.mailboxId ||
-			isVirtualCopyMailbox(mailbox)
-		) {
-			return null;
-		}
+		if (!departures.needsSave.has(messageId)) return null;
 
-		// A row pointing at another folder is a candidate move another client
-		// made (#1386). The save pipeline asks the source folder and follows the
-		// row only when it no longer holds the message, exactly as enumeration
-		// does (#1146); without this a folder on CHANGEDSINCE never re-points it.
 		return this.saveMessage(
 			mailbox,
 			accountId,

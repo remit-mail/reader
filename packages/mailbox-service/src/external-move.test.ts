@@ -50,6 +50,7 @@ interface Probe {
 	searched: string[];
 	departed: Set<string>;
 	settled: Set<string>;
+	needsSave: Set<string>;
 }
 
 /**
@@ -245,6 +246,28 @@ describe("whether a sighting in a second folder is a move", () => {
 
 		assert.deepEqual([...observed.departed], []);
 		assert.deepEqual([...observed.settled], []);
+	});
+
+	it("asks for a save only where the placement changes or is undecided", async () => {
+		const decided = await probe(
+			LABEL,
+			[
+				storedIn(INBOX, { messageId: "msg-held", uid: 7 }),
+				storedIn(INBOX, { messageId: "msg-gone", uid: 8 }),
+			],
+			{ INBOX: [7] },
+		);
+		const undecided = await probe(
+			LABEL,
+			[storedIn(INBOX)],
+			{ INBOX: [] },
+			{},
+			[INBOX],
+			["INBOX"],
+		);
+
+		assert.deepEqual([...decided.needsSave], ["msg-gone"]);
+		assert.deepEqual([...undecided.needsSave], ["msg-1"]);
 	});
 
 	it("settles a decided sighting, so nothing holds the watermark for it", async () => {
