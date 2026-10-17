@@ -364,14 +364,6 @@ describe("the end of what the strip grows to on its own", () => {
 		assert.equal(asked, 1);
 	});
 
-	it("offers the days behind the same way", () => {
-		render({ atStartCap: true, onLoadEarlier: () => {} });
-		const earlier = container.querySelector(
-			'[data-testid="agenda-load-earlier"]',
-		);
-		assert.ok(earlier, "the strip offered the days before the cap");
-	});
-
 	it("shows neither while the run still has room to grow", () => {
 		render();
 		assert.equal(

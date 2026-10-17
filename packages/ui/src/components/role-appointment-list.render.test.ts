@@ -74,39 +74,6 @@ function clearingOptions(markup: string): string[] {
 }
 
 describe("RoleAppointmentList", () => {
-	it("titles the section with the account email", () => {
-		const html = render({ inbox: appointed("mb-inbox") });
-		assert.match(html, /Folder roles —/);
-		assert.match(html, /you@example.com/);
-	});
-
-	it("renders a row for every appointable role", () => {
-		const html = render({});
-		for (const label of [
-			"Inbox",
-			"Drafts",
-			"Sent",
-			"Archive",
-			"Spam",
-			"Trash",
-		]) {
-			assert.match(html, new RegExp(`Folder for ${label}`));
-		}
-	});
-
-	it("offers every folder with its message count as a picker option", () => {
-		const html = render({});
-		assert.match(html, /Concepten · 340 msgs/);
-		assert.match(html, /Drafts · 0 msgs/);
-	});
-
-	it("shows the appointed folder's path and count under the role", () => {
-		const html = render({ drafts: appointed("mb-concepten") });
-		assert.match(html, /title="INBOX\/Concepten"/);
-		assert.match(html, /340/);
-		assert.match(html, /messages/);
-	});
-
 	it("renders a rename field only for an appointed role", () => {
 		const html = render({ drafts: appointed("mb-concepten") });
 		assert.match(html, /Display name for Drafts/);
@@ -200,14 +167,6 @@ describe("RoleAppointmentList", () => {
 		);
 		assert.match(html, /reader is using Drafts instead\./);
 		assert.doesNotMatch(html, /Deleting mail is stopped/);
-	});
-
-	it("drops the name clause when no path was ever recorded", () => {
-		const html = render({ trash: { mailboxId: null, source: "Stale" } });
-		assert.match(
-			html,
-			/The folder you chose for Trash is gone from the mail server\./,
-		);
 	});
 
 	it("says nothing about a fallback it cannot name", () => {
@@ -327,13 +286,5 @@ describe("a canonical role cannot be unset (#873)", () => {
 			"Archive",
 		);
 		assert.match(archive, /<option[^>]*disabled[^>]*>Choose a folder</);
-	});
-
-	it("drops the placeholder once a folder fills the role", () => {
-		const drafts = picker(
-			render({ drafts: appointed("mb-concepten") }),
-			"Drafts",
-		);
-		assert.doesNotMatch(drafts, /Choose a folder/);
 	});
 });

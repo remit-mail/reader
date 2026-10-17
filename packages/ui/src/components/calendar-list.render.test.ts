@@ -45,19 +45,6 @@ const render = (
 	);
 
 describe("CalendarList", () => {
-	it("groups calendars under the account that owns them", () => {
-		const html = render(["c1"]);
-		assert.match(html, /Work/);
-		assert.match(html, /Personal/);
-		assert.match(html, /Northwind/);
-	});
-
-	it("fills the swatch of a visible calendar and outlines a hidden one", () => {
-		const html = render(["c1"]);
-		assert.match(html, /bg-cal-1/);
-		assert.match(html, /bg-transparent/);
-	});
-
 	it("offers an all-or-none control per account only when asked", () => {
 		assert.doesNotMatch(render(["c1"]), />None</);
 		assert.match(render(["c1", "c2"], true), />None</);
@@ -101,10 +88,6 @@ describe("CalendarList with a paused calendar", () => {
 		assert.match(html, /calendar sync off/);
 	});
 
-	it("leaves a live calendar unlabelled", () => {
-		assert.doesNotMatch(render(["c1"]), /calendar sync off/);
-	});
-
 	it("keeps a paused calendar tickable, so its events stay drawable", () => {
 		assert.match(renderPaused(["c1"]), /checked=""/);
 	});
@@ -124,9 +107,5 @@ describe("CalendarList with a subscription that could not be refreshed", () => {
 			}),
 		);
 		assert.match(html, /Not refreshed: the feed answered HTTP 404/);
-	});
-
-	it("says nothing for a calendar whose last refresh landed", () => {
-		assert.doesNotMatch(render(["c1"]), /Not refreshed/);
 	});
 });

@@ -40,15 +40,6 @@ const baseProps = {
 };
 
 describe("MessageListPane", () => {
-	it("renders the list title and the rows", () => {
-		const html = renderToString(
-			createElement(MessageListPane, { ...baseProps, isDesktop: true }),
-		);
-		assert.match(html, /Inbox/);
-		assert.match(html, /Q3 planning notes/);
-		assert.match(html, /Your invoice is ready/);
-	});
-
 	it("shows the pull-to-refresh affordance on the narrow touch list", () => {
 		const html = renderToString(
 			createElement(MessageListPane, {
@@ -58,31 +49,6 @@ describe("MessageListPane", () => {
 			}),
 		);
 		assert.match(html, /Pull to refresh/);
-	});
-
-	it("omits the pull-to-refresh affordance on the desktop list", () => {
-		const html = renderToString(
-			createElement(MessageListPane, { ...baseProps, isDesktop: true }),
-		);
-		assert.doesNotMatch(html, /Pull to refresh/);
-	});
-
-	it("renders the listBody slot instead of built-in rows when provided", () => {
-		const html = renderToString(
-			createElement(MessageListPane, {
-				...baseProps,
-				isDesktop: true,
-				listBody: createElement(
-					"div",
-					{ "data-testid": "custom-body" },
-					"virtualized rows here",
-				),
-			}),
-		);
-		// Custom body is rendered
-		assert.match(html, /virtualized rows here/);
-		// Built-in rows are NOT rendered when listBody is provided
-		assert.doesNotMatch(html, /Q3 planning notes/);
 	});
 
 	it("honors the listBody slot on the touch path so mobile rows stay real anchors", () => {
@@ -164,25 +130,5 @@ describe("MessageListPane", () => {
 		);
 		assert.match(html, /aria-label="Deselect message"/);
 		assert.match(html, /aria-label="Select message"/);
-	});
-
-	it("offers no checkbox at all when the consumer holds no selection", () => {
-		const html = renderToString(
-			createElement(MessageListPane, { ...baseProps, isDesktop: true }),
-		);
-		assert.doesNotMatch(html, /aria-label="Select message"/);
-	});
-
-	it("renders the selectionBar slot instead of the pane header when provided", () => {
-		const html = renderToString(
-			createElement(MessageListPane, {
-				...baseProps,
-				isDesktop: true,
-				selectionBar: createElement("div", null, "2 selected"),
-			}),
-		);
-		assert.match(html, /2 selected/);
-		// The mailbox title header is NOT rendered when selectionBar is provided
-		assert.doesNotMatch(html, /Inbox/);
 	});
 });

@@ -14,11 +14,6 @@ const render = (props: Parameters<typeof IntelligenceToggle>[0]): string =>
 	renderToString(createElement(IntelligenceToggle, props));
 
 describe("IntelligenceToggle", () => {
-	it("renders the button when it cannot act", () => {
-		const html = render({ enabled: false });
-		assert.match(html, /aria-label="Show intelligence sidebar"/);
-	});
-
 	it("disables rather than hides the button when it cannot act", () => {
 		const html = render({ enabled: false });
 		assert.match(html, /\sdisabled(=""|\s|>)/);

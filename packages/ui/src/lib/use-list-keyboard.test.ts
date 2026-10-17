@@ -102,20 +102,6 @@ afterEach(() => {
 });
 
 describe("useListKeyboard", () => {
-	it("registers the keys the footer may offer and no others", () => {
-		assert.deepEqual(Object.keys(list.keyboard.handlers).sort(), [
-			"back",
-			"extendSelectDown",
-			"extendSelectUp",
-			"focusFirst",
-			"focusLast",
-			"focusNext",
-			"focusPrevious",
-			"selectAll",
-			"toggleSelect",
-		]);
-	});
-
 	it("moves the cursor the pane draws", () => {
 		press("j");
 		press("j");

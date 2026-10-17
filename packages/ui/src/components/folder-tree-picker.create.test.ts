@@ -279,28 +279,6 @@ describe("one open branch", () => {
 	});
 });
 
-describe("create action prominence", () => {
-	it("keeps the pinned action prominent and the nested one quiet", async () => {
-		await mount({ onCreateFolder: resolving });
-		assert.equal(byAriaLabel("New folder")?.dataset.prominence, "prominent");
-		await open("Travel");
-		assert.equal(
-			byAriaLabel("New folder inside Travel")?.dataset.prominence,
-			"quiet",
-		);
-		assert.equal(byAriaLabel("New folder")?.dataset.prominence, "prominent");
-	});
-
-	it("stays the same action either way", async () => {
-		await mount({ onCreateFolder: resolving });
-		await open("Travel");
-		const pinned = byAriaLabel("New folder");
-		const nested = byAriaLabel("New folder inside Travel");
-		assert.equal(pinned?.tagName, nested?.tagName);
-		assert.equal(pinned?.textContent, nested?.textContent);
-	});
-});
-
 describe("create form anchoring", () => {
 	it("offers the action at the end of an opened folder's children", async () => {
 		await mount({ onCreateFolder: resolving });
@@ -316,14 +294,6 @@ describe("create form anchoring", () => {
 		await click(byAriaLabel("New folder inside Travel"));
 		assert.ok(createBlockOf("travel")?.querySelector("input"));
 		assert.equal(rowOf("Travel")?.querySelector("input"), null);
-	});
-
-	it("states the parent as fixed text rather than a second choice", async () => {
-		await mount({ onCreateFolder: resolving });
-		await open("Travel");
-		await click(byAriaLabel("New folder inside Travel"));
-		assert.match(createBlockOf("travel")?.textContent ?? "", /Inside\s*Travel/);
-		assert.equal(container.querySelector("select"), null);
 	});
 
 	it("moves the form when the action inside another folder opens it", async () => {

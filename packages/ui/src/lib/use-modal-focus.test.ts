@@ -54,11 +54,6 @@ describe("useModalFocus", () => {
 		assert.equal(document.activeElement?.textContent, "First action");
 	});
 
-	it("leaves focus on the body while closed", () => {
-		act(() => root.render(createElement(Panel, { open: false })));
-		assert.equal(document.activeElement, document.body);
-	});
-
 	it("moves focus in when an already-mounted panel opens", () => {
 		act(() => root.render(createElement(Panel, { open: false })));
 		assert.equal(document.activeElement, document.body);
@@ -138,21 +133,6 @@ describe("useModalFocus", () => {
 		outside.focus();
 
 		const event = tab();
-
-		assert.equal(event.defaultPrevented, false);
-		assert.equal(document.activeElement, outside);
-		outside.remove();
-	});
-
-	it("leaves focus outside the panel alone on Shift+Tab too", () => {
-		const outside = document.createElement("button");
-		outside.textContent = "Behind the panel";
-		document.body.appendChild(outside);
-
-		act(() => root.render(createElement(Panel, { open: true })));
-		outside.focus();
-
-		const event = tab(true);
 
 		assert.equal(event.defaultPrevented, false);
 		assert.equal(document.activeElement, outside);

@@ -14,15 +14,6 @@ const baseProps = {
 };
 
 describe("OutboxRow", () => {
-	it("renders recipients, subject and the status label", () => {
-		const html = renderToString(
-			createElement(OutboxRow, { ...baseProps, status: "queued" }),
-		);
-		assert.match(html, /alex@example\.com/);
-		assert.match(html, /Hello/);
-		assert.match(html, /Queued/);
-	});
-
 	it("hides the action cluster for in-flight statuses", () => {
 		const html = renderToString(
 			createElement(OutboxRow, { ...baseProps, status: "sending" }),

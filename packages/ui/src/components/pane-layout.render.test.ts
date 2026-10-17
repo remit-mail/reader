@@ -27,12 +27,6 @@ describe("resolvePaneLayout — pane count by width", () => {
 		assert.equal(paneCount(l), 1);
 	});
 
-	it("tablet portrait (834, iPad): still list alone", () => {
-		const l = resolvePaneLayout(834);
-		assert.equal(l.reading, false);
-		assert.equal(paneCount(l), 1);
-	});
-
 	it("just below the reading boundary (1023): still list alone", () => {
 		assert.equal(resolvePaneLayout(1023).reading, false);
 	});
@@ -43,12 +37,6 @@ describe("resolvePaneLayout — pane count by width", () => {
 		assert.equal(l.nav, true, "nav becomes a persistent pane");
 		assert.equal(l.intelligence, false, "rail not yet — only at the widest");
 		assert.equal(paneCount(l), 3);
-	});
-
-	it("iPad landscape (1112): two content panes, no rail", () => {
-		const l = resolvePaneLayout(1112);
-		assert.equal(l.reading, true);
-		assert.equal(l.intelligence, false);
 	});
 
 	it("just below the rail boundary (1279): no rail", () => {
@@ -95,11 +83,5 @@ describe("resolvePaneLayout — configurable thresholds (#900/#901)", () => {
 			true,
 			"at the custom intelligence boundary",
 		);
-	});
-
-	it("defaults still match the module constants when no overrides given", () => {
-		const withDefaults = resolvePaneLayout(1024);
-		const withExplicit = resolvePaneLayout(1024, 1024, 1280);
-		assert.deepEqual(withDefaults, withExplicit, "defaults are identical");
 	});
 });

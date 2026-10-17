@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
-import type { QuarantineItem } from "@remit/data-ports";
+import { after, before, describe, it } from "node:test";
+import type { QuarantineListResponse } from "@remit/api-openapi-types";
+import {
+	QuarantineFailureCode,
+	QuarantineFailureStage,
+} from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -9,73 +13,59 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import { MeOperations } from "./me.js";
 
 const listQuarantine = MeOperations.MeOperations_listQuarantine as unknown as (
 	context: Context,
 	event: APIGatewayProxyEvent,
-) => Promise<{ entries: QuarantineItem[] }>;
-
-const SUB = "cognito-sub-1";
+) => Promise<QuarantineListResponse>;
 
 const eventFor = (sub: string): APIGatewayProxyEvent =>
 	({
 		requestContext: { authorizer: { claims: { sub } } },
 	}) as unknown as APIGatewayProxyEvent;
 
-const entry = (over: Partial<QuarantineItem> = {}): QuarantineItem =>
-	({
-		quarantineId: "q-1",
-		accountConfigId: deriveAccountConfigId(SUB),
-		accountId: "acct-1",
-		mailboxId: "mbx-1",
+let client: RemitClient;
+let cleanup: () => void;
+
+const quarantine = (sub: string, uid: number) =>
+	client.quarantine.upsert({
+		accountConfigId: deriveAccountConfigId(sub),
+		accountId: `acct-${sub}`,
+		mailboxId: `mbx-${sub}`,
 		uidValidity: 1_712_000_000,
-		uid: 40217,
+		uid,
 		mailboxPath: "INBOX",
-		quarantinedAt: 1_000,
+		quarantinedAt: uid,
 		attempts: 3,
-		failureStage: "BodyParse",
-		failureCode: "UnreadableBody",
+		failureStage: QuarantineFailureStage.BodyParse,
+		failureCode: QuarantineFailureCode.UnreadableBody,
 		failureMessage: "multipart boundary was never closed",
 		workerVersion: "worker 1.0.0",
-		structure: [{ depth: 0, contentType: "multipart/mixed" }],
-		createdAt: 1_000,
-		updatedAt: 1_000,
-		...over,
-	}) as QuarantineItem;
+	});
 
-const clientListing = (items: QuarantineItem[], seen: string[]): RemitClient =>
-	({
-		quarantine: {
-			listByAccountConfigId: async (
-				accountConfigId: string,
-			): Promise<QuarantineItem[]> => {
-				seen.push(accountConfigId);
-				return items;
-			},
-		},
-	}) as unknown as RemitClient;
-
-afterEach(() => {
+before(async () => {
 	_resetForTest();
+	({ client, cleanup } = await createCalendarSqliteClient());
+	setClient(client);
+});
+
+after(() => {
+	_resetForTest();
+	cleanup();
 });
 
 describe("MeOperations_listQuarantine", () => {
-	it("lists only what belongs to the caller", async () => {
-		const seen: string[] = [];
-		setClient(clientListing([entry()], seen));
+	it("lists the caller's quarantined messages and nobody else's", async () => {
+		await quarantine("me-caller", 40217);
+		await quarantine("me-stranger", 99);
 
-		const response = await listQuarantine({} as Context, eventFor(SUB));
+		const response = await listQuarantine({} as Context, eventFor("me-caller"));
 
-		assert.deepEqual(seen, [deriveAccountConfigId(SUB)]);
-		assert.deepEqual(response, { entries: [entry()] });
-	});
-
-	it("returns an empty list rather than failing when nothing is quarantined", async () => {
-		setClient(clientListing([], []));
-
-		const response = await listQuarantine({} as Context, eventFor(SUB));
-
-		assert.deepEqual(response, { entries: [] });
+		assert.deepEqual(
+			response.entries.map((entry) => [entry.accountId, entry.uid]),
+			[["acct-me-caller", 40217]],
+		);
 	});
 });

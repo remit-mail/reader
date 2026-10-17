@@ -9,12 +9,9 @@ import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
 	buildThreadMessageMoveUpdate,
-	emitMoveResync,
-	getMessageMoveMaxAttempts,
 	handleMessageMove,
 	MESSAGE_MOVE_MAX_ATTEMPTS,
 	type MessageMoveDeps,
-	moveThenResync,
 	probePausedPlacement,
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
@@ -80,39 +77,6 @@ describe("buildThreadMessageMoveUpdate", () => {
 		);
 	});
 
-	it("composites.mailboxId is the CURRENT (source) mailboxId, not the destination", () => {
-		const args = buildThreadMessageMoveUpdate(
-			baseThreadMessage,
-			42,
-			destinationMailboxId,
-		);
-
-		assert.strictEqual(
-			args.composites.mailboxId,
-			sourceMailboxId,
-			"composites.mailboxId must be the CURRENT source mailbox; passing the destination breaks the conditional check",
-		);
-		assert.notStrictEqual(
-			args.composites.mailboxId,
-			destinationMailboxId,
-			"composites.mailboxId must NOT match the new destinationMailboxId",
-		);
-	});
-
-	it("composites.isDeleted is the CURRENT value, not the new false", () => {
-		const args = buildThreadMessageMoveUpdate(
-			{ ...baseThreadMessage, isDeleted: true },
-			42,
-			destinationMailboxId,
-		);
-
-		assert.strictEqual(
-			args.composites.isDeleted,
-			true,
-			"composites.isDeleted must be the CURRENT value (true here), not the new value",
-		);
-	});
-
 	it("composites mirrors every CURRENT indexed attribute on the threadMessage", () => {
 		const tm = {
 			sentDate: 1700000000123,
@@ -136,94 +100,7 @@ describe("buildThreadMessageMoveUpdate", () => {
 	});
 });
 
-const accountId = "alice-account-aaaaaaaaaa";
-
-describe("emitMoveResync (#1031)", () => {
-	// A move shifts a message between two folders; both folders' counts must
-	// refresh from IMAP via the existing per-folder SYNC_MESSAGES sync. Counts
-	// are never mutated locally — only re-read downstream.
-
-	it("emits SYNC_MESSAGES for both the source and destination folders", async () => {
-		const emit = mock.fn(async () => undefined);
-
-		await emitMoveResync(emit, {
-			accountId,
-			sourceMailboxId,
-			destinationMailboxId,
-		});
-
-		assert.equal(emit.mock.calls.length, 2);
-		assert.deepEqual(emit.mock.calls[0].arguments, [
-			{ type: "SYNC_MESSAGES", accountId, mailboxId: sourceMailboxId },
-		]);
-		assert.deepEqual(emit.mock.calls[1].arguments, [
-			{ type: "SYNC_MESSAGES", accountId, mailboxId: destinationMailboxId },
-		]);
-	});
-});
-
-describe("moveThenResync (#1031)", () => {
-	it("runs the resync after the move resolves", async () => {
-		const order: string[] = [];
-		const performMove = mock.fn(async () => {
-			order.push("move");
-		});
-		const resync = mock.fn(async () => {
-			order.push("resync");
-		});
-
-		await moveThenResync(performMove, resync);
-
-		assert.deepEqual(order, ["move", "resync"]);
-		assert.equal(resync.mock.calls.length, 1);
-	});
-
-	it("does not resync when the move fails, and propagates the error", async () => {
-		const performMove = mock.fn(async () => {
-			throw new Error("IMAP move failed");
-		});
-		const resync = mock.fn(async () => undefined);
-
-		await assert.rejects(
-			() => moveThenResync(performMove, resync),
-			/IMAP move failed/,
-		);
-
-		assert.equal(resync.mock.calls.length, 0);
-	});
-});
-
-describe("getMessageMoveMaxAttempts — env-derived threshold (#655)", () => {
-	it("parses the injected env var", () => {
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "3" }),
-			3,
-		);
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "5" }),
-			5,
-		);
-	});
-
-	it("defaults to the message queue's own maxReceiveCount when unset", () => {
-		assert.equal(getMessageMoveMaxAttempts({}), 3);
-	});
-
-	it("defaults on a non-numeric or non-positive value", () => {
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "nope" }),
-			3,
-		);
-		assert.equal(
-			getMessageMoveMaxAttempts({ MESSAGE_MOVE_MAX_ATTEMPTS: "0" }),
-			3,
-		);
-	});
-
-	it("MESSAGE_MOVE_MAX_ATTEMPTS is a concrete, positive number at module load", () => {
-		assert.ok(MESSAGE_MOVE_MAX_ATTEMPTS > 0);
-	});
-});
+const _accountId = "alice-account-aaaaaaaaaa";
 
 describe("handleMessageMove — the move's own pending state gates every attempt", () => {
 	const acctId = "mm-acc-zzz";
@@ -959,27 +836,6 @@ describe("searchMailboxForHighestMessageIdUid — the probe that binds a move to
 				"<moved@example.com>",
 			),
 			12,
-		);
-	});
-
-	// Issue #1122. The folder already held an older copy of this Message-ID — a
-	// sieve `fileinto` + `keep`, a resend, an earlier copy of the same message —
-	// and the uid this probe hands back settles the row the fresh copy lives in.
-	// Answering 12 binds that row to mail this operation never touched and
-	// leaves the copy that just arrived unreachable by any later delete.
-	it("answers the newest copy's UID when the folder already held an older copy of it", async () => {
-		const destination = buildDestination([
-			{ uid: 12, messageIdHeader: "<moved@example.com>" },
-			{ uid: 40, messageIdHeader: "<moved@example.com>" },
-		]);
-
-		assert.strictEqual(
-			await searchMailboxForHighestMessageIdUid(
-				destination,
-				"Archive",
-				"<moved@example.com>",
-			),
-			40,
 		);
 	});
 

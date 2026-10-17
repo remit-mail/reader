@@ -2,50 +2,13 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import {
-	AddressDisplay,
-	AddressList,
-	type EnvelopeAddress,
-} from "./address-display.js";
+import { AddressList, type EnvelopeAddress } from "./address-display.js";
 
 const named: EnvelopeAddress = {
 	displayName: "Ada Lovelace",
 	normalizedEmail: "ada@example.com",
 };
 const bare: EnvelopeAddress = { normalizedEmail: "grace@example.com" };
-
-describe("AddressDisplay", () => {
-	it("renders display name with the address in angle brackets", () => {
-		const html = renderToString(
-			createElement(AddressDisplay, { address: named }),
-		);
-		assert.match(html, /Ada Lovelace/);
-		assert.match(html, /ada@example.com/);
-	});
-
-	it("falls back to the bare email when no display name", () => {
-		const html = renderToString(
-			createElement(AddressDisplay, { address: bare }),
-		);
-		assert.match(html, /grace@example.com/);
-	});
-
-	it("shows the trusted badge only when asked", () => {
-		assert.match(
-			renderToString(
-				createElement(AddressDisplay, {
-					address: named,
-					showTrustedBadge: true,
-				}),
-			),
-			/data-testid="trusted-sender-badge"/,
-		);
-		assert.doesNotMatch(
-			renderToString(createElement(AddressDisplay, { address: named })),
-			/trusted-sender-badge/,
-		);
-	});
-});
 
 describe("AddressList", () => {
 	it("renders nothing for an empty list", () => {

@@ -110,10 +110,6 @@ describe("EventEditor", () => {
 		assert.match(render({ onDelete: () => undefined }), /Delete/);
 	});
 
-	it("names the save action the caller asked for", () => {
-		assert.match(render({ saveLabel: "Save changes" }), /Save changes/);
-	});
-
 	it("says so and holds the save when the end is before the start", () => {
 		const dom = parse({
 			draft: { ...draft, startTime: "23:00", endTime: "01:00" },

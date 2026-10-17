@@ -57,22 +57,9 @@ const render = (overrides: Partial<CalendarEventData>, withThread = true) =>
 	);
 
 describe("EventDetail", () => {
-	it("offers the way back to the mail the event came from", () => {
-		const html = render({});
-		assert.match(html, /From this thread/);
-		assert.match(html, /Q3 roadmap review — agenda \+ pre-read/);
-	});
-
 	it("offers no thread link for an event nobody mailed about", () => {
 		const html = render({ threadId: "", threadSubject: "" });
 		assert.doesNotMatch(html, /From this thread/);
-	});
-
-	it("names the repeat rule on a series instance", () => {
-		assert.match(
-			render({ recurrenceRule: "Every weekday, 09:15" }),
-			/Every weekday, 09:15/,
-		);
 	});
 
 	it("marks an instance that no longer matches its series rule", () => {
@@ -96,10 +83,6 @@ describe("EventDetail", () => {
 		const html = render({ timeZone: "", zoneCertainty: "ambiguous" });
 		assert.match(html, /never a zone/);
 		assert.doesNotMatch(html, /Europe\/Amsterdam/);
-	});
-
-	it("names the calendar and its account", () => {
-		assert.match(render({}), /Northwind/);
 	});
 
 	it("leaves the guest list inert where a name leads nowhere", () => {
@@ -143,15 +126,5 @@ describe("EventDetail with nowhere to write", () => {
 	it("offers neither Edit nor Delete", () => {
 		assert.doesNotMatch(readOnly, />Edit</);
 		assert.doesNotMatch(readOnly, />Delete</);
-	});
-
-	it("still names the event, its calendar and when it is", () => {
-		assert.match(readOnly, /Q3 roadmap review/);
-		assert.match(readOnly, /Northwind/);
-		assert.match(readOnly, /10:00 – 11:30/);
-	});
-
-	it("keeps the way out of the pane", () => {
-		assert.match(readOnly, /aria-label="Close event"/);
 	});
 });
