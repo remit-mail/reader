@@ -33,8 +33,10 @@ type Story = StoryObj<typeof meta>;
 
 export const MovedOrDeletedElsewhere: Story = {
 	play: async () => {
+		const page = within(document.body);
+		await page.findAllByText("Q3 planning");
 		await expect(
-			await within(document.body).findByText(
+			await page.findByText(
 				"This message is no longer on the mail server. It was moved or deleted in another mail app.",
 			),
 		).toBeVisible();
