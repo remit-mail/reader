@@ -681,6 +681,60 @@ describe("a uid-0 copy whose event is gone", () => {
 		]);
 	});
 
+	it("finds the source of a copy in a thread longer than a page", async () => {
+		const a = await arrange();
+		const source = await a.w.client.threadMessage.getByMessageId(
+			a.w.account.accountConfigId,
+			a.message.messageId,
+		);
+		for (let n = 0; n < 101; n += 1) {
+			await a.w.client.threadMessage.create({
+				accountConfigId: a.w.account.accountConfigId,
+				threadId: source.threadId,
+				messageId: `reply-${n}`,
+				mailboxId: a.inbox.mailboxId,
+				uid: 1000 + n,
+				referenceOrder: n + 1,
+				internalDate: source.internalDate + n + 1,
+				sentDate: source.sentDate + n + 1,
+				isRead: false,
+				isDeleted: false,
+				hasAttachment: false,
+				hasStars: false,
+			});
+		}
+		const copyId = await strandCopy(a);
+		const landedUid = a.w.imap.deliver(
+			a.notifications.fullPath,
+			mail(a.message.messageIdHeader),
+		);
+
+		await redriveCopy(a);
+
+		assert.equal((await a.w.row(copyId))?.uid, landedUid);
+	});
+
+	it("removes a copy whose source was deleted", async () => {
+		const a = await arrange();
+		const copyId = await strandCopy(a);
+		await a.w.client.message.transitionPlacement(
+			a.message.messageId,
+			{ status: MessageStatus.active },
+			{ status: MessageStatus.deleted },
+		);
+
+		assert.deepEqual(await redriveLater(a), []);
+
+		assert.equal(await a.w.row(copyId), undefined);
+		assert.ok(
+			a.w.logs.some(
+				(line) =>
+					line.fields.alert === "stranded_copy_unresolvable" &&
+					line.fields.reason === "source row deleted",
+			),
+		);
+	});
+
 	it("copies once a copy that never landed", async () => {
 		const a = await arrange();
 		const copyId = await strandCopy(a);
@@ -721,7 +775,8 @@ describe("a uid-0 copy whose event is gone", () => {
 			a.w.logs.some(
 				(line) =>
 					line.level === "error" &&
-					line.fields.alert === "stranded_copy_source_gone" &&
+					line.fields.alert === "stranded_copy_unresolvable" &&
+					line.fields.reason === "source row missing" &&
 					line.fields.messageId === copyId,
 			),
 		);

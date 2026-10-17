@@ -1,7 +1,11 @@
 import type { RemitClient } from "@remit/backend/client";
 import type { AccountItem, MessageItem } from "@remit/data-ports";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
-import { deriveCopyMessageId } from "@remit/data-ports/id";
+import {
+	deriveCopyMessageId,
+	deriveMessageId,
+	isValidMessageId,
+} from "@remit/data-ports/id";
 import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
@@ -45,13 +49,12 @@ const isStrandedCopy = (row: MessageItem): boolean =>
 
 type CopyRedrive =
 	| { kind: "redrive"; event: Unstamped<MessageCopyEventV3> }
-	| { kind: "source-gone" }
+	| { kind: "unresolvable"; reason: string }
 	| { kind: "wait" };
 
 /**
- * The message a uid-0 copy was made from. The copy's listing row carries the
- * source's thread and Message-ID, and the copy's id is derived from the
- * source's, so the one thread row whose id derives to it is the source.
+ * The message a uid-0 copy was made from: its id derives from the Message-ID
+ * the copy's listing row carries, and the copy's own id derives from it.
  */
 const copyRedriveFor = async (
 	client: StrandedPlacementRedriveDeps["client"],
@@ -62,20 +65,23 @@ const copyRedriveFor = async (
 		account.accountConfigId,
 		copy.messageId,
 	);
-	if (!listing) return { kind: "source-gone" };
-	const thread = await client.threadMessage.listByThread(
-		listing.threadId,
-		account.accountConfigId,
-	);
-	const candidate = thread.items.find(
-		(row) =>
-			row.messageId !== copy.messageId &&
-			row.messageIdHeader === listing.messageIdHeader &&
-			deriveCopyMessageId(row.messageId, copy.mailboxId) === copy.messageId,
-	);
-	if (!candidate) return { kind: "source-gone" };
-	const [source] = await client.message.get([candidate.messageId]);
-	if (!source) return { kind: "source-gone" };
+	if (!listing) return { kind: "unresolvable", reason: "listing row missing" };
+	const header = listing.messageIdHeader;
+	if (!header || !isValidMessageId(header)) {
+		return { kind: "unresolvable", reason: "listing row has no Message-ID" };
+	}
+	const sourceId = deriveMessageId(account.accountId, header);
+	if (deriveCopyMessageId(sourceId, copy.mailboxId) !== copy.messageId) {
+		return {
+			kind: "unresolvable",
+			reason: "copy was not made from the message its Message-ID names",
+		};
+	}
+	const [source] = await client.message.get([sourceId]);
+	if (!source) return { kind: "unresolvable", reason: "source row missing" };
+	if (source.status === MessageStatus.deleted) {
+		return { kind: "unresolvable", reason: "source row deleted" };
+	}
 	if (source.status !== MessageStatus.active) return { kind: "wait" };
 	return {
 		kind: "redrive",
@@ -92,16 +98,19 @@ const copyRedriveFor = async (
 	};
 };
 
-/** A copy whose source is gone everywhere has nothing to bind and nothing to hide. */
-const removeOrphanedCopy = async (
+/** A copy with no source to copy from has nothing to bind and nothing to hide. */
+const removeUnresolvableCopy = async (
 	deps: StrandedPlacementRedriveDeps,
 	account: AccountItem,
 	row: MessageItem,
+	reason: string,
 	now: number,
 ): Promise<boolean> => {
 	const { unitOfWork } = deps.client;
 	if (!unitOfWork) {
-		throw new Error("Removing an orphaned copy needs the store's unit of work");
+		throw new Error(
+			"Removing an unresolvable copy needs the store's unit of work",
+		);
 	}
 	const removed = await unitOfWork.transaction(async (repos) => {
 		const deleted = await repos.message.deleteIfPlacement(row.messageId, {
@@ -127,13 +136,14 @@ const removeOrphanedCopy = async (
 	if (!removed) return false;
 	deps.log.error(
 		{
-			alert: "stranded_copy_source_gone",
+			alert: "stranded_copy_unresolvable",
 			accountId: account.accountId,
 			messageId: row.messageId,
 			mailboxId: row.mailboxId,
+			reason,
 			untouchedForMs: now - row.updatedAt,
 		},
-		"A copy stranded at uid 0 lost its source message; the copy row was removed",
+		"A copy stranded at uid 0 has no source to copy from; the copy row was removed",
 	);
 	return true;
 };
@@ -236,8 +246,10 @@ export const redriveStrandedPlacements = async (
 			? await copyRedriveFor(client, account, row)
 			: undefined;
 		if (copy?.kind === "wait") continue;
-		if (copy?.kind === "source-gone") {
-			if (await removeOrphanedCopy(deps, account, row, now)) redriven += 1;
+		if (copy?.kind === "unresolvable") {
+			if (await removeUnresolvableCopy(deps, account, row, copy.reason, now)) {
+				redriven += 1;
+			}
 			continue;
 		}
 		const event =
