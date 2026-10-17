@@ -130,6 +130,7 @@ const sync = async (
 
 	const threadMessageService = {
 		findByMessageId: async () => threadRow,
+		rekeyThread: async () => ({ moved: 0, dropped: 0 }),
 		update: async (
 			_config: string,
 			_id: string,
