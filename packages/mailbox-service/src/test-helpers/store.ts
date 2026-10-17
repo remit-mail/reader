@@ -1,13 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { mock } from "node:test";
-import type {
+import {
 	SendMessageBatchCommand,
 	SendMessageCommand,
+	SQSClient,
 } from "@aws-sdk/client-sqs";
-import { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountItem,
 	CreateMessageInput,
@@ -19,81 +18,71 @@ import type {
 } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
-	AccountConfigRepo,
-	AccountRepo,
-	AccountSettingRepo,
-	AddressRepo,
-	CalendarCollectionRepo,
-	CalendarSuggestionRepo,
-	DrizzleCalendarUnitOfWork,
-	DrizzleEnvelopeRepository,
-	DrizzleMessageFlagRepository,
-	DrizzleMessageRepository,
-	DrizzleThreadMessageRepository,
-	DrizzleUnitOfWork,
-	FilterAnchorRepo,
-	FilterRepo,
-	LabelRepo,
-	MailboxRepo,
-	MailboxSpecialUseRepo,
-	MessageFlagPushRepo,
-	MessageLabelRepo,
-	MessagePlacementMoveRepo,
-	OutboxAttachmentRepo,
-	OutboxMessageRepo,
-	QuarantineRepo,
+	createSqliteDatabase,
+	createSqliteRepositories,
+	messageDataSchema,
 } from "@remit/drizzle-service";
-import { createShippedSqliteStore } from "@remit/drizzle-service/test-sqlite";
+import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
+import { mockClient } from "aws-sdk-client-mock";
+import Database from "better-sqlite3";
 import { MessageSyncService } from "../message-sync.js";
 import type { FakeImapServer } from "./fake-imap.js";
 
-export const openStore = () => {
-	const { db, close } = createShippedSqliteStore();
-	const handle = db as never;
+const UPLOAD_URLS = {
+	origin: "https://reader.test",
+	signingSecret: "test-signing-secret",
+};
+
+/**
+ * The store the app opens: the committed migrations applied to a file, then
+ * that file opened the way the app opens it, with every repo the app composes.
+ * Storage made from it lives in the same directory and goes with it.
+ */
+let migrated: string | undefined;
+
+const migratedTemplate = (): string => {
+	if (migrated) return migrated;
+	const dir = mkdtempSync(join(tmpdir(), "mbx-template-"));
+	const filename = join(dir, "template.sqlite");
+	const migrating = new Database(filename);
+	migrating.pragma("synchronous = OFF");
+	applyShippedMigrations(migrating);
+	migrating.close();
+	process.once("exit", () => rmSync(dir, { recursive: true, force: true }));
+	migrated = filename;
+	return filename;
+};
+
+export const openStore = async () => {
+	const dir = mkdtempSync(join(tmpdir(), "mbx-store-"));
+	const filename = join(dir, "store.sqlite");
+	copyFileSync(migratedTemplate(), filename);
+	const { db, close } = await createSqliteDatabase(messageDataSchema, {
+		filename,
+	});
+	let storages = 0;
 	return {
-		accountConfig: new AccountConfigRepo(handle),
-		account: new AccountRepo(handle),
-		accountSetting: new AccountSettingRepo(handle),
-		address: new AddressRepo(handle),
-		mailbox: new MailboxRepo(handle),
-		specialUse: new MailboxSpecialUseRepo(handle),
-		message: new DrizzleMessageRepository(db),
-		messageFlag: new DrizzleMessageFlagRepository(db),
-		threadMessage: new DrizzleThreadMessageRepository(handle),
-		envelope: new DrizzleEnvelopeRepository(db),
-		quarantine: new QuarantineRepo(handle),
-		placementMove: new MessagePlacementMoveRepo(handle),
-		flagPush: new MessageFlagPushRepo(handle),
-		filter: new FilterRepo(handle),
-		filterAnchor: new FilterAnchorRepo(handle),
-		label: new LabelRepo(handle),
-		messageLabel: new MessageLabelRepo(handle),
-		outboxMessage: new OutboxMessageRepo(handle),
-		outboxAttachment: new OutboxAttachmentRepo(handle),
-		calendarCollection: new CalendarCollectionRepo(handle),
-		calendarSuggestion: new CalendarSuggestionRepo(handle),
-		calendarUnitOfWork: new DrizzleCalendarUnitOfWork(handle),
-		unitOfWork: new DrizzleUnitOfWork(db),
-		close,
+		...createSqliteRepositories(db),
+		storage: (): StorageService =>
+			createFilesystemStorageService(
+				join(dir, `storage-${++storages}`),
+				UPLOAD_URLS,
+			),
+		brokenStorage: (): StorageService => {
+			const root = join(dir, `broken-${++storages}`);
+			writeFileSync(root, "");
+			return createFilesystemStorageService(root);
+		},
+		close: async () => {
+			await close();
+			rmSync(dir, { recursive: true, force: true });
+		},
 	};
 };
 
-export type Store = ReturnType<typeof openStore>;
-
-export const scratchStorage = (): StorageService =>
-	createFilesystemStorageService(mkdtempSync(join(tmpdir(), "mbx-store-")), {
-		origin: "https://reader.test",
-		signingSecret: "test-signing-secret",
-	});
-
-/** Storage whose root is a plain file, so every write fails as a full disk would. */
-export const brokenStorage = (): StorageService => {
-	const root = join(mkdtempSync(join(tmpdir(), "mbx-broken-")), "root");
-	writeFileSync(root, "");
-	return createFilesystemStorageService(root);
-};
+export type Store = Awaited<ReturnType<typeof openStore>>;
 
 export const seedAccount = async (
 	store: Store,
@@ -151,7 +140,7 @@ export const seedMailbox = async (
 		throw new Error(`${fullPath} already exists`);
 	}
 	if (options.specialUse) {
-		await store.specialUse.create(
+		await store.mailboxSpecialUse.create(
 			created.mailbox.mailboxId,
 			options.specialUse,
 		);
@@ -211,25 +200,43 @@ export interface QueuedEvent {
 	body: Record<string, unknown>;
 }
 
-export const captureQueue = (): QueuedEvent[] => {
+/** Every SQS send in the test, answered by `answer` instead of the wire. */
+export const captureQueue = () => {
+	const stub = mockClient(SQSClient);
 	const sent: QueuedEvent[] = [];
-	mock.method(
-		SQSClient.prototype,
-		"send",
-		async (command: SendMessageCommand | SendMessageBatchCommand) => {
-			const queueUrl = command.input.QueueUrl ?? "";
-			const bodies =
-				"Entries" in command.input
-					? (command.input.Entries ?? []).map((entry) => entry.MessageBody)
-					: [command.input.MessageBody];
-			for (const body of bodies) {
-				sent.push({ queueUrl, body: JSON.parse(body ?? "{}") });
-			}
-			return {};
-		},
+	let answer: () => Promise<unknown> = async () => ({});
+	const record = (
+		queueUrl: string | undefined,
+		bodies: Array<string | undefined>,
+	) => {
+		for (const body of bodies) {
+			sent.push({ queueUrl: queueUrl ?? "", body: JSON.parse(body ?? "{}") });
+		}
+		return answer();
+	};
+	stub
+		.on(SendMessageCommand)
+		.callsFake((input) => record(input.QueueUrl, [input.MessageBody]));
+	stub.on(SendMessageBatchCommand).callsFake((input) =>
+		record(
+			input.QueueUrl,
+			(input.Entries ?? []).map(
+				(entry: { MessageBody?: string }) => entry.MessageBody,
+			),
+		),
 	);
-	return sent;
+	return {
+		sent,
+		inputs: () =>
+			stub.commandCalls(SendMessageCommand).map((call) => call.args[0].input),
+		answer: (next: () => Promise<unknown>) => {
+			answer = next;
+		},
+		restore: () => stub.restore(),
+	};
 };
+
+export type QueueCapture = ReturnType<typeof captureQueue>;
 
 export const silentLog = {
 	info: () => {},
@@ -244,11 +251,11 @@ export const syncFolder = async (
 	mailbox: Pick<MailboxItem, "mailboxId">,
 	imap: FakeImapServer,
 ): Promise<string[]> => {
-	const connection = imap.connect();
+	const connection = imap.connection();
 	const service = new MessageSyncService(
 		{ getConnection: () => connection, close: async () => {} },
 		store.mailbox,
-		store.specialUse,
+		store.mailboxSpecialUse,
 		store.message,
 		store.envelope,
 		store.address,
@@ -289,7 +296,6 @@ export const arriveAt = async (
 	mailbox: Pick<MailboxItem, "mailboxId" | "fullPath">,
 	raw: Buffer,
 ): Promise<string> => {
-	imap.folder(mailbox.fullPath);
 	const uid = imap.deliver(mailbox.fullPath, raw);
 	await syncFolder(store, account, mailbox, imap);
 	return (await messageAtUid(store, mailbox, uid)).messageId;

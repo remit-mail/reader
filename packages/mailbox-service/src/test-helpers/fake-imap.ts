@@ -28,6 +28,37 @@ interface Folder {
 	messages: Map<number, StoredMessage>;
 }
 
+export type FakeImapVerb =
+	| "NAMESPACE"
+	| "LIST"
+	| "STATUS"
+	| "SELECT"
+	| "EXAMINE"
+	| "CLOSE"
+	| "SEARCH"
+	| "FETCH"
+	| "BODY"
+	| "STORE"
+	| "MOVE"
+	| "COPY"
+	| "EXPUNGE"
+	| "CREATE"
+	| "RENAME"
+	| "DELETE"
+	| "SUBSCRIBE"
+	| "UNSUBSCRIBE"
+	| "APPEND";
+
+/** An error shaped the way ImapFlow reports a tagged NO from the server. */
+export const imapError = (code: string, text: string): Error =>
+	Object.assign(new Error(`Command failed: ${text}`), {
+		serverResponseCode: code,
+		responseText: text,
+	});
+
+const nonexistent = (path: string): Error =>
+	imapError("NONEXISTENT", `Mailbox doesn't exist: ${path}`);
+
 export const eml = (headers: Record<string, string>, body = "body"): Buffer =>
 	Buffer.from(
 		[
@@ -58,32 +89,79 @@ const toAddresses = (
 const single = <T>(value: T | T[] | undefined): T | undefined =>
 	Array.isArray(value) ? value[0] : value;
 
+const UID_RANGE = /^(\d+)(?::(\d+|\*))?$/;
+
+/** Whether `uid` is in an IMAP sequence set such as `3`, `1,4` or `2:*`. */
+const inUidSet = (set: string, uid: number, highest: number): boolean =>
+	set.split(",").some((part) => {
+		const match = UID_RANGE.exec(part);
+		if (!match) throw new Error(`the fake server cannot read UID set ${set}`);
+		const from = Number(match[1]);
+		const to =
+			match[2] === undefined
+				? from
+				: match[2] === "*"
+					? Math.max(highest, from)
+					: Number(match[2]);
+		return uid >= Math.min(from, to) && uid <= Math.max(from, to);
+	});
+
 /**
- * An IMAP server held in memory, behind the same connection port the real
- * imapflow adapter implements. FETCH rows are derived from the raw bytes the
- * way the adapter derives them: the envelope carries the header values as
- * written, angle brackets included, and References goes through mailparser.
+ * An IMAP server held in memory, behind the same connection port the imapflow
+ * adapter implements. It refuses what a server refuses: a folder that does not
+ * exist is `NONEXISTENT`, a transfer or APPEND to one is `TRYCREATE`, and a
+ * SEARCH it does not model throws rather than matching everything. FETCH rows
+ * are derived from the raw bytes the way the adapter derives them. `log`
+ * records every command that would reach the wire.
  */
 export class FakeImapServer {
-	readonly folders = new Map<string, Folder>();
+	private readonly folders = new Map<string, Folder>();
 	private modseq = 1n;
+	private nextUidValidity = 1000;
+	readonly log: string[] = [];
+	readonly failNext: Partial<Record<FakeImapVerb, Error>> = {};
+	readonly ignoreNext = new Set<FakeImapVerb>();
 	condstore = true;
-	/** What the server prepends to a path it is asked to create or rename to. */
+	uidplus = true;
 	namespacePrefix = "";
+	connections = 0;
 	onFetchBody: (uid: number) => Promise<void> = async () => {};
 
-	folder(path: string, attributes: string[] = [], uidValidity = 7): Folder {
-		const existing = this.folders.get(path);
-		if (existing) return existing;
-		const created: Folder = {
-			uidValidity,
+	addFolder(
+		path: string,
+		options: { attributes?: string[]; uidValidity?: number } = {},
+	): void {
+		if (this.folders.has(path)) throw new Error(`${path} already exists`);
+		this.folders.set(path, {
+			uidValidity: options.uidValidity ?? 7,
 			uidNext: 1,
-			attributes,
+			attributes: options.attributes ?? [],
 			subscribed: true,
 			messages: new Map(),
-		};
-		this.folders.set(path, created);
-		return created;
+		});
+	}
+
+	hasFolder(path: string): boolean {
+		return this.folders.has(path);
+	}
+
+	/** Another client deleted the folder. */
+	removeFolder(path: string): void {
+		if (!this.folders.delete(path)) throw nonexistent(path);
+	}
+
+	isSubscribed(path: string): boolean {
+		return this.folder(path).subscribed;
+	}
+
+	folder(path: string): Folder {
+		const folder = this.folders.get(path);
+		if (!folder) throw nonexistent(path);
+		return folder;
+	}
+
+	paths(): string[] {
+		return [...this.folders.keys()];
 	}
 
 	deliver(path: string, raw: Buffer, flags: string[] = []): number {
@@ -98,8 +176,11 @@ export class FakeImapServer {
 		return uid;
 	}
 
+	/** Another client expunged the message. */
 	expunge(path: string, uid: number): void {
-		this.folder(path).messages.delete(uid);
+		if (!this.folder(path).messages.delete(uid)) {
+			throw new Error(`no uid ${uid} in ${path}`);
+		}
 	}
 
 	/** One STORE from another client: every message it touches shares the new mod-sequence. */
@@ -113,6 +194,7 @@ export class FakeImapServer {
 		}
 	}
 
+	/** The server renumbered the folder: a new UIDVALIDITY, UIDs from 1. */
 	renumber(path: string, uidValidity: number): void {
 		const folder = this.folder(path);
 		const messages = [...folder.messages.values()];
@@ -133,59 +215,103 @@ export class FakeImapServer {
 		return this.modseq - 1n;
 	}
 
-	connect(): FakeImapConnection {
-		return new FakeImapConnection(this);
-	}
-
 	bumpModseq(): bigint {
 		return this.modseq++;
+	}
+
+	commands(verb: FakeImapVerb): string[] {
+		return this.log.filter((line) => line.startsWith(`${verb} `));
+	}
+
+	run(verb: FakeImapVerb, detail: string): void {
+		this.log.push(`${verb} ${detail}`);
+		const failure = this.failNext[verb];
+		if (failure) {
+			delete this.failNext[verb];
+			throw failure;
+		}
+	}
+
+	createFolder(path: string): boolean {
+		if (this.folders.has(path)) return false;
+		this.nextUidValidity += 1;
+		this.addFolder(path, { uidValidity: this.nextUidValidity });
+		return true;
+	}
+
+	renameFolder(oldPath: string, newPath: string): void {
+		this.folder(oldPath);
+		if (this.folders.has(newPath)) {
+			throw imapError("ALREADYEXISTS", `Mailbox already exists: ${newPath}`);
+		}
+		for (const [path, folder] of [...this.folders]) {
+			if (path !== oldPath && !path.startsWith(`${oldPath}/`)) continue;
+			this.folders.delete(path);
+			this.folders.set(newPath + path.slice(oldPath.length), folder);
+		}
+	}
+
+	deleteFolder(path: string): void {
+		if (path === "INBOX") throw imapError("CANNOT", "Cannot delete INBOX");
+		this.folder(path);
+		for (const key of [...this.folders.keys()]) {
+			if (key === path || key.startsWith(`${path}/`)) this.folders.delete(key);
+		}
+	}
+
+	connection(): FakeImapConnection {
+		this.connections += 1;
+		return new FakeImapConnection(this);
 	}
 }
 
 export class FakeImapConnection implements IImapConnection {
 	readonly state: ImapConnectionState = "authenticated";
 	readonly isConnected = true;
-	selected: string | null = null;
-	readonly opened: string[] = [];
+	private selected: string | null = null;
 
 	constructor(private readonly server: FakeImapServer) {}
 
 	private open(): Folder {
-		if (!this.selected) throw new Error("No mailbox selected");
-		const folder = this.server.folders.get(this.selected);
-		if (!folder) throw new Error(`Mailbox ${this.selected} does not exist`);
-		return folder;
+		if (this.selected === null) throw new Error("No mailbox selected");
+		return this.server.folder(this.selected);
 	}
+
+	private uidList = (uids: number[]): string => uids.join(",");
 
 	connect = async (): Promise<void> => {};
 	disconnect = async (): Promise<void> => {};
 
-	getNamespaces = async (): Promise<ImapNamespaces> => ({
-		personal: [{ prefix: "", delimiter: "/" }],
-		other: [],
-		shared: [],
-	});
+	getNamespaces = async (): Promise<ImapNamespaces> => {
+		this.server.run("NAMESPACE", "");
+		return {
+			personal: [{ prefix: this.server.namespacePrefix, delimiter: "/" }],
+			other: [],
+			shared: [],
+		};
+	};
 
-	listMailboxes = async (): Promise<FlatMailboxInfo[]> =>
-		[...this.server.folders.entries()].map(([fullPath, folder]) => {
+	listMailboxes = async (): Promise<FlatMailboxInfo[]> => {
+		this.server.run("LIST", "");
+		return this.server.paths().map((fullPath) => {
 			const separator = fullPath.lastIndexOf("/");
 			return {
 				fullPath,
 				name: separator === -1 ? fullPath : fullPath.slice(separator + 1),
 				delimiter: "/",
-				attributes: folder.attributes,
+				attributes: this.server.folder(fullPath).attributes,
 				parentPath: separator === -1 ? null : fullPath.slice(0, separator),
 			};
 		});
+	};
 
-	openBox = async (path: string): Promise<ImapBoxStatus> => {
-		const folder = this.server.folders.get(path);
-		if (!folder) throw new Error(`Mailbox ${path} does not exist`);
+	openBox = async (path: string, readOnly = false): Promise<ImapBoxStatus> => {
+		this.server.run(readOnly ? "EXAMINE" : "SELECT", path);
+		const folder = this.server.folder(path);
 		this.selected = path;
-		this.opened.push(path);
 		return {
 			name: path,
-			readOnly: false,
+			readOnly,
 			uidvalidity: folder.uidValidity,
 			uidnext: folder.uidNext,
 			flags: [],
@@ -197,20 +323,28 @@ export class FakeImapConnection implements IImapConnection {
 	};
 
 	closeBox = async (): Promise<void> => {
+		this.server.run("CLOSE", `${this.selected}`);
 		this.selected = null;
 	};
 
 	search = async (criteria: unknown[]): Promise<number[]> => {
+		this.server.run("SEARCH", `${this.selected} ${JSON.stringify(criteria)}`);
 		const folder = this.open();
 		const all = [...folder.messages.keys()];
 		const [first] = criteria;
-		if (Array.isArray(first) && first[0] === "UID") {
-			const wanted = String(first[1])
-				.split(",")
-				.map((uid) => Number(uid));
-			return all.filter((uid) => wanted.includes(uid));
+		if (criteria.length === 1 && first === "ALL") return all;
+		if (
+			criteria.length === 1 &&
+			Array.isArray(first) &&
+			first.length === 2 &&
+			first[0] === "UID"
+		) {
+			const highest = Math.max(0, ...all);
+			return all.filter((uid) => inUidSet(String(first[1]), uid, highest));
 		}
-		return all;
+		throw new Error(
+			`the fake server does not answer SEARCH ${JSON.stringify(criteria)}`,
+		);
 	};
 
 	private toImapMessage = async (
@@ -228,7 +362,7 @@ export class FakeImapConnection implements IImapConnection {
 		const bodyStructure: ImapBodyStructure = {
 			type: contentType?.value ?? "text/plain",
 			parameters: contentType?.params,
-			encoding: "7bit",
+			encoding: header("content-transfer-encoding") || "7bit",
 			size: stored.raw.length,
 		};
 		const references = parsed.references;
@@ -261,7 +395,7 @@ export class FakeImapConnection implements IImapConnection {
 		};
 	};
 
-	fetchMessages = async (uids: number[]): Promise<ImapMessage[]> => {
+	private fetchRows = async (uids: number[]): Promise<ImapMessage[]> => {
 		const folder = this.open();
 		const rows: ImapMessage[] = [];
 		for (const uid of uids) {
@@ -271,11 +405,20 @@ export class FakeImapConnection implements IImapConnection {
 		return rows;
 	};
 
+	fetchMessages = async (uids: number[]): Promise<ImapMessage[]> => {
+		this.server.run("FETCH", `${this.selected} ${this.uidList(uids)}`);
+		return this.fetchRows(uids);
+	};
+
 	supportsCondstore = (): boolean => this.server.condstore;
 
 	fetchMessagesChangedSince = async (
 		sinceModseq: bigint,
 	): Promise<ImapMessage[]> => {
+		this.server.run(
+			"FETCH",
+			`${this.selected} 1:* CHANGEDSINCE ${sinceModseq}`,
+		);
 		if (!this.server.condstore) {
 			throw new Error("CHANGEDSINCE requires CONDSTORE");
 		}
@@ -292,7 +435,8 @@ export class FakeImapConnection implements IImapConnection {
 	fetchEnvelopeSnapshots = async (
 		uids: number[],
 	): Promise<ImapEnvelopeSnapshot[]> => {
-		const rows = await this.fetchMessages(uids);
+		this.server.run("FETCH", `${this.selected} ${this.uidList(uids)} ENVELOPE`);
+		const rows = await this.fetchRows(uids);
 		return rows.map((row) => ({
 			uid: row.uid,
 			messageId: row.envelope?.messageId ?? "",
@@ -301,6 +445,7 @@ export class FakeImapConnection implements IImapConnection {
 	};
 
 	fetchMessageBody = async (uid: number): Promise<Buffer | null> => {
+		this.server.run("BODY", `${this.selected} ${uid}`);
 		await this.server.onFetchBody(uid);
 		return this.open().messages.get(uid)?.raw ?? null;
 	};
@@ -308,6 +453,7 @@ export class FakeImapConnection implements IImapConnection {
 	async *fetchMessageBodies(
 		uids: number[],
 	): AsyncGenerator<{ uid: number; source: Readable }> {
+		this.server.run("BODY", `${this.selected} ${this.uidList(uids)}`);
 		const folder = this.open();
 		for (const uid of uids) {
 			const stored = folder.messages.get(uid);
@@ -315,7 +461,15 @@ export class FakeImapConnection implements IImapConnection {
 		}
 	}
 
-	private touch = (uids: number[], change: (flags: Set<string>) => void) => {
+	private touch = (
+		detail: string,
+		uids: number[],
+		change: (flags: Set<string>) => void,
+	) => {
+		this.server.run(
+			"STORE",
+			`${this.selected} ${this.uidList(uids)} ${detail}`,
+		);
 		const folder = this.open();
 		const modseq = this.server.bumpModseq();
 		for (const uid of uids) {
@@ -327,17 +481,17 @@ export class FakeImapConnection implements IImapConnection {
 	};
 
 	addFlags = async (uids: number[], flags: string[]): Promise<void> =>
-		this.touch(uids, (set) => {
+		this.touch(`+${flags.join(" ")}`, uids, (set) => {
 			for (const flag of flags) set.add(flag);
 		});
 
 	removeFlags = async (uids: number[], flags: string[]): Promise<void> =>
-		this.touch(uids, (set) => {
+		this.touch(`-${flags.join(" ")}`, uids, (set) => {
 			for (const flag of flags) set.delete(flag);
 		});
 
 	setFlags = async (uids: number[], flags: string[]): Promise<void> =>
-		this.touch(uids, (set) => {
+		this.touch(flags.join(" "), uids, (set) => {
 			set.clear();
 			for (const flag of flags) set.add(flag);
 		});
@@ -346,15 +500,13 @@ export class FakeImapConnection implements IImapConnection {
 		path: string,
 	): Promise<{ path: string; created: boolean }> => {
 		const resolved = this.server.namespacePrefix + path;
-		const created = !this.server.folders.has(resolved);
-		this.server.folder(resolved);
-		return { path: resolved, created };
+		this.server.run("CREATE", resolved);
+		return { path: resolved, created: this.server.createFolder(resolved) };
 	};
 
 	deleteMailbox = async (path: string): Promise<{ path: string }> => {
-		if (!this.server.folders.delete(path)) {
-			throw new Error(`Mailbox ${path} does not exist`);
-		}
+		this.server.run("DELETE", path);
+		this.server.deleteFolder(path);
 		return { path };
 	};
 
@@ -362,38 +514,40 @@ export class FakeImapConnection implements IImapConnection {
 		oldPath: string,
 		requested: string,
 	): Promise<{ path: string; newPath: string }> => {
-		if (!this.server.folders.has(oldPath)) {
-			throw Object.assign(new Error("Command failed"), {
-				serverResponseCode: "NONEXISTENT",
-				responseText: `Mailbox doesn't exist: ${oldPath}`,
-			});
-		}
 		const newPath = this.server.namespacePrefix + requested;
-		for (const [path, folder] of [...this.server.folders]) {
-			if (path !== oldPath && !path.startsWith(`${oldPath}/`)) continue;
-			this.server.folders.delete(path);
-			this.server.folders.set(newPath + path.slice(oldPath.length), folder);
-		}
+		this.server.run("RENAME", `${oldPath} ${newPath}`);
+		this.server.renameFolder(oldPath, newPath);
 		return { path: oldPath, newPath };
 	};
 
 	subscribeMailbox = async (path: string): Promise<void> => {
+		this.server.run("SUBSCRIBE", path);
 		this.server.folder(path).subscribed = true;
 	};
 
 	unsubscribeMailbox = async (path: string): Promise<void> => {
+		this.server.run("UNSUBSCRIBE", path);
 		this.server.folder(path).subscribed = false;
 	};
 
 	private transfer = (
+		verb: "MOVE" | "COPY",
 		uids: number[],
 		destination: string,
-		removeFromSource: boolean,
 	) => {
-		const source = this.open();
-		const target = this.server.folders.get(destination);
-		if (!target) throw new Error(`Mailbox ${destination} does not exist`);
+		this.server.run(
+			verb,
+			`${this.selected} ${this.uidList(uids)} ${destination}`,
+		);
+		if (!this.server.hasFolder(destination)) {
+			throw imapError("TRYCREATE", `Mailbox doesn't exist: ${destination}`);
+		}
+		const target = this.server.folder(destination);
 		const uidMap = new Map<number, number>();
+		if (this.server.ignoreNext.delete(verb)) {
+			return { destination, uidValidity: target.uidValidity, uidMap };
+		}
+		const source = this.open();
 		for (const uid of uids) {
 			const stored = source.messages.get(uid);
 			if (!stored) continue;
@@ -403,19 +557,20 @@ export class FakeImapConnection implements IImapConnection {
 				flags: new Set(stored.flags),
 				modseq: this.server.bumpModseq(),
 			});
-			if (removeFromSource) source.messages.delete(uid);
-			uidMap.set(uid, next);
+			if (verb === "MOVE") source.messages.delete(uid);
+			if (this.server.uidplus) uidMap.set(uid, next);
 		}
 		return { destination, uidValidity: target.uidValidity, uidMap };
 	};
 
 	moveMessages = async (uids: number[], destination: string) =>
-		this.transfer(uids, destination, true);
+		this.transfer("MOVE", uids, destination);
 
 	copyMessages = async (uids: number[], destination: string) =>
-		this.transfer(uids, destination, false);
+		this.transfer("COPY", uids, destination);
 
 	deleteMessages = async (uids: number[]): Promise<number> => {
+		this.server.run("EXPUNGE", `${this.selected} ${this.uidList(uids)}`);
 		const folder = this.open();
 		let deleted = 0;
 		for (const uid of uids) {
@@ -425,8 +580,8 @@ export class FakeImapConnection implements IImapConnection {
 	};
 
 	getMailboxStatus = async (path: string): Promise<ImapMailboxStatus> => {
-		const folder = this.server.folders.get(path);
-		if (!folder) throw new Error(`Mailbox ${path} does not exist`);
+		this.server.run("STATUS", path);
+		const folder = this.server.folder(path);
 		const messages = [...folder.messages.values()];
 		return {
 			messages: messages.length,
@@ -447,6 +602,10 @@ export class FakeImapConnection implements IImapConnection {
 		message: string | Buffer,
 		flags: string[] = [],
 	): Promise<{ destination: string; uidValidity: number; uid: number }> => {
+		this.server.run("APPEND", mailbox);
+		if (!this.server.hasFolder(mailbox)) {
+			throw imapError("TRYCREATE", `Mailbox doesn't exist: ${mailbox}`);
+		}
 		const uid = this.server.deliver(
 			mailbox,
 			Buffer.isBuffer(message) ? message : Buffer.from(message),

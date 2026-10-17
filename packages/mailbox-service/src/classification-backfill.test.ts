@@ -21,7 +21,6 @@ import {
 	arriveAt,
 	openStore,
 	type Store,
-	scratchStorage,
 	seedAccount,
 	seedMailbox,
 	storeBody,
@@ -56,9 +55,11 @@ let inbox: MailboxItem;
 let junk: MailboxItem;
 
 beforeEach(async () => {
-	store = openStore();
-	storage = scratchStorage();
+	store = await openStore();
+	storage = store.storage();
 	imap = new FakeImapServer();
+	imap.addFolder("INBOX");
+	imap.addFolder("Junk");
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
 	junk = await seedMailbox(store, account, "Junk", { specialUse: "Junk" });
@@ -81,7 +82,7 @@ const stored = async (
 const deps = () => ({
 	accountConfigService: store.accountConfig,
 	accountService: store.account,
-	mailboxSpecialUseService: store.specialUse,
+	mailboxSpecialUseService: store.mailboxSpecialUse,
 	addressService: store.address,
 	threadMessageService: store.threadMessage,
 	messageService: store.message,
@@ -209,6 +210,7 @@ describe("backfillClassifications", () => {
 		const second = await seedAccount(store, { accountConfigId: "cfg-a" });
 		const third = await seedAccount(store, { accountConfigId: "cfg-b" });
 		for (const owner of [third, second]) {
+			imap.addFolder(`INBOX-${owner.accountConfigId}`);
 			await stored(
 				PLAIN,
 				await seedMailbox(store, owner, `INBOX-${owner.accountConfigId}`),

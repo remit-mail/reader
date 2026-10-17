@@ -30,13 +30,11 @@ import { PlacementMoveService } from "./placement-move.js";
 import { QuarantineService } from "./quarantine.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
-	brokenStorage,
 	captureQueue,
 	messageAtUid,
 	openStore,
-	type QueuedEvent,
+	type QueueCapture,
 	type Store,
-	scratchStorage,
 	seedAccount,
 	seedMailbox,
 	silentLog,
@@ -123,7 +121,7 @@ const MISSING_BODY = "file:///nonexistent/remit/body.eml";
 interface World {
 	store: Store;
 	imap: FakeImapServer;
-	queue: QueuedEvent[];
+	queue: QueueCapture;
 	account: AccountItem;
 	inbox: MailboxItem;
 	junk: MailboxItem;
@@ -134,11 +132,14 @@ interface World {
 let world: World;
 
 beforeEach(async () => {
-	const store = openStore();
+	const store = await openStore();
 	const account = await seedAccount(store);
+	const imap = new FakeImapServer();
+	for (const path of ["INBOX", "Junk", "Archive", "Travel"])
+		imap.addFolder(path);
 	world = {
 		store,
-		imap: new FakeImapServer(),
+		imap,
 		queue: captureQueue(),
 		account,
 		inbox: await seedMailbox(store, account, "INBOX"),
@@ -150,9 +151,9 @@ beforeEach(async () => {
 	};
 });
 
-afterEach(() => {
-	mock.restoreAll();
-	world.store.close();
+afterEach(async () => {
+	world.queue.restore();
+	await world.store.close();
 });
 
 interface Wiring {
@@ -171,7 +172,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		threadMessageService: store.threadMessage,
 		markerService: store.placementMove,
 		addressService: store.address,
-		mailboxSpecialUseService: store.specialUse,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
 		sqsQueueUrl: "https://sqs.test/message-mgmt",
 	});
 	const flagQueueService = new FlagQueueService({
@@ -185,13 +186,16 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 	});
 	return new BodySyncService(
 		store.message,
-		wiring.storage ?? scratchStorage(),
+		wiring.storage ?? store.storage(),
 		store.threadMessage,
 		store.address,
 		store.envelope,
 		silentLog,
 		wiring.placement
-			? { mailboxSpecialUseService: store.specialUse, placementMoveService }
+			? {
+					mailboxSpecialUseService: store.mailboxSpecialUse,
+					placementMoveService,
+				}
 			: undefined,
 		wiring.filters
 			? {
@@ -205,7 +209,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 			? {
 					quarantineService: new QuarantineService(
 						store.quarantine,
-						store.specialUse,
+						store.mailboxSpecialUse,
 						"sha-test",
 						silentLog,
 					),
@@ -241,7 +245,6 @@ const arrive = async (
 	mailbox: MailboxItem = world.inbox,
 	update: UpdateMessageInput = {},
 ): Promise<string> => {
-	world.imap.folder(mailbox.fullPath);
 	const uid = world.imap.deliver(mailbox.fullPath, raw);
 	await syncFolder(world.store, world.account, mailbox, world.imap);
 	const { messageId } = await messageAtUid(world.store, mailbox, uid);
@@ -259,7 +262,7 @@ const read = (
 		world.account.accountId,
 		world.account.accountConfigId,
 		placementOf(mailbox),
-		async () => world.imap.connect(),
+		async () => world.imap.connection(),
 	);
 
 const sync = (
@@ -272,7 +275,7 @@ const sync = (
 		world.account.accountId,
 		world.account.accountConfigId,
 		placementOf(options.mailbox ?? world.inbox),
-		async () => world.imap.connect(),
+		async () => world.imap.connection(),
 		options.force ?? false,
 	);
 
@@ -444,7 +447,7 @@ describe("a re-store re-fetches bytes and re-decides nothing", () => {
 			assert.equal(row.movedByRemit, false);
 			assert.equal(row.placementDecidedAt, 500);
 			assert.equal((await threadRows(messageId))[0].isRead, false);
-			assert.deepEqual(world.queue, []);
+			assert.deepEqual(world.queue.sent, []);
 		});
 
 		it(`does not re-fire a standing filter through ${path}`, async () => {
@@ -506,7 +509,7 @@ describe("placement follows the sender's flags", () => {
 			"queued",
 		);
 		assert.deepEqual(
-			world.queue.map((event) => event.body.type),
+			world.queue.sent.map((event) => event.body.type),
 			["PLACEMENT_MOVE_PUSH"],
 		);
 	});
@@ -719,7 +722,7 @@ describe("reading a message the mail server no longer holds", () => {
 
 	it("fails loudly and deletes nothing when the server still lists the UID", async () => {
 		const messageId = await arrive(FROM_SOMEONE);
-		const connection = world.imap.connect();
+		const connection = world.imap.connection();
 		connection.fetchMessageBody = async () => null;
 
 		await assert.rejects(
@@ -742,7 +745,7 @@ describe("body sync and the quarantine", () => {
 		const { uid } = await messageRow(messageId);
 		await new QuarantineService(
 			world.store.quarantine,
-			world.store.specialUse,
+			world.store.mailboxSpecialUse,
 			"sha-test",
 			silentLog,
 		).record(
@@ -774,7 +777,7 @@ describe("body sync and the quarantine", () => {
 		const messageId = await arrive(FROM_SOMEONE);
 
 		const result = await sync(
-			bodySync({ quarantine: true, storage: brokenStorage() }),
+			bodySync({ quarantine: true, storage: world.store.brokenStorage() }),
 			[messageId],
 		);
 

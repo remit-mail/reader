@@ -15,13 +15,13 @@ const ACCOUNT = "cfg-1";
 
 let store: Store;
 
-beforeEach(() => {
-	store = openStore();
+beforeEach(async () => {
+	store = await openStore();
 });
 
-afterEach(() => {
+afterEach(async () => {
 	mock.timers.reset();
-	store.close();
+	await store.close();
 });
 
 const fromGithub: FilterMessage = {
@@ -82,7 +82,7 @@ const pipeline = (embedder: FilterConfig["embedder"]) =>
 				threadMessageService: store.threadMessage,
 				markerService: store.placementMove,
 				addressService: store.address,
-				mailboxSpecialUseService: store.specialUse,
+				mailboxSpecialUseService: store.mailboxSpecialUse,
 				sqsQueueUrl: "https://sqs.test/message-mgmt",
 			}),
 			embedder,

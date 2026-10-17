@@ -11,7 +11,6 @@ import {
 	messageAtUid,
 	openStore,
 	type Store,
-	scratchStorage,
 	seedAccount,
 	seedMailbox,
 	silentLog,
@@ -25,12 +24,12 @@ let account: AccountItem;
 let inbox: MailboxItem;
 
 beforeEach(async () => {
-	store = openStore();
-	storage = scratchStorage();
+	store = await openStore();
+	storage = store.storage();
 	imap = new FakeImapServer();
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
-	imap.folder("INBOX");
+	imap.addFolder("INBOX");
 });
 
 afterEach(() => store.close());
@@ -41,7 +40,7 @@ const arrive = async (subject: string) => {
 	return { uid, messageId: (await messageAtUid(store, inbox, uid)).messageId };
 };
 
-const resolve = (failedMessageIds: string[], connection = imap.connect()) =>
+const resolve = (failedMessageIds: string[], connection = imap.connection()) =>
 	resolveExhaustedBodySyncFailures(
 		{
 			messageService: store.message,
@@ -107,7 +106,7 @@ describe("a body sync that exhausted its retries", () => {
 	it("does not read a dropped FETCH row as absence", async () => {
 		const first = await arrive("first");
 		const second = await arrive("second");
-		const connection = imap.connect();
+		const connection = imap.connection();
 		const fetch = connection.fetchMessages;
 		connection.fetchMessages = async (uids) =>
 			uids.includes(second.uid) ? [] : fetch(uids);

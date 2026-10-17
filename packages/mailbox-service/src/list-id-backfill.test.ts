@@ -11,7 +11,6 @@ import {
 	arriveAt,
 	openStore,
 	type Store,
-	scratchStorage,
 	seedAccount,
 	seedMailbox,
 	storeBody,
@@ -42,9 +41,10 @@ let account: AccountItem;
 let inbox: MailboxItem;
 
 beforeEach(async () => {
-	store = openStore();
-	storage = scratchStorage();
+	store = await openStore();
+	storage = store.storage();
 	imap = new FakeImapServer();
+	imap.addFolder("INBOX");
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
 });
@@ -152,6 +152,7 @@ describe("backfillListIds", () => {
 		];
 		const ids = new Map<string, string[]>();
 		for (const owner of owners) {
+			imap.addFolder(`INBOX-${owner.accountConfigId}`);
 			const mailbox = await seedMailbox(
 				store,
 				owner,

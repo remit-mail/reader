@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import { parseMessageBody } from "./body-parse.js";
 import {
 	classifyParsedMessage,
 	extractPrimaryFromEmail,
 } from "./classify-message.js";
-import { openStore } from "./test-helpers/store.js";
+import { openStore, type Store } from "./test-helpers/store.js";
 
 const PLAIN_EML = Buffer.from(
 	[
@@ -44,7 +44,10 @@ const IMPERSONATION_EML = Buffer.from(
 	].join("\r\n"),
 );
 
-const store = openStore();
+let store: Store;
+before(async () => {
+	store = await openStore();
+});
 after(() => store.close());
 
 describe("classifyParsedMessage", () => {

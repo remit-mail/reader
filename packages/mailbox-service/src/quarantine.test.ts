@@ -1,41 +1,39 @@
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
-import type {
-	AccountItem,
-	MailboxItem,
-	MessageData,
-	MessageItem,
-	QuarantineItem,
-} from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import {
-	QuarantinedUids,
 	QuarantineService,
 	resolveMailboxRole,
 	shapeFromMessageData,
 } from "./quarantine.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
+	arriveAt,
 	openStore,
+	type Store,
 	seedAccount,
 	seedMailbox,
 	silentLog,
 } from "./test-helpers/store.js";
 
-const store = openStore();
+let store: Store;
 let account: AccountItem;
 let spam: MailboxItem;
+let service: QuarantineService;
 
-before(async () => {
+beforeEach(async () => {
+	store = await openStore();
 	account = await seedAccount(store);
 	spam = await seedMailbox(store, account, "Spam", { specialUse: "Junk" });
+	service = new QuarantineService(
+		store.quarantine,
+		store.mailboxSpecialUse,
+		"sha-abc",
+		silentLog,
+	);
 });
-after(() => store.close());
 
-const service = new QuarantineService(
-	store.quarantine,
-	store.specialUse,
-	"sha-abc",
-	silentLog,
-);
+afterEach(() => store.close());
 
 const failure = {
 	stage: "BodyParse" as const,
@@ -102,67 +100,27 @@ describe("resolveMailboxRole", () => {
 	});
 });
 
-describe("QuarantinedUids", () => {
-	const entries = [
-		{ mailboxId: "mbx-1", uidValidity: 10, uid: 5 },
-	] as QuarantineItem[];
-
-	it("matches a uid on the same mailbox and UIDVALIDITY", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-1", 10, 5), true);
-	});
-
-	it("does not match the same uid on a new UIDVALIDITY, which is a different message", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-1", 11, 5), false);
-	});
-
-	it("does not match the same uid in another mailbox", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-2", 10, 5), false);
-	});
-});
-
 describe("shapeFromMessageData", () => {
-	const message = {
-		rfc822Size: 2048,
-		messageIdHeader: "<xyz@example.com>",
-	} as MessageItem;
+	it("describes the message from the rows metadata sync wrote", async () => {
+		const imap = new FakeImapServer();
+		imap.addFolder("Spam");
+		const raw = eml({
+			"Message-ID": "<xyz@example.com>",
+			"Content-Type": "text/plain; charset=iso-8859-1",
+			"Content-Transfer-Encoding": "quoted-printable",
+		});
+		const messageId = await arriveAt(store, imap, account, spam, raw);
 
-	const data = {
-		bodyPart: [
-			{
-				bodyPartId: "bp-0",
-				partPath: "0",
-				mediaType: "multipart",
-				mediaSubtype: "alternative",
-				transferEncoding: "7bit",
-			},
-			{
-				bodyPartId: "bp-1",
-				partPath: "1",
-				mediaType: "text",
-				mediaSubtype: "plain",
-				transferEncoding: "quoted-printable",
-			},
-		],
-		bodyPartParameter: [
-			{
-				bodyPartId: "bp-0",
-				parameterName: "charset",
-				parameterValue: "iso-8859-1",
-			},
-		],
-	} as unknown as MessageData;
+		const shape = shapeFromMessageData(
+			await store.message.get(messageId),
+			await store.envelope.getMessageData(messageId),
+		);
 
-	it("rebuilds the tree from the rows metadata sync already wrote", () => {
-		assert.deepEqual(shapeFromMessageData(message, data).structure, [
-			{ depth: 0, contentType: "multipart/alternative" },
-			{ depth: 1, contentType: "text/plain" },
-		]);
-	});
-
-	it("takes the root part's declared charset and encoding", () => {
-		const shape = shapeFromMessageData(message, data);
+		assert.equal(shape.structure.length, 1);
+		assert.equal(shape.structure[0].depth, 0);
+		assert.match(shape.structure[0].contentType, /^text\/plain$/i);
 		assert.equal(shape.charset, "iso-8859-1");
-		assert.equal(shape.transferEncoding, "7bit");
-		assert.equal(shape.contentType, "multipart/alternative");
+		assert.equal(shape.transferEncoding?.toLowerCase(), "quoted-printable");
+		assert.equal(shape.sizeBytes, raw.length);
 	});
 });

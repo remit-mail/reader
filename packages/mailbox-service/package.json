@@ -32,6 +32,10 @@
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"
+    },
+    "./test-helpers/fake-imap": {
+      "types": "./src/test-helpers/fake-imap.ts",
+      "default": "./src/test-helpers/fake-imap.ts"
     }
   },
   "scripts": {
@@ -42,7 +46,10 @@
     "test": "npm run test:typecheck && npm run test:run"
   },
   "devDependencies": {
-    "@remit/drizzle-service": "*"
+    "@remit/drizzle-service": "*",
+    "@types/better-sqlite3": "^7.6.13",
+    "aws-sdk-client-mock": "*",
+    "better-sqlite3": "^12.11.1"
   },
   "dependencies": {
     "imapflow": "^1.3.3",

@@ -15,7 +15,7 @@ let store: Store;
 let filterId: string;
 
 beforeEach(async () => {
-	store = openStore();
+	store = await openStore();
 	const filter = await store.filter.create({
 		accountConfigId: "cfg-1",
 		name: "receipts",
@@ -46,7 +46,7 @@ const repos = (): FilterConfigDeps => ({
 		threadMessageService: store.threadMessage,
 		markerService: store.placementMove,
 		addressService: store.address,
-		mailboxSpecialUseService: store.specialUse,
+		mailboxSpecialUseService: store.mailboxSpecialUse,
 		sqsQueueUrl: "https://sqs.test/message-mgmt",
 	}),
 });
