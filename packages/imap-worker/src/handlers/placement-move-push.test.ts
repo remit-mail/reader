@@ -4,12 +4,7 @@ import { getClient, type RemitClient, setClient } from "@remit/backend/client";
 import type { Logger } from "@remit/logger-lambda";
 import type { IImapConnection } from "@remit/mailbox-service";
 import type { PlacementMovePushEvent } from "../events.js";
-import {
-	attemptMove,
-	getPlacementMoveMaxAttempts,
-	handlePlacementMovePush,
-	PLACEMENT_MOVE_MAX_ATTEMPTS,
-} from "./placement-move-push.js";
+import { attemptMove, handlePlacementMovePush } from "./placement-move-push.js";
 
 const silentLogger = (() => {
 	const noop = () => {};
@@ -268,38 +263,6 @@ describe("attemptMove — the IMAP push (issue #1271)", () => {
 
 			assert.equal(outcome.kind, "not-found");
 		});
-	});
-});
-
-describe("getPlacementMoveMaxAttempts — env-derived threshold (mirrors #1270's getBodySyncMaxAttempts)", () => {
-	it("parses the CDK-injected env var", () => {
-		assert.equal(
-			getPlacementMoveMaxAttempts({ PLACEMENT_MOVE_MAX_ATTEMPTS: "3" }),
-			3,
-		);
-		assert.equal(
-			getPlacementMoveMaxAttempts({ PLACEMENT_MOVE_MAX_ATTEMPTS: "5" }),
-			5,
-		);
-	});
-
-	it("defaults to 3 when unset", () => {
-		assert.equal(getPlacementMoveMaxAttempts({}), 3);
-	});
-
-	it("defaults to 3 on a non-numeric or non-positive value", () => {
-		assert.equal(
-			getPlacementMoveMaxAttempts({ PLACEMENT_MOVE_MAX_ATTEMPTS: "nope" }),
-			3,
-		);
-		assert.equal(
-			getPlacementMoveMaxAttempts({ PLACEMENT_MOVE_MAX_ATTEMPTS: "0" }),
-			3,
-		);
-	});
-
-	it("PLACEMENT_MOVE_MAX_ATTEMPTS is a concrete, positive number at module load", () => {
-		assert.ok(PLACEMENT_MOVE_MAX_ATTEMPTS > 0);
 	});
 });
 

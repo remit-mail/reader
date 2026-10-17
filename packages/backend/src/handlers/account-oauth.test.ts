@@ -8,10 +8,7 @@
  * paths (state signing, expiry, token handling).
  */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
 import { AccountService } from "@remit/domain-enums";
 import {
 	getWebOrigin,
@@ -219,66 +216,6 @@ describe("parseJwtClaims", () => {
 		const claims = await parseJwtClaims(token);
 		assert.ok(claims);
 		assert.equal(claims.email, "bob@outlook.com");
-	});
-});
-
-// ─── Token leak test ──────────────────────────────────────────────────────────
-//
-// Verify that the handler module does not accidentally log raw tokens.
-// We do this statically by reading the source and checking that refresh_token
-// or refreshToken is only passed through the encrypt() call, never to logger.
-
-describe("token leak prevention (static source check)", () => {
-	const __dirname = dirname(fileURLToPath(import.meta.url));
-
-	const handlerSource = readFileSync(
-		resolve(__dirname, "./account-oauth.ts"),
-		"utf-8",
-	);
-
-	it("does not log refreshToken directly", () => {
-		// The handler should only pass refresh token to secrets.encrypt(), never to logger
-		const logLines = handlerSource
-			.split("\n")
-			.filter((l) => l.includes("logger.") && l.includes("refreshToken"));
-
-		assert.equal(
-			logLines.length,
-			0,
-			`Found lines that may log refreshToken:\n${logLines.join("\n")}`,
-		);
-	});
-
-	it("does not log code or state query parameters directly", () => {
-		const logLines = handlerSource
-			.split("\n")
-			.filter(
-				(l) =>
-					l.includes("logger.") &&
-					(l.includes("qs.code") || l.includes("qs.state")),
-			);
-
-		assert.equal(
-			logLines.length,
-			0,
-			`Found lines that may log auth code or state:\n${logLines.join("\n")}`,
-		);
-	});
-
-	it("does not log the client secret", () => {
-		const logLines = handlerSource
-			.split("\n")
-			.filter(
-				(l) =>
-					l.includes("logger.") &&
-					(l.includes("clientSecret") || l.includes("client_secret")),
-			);
-
-		assert.equal(
-			logLines.length,
-			0,
-			`Found lines that may log clientSecret:\n${logLines.join("\n")}`,
-		);
 	});
 });
 

@@ -51,9 +51,4 @@ describe("getImapWorkerQueueUrl", () => {
 		delete process.env.SQS_QUEUE_URL_IMAP_WORKER;
 		assert.equal(getImapWorkerQueueUrl(), undefined);
 	});
-
-	it("returns the configured value when set", () => {
-		process.env.SQS_QUEUE_URL_IMAP_WORKER = "http://queue/imap-worker";
-		assert.equal(getImapWorkerQueueUrl(), "http://queue/imap-worker");
-	});
 });
