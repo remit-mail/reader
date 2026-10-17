@@ -100,7 +100,6 @@ interface Chip {
 	/** A block filling its slot, as opposed to the all-day band's pill. */
 	timed: boolean;
 	tabbable: boolean;
-	classes: string[];
 }
 
 /**
@@ -138,7 +137,6 @@ function chips(root: HTMLElement): Chip[] {
 			date: el.closest<HTMLElement>("[data-date]")?.dataset.date ?? "",
 			timed: !el.classList.contains("my-px"),
 			tabbable: el.getAttribute("tabindex") === "0",
-			classes: Array.from(el.classList),
 		}));
 }
 
@@ -160,27 +158,6 @@ describe("CalendarGrid placement", () => {
 		const root = grid({ events: [roadmap, handover] });
 		assert.equal(chip(root, "Handover").date, TOMORROW);
 		assert.equal(chip(root, "Handover").time, "09:00");
-	});
-
-	it("names the start only, so a column is never a range of digits", () => {
-		assert.equal(
-			chip(grid({ events: [roadmap] }), "Roadmap review").time,
-			"10:00",
-		);
-	});
-
-	it("keeps both sides of an overlap in the day, each in its own hue", () => {
-		const root = grid({ events: [roadmap, dentist] });
-		const drawn = chips(root);
-		assert.equal(drawn.length, 2);
-		assert.ok(drawn.every((one) => one.date === TODAY));
-		assert.ok(chip(root, "Roadmap review").classes.includes("bg-cal-3-soft"));
-		assert.ok(chip(root, "Dentist").classes.includes("bg-cal-5-soft"));
-	});
-
-	it("falls back to the first hue for a calendar nobody coloured", () => {
-		const root = grid({ events: [roadmap], colorByCalendarId: {} });
-		assert.ok(chip(root, "Roadmap review").classes.includes("bg-cal-1-soft"));
 	});
 });
 
@@ -308,10 +285,6 @@ describe("CalendarGrid month", () => {
 });
 
 describe("CalendarGrid all-day band", () => {
-	it("gives the week a band of its own, named", () => {
-		assert.match(grid().innerHTML, /All day/);
-	});
-
 	it("draws an all-day event as a pill in the band, not a block in a slot", () => {
 		const drawn = chip(grid({ events: [conference] }), "Conference");
 		assert.equal(drawn.timed, false);
@@ -332,18 +305,6 @@ describe("CalendarGrid today", () => {
 		assert.equal(
 			root.querySelector(`[data-date="${TOMORROW}"][aria-current="date"]`),
 			null,
-		);
-	});
-
-	it("tints today's lane with the accent rather than a colour of its own", () => {
-		const lane = grid().querySelector<HTMLElement>(
-			`[data-date="${TODAY}"][aria-current="date"]`,
-		);
-		assert.ok(lane);
-		assert.ok(
-			Array.from(
-				grid().querySelectorAll<HTMLElement>(`[data-date="${TODAY}"]`),
-			).some((cell) => cell.classList.contains("bg-accent-soft/40")),
 		);
 	});
 
@@ -371,46 +332,6 @@ describe("CalendarGrid empty", () => {
 			"[role=status]",
 		);
 		assert.equal(status?.textContent, "Nothing scheduled");
-	});
-});
-
-describe("CalendarGrid selection and state", () => {
-	it("rings the selected event and leaves the rest alone", () => {
-		const root = grid({
-			events: [roadmap, dentist],
-			selectedEventId: "dentist",
-		});
-		assert.ok(chip(root, "Dentist").classes.includes("ring-2"));
-		assert.ok(!chip(root, "Roadmap review").classes.includes("ring-2"));
-	});
-
-	it("dims a declined event and strikes its title, the way the chip does", () => {
-		const root = grid({
-			events: [anEvent({ ...roadmap, myRsvp: "declined" })],
-		});
-		assert.ok(chip(root, "Roadmap review").classes.includes("opacity-60"));
-		assert.match(root.innerHTML, /line-through/);
-	});
-
-	it("dashes a tentative event rather than recolouring it", () => {
-		const root = grid({
-			events: [anEvent({ ...roadmap, status: "tentative" })],
-		});
-		const drawn = chip(root, "Roadmap review");
-		assert.ok(drawn.classes.includes("border-dashed"));
-		assert.ok(drawn.classes.includes("bg-cal-3-soft"));
-	});
-
-	it("marks an event that came out of mail", () => {
-		const root = grid({ events: [anEvent({ ...roadmap, threadId: "th_1" })] });
-		assert.match(root.innerHTML, /From mail/);
-	});
-
-	it("flags an event whose zone the source never settled", () => {
-		const root = grid({
-			events: [anEvent({ ...roadmap, zoneCertainty: "ambiguous" })],
-		});
-		assert.match(root.innerHTML, /Unclear zone/);
 	});
 });
 

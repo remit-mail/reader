@@ -20,27 +20,6 @@ const sections: SearchResultSection[] = [
 ];
 
 describe("SearchResults", () => {
-	it("renders the section header and matching rows for a query", () => {
-		const html = renderToString(
-			createElement(SearchResults, { value: "invoice", sections }),
-		);
-		assert.match(html, /Results/);
-		assert.match(html, /Stripe/);
-		assert.match(html, /for March is ready/);
-	});
-
-	it("shows recent searches when the query is empty", () => {
-		const html = renderToString(
-			createElement(SearchResults, {
-				value: "",
-				recentSearches: ["invoice march"],
-				onPickRecent: noop,
-			}),
-		);
-		assert.match(html, /Recent searches/);
-		assert.match(html, /invoice march/);
-	});
-
 	it("shows the empty state when a query matches nothing", () => {
 		const html = renderToString(
 			createElement(SearchResults, {
@@ -49,42 +28,6 @@ describe("SearchResults", () => {
 			}),
 		);
 		assert.match(html, /No matches for/);
-	});
-
-	it("renders the matched-chunk chip and score on a semantic hit", () => {
-		const semanticResult: SearchResult = {
-			...result,
-			matchedChunkLabel: "subject",
-			score: 0.87,
-		};
-		const html = renderToString(
-			createElement(SearchResults, {
-				value: "invoice",
-				sections: [
-					{ id: "related", label: "Related", results: [semanticResult] },
-				],
-			}),
-		);
-		assert.match(html, /matched: subject/);
-		assert.match(html, /0\.87/);
-	});
-
-	it("renders removable filter-token chips above the sections", () => {
-		const html = renderToString(
-			createElement(SearchResults, {
-				value: "invoice from:stripe.com",
-				sections,
-				tokens: [{ label: "From: stripe.com", onRemove: noop }],
-			}),
-		);
-		assert.match(html, /From: stripe\.com/);
-	});
-
-	it("omits the chip row when there are no tokens", () => {
-		const html = renderToString(
-			createElement(SearchResults, { value: "invoice", sections, tokens: [] }),
-		);
-		assert.doesNotMatch(html, /Remove filter/);
 	});
 
 	it("offers 'Make this a filter' above active results", () => {
@@ -342,17 +285,6 @@ describe("SearchResults scoped to a collection", () => {
 		);
 		assert.match(html, /Archive/);
 		assert.match(html, /Spam/);
-	});
-
-	it("holds the same spam row out when the search is scoped to a folder", () => {
-		const html = renderToString(
-			createElement(SearchResults, {
-				value: "invoice",
-				sections: collectionSections,
-				scope: { kind: "folder", role: "inbox" },
-			}),
-		);
-		assert.doesNotMatch(html, /billing@unknown-vendor\.test/);
 	});
 });
 

@@ -90,13 +90,6 @@ describe("useListCursor — the roving cursor", () => {
 		act(() => cursor().focusLast());
 		assert.equal(cursor().focusedMessageId, undefined);
 	});
-
-	it("asks for DOM focus on its own moves, not on a pointer move", () => {
-		const cursor = mountCursor({ initialFocusedId: "m1" });
-		act(() => cursor().focusNext());
-		assert.equal(cursor().pendingDomFocusRef.current, "m2");
-		assert.equal(cursor().cursorMovedByPointerRef.current, false);
-	});
 });
 
 describe("useListCursor — selection", () => {

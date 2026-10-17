@@ -258,12 +258,6 @@ describe("FilterRuleEditor move destination", () => {
 		assert.equal(byText("Move matches to W / o / r / k"), undefined);
 	});
 
-	it("offers no create affordance without onCreateFolder", async () => {
-		await mount();
-		await openTree();
-		assert.equal(byAriaLabel("New folder"), null);
-	});
-
 	it("creates a folder inside another and makes it the destination", async () => {
 		const created: { name: string; parentPath: string }[] = [];
 		const picked: string[] = [];

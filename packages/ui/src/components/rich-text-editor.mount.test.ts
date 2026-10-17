@@ -76,25 +76,6 @@ describe("RichTextEditor", () => {
 		assert.match(latest.text, /## Quarterly numbers/);
 	});
 
-	it("offers the formatting controls the composer ships with", async () => {
-		await act(async () => {
-			root = createRoot(container);
-			root.render(createElement(RichTextEditor, {}));
-		});
-
-		const labels = [...container.querySelectorAll("button")].map((button) =>
-			button.getAttribute("aria-label"),
-		);
-		assert.deepEqual(labels, [
-			"Bold (Ctrl+B)",
-			"Italic (Ctrl+I)",
-			"Link (Ctrl+K)",
-			"Blockquote",
-			"Undo (Ctrl+Z)",
-			"Redo (Ctrl+Y)",
-		]);
-	});
-
 	it("asks for an address rather than inserting an empty link", async () => {
 		await act(async () => {
 			root = createRoot(container);

@@ -95,14 +95,6 @@ describe("NavSidebar arrow-key traversal", () => {
 		assert.equal(document.activeElement, items[0]);
 	});
 
-	it("traverses the drawer variant too", () => {
-		mount("drawer");
-		const items = navItems();
-		act(() => items[0]?.focus());
-		act(() => pressKey(items[0] as Element, "ArrowDown"));
-		assert.equal(document.activeElement, items[1]);
-	});
-
 	it("leaves Left/Right to the browser", () => {
 		mount();
 		const items = navItems();

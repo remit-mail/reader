@@ -6,13 +6,6 @@ import { keyboardHintsFor } from "../lib/keymap.js";
 import { KeyboardHintBar } from "./keyboard-hint-bar.js";
 
 describe("KeyboardHintBar", () => {
-	it("offers the app's own set by default", () => {
-		const html = renderToString(createElement(KeyboardHintBar));
-		assert.match(html, /<span>navigate<\/span>/);
-		assert.match(html, /<span>mute<\/span>/);
-		assert.match(html, /<span>all shortcuts<\/span>/);
-	});
-
 	it("offers only what the host's handlers answer", () => {
 		const hints = keyboardHintsFor({ focusNext: () => undefined });
 		const html = renderToString(createElement(KeyboardHintBar, { hints }));

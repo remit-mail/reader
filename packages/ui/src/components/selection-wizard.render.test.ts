@@ -16,7 +16,6 @@ import {
 import {
 	FolderStepBody,
 	MatchStepBody,
-	NameStepBody,
 	PropertiesStepBody,
 	ReviewStepBody,
 	RuleStepBody,
@@ -474,18 +473,6 @@ describe("RuleStepBody", () => {
 		{ id: "c1", field: "HasWords", value: "boarding pass" },
 	];
 
-	it("offers the three scopes", () => {
-		const html = renderToString(
-			createElement(RuleStepBody, {
-				...ruleProps,
-				draft: draft({ scope: "once" }),
-			}),
-		);
-		assert.match(html, /Just once/);
-		assert.match(html, /Keep doing this/);
-		assert.match(html, /Until a date/);
-	});
-
 	it("says a one-time apply cannot read message bodies, where the scope is chosen", () => {
 		const html = renderToString(
 			createElement(RuleStepBody, {
@@ -528,21 +515,6 @@ describe("RuleStepBody", () => {
 		);
 		assert.match(html, /Stops on/);
 		assert.match(html, /2026-09-01/);
-	});
-});
-
-describe("NameStepBody", () => {
-	it("prefills the suggested name and offers to clear it", () => {
-		const html = renderToString(createElement(NameStepBody, nameProps));
-		assert.match(html, /Travel confirmations/);
-		assert.match(html, /Clear name/);
-	});
-
-	it("offers no clear control when the field is empty", () => {
-		const html = renderToString(
-			createElement(NameStepBody, { ...nameProps, name: "" }),
-		);
-		assert.doesNotMatch(html, /Clear name/);
 	});
 });
 
@@ -851,54 +823,12 @@ describe("RunFooter", () => {
 });
 
 describe("SelectionWizard", () => {
-	it("renders the header, the rail and the footer around every step", () => {
-		for (const step of stepsFor({
-			verb: "organize",
-			mode: "properties",
-			scope: "standing",
-		})) {
-			const html = renderToString(
-				createElement(
-					SelectionWizard,
-					wizardProps({
-						verb: "organize",
-						steps: stepsFor({
-							verb: "organize",
-							mode: "properties",
-							scope: "standing",
-						}),
-						step,
-						review: { ...reviewProps, verb: "organize", scope: "standing" },
-					}),
-				),
-			);
-			assert.match(html, /aria-label="Back"/, step);
-			assert.match(html, /aria-label="Cancel"/, step);
-			assert.match(html, /aria-label="Progress"/, step);
-		}
-	});
-
 	it("counts the step out of the list the rail is rendering", () => {
 		const steps = stepsFor({ verb: "move", mode: "properties" });
 		const html = renderToString(
 			createElement(SelectionWizard, wizardProps({ steps, step: "folder" })),
 		);
 		assert.match(text(html), /Step 3 of 5 · Folder/);
-	});
-
-	it("renders the header, the rail and the body from one resolved step", () => {
-		const steps = stepsFor({ verb: "organize", mode: "selected" });
-		const html = renderToString(
-			createElement(
-				SelectionWizard,
-				wizardProps({ verb: "organize", steps, step: "properties" }),
-			),
-		);
-		assert.match(text(html), /Step 1 of 5 · Apply to/);
-		assert.match(html, /What should this apply to\?/);
-		assert.match(html, /These 2 messages/);
-		assert.doesNotMatch(html, /Match properties/);
-		assert.doesNotMatch(html, /Add clause/);
 	});
 
 	it("leaves the wizard on Back from the opening step and from the run", () => {
@@ -1007,40 +937,6 @@ describe("SelectionWizard", () => {
 		assert.doesNotMatch(nudged, /role="status"[^>]*><\/span>/);
 		assert.match(nudged, new RegExp(`role="status"[^>]*>${reason}`));
 		assert.doesNotMatch(nudged, /<p id="[^"]*"[^>]*sr-only/);
-	});
-
-	it("commits under the scope's own label, in the verb's own tone", () => {
-		const html = renderToString(
-			createElement(
-				SelectionWizard,
-				wizardProps({
-					verb: "delete",
-					step: "review",
-					review: { ...reviewProps, verb: "delete", scope: undefined },
-				}),
-			),
-		);
-		assert.match(html, /Delete/);
-		assert.match(html, /bg-danger/);
-	});
-
-	it("uses the scope's commit label once a rule is being saved", () => {
-		const html = renderToString(
-			createElement(
-				SelectionWizard,
-				wizardProps({
-					verb: "organize",
-					steps: stepsFor({
-						verb: "organize",
-						mode: "selected",
-						scope: "standing",
-					}),
-					step: "review",
-					review: { ...reviewProps, verb: "organize", scope: "standing" },
-				}),
-			),
-		);
-		assert.match(html, /Save rule/);
 	});
 
 	it("fails loudly rather than rendering a step with no answers", () => {

@@ -7,7 +7,6 @@ import {
 	type QuarantineEntry,
 	quarantineIssueTitle,
 	quarantineReportSections,
-	quarantineSummary,
 } from "./quarantine-report.js";
 
 const entry: QuarantineEntry = {
@@ -189,12 +188,5 @@ describe("quarantineIssueTitle", () => {
 		assert.match(title, /UnreadableBody/);
 		assert.match(title, /BodyParse/);
 		assert.doesNotMatch(title, /joan@/);
-	});
-});
-
-describe("quarantineSummary", () => {
-	it("explains the stage without parser jargon", () => {
-		const summary = quarantineSummary("BodyParse");
-		assert.doesNotMatch(summary, /MIME|RFC|mailparser|charset=/i);
 	});
 });

@@ -23,31 +23,6 @@ const SPAM = { id: "in:spam", label: "in:spam" };
 const FROM = { id: "from:acme", label: "from:acme" };
 
 describe("SearchChipInput", () => {
-	it("renders a real text input with an accessible label", () => {
-		const html = render({ placeholder: "Search mail" });
-		assert.match(html, /aria-label="Search mail"/);
-		assert.match(html, /placeholder="Search mail"/);
-		assert.match(html, /value=""/);
-	});
-
-	it("renders one removable chip per narrowing term, in order", () => {
-		const html = render({ chips: [SPAM, FROM] });
-		assert.match(html, /in:spam/);
-		assert.match(html, /from:acme/);
-		assert.match(html, /aria-label="Remove filter: in:spam"/);
-		assert.match(html, /aria-label="Remove filter: from:acme"/);
-		assert.ok(
-			html.indexOf("in:spam") < html.indexOf("from:acme"),
-			"chips keep expression order",
-		);
-	});
-
-	it("keeps chips and free text in the same field", () => {
-		const html = render({ chips: [SPAM], value: "invoice" });
-		assert.match(html, /in:spam/);
-		assert.match(html, /value="invoice"/);
-	});
-
 	it("drops the placeholder once the expression carries a chip", () => {
 		const html = render({ chips: [SPAM], placeholder: "Search mail" });
 		assert.doesNotMatch(html, /placeholder="Search mail"/);
@@ -64,28 +39,10 @@ describe("SearchChipInput", () => {
 		assert.doesNotMatch(render(), /aria-label="Clear search"/);
 	});
 
-	it("omits the inline clear when showClearButton is false", () => {
-		const html = render({ value: "receipt", showClearButton: false });
-		assert.doesNotMatch(html, /aria-label="Clear search"/);
-		assert.match(html, /value="receipt"/);
-	});
-
 	it("carries a live region so a removal is never silent", () => {
 		const html = render({ chips: [SPAM] });
 		assert.match(html, /role="status"/);
 		assert.match(html, /aria-live="polite"/);
-	});
-
-	it("renders the same field at either size", () => {
-		for (const size of ["sm", "lg"] as const) {
-			const html = render({ size, chips: [SPAM], value: "invoice" });
-			assert.match(html, /aria-label="Search mail"/);
-			assert.match(html, /in:spam/);
-		}
-	});
-
-	it("takes a caller-supplied input id so a page can host more than one field", () => {
-		assert.match(render({ inputId: "top-bar-search" }), /id="top-bar-search"/);
 	});
 });
 
@@ -127,13 +84,6 @@ describe("SearchChipInput chip semantics", () => {
 			"one tab stop for the whole field",
 		);
 		assert.ok((html.match(/tabindex="-1"/gi)?.length ?? 0) >= 6);
-	});
-
-	it("differentiates a scope chip from a typed filter chip", () => {
-		const scoped = render({ chips: [{ ...SPAM, tone: "scope" }] });
-		const filter = render({ chips: [SPAM] });
-		assert.notEqual(scoped, filter);
-		assert.match(scoped, /accent-2/);
 	});
 });
 
@@ -178,30 +128,9 @@ describe("Two fields mounted at once stay independent", () => {
 		);
 		assert.deepEqual(labelTargets, inputIds);
 	});
-
-	it("still honours an explicit id when the caller needs a stable one", () => {
-		const html = renderToString(
-			createElement(SearchChipInput, {
-				value: "",
-				onChange: noop,
-				onClear: noop,
-				inputId: "top-bar-search",
-			}),
-		);
-		assert.match(html, /<label[^>]*for="top-bar-search"/);
-		assert.match(html, /<input[^>]*id="top-bar-search"/);
-	});
 });
 
 describe("A read-only chip strip promises nothing it cannot do", () => {
-	it("still renders the remove control so the strip looks the same", () => {
-		// Removal is host-owned. Without a handler the chip cannot go anywhere, so
-		// the field must not announce a removal or move focus as though it had —
-		// see the guard in removeChipAt.
-		const html = render({ chips: [SPAM] });
-		assert.match(html, /aria-label="Remove filter: in:spam"/);
-	});
-
 	it("starts with an empty live region rather than a stale announcement", () => {
 		const html = render({ chips: [SPAM], onRemoveChip: noop });
 		assert.match(

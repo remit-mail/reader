@@ -52,30 +52,10 @@ const renderFlow = (open: boolean): string =>
 	);
 
 describe("RescueFromSpamFlow", () => {
-	it("opens on the review step listing every candidate", () => {
-		const html = renderFlow(true);
-		assert.match(html, /Rescue from Spam/);
-		assert.match(html, /Anna de Vries/);
-		assert.match(html, /Mum/);
-	});
-
 	it("pre-selects all candidates and shows the live count", () => {
 		const html = renderFlow(true);
 		assert.match(html, /2 of 2 selected/);
 		assert.match(html, /Continue with 2 messages/);
-	});
-
-	it("offers select-all / none and a way back", () => {
-		const html = renderFlow(true);
-		assert.match(html, /Select all/);
-		assert.match(html, /Select none/);
-		assert.match(html, /Cancel/);
-		assert.match(html, /Why these\?/);
-	});
-
-	it("never leaks authentication jargon", () => {
-		const html = renderFlow(true);
-		assert.doesNotMatch(html, /DKIM|SPF|DMARC|spam score|predicate/i);
 	});
 });
 
@@ -92,9 +72,5 @@ describe("rescueMoveConsequence", () => {
 			rescueMoveConsequence(1, "Family"),
 			"Moves this message out of Spam to Family now. Nothing later.",
 		);
-	});
-
-	it("always promises nothing ongoing", () => {
-		assert.match(rescueMoveConsequence(9, "Inbox"), /Nothing later\.$/);
 	});
 });

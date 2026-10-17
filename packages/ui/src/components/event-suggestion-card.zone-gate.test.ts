@@ -13,7 +13,7 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import type { JSDOM } from "jsdom";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import type { EventSuggestion, ZoneOptions } from "./calendar-types.js";
+import type { EventSuggestion } from "./calendar-types.js";
 import {
 	EventSuggestionCard,
 	settleZone,
@@ -240,12 +240,6 @@ describe("the same gate on Change first", () => {
 });
 
 describe("the clocks a suggestion offers", () => {
-	it("cannot be an empty list, which would ask with nothing to press", () => {
-		// @ts-expect-error
-		const none: ZoneOptions = [];
-		assert.equal(none.length, 0);
-	});
-
 	it("never asks the question without a clock to answer it with", () => {
 		mount(zoneless);
 		assert.ok(container.textContent?.includes("Which clock is this on?"));

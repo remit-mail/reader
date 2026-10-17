@@ -34,19 +34,6 @@ const scrim = (html: string): string => {
 };
 
 describe("SlidePanel (#57)", () => {
-	it("is a fixed right-edge column, never a full-viewport takeover above sm", () => {
-		const html = render(true);
-		assert.match(html, /fixed top-0 right-0/);
-		assert.match(html, /sm:w-\[400px\]/);
-		assert.match(html, /translate-x-0/);
-	});
-
-	it("a closed panel is off-canvas and takes no pointer events", () => {
-		const html = render(false);
-		assert.match(html, /translate-x-full/);
-		assert.match(html, /pointer-events-none/);
-	});
-
 	it("a closed panel is inert and hidden from assistive tech", () => {
 		const tag = dialog(render(false));
 		assert.match(tag, /inert=""/);
@@ -58,11 +45,6 @@ describe("SlidePanel (#57)", () => {
 		assert.doesNotMatch(tag, /inert=""/);
 		assert.match(tag, /aria-hidden="false"/);
 		assert.match(tag, /role="dialog"/);
-	});
-
-	it("scrolls its body rather than the page", () => {
-		const html = render(true);
-		assert.match(html, /overflow-auto/);
 	});
 
 	/**

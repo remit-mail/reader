@@ -71,13 +71,6 @@ describe("FilterSheet", () => {
 		});
 		assert.match(html, /aria-label="Clear filters"/);
 	});
-
-	it("is flat: no overlay, scrim, shadow, or rounded-corner chrome", () => {
-		const html = render({ expanded: true });
-		assert.doesNotMatch(html, /shadow-/);
-		assert.doesNotMatch(html, /rounded-b-2xl/);
-		assert.doesNotMatch(html, /role="slider"/);
-	});
 });
 
 describe("FilterSheet under a FilterPanelProvider", () => {

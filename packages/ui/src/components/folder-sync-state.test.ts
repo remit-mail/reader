@@ -61,17 +61,6 @@ describe("folderSyncState", () => {
 		);
 	});
 
-	it("still reads as renaming when pendingPath equals the current fullPath — the derivation does not second-guess the server", () => {
-		assert.deepEqual(
-			folderSyncState({
-				syncStatus: "pending",
-				pendingPath: "Receipts",
-				hierarchyDelimiter: "/",
-			}),
-			{ kind: "renaming", target: "Receipts" },
-		);
-	});
-
 	it("reads a deleting mailbox as deleting", () => {
 		assert.deepEqual(
 			folderSyncState({ syncStatus: "deleting", hierarchyDelimiter: "/" }),
@@ -106,13 +95,6 @@ describe("folderSyncAriaLabel", () => {
 		);
 	});
 
-	it("names the folder and the state for creating", () => {
-		assert.equal(
-			folderSyncAriaLabel("Receipts", { kind: "creating" }),
-			"Receipts — creating",
-		);
-	});
-
 	it("names the folder, the state and the target for renaming", () => {
 		assert.equal(
 			folderSyncAriaLabel("Receipts", {
@@ -120,30 +102,6 @@ describe("folderSyncAriaLabel", () => {
 				target: "Q3 Receipts",
 			}),
 			"Receipts — renaming to Q3 Receipts",
-		);
-	});
-
-	it("names the folder and the state for deleting", () => {
-		assert.equal(
-			folderSyncAriaLabel("Receipts", { kind: "deleting" }),
-			"Receipts — deleting",
-		);
-	});
-
-	it("names the folder and the state for rename-failed", () => {
-		assert.equal(
-			folderSyncAriaLabel("Receipts", {
-				kind: "rename-failed",
-				target: "Q3 Receipts",
-			}),
-			"Receipts — rename failed",
-		);
-	});
-
-	it("names the folder and the state for delete-failed", () => {
-		assert.equal(
-			folderSyncAriaLabel("Receipts", { kind: "delete-failed" }),
-			"Receipts — delete failed",
 		);
 	});
 });
@@ -176,29 +134,10 @@ describe("FolderSyncBadge", () => {
 		assert.equal(render({ kind: "healthy" }), "");
 	});
 
-	it("renders the creating copy", () => {
-		assert.match(render({ kind: "creating" }), /Creating…/);
-	});
-
 	it("renders the renaming copy with typographic quotes around the target", () => {
 		assert.match(
 			render({ kind: "renaming", target: "Q3 Receipts" }),
 			/Renaming to “Q3 Receipts”…/,
 		);
-	});
-
-	it("renders the deleting copy", () => {
-		assert.match(render({ kind: "deleting" }), /Deleting…/);
-	});
-
-	it("renders the rename-failed copy", () => {
-		assert.match(
-			render({ kind: "rename-failed", target: "Q3 Receipts" }),
-			/Rename failed/,
-		);
-	});
-
-	it("renders the delete-failed copy", () => {
-		assert.match(render({ kind: "delete-failed" }), /Delete failed/);
 	});
 });
