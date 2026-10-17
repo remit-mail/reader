@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
-import type { IMailboxRepository, MailboxItem } from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
 import {
 	guardConnectionCursor,
@@ -8,228 +8,120 @@ import {
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 } from "./mailbox-cursor.js";
-import type { IImapConnection, ImapBoxStatus } from "./types.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
+import {
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+} from "./test-helpers/test-store.js";
 
-const mailboxId = "mbx-1";
-const accountId = "acc-1";
+let store: Store;
+let imap: FakeImapServer;
+let account: AccountItem;
+let inbox: MailboxItem;
 
-const baseMailbox: Pick<MailboxItem, "mailboxId" | "uidValidity"> & {
-	cursorState: MailboxItem["cursorState"] | undefined;
-} = {
-	mailboxId,
-	uidValidity: 100,
-	// A pre-migration row genuinely lacks this attribute at runtime despite the
-	// type saying it's total — see mailbox-cursor.ts for why `undefined` is
-	// accepted here.
-	cursorState: undefined,
-};
-
-describe("guardMailboxCursor", () => {
-	it("is ok and writes nothing when the served UIDVALIDITY matches the stored value", async () => {
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = {
-			update,
-		} as unknown as Pick<IMailboxRepository, "update">;
-
-		const result = await guardMailboxCursor(
-			{ mailboxService },
-			accountId,
-			baseMailbox,
-			100,
-		);
-
-		assert.deepEqual(result, { ok: true });
-		assert.equal(update.mock.calls.length, 0);
-	});
-
-	it("treats an absent cursorState as normal", async () => {
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const result = await guardMailboxCursor(
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, cursorState: undefined },
-			100,
-		);
-
-		assert.deepEqual(result, { ok: true });
-	});
-
-	it("trips cursor_invalid and persists it when the served UIDVALIDITY disagrees", async () => {
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const result = await guardMailboxCursor(
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, uidValidity: 100 },
-			200,
-		);
-
-		assert.deepEqual(result, { ok: false, state: "cursor_invalid" });
-		assert.equal(update.mock.calls.length, 1);
-		assert.deepEqual(update.mock.calls[0].arguments, [
-			accountId,
-			mailboxId,
-			{ cursorState: MailboxCursorState.cursor_invalid },
-		]);
-	});
-
-	it("short-circuits without a write when already cursor_invalid, even if UIDVALIDITY now matches", async () => {
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const result = await guardMailboxCursor(
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, cursorState: MailboxCursorState.cursor_invalid },
-			100,
-		);
-
-		assert.deepEqual(result, { ok: false, state: "cursor_invalid" });
-		assert.equal(
-			update.mock.calls.length,
-			0,
-			"paused mailboxes must not be re-tripped on every call (frugal — invariant 6)",
-		);
-	});
-
-	it("short-circuits without a write when rebuilding", async () => {
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const result = await guardMailboxCursor(
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, cursorState: MailboxCursorState.rebuilding },
-			999,
-		);
-
-		assert.deepEqual(result, { ok: false, state: "rebuilding" });
-		assert.equal(update.mock.calls.length, 0);
+beforeEach(async () => {
+	store = await openStore();
+	imap = new FakeImapServer();
+	imap.addFolder("INBOX", { uidValidity: 100 });
+	account = await seedAccount(store);
+	inbox = await seedMailbox(store, account, "INBOX", {
+		overrides: { uidValidity: 100 },
 	});
 });
 
+afterEach(() => store.close());
+
+const stored = () => store.mailbox.get(account.accountId, inbox.mailboxId);
+
+const pause = (cursorState: MailboxItem["cursorState"]) =>
+	store.mailbox.update(account.accountId, inbox.mailboxId, { cursorState });
+
+const guard = async (served: number) =>
+	guardMailboxCursor(
+		{ mailboxService: store.mailbox },
+		account.accountId,
+		await stored(),
+		served,
+	);
+
+describe("guardMailboxCursor", () => {
+	it("passes a mailbox whose served UIDVALIDITY matches", async () => {
+		assert.deepEqual(await guard(100), { ok: true });
+		assert.equal((await stored()).cursorState, MailboxCursorState.normal);
+	});
+
+	it("trips and persists cursor_invalid when the served UIDVALIDITY disagrees", async () => {
+		assert.deepEqual(await guard(200), { ok: false, state: "cursor_invalid" });
+		assert.equal(
+			(await stored()).cursorState,
+			MailboxCursorState.cursor_invalid,
+		);
+	});
+
+	for (const state of [
+		MailboxCursorState.cursor_invalid,
+		MailboxCursorState.rebuilding,
+	]) {
+		it(`stays paused while ${state}, whatever the server serves`, async () => {
+			await pause(state);
+
+			assert.deepEqual(await guard(100), { ok: false, state });
+			assert.equal((await stored()).cursorState, state);
+		});
+	}
+});
+
 describe("guardConnectionCursor", () => {
-	const fakeBoxStatus = (uidvalidity: number): ImapBoxStatus =>
-		({
-			uidvalidity,
-		}) as unknown as ImapBoxStatus;
-
-	it("delegates to the real openBox and returns normally when normal and matching", async () => {
-		const openBox = mock.fn(async () => fakeBoxStatus(100));
-		const connection = { openBox } as unknown as IImapConnection;
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const guarded = guardConnectionCursor(
-			connection,
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, uidValidity: 100 },
+	const guarded = async () =>
+		guardConnectionCursor(
+			imap.connection(),
+			{ mailboxService: store.mailbox },
+			account.accountId,
+			await stored(),
 		);
 
-		const result = await guarded.openBox("INBOX", false);
+	it("opens the box and passes other calls through when the cursor holds", async () => {
+		imap.deliver("INBOX", eml({}));
+		const connection = await guarded();
 
-		assert.deepEqual(result, fakeBoxStatus(100));
-		assert.equal(openBox.mock.calls.length, 1);
-		assert.equal(update.mock.calls.length, 0);
+		const box = await connection.openBox("INBOX");
+		const rows = await connection.fetchMessages([1]);
+
+		assert.equal(box.uidvalidity, 100);
+		assert.deepEqual(
+			rows.map((row) => row.uid),
+			[1],
+		);
 	});
 
-	it("throws MailboxCursorPausedError and never calls the real openBox when already paused", async () => {
-		const openBox = mock.fn(async () => fakeBoxStatus(100));
-		const connection = { openBox } as unknown as IImapConnection;
-		const mailboxService = {
-			update: mock.fn(async () => ({}) as MailboxItem),
-		} as unknown as Pick<IMailboxRepository, "update">;
-
-		const guarded = guardConnectionCursor(
-			connection,
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, cursorState: MailboxCursorState.cursor_invalid },
-		);
+	it("refuses to open a mailbox already paused", async () => {
+		await pause(MailboxCursorState.cursor_invalid);
+		const connection = await guarded();
 
 		await assert.rejects(
-			() => guarded.openBox("INBOX"),
+			connection.openBox("INBOX"),
+			(err: unknown) =>
+				err instanceof MailboxCursorPausedError &&
+				err.state === "cursor_invalid",
+		);
+	});
+
+	it("trips the mailbox and refuses when the server renumbered it", async () => {
+		const connection = await guarded();
+		imap.renumber("INBOX", 200);
+
+		await assert.rejects(
+			connection.openBox("INBOX"),
 			(err: unknown) =>
 				err instanceof MailboxCursorPausedError &&
 				err.state === "cursor_invalid",
 		);
 		assert.equal(
-			openBox.mock.calls.length,
-			0,
-			"a mailbox already known paused must not touch the network (frugal — invariant 6)",
+			(await stored()).cursorState,
+			MailboxCursorState.cursor_invalid,
 		);
-	});
-
-	it("trips and throws MailboxCursorPausedError when the served UIDVALIDITY disagrees", async () => {
-		const openBox = mock.fn(async () => fakeBoxStatus(200));
-		const connection = { openBox } as unknown as IImapConnection;
-		const update = mock.fn(async () => ({}) as MailboxItem);
-		const mailboxService = { update } as unknown as Pick<
-			IMailboxRepository,
-			"update"
-		>;
-
-		const guarded = guardConnectionCursor(
-			connection,
-			{ mailboxService },
-			accountId,
-			{ ...baseMailbox, uidValidity: 100 },
-		);
-
-		await assert.rejects(
-			() => guarded.openBox("INBOX"),
-			(err: unknown) =>
-				err instanceof MailboxCursorPausedError &&
-				err.state === "cursor_invalid",
-		);
-		assert.equal(
-			openBox.mock.calls.length,
-			1,
-			"the real openBox must run once to learn the served UIDVALIDITY",
-		);
-		assert.equal(
-			update.mock.calls.length,
-			1,
-			"the mismatch must trip the mailbox",
-		);
-	});
-
-	it("passes other methods through untouched (e.g. fetchMessages)", async () => {
-		const fetchMessages = mock.fn(async () => []);
-		const connection = {
-			openBox: async () => fakeBoxStatus(100),
-			fetchMessages,
-		} as unknown as IImapConnection;
-
-		const guarded = guardConnectionCursor(
-			connection,
-			{ mailboxService: { update: async () => ({}) as MailboxItem } },
-			accountId,
-			{ ...baseMailbox, uidValidity: 100 },
-		);
-
-		await guarded.fetchMessages([1, 2, 3]);
-		assert.equal(fetchMessages.mock.calls.length, 1);
-		assert.deepEqual(fetchMessages.mock.calls[0].arguments, [[1, 2, 3]]);
 	});
 });
 

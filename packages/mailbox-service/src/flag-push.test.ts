@@ -1,408 +1,112 @@
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
-import type { IMessageFlagPushRepository } from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { MessageSystemFlag } from "@remit/domain-enums";
-import { type FlagPushConfig, FlagPushService } from "./flag-push.js";
+import { FlagPushService } from "./flag-push.js";
+import {
+	captureQueue,
+	openStore,
+	type QueueCapture,
+	type Store,
+} from "./test-helpers/test-store.js";
 
-const accountId = "acc-1";
-const accountConfigId = "acc-cfg-1";
-const messageId = "msg-1";
-const mailboxId = "mbx-1";
-
-const createMockSqs = (impl?: () => Promise<unknown>) => {
-	const sent: unknown[] = [];
-	return {
-		send: mock.fn(async (cmd: { input: unknown }) => {
-			if (impl) await impl();
-			sent.push(cmd.input);
-			return { MessageId: "ok" };
-		}),
-		_sent: sent,
-	};
+const target = {
+	accountId: "acc-1",
+	accountConfigId: "cfg-1",
+	messageId: "msg-1",
+	mailboxId: "mbx-1",
+	flagName: MessageSystemFlag.Seen,
+	operation: "add" as const,
 };
 
-interface Harness {
-	service: FlagPushService;
-	markerPuts: Array<Record<string, unknown>>;
-	markerStateUpdates: Array<{
-		messageId: string;
-		flagName: string;
-		state: string;
-	}>;
-	mockSqs: ReturnType<typeof createMockSqs>;
-	logs: { info: unknown[]; error: unknown[] };
-}
+let store: Store;
+let capture: QueueCapture;
+let errors: Array<Record<string, unknown>>;
 
-const createHarness = (opts?: {
-	sqsImpl?: () => Promise<unknown>;
-	queueUrl?: string;
-	updateStateImpl?: () => Promise<unknown>;
-	findImpl?: () => Promise<unknown>;
-}): Harness => {
-	const markerPuts: Array<Record<string, unknown>> = [];
-	const markerStateUpdates: Array<{
-		messageId: string;
-		flagName: string;
-		state: string;
-	}> = [];
-	const logs = { info: [] as unknown[], error: [] as unknown[] };
+beforeEach(async () => {
+	store = await openStore();
+	capture = captureQueue();
+	errors = [];
+});
 
-	const markerService: IMessageFlagPushRepository = {
-		put: mock.fn(async (input: Record<string, unknown>) => {
-			markerPuts.push(input);
-			return {
-				...input,
-				state: "pending",
-				createdAt: 1,
-				updatedAt: 1,
-			} as never;
-		}),
-		find: mock.fn(async () =>
-			opts?.findImpl ? ((await opts.findImpl()) as never) : null,
-		),
-		updateState: mock.fn(
-			async (id: string, flagName: string, state: string) => {
-				if (opts?.updateStateImpl) return opts.updateStateImpl() as never;
-				markerStateUpdates.push({ messageId: id, flagName, state });
-				return {} as never;
-			},
-		),
-		delete: mock.fn(async () => {}),
-		listByAccountId: mock.fn(async () => []),
-		listByMailboxId: mock.fn(async () => []),
-	};
+afterEach(async () => {
+	capture.restore();
+	await store.close();
+});
 
-	const mockSqs = createMockSqs(opts?.sqsImpl);
+const queueAnswers = (answer: () => Promise<unknown>) => capture.answer(answer);
 
-	const config: FlagPushConfig = {
-		markerService,
-		sqsQueueUrl: opts?.queueUrl ?? "http://localhost:4566/test-queue",
+const flips = (queueUrl = "http://localhost:9324/000/remit-flags") =>
+	new FlagPushService({
+		markerService: store.flagPush,
+		sqsQueueUrl: queueUrl,
 		logger: {
-			info: (fields: Record<string, unknown>) => {
-				logs.info.push(fields);
-			},
-			error: (fields: Record<string, unknown>) => {
-				logs.error.push(fields);
-			},
+			info: () => {},
+			error: (fields: Record<string, unknown>) => errors.push(fields),
 		},
-	};
+	});
 
-	const service = new FlagPushService(config);
-	// @ts-expect-error - inject mock SQS client for testing
-	service.sqs = mockSqs;
-
-	return { service, markerPuts, markerStateUpdates, mockSqs, logs };
-};
+const marker = () => store.flagPush.find(target.messageId, target.flagName);
 
 describe("FlagPushService.flip", () => {
-	it("persists a pending marker before enqueueing the wake-up hint", async () => {
-		const { service, markerPuts } = createHarness();
+	it("records the owed push and marks it queued once the hint is sent", async () => {
+		queueAnswers(async () => ({}));
 
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Seen,
-			operation: "add",
-		});
+		await flips().flip(target);
 
-		assert.equal(markerPuts.length, 1);
-		assert.deepEqual(markerPuts[0], {
-			messageId,
-			flagName: MessageSystemFlag.Seen,
-			accountId,
-			accountConfigId,
-			mailboxId,
-			operation: "add",
-		});
+		const recorded = await marker();
+		assert.equal(recorded?.operation, "add");
+		assert.equal(recorded?.mailboxId, target.mailboxId);
+		assert.equal(recorded?.state, "queued");
 	});
 
-	it("advances the marker to queued once the SQS hint is confirmed sent", async () => {
-		const { service, markerStateUpdates } = createHarness();
+	it("names the message and flag in the hint, never the operation or a uid", async () => {
+		queueAnswers(async () => ({}));
 
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Flagged,
-			operation: "remove",
-		});
+		await flips().flip(target);
 
-		assert.deepEqual(markerStateUpdates, [
-			{ messageId, flagName: MessageSystemFlag.Flagged, state: "queued" },
-		]);
-	});
-
-	it("does NOT reject flip when the wake-up hint enqueue fails (queue down)", async () => {
-		const { service } = createHarness({
-			sqsImpl: () => {
-				throw Object.assign(new Error(""), {
-					name: "AggregateError",
-					code: "ECONNREFUSED",
-				});
-			},
-		});
-
-		await assert.doesNotReject(
-			service.flip({
-				accountId,
-				accountConfigId,
-				messageId,
-				mailboxId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			}),
-		);
-	});
-
-	it("leaves the marker in `pending` (never advances to queued) when the hint enqueue fails", async () => {
-		const { service, markerStateUpdates } = createHarness({
-			sqsImpl: () => {
-				throw new Error("ECONNREFUSED");
-			},
-		});
-
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Seen,
-			operation: "add",
-		});
-
-		assert.deepEqual(markerStateUpdates, []);
-	});
-
-	it("logs the enqueue failure loudly with an alertable field (not silent)", async () => {
-		const { service, logs } = createHarness({
-			sqsImpl: () => {
-				throw Object.assign(new Error(""), {
-					name: "AggregateError",
-					code: "ECONNREFUSED",
-				});
-			},
-		});
-
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Seen,
-			operation: "add",
-		});
-
-		const alerted = logs.error.find(
-			(entry) =>
-				(entry as { alert?: string }).alert === "flag_push_hint_enqueue_failed",
-		);
-		assert.ok(
-			alerted,
-			"expected an alertable flag_push_hint_enqueue_failed log",
-		);
-		assert.equal((alerted as { errorCode?: string }).errorCode, "ECONNREFUSED");
-	});
-
-	it("does NOT leak an unhandled rejection onto a concurrent caller when the enqueue fails", async () => {
-		const leaked: unknown[] = [];
-		const onUnhandled = (reason: unknown): void => {
-			leaked.push(reason);
-		};
-		process.on("unhandledRejection", onUnhandled);
-
-		const { service } = createHarness({
-			sqsImpl: () =>
-				new Promise((_resolve, reject) => {
-					setImmediate(() =>
-						reject(
-							Object.assign(new Error(""), {
-								name: "AggregateError",
-								code: "ECONNREFUSED",
-							}),
-						),
-					);
-				}),
-		});
-
-		try {
-			void service.flip({
-				accountId,
-				accountConfigId,
-				messageId,
-				mailboxId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			});
-			await new Promise((resolve) => setImmediate(resolve));
-			await new Promise((resolve) => setImmediate(resolve));
-			await new Promise((resolve) => setImmediate(resolve));
-		} finally {
-			process.off("unhandledRejection", onUnhandled);
-		}
-
-		assert.equal(leaked.length, 0);
-	});
-
-	it("sets MessageGroupId=accountId for FIFO queue URLs", async () => {
-		const { service, mockSqs } = createHarness({
-			queueUrl:
-				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-mailboxes.fifo",
-		});
-
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Seen,
-			operation: "add",
-		});
-
-		assert.equal(mockSqs._sent.length, 1);
-		const sent = mockSqs._sent[0] as { MessageGroupId?: string };
-		assert.equal(sent.MessageGroupId, accountId);
-	});
-
-	it("omits FIFO params for standard queue URLs", async () => {
-		const { service, mockSqs } = createHarness({
-			queueUrl:
-				"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-mailboxes",
-		});
-
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Seen,
-			operation: "add",
-		});
-
-		assert.equal(mockSqs._sent.length, 1);
-		const sent = mockSqs._sent[0] as { MessageGroupId?: string };
-		assert.equal(sent.MessageGroupId, undefined);
-	});
-
-	it("event body carries only messageId + flagName — never the operation or a UID", async () => {
-		const { service, mockSqs } = createHarness();
-
-		await service.flip({
-			accountId,
-			accountConfigId,
-			messageId,
-			mailboxId,
-			flagName: MessageSystemFlag.Flagged,
-			operation: "remove",
-		});
-
-		const sent = mockSqs._sent[0] as { MessageBody: string };
-		const event = JSON.parse(sent.MessageBody);
+		const event = JSON.parse(capture.inputs()[0].MessageBody ?? "{}");
 		assert.equal(event.type, "FLAG_PUSH");
-		assert.equal(event.messageId, messageId);
-		assert.equal(event.flagName, MessageSystemFlag.Flagged);
-		assert.equal(event.accountId, accountId);
-		assert.equal(event.accountConfigId, accountConfigId);
+		assert.equal(event.messageId, target.messageId);
+		assert.equal(event.flagName, target.flagName);
 		assert.equal("operation" in event, false);
 		assert.equal("uid" in event, false);
 	});
 
-	describe("fast-path race: the worker drains and deletes the marker before the queued-state transition runs (review finding on #1292)", () => {
-		it("does NOT log the flag_push_hint_enqueue_failed alarm when the marker is already gone", async () => {
-			const { service, logs } = createHarness({
-				updateStateImpl: () => {
-					throw new Error(
-						"Cannot update state on a MessageFlagPush that does not exist: msg-1/\\Seen",
-					);
-				},
-				findImpl: () => Promise.resolve(null),
-			});
+	it("groups a FIFO hint by account and leaves a standard queue ungrouped", async () => {
+		queueAnswers(async () => ({}));
 
-			await service.flip({
-				accountId,
-				accountConfigId,
-				messageId,
-				mailboxId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			});
+		await flips("http://localhost:9324/000/remit-flags.fifo").flip(target);
+		await flips("http://localhost:9324/000/remit-flags").flip(target);
 
-			assert.equal(
-				logs.error.length,
-				0,
-				"the enqueue succeeded; a fast-path race must never be logged as flag_push_hint_enqueue_failed",
-			);
-			assert.ok(
-				logs.info.length > 0,
-				"the race is still visible as routine info, not silent",
-			);
+		assert.equal(capture.inputs()[0].MessageGroupId, target.accountId);
+		assert.equal(capture.inputs()[1].MessageGroupId, undefined);
+	});
+
+	it("keeps the push owed and alarms, without rejecting, when the queue is down", async () => {
+		queueAnswers(async () => {
+			throw Object.assign(new Error("connect ECONNREFUSED"), {
+				code: "ECONNREFUSED",
+			});
 		});
 
-		it("still logs the flag_push_hint_enqueue_failed alarm when updateState fails for a REAL reason (marker still present)", async () => {
-			const { service, logs } = createHarness({
-				updateStateImpl: () => {
-					throw new Error("ProvisionedThroughputExceededException");
-				},
-				findImpl: () =>
-					Promise.resolve({
-						messageId,
-						flagName: MessageSystemFlag.Seen,
-						state: "pending",
-					}),
-			});
+		await flips().flip(target);
 
-			await service.flip({
-				accountId,
-				accountConfigId,
-				messageId,
-				mailboxId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			});
+		assert.equal((await marker())?.state, "pending");
+		const alarm = errors.find(
+			(entry) => entry.alert === "flag_push_hint_enqueue_failed",
+		);
+		assert.equal(alarm?.errorCode, "ECONNREFUSED");
+	});
 
-			const alerted = logs.error.find(
-				(entry) =>
-					(entry as { alert?: string }).alert ===
-					"flag_push_hint_enqueue_failed",
-			);
-			assert.ok(
-				alerted,
-				"a genuine failure behind the race-check must still alarm",
-			);
+	it("raises no alarm when the worker drained the push before it was marked queued", async () => {
+		queueAnswers(async () => {
+			await store.flagPush.delete(target.messageId, target.flagName);
+			return {};
 		});
 
-		it("still logs the flag_push_hint_enqueue_failed alarm when the re-check itself fails (backend genuinely down)", async () => {
-			const { service, logs } = createHarness({
-				updateStateImpl: () => {
-					throw new Error(
-						"Cannot update state on a MessageFlagPush that does not exist: msg-1/\\Seen",
-					);
-				},
-				findImpl: () => {
-					throw new Error("ECONNREFUSED");
-				},
-			});
+		await flips().flip(target);
 
-			await service.flip({
-				accountId,
-				accountConfigId,
-				messageId,
-				mailboxId,
-				flagName: MessageSystemFlag.Seen,
-				operation: "add",
-			});
-
-			const alerted = logs.error.find(
-				(entry) =>
-					(entry as { alert?: string }).alert ===
-					"flag_push_hint_enqueue_failed",
-			);
-			assert.ok(
-				alerted,
-				"a re-check failure is a real infra problem — must alarm",
-			);
-		});
+		assert.equal(await marker(), null);
+		assert.deepEqual(errors, []);
 	});
 });

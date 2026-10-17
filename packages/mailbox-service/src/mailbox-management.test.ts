@@ -1,10 +1,6 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
-import type {
-	IMailboxRepository,
-	MailboxItem,
-	MailboxTransitionIntent,
-} from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	MailboxManagementService,
@@ -12,11 +8,16 @@ import {
 	validateMailboxOperation,
 	validateMailboxPath,
 } from "./mailbox-management.js";
-import type {
-	FlatMailboxInfo,
-	IImapConnection,
-	ImapBoxStatus,
-} from "./types.js";
+import {
+	type FakeImapConnection,
+	FakeImapServer,
+} from "./test-helpers/fake-imap.js";
+import {
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+} from "./test-helpers/test-store.js";
 
 describe("parseMailboxPath", () => {
 	it("parses simple path", () => {
@@ -88,239 +89,125 @@ describe("validateMailboxPath", () => {
 	});
 });
 
-const boxStatus = (path: string): ImapBoxStatus => ({
-	name: path,
-	readOnly: true,
-	uidvalidity: 42,
-	uidnext: 7,
-	flags: [],
-	permFlags: [],
-	persistentUIDs: true,
-	messages: { total: 0, new: 0 },
-	newKeywords: false,
+let store: Store;
+let imap: FakeImapServer;
+let account: AccountItem;
+
+beforeEach(async () => {
+	store = await openStore();
+	imap = new FakeImapServer();
+	account = await seedAccount(store);
 });
 
-const recordingRepo = (
-	held: Pick<MailboxItem, "mailboxId" | "fullPath">[] = [],
-) => {
-	const removed: string[] = [];
-	const updates: Array<{ mailboxId: string; patch: Record<string, unknown> }> =
-		[];
-	const settles: Array<{
-		mailboxId: string;
-		intent: MailboxTransitionIntent;
-	}> = [];
-	const repo: Pick<
-		IMailboxRepository,
-		| "update"
-		| "transition"
-		| "findByPathPrefix"
-		| "findByPath"
-		| "deleteMailboxWithMail"
-	> = {
-		update: async (
-			_accountId: string,
-			mailboxId: string,
-			patch: Record<string, unknown>,
-		) => {
-			updates.push({ mailboxId, patch });
-			return {} as never;
-		},
-		transition: async (
-			_accountId: string,
-			mailboxId: string,
-			intent: MailboxTransitionIntent,
-		) => {
-			settles.push({ mailboxId, intent });
-			return {} as never;
-		},
-		findByPathPrefix: async () => [],
-		findByPath: async (_accountId: string, fullPath: string) =>
-			(held.find((row) => row.fullPath === fullPath) as MailboxItem) ?? null,
-		deleteMailboxWithMail: async (_accountId: string, mailboxId: string) => {
-			removed.push(mailboxId);
-		},
-	};
-	return { repo: repo as IMailboxRepository, updates, settles, removed };
-};
+afterEach(() => store.close());
 
-const stubConnection = (
-	createdPath: string,
-	listed: string[],
-): { connection: IImapConnection; opened: string[] } => {
-	const opened: string[] = [];
-	const connection = {
-		createMailbox: async (_path: string) => ({
-			path: createdPath,
-			created: true,
-		}),
-		subscribeMailbox: async () => undefined,
-		listMailboxes: async (): Promise<FlatMailboxInfo[]> =>
-			listed.map((fullPath) => ({
-				fullPath,
-				name: fullPath.split("/").pop() ?? fullPath,
-				delimiter: "/",
-				attributes: [],
-				parentPath: null,
-			})),
-		openBox: async (path: string) => {
-			opened.push(path);
-			return boxStatus(path);
-		},
-		closeBox: async () => undefined,
-	} as unknown as IImapConnection;
-	return { connection, opened };
-};
-
-describe("MailboxManagementService.syncCreate — server path normalization", () => {
-	it("adopts the server-materialized path as the row's identity when it is prefixed", async () => {
-		const { repo, settles } = recordingRepo();
-		const { connection, opened } = stubConnection("INBOX/Notifications", [
-			"INBOX/Notifications",
-		]);
-		const service = new MailboxManagementService(repo);
-
-		const result = await service.syncCreate(
-			"acc-1",
-			"mbx-1",
-			"Notifications",
-			async () => connection,
-		);
-
-		assert.strictEqual(result.success, true);
-		// The mailbox is opened at the server's path, not the requested leaf.
-		assert.deepStrictEqual(opened, ["INBOX/Notifications"]);
-		assert.strictEqual(settles.length, 1);
-		// The row keeps its id and takes on the prefixed path, so the next reconcile
-		// updates it in place instead of insert+delete — every reference survives.
-		assert.strictEqual(settles[0].mailboxId, "mbx-1");
-		assert.strictEqual(settles[0].intent.set?.fullPath, "INBOX/Notifications");
-		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
+const pending = (fullPath: string) =>
+	seedMailbox(store, account, fullPath, {
+		overrides: { syncStatus: MailboxSyncStatus.pending },
 	});
 
-	it("drops the pending row when the prefixed path already has a folder (#318)", async () => {
-		const { repo, settles, updates, removed } = recordingRepo([
-			{ mailboxId: "mbx-existing", fullPath: "INBOX/Notifications" },
-		]);
-		const connection = {
-			createMailbox: async (_path: string) => ({
-				path: "INBOX/Notifications",
-				created: false,
-			}),
-			subscribeMailbox: async () => undefined,
-			listMailboxes: async (): Promise<FlatMailboxInfo[]> => [],
-			openBox: async (path: string) => boxStatus(path),
-			closeBox: async () => undefined,
-		} as unknown as IImapConnection;
-		const service = new MailboxManagementService(repo);
+const syncCreate = (
+	mailbox: MailboxItem,
+	connection: FakeImapConnection = imap.connection(),
+	subscribe?: boolean,
+) =>
+	new MailboxManagementService(store.mailbox).syncCreate(
+		account.accountId,
+		mailbox.mailboxId,
+		mailbox.fullPath,
+		async () => connection,
+		subscribe,
+	);
 
-		const result = await service.syncCreate(
-			"acc-1",
-			"mbx-recreated",
-			"Notifications",
-			async () => connection,
-		);
+const current = (mailbox: MailboxItem) =>
+	store.mailbox.get(account.accountId, mailbox.mailboxId);
+
+describe("MailboxManagementService.syncCreate", () => {
+	it("adopts the path the server created under its prefix, keeping the row", async () => {
+		imap.namespacePrefix = "INBOX/";
+		const requested = await pending("Notifications");
+
+		const result = await syncCreate(requested);
+
+		assert.strictEqual(result.success, true);
+		assert.ok(imap.hasFolder("INBOX/Notifications"));
+		const row = await current(requested);
+		assert.strictEqual(row.fullPath, "INBOX/Notifications");
+		assert.strictEqual(row.syncStatus, MailboxSyncStatus.synced);
+	});
+
+	it("drops the pending row when the server path already has a folder (#318)", async () => {
+		imap.namespacePrefix = "INBOX/";
+		imap.addFolder("INBOX/Notifications");
+		const existing = await seedMailbox(store, account, "INBOX/Notifications");
+		const requested = await pending("Notifications");
+
+		const result = await syncCreate(requested);
 
 		assert.deepStrictEqual(result, {
 			success: true,
-			existing: { mailboxId: "mbx-existing", fullPath: "INBOX/Notifications" },
+			existing: {
+				mailboxId: existing.mailboxId,
+				fullPath: "INBOX/Notifications",
+			},
 		});
-		assert.deepStrictEqual(removed, ["mbx-recreated"]);
-		assert.deepStrictEqual(settles, []);
-		assert.deepStrictEqual(updates, []);
+		await assert.rejects(current(requested));
 	});
 
-	it("leaves the path untouched when the server keeps it as requested", async () => {
-		const { repo, settles } = recordingRepo();
-		const { connection } = stubConnection("Work", ["Work"]);
-		const service = new MailboxManagementService(repo);
+	it("keeps the requested path when the server does", async () => {
+		const requested = await pending("Work");
 
-		await service.syncCreate("acc-1", "mbx-2", "Work", async () => connection);
+		await syncCreate(requested);
 
-		assert.strictEqual(settles.length, 1);
-		assert.deepStrictEqual(settles[0].intent.set, {});
-		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
+		const row = await current(requested);
+		assert.strictEqual(row.fullPath, "Work");
+		assert.strictEqual(row.syncStatus, MailboxSyncStatus.synced);
 	});
 
 	it("still adopts the server path when the fresh list cannot resolve it", async () => {
-		const { repo, settles } = recordingRepo();
-		const { connection, opened } = stubConnection("INBOX/Notifications", []);
-		const service = new MailboxManagementService(repo);
+		imap.namespacePrefix = "INBOX/";
+		const requested = await pending("Notifications");
+		const connection = imap.connection();
+		connection.listMailboxes = async () => [];
 
-		await service.syncCreate(
-			"acc-1",
-			"mbx-3",
-			"Notifications",
-			async () => connection,
+		await syncCreate(requested, connection);
+
+		assert.strictEqual(
+			(await current(requested)).fullPath,
+			"INBOX/Notifications",
 		);
-
-		assert.deepStrictEqual(opened, []);
-		assert.strictEqual(settles.length, 1);
-		assert.strictEqual(settles[0].intent.set?.fullPath, "INBOX/Notifications");
-		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
 	});
 
-	it("falls back to the requested path when the create result carries none", async () => {
-		const { repo, settles } = recordingRepo();
-		const opened: string[] = [];
-		const subscribed: string[] = [];
-		const connection = {
-			createMailbox: async (_path: string) => ({ created: true }),
-			subscribeMailbox: async (p: string) => {
-				subscribed.push(p);
-			},
-			listMailboxes: async (): Promise<FlatMailboxInfo[]> => [
-				{
-					fullPath: "Archive",
-					name: "Archive",
-					delimiter: "/",
-					attributes: [],
-					parentPath: null,
-				},
-			],
-			openBox: async (p: string) => {
-				opened.push(p);
-				return boxStatus(p);
-			},
-			closeBox: async () => undefined,
-		} as unknown as IImapConnection;
-		const service = new MailboxManagementService(repo);
+	it("falls back to the requested path when the create result names none", async () => {
+		const requested = await pending("Archive");
+		const connection = imap.connection();
+		const create = connection.createMailbox;
+		connection.createMailbox = async (path) => {
+			await create(path);
+			return { created: true } as { path: string; created: boolean };
+		};
 
-		await service.syncCreate(
-			"acc-1",
-			"mbx-4",
-			"Archive",
-			async () => connection,
-			true,
-		);
+		await syncCreate(requested, connection, true);
 
-		// A thin result never blanks fullPath — the requested path is used throughout.
-		assert.deepStrictEqual(subscribed, ["Archive"]);
-		assert.deepStrictEqual(opened, ["Archive"]);
-		assert.strictEqual(settles.length, 1);
-		assert.deepStrictEqual(settles[0].intent.set, {});
-		assert.strictEqual(settles[0].intent.to, MailboxSyncStatus.synced);
+		assert.strictEqual(imap.isSubscribed("Archive"), true);
+		const row = await current(requested);
+		assert.strictEqual(row.fullPath, "Archive");
+		assert.strictEqual(row.syncStatus, MailboxSyncStatus.synced);
 	});
 
-	it("settles only a row with no rename target on it", async () => {
-		// The predicate the seventh state turns on (D3). A create redelivered
-		// after a lost acknowledgement, against a row a rename has since claimed,
-		// passes a `pending`-only guard, gets `{created: false}` — which #346
-		// correctly reads as success — and would settle `synced` with the rename
-		// target still on it, killing the rename silently.
-		const { repo, settles } = recordingRepo();
-		const { connection } = stubConnection("Archive", ["Archive"]);
-		const service = new MailboxManagementService(repo);
+	it("does not settle a row a rename has claimed since", async () => {
+		const requested = await pending("Archive");
+		await store.mailbox.transition(account.accountId, requested.mailboxId, {
+			from: [MailboxSyncStatus.pending],
+			to: MailboxSyncStatus.pending,
+			set: { pendingPath: "Archief" },
+		});
 
-		await service.syncCreate(
-			"acc-1",
-			"mbx-5",
-			"Archive",
-			async () => connection,
-		);
+		await syncCreate(requested);
 
-		assert.strictEqual(settles[0].intent.wherePendingPath, null);
-		assert.deepStrictEqual(settles[0].intent.from, [MailboxSyncStatus.pending]);
+		const row = await current(requested);
+		assert.strictEqual(row.syncStatus, MailboxSyncStatus.pending);
+		assert.strictEqual(row.pendingPath, "Archief");
 	});
 });
 

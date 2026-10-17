@@ -1,22 +1,12 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type {
-	CreateOutboxAttachmentInput,
-	IOutboxAttachmentRepository,
-	IOutboxMessageRepository,
-	OutboxAttachmentCap,
-	OutboxAttachmentItem,
-	OutboxMessageItem,
-	ReserveOutboxAttachmentResult,
-} from "@remit/data-ports";
-import { holdsRoom } from "@remit/data-ports";
-import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
+import { afterEach, describe, it } from "node:test";
+import type { OutboxMessageItem } from "@remit/data-ports";
+import { ForbiddenError } from "@remit/data-ports/errors";
 import {
 	OutboxAttachmentRejectionReason,
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
 import {
-	createMockStorageService,
 	type StorageService,
 	UPLOAD_URL_TTL_SECONDS,
 } from "@remit/storage-service";
@@ -25,151 +15,49 @@ import {
 	OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES,
 	OutboxAttachmentService,
 } from "./outbox-attachment.js";
+import { openStore, type Store } from "./test-helpers/test-store.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-679";
 const ACCOUNT_ID = "acc-679";
-const DRAFT_ID = "draft-679";
 
-/**
- * An in-memory stand-in for the repository, with the one property that matters:
- * `reserve` counts and inserts without yielding, the way a database transaction
- * does. Everything else may interleave freely.
- */
-const createRepository = (): IOutboxAttachmentRepository & {
-	rows: Map<string, OutboxAttachmentItem>;
-} => {
-	const rows = new Map<string, OutboxAttachmentItem>();
-	let sequence = 0;
+let store: Store;
+let draftId: string;
 
-	const forDraft = (
-		accountConfigId: string,
-		outboxMessageId: string,
-	): OutboxAttachmentItem[] =>
-		[...rows.values()].filter(
-			(row) =>
-				row.accountConfigId === accountConfigId &&
-				row.outboxMessageId === outboxMessageId,
-		);
+afterEach(() => store?.close());
 
-	return {
-		rows,
-		reserve: async (
-			input: CreateOutboxAttachmentInput,
-			cap: OutboxAttachmentCap,
-		): Promise<ReserveOutboxAttachmentResult> => {
-			// No await inside: the whole point of the real implementation is that
-			// counting and inserting are one atomic step.
-			const live = forDraft(
-				input.accountConfigId,
-				input.outboxMessageId,
-			).filter((row) => holdsRoom(row, cap.nowSeconds));
-			const usedBytes = live.reduce((total, row) => total + row.sizeBytes, 0);
-			if (live.length >= cap.maxCount) {
-				return { outcome: "OverCountCap", usedBytes };
-			}
-			if (usedBytes + input.sizeBytes > cap.maxTotalBytes) {
-				return { outcome: "OverByteCap", usedBytes };
-			}
-			sequence += 1;
-			const item: OutboxAttachmentItem = {
-				...input,
-				state: "Pending",
-				createdAt: sequence,
-				updatedAt: sequence,
-			};
-			rows.set(item.outboxAttachmentId, item);
-			return { outcome: "Reserved", item };
-		},
-		get: async (accountConfigId, outboxAttachmentId) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.accountConfigId !== accountConfigId) {
-				throw new NotFoundError(`No outbox attachment ${outboxAttachmentId}`);
-			}
-			return row;
-		},
-		listByOutboxMessage: async (accountConfigId, outboxMessageId) =>
-			forDraft(accountConfigId, outboxMessageId),
-		markStored: async (accountConfigId, outboxAttachmentId, sizeBytes) => {
-			const row = rows.get(outboxAttachmentId);
-			if (!row || row.accountConfigId !== accountConfigId) return null;
-			if (row.state !== "Pending") return null;
-			const next: OutboxAttachmentItem = {
-				...row,
-				state: "Stored",
-				sizeBytes,
-				reservationExpiresAt: 0,
-			};
-			rows.set(outboxAttachmentId, next);
-			return next;
-		},
-		deleteLapsedReservations: async (
-			accountConfigId: string,
-			outboxMessageId: string,
-			nowSeconds: number,
-		) => {
-			const gone: string[] = [];
-			for (const row of [...rows.values()]) {
-				if (
-					row.accountConfigId === accountConfigId &&
-					row.outboxMessageId === outboxMessageId &&
-					row.state === "Pending" &&
-					row.reservationExpiresAt < nowSeconds
-				) {
-					rows.delete(row.outboxAttachmentId);
-					gone.push(row.outboxAttachmentId);
-				}
-			}
-			return gone;
-		},
-		deleteMany: async (accountConfigId, ids) => {
-			for (const id of ids) {
-				if (rows.get(id)?.accountConfigId === accountConfigId) rows.delete(id);
-			}
-		},
-		deleteByOutboxMessage: async (accountConfigId, outboxMessageId) => {
-			for (const row of forDraft(accountConfigId, outboxMessageId)) {
-				rows.delete(row.outboxAttachmentId);
-			}
-		},
-	};
-};
-
-const build = (
+const build = async (
 	status: OutboxMessageItem["status"] = OutboxMessageStatus.draft,
 	now?: () => number,
 ) => {
-	const storage = createMockStorageService();
-	const repository = createRepository();
-	const outboxMessageService = {
-		get: async (
-			accountConfigId: string,
-			_id: string,
-			mode?: "read" | "act",
-		) => {
-			if (accountConfigId !== ACCOUNT_CONFIG_ID) {
-				assert.equal(mode, "act");
-				throw new ForbiddenError("not yours");
-			}
-			return {
-				outboxMessageId: DRAFT_ID,
-				accountId: ACCOUNT_ID,
-				accountConfigId,
-				status,
-			} as OutboxMessageItem;
-		},
-	} as unknown as IOutboxMessageRepository;
-
+	store = await openStore();
+	const storage = store.storage();
+	const draft = await store.outboxMessage.create({
+		accountId: ACCOUNT_ID,
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		fromAddress: "me@example.com",
+		toAddresses: ["them@example.com"],
+		messageIdValue: "<draft@example.com>",
+		status,
+	});
+	draftId = draft.outboxMessageId;
 	return {
 		service: new OutboxAttachmentService({
-			outboxMessageService,
-			outboxAttachmentService: repository,
+			outboxMessageService: store.outboxMessage,
+			outboxAttachmentService: store.outboxAttachment,
 			storage,
 			now,
 		}),
 		storage,
-		repository,
 	};
 };
+
+const rows = () =>
+	store.outboxAttachment.listByOutboxMessage(ACCOUNT_CONFIG_ID, draftId);
+
+const rowOf = (outboxAttachmentId: string) =>
+	store.outboxAttachment.get(ACCOUNT_CONFIG_ID, outboxAttachmentId);
+
+const ids = async () => (await rows()).map((row) => row.outboxAttachmentId);
 
 const mint = (
 	service: OutboxAttachmentService,
@@ -182,7 +70,7 @@ const mint = (
 ) =>
 	service.mint({
 		accountConfigId: overrides.accountConfigId ?? ACCOUNT_CONFIG_ID,
-		outboxMessageId: DRAFT_ID,
+		outboxMessageId: draftId,
 		filename: overrides.filename ?? "notes.txt",
 		contentType: overrides.contentType ?? "text/plain",
 		sizeBytes: overrides.sizeBytes ?? 10,
@@ -196,14 +84,14 @@ const uploadFor = (
 	storage.storeOutboxAttachment({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		accountId: ACCOUNT_ID,
-		outboxMessageId: DRAFT_ID,
+		outboxMessageId: draftId,
 		outboxAttachmentId,
 		content: Buffer.alloc(sizeBytes),
 	});
 
 describe("reserving room on a draft", () => {
 	it("writes a Pending row and hands back a URL bound to its size", async () => {
-		const { service, repository } = build();
+		const { service } = await build();
 
 		const result = await mint(service, {
 			filename: "invoice.pdf",
@@ -217,7 +105,7 @@ describe("reserving room on a draft", () => {
 		assert.equal(result.reservation.contentType, "application/pdf");
 		assert.match(result.reservation.uploadUrl, /max=2048/);
 
-		const row = repository.rows.get(result.reservation.outboxAttachmentId);
+		const row = await rowOf(result.reservation.outboxAttachmentId);
 		assert.equal(row?.state, "Pending");
 		assert.equal(row?.sizeBytes, 2048);
 		// The key on the row is the one the URL addresses — one identity, not two.
@@ -225,7 +113,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("names the content-id a body can refer to the file by", async () => {
-		const { service } = build();
+		const { service } = await build();
 
 		const result = await mint(service, {
 			filename: "shot.png",
@@ -242,7 +130,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("refuses a declared size over the cap", async () => {
-		const { service } = build();
+		const { service } = await build();
 
 		const result = await mint(service, {
 			filename: "huge.bin",
@@ -258,7 +146,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("counts a reservation nobody has uploaded against yet", async () => {
-		const { service } = build();
+		const { service } = await build();
 		await mint(service, {
 			sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES - 1024,
 		});
@@ -278,7 +166,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("refuses once the draft holds the most files a message can", async () => {
-		const { service } = build();
+		const { service } = await build();
 		for (let index = 0; index < OUTBOX_ATTACHMENT_MAX_COUNT; index += 1) {
 			await mint(service, { sizeBytes: 1 });
 		}
@@ -294,7 +182,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("refuses a file declared as empty, and a filename that sanitizes away", async () => {
-		const { service } = build();
+		const { service } = await build();
 
 		const empty = await mint(service, { sizeBytes: 0 });
 		assert.equal(
@@ -310,7 +198,7 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("records a filename stripped of its path and a media type it cannot read", async () => {
-		const { service } = build();
+		const { service } = await build();
 
 		const result = await mint(service, {
 			filename: "../../etc/passwd",
@@ -325,7 +213,10 @@ describe("reserving room on a draft", () => {
 
 	it("stops holding room once the reservation lapses", async () => {
 		const clock = { seconds: 1_000_000 };
-		const { service } = build(OutboxMessageStatus.draft, () => clock.seconds);
+		const { service } = await build(
+			OutboxMessageStatus.draft,
+			() => clock.seconds,
+		);
 		await mint(service, {
 			sizeBytes: OUTBOX_ATTACHMENT_MAX_TOTAL_BYTES - 1024,
 		});
@@ -341,17 +232,17 @@ describe("reserving room on a draft", () => {
 	});
 
 	it("denies a mint against a draft owned by someone else", async () => {
-		const { service, repository } = build();
+		const { service } = await build();
 
 		await assert.rejects(
 			() => mint(service, { accountConfigId: "cfg-stranger" }),
 			ForbiddenError,
 		);
-		assert.equal(repository.rows.size, 0);
+		assert.equal((await rows()).length, 0);
 	});
 
 	it("refuses to reserve on a message that has left draft", async () => {
-		const { service } = build(OutboxMessageStatus.queued);
+		const { service } = await build(OutboxMessageStatus.queued);
 
 		await assert.rejects(() => mint(service), {
 			name: "ConflictError",
@@ -368,7 +259,7 @@ describe("the cap under concurrency", () => {
 	 * if `reserve` ever grew an await between its count and its insert.
 	 */
 	it("holds the byte cap when files are dropped in together", async () => {
-		const { service } = build();
+		const { service } = await build();
 		const fiveMegabytes = 5 * 1024 * 1024;
 
 		const results = await Promise.all(
@@ -390,7 +281,7 @@ describe("the cap under concurrency", () => {
 	});
 
 	it("holds the file-count ceiling when files are dropped in together", async () => {
-		const { service, repository } = build();
+		const { service } = await build();
 
 		const results = await Promise.all(
 			Array.from({ length: OUTBOX_ATTACHMENT_MAX_COUNT + 5 }, () =>
@@ -402,13 +293,13 @@ describe("the cap under concurrency", () => {
 			results.filter((result) => result.outcome === "Minted").length,
 			OUTBOX_ATTACHMENT_MAX_COUNT,
 		);
-		assert.equal(repository.rows.size, OUTBOX_ATTACHMENT_MAX_COUNT);
+		assert.equal((await rows()).length, OUTBOX_ATTACHMENT_MAX_COUNT);
 	});
 });
 
 describe("completing an attachment", () => {
 	it("believes storage about the size and moves the row to Stored", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const minted = await mint(service, { sizeBytes: 512 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
@@ -416,7 +307,7 @@ describe("completing an attachment", () => {
 
 		const completed = await service.complete({
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
@@ -425,14 +316,14 @@ describe("completing an attachment", () => {
 		assert.equal(completed.attachment.sizeBytes, 512);
 		assert.equal(completed.attachment.state, "Stored");
 		assert.equal(
-			repository.rows.get(minted.reservation.outboxAttachmentId)
+			(await rowOf(minted.reservation.outboxAttachmentId))
 				?.reservationExpiresAt,
 			0,
 		);
 	});
 
 	it("answers a repeated completion the same way, not with an error", async () => {
-		const { service, storage } = build();
+		const { service, storage } = await build();
 		const minted = await mint(service, { sizeBytes: 64 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
@@ -440,7 +331,7 @@ describe("completing an attachment", () => {
 
 		const input = {
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		};
 		const first = await service.complete(input);
@@ -455,14 +346,14 @@ describe("completing an attachment", () => {
 	});
 
 	it("never completes an attachment whose object is absent", async () => {
-		const { service } = build();
+		const { service } = await build();
 		const minted = await mint(service, { sizeBytes: 512 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
 
 		const completed = await service.complete({
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
@@ -473,7 +364,7 @@ describe("completing an attachment", () => {
 	});
 
 	it("refuses a wrong-sized object, removes it, and gives the room back", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const minted = await mint(service, { sizeBytes: 512 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
@@ -481,7 +372,7 @@ describe("completing an attachment", () => {
 
 		const completed = await service.complete({
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
@@ -493,12 +384,12 @@ describe("completing an attachment", () => {
 		);
 		// The room the reservation held is reported as released, not as still held.
 		assert.equal(completed.rejection.usedBytes, 0);
-		assert.equal(repository.rows.size, 0);
+		assert.equal((await rows()).length, 0);
 		assert.equal(
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				minted.reservation.outboxAttachmentId,
 			),
 			null,
@@ -507,7 +398,7 @@ describe("completing an attachment", () => {
 
 	it("refuses a completion once the reservation has lapsed", async () => {
 		const clock = { seconds: 3_000_000 };
-		const { service, storage } = build(
+		const { service, storage } = await build(
 			OutboxMessageStatus.draft,
 			() => clock.seconds,
 		);
@@ -520,7 +411,7 @@ describe("completing an attachment", () => {
 
 		const completed = await service.complete({
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 
@@ -533,7 +424,7 @@ describe("completing an attachment", () => {
 
 describe("removing and discarding", () => {
 	it("retainOnly drops the rows and the bytes it was not told to keep", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const kept = await mint(service, { filename: "keep.txt", sizeBytes: 8 });
 		const dropped = await mint(service, { filename: "drop.txt", sizeBytes: 8 });
 		assert.equal(kept.outcome, "Minted");
@@ -541,19 +432,16 @@ describe("removing and discarding", () => {
 		if (kept.outcome !== "Minted" || dropped.outcome !== "Minted") return;
 		await uploadFor(storage, dropped.reservation.outboxAttachmentId, 8);
 
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
 			kept.reservation.outboxAttachmentId,
 		]);
 
-		assert.deepEqual(
-			[...repository.rows.keys()],
-			[kept.reservation.outboxAttachmentId],
-		);
+		assert.deepEqual(await ids(), [kept.reservation.outboxAttachmentId]);
 		assert.equal(
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				dropped.reservation.outboxAttachmentId,
 			),
 			null,
@@ -561,20 +449,20 @@ describe("removing and discarding", () => {
 	});
 
 	it("discardAll takes every row and every object", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const minted = await mint(service, { sizeBytes: 8 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
 		await uploadFor(storage, minted.reservation.outboxAttachmentId, 8);
 
-		await service.discardAll(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID);
+		await service.discardAll(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId);
 
-		assert.equal(repository.rows.size, 0);
+		assert.equal((await rows()).length, 0);
 		assert.deepEqual(
 			await storage.listOutboxAttachments(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 			),
 			[],
 		);
@@ -594,21 +482,21 @@ describe("retainOnly, which is what attachmentIds drives", () => {
 	};
 
 	it("keeps everything named and removes everything else, bytes included", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const [keep, drop] = await mintTwo(service);
 		await uploadFor(storage, keep.outboxAttachmentId, 8);
 		await uploadFor(storage, drop.outboxAttachmentId, 8);
 
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
 			keep.outboxAttachmentId,
 		]);
 
-		assert.deepEqual([...repository.rows.keys()], [keep.outboxAttachmentId]);
+		assert.deepEqual(await ids(), [keep.outboxAttachmentId]);
 		assert.ok(
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				keep.outboxAttachmentId,
 			),
 		);
@@ -616,7 +504,7 @@ describe("retainOnly, which is what attachmentIds drives", () => {
 			await storage.statOutboxAttachment(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 				drop.outboxAttachmentId,
 			),
 			null,
@@ -624,53 +512,53 @@ describe("retainOnly, which is what attachmentIds drives", () => {
 	});
 
 	it("an empty list is a real instruction: everything goes", async () => {
-		const { service, storage, repository } = build();
+		const { service, storage } = await build();
 		const [first] = await mintTwo(service);
 		await uploadFor(storage, first.outboxAttachmentId, 8);
 
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, []);
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, []);
 
-		assert.equal(repository.rows.size, 0);
+		assert.equal((await rows()).length, 0);
 		assert.deepEqual(
 			await storage.listOutboxAttachments(
 				ACCOUNT_CONFIG_ID,
 				ACCOUNT_ID,
-				DRAFT_ID,
+				draftId,
 			),
 			[],
 		);
 	});
 
 	it("naming every id changes nothing", async () => {
-		const { service, repository } = build();
+		const { service } = await build();
 		const [first, second] = await mintTwo(service);
 
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
 			first.outboxAttachmentId,
 			second.outboxAttachmentId,
 		]);
 
-		assert.equal(repository.rows.size, 2);
+		assert.equal((await rows()).length, 2);
 	});
 
 	it("an id the draft never held is a no-op, not a removal of the rest", async () => {
-		const { service, repository } = build();
+		const { service } = await build();
 		const [first, second] = await mintTwo(service);
 
-		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, DRAFT_ID, [
+		await service.retainOnly(ACCOUNT_CONFIG_ID, ACCOUNT_ID, draftId, [
 			first.outboxAttachmentId,
 			second.outboxAttachmentId,
 			"never-existed",
 		]);
 
-		assert.equal(repository.rows.size, 2);
+		assert.equal((await rows()).length, 2);
 	});
 });
 
 describe("a reservation that lapses without ever completing", () => {
 	it("is reaped, so the sweep can collect the bytes it was vouching for", async () => {
 		const clock = { seconds: 5_000_000 };
-		const { service, storage, repository } = build(
+		const { service, storage } = await build(
 			OutboxMessageStatus.draft,
 			() => clock.seconds,
 		);
@@ -684,29 +572,29 @@ describe("a reservation that lapses without ever completing", () => {
 
 		// Before the reap the row still names the object, which is enough for the
 		// sweep to leave it alone forever.
-		const live = await service.reapAndListLive(ACCOUNT_CONFIG_ID, DRAFT_ID);
+		const live = await service.reapAndListLive(ACCOUNT_CONFIG_ID, draftId);
 
 		assert.deepEqual(live, []);
-		assert.equal(repository.rows.size, 0);
+		assert.equal((await rows()).length, 0);
 	});
 
 	it("is not shown to the composer as a file the draft holds", async () => {
 		const clock = { seconds: 6_000_000 };
-		const { service } = build(OutboxMessageStatus.draft, () => clock.seconds);
+		const { service } = await build(
+			OutboxMessageStatus.draft,
+			() => clock.seconds,
+		);
 		await mint(service, { sizeBytes: 32 });
 
-		assert.equal(
-			(await service.listFor(ACCOUNT_CONFIG_ID, DRAFT_ID)).length,
-			1,
-		);
+		assert.equal((await service.listFor(ACCOUNT_CONFIG_ID, draftId)).length, 1);
 
 		clock.seconds += UPLOAD_URL_TTL_SECONDS + 1;
 
-		assert.deepEqual(await service.listFor(ACCOUNT_CONFIG_ID, DRAFT_ID), []);
+		assert.deepEqual(await service.listFor(ACCOUNT_CONFIG_ID, draftId), []);
 	});
 
 	it("a confirmed attachment cannot be overwritten through its old URL", async () => {
-		const { service, storage } = build();
+		const { service, storage } = await build();
 		const minted = await mint(service, { sizeBytes: 16 });
 		assert.equal(minted.outcome, "Minted");
 		if (minted.outcome !== "Minted") return;
@@ -722,7 +610,7 @@ describe("a reservation that lapses without ever completing", () => {
 
 		await service.complete({
 			accountConfigId: ACCOUNT_CONFIG_ID,
-			outboxMessageId: DRAFT_ID,
+			outboxMessageId: draftId,
 			outboxAttachmentId: minted.reservation.outboxAttachmentId,
 		});
 

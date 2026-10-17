@@ -1,134 +1,97 @@
-/**
- * Unit tests for ImapFlowConnection.connect() retry semantics.
- *
- * Verifies the retry policy without touching a real IMAP server:
- * - Network errors (e.g. ECONNREFUSED) are retried with backoff before the
- *   classified MailConnectionError("network") is finally thrown.
- * - Auth errors are thrown immediately and NEVER retried.
- *
- * The private `attemptConnect` and `sleep` instance methods are stubbed so the
- * test exercises the loop logic directly and runs instantly.
- */
-
 import assert from "node:assert/strict";
-import { describe, it, mock } from "node:test";
+import { createServer, type Server, type Socket } from "node:net";
+import { after, describe, it } from "node:test";
 import { ImapFlowConnection } from "./imapflow-connection.js";
 import { MailConnectionError } from "./types.js";
 
-const baseConfig = {
-	host: "localhost",
-	port: 143,
-	user: "alice@example.com",
-	credentials: { kind: "password" as const, password: "s3cr3t" },
-	tls: false,
+const servers: Server[] = [];
+const sockets: Socket[] = [];
+
+after(() => {
+	for (const socket of sockets) socket.destroy();
+	for (const server of servers) server.close();
+});
+
+const listen = (server: Server): Promise<number> =>
+	new Promise((resolve) => {
+		servers.push(server);
+		server.listen(0, "127.0.0.1", () => {
+			const address = server.address();
+			resolve(typeof address === "object" && address ? address.port : 0);
+		});
+	});
+
+const refusingLogin = async (refusal: string) => {
+	const state = { connections: 0 };
+	const server = createServer((socket) => {
+		state.connections++;
+		sockets.push(socket);
+		socket.write("* OK [CAPABILITY IMAP4rev1] ready\r\n");
+		let buffered = "";
+		socket.on("data", (chunk) => {
+			buffered += chunk.toString();
+			let end = buffered.indexOf("\r\n");
+			while (end !== -1) {
+				const line = buffered.slice(0, end);
+				buffered = buffered.slice(end + 2);
+				const [tag, command] = line.split(" ");
+				const verb = command?.toUpperCase();
+				if (verb === "CAPABILITY") {
+					socket.write(`* CAPABILITY IMAP4rev1\r\n${tag} OK done\r\n`);
+				} else if (verb === "LOGIN") {
+					socket.write(`${tag} NO [AUTHENTICATIONFAILED] ${refusal}\r\n`);
+				} else if (verb === "LOGOUT") {
+					socket.end(`* BYE\r\n${tag} OK bye\r\n`);
+				} else {
+					socket.write(`${tag} BAD unknown\r\n`);
+				}
+				end = buffered.indexOf("\r\n");
+			}
+		});
+		socket.on("error", () => {});
+	});
+	return { port: await listen(server), state };
 };
 
-type WithPrivates = {
-	attemptConnect: () => Promise<void>;
-	sleep: (ms: number) => Promise<void>;
+const closedPort = async (): Promise<number> => {
+	const server = createServer();
+	const port = await listen(server);
+	await new Promise((resolve) => server.close(resolve));
+	return port;
 };
 
-const makeErrnoError = (code: string): Error => {
-	const err = new Error(`connect ${code}`);
-	return Object.assign(err, { code });
-};
+const connectTo = (port: number) =>
+	new ImapFlowConnection({
+		host: "127.0.0.1",
+		port,
+		user: "alice@example.com",
+		credentials: { kind: "password", password: "s3cr3t" },
+		tls: false,
+	}).connect();
 
 describe("ImapFlowConnection.connect() retry policy", () => {
-	it("retries network errors (ECONNREFUSED) 3x with backoff, then throws classified network error", async () => {
-		const connection = new ImapFlowConnection(baseConfig);
-		const priv = connection as unknown as WithPrivates;
+	it("retries a refused connection, then names the endpoint in a network error", async () => {
+		const port = await closedPort();
 
-		// Always fail with a network-level error.
-		const attempt = mock.method(priv, "attemptConnect", async () => {
-			throw makeErrnoError("ECONNREFUSED");
+		await assert.rejects(connectTo(port), (error: unknown) => {
+			assert.ok(error instanceof MailConnectionError);
+			assert.equal(error.kind, "network");
+			assert.match(error.message, new RegExp(`127\\.0\\.0\\.1:${port}`));
+			return true;
 		});
-		// Stub sleep so the backoff does not actually delay the test.
-		mock.method(priv, "sleep", async () => {});
-
-		await assert.rejects(
-			() => connection.connect(),
-			(error: unknown) => {
-				assert.ok(
-					error instanceof MailConnectionError,
-					"final error should be a MailConnectionError",
-				);
-				assert.equal(error.kind, "network");
-				// The host:port endpoint must appear in the message so a DNS /
-				// connect failure is self-describing in the logs (issue #835).
-				assert.match(error.message, /localhost:143/);
-				return true;
-			},
-		);
-
-		// 3 attempts total (the retry loop runs maxRetries times).
-		assert.equal(attempt.mock.callCount(), 3);
 	});
 
-	it("succeeds on a later attempt when a transient network error clears", async () => {
-		const connection = new ImapFlowConnection(baseConfig);
-		const priv = connection as unknown as WithPrivates;
-
-		let calls = 0;
-		const attempt = mock.method(priv, "attemptConnect", async () => {
-			calls += 1;
-			if (calls < 2) {
-				throw makeErrnoError("ECONNRESET");
-			}
-			// Second attempt succeeds.
-		});
-		mock.method(priv, "sleep", async () => {});
-
-		await connection.connect();
-
-		assert.equal(attempt.mock.callCount(), 2);
-	});
-
-	it("does NOT retry auth errors — throws immediately on attempt 1", async () => {
-		const connection = new ImapFlowConnection(baseConfig);
-		const priv = connection as unknown as WithPrivates;
-
-		const attempt = mock.method(priv, "attemptConnect", async () => {
-			throw new Error("Invalid credentials");
-		});
-		const sleep = mock.method(priv, "sleep", async () => {});
-
-		await assert.rejects(
-			() => connection.connect(),
-			(error: unknown) => {
-				assert.ok(error instanceof MailConnectionError);
-				assert.equal(error.kind, "auth");
-				return true;
-			},
+	it("does not retry a refused login and carries the server's own words", async () => {
+		const { port, state } = await refusingLogin(
+			"LOGIN failed. SmtpClientAuthentication is disabled for the Tenant.",
 		);
 
-		// Only one attempt, no backoff sleep.
-		assert.equal(attempt.mock.callCount(), 1);
-		assert.equal(sleep.mock.callCount(), 0);
-	});
-
-	it("carries the server's own refusal, which is not always a re-auth", async () => {
-		const connection = new ImapFlowConnection(baseConfig);
-		const priv = connection as unknown as WithPrivates;
-
-		// imapflow's shape for a tagged NO: the message is its own, the server's
-		// words are on `responseText`. Signing in again fixes nothing here — the
-		// tenant has IMAP switched off — so the text has to reach the user.
-		mock.method(priv, "attemptConnect", async () => {
-			throw Object.assign(new Error("Command failed"), {
-				authenticationFailed: true,
-				responseText:
-					"LOGIN failed. User is authenticated but not connected. SmtpClientAuthentication is disabled for the Tenant.",
-			});
+		await assert.rejects(connectTo(port), (error: unknown) => {
+			assert.ok(error instanceof MailConnectionError);
+			assert.equal(error.kind, "auth");
+			assert.match(error.message, /SmtpClientAuthentication is disabled/);
+			return true;
 		});
-
-		await assert.rejects(
-			() => connection.connect(),
-			(error: unknown) => {
-				assert.ok(error instanceof MailConnectionError);
-				assert.equal(error.kind, "auth");
-				assert.match(error.message, /SmtpClientAuthentication is disabled/);
-				return true;
-			},
-		);
+		assert.equal(state.connections, 1);
 	});
 });

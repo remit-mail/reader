@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { DEFAULT_CALENDAR_URL_SEGMENT } from "@remit/calendar-service";
 import type {
 	AccountItem,

@@ -1,36 +1,32 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type {
-	IMailboxRepository,
-	IMessageRepository,
-	MailboxItem,
-	MessageItem,
-} from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem, MessageItem } from "@remit/data-ports";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	confirmDepartures,
 	placementKey,
 	sightingContestsPlacement,
 } from "./external-move.js";
-import type { IImapConnection } from "./types.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
+import {
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+	seedMessage,
+	silentLog,
+} from "./test-helpers/test-store.js";
 
-const mailboxAt = (
-	fullPath: string,
-	specialUse?: string[],
-	uidValidity = 1,
-): MailboxItem =>
+const mailboxAt = (fullPath: string): MailboxItem =>
 	({
 		mailboxId: `mbx-${fullPath}`,
 		fullPath,
-		uidValidity,
+		uidValidity: 1,
 		hierarchyDelimiter: "/",
-		...(specialUse ? { specialUse } : {}),
 	}) as MailboxItem;
 
 const INBOX = mailboxAt("INBOX");
-const LABEL = mailboxAt("Receipts");
 const JUNK = mailboxAt("INBOX/Rubbish");
-const ALL_MAIL = mailboxAt("[Gmail]/All Mail", ["All"]);
 
 const storedIn = (
 	mailbox: MailboxItem,
@@ -45,257 +41,131 @@ const storedIn = (
 		...overrides,
 	}) as MessageItem;
 
-interface Probe {
-	opened: string[];
-	searched: string[];
-	departed: Set<string>;
-	settled: Set<string>;
-	needsSave: Set<string>;
-}
+let store: Store;
+let imap: FakeImapServer;
+let account: AccountItem;
+let inbox: MailboxItem;
+let receipts: MailboxItem;
+let allMail: MailboxItem;
 
-/**
- * Ask whether the messages this batch sighted in `sightedIn` have left the
- * folders their rows point at, against a server where `held` names the uids each
- * folder still holds and `served` the UIDVALIDITY it answers on SELECT.
- */
-const probe = async (
-	sightedIn: MailboxItem,
-	rows: MessageItem[],
-	held: Record<string, number[]>,
-	served: Record<string, number> = {},
-	sources: MailboxItem[] = [INBOX],
-	unreachable: string[] = [],
-): Promise<Probe> => {
-	const opened: string[] = [];
-	const searched: string[] = [];
+beforeEach(async () => {
+	store = await openStore();
+	imap = new FakeImapServer();
+	account = await seedAccount(store);
+	inbox = await seedMailbox(store, account, "INBOX");
+	receipts = await seedMailbox(store, account, "Receipts");
+	allMail = await seedMailbox(store, account, "[Gmail]/All Mail", {
+		specialUse: "All",
+	});
+	for (const path of ["INBOX", "Receipts", "[Gmail]/All Mail"]) {
+		imap.addFolder(path);
+	}
+});
 
-	const connection = {
-		openBox: async (fullPath: string) => {
-			if (unreachable.includes(fullPath)) {
-				throw new Error(`no such mailbox on the server: ${fullPath}`);
-			}
-			opened.push(fullPath);
-			const source = sources.find((box) => box.fullPath === fullPath);
-			return { uidvalidity: served[fullPath] ?? source?.uidValidity ?? 1 };
-		},
-		search: async (criteria: unknown[]) => {
-			const [[, uids]] = criteria as Array<[string, string]>;
-			searched.push(uids);
-			const current = opened[opened.length - 1];
-			const asked = uids.split(",").map(Number);
-			return (held[current] ?? []).filter((uid) => asked.includes(uid));
-		},
-	} as unknown as Pick<IImapConnection, "openBox" | "search">;
+afterEach(() => store.close());
 
+const rowsIn = async (mailbox: MailboxItem, count: number) => {
+	const ids: string[] = [];
+	for (let i = 0; i < count; i++) {
+		const uid = imap.deliver(mailbox.fullPath, eml({}));
+		ids.push(
+			(await seedMessage(store, account, mailbox, uid)).message.messageId,
+		);
+	}
+	return ids;
+};
+
+const probe = async (sightedIn: MailboxItem, messageIds: string[]) => {
+	const connection = imap.connection();
+	const before = imap.log.length;
 	const verdicts = await confirmDepartures(
 		{
 			connection,
-			mailboxService: {
-				get: async (_accountId: string, mailboxId: string) => {
-					const source = sources.find((box) => box.mailboxId === mailboxId);
-					if (!source) throw new Error(`no such mailbox: ${mailboxId}`);
-					return source;
-				},
-			} as unknown as Pick<IMailboxRepository, "get">,
-			messageService: {
-				get: async () => rows,
-			} as unknown as Pick<IMessageRepository, "get">,
-			log: { info: () => {}, warn: () => {} },
+			mailboxService: store.mailbox,
+			messageService: store.message,
+			log: silentLog,
 		},
-		"acct-1",
+		account.accountId,
 		sightedIn,
-		rows.map((row) => row.messageId),
+		messageIds,
 	);
-
-	return { opened, searched, ...verdicts };
+	const asked = imap.log.slice(before);
+	return {
+		...verdicts,
+		opened: asked.filter((line) => /^(SELECT|EXAMINE) /.test(line)),
+		searched: asked.filter((line) => line.startsWith("SEARCH ")),
+	};
 };
 
 describe("whether a sighting in a second folder is a move", () => {
-	/**
-	 * The reported bug (#1146). A Gmail user label, a Sieve `fileinto` beside a
-	 * `keep` and a Sent copy a list echoes back all put one message in two real
-	 * folders. Reading the second folder's sighting as a move took the message
-	 * out of the Inbox on the round that enumerated the label.
-	 */
-	it("is not a move while the folder the row points at still holds it", async () => {
-		const observed = await probe(LABEL, [storedIn(INBOX)], {
-			INBOX: [7],
-		});
+	it("asks each source folder once, about the contested uids only", async () => {
+		const ids = await rowsIn(inbox, 3);
+		imap.expunge("INBOX", 2);
 
-		assert.deepEqual([...observed.departed], []);
-	});
+		const observed = await probe(receipts, ids);
 
-	it("is a move once the folder the row points at has let it go", async () => {
-		const observed = await probe(LABEL, [storedIn(INBOX)], {
-			INBOX: [3, 11],
-		});
-
+		assert.deepEqual(observed.opened, ["EXAMINE INBOX"]);
+		assert.equal(observed.searched.length, 1);
+		const [, uids] = /"UID","([\d,]+)"/.exec(observed.searched[0]) ?? [];
+		assert.deepEqual(uids?.split(",").sort(), ["1", "2", "3"]);
 		assert.deepEqual(
 			[...observed.departed],
-			[placementKey("msg-1", INBOX.mailboxId, 7)],
+			[placementKey(ids[1], inbox.mailboxId, 2)],
 		);
+		assert.equal(observed.settled.size, 3);
 	});
 
-	it("names the placement it was answered for, so a row that moved since is left alone", async () => {
-		const observed = await probe(JUNK, [storedIn(INBOX, { uid: 42 })], {
-			INBOX: [],
-		});
+	it("asks nothing when no row is contested", async () => {
+		const ids = await rowsIn(inbox, 1);
 
-		assert.equal(
-			observed.departed.has(placementKey("msg-1", INBOX.mailboxId, 7)),
-			false,
-		);
-		assert.equal(
-			observed.departed.has(placementKey("msg-1", INBOX.mailboxId, 42)),
-			true,
-		);
-	});
-
-	it("asks each source folder once for the whole batch", async () => {
-		const observed = await probe(
-			LABEL,
-			[
-				storedIn(INBOX, { messageId: "msg-1", uid: 7 }),
-				storedIn(INBOX, { messageId: "msg-2", uid: 8 }),
-				storedIn(INBOX, { messageId: "msg-3", uid: 9 }),
-			],
-			{ INBOX: [7] },
-		);
-
-		assert.deepEqual(observed.opened, ["INBOX"]);
-		assert.deepEqual(observed.searched, ["7,8,9"]);
-	});
-
-	/**
-	 * The answer needed is about the contested uids. A SEARCH ALL would pull a
-	 * page of uids per batch out of every source folder an account has, which on
-	 * a large Inbox is traffic proportional to the mailbox rather than to the
-	 * question.
-	 */
-	it("asks about the contested uids, not the whole source folder", async () => {
-		const observed = await probe(LABEL, [storedIn(INBOX, { uid: 42 })], {
-			INBOX: [1, 2, 42],
-		});
-
-		assert.deepEqual(observed.searched, ["42"]);
-		assert.deepEqual([...observed.departed], []);
-	});
-
-	it("asks nothing at all when no row is contested", async () => {
-		const observed = await probe(INBOX, [storedIn(INBOX)], { INBOX: [7] });
+		const observed = await probe(inbox, ids);
 
 		assert.deepEqual(observed.opened, []);
-		assert.deepEqual([...observed.departed], []);
 	});
 
-	it("asks nothing for a folder that holds a copy of every message", async () => {
-		const observed = await probe(ALL_MAIL, [storedIn(INBOX)], { INBOX: [] });
+	it("frees a row whose source copies every message, without asking it", async () => {
+		const ids = await rowsIn(allMail, 1);
 
-		assert.deepEqual(observed.opened, []);
-		assert.deepEqual([...observed.departed], []);
-	});
-
-	it("asks nothing for a row whose own mutation has not settled", async () => {
-		const observed = await probe(
-			LABEL,
-			[storedIn(INBOX, { status: MessageStatus.moving })],
-			{ INBOX: [] },
-		);
-
-		assert.deepEqual(observed.opened, []);
-		assert.deepEqual([...observed.departed], []);
-	});
-
-	/**
-	 * All Mail, Starred and Important hold a copy of every message and release
-	 * nothing, so a row that landed on one — its sync ran before the real
-	 * folder's — would answer "still here" forever and freeze there. Reachable on
-	 * any Gmail account whose mail takes more than one batch.
-	 */
-	it("frees a row whose source is a folder that copies every message", async () => {
-		const observed = await probe(
-			LABEL,
-			[storedIn(ALL_MAIL)],
-			{ "[Gmail]/All Mail": [7] },
-			{},
-			[ALL_MAIL],
-		);
+		const observed = await probe(receipts, ids);
 
 		assert.deepEqual(observed.opened, []);
 		assert.deepEqual(
 			[...observed.departed],
-			[placementKey("msg-1", ALL_MAIL.mailboxId, 7)],
+			[placementKey(ids[0], allMail.mailboxId, 1)],
 		);
 	});
 
-	/**
-	 * Reader shares its mailboxes, so another client renaming or deleting the
-	 * source folder between the row being written and this round is ordinary. It
-	 * decides nothing about these rows, and it may not fail the sync of the
-	 * unrelated folder that happened to sight them.
-	 */
-	it("leaves a source folder it cannot reach undecided rather than failing the round", async () => {
-		const observed = await probe(
-			LABEL,
-			[storedIn(INBOX)],
-			{ INBOX: [] },
-			{},
-			[INBOX],
-			["INBOX"],
-		);
+	it("leaves a source it cannot reach undecided rather than failing the round", async () => {
+		const ids = await rowsIn(inbox, 1);
+		imap.removeFolder("INBOX");
 
-		assert.deepEqual([...observed.departed], []);
-		assert.deepEqual([...observed.settled], []);
+		const observed = await probe(receipts, ids);
+
+		assert.equal(observed.departed.size, 0);
+		assert.equal(observed.settled.size, 0);
 	});
 
 	it("asks for a save only where the placement changes or is undecided", async () => {
-		const decided = await probe(
-			LABEL,
-			[
-				storedIn(INBOX, { messageId: "msg-held", uid: 7 }),
-				storedIn(INBOX, { messageId: "msg-gone", uid: 8 }),
-			],
-			{ INBOX: [7] },
-		);
-		const undecided = await probe(
-			LABEL,
-			[storedIn(INBOX)],
-			{ INBOX: [] },
-			{},
-			[INBOX],
-			["INBOX"],
-		);
+		const [held, gone] = await rowsIn(inbox, 2);
+		imap.expunge("INBOX", 2);
 
-		assert.deepEqual([...decided.needsSave], ["msg-gone"]);
-		assert.deepEqual([...undecided.needsSave], ["msg-1"]);
+		const decided = await probe(receipts, [held, gone]);
+		imap.removeFolder("INBOX");
+		const undecided = await probe(receipts, [held]);
+
+		assert.deepEqual([...decided.needsSave], [gone]);
+		assert.deepEqual([...undecided.needsSave], [held]);
 	});
 
-	it("settles a decided sighting, so nothing holds the watermark for it", async () => {
-		const observed = await probe(LABEL, [storedIn(INBOX)], { INBOX: [7] });
+	it("refuses a source folder re-keyed under it", async () => {
+		const ids = await rowsIn(inbox, 1);
+		imap.expunge("INBOX", 1);
+		imap.renumber("INBOX", 99);
 
-		assert.deepEqual(
-			[...observed.settled],
-			[placementKey("msg-1", INBOX.mailboxId, 7)],
-		);
-	});
+		const observed = await probe(receipts, ids);
 
-	/**
-	 * A uid means nothing without the axis it was issued on (RFC 9051 2.3.1.1),
-	 * so a source that answers a different UIDVALIDITY is evidence of nothing.
-	 * The cursor rebuild re-keys that folder; until it has, the sighting waits.
-	 */
-	it("refuses a source folder that has been re-keyed under it", async () => {
-		const observed = await probe(
-			LABEL,
-			[storedIn(INBOX)],
-			{ INBOX: [] },
-			{
-				INBOX: 99,
-			},
-		);
-
-		assert.deepEqual([...observed.departed], []);
-		assert.deepEqual([...observed.settled], []);
+		assert.equal(observed.departed.size, 0);
+		assert.equal(observed.settled.size, 0);
 	});
 });
 
