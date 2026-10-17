@@ -74,19 +74,6 @@ const SEEDED_SUBJECTS = SEEDED_MESSAGES.map((message) => message.subject);
 const STARRED_ELSEWHERE_SUBJECT = "Filed away, and starred";
 
 /**
- * A correspondent's message with a display name and a Message-ID of its own.
- *
- * The received subject joins `seededSubjects` because it is a fourth INBOX
- * message, and the specs that assert an exact inbox count have to keep counting
- * what is actually there.
- */
-const CONVERSATION = {
-	receivedSubject: "Databricks contract renewal",
-	receivedFromName: "Dana Whitfield",
-	receivedFrom: "Dana Whitfield <dana@remit.test>",
-};
-
-/**
  * One message in Junk, from a sender who has a display name — the ordinary
  * shape, and the one the address lookup used to miss. The spam-rescue spec
  * works from this.
@@ -170,16 +157,6 @@ const globalSetup = async (): Promise<void> => {
 		"Junk",
 	);
 
-	console.log("e2e setup: appending the correspondent's message over IMAP");
-	await appendMessages(imapUser, [
-		{
-			subject: CONVERSATION.receivedSubject,
-			from: CONVERSATION.receivedFrom,
-			to: imapUser,
-			messageIdHeader: `<renewal-${Date.now()}@remit.test>`,
-		},
-	]);
-
 	// Classification fixtures ride the same pre-onboarding append: they have to
 	// be on the server before the account is connected to reach the API at all.
 	const classificationFixtures = buildClassificationFixtures();
@@ -235,23 +212,10 @@ const globalSetup = async (): Promise<void> => {
 		accountId,
 		inboxId: inbox.mailboxId,
 		imapUser,
-		// Everything this run appended to the INBOX, in one list. Specs that
-		// assert the inbox holds EXACTLY what was seeded read this, so a fixture
-		// added for one spec must appear here or it reads as an unexplained
-		// extra message. Two seeded messages are deliberately absent: the
-		// spam fixture (appended to Junk) and the starred message filed in Sent —
-		// neither is in the inbox.
-		// The pre-flagged message IS listed: it is inbox mail that happens to
-		// carry \Flagged.
 		seededSubjects: [
 			...SEEDED_SUBJECTS,
-			CONVERSATION.receivedSubject,
 			...classificationFixtures.map((fixture) => fixture.subject),
 		],
-		conversation: {
-			receivedSubject: CONVERSATION.receivedSubject,
-			receivedFromName: CONVERSATION.receivedFromName,
-		},
 		classificationExpectations: classificationFixtures.map((fixture) => ({
 			subject: fixture.subject,
 			expectedCategory: fixture.expectedCategory,

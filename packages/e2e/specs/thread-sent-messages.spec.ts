@@ -13,9 +13,11 @@ import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
 import { listServerSubjects } from "../src/imap.js";
 import { type IsolatedRun, provisionIsolatedRun } from "../src/provision.js";
+import { rawHeader, waitForAcceptedMessage } from "../src/smtp-sink.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const STAMP = Date.now();
+const ROOT_ID = `<renewal-${STAMP}@remit.test>`;
 const RECEIVED_SUBJECT = `Contract renewal ${STAMP}`;
 const RECEIVED_FROM_NAME = "Dana Whitfield";
 const REPLY_SUBJECT = `Re: ${RECEIVED_SUBJECT}`;
@@ -31,7 +33,7 @@ test.describe("A conversation spanning INBOX and Sent", () => {
 			{
 				subject: RECEIVED_SUBJECT,
 				from: `${RECEIVED_FROM_NAME} <dana@remit.test>`,
-				messageIdHeader: `<renewal-${STAMP}@remit.test>`,
+				messageIdHeader: ROOT_ID,
 			},
 		]);
 		api = new ApiClient(run);
@@ -67,6 +69,16 @@ test.describe("A conversation spanning INBOX and Sent", () => {
 		await expect(page.getByTestId("compose-body")).toBeHidden({
 			timeout: 30_000,
 		});
+
+		const accepted = await waitForAcceptedMessage(REPLY_SUBJECT);
+		expect(rawHeader(accepted.raw, "In-Reply-To")).toBe(ROOT_ID);
+		const references = (rawHeader(accepted.raw, "References") ?? "").split(
+			/\s+/,
+		);
+		expect(references).toContain(ROOT_ID);
+		for (const reference of references) {
+			expect(reference).toMatch(/^<[^<>]+>$/);
+		}
 
 		await waitFor(
 			() => listServerSubjects(run.imapUser, "Sent"),

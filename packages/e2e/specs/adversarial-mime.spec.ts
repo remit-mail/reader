@@ -1,14 +1,3 @@
-/**
- * Shapes real senders emit, read back through reader (#402).
- *
- * Each fixture under `fixtures/mime-adversarial/` is APPENDed to the mailbox as
- * received bytes, synced by reader, and read back the way a user reads it: the
- * attachments sync stored for it, and the body the reading pane renders. The
- * class is the one behind the body-sync regression in #394 — a PDF sent as
- * application/octet-stream, TNEF, nested multipart/related, a forwarded
- * message/rfc822, a calendar invite, quoted-printable soft breaks, 8-bit UTF-8,
- * and an empty text/plain alternative.
- */
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

@@ -122,7 +122,6 @@ export interface OutboxRow {
 	textBody?: string;
 }
 
-/** One MIME part of a stored message, narrowed to what a spec reads off it. */
 export interface MessageBodyPart {
 	mediaType: string;
 	mediaSubtype: string;
@@ -636,7 +635,6 @@ export class ApiClient {
 		return result.message;
 	}
 
-	/** The body structure sync stored for a message, as the reading pane reads it. */
 	async describeMessageParts(messageId: string): Promise<MessageBodyPart[]> {
 		const result = await this.json<{ bodyParts: MessageBodyPart[] }>(
 			"GET",

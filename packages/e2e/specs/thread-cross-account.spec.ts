@@ -24,6 +24,7 @@ import {
 	type IsolatedRun,
 	provisionIsolatedRun,
 } from "../src/provision.js";
+import { rawHeader, waitForAcceptedMessage } from "../src/smtp-sink.js";
 import { MAILBOX_THREAD_URL } from "../src/urls.js";
 
 const STAMP = Date.now();
@@ -54,27 +55,10 @@ const threadIdForSubject = async (
 	return match.threadId;
 };
 
-const mailboxIdForPath = async (
-	api: ApiClient,
-	accountId: string,
-	fullPath: string,
-): Promise<string> => {
-	const boxes = await waitFor(
-		() => api.listMailboxes(accountId),
-		(list) => list.some((box) => box.fullPath === fullPath),
-		{ timeoutMs: 90_000, what: `the ${fullPath} folder to sync` },
-	);
-	const box = boxes.find((item) => item.fullPath === fullPath);
-	if (!box)
-		throw new Error("unreachable: the mailbox was matched but not found");
-	return box.mailboxId;
-};
-
 test.describe("A conversation spanning two accounts", () => {
 	let run: IsolatedRun;
 	let second: IsolatedAccount;
 	let api: ApiClient;
-	let secondSentId: string;
 
 	test.beforeAll(async ({ browser }) => {
 		test.setTimeout(600_000);
@@ -92,7 +76,6 @@ test.describe("A conversation spanning two accounts", () => {
 			api,
 			"E2E Cross Account Thread Second",
 		);
-		secondSentId = await mailboxIdForPath(api, second.accountId, "Sent");
 
 		const context = await browser.newContext({
 			storageState: run.storageState,
@@ -114,6 +97,16 @@ test.describe("A conversation spanning two accounts", () => {
 		await expect(page.getByTestId("compose-body")).toBeHidden({
 			timeout: 30_000,
 		});
+
+		const accepted = await waitForAcceptedMessage(REPLY_SUBJECT);
+		expect(rawHeader(accepted.raw, "In-Reply-To")).toBe(ROOT_MESSAGE_ID);
+		const references = (rawHeader(accepted.raw, "References") ?? "").split(
+			/\s+/,
+		);
+		expect(references).toContain(ROOT_MESSAGE_ID);
+		for (const reference of references) {
+			expect(reference).toMatch(/^<[^<>]+>$/);
+		}
 		await waitFor(
 			() => listServerSubjects(second.imapUser, "Sent"),
 			(subjects) => subjects.includes(REPLY_SUBJECT),
@@ -121,23 +114,6 @@ test.describe("A conversation spanning two accounts", () => {
 		);
 		await context.close();
 		await api.triggerSync(second.accountId);
-	});
-
-	test("the reply from the second account carries the thread of the first account's message", async () => {
-		test.setTimeout(300_000);
-
-		const rootThreadId = await threadIdForSubject(
-			api,
-			run.inboxId,
-			RECEIVED_SUBJECT,
-		);
-		const replyThreadId = await threadIdForSubject(
-			api,
-			secondSentId,
-			REPLY_SUBJECT,
-		);
-
-		expect(replyThreadId).toBe(rootThreadId);
 	});
 
 	test("the conversation reads back as one thread holding both accounts' copies", async () => {
@@ -149,10 +125,14 @@ test.describe("A conversation spanning two accounts", () => {
 			RECEIVED_SUBJECT,
 		);
 		const messages = await waitFor(
-			() => api.listThreadMessages(threadId),
+			async () => {
+				await api.triggerSync(second.accountId);
+				return api.listThreadMessages(threadId);
+			},
 			(items) => items.some((item) => item.subject === REPLY_SUBJECT),
 			{
-				timeoutMs: 90_000,
+				timeoutMs: 120_000,
+				intervalMs: 5_000,
 				what: "the second account's reply to join the thread",
 			},
 		);

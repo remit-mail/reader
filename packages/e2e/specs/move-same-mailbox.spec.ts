@@ -29,19 +29,18 @@ test.describe("Same-mailbox move", () => {
 		const junk = mailboxes.find((mailbox) => mailbox.fullPath === "Junk");
 		if (!junk) throw new Error("the run's Junk mailbox has not synced");
 
-		const targetSubject = run.conversation.receivedSubject;
-		// Any other seeded INBOX message: the ones other specs pin by star or by
-		// classified category are left out, so a round trip through Junk cannot
-		// perturb what they assert.
-		const barrierSubject = run.seededSubjects.find(
+		// Seeded INBOX messages other specs do not pin by star or by classified
+		// category, so a round trip through Junk cannot perturb what they assert.
+		const [targetSubject, barrierSubject] = run.seededSubjects.filter(
 			(subject) =>
-				subject !== targetSubject &&
 				subject !== run.preFlaggedSubject &&
 				!run.classificationExpectations.some(
 					(expectation) => expectation.subject === subject,
 				),
 		);
-		if (!barrierSubject) throw new Error("no spare seeded INBOX message");
+		if (!targetSubject || !barrierSubject) {
+			throw new Error("no two spare seeded INBOX messages");
+		}
 
 		const threads = await api.listThreads(run.inboxId);
 		const target = threads.find((thread) => thread.subject === targetSubject);

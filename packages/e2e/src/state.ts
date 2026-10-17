@@ -11,12 +11,6 @@ const stateDir = join(dirname(fileURLToPath(import.meta.url)), "..", ".state");
 export const storageStatePath = join(stateDir, "storage-state.json");
 const runStatePath = join(stateDir, "run.json");
 
-/** A correspondent's message seeded in INBOX. */
-export interface SeededConversation {
-	receivedSubject: string;
-	receivedFromName: string;
-}
-
 export interface RunState {
 	email: string;
 	password: string;
@@ -27,7 +21,6 @@ export interface RunState {
 	/** The IMAP mailbox this run owns. No other run has ever written to it. */
 	imapUser: string;
 	seededSubjects: string[];
-	conversation: SeededConversation;
 	/** Subject → the category the classifier must assign it (issue #45). */
 	classificationExpectations: Array<{
 		subject: string;
