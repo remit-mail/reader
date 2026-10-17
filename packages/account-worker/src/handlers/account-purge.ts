@@ -4,7 +4,7 @@ import {
 	SendMessageCommand,
 	type SQSClient,
 } from "@aws-sdk/client-sqs";
-import { Message } from "@remit/electrodb-entities";
+import { MessageRecord } from "@remit/electrodb-entities";
 import type { Logger } from "@remit/logger-lambda";
 import type { SearchIndexMessage } from "@remit/search-index-worker";
 import { Entity } from "electrodb";
@@ -40,7 +40,7 @@ const SQS_BATCH_SIZE = 10;
  */
 const SUBTREE_BATCH_SIZE = 100;
 
-const messageEntity = new Entity(Message, { table: "purge-keys" });
+const messageEntity = new Entity(MessageRecord, { table: "purge-keys" });
 
 const messageKeys = (messageId: string): { pk: string; sk: string } => {
 	const { Key } = messageEntity.delete({ messageId }).params<{

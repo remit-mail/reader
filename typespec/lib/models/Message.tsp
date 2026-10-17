@@ -138,7 +138,7 @@ model AutoMovedInfo {
 @index(
   "Message",
   {
-    pk: [Message.messageId],
+    pk: [MessageRecord.messageId],
     sk: [],
   }
 )
@@ -147,8 +147,8 @@ model AutoMovedInfo {
   {
     collection: "message",
     index: "gsi0",
-    pk: [Message.mailboxId],
-    sk: [Message.uid],
+    pk: [MessageRecord.mailboxId],
+    sk: [MessageRecord.uid],
   }
 )
 @index(
@@ -156,11 +156,11 @@ model AutoMovedInfo {
   {
     collection: "messageData",
     index: "gsi2",
-    pk: [Message.messageId],
+    pk: [MessageRecord.messageId],
     sk: [],
   }
 )
-model Message {
+model MessageRecord {
   @doc("Primary identifier (internal UUID)")
   @visibility(Lifecycle.Read)
   messageId: UUID;
@@ -321,6 +321,15 @@ model MessageFlag {
   updatedAt: int64;
 }
 
+@doc("Core message entity as the API carries it: the stored row plus the Message-ID header, which is stored on the message's thread row.")
+model Message {
+  ...MessageRecord;
+
+  @doc("Message-ID header value for quick reference")
+  @visibility(Lifecycle.Read)
+  messageIdHeader?: string;
+}
+
 // ============================================
 // API Response Models
 // ============================================
@@ -335,14 +344,12 @@ model MessageSummaryResponse {
       | "uid"
       | "rfc822Size"
       | "internalDate"
+      | "messageIdHeader"
       | "authenticity"
       | "status"
       | "syncStatus"
       | "abandonedMutation"
   >;
-
-  @doc("Message-ID header value")
-  messageIdHeader?: string;
 
   @doc("Present only when Remit auto-moved this message on body-sync. Absent means the message was not auto-moved by Remit.")
   autoMoved?: AutoMovedInfo;

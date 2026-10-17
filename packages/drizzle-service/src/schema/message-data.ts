@@ -11,7 +11,7 @@ const envelopeAddressTable = entities.envelopeAddresses;
 const envelopeTable = entities.envelopes;
 const messageFlagTable = entities.messageFlags;
 const messageReferenceTable = entities.messageReferences;
-const messageTable = entities.messages;
+const messageTable = entities.messageRecords;
 const rawMessageStorageTable = entities.rawMessageStorages;
 
 export {
