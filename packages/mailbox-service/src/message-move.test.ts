@@ -526,7 +526,11 @@ describe("copying a message", () => {
 			[messageId],
 			account.accountId,
 			account.accountConfigId,
-			{ fullPath: inbox.fullPath, placement: "inbox" },
+			{
+				mailboxId: inbox.mailboxId,
+				fullPath: inbox.fullPath,
+				placement: "inbox",
+			},
 			async () => imap.connection(),
 		);
 		return messageId;

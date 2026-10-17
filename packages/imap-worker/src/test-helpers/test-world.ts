@@ -266,8 +266,10 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		queue.sent.map((event) => event.body);
 
 	const refuseSends = (error: Error | undefined): void => {
-		if (error) sqs.on(SendMessageCommand).rejects(error);
-		else sqs.on(SendMessageCommand).resolves({});
+		queue.answer(async () => {
+			if (error) throw error;
+			return {};
+		});
 	};
 
 	const draft = async (
