@@ -321,6 +321,37 @@ export const serverUidsForSubject = async (
 };
 
 /**
+ * MOVE one subject's message to another folder on the server, the way another
+ * mail client would — behind the app's back, so the app only learns of it from
+ * a later sync.
+ */
+export const moveServerMessage = async (
+	user: string,
+	from: string,
+	to: string,
+	subject: string,
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(from);
+		try {
+			const uids = (await client.search({ subject }, { uid: true })) || [];
+			if (uids.length !== 1) {
+				throw new Error(
+					`expected one "${subject}" in ${from}, found ${uids.length}`,
+				);
+			}
+			const moved = await client.messageMove(uids, to, { uid: true });
+			if (!moved) throw new Error(`MOVE of "${subject}" to ${to} failed`);
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
+/**
  * The IMAP flags (system flags and keywords alike — `\Seen`, `$Junk`,
  * `$NotJunk`, …) Dovecot holds for one subject in a mailbox. Empty when the
  * subject is not present. Used to prove an outbound flag push actually

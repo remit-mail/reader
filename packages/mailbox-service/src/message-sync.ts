@@ -23,6 +23,7 @@ import {
 	deriveThreadId,
 	isValidMessageId,
 } from "@remit/data-ports/id";
+import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import {
 	AddressRole,
 	MailboxCursorState,
@@ -959,11 +960,11 @@ export class MessageSyncService {
 	 * A single `FETCH ... (CHANGEDSINCE <modseq>)` over the whole UID space
 	 * returns both the messages that arrived and the messages whose metadata
 	 * changed since the stored watermark, so a flag flipped on another client
-	 * is picked up without enumerating the folder. Rows already present take
-	 * the metadata path — the envelope, body structure and addresses are
-	 * immutable, so re-writing them for a read-state change would be pure
-	 * waste; everything else is a new message and takes the normal save
-	 * pipeline.
+	 * is picked up without enumerating the folder. Rows already present in
+	 * this folder take the metadata path — the envelope, body structure and
+	 * addresses are immutable, so re-writing them for a read-state change would
+	 * be pure waste; everything else, a row another client moved here from a
+	 * folder it points at included, takes the normal save pipeline (#1386).
 	 *
 	 * Expunges are invisible here (CONDSTORE without QRESYNC never reports
 	 * them, RFC 7162 Section 3.1.2.1) — they remain the reconcile path's job.
@@ -1218,7 +1219,25 @@ export class MessageSyncService {
 		}
 
 		await this.applyServerFlags(existing, msg.flags);
-		return null;
+		if (
+			existing.mailboxId === mailbox.mailboxId ||
+			isVirtualCopyMailbox(mailbox)
+		) {
+			return null;
+		}
+
+		// A row pointing at another folder is a candidate move another client
+		// made (#1386). The save pipeline asks the source folder and follows the
+		// row only when it no longer holds the message, exactly as enumeration
+		// does (#1146); without this a folder on CHANGEDSINCE never re-points it.
+		return this.saveMessage(
+			mailbox,
+			accountId,
+			accountConfigId,
+			msg,
+			roles,
+			departures,
+		);
 	}
 
 	/**
