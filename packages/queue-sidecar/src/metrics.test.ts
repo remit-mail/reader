@@ -158,6 +158,19 @@ describe("the sidecar /metrics endpoint", () => {
 		store.purgeQueue("work");
 	});
 
+	it("exports a received-but-undeleted message as in flight", async () => {
+		store.purgeQueue("work-dlq");
+		store.sendMessage({ queueName: "work-dlq", body: "peeked" });
+		store.receiveMessages({ queueName: "work-dlq", maxMessages: 1 });
+		const { body } = await get("/metrics");
+		assert.match(
+			body,
+			/^remit_queue_messages_in_flight\{queue="work-dlq",role="dead_letter"\} 1$/m,
+		);
+		assert.equal(sample(body, ['queue="work-dlq"']), 0);
+		store.purgeQueue("work-dlq");
+	});
+
 	it("counts only visible messages as depth", () => {
 		store.sendMessage({ queueName: "work", body: "c" });
 		store.receiveMessages({ queueName: "work", maxMessages: 1 });

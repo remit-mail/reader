@@ -23,6 +23,12 @@ const state: DoctorState = {
 	counters: {
 		"imap-worker:imap_auth_failures": { total: 4, lastRoseAt: 1785142027000 },
 	},
+	firedReasons: ["dead_letter_queue_not_empty"],
+	reasonRuns: {
+		dead_letter_queue_not_empty: { present: true, runs: 3 },
+		queue_stalled: { present: false, runs: 1 },
+	},
+	firedDeadLetters: { "mailbox-sync-dlq": 556 },
 	updatedAt: "2026-07-27T10:00:00.000Z",
 };
 
@@ -36,6 +42,27 @@ describe("parseState", () => {
 		assert.deepEqual(await parseState("null"), initialState);
 		assert.deepEqual(await parseState('"a string"'), initialState);
 		assert.deepEqual(await parseState('{"version":3}'), initialState);
+		assert.deepEqual(
+			await parseState(
+				JSON.stringify({ ...state, firedReasons: ["not_a_reason"] }),
+			),
+			initialState,
+		);
+		assert.deepEqual(
+			await parseState(
+				JSON.stringify({
+					...state,
+					reasonRuns: { invented: { present: true, runs: 1 } },
+				}),
+			),
+			initialState,
+		);
+		assert.deepEqual(
+			await parseState(
+				JSON.stringify({ ...state, firedDeadLetters: { dlq: "many" } }),
+			),
+			initialState,
+		);
 		assert.deepEqual(
 			await parseState('{"version":2,"firedVerdict":"broken"}'),
 			initialState,
@@ -70,11 +97,20 @@ describe("parseState", () => {
 		);
 	});
 
-	it("tolerates a missing updatedAt", async () => {
-		const parsed = await parseState(
-			'{"version":2,"firedVerdict":"healthy","candidateVerdict":"healthy","candidateRuns":1,"counters":{}}',
+	it("resets a state file written before the reasons and dead-letter depths were remembered", async () => {
+		assert.deepEqual(
+			await parseState(
+				'{"version":2,"firedVerdict":"degraded","candidateVerdict":"degraded","candidateRuns":3,"counters":{}}',
+			),
+			initialState,
 		);
+	});
+
+	it("tolerates a missing updatedAt", async () => {
+		const { updatedAt: _dropped, ...rest } = state;
+		const parsed = await parseState(JSON.stringify(rest));
 		assert.equal(parsed.updatedAt, undefined);
+		assert.equal(parsed.firedVerdict, "degraded");
 	});
 });
 

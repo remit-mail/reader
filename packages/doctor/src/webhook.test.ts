@@ -20,6 +20,7 @@ const result = (
 	summary: verdict === "healthy" ? "remit is healthy" : "remit is degraded",
 	reasons,
 	counters: {},
+	deadLetters: {},
 });
 
 const reason = (summary: string, detail?: string): Reason => ({

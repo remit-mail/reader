@@ -32,11 +32,12 @@ const check = async (): Promise<number> => {
 	setLogLevel(config.logLevel);
 	const state = await readState(config.stateDir);
 	const result = await runCheck(config, state.counters);
+	const alerts = config.webhookUrl === undefined ? "none" : "webhook";
 	await writeVerdict(
 		process.stdout,
 		json
-			? renderJson(result, config.searchEmbeddingProvider)
-			: renderLines(result, config.searchEmbeddingProvider),
+			? renderJson(result, config.searchEmbeddingProvider, alerts)
+			: renderLines(result, config.searchEmbeddingProvider, alerts),
 	);
 	return exitCodeFor(result);
 };

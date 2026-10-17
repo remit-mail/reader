@@ -17,6 +17,13 @@ const queueMessages = new Gauge({
 	registers: [registry],
 });
 
+const queueMessagesInFlight = new Gauge({
+	name: "remit_queue_messages_in_flight",
+	help: "Messages received from a queue and not yet deleted or visible again, by queue and role.",
+	labelNames: ["queue", "role"],
+	registers: [registry],
+});
+
 const queueLastReceiveAge = new Gauge({
 	name: "remit_queue_last_receive_age_seconds",
 	help: "Seconds since a queue last handed a message to a consumer, or since the sidecar started if it has not.",
@@ -66,11 +73,16 @@ export const collectQueueDepths = (store: QueueDepthSource): void => {
 	}
 	const roles = queueRoles(queues);
 	queueMessages.reset();
+	queueMessagesInFlight.reset();
 	queueLastReceiveAge.reset();
 	for (const queue of queues) {
 		const attributes = store.getQueueAttributes(queue.name);
 		const labels = { queue: queue.name, role: roles.get(queue.name) ?? "work" };
 		queueMessages.set(labels, attributes.approximateNumberOfMessages);
+		queueMessagesInFlight.set(
+			labels,
+			attributes.approximateNumberOfMessagesNotVisible,
+		);
 		if (labels.role === "work") {
 			queueLastReceiveAge.set(labels, store.lastReceiveAgeSeconds(queue.name));
 		}

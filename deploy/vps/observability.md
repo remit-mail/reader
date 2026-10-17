@@ -119,9 +119,19 @@ since a `.env` file cannot carry a real one.
 
 ### When it sends
 
-On a change of verdict that has held for three consecutive checks, and never on
-an unchanged verdict however long it persists. Two messages per incident: one
+On a change of verdict that has held for three consecutive checks: one message
 when it breaks, one when it clears.
+
+While already degraded it sends again when the stack gets worse, so an old
+backlog cannot hide a new failure: a reason that was not in the last message and
+has held for three checks, or a dead-letter queue deeper than it was. The
+headline names what changed, for example `remit is still degraded, and worse: 12
+more messages on dead-letter queue mailbox-body-sync-dlq (12 in total)`. A
+degraded stack that stays degraded the same way sends nothing.
+
+With no `DOCTOR_WEBHOOK_URL` nothing is sent anywhere. `remit doctor` says so,
+and the checker logs an `error` line at startup and on every change it could not
+announce.
 
 The cost is three check intervals of latency: at the default 60 second interval
 an outage is reported up to three minutes after it starts, and a recovery up to

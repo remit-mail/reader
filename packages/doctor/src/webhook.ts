@@ -17,6 +17,9 @@ import type { CheckResult, Verdict } from "./verdict.js";
  */
 export const PLACEHOLDERS = ["verdict", "summary", "reasons"] as const;
 
+export const NOT_DELIVERED =
+	"alerts are not delivered anywhere: DOCTOR_WEBHOOK_URL is not set";
+
 export type Placeholder = (typeof PLACEHOLDERS)[number];
 
 const DEFAULT_JSON_TEMPLATE = '{"text":"{{summary}}\\n{{reasons}}"}';

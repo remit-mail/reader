@@ -4,7 +4,7 @@ import { pingDeadMan } from "./deadman.js";
 import { describeError, log, setLogLevel } from "./log.js";
 import { runLoop, sleep } from "./loop.js";
 import { readState, writeState } from "./state.js";
-import { postWebhook } from "./webhook.js";
+import { NOT_DELIVERED, postWebhook } from "./webhook.js";
 
 /**
  * The `doctor` service (D9). A socket-free node process on the compose network:
@@ -41,6 +41,10 @@ log.info(
 	},
 	"doctor: started",
 );
+
+if (config.webhookUrl === undefined) {
+	log.error({}, `doctor: ${NOT_DELIVERED}`);
+}
 
 await runLoop({
 	config,
