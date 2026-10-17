@@ -1416,12 +1416,14 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Messages in this folder whose body part rows are gone — dropped by the
-	 * forwarded-message repair, whose lost row only the mail server still has —
-	 * are fetched again by UID and saved through the same path as any other
-	 * sighting, which writes their parts. No watermark moves: these UIDs are
-	 * already behind them. Resolves `true` when it touched the connection, which
-	 * the probe of departures may have left on another folder.
+	 * Messages the forwarded-message repair queued — their part rows dropped,
+	 * the lost row only on the mail server — are fetched again by UID and saved
+	 * through the same path as any other sighting, which writes their parts. No
+	 * watermark moves: these UIDs are already behind them. Each leaves the queue
+	 * once saved or once the server returns no usable row for it, whatever
+	 * parts came back; only a failed save keeps it for the next round. Resolves
+	 * `true` when it touched the connection, which the probe of departures may
+	 * have left on another folder.
 	 */
 	private async restoreMissingStructure(
 		mailbox: MailboxItem,
@@ -1429,13 +1431,15 @@ export class MessageSyncService {
 		accountConfigId: string,
 		batchSize: number,
 	): Promise<boolean> {
-		const uids = await this.envelopeService.listUidsWithoutBodyParts(
+		const queued = await this.envelopeService.listQueuedStructureRefetches(
 			mailbox.mailboxId,
 			batchSize,
 		);
-		if (uids.length === 0) return false;
+		if (queued.length === 0) return false;
 
-		const applicable = (await this.fetchMessageBatch(uids)).filter(hasEnvelope);
+		const applicable = (
+			await this.fetchMessageBatch(queued.map(({ uid }) => uid))
+		).filter(hasEnvelope);
 		const roles = await this.folderRolesFor(accountId, accountConfigId);
 		const departures = await this.probeDepartures(
 			mailbox,
@@ -1455,13 +1459,24 @@ export class MessageSyncService {
 				),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
+		const failedUids = new Set(
+			outcomes.flatMap((outcome) =>
+				outcome.kind === "failed" ? [outcome.uid] : [],
+			),
+		);
+		await this.envelopeService.clearStructureRefetches(
+			queued
+				.filter(({ uid }) => !failedUids.has(uid))
+				.map(({ messageId }) => messageId),
+		);
 		this.log.info(
 			{
 				mailboxId: mailbox.mailboxId,
-				requested: uids.length,
-				saved: outcomes.filter((outcome) => outcome.kind === "saved").length,
+				requested: queued.length,
+				saved: outcomes.length - failedUids.size,
+				failed: failedUids.size,
 			},
-			"Re-read the structure of messages that had no body parts",
+			"Re-read the structure of messages the forwarded-message repair queued",
 		);
 		return true;
 	}

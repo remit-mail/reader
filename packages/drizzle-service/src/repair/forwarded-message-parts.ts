@@ -10,8 +10,9 @@
  *
  * The lost row cannot be rebuilt from what is stored; only the BODYSTRUCTURE
  * the mail server returns has it. So the repair drops the message's part rows
- * — part upserts never overwrite an existing row — and message sync, which
- * re-reads the structure of any message left without parts, stores them again.
+ * — part upserts never overwrite an existing row — and queues the message in
+ * `body_structure_refetch`. Message sync drains that queue, reading each
+ * queued message's structure again once, and stores its parts.
  *
  * No message, envelope, flag, placement or sync cursor is touched, and the body
  * stays where it is stored.
@@ -57,8 +58,9 @@ const chunks = (ids: readonly string[]): string[][] => {
 };
 
 /**
- * One transaction, so a message never keeps half of its part rows. The rows
- * that hang off a part go before the part rows themselves.
+ * One transaction, so a message never keeps half of its part rows and is never
+ * left without parts and off the queue. The rows that hang off a part go
+ * before the part rows themselves.
  */
 export const sweepForwardedMessageParts = async (
 	client: ForwardedPartsRepairClient,
@@ -74,8 +76,14 @@ export const sweepForwardedMessageParts = async (
 
 	const drop = async (): Promise<number> => {
 		let partsDropped = 0;
+		const now = Date.now();
 		for (const ids of chunks(messageIds)) {
 			const placeholders = ids.map(() => "?").join(", ");
+			await client.run(
+				`INSERT OR IGNORE INTO body_structure_refetch (message_id, created_at, updated_at)
+SELECT message_id, ?, ? FROM message WHERE message_id IN (${placeholders})`,
+				[now, now, ...ids],
+			);
 			for (const table of PART_TABLES) {
 				const dropped = await client.run(
 					`DELETE FROM ${table} WHERE message_id IN (${placeholders})`,
@@ -105,10 +113,10 @@ export const formatForwardedPartsReport = (
 	}
 	if (report.mode === "check") {
 		return [
-			`${report.messages} message(s) lost their forwarded message's part row; their parts would be dropped for message sync to store again`,
+			`${report.messages} message(s) lost their forwarded message's part row; their parts would be dropped and queued for message sync to read again`,
 		];
 	}
 	return [
-		`${report.partsDropped} part row(s) of ${report.messages} message(s) dropped; message sync stores them again`,
+		`${report.partsDropped} part row(s) of ${report.messages} message(s) dropped; message sync reads them again`,
 	];
 };

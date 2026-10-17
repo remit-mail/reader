@@ -7,6 +7,7 @@ const bodyPartContentTable = entities.bodyPartContents;
 const bodyPartParameterTable = entities.bodyPartParameters;
 const bodyPartStorageTable = entities.bodyPartStorages;
 const bodyPartTable = entities.bodyParts;
+const bodyStructureRefetchTable = entities.bodyStructureRefetches;
 const envelopeAddressTable = entities.envelopeAddresses;
 const envelopeTable = entities.envelopes;
 const messageFlagTable = entities.messageFlags;
@@ -19,6 +20,7 @@ export {
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
+	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
 	messageFlagTable,
@@ -36,6 +38,7 @@ export const messageDataSchema = {
 	rawMessageStorage: rawMessageStorageTable,
 	bodyPartStorage: bodyPartStorageTable,
 	bodyPartContent: bodyPartContentTable,
+	bodyStructureRefetch: bodyStructureRefetchTable,
 	message: messageTable,
 	messageFlag: messageFlagTable,
 	outbox: outboxTable,

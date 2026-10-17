@@ -158,11 +158,13 @@ describe("messages whose forwarded message lost its part row", () => {
 		assert.equal(report.partsDropped, 10);
 		for (const messageId of ["forwarded", "forwarded-older"]) {
 			assert.equal(count("body_part", messageId), 0);
+			assert.equal(count("body_structure_refetch", messageId), 1);
 			assert.equal(count("body_part_parameter", messageId), 0);
 			assert.equal(count("message", messageId), 1);
 		}
 		assert.equal(count("body_part", "healthy"), 3);
 		assert.equal(count("body_part_parameter", "healthy"), 1);
+		assert.equal(count("body_structure_refetch", "healthy"), 0);
 		assert.deepEqual(
 			sqlite.prepare("SELECT * FROM mailbox").all(),
 			mailboxesBefore,
@@ -192,6 +194,7 @@ describe("messages whose forwarded message lost its part row", () => {
 			sweepForwardedMessageParts(clientOver(sqlite), "repair"),
 		);
 		assert.equal(count("body_part_parameter", "forwarded"), 2);
+		assert.equal(count("body_structure_refetch", "forwarded"), 0);
 		assert.equal(count("body_part", "forwarded"), 5);
 
 		broken.close();

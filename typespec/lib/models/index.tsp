@@ -20,6 +20,7 @@ import "./SenderSignerStanding.tsp";
 
 // Body Structure Layer (MIME)
 import "./BodyPart.tsp";
+import "./BodyStructureRefetch.tsp";
 
 // Storage Layer
 import "./Storage.tsp";

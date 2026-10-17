@@ -24,6 +24,7 @@ import {
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
+	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
 	type MessageDataSchema,
@@ -154,6 +155,9 @@ export async function deleteMessageSubtree(
 	await tx
 		.delete(bodyPartTable)
 		.where(inArray(bodyPartTable.messageId, messageIds));
+	await tx
+		.delete(bodyStructureRefetchTable)
+		.where(inArray(bodyStructureRefetchTable.messageId, messageIds));
 	await tx
 		.delete(envelopeTable)
 		.where(inArray(envelopeTable.messageId, messageIds));

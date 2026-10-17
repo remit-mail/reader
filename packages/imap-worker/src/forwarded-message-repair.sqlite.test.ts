@@ -84,52 +84,57 @@ before(async () => {
 
 after(() => store.close());
 
+/** A forwarded message stored the old way, then put through the migrator's repair. */
+const arrangeRepaired = async () => {
+	const w = await store.world();
+	const inbox = await w.folder("INBOX");
+	const uid = w.imap.deliver("INBOX", FIXTURE, { bodyStructure: FORWARDED });
+	const sync = () =>
+		syncMessages(
+			{
+				type: "SYNC_MESSAGES",
+				eventId: randomUUID(),
+				timestamp: Date.now(),
+				accountId: w.account.accountId,
+				mailboxId: inbox.mailboxId,
+			},
+			capturingLogger([]),
+			() => w.connectionFactory(),
+		);
+	await sync();
+	await sync();
+	const [seeded] = await w.client.message.listAllByMailbox(inbox.mailboxId);
+	assert.ok(seeded);
+
+	const sqlite = new Database(String(process.env.SQLITE_DB_PATH));
+	sqlite
+		.prepare("DELETE FROM body_part WHERE message_id = ?")
+		.run(seeded.messageId);
+	await w.client.envelope.upsertBodyParts(seeded.messageId, OVERWRITTEN);
+	const before = await w.client.mailbox.get(
+		w.account.accountId,
+		inbox.mailboxId,
+	);
+	const report = await sweepForwardedMessageParts(
+		{
+			all: async (sql, params) => sqlite.prepare(sql).all(...params),
+			run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
+		},
+		"repair",
+	);
+	sqlite.close();
+	assert.equal(report.messages, 1);
+	return { w, inbox, uid, sync, messageId: seeded.messageId, before };
+};
+
 describe("a forwarded message repaired on an instance already running", () => {
 	it("gets its parts back from the server without moving the folder's cursor", async () => {
-		const w = await store.world();
-		const inbox = await w.folder("INBOX");
-		const uid = w.imap.deliver("INBOX", FIXTURE, { bodyStructure: FORWARDED });
-		const sync = () =>
-			syncMessages(
-				{
-					type: "SYNC_MESSAGES",
-					eventId: randomUUID(),
-					timestamp: Date.now(),
-					accountId: w.account.accountId,
-					mailboxId: inbox.mailboxId,
-				},
-				capturingLogger([]),
-				() => w.connectionFactory(),
-			);
-		await sync();
-		await sync();
-		const [seeded] = await w.client.message.listAllByMailbox(inbox.mailboxId);
-		assert.ok(seeded);
-
-		const sqlite = new Database(String(process.env.SQLITE_DB_PATH));
-		sqlite
-			.prepare("DELETE FROM body_part WHERE message_id = ?")
-			.run(seeded.messageId);
-		await w.client.envelope.upsertBodyParts(seeded.messageId, OVERWRITTEN);
-		const before = await w.client.mailbox.get(
-			w.account.accountId,
-			inbox.mailboxId,
-		);
-
-		const report = await sweepForwardedMessageParts(
-			{
-				all: async (sql, params) => sqlite.prepare(sql).all(...params),
-				run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
-			},
-			"repair",
-		);
-		sqlite.close();
-		assert.equal(report.messages, 1);
+		const { w, inbox, uid, sync, messageId, before } = await arrangeRepaired();
 		w.imap.store("INBOX", [uid], ["\\Flagged"]);
 
 		await sync();
 
-		const parts = await w.client.envelope.listBodyParts(seeded.messageId);
+		const parts = await w.client.envelope.listBodyParts(messageId);
 		const byPath = new Map(parts.map((p) => [p.partPath, p]));
 		assert.deepEqual([...byPath.keys()].sort(), [
 			"0",
@@ -144,7 +149,7 @@ describe("a forwarded message repaired on an instance already running", () => {
 
 		const [listed] = await w.client.threadMessage.findAllByMessageId(
 			w.account.accountConfigId,
-			seeded.messageId,
+			messageId,
 		);
 		assert.equal(listed?.hasStars, true);
 
@@ -155,5 +160,23 @@ describe("a forwarded message repaired on an instance already running", () => {
 		assert.equal(after.lastSyncUid, before.lastSyncUid);
 		assert.equal(after.highWaterMarkUid, before.highWaterMarkUid);
 		assert.notEqual(after.highestModseq, "");
+	});
+
+	it("fetches a message whose structure comes back with no parts once, then never again", async () => {
+		const { w, uid, sync, messageId } = await arrangeRepaired();
+		const stored = w.imap.folder("INBOX").messages.get(uid);
+		assert.ok(stored);
+		stored.bodyStructure = null;
+		const targetedFetches = () =>
+			w.imap.commands("FETCH").filter((line) => line === `FETCH INBOX ${uid}`)
+				.length;
+		const baseline = targetedFetches();
+
+		await sync();
+		await sync();
+		await sync();
+
+		assert.equal(targetedFetches() - baseline, 1);
+		assert.deepEqual(await w.client.envelope.listBodyParts(messageId), []);
 	});
 });

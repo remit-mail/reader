@@ -9,7 +9,7 @@ import type {
 	MessageReferenceInput,
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
-import { and, eq, inArray, notExists } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import type { Db } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -28,6 +28,7 @@ import {
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
+	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
 	type MessageDataSchema,
@@ -369,26 +370,26 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 		return rows.map(toBodyPartItem);
 	}
 
-	async listUidsWithoutBodyParts(
+	async listQueuedStructureRefetches(
 		mailboxId: string,
 		limit: number,
-	): Promise<number[]> {
-		const rows = await this.db
-			.select({ uid: messageTable.uid })
-			.from(messageTable)
-			.where(
-				and(
-					eq(messageTable.mailboxId, mailboxId),
-					notExists(
-						this.db
-							.select({ bodyPartId: bodyPartTable.bodyPartId })
-							.from(bodyPartTable)
-							.where(eq(bodyPartTable.messageId, messageTable.messageId)),
-					),
-				),
+	): Promise<Array<{ messageId: string; uid: number }>> {
+		return this.db
+			.select({ messageId: messageTable.messageId, uid: messageTable.uid })
+			.from(bodyStructureRefetchTable)
+			.innerJoin(
+				messageTable,
+				eq(messageTable.messageId, bodyStructureRefetchTable.messageId),
 			)
+			.where(eq(messageTable.mailboxId, mailboxId))
 			.orderBy(messageTable.uid)
 			.limit(limit);
-		return rows.map((row) => row.uid);
+	}
+
+	async clearStructureRefetches(messageIds: string[]): Promise<void> {
+		if (messageIds.length === 0) return;
+		await this.db
+			.delete(bodyStructureRefetchTable)
+			.where(inArray(bodyStructureRefetchTable.messageId, messageIds));
 	}
 }

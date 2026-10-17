@@ -35,8 +35,13 @@ export interface IEnvelopeRepository {
 	getMessageData(messageId: string): Promise<MessageData>;
 	listBodyParts(messageId: string): Promise<BodyPartItem[]>;
 	/**
-	 * UIDs of up to `limit` messages in the folder that have no body part rows:
-	 * their structure is still to be read from the mail server.
+	 * Up to `limit` messages now in the folder that are queued to have their
+	 * structure read again from the mail server.
 	 */
-	listUidsWithoutBodyParts(mailboxId: string, limit: number): Promise<number[]>;
+	listQueuedStructureRefetches(
+		mailboxId: string,
+		limit: number,
+	): Promise<Array<{ messageId: string; uid: number }>>;
+	/** Take messages off that queue, once each. */
+	clearStructureRefetches(messageIds: string[]): Promise<void>;
 }
