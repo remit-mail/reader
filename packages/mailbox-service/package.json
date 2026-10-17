@@ -32,6 +32,14 @@
     "./types": {
       "types": "./src/types.ts",
       "default": "./src/types.ts"
+    },
+    "./test-helpers/fake-imap": {
+      "types": "./src/test-helpers/fake-imap.ts",
+      "default": "./src/test-helpers/fake-imap.ts"
+    },
+    "./test-helpers/test-queue": {
+      "types": "./src/test-helpers/test-queue.ts",
+      "default": "./src/test-helpers/test-queue.ts"
     }
   },
   "scripts": {
@@ -40,6 +48,12 @@
     "test:integ": "RUN_INTEG_TESTS=1 node --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.integ.test.ts'",
     "test:e2e": "RUN_E2E_TESTS=1 node --env-file=../../localhost-test-e2e.env --import tsx --test --test-concurrency=1 'src/**/*.e2e.test.ts'",
     "test": "npm run test:typecheck && npm run test:run"
+  },
+  "devDependencies": {
+    "@remit/drizzle-service": "*",
+    "@types/better-sqlite3": "^7.6.13",
+    "aws-sdk-client-mock": "*",
+    "better-sqlite3": "^12.11.1"
   },
   "dependencies": {
     "imapflow": "^1.3.3",

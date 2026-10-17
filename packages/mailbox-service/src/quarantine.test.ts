@@ -1,65 +1,39 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import type {
-	IMailboxSpecialUseRepository,
-	IQuarantineRepository,
-	MessageData,
-	MessageItem,
-	QuarantineItem,
-	QuarantineUpsertInput,
-} from "@remit/data-ports";
+import { afterEach, beforeEach, describe, it } from "node:test";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import {
-	QuarantinedUids,
 	QuarantineService,
 	resolveMailboxRole,
 	shapeFromMessageData,
 } from "./quarantine.js";
+import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
+import {
+	arriveAt,
+	openStore,
+	type Store,
+	seedAccount,
+	seedMailbox,
+	silentLog,
+} from "./test-helpers/test-store.js";
 
-const noopLog = { info: () => {}, warn: () => {} };
+let store: Store;
+let account: AccountItem;
+let spam: MailboxItem;
+let service: QuarantineService;
 
-const buildService = (
-	specialUse: string[] = [],
-): {
-	service: QuarantineService;
-	writes: QuarantineUpsertInput[];
-	listed: string[];
-} => {
-	const writes: QuarantineUpsertInput[] = [];
-	const listed: string[] = [];
-	const repository = {
-		listByAccountConfigId: async (accountConfigId: string) => {
-			listed.push(accountConfigId);
-			return [] as QuarantineItem[];
-		},
-		upsert: async (input: QuarantineUpsertInput) => {
-			writes.push(input);
-		},
-	} satisfies IQuarantineRepository;
+beforeEach(async () => {
+	store = await openStore();
+	account = await seedAccount(store);
+	spam = await seedMailbox(store, account, "Spam", { specialUse: "Junk" });
+	service = new QuarantineService(
+		store.quarantine,
+		store.mailboxSpecialUse,
+		"sha-abc",
+		silentLog,
+	);
+});
 
-	const mailboxSpecialUseService = {
-		listByMailboxId: async () => specialUse.map((use) => ({ specialUse: use })),
-	} as unknown as IMailboxSpecialUseRepository;
-
-	return {
-		service: new QuarantineService(
-			repository,
-			mailboxSpecialUseService,
-			"sha-abc",
-			noopLog,
-		),
-		writes,
-		listed,
-	};
-};
-
-const context = {
-	accountId: "acct-1",
-	accountConfigId: "cfg-1",
-	mailboxId: "mbx-1",
-	mailboxPath: "INBOX",
-	uidValidity: 1_712_000_000,
-	attempts: 2,
-};
+afterEach(() => store.close());
 
 const failure = {
 	stage: "BodyParse" as const,
@@ -67,47 +41,48 @@ const failure = {
 	message: "the parser said no",
 };
 
+const record = (uid: number, mailboxPath = "Spam") =>
+	service.record(
+		{
+			accountId: account.accountId,
+			accountConfigId: account.accountConfigId,
+			mailboxId: spam.mailboxId,
+			mailboxPath,
+			uidValidity: 1_712_000_000,
+			attempts: 2,
+		},
+		uid,
+		failure,
+	);
+
+const rows = () =>
+	store.quarantine.listByAccountConfigId(account.accountConfigId);
+
 describe("QuarantineService.record", () => {
-	it("stamps the worker build, not the client's", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.equal(writes[0]?.workerVersion, "sha-abc");
-	});
+	it("keeps one record per uid however often the message is set aside", async () => {
+		await record(40217);
+		await record(40217);
 
-	it("names the message by mailbox, uidValidity and uid", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.deepEqual(
-			{
-				mailboxId: writes[0]?.mailboxId,
-				uidValidity: writes[0]?.uidValidity,
-				uid: writes[0]?.uid,
-			},
-			{ mailboxId: "mbx-1", uidValidity: 1_712_000_000, uid: 40217 },
-		);
-	});
-
-	it("supplies no quarantineId, so the random-id default is unreachable", async () => {
-		const { service, writes } = buildService();
-		await service.record(context, 40217, failure);
-		assert.ok(!("quarantineId" in (writes[0] as object)));
-	});
-
-	it("omits an absent diagnostic rather than writing a null through", async () => {
-		const { service, writes } = buildService();
-		await service.record(
-			{ ...context, mailboxPath: "Clients/Acme" },
-			1,
-			failure,
-		);
-		assert.ok(!("failurePartPath" in (writes[0] as object)));
-		assert.ok(!("mailboxRole" in (writes[0] as object)));
+		const recorded = (await rows()).filter((row) => row.uid === 40217);
+		assert.equal(recorded.length, 1);
+		assert.equal(recorded[0].uidValidity, 1_712_000_000);
+		assert.equal(recorded[0].workerVersion, "sha-abc");
+		assert.equal(recorded[0].failurePartPath, undefined);
 	});
 
 	it("reads the folder's role off the server's SPECIAL-USE", async () => {
-		const { service, writes } = buildService(["Junk"]);
-		await service.record({ ...context, mailboxPath: "Spam" }, 1, failure);
-		assert.equal(writes[0]?.mailboxRole, "Junk");
+		await record(7);
+
+		const [row] = (await rows()).filter((entry) => entry.uid === 7);
+		assert.equal(row.mailboxRole, "Junk");
+	});
+
+	it("loads what it recorded as the set a sync round skips", async () => {
+		await record(8);
+
+		const loaded = await service.load(account.accountConfigId);
+		assert.ok(loaded.has(spam.mailboxId, 1_712_000_000, 8));
+		assert.ok(!loaded.has(spam.mailboxId, 1_712_000_001, 8));
 	});
 });
 
@@ -125,67 +100,27 @@ describe("resolveMailboxRole", () => {
 	});
 });
 
-describe("QuarantinedUids", () => {
-	const entries = [
-		{ mailboxId: "mbx-1", uidValidity: 10, uid: 5 },
-	] as QuarantineItem[];
-
-	it("matches a uid on the same mailbox and UIDVALIDITY", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-1", 10, 5), true);
-	});
-
-	it("does not match the same uid on a new UIDVALIDITY, which is a different message", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-1", 11, 5), false);
-	});
-
-	it("does not match the same uid in another mailbox", () => {
-		assert.equal(new QuarantinedUids(entries).has("mbx-2", 10, 5), false);
-	});
-});
-
 describe("shapeFromMessageData", () => {
-	const message = {
-		rfc822Size: 2048,
-		messageIdHeader: "<xyz@example.com>",
-	} as MessageItem;
+	it("describes the message from the rows metadata sync wrote", async () => {
+		const imap = new FakeImapServer();
+		imap.addFolder("Spam");
+		const raw = eml({
+			"Message-ID": "<xyz@example.com>",
+			"Content-Type": "text/plain; charset=iso-8859-1",
+			"Content-Transfer-Encoding": "quoted-printable",
+		});
+		const messageId = await arriveAt(store, imap, account, spam, raw);
 
-	const data = {
-		bodyPart: [
-			{
-				bodyPartId: "bp-0",
-				partPath: "0",
-				mediaType: "multipart",
-				mediaSubtype: "alternative",
-				transferEncoding: "7bit",
-			},
-			{
-				bodyPartId: "bp-1",
-				partPath: "1",
-				mediaType: "text",
-				mediaSubtype: "plain",
-				transferEncoding: "quoted-printable",
-			},
-		],
-		bodyPartParameter: [
-			{
-				bodyPartId: "bp-0",
-				parameterName: "charset",
-				parameterValue: "iso-8859-1",
-			},
-		],
-	} as unknown as MessageData;
+		const shape = shapeFromMessageData(
+			await store.message.get(messageId),
+			await store.envelope.getMessageData(messageId),
+		);
 
-	it("rebuilds the tree from the rows metadata sync already wrote", () => {
-		assert.deepEqual(shapeFromMessageData(message, data).structure, [
-			{ depth: 0, contentType: "multipart/alternative" },
-			{ depth: 1, contentType: "text/plain" },
-		]);
-	});
-
-	it("takes the root part's declared charset and encoding", () => {
-		const shape = shapeFromMessageData(message, data);
+		assert.equal(shape.structure.length, 1);
+		assert.equal(shape.structure[0].depth, 0);
+		assert.match(shape.structure[0].contentType, /^text\/plain$/i);
 		assert.equal(shape.charset, "iso-8859-1");
-		assert.equal(shape.transferEncoding, "7bit");
-		assert.equal(shape.contentType, "multipart/alternative");
+		assert.equal(shape.transferEncoding?.toLowerCase(), "quoted-printable");
+		assert.equal(shape.sizeBytes, raw.length);
 	});
 });

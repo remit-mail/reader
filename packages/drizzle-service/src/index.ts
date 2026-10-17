@@ -71,4 +71,8 @@ export {
 	type SqliteClient,
 	type SqliteClientOptions,
 } from "./sqlite-client.js";
+export {
+	createSqliteRepositories,
+	type SqliteRepositories,
+} from "./sqlite-repositories.js";
 export { runInTransaction, serializeSqliteWrites } from "./tx.js";

@@ -69,9 +69,9 @@ describe("filing a sent message", () => {
 
 		await run(a);
 
-		const [copy] = a.w.imap.folder("Sent").messages;
+		const [copy] = a.w.imap.messages("Sent");
 		assert.equal(copy?.messageIdHeader, `<${a.outbox.messageIdValue}>`);
-		assert.ok(copy?.flags.has("\\Seen"));
+		assert.ok(copy?.flags.includes("\\Seen"));
 		assert.match(
 			copy?.raw.toString("utf8") ?? "",
 			/Subject: Quarterly numbers/,
@@ -86,7 +86,7 @@ describe("filing a sent message", () => {
 
 		await run(a);
 
-		const raw = a.w.imap.folder("Sent").messages[0]?.raw.toString("utf8") ?? "";
+		const raw = a.w.imap.messages("Sent")[0]?.raw.toString("utf8") ?? "";
 		assert.match(raw, /^Content-Type: multipart\/mixed;/m);
 		assert.match(raw, /filename=numbers\.csv/);
 		assert.deepEqual(

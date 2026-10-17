@@ -95,9 +95,9 @@ const pushMove = (
 
 const seenOnServer = (a: Arranged, path: string): boolean[] =>
 	a.w.imap
-		.folder(path)
-		.messages.filter((m) => m.messageIdHeader === a.message.messageIdHeader)
-		.map((m) => m.flags.has(SEEN));
+		.messages(path)
+		.filter((m) => m.messageIdHeader === a.message.messageIdHeader)
+		.map((m) => m.flags.includes(SEEN));
 
 describe("a flag push", () => {
 	it("stores the flag on the server and clears its marker", async () => {
@@ -211,7 +211,7 @@ describe("a flag push", () => {
 	it("stores nothing when the mailbox's UIDVALIDITY changed under it", async () => {
 		const a = await arrange();
 		const event = await markAsRead(a);
-		a.w.imap.folder("INBOX").uidValidity = 2;
+		a.w.imap.setUidValidity("INBOX", 2);
 
 		await pushFlag(a, event);
 

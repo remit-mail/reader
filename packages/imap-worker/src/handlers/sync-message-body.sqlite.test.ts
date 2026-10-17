@@ -124,7 +124,7 @@ describe("a body sync", () => {
 
 	it("fetches nothing when the mailbox's UIDVALIDITY changed under it", async () => {
 		const a = await arrange();
-		a.w.imap.folder("INBOX").uidValidity = 2;
+		a.w.imap.setUidValidity("INBOX", 2);
 
 		await run(a);
 

@@ -7,7 +7,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { MessageCopyEvent } from "../events.js";
-import { openStore, type World } from "../test-helpers/test-world.js";
+import { mail, openStore, type World } from "../test-helpers/test-world.js";
 import { handleMessageCopy } from "./message-copy.js";
 
 // The sync writes the Message-ID onto the listing row only, never the Message
@@ -44,7 +44,7 @@ const arrange = async (
 	const projects = await w.folder("Projects");
 	const seeded = await w.message(inbox);
 	if (options.olderCopyInProjects) {
-		w.imap.deliver("Projects", seeded.messageIdHeader);
+		w.imap.deliver("Projects", mail(seeded.messageIdHeader));
 	}
 
 	const copyId = await w.client.messageMove.copyMessage(
@@ -128,7 +128,7 @@ describe("a message copy", () => {
 		todo: MESSAGE_ID_NOT_SYNCED,
 	}, async () => {
 		const a = await arrange();
-		a.w.imap.deliver("Projects", a.messageIdHeader);
+		a.w.imap.deliver("Projects", mail(a.messageIdHeader));
 
 		await run(a, 2);
 
@@ -149,7 +149,7 @@ describe("a message copy", () => {
 
 	it("creates a destination the server does not have and redelivers", async () => {
 		const a = await arrange();
-		a.w.imap.folders.delete("Projects");
+		a.w.imap.removeFolder("Projects");
 
 		await assert.rejects(run(a), /TRYCREATE/);
 
@@ -184,7 +184,7 @@ describe("a message copy", () => {
 		todo: MESSAGE_ID_NOT_SYNCED,
 	}, async () => {
 		const a = await arrange();
-		a.w.imap.deliver("Projects", a.messageIdHeader);
+		a.w.imap.deliver("Projects", mail(a.messageIdHeader));
 		a.w.imap.failNext.COPY = new Error("Connection reset");
 
 		await run(a, 3);
@@ -230,7 +230,7 @@ describe("a message copy", () => {
 
 	it("copies nothing when the source's UIDVALIDITY changed under it", async () => {
 		const a = await arrange();
-		a.w.imap.folder("INBOX").uidValidity = 2;
+		a.w.imap.setUidValidity("INBOX", 2);
 
 		await run(a);
 

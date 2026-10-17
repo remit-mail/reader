@@ -99,7 +99,7 @@ describe("a folder deleted while its sync is in flight", () => {
 						old.mailboxId,
 						w.account.accountId,
 					);
-					w.imap.folders.delete("Old");
+					w.imap.removeFolder("Old");
 				}
 				return openBox(path, readOnly);
 			};

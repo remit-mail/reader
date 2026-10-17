@@ -4,11 +4,6 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	SendMessageBatchCommand,
-	SendMessageCommand,
-	SQSClient,
-} from "@aws-sdk/client-sqs";
-import {
 	_resetForTest,
 	getClient,
 	type RemitClient,
@@ -29,12 +24,15 @@ import {
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger-lambda";
 import type { ManagedConnectionFactory } from "@remit/mailbox-service";
+import {
+	eml,
+	FakeImapServer,
+} from "@remit/mailbox-service/test-helpers/fake-imap";
+import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
-import { mockClient } from "aws-sdk-client-mock";
 import Database from "better-sqlite3";
 import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { syncMessages } from "../handlers/sync-messages.js";
-import { FakeImapServer } from "./test-imap-server.js";
 
 export interface LogLine {
 	level: string;
@@ -59,6 +57,17 @@ export const capturingLogger = (lines: LogLine[]): Logger => {
 	return log;
 };
 
+/** A message the way a correspondent sends one, naming it by its Message-ID. */
+export const mail = (messageIdHeader: string): Buffer =>
+	eml({
+		"Message-ID": messageIdHeader,
+		From: "Friend <friend@example.com>",
+		To: "Person <person@example.com>",
+		Date: "Tue, 14 Nov 2023 22:13:20 +0000",
+		Subject: "test",
+		"Content-Type": "text/plain; charset=utf-8",
+	});
+
 export interface FolderOptions {
 	specialUse?: MailboxSpecialUseValue;
 	uidValidity?: number;
@@ -71,8 +80,6 @@ export interface SeededMessage {
 	messageIdHeader: string;
 	threadMessageId: string;
 }
-
-const sqs = mockClient(SQSClient);
 
 /**
  * One SQLite store per test file, over the shipped migrations, composed by the
@@ -119,7 +126,7 @@ export interface World {
 	folder: (path: string, options?: FolderOptions) => Promise<MailboxItem>;
 	message: (
 		mailbox: MailboxItem,
-		options?: { messageIdHeader?: string; uid?: number },
+		options?: { messageIdHeader?: string },
 	) => Promise<SeededMessage>;
 	row: (messageId: string) => Promise<MessageItem | undefined>;
 	threadRows: (
@@ -134,9 +141,7 @@ export interface World {
 }
 
 const createWorld = async (client: RemitClient): Promise<World> => {
-	sqs.reset();
-	sqs.on(SendMessageCommand).resolves({});
-	sqs.on(SendMessageBatchCommand).resolves({ Failed: [] });
+	const queue = captureQueue();
 
 	const imap = new FakeImapServer();
 	const logs: LogLine[] = [];
@@ -161,7 +166,7 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 		options: FolderOptions = {},
 	): Promise<MailboxItem> => {
 		const uidValidity = options.uidValidity ?? 1;
-		imap.addFolder(path, uidValidity);
+		imap.addFolder(path, { uidValidity });
 		const created = await client.mailbox.create({
 			accountId: account.accountId,
 			namespacePrefix: "",
@@ -203,11 +208,11 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 
 	const message = async (
 		mailbox: MailboxItem,
-		options: { messageIdHeader?: string; uid?: number } = {},
+		options: { messageIdHeader?: string } = {},
 	): Promise<SeededMessage> => {
 		const messageIdHeader =
 			options.messageIdHeader ?? `<${randomUUID()}@example.com>`;
-		const uid = imap.deliver(mailbox.fullPath, messageIdHeader, options.uid);
+		const uid = imap.deliver(mailbox.fullPath, mail(messageIdHeader));
 		const baseline = {
 			connections: imap.connections,
 			commands: imap.log.length,
@@ -256,18 +261,8 @@ const createWorld = async (client: RemitClient): Promise<World> => {
 			isDeleted: tm.isDeleted,
 		}));
 
-	const queued = (): Array<Record<string, unknown>> => [
-		...sqs
-			.commandCalls(SendMessageCommand)
-			.map((call) => JSON.parse(call.args[0].input.MessageBody ?? "{}")),
-		...sqs
-			.commandCalls(SendMessageBatchCommand)
-			.flatMap((call) =>
-				(call.args[0].input.Entries ?? []).map((entry) =>
-					JSON.parse(entry.MessageBody ?? "{}"),
-				),
-			),
-	];
+	const queued = (): Array<Record<string, unknown>> =>
+		queue.sent.map((event) => event.body);
 
 	const draft = async (
 		attachment?: Buffer,
