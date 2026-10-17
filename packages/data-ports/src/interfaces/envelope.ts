@@ -34,4 +34,9 @@ export interface IEnvelopeRepository {
 	): Promise<void>;
 	getMessageData(messageId: string): Promise<MessageData>;
 	listBodyParts(messageId: string): Promise<BodyPartItem[]>;
+	/**
+	 * UIDs of up to `limit` messages in the folder that have no body part rows:
+	 * their structure is still to be read from the mail server.
+	 */
+	listUidsWithoutBodyParts(mailboxId: string, limit: number): Promise<number[]>;
 }

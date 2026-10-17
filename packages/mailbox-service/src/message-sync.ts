@@ -337,7 +337,7 @@ export class MessageSyncService {
 		 */
 		private mailboxSpecialUseService: IMailboxSpecialUseRepository,
 		private messageService: IMessageRepository,
-		envelopeService: IEnvelopeRepository,
+		private envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
 		logger?: SyncLogger,
@@ -431,6 +431,17 @@ export class MessageSyncService {
 				"UIDVALIDITY changed; mailbox cursor tripped, pausing outbound sync this round",
 			);
 			return emptySyncResult();
+		}
+
+		if (
+			await this.restoreMissingStructure(
+				mailbox,
+				accountId,
+				accountConfigId,
+				batchSize,
+			)
+		) {
+			await connection.openBox(mailboxPath);
 		}
 
 		const cursor = parseChangeCursor(mailbox.highestModseq);
@@ -1402,6 +1413,59 @@ export class MessageSyncService {
 		if (hasFlag === present) return;
 
 		await this.setMessageFlag(messageId, flagName, present);
+	}
+
+	/**
+	 * Messages in this folder whose body part rows are gone — dropped by the
+	 * forwarded-message repair, whose lost row only the mail server still has —
+	 * are fetched again by UID and saved through the same path as any other
+	 * sighting, which writes their parts. No watermark moves: these UIDs are
+	 * already behind them. Resolves `true` when it touched the connection, which
+	 * the probe of departures may have left on another folder.
+	 */
+	private async restoreMissingStructure(
+		mailbox: MailboxItem,
+		accountId: string,
+		accountConfigId: string,
+		batchSize: number,
+	): Promise<boolean> {
+		const uids = await this.envelopeService.listUidsWithoutBodyParts(
+			mailbox.mailboxId,
+			batchSize,
+		);
+		if (uids.length === 0) return false;
+
+		const applicable = (await this.fetchMessageBatch(uids)).filter(
+			hasEnvelope,
+		);
+		const roles = await this.folderRolesFor(accountId, accountConfigId);
+		const departures = await this.probeDepartures(
+			mailbox,
+			accountId,
+			applicable,
+		);
+		const outcomes = await pMap(
+			applicable,
+			(msg) =>
+				this.trySaveMessage(
+					mailbox,
+					accountId,
+					accountConfigId,
+					msg,
+					roles,
+					departures,
+				),
+			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
+		);
+		this.log.info(
+			{
+				mailboxId: mailbox.mailboxId,
+				requested: uids.length,
+				saved: outcomes.filter((outcome) => outcome.kind === "saved").length,
+			},
+			"Re-read the structure of messages that had no body parts",
+		);
+		return true;
 	}
 
 	/**

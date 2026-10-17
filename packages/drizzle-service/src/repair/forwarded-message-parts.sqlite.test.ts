@@ -121,30 +121,14 @@ describe("messages whose forwarded message lost its part row", () => {
 				.get(messageId) as { n: number }
 		).n;
 
-	const cursor = (
-		mailboxId: string,
-	): { last_sync_uid: number; highest_modseq: string } =>
-		sqlite
-			.prepare(
-				"SELECT last_sync_uid, highest_modseq FROM mailbox WHERE mailbox_id = ?",
-			)
-			.get(mailboxId) as { last_sync_uid: number; highest_modseq: string };
-
 	before(async () => {
 		handle = createShippedSqliteDb();
 		sqlite = handle.sqlite;
 		mailbox("inbox", 1);
 		mailbox("archive", 1);
-		mailbox("backfilling", 80);
 		await message("forwarded", "inbox", 42, OVERWRITTEN_FORWARD);
 		await message("forwarded-older", "inbox", 7, OVERWRITTEN_FORWARD);
 		await message("healthy", "archive", 5, PLAIN);
-		await message(
-			"forwarded-unreached",
-			"backfilling",
-			12,
-			OVERWRITTEN_FORWARD,
-		);
 	});
 
 	after(() => {
@@ -157,46 +141,32 @@ describe("messages whose forwarded message lost its part row", () => {
 			"check",
 		);
 
-		assert.equal(report.messages, 3);
-		assert.equal(report.mailboxes, 2);
+		assert.equal(report.messages, 2);
 		assert.equal(report.partsDropped, 0);
 		assert.equal(count("body_part", "forwarded"), 5);
-		assert.deepEqual(cursor("inbox"), {
-			last_sync_uid: 1,
-			highest_modseq: "1234",
-		});
 	});
 
-	test("drops the broken parts and sets their folder to fetch them again", async () => {
+	test("drops the broken parts and nothing else", async () => {
+		const mailboxesBefore = sqlite.prepare("SELECT * FROM mailbox").all();
+
 		const report = await sweepForwardedMessageParts(
 			clientOver(sqlite),
 			"repair",
 		);
 
-		assert.equal(report.messages, 3);
-		assert.equal(report.partsDropped, 15);
-		assert.equal(report.mailboxesRewound, 2);
+		assert.equal(report.messages, 2);
+		assert.equal(report.partsDropped, 10);
 		for (const messageId of ["forwarded", "forwarded-older"]) {
 			assert.equal(count("body_part", messageId), 0);
 			assert.equal(count("body_part_parameter", messageId), 0);
+			assert.equal(count("message", messageId), 1);
 		}
-		assert.deepEqual(cursor("inbox"), {
-			last_sync_uid: 43,
-			highest_modseq: "",
-		});
-	});
-
-	test("never moves a backfill cursor that has not reached the message yet", () => {
-		assert.equal(cursor("backfilling").last_sync_uid, 80);
-	});
-
-	test("leaves every other message and folder alone", () => {
 		assert.equal(count("body_part", "healthy"), 3);
 		assert.equal(count("body_part_parameter", "healthy"), 1);
-		assert.deepEqual(cursor("archive"), {
-			last_sync_uid: 1,
-			highest_modseq: "1234",
-		});
+		assert.deepEqual(
+			sqlite.prepare("SELECT * FROM mailbox").all(),
+			mailboxesBefore,
+		);
 	});
 
 	test("a second run writes nothing", async () => {
@@ -216,11 +186,12 @@ describe("messages whose forwarded message lost its part row", () => {
 		sqlite = broken.sqlite;
 		mailbox("inbox", 1);
 		await message("forwarded", "inbox", 42, OVERWRITTEN_FORWARD);
-		sqlite.exec("DROP TABLE mailbox");
+		sqlite.exec("DROP TABLE body_part_storage");
 
 		await assert.rejects(
 			sweepForwardedMessageParts(clientOver(sqlite), "repair"),
 		);
+		assert.equal(count("body_part_parameter", "forwarded"), 2);
 		assert.equal(count("body_part", "forwarded"), 5);
 
 		broken.close();

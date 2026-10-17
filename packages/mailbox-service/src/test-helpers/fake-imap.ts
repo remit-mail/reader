@@ -18,6 +18,8 @@ interface StoredMessage {
 	flags: Set<string>;
 	modseq: bigint;
 	internalDate: Date;
+	/** What BODYSTRUCTURE answers; read off the top-level headers when unset. */
+	bodyStructure?: ImapBodyStructure;
 }
 
 interface Folder {
@@ -170,7 +172,11 @@ export class FakeImapServer {
 	deliver(
 		path: string,
 		raw: Buffer,
-		options: { flags?: string[]; uid?: number } = {},
+		options: {
+			flags?: string[];
+			uid?: number;
+			bodyStructure?: ImapBodyStructure;
+		} = {},
 	): number {
 		const folder = this.folder(path);
 		const uid = options.uid ?? folder.uidNext;
@@ -182,6 +188,7 @@ export class FakeImapServer {
 			flags: new Set(options.flags ?? []),
 			modseq: this.modseq++,
 			internalDate: new Date(1_700_000_000_000 + uid * 1000),
+			bodyStructure: options.bodyStructure,
 		});
 		return uid;
 	}
@@ -417,7 +424,7 @@ export class FakeImapConnection implements IImapConnection {
 		const contentType = single(parsed.headers.get("content-type")) as
 			| { value: string; params?: Record<string, string> }
 			| undefined;
-		const bodyStructure: ImapBodyStructure = {
+		const bodyStructure: ImapBodyStructure = stored.bodyStructure ?? {
 			type: contentType?.value ?? "text/plain",
 			parameters: contentType?.params,
 			encoding: header("content-transfer-encoding") || "7bit",

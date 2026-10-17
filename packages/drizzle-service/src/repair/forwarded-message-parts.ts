@@ -9,18 +9,12 @@
  * other shape produces it.
  *
  * The lost row cannot be rebuilt from what is stored; only the BODYSTRUCTURE
- * the mail server returns has it. So the repair hands the message back to the
- * one path that writes body part rows, message sync: it drops the message's
- * part rows (part upserts never overwrite an existing row), and moves its
- * folder's backfill cursor back above the message so the next sync round
- * fetches it again and the fixed walker stores the parts afresh. The
- * mod-sequence watermark is cleared with it, because a folder holding one takes
- * the CHANGEDSINCE path and never reaches the backfill; sync re-seeds it once
- * the backfill completes. The backfill refetches the folder's headers below
- * that message as well — the cost of the only path that reads BODYSTRUCTURE.
+ * the mail server returns has it. So the repair drops the message's part rows
+ * — part upserts never overwrite an existing row — and message sync, which
+ * re-reads the structure of any message left without parts, stores them again.
  *
- * No message, envelope, flag or placement is touched, and the body stays where
- * it is stored: body sync skips a message that already has one.
+ * No message, envelope, flag, placement or sync cursor is touched, and the body
+ * stays where it is stored.
  */
 
 /**
@@ -37,85 +31,70 @@ export type ForwardedPartsRepairMode = "check" | "repair";
 export type ForwardedPartsReport = {
 	readonly mode: ForwardedPartsRepairMode;
 	readonly messages: number;
-	readonly mailboxes: number;
 	readonly partsDropped: number;
-	readonly mailboxesRewound: number;
 };
 
-const AFFECTED = `SELECT message_id FROM body_part
-WHERE parent_body_part_id = body_part_id`;
+const AFFECTED_SQL = `SELECT DISTINCT message_id FROM body_part
+WHERE parent_body_part_id = body_part_id
+ORDER BY message_id`;
 
-const AFFECTED_BY_MAILBOX_SQL = `SELECT mailbox_id, max(uid) AS max_uid, count(*) AS messages
-FROM message
-WHERE message_id IN (${AFFECTED})
-GROUP BY mailbox_id
-ORDER BY mailbox_id`;
+const PART_TABLES = [
+	"body_part_parameter",
+	"body_part_content",
+	"body_part_storage",
+	"body_part",
+] as const;
 
-const DROP_DEPENDENT_SQL = [
-	`DELETE FROM body_part_parameter WHERE message_id IN (${AFFECTED})`,
-	`DELETE FROM body_part_content WHERE message_id IN (${AFFECTED})`,
-	`DELETE FROM body_part_storage WHERE message_id IN (${AFFECTED})`,
-];
+/** Well under SQLite's bound-parameter limit. */
+const CHUNK = 500;
 
-const DROP_PARTS_SQL = `DELETE FROM body_part WHERE message_id IN (${AFFECTED})`;
-
-const REWIND_SQL = `UPDATE mailbox
-SET last_sync_uid = max(last_sync_uid, ?), highest_modseq = ''
-WHERE mailbox_id = ?`;
-
-interface AffectedMailbox {
-	mailbox_id: string;
-	max_uid: number;
-	messages: number;
-}
+const chunks = (ids: readonly string[]): string[][] => {
+	const out: string[][] = [];
+	for (let i = 0; i < ids.length; i += CHUNK) {
+		out.push(ids.slice(i, i + CHUNK));
+	}
+	return out;
+};
 
 /**
- * One transaction: a crash between dropping the rows and rewinding the cursor
- * would leave a message with no parts and nothing coming to restore them. The
- * part rows that name the affected messages go last, because they are what
- * names them.
+ * One transaction, so a message never keeps half of its part rows. The rows
+ * that hang off a part go before the part rows themselves.
  */
 export const sweepForwardedMessageParts = async (
 	client: ForwardedPartsRepairClient,
 	mode: ForwardedPartsRepairMode,
 ): Promise<ForwardedPartsReport> => {
-	const affected = (await client.all(
-		AFFECTED_BY_MAILBOX_SQL,
-		[],
-	)) as AffectedMailbox[];
-	const messages = affected.reduce((sum, row) => sum + row.messages, 0);
-	const found = { mode, messages, mailboxes: affected.length } as const;
+	const messageIds = (
+		(await client.all(AFFECTED_SQL, [])) as { message_id: string }[]
+	).map((row) => row.message_id);
 
-	if (mode === "check" || messages === 0) {
-		return { ...found, partsDropped: 0, mailboxesRewound: 0 };
+	if (mode === "check" || messageIds.length === 0) {
+		return { mode, messages: messageIds.length, partsDropped: 0 };
 	}
 
-	const writes = async (): Promise<{
-		partsDropped: number;
-		mailboxesRewound: number;
-	}> => {
-		for (const sql of DROP_DEPENDENT_SQL) {
-			await client.run(sql, []);
+	const drop = async (): Promise<number> => {
+		let partsDropped = 0;
+		for (const ids of chunks(messageIds)) {
+			const placeholders = ids.map(() => "?").join(", ");
+			for (const table of PART_TABLES) {
+				const dropped = await client.run(
+					`DELETE FROM ${table} WHERE message_id IN (${placeholders})`,
+					ids,
+				);
+				if (table === "body_part") partsDropped += dropped;
+			}
 		}
-		const partsDropped = await client.run(DROP_PARTS_SQL, []);
-		let mailboxesRewound = 0;
-		for (const row of affected) {
-			mailboxesRewound += await client.run(REWIND_SQL, [
-				row.max_uid + 1,
-				row.mailbox_id,
-			]);
-		}
-		return { partsDropped, mailboxesRewound };
+		return partsDropped;
 	};
 
 	await client.run("BEGIN IMMEDIATE", []);
-	const written = await writes().catch(async (error: unknown) => {
+	const partsDropped = await drop().catch(async (error: unknown) => {
 		await client.run("ROLLBACK", []);
 		throw error;
 	});
 	await client.run("COMMIT", []);
 
-	return { ...found, ...written };
+	return { mode, messages: messageIds.length, partsDropped };
 };
 
 export const formatForwardedPartsReport = (
@@ -126,10 +105,10 @@ export const formatForwardedPartsReport = (
 	}
 	if (report.mode === "check") {
 		return [
-			`${report.messages} message(s) in ${report.mailboxes} folder(s) lost their forwarded message's part row; their parts would be dropped and re-synced`,
+			`${report.messages} message(s) lost their forwarded message's part row; their parts would be dropped for message sync to store again`,
 		];
 	}
 	return [
-		`${report.partsDropped} part row(s) of ${report.messages} message(s) dropped; ${report.mailboxesRewound} of ${report.mailboxes} folder(s) set to re-sync them`,
+		`${report.partsDropped} part row(s) of ${report.messages} message(s) dropped; message sync stores them again`,
 	];
 };

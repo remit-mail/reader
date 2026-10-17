@@ -9,7 +9,7 @@ import type {
 	MessageReferenceInput,
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, notExists } from "drizzle-orm";
 import type { Db } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -32,6 +32,7 @@ import {
 	envelopeTable,
 	type MessageDataSchema,
 	messageReferenceTable,
+	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
@@ -366,5 +367,28 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			.from(bodyPartTable)
 			.where(eq(bodyPartTable.messageId, messageId));
 		return rows.map(toBodyPartItem);
+	}
+
+	async listUidsWithoutBodyParts(
+		mailboxId: string,
+		limit: number,
+	): Promise<number[]> {
+		const rows = await this.db
+			.select({ uid: messageTable.uid })
+			.from(messageTable)
+			.where(
+				and(
+					eq(messageTable.mailboxId, mailboxId),
+					notExists(
+						this.db
+							.select({ bodyPartId: bodyPartTable.bodyPartId })
+							.from(bodyPartTable)
+							.where(eq(bodyPartTable.messageId, messageTable.messageId)),
+					),
+				),
+			)
+			.orderBy(messageTable.uid)
+			.limit(limit);
+		return rows.map((row) => row.uid);
 	}
 }

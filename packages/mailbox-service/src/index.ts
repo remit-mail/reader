@@ -20,6 +20,7 @@ export {
 	type ParsedAttributes,
 	parseImapAttributes,
 } from "./attribute-mapper.js";
+export { isEncapsulatedMessage } from "./encapsulated-message.js";
 export {
 	BodyParseError,
 	parseMessageBody,

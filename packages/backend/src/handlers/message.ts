@@ -22,6 +22,7 @@ import { logger } from "@remit/logger-lambda";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
+	isEncapsulatedMessage,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
 	MoveNotSettledError,
@@ -213,24 +214,11 @@ const assertDisposition = (
 	return value;
 };
 
-/**
- * A forwarded message is listed and saved as an `.eml`; this is its name when
- * the sender declared none. Named here, once, so the stored row keeps only
- * what the headers said.
- */
 export const FORWARDED_MESSAGE_FILENAME = "Forwarded message.eml";
-
-const ENCAPSULATED_MESSAGE_SUBTYPES: ReadonlySet<string> = new Set([
-	"rfc822",
-	"global",
-]);
 
 const responseFilename = (part: BodyPartLike): string | undefined => {
 	if (part.dispositionFilename !== undefined) return part.dispositionFilename;
-	const isEncapsulatedMessage =
-		part.mediaType === MediaType.Message &&
-		ENCAPSULATED_MESSAGE_SUBTYPES.has(part.mediaSubtype.toLowerCase());
-	return isEncapsulatedMessage ? FORWARDED_MESSAGE_FILENAME : undefined;
+	return isEncapsulatedMessage(part) ? FORWARDED_MESSAGE_FILENAME : undefined;
 };
 
 export const buildBodyPartResponses = (

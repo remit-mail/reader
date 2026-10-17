@@ -5,6 +5,7 @@ import {
 	recordCalendarSuggestion,
 } from "@remit/calendar-service";
 import {
+	type BodyPartItem,
 	type IAddressRepository,
 	type ICalendarSuggestionRepository,
 	type ICalendarUnitOfWork,
@@ -43,10 +44,10 @@ import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
 import {
-	isEncapsulatedMessage,
 	mapMessagePartsToContent,
 	parsePartSource,
 } from "./body-part-mapper.js";
+import { isEncapsulatedMessage } from "./encapsulated-message.js";
 import { calendarParts } from "./calendar-parts.js";
 import {
 	classifyParsedMessage,
@@ -740,6 +741,7 @@ export class BodySyncService {
 					accountConfigId,
 					accountId,
 					messageId,
+					await this.envelopeService.listBodyParts(messageId),
 					body,
 				);
 			}
@@ -812,6 +814,7 @@ export class BodySyncService {
 				accountConfigId,
 				accountId,
 				messageId,
+				await this.envelopeService.listBodyParts(messageId),
 				body,
 			);
 		}
@@ -1736,10 +1739,10 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 		messageId: string,
+		bodyParts: readonly BodyPartItem[],
 		body: Buffer,
 		options?: { skipExisting?: boolean },
 	): Promise<StoreBodyPartContentsResult> {
-		const bodyParts = await this.envelopeService.listBodyParts(messageId);
 		if (bodyParts.length === 0) {
 			this.log.debug?.(
 				{ messageId },
@@ -1749,6 +1752,8 @@ export class BodySyncService {
 		}
 
 		const log = this.log;
+		// A parse of its own: classification, the snippet and search read an
+		// inline forwarded message's text, which `ignoreEmbedded` keeps out.
 		const pairs = await mapMessagePartsToContent(
 			bodyParts,
 			await parsePartSource(body),
@@ -1860,9 +1865,8 @@ export class BodySyncService {
 		messageId: string,
 		bodyStorageKey: string,
 	): Promise<StoreBodyPartContentsResult> {
-		const carriesMessage = (
-			await this.envelopeService.listBodyParts(messageId)
-		).some(isEncapsulatedMessage);
+		const bodyParts = await this.envelopeService.listBodyParts(messageId);
+		const carriesMessage = bodyParts.some(isEncapsulatedMessage);
 		const sentinel = carriesMessage
 			? MATERIALIZED_SENTINEL_V2_PART_PATH
 			: MATERIALIZED_SENTINEL_PART_PATH;
@@ -1886,6 +1890,7 @@ export class BodySyncService {
 			accountConfigId,
 			accountId,
 			messageId,
+			bodyParts,
 			body,
 			{ skipExisting: !carriesMessage },
 		);

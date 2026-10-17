@@ -125,9 +125,9 @@ import { logger } from "../../logger-lambda/src/logger.js";
  *
  * The fifth is a forwarded message whose part row the MIME walker overwrote
  * with its own root. The lost row is only on the mail server, so the repair
- * drops the message's part rows and rewinds its folder's sync cursor; message
- * sync then fetches the message again and stores its parts. Purge and re-sync
- * would do the same for every message rather than these.
+ * drops the message's part rows, and message sync re-reads the structure of
+ * any message left without parts. Purge and re-sync would do the same for
+ * every message rather than these.
 
  */
 

@@ -47,6 +47,7 @@
 import { Buffer } from "node:buffer";
 import type { BodyPartItem } from "@remit/data-ports";
 import { type Attachment, type ParsedMail, simpleParser } from "mailparser";
+import { isEncapsulatedMessage } from "./encapsulated-message.js";
 
 export interface BodyPartContentPair {
 	partPath: string;
@@ -358,17 +359,6 @@ export const mapBodyPartsToContent = (
 
 	return pairs;
 };
-
-const ENCAPSULATED_MESSAGE_SUBTYPES: ReadonlySet<string> = new Set([
-	"rfc822",
-	"global",
-]);
-
-export const isEncapsulatedMessage = (
-	part: Pick<MapperInput, "mediaType" | "mediaSubtype">,
-): boolean =>
-	part.mediaType === "MESSAGE" &&
-	ENCAPSULATED_MESSAGE_SUBTYPES.has(part.mediaSubtype);
 
 /**
  * The parse every part's bytes are paired against. A message/rfc822 part stays
