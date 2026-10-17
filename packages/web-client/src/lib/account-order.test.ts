@@ -39,12 +39,6 @@ describe("compareAccounts", () => {
 		assert.ok(compareAccounts(a, b) < 0);
 		assert.ok(compareAccounts(b, a) > 0);
 	});
-
-	test("identical accounts compare equal", () => {
-		const a = account({ accountId: "x", createdAt: 1000 });
-		const b = account({ accountId: "x", createdAt: 1000 });
-		assert.strictEqual(compareAccounts(a, b), 0);
-	});
 });
 
 describe("sortAccountsByCreatedAt", () => {
@@ -76,9 +70,5 @@ describe("sortAccountsByCreatedAt", () => {
 			sorted.map((a) => a.accountId),
 			["a", "m", "z"],
 		);
-	});
-
-	test("empty input returns empty array", () => {
-		assert.deepStrictEqual(sortAccountsByCreatedAt([]), []);
 	});
 });

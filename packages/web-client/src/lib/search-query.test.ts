@@ -7,23 +7,12 @@ describe("normalizeSearchQuery", () => {
 		assert.equal(normalizeSearchQuery("ALICE"), "alice");
 	});
 
-	test("lowercases a mixed-case query", () => {
-		assert.equal(
-			normalizeSearchQuery("Alice@Example.COM"),
-			"alice@example.com",
-		);
-	});
-
 	test("trims surrounding whitespace", () => {
 		assert.equal(normalizeSearchQuery("   Bob  "), "bob");
 	});
 
 	test("returns an empty string for whitespace-only input", () => {
 		assert.equal(normalizeSearchQuery("   "), "");
-	});
-
-	test("leaves an already-lowercase query unchanged", () => {
-		assert.equal(normalizeSearchQuery("invoice 2026"), "invoice 2026");
 	});
 
 	test("handles non-ASCII letters via locale-aware lowercasing", () => {

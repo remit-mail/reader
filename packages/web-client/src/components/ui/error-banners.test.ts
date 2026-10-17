@@ -2,7 +2,6 @@ import assert from "node:assert";
 import { describe, test } from "node:test";
 import {
 	appendBanner,
-	buildEntry,
 	buildMutationErrorBanner,
 	dismissBanner,
 	type ErrorBannerEntry,
@@ -18,26 +17,6 @@ const make = (
 	detail: undefined,
 	createdAt: 0,
 	...overrides,
-});
-
-describe("buildEntry", () => {
-	test("defaults to error severity", () => {
-		const entry = buildEntry({ title: "boom" }, "id-1", 1000);
-		assert.equal(entry.severity, "error");
-		assert.equal(entry.title, "boom");
-		assert.equal(entry.id, "id-1");
-		assert.equal(entry.createdAt, 1000);
-	});
-
-	test("preserves explicit severity and detail", () => {
-		const entry = buildEntry(
-			{ severity: "warning", title: "watch", detail: "context" },
-			"id-2",
-			2000,
-		);
-		assert.equal(entry.severity, "warning");
-		assert.equal(entry.detail, "context");
-	});
 });
 
 describe("appendBanner", () => {

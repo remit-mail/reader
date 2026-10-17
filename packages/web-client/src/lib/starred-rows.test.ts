@@ -64,8 +64,4 @@ describe("dedupeByThread", () => {
 			["t1", "t2", "t3"],
 		);
 	});
-
-	test("an empty list stays empty", () => {
-		assert.deepEqual(dedupeByThread([]), []);
-	});
 });

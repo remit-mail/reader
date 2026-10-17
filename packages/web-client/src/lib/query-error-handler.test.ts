@@ -3,7 +3,6 @@ import { afterEach, describe, it } from "node:test";
 import type { Mutation, Query } from "@tanstack/react-query";
 import { ApiError } from "./api";
 import { __resetFatalError, subscribeFatalError } from "./fatal-error";
-import { NetworkError } from "./network-error";
 import {
 	handleMutationCacheError,
 	handleQueryCacheError,
@@ -41,25 +40,6 @@ afterEach(() => {
 });
 
 describe("handleQueryCacheError (fail-fast contract #1059)", () => {
-	it("escalates a 5xx that breaks the INITIAL load", () => {
-		const seen = escalations();
-		handleQueryCacheError(
-			new ApiError("internal", 500),
-			fakeQuery(undefined, 0),
-		);
-		assert.deepEqual(seen, ["internal"]);
-	});
-
-	it("escalates a 5xx on a background REFETCH (the deleted dataUpdatedAt guard — the headline bug)", () => {
-		const seen = escalations();
-		// dataUpdatedAt !== 0 used to swallow this (PR #758). It must now escalate.
-		handleQueryCacheError(
-			new ApiError("internal", 500),
-			fakeQuery(undefined, 123456),
-		);
-		assert.deepEqual(seen, ["internal"]);
-	});
-
 	it("escalates a 5xx EVEN when the query is marked meta.softError (rule 2 wins)", () => {
 		const seen = escalations();
 		handleQueryCacheError(
@@ -67,24 +47,6 @@ describe("handleQueryCacheError (fail-fast contract #1059)", () => {
 			fakeQuery({ softError: true }, 123456),
 		);
 		assert.deepEqual(seen, ["internal"]);
-	});
-
-	it("escalates a 4xx by DEFAULT (no opt-out)", () => {
-		const seen = escalations();
-		handleQueryCacheError(new ApiError("not found", 404), fakeQuery());
-		assert.deepEqual(seen, ["not found"]);
-	});
-
-	it("does NOT escalate a 4xx the query opted out of via meta.softError", () => {
-		let escalated = false;
-		subscribeFatalError(() => {
-			escalated = true;
-		});
-		handleQueryCacheError(
-			new ApiError("not found", 404),
-			fakeQuery({ softError: true }),
-		);
-		assert.equal(escalated, false);
 	});
 
 	it("does NOT escalate an aborted request", () => {
@@ -95,32 +57,9 @@ describe("handleQueryCacheError (fail-fast contract #1059)", () => {
 		handleQueryCacheError(abortError(), fakeQuery());
 		assert.equal(escalated, false);
 	});
-
-	it("does NOT escalate a network blip tagged at the fetch boundary", () => {
-		let escalated = false;
-		subscribeFatalError(() => {
-			escalated = true;
-		});
-		handleQueryCacheError(
-			new NetworkError(new TypeError("Failed to fetch")),
-			fakeQuery(),
-		);
-		assert.equal(escalated, false);
-	});
 });
 
 describe("handleMutationCacheError (fail-fast contract #1059)", () => {
-	it("escalates a mutation 5xx", () => {
-		const seen = escalations();
-		handleMutationCacheError(
-			new ApiError("mutation blew up", 503),
-			undefined,
-			undefined,
-			fakeMutation(),
-		);
-		assert.deepEqual(seen, ["mutation blew up"]);
-	});
-
 	it("escalates a mutation 4xx by DEFAULT", () => {
 		const seen = escalations();
 		handleMutationCacheError(

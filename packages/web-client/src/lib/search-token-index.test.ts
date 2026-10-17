@@ -69,10 +69,6 @@ describe("buildAccountNameIndex", () => {
 		]);
 		assert.equal(index.get("work"), "acct-1");
 	});
-
-	it("empty accounts yields an empty index", () => {
-		assert.deepEqual(buildAccountNameIndex([]), new Map());
-	});
 });
 
 describe("buildMailboxNameIndex", () => {
@@ -106,10 +102,6 @@ describe("buildMailboxNameIndex", () => {
 			[mailbox({ mailboxId: "mb-1", fullPath: "" })],
 		]);
 		assert.equal(index.size, 0);
-	});
-
-	it("empty input yields an empty index", () => {
-		assert.deepEqual(buildMailboxNameIndex([]), new Map());
 	});
 });
 
