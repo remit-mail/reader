@@ -47,8 +47,8 @@ export interface AttachmentListProps {
 	 * in the list.
 	 */
 	hasUnlistedAttachment?: boolean;
-	/** Opens or closes a `message` row. Without it, a message row only saves. */
-	onToggleOpen?: (attachmentId: string) => void;
+	/** Opens or closes a `message` row. */
+	onToggleOpen: (attachmentId: string) => void;
 	/** The open `message` row and the forwarded message rendered under it. */
 	opened?: { attachmentId: string; content: ReactNode };
 	className?: string;
@@ -97,6 +97,34 @@ function DownloadFailure({
 		</div>
 	);
 }
+function AttachmentLabel({ attachment }: { attachment: AttachmentItem }) {
+	return (
+		<span className="min-w-0 flex-1">
+			{/* <bdi> isolates the name's own direction so a right-to-left
+			    filename cannot reorder the label around it. */}
+			<bdi
+				className="block truncate text-sm text-fg"
+				title={attachment.filename}
+			>
+				{attachment.filename}
+			</bdi>
+			<span className="block truncate text-2xs text-fg-subtle">
+				{attachment.typeLabel} · {formatByteSize(attachment.sizeOctets)}
+			</span>
+		</span>
+	);
+}
+
+function DownloadGlyph({ isDownloading }: { isDownloading: boolean }) {
+	return isDownloading ? (
+		<Loader2
+			className="size-4 shrink-0 animate-spin text-fg-subtle"
+			aria-hidden
+		/>
+	) : (
+		<Download className="size-4 shrink-0 text-fg-subtle" aria-hidden />
+	);
+}
 
 /**
  * The attachments carried by an open message: what each one is, how big it is,
@@ -136,9 +164,27 @@ export function AttachmentList({
 				<ul className="overflow-hidden rounded-sm border border-line bg-surface">
 					{attachments.map((attachment) => {
 						const isDownloading = attachment.download.status === "downloading";
-						const isOpenable =
-							attachment.kind === "message" && onToggleOpen !== undefined;
-						const isOpen = opened?.attachmentId === attachment.attachmentId;
+						const isOpenable = attachment.kind === "message";
+						const isOpen =
+							isOpenable && opened?.attachmentId === attachment.attachmentId;
+						const download = (className: string) => (
+							<button
+								type="button"
+								onClick={() => onDownload(attachment.attachmentId)}
+								disabled={isDownloading}
+								data-testid="attachment-download"
+								aria-label={`Download ${attachment.filename}`}
+								className={cn(
+									"px-2 py-2 transition-colors hover:bg-surface-sunken disabled:cursor-progress disabled:opacity-60",
+									className,
+								)}
+							>
+								{isOpenable ? null : (
+									<AttachmentLabel attachment={attachment} />
+								)}
+								<DownloadGlyph isDownloading={isDownloading} />
+							</button>
+						);
 						return (
 							<li
 								key={attachment.attachmentId}
@@ -169,76 +215,12 @@ export function AttachmentList({
 												className="size-4 shrink-0 text-fg-subtle"
 												aria-hidden
 											/>
-											<span className="min-w-0 flex-1">
-												<bdi
-													className="block truncate text-sm text-fg"
-													title={attachment.filename}
-												>
-													{attachment.filename}
-												</bdi>
-												<span className="block truncate text-2xs text-fg-subtle">
-													{attachment.typeLabel} ·{" "}
-													{formatByteSize(attachment.sizeOctets)}
-												</span>
-											</span>
+											<AttachmentLabel attachment={attachment} />
 										</button>
-										<button
-											type="button"
-											onClick={() => onDownload(attachment.attachmentId)}
-											disabled={isDownloading}
-											data-testid="attachment-download"
-											aria-label={`Download ${attachment.filename}`}
-											className="shrink-0 px-2 py-2 transition-colors hover:bg-surface-sunken disabled:cursor-progress disabled:opacity-60"
-										>
-											{isDownloading ? (
-												<Loader2
-													className="size-4 animate-spin text-fg-subtle"
-													aria-hidden
-												/>
-											) : (
-												<Download
-													className="size-4 text-fg-subtle"
-													aria-hidden
-												/>
-											)}
-										</button>
+										{download("shrink-0")}
 									</div>
 								) : (
-									<button
-										type="button"
-										onClick={() => onDownload(attachment.attachmentId)}
-										disabled={isDownloading}
-										data-testid="attachment-download"
-										aria-label={`Download ${attachment.filename}`}
-										className="flex w-full items-center gap-2 px-2 py-2 text-left transition-colors hover:bg-surface-sunken disabled:cursor-progress disabled:opacity-60"
-									>
-										<span className="min-w-0 flex-1">
-											{/* <bdi> isolates the name's own direction so a
-										    right-to-left filename cannot reorder the label
-										    around it. */}
-											<bdi
-												className="block truncate text-sm text-fg"
-												title={attachment.filename}
-											>
-												{attachment.filename}
-											</bdi>
-											<span className="block truncate text-2xs text-fg-subtle">
-												{attachment.typeLabel} ·{" "}
-												{formatByteSize(attachment.sizeOctets)}
-											</span>
-										</span>
-										{isDownloading ? (
-											<Loader2
-												className="size-4 shrink-0 animate-spin text-fg-subtle"
-												aria-hidden
-											/>
-										) : (
-											<Download
-												className="size-4 shrink-0 text-fg-subtle"
-												aria-hidden
-											/>
-										)}
-									</button>
+									download("flex w-full items-center gap-2 text-left")
 								)}
 								{isOpen && opened && (
 									<section

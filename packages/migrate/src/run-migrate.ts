@@ -16,6 +16,12 @@ import {
 	sweepDuplicateMailboxMail,
 } from "../../drizzle-service/src/repair/duplicate-mailbox-mail.js";
 import {
+	type ForwardedPartsRepairClient,
+	type ForwardedPartsRepairMode,
+	formatForwardedPartsReport,
+	sweepForwardedMessageParts,
+} from "../../drizzle-service/src/repair/forwarded-message-parts.js";
+import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
@@ -66,7 +72,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in four places.
+ * DDL objects around them, and rewrites row content in five places.
  *
  * That last clause is an amendment (#321, D16). This file used to state that it
  * never rewrites row content, and the rule behind it still holds: when a
@@ -116,6 +122,12 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * `deleteMessageSubtree`, so the search index is cleared with it. In
  * `--check` mode the report also counts the duplicate paths the pending
  * migration will merge, since nothing has been parked yet.
+ *
+ * The fifth is a forwarded message whose part row the MIME walker overwrote
+ * with its own root. The lost row is only on the mail server, so the repair
+ * drops the message's part rows and rewinds its folder's sync cursor; message
+ * sync then fetches the message again and stores its parts. Purge and re-sync
+ * would do the same for every message rather than these.
 
  */
 
@@ -241,6 +253,16 @@ const junkOnlyAddressStep = async (
 	}
 };
 
+const forwardedPartsStep = async (
+	client: ForwardedPartsRepairClient,
+	mode: ForwardedPartsRepairMode,
+): Promise<void> => {
+	const report = await sweepForwardedMessageParts(client, mode);
+	for (const line of formatForwardedPartsReport(report)) {
+		logStep({ step: "forwarded-message-parts-repair" }, line);
+	}
+};
+
 const threadRootStep = async (
 	db: Parameters<typeof moveMisfiledThreadRows>[0],
 	mode: ThreadRootRepairMode,
@@ -253,7 +275,8 @@ const threadRootStep = async (
 
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
-	JunkOnlyRepairClient;
+	JunkOnlyRepairClient &
+	ForwardedPartsRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
@@ -293,6 +316,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			await threadRootStep(db, "check");
+			await forwardedPartsStep(paramRepairClient, "check");
 			return;
 		}
 
@@ -343,6 +367,10 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		await duplicateMailStep(db, "repair");
 
 		await threadRootStep(db, "repair");
+
+		// Touches only body part rows and mailbox sync cursors, which no index
+		// or trigger installed below covers.
+		await forwardedPartsStep(paramRepairClient, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);

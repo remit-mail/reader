@@ -42,7 +42,11 @@ import {
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
-import { mapMessagePartsToContent } from "./body-part-mapper.js";
+import {
+	isEncapsulatedMessage,
+	mapMessagePartsToContent,
+	parsePartSource,
+} from "./body-part-mapper.js";
 import { calendarParts } from "./calendar-parts.js";
 import {
 	classifyParsedMessage,
@@ -125,6 +129,15 @@ export const isBodyPartDeferralEnabled = (): boolean => {
  * out of any real IMAP section path (those are dot-separated digits).
  */
 const MATERIALIZED_SENTINEL_PART_PATH = ".materialized";
+
+/**
+ * The sentinel for a message carrying a forwarded message. Those parts were
+ * once stored under a layout in which the forwarded message's root overwrote
+ * its own row, so a `.materialized` written then vouches for objects at the
+ * wrong paths. Its own name makes every such message materialize once more,
+ * overwriting what is there; no other message is touched.
+ */
+const MATERIALIZED_SENTINEL_V2_PART_PATH = ".materialized.2";
 
 /**
  * A mid-stream socket drop during the ranged body fetch surfaces as a typed
@@ -727,7 +740,7 @@ export class BodySyncService {
 					accountConfigId,
 					accountId,
 					messageId,
-					parsed,
+					body,
 				);
 			}
 			await this.messageService.update(messageId, {
@@ -799,7 +812,7 @@ export class BodySyncService {
 				accountConfigId,
 				accountId,
 				messageId,
-				parsed,
+				body,
 			);
 		}
 
@@ -1723,7 +1736,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		accountId: string,
 		messageId: string,
-		parsed: ParsedMail,
+		body: Buffer,
 		options?: { skipExisting?: boolean },
 	): Promise<StoreBodyPartContentsResult> {
 		const bodyParts = await this.envelopeService.listBodyParts(messageId);
@@ -1736,20 +1749,24 @@ export class BodySyncService {
 		}
 
 		const log = this.log;
-		const pairs = await mapMessagePartsToContent(bodyParts, parsed, {
-			messageId,
-			logger:
-				log.warn || log.debug
-					? {
-							warn: (obj, msg) => {
-								log.warn?.(obj, msg);
-							},
-							debug: (obj, msg) => {
-								log.debug?.(obj, msg);
-							},
-						}
-					: undefined,
-		});
+		const pairs = await mapMessagePartsToContent(
+			bodyParts,
+			await parsePartSource(body),
+			{
+				messageId,
+				logger:
+					log.warn || log.debug
+						? {
+								warn: (obj, msg) => {
+									log.warn?.(obj, msg);
+								},
+								debug: (obj, msg) => {
+									log.debug?.(obj, msg);
+								},
+							}
+						: undefined,
+			},
+		);
 
 		if (pairs.length === 0) {
 			return { stored: 0 };
@@ -1843,12 +1860,18 @@ export class BodySyncService {
 		messageId: string,
 		bodyStorageKey: string,
 	): Promise<StoreBodyPartContentsResult> {
+		const carriesMessage = (
+			await this.envelopeService.listBodyParts(messageId)
+		).some(isEncapsulatedMessage);
+		const sentinel = carriesMessage
+			? MATERIALIZED_SENTINEL_V2_PART_PATH
+			: MATERIALIZED_SENTINEL_PART_PATH;
 		if (
 			await this.storageService.bodyPartExists(
 				accountConfigId,
 				accountId,
 				messageId,
-				MATERIALIZED_SENTINEL_PART_PATH,
+				sentinel,
 			)
 		) {
 			this.log.debug?.(
@@ -1859,13 +1882,12 @@ export class BodySyncService {
 		}
 
 		const body = await this.storageService.retrieve(bodyStorageKey);
-		const parsed = await simpleParser(body);
 		const result = await this.storeBodyPartContents(
 			accountConfigId,
 			accountId,
 			messageId,
-			parsed,
-			{ skipExisting: true },
+			body,
+			{ skipExisting: !carriesMessage },
 		);
 
 		// Reaching here means storeBodyPartContents resolved — `pMap` rejects on
@@ -1875,7 +1897,7 @@ export class BodySyncService {
 			accountConfigId,
 			accountId,
 			messageId,
-			partPath: MATERIALIZED_SENTINEL_PART_PATH,
+			partPath: sentinel,
 			content: Buffer.alloc(0),
 		});
 

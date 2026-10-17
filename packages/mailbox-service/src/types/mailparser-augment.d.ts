@@ -10,6 +10,10 @@ declare module "mailparser" {
 	interface Attachment {
 		partId?: string;
 	}
+	/** Passed through to the MIME splitter: keep message/rfc822 parts as one leaf. */
+	interface MailParserOptions {
+		ignoreEmbedded?: boolean;
+	}
 }
 
 export {};

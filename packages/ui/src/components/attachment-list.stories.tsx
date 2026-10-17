@@ -61,7 +61,11 @@ const innerPdf: AttachmentItem = {
 const ForwardedBody = () => (
 	<div className="space-y-3 text-sm text-fg">
 		<p>Original message body before forwarding.</p>
-		<AttachmentList attachments={[innerPdf]} onDownload={() => {}} />
+		<AttachmentList
+			attachments={[innerPdf]}
+			onDownload={() => {}}
+			onToggleOpen={() => {}}
+		/>
 	</div>
 );
 

@@ -63,8 +63,6 @@ export interface MimeNode {
 	language?: string[];
 	/** Content-Location URI. */
 	location?: string;
-	/** Envelope of the message a message/rfc822 node encapsulates. */
-	envelope?: { subject?: string };
 	/** Children for multipart nodes. */
 	childNodes?: MimeNode[];
 }
@@ -215,20 +213,6 @@ const flattenParameters = (
 	}));
 };
 
-/**
- * A forwarded message often declares no filename; name it after the subject
- * it carries, the way other mail clients save it.
- */
-const encapsulatedMessageFilename = (
-	mediaType: MediaTypeValue,
-	node: MimeNode,
-): string | undefined => {
-	if (mediaType !== MediaType.Message) return undefined;
-	const subject = node.envelope?.subject?.trim();
-	if (!subject) return undefined;
-	return `${subject.replace(/[/\\]/g, "-")}.eml`;
-};
-
 const toRecord = (
 	node: MimeNode,
 	partPath: string,
@@ -241,9 +225,7 @@ const toRecord = (
 		: undefined;
 
 	const dispositionFilename =
-		node.dispositionParameters?.filename ??
-		node.parameters?.name ??
-		encapsulatedMessageFilename(mediaType, node);
+		node.dispositionParameters?.filename ?? node.parameters?.name ?? undefined;
 
 	const language = node.language?.[0];
 

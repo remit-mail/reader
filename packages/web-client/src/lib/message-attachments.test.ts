@@ -133,14 +133,10 @@ describe("selectMessageAttachments", () => {
 
 		it("is listed whatever disposition the sender gave it", () => {
 			const [attachment] = selectMessageAttachments([
-				{
-					...forwarded,
-					disposition: undefined,
-					dispositionFilename: undefined,
-				},
+				{ ...forwarded, disposition: undefined },
 			]);
 			assert.equal(attachment?.kind, "message");
-			assert.equal(attachment?.filename, "message.eml");
+			assert.equal(attachment?.filename, "forwarded.eml");
 			assert.equal(attachment?.typeLabel, "MESSAGE");
 		});
 

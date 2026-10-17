@@ -311,6 +311,7 @@ const ThreadAttachments = () => {
 		<AttachmentList
 			className="mt-4"
 			attachments={rows}
+			onToggleOpen={() => {}}
 			onDownload={(attachmentId) => {
 				setStatus(attachmentId, { status: "downloading" });
 				setTimeout(() => setStatus(attachmentId, { status: "idle" }), 900);

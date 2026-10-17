@@ -32,11 +32,7 @@ const typeLabelFor = (kind: AttachmentKind, mediaSubtype: string): string => {
  * filename; a subtype with nothing alphanumeric in it yields a bare
  * `attachment`.
  */
-const fallbackFilenameFor = (
-	kind: AttachmentKind,
-	mediaSubtype: string,
-): string => {
-	if (kind === "message") return "message.eml";
+const fallbackFilenameFor = (mediaSubtype: string): string => {
 	const extension = mediaSubtype.toLowerCase().replace(/[^a-z0-9]/g, "");
 	return extension.length > 0 ? `attachment.${extension}` : "attachment";
 };
@@ -62,7 +58,7 @@ export const selectMessageAttachments = (
 				kind,
 				filename: sanitizeAttachmentFilename(
 					part.dispositionFilename ?? "",
-					fallbackFilenameFor(kind, part.mediaSubtype),
+					fallbackFilenameFor(part.mediaSubtype),
 				),
 				typeLabel: typeLabelFor(kind, part.mediaSubtype),
 				sizeOctets: part.sizeOctets,

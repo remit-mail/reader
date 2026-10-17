@@ -4,8 +4,13 @@ import { createElement } from "react";
 import { renderToString } from "react-dom/server";
 import { AttachmentList, type AttachmentListProps } from "./attachment-list.js";
 
-const render = (props: AttachmentListProps): string =>
-	renderToString(createElement(AttachmentList, props));
+const render = (
+	props: Omit<AttachmentListProps, "onToggleOpen"> &
+		Partial<Pick<AttachmentListProps, "onToggleOpen">>,
+): string =>
+	renderToString(
+		createElement(AttachmentList, { onToggleOpen: () => undefined, ...props }),
+	);
 
 const item = (
 	overrides: Partial<AttachmentListProps["attachments"][number]>,

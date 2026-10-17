@@ -364,9 +364,19 @@ const ENCAPSULATED_MESSAGE_SUBTYPES: ReadonlySet<string> = new Set([
 	"global",
 ]);
 
-const isEncapsulatedMessage = (part: MapperInput): boolean =>
+export const isEncapsulatedMessage = (
+	part: Pick<MapperInput, "mediaType" | "mediaSubtype">,
+): boolean =>
 	part.mediaType === "MESSAGE" &&
 	ENCAPSULATED_MESSAGE_SUBTYPES.has(part.mediaSubtype);
+
+/**
+ * The parse every part's bytes are paired against. A message/rfc822 part stays
+ * one leaf holding the raw forwarded message whatever its disposition, so the
+ * forwarded message's own parts come only from parsing it in turn.
+ */
+export const parsePartSource = (source: Buffer): Promise<ParsedMail> =>
+	simpleParser(source, { ignoreEmbedded: true });
 
 const isWithin = (part: MapperInput, messagePath: string): boolean =>
 	part.partPath.startsWith(`${messagePath}.`);
@@ -407,7 +417,7 @@ export const mapMessagePartsToContent = async (
 				...part,
 				partPath: part.partPath.slice(prefix.length),
 			})),
-			await simpleParser(raw.content),
+			await parsePartSource(raw.content),
 			context,
 		);
 		for (const pair of nested) {
