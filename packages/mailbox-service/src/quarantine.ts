@@ -76,8 +76,9 @@ const EMPTY_SHAPE: QuarantineMessageShape = { structure: [] };
  * has just refused.
  */
 export const shapeFromMessageData = (
-	message: MessageItem,
+	message: Pick<MessageItem, "rfc822Size">,
 	data: MessageData,
+	messageIdHeader: string | undefined,
 ): QuarantineMessageShape => {
 	const parts = [...data.bodyPart].sort((a, b) =>
 		a.partPath.localeCompare(b.partPath, "en", { numeric: true }),
@@ -100,7 +101,7 @@ export const shapeFromMessageData = (
 			depth: partPathDepth(part.partPath),
 			contentType: `${part.mediaType}/${part.mediaSubtype}`,
 		})),
-		...hashOf(message.messageIdHeader),
+		...hashOf(messageIdHeader),
 	};
 };
 

@@ -74,9 +74,6 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 		movedByRemit: row.movedByRemit,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
-		...(row.messageIdHeader !== null
-			? { messageIdHeader: row.messageIdHeader }
-			: {}),
 		...(row.bodyStorageKey !== null
 			? { bodyStorageKey: row.bodyStorageKey }
 			: {}),
@@ -229,7 +226,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				input.authenticityVerdict ?? ("NotEvaluated" as const),
 			hasListUnsubscribe: input.hasListUnsubscribe ?? false,
 			movedByRemit: input.movedByRemit ?? false,
-			messageIdHeader: input.messageIdHeader ?? null,
 			bodyStorageKey: input.bodyStorageKey ?? null,
 			originalMailboxId: input.originalMailboxId ?? null,
 			originalUid: input.originalUid ?? null,
@@ -426,9 +422,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				: {}),
 			...(input.placementDecidedAt !== undefined
 				? { placementDecidedAt: input.placementDecidedAt }
-				: {}),
-			...(input.messageIdHeader !== undefined
-				? { messageIdHeader: input.messageIdHeader }
 				: {}),
 			...(input.spamReport !== undefined
 				? { spamReport: input.spamReport }

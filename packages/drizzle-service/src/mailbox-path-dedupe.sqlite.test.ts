@@ -98,7 +98,7 @@ const seedMessage = async (
 	mailboxId: string,
 	uid = 1,
 ): Promise<void> => {
-	await db.insert(entities.messages).values({
+	await db.insert(entities.messageRecords).values({
 		messageId,
 		mailboxId,
 		uid,
@@ -160,9 +160,9 @@ const mailboxIds = async ({ db }: Handle): Promise<string[]> =>
 const messagesIn = async ({ db }: Handle, mailboxId: string): Promise<number> =>
 	(
 		await db
-			.select({ messageId: entities.messages.messageId })
-			.from(entities.messages)
-			.where(eq(entities.messages.mailboxId, mailboxId))
+			.select({ messageId: entities.messageRecords.messageId })
+			.from(entities.messageRecords)
+			.where(eq(entities.messageRecords.mailboxId, mailboxId))
 	).length;
 
 const threadsIn = async ({ db }: Handle, mailboxId: string): Promise<number> =>
@@ -221,9 +221,9 @@ describe("(account_id, full_path) becomes unique", () => {
 		await seedMessage(handle, "m1", "with-mail");
 		await seedMessage(handle, "copied", "elsewhere");
 		await handle.db
-			.update(entities.messages)
+			.update(entities.messageRecords)
 			.set({ originalMailboxId: "older-empty" })
-			.where(eq(entities.messages.messageId, "copied"));
+			.where(eq(entities.messageRecords.messageId, "copied"));
 		await handle.db
 			.update(entities.mailboxes)
 			.set({ parentMailboxId: "older-empty" })
@@ -285,9 +285,9 @@ describe("(account_id, full_path) becomes unique", () => {
 		const [job] = await handle.db.select().from(organizeJobAtDedupe);
 		assert.equal(job?.actionMailboxId, "with-mail");
 		const [copied] = await handle.db
-			.select({ original: entities.messages.originalMailboxId })
-			.from(entities.messages)
-			.where(eq(entities.messages.messageId, "copied"));
+			.select({ original: entities.messageRecords.originalMailboxId })
+			.from(entities.messageRecords)
+			.where(eq(entities.messageRecords.messageId, "copied"));
 		assert.equal(copied?.original, "with-mail");
 		const [move] = await handle.db
 			.select()
@@ -412,9 +412,9 @@ describe("(account_id, full_path) becomes unique", () => {
 			removed: 1,
 		});
 		const messages = await handle.db
-			.select({ messageId: entities.messages.messageId })
-			.from(entities.messages)
-			.orderBy(asc(entities.messages.messageId));
+			.select({ messageId: entities.messageRecords.messageId })
+			.from(entities.messageRecords)
+			.orderBy(asc(entities.messageRecords.messageId));
 		assert.deepEqual(messages, [
 			{ messageId: "kept" },
 			{ messageId: "unrelated" },

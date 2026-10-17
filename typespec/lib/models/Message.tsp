@@ -138,7 +138,7 @@ model AutoMovedInfo {
 @index(
   "Message",
   {
-    pk: [Message.messageId],
+    pk: [MessageRecord.messageId],
     sk: [],
   }
 )
@@ -147,8 +147,8 @@ model AutoMovedInfo {
   {
     collection: "message",
     index: "gsi0",
-    pk: [Message.mailboxId],
-    sk: [Message.uid],
+    pk: [MessageRecord.mailboxId],
+    sk: [MessageRecord.uid],
   }
 )
 @index(
@@ -156,11 +156,11 @@ model AutoMovedInfo {
   {
     collection: "messageData",
     index: "gsi2",
-    pk: [Message.messageId],
+    pk: [MessageRecord.messageId],
     sk: [],
   }
 )
-model Message {
+model MessageRecord {
   @doc("Primary identifier (internal UUID)")
   @visibility(Lifecycle.Read)
   messageId: UUID;
@@ -187,10 +187,6 @@ model Message {
   @doc("Server receipt timestamp (INTERNALDATE)")
   @visibility(Lifecycle.Read)
   internalDate: int64;
-
-  @doc("Message-ID header value for quick reference")
-  @visibility(Lifecycle.Read)
-  messageIdHeader?: string;
 
   @doc("Reference to parsed envelope data")
   @visibility(Lifecycle.Read)
@@ -323,6 +319,15 @@ model MessageFlag {
   @visibility(Lifecycle.Read)
   @updatedAt
   updatedAt: int64;
+}
+
+@doc("Core message entity as the API carries it: the stored row plus the Message-ID header, which is stored on the message's thread row.")
+model Message {
+  ...MessageRecord;
+
+  @doc("Message-ID header value for quick reference")
+  @visibility(Lifecycle.Read)
+  messageIdHeader?: string;
 }
 
 // ============================================

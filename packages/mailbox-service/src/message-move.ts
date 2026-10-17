@@ -846,7 +846,6 @@ export class MessageMoveService {
 			sequenceNumber: 0, // Will be updated by worker
 			rfc822Size: sourceMessage.rfc822Size,
 			internalDate: sourceMessage.internalDate,
-			messageIdHeader: sourceMessage.messageIdHeader,
 			envelopeId: sourceMessage.envelopeId, // Share envelope with source
 			rootBodyPartId: sourceMessage.rootBodyPartId, // Share body parts with source
 			status: MessageStatus.moving,

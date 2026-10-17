@@ -61,6 +61,7 @@ const clientWithFailingFolderLookup = (opened: string[]): RemitClient =>
 			}),
 		},
 		messageLabel: { listByMessageId: async () => [] },
+		threadMessage: { findByMessageId: async () => null },
 		account: {
 			listAllByAccountConfig: async () => [{ accountId: ACCOUNT_ID }],
 		},

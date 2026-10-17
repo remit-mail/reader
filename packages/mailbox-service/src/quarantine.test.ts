@@ -114,6 +114,12 @@ describe("shapeFromMessageData", () => {
 		const shape = shapeFromMessageData(
 			await store.message.get(messageId),
 			await store.envelope.getMessageData(messageId),
+			(
+				await store.threadMessage.findByMessageId(
+					account.accountConfigId,
+					messageId,
+				)
+			)?.messageIdHeader,
 		);
 
 		assert.equal(shape.structure.length, 1);
@@ -122,5 +128,6 @@ describe("shapeFromMessageData", () => {
 		assert.equal(shape.charset, "iso-8859-1");
 		assert.equal(shape.transferEncoding?.toLowerCase(), "quoted-printable");
 		assert.equal(shape.sizeBytes, raw.length);
+		assert.ok(shape.messageIdHash);
 	});
 });

@@ -606,6 +606,10 @@ export class BodySyncService {
 	): Promise<void> {
 		const message = await this.messageService.get(messageId);
 		const messageData = await this.envelopeService.getMessageData(messageId);
+		const threadMessage = await this.threadMessageService.findByMessageId(
+			location.accountConfigId,
+			messageId,
+		);
 
 		await config.quarantineService.record(
 			{
@@ -622,7 +626,11 @@ export class BodySyncService {
 				code: error.failureCode,
 				message: error.message,
 			},
-			shapeFromMessageData(message, messageData),
+			shapeFromMessageData(
+				message,
+				messageData,
+				threadMessage?.messageIdHeader,
+			),
 		);
 	}
 
