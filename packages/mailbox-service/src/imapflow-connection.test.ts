@@ -467,3 +467,37 @@ describe("ImapFlowConnection message envelopes (issue #72)", () => {
 		assert.equal(message?.envelope?.from[0]?.mailbox, "sender");
 	});
 });
+
+describe("ImapFlowConnection.fetchMessageBodies — a body the server no longer has", () => {
+	const fetchBodies = async (
+		rows: Array<Record<string, unknown>>,
+	): Promise<number[]> => {
+		const connection = buildConnectionWithClient({
+			mailbox: fakeMailbox("INBOX", 1),
+			mailboxOpen: async (path: string) => fakeMailbox(path, 1),
+			fetch: () =>
+				(async function* () {
+					for (const row of rows) yield row;
+				})(),
+		});
+		Object.assign(connection as unknown as Record<string, unknown>, {
+			currentMailbox: "INBOX",
+		});
+		const uids: number[] = [];
+		for await (const { uid, source } of connection.fetchMessageBodies([1, 2])) {
+			source.resume();
+			uids.push(uid);
+		}
+		return uids;
+	};
+
+	it("leaves out a row whose source is false instead of failing the batch", async () => {
+		assert.deepStrictEqual(
+			await fetchBodies([
+				{ uid: 1, source: false },
+				{ uid: 2, source: Buffer.from("Subject: x\r\n\r\nhi") },
+			]),
+			[2],
+		);
+	});
+});
