@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import shortUuid from "short-uuid";
 import { v5 as uuidv5 } from "uuid";
-import type { MessageIdSource } from "./types.js";
+import type { MessageIdSource, SyncWarningItem } from "./types.js";
 
 const translator = shortUuid.createTranslator(shortUuid.constants.uuid25Base36);
 
@@ -235,3 +235,15 @@ export const quarantineMessageIdHash = (
 		.digest("hex");
 	return `sha256:${digest}`;
 };
+
+export const deriveSyncWarningId = (
+	accountId: string,
+	mailboxId: string,
+	uidValidity: number,
+	uid: number,
+	stage: SyncWarningItem["stage"],
+): string =>
+	base36uuidv5(
+		`syncwarning:${accountId}:${mailboxId}:${uidValidity}:${uid}:${stage}`,
+		REMIT_NAMESPACE,
+	);

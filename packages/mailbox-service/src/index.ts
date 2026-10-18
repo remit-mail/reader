@@ -34,6 +34,7 @@ export {
 	type PlacementConfig,
 	type QuarantineConfig,
 	type SyncBodiesResult,
+	type SyncWarningConfig,
 	toParsedBody,
 } from "./body-sync.js";
 export {
@@ -330,6 +331,11 @@ export {
 	type StaleMessageReconcileDeps,
 	type StaleMessageReconcileResult,
 } from "./stale-message-reconcile.js";
+export {
+	type SyncWarningContext,
+	type SyncWarningRound,
+	SyncWarningService,
+} from "./sync-warning.js";
 export {
 	buildThreadMessageMoveRevert,
 	buildThreadMessageTrashUpdate,

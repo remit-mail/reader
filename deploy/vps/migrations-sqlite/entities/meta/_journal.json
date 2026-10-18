@@ -288,6 +288,13 @@
       "when": 1792242722947,
       "tag": "0041_body_structure_refetch",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "6",
+      "when": 1792308690072,
+      "tag": "0042_sync_warning",
+      "breakpoints": true
     }
   ]
 }

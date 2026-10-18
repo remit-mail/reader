@@ -10,6 +10,7 @@ import type {
 	IMessageFlagRepository,
 	IMessageRepository,
 	IQuarantineRepository,
+	ISyncWarningRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
@@ -26,6 +27,7 @@ import {
 	MessageSyncService,
 	QuarantineService,
 	type SyncedMessage,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
 import {
@@ -96,6 +98,7 @@ export const syncMessages = async (
 		mailboxLock: mailboxLockService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		quarantine: quarantineService,
+		syncWarning: syncWarningRepository,
 		flagPush: flagPushMarkerService,
 		messageFlag: messageFlagService,
 		unitOfWork,
@@ -207,6 +210,7 @@ export const syncMessages = async (
 								threadMessageService,
 								mailboxSpecialUseService,
 								quarantineService,
+								syncWarningRepository,
 								flagPushMarkerService,
 								messageFlagService,
 								unitOfWork,
@@ -285,6 +289,7 @@ interface SyncDeps {
 	threadMessageService: IThreadMessageRepository;
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	quarantineService: IQuarantineRepository;
+	syncWarningRepository: ISyncWarningRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
 	unitOfWork?: IUnitOfWork;
@@ -378,6 +383,7 @@ const syncMailboxMessages = async (
 		threadMessageService,
 		mailboxSpecialUseService,
 		quarantineService,
+		syncWarningRepository,
 		flagPushMarkerService,
 		messageFlagService,
 		unitOfWork,
@@ -411,6 +417,7 @@ const syncMailboxMessages = async (
 			workerVersion(),
 			log,
 		),
+		new SyncWarningService(syncWarningRepository),
 	);
 
 	// Connect once, reuse for the entire sync operation

@@ -27,6 +27,7 @@ import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { messageTable } from "../schema/message-data.js";
+import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { runInTransaction } from "../tx.js";
 import { deleteMessageSubtree } from "./message.js";
@@ -351,26 +352,29 @@ export class MailboxRepo implements IMailboxRepository {
 	}
 
 	async delete(accountId: string, mailboxId: string): Promise<void> {
-		await this.db
-			.delete(mailboxTable)
-			.where(
-				and(
-					eq(mailboxTable.accountId, accountId),
-					eq(mailboxTable.mailboxId, mailboxId),
-				),
-			);
+		await this.deleteMany(accountId, [mailboxId]);
 	}
 
 	async deleteMany(accountId: string, mailboxIds: string[]): Promise<void> {
 		if (mailboxIds.length === 0) return;
-		await this.db
-			.delete(mailboxTable)
-			.where(
-				and(
-					eq(mailboxTable.accountId, accountId),
-					inArray(mailboxTable.mailboxId, mailboxIds),
-				),
-			);
+		await runInTransaction(this.db, async (tx) => {
+			await tx
+				.delete(syncWarningTable)
+				.where(
+					and(
+						eq(syncWarningTable.accountId, accountId),
+						inArray(syncWarningTable.mailboxId, mailboxIds),
+					),
+				);
+			await tx
+				.delete(mailboxTable)
+				.where(
+					and(
+						eq(mailboxTable.accountId, accountId),
+						inArray(mailboxTable.mailboxId, mailboxIds),
+					),
+				);
+		});
 	}
 
 	async listByAccount(

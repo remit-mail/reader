@@ -12,6 +12,7 @@ import {
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 	resolveFolderPlacement,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -132,6 +133,7 @@ export const syncMessageBody = async (
 		secrets,
 		mailboxSpecialUse: mailboxSpecialUseRepository,
 		quarantine: quarantineRepository,
+		syncWarning: syncWarningRepository,
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarUnitOfWork,
@@ -256,6 +258,11 @@ export const syncMessageBody = async (
 				// An invitation becomes a card the first time the message is seen,
 				// alongside the filters that run on the same pass (issue #1033).
 				{ calendarSuggestionService, calendarUnitOfWork, filterService },
+				undefined,
+				{
+					syncWarningService: new SyncWarningService(syncWarningRepository),
+					uidValidity: mailbox.uidValidity ?? 0,
+				},
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The

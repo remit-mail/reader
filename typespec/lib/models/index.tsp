@@ -9,6 +9,7 @@ import "./MailboxLock.tsp";
 import "./Message.tsp";
 import "./MessagePlacementMove.tsp";
 import "./Quarantine.tsp";
+import "./SyncWarning.tsp";
 import "./MessageFlagPush.tsp";
 
 // Envelope Layer (RFC 2822)

@@ -32,4 +32,5 @@ export * from "./schema/i4-outbox-attachment.js";
 export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export * from "./schema/quarantine.js";
+export * from "./schema/sync-warning.js";
 export { threadMessageTable } from "./schema/thread-message.js";

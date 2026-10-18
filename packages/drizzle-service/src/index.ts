@@ -50,6 +50,7 @@ export {
 export { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
 export { MessageLabelRepo } from "./repos/message-label.js";
 export { QuarantineRepo } from "./repos/quarantine.js";
+export { SyncWarningRepo } from "./repos/sync-warning.js";
 export { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 export { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
 export * from "./schema/i4-account-config.js";
@@ -66,6 +67,7 @@ export * from "./schema/i4-outbox-message.js";
 export * from "./schema/message-data.js";
 export { messageDataSchema } from "./schema/message-data.js";
 export * from "./schema/quarantine.js";
+export * from "./schema/sync-warning.js";
 export {
 	createSqliteDatabase,
 	type SqliteClient,

@@ -33,6 +33,7 @@ import type {
 	QuarantineSchema,
 	RawMessageStorageSchema,
 	SenderSignerStandingSchema,
+	SyncWarningSchema,
 	ThreadMessageSchema,
 } from "@remit/api-zod-schemas";
 import type { ReferenceType } from "@remit/domain-enums";
@@ -118,6 +119,18 @@ export type QuarantineUpsertInput = Omit<
 	QuarantineItem,
 	"quarantineId" | "createdAt" | "updatedAt" | "structure"
 > & { structure?: QuarantineMimeNodeItem[] };
+
+export type SyncWarningItem = z.infer<typeof SyncWarningSchema>;
+
+export type SyncWarningKey = Pick<
+	SyncWarningItem,
+	| "accountConfigId"
+	| "accountId"
+	| "mailboxId"
+	| "uidValidity"
+	| "uid"
+	| "stage"
+>;
 
 export type MailboxSpecialUseValue = z.infer<typeof MailboxSpecialUseSchema>;
 

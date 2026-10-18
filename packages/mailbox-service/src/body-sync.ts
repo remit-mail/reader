@@ -35,6 +35,7 @@ import {
 	PlacementConfidence,
 	QuarantineFailureStage,
 	SenderTrust,
+	SyncWarningStage,
 } from "@remit/domain-enums";
 import {
 	isStorageNotFoundError,
@@ -79,6 +80,7 @@ import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
+import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
@@ -299,6 +301,11 @@ export interface QuarantineConfig {
 	attempts: number;
 }
 
+export interface SyncWarningConfig {
+	syncWarningService: SyncWarningService;
+	uidValidity: number;
+}
+
 /**
  * What body sync needs to auto-mark-read a message from an unsubscribed
  * sender (issue #302, RFC 039 Decision 3). Reuses the same
@@ -347,6 +354,7 @@ export class BodySyncService {
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
 		unitOfWork?: IUnitOfWork,
+		private readonly syncWarningConfig?: SyncWarningConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -371,6 +379,7 @@ export class BodySyncService {
 		force = false,
 	): Promise<SyncBodiesResult> {
 		const syncedMessageIds: string[] = [];
+		const syncedUids: number[] = [];
 		let skippedCount = 0;
 		const location = {
 			accountId,
@@ -507,6 +516,7 @@ export class BodySyncService {
 				}
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
+				syncedUids.push(uid);
 			}
 		} catch (error) {
 			this.log.error?.(
@@ -529,6 +539,19 @@ export class BodySyncService {
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
 		const failedMessageIds = [...pending.values()];
+
+		if (this.syncWarningConfig) {
+			await this.syncWarningConfig.syncWarningService.settle(
+				{
+					accountConfigId,
+					accountId,
+					mailboxId: folder.mailboxId,
+					uidValidity: this.syncWarningConfig.uidValidity,
+				},
+				SyncWarningStage.Body,
+				{ failedUids: [...pending.keys()], syncedUids },
+			);
+		}
 
 		this.log.info(
 			{

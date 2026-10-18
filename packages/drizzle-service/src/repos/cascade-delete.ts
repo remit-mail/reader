@@ -10,6 +10,7 @@ import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.j
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { messageDataSchema } from "../schema/message-data.js";
 import { quarantineTable } from "../schema/quarantine.js";
+import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteDatabase } from "../sqlite-client.js";
 import { runInTransaction } from "../tx.js";
@@ -108,6 +109,9 @@ export const runDrizzleCascadeDelete = async (
 		const mailboxIds = (grouped.get("Mailbox") ?? []).map((k) => k.mailboxId);
 		if (mailboxIds.length > 0) {
 			await tx
+				.delete(syncWarningTable)
+				.where(inArray(syncWarningTable.mailboxId, mailboxIds));
+			await tx
 				.delete(mailboxTable)
 				.where(inArray(mailboxTable.mailboxId, mailboxIds));
 		}
@@ -159,6 +163,9 @@ export const runDrizzleCascadeDelete = async (
 			await tx
 				.delete(quarantineTable)
 				.where(inArray(quarantineTable.accountId, accountIds));
+			await tx
+				.delete(syncWarningTable)
+				.where(inArray(syncWarningTable.accountId, accountIds));
 			await tx
 				.delete(accountTable)
 				.where(inArray(accountTable.accountId, accountIds));

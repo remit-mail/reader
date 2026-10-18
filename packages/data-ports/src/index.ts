@@ -46,6 +46,7 @@ export {
 } from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
+export type { ISyncWarningRepository } from "./interfaces/sync-warning.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
 export type {
 	IUnitOfWork,
@@ -151,6 +152,8 @@ export type {
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,
+	SyncWarningItem,
+	SyncWarningKey,
 	ThreadMessageFieldTerm,
 	ThreadMessageItem,
 	UpdateAccountConfigInput,
