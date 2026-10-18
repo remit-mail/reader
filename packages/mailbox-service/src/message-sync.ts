@@ -1148,7 +1148,10 @@ export class MessageSyncService {
 		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
 			failedUids: [...saveFailedUids, ...unusableUids],
 			syncedUids: syncedUidsOf(outcomes),
-			serverUids: { kind: "Unlisted" },
+			serverUids: {
+				kind: "OnRequest",
+				list: () => connection.search(["ALL"]),
+			},
 		});
 
 		// The UID watermark obeys the same clamp as the enumeration path even

@@ -805,10 +805,11 @@ export class ImapFlowConnection {
 		try {
 			for await (const msg of fetchIterator) {
 				// imapflow can yield a row with an undefined uid or no source on
-				// back-to-back FETCH calls; skip it rather than crash the batch — the
-				// caller treats any UID it never sees as failed and re-enqueues it.
-				// See #408.
-				if (msg.uid == null || msg.source == null) {
+				// back-to-back FETCH calls, and Dovecot answers `source: false` for a
+				// message another client expunged; skip it rather than crash the batch
+				// — the caller treats any UID it never sees as failed and re-enqueues
+				// it. See #408.
+				if (msg.uid == null || !msg.source) {
 					continue;
 				}
 

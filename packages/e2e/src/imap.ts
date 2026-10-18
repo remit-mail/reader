@@ -346,6 +346,31 @@ export const moveServerMessage = async (
 	}
 };
 
+export const expungeServerMessage = async (
+	user: string,
+	mailbox: string,
+	subject: string,
+): Promise<void> => {
+	const client = await connect(user);
+	try {
+		const lock = await client.getMailboxLock(mailbox);
+		try {
+			const uids = (await client.search({ subject }, { uid: true })) || [];
+			if (uids.length !== 1) {
+				throw new Error(
+					`expected one "${subject}" in ${mailbox}, found ${uids.length}`,
+				);
+			}
+			const deleted = await client.messageDelete(uids, { uid: true });
+			if (!deleted) throw new Error(`EXPUNGE of "${subject}" failed`);
+		} finally {
+			lock.release();
+		}
+	} finally {
+		await client.logout();
+	}
+};
+
 /**
  * The IMAP flags (system flags and keywords alike — `\Seen`, `$Junk`,
  * `$NotJunk`, …) Dovecot holds for one subject in a mailbox. Empty when the

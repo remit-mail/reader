@@ -112,6 +112,10 @@ export {
 	RsvpBadge,
 	type RsvpBadgeProps,
 } from "./components/attendee-row.js";
+export {
+	AttentionDot,
+	type AttentionDotProps,
+} from "./components/attention-dot.js";
 export { AuthCard, type AuthCardProps } from "./components/auth-card.js";
 export {
 	AuthFooter,
@@ -842,10 +846,6 @@ export {
 	SelfUpdateConfirmDialog,
 	type SelfUpdateConfirmDialogProps,
 } from "./components/self-update-confirm-dialog.js";
-export {
-	UpdateAvailableDot,
-	type UpdateAvailableDotProps,
-} from "./components/self-update-dot.js";
 export {
 	SelfUpdateProgressOverlay,
 	type SelfUpdateProgressOverlayProps,

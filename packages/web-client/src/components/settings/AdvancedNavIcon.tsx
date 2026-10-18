@@ -5,7 +5,7 @@
  * update gets outside the pane — no count, no copy, no action. Everywhere else
  * stays silent.
  */
-import { UpdateAvailableDot } from "@remit/ui";
+import { AttentionDot } from "@remit/ui";
 import { Wrench } from "lucide-react";
 import { useOptionalSelfUpdate } from "@/hooks/use-system-update";
 
@@ -16,8 +16,8 @@ export function AdvancedNavIcon() {
 		selfUpdate.surface.section.status === "available";
 
 	return (
-		<UpdateAvailableDot show={updateAvailable}>
+		<AttentionDot label={updateAvailable ? "Update available" : undefined}>
 			<Wrench className="size-4" />
-		</UpdateAvailableDot>
+		</AttentionDot>
 	);
 }

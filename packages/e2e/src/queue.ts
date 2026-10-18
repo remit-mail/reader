@@ -25,6 +25,8 @@ export const MESSAGE_MGMT_DLQ = "remit-message-mgmt-dlq";
 
 export const MAILBOXES_QUEUE = "remit-mailboxes.fifo";
 
+export const BODY_QUEUE = "remit-body";
+
 /** Where MESSAGE_DELETE is delivered, one FIFO group per account. */
 export const MESSAGES_QUEUE = "remit-messages.fifo";
 
@@ -86,6 +88,25 @@ export const enqueueAppendSentMessage = async (
 			type: "APPEND_SENT_MESSAGE",
 			accountId,
 			outboxMessageId,
+			eventId: randomUUID(),
+			timestamp: Date.now(),
+		}),
+	});
+};
+
+export const enqueueBodySync = async (
+	accountId: string,
+	mailboxId: string,
+	messageIds: string[],
+): Promise<void> => {
+	await sqs("SendMessage", {
+		QueueName: BODY_QUEUE,
+		MessageBody: JSON.stringify({
+			type: "SYNC_MESSAGE_BODY",
+			accountId,
+			mailboxId,
+			messageIds,
+			force: true,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 		}),

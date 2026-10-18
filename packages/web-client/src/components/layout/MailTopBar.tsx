@@ -13,6 +13,7 @@ import { useMemo } from "react";
 import { AccountMenu } from "@/auth/AccountMenu";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchScope } from "@/hooks/useSearchScope";
+import { useWarningsAttention } from "@/hooks/useWarningsAttention";
 import { openBugReport } from "@/lib/bug-report";
 import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
@@ -38,6 +39,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 	const goToSection = useGoToSection();
 	const compose = useOpenCompose();
 	const { scope, clearScope } = useSearchScope(accounts);
+	const settingsAttention = useWarningsAttention();
 	const chips =
 		scope.kind === "scoped"
 			? [{ id: scope.chip.id, label: scope.chip.label, tone: "scope" as const }]
@@ -80,6 +82,7 @@ export function MailTopBar({ accounts }: MailTopBarProps) {
 			onCompose={compose}
 			onReportBug={openBugReport}
 			onOpenSettings={() => goToSection("accounts")}
+			settingsAttention={settingsAttention}
 			composeShortcut={shortcutHintForAction("compose")}
 			refreshControl={
 				<RefreshButton

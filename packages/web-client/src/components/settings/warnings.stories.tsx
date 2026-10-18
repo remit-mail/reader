@@ -4,7 +4,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { HttpResponse, http } from "msw";
-import { expect, within } from "storybook/test";
+import { expect, userEvent, within } from "storybook/test";
 import { AppStory } from "@/mocks/story-frame/AppStory";
 import { mailHandlers } from "@/mocks/story-frame/mail-handlers";
 import {
@@ -217,5 +217,74 @@ export const SignedOut: Story = {
 			await canvas.findByText("Your session has ended."),
 		).toBeVisible();
 		await expect(canvas.queryByText(/Every message is syncing/)).toBeNull();
+	},
+};
+
+const failingWorld = () =>
+	mailHandlers(mailWorld({ syncWarnings: [bodyGaveUp], syncWarningsTotal: 1 }));
+
+export const NavDot: Story = {
+	parameters: { msw: { handlers: failingWorld() } },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(await canvas.findByText("Sync warnings")).toBeInTheDocument();
+	},
+};
+
+export const DotOnMail: Story = {
+	args: { url: "/mail/flagged" },
+	parameters: { msw: { handlers: failingWorld() } },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByRole("button", { name: "Settings — Sync warnings" }),
+		).toBeVisible();
+	},
+};
+
+export const NoDotOnMail: Story = {
+	args: { url: "/mail/flagged" },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByRole("button", { name: "Settings" }),
+		).toBeVisible();
+		await expect(canvas.queryByText("Sync warnings")).toBeNull();
+	},
+};
+
+export const DotOnPhone: Story = {
+	args: { url: "/mail/flagged" },
+	globals: { viewport: { value: "mobile", isRotated: false } },
+	parameters: { msw: { handlers: failingWorld() } },
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		const [menu] = await canvas.findAllByRole("button", { name: "Menu" });
+		await userEvent.click(menu);
+		const page = within(canvasElement.ownerDocument.body);
+		await expect(await page.findByText("Sync warnings")).toBeInTheDocument();
+	},
+};
+
+export const DotOnSignedOut: Story = {
+	args: { url: "/mail/flagged" },
+	parameters: {
+		msw: {
+			handlers: [
+				http.get("/api/me/quarantine", () =>
+					HttpResponse.json(
+						{ status: 401, message: "Unauthorized" },
+						{ status: 401 },
+					),
+				),
+				...mailHandlers(mailWorld()),
+			],
+		},
+	},
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByRole("button", { name: "Settings — Session ended" }),
+		).toBeVisible();
 	},
 };

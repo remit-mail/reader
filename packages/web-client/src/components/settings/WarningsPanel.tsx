@@ -1,7 +1,4 @@
-import {
-	configOperationsGetConfigOptions,
-	meOperationsListQuarantineOptions,
-} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapQuarantineResponse,
 	RemitImapSyncWarningResponse,
@@ -25,16 +22,15 @@ import { type ReactNode, useMemo, useState } from "react";
 import { SignInAgain } from "@/auth/SignInAgain";
 import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
+import { useWarningsList } from "@/hooks/useWarningsAttention";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
-import { isUnauthenticated, softErrorStatuses } from "@/lib/error-classifier";
+import { isUnauthenticated } from "@/lib/error-classifier";
 import { toQuarantineEntry } from "@/lib/quarantine-entries";
 import type { ResultFolderIndex } from "@/lib/result-folder";
 import { toSyncWarningEntry } from "@/lib/sync-warning-entries";
 
 const EMPTY_QUARANTINE: readonly RemitImapQuarantineResponse[] = [];
 const EMPTY_WARNINGS: readonly RemitImapSyncWarningResponse[] = [];
-
-const LIST_META = softErrorStatuses(401);
 
 interface Reporting {
 	report: string;
@@ -197,10 +193,7 @@ function delimiterForMailbox(
 }
 
 export function WarningsPanel() {
-	const list = useQuery({
-		...meOperationsListQuarantineOptions(),
-		meta: LIST_META,
-	});
+	const list = useWarningsList();
 	const config = useQuery(configOperationsGetConfigOptions());
 	const accounts = useMemo(() => config.data?.accounts ?? [], [config.data]);
 	const folders = useResultFolderIndex(accounts);
