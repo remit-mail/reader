@@ -27,6 +27,7 @@ export {
 export {
 	type BodySyncFolder,
 	type BodySyncLogger,
+	type BodySyncRoundFolder,
 	BodySyncService,
 	type ConnectionGetter,
 	extractSnippet,
@@ -330,6 +331,12 @@ export {
 	type StaleMessageReconcileDeps,
 	type StaleMessageReconcileResult,
 } from "./stale-message-reconcile.js";
+export {
+	type ServerUids,
+	type SyncWarningContext,
+	type SyncWarningRound,
+	SyncWarningService,
+} from "./sync-warning.js";
 export {
 	buildThreadMessageMoveRevert,
 	buildThreadMessageTrashUpdate,

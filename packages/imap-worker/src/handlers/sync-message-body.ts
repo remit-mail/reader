@@ -12,6 +12,7 @@ import {
 	QuarantineService,
 	resolveExhaustedBodySyncFailures,
 	resolveFolderPlacement,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -132,6 +133,7 @@ export const syncMessageBody = async (
 		secrets,
 		mailboxSpecialUse: mailboxSpecialUseRepository,
 		quarantine: quarantineRepository,
+		syncWarning: syncWarningRepository,
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarUnitOfWork,
@@ -238,6 +240,7 @@ export const syncMessageBody = async (
 				threadMessageService,
 				addressService,
 				envelopeService,
+				new SyncWarningService(syncWarningRepository),
 				log,
 				placementConfig,
 				filterConfig,
@@ -279,6 +282,7 @@ export const syncMessageBody = async (
 			const folder = {
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
+				uidValidity: mailbox.uidValidity,
 				placement: await resolveFolderPlacement(
 					mailboxSpecialUseService,
 					accountId,

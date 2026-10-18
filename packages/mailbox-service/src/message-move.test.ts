@@ -20,6 +20,7 @@ import {
 	UnconfirmedTrashMailboxError,
 } from "./message-move.js";
 import { restoreSourcePlacement } from "./restore-source-placement.js";
+import { SyncWarningService } from "./sync-warning.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	arriveAt,
@@ -527,6 +528,7 @@ describe("copying a message", () => {
 			store.threadMessage,
 			store.address,
 			store.envelope,
+			new SyncWarningService(store.syncWarning),
 			silentLog,
 		).syncBodies(
 			[messageId],
@@ -536,6 +538,7 @@ describe("copying a message", () => {
 				mailboxId: inbox.mailboxId,
 				fullPath: inbox.fullPath,
 				placement: "inbox",
+				uidValidity: inbox.uidValidity,
 			},
 			async () => imap.connection(),
 		);

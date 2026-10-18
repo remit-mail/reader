@@ -13,6 +13,7 @@ import {
 	deriveMessageId,
 	deriveMessageIdFromSource,
 	deriveQuarantineId,
+	deriveSyncWarningId,
 	deriveThreadId,
 	normalizeCalendarUrlSegment,
 	normalizeMessageIdHeader,
@@ -310,6 +311,17 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		assert.equal(
 			deriveQuarantineId(ACCOUNT, MAILBOX, 1_700_000_000, 40217),
 			"4xg2y7x2j7nmvy0wtwgdq8b8p",
+		);
+	});
+
+	it("deriveSyncWarningId pins the sync_warning primary key for each stage", () => {
+		assert.equal(
+			deriveSyncWarningId(ACCOUNT, MAILBOX, 1_700_000_000, 40217, "Header"),
+			"06rmyszwoq2ub71aifrp5bohf",
+		);
+		assert.equal(
+			deriveSyncWarningId(ACCOUNT, MAILBOX, 1_700_000_000, 40217, "Body"),
+			"3os2r6k0myksa430iuqwydl06",
 		);
 	});
 

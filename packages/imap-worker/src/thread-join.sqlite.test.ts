@@ -12,9 +12,10 @@ import {
 	DrizzleMessageRepository,
 	DrizzleThreadMessageRepository,
 	DrizzleUnitOfWork,
+	SyncWarningRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { MessageSyncService } from "@remit/mailbox-service";
+import { MessageSyncService, SyncWarningService } from "@remit/mailbox-service";
 import type { ImapMessage } from "@remit/mailbox-service/types";
 
 const ACCOUNT = "acct-1";
@@ -73,6 +74,7 @@ const syncInOrder = async (
 		new DrizzleEnvelopeRepository(typed),
 		new AddressRepo(db as never),
 		new DrizzleThreadMessageRepository(db),
+		new SyncWarningService(new SyncWarningRepo(db as never)),
 		undefined,
 		new DrizzleUnitOfWork(typed),
 	);

@@ -31,6 +31,7 @@ import {
 	MessageKeywordFlag,
 	MessageSystemFlag,
 	StarColor,
+	SyncWarningStage,
 } from "@remit/domain-enums";
 import pMap from "p-map";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
@@ -50,6 +51,7 @@ import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { QuarantineService } from "./quarantine.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
+import type { SyncWarningRound, SyncWarningService } from "./sync-warning.js";
 import {
 	advanceChangeCursor,
 	advanceUidWatermarks,
@@ -265,6 +267,21 @@ const unresolvedSightingUids = (outcomes: BatchOutcome[]): number[] =>
 			: [],
 	);
 
+const syncedUidsOf = (outcomes: BatchOutcome[]): number[] =>
+	outcomes.flatMap((outcome) =>
+		outcome.kind === "saved" && !outcome.result?.unresolvedSighting
+			? [outcome.uid]
+			: [],
+	);
+
+const saveFailedUidsOf = (outcomes: BatchOutcome[]): number[] =>
+	outcomes.flatMap((outcome) =>
+		outcome.kind === "failed" ? [outcome.uid] : [],
+	);
+
+const envelopeLessUidsOf = (messages: ImapMessage[]): number[] =>
+	messages.flatMap((msg) => (hasEnvelope(msg) ? [] : [msg.uid]));
+
 const emptySyncResult = (): SyncMessagesResult => ({
 	syncedCount: 0,
 	syncedMessageIds: [],
@@ -340,6 +357,7 @@ export class MessageSyncService {
 		private envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
+		private syncWarningService: SyncWarningService,
 		logger?: SyncLogger,
 		unitOfWork?: IUnitOfWork,
 		/**
@@ -467,6 +485,17 @@ export class MessageSyncService {
 		const deletedCount = status.deletedCount;
 
 		if (uids.length === 0) {
+			await this.settleHeaderWarnings(
+				accountConfigId,
+				mailbox,
+				box.uidvalidity,
+				{
+					failedUids: [],
+					syncedUids: [],
+					serverUids: { kind: "Listed", uids: allUids },
+				},
+			);
+
 			// Nothing left to enumerate: the folder is fully covered on this
 			// UIDVALIDITY axis, which is the one moment a mod-sequence watermark
 			// can be seeded without hiding unsynced history behind it. From the
@@ -629,6 +658,12 @@ export class MessageSyncService {
 		// never be discovered. A UID the FETCH returned nothing usable for is in
 		// `failedUids` too: the round did not finish with it either.
 		const enumerationComplete = !hasMore && failedUids.size === 0;
+
+		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
+			failedUids: [...saveFailedUids, ...envelopeLessUidsOf(messages)],
+			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Listed", uids: allUids },
+		});
 
 		await this.mailboxService.update(accountId, mailboxId, {
 			lastSyncUid: newLastSyncUid,
@@ -871,6 +906,15 @@ export class MessageSyncService {
 			: Number.POSITIVE_INFINITY;
 		const coveredUids = serverUids.filter((uid) => uid < lowestFailure);
 
+		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
+			failedUids: [
+				...saveFailedUidsOf(outcomes),
+				...envelopeLessUidsOf(newMessages),
+			],
+			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Listed", uids: allUids },
+		});
+
 		await this.mailboxService.update(accountId, mailboxId, {
 			cursorState: MailboxCursorState.normal,
 			uidValidity: box.uidvalidity,
@@ -1101,6 +1145,12 @@ export class MessageSyncService {
 		});
 		const highestModseq = formatChangeCursor(nextCursor);
 
+		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
+			failedUids: [...saveFailedUids, ...unusableUids],
+			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Unlisted" },
+		});
+
 		// The UID watermark obeys the same clamp as the enumeration path even
 		// though the cursor governs retries here: a mailbox that later falls
 		// back to enumeration must not find a failed UID already behind its
@@ -1165,6 +1215,24 @@ export class MessageSyncService {
 			remainingCount: ordered.length - batch.length,
 			cursorStalled: stalled,
 		};
+	}
+
+	private async settleHeaderWarnings(
+		accountConfigId: string,
+		mailbox: MailboxItem,
+		uidValidity: number,
+		round: SyncWarningRound,
+	): Promise<void> {
+		await this.syncWarningService.settle(
+			{
+				accountConfigId,
+				accountId: mailbox.accountId,
+				mailboxId: mailbox.mailboxId,
+				uidValidity,
+			},
+			SyncWarningStage.Header,
+			round,
+		);
 	}
 
 	/**

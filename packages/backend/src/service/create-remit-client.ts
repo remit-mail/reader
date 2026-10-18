@@ -29,6 +29,7 @@ import type {
 	IOutboxMessageRepository,
 	IQuarantineRepository,
 	ISenderSignerStandingRepository,
+	ISyncWarningRepository,
 	IThreadMessageRepository,
 	IUnitOfWork,
 } from "@remit/data-ports";
@@ -47,6 +48,7 @@ import {
 	OutboxQueueService,
 	PlacementMoveService,
 	SpamReportService,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { createSearchService, type SearchService } from "@remit/search-service";
@@ -95,6 +97,8 @@ export interface RemitClient {
 	// Messages the sync path could not read (issue #72). Read-only from the API
 	// process: the sync worker writes the rows, settings lists them.
 	quarantine: IQuarantineRepository;
+
+	syncWarning: ISyncWarningRepository;
 
 	// Smart Organize back-apply job (RFC 034, #1278). Present on both backends,
 	// modeled on accountExportRequest — a Pending row the account-fanout worker
@@ -217,6 +221,7 @@ export interface RemitClientRepositories {
 	accountExportRequest: IAccountExportRequestRepository;
 	configImport: IConfigImportRepository;
 	quarantine: IQuarantineRepository;
+	syncWarning: ISyncWarningRepository;
 	organizeJobRequest: IOrganizeJobRequestRepository;
 	placementMove: IMessagePlacementMoveRepository;
 	flagPush: IMessageFlagPushRepository;
@@ -436,6 +441,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		repositories.threadMessage,
 		repositories.address,
 		repositories.envelope,
+		new SyncWarningService(repositories.syncWarning),
 		logger,
 		undefined,
 		filterConfig,
@@ -469,6 +475,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		accountExportRequest: repositories.accountExportRequest,
 		configImport: repositories.configImport,
 		quarantine: repositories.quarantine,
+		syncWarning: repositories.syncWarning,
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
 		filterAnchor: repositories.filterAnchor,

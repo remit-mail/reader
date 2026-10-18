@@ -35,6 +35,7 @@ import {
 	PlacementConfidence,
 	QuarantineFailureStage,
 	SenderTrust,
+	SyncWarningStage,
 } from "@remit/domain-enums";
 import {
 	isStorageNotFoundError,
@@ -79,6 +80,7 @@ import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
 import { extractSnippetFromEmail } from "./snippet.js";
+import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
 const BODY_PART_STORE_CONCURRENCY = 4;
@@ -269,6 +271,10 @@ export interface BodySyncFolder {
 	placement: FolderPlacement;
 }
 
+export interface BodySyncRoundFolder extends BodySyncFolder {
+	uidValidity: number;
+}
+
 export interface PlacementConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	/**
@@ -340,6 +346,7 @@ export class BodySyncService {
 		private threadMessageService: IThreadMessageRepository,
 		private addressService: IAddressRepository,
 		private envelopeService: IEnvelopeRepository,
+		private readonly syncWarningService: SyncWarningService,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
@@ -366,11 +373,12 @@ export class BodySyncService {
 		messageIds: string[],
 		accountId: string,
 		accountConfigId: string,
-		folder: BodySyncFolder,
+		folder: BodySyncRoundFolder,
 		getConnection: ConnectionGetter,
 		force = false,
 	): Promise<SyncBodiesResult> {
 		const syncedMessageIds: string[] = [];
+		const syncedUids: number[] = [];
 		let skippedCount = 0;
 		const location = {
 			accountId,
@@ -507,6 +515,7 @@ export class BodySyncService {
 				}
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
+				syncedUids.push(uid);
 			}
 		} catch (error) {
 			this.log.error?.(
@@ -529,6 +538,21 @@ export class BodySyncService {
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
 		const failedMessageIds = [...pending.values()];
+
+		await this.syncWarningService.settle(
+			{
+				accountConfigId,
+				accountId,
+				mailboxId: folder.mailboxId,
+				uidValidity: folder.uidValidity,
+			},
+			SyncWarningStage.Body,
+			{
+				failedUids: [...pending.keys()],
+				syncedUids,
+				serverUids: { kind: "Unlisted" },
+			},
+		);
 
 		this.log.info(
 			{

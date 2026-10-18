@@ -29,6 +29,7 @@ import { DrizzleMessageRepository } from "./repos/message.js";
 import { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
 import { MessageLabelRepo } from "./repos/message-label.js";
 import { QuarantineRepo } from "./repos/quarantine.js";
+import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 import { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
 import type { MessageDataSchema } from "./schema/message-data.js";
@@ -53,6 +54,7 @@ export const createSqliteRepositories = (db: Db<MessageDataSchema>) => ({
 	accountExportRequest: new AccountExportRequestRepo(db),
 	configImport: new ConfigImportRepo(db),
 	quarantine: new QuarantineRepo(db),
+	syncWarning: new SyncWarningRepo(db),
 	organizeJobRequest: new OrganizeJobRequestRepo(db),
 	placementMove: new MessagePlacementMoveRepo(db),
 	flagPush: new MessageFlagPushRepo(db),

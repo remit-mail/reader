@@ -12,6 +12,7 @@ import {
 	mailboxTable,
 	messageTable,
 	quarantineTable,
+	syncWarningTable,
 } from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
@@ -30,6 +31,7 @@ const CASCADE_SCHEMA = {
 	account: accountTable,
 	mailbox: mailboxTable,
 	quarantine: quarantineTable,
+	syncWarning: syncWarningTable,
 };
 
 const log = { info: () => {} };

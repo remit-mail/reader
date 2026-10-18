@@ -16,6 +16,7 @@ import {
 	DrizzleUnitOfWork,
 	MailboxRepo,
 	MailboxSpecialUseRepo,
+	SyncWarningRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import {
@@ -23,6 +24,7 @@ import {
 	type ManagedConnectionFactory,
 	MessageMoveService,
 	MessageSyncService,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import type { ImapMessage } from "@remit/mailbox-service/types";
 import { probeableMessageIdHeader } from "./probe-message-id.js";
@@ -122,6 +124,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 			new DrizzleEnvelopeRepository(db),
 			new AddressRepo(db),
 			threadMessages,
+			new SyncWarningService(new SyncWarningRepo(db)),
 			undefined,
 			new DrizzleUnitOfWork(db),
 		).syncMessages(inbox.mailboxId, accountId, ACCOUNT_CONFIG_ID);

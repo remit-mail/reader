@@ -28,6 +28,7 @@ import { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
 import { PlacementMoveService } from "./placement-move.js";
 import { QuarantineService } from "./quarantine.js";
+import { SyncWarningService } from "./sync-warning.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	captureQueue,
@@ -191,6 +192,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		store.threadMessage,
 		store.address,
 		store.envelope,
+		new SyncWarningService(store.syncWarning),
 		silentLog,
 		wiring.placement
 			? {
@@ -277,7 +279,10 @@ const sync = (
 		messageIds,
 		world.account.accountId,
 		world.account.accountConfigId,
-		placementOf(options.mailbox ?? world.inbox),
+		{
+			...placementOf(options.mailbox ?? world.inbox),
+			uidValidity: (options.mailbox ?? world.inbox).uidValidity,
+		},
 		async () => world.imap.connection(),
 		options.force ?? false,
 	);
@@ -768,7 +773,7 @@ describe("body sync and the quarantine", () => {
 			[messageId],
 			world.account.accountId,
 			world.account.accountConfigId,
-			placementOf(world.inbox),
+			{ ...placementOf(world.inbox), uidValidity: world.inbox.uidValidity },
 			async () => assert.fail("a quarantined message is not fetched"),
 		);
 
