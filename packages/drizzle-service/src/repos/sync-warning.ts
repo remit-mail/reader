@@ -1,10 +1,11 @@
 import type {
 	ISyncWarningRepository,
+	SurfacedSyncWarnings,
 	SyncWarningItem,
 	SyncWarningKey,
 } from "@remit/data-ports";
 import { deriveSyncWarningId } from "@remit/data-ports/id";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 
@@ -18,6 +19,28 @@ export class SyncWarningRepo implements ISyncWarningRepository {
 			.select()
 			.from(syncWarningTable)
 			.where(eq(syncWarningTable.mailboxId, mailboxId));
+
+	listSurfacedByAccountConfigId = async (
+		accountConfigId: string,
+		minAttempts: number,
+		limit: number,
+	): Promise<SurfacedSyncWarnings> => {
+		const surfaced = and(
+			eq(syncWarningTable.accountConfigId, accountConfigId),
+			gte(syncWarningTable.attempts, minAttempts),
+		);
+		const items = await this.db
+			.select()
+			.from(syncWarningTable)
+			.where(surfaced)
+			.orderBy(desc(syncWarningTable.createdAt))
+			.limit(limit);
+		const [{ total }] = await this.db
+			.select({ total: count() })
+			.from(syncWarningTable)
+			.where(surfaced);
+		return { items, total };
+	};
 
 	recordFailures = async (keys: SyncWarningKey[]): Promise<void> => {
 		if (keys.length === 0) return;

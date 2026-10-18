@@ -5,7 +5,7 @@ import {
 } from "@remit/ui";
 import { Navigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { useAuthProvider } from "@/auth/provider";
+import { SignInAgain } from "@/auth/SignInAgain";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
 import {
 	type CalendarEventAbsence,
@@ -65,23 +65,6 @@ const CONFLICT =
 	"This event changed somewhere else — over CalDAV, or in another tab. Nothing was saved. Close it and open it again to see the version that's stored now.";
 
 type Intent = "edit" | "delete";
-
-function SignInAgain() {
-	const { Account } = useAuthProvider();
-	return (
-		<Account>
-			{({ signOut }) => (
-				<button
-					type="button"
-					onClick={() => signOut()}
-					className="rounded-md border border-line px-2.5 py-1 text-sm font-medium text-fg outline-none hover:bg-surface-sunken focus-visible:ring-2 focus-visible:ring-ring"
-				>
-					Sign in again
-				</button>
-			)}
-		</Account>
-	);
-}
 
 const absenceOf = (
 	search: CalendarJumpSearch,

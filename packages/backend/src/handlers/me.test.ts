@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { after, before, describe, it } from "node:test";
+import { after, before, describe, it, mock } from "node:test";
 import type { QuarantineListResponse } from "@remit/api-openapi-types";
 import {
 	QuarantineFailureCode,
 	QuarantineFailureStage,
+	SyncWarningStage,
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
@@ -45,6 +46,28 @@ const quarantine = (sub: string, uid: number) =>
 		workerVersion: "worker 1.0.0",
 	});
 
+const failRounds = async (
+	sub: string,
+	uids: number[],
+	rounds: number,
+	at: number,
+) => {
+	const now = mock.method(Date, "now", () => at);
+	for (let round = 0; round < rounds; round++) {
+		await client.syncWarning.recordFailures(
+			uids.map((uid) => ({
+				accountConfigId: deriveAccountConfigId(sub),
+				accountId: `acct-${sub}`,
+				mailboxId: `mbx-${sub}`,
+				uidValidity: 1_712_000_000,
+				uid,
+				stage: SyncWarningStage.Body,
+			})),
+		);
+	}
+	now.mock.restore();
+};
+
 before(async () => {
 	_resetForTest();
 	({ client, cleanup } = await createCalendarSqliteClient());
@@ -67,5 +90,41 @@ describe("MeOperations_listQuarantine", () => {
 			response.entries.map((entry) => [entry.accountId, entry.uid]),
 			[["acct-me-caller", 40217]],
 		);
+	});
+});
+
+describe("MeOperations_listQuarantine warnings", () => {
+	it("returns the caller's warnings at three attempts or more, newest first", async () => {
+		await failRounds("warn-caller", [1], 3, 1_000);
+		await failRounds("warn-caller", [2], 4, 2_000);
+		await failRounds("warn-caller", [3], 2, 3_000);
+		await failRounds("warn-stranger", [4], 3, 4_000);
+
+		const response = await listQuarantine(
+			{} as Context,
+			eventFor("warn-caller"),
+		);
+
+		assert.deepEqual(
+			response.warnings.map((warning) => [warning.uid, warning.attempts]),
+			[
+				[2, 4],
+				[1, 3],
+			],
+		);
+		assert.equal(response.warningsTotal, 2);
+	});
+
+	it("caps the list at 200 and counts every surfaced warning", async () => {
+		const uids = Array.from({ length: 201 }, (_, index) => index + 1);
+		await failRounds("warn-flood", uids, 3, 5_000);
+
+		const response = await listQuarantine(
+			{} as Context,
+			eventFor("warn-flood"),
+		);
+
+		assert.equal(response.warnings.length, 200);
+		assert.equal(response.warningsTotal, 201);
 	});
 });

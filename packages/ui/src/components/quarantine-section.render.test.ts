@@ -2,9 +2,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { QuarantineBugDialog } from "./quarantine-bug-dialog.js";
+import { MessageReportDialog } from "./message-report-dialog.js";
 import { quarantineDemoEntries } from "./quarantine-fixtures.js";
-import type { QuarantineEntry } from "./quarantine-report.js";
+import {
+	formatQuarantineReport,
+	type QuarantineEntry,
+} from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
 const noop = () => {};
@@ -64,25 +67,25 @@ describe("QuarantineSection", () => {
 	});
 });
 
-describe("QuarantineBugDialog", () => {
+describe("MessageReportDialog", () => {
 	it("shows the whole report before anything is filed", () => {
 		const html = renderToString(
-			createElement(QuarantineBugDialog, {
-				entry: base,
+			createElement(MessageReportDialog, {
+				report: formatQuarantineReport(base),
 				onClose: noop,
 				onCopy: noop,
 				issueUrl: ISSUE_URL,
 			}),
 		);
 		assert.match(html, /UnreadableBody/);
-		assert.match(html, /attachment names, or the parser&#x27;s own error text/);
+		assert.match(html, /folder name, or the parser&#x27;s own error text/);
 		assert.match(html, /Copy report/);
 	});
 
 	it("never renders the parser's own error text into the report", () => {
 		const html = renderToString(
-			createElement(QuarantineBugDialog, {
-				entry: base,
+			createElement(MessageReportDialog, {
+				report: formatQuarantineReport(base),
 				onClose: noop,
 				onCopy: noop,
 				issueUrl: ISSUE_URL,
@@ -95,8 +98,8 @@ describe("QuarantineBugDialog", () => {
 
 	it("files through the supplied url with hardened external rel", () => {
 		const html = renderToString(
-			createElement(QuarantineBugDialog, {
-				entry: base,
+			createElement(MessageReportDialog, {
+				report: formatQuarantineReport(base),
 				onClose: noop,
 				onCopy: noop,
 				issueUrl: ISSUE_URL,
@@ -106,10 +109,10 @@ describe("QuarantineBugDialog", () => {
 		assert.match(html, /focus-visible:ring-2/);
 	});
 
-	it("renders nothing without an entry", () => {
+	it("renders nothing without a report", () => {
 		const html = renderToString(
-			createElement(QuarantineBugDialog, {
-				entry: null,
+			createElement(MessageReportDialog, {
+				report: null,
 				onClose: noop,
 				onCopy: noop,
 				issueUrl: ISSUE_URL,

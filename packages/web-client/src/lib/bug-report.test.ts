@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+	formatSyncWarningReport,
 	QUARANTINE_REPORT_DISCLAIMER,
 	type QuarantineEntry,
 	quarantineDemoEntries,
 	quarantineIssueTitle,
 	quarantineReportSections,
+	syncWarningDemoEntries,
+	syncWarningIssueTitle,
 } from "@remit/ui";
 import type { BugReportContext } from "./bug-report";
 import { buildBugReportDetails, buildGitHubIssueUrl } from "./bug-report";
@@ -445,5 +448,26 @@ describe("quarantine reports", () => {
 			parts(decode(buildGitHubIssueUrl(ctx()))) < 200,
 			"Expected the URL body to have dropped parts",
 		);
+	});
+});
+
+describe("buildGitHubIssueUrl for a sync warning", () => {
+	const entry = {
+		...syncWarningDemoEntries[1],
+		folderLabel: "Tax return 2026",
+	};
+
+	it("files the stage, state and attempts without the folder name", () => {
+		const decoded = decode(
+			buildGitHubIssueUrl({
+				...baseCtx,
+				title: syncWarningIssueTitle(entry),
+				syncWarning: formatSyncWarningReport(entry),
+			}),
+		);
+		assert.ok(decoded.includes("Message failed to sync: Retrying at Header"));
+		assert.ok(decoded.includes("**Attempts**: 7"));
+		assert.ok(decoded.includes("abcdef1"));
+		assert.ok(!decoded.includes("Tax return 2026"));
 	});
 });

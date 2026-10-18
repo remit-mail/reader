@@ -53,6 +53,8 @@ export interface BugReportContext {
 	 * @remit/ui so the MIME tree is fenced after truncation, never before.
 	 */
 	quarantine?: QuarantineReportSections;
+	/** A sync warning report, from `formatSyncWarningReport` in @remit/ui. */
+	syncWarning?: string;
 	/** Overrides the derived title, e.g. for a quarantine report. */
 	title?: string;
 }
@@ -63,6 +65,7 @@ export interface BugReportSeed {
 	stack?: string;
 	componentStack?: string;
 	quarantine?: QuarantineReportSections;
+	syncWarning?: string;
 	/** Overrides the derived title, e.g. for a quarantine report. */
 	title?: string;
 }
@@ -85,6 +88,7 @@ export function buildBugReportContext(seed?: BugReportSeed): BugReportContext {
 		stack: seed?.stack,
 		componentStack: seed?.componentStack,
 		quarantine: seed?.quarantine,
+		syncWarning: seed?.syncWarning,
 		title: seed?.title,
 	};
 }
@@ -192,6 +196,10 @@ function buildIssueBody(
 			ctx.quarantine.disclaimer,
 			"",
 		);
+	}
+
+	if (ctx.syncWarning) {
+		lines.push(ctx.syncWarning, "");
 	}
 
 	const resolvedStack = overrides?.stack ?? ctx.stack;

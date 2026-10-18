@@ -9,6 +9,7 @@ import type {
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger-lambda";
+import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
@@ -19,6 +20,10 @@ import type { MeOperationIds, OperationHandler } from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
+
+const SURFACED_WARNING_ATTEMPTS = attemptBudget("BODY_SYNC_MAX_ATTEMPTS", 3);
+
+const SURFACED_WARNING_CAP = 200;
 
 export const MeOperations: Record<
 	MeOperationIds,
@@ -43,10 +48,21 @@ export const MeOperations: Record<
 		const event = args[0] as APIGatewayProxyEvent;
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 
-		const { quarantine } = await getClient();
-		const entries = await quarantine.listByAccountConfigId(accountConfigId);
+		const { quarantine, syncWarning } = await getClient();
+		const [entries, warnings] = await Promise.all([
+			quarantine.listByAccountConfigId(accountConfigId),
+			syncWarning.listSurfacedByAccountConfigId(
+				accountConfigId,
+				SURFACED_WARNING_ATTEMPTS,
+				SURFACED_WARNING_CAP,
+			),
+		]);
 
-		return { entries };
+		return {
+			entries,
+			warnings: warnings.items,
+			warningsTotal: warnings.total,
+		};
 	},
 	MeOperations_deleteMe: async (
 		_context: Context,

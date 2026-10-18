@@ -66,11 +66,26 @@ export const advancedHelp = (
 			<strong className="text-fg">Notification rules</strong> and data export
 			are coming in a future release.
 		</p>
+	</div>
+);
+
+export const warningsHelp = (
+	<div className="space-y-3">
+		<p>
+			A message that fails to sync three times shows here. A{" "}
+			<strong className="text-fg">retrying</strong> one is tried again every
+			sync; a body that <strong className="text-fg">gave up</strong> is not.
+			Either leaves the list once it syncs.
+		</p>
 		<p>
 			A message Remit cannot read is{" "}
 			<strong className="text-fg">set aside</strong> rather than skipped, and
 			the folder keeps syncing. Setting one aside is a defect in Remit, so every
 			entry can be reported with the diagnostics already attached.
+		</p>
+		<p>
+			A report carries no folder name, subject, address, message content or
+			error text.
 		</p>
 	</div>
 );

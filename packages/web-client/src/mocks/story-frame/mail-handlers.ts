@@ -537,6 +537,8 @@ export const mailHandlers = (
 		http.get(`${API}/me/quarantine`, () =>
 			HttpResponse.json<MeOperationsListQuarantineResponse>({
 				entries: world.quarantine,
+				warnings: world.syncWarnings,
+				warningsTotal: world.syncWarningsTotal,
 			}),
 		),
 		http.get(`${API}/me/vip-suggestions`, () =>
