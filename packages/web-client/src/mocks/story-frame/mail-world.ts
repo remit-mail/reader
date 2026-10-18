@@ -10,6 +10,7 @@ import type {
 	RemitImapOutboxMessageResponse,
 	RemitImapOutboxMessageStatus,
 	RemitImapQuarantineResponse,
+	RemitImapSyncWarningResponse,
 	RemitImapSystemUpdateResponse,
 	RemitImapThreadMessageResponse,
 	RemitImapVipSuggestionEntry,
@@ -26,6 +27,8 @@ export interface MailWorld {
 	threads: RemitImapThreadMessageResponse[];
 	outbox: RemitImapOutboxMessageResponse[];
 	quarantine: RemitImapQuarantineResponse[];
+	syncWarnings: RemitImapSyncWarningResponse[];
+	syncWarningsTotal: number;
 	vipSuggestions: RemitImapVipSuggestionEntry[];
 	addresses: RemitImapAddressResponse[];
 	systemUpdate: RemitImapSystemUpdateResponse;
@@ -427,6 +430,8 @@ export const mailWorld = (overrides: Partial<MailWorld> = {}): MailWorld => ({
 	threads: [...inboxThreads, ...serverDrafts],
 	outbox: [...remitDrafts, ...outboxInEveryStatus],
 	quarantine: [],
+	syncWarnings: [],
+	syncWarningsTotal: 0,
 	vipSuggestions: [],
 	addresses: [],
 	systemUpdate: {

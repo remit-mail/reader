@@ -1,13 +1,11 @@
 /**
  * Advanced settings. Updates live here — and only here — with a full pane in
- * Settings › Advanced, alongside the messages sync could not read. Notification
- * rules and export are future scope.
+ * Settings › Advanced. Notification rules and export are future scope.
  */
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { ConfigTransferPanel } from "@/components/settings/ConfigTransferPanel";
-import { QuarantinePanel } from "@/components/settings/QuarantinePanel";
 import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
 import { AppVersion } from "@/components/ui/AppVersion";
@@ -40,7 +38,6 @@ function AdvancedSettings() {
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
 			<SelfUpdatePanel />
-			<QuarantinePanel />
 			<div className="mt-6 border-t border-line pt-4">
 				<ConfigTransferPanel />
 			</div>

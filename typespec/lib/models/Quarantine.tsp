@@ -4,6 +4,7 @@ import "../enums/CanonicalMailboxRole.tsp";
 import "../enums/QuarantineFailureCode.tsp";
 import "../enums/QuarantineFailureStage.tsp";
 import "../scalars/string.tsp";
+import "./SyncWarning.tsp";
 
 namespace RemitImap;
 
@@ -170,8 +171,14 @@ model QuarantineResponse {
   ...Quarantine;
 }
 
-@doc("Everything quarantined for the current user, newest first. The list is small by design — a mailbox with a growing quarantine list is a bug being reported, not a page to paginate.")
+@doc("Everything quarantined for the current user, newest first, beside the sync warnings that have failed enough rounds to surface. The quarantine list is small by design — a mailbox with a growing quarantine list is a bug being reported, not a page to paginate.")
 model QuarantineListResponse {
   @doc("Quarantined messages, newest first.")
   entries: QuarantineResponse[];
+
+  @doc("The 200 newest sync warnings that have failed at least BODY_SYNC_MAX_ATTEMPTS rounds, newest first. One failing server quirk writes a row per message, so the list is capped.")
+  warnings: SyncWarningResponse[];
+
+  @doc("Every sync warning at or past the attempt threshold, counting those beyond the cap on `warnings`.")
+  warningsTotal: int32;
 }

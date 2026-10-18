@@ -13,7 +13,7 @@ import { meOperationsListQuarantineOptions } from "@remit/api-http-client/@tanst
 import { createElement } from "react";
 import { createDomHarness, type DomHarness } from "../../test-support/dom";
 import { type HttpMock, httpError, mockFetch } from "../../test-support/http";
-import { QuarantinePanel } from "./QuarantinePanel";
+import { WarningsPanel } from "./WarningsPanel";
 
 const ACCOUNT_ID = "acct-1";
 const MAILBOX_ID = "mbx-q3";
@@ -51,6 +51,8 @@ const QUARANTINE = {
 			structure: [],
 		},
 	],
+	warnings: [],
+	warningsTotal: 0,
 };
 
 let harness: DomHarness | undefined;
@@ -76,16 +78,17 @@ const mount = async (
 	mailboxes: () => unknown,
 	settled: (view: DomHarness) => boolean,
 	description: string,
+	list: () => unknown = () => QUARANTINE,
 ): Promise<DomHarness> => {
 	http = mockFetch((call) => {
 		if (call.path.endsWith("/config")) return CONFIG;
 		if (call.path.endsWith("/mailboxes")) return mailboxes();
-		if (call.path.endsWith("/quarantine")) return QUARANTINE;
+		if (call.path.endsWith("/quarantine")) return list();
 		return {};
 	});
 	const view = createDomHarness();
 	harness = view;
-	view.renderApp(createElement(QuarantinePanel));
+	view.renderApp(createElement(WarningsPanel));
 	// Two waves: the mailbox-list fan-out is keyed on the accounts `/config`
 	// returns, so it cannot even start until that first read has settled. How
 	// many turns those waves take is the runner's business, so each case names
@@ -94,7 +97,63 @@ const mount = async (
 	return view;
 };
 
-describe("QuarantinePanel folder names", () => {
+describe("WarningsPanel reads", () => {
+	it("lists a body that gave up and a header still retrying beside the set-aside message", async () => {
+		const view = await mount(
+			() => MAILBOXES,
+			(pane) => /Gave up/.test(pane.text()),
+			"the warning to be listed",
+			() => ({
+				...QUARANTINE,
+				warnings: [
+					{
+						syncWarningId: "w-1",
+						accountConfigId: "cfg-1",
+						accountId: ACCOUNT_ID,
+						mailboxId: MAILBOX_ID,
+						uidValidity: 1_712_000_000,
+						uid: 51002,
+						stage: "Body",
+						attempts: 3,
+						createdAt: Date.parse("2026-10-17T08:12:00Z"),
+					},
+					{
+						syncWarningId: "w-2",
+						accountConfigId: "cfg-1",
+						accountId: ACCOUNT_ID,
+						mailboxId: MAILBOX_ID,
+						uidValidity: 1_712_000_000,
+						uid: 50874,
+						stage: "Header",
+						attempts: 5,
+						createdAt: Date.parse("2026-10-16T21:40:00Z"),
+					},
+				],
+				warningsTotal: 2,
+			}),
+		);
+
+		assert.match(view.text(), /uid 51002/);
+		assert.match(view.text(), /Retrying/);
+		assert.match(view.text(), /uid 50874/);
+		assert.match(view.text(), /Messages set aside/);
+		assert.match(view.text(), /uid 40251/);
+	});
+
+	it("shows a 401 on the list as signed out, never as an empty list", async () => {
+		const view = await mount(
+			() => MAILBOXES,
+			(pane) => /Your session has ended/.test(pane.text()),
+			"the signed-out notice",
+			() => httpError(401),
+		);
+
+		assert.match(view.html(), /role="alert"/);
+		assert.doesNotMatch(view.text(), /Nothing has failed|Nothing is set aside/);
+	});
+});
+
+describe("WarningsPanel folder names", () => {
 	it("waits for the account's delimiter rather than cutting on a guess", async () => {
 		// The mailbox read never resolves here, so settled means every read that
 		// can land has: the entries are in hand and only the delimiter is missing.
@@ -105,7 +164,7 @@ describe("QuarantinePanel folder names", () => {
 			"the quarantine list to land while the mailbox read hangs",
 		);
 
-		assert.match(view.text(), /Checking for messages set aside/);
+		assert.match(view.text(), /Checking for warnings/);
 		assert.doesNotMatch(
 			view.text(),
 			new RegExp(FULL_PATH.replace(/\./g, "\\.")),

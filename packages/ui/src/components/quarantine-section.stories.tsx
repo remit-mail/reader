@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useState } from "react";
-import { QuarantineBugDialog } from "./quarantine-bug-dialog.js";
+import { MessageReportDialog } from "./message-report-dialog.js";
 import { quarantineDemoEntries } from "./quarantine-fixtures.js";
-import type { QuarantineEntry } from "./quarantine-report.js";
+import {
+	formatQuarantineReport,
+	type QuarantineEntry,
+} from "./quarantine-report.js";
 import { QuarantineSection } from "./quarantine-section.js";
 
 const [unterminatedBoundary, unknownCharset, truncatedBody, shapeUnread] =
@@ -51,8 +54,8 @@ export const CutABugFlow: Story = {
 			<>
 				<QuarantineSection entries={quarantineDemoEntries} onCutBug={setOpen} />
 				{copied && <p className="mt-3 text-xs text-positive">Report copied.</p>}
-				<QuarantineBugDialog
-					entry={open}
+				<MessageReportDialog
+					report={open ? formatQuarantineReport(open) : null}
 					issueUrl={demoIssueUrl}
 					onClose={() => setOpen(null)}
 					onCopy={() => setCopied(true)}
@@ -69,8 +72,8 @@ export const CutABugFlow: Story = {
  */
 export const BugReportWithoutMessageShape: Story = {
 	render: () => (
-		<QuarantineBugDialog
-			entry={shapeUnread}
+		<MessageReportDialog
+			report={formatQuarantineReport(shapeUnread)}
 			issueUrl={demoIssueUrl}
 			onClose={() => {}}
 			onCopy={() => {}}
@@ -80,8 +83,8 @@ export const BugReportWithoutMessageShape: Story = {
 
 export const BugReport: Story = {
 	render: () => (
-		<QuarantineBugDialog
-			entry={unterminatedBoundary}
+		<MessageReportDialog
+			report={formatQuarantineReport(unterminatedBoundary)}
 			issueUrl={demoIssueUrl}
 			onClose={() => {}}
 			onCopy={() => {}}

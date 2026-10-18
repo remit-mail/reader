@@ -75,6 +75,7 @@ import "./QuarantineFailureCode.tsp";
 
 // Sync warnings (issue #1400)
 import "./SyncWarningStage.tsp";
+import "./SyncWarningState.tsp";
 
 // Calendar Enums (issue #15)
 import "./CalendarColor.tsp";

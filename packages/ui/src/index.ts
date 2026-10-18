@@ -549,6 +549,10 @@ export {
 	MessageListLoadingMore,
 } from "./components/message-list-state.js";
 export {
+	MessageReportDialog,
+	type MessageReportDialogProps,
+} from "./components/message-report-dialog.js";
+export {
 	type BriefRowComponent,
 	ComfortableRow,
 	ComfortableRowBody,
@@ -631,10 +635,6 @@ export {
 	PullToRefresh,
 	type PullToRefreshProps,
 } from "./components/pull-to-refresh.js";
-export {
-	QuarantineBugDialog,
-	type QuarantineBugDialogProps,
-} from "./components/quarantine-bug-dialog.js";
 export {
 	QuarantineEntryRow,
 	type QuarantineEntryRowProps,
@@ -901,6 +901,20 @@ export {
 	SwipeableRow,
 	type SwipePeek,
 } from "./components/swipeable-row.js";
+export { syncWarningDemoEntries } from "./components/sync-warning-fixtures.js";
+export {
+	formatSyncWarningReport,
+	type SyncWarningEntry,
+	syncWarningIssueTitle,
+} from "./components/sync-warning-report.js";
+export {
+	SyncWarningRow,
+	type SyncWarningRowProps,
+} from "./components/sync-warning-row.js";
+export {
+	SyncWarningSection,
+	type SyncWarningSectionProps,
+} from "./components/sync-warning-section.js";
 export { TouchListBody } from "./components/touch-list.js";
 export {
 	CheckRow,

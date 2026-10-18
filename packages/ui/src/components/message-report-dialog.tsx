@@ -1,13 +1,9 @@
 import { Copy, ExternalLink } from "lucide-react";
 import { Button, ButtonLink } from "./button.js";
 import { Dialog } from "./dialog.js";
-import {
-	formatQuarantineReport,
-	type QuarantineEntry,
-} from "./quarantine-report.js";
 
-export interface QuarantineBugDialogProps {
-	entry: QuarantineEntry | null;
+export interface MessageReportDialogProps {
+	report: string | null;
 	onClose: () => void;
 	/**
 	 * Prefilled new-issue URL, built by the app's shared bug-report helper so
@@ -22,14 +18,13 @@ export interface QuarantineBugDialogProps {
  * GitHub session with the issue prefilled — Remit never posts on their behalf,
  * and nothing is sent that is not on this screen.
  */
-export function QuarantineBugDialog({
-	entry,
+export function MessageReportDialog({
+	report,
 	onClose,
 	issueUrl,
 	onCopy,
-}: QuarantineBugDialogProps) {
-	if (!entry) return null;
-	const report = formatQuarantineReport(entry);
+}: MessageReportDialogProps) {
+	if (report === null) return null;
 
 	return (
 		<Dialog open onClose={onClose} title="Report this message">
@@ -37,9 +32,9 @@ export function QuarantineBugDialog({
 				<header className="space-y-1 border-b border-line px-4 py-3">
 					<h3 className="text-sm font-semibold text-fg">Report this message</h3>
 					<p className="text-xs text-fg-muted">
-						This is everything the report contains. It describes the shape of
-						the message — never its contents, addresses, subject, attachment
-						names, or the parser's own error text.
+						This is everything the report contains. It describes what went wrong
+						with the message — never its contents, addresses, subject,
+						attachment names, folder name, or the parser's own error text.
 					</p>
 				</header>
 				<pre className="flex-1 overflow-auto bg-surface-sunken px-4 py-3 text-2xs leading-relaxed whitespace-pre-wrap text-fg-muted">

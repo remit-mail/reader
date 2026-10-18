@@ -77,3 +77,8 @@ model SyncWarning {
   @createdAt
   createdAt: int64;
 }
+
+@doc("One sync warning as the settings surface sees it.")
+model SyncWarningResponse {
+  ...SyncWarning;
+}

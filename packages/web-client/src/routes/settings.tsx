@@ -17,6 +17,7 @@ import {
 	Inbox,
 	Palette,
 	Tag,
+	TriangleAlert,
 	Users,
 } from "lucide-react";
 import { AdvancedNavIcon } from "@/components/settings/AdvancedNavIcon";
@@ -57,6 +58,11 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 		label: "Appearance",
 		icon: <Palette className="size-4" />,
 	},
+	{
+		id: "warnings",
+		label: "Warnings",
+		icon: <TriangleAlert className="size-4" />,
+	},
 	{ id: "advanced", label: "Advanced", icon: <AdvancedNavIcon /> },
 ];
 
@@ -68,6 +74,7 @@ export const SETTINGS_ID_TO_PATH: Record<string, string> = {
 	labels: "/settings/labels",
 	calendars: "/settings/calendars",
 	appearance: "/settings/appearance",
+	warnings: "/settings/warnings",
 	advanced: "/settings/advanced",
 };
 
