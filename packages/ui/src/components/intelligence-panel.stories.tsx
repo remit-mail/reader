@@ -16,7 +16,6 @@ const base: IntelligenceData = {
 		summary: "This message was signed by example.com.",
 	},
 	category: { value: "personal" },
-	similar: [],
 };
 
 const meta: Meta<typeof IntelligencePanel> = {
@@ -119,7 +118,6 @@ export const Impersonation: Story = {
 				claimedBrand: "Your Bank",
 				summary:
 					'The display name claims "Your Bank", but this message was actually sent from mailer.suspicious.example — not your-bank.example. Real senders use their own address.',
-				similarCount: 4,
 			},
 		},
 	},
@@ -145,80 +143,6 @@ export const UnreadableSender: Story = {
 					"We couldn't read this sender's address, so we can't confirm who really sent this message.",
 			},
 		},
-	},
-};
-
-export const WithSimilarMessages: Story = {
-	args: {
-		similarLinkComponent: ({
-			mailboxId,
-			threadId,
-			messageId,
-			className,
-			ariaLabel,
-			children,
-		}) => (
-			<a
-				href={`/mail/${mailboxId}/${threadId}/${messageId}`}
-				className={className}
-				aria-label={ariaLabel}
-			>
-				{children}
-			</a>
-		),
-		data: {
-			...base,
-			similar: [
-				{
-					id: "msg-1",
-					mailboxId: "mbx-1",
-					threadId: "thr-msg-1",
-					fromName: "Alex Rivera",
-					subject: "Re: Q3 planning notes",
-					timeLabel: "Jan 17",
-					matched: "subject",
-				},
-				{
-					id: "msg-2",
-					mailboxId: "mbx-1",
-					threadId: "thr-msg-2",
-					fromName: "Billing",
-					subject: "Your invoice is ready",
-					timeLabel: "Yesterday",
-					matched: "body",
-				},
-				{
-					id: "msg-3",
-					mailboxId: "mbx-2",
-					threadId: "thr-msg-3",
-					fromName: "",
-					subject: "(No subject)",
-					timeLabel: "Dec 4, 2024",
-					matched: "sender",
-				},
-			],
-		},
-	},
-};
-
-/**
- * Semantic search is off on this instance (#1068). The section states the
- * setting, what turning it on buys — the Organize widen and semantic filters —
- * and the command, rather than rendering nothing and reading as a sender
- * nothing resembles.
- */
-export const SimilarMessagesOff: Story = {
-	args: {
-		data: base,
-		similarState: "off",
-	},
-};
-
-/** The runtime failure, for contrast: a retry might work, so it says no more. */
-export const SimilarMessagesUnavailable: Story = {
-	args: {
-		data: base,
-		similarState: "error",
 	},
 };
 

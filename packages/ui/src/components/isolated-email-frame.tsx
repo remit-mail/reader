@@ -165,7 +165,7 @@ export const isForwardableKey = (key: string): boolean => {
 };
 
 /**
- * Keydown events raised inside an iframe never reach the embedding window, so
+ * Keydown events raised inside an iframe never reach the parent window, so
  * once the reader clicks into the message body every app shortcut goes dead —
  * j/k, arrows, Esc, the lot (#43). Replay the allowlisted keystrokes on the host
  * window so the app's one keyboard layer keeps hearing them. The replay is a

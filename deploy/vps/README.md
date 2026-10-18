@@ -70,9 +70,6 @@ remit restart             # apply an edit to .env
 remit update              # install the current release, atomically
 remit update --check      # what is available, changing nothing (stack must be up)
 remit down                # stop serving; remit restart brings it back
-remit semantic            # whether semantic search is on, and how
-remit semantic on         # turn it on (downloads a model image; see Search)
-remit semantic off        # turn it back off; stored vectors are kept
 remit config              # the effective configuration, secrets redacted
 remit config save <file>  # every setting to <file>, before a drop; no password
 remit cert                # export Caddy's root CA (TLS_MODE=internal)
@@ -176,7 +173,6 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `web` | `ghcr.io/remit-mail/reader/web` | Static server for the built web client. |
 | `backend` | `ghcr.io/remit-mail/reader/backend` | The API. Also the image the `migrate` and `volume-init` one-shots run. |
 | `imap-worker`, `smtp-worker`, `account-worker` | `ghcr.io/remit-mail/reader/*` | Queue pollers: sync mail, push flag and folder changes back, and send outgoing mail. |
-| `search-index-worker` | `ghcr.io/remit-mail/reader/search-index-worker` | Off by default (`profiles: ["semantic"]`). Embeds message bodies into the vector store. Turned on with `remit semantic on`. See [Search](#search). |
 | `scheduler` | `ghcr.io/remit-mail/reader/imap-worker` (command override) | The periodic mailbox-sync tick: enqueues a sync for every account whose last one is older than `MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS`. This is what fetches mail when no browser is open. See [Mail sync cadence](#mail-sync-cadence). |
 | `queue` | `ghcr.io/remit-mail/reader/queue-sidecar` | The SQS-compatible queue seam: a SQLite-backed sidecar speaking the SQS wire protocol, persisting enqueued work to its own volume. |
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [maintenance.md](maintenance.md). |
@@ -187,67 +183,16 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |
 
 The relational store and the better-auth identity tables share one file
-(`/data/sqlite/remit.db`); the vector store keeps its data in a second file
-(`/data/sqlite/vec.db`). Both sit on the `sqlite_data` named volume, which
+(`/data/sqlite/remit.db`). It sits on the `sqlite_data` named volume, which
 **must be local disk**: WAL's cross-process coordination uses a shared-memory
 file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
 (see [Backups](#backups)).
 
 Every Node service runs under a 512 MB V8 heap ceiling, moved with
-`REMIT_NODE_HEAP_MB` in `.env`. It bounds JavaScript objects and nothing else,
-so it is not the answer to a worker that runs out of memory while indexing —
-see [Indexing on a small box](#indexing-on-a-small-box). The containers carry no
-hard memory limit: one would turn a slow job into an OOM kill.
-
-### Indexing on a small box
-
-Only on an instance that ran `remit semantic on` — see [Search](#search).
-
-The `search-index-worker` holds the embedding model, and the model, its
-inference arenas and its per-batch tensors are all allocated by onnxruntime,
-outside the V8 heap the ceiling above bounds. A first index of a large mailbox
-is the job that can exhaust a 4 GB box, and the kernel then picks its OOM victim
-by size — usually the backend, not the indexer.
-
-So the worker bounds itself. It starts at the smallest batch with one inference
-in flight and measures two numbers after every batch: the box's free memory, and
-its own resident size. Both matter. Free memory says whether the rest of the
-stack still has room; the worker's own size says whether it is the reason it
-does not — and that one a shed cannot walk back, because onnxruntime sizes its
-arena to the widest batch it has ever run and keeps it.
-
-Ramping costs three consecutive readings that leave more than 1024 MB free and
-keep the worker under 1536 MB resident. Shedding is immediate at 768 MB free or
-1536 MB resident: it halves the batch, drops back to one inference and paces
-itself. The gap between the two thresholds is deliberate — without it a box
-parked near the line would ramp and shed on alternate batches.
-
-Under 384 MB free it stops and waits rather than pushing the host into swap,
-logging a line and counting `remit_search_index_memory_stalls_total`. That stop
-ends after four minutes and the message goes back on the queue for redelivery,
-because the queue's visibility timeout is five. Each change of plan logs once,
-and `remit_search_index_embed_batch_size` shows where it settled.
-
-The cost is deliberate: a first index uses a large box fully and crawls on a
-small one. Ten variables in `.env` move it, all optional:
-
-| Variable | Default | What it does |
-| --- | --- | --- |
-| `SEARCH_INDEX_MEMORY_HEADROOM_MB` | `768` | Free memory below which the worker sheds. |
-| `SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB` | `256` | Extra free memory a ramp needs on top of the headroom. |
-| `SEARCH_INDEX_RSS_CEILING_MB` | `1536` | Resident size at which the worker sheds and stops ramping. |
-| `SEARCH_INDEX_MEMORY_CRITICAL_MB` | `384` | Free memory below which indexing stops and waits. Must be below the headroom. |
-| `SEARCH_INDEX_EMBED_BATCH_MIN` | `4` | Chunks per embedding call at the floor, and after shedding. |
-| `SEARCH_INDEX_EMBED_BATCH_MAX` | `32` | Chunks per embedding call at full ramp. |
-| `SEARCH_INDEX_EMBED_CONCURRENCY_MAX` | `2` | Embedding calls in flight at full ramp. |
-| `SEARCH_INDEX_EMBED_RAMP_AFTER` | `3` | Consecutive comfortable readings a ramp costs. |
-| `SEARCH_INDEX_MEMORY_PAUSE_MS` | `2000` | Wait between batches while shedding, and between reads while stopped. |
-| `SEARCH_INDEX_MEMORY_STALL_MAX_MS` | `240000` | How long a stop waits before the message goes back on the queue. Must stay under 300000. |
-
-On a box with memory to spare, raising `SEARCH_INDEX_EMBED_BATCH_MAX`,
-`SEARCH_INDEX_MEMORY_HEADROOM_MB` and `SEARCH_INDEX_RSS_CEILING_MB` together is
-what makes a first index finish sooner.
+`REMIT_NODE_HEAP_MB` in `.env`. It bounds JavaScript objects and nothing else.
+The containers carry no hard memory limit: one would turn a slow job into an OOM
+kill.
 
 Each worker's health is a heartbeat. A worker polls one queue per kind of work
 (`imap-worker` six of them), each loop rewrites its own timestamp file on the
@@ -290,51 +235,8 @@ off the sync age.
 
 ## Search
 
-Two searches. Text search is on for every install; semantic search is opt-in.
-
-**Text search** is FTS5 over subjects and senders. It needs no configuration, no
-extra container and no model, and it covers every message as it syncs.
-
-**Semantic search** stores a vector for every message body. What reads those
-vectors is the semantic widen behind Organize filters — "and anything similar" —
-and semantic (anchor) filters, which match incoming mail against a saved
-example. That is what `remit semantic on` buys.
-
-Free-text semantic search is not served on this deployment either way: the
-`backend` image ships without the embedding runtime, so answering a typed query
-is something no container here can do. `/search/semantic` returns empty results
-and the web client says so — the "Related" and "Similar messages" panels state
-that semantic search is off rather than showing an empty list.
-
-It is off on a new install because of what it costs on the box this deployment
-is sized for. The `search-index-worker` image is ~1.36 GB, of a first-install
-pull that is otherwise ~2.6 GB. On a 2 vCPU box a first index of 30,906 messages
-drained at ~30 messages a minute — about 17 hours — holding ~150-190% CPU
-throughout. That is a once-per-mailbox cost; after it, the worker follows new
-mail. These are the numbers; every other place that mentions the cost points
-here.
-
-Turn it on when you want it:
-
-```bash
-remit semantic on     # writes SEARCH_EMBEDDING_PROVIDER=local and starts the worker
-remit semantic        # print the current state
-remit semantic off    # stop the worker; the vectors already built are kept
-```
-
-`remit status` and `remit doctor` both report the provider, so an Organize widen
-that counts nothing can be told apart from a mailbox with nothing similar in it.
-
-While it is off nothing embeds and nothing indexes, and the model image is never
-pulled. Committed message changes are still recorded in the transactional
-outbox, which is what makes `remit semantic on` index the mail already on the
-box rather than only what arrives afterwards.
-
-The alternative to paying the CPU here is paying it elsewhere: set
-`SEARCH_EMBEDDING_PROVIDER=bedrock` in `.env` and the embedding happens at AWS
-Bedrock, billed per request, with AWS credentials in `.env` and no model on this
-box. `remit semantic on` leaves that setting alone; every other value it
-replaces with `local`.
+Search is FTS5 over subjects and senders. It needs no configuration, no extra
+container and no model, and it covers every message as it syncs.
 
 ## TLS
 
@@ -483,7 +385,7 @@ in order:
    `caddy adapt` against the release's `routes.caddy`. A failure here — a
    refused pull, a compose file this deployment's `.env` cannot resolve, a
    Caddy file that will not load — has touched nothing and a retry is safe.
-3. Both databases are snapshotted with `VACUUM INTO` **while the old version is
+3. The database is snapshotted with `VACUUM INTO` **while the old version is
    still live**, and the wrapper, compose file and Caddy files the deployment
    carries are snapshotted beside them. The work queue is deliberately not part of the
    snapshot.
@@ -635,11 +537,11 @@ default. Turn it on from the install directory:
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
 ```
 
-It runs `VACUUM INTO` on the two database files nightly, encrypts each with
-`age`, and ships them to an S3-compatible bucket via `rclone`. Retention
-defaults to 30 days. Message bodies re-sync from IMAP after a restore, so they
-are deliberately not backed up here. Restore is putting the two files back on
-the `sqlite_data` volume and starting the stack.
+It runs `VACUUM INTO` on the database file nightly, encrypts it with `age`,
+and ships it to an S3-compatible bucket via `rclone`. Retention defaults to 30
+days. Message bodies re-sync from IMAP after a restore, so they are deliberately
+not backed up here. Restore is putting the file back on the `sqlite_data` volume
+and starting the stack.
 
 See the Backups section in `remit.env.template` for the variables
 (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars
@@ -669,7 +571,7 @@ release:
 | `name` | no | An exception class name, on the same backend paths. |
 
 `service` is one of `backend`, `imap-worker`, `smtp-worker`, `account-worker`,
-`search-index-worker`, `queue-sidecar`, or, from the one-shot commands that run
+`queue-sidecar`, or, from the one-shot commands that run
 out of the backend image, `backend-migrate` and `backend-backfill-list-id`.
 
 Everything else on a line is a field the call site added, at the top level,

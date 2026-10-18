@@ -62,7 +62,6 @@
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "@remit/mail-oauth-service": "*",
-    "@remit/search-service": "*",
     "@remit/secrets-service": "*",
     "@remit/sqs-client": "*",
     "@remit/storage-service": "*",

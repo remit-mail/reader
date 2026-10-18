@@ -203,19 +203,6 @@ export const FilterClauseSchema = z.strictObject({
 	value: z.string().min(1).max(256),
 });
 
-/**
- * A semantic anchor as text, never as numbers. The vector is a function of the
- * embedding model that produced it, so it means nothing on an instance running
- * a different one; the source text re-embeds against whatever model the
- * importing instance actually has.
- */
-export const FilterAnchorSchema = z.strictObject({
-	sourceText: z.string().min(1).max(512),
-	/** `<modelId>@<dimensions>` the vector was built with, for provenance. */
-	embeddingId: NonEmpty,
-	sourceMessageId: StoredId,
-});
-
 /** A folder named the only way it can be named across instances. */
 export const FolderRefSchema = z.strictObject({
 	accountId: StoredId,
@@ -228,11 +215,10 @@ export const FilterSchema = z.strictObject({
 	/** ISO 8601 with offset when the scope is Temporary, otherwise null. */
 	expiresAt: IsoDateTime.nullable(),
 	matchOperator: z.enum(FilterMatchOperator),
-	literalClauses: z.array(FilterClauseSchema),
+	literalClauses: z.array(FilterClauseSchema).min(1),
 	/** The label this filter applies, by name — ids are local to an instance. */
 	actionLabelName: z.string().min(1).max(140).nullable(),
 	actionFolder: FolderRefSchema.nullable(),
-	anchor: FilterAnchorSchema.nullable(),
 });
 
 /**

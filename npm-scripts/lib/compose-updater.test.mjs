@@ -104,7 +104,6 @@ describe("the updater compose surface", () => {
 			"imap-worker",
 			"smtp-worker",
 			"account-worker",
-			"search-index-worker",
 			"queue",
 			"web",
 			"apisix",

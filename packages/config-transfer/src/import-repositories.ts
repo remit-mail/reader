@@ -5,7 +5,6 @@ import type {
 	IAccountSettingRepository,
 	IAddressRepository,
 	IConfigImportRepository,
-	IFilterAnchorRepository,
 	IFilterRepository,
 	ILabelRepository,
 	IMailboxRepository,
@@ -38,7 +37,6 @@ export interface ConfigImportRepositories {
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 	label: Pick<ILabelRepository, "listByAccountConfig" | "create" | "update">;
 	filter: Pick<IFilterRepository, "listByAccountConfig" | "create" | "update">;
-	filterAnchor: Pick<IFilterAnchorRepository, "put">;
 	/**
 	 * Not the suggest listing, for the reason the export refuses it too: what a
 	 * configuration already holds is decided over every stored row, junk-only
@@ -53,21 +51,6 @@ export interface ConfigImportRepositories {
 		"create" | "update" | "listByAccountConfig"
 	>;
 }
-
-/**
- * A filter anchor, re-embedded from the source text the file carries. The
- * stored vector is a function of the model that produced it, so it never
- * travels; this is the one thing an import has to compute rather than copy.
- *
- * Optional, and free to answer `undefined`, because a configuration file has to
- * import on a deployment that ships no embedding model at all. Either way the
- * anchor lands stamped `ANCHOR_EMBEDDING_PENDING`, which the existing lazy
- * repair (`refreshAnchorForEmbedder`) treats as needing a fresh vector the
- * first time the filter is matched.
- */
-export type EmbedAnchor = (
-	sourceText: string,
-) => Promise<{ embedding: number[]; embeddingId: string } | undefined>;
 
 /**
  * Persist one role's folder appointment. Injected rather than composed here:
@@ -97,6 +80,5 @@ export interface ConfigImportDeps {
 	 * got.
 	 */
 	transaction?: <T>(run: () => Promise<T>) => Promise<T>;
-	embedAnchor?: EmbedAnchor;
 	now?: () => number;
 }

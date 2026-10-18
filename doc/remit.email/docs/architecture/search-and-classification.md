@@ -19,12 +19,6 @@ The same pass reads the DKIM, SPF and DMARC results. It compares the DKIM signin
 
 Text search is FTS5, SQLite's own full-text engine, over subjects and senders. It needs no configuration and no extra service.
 
-## Semantic search
-
-The `search-index-worker` computes an embedding for each message with a local model. The vectors land in the SQLite vector store. Each chunk's content hash folds in the model identifier, so a model change re-embeds what it invalidates and nothing else.
-
-What those vectors serve today is "find similar": the Organize widen reads them and works. The self-host build does not yet serve free-text semantic queries. Its backend image ships without the query-side runtime, so `/search/semantic` returns empty results. Closing that gap is on the [roadmap](../../roadmap/).
-
 ## The contract underneath
 
 Search sits on the storage contract like everything else. The portable floor is verbatim substring matching. Case and diacritic folding are each adapter's own behaviour. The conformance suite asserts the floor and nothing more. `docs/architecture/backend-adapters.md` explains the choice: a stricter floor fails adapters the contract intends to admit.

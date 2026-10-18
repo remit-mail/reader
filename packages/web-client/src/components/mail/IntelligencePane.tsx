@@ -5,8 +5,6 @@ import {
 	DialogBackdrop,
 	IntelligencePanel,
 	type IntelligenceQuickActions,
-	type SimilarMessageLinkComponent,
-	type SimilarState,
 	type ThreadCategory,
 	useModalFocus,
 } from "@remit/ui";
@@ -19,7 +17,7 @@ import { useUpdateAddressFlags } from "@/hooks/useUpdateAddressFlags";
 import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { useTelemetry } from "@/lib/telemetry-context";
-import { NavLink, type OpenThreadTarget } from "@/routing";
+import type { OpenThreadTarget } from "@/routing";
 import type { ReplyWithText } from "../compose/reply-with-times";
 
 export interface IntelligencePaneProps {
@@ -30,8 +28,6 @@ export interface IntelligencePaneProps {
 	 * the empty-state placeholder.
 	 */
 	thread?: RemitImapThreadMessageResponse;
-	/** The mailbox the message list is currently showing. */
-	mailboxId?: string;
 	/** Account that owns the open message; scopes mailbox-list cache invalidation after a spam-report mutation. */
 	accountId?: string;
 	/**
@@ -88,39 +84,6 @@ const CATEGORY_OVERRIDES: readonly CategoryOverride[] =
 export const resolveSpamAction = (thread: {
 	spamReport?: unknown;
 }): "notSpam" | "reportSpam" => (thread.spamReport ? "notSpam" : "reportSpam");
-
-/**
- * Decide the "Similar messages" section state from the semantic-search query.
- *
- * An instance with semantic search off leads, before any error or in-flight
- * state: nothing is embedded, no query was sent, and the section states the
- * setting (#1068). Only `false` counts — the config read has not answered yet
- * while it is `undefined`, and an off state shown then would be a guess.
- *
- * The fail-fast rule: a fatal first-party 5xx must NEVER degrade to the benign
- * grey "Similarity search unavailable" label — it escalates to the global red
- * overlay instead, so this returns `"ready"` for it (the section then renders
- * nothing rather than a misleading soft state). A soft (non-fatal) failure
- * keeps the muted `"error"` state; an empty result is `"ready"` (no error).
- * Pure so the classification can be unit-tested without rendering.
- */
-export const resolveSimilarState = (input: {
-	similarError: unknown;
-	similarErrorIsFatal: boolean;
-	isSimilarLoading: boolean;
-	semanticEnabled: boolean | undefined;
-}): SimilarState => {
-	const {
-		similarError,
-		similarErrorIsFatal,
-		isSimilarLoading,
-		semanticEnabled,
-	} = input;
-	if (semanticEnabled === false) return "off";
-	if (similarError && !similarErrorIsFatal) return "error";
-	if (isSimilarLoading) return "loading";
-	return "ready";
-};
 
 function IntelligenceSkeleton() {
 	return (
@@ -250,7 +213,6 @@ function ReclassifyDialog({
 interface WiredPanelProps {
 	thread: RemitImapThreadMessageResponse;
 	onClose: () => void;
-	mailboxId?: string;
 	accountId?: string;
 	hideCloseButton?: boolean;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
@@ -264,22 +226,13 @@ interface WiredPanelProps {
 function WiredPanel({
 	thread,
 	onClose,
-	mailboxId,
 	accountId,
 	hideCloseButton,
 	onAfterOptimisticRemove,
 	onReplyWithText,
 	onOpenThread,
 }: WiredPanelProps) {
-	const {
-		data,
-		address,
-		addressId,
-		isSimilarLoading,
-		similarError,
-		similarErrorIsFatal,
-		semanticEnabled,
-	} = useIntelligenceData(thread, mailboxId);
+	const { data, address, addressId } = useIntelligenceData(thread);
 	const calendar = useIntelligenceCalendar(
 		thread,
 		onReplyWithText,
@@ -317,13 +270,6 @@ function WiredPanel({
 		reportSpam([thread.messageId]);
 	}, [reportSpam, thread, telemetry]);
 
-	const handleShowSimilar = useCallback(() => {
-		// The similar-messages section scrolls into view automatically when
-		// data.similar is populated. This handler is for the "N similar" button
-		// inside the authenticity panel; a scroll-to implementation can be added
-		// in a future pass without breaking the contract.
-	}, []);
-
 	const handleToggleVip = useCallback(() => {
 		const next = !(data?.flags?.vip === true);
 		updateFlags({ vip: { value: next } });
@@ -360,39 +306,9 @@ function WiredPanel({
 		onReportSpam: spamAction === "reportSpam" ? handleReportSpam : undefined,
 	};
 
-	// Each similar-message row is a real router anchor — same link shape as a
-	// message-list row — so it opens the message in the reading pane while
-	// preserving deep-linking, middle-click, and existing search params.
-	const similarLinkComponent: SimilarMessageLinkComponent = ({
-		mailboxId: rowMailboxId,
-		threadId,
-		messageId,
-		className,
-		ariaLabel,
-		children,
-	}) => (
-		<NavLink
-			to="/mail/$mailboxId/$threadId/$messageId"
-			params={{ mailboxId: rowMailboxId, threadId, messageId }}
-			search={(prev) => prev}
-			variant="row"
-			className={className}
-			aria-label={ariaLabel}
-		>
-			{children}
-		</NavLink>
-	);
-
 	if (!data) {
 		return <IntelligenceSkeleton />;
 	}
-
-	const similarState = resolveSimilarState({
-		similarError,
-		similarErrorIsFatal,
-		isSimilarLoading,
-		semanticEnabled,
-	});
 
 	return (
 		<>
@@ -403,10 +319,7 @@ function WiredPanel({
 				onTabChange={calendar.onTabChange}
 				onClose={onClose}
 				hideCloseButton={hideCloseButton}
-				onShowSimilar={handleShowSimilar}
 				actions={actions}
-				similarState={similarState}
-				similarLinkComponent={similarLinkComponent}
 				reportSpamPending={isReporting}
 				notSpamPending={isRestoring}
 				// No left border: the ResizableHandle to our left already draws the
@@ -434,12 +347,10 @@ function WiredPanel({
  * - Sender basics + trust + authenticity + category: from the thread row (instant,
  *   already loaded by the message list).
  * - Address flags (VIP/muted/blocked/etc.) + first-seen: `GET /addresses/search`.
- * - Similar messages: `GET /search/semantic` (last; panel still renders on failure).
  */
 export const IntelligencePane = ({
 	onClose,
 	thread,
-	mailboxId,
 	accountId,
 	hideCloseButton,
 	onAfterOptimisticRemove,
@@ -459,7 +370,7 @@ export const IntelligencePane = ({
 					<Sparkles className="size-8 text-fg-subtle" />
 					<p className="mt-3 text-sm text-fg-muted">Intelligence</p>
 					<p className="mt-1 text-2xs text-fg-subtle">
-						Sender trust, authenticity and similar messages will appear here.
+						Sender trust and authenticity will appear here.
 					</p>
 				</div>
 			</aside>
@@ -470,7 +381,6 @@ export const IntelligencePane = ({
 		<WiredPanel
 			thread={thread}
 			onClose={onClose}
-			mailboxId={mailboxId}
 			accountId={accountId}
 			hideCloseButton={hideCloseButton}
 			onAfterOptimisticRemove={onAfterOptimisticRemove}

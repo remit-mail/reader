@@ -28,7 +28,6 @@ const vipWithFailingAuthenticity: IntelligenceData = {
 	},
 	category: { value: "personal" },
 	flags: { vip: true },
-	similar: [],
 };
 
 /** The rendered chip in the Category section. */

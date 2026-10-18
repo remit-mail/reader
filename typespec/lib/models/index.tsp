@@ -33,9 +33,6 @@ import "./ThreadMessage.tsp";
 import "./OutboxMessage.tsp";
 import "./OutboxAttachment.tsp";
 
-// Semantic Search
-import "./SemanticSearch.tsp";
-
 // Export
 import "./AccountExportRequest.tsp";
 
@@ -62,4 +59,3 @@ import "./CalendarSuggestion.tsp";
 import "./Label.tsp";
 import "./MessageLabel.tsp";
 import "./Filter.tsp";
-import "./FilterAnchor.tsp";

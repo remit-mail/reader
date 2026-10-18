@@ -23,7 +23,6 @@ const filter = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: true,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
 	matchOperator: "And",
@@ -37,7 +36,6 @@ const filter = (
 
 const render = (
 	filters: RemitImapFilterResponse[],
-	semanticUnavailable = false,
 	labelById: Map<string, LabelOption> = new Map(),
 	run: { runFilterId?: string; runStatus?: FilterRunStatus } = {},
 ) =>
@@ -51,7 +49,6 @@ const render = (
 			onToggle: () => undefined,
 			onRunNow: () => undefined,
 			...run,
-			semanticUnavailable,
 			now: NOW,
 		}) as never,
 	);
@@ -74,27 +71,11 @@ describe("FiltersList", () => {
 		assert.match(html, /Edit filter Travel/);
 	});
 
-	it("shows the widen chip for an anchored filter where the deployment can serve it", () => {
-		const html = render([filter({ hasAnchor: true })]);
-		assert.match(html, /and anything similar/i);
-	});
-
-	it("lists the widen chip inactive on a deployment that cannot evaluate it (D4)", () => {
-		const html = render([filter({ hasAnchor: true })], true);
-		assert.match(html, /not available here/i);
-		assert.doesNotMatch(html, /and anything similar/i);
-	});
-
-	it("shows no widen chip for a purely literal filter", () => {
-		const html = render([filter({ hasAnchor: false })]);
-		assert.doesNotMatch(html, /similar/i);
-	});
-
 	it("shows the applied label's chip when the filter has a label action (issue #26)", () => {
 		const labelById = new Map<string, LabelOption>([
 			["lbl-1", { id: "lbl-1", name: "Receipts", color: "Blue" }],
 		]);
-		const html = render([filter({ actionLabelId: "lbl-1" })], false, labelById);
+		const html = render([filter({ actionLabelId: "lbl-1" })], labelById);
 		assert.match(html, /Receipts/);
 	});
 
@@ -185,7 +166,7 @@ describe("FiltersList", () => {
 	});
 
 	it("says the run is going on the filter that was run, and holds the button", () => {
-		const html = render([filter({})], false, new Map(), {
+		const html = render([filter({})], new Map(), {
 			runFilterId: "f-1",
 			runStatus: { kind: "running" },
 		});
@@ -195,7 +176,7 @@ describe("FiltersList", () => {
 	});
 
 	it("reports what the run filed once the job is done", () => {
-		const html = render([filter({})], false, new Map(), {
+		const html = render([filter({})], new Map(), {
 			runFilterId: "f-1",
 			runStatus: { kind: "done", matched: 3, applied: 2 },
 		});
@@ -203,7 +184,7 @@ describe("FiltersList", () => {
 	});
 
 	it("says so when nothing in the inbox matched", () => {
-		const html = render([filter({})], false, new Map(), {
+		const html = render([filter({})], new Map(), {
 			runFilterId: "f-1",
 			runStatus: { kind: "done", matched: 0, applied: 0 },
 		});
@@ -211,7 +192,7 @@ describe("FiltersList", () => {
 	});
 
 	it("puts no stale status on the row when the run failed", () => {
-		const html = render([filter({})], false, new Map(), {
+		const html = render([filter({})], new Map(), {
 			runFilterId: "f-1",
 			runStatus: { kind: "failed", error: new Error("turned off") },
 		});

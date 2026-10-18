@@ -374,7 +374,6 @@ function BriefReading() {
 				isOpen={intelligence.drawerOpen}
 				onClose={intelligence.closeDrawer}
 				thread={selectedThread}
-				mailboxId={selectedThread?.mailboxId}
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
@@ -398,7 +397,6 @@ function BriefIntelligence() {
 		<IntelligencePane
 			onClose={onToggleIntelligence}
 			thread={selectedThread}
-			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
@@ -444,7 +442,6 @@ function BriefPhone() {
 					isOpen={drawer.isOpen}
 					onClose={drawer.close}
 					thread={selectedThread}
-					mailboxId={selectedThread?.mailboxId}
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}

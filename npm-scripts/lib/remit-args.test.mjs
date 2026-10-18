@@ -126,7 +126,7 @@ const CASES = {
 	restart: {
 		refusal: /^remit: restart: unknown option/m,
 		takes: [
-			{ args: [], proof: / up -d$/m },
+			{ args: [], proof: / up -d --remove-orphans$/m },
 			{ args: ["--hard"], proof: / stop$/m },
 		],
 		refuses: [
@@ -223,19 +223,6 @@ const CASES = {
 			{ args: ["--verbose"], message: /^remit: doctor: unknown option/m },
 		],
 	},
-	semantic: {
-		refusal: /^remit: semantic: (takes one argument|'.*' is not a setting)/m,
-		takes: [
-			{ args: [], proof: /Search section of README\.md/ },
-			{ args: ["on"], proof: / up -d$/m },
-			{ args: ["off"], proof: / rm --force --stop search-index-worker$/m },
-		],
-		refuses: [
-			{ args: ["zzz"], message: /^remit: semantic: 'zzz' is not a setting/m },
-			{ args: [""], message: /^remit: semantic: '' is not a setting/m },
-			{ args: ["on", "off"], message: /^remit: semantic: takes one argument/m },
-		],
-	},
 	config: {
 		refusal: /^remit: config( save)?: (unknown|takes|needs)/m,
 		takes: [
@@ -269,46 +256,6 @@ const CASES = {
 			{
 				args: ["zzz"],
 				message: /^remit: check-categories: takes no arguments/m,
-			},
-		],
-	},
-	"check-index": {
-		refusal: /^remit: check-index: takes no arguments/m,
-		takes: [
-			{ args: [], proof: /search-index-worker node index-report\.mjs$/m },
-		],
-		refuses: [
-			{
-				args: ["zzz"],
-				message: /^remit: check-index: takes no arguments/m,
-			},
-		],
-	},
-	reembed: {
-		dotenv: ["SEARCH_EMBEDDING_PROVIDER=local"],
-		refusal:
-			/^remit: reembed: (unknown option|--model needs a value|pass one of)/m,
-		takes: [
-			{ args: [], proof: /search-index-worker node index-reembed\.mjs$/m },
-			{
-				args: ["--all"],
-				proof: /search-index-worker node index-reembed\.mjs --all$/m,
-			},
-			{
-				args: ["--model", "local:MiniLM@384"],
-				proof:
-					/search-index-worker node index-reembed\.mjs --model local:MiniLM@384$/m,
-			},
-		],
-		refuses: [
-			{ args: ["zzz"], message: /^remit: reembed: unknown option 'zzz'/m },
-			{
-				args: ["--model"],
-				message: /^remit: reembed: --model needs a value/m,
-			},
-			{
-				args: ["--all", "--model", "local:MiniLM@384"],
-				message: /^remit: reembed: pass one of --all or --model/m,
 			},
 		],
 	},

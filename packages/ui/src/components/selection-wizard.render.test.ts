@@ -63,7 +63,6 @@ const matchProps = {
 	mode: "selected" as const,
 	accountId: "acc-personal",
 	onModeChange: noop,
-	onSemanticFallback: noop,
 	sample,
 };
 
@@ -152,31 +151,6 @@ describe("SelectionSample", () => {
 				messages: [],
 				count: counted(0),
 				label: "What this matches",
-				emptyReason: "noMatch",
-			}),
-		);
-		assert.match(html, /Nothing matches this yet/);
-	});
-
-	it("says the mail is not indexed yet, the other reason for no rows", () => {
-		const html = renderToString(
-			createElement(SelectionSample, {
-				messages: [],
-				count: counted(0),
-				label: "What this matches",
-				emptyReason: "notIndexed",
-			}),
-		);
-		assert.match(html, /isn&#x27;t indexed yet/);
-		assert.doesNotMatch(html, /Nothing matches this yet/);
-	});
-
-	it("still explains itself when no reason was given", () => {
-		const html = renderToString(
-			createElement(SelectionSample, {
-				messages: [],
-				count: counted(0),
-				label: "Sample",
 			}),
 		);
 		assert.match(html, /Nothing matches this yet/);
@@ -192,7 +166,6 @@ describe("SelectionSample", () => {
 				messages: [],
 				count: { status: "error", reason: UNCOUNTABLE_PREDICATE_REASON },
 				label: "What this matches",
-				emptyReason: "noMatch",
 			}),
 		);
 		assert.match(text(html), /only a saved rule does/);
@@ -245,56 +218,10 @@ describe("SelectionSample", () => {
 });
 
 describe("MatchStepBody", () => {
-	it("offers the three doors with the ticked count on them", () => {
+	it("offers both doors with the ticked count on them", () => {
 		const html = renderToString(createElement(MatchStepBody, matchProps));
 		assert.match(html, /These 2 messages/);
-		assert.match(html, /Similar to these 2/);
 		assert.match(html, /Its properties/);
-	});
-
-	it("leaves the similar door pressable and dimmed when it cannot run", () => {
-		const html = renderToString(
-			createElement(MatchStepBody, {
-				...matchProps,
-				semanticUnavailable: true,
-				semanticFallbackTaken: true,
-			}),
-		);
-		assert.match(html, /opacity-55/);
-		assert.doesNotMatch(html, /disabled=""/);
-		assert.match(html, /matching on the\s+senders instead/);
-	});
-
-	// Off is a property of the deployment, so the door says what an operator can
-	// do about it rather than "unavailable right now", which invites a retry that
-	// cannot succeed (#1068).
-	it("names the setting and the command when semantic search is off", () => {
-		const html = renderToString(
-			createElement(MatchStepBody, {
-				...matchProps,
-				semanticOff: true,
-			}),
-		);
-		assert.match(html, /opacity-55/);
-		assert.doesNotMatch(html, /disabled=""/);
-		assert.match(text(html), /Semantic search is off on this instance/);
-		assert.match(text(html), /remit semantic on/);
-		assert.doesNotMatch(text(html), /unavailable right now/);
-	});
-
-	it("supersedes the runtime failure copy, which would tell the user to retry", () => {
-		const html = renderToString(
-			createElement(MatchStepBody, {
-				...matchProps,
-				semanticOff: true,
-				semanticUnavailable: true,
-				semanticErrorDetail: "no vector index",
-				semanticFallbackTaken: true,
-			}),
-		);
-		assert.doesNotMatch(text(html), /no vector index/);
-		assert.match(text(html), /Semantic search is off on this instance/);
-		assert.match(text(html), /Matching on the senders instead/);
 	});
 
 	it("names what an escalated predicate covers instead of offering doors", () => {
@@ -312,9 +239,8 @@ describe("MatchStepBody", () => {
 		);
 		assert.match(html, /Every message matching &quot;npm&quot;/);
 		assert.match(html, /nothing to widen/);
-		// The three doors are gone: a predicate is the match already.
+		// The doors are gone: a predicate is the match already.
 		assert.doesNotMatch(html, /These 2 messages/);
-		assert.doesNotMatch(html, /Similar to these/);
 		assert.doesNotMatch(html, /Its properties/);
 		// The members of the match still close the screen (#477 2.3).
 		assert.match(html, /Booking confirmation/);
@@ -329,10 +255,10 @@ describe("MatchStepBody", () => {
 });
 
 /**
- * Starred, and any other surface whose rows span accounts (#523). Both widened
- * doors are counted through a preview one account answers, so offering them
- * walks the user to a review waiting on a count nobody can take, with Back the
- * only way on. They are withheld, and the step says why.
+ * Starred, and any other surface whose rows span accounts (#523). The
+ * properties door is counted through a preview one account answers, so offering
+ * it walks the user to a review waiting on a count nobody can take, with Back the
+ * only way on. It is withheld, and the step says why.
  */
 describe("MatchStepBody with no single account", () => {
 	const spanning = { ...matchProps, accountId: undefined };
@@ -340,7 +266,6 @@ describe("MatchStepBody with no single account", () => {
 	it("offers the ticked rows alone, and states the restriction", () => {
 		const html = text(renderToString(createElement(MatchStepBody, spanning)));
 		assert.match(html, /These 2 messages/);
-		assert.doesNotMatch(html, /Similar to these/);
 		assert.doesNotMatch(html, /Its properties/);
 		assert.match(html, /only works within one account/);
 	});
@@ -400,14 +325,11 @@ describe("PropertiesStepBody", () => {
 				conversionNotice: {
 					scopedOutFolder: "Archive",
 					droppedFacets: ["Unread"],
-					droppedSemantic: true,
 				},
-				semanticFallbackTaken: true,
 			}),
 		);
 		assert.match(html, /From your search/);
 		assert.match(html, /limited to Archive/);
-		assert.match(html, /These are the senders/);
 	});
 
 	it("offers no combine control for a single clause", () => {
@@ -483,29 +405,6 @@ describe("RuleStepBody", () => {
 		assert.match(html, /can&#x27;t read message bodies/);
 	});
 
-	it("says nothing about message bodies when the widen is the matcher", () => {
-		const html = renderToString(
-			createElement(RuleStepBody, {
-				...ruleProps,
-				draft: draft({ clauses: bodyTextClause, widen: { anchorCount: 3 } }),
-			}),
-		);
-		assert.doesNotMatch(html, /can&#x27;t read message bodies/);
-	});
-
-	it("warns again once the widen the rule carried cannot be evaluated", () => {
-		const html = renderToString(
-			createElement(RuleStepBody, {
-				...ruleProps,
-				draft: draft({
-					clauses: bodyTextClause,
-					widen: { anchorCount: 3, inactive: true },
-				}),
-			}),
-		);
-		assert.match(html, /can&#x27;t read message bodies/);
-	});
-
 	it("asks for the stop date on the step that offered the scope", () => {
 		const html = renderToString(
 			createElement(RuleStepBody, {
@@ -531,7 +430,7 @@ describe("ReviewStepBody", () => {
 		const html = renderToString(
 			createElement(ReviewStepBody, {
 				...reviewProps,
-				mode: "similar",
+				mode: "properties",
 				sample: {
 					messages,
 					count: UNCOUNTED,

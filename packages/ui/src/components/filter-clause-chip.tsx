@@ -1,4 +1,4 @@
-import { Plus, Sparkles, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { cn } from "../lib/cn.js";
 import { useSuggestList } from "../lib/use-suggest-list.js";
 import { Button } from "./button.js";
@@ -8,8 +8,6 @@ import {
 	clauseFieldLabel,
 	clauseFieldOrder,
 	type RuleClause,
-	type RuleWiden,
-	widenChipLabel,
 } from "./filter-rule.js";
 import { Input } from "./input.js";
 import { Select } from "./select.js";
@@ -58,63 +56,6 @@ export function ClauseChip({ clause, onEdit, onRemove }: ClauseChipProps) {
 					<X className="size-3" />
 				</button>
 			)}
-		</span>
-	);
-}
-
-export interface WidenChipProps {
-	widen: RuleWiden;
-	onRemove?: () => void;
-}
-
-function WidenRemoveButton({ onRemove }: { onRemove: () => void }) {
-	return (
-		<button
-			type="button"
-			onClick={onRemove}
-			aria-label="Remove the similar-mail widen"
-			className="flex size-4 items-center justify-center rounded-full hover:bg-fg-subtle/20"
-		>
-			<X className="size-3" />
-		</button>
-	);
-}
-
-/**
- * The semantic widen as one chip (RFC 038 D3). Active it reads "…and anything
- * similar" with the anchor count; inactive it says the deployment cannot
- * evaluate it and the rule matches by its literal clauses only (D4). Either
- * way it is removable like any other chip — a dead anchor is exactly what a
- * user needs to be able to take off a degraded rule.
- */
-export function WidenChip({ widen, onRemove }: WidenChipProps) {
-	if (widen.inactive) {
-		return (
-			<span
-				className={cn(
-					chipShell,
-					"border-dashed border-line-strong bg-surface-sunken text-fg-subtle",
-				)}
-			>
-				<Sparkles className="size-3 shrink-0" aria-hidden="true" />
-				<span className="line-through">{widenChipLabel(widen)}</span>
-				<span className="text-2xs">not available here</span>
-				{onRemove && <WidenRemoveButton onRemove={onRemove} />}
-			</span>
-		);
-	}
-
-	return (
-		<span
-			className={cn(
-				chipShell,
-				"border-accent-2 bg-accent-2-soft text-accent-2",
-			)}
-		>
-			<Sparkles className="size-3 shrink-0" aria-hidden="true" />
-			<span className="font-medium">…and anything similar</span>
-			<span className="text-2xs opacity-80">{widenChipLabel(widen)}</span>
-			{onRemove && <WidenRemoveButton onRemove={onRemove} />}
 		</span>
 	);
 }

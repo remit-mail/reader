@@ -97,7 +97,6 @@ test("a filter names its label by name and its folder by account and path", () =
 			accountId: "6f4c2c309a2c4a7f9f9f1f2c3",
 			folderPath: "INBOX.Facturen",
 		},
-		anchor: null,
 	};
 
 	assert.equal(FilterSchema.safeParse(filter).success, true);
@@ -109,37 +108,6 @@ test("a filter names its label by name and its folder by account and path", () =
 		FilterSchema.safeParse({
 			...filter,
 			actionFolder: { mailboxId: "6f4c2c309a2c4a7f9f9f1f2c3" },
-		}).success,
-		false,
-	);
-});
-
-test("a filter anchor carries its source text and no vector", () => {
-	const anchored = {
-		name: "like this",
-		scope: "Standing",
-		expiresAt: null,
-		matchOperator: "And",
-		literalClauses: [],
-		actionLabelName: null,
-		actionFolder: null,
-		anchor: {
-			sourceText: "the release note we file every month",
-			embeddingId: "amazon.titan-embed-text-v2:0@1024",
-			sourceMessageId: "2c9e4b117d5a4f609a315b8c0",
-		},
-	};
-
-	assert.equal(FilterSchema.safeParse(anchored).success, true);
-	assert.equal(
-		FilterSchema.safeParse({
-			...anchored,
-			anchor: {
-				sourceText: "x",
-				embeddingId: "m@1",
-				sourceMessageId: "2c9e4b117d5a4f609a315b8c0",
-				anchorEmbedding: [0.1, 0.2],
-			},
 		}).success,
 		false,
 	);

@@ -19,10 +19,6 @@ Alongside that, maildir will become the export and interchange format. Whatever 
 
 Today a key only you hold encrypts your IMAP credentials at rest. That model will extend to the stored mail data itself, with per-user keys. Until then, host disk encryption covers data at rest.
 
-## Semantic search, served
-
-The self-host build already computes and stores embeddings for every message, and "find similar" runs on them. It does not yet serve free-text semantic queries. Serving them is next, with the query-side model running on the box like everything else.
-
 ## More deployment targets
 
 The storage contract and the queue protocol exist so the services can move. What ships here is the single-VM SQLite deployment. AWS and European providers are the direction those contracts point at. An adapter lives in the repository that deploys it.

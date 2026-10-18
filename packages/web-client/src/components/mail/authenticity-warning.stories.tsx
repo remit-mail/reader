@@ -48,30 +48,9 @@ const intelligence: IntelligenceData = {
 		claimedBrand: "Mondial Relay",
 		summary:
 			"The display name claims “Mondial Relay”, but the message was sent and signed by a personal gmail.example mailbox — not mondialrelay.fr. Real carriers send from their own domain.",
-		similarCount: 15,
 	},
 	category: { value: "automated" },
 	flags: {},
-	similar: [
-		{
-			id: "sim_dhl",
-			mailboxId: "mbx_personal_junk",
-			threadId: "thr_sim_dhl",
-			fromName: "DHL Express",
-			subject: "Action required: customs fee outstanding",
-			timeLabel: "Thu",
-			matched: "body",
-		},
-		{
-			id: "sim_postnl",
-			mailboxId: "mbx_personal_junk",
-			threadId: "thr_sim_postnl",
-			fromName: "PostNL",
-			subject: "Uw pakket kon niet worden bezorgd",
-			timeLabel: "28 May",
-			matched: "body",
-		},
-	],
 };
 
 /**

@@ -27,8 +27,8 @@ import {
 	type RunState,
 	ruleRestrictionFor,
 	runCopy,
+	SAMPLE_EMPTY_COPY,
 	type StepId,
-	sampleEmptyCopy,
 	stepBlockedReason,
 	stepIndex,
 	stepLabel,
@@ -42,7 +42,7 @@ import {
 } from "./wizard-steps.js";
 
 const VERBS: Verb[] = ["delete", "move", "junk", "markRead", "organize"];
-const MODES: MatchMode[] = ["selected", "similar", "properties", "escalated"];
+const MODES: MatchMode[] = ["selected", "properties", "escalated"];
 const SCOPES: (RuleScope | undefined)[] = [
 	undefined,
 	"once",
@@ -59,11 +59,6 @@ const clause = (
 describe("stepsFor — the step ids for every verb × match mode × scope", () => {
 	it("gives the ticked door an opening step and no editor", () => {
 		assert.deepEqual(stepsFor({ verb: "delete", mode: "selected" }), [
-			"match",
-			"review",
-			"run",
-		]);
-		assert.deepEqual(stepsFor({ verb: "junk", mode: "similar" }), [
 			"match",
 			"review",
 			"run",
@@ -105,7 +100,7 @@ describe("stepsFor — the step ids for every verb × match mode × scope", () =
 			["match", "folder", "rule", "review", "run"],
 		);
 		assert.deepEqual(
-			stepsFor({ verb: "organize", mode: "similar", scope: "standing" }),
+			stepsFor({ verb: "organize", mode: "selected", scope: "standing" }),
 			["match", "folder", "rule", "name", "review", "run"],
 		);
 		assert.deepEqual(
@@ -412,38 +407,19 @@ describe("stepBlockedReason", () => {
 		);
 	});
 
-	it("waits on no count where a widened door never had one", () => {
+	it("waits on no count where the properties door never had one", () => {
 		assert.equal(stepBlockedReason("review", draft(), UNCOUNTED), undefined);
 	});
 
-	it("lets the semantic widen carry a clause the literal matcher cannot read", () => {
-		// The clause was added on the property door, then the user went back and
-		// took "Similar to these". The widen is the matcher now and it reads
-		// bodies, so a one-off apply is fine — and the property step is not even in
-		// this step list, so a block here would name a clause on no reachable
-		// screen.
-		const clauses = [clause("HasWords", "boarding pass")];
-		const similar = draft({
-			clauses,
-			scope: "once",
-			widen: { anchorCount: 3 },
-		});
-		assert.equal(
-			stepsFor({ verb: "organize", mode: "similar", scope: "once" }).includes(
-				"properties",
-			),
-			false,
-		);
-		assert.deepEqual(unreadableDraftClauses(similar), []);
-		assert.equal(stepBlockedReason("rule", similar, UNCOUNTED), undefined);
-	});
-
-	it("holds a one-off apply again once the widen cannot be evaluated", () => {
+	it("holds a one-off apply with a clause the literal matcher cannot read", () => {
 		const blocked = draft({
 			clauses: [clause("HasWords", "boarding pass")],
 			scope: "once",
-			widen: { anchorCount: 3, inactive: true },
 		});
+		assert.deepEqual(
+			unreadableDraftClauses(blocked).map((c) => c.field),
+			["HasWords"],
+		);
 		assert.equal(
 			stepBlockedReason("rule", blocked, UNCOUNTED),
 			ruleBlockedCopy.bodyTextOnce,
@@ -452,7 +428,7 @@ describe("stepBlockedReason", () => {
 
 	it("refuses a standing rule the ticked-rows door built no predicate for", () => {
 		// The ticked rows are a list of ids, not a predicate: a rule saved through
-		// that door has no anchor and no clause, so it matches nothing now and
+		// that door has no clause, so it matches nothing now and
 		// nothing later (#1193).
 		const ticked = draft({ scope: "standing", name: "Receipts" });
 		assert.equal(
@@ -473,7 +449,7 @@ describe("stepBlockedReason", () => {
 		);
 	});
 
-	it("takes either matcher as the predicate a saved rule needs", () => {
+	it("takes a clause as the predicate a saved rule needs", () => {
 		const named = { scope: "standing" as const, name: "Receipts" };
 		assert.equal(
 			stepBlockedReason(
@@ -482,23 +458,6 @@ describe("stepBlockedReason", () => {
 				{ status: "ready", count: 3 },
 			),
 			undefined,
-		);
-		assert.equal(
-			stepBlockedReason(
-				"review",
-				draft({ ...named, widen: { anchorCount: 3 } }),
-				{ status: "ready", count: 3 },
-			),
-			undefined,
-		);
-		// A widen the probe could not evaluate is no matcher at all.
-		assert.equal(
-			stepBlockedReason(
-				"review",
-				draft({ ...named, widen: { anchorCount: 3, inactive: true } }),
-				{ status: "ready", count: 3 },
-			),
-			ruleBlockedCopy.noMatch,
 		);
 	});
 
@@ -754,8 +713,7 @@ describe("runCopy", () => {
 
 describe("sample and door vocabulary", () => {
 	it("explains an empty sample rather than leaving it bare", () => {
-		assert.match(sampleEmptyCopy("noMatch"), /Nothing matches/);
-		assert.match(sampleEmptyCopy("notIndexed"), /isn't indexed yet/);
+		assert.match(SAMPLE_EMPTY_COPY, /Nothing matches/);
 	});
 
 	it("states what an escalated predicate covers instead of a door", () => {
@@ -767,10 +725,10 @@ describe("sample and door vocabulary", () => {
 		assert.match(ESCALATED_REVIEW_WARNING, /by the time it runs/);
 	});
 
-	it("withholds the widened doors where there is no single account", () => {
+	it("withholds the properties door where there is no single account", () => {
 		assert.deepEqual(
 			[...matchDoorsFor("acc-personal")],
-			["selected", "similar", "properties"],
+			["selected", "properties"],
 		);
 		assert.deepEqual([...matchDoorsFor(undefined)], ["selected"]);
 		assert.match(crossAccountMatchReason, /within one account/);
@@ -778,7 +736,6 @@ describe("sample and door vocabulary", () => {
 
 	it("names each door and what it does", () => {
 		assert.equal(matchDoorLabel("selected", 3), "These 3 messages");
-		assert.equal(matchDoorLabel("similar", 3), "Similar to these 3");
 		assert.equal(matchDoorLabel("properties", 3), "Its properties");
 		assert.match(matchDoorHint("selected"), /ticked in the list/);
 		assert.match(matchDoorHint("properties"), /No reading involved/);
@@ -831,15 +788,6 @@ describe("the match as words", () => {
 				matchOperator: "all",
 			}),
 			"These 4 messages",
-		);
-		assert.equal(
-			matchSummary({
-				mode: "similar",
-				selectedCount: 4,
-				clauses,
-				matchOperator: "all",
-			}),
-			"Similar to these 4",
 		);
 		assert.equal(
 			matchSummary({
@@ -913,15 +861,6 @@ describe("the match as words", () => {
 		);
 		assert.equal(
 			matchPhrase({
-				mode: "similar",
-				selectedCount: 4,
-				clauses,
-				matchOperator: "all",
-			}),
-			"mail similar to these 4",
-		);
-		assert.equal(
-			matchPhrase({
 				mode: "properties",
 				selectedCount: 4,
 				clauses,
@@ -957,13 +896,13 @@ describe("the restriction a selection walks the wizard with", () => {
 	});
 
 	it("keeps the account a folder-spanning selection has", () => {
-		// The widened doors are counted through a preview that account answers, so
-		// there is nothing to withhold them for.
+		// The properties door is counted through a preview that account answers,
+		// so there is nothing to withhold it for.
 		const scope = wizardScopeFor("acc-personal", "spansFolders");
 		assert.equal(scope.accountId, "acc-personal");
 		assert.deepEqual(
 			[...matchDoorsFor(scope.accountId)],
-			["selected", "similar", "properties"],
+			["selected", "properties"],
 		);
 	});
 
@@ -1011,7 +950,7 @@ describe("the restriction the rule step states", () => {
 	});
 
 	it("restricts nothing on a door that can carry a predicate", () => {
-		for (const mode of ["selected", "similar", "properties"] as const) {
+		for (const mode of ["selected", "properties"] as const) {
 			assert.equal(ruleRestrictionFor(mode, unrestricted), undefined);
 		}
 	});

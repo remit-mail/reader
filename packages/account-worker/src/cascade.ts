@@ -5,7 +5,6 @@ import type {
 	IAccountSettingRepository,
 	IAddressRepository,
 	IEnvelopeRepository,
-	IFilterAnchorRepository,
 	IFilterRepository,
 	ILabelRepository,
 	IMailboxLockRepository,
@@ -42,7 +41,6 @@ export interface CascadeServices {
 	accountExportRequestService: IAccountExportRequestRepository;
 	accountSettingService: IAccountSettingRepository;
 	filterService: IFilterRepository;
-	filterAnchorService: IFilterAnchorRepository;
 	labelService: ILabelRepository;
 	messageLabelService: IMessageLabelRepository;
 }
@@ -138,7 +136,6 @@ export const enumerateCascadeEntities = async (
 		messageFlagPushService,
 		accountSettingService,
 		filterService,
-		filterAnchorService,
 		labelService,
 		messageLabelService,
 	} = services;
@@ -292,23 +289,13 @@ export const enumerateCascadeEntities = async (
 		});
 	}
 
-	// Filter/FilterAnchor/Label/MessageLabel are accountConfig-scoped (RFC 034),
+	// Filter/Label/MessageLabel are accountConfig-scoped (RFC 034),
 	// not per sub-account, so — like AccountSetting and ThreadMessage above —
 	// they are enumerated once here rather than inside the per-account loop.
 	const filters = await filterService.listByAccountConfig(accountConfigId);
 	for (const filter of filters) {
 		entities.push({
 			entityType: "Filter",
-			key: { accountConfigId, filterId: filter.filterId },
-		});
-		if (!filter.hasAnchor) continue;
-		const anchor = await filterAnchorService.get(
-			accountConfigId,
-			filter.filterId,
-		);
-		if (!anchor) continue;
-		entities.push({
-			entityType: "FilterAnchor",
 			key: { accountConfigId, filterId: filter.filterId },
 		});
 	}
@@ -367,7 +354,6 @@ export const COVERED_ENTITY_TYPES = [
 	"Envelope",
 	"EnvelopeAddress",
 	"Filter",
-	"FilterAnchor",
 	"Label",
 	"Mailbox",
 	"MailboxLock",

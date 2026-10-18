@@ -56,41 +56,13 @@ describe("DrizzleMessageRepository", () => {
 			assert.ok(typeof item.updatedAt === "number");
 		});
 
-		test("writes no outbox row — there is nothing to index before the body", async () => {
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { eq } = await import("drizzle-orm");
-			const rows = await db
-				.select()
-				.from(outboxTable)
-				.where(eq(outboxTable.messageId, MESSAGE_ID));
-			assert.equal(rows.length, 0);
-		});
-
-		test("duplicate messageId throws CreateFailedConflictError and writes no extra outbox row", async () => {
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { eq } = await import("drizzle-orm");
-
-			const before = await db
-				.select()
-				.from(outboxTable)
-				.where(eq(outboxTable.messageId, MESSAGE_ID));
-
+		test("duplicate messageId throws CreateFailedConflictError", async () => {
 			await assert.rejects(
 				() => messageRepo.create(BASE_MESSAGE_INPUT),
 				(err: Error) => {
 					assert.equal(err.name, "CreateFailedConflictError");
 					return true;
 				},
-			);
-
-			const after = await db
-				.select()
-				.from(outboxTable)
-				.where(eq(outboxTable.messageId, MESSAGE_ID));
-			assert.equal(
-				after.length,
-				before.length,
-				"rolled-back create must not add an outbox row",
 			);
 		});
 	});
@@ -235,22 +207,7 @@ describe("DrizzleMessageRepository", () => {
 			);
 		});
 
-		test("updateForMove writes no move reindex event (completion-only)", async () => {
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { and, eq } = await import("drizzle-orm");
-			const rows = await db
-				.select()
-				.from(outboxTable)
-				.where(
-					and(
-						eq(outboxTable.messageId, MOVE_MESSAGE_ID),
-						eq(outboxTable.event, "message.moved"),
-					),
-				);
-			assert.equal(rows.length, 0);
-		});
-
-		test("updateUid completes the move and emits a move reindex event", async () => {
+		test("updateUid completes the move", async () => {
 			const completed = await messageRepo.updateUid(
 				MOVE_MESSAGE_ID,
 				99,
@@ -265,21 +222,6 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(read.uid, 99);
 			assert.equal(read.status, "active");
 			assert.equal(read.syncStatus, "synced");
-
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { and, eq } = await import("drizzle-orm");
-			const rows = await db
-				.select()
-				.from(outboxTable)
-				.where(
-					and(
-						eq(outboxTable.messageId, MOVE_MESSAGE_ID),
-						eq(outboxTable.event, "message.moved"),
-					),
-				);
-			assert.equal(rows.length, 1, "one move reindex event was enqueued");
-			assert.deepStrictEqual(rows[0].payload, { messageId: MOVE_MESSAGE_ID });
-			assert.equal(rows[0].processedAt, null, "event starts undrained");
 		});
 
 		test("updateUid drops the source uid and keeps the folder Undo restores to", async () => {
@@ -304,7 +246,7 @@ describe("DrizzleMessageRepository", () => {
 			);
 		});
 
-		test("updateUid throws NotFoundError and rolls back its reindex event", async () => {
+		test("updateUid throws NotFoundError for an unknown messageId", async () => {
 			const UNKNOWN = "00000000-0000-0000-9999-000000000002";
 			await assert.rejects(
 				() => messageRepo.updateUid(UNKNOWN, 1, DEST_MAILBOX_ID),
@@ -313,83 +255,10 @@ describe("DrizzleMessageRepository", () => {
 					return true;
 				},
 			);
-
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { eq } = await import("drizzle-orm");
-			const rows = await db
-				.select()
-				.from(outboxTable)
-				.where(eq(outboxTable.messageId, UNKNOWN));
-			assert.equal(rows.length, 0, "rolled-back move writes no outbox row");
 		});
 	});
 
-	describe("update — appends a body_synced outbox row per body write", () => {
-		const SYNC_MESSAGE_ID = "00000000-0000-0000-3333-000000000001";
-		const SYNC_MAILBOX_ID = "00000000-0000-0000-3333-000000000002";
-
-		const bodySyncedRows = async () => {
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { and, eq } = await import("drizzle-orm");
-			return db
-				.select()
-				.from(outboxTable)
-				.where(
-					and(
-						eq(outboxTable.messageId, SYNC_MESSAGE_ID),
-						eq(outboxTable.event, "message.body_synced"),
-					),
-				);
-		};
-
-		before(async () => {
-			await messageRepo.create({
-				messageId: SYNC_MESSAGE_ID,
-				mailboxId: SYNC_MAILBOX_ID,
-				uid: 11,
-				sequenceNumber: 1,
-				rfc822Size: 256,
-				internalDate: NOW,
-				envelopeId: deriveEnvelopeId(SYNC_MESSAGE_ID),
-				rootBodyPartId: deriveRootBodyPartId(SYNC_MESSAGE_ID),
-				status: "active" as const,
-				syncStatus: "synced" as const,
-			});
-		});
-
-		test("a body write appends one body_synced event", async () => {
-			assert.equal((await bodySyncedRows()).length, 0, "none before sync");
-			await messageRepo.update(SYNC_MESSAGE_ID, {
-				bodyStorageKey: "s3://bucket/body-a.eml",
-			});
-			const rows = await bodySyncedRows();
-			assert.equal(rows.length, 1, "one row for one body write");
-			assert.deepStrictEqual(rows[0].payload, { messageId: SYNC_MESSAGE_ID });
-			assert.equal(rows[0].processedAt, null, "event starts undrained");
-		});
-
-		test("each body write appends its own row (append-only, no suppression)", async () => {
-			await messageRepo.update(SYNC_MESSAGE_ID, {
-				bodyStorageKey: "s3://bucket/body-b.eml",
-			});
-			await messageRepo.update(SYNC_MESSAGE_ID, {
-				bodyStorageKey: "s3://bucket/body-c.eml",
-			});
-			assert.equal(
-				(await bodySyncedRows()).length,
-				3,
-				"three body writes leave three rows — coalescing is the worker's job",
-			);
-		});
-
-		test("a classification-only update (no bodyStorageKey) appends nothing", async () => {
-			const before = (await bodySyncedRows()).length;
-			await messageRepo.update(SYNC_MESSAGE_ID, { category: "personal" });
-			assert.equal((await bodySyncedRows()).length, before);
-		});
-	});
-
-	describe("deleteMany — subtree delete + message.removed outbox", () => {
+	describe("deleteMany — subtree delete", () => {
 		const DEL_MESSAGE_ID = "00000000-0000-0000-4444-000000000001";
 		const DEL_MAILBOX_ID = "00000000-0000-0000-4444-000000000002";
 		const DEL_ENVELOPE_ID = deriveEnvelopeId(DEL_MESSAGE_ID);
@@ -478,19 +347,6 @@ describe("DrizzleMessageRepository", () => {
 				).length,
 				0,
 			);
-		});
-
-		test("leaves exactly one undrained message.removed outbox row", async () => {
-			const { outboxTable } = await import("../schema/message-data.js");
-			const { eq } = await import("drizzle-orm");
-			const rows = await db
-				.select()
-				.from(outboxTable)
-				.where(eq(outboxTable.messageId, DEL_MESSAGE_ID));
-			assert.equal(rows.length, 1, "prior CDC rows are cleared");
-			assert.equal(rows[0].event, "message.removed");
-			assert.equal(rows[0].processedAt, null, "removal starts undrained");
-			assert.deepStrictEqual(rows[0].payload, { messageId: DEL_MESSAGE_ID });
 		});
 
 		test("deleteMany([]) is a no-op", async () => {

@@ -4,20 +4,20 @@
  * into removable chips. Only tokens the search APIs can actually honor are
  * recognized — everything else is left untouched as ordinary free-text words.
  *
- * The vocabulary is the search parameters `threadOperationsSearchThreads` and
- * `semanticSearchOperationsSemanticSearch` take, said in words:
+ * The vocabulary is the search parameters `threadOperationsSearchThreads`
+ * takes, said in words:
  *
- * | token                  | thread search      | semantic search        |
- * | ---------------------- | ------------------ | ---------------------- |
- * | `from:`                | `from`             | —                      |
- * | `subject:`             | `subject`          | —                      |
- * | `category:`            | `category[]`       | `category`             |
- * | `is:unread` / `is:read`| `unread`           | `isRead`               |
- * | `is:starred`           | `starred`          | `hasStars`             |
- * | `has:attachment`       | `attachments`      | `hasAttachment`        |
- * | `before:` / `after:`   | —                  | `sentDateTo` / `From`  |
- * | `in:`                  | route scope        | `mailboxId`            |
- * | `account:`             | —                  | —                      |
+ * | token                  | thread search      |
+ * | ---------------------- | ------------------ |
+ * | `from:`                | `from`             |
+ * | `subject:`             | `subject`          |
+ * | `category:`            | `category[]`       |
+ * | `is:unread` / `is:read`| `unread`           |
+ * | `is:starred`           | `starred`          |
+ * | `has:attachment`       | `attachments`      |
+ * | `before:` / `after:`   | —                  |
+ * | `in:`                  | route scope        |
+ * | `account:`             | —                  |
  *
  * A token an engine has no parameter for is applied client-side over the rows
  * that engine returned (`matchesSearchTokens` in `lib/brief.ts`), never dropped.
@@ -35,9 +35,8 @@
  *
  * Pure functions only: no React, no fetch — the name index is injected, not
  * fetched here. `MailListHeader` renders the chips and the callers that issue
- * search requests (`MailboxPane`, `DailyBrief`, `FlaggedList`,
- * `useSemanticSearch`) apply the parsed tokens to the params each engine's API
- * actually supports.
+ * search requests (`MailboxPane`, `DailyBrief`, `FlaggedList`) apply the
+ * parsed tokens to the params each engine's API actually supports.
  */
 
 import type { RemitImapMessageCategory } from "@remit/api-http-client/types.gen.ts";

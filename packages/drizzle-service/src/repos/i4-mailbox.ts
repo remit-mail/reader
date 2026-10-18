@@ -531,9 +531,7 @@ export class MailboxRepo implements IMailboxRepository {
 
 			await runInTransaction(this.db, async (tx) => {
 				// The primitive the rest of the codebase deletes mail with: nine
-				// per-message child tables plus one `message.removed` outbox row
-				// each, which is what clears the search index. A bespoke table
-				// list would orphan those nine and leave deleted mail searchable.
+				// per-message child tables. A bespoke table list would orphan them.
 				await deleteMessageSubtree(tx, messageIds);
 				await tx
 					.delete(threadMessageTable)

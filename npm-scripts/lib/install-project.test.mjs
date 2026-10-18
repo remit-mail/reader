@@ -407,17 +407,17 @@ describe("the entry on PATH follows the deployment's own wrapper", () => {
 			[
 				"#!/bin/sh",
 				'case "${1:-}" in',
-				"semantic) printf 'semantic\\n' ;;",
+				"vacation) printf 'vacation\\n' ;;",
 				"*) exit 1 ;;",
 				"esac",
 				"",
 			].join("\n"),
 		);
-		const typed = spawnSync(join(box.bindir, "remit"), ["semantic"], {
+		const typed = spawnSync(join(box.bindir, "remit"), ["vacation"], {
 			encoding: "utf8",
 		});
 		assert.equal(typed.status, 0, typed.stderr);
-		assert.equal(typed.stdout, "semantic\n");
+		assert.equal(typed.stdout, "vacation\n");
 	});
 });
 

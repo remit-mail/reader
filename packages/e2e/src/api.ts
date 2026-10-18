@@ -986,13 +986,8 @@ export class ApiClient {
 	}
 
 	/**
-	 * Seed a standing or temporary filter directly against the filter endpoint.
-	 * The organize sheet that creates one in the app widens the selection with a
-	 * semantic preview first; that vector index is deliberately not built on the
-	 * e2e lane, so the filter surface is exercised by seeding the same
-	 * `POST /accounts/{id}/filters` the sheet ultimately calls and driving the
-	 * Settings › Filters UI over the result. A purely-literal filter needs no
-	 * anchor, so no vectors.
+	 * Seed a standing or temporary filter directly against the filter endpoint:
+	 * the same `POST /accounts/{id}/filters` the organize sheet ultimately calls.
 	 */
 	createFilter(accountId: string, input: CreateFilterInput): Promise<Filter> {
 		return this.json("POST", `/accounts/${accountId}/filters`, {

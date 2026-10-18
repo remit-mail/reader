@@ -41,7 +41,6 @@ const HEALTHY_HEARTBEATS = [
 	fresh("imap-worker"),
 	fresh("smtp-worker"),
 	fresh("account-worker"),
-	fresh("search-index-worker"),
 ];
 
 const NOW = new Date("2026-07-27T10:00:00.000Z");

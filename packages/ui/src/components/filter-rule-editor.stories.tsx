@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { useMemo, useState } from "react";
-import { ClauseChip, ClauseEditor, WidenChip } from "./filter-clause-chip.js";
+import { ClauseChip, ClauseEditor } from "./filter-clause-chip.js";
 import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
 	type ClauseField,
@@ -16,7 +16,6 @@ import {
 	type LabelOption,
 	type PreviewCount,
 	type RuleClause,
-	type RuleMatchMode,
 } from "./filter-rule.js";
 import {
 	type ClauseEditState,
@@ -55,9 +54,6 @@ const READY = (count: number, stale?: boolean): PreviewCount => ({
  */
 function LiveEditor({
 	initialRule,
-	semanticAvailable = true,
-	initialMatchMode,
-	propertyRule,
 	labels = demoLabels,
 	initialClauseEdit,
 	folders = demoFolders,
@@ -69,14 +65,8 @@ function LiveEditor({
 	folders?: FolderTreeNode[];
 	/** The provider's hierarchy separator; `""` is a flat namespace. */
 	delimiter?: string;
-	semanticAvailable?: boolean;
-	/** Offers the match-mode control; omit to render the editor without one. */
-	initialMatchMode?: RuleMatchMode;
 	/** Opens on the clause form, for the stories about editing a clause. */
 	initialClauseEdit?: ClauseEditState;
-	/** What the properties mode prefills — the app derives this from the
-	 *  selection's senders and subjects. */
-	propertyRule?: FilterRule;
 	labels?: LabelOption[];
 	onCreateFolder?: (
 		name: string,
@@ -86,13 +76,12 @@ function LiveEditor({
 	onCreateLabel?: (name: string) => Promise<LabelOption>;
 }) {
 	const [rule, setRule] = useState<FilterRule>(initialRule);
-	const [matchMode, setMatchMode] = useState(initialMatchMode);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>(
 		initialClauseEdit,
 	);
 
 	const preview = useMemo<PreviewCount>(
-		() => READY(rule.clauses.length * 23 + (rule.widen ? 40 : 0)),
+		() => READY(rule.clauses.length * 23),
 		[rule],
 	);
 
@@ -143,34 +132,8 @@ function LiveEditor({
 			});
 		},
 		onCancelClause: () => setClauseEdit(undefined),
-		onAddWiden: () => {
-			setRule((r) => ({ ...r, widen: { anchorCount: 2 } }));
-		},
-		onRemoveWiden: () => {
-			setRule((r) => ({ ...r, widen: undefined }));
-		},
 		onChangeMatchOperator: (matchOperator) => {
 			setRule((r) => ({ ...r, matchOperator }));
-		},
-		onChangeMatchMode: (mode) => {
-			setMatchMode(mode);
-			// The app rebuilds only the matchers, keeping the action and scope; the
-			// story does the same with its two fixture rules.
-			setRule((r) =>
-				mode === "properties"
-					? {
-							...r,
-							clauses: (propertyRule ?? demoSenderFallbackRule).clauses,
-							matchOperator: "any",
-							widen: undefined,
-						}
-					: {
-							...r,
-							clauses: initialRule.clauses,
-							matchOperator: initialRule.matchOperator,
-							widen: initialRule.widen ?? { anchorCount: 2 },
-						},
-			);
 		},
 		onChangeMove: (moveMailboxId) =>
 			setRule((r) => ({ ...r, moveMailboxId: moveMailboxId || undefined })),
@@ -188,8 +151,6 @@ function LiveEditor({
 			delimiter={delimiter}
 			labels={labels}
 			preview={preview}
-			semanticAvailable={semanticAvailable}
-			matchMode={matchMode}
 			clauseEdit={clauseEdit}
 			clauseSuggestions={
 				clauseEdit
@@ -213,26 +174,7 @@ export const Interactive: Story = {
 	render: () => <LiveEditor initialRule={demoRule} />,
 };
 
-/**
- * The Organize surface, where the rule can be matched either way. It opens on
- * "Anything similar" — semantic is still the default — and switching to
- * "Its properties" drops the widen for the clauses derived from the messages
- * that were selected. Switch back and the widen returns.
- */
-export const MatchModeSemanticDefault: Story = {
-	render: () => (
-		<LiveEditor
-			initialRule={{ ...demoRule, clauses: [] }}
-			initialMatchMode="similar"
-			propertyRule={demoSenderFallbackRule}
-		/>
-	),
-};
-
-/**
- * Properties matching with one sender behind the whole selection — a single
- * `From` chip, no semantics involved. Editable like any other chip.
- */
+/** One sender behind the whole selection — a single `From` chip, editable like any other. */
 export const MatchOnSenderProperty: Story = {
 	render: () => (
 		<LiveEditor
@@ -242,24 +184,16 @@ export const MatchOnSenderProperty: Story = {
 				scope: "once",
 				name: "",
 			}}
-			initialMatchMode="properties"
-			propertyRule={demoSenderFallbackRule}
 		/>
 	),
 };
 
 /**
- * Properties matching when the senders differ: the prefill falls back to the
- * part the selected subjects share, so the rule still starts somewhere useful.
+ * When the senders differ, the prefill falls back to the part the selected
+ * subjects share, so the rule still starts somewhere useful.
  */
 export const MatchOnSubjectProperty: Story = {
-	render: () => (
-		<LiveEditor
-			initialRule={demoSubjectPrefillRule}
-			initialMatchMode="properties"
-			propertyRule={demoSubjectPrefillRule}
-		/>
-	),
+	render: () => <LiveEditor initialRule={demoSubjectPrefillRule} />,
 };
 
 /**
@@ -271,8 +205,7 @@ export const MatchOnSubjectProperty: Story = {
 export const ClauseValueSuggestions: Story = {
 	render: () => (
 		<LiveEditor
-			initialRule={{ ...demoRule, widen: undefined }}
-			semanticAvailable={false}
+			initialRule={demoRule}
 			initialClauseEdit={{ mode: "add", draft: { field: "From", value: "" } }}
 		/>
 	),
@@ -285,8 +218,7 @@ export const ClauseValueSuggestions: Story = {
 export const DomainClauseSuggestions: Story = {
 	render: () => (
 		<LiveEditor
-			initialRule={{ ...demoRule, widen: undefined }}
-			semanticAvailable={false}
+			initialRule={demoRule}
 			initialClauseEdit={{
 				mode: "add",
 				draft: { field: "FromDomain", value: "" },
@@ -303,8 +235,7 @@ export const DomainClauseSuggestions: Story = {
 export const ClauseValueNoMatches: Story = {
 	render: () => (
 		<LiveEditor
-			initialRule={{ ...demoRule, widen: undefined }}
-			semanticAvailable={false}
+			initialRule={demoRule}
 			initialClauseEdit={{
 				mode: "add",
 				draft: { field: "From", value: "someone@nowhere.test" },
@@ -320,8 +251,7 @@ export const ClauseValueNoMatches: Story = {
 export const SubjectClauseStaysFreeText: Story = {
 	render: () => (
 		<LiveEditor
-			initialRule={{ ...demoRule, widen: undefined }}
-			semanticAvailable={false}
+			initialRule={demoRule}
 			initialClauseEdit={{
 				mode: "add",
 				draft: { field: "Subject", value: "receipt" },
@@ -725,7 +655,7 @@ export const AnyOfTheseClauses: Story = {
 	render: () => <LiveEditor initialRule={demoVocabularyRule} />,
 };
 
-/** A one-time rule — no name, no widen, the commit reads "Apply now". */
+/** A one-time rule — no name, the commit reads "Apply now". */
 export const OneTimeMove: Story = {
 	args: {
 		rule: {
@@ -739,13 +669,12 @@ export const OneTimeMove: Story = {
 	},
 };
 
-/** Standing scope with a widen — the "keep doing this" rule. */
-export const StandingWithWiden: Story = {
+/** Standing scope — the "keep doing this" rule. */
+export const Standing: Story = {
 	args: {
 		rule: demoRule,
 		folders: demoFolders,
 		preview: READY(47),
-		semanticAvailable: true,
 	},
 };
 
@@ -760,57 +689,24 @@ export const UntilADate: Story = {
 		},
 		folders: demoFolders,
 		preview: READY(31),
-		semanticAvailable: true,
 	},
 };
 
 /**
- * The sender-fallback (#251) as chips: the derived From clauses are ordinary
- * visible, editable chips, not an invisible substitution.
+ * Clauses derived from the selection (#251) as chips: ordinary visible,
+ * editable chips, not an invisible substitution.
  */
-export const SenderFallbackChips: Story = {
-	render: () => (
-		<LiveEditor
-			initialRule={demoSenderFallbackRule}
-			semanticAvailable={false}
-		/>
-	),
+export const DerivedSenderChips: Story = {
+	render: () => <LiveEditor initialRule={demoSenderFallbackRule} />,
 };
 
 /**
- * The deployment cannot serve the widen (RFC 038 D4): the "…and similar" add is
- * not offered and the rule matches by its literal clauses only.
+ * Editing a persisted filter (reader #266): scope and expiry stay live and
+ * editable — a standing filter can move to "until a date" and back, or its date
+ * can change. "Just once" drops out of the scope toggle since no saved filter
+ * can hold it.
  */
-export const SemanticUnavailable: Story = {
-	args: {
-		rule: { ...demoRule, widen: undefined },
-		folders: demoFolders,
-		preview: READY(24),
-		semanticAvailable: false,
-	},
-};
-
-/**
- * A standing rule that carries an anchor this deployment cannot evaluate — the
- * widen chip lists as inactive and nothing claims similarity is running.
- */
-export const DegradedStandingWiden: Story = {
-	args: {
-		rule: { ...demoRule, widen: { anchorCount: 2, inactive: true } },
-		folders: demoFolders,
-		preview: READY(19),
-		semanticAvailable: false,
-	},
-};
-
-/**
- * Editing a persisted filter (RFC 038 D6, reader #266): scope and expiry stay
- * live and editable — a standing filter can move to "until a date" and back,
- * or its date can change. The semantic anchor is the one thing fixed at
- * creation: the widen chip renders display-only with a one-line note, and
- * "Just once" drops out of the scope toggle since no saved filter can hold it.
- */
-export const AnchorLocked: Story = {
+export const Persisted: Story = {
 	args: {
 		rule: {
 			...demoRule,
@@ -820,8 +716,7 @@ export const AnchorLocked: Story = {
 		},
 		folders: demoFolders,
 		preview: READY(31),
-		semanticAvailable: false,
-		anchorLocked: true,
+		persisted: true,
 	},
 };
 
@@ -835,7 +730,6 @@ export const BlockedEmpty: Story = {
 		},
 		folders: demoFolders,
 		preview: READY(0),
-		semanticAvailable: true,
 	},
 };
 
@@ -845,7 +739,6 @@ export const PreviewLoading: Story = {
 		rule: demoRule,
 		folders: demoFolders,
 		preview: { status: "loading" },
-		semanticAvailable: true,
 	},
 };
 
@@ -859,7 +752,6 @@ export const PreviewStale: Story = {
 		rule: demoRule,
 		folders: demoFolders,
 		preview: READY(47, true),
-		semanticAvailable: true,
 	},
 };
 
@@ -869,13 +761,12 @@ export const PreviewError: Story = {
 		rule: demoRule,
 		folders: demoFolders,
 		preview: { status: "error", reason: "Couldn't reach the server to count." },
-		semanticAvailable: true,
 	},
 };
 
 type ChipStory = StoryObj;
 
-/** Every clause and widen chip in isolation, including edit and inactive states. */
+/** Every clause chip in isolation, including the edit state. */
 export const ChipGallery: ChipStory = {
 	render: () => {
 		const fields: ClauseField[] = [
@@ -908,8 +799,6 @@ export const ChipGallery: ChipStory = {
 						onEdit={() => {}}
 						onRemove={() => {}}
 					/>
-					<WidenChip widen={{ anchorCount: 2 }} onRemove={() => {}} />
-					<WidenChip widen={{ anchorCount: 2, inactive: true }} />
 				</div>
 				<ClauseEditor
 					draft={{ field: "ListId", value: "python-dev.python.org" }}
@@ -922,9 +811,6 @@ export const ChipGallery: ChipStory = {
 				<div className="space-y-2">
 					<FilterPreviewCount preview={{ status: "loading" }} />
 					<FilterPreviewCount preview={READY(0)} />
-					<FilterPreviewCount
-						preview={{ status: "ready", count: 0, indexEmpty: true }}
-					/>
 					<FilterPreviewCount preview={READY(412)} />
 					<FilterPreviewCount preview={READY(47, true)} />
 					<FilterPreviewCount

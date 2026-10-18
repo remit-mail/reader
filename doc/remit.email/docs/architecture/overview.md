@@ -12,11 +12,11 @@ Reader talks to your mailbox over IMAP and SMTP. A small set of queue workers sy
 - **caddy** terminates TLS and is the only thing publishing host ports.
 - **apisix** checks the identity JWT on every API request, with the route table baked in at build time.
 - **backend** serves the API. The same image runs the one-shot migrator.
-- **imap-worker, smtp-worker, account-worker, search-index-worker** poll the queues. They sync mail and push changes back to IMAP. They send what you write, and they index for search.
+- **imap-worker, smtp-worker, account-worker** poll the queues. They sync mail and push changes back to IMAP, and they send what you write.
 - **scheduler** enqueues a sync for every account on a timer, so mail arrives with no browser open.
 - **queue** is a SQLite-backed sidecar speaking the SQS wire protocol.
 
-All relational state, messages, accounts and identities included, lives in one SQLite file; the vector store keeps a second one. Message bodies are a disk cache and re-sync from IMAP, so the two database files are the whole state worth protecting.
+All relational state, messages, accounts and identities included, lives in one SQLite file. Message bodies are a disk cache and re-sync from IMAP, so the database file is the whole state worth protecting.
 
 ## The boundaries are contracts
 

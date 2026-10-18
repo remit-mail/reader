@@ -37,7 +37,7 @@ export interface MobileSearchViewProps {
 	/** Recent searches shown when the query is empty. */
 	recentSearches?: string[];
 	onPickRecent?: (query: string) => void;
-	/** Grouped result sections (e.g. "Top matches", "Related"). */
+	/** Grouped result sections (e.g. "Top matches"). */
 	sections?: SearchResultSection[];
 	loading?: boolean;
 	onSelectResult?: (result: SearchResult) => void;

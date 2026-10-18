@@ -14,11 +14,7 @@
  * The default Playwright project is Desktop Chrome (≥1024 wide), so the desktop
  * two-pane layout renders — no viewport override.
  *
- * Search is driven through the literal `threads/search` path (a committed `q=`
- * URL), never the semantic engine: the e2e lane builds no vector index and runs
- * the deterministic in-process embedder rather than the HuggingFace model
- * (#219), so `/search/semantic` returns empty here. Nothing here depends on that
- * path.
+ * Search is driven through the `threads/search` path (a committed `q=` URL).
  */
 import type { Locator, Page } from "@playwright/test";
 import { ApiClient, waitFor } from "../src/api.js";

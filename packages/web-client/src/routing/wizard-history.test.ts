@@ -25,7 +25,7 @@ const VERBS: readonly Verb[] = [
 	"markRead",
 	"organize",
 ];
-const MODES: readonly MatchMode[] = ["selected", "similar", "properties"];
+const MODES: readonly MatchMode[] = ["selected", "properties"];
 const SCOPES: readonly (RuleScope | undefined)[] = [
 	undefined,
 	"once",

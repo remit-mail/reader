@@ -46,14 +46,6 @@ export interface SearchConversion {
 	targetAccountId?: string;
 	/** The search carried free-text terms, kept as a `HasWords` clause. */
 	keptTerms: boolean;
-	/**
-	 * The filter this conversion builds is always literal-only — free text has no
-	 * anchor message for a semantic widen — so the search's semantic "similar mail"
-	 * reach is dropped whenever the search had one (RFC 038 D5). True exactly when
-	 * free text was kept AND the search surfaced semantically-similar mail; on a
-	 * deployment with no semantic reach there was nothing to drop, so no note.
-	 */
-	droppedSemantic: boolean;
 }
 
 /**
@@ -74,5 +66,4 @@ export const searchConversionNotice = (
 ): SearchConversionNotice => ({
 	scopedOutFolder: conversion.scopedOut?.label,
 	droppedFacets: conversion.droppedFacets.map((facet) => facet.label),
-	droppedSemantic: conversion.droppedSemantic,
 });

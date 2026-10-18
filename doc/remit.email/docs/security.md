@@ -21,7 +21,7 @@ Two secrets carry the deployment. `BETTER_AUTH_SECRET` signs the identity JWTs. 
 
 ## What leaves the box
 
-Message content moves between your box and your mail server, over IMAP and SMTP. The box computes classification and search embeddings itself, so no third party reads your mail. Beyond your mail server, the stack calls out for container images, for the update manifest, and to whatever alert webhook you configure. Under `--tls-mode tunnel`, traffic to your browser passes Cloudflare's edge; every other TLS mode keeps that path direct.
+Message content moves between your box and your mail server, over IMAP and SMTP. The box computes classification and search itself, so no third party reads your mail. Beyond your mail server, the stack calls out for container images, for the update manifest, and to whatever alert webhook you configure. Under `--tls-mode tunnel`, traffic to your browser passes Cloudflare's edge; every other TLS mode keeps that path direct.
 
 The logs hold the same line: a message body, a subject or a sender never gets a log field of its own. A sender can still surface inside an error message or a stack trace on a failure line.
 

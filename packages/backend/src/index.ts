@@ -84,7 +84,7 @@ const api = new OpenAPIBackend({
 	// `hasAttachment`) and forward them downstream. Without coercion a string
 	// `limit` reaches ElectroDB's `.go({ limit })` and DynamoDB rejects the
 	// numeric Limit field ("STRING_VALUE cannot be converted to Integer"), 500ing
-	// /addresses/search and /search/semantic.
+	// /addresses/search.
 	coerceTypes: true,
 });
 

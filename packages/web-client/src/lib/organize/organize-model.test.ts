@@ -53,31 +53,17 @@ describe("hasCommittableAction", () => {
 });
 
 describe("buildOrganizeInput", () => {
-	it("carries the anchor and defaults both actions to None when neither is set", () => {
-		const input = buildOrganizeInput(baseDraft({ anchorMessageId: "msg-1" }));
-		assert.equal(input.anchorMessageId, "msg-1");
+	it("defaults both actions to None when neither is set", () => {
+		const input = buildOrganizeInput(baseDraft());
 		assert.equal(input.actionMailboxId, NO_ACTION);
 		assert.equal(input.actionLabelId, NO_ACTION);
 		assert.equal(input.matchOperator, "And");
 		assert.deepEqual(input.literalClauses, []);
 	});
 
-	it("omits anchorMessageId entirely for a purely-literal input", () => {
-		const input = buildOrganizeInput(
-			baseDraft({
-				literalClauses: [{ field: "From", value: "airbnb.com" }],
-			}),
-		);
-		assert.equal("anchorMessageId" in input, false);
-	});
-
 	it("carries the move and label actions independently (issue #26)", () => {
 		const input = buildOrganizeInput(
-			baseDraft({
-				anchorMessageId: "msg-1",
-				moveMailboxId: "mbx-9",
-				labelId: "lbl-9",
-			}),
+			baseDraft({ moveMailboxId: "mbx-9", labelId: "lbl-9" }),
 		);
 		assert.equal(input.actionMailboxId, "mbx-9");
 		assert.equal(input.actionLabelId, "lbl-9");
@@ -87,7 +73,7 @@ describe("buildOrganizeInput", () => {
 describe("buildCreateFilterInput", () => {
 	it("builds a Standing filter with no expiresAt", () => {
 		const input = buildCreateFilterInput(
-			baseDraft({ anchorMessageId: "msg-1", moveMailboxId: "mbx-2" }),
+			baseDraft({ moveMailboxId: "mbx-2" }),
 			"standing",
 			"Travel",
 		);
@@ -96,7 +82,6 @@ describe("buildCreateFilterInput", () => {
 		assert.equal(input.name, "Travel");
 		assert.equal(input.actionMailboxId, "mbx-2");
 		assert.equal(input.actionLabelId, NO_ACTION);
-		assert.equal(input.anchorMessageId, "msg-1");
 	});
 
 	it("builds a Temporary filter that carries expiresAt", () => {
@@ -143,8 +128,8 @@ describe("organizeScopeFor", () => {
 		);
 	});
 
-	it("reads either widened door at scope once as all-like-these", () => {
-		assert.equal(organizeScopeFor({ mode: "similar" }), "all-like-these");
+	it("reads the properties door at scope once as all-like-these", () => {
+		assert.equal(organizeScopeFor({ mode: "properties" }), "all-like-these");
 		assert.equal(
 			organizeScopeFor({ mode: "properties", ruleScope: "once" }),
 			"all-like-these",
@@ -152,7 +137,7 @@ describe("organizeScopeFor", () => {
 	});
 
 	it("reads the two persisting scopes off the scope answer alone", () => {
-		for (const mode of ["selected", "similar", "properties"] as const) {
+		for (const mode of ["selected", "properties"] as const) {
 			assert.equal(
 				organizeScopeFor({ mode, ruleScope: "standing" }),
 				"standing",
@@ -194,24 +179,6 @@ describe("buildWizardDraft", () => {
 			});
 			assert.equal(draft.expiresAt, undefined);
 		}
-	});
-
-	it("anchors on the ticked messages only while the similar door is matching", () => {
-		const anchored = buildWizardDraft({
-			mode: "similar",
-			anchorMessageId: "msg-1",
-			clauses: [],
-			matchOperator: "all",
-		});
-		assert.equal(anchored.anchorMessageId, "msg-1");
-
-		const literal = buildWizardDraft({
-			mode: "properties",
-			anchorMessageId: "msg-1",
-			clauses,
-			matchOperator: "any",
-		});
-		assert.equal("anchorMessageId" in literal, false);
 	});
 
 	it("maps the wizard's operator onto the API's", () => {

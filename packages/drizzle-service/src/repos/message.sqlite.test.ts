@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
-import { and, eq, isNull } from "drizzle-orm";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -8,15 +7,13 @@ import {
 import {
 	type MessageDataSchema,
 	messageDataSchema,
-	outboxTable,
 } from "../schema/message-data.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import { DrizzleMessageRepository } from "./message.js";
 
 // Runs the ported message repo against a real better-sqlite3 database
 // (RFC 036 D1). Exercises the SQLite-specific seams: the SAVEPOINT-bracketed
-// transaction, the sqlite outbox table (text-json payload), the unique-
-// violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
+// transaction, the unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 
 describe("DrizzleMessageRepository (sqlite)", () => {
 	let db: SqliteTestDb<MessageDataSchema>;
@@ -52,21 +49,11 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		await close();
 	});
 
-	test("create returns a MessageItem and writes no outbox row", async () => {
+	test("create returns a MessageItem", async () => {
 		const item = await repo.create(BASE_INPUT);
 		assert.equal(item.messageId, MESSAGE_ID);
 		assert.equal(item.status, "active");
 		assert.equal(item.hasListUnsubscribe, true);
-
-		const rows = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.equal(
-			rows.length,
-			0,
-			"a message with no body yet has nothing to index",
-		);
 	});
 
 	test("boolean and json columns round-trip", async () => {
@@ -122,25 +109,10 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		assert.equal(afterUpdate.placementVerdict?.action, "MoveToInbox");
 	});
 
-	test("duplicate messageId throws CreateFailedConflictError and appends no outbox row", async () => {
-		const before = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-
+	test("duplicate messageId throws CreateFailedConflictError", async () => {
 		await assert.rejects(
 			() => repo.create(BASE_INPUT),
 			(err: Error) => err.name === "CreateFailedConflictError",
-		);
-
-		const afterRows = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.equal(
-			afterRows.length,
-			before.length,
-			"rolled-back create must not append an outbox row",
 		);
 	});
 
@@ -283,74 +255,8 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		});
 	});
 
-	test("requestReembed queues a forced re-index for each message that still exists", async () => {
-		const movedRows = () =>
-			db
-				.select()
-				.from(outboxTable)
-				.where(
-					and(
-						eq(outboxTable.messageId, MESSAGE_ID),
-						eq(outboxTable.event, "message.moved"),
-						isNull(outboxTable.processedAt),
-					),
-				);
-		const pendingBefore = (await movedRows()).length;
-
-		const queued = await repo.requestReembed([
-			MESSAGE_ID,
-			"00000000-0000-0000-2222-0000000000fe",
-		]);
-
-		assert.deepEqual(queued, { queued: 1, alreadyQueued: 0 });
-		assert.equal((await movedRows()).length, pendingBefore + 1);
-		const orphan = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, "00000000-0000-0000-2222-0000000000fe"));
-		assert.equal(orphan.length, 0);
-	});
-
-	test("requestReembed skips a message whose forced re-index is still pending", async () => {
-		const pendingBefore = await db
-			.select()
-			.from(outboxTable)
-			.where(
-				and(
-					eq(outboxTable.messageId, MESSAGE_ID),
-					eq(outboxTable.event, "message.moved"),
-					isNull(outboxTable.processedAt),
-				),
-			);
-		assert.ok(pendingBefore.length > 0);
-
-		const again = await repo.requestReembed([MESSAGE_ID]);
-
-		assert.deepEqual(again, { queued: 0, alreadyQueued: 1 });
-		const pendingAfter = await db
-			.select()
-			.from(outboxTable)
-			.where(
-				and(
-					eq(outboxTable.messageId, MESSAGE_ID),
-					eq(outboxTable.event, "message.moved"),
-					isNull(outboxTable.processedAt),
-				),
-			);
-		assert.equal(pendingAfter.length, pendingBefore.length);
-	});
-
-	test("delete removes the message and appends a removal outbox row", async () => {
+	test("delete removes the message", async () => {
 		await repo.delete(MESSAGE_ID);
 		await assert.rejects(() => repo.get(MESSAGE_ID));
-
-		const rows = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.ok(
-			rows.some((r) => r.event === "message.removed"),
-			"delete must append a message.removed outbox row",
-		);
 	});
 });

@@ -73,8 +73,7 @@ const groupByType = (
 /**
  * Relational equivalent of the DynamoDB BatchWriteItem cascade: delete every
  * enumerated row for an account/tenant in one transaction. Message subtrees
- * (message + nine child tables) are deleted set-wise by message id and emit a
- * `message.removed` outbox row each for search-index cleanup; the remaining
+ * (message + nine child tables) are deleted set-wise by message id; the remaining
  * entity types are deleted by their enumerated primary keys. AccountConfig is
  * never deleted here — the caller removes it last through its repository, the
  * cascade-in-progress marker.

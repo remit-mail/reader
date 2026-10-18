@@ -5,7 +5,6 @@ import {
 	backApplyFilter,
 	buildOrganizeMatchDeps,
 	buildOrganizeMoveService,
-	type FilterBackApplyDeps,
 	isFilterJob,
 	matchOrganize,
 	ORGANIZE_MATCH_LIMIT,
@@ -20,7 +19,6 @@ export interface ProcessOrganizeJobDeps {
 	client?: RemitClient;
 	matchDeps?: OrganizeMatchDeps;
 	moveService?: ApplyOrganizeDeps["moveService"];
-	embedder?: FilterBackApplyDeps["embedder"];
 }
 
 interface OrganizeOutcome {
@@ -29,7 +27,6 @@ interface OrganizeOutcome {
 	applied: number;
 	failed: number;
 	failures: string[];
-	semanticUnavailable: boolean;
 }
 
 const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
@@ -38,7 +35,6 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
 	applied: 0,
 	failed: 0,
 	failures: [],
-	semanticUnavailable: false,
 });
 
 /**
@@ -71,7 +67,6 @@ const runSnapshot = async (
 		applied,
 		failed,
 		failures,
-		semanticUnavailable: match.semanticUnavailable,
 	};
 };
 
@@ -84,7 +79,7 @@ const runSnapshot = async (
  *
  * Reuses the shared matcher (so the applied set equals what preview returned)
  * and the idempotent apply plumbing; `appliedByFilterId` is never written and no
- * Filter/FilterAnchor row is ever created. Both back-apply actions run here: the
+ * Filter row is ever created. Both back-apply actions run here: the
  * additive label upsert and the exclusive folder move, the latter through the
  * same local-first placement mover body sync uses (`buildOrganizeMoveService`),
  * so a redelivered job re-applies both idempotently.
@@ -117,7 +112,7 @@ export const processOrganizeJob = async (
 		const moveService = deps.moveService ?? buildOrganizeMoveService(client);
 		const outcome = isFilterJob(job)
 			? await backApplyFilter(
-					{ client, matchDeps, moveService, embedder: deps.embedder },
+					{ client, matchDeps, moveService },
 					accountConfigId,
 					job.filterId,
 				).then((result) =>
@@ -140,7 +135,7 @@ export const processOrganizeJob = async (
 			return;
 		}
 
-		const { matched, applied, failed, failures, semanticUnavailable } = outcome;
+		const { matched, applied, failed, failures } = outcome;
 		await client.organizeJobRequest.update(organizeJobId, {
 			state: "Complete",
 			matchedCount: matched,
@@ -156,7 +151,6 @@ export const processOrganizeJob = async (
 				matched,
 				applied,
 				failed,
-				semanticUnavailable,
 			},
 			"Organize back-apply complete",
 		);

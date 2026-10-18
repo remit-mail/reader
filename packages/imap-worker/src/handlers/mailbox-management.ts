@@ -293,8 +293,7 @@ const handleRename = async (
 						// folder's mail. Removing the root row alone is the orphaning
 						// bug: every descendant recorded the same intent (D6) and would
 						// be left `pending` at a path that does not exist, with its mail
-						// stranded out of every reader and still in the search index
-						// (D8).
+						// stranded out of every reader (D8).
 						if (error instanceof FolderGoneUpstreamError) {
 							log.info(
 								{ accountId, mailboxId, oldPath, intent: "rename" },

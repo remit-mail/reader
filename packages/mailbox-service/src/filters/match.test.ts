@@ -3,9 +3,7 @@ import { describe, it } from "node:test";
 import type { FilterItem } from "@remit/data-ports";
 import { FilterClauseField, FilterMatchOperator } from "@remit/domain-enums";
 import {
-	buildMatchText,
 	clauseMatches,
-	cosineSimilarity,
 	type FilterMessage,
 	literalClausesMatch,
 	literalClauseTerms,
@@ -197,7 +195,7 @@ describe("clauseMatches", () => {
 });
 
 describe("literalClausesMatch", () => {
-	it("passes vacuously with no clauses (a purely-semantic filter)", () => {
+	it("passes vacuously with no clauses", () => {
 		assert.equal(
 			literalClausesMatch([], FilterMatchOperator.And, message()),
 			true,
@@ -239,27 +237,6 @@ describe("literalClausesMatch", () => {
 				message(),
 			),
 			false,
-		);
-	});
-});
-
-describe("cosineSimilarity", () => {
-	it("scores identical vectors as 1", () => {
-		assert.equal(cosineSimilarity([1, 2, 3], [1, 2, 3]), 1);
-	});
-
-	it("scores orthogonal vectors as 0", () => {
-		assert.equal(cosineSimilarity([1, 0], [0, 1]), 0);
-	});
-
-	it("scores a zero vector as 0 rather than dividing by zero", () => {
-		assert.equal(cosineSimilarity([0, 0], [1, 1]), 0);
-	});
-
-	it("throws on a dimension mismatch instead of scoring incomparable vectors", () => {
-		assert.throws(
-			() => cosineSimilarity([1, 2], [1, 2, 3]),
-			/dimension mismatch/,
 		);
 	});
 });
@@ -308,20 +285,6 @@ describe("selectMoveWinner", () => {
 			"filter-a",
 			"A still wins: its actionChangedAt (10:00) beats B's (09:00), even though B's ruleChangedAt (11:00) is later",
 		);
-	});
-});
-
-describe("buildMatchText", () => {
-	it("joins subject and body and bounds the length", () => {
-		const text = buildMatchText(message({ subject: "hello", text: "world" }));
-		assert.equal(text, "hello\nworld");
-	});
-
-	it("caps at 512 characters", () => {
-		const text = buildMatchText(
-			message({ subject: "", text: "x".repeat(1000) }),
-		);
-		assert.equal(text.length, 512);
 	});
 });
 

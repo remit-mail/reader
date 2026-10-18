@@ -6,7 +6,6 @@ import type {
 	AccountSettingItem,
 	AddressItem,
 	ConfigImportItem,
-	FilterAnchorItem,
 	FilterItem,
 	LabelItem,
 	MailboxItem,
@@ -30,7 +29,6 @@ import {
 	makeAccount,
 	makeAccountConfig,
 	makeAddress,
-	makeAnchor,
 	makeFilter,
 	makeJunkOnlyFlaggedAddress,
 	makeLabel,
@@ -41,7 +39,7 @@ import {
 	PASSWORD_ACCOUNT_ID,
 	suggestable,
 } from "./fixtures.js";
-import { ANCHOR_EMBEDDING_PENDING, importConfig } from "./import.js";
+import { importConfig } from "./import.js";
 import type { ConfigImportDeps } from "./import-repositories.js";
 
 const IDENTITY = {
@@ -53,7 +51,6 @@ const IDENTITY = {
 
 const TARGET_CONFIG_ID = "1a2b3c4d5e6f7a8b9c0d1e2f3";
 const TARGET_USER_ID = "9f8e7d6c-5b4a-4938-8271-605f4e3d2c1b";
-const EMBEDDING_ID = "amazon.titan-embed-text-v2:0@1024";
 
 const INBOX_ID = "mbx-inbox";
 const SENT_ID = "mbx-sent";
@@ -74,7 +71,6 @@ interface Store {
 	mailboxes: MailboxItem[];
 	labels: LabelItem[];
 	filters: FilterItem[];
-	anchors: FilterAnchorItem[];
 	addresses: AddressItem[];
 	imports: ConfigImportItem[];
 	/** Set to make the next write of this kind fail, for the abort path. */
@@ -92,7 +88,6 @@ const emptyStore = (): Store => ({
 	mailboxes: [],
 	labels: [],
 	filters: [],
-	anchors: [],
 	addresses: [],
 	imports: [],
 });
@@ -108,7 +103,6 @@ const storeFromFixture = (fixture: ConfigFixture): Store => ({
 	mailboxes: [...fixture.mailboxes],
 	labels: [...fixture.labels],
 	filters: [...fixture.filters],
-	anchors: [...fixture.anchors],
 	addresses: [...fixture.addresses],
 	imports: [],
 });
@@ -243,19 +237,6 @@ const repositoriesOf = (store: Store, accountConfigId: string): any => {
 				store.filters[at] = next;
 				return next;
 			},
-		},
-		filterAnchor: {
-			put: async (input: Partial<FilterAnchorItem> & { filterId: string }) => {
-				const row = makeAnchor({ ...input, accountConfigId });
-				store.anchors = [
-					...store.anchors.filter(
-						(anchor) => anchor.filterId !== input.filterId,
-					),
-					row,
-				];
-				return row;
-			},
-			listByAccountConfig: async () => [...store.anchors],
 		},
 		address: {
 			// Both reads, so the stub can tell them apart: the suggest listing
@@ -409,7 +390,6 @@ const transactionOver =
 			mailboxes: [...store.mailboxes],
 			labels: [...store.labels],
 			filters: [...store.filters],
-			anchors: [...store.anchors],
 			addresses: [...store.addresses],
 			imports: [...store.imports],
 		};
@@ -419,23 +399,16 @@ const transactionOver =
 		});
 	};
 
-const depsOf = (
-	store: Store,
-	accountConfigId: string,
-	embed = true,
-): ConfigImportDeps => ({
+const depsOf = (store: Store, accountConfigId: string): ConfigImportDeps => ({
 	repositories: repositoriesOf(store, accountConfigId),
 	appointFolderRole: appointFolderRoleInto(store),
 	transaction: transactionOver(store),
-	embedAnchor: embed
-		? async () => ({ embedding: [0.11, 0.22, 0.33], embeddingId: EMBEDDING_ID })
-		: undefined,
 	now: () => NOW,
 });
 
 // ---------------------------------------------------------------------------
 // A configuration worth carrying across: two accounts, both auth types, folder
-// roles, per-folder overrides, labels, a literal and a semantic filter, and two
+// roles, per-folder overrides, labels, two filters, and two
 // flagged senders.
 // ---------------------------------------------------------------------------
 
@@ -543,14 +516,12 @@ const sourceFixture = (): ConfigFixture => ({
 			actionMailboxId: INVOICES_ID,
 		}),
 		makeFilter({
-			filterId: "flt-semantic",
-			name: "Anything like this release note",
+			filterId: "flt-release",
+			name: "Release notes",
 			scope: "Temporary",
 			expiresAt: "2026-12-31T23:59:59+01:00",
-			hasAnchor: true,
 		}),
 	],
-	anchors: [makeAnchor({ filterId: "flt-semantic" })],
 	addresses: [
 		makeAddress({
 			addressId: "adr-bank",
@@ -1568,67 +1539,6 @@ test("a filter filing into an account the file does not carry is refused", async
 
 	assert.equal(report.valid, false);
 	assert.equal(report.errors[0]?.code, "unknown_account");
-});
-
-test("an anchor this deployment cannot embed is stored as text for the repair to pick up", async () => {
-	const document = await exportSource();
-	const store = emptyStore();
-
-	const outcome = await importConfig(depsOf(store, TARGET_CONFIG_ID, false), {
-		accountConfigId: TARGET_CONFIG_ID,
-		userId: TARGET_USER_ID,
-		document,
-		mode: "apply",
-		onExisting: "abort",
-	});
-	const report = reportOf(outcome);
-
-	const anchor = store.anchors[0];
-	assert.equal(anchor.anchorEmbeddingId, ANCHOR_EMBEDDING_PENDING);
-	assert.deepEqual(anchor.anchorEmbedding, []);
-	assert.equal(
-		anchor.anchorSourceText,
-		"the release note this filter was drawn from",
-	);
-	assert.equal(
-		report.warnings.some((warning) => warning.code === "anchor_not_embedded"),
-		true,
-	);
-});
-
-test("an embedder that fails costs the anchor its vector, not the import", async () => {
-	const document = await exportSource();
-	const store = emptyStore();
-	const deps = depsOf(store, TARGET_CONFIG_ID);
-
-	const report = reportOf(
-		await importConfig(
-			{
-				...deps,
-				embedAnchor: () => Promise.reject(new Error("embedder unavailable")),
-			},
-			{
-				accountConfigId: TARGET_CONFIG_ID,
-				userId: TARGET_USER_ID,
-				document,
-				mode: "apply",
-				onExisting: "abort",
-			},
-		),
-	);
-
-	assert.equal(report.applied, true);
-	assert.deepEqual(report.errors, []);
-	assert.equal(
-		report.warnings.some((warning) => warning.code === "anchor_not_embedded"),
-		true,
-	);
-	assert.equal(store.anchors[0]?.anchorEmbeddingId, ANCHOR_EMBEDDING_PENDING);
-	assert.equal(
-		store.anchors[0]?.anchorSourceText,
-		"the release note this filter was drawn from",
-	);
-	assert.equal(store.accounts.length > 0, true);
 });
 
 test("the dry run names the same folders and credentials the apply does", async () => {

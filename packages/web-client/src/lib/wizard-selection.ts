@@ -2,7 +2,7 @@ import type { ThreadRowData, WizardMessage } from "@remit/ui";
 
 /** A ticked row, as the wizard's samples and its clause prefill read it. */
 export interface WizardSelectionMessage extends WizardMessage {
-	/** Sender address — the widen's literal fallback and the prefill match on it. */
+	/** Sender address — the properties prefill matches on it. */
 	email: string;
 	/**
 	 * Owning account, which a bulk run splits its batches by (#872) — the bulk

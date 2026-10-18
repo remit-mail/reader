@@ -217,8 +217,7 @@ export function FlaggedList({
 		[rows, onOpenThread],
 	);
 
-	// The two-engine results panel, whose semantic hits are in no list at all —
-	// each one carries the thread it belongs to.
+	// The results panel; each result carries the thread it belongs to.
 	const openResult = useCallback(
 		(result: SearchResult) => {
 			const threadId =
@@ -316,7 +315,7 @@ export function FlaggedList({
 			// A committed search renders in this view's own rows (`rows` already
 			// narrows to the query above), so the multi-select toolbar stays
 			// reachable exactly as it does on the mailbox route (#212). The
-			// two-engine panel stays for the typing/uncommitted state only.
+			// results panel stays for the typing/uncommitted state only.
 			searchResultsInBody
 		>
 			<ThreadListInteraction

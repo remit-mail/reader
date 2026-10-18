@@ -197,7 +197,7 @@ describe("buildSenderIntel", () => {
 describe("buildAuthenticityIntel", () => {
 	test("caution when there is no authenticity signal", () => {
 		const thread = makeThread({ fromEmail: "alice@example.com" });
-		const result = buildAuthenticityIntel(thread, 0);
+		const result = buildAuthenticityIntel(thread);
 		assert.equal(result.verdict, "caution");
 		assert.match(result.summary, /can't verify the sender/);
 	});
@@ -211,7 +211,7 @@ describe("buildAuthenticityIntel", () => {
 				dkimMismatch: false,
 			},
 		} as Partial<RemitImapThreadMessageResponse>);
-		const result = buildAuthenticityIntel(thread, 0);
+		const result = buildAuthenticityIntel(thread);
 		assert.equal(result.verdict, "aligned");
 	});
 
@@ -225,19 +225,15 @@ describe("buildAuthenticityIntel", () => {
 				dkimMismatch: true,
 			},
 		} as Partial<RemitImapThreadMessageResponse>);
-		const result = buildAuthenticityIntel(thread, 3);
+		const result = buildAuthenticityIntel(thread);
 		assert.equal(result.verdict, "mismatch");
 		assert.equal(result.addressUnreadable, undefined);
-		assert.equal(result.similarCount, 3);
 	});
 
 	test("no user-facing copy names the verification mechanism", () => {
 		const verdicts = [
-			buildAuthenticityIntel(makeThread(), 0),
-			buildAuthenticityIntel(
-				makeThread({ fromEmail: "x@no-signal.example" }),
-				0,
-			),
+			buildAuthenticityIntel(makeThread()),
+			buildAuthenticityIntel(makeThread({ fromEmail: "x@no-signal.example" })),
 			buildAuthenticityIntel(
 				makeThread({
 					fromEmail: "a@bank.example",
@@ -247,7 +243,6 @@ describe("buildAuthenticityIntel", () => {
 						dkimMismatch: true,
 					},
 				} as Partial<RemitImapThreadMessageResponse>),
-				0,
 			),
 		];
 		for (const v of verdicts) {
@@ -277,7 +272,7 @@ describe("buildAuthenticityIntel", () => {
 		} as Partial<RemitImapThreadMessageResponse>);
 
 		test("is never presented as verified", () => {
-			const result = buildAuthenticityIntel(infoMedics, 0);
+			const result = buildAuthenticityIntel(infoMedics);
 			assert.notEqual(result.verdict, "aligned");
 			assert.doesNotMatch(result.summary, /We verified/i);
 		});
@@ -287,7 +282,7 @@ describe("buildAuthenticityIntel", () => {
 		// signed by a relay or ESP infrastructure domain must not read as
 		// "the name looks nothing like <that other party>".
 		test("leads with the concern, naming the domain the name was actually compared to, and the link destination", () => {
-			const result = buildAuthenticityIntel(infoMedics, 0);
+			const result = buildAuthenticityIntel(infoMedics);
 			assert.equal(result.verdict, "caution");
 			assert.match(result.summary, /^The name it shows/);
 			assert.match(result.summary, /"InfoMedics"/);
@@ -310,7 +305,6 @@ describe("buildAuthenticityIntel", () => {
 						offDomainLinkDomains: [],
 					},
 				} as Partial<RemitImapThreadMessageResponse>),
-				0,
 			);
 			assert.equal(result.verdict, "caution");
 			assert.match(result.summary, /only looks like/);
@@ -329,7 +323,6 @@ describe("buildAuthenticityIntel", () => {
 						offDomainLinkDomains: [],
 					},
 				} as Partial<RemitImapThreadMessageResponse>),
-				0,
 			);
 			assert.equal(result.verdict, "caution");
 			assert.match(result.summary, /"matthijs@ischen\.nl"/);
@@ -349,7 +342,6 @@ describe("buildAuthenticityIntel", () => {
 						offDomainLinkDomains: [],
 					},
 				} as Partial<RemitImapThreadMessageResponse>),
-				0,
 			);
 			assert.equal(result.verdict, "aligned");
 		});
@@ -364,7 +356,6 @@ describe("buildAuthenticityIntel", () => {
 						dkimMismatch: false,
 					},
 				} as Partial<RemitImapThreadMessageResponse>),
-				0,
 			);
 			assert.equal(result.verdict, "aligned");
 		});
@@ -381,7 +372,6 @@ describe("buildAuthenticityIntel", () => {
 						offDomainLinkDomains: "elsewhere.example",
 					},
 				} as unknown as Partial<RemitImapThreadMessageResponse>),
-				0,
 			);
 			assert.equal(result.verdict, "aligned");
 		});
@@ -392,7 +382,7 @@ describe("buildAuthenticityIntel", () => {
 			const thread = makeThread({
 				fromEmail: "missing_mailbox@missing_domain",
 			});
-			const result = buildAuthenticityIntel(thread, 0);
+			const result = buildAuthenticityIntel(thread);
 			assert.equal(result.verdict, "mismatch");
 			assert.equal(result.addressUnreadable, true);
 		});
@@ -405,7 +395,7 @@ describe("buildAuthenticityIntel", () => {
 					dkimMismatch: false,
 				},
 			} as Partial<RemitImapThreadMessageResponse>);
-			const result = buildAuthenticityIntel(thread, 0);
+			const result = buildAuthenticityIntel(thread);
 			assert.equal(result.verdict, "mismatch");
 			assert.equal(result.addressUnreadable, true);
 		});

@@ -16,7 +16,7 @@ export interface LabelChipProps {
 
 /**
  * A label applied to a message (issue #26) — a colored dot plus its name, the
- * same shape a category badge or the widen chip takes. `color` renders from
+ * same shape a category badge takes. `color` renders from
  * the literal palette (never a semantic tone): a label's color is a user
  * choice, not a status the design system assigns meaning to.
  */

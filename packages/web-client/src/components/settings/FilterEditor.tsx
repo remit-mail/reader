@@ -38,26 +38,17 @@ interface FilterEditorProps {
 	/** The provider hierarchy separator the destination tree nests on. */
 	delimiter?: string;
 	labels: LabelOption[];
-	/**
-	 * This deployment ships no vector pipeline, so a semantic anchor cannot be
-	 * evaluated (RFC 038 D4). The filter's widen chip lists inactive and the rule
-	 * matches by its literal clauses only.
-	 */
-	semanticUnavailable?: boolean;
 	onClose: () => void;
 }
 
 /**
  * Editing a standing filter in the same chip editor the Organize surface uses
  * (RFC 038 D6). The row's persisted rule opens in the editor — clauses, match
- * operator, move action, scope, expiry, and the semantic anchor as a widen
- * chip. Saving a predicate, action, scope, or expiry change bumps
+ * operator, move action, scope, and expiry. Saving a predicate, action, scope, or expiry change bumps
  * `ruleChangedAt` and offers, never runs, a re-back-apply over existing mail;
  * a cosmetic rename does neither (RFC 034 Decision 3.2, reader #266). The
  * re-apply carries exactly the previewed predicate and is held behind the
- * same settled-count commit gate as creation. The anchor stays fixed at
- * creation regardless — repointing it would silently change what the filter
- * matches, which deserves a new filter instead.
+ * same settled-count commit gate as creation.
  */
 export function FilterEditor({
 	accountId,
@@ -65,13 +56,9 @@ export function FilterEditor({
 	folders,
 	delimiter,
 	labels,
-	semanticUnavailable = false,
 	onClose,
 }: FilterEditorProps) {
-	const original = useMemo(
-		() => filterToRule(filter, semanticUnavailable),
-		[filter, semanticUnavailable],
-	);
+	const original = useMemo(() => filterToRule(filter), [filter]);
 	const [rule, setRule] = useState<FilterRule>(original);
 	const [clauseEdit, setClauseEdit] = useState<ClauseEditState | undefined>();
 	const [offerReapply, setOfferReapply] = useState(false);
@@ -225,15 +212,8 @@ export function FilterEditor({
 			delimiter={delimiter}
 			labels={labels}
 			preview={preview}
-			// The update endpoint carries no anchor field at all (reader #266), so a
-			// widen can be neither added nor removed here: the "…and similar" add is
-			// never offered, and the existing chip is display-only (no
-			// onRemoveWiden — anchorLocked enforces that regardless).
-			// `semanticUnavailable` only drives the chip's inactive styling via
-			// `filterToRule`.
-			semanticAvailable={false}
 			clauseFields={SUPPORTED_CLAUSE_FIELDS}
-			anchorLocked
+			persisted
 			clauseEdit={clauseEdit}
 			onStartAddClause={startAddClause}
 			onStartEditClause={startEditClause}

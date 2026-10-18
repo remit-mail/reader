@@ -54,7 +54,7 @@ export const GENERIC_SPAM_ACTION_FAILURE =
 	"This message could not be processed. Please try again. If it keeps failing, report it.";
 
 /**
- * The server's designed failure text names the message by embedding its raw
+ * The server's designed failure text names the message by putting its raw
  * id as a possessive subject — e.g. "Message 4kv0xxyfhg4dhzqvxd105v840's move
  * to Junk has not settled yet; try again in a moment." (message ids here are
  * 25-char base36, `translator.generate()` in `packages/data-ports/src/id.ts`

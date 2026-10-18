@@ -6,9 +6,7 @@ import type {
 	UpdateFilterInput as UpdateFilterRequestBody,
 } from "@remit/api-openapi-types";
 import type {
-	CreateFilterAnchorInput,
 	CreateOrganizeJobRequestInput,
-	CreateFilterInput as FilterAnchorTxCreateInput,
 	FilterItem,
 } from "@remit/data-ports";
 import {
@@ -17,7 +15,6 @@ import {
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
-import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { deriveAccountConfigId } from "../auth.js";
@@ -28,11 +25,8 @@ import {
 } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import {
-	createFilterWithAnchor,
-	type FilterCrudDeps,
 	FilterOperations,
 	pickFilterUpdate,
-	rejectAnchorMutation,
 	resolveFilterScopeExpiry,
 	resolveFilterUpdate,
 } from "./filter.js";
@@ -60,7 +54,6 @@ describe("pickFilterUpdate", () => {
 			name: "Receipts",
 			ttl: 123,
 			disabledReason: "None",
-			hasAnchor: true,
 			ruleChangedAt: 999,
 			filterId: "sneaky",
 		};
@@ -267,32 +260,6 @@ describe("resolveFilterUpdate (#1103)", () => {
 	});
 });
 
-describe("rejectAnchorMutation", () => {
-	it("throws a 400 when the body carries anchorMessageId", () => {
-		assert.throws(
-			() => rejectAnchorMutation({ anchorMessageId: "msg-1" }),
-			(error: unknown) => {
-				assert.equal((error as { statusCode?: number }).statusCode, 400);
-				assert.match(
-					(error as Error).message,
-					/anchor can't change after creation/,
-				);
-				return true;
-			},
-		);
-	});
-
-	it("does not throw for an ordinary predicate/action/scope patch", () => {
-		assert.doesNotThrow(() =>
-			rejectAnchorMutation({
-				name: "Receipts",
-				scope: "Temporary",
-				expiresAt: "2027-01-01T00:00:00+00:00",
-			}),
-		);
-	});
-});
-
 describe("resolveFilterScopeExpiry (reader #266)", () => {
 	it("moves Standing to Temporary given a future expiresAt", () => {
 		const resolved = resolveFilterScopeExpiry(
@@ -391,144 +358,6 @@ describe("resolveFilterScopeExpiry (reader #266)", () => {
 	});
 });
 
-describe("createFilterWithAnchor (#351)", () => {
-	const ACCOUNT_CONFIG_ID = "acct-1";
-
-	const baseInput: CreateFilterInput = {
-		name: "Booking confirmations",
-		scope: FilterScope.Standing,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [],
-		actionLabelId: "None",
-		actionMailboxId: "None",
-	};
-
-	const baseFilter: FilterItem = {
-		filterId: "filter-1",
-		accountConfigId: ACCOUNT_CONFIG_ID,
-		name: baseInput.name,
-		scope: FilterScope.Standing,
-		state: FilterState.Active,
-		disabledReason: "None",
-		hasAnchor: false,
-		ruleChangedAt: 1_700_000_000,
-		actionChangedAt: 1_700_000_000,
-		matchOperator: FilterMatchOperator.And,
-		literalClauses: [],
-		actionLabelId: "None",
-		actionMailboxId: "None",
-		createdAt: 1_700_000_000_000,
-		updatedAt: 1_700_000_000_000,
-	};
-
-	const anchorPayload: AnchorPayload = {
-		anchorEmbedding: [0.1, 0.2, 0.3],
-		anchorEmbeddingId: "amazon.titan-embed-text-v2:0@1024",
-		anchorSourceText: "Your booking is confirmed",
-	};
-
-	type AnchorArg = Omit<CreateFilterAnchorInput, "filterId"> | null;
-	const createWithAnchorMock = (
-		impl: (
-			filter: FilterAnchorTxCreateInput,
-			anchor: AnchorArg,
-		) => Promise<FilterItem>,
-	) => mock.fn(impl);
-
-	it("creates a purely-literal filter through one atomic call when there is no anchor message", async () => {
-		const createWithAnchor = createWithAnchorMock(async () => baseFilter);
-		const deps: FilterCrudDeps = {
-			filterAnchorTransaction: { createWithAnchor },
-			buildAnchor: mock.fn(async () => null),
-		};
-
-		const filter = await createFilterWithAnchor(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			baseInput,
-		);
-
-		assert.equal(filter, baseFilter);
-		assert.equal(createWithAnchor.mock.calls.length, 1);
-		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
-		assert.equal(filterArg.hasAnchor, false);
-		assert.equal(anchorArg, null);
-	});
-
-	it("passes the built anchor and the new hasAnchor flag to the same atomic call", async () => {
-		const createWithAnchor = createWithAnchorMock(async () => ({
-			...baseFilter,
-			hasAnchor: true,
-		}));
-		const buildAnchor = mock.fn(async () => anchorPayload);
-		const deps: FilterCrudDeps = {
-			filterAnchorTransaction: { createWithAnchor },
-			buildAnchor,
-		};
-		const input: CreateFilterInput = {
-			...baseInput,
-			anchorMessageId: "msg-1",
-		};
-
-		const filter = await createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input);
-
-		assert.equal(filter.hasAnchor, true);
-		assert.equal(buildAnchor.mock.calls.length, 1);
-		assert.deepEqual(buildAnchor.mock.calls[0].arguments, [
-			ACCOUNT_CONFIG_ID,
-			"msg-1",
-		]);
-
-		assert.equal(createWithAnchor.mock.calls.length, 1);
-		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
-		assert.equal(filterArg.hasAnchor, true);
-		assert.deepEqual(anchorArg, {
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			anchorMessageId: "msg-1",
-			anchorEmbedding: anchorPayload.anchorEmbedding,
-			anchorEmbeddingId: anchorPayload.anchorEmbeddingId,
-			anchorSourceText: anchorPayload.anchorSourceText,
-		});
-	});
-
-	it("creates a purely-literal filter when the anchor message has no indexed chunks", async () => {
-		const createWithAnchor = createWithAnchorMock(async () => baseFilter);
-		const deps: FilterCrudDeps = {
-			filterAnchorTransaction: { createWithAnchor },
-			buildAnchor: mock.fn(async () => null),
-		};
-		const input: CreateFilterInput = {
-			...baseInput,
-			anchorMessageId: "msg-with-no-chunks",
-		};
-
-		await createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input);
-
-		const [filterArg, anchorArg] = createWithAnchor.mock.calls[0].arguments;
-		assert.equal(filterArg.hasAnchor, false);
-		assert.equal(anchorArg, null);
-	});
-
-	it("propagates a failed atomic write as a failed create request, not a silent partial success", async () => {
-		const createWithAnchor = createWithAnchorMock(async () => {
-			throw new Error("anchor write failed");
-		});
-		const deps: FilterCrudDeps = {
-			filterAnchorTransaction: { createWithAnchor },
-			buildAnchor: mock.fn(async () => anchorPayload),
-		};
-		const input: CreateFilterInput = {
-			...baseInput,
-			anchorMessageId: "msg-1",
-		};
-
-		await assert.rejects(
-			createFilterWithAnchor(deps, ACCOUNT_CONFIG_ID, input),
-			/anchor write failed/,
-		);
-	});
-});
-
 describe("createFilter queues the new filter's pass over the inbox (#1354)", () => {
 	const SUB = "cognito-sub-1354";
 	const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -541,7 +370,6 @@ describe("createFilter queues the new filter's pass over the inbox (#1354)", () 
 		scope: FilterScope.Standing,
 		state: FilterState.Active,
 		disabledReason: "None",
-		hasAnchor: false,
 		ruleChangedAt: 1,
 		actionChangedAt: 1,
 		matchOperator: FilterMatchOperator.And,
@@ -581,7 +409,7 @@ describe("createFilter queues the new filter's pass over the inbox (#1354)", () 
 					syncStatus: "synced",
 				}),
 			},
-			filterAnchorTransaction: { createWithAnchor: async () => filter },
+			filter: { create: async () => filter },
 			organizeJobRequest: {
 				create: async (input: CreateOrganizeJobRequestInput) => {
 					jobs.push(input);
@@ -636,7 +464,6 @@ describe("createFilter queues the new filter's pass over the inbox (#1354)", () 
 
 		await createFilter({});
 
-		assert.equal(jobs[0]?.anchorMessageId, "None");
 		assert.deepEqual(jobs[0]?.literalClauses, []);
 		assert.equal(jobs[0]?.actionLabelId, "None");
 		assert.equal(jobs[0]?.actionMailboxId, "None");

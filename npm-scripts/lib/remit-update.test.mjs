@@ -73,13 +73,10 @@ const justNow = () => new Date().toISOString();
 const agedBy = (seconds) => new Date(Date.now() - seconds * 1000).toISOString();
 
 const ALL_SERVICES =
-	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker";
+	"queue backend caddy web apisix imap-worker smtp-worker account-worker";
 
 // The always-on stack the shipped compose file declares — every service with no
-// `profiles:` key. `search-index-worker` is not one of them: it sits behind the
-// `semantic` profile and only runs where an operator asked for vector search
-// (issue #1068), so an update on a stopped box brings it back no more than it
-// brings back the tunnel agent or the metrics containers. The stand-in answers `config --services` from that file, so
+// `profiles:` key. The stand-in answers `config --services` from that file, so
 // this is the list the wrapper derives its held-back set from, and "the whole
 // always-on stack" means this rather than whatever a sandbox happens to seed.
 // A service added to the deployment fails the check that compares the two.
@@ -569,13 +566,7 @@ describe("the stand-in's service list is the compose file's", () => {
 
 	it("hides a service behind an inactive profile, the way compose does", () => {
 		const box = sandbox();
-		for (const service of [
-			"tunnel",
-			"backup",
-			"dozzle",
-			"victoriametrics",
-			"search-index-worker",
-		]) {
+		for (const service of ["tunnel", "backup", "dozzle", "victoriametrics"]) {
 			assert.ok(
 				!composeServices(box).includes(service),
 				`${service} is listed on a deployment whose profile is off`,
@@ -599,7 +590,6 @@ describe("the stand-in's service list is the compose file's", () => {
 				...COMPOSE_ALWAYS_ON,
 				"backup",
 				"dozzle",
-				"search-index-worker",
 				"tunnel",
 				"victoriametrics",
 			].sort(),
@@ -648,7 +638,6 @@ describe("remit update — the happy path", () => {
 			.filter((l) => l.startsWith("compose up -d ") && l.includes("apisix"));
 		assert.equal(commit.length, 1);
 		assert.ok(commit[0].includes("web"));
-		assert.ok(commit[0].includes("search-index-worker"));
 	});
 
 	it("clears the breadcrumb once the outcome is terminal", () => {
@@ -753,8 +742,8 @@ const RELEASE_COMPOSE = readFileSync(COMPOSE, "utf8").replace(
 		"services:",
 		"  search-preview:",
 		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
-		"  semantic-indexer:",
-		'    profiles: ["semantic"]',
+		"  nightly-report:",
+		'    profiles: ["reports"]',
 		"    image: ghcr.io/remit-mail/reader/web:${REMIT_TAG:-latest}",
 	].join("\n"),
 );
@@ -809,7 +798,7 @@ describe("remit update — the release's wrapper and compose file", () => {
 	it("leaves the compose file declaring the release's services", () => {
 		assert.ok(composeServices(box).includes("search-preview"));
 		assert.ok(
-			composeServices(box, ["--profile", "*"]).includes("semantic-indexer"),
+			composeServices(box, ["--profile", "*"]).includes("nightly-report"),
 		);
 	});
 });
@@ -1370,10 +1359,6 @@ describe("the restore", () => {
 	it("installs nothing, so it does not need the network it may be recovering from", () => {
 		assert.ok(!restore.includes("apk add"));
 	});
-
-	it("tolerates an instance with no vector store", () => {
-		assert.ok(restore.includes('if [ -f "$snap/vec.db" ]'));
-	});
 });
 
 describe("the snapshot", () => {
@@ -1391,7 +1376,6 @@ describe("the snapshot", () => {
 	it("goes through the shared VACUUM INTO primitive", () => {
 		assert.ok(snap.includes(". /snapshot-db.sh"));
 		assert.ok(snap.includes("snapshot_db /data/sqlite/remit.db"));
-		assert.ok(snap.includes("snapshot_db /data/sqlite/vec.db"));
 	});
 });
 
@@ -3465,90 +3449,6 @@ describe("remit check-categories", () => {
 		assert.equal(rejected.status, 1);
 		assert.match(rejected.stderr, /takes no arguments/);
 	});
-});
-
-// `remit check-index` (#455). Which embedder wrote the vectors that are in the
-// index is only answerable in the worker's own image: the weight precision is
-// part of the embedding identity and is set there, so the same environment read
-// from the backend image names an embedder that never wrote a vector here.
-describe("remit check-index", () => {
-	const box = sandbox({ scenario: { probe: "ok" } });
-	const result = box.run(["check-index"]);
-
-	it("runs the report in the worker's image, behind its own profile", () => {
-		assert.equal(result.status, 0, result.stderr);
-		assert.ok(
-			box
-				.log()
-				.split("\n")
-				.some(
-					(line) =>
-						line ===
-						"compose run --rm --no-deps search-index-worker node index-report.mjs",
-				),
-			`no index report run in:\n${box.log()}`,
-		);
-	});
-
-	it("starts no dependency, so a report writes nothing", () => {
-		const log = box.log();
-		assert.ok(!log.includes("compose up"), log);
-		assert.ok(!log.includes("volume-init"), log);
-	});
-
-	it("takes no arguments", () => {
-		const rejected = box.run(["check-index", "--repair"]);
-		assert.equal(rejected.status, 1);
-		assert.match(rejected.stderr, /takes no arguments/);
-	});
-});
-
-describe("remit reembed", () => {
-	const box = sandbox({
-		scenario: { probe: "ok" },
-		dotenv: ["SEARCH_EMBEDDING_PROVIDER=local"],
-	});
-	const result = box.run(["reembed", "--model", "local:MiniLM@384"]);
-
-	it("queues the re-embed from the worker's image", () => {
-		assert.equal(result.status, 0, result.stderr);
-		assert.ok(
-			box
-				.log()
-				.split("\n")
-				.some(
-					(line) =>
-						line ===
-						"compose run --rm --no-deps search-index-worker node index-reembed.mjs --model local:MiniLM@384",
-				),
-			`no re-embed run in:\n${box.log()}`,
-		);
-	});
-
-	it("starts no dependency", () => {
-		const log = box.log();
-		assert.ok(!log.includes("compose up"), log);
-		assert.ok(!log.includes("volume-init"), log);
-	});
-
-	it("refuses an option it does not know", () => {
-		const rejected = box.run(["reembed", "--repair"]);
-		assert.equal(rejected.status, 1);
-		assert.match(rejected.stderr, /unknown option '--repair'/);
-	});
-
-	for (const provider of ["off", "deterministic"]) {
-		it(`refuses while the provider is ${provider}, and queues nothing`, () => {
-			const off = sandbox({
-				scenario: { probe: "ok" },
-				dotenv: [`SEARCH_EMBEDDING_PROVIDER=${provider}`],
-			});
-			const rejected = off.run(["reembed"]);
-			assert.equal(rejected.status, 1);
-			assert.match(rejected.stderr, /reembed: semantic search is off/);
-			assert.ok(!off.log().includes("index-reembed.mjs"), off.log());
-		});
-	}
 });
 
 describe("shellcheck", () => {

@@ -6,7 +6,11 @@ import {
 	serializeConfigJsonSchema,
 } from "./json-schema.js";
 import { artifactSchemaPath, committedSchemaPath } from "./schema-artifact.js";
-import { CONFIG_SCHEMA_ARTIFACT_PATH, CONFIG_SCHEMA_ID } from "./version.js";
+import {
+	CONFIG_SCHEMA_ARTIFACT_PATH,
+	CONFIG_SCHEMA_ID,
+	CURRENT_SCHEMA_VERSION,
+} from "./version.js";
 
 type JsonObject = Record<string, unknown>;
 
@@ -24,7 +28,10 @@ test("the emitted schema pins the envelope and closes the document", () => {
 	const properties = emitted.properties as JsonObject;
 
 	assert.deepEqual((properties.kind as JsonObject).const, "reader.config");
-	assert.deepEqual((properties.schemaVersion as JsonObject).const, 1);
+	assert.deepEqual(
+		(properties.schemaVersion as JsonObject).const,
+		CURRENT_SCHEMA_VERSION,
+	);
 	assert.equal(emitted.additionalProperties, false);
 	assert.deepEqual(emitted.required, [
 		"kind",

@@ -19,7 +19,6 @@ import {
 } from "lucide-react";
 import { Fragment, type ReactNode, useEffect, useId, useRef } from "react";
 import { cn } from "../lib/cn.js";
-import { semanticOffReason } from "../lib/semantic-off.js";
 import {
 	backExits,
 	crossAccountMatchReason,
@@ -39,9 +38,8 @@ import {
 	type RunOutcome,
 	type RunState,
 	runCopy,
-	type SampleEmptyReason,
+	SAMPLE_EMPTY_COPY,
 	type StepId,
-	sampleEmptyCopy,
 	stepIndex,
 	stepLabel,
 	unreadableDraftClauses,
@@ -210,12 +208,10 @@ export interface SelectionSampleProps {
 	/**
 	 * The server's count of what the match covers (#477 5.3), carrying whether it
 	 * is still moving so nothing commits against a number that is about to change.
-	 * `uncounted` is the widened door, which carries no count until it has run.
+	 * `uncounted` is the properties door, which carries no count until it has run.
 	 */
 	count: MatchCount;
 	label: string;
-	/** Why there are no rows. Defaults to nothing matching, never to a bare empty state. */
-	emptyReason?: SampleEmptyReason;
 	/**
 	 * The rows are still being fetched. No rows yet is not the same answer as no
 	 * rows at all, and "nothing matches" beside a server count that says otherwise
@@ -239,18 +235,17 @@ const sampleFooter = (count: MatchCount, shown: number): string => {
  * count that came back empty may say nothing matches (#477 3.5).
  *
  * A body-text clause is the case that makes the difference load-bearing: the
- * vector-free matcher refuses to evaluate it, so there is no count and no rows,
+ * organize matcher refuses to evaluate it, so there is no count and no rows,
  * and "nothing matches this yet" is not merely unexplained but wrong — the rule
  * matches, once a saved rule is what runs it.
  */
 const sampleEmptyLine = (
 	count: MatchCount,
-	emptyReason: SampleEmptyReason | undefined,
 	loading: boolean | undefined,
 ): string => {
 	if (loading) return "Fetching the messages this covers…";
 	if (count.status === "error") return count.reason;
-	return sampleEmptyCopy(emptyReason ?? "noMatch");
+	return SAMPLE_EMPTY_COPY;
 };
 
 /**
@@ -262,7 +257,6 @@ export function SelectionSample({
 	messages,
 	count,
 	label,
-	emptyReason,
 	loading,
 }: SelectionSampleProps) {
 	return (
@@ -272,7 +266,7 @@ export function SelectionSample({
 			</h2>
 			{messages.length === 0 ? (
 				<p className="px-3 py-4 text-xs text-fg-muted">
-					{sampleEmptyLine(count, emptyReason, loading)}
+					{sampleEmptyLine(count, loading)}
 				</p>
 			) : (
 				<>
@@ -369,40 +363,20 @@ export interface MatchStepProps {
 	mode: MatchMode;
 	/**
 	 * The one account this selection belongs to, absent when it spans several
-	 * (#523). Both widened doors are counted through a preview that account
-	 * answers, so without one they are withheld and the step states the
+	 * (#523). The properties door is counted through a preview that account
+	 * answers, so without one it is withheld and the step states the
 	 * restriction — the ticked rows are their own match and stay on offer.
 	 */
 	accountId?: string;
 	/**
-	 * Answers the door. Typed to the three doors rather than to every mode, so
+	 * Answers the door. Typed to the doors rather than to every mode, so
 	 * no driver can set `escalated` from a screen — the list escalates a
 	 * selection, the wizard never does.
 	 */
 	onModeChange: (mode: MatchDoor) => void;
 	/**
-	 * Similar-mail matching cannot run right now. A runtime state, not a property
-	 * of the deployment: the door stays pressable and dimmed.
-	 */
-	semanticUnavailable?: boolean;
-	/**
-	 * Semantic search is off on this instance (#1068) — a deployment setting, so
-	 * the door is dimmed for a reason an operator can act on rather than a
-	 * failure the user should retry. It supersedes the runtime copy above.
-	 */
-	semanticOff?: boolean;
-	/**
-	 * What the mail server said when the widen was asked to run and failed. A
-	 * failure is a reason the door cannot run, so it dims the door like any other
-	 * — with the server's own words under it rather than a generic line.
-	 */
-	semanticErrorDetail?: string;
-	/** The dimmed door was pressed and the senders were filled in instead. */
-	semanticFallbackTaken?: boolean;
-	onSemanticFallback: () => void;
-	/**
 	 * What the escalated predicate covers, in the words the list escalated it
-	 * with. Read only while the mode is `escalated`, where it replaces the three
+	 * with. Read only while the mode is `escalated`, where it replaces the
 	 * doors: the predicate is the match already.
 	 */
 	escalatedScope?: string;
@@ -414,11 +388,6 @@ export function MatchStepBody({
 	mode,
 	accountId,
 	onModeChange,
-	semanticUnavailable,
-	semanticOff,
-	semanticErrorDetail,
-	semanticFallbackTaken,
-	onSemanticFallback,
 	escalatedScope,
 	sample,
 }: MatchStepProps) {
@@ -439,7 +408,6 @@ export function MatchStepBody({
 	}
 	const doors = matchDoorsFor(accountId);
 	const widened = doors.length > 1;
-	const widenBlocked = semanticOff || semanticUnavailable;
 	return (
 		<>
 			<div className="space-y-2">
@@ -454,38 +422,6 @@ export function MatchStepBody({
 					title={matchDoorLabel("selected", selectedCount)}
 					description={matchDoorHint("selected")}
 				/>
-				{widened && (
-					<ChoiceCard
-						selected={mode === "similar"}
-						unavailable={widenBlocked}
-						onSelect={
-							widenBlocked ? onSemanticFallback : () => onModeChange("similar")
-						}
-						title={matchDoorLabel("similar", selectedCount)}
-						description={matchDoorHint("similar")}
-					>
-						{semanticOff ? (
-							<p role="status" className="px-1 text-2xs text-fg-subtle">
-								{semanticOffReason}
-								{semanticFallbackTaken && " Matching on the senders instead."}
-							</p>
-						) : (
-							<>
-								{semanticErrorDetail && (
-									<p role="status" className="px-1 text-2xs text-danger">
-										Couldn't find similar messages: {semanticErrorDetail}
-									</p>
-								)}
-								{semanticFallbackTaken && (
-									<p role="status" className="px-1 text-2xs text-fg-subtle">
-										Similar-mail matching is unavailable right now — matching on
-										the senders instead.
-									</p>
-								)}
-							</>
-						)}
-					</ChoiceCard>
-				)}
 				{widened && (
 					<ChoiceCard
 						selected={mode === "properties"}
@@ -525,8 +461,6 @@ export interface PropertiesStepProps {
 	clauseSuggestions?: readonly Suggestion[];
 	/** What converting a search left behind, when a query is what opened this. */
 	conversionNotice?: SearchConversionNotice;
-	/** The similar door was dimmed and these are the senders it fell back to. */
-	semanticFallbackTaken?: boolean;
 	sample: SelectionSampleProps;
 }
 
@@ -549,19 +483,11 @@ export function PropertiesStepBody({
 	clauseFields,
 	clauseSuggestions,
 	conversionNotice,
-	semanticFallbackTaken,
 	sample,
 }: PropertiesStepProps) {
 	const join = matchJoinWord(matchOperator);
 	return (
 		<div className="space-y-4">
-			{semanticFallbackTaken && (
-				<p role="status" className="px-1 text-xs text-fg-muted">
-					Similar-mail matching is unavailable right now. These are the senders
-					of the messages you picked.
-				</p>
-			)}
-
 			{conversionNotice && (
 				<SearchConversionNoticeView notice={conversionNotice} />
 			)}
@@ -701,9 +627,7 @@ export function FolderStepBody({
 export interface RuleStepProps {
 	/**
 	 * The rule so far. The scope and its stop date are answered here; the rest is
-	 * read, because whether a one-time apply can serve this rule depends on what
-	 * is matching it — a body-text clause is unreadable under the literal matcher
-	 * and perfectly readable under the semantic widen.
+	 * read, because a body-text clause is unreadable to a one-time apply.
 	 */
 	draft: WizardDraft;
 	onScopeChange: (scope: RuleScope) => void;

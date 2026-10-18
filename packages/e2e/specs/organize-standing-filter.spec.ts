@@ -1,13 +1,9 @@
 /**
  * Automated organizing (issue #213): a standing filter created by Organize
  * keeps working on future mail, and Settings › Filters is where it is seen and
- * managed. Scope and expiry are mutable on an existing filter (reader #266);
- * the semantic anchor is not.
+ * managed. Scope and expiry are mutable on an existing filter (reader #266).
  *
- * The wizard widens a selection with a semantic preview before it commits a
- * filter, and that vector index is deliberately not built on the e2e lane
- * (localhost-e2e-dev.env). So the loop is driven where it is observable: the
- * filters are seeded against the same `POST /accounts/{id}/filters` the wizard
+ * The loop is driven where it is observable: the filters are seeded against the same `POST /accounts/{id}/filters` the wizard
  * ultimately calls, and the Settings › Filters UI is asserted over the result — a standing filter reads Active, a lapsed temporary one reads Expired
  * and is never dropped, and deleting one through the UI removes it.
  *
@@ -27,7 +23,6 @@ const RUN_TAG = `e2e-${Date.now()}`;
 const STANDING_NAME = `${RUN_TAG} standing`;
 const TEMPORARY_NAME = `${RUN_TAG} temporary`;
 const SCOPE_EDIT_NAME = `${RUN_TAG} scope-edit`;
-const ANCHOR_GUARD_NAME = `${RUN_TAG} anchor-guard`;
 
 const seeded: string[] = [];
 
@@ -143,24 +138,5 @@ test.describe("Automated organizing — standing filters", () => {
 		await expect(row.getByText("Active", { exact: true })).toBeVisible({
 			timeout: 30_000,
 		});
-	});
-
-	test("rejects an anchor mutation attempt on update (reader #266)", async ({
-		api,
-		run,
-	}) => {
-		const filter = await api.createFilter(run.accountId, {
-			name: ANCHOR_GUARD_NAME,
-			scope: "Standing",
-			actionMailboxId: run.inboxId,
-		});
-		seeded.push(filter.filterId);
-
-		const response = await api.request(
-			"PATCH",
-			`/accounts/${run.accountId}/filters/${filter.filterId}`,
-			{ anchorMessageId: "11111111-1111-4111-8111-111111111111" },
-		);
-		expect(response.status).toBe(400);
 	});
 });

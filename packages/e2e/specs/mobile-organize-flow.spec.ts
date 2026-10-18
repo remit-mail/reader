@@ -6,15 +6,12 @@
  * screen carrying the outcome. This spec drives that surface end to end on a
  * mobile viewport.
  *
- * The semantic widen is a vector query and the index is deliberately not built
- * on the e2e lane (see issue #219 and organize-standing-filter.spec.ts), so the
- * one-off scenarios take the ticked-list door, whose count is the selection
- * itself and needs no index. The two that save a rule take the properties door
- * instead: a rule needs a predicate to keep matching on, and the ticked rows are
- * a list of ids rather than one (#1193). Its count comes from the vector-free
- * preview, which this lane answers. Downstream of the review screen, the
- * back-apply job and the filter create both re-run that absent index
- * server-side, so they are stubbed per scenario and the run screen's states are
+ * The one-off scenarios take the ticked-list door, whose count is the selection
+ * itself. The two that save a rule take the properties door instead: a rule
+ * needs a predicate to keep matching on, and the ticked rows are a list of ids
+ * rather than one (#1193). Its count comes from the preview, which this lane
+ * answers. Downstream of the review screen, the back-apply job and the filter
+ * create are stubbed per scenario and the run screen's states are
  * exercised deterministically. Real filter CRUD is covered by
  * organize-standing-filter.spec.ts, and a real folder create against Dovecot by
  * organize-standing-back-apply.spec.ts.

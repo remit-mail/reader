@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import {
+	FilterClauseField,
 	FilterDisabledReason,
 	FilterScope,
 	FilterState,
@@ -8,6 +9,8 @@ import {
 import { NotFoundError } from "../error.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { FilterRepo } from "./filter.js";
+
+const CLAUSES = [{ field: FilterClauseField.Subject, value: "booking" }];
 
 describe("FilterRepo", () => {
 	let db: TestDb;
@@ -29,12 +32,12 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Booking confirmations",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		assert.equal(filter.state, FilterState.Active);
 		assert.equal(filter.disabledReason, FilterDisabledReason.None);
-		assert.equal(filter.hasAnchor, false);
-		assert.equal(filter.literalClauses.length, 0);
+		assert.deepEqual(filter.literalClauses, CLAUSES);
 		assert.equal(filter.actionLabelId, "None");
 		assert.equal(filter.actionMailboxId, "None");
 		assert.ok(
@@ -55,6 +58,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Invoices",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 			state: FilterState.Disabled,
 			disabledReason: FilterDisabledReason.AwaitingFolder,
 		});
@@ -88,6 +92,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until my trip",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt,
 			ttl,
 		});
@@ -124,6 +129,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Newsletter admin",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		const renamed = await repo.update(accountConfigId, filter.filterId, {
@@ -149,6 +155,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Move to archive",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -173,6 +180,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Trip out-of-office",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		await new Promise((resolve) => setTimeout(resolve, 1100));
@@ -205,6 +213,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until my trip",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt: initialExpiresAt,
 			ttl: Math.floor(new Date(initialExpiresAt).getTime() / 1000),
 		});
@@ -236,6 +245,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until my trip",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt,
 			ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
 		});
@@ -268,11 +278,13 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Standing",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 		await repo.create({
 			accountConfigId: other,
 			name: "Foreign",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		const all = await repo.listByAccountConfig(accountConfigId);
@@ -299,6 +311,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Standing",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		const result = await repo.refreshExpiry(filter);
@@ -312,6 +325,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until tomorrow",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt: future,
 			ttl: Math.floor(new Date(future).getTime() / 1000),
 		});
@@ -327,6 +341,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until yesterday, awaiting its folder",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt: past,
 			ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
 			state: FilterState.Disabled,
@@ -345,6 +360,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "Until yesterday",
 			scope: FilterScope.Temporary,
+			literalClauses: CLAUSES,
 			expiresAt: past,
 			ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
 		});
@@ -368,6 +384,7 @@ describe("FilterRepo", () => {
 			accountConfigId,
 			name: "To delete",
 			scope: FilterScope.Standing,
+			literalClauses: CLAUSES,
 		});
 
 		await repo.delete(accountConfigId, filter.filterId);
@@ -385,16 +402,19 @@ describe("FilterRepo", () => {
 				accountConfigId,
 				name: "One",
 				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
 			}),
 			repo.create({
 				accountConfigId,
 				name: "Two",
 				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
 			}),
 			repo.create({
 				accountConfigId,
 				name: "Three",
 				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
 			}),
 		]);
 

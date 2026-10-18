@@ -5,11 +5,7 @@ import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
-import {
-	envelopeTable,
-	messageTable,
-	outboxTable,
-} from "../schema/message-data.js";
+import { envelopeTable, messageTable } from "../schema/message-data.js";
 import { createTestDb, type TestDb } from "./test-helpers.js";
 import { DrizzleUnitOfWork } from "./unit-of-work.js";
 
@@ -43,7 +39,6 @@ describe("DrizzleUnitOfWork", () => {
 			envelopeId: deriveEnvelopeId(MESSAGE_ID),
 			rootBodyPartId: deriveRootBodyPartId(MESSAGE_ID),
 		});
-		// Body-sync appends the transactional-outbox row; the create emits none.
 		await repos.message.update(MESSAGE_ID, {
 			bodyStorageKey: "body/hello.json",
 		});
@@ -58,11 +53,7 @@ describe("DrizzleUnitOfWork", () => {
 			.select()
 			.from(messageTable)
 			.where(eq(messageTable.messageId, MESSAGE_ID));
-		const outbox = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		return { envelopes, messages, outbox };
+		return { envelopes, messages };
 	};
 
 	before(async () => {
@@ -74,36 +65,28 @@ describe("DrizzleUnitOfWork", () => {
 		await stop();
 	});
 
-	test("a mid-save throw rolls back the whole write set, outbox included", async () => {
+	test("a mid-save throw rolls back the whole write set", async () => {
 		await assert.rejects(
 			() =>
 				unitOfWork.transaction(async (repos) => {
 					await writeEnvelopeMessageAndBody(repos);
-					// A later write in the set fails after the envelope, message and its
-					// transactional-outbox row have already been written.
+					// A later write in the set fails after the envelope and message
+					// have already been written.
 					throw new Error("thread write failed");
 				}),
 			/thread write failed/,
 		);
 
-		const { envelopes, messages, outbox } = await rows();
+		const { envelopes, messages } = await rows();
 		assert.equal(envelopes.length, 0, "envelope must be rolled back");
 		assert.equal(messages.length, 0, "message must be rolled back");
-		assert.equal(
-			outbox.length,
-			0,
-			"outbox row must be rolled back with the message",
-		);
 	});
 
-	test("a successful transaction commits the data rows and the outbox row", async () => {
+	test("a successful transaction commits the data rows", async () => {
 		await unitOfWork.transaction(writeEnvelopeMessageAndBody);
 
-		const { envelopes, messages, outbox } = await rows();
+		const { envelopes, messages } = await rows();
 		assert.equal(envelopes.length, 1);
 		assert.equal(messages.length, 1);
-		assert.equal(outbox.length, 1);
-		assert.equal(outbox[0].event, "message.body_synced");
-		assert.deepStrictEqual(outbox[0].payload, { messageId: MESSAGE_ID });
 	});
 });

@@ -62,13 +62,13 @@ echo "images-publish: roster is ${ALL_TARGETS[*]} (${#ALL_TARGETS[@]} targets)"
 
 # The node-service targets share the Dockerfile's ARG-parameterized
 # node-service-installed stage (SERVICE_NAME picks docker/runtime/<service>/
-# package.json). web and search-index-worker have dedicated Dockerfile stages,
+# package.json). web has a dedicated Dockerfile stage,
 # apisix its own — so any other present docker/runtime target is a SERVICE_NAME
 # target.
 service_name_arg() {
 	local target="$1"
 	case "$target" in
-	apisix | web | search-index-worker) return ;;
+	apisix | web) return ;;
 	esac
 	[ -d "docker/runtime/$target" ] &&
 		printf -- '--build-arg\nSERVICE_NAME=%s\n' "$target"

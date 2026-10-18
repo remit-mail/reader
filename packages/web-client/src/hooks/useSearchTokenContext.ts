@@ -8,9 +8,8 @@ import { useBrowsedList } from "@/routing";
  *
  * `in:` is recognized only where the route carries no scope. On a scoped view
  * the top bar's chip already answers "which mailbox", and a typed `in:` is a
- * second, competing answer that no engine there acts on — the literal search is
- * pinned to the route's mailbox and the semantic request takes the caller's
- * scope. Leaving the term unresolved means it stays ordinary words: it is
+ * second, competing answer that no engine there acts on — the search is pinned
+ * to the route's mailbox. Leaving the term unresolved means it stays ordinary words: it is
  * matched as text and never chipped, so the field can't advertise a filter that
  * does nothing. To search another folder, drop the scope chip or go to it.
  *

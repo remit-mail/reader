@@ -774,31 +774,6 @@ project_block() {
 EOF
 }
 
-# Search is two features, and an installer that says "search works" is only half
-# right. What the other half is, and what turning it on does and does not buy,
-# is what belongs here; the numbers live in README.md.
-search_block() {
-	local remit="$WRAPPER_NAME"
-	[ -n "$WRAPPER_ON_PATH" ] || remit="cd $DIR && ./remit"
-	cat <<EOF
-  Search      Text search works now, over every message as it syncs. Nothing to
-              turn on.
-
-              Semantic search is off. On, it stores a vector for every message,
-              which is what the Organize semantic widen and semantic filters
-              read. The "Similar messages" panel needs your typed query
-              embedded and no image here does that, so it stays empty either
-              way. Turning it on pulls a large model image and spends hours of
-              CPU indexing the mailbox once; README.md, under Search, has the
-              numbers.
-
-                $remit semantic on
-
-              '$remit semantic' prints the state, and 'off' turns it back off
-              and keeps the vectors it built.
-EOF
-}
-
 manage_block() {
 	local remit="$WRAPPER_NAME" indent="              "
 	if [ -n "$WRAPPER_ON_PATH" ]; then
@@ -811,7 +786,6 @@ manage_block() {
 	printf '%s%s %-8s Follow the logs.\n' "$indent" "$remit" logs
 	printf '%s%s %-8s Apply an edit to .env.\n' "$indent" "$remit" restart
 	printf '%s%s %-8s Install a release. Atomic: gated, rolls back on failure.\n' "$indent" "$remit" update
-	printf '%s%s %-8s Turn semantic search on or off; prints the state.\n' "$indent" "$remit" semantic
 	printf '%s%s %-8s Stop serving; %s restart brings it back.\n' "$indent" "$remit" down "$remit"
 	printf '%s%s %-8s Every command, including the destructive one.\n' "$indent" "$remit" help
 }
@@ -868,8 +842,6 @@ EOF
               re-entering every account's credentials.
 EOF
 	project_block
-	printf '\n'
-	search_block
 	printf '\n'
 	manage_block
 	cat <<EOF

@@ -14,24 +14,17 @@ namespace RemitImap;
   The predicate + action for a one-time "all like these" back-apply (RFC 034
   recap, #1278). A distinct model, deliberately NOT a Filter: it carries no
   `scope`, `expiresAt`, or `name`, so it structurally cannot create a standing
-  rule. The anchor is derived transiently from `anchorMessageId`'s existing chunk
-  vectors at match time and never persisted as a FilterAnchor row.
+  rule.
   """)
 model OrganizeInput {
-  @doc("Back-apply this standing filter instead of the predicate in this body. The server reads the filter's persisted predicate, action and FilterAnchor, runs the pass over the inbox, and skips a move another active filter outranks, as index time does. The predicate and action fields of this body are ignored when it is set.")
+  @doc("Back-apply this standing filter instead of the predicate in this body. The server reads the filter's persisted predicate and action, runs the pass over the inbox, and skips a move another active filter outranks, as index time does. The predicate and action fields of this body are ignored when it is set.")
   filterId?: UUID;
-
-  @doc("Anchor message for the semantic half — \"all like this one\". Absent for a purely-literal back-apply. The anchor vector is pooled transiently from this message's indexed chunk vectors and never written to a FilterAnchor row.")
-  anchorMessageId?: UUID;
 
   @doc("How literalClauses combine. Meaningless when literalClauses is empty.")
   matchOperator: FilterMatchOperator = FilterMatchOperator.And;
 
-  @doc("Literal from/subject/has-words clauses (RFC 031), reusing the Filter predicate shape. Empty when the back-apply relies solely on the semantic anchor.")
+  @doc("Literal from/subject/has-words clauses (RFC 031), reusing the Filter predicate shape.")
   literalClauses: FilterClause[] = #[];
-
-  @doc("Cosine cut-off for the semantic match. Absent uses the server default (the same threshold the index-time filter pipeline applies).")
-  similarityThreshold?: float64;
 
   @doc("Label applied to every matching message — additive action (RFC 034 Decision 3.1). The `\"None\"` sentinel means no label action.")
   actionLabelId: string = "None";
@@ -47,7 +40,7 @@ model OrganizeInput {
   
   The predicate + action are snapshotted onto the row (the same fields as
   OrganizeInput) so the worker runs exactly what was requested. This job never
-  writes a Filter or FilterAnchor row — it is a single batch pass, nothing
+  writes a Filter row — it is a single batch pass, nothing
   standing to persist.
   """)
 @entity("organizeJobRequest", "remit")
@@ -87,10 +80,6 @@ model OrganizeJobRequest {
   @visibility(Lifecycle.Read)
   filterId: string = "None";
 
-  @doc("Snapshot of the anchor message id, or the `\"None\"` sentinel for a purely-literal back-apply. A sentinel, not an optional field, so the persisted entity has no optional attributes (RFC 032).")
-  @visibility(Lifecycle.Read)
-  anchorMessageId: string = "None";
-
   @doc("Snapshot of how literalClauses combine")
   @visibility(Lifecycle.Read)
   matchOperator: FilterMatchOperator = FilterMatchOperator.And;
@@ -98,10 +87,6 @@ model OrganizeJobRequest {
   @doc("Snapshot of the literal predicate clauses")
   @visibility(Lifecycle.Read)
   literalClauses: FilterClause[] = #[];
-
-  @doc("Snapshot of the semantic cut-off applied for this run")
-  @visibility(Lifecycle.Read)
-  similarityThreshold: float64 = 0.75;
 
   @doc("Snapshot of the additive label action, or `\"None\"`")
   @visibility(Lifecycle.Read)
@@ -167,10 +152,8 @@ model OrganizeJobResponse
       | "userId"
       | "state"
       | "filterId"
-      | "anchorMessageId"
       | "matchOperator"
       | "literalClauses"
-      | "similarityThreshold"
       | "actionLabelId"
       | "actionMailboxId"
       | "matchedCount"
@@ -188,10 +171,4 @@ model OrganizePreviewResponse {
 
   @doc("Ids of the matching messages, bounded to the same cap the apply pass uses")
   messageIds: string[];
-
-  @doc("True when the semantic widen could not run because this deployment ships no vector pipeline (self-host without sqlite-vec / the embedding model). The matched set is then the literal matches only, or empty for an anchor-only predicate; literal search is unaffected. Absent on deployments where the widen ran.")
-  semanticUnavailable?: boolean;
-
-  @doc("True when the widen ran but this account's semantic index held nothing to answer with — no vectors at all, or none yet for the anchor message. A zero count is then a fact about the index, which is still filling, rather than about the rule. Absent when the index answered.")
-  semanticIndexEmpty?: boolean;
 }

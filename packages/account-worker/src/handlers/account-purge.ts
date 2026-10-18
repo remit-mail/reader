@@ -1,19 +1,9 @@
-import { randomUUID } from "node:crypto";
-import {
-	SendMessageBatchCommand,
-	SendMessageCommand,
-	type SQSClient,
-} from "@aws-sdk/client-sqs";
-import { MessageRecord } from "@remit/electrodb-entities";
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type { Logger } from "@remit/logger-lambda";
-import type { SearchIndexMessage } from "@remit/search-index-worker";
-import { Entity } from "electrodb";
 import type { CascadeServices } from "../cascade.js";
 import {
-	dataBackend as defaultDataBackend,
 	getAccountPurgeDeleteQueueUrl,
 	getCascadeServices,
-	getSearchIndexQueueUrl,
 	getSqsClient,
 } from "../config.js";
 import type {
@@ -26,11 +16,7 @@ export interface ProcessPurgeFanoutDeps {
 	services?: CascadeServices;
 	sqs?: SQSClient;
 	accountPurgeDeleteQueueUrl?: string;
-	searchIndexQueueUrl?: string;
-	dataBackend?: string;
 }
-
-const SQS_BATCH_SIZE = 10;
 
 /**
  * Message subtrees carried per FIFO finalize message. Each item is two ids
@@ -39,59 +25,6 @@ const SQS_BATCH_SIZE = 10;
  * inside its timeout.
  */
 const SUBTREE_BATCH_SIZE = 100;
-
-const messageEntity = new Entity(MessageRecord, { table: "purge-keys" });
-
-const messageKeys = (messageId: string): { pk: string; sk: string } => {
-	const { Key } = messageEntity.delete({ messageId }).params<{
-		Key: { pk: string; sk: string };
-	}>();
-	return Key;
-};
-
-const buildVectorDeleteEvent = (
-	accountId: string,
-	messageId: string,
-): SearchIndexMessage => ({
-	eventName: "REMOVE",
-	entity: "Message",
-	eventID: randomUUID(),
-	eventTimestamp: Date.now(),
-	accountId,
-	keys: messageKeys(messageId),
-	messageId,
-});
-
-const enqueueVectorDeletes = async (
-	sqs: SQSClient,
-	queueUrl: string,
-	accountId: string,
-	messageIds: string[],
-): Promise<void> => {
-	for (let i = 0; i < messageIds.length; i += SQS_BATCH_SIZE) {
-		const batch = messageIds.slice(i, i + SQS_BATCH_SIZE);
-		const result = await sqs.send(
-			new SendMessageBatchCommand({
-				QueueUrl: queueUrl,
-				Entries: batch.map((messageId, idx) => ({
-					Id: `${i + idx}`,
-					MessageBody: JSON.stringify(
-						buildVectorDeleteEvent(accountId, messageId),
-					),
-				})),
-			}),
-		);
-		// SendMessageBatch returns HTTP 200 with per-entry failures in `Failed`;
-		// throw so the failed deletes surface to the DLQ and the whole fanout
-		// replays idempotently rather than silently skipping vector deletes.
-		if (result.Failed?.length) {
-			const failedIds = result.Failed.map((f) => f.Id).join(", ");
-			throw new Error(
-				`Search-index vector-delete batch had ${result.Failed.length} failed entries: ${failedIds}`,
-			);
-		}
-	}
-};
 
 /**
  * Enqueue the destructive purge work onto the FIFO finalize queue, single
@@ -141,9 +74,8 @@ const enqueuePurgeFinalize = async (
  * manifest (`pk = accountConfigId`, scoped to this account's mailbox set) —
  * since the threading-visibility fix every persisted Message has exactly one
  * manifest row, so the partition is a complete, describe-free index of the
- * account's messages. Enqueues the per-message search-index (vector) deletes
- * (#457), then hands the destructive DDB+S3+CloudFront work to the finalize
- * worker as a stream of FIFO messages (subtree batches + one container
+ * account's messages. Hands the destructive DDB+S3+CloudFront work to the
+ * finalize worker as a stream of FIFO messages (subtree batches + one container
  * leftover, single message group). No self-loop, no recursion: the producer
  * enqueues all the work and the worker only ever consumes (#1069).
  *
@@ -151,8 +83,8 @@ const enqueuePurgeFinalize = async (
  * its sibling accounts, the tenant-shared Address rows, and the soft-deleted
  * account row are untouched.
  *
- * Replay-safe: the manifest read is read-only and the search-index/finalize
- * enqueues are idempotent. A redelivery after the account's rows are gone reads
+ * Replay-safe: the manifest read is read-only and the finalize enqueues are
+ * idempotent. A redelivery after the account's rows are gone reads
  * an empty manifest and enqueues only a container leftover that no-ops.
  */
 export const processAccountDataPurge = async (
@@ -162,13 +94,8 @@ export const processAccountDataPurge = async (
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
 	const services = deps.services ?? (await getCascadeServices());
-	const sqsFor = (queueUrl: string): SQSClient =>
-		deps.sqs ?? getSqsClient(queueUrl);
 	const accountPurgeDeleteQueueUrl =
 		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();
-	const searchIndexQueueUrl =
-		deps.searchIndexQueueUrl ?? getSearchIndexQueueUrl();
-	const dataBackend = deps.dataBackend ?? defaultDataBackend;
 
 	let mailboxIds: Set<string>;
 	try {
@@ -194,27 +121,8 @@ export const processAccountDataPurge = async (
 			messageId: tm.messageId,
 		}));
 
-	const messageIds = [...new Set(items.map((i) => i.messageId))];
-
-	// On the relational backend the destructive delete emits a `message.removed`
-	// outbox row per message, which the search-index worker relays as a
-	// search-index REMOVE; enqueuing here too would double the removal. On
-	// DynamoDB this fanout is the sole producer of the vector deletes (#457).
-	if (dataBackend !== "sqlite") {
-		await enqueueVectorDeletes(
-			sqsFor(searchIndexQueueUrl),
-			searchIndexQueueUrl,
-			accountId,
-			messageIds,
-		);
-		log.info(
-			{ accountConfigId, accountId, count: messageIds.length },
-			"Enqueued search-index deletes for purged account",
-		);
-	}
-
 	await enqueuePurgeFinalize(
-		sqsFor(accountPurgeDeleteQueueUrl),
+		deps.sqs ?? getSqsClient(accountPurgeDeleteQueueUrl),
 		accountPurgeDeleteQueueUrl,
 		accountId,
 		accountConfigId,

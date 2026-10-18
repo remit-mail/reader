@@ -52,8 +52,7 @@ const getDeleter = (): Promise<CascadeDeleter> => {
  *   backend with no response cache (`deploy/vps/caddy/routes.caddy`), so there
  *   is nothing to invalidate.
  * - `deleteStoragePrefix`: recursive filesystem removal.
- * - `cascadeDelete`: the Drizzle cascade over SQLite. Message
- *   subtrees emit `message.removed` outbox rows the search-index worker relays.
+ * - `cascadeDelete`: the Drizzle cascade over SQLite.
  */
 export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({

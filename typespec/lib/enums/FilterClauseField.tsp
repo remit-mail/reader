@@ -1,6 +1,6 @@
 namespace RemitImap;
 
-@doc("Message attribute a FilterClause matches against — RFC 031's Tier 0 literal predicates plus the RFC 038 D2 additions (list membership and sender domain). Every member is matched vector-free at index time and in the back-apply corpus projection.")
+@doc("Message attribute a FilterClause matches against — RFC 031's Tier 0 literal predicates plus the RFC 038 D2 additions (list membership and sender domain). Every member is matched at index time and in the back-apply corpus projection.")
 enum FilterClauseField {
   From: "From",
   Subject: "Subject",

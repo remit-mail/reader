@@ -68,9 +68,9 @@ const topMatches: SearchResult[] = [
 	},
 ];
 
-// Semantic "Related" hits carry their own thread + mailbox so they open directly
-// — the matching message often lives outside the loaded list.
-const related: SearchResult[] = [
+// Results that carry their own thread + mailbox open directly — the matching
+// message can live outside the loaded list.
+const unloaded: SearchResult[] = [
 	{
 		id: "r5",
 		sender: "QuickBooks",
@@ -95,12 +95,10 @@ const related: SearchResult[] = [
 
 const resultSections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: topMatches },
-	{ id: "related", label: "Related", results: related },
 ];
 
 const emptySections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: [] },
-	{ id: "related", label: "Related", results: [] },
 ];
 
 /** Matches spread across ordinary folders, each carrying where it was read from. */
@@ -398,17 +396,16 @@ export const Loading: Story = {
 };
 
 /**
- * Selecting a "Related" (semantic) hit. These rows carry their own thread +
- * mailbox, so tapping one opens the conversation directly — even though the
- * matching message lives outside the loaded list. Tap a row under "Related" to
+ * Selecting a hit from outside the loaded list. These rows carry their own
+ * thread + mailbox, so tapping one opens the conversation directly. Tap a row to
  * see the thread + mailbox the result hands the app to open. Regression cover for
- * the brief bug where a tapped related result selected nothing.
+ * the brief bug where a tapped result selected nothing.
  */
-export const RelatedSelectable: Story = {
+export const UnloadedSelectable: Story = {
 	render: () => (
 		<Harness
 			initialValue="invoice"
-			sections={[{ id: "related", label: "Related", results: related }]}
+			sections={[{ id: "top", label: "Top matches", results: unloaded }]}
 			preset="brief"
 		/>
 	),

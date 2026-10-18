@@ -12,8 +12,6 @@ import type {
 	ICalendarUnitOfWork,
 	IConfigImportRepository,
 	IEnvelopeRepository,
-	IFilterAnchorRepository,
-	IFilterAnchorTransaction,
 	IFilterRepository,
 	ILabelRepository,
 	IMailboxLockRepository,
@@ -51,11 +49,6 @@ import {
 	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
-import { createSearchService, type SearchService } from "@remit/search-service";
-import {
-	buildEmbeddingServiceFromEnv,
-	buildVectorStoreFromEnv,
-} from "@remit/search-service/from-env";
 import {
 	createCachedDataKeyProvider,
 	createKmsDataKeyProvider,
@@ -112,12 +105,6 @@ export interface RemitClient {
 	// match-time correctness gates on `expiresAt` (RFC 034 Decision 1.1), never
 	// on the row still existing, so the missing reaper is housekeeping only.
 	filter: IFilterRepository;
-	filterAnchor: IFilterAnchorRepository;
-
-	// Atomically creates a Filter and its optional sibling FilterAnchor row in
-	// one transaction (#351) — a failed anchor write can never leave a Filter
-	// durably marked hasAnchor: true with no matching FilterAnchor row.
-	filterAnchorTransaction: IFilterAnchorTransaction;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 
@@ -148,9 +135,6 @@ export interface RemitClient {
 
 	// Storage service
 	storage: StorageService;
-
-	// Search service (semantic vector search)
-	search: SearchService;
 
 	// Secrets service (KMS encryption)
 	secrets: SecretsService;
@@ -226,8 +210,6 @@ export interface RemitClientRepositories {
 	placementMove: IMessagePlacementMoveRepository;
 	flagPush: IMessageFlagPushRepository;
 	filter: IFilterRepository;
-	filterAnchor: IFilterAnchorRepository;
-	filterAnchorTransaction: IFilterAnchorTransaction;
 	label: ILabelRepository;
 	messageLabel: IMessageLabelRepository;
 	senderSignerStanding: ISenderSignerStandingRepository;
@@ -243,7 +225,6 @@ export interface RemitClientRepositories {
 
 export interface RemitClientSharedDeps {
 	storage: StorageService;
-	search: SearchService;
 	secrets: SecretsService;
 	sqsQueueUrl: string;
 	sqsSmtpQueueUrl: string;
@@ -299,20 +280,6 @@ const buildConnectionScope =
 		return { getConnection, disconnect };
 	};
 
-// The vector store and embedder are selected from the environment by the shared
-// builders: S3 Vectors + Bedrock Titan in production, persistent sqlite-vec +
-// Transformers.js when the LOCAL_* / local flags are set (local dev), and the
-// in-memory store + deterministic embedder otherwise (tests).
-const buildSearchService = (): SearchService => {
-	// Build the embedder first so we can pass its dimension count to the
-	// sqlite-vec store — the vec0 table dimension must match the embedder.
-	const embedder = buildEmbeddingServiceFromEnv();
-	return createSearchService({
-		store: buildVectorStoreFromEnv(embedder.dimensions),
-		embedder,
-	});
-};
-
 // The body queue lives on the worker infra; the API only knows it locally
 // (dev / e2e set SQS_QUEUE_URL_BODY). When unset the read path still returns a
 // retryable 202 — it just cannot re-arm the cue itself.
@@ -323,12 +290,11 @@ const buildBodySyncQueue = (): BodySyncQueueService | undefined => {
 };
 
 // Everything a RemitClient needs that is chosen from the environment and does
-// not vary by data backend: storage, search, secrets, the SQS queue URLs, and
+// not vary by data backend: storage, secrets, the SQS queue URLs, and
 // the optional body-sync queue. Each composition root builds its backend's
 // repositories and merges them with this.
 export const buildSharedDeps = (): RemitClientSharedDeps => {
 	const storage = createStorageService();
-	const search = buildSearchService();
 	const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
 	const dataKeyProvider = createCachedDataKeyProvider(
 		createKmsDataKeyProvider(kmsKeyId),
@@ -338,7 +304,6 @@ export const buildSharedDeps = (): RemitClientSharedDeps => {
 	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
 	return {
 		storage,
-		search,
 		secrets,
 		sqsQueueUrl,
 		sqsSmtpQueueUrl,
@@ -354,9 +319,8 @@ export const buildSharedDeps = (): RemitClientSharedDeps => {
 // sync path skips it, so an explicit standing filter silently never fires (issue
 // #223). Only the explicit user-rule half is wired here; heuristic classifier
 // placement stays on the sync path. It shares `buildFilterConfig` with
-// `sync-message-body.ts`, so both paths embed a candidate message under the same
-// env-selected model that produced the anchors and a semantic (anchor-only)
-// filter fires on either (issue #298). Over the message-management queue's
+// `sync-message-body.ts`, so a filter fires on either (issue #298). Over the
+// message-management queue's
 // local-first PlacementMoveService; filters stay off when that queue is unset.
 export const buildReadPathFilterConfig = (
 	repositories: RemitClientRepositories,
@@ -364,7 +328,6 @@ export const buildReadPathFilterConfig = (
 	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
 	return buildFilterConfig({
 		filterService: repositories.filter,
-		filterAnchorService: repositories.filterAnchor,
 		messageLabelService: repositories.messageLabel,
 		mailboxService: repositories.mailbox,
 		placementMoveService: placementMoveQueueUrl
@@ -389,7 +352,6 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 	const {
 		repositories,
 		storage,
-		search,
 		secrets,
 		sqsQueueUrl,
 		sqsSmtpQueueUrl,
@@ -478,8 +440,6 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		syncWarning: repositories.syncWarning,
 		organizeJobRequest: repositories.organizeJobRequest,
 		filter: repositories.filter,
-		filterAnchor: repositories.filterAnchor,
-		filterAnchorTransaction: repositories.filterAnchorTransaction,
 		label: repositories.label,
 		messageLabel: repositories.messageLabel,
 		senderSignerStanding: repositories.senderSignerStanding,
@@ -493,7 +453,6 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		writeSet: repositories.writeSet,
 
 		storage,
-		search,
 		secrets,
 
 		bodySync,

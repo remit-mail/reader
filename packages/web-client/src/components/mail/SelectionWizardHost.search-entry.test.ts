@@ -21,7 +21,6 @@ const conversion = (
 	matchOperator: "all",
 	droppedFacets: [],
 	keptTerms: false,
-	droppedSemantic: false,
 	...over,
 });
 

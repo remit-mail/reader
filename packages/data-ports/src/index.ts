@@ -19,8 +19,6 @@ export type {
 export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
-export type { IFilterAnchorRepository } from "./interfaces/filter-anchor.js";
-export type { IFilterAnchorTransaction } from "./interfaces/filter-anchor-transaction.js";
 export type { ILabelRepository } from "./interfaces/label.js";
 export type { IMailboxRepository } from "./interfaces/mailbox.js";
 export type { IMailboxLockRepository } from "./interfaces/mailbox-lock.js";
@@ -100,7 +98,6 @@ export type {
 	CreateConfigImportInput,
 	CreateEnvelopeAddressInput,
 	CreateEnvelopeInput,
-	CreateFilterAnchorInput,
 	CreateFilterInput,
 	CreateLabelInput,
 	CreateMailboxInput,
@@ -113,7 +110,6 @@ export type {
 	CreateThreadMessageInput,
 	EnvelopeAddressItem,
 	EnvelopeItem,
-	FilterAnchorItem,
 	FilterItem,
 	FlagsMergePatch,
 	LabelItem,

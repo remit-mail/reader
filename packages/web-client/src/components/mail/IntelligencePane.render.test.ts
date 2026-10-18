@@ -34,7 +34,6 @@ const baseData: IntelligenceData = {
 		summary: "This message was signed by example.com.",
 	},
 	category: { value: "personal" },
-	similar: [],
 };
 
 const ReportHarness = () => {

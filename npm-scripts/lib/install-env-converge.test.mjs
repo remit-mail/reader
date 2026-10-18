@@ -320,13 +320,13 @@ describe("what converging never does", () => {
 		const box = sandbox();
 		box.seed(
 			envWithout("COMPOSE_PROFILES").replace(
-				/^SEARCH_EMBEDDING_PROVIDER=.*$/m,
-				"# SEARCH_EMBEDDING_PROVIDER=local",
+				/^NODE_NO_WARNINGS=.*$/m,
+				"# NODE_NO_WARNINGS=1",
 			),
 		);
 		const run = tunnelRun(box);
 		assert.equal(run.status, 0, run.output);
-		assert.deepEqual(run.value("SEARCH_EMBEDDING_PROVIDER"), []);
+		assert.deepEqual(run.value("NODE_NO_WARNINGS"), []);
 	});
 
 	it("leaves a key the operator emptied empty", () => {

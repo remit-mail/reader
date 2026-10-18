@@ -21,7 +21,6 @@ const COMPOSE_SERVICES = [
 	"migrate",
 	"backend",
 	"imap-worker",
-	"search-index-worker",
 	"account-worker",
 	"scheduler",
 	"web",
@@ -113,10 +112,10 @@ describe("dev_sqlite_service_failures", () => {
 
 	it("names a service that exited", () => {
 		const facts = healthyFacts({
-			"search-index-worker": { status: "exited", exitCode: 1 },
+			"account-worker": { status: "exited", exitCode: 1 },
 		});
 		assert.deepEqual(serviceFailures(facts), [
-			"services: search-index-worker is exited, exit code 1",
+			"services: account-worker is exited, exit code 1",
 		]);
 	});
 
@@ -188,10 +187,10 @@ describe("dev_sqlite_restart_failures", () => {
 	// every surface still called the stack up.
 	it("names a crash-looping service, its count and its uptime", () => {
 		const facts = healthyFacts({
-			"search-index-worker": { restarts: 6400 },
+			"account-worker": { restarts: 6400 },
 		});
 		assert.deepEqual(restartFailures(facts, { now: STARTED_EPOCH + 4 }), [
-			"restarts: search-index-worker has restarted 6400 times and has been up for only 4s — it is crash-looping",
+			"restarts: account-worker has restarted 6400 times and has been up for only 4s — it is crash-looping",
 		]);
 	});
 

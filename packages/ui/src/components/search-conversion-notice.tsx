@@ -1,6 +1,5 @@
-import { FolderInput, Info, Sparkles } from "lucide-react";
+import { FolderInput, Info } from "lucide-react";
 import {
-	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
 	type SearchConversionNotice,
@@ -31,8 +30,8 @@ function NoticeRow({
 /**
  * What converting a search to a filter left behind (RFC 038 D5). Rendered above
  * the clause chips so the user sees, before touching the rule, every part of the
- * search the filter cannot carry: a folder scope, non-clause facets, and the
- * semantic reach a literal clause loses. Nothing to state renders nothing.
+ * search the filter cannot carry: a folder scope and non-clause facets.
+ * Nothing to state renders nothing.
  * Presentational and prop-driven.
  */
 export function SearchConversionNoticeView({
@@ -54,11 +53,6 @@ export function SearchConversionNoticeView({
 				{notice.droppedFacets && notice.droppedFacets.length > 0 && (
 					<NoticeRow icon={<Info className="size-3.5" />}>
 						{droppedFacetsCopy(notice.droppedFacets)}
-					</NoticeRow>
-				)}
-				{notice.droppedSemantic && (
-					<NoticeRow icon={<Sparkles className="size-3.5" />}>
-						{DROPPED_SEMANTIC_COPY}
 					</NoticeRow>
 				)}
 			</ul>

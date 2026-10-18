@@ -9,7 +9,7 @@ export type AccountDeleteEvent = {
 
 /**
  * Per-account hard-delete. Purges ONE mail account's data (mailboxes,
- * messages, body parts, thread messages, S3 objects, search vectors) while
+ * messages, body parts, thread messages, S3 objects) while
  * keeping the AccountConfig/tenant and any sibling accounts intact. Emitted
  * by the API on `deleteAccount`; consumed by the fanout worker.
  */

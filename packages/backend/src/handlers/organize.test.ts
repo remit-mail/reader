@@ -70,7 +70,7 @@ describe("predicateFromInput (move back-apply accepted)", () => {
 describe("previewOrganize rejected-rule response (reader #457)", () => {
 	it("maps a rejected HasWords clause to a 400 naming the reason, not a 500", async () => {
 		const error = new BadRequestError(
-			"Organize literal matching cannot evaluate a body-content (HasWords) clause without the vector pipeline — it requires the semantic widen path",
+			"Organize cannot match a body-content (HasWords) clause over the mailbox: it reads only each message's preview, not its body",
 		);
 
 		const response = await handleError(error);
@@ -133,8 +133,7 @@ const postOrganize = async (
 	);
 };
 
-// A rule the matcher can never honour — a body-content clause with no anchor to
-// widen from — is refused on the request instead of accepted with a 202 for a
+// A rule the matcher can never honour — a body-content clause — is refused on the request instead of accepted with a 202 for a
 // job the worker can only fail (reader #463, #995). The contract now declares
 // the 400, so the proof is the response the client gets plus the absence of the
 // two side effects a 202 promises: a job row and a queued message.
@@ -155,7 +154,7 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 		installClient();
 	};
 
-	it("refuses an anchorless body-content clause with a 400 and creates nothing", async () => {
+	it("refuses a body-content clause with a 400 and creates nothing", async () => {
 		withStubbedQueue();
 
 		const response = await postOrganize(
@@ -166,25 +165,6 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 		assert.match(JSON.parse(response.body).message, /HasWords/);
 		assert.deepEqual(createdRows, []);
 		assert.deepEqual(enqueued, []);
-	});
-
-	it("accepts the same clause when an anchor gives the widen something to run on", async () => {
-		withStubbedQueue();
-
-		const response = await postOrganize(
-			input({
-				anchorMessageId: "msg-anchor",
-				literalClauses: [{ field: "HasWords", value: "invoice" }],
-			}),
-		);
-
-		assert.equal(response.statusCode, 202);
-		assert.equal(createdRows.length, 1);
-		assert.equal(enqueued.length, 1);
-		assert.match(
-			String(enqueued[0]?.input.MessageBody),
-			new RegExp(String(JSON.parse(response.body).organizeJobId)),
-		);
 	});
 });
 
@@ -201,7 +181,6 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		scope: "Standing",
 		state,
 		disabledReason: state === "Active" ? "None" : "UserDisabled",
-		hasAnchor: false,
 		ruleChangedAt: 1,
 		actionChangedAt: 1,
 		matchOperator: FilterMatchOperator.And,

@@ -12,28 +12,19 @@ import {
 interface Sent {
 	queueUrl: string | undefined;
 	body: Record<string, unknown>;
-	entries?: Array<{ Id: string; MessageBody: string }>;
 }
 
-const recordingSqs = (sent: Sent[], failBatch = false): SQSClient =>
+const recordingSqs = (sent: Sent[]): SQSClient =>
 	({
 		send: async (command: {
-			input: {
-				QueueUrl?: string;
-				MessageBody?: string;
-				Entries?: Array<{ Id: string; MessageBody: string }>;
-			};
+			input: { QueueUrl?: string; MessageBody?: string };
 		}) => {
 			sent.push({
 				queueUrl: command.input.QueueUrl,
 				body: command.input.MessageBody
 					? JSON.parse(command.input.MessageBody)
 					: {},
-				entries: command.input.Entries,
 			});
-			if (command.input.Entries && failBatch) {
-				return { Failed: [{ Id: "0" }] };
-			}
 			return {};
 		},
 	}) as unknown as SQSClient;
@@ -73,18 +64,13 @@ const baseDeps = (
 	]),
 	sqs: recordingSqs(sent),
 	accountPurgeDeleteQueueUrl: "http://queue/purge",
-	searchIndexQueueUrl: "http://queue/search",
-	dataBackend: "dynamodb",
 	...overrides,
 });
 
 describe("processAccountDataPurge", () => {
-	it("enqueues vector deletes then a subtrees batch and one container leftover", async () => {
+	it("enqueues a subtrees batch and one container leftover", async () => {
 		const sent: Sent[] = [];
 		await processAccountDataPurge(event, noopLogger, baseDeps(sent));
-
-		const vectorBatch = sent.find((m) => m.queueUrl === "http://queue/search");
-		assert.equal(vectorBatch?.entries?.length, 2, "one entry per message");
 
 		const finalize = sent.filter((m) => m.queueUrl === "http://queue/purge");
 		const kinds = finalize.map((m) => m.body.kind);
@@ -93,27 +79,6 @@ describe("processAccountDataPurge", () => {
 			(finalize[0]?.body.items as unknown[])?.length,
 			2,
 			"both subtrees ride the one batch",
-		);
-	});
-
-	it("skips vector deletes on the relational backend, still enqueuing finalize", async () => {
-		const sent: Sent[] = [];
-		await processAccountDataPurge(
-			event,
-			noopLogger,
-			baseDeps(sent, { dataBackend: "sqlite" }),
-		);
-
-		assert.equal(
-			sent.some((m) => m.queueUrl === "http://queue/search"),
-			false,
-			"no search-index enqueue on the relational backend",
-		);
-		assert.deepEqual(
-			sent
-				.filter((m) => m.queueUrl === "http://queue/purge")
-				.map((m) => m.body.kind),
-			["subtrees", "container"],
 		);
 	});
 
@@ -165,17 +130,6 @@ describe("processAccountDataPurge", () => {
 				} as unknown as CascadeServices,
 			}),
 			/dynamo throttled/,
-		);
-	});
-
-	it("throws when a vector-delete batch reports failed entries", async () => {
-		const sent: Sent[] = [];
-		await assert.rejects(
-			processAccountDataPurge(event, noopLogger, {
-				...baseDeps(sent),
-				sqs: recordingSqs(sent, true),
-			}),
-			/failed entries/,
 		);
 	});
 });

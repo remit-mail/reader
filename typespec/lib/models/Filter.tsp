@@ -19,14 +19,10 @@ model FilterClause {
 }
 
 @doc("""
-  A standing user rule that matches messages by literal clauses and/or a
-  semantic anchor (RFC 031, RFC 034). One row per **standing** filter —
-  `Standing` or `Temporary` scope only. The one-time "just these" / "all like
-  these" batch actions never create one (RFC 034 recap).
-  
-  Kept lean: the semantic anchor payload lives on the sibling `FilterAnchor`
-  row (RFC 034 Decision 2.3) so listing/evaluating filters never pulls vector
-  data through `byAccountAndState`.
+  A standing user rule that matches messages by literal clauses (RFC 031,
+  RFC 034). One row per **standing** filter — `Standing` or `Temporary` scope
+  only. The one-time "just these" / "all like these" batch actions never
+  create one (RFC 034 recap).
   """)
 @entity("filter", "remit")
 @index(
@@ -58,7 +54,7 @@ model Filter {
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   name: String256;
 
-  @doc("Standing (permanent) or Temporary (expires). Governs whether expiresAt/ttl are present (RFC 034 Decision 1). Mutable on update (reader #266): switching scope re-derives ttl and re-evaluates state from expiresAt, and bumps ruleChangedAt so a lapsed filter's back-application can be offered again. The semantic anchor stays immutable regardless — repointing it would silently change what a saved filter matches with nothing visible changing, which deserves a new filter instead.")
+  @doc("Standing (permanent) or Temporary (expires). Governs whether expiresAt/ttl are present (RFC 034 Decision 1). Mutable on update (reader #266): switching scope re-derives ttl and re-evaluates state from expiresAt, and bumps ruleChangedAt so a lapsed filter's back-application can be offered again.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   scope: FilterScope;
 
@@ -78,25 +74,22 @@ model Filter {
   @visibility(Lifecycle.Read)
   disabledReason: FilterDisabledReason = FilterDisabledReason.None;
 
-  @doc("Whether a sibling FilterAnchor row exists for this filter (RFC 034 Decision 2.3). Lets the index-time worker skip the FilterAnchor `get` entirely for purely-literal filters instead of probing for a row that may not exist.")
-  @visibility(Lifecycle.Read)
-  hasAnchor: boolean = false;
-
   @doc("Epoch seconds, written whenever the predicate, the action, the scope, or the expiry changes (reader #266) — never on a cosmetic rename. This is the broad \"the user asserted something new about this rule\" signal the settings UI uses to decide whether to re-offer a lapsed filter's back-application. It is deliberately NOT the precedence signal for the exclusive move action — see actionChangedAt for that (RFC 034 Decision 3.2, reader #384). Distinct from ElectroDB's own updatedAt, which bumps on any write.")
   @visibility(Lifecycle.Read)
   ruleChangedAt: int64;
 
-  @doc("Epoch seconds, written only when the predicate (literalClauses, hasAnchor) or the action (actionLabelId, actionMailboxId) changes — never on scope, expiresAt, or a cosmetic rename. Backs most-recently-changed-filter-wins precedence for the exclusive move action (RFC 034 Decision 3.2). Split out from ruleChangedAt (reader #384): extending a filter's expiry or flipping its scope changes its lifecycle, not what it matches or does, so it must not promote the filter to move-winner.")
+  @doc("Epoch seconds, written only when the predicate (literalClauses) or the action (actionLabelId, actionMailboxId) changes — never on scope, expiresAt, or a cosmetic rename. Backs most-recently-changed-filter-wins precedence for the exclusive move action (RFC 034 Decision 3.2). Split out from ruleChangedAt (reader #384): extending a filter's expiry or flipping its scope changes its lifecycle, not what it matches or does, so it must not promote the filter to move-winner.")
   @visibility(Lifecycle.Read)
   actionChangedAt: int64;
 
-  @doc("How literalClauses combine. Meaningless when literalClauses is empty.")
+  @doc("How literalClauses combine.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   matchOperator: FilterMatchOperator = FilterMatchOperator.And;
 
-  @doc("Literal from/subject/has-words predicate clauses (RFC 031). Empty when the filter relies solely on its semantic anchor (see hasAnchor).")
+  @doc("Literal from/subject/has-words predicate clauses (RFC 031). A filter carries at least one.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
-  literalClauses: FilterClause[] = #[];
+  @minItems(1)
+  literalClauses: FilterClause[];
 
   @doc("Label applied when this filter matches — additive action, any number of filters can independently apply their own label (RFC 034 Decision 3.1). The named sentinel `\"None\"` means no label action; never an empty/optional field.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
@@ -122,25 +115,18 @@ model Filter {
 @doc("""
   Input for creating a filter (RFC 034). `ttl` is omitted — it is derived
   server-side from `expiresAt` when `scope` is `Temporary` (RFC 034 Decision
-  1.3), never client-supplied. `state`, `hasAnchor`, `ruleChangedAt`, and
-  `filterId` are all server-derived and excluded by their Read-only visibility.
-  
-  When `anchorMessageId` is set, the server builds and persists the filter's
-  semantic anchor from that message's indexed vectors (RFC 034 Decision 2) and
-  sets `hasAnchor`. Absent for a purely-literal filter.
+  1.3), never client-supplied. `state`, `ruleChangedAt`, and `filterId` are
+  all server-derived and excluded by their Read-only visibility.
   """)
 model CreateFilterInput {
   ...OmitProperties<Create<Filter>, "ttl">;
-
-  @doc("Anchor message for a semantic filter — provenance for the persisted anchor the server builds at save time (RFC 034 Decision 2.1). Absent for a purely-literal filter.")
-  anchorMessageId?: UUID;
 }
 
 @doc("""
   Input for updating a filter (RFC 034, reader #266). The name, predicate,
   action, scope, and expiresAt are all updatable; `ttl` is always
   server-derived from `scope`/`expiresAt`, never client-supplied, and
-  `disabledReason`/`hasAnchor`/`ruleChangedAt`/`actionChangedAt`/`filterId` are
+  `disabledReason`/`ruleChangedAt`/`actionChangedAt`/`filterId` are
   server-derived too. `state` takes `Active` or `Disabled`: the user turns a
   filter off or back on, and turning it on clears `disabledReason`. `Expired`
   is refused; the expiry is set through `scope`/`expiresAt`. A patch touching the predicate, the action, `scope`, or
@@ -149,12 +135,6 @@ model CreateFilterInput {
   action bumps `actionChangedAt`, the narrower signal exclusive-move
   precedence reads (reader #384) — a scope/expiresAt-only edit leaves it
   untouched.
-  
-  The semantic anchor has no field here at all — it is set once, from
-  `anchorMessageId`, only on `CreateFilterInput`. Repointing an anchor would
-  silently change what a saved filter matches with nothing visible changing;
-  that deserves a new filter, so the server rejects any attempt to smuggle an
-  anchor change through this body (reader #266).
   """)
 model UpdateFilterInput is Update<Filter>;
 

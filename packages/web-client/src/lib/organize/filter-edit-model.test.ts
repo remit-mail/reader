@@ -19,7 +19,6 @@ const filter = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
 	matchOperator: "And",
@@ -77,21 +76,6 @@ describe("filterToRule", () => {
 		assert.equal(rule.scope, "until");
 		assert.match(rule.until ?? "", /^\d{4}-\d{2}-\d{2}$/);
 	});
-
-	it("shows a semantic anchor as an active widen chip when the deployment can serve it", () => {
-		const rule = filterToRule(filter({ hasAnchor: true }));
-		assert.ok(rule.widen);
-		assert.equal(rule.widen?.inactive, undefined);
-	});
-
-	it("marks the widen inactive on a deployment that cannot evaluate it (D4)", () => {
-		const rule = filterToRule(filter({ hasAnchor: true }), true);
-		assert.equal(rule.widen?.inactive, true);
-	});
-
-	it("carries no widen when the filter has no anchor", () => {
-		assert.equal(filterToRule(filter({ hasAnchor: false })).widen, undefined);
-	});
 });
 
 describe("expiresAtToPickedDate", () => {
@@ -109,7 +93,7 @@ describe("expiresAtToPickedDate", () => {
 });
 
 describe("ruleChangesPredicateOrAction", () => {
-	const base = filterToRule(filter({ hasAnchor: true }));
+	const base = filterToRule(filter());
 
 	it("is false for an identical rule and for a rename only", () => {
 		assert.equal(ruleChangesPredicateOrAction(base, base), false);
@@ -119,7 +103,7 @@ describe("ruleChangesPredicateOrAction", () => {
 		);
 	});
 
-	it("is true when a clause, operator, move target or widen changes", () => {
+	it("is true when a clause, operator or move target changes", () => {
 		assert.equal(
 			ruleChangesPredicateOrAction({ ...base, matchOperator: "any" }, base),
 			true,
@@ -129,10 +113,6 @@ describe("ruleChangesPredicateOrAction", () => {
 				{ ...base, moveMailboxId: "mbx-other" },
 				base,
 			),
-			true,
-		);
-		assert.equal(
-			ruleChangesPredicateOrAction({ ...base, widen: undefined }, base),
 			true,
 		);
 		assert.equal(
@@ -287,15 +267,5 @@ describe("buildUpdateFilterInput", () => {
 		const body = buildUpdateFilterInput(changed, temporaryOriginal);
 		assert.equal(body.scope, "Temporary");
 		assert.match(body.expiresAt ?? "", /^2027-06-01T/);
-	});
-
-	it("carries no anchor field — the editor never has one to send (reader #266)", () => {
-		const changed: FilterRule = {
-			...original,
-			scope: "until",
-			until: "2027-03-04",
-		};
-		const body = buildUpdateFilterInput(changed, original);
-		assert.equal("anchorMessageId" in body, false);
 	});
 });

@@ -10,8 +10,20 @@ import {
 import { readConfigDocument } from "./read.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
-test("v1 needs no migrations, and the chain is empty rather than absent", () => {
-	assert.deepEqual(configMigrations, []);
+test("v1 lifts to v2 by dropping each anchor and every anchor-only filter", () => {
+	const source = readGoldenConfigDocument() as Record<string, unknown>;
+
+	const lifted = liftToCurrentVersion(source, 1, configMigrations, 2);
+
+	assert.equal(lifted.schemaVersion, 2);
+	const filters = lifted.filters as Record<string, unknown>[];
+	assert.deepEqual(
+		filters.map((filter) => filter.name),
+		["Invoices to Facturen"],
+	);
+	for (const filter of filters) {
+		assert.equal("anchor" in filter, false);
+	}
 });
 
 test("a document already at the current version passes through untouched", () => {
@@ -72,7 +84,11 @@ test("a document already at the current version never enters the chain", () => {
 		},
 	];
 
-	const parsed = readConfigDocument(readGoldenConfigDocument(), migrations);
+	const current = liftToCurrentVersion(
+		readGoldenConfigDocument() as Record<string, unknown>,
+		1,
+	);
+	const parsed = readConfigDocument(current, migrations);
 
 	assert.equal(ran, 0);
 	assert.equal(parsed.schemaVersion, CURRENT_SCHEMA_VERSION);

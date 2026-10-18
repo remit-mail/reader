@@ -53,7 +53,6 @@ const sender: IntelligenceData = {
 		summary: "Signed by example.test.",
 	},
 	category: { value: "personal" },
-	similar: [],
 };
 
 const calendars = [

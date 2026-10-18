@@ -56,9 +56,9 @@ onScrape(async () => setBacklog(await countUndrainedRows()));
 ```
 
 A signal only one service can answer for is declared by that service against the
-exported `registry` — see `search-index-worker/src/metrics.ts` and
-`queue-sidecar/src/metrics.ts`. Declaring it here would render it in every
-process that imports this module, including the four that cannot know its value.
+exported `registry` — see `queue-sidecar/src/metrics.ts`. Declaring it here
+would render it in every process that imports this module, including the ones
+that cannot know its value.
 
 `withTelemetry` records handler duration and outcome into the same registry.
 

@@ -50,34 +50,8 @@ const topMatches: SearchResult[] = [
 	},
 ];
 
-/**
- * Semantic hits. The index carries no sender address, so these rows have no
- * `senderEmail` — their avatar keys on the display name instead.
- */
-const related: SearchResult[] = [
-	{
-		id: "r5",
-		sender: "QuickBooks",
-		subject: "Reminder: 2 invoices awaiting payment",
-		snippet: "You have outstanding invoices totalling €430.00.",
-		date: "Feb 20",
-		matchedChunkLabel: "body",
-		score: 0.92,
-	},
-	{
-		id: "r6",
-		sender: "noreply@vendor.io",
-		subject: "Overdue invoice notice",
-		snippet: "This invoice is now 14 days overdue. Please remit payment.",
-		date: "Feb 12",
-		matchedChunkLabel: "subject",
-		score: 0.81,
-	},
-];
-
 const resultSections: SearchResultSection[] = [
 	{ id: "top", label: "Top matches", results: topMatches },
-	{ id: "related", label: "Related", results: related },
 ];
 
 /**
@@ -240,7 +214,6 @@ export const GlobalAcrossFolders: Story = {
 			}}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
-				{ id: "related", label: "Related", results: related },
 			]}
 		/>
 	),
@@ -269,7 +242,6 @@ export const GlobalWithoutSpamMatches: Story = {
 						(result) => result.folder?.role !== "junk",
 					),
 				},
-				{ id: "related", label: "Related", results: related },
 			]}
 		/>
 	),
@@ -324,7 +296,6 @@ export const GlobalSpamWithoutCount: Story = {
 			scope={{ kind: "global", onScopeToSpam: () => {} }}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
-				{ id: "related", label: "Related", results: related },
 			]}
 		/>
 	),
@@ -346,7 +317,6 @@ export const ScopedToInbox: Story = {
 			scope={{ kind: "folder", role: "inbox" }}
 			sections={[
 				{ id: "top", label: "Top matches", results: globalTopMatches },
-				{ id: "related", label: "Related", results: related },
 			]}
 		/>
 	),

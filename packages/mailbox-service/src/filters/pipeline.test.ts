@@ -16,7 +16,7 @@ import {
 	seedMailbox,
 } from "../test-helpers/test-store.js";
 import type { FilterMessage } from "./match.js";
-import { type FilterConfig, FilterPipeline } from "./pipeline.js";
+import { FilterPipeline } from "./pipeline.js";
 
 const ACCOUNT = "cfg-1";
 
@@ -53,16 +53,11 @@ const receipt: FilterMessage = {
 	listId: "",
 };
 
-const addFilter = (input: Partial<CreateFilterInput>) =>
+const senders = (actionMailboxId: string) =>
 	store.filter.create({
 		accountConfigId: ACCOUNT,
 		name: "rule",
 		scope: FilterScope.Standing,
-		...input,
-	});
-
-const senders = (actionMailboxId: string) =>
-	addFilter({
 		matchOperator: FilterMatchOperator.Or,
 		literalClauses: [
 			{ field: FilterClauseField.From, value: "npm@github.com" },
@@ -71,24 +66,10 @@ const senders = (actionMailboxId: string) =>
 		actionMailboxId,
 	});
 
-const anchored = async (anchorEmbeddingId: string) => {
-	const filter = await addFilter({ hasAnchor: true, actionLabelId: "lbl-1" });
-	await store.filterAnchor.put({
-		accountConfigId: ACCOUNT,
-		filterId: filter.filterId,
-		anchorEmbedding: [0, 1, 0],
-		anchorEmbeddingId,
-		anchorSourceText: "your receipt is ready",
-		anchorMessageId: "msg-anchor",
-	});
-	return filter;
-};
-
-const pipeline = (embedder: FilterConfig["embedder"]) =>
+const pipeline = () =>
 	new FilterPipeline(
 		{
 			filterService: store.filter,
-			filterAnchorService: store.filterAnchor,
 			messageLabelService: store.messageLabel,
 			mailboxService: store.mailbox,
 			placementMoveService: new PlacementMoveService({
@@ -100,31 +81,15 @@ const pipeline = (embedder: FilterConfig["embedder"]) =>
 				mailboxService: store.mailbox,
 				sqsQueueUrl: "https://sqs.test/message-mgmt",
 			}),
-			embedder,
 		},
 		{ info: () => {}, error: () => {} },
 	);
 
-const countingEmbedder = (vector: number[], embeddingId: string) => {
-	const embedded: string[] = [];
-	return {
-		embedded,
-		embedder: {
-			embeddingId,
-			embed: async (text: string) => {
-				embedded.push(text);
-				return vector;
-			},
-		},
-	};
-};
-
 describe("FilterPipeline over literal filters", () => {
-	it("resolves the move for a matching sender without embedding", async () => {
+	it("resolves the move for a matching sender", async () => {
 		const filter = await senders(archive);
-		const { embedded, embedder } = countingEmbedder([], "m@0");
 
-		const decision = await pipeline(embedder).evaluate(
+		const decision = await pipeline().evaluate(
 			ACCOUNT,
 			account.accountId,
 			"m-1",
@@ -135,13 +100,12 @@ describe("FilterPipeline over literal filters", () => {
 			destinationMailboxId: archive,
 			filterId: filter.filterId,
 		});
-		assert.deepEqual(embedded, []);
 	});
 
 	it("resolves nothing for a sender no clause names", async () => {
 		await senders(archive);
 
-		const decision = await pipeline(undefined).evaluate(
+		const decision = await pipeline().evaluate(
 			ACCOUNT,
 			account.accountId,
 			"m-2",
@@ -161,7 +125,7 @@ describe("FilterPipeline over literal filters", () => {
 		mock.timers.setTime(9_000_000);
 		const rival = await senders(projects);
 
-		const decision = await pipeline(undefined).evaluate(
+		const decision = await pipeline().evaluate(
 			ACCOUNT,
 			account.accountId,
 			"m-3",
@@ -172,62 +136,6 @@ describe("FilterPipeline over literal filters", () => {
 			destinationMailboxId: projects,
 			filterId: rival.filterId,
 		});
-	});
-});
-
-describe("FilterPipeline re-embeds an anchor on model drift", () => {
-	it("re-embeds a stale anchor, stores it and matches on the same pass", async () => {
-		const filter = await anchored("old-model@3");
-		const { embedded, embedder } = countingEmbedder([1, 0, 0], "new-model@3");
-
-		const decision = await pipeline(embedder).evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			receipt,
-		);
-
-		assert.deepEqual(decision.labels, [
-			{ labelId: "lbl-1", filterId: filter.filterId },
-		]);
-		const anchor = await store.filterAnchor.get(ACCOUNT, filter.filterId);
-		assert.equal(anchor?.anchorEmbeddingId, "new-model@3");
-		assert.deepEqual(anchor?.anchorEmbedding, [1, 0, 0]);
-		assert.equal(embedded.length, 2);
-	});
-
-	it("embeds only the message when the anchor is current", async () => {
-		await anchored("current@3");
-		const { embedded, embedder } = countingEmbedder([0, 1, 0], "current@3");
-
-		await pipeline(embedder).evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			receipt,
-		);
-
-		assert.equal(embedded.length, 1);
-	});
-
-	it("skips only the filter whose re-embed failed", async () => {
-		await anchored("old-model@3");
-		const literal = await addFilter({
-			literalClauses: [{ field: FilterClauseField.From, value: "stripe.com" }],
-			actionLabelId: "lbl-literal",
-		});
-
-		const decision = await pipeline({
-			embeddingId: "new-model@3",
-			embed: async (text) => {
-				if (text === "your receipt is ready") throw new Error("model down");
-				return [1, 0, 0];
-			},
-		}).evaluate(ACCOUNT, account.accountId, "m-1", receipt);
-
-		assert.deepEqual(decision.labels, [
-			{ labelId: "lbl-literal", filterId: literal.filterId },
-		]);
 	});
 });
 
@@ -249,13 +157,13 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 		const travel = await seedMailbox(store, sibling, "Travel");
 		const filter = await senders(travel.mailboxId);
 
-		const mine = await pipeline(undefined).evaluate(
+		const mine = await pipeline().evaluate(
 			ACCOUNT,
 			account.accountId,
 			"m-1",
 			fromGithub,
 		);
-		const theirs = await pipeline(undefined).evaluate(
+		const theirs = await pipeline().evaluate(
 			ACCOUNT,
 			sibling.accountId,
 			"m-2",
@@ -276,7 +184,7 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 	it("turns the filter off when no account holds its folder any more", async () => {
 		const filter = await senders("mbx-gone");
 
-		const decision = await pipeline(undefined).evaluate(
+		const decision = await pipeline().evaluate(
 			ACCOUNT,
 			account.accountId,
 			"m-1",

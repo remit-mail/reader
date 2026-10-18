@@ -7,8 +7,6 @@ import { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
 import { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 import { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 import { FilterRepo } from "./repos/filter.js";
-import { FilterAnchorRepo } from "./repos/filter-anchor.js";
-import { DrizzleFilterAnchorTransaction } from "./repos/filter-anchor-transaction.js";
 import { AccountRepo } from "./repos/i4-account.js";
 import { AccountConfigRepo } from "./repos/i4-account-config.js";
 import { AccountExportRequestRepo } from "./repos/i4-account-export-request.js";
@@ -59,8 +57,6 @@ export const createSqliteRepositories = (db: Db<MessageDataSchema>) => ({
 	placementMove: new MessagePlacementMoveRepo(db),
 	flagPush: new MessageFlagPushRepo(db),
 	filter: new FilterRepo(db),
-	filterAnchor: new FilterAnchorRepo(db),
-	filterAnchorTransaction: new DrizzleFilterAnchorTransaction(db),
 	label: new LabelRepo(db),
 	messageLabel: new MessageLabelRepo(db),
 	senderSignerStanding: new SenderSignerStandingRepo(db),

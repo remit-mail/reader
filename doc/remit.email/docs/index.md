@@ -7,13 +7,13 @@ description: Mail on your own hardware, as a client over the mailbox you already
 
 An email client you run yourself. It connects to the IMAP/SMTP mailbox you already have, keeps a local copy of your mail, and serves a fast web app to read, search and send from. IMAP stays the source of truth. Reader is a client over your mailbox; your mail keeps living where it lives today. You migrate nothing, and turning Reader off costs you nothing.
 
-The software that reads your mail stays on your hardware too. Classification and semantic search are computed on the box that runs Reader. Message content goes to your mail server over IMAP and SMTP, and nowhere else.
+The software that reads your mail stays on your hardware too. Classification and search are computed on the box that runs Reader. Message content goes to your mail server over IMAP and SMTP, and nowhere else.
 
 ## What you get
 
 - A web mail client: reading, threading, search, compose, account settings.
 - A local classifier that sorts messages: personal, newsletter, marketing, automated, transactional, social.
-- Full-text search, and semantic "find similar" over locally computed embeddings.
+- Full-text search over your mail.
 - A single-VM deployment: everything in SQLite files on one disk, no database server to run.
 - Your IMAP credentials encrypted at rest with a key only you hold.
 - Versioned releases. An update shows up in the app, you install it with a click, and a failed update rolls itself back.

@@ -109,7 +109,6 @@ import { useLayoutTier } from "@/hooks/useLayoutTier";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
-import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useSpamMatchCounts } from "@/hooks/useSpamMatchCounts";
 import type { TriageContextUpdate } from "@/hooks/useTriageLayer";
 import { sortAccountsByCreatedAt } from "@/lib/account-order";
@@ -132,7 +131,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { useMailFreshness } from "@/lib/mail-freshness";
 import { shouldRequestResultCount } from "@/lib/result-count";
 import { junkMailboxIds } from "@/lib/result-folder";
-import { relatedSearchResults, rowToSearchResult } from "@/lib/search-result";
+import { rowToSearchResult } from "@/lib/search-result";
 import { showInlineSearchResults } from "@/lib/search-surface";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { resolveSelectionAccountScope } from "@/lib/selection-account-scope";
@@ -320,7 +319,7 @@ function BriefSelectionChrome({
 		[selectedIds],
 	);
 	// The ticked rows as the wizard reads them — the sample under every screen
-	// that names a match, and the senders its widen falls back to.
+	// that names a match, and the senders its properties prefill reads.
 	const wizardSelection = useMemo(
 		() => wizardSelectionFrom(rows, selectedIds),
 		[rows, selectedIds],
@@ -820,8 +819,7 @@ export function DailyBrief({
 		[filteredRows, onOpenThread],
 	);
 
-	// The two-engine results panel, whose semantic hits are in no list at all —
-	// each one carries the thread it belongs to.
+	// The results panel; each result carries the thread it belongs to.
 	const openResult = useCallback(
 		(result: SearchResult) => {
 			const threadId =
@@ -893,25 +891,6 @@ export function DailyBrief({
 		() => filteredRows.map((row) => rowToSearchResult(row, resultFolderIndex)),
 		[filteredRows, resultFolderIndex],
 	);
-
-	// "Related" (semantic) spans every account here — the brief is the
-	// cross-account view, so no mailbox scope. Dedupe against the literal "Top
-	// matches" by thread; the brief rows key on messageId, so resolve each back to
-	// its thread via the raw threads.
-	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch();
-	const relatedResults = useMemo<SearchResult[]>(() => {
-		const threadByMessageId = new Map<string, string | undefined>(
-			filteredRows.map((row) => [row.id, row.threadId]),
-		);
-		const literalThreadIds = searchResults
-			.map((result) => threadByMessageId.get(result.id))
-			.filter((id): id is string => id != null);
-		return relatedSearchResults(
-			semanticHits,
-			literalThreadIds,
-			resultFolderIndex,
-		);
-	}, [semanticHits, searchResults, filteredRows, resultFolderIndex]);
 
 	const filterConfig = useMemo<Omit<FilterSheetProps, "children">>(() => {
 		const preset = briefFilterConfig(
@@ -991,7 +970,7 @@ export function DailyBrief({
 
 	// A search does not take the panel down — the chips compose into the query
 	// rather than competing with it. The one window where the brief's own body is
-	// not on screen is the two-engine results panel, which owns the pane while a
+	// not on screen is the results panel, which owns the pane while a
 	// first query is still being typed; the caret stands down for exactly that,
 	// on the same answer the header swaps the body on.
 	const resultsPanelOwnsBody = showInlineSearchResults({
@@ -1083,8 +1062,6 @@ export function DailyBrief({
 						searchFilter: filterConfig,
 						searchResults,
 						searchLoading: isLoading,
-						relatedResults,
-						relatedLoading,
 						onSelectSearchResult: openResult,
 						// The read-only results panel holds spam out of the same
 						// committed search this body does, so it states the same
@@ -1093,7 +1070,7 @@ export function DailyBrief({
 						// The body already narrows to the committed query (the server
 						// `query` on every section request, plus `matchesSearchTokens` for
 						// the residue), so a committed search is a selectable list here
-						// exactly as it is on the mailbox route (#212) — the two-engine
+						// exactly as it is on the mailbox route (#212) — the results
 						// panel stays for the typing/uncommitted state only.
 						searchResultsInBody: true,
 						refreshControl,

@@ -15,7 +15,6 @@ import {
 	messagePlacementMoveTable,
 	messageTable,
 	outboxMessageTable,
-	outboxTable,
 	quarantineTable,
 	threadMessageTable,
 } from "../schema.js";
@@ -429,16 +428,6 @@ describe("runDrizzleCascadeDelete", () => {
 			0,
 			"quarantine rows carry the user's folder names and parser output, so account deletion must take them",
 		);
-	});
-
-	test("emits a message.removed outbox row for search-index cleanup", async () => {
-		const rows = await db
-			.select()
-			.from(outboxTable)
-			.where(eq(outboxTable.messageId, MESSAGE_ID));
-		assert.equal(rows.length, 1);
-		assert.equal(rows[0].event, "message.removed");
-		assert.equal(rows[0].processedAt, null);
 	});
 
 	test("rejects an unknown entity type without deleting", async () => {

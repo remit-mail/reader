@@ -80,7 +80,7 @@ dev_sqlite_service_failures() {
 # Claim 2: nothing is crash-looping right now.
 #
 # A restarting service reads as "up" to `docker compose ps` and to anything that
-# only asks whether a container exists — the search-index-worker was on its
+# only asks whether a container exists — a worker was on its
 # ~6400th restart, and every surface still called the stack fine.
 #
 # `.RestartCount` alone cannot answer it, because the count is cumulative for the

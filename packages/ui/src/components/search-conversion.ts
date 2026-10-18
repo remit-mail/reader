@@ -2,8 +2,7 @@
  * The honest copy for turning a search into a filter (RFC 038 D5).
  *
  * A search carries reach a filter's clauses cannot: a folder it was limited to,
- * attribute facets that are not clauses, and — where the deployment can embed a
- * query at request time — semantic similarity. The conversion never drops any of
+ * and attribute facets that are not clauses. The conversion never drops any of
  * that silently. This module is the vocabulary the conversion notice renders; the
  * web-client computes which parts apply and feeds the notice.
  */
@@ -13,20 +12,13 @@ export interface SearchConversionNotice {
 	scopedOutFolder?: string;
 	/** Facet labels with no clause equivalent (e.g. "Has attachment", "Before 2026-01-01"). */
 	droppedFacets?: string[];
-	/**
-	 * Free text was kept as a literal `HasWords` clause, and the search had
-	 * surfaced similar mail by meaning that the literal filter cannot reproduce
-	 * (RFC 038 D5) — the "similar mail" reach is not part of the filter.
-	 */
-	droppedSemantic?: boolean;
 }
 
 /** True when the conversion left something behind worth stating. */
 export function hasConversionNotice(notice: SearchConversionNotice): boolean {
 	return (
 		notice.scopedOutFolder !== undefined ||
-		(notice.droppedFacets?.length ?? 0) > 0 ||
-		notice.droppedSemantic === true
+		(notice.droppedFacets?.length ?? 0) > 0
 	);
 }
 
@@ -67,11 +59,3 @@ export function makeFilterBlockedCopy(droppedFacets: string[]): string {
 		droppedFacets.length === 1 ? "a filter condition" : "filter conditions";
 	return `${joinFacets(droppedFacets)} ${verb} ${noun} — ${NEEDS_A_CLAUSE}`;
 }
-
-/**
- * States the filter is literal-only, so the search's similar-mail reach is not
- * carried (RFC 038 D5). Shown only where that reach existed — a capable search
- * that surfaced similar mail — so it never claims a reach the filter had.
- */
-export const DROPPED_SEMANTIC_COPY =
-	"The filter matches these words literally. Your search also found similar mail by meaning — a filter can't carry that, so it won't catch mail that means the same thing without these words.";

@@ -21,7 +21,7 @@ export interface MailContextValue {
 	/**
 	 * Name indexes `parseSearchTokens` resolves `in:`/`account:` chips against
 	 * (#428 follow-up). Computed once here so every consumer — chip rendering,
-	 * the brief/flagged token filters, `useSemanticSearch` — agrees on the same
+	 * the brief/flagged token filters — agrees on the same
 	 * resolution. See `lib/search-token-index.ts`.
 	 */
 	mailboxNameIndex: ReadonlyMap<string, string>;

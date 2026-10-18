@@ -16,7 +16,6 @@ import {
 	makeAccount,
 	makeAccountConfig,
 	makeAddress,
-	makeAnchor,
 	makeFilter,
 	makeJunkOnlyFlaggedAddress,
 	makeLabel,
@@ -158,14 +157,12 @@ const fullFixture = (): ConfigFixture => ({
 			actionMailboxId: INVOICES_ID,
 		}),
 		makeFilter({
-			filterId: "flt-semantic",
-			name: "Anything like this release note",
+			filterId: "flt-release",
+			name: "Release notes",
 			scope: "Temporary",
 			expiresAt: "2026-12-31T23:59:59+01:00",
-			hasAnchor: true,
 		}),
 	],
-	anchors: [makeAnchor({ filterId: "flt-semantic" })],
 	addresses: [
 		makeAddress({
 			addressId: "adr-bank",
@@ -195,12 +192,12 @@ const fullFixture = (): ConfigFixture => ({
 const exportFixture = (fixture: ConfigFixture) =>
 	readConfigForExport(asRepositories(fixture), ACCOUNT_CONFIG_ID, IDENTITY);
 
-test("a configuration exports as a document the v1 schema accepts", async () => {
+test("a configuration exports as a document the current schema accepts", async () => {
 	const document = await exportFixture(fullFixture());
 
 	assert.equal(ReaderConfigDocumentSchema.safeParse(document).success, true);
 	assert.equal(document.kind, "reader.config");
-	assert.equal(document.schemaVersion, 1);
+	assert.equal(document.schemaVersion, 2);
 	assert.deepEqual(document.provenance, {
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		instance: "reader.ischen.nl",
@@ -379,7 +376,7 @@ test("an override on a folder that no longer exists is dropped", async () => {
 
 test("a filter names its label and its folder, never their ids", async () => {
 	const document = await exportFixture(fullFixture());
-	const [invoices, semantic] = document.filters;
+	const [invoices, release] = document.filters;
 
 	assert.equal(invoices?.actionLabelName, "Facturen");
 	assert.equal(invoices?.matchOperator, "Or");
@@ -388,11 +385,10 @@ test("a filter names its label and its folder, never their ids", async () => {
 		{ field: "FromDomain", value: "moneybird.com" },
 	]);
 	assert.equal(invoices?.expiresAt, null);
-	assert.equal(invoices?.anchor, null);
 
-	assert.equal(semantic?.actionLabelName, null);
-	assert.equal(semantic?.actionFolder, null);
-	assert.equal(semantic?.expiresAt, "2026-12-31T23:59:59+01:00");
+	assert.equal(release?.actionLabelName, null);
+	assert.equal(release?.actionFolder, null);
+	assert.equal(release?.expiresAt, "2026-12-31T23:59:59+01:00");
 });
 
 test("a filter action naming something that is gone exports as no action", async () => {
@@ -406,31 +402,6 @@ test("a filter action naming something that is gone exports as no action", async
 
 	assert.equal(document.filters[0]?.actionLabelName, null);
 	assert.equal(document.filters[0]?.actionFolder, null);
-});
-
-test("an anchor exports its text and its provenance, never its vector", async () => {
-	const document = await exportFixture(fullFixture());
-
-	assert.deepEqual(document.filters[1]?.anchor, {
-		sourceText: "the release note this filter was drawn from",
-		embeddingId: "amazon.titan-embed-text-v2:0@1024",
-		sourceMessageId: "2c9e4b117d5a4f609a315b8c0",
-	});
-	assert.equal(JSON.stringify(document).includes("anchorEmbedding"), false);
-	assert.equal(JSON.stringify(document).includes("0.22"), false);
-});
-
-test("a filter claiming an anchor it has no row for exports without one", async () => {
-	// hasAnchor is a cache of whether the sibling row exists, and a write that
-	// failed after the filter landed leaves it saying yes over nothing. The
-	// export answers with the rows it can read, never with the flag.
-	const fixture = fullFixture();
-	fixture.anchors = [];
-
-	const document = await exportFixture(fixture);
-
-	assert.equal(document.filters[1]?.anchor, null);
-	assert.equal(ReaderConfigDocumentSchema.safeParse(document).success, true);
 });
 
 test("labels export by name and colour", async () => {
@@ -625,7 +596,6 @@ test("a configuration with nothing in it still exports a valid document", async 
 		mailboxes: [],
 		labels: [],
 		filters: [],
-		anchors: [],
 		addresses: [],
 	});
 

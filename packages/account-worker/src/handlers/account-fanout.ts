@@ -41,8 +41,8 @@ export interface ProcessAccountFanoutDeps {
 
 /**
  * Fanout step of the account-deletion cascade. Read-only: enumerates the
- * AccountConfig's data and dispatches downstream work — search-index
- * deletes, per-account imap-worker stops, a sign-out, and the finalize
+ * AccountConfig's data and dispatches downstream work — per-account
+ * imap-worker stops, a sign-out, and the finalize
  * enqueue. Throws on any non-swallowable error so SQS partial batch-failure
  * retries the whole record.
  */

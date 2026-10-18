@@ -337,7 +337,7 @@ namespace RemitApi {
 
   @route("/accounts/{accountId}/organize")
   namespace OrganizeOperations {
-    @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter or FilterAnchor row (RFC 034 recap).")
+    @doc("Start a one-time \"all like these\" back-apply: match the corpus against the given predicate and apply the action to every match, in one pass. Returns immediately with an organizeJobId; poll GET /accounts/{accountId}/organize/{organizeJobId} for state and counts. Never creates a Filter row (RFC 034 recap).")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     op createOrganizeJob(@path accountId: UUID, @body input: OrganizeInput):
@@ -980,56 +980,6 @@ namespace RemitApi {
   }
 
   // ============================================
-  // Semantic Search Operations
-  // ============================================
-
-  @route("/search/semantic")
-  namespace SemanticSearchOperations {
-    @doc("Run a semantic vector search across the caller's indexed messages.")
-    @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
-    @get
-    op semanticSearch(
-      @doc("Free-form natural-language query")
-      @query(#{ explode: true })
-      query: string,
-
-      @doc("Restrict results to a single mailbox")
-      @query(#{ explode: true })
-      mailboxId?: UUID,
-
-      @doc("Lower bound on sentDate (epoch seconds, inclusive)")
-      @query(#{ explode: true })
-      sentDateFrom?: int64,
-
-      @doc("Upper bound on sentDate (epoch seconds, inclusive)")
-      @query(#{ explode: true })
-      sentDateTo?: int64,
-
-      @doc("Restrict to messages with or without attachments")
-      @query(#{ explode: true })
-      hasAttachment?: boolean,
-
-      @doc("Restrict to starred or unstarred messages")
-      @query(#{ explode: true })
-      hasStars?: boolean,
-
-      @doc("Restrict to read or unread messages")
-      @query(#{ explode: true })
-      isRead?: boolean,
-
-      @doc("Restrict results to a single header-derived category")
-      @query(#{ explode: true })
-      category?: MessageCategory,
-
-      @doc("Maximum number of results to return")
-      @query(#{ explode: true })
-      limit?: int32,
-    ): {
-      items: SemanticSearchResult[];
-    } | UnauthorizedError;
-  }
-
-  // ============================================
   // Outbox Operations
   // ============================================
 
@@ -1363,9 +1313,9 @@ namespace RemitApi {
       that answer. A sender rule written by
       `dismiss{muteSender}` stays; it is a rule of its own, edited where rules
       are.
-
+      
       No mail is sent. Idempotent: a `Pending` suggestion is returned as it is.
-
+      
       400 when the suggestion is `Superseded`, which a later revision retired,
       a `Cancel`, whose answer rewrote an event it cannot restore, or its
       `answerOvertakenBy` is `Cancellation`, because a cancellation is terminal.

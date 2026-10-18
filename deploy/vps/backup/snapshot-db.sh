@@ -16,10 +16,10 @@
 # snapshot_db <source-database> <destination-file>
 #
 # A source that does not exist yet is a complete snapshot, not a failure: the
-# vector store is created by the search-index worker on its first embedding
-# write, so a young instance legitimately has none. Opening the missing path
-# would CREATE an empty database on the shared volume out from under the writer
-# that owns it, so the absence is answered here rather than by sqlite3.
+# database is created by its first migration, so an instance that has not run
+# one legitimately has none. Opening the missing path would CREATE an empty
+# database on the shared volume out from under the writer that owns it, so the
+# absence is answered here rather than by sqlite3.
 snapshot_db() {
 	_snapshot_src=$1
 	_snapshot_dest=$2

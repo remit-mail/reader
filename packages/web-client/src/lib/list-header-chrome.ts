@@ -28,7 +28,7 @@ export interface ListHeaderChrome {
 	/** The expanded field, which takes the title's place for as long as it is up. */
 	searchField: ReactNode;
 	/**
-	 * The read-only two-engine results panel, when a query is being typed and
+	 * The read-only results panel, when a query is being typed and
 	 * this view answers it with the panel rather than its own rows. The body
 	 * renders it in place of its list; `MailListHeader` cannot swap the body
 	 * out from above, because the header is inside it.

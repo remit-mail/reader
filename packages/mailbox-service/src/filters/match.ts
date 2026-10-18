@@ -17,24 +17,8 @@ type FilterClause = FilterItem["literalClauses"][number];
 export const NO_ACTION = FILTER_NO_ACTION;
 
 /**
- * Default cosine cut-off for a semantic-anchor match (RFC 031 "the semantic
- * anchor evaluates as a kNN threshold against the new message's embedding").
- * Tunable per pipeline via {@link FilterConfig.similarityThreshold}.
- */
-export const DEFAULT_SEMANTIC_MATCH_THRESHOLD = 0.75;
-
-/**
- * Bound on the text embedded for a semantic match — the same 512-char budget
- * `buildTextPreview` applies to chunk vectors and `FilterAnchor.anchorSourceText`
- * persists, so the candidate side of the comparison is derived on the same
- * footing as the anchor side.
- */
-const MATCH_TEXT_LIMIT = 512;
-
-/**
  * The message fields a filter evaluates against — the literal-clause targets
- * (from / subject / body) plus the text embedded for a semantic anchor. A plain
- * value object so the matcher stays independent of the `ParsedMail` shape and is
+ * (from / subject / body / list). A plain value object so the matcher stays independent of the `ParsedMail` shape and is
  * trivially constructed in a test.
  */
 export interface FilterMessage {
@@ -112,8 +96,8 @@ export const clauseMatches = (
 
 /**
  * Whether the literal clauses match under their combine operator. Empty clauses
- * carry no literal constraint and pass vacuously — a purely-semantic filter (no
- * clauses, only an anchor) is gated by its anchor alone, not by this.
+ * carry no literal constraint and pass vacuously; a caller that needs a
+ * predicate checks for clauses itself.
  */
 export const literalClausesMatch = (
 	clauses: readonly FilterClause[],
@@ -208,31 +192,6 @@ export const literalClauseTerms = (
 };
 
 /**
- * Cosine similarity of two equal-length vectors. Throws on a dimension mismatch
- * rather than silently scoring incomparable vectors — a mismatch means a stale
- * anchor embedded under a different model (`anchorEmbeddingId`), which is a
- * migration concern, not a match to guess at.
- */
-export const cosineSimilarity = (
-	a: readonly number[],
-	b: readonly number[],
-): number => {
-	if (a.length !== b.length) {
-		throw new Error(`Vector dimension mismatch: ${a.length} vs ${b.length}`);
-	}
-	let dot = 0;
-	let normA = 0;
-	let normB = 0;
-	for (let i = 0; i < a.length; i++) {
-		dot += a[i] * b[i];
-		normA += a[i] * a[i];
-		normB += b[i] * b[i];
-	}
-	if (normA === 0 || normB === 0) return 0;
-	return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-};
-
-/**
  * The move a message ends in when several filters matched: the filter whose
  * predicate or action was most recently *changed* wins (RFC 034 Decision 3.2),
  * tie-broken on `filterId` for the unreachable identical-timestamp case.
@@ -264,11 +223,3 @@ export const selectMoveWinner = (
 	}
 	return winner;
 };
-
-/**
- * The candidate text embedded once for a semantic match — subject then body,
- * bounded to the anchor's `anchorSourceText` budget so both sides of the cosine
- * comparison are derived from comparable inputs.
- */
-export const buildMatchText = (msg: FilterMessage): string =>
-	`${msg.subject}\n${msg.text}`.slice(0, MATCH_TEXT_LIMIT);

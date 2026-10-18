@@ -65,9 +65,6 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * SQLite is the only backend this stack deploys, so `DATA_BACKEND` is checked
  * rather than dispatched on: it applies the sqlite migration sets against the
  * local database file and installs the idempotent DDL objects around them.
- *
- * The sqlite-vec store's own file is intentionally NOT created here — the
- * search service owns it and provisions it on first use.
  */
 
 /**
@@ -119,7 +116,7 @@ import { logger } from "../../logger-lambda/src/logger.js";
  *
  * The fourth is mail the folder dedupe migration could not move onto the
  * surviving row (#386). The migration parks it, and it is removed here through
- * `deleteMessageSubtree`, so the search index is cleared with it. In
+ * `deleteMessageSubtree`. In
  * `--check` mode the report also counts the duplicate paths the pending
  * migration will merge, since nothing has been parked yet.
  *

@@ -81,17 +81,9 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
-export {
-	type AnchorDriftDeps,
-	type AnchorEmbedder,
-	refreshAnchorForEmbedder,
-} from "./filters/anchor-drift.js";
 export { extractListId, normalizeListId } from "./filters/list-id.js";
 export {
-	buildMatchText,
 	clauseMatches,
-	cosineSimilarity,
-	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
 	type LiteralClauseNarrowing,
 	literalClausesMatch,
@@ -104,7 +96,6 @@ export {
 	type FilterDecision,
 	type FilterLogger,
 	FilterPipeline,
-	type MessageEmbedder,
 } from "./filters/pipeline.js";
 export {
 	type FlagPushConfig,

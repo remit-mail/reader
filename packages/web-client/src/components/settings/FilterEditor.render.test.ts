@@ -6,8 +6,7 @@
  * The contract these tests pin: a predicate or action change patches the
  * predicate fields (so the server bumps `ruleChangedAt`) and offers a
  * re-back-apply carrying exactly the previewed predicate; a cosmetic rename
- * patches the name alone and offers nothing (RFC 034 Decision 3.2). A degraded
- * filter lists its widen inactive and lets the user take it off.
+ * patches the name alone and offers nothing (RFC 034 Decision 3.2).
  */
 
 import assert from "node:assert/strict";
@@ -48,7 +47,6 @@ const filterFixture = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 100,
 	actionChangedAt: 100,
 	matchOperator: "And",
@@ -77,9 +75,8 @@ const RULE_ASSERTION_FIELDS = [
 
 /**
  * A backend that echoes the real update contract: the patch merges over the
- * stored filter, `hasAnchor` survives it (the update endpoint carries no anchor
- * field — `sanitizePatch` drops it), and `ruleChangedAt` advances only when the
- * patch touches a predicate or action field.
+ * stored filter, and `ruleChangedAt` advances only when the patch touches a
+ * predicate or action field.
  */
 const backend = (
 	filter: RemitImapFilterResponse,
@@ -95,7 +92,6 @@ const backend = (
 			return {
 				...filter,
 				...body,
-				hasAnchor: filter.hasAnchor,
 				ruleChangedAt: bumped ? filter.ruleChangedAt + 1 : filter.ruleChangedAt,
 			};
 		}
@@ -118,7 +114,6 @@ const backend = (
 const mount = (
 	filter: RemitImapFilterResponse,
 	responder?: Responder,
-	semanticUnavailable = false,
 ): DomHarness => {
 	http = mockFetch(responder ?? backend(filter));
 	harness = createDomHarness();
@@ -128,7 +123,6 @@ const mount = (
 			filter,
 			folders: FOLDERS,
 			labels: [],
-			semanticUnavailable,
 			onClose: () => undefined,
 		}),
 	);
@@ -245,24 +239,6 @@ describe("FilterEditor — rule change offers the re-back-apply", () => {
 			{ field: "From", value: "receipts@stripe.com" },
 			{ field: "Subject", value: "invoice" },
 		]);
-	});
-});
-
-describe("FilterEditor — degraded semantic filter (RFC 038 D4)", () => {
-	it("lists the widen inactive and display-only — the anchor is fixed at creation", async () => {
-		const dom = mount(filterFixture({ hasAnchor: true }), undefined, true);
-		await settlePreview(dom);
-
-		// The anchor this deployment cannot evaluate lists inactive.
-		assert.match(dom.text(), /not available here/i);
-
-		// The update endpoint carries no anchor, so the chip cannot be removed here:
-		// no remove affordance, and a note says the anchor is fixed at creation.
-		assert.equal(
-			dom.query('[aria-label="Remove the similar-mail widen"]'),
-			null,
-		);
-		assert.match(dom.text(), /similar-mail match is fixed to the message/i);
 	});
 });
 
