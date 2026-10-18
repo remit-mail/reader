@@ -188,7 +188,6 @@ describe("FilterRepo", () => {
 		const expiresAt = "2027-01-01T00:00:00+00:00";
 		const updated = await repo.update(accountConfigId, filter.filterId, {
 			scope: FilterScope.Temporary,
-			literalClauses: CLAUSES,
 			expiresAt,
 			ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
 			state: FilterState.Active,
@@ -253,7 +252,6 @@ describe("FilterRepo", () => {
 
 		const updated = await repo.update(accountConfigId, filter.filterId, {
 			scope: FilterScope.Standing,
-			literalClauses: CLAUSES,
 		});
 
 		assert.equal(updated.scope, FilterScope.Standing);
