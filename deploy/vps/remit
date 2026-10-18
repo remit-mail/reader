@@ -1604,6 +1604,12 @@ Install util-linux (or busybox's flock) and try again."
 	# whole run, and the kernel releases it when this process dies.
 	exec 8>"$STATE_DIR/update.lock.guard"
 	flock 8
+	# The previous release's wrapper handed this run over with fd 9 still held.
+	if [ -n "${REMIT_UPDATE_HANDOFF:-}" ] && flock -n 9 2>/dev/null; then
+		lock_identity >"$LOCK_FILE"
+		exec 8>&-
+		return 0
+	fi
 	_reclaimed=""
 	if [ -f "$LOCK_FILE" ]; then
 		# Read+write without O_TRUNC, so probing the flock never erases a live
@@ -2351,6 +2357,36 @@ stage_host_files() {
 	rm -f "$REMIT_DIR/.remit-update-probe"
 }
 
+# The wrapper driving this run is the previous release's, and what it stages,
+# checks and installs is that release's list: a file the release adds to the
+# set, or a new rule for one it already ships, would land only on the update
+# after this one. So the release's own wrapper is fetched and parsed first, and
+# the run continues in it under the same run id and the same lock (fd 9 crosses
+# the exec). It carries on here only when the release's wrapper is this one, or
+# when this process already is the release's wrapper.
+handoff_to_release_wrapper() {
+	[ "${REMIT_UPDATE_HANDOFF:-}" != "$2" ] || return 0
+	_hrw_dir=$(host_files_dir "$1")/handoff
+	rm -rf "$_hrw_dir"
+	mkdir -p "$_hrw_dir"
+	_base=$(host_asset_base) || return 1
+	_base=$(printf '%s' "$_base" | sed "s#@TAG@#$2#g")
+	fetch_asset "$_base/remit" "$_hrw_dir/remit" || return 1
+	stamp_wrapper "$_hrw_dir/remit" || return 1
+	sh -n "$_hrw_dir/remit" || return 1
+	if [ -r "$0" ] && cp "$0" "$_hrw_dir/running" && stamp_wrapper "$_hrw_dir/running" &&
+		cmp -s "$_hrw_dir/running" "$_hrw_dir/remit"; then
+		return 0
+	fi
+	if [ "${REMIT_QUIET:-0}" != "1" ]; then
+		printf '%s: continuing the update in %s'\''s own wrapper.\n' "$PROG" "$2"
+	fi
+	REMIT_TAG=$RUN_FROM
+	export REMIT_TAG
+	exec env REMIT_UPDATE_HANDOFF="$2" REMIT_UPDATE_HANDOFF_RUN_ID="$1" \
+		sh "$_hrw_dir/remit" update --tag "$2"
+}
+
 # A fetch proves that bytes arrived, not that they are a release's. Both files
 # are read next by something with no way to report the failure — the compose
 # file by the stop and the start on either side of the gate, the wrapper by the
@@ -3074,6 +3110,13 @@ run_update() {
 
 	phase checking "Preparing to update from $RUN_FROM to $_target." "remit status"
 
+	if ! handoff_to_release_wrapper "$RUN_ID" "$_target"; then
+		abandon_run \
+			"$_target's wrapper, compose file and Caddy configuration could not be fetched and checked, so nothing was changed and this instance is still running $RUN_FROM." \
+			"remit update"
+		return 1
+	fi
+
 	# Nothing running is touched by the pull, so a failure here — a registry
 	# refusal, a rate limit, a full disk — aborts having changed nothing and a
 	# retry is safe.
@@ -3403,6 +3446,9 @@ cmd_update() {
 		return 0
 	fi
 
+	if [ "${REMIT_UPDATE_HANDOFF:-}" = "$_tag" ]; then
+		REQUESTED_RUN_ID=${REMIT_UPDATE_HANDOFF_RUN_ID:-}
+	fi
 	run_update "$_tag"
 }
 
