@@ -25,6 +25,9 @@ export const MESSAGE_MGMT_DLQ = "remit-message-mgmt-dlq";
 
 export const MAILBOXES_QUEUE = "remit-mailboxes.fifo";
 
+/** Where SYNC_MESSAGE_BODY is delivered (`deploy/vps/queues.json`). */
+export const BODY_QUEUE = "remit-body";
+
 /** Where MESSAGE_DELETE is delivered, one FIFO group per account. */
 export const MESSAGES_QUEUE = "remit-messages.fifo";
 
@@ -86,6 +89,34 @@ export const enqueueAppendSentMessage = async (
 			type: "APPEND_SENT_MESSAGE",
 			accountId,
 			outboxMessageId,
+			eventId: randomUUID(),
+			timestamp: Date.now(),
+		}),
+	});
+};
+
+/**
+ * The SYNC_MESSAGE_BODY envelope, as `sync-messages.ts` writes it and
+ * `SyncMessageBodyEvent` in `packages/imap-worker/src/events.ts` reads it,
+ * restated for the same reason the append envelope above is. `force` is the
+ * read-miss re-arm: the worker fetches the body again although one is stored.
+ *
+ * Each call is one more round of body sync for these messages, which is how a
+ * spec counts rounds without waiting out the queue's redelivery timeout.
+ */
+export const enqueueBodySync = async (
+	accountId: string,
+	mailboxId: string,
+	messageIds: string[],
+): Promise<void> => {
+	await sqs("SendMessage", {
+		QueueName: BODY_QUEUE,
+		MessageBody: JSON.stringify({
+			type: "SYNC_MESSAGE_BODY",
+			accountId,
+			mailboxId,
+			messageIds,
+			force: true,
 			eventId: randomUUID(),
 			timestamp: Date.now(),
 		}),

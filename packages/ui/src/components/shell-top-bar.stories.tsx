@@ -37,10 +37,12 @@ const Bar = ({
 	initialChips,
 	scope = "global",
 	refreshState = "idle",
+	settingsAttention,
 }: {
 	initialChips?: SearchChip[];
 	scope?: ShellSearchScope;
 	refreshState?: RefreshControlState;
+	settingsAttention?: string;
 }) => {
 	const [chips, setChips] = useState<SearchChip[] | undefined>(initialChips);
 	const [value, setValue] = useState("");
@@ -61,6 +63,7 @@ const Bar = ({
 			onCompose={() => undefined}
 			onReportBug={() => undefined}
 			onOpenSettings={() => undefined}
+			settingsAttention={settingsAttention}
 			composeShortcut="c"
 			refreshControl={<GlobalRefresh state={refreshState} />}
 			account={<Account />}
@@ -141,6 +144,14 @@ export const RefreshingAllAccounts: Story = {
  */
 export const RefreshFailed: Story = {
 	render: () => <Bar refreshState="error" />,
+};
+
+/**
+ * A message failed to sync or was set aside. The Settings button carries a dot
+ * and nothing else: no count, no copy, no toast. The Warnings page says what.
+ */
+export const SettingsAttention: Story = {
+	render: () => <Bar settingsAttention="Sync warnings" />,
 };
 
 /** The arrangement: one bar across the top of the shell, over every pane. */

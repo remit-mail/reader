@@ -25,6 +25,7 @@
 import { Bug, Settings, SquarePen } from "lucide-react";
 import type { ReactNode } from "react";
 import { AppTopBar } from "./app-top-bar.js";
+import { AttentionDot } from "./attention-dot.js";
 import { Button } from "./button.js";
 import { NavToggleButton } from "./nav-toggle-button.js";
 import { SearchBar } from "./search-bar.js";
@@ -60,6 +61,11 @@ export interface ShellTopBarProps {
 	onReportBug: () => void;
 	onOpenSettings: () => void;
 	/**
+	 * What needs a look in settings, read out beside the dot on the Settings
+	 * button. Absent when nothing does, and the button carries no dot.
+	 */
+	settingsAttention?: string;
+	/**
 	 * The key that composes, as the host's keymap reads it — `c`, `⌘N`,
 	 * `g then b`. The tooltip's wording around it is this component's.
 	 */
@@ -82,6 +88,7 @@ export function ShellTopBar({
 	onCompose,
 	onReportBug,
 	onOpenSettings,
+	settingsAttention,
 	composeShortcut,
 	refreshControl,
 	account,
@@ -121,9 +128,18 @@ export function ShellTopBar({
 					<Button
 						variant="ghost"
 						size="sm"
-						icon={<Settings className="size-4" />}
+						icon={
+							<AttentionDot
+								show={settingsAttention !== undefined}
+								label={settingsAttention ?? ""}
+							>
+								<Settings className="size-4" />
+							</AttentionDot>
+						}
 						title="Settings"
-						aria-label="Settings"
+						aria-label={
+							settingsAttention ? `Settings — ${settingsAttention}` : "Settings"
+						}
 						onClick={onOpenSettings}
 					/>
 					{refreshControl}

@@ -17,10 +17,10 @@ import {
 	Inbox,
 	Palette,
 	Tag,
-	TriangleAlert,
 	Users,
 } from "lucide-react";
 import { AdvancedNavIcon } from "@/components/settings/AdvancedNavIcon";
+import { WarningsNavIcon } from "@/components/settings/WarningsNavIcon";
 
 /* ------------------------------------------------------------------ */
 /* Nav items — single source of truth shared by all settings pages    */
@@ -61,7 +61,7 @@ export const SETTINGS_NAV_ITEMS: SettingsNavItem[] = [
 	{
 		id: "warnings",
 		label: "Warnings",
-		icon: <TriangleAlert className="size-4" />,
+		icon: <WarningsNavIcon />,
 	},
 	{ id: "advanced", label: "Advanced", icon: <AdvancedNavIcon /> },
 ];

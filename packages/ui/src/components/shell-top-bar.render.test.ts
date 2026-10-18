@@ -72,4 +72,16 @@ describe("ShellTopBar", () => {
 		assert.match(html, /placeholder="Search mail"/);
 		assert.doesNotMatch(html, /Search all mail/);
 	});
+
+	it("dots the Settings button and names why when settings needs a look", () => {
+		const html = render({ settingsAttention: "Sync warnings" });
+		assert.match(html, /data-testid="attention-dot"/);
+		assert.match(html, /aria-label="Settings — Sync warnings"/);
+	});
+
+	it("leaves the Settings button bare when nothing needs a look", () => {
+		const html = render();
+		assert.doesNotMatch(html, /attention-dot/);
+		assert.match(html, /aria-label="Settings"/);
+	});
 });

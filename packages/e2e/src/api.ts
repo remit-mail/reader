@@ -122,6 +122,21 @@ export interface OutboxRow {
 	textBody?: string;
 }
 
+/** One message that failed to sync for enough rounds to be listed (`GET /me/quarantine`). */
+export interface SyncWarning {
+	syncWarningId: string;
+	mailboxId: string;
+	uid: number;
+	stage: "Header" | "Body";
+	attempts: number;
+}
+
+export interface WarningList {
+	entries: Array<{ quarantineId: string; mailboxId: string }>;
+	warnings: SyncWarning[];
+	warningsTotal: number;
+}
+
 export interface MessageBodyPart {
 	mediaType: string;
 	mediaSubtype: string;
@@ -566,6 +581,11 @@ export class ApiClient {
 		input: Record<string, unknown>,
 	): Promise<{ imapSuccess: boolean; imapError?: string }> {
 		return this.json("POST", "/accounts/test-connection", input);
+	}
+
+	/** The list behind Settings › Warnings and the dot on the way there. */
+	listWarnings(): Promise<WarningList> {
+		return this.json("GET", "/me/quarantine");
 	}
 
 	triggerSync(accountId: string): Promise<unknown> {
