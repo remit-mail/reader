@@ -27,6 +27,7 @@ export {
 export {
 	type BodySyncFolder,
 	type BodySyncLogger,
+	type BodySyncRoundFolder,
 	BodySyncService,
 	type ConnectionGetter,
 	extractSnippet,
@@ -34,7 +35,6 @@ export {
 	type PlacementConfig,
 	type QuarantineConfig,
 	type SyncBodiesResult,
-	type SyncWarningConfig,
 	toParsedBody,
 } from "./body-sync.js";
 export {
@@ -332,6 +332,7 @@ export {
 	type StaleMessageReconcileResult,
 } from "./stale-message-reconcile.js";
 export {
+	type ServerUids,
 	type SyncWarningContext,
 	type SyncWarningRound,
 	SyncWarningService,

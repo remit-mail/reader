@@ -30,13 +30,13 @@ namespace RemitImap;
     sk: [SyncWarning.createdAt],
   }
 )
-@doc("Every warning in one mailbox — the set a sync round loads into memory.")
+@doc("Every warning in one mailbox — the set a sync round settles, and the rows a mailbox deletion takes.")
 @index(
   "byMailboxId",
   {
     index: "gsi2",
     pk: [SyncWarning.mailboxId],
-    sk: [SyncWarning.uid],
+    sk: [],
   }
 )
 model SyncWarning {

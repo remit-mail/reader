@@ -12,6 +12,7 @@ import { FlagQueueService } from "./flag-queue.js";
 import { MessageMoveService } from "./message-move.js";
 import { MessageSyncService } from "./message-sync.js";
 import { QuarantineService } from "./quarantine.js";
+import { SyncWarningService } from "./sync-warning.js";
 import {
 	eml,
 	type FakeImapConnection,
@@ -87,6 +88,7 @@ const syncService = () =>
 		store.envelope,
 		store.address,
 		store.threadMessage,
+		new SyncWarningService(store.syncWarning),
 		silentLog,
 		store.unitOfWork,
 		store.flagPush,

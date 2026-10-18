@@ -3,13 +3,17 @@ import type {
 	SyncWarningItem,
 	SyncWarningKey,
 } from "@remit/data-ports";
-import { deriveSyncWarningId } from "@remit/data-ports/id";
 
 export type SyncWarningContext = Omit<SyncWarningKey, "uid" | "stage">;
+
+export type ServerUids =
+	| { kind: "Listed"; uids: readonly number[] }
+	| { kind: "Unlisted" };
 
 export interface SyncWarningRound {
 	failedUids: readonly number[];
 	syncedUids: readonly number[];
+	serverUids: ServerUids;
 }
 
 export class SyncWarningService {
@@ -24,22 +28,21 @@ export class SyncWarningService {
 			[...new Set(round.failedUids)].map((uid) => ({ ...context, uid, stage })),
 		);
 
-		if (round.syncedUids.length === 0) return;
 		const recorded = await this.repository.listByMailboxId(context.mailboxId);
-		if (recorded.length === 0) return;
-
-		const recordedIds = new Set(recorded.map((row) => row.syncWarningId));
-		const cleared = round.syncedUids
-			.map((uid) =>
-				deriveSyncWarningId(
-					context.accountId,
-					context.mailboxId,
-					context.uidValidity,
-					uid,
-					stage,
-				),
+		const synced = new Set(round.syncedUids);
+		const listed =
+			round.serverUids.kind === "Listed"
+				? new Set(round.serverUids.uids)
+				: undefined;
+		const cleared = recorded
+			.filter(
+				(row) =>
+					row.stage === stage &&
+					(row.uidValidity !== context.uidValidity ||
+						synced.has(row.uid) ||
+						(listed !== undefined && !listed.has(row.uid))),
 			)
-			.filter((syncWarningId) => recordedIds.has(syncWarningId));
+			.map((row) => row.syncWarningId);
 		await this.repository.deleteMany(cleared);
 	}
 }

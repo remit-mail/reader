@@ -357,6 +357,7 @@ export class MessageSyncService {
 		private envelopeService: IEnvelopeRepository,
 		addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
+		private syncWarningService: SyncWarningService,
 		logger?: SyncLogger,
 		unitOfWork?: IUnitOfWork,
 		/**
@@ -378,7 +379,6 @@ export class MessageSyncService {
 		 * not re-fetched on every round.
 		 */
 		private quarantineService?: QuarantineService,
-		private syncWarningService?: SyncWarningService,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -485,6 +485,17 @@ export class MessageSyncService {
 		const deletedCount = status.deletedCount;
 
 		if (uids.length === 0) {
+			await this.settleHeaderWarnings(
+				accountConfigId,
+				mailbox,
+				box.uidvalidity,
+				{
+					failedUids: [],
+					syncedUids: [],
+					serverUids: { kind: "Listed", uids: allUids },
+				},
+			);
+
 			// Nothing left to enumerate: the folder is fully covered on this
 			// UIDVALIDITY axis, which is the one moment a mod-sequence watermark
 			// can be seeded without hiding unsynced history behind it. From the
@@ -651,6 +662,7 @@ export class MessageSyncService {
 		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
 			failedUids: [...saveFailedUids, ...envelopeLessUidsOf(messages)],
 			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Listed", uids: allUids },
 		});
 
 		await this.mailboxService.update(accountId, mailboxId, {
@@ -900,6 +912,7 @@ export class MessageSyncService {
 				...envelopeLessUidsOf(newMessages),
 			],
 			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Listed", uids: allUids },
 		});
 
 		await this.mailboxService.update(accountId, mailboxId, {
@@ -1135,6 +1148,7 @@ export class MessageSyncService {
 		await this.settleHeaderWarnings(accountConfigId, mailbox, box.uidvalidity, {
 			failedUids: [...saveFailedUids, ...unusableUids],
 			syncedUids: syncedUidsOf(outcomes),
+			serverUids: { kind: "Unlisted" },
 		});
 
 		// The UID watermark obeys the same clamp as the enumeration path even
@@ -1209,7 +1223,7 @@ export class MessageSyncService {
 		uidValidity: number,
 		round: SyncWarningRound,
 	): Promise<void> {
-		await this.syncWarningService?.settle(
+		await this.syncWarningService.settle(
 			{
 				accountConfigId,
 				accountId: mailbox.accountId,

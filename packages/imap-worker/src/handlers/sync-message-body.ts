@@ -240,6 +240,7 @@ export const syncMessageBody = async (
 				threadMessageService,
 				addressService,
 				envelopeService,
+				new SyncWarningService(syncWarningRepository),
 				log,
 				placementConfig,
 				filterConfig,
@@ -258,11 +259,6 @@ export const syncMessageBody = async (
 				// An invitation becomes a card the first time the message is seen,
 				// alongside the filters that run on the same pass (issue #1033).
 				{ calendarSuggestionService, calendarUnitOfWork, filterService },
-				undefined,
-				{
-					syncWarningService: new SyncWarningService(syncWarningRepository),
-					uidValidity: mailbox.uidValidity ?? 0,
-				},
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The
@@ -286,6 +282,7 @@ export const syncMessageBody = async (
 			const folder = {
 				mailboxId: mailbox.mailboxId,
 				fullPath: mailbox.fullPath,
+				uidValidity: mailbox.uidValidity,
 				placement: await resolveFolderPlacement(
 					mailboxSpecialUseService,
 					accountId,

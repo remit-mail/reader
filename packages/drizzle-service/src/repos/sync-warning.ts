@@ -4,7 +4,7 @@ import type {
 	SyncWarningKey,
 } from "@remit/data-ports";
 import { deriveSyncWarningId } from "@remit/data-ports/id";
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 
@@ -17,8 +17,7 @@ export class SyncWarningRepo implements ISyncWarningRepository {
 		this.db
 			.select()
 			.from(syncWarningTable)
-			.where(eq(syncWarningTable.mailboxId, mailboxId))
-			.orderBy(asc(syncWarningTable.uid));
+			.where(eq(syncWarningTable.mailboxId, mailboxId));
 
 	recordFailures = async (keys: SyncWarningKey[]): Promise<void> => {
 		if (keys.length === 0) return;

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "2c8b4664-3efc-464a-bff8-87301043e04c",
+  "id": "25afa885-a6c6-402e-8d5f-7617a5b0b867",
   "prevId": "2cda6dcc-a62e-45cf-8fba-d839218263f2",
   "tables": {
     "outbox": {
@@ -4310,8 +4310,7 @@
         "sync_warning_by_mailbox_id": {
           "name": "sync_warning_by_mailbox_id",
           "columns": [
-            "mailbox_id",
-            "uid"
+            "mailbox_id"
           ],
           "isUnique": false
         },

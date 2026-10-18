@@ -10,5 +10,5 @@ CREATE TABLE `sync_warning` (
 	`created_at` integer NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX `sync_warning_by_mailbox_id` ON `sync_warning` (`mailbox_id`,`uid`);--> statement-breakpoint
+CREATE INDEX `sync_warning_by_mailbox_id` ON `sync_warning` (`mailbox_id`);--> statement-breakpoint
 CREATE INDEX `sync_warning_by_account_config_id` ON `sync_warning` (`account_config_id`,`created_at`);

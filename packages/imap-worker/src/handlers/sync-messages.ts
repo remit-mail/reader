@@ -407,6 +407,7 @@ const syncMailboxMessages = async (
 		envelopeService,
 		addressService,
 		threadMessageService,
+		new SyncWarningService(syncWarningRepository),
 		log,
 		unitOfWork,
 		flagPushMarkerService,
@@ -417,7 +418,6 @@ const syncMailboxMessages = async (
 			workerVersion(),
 			log,
 		),
-		new SyncWarningService(syncWarningRepository),
 	);
 
 	// Connect once, reuse for the entire sync operation

@@ -53,12 +53,11 @@ const syncHeaders = (
 		store.envelope,
 		store.address,
 		store.threadMessage,
+		new SyncWarningService(syncWarnings),
 		silentLog,
 		store.unitOfWork,
 		store.flagPush,
 		store.messageFlag,
-		undefined,
-		new SyncWarningService(syncWarnings),
 	).syncMessages(inbox.mailboxId, account.accountId, account.accountConfigId);
 
 const syncBody = (messageId: string, source: FakeImapConnection) =>
@@ -68,22 +67,18 @@ const syncBody = (messageId: string, source: FakeImapConnection) =>
 		store.threadMessage,
 		store.address,
 		store.envelope,
+		new SyncWarningService(store.syncWarning),
 		silentLog,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		undefined,
-		store.unitOfWork,
-		{
-			syncWarningService: new SyncWarningService(store.syncWarning),
-			uidValidity: inbox.uidValidity,
-		},
 	).syncBodies(
 		[messageId],
 		account.accountId,
 		account.accountConfigId,
-		{ mailboxId: inbox.mailboxId, fullPath: "INBOX", placement: "inbox" },
+		{
+			mailboxId: inbox.mailboxId,
+			fullPath: "INBOX",
+			placement: "inbox",
+			uidValidity: inbox.uidValidity,
+		},
 		async () => source,
 	);
 
@@ -91,6 +86,21 @@ const warnings = async () =>
 	(await store.syncWarning.listByMailboxId(inbox.mailboxId)).map(
 		({ uid, stage, attempts }) => ({ uid, stage, attempts }),
 	);
+
+const servedUidValidity = async (): Promise<number> =>
+	(await imap.connection().openBox("INBOX")).uidvalidity;
+
+const plant = (uid: number, uidValidity: number) =>
+	store.syncWarning.recordFailures([
+		{
+			accountConfigId: account.accountConfigId,
+			accountId: account.accountId,
+			mailboxId: inbox.mailboxId,
+			uidValidity,
+			uid,
+			stage: "Header",
+		},
+	]);
 
 const dropEnvelopes = () => {
 	const fetch = connection.fetchMessages;
@@ -117,9 +127,8 @@ describe("a message whose headers fail to sync", () => {
 		await syncHeaders();
 		restore();
 
-		const result = await syncHeaders();
+		await syncHeaders();
 
-		assert.equal(result.syncedCount, 1);
 		assert.deepEqual(await warnings(), []);
 	});
 
@@ -134,6 +143,25 @@ describe("a message whose headers fail to sync", () => {
 		};
 
 		await assert.rejects(syncHeaders(failing), /database is locked/);
+	});
+
+	it("drops a warning from an earlier UIDVALIDITY", async () => {
+		imap.deliver("INBOX", eml({ "Message-ID": "<a@example.com>" }));
+		const uidValidity = await servedUidValidity();
+		await plant(1, uidValidity + 1);
+
+		await syncHeaders();
+
+		assert.deepEqual(await warnings(), []);
+	});
+
+	it("drops a warning for a uid the server no longer lists", async () => {
+		const uidValidity = await servedUidValidity();
+		await plant(40217, uidValidity);
+
+		await syncHeaders();
+
+		assert.deepEqual(await warnings(), []);
 	});
 
 	it("goes with its mailbox", async () => {

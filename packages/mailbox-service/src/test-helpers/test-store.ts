@@ -22,6 +22,7 @@ import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import Database from "better-sqlite3";
 import { MessageSyncService } from "../message-sync.js";
+import { SyncWarningService } from "../sync-warning.js";
 import type { FakeImapServer } from "./fake-imap.js";
 
 export {
@@ -217,6 +218,7 @@ export const syncFolder = async (
 		store.envelope,
 		store.address,
 		store.threadMessage,
+		new SyncWarningService(store.syncWarning),
 		silentLog,
 		store.unitOfWork,
 		store.flagPush,

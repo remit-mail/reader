@@ -48,6 +48,7 @@ import {
 	OutboxQueueService,
 	PlacementMoveService,
 	SpamReportService,
+	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import { createSearchService, type SearchService } from "@remit/search-service";
@@ -440,6 +441,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		repositories.threadMessage,
 		repositories.address,
 		repositories.envelope,
+		new SyncWarningService(repositories.syncWarning),
 		logger,
 		undefined,
 		filterConfig,

@@ -6,12 +6,14 @@ import type {
 	IEnvelopeRepository,
 	IMailboxRepository,
 	IMessageRepository,
+	ISyncWarningRepository,
 	IThreadMessageRepository,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { MessageCategory, MessageSystemFlag } from "@remit/domain-enums";
 import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { MessageSyncService } from "./message-sync.js";
+import { SyncWarningService } from "./sync-warning.js";
 import { noFolderRoles } from "./test-helpers/folder-roles.js";
 import type { ImapEnvelope } from "./types.js";
 
@@ -92,6 +94,7 @@ const createThreadWithFlags = async (
 		} as unknown as IEnvelopeRepository,
 		stub<IAddressRepository>(),
 		stub<IThreadMessageRepository>(),
+		new SyncWarningService(stub<ISyncWarningRepository>()),
 	);
 	const { repo, inputs } = captureCreate();
 	const now = Date.now();

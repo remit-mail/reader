@@ -271,6 +271,10 @@ export interface BodySyncFolder {
 	placement: FolderPlacement;
 }
 
+export interface BodySyncRoundFolder extends BodySyncFolder {
+	uidValidity: number;
+}
+
 export interface PlacementConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	/**
@@ -299,11 +303,6 @@ export interface QuarantineConfig {
 	uidValidity: number;
 	/** Redeliveries of this batch so far, so the record says how hard we tried. */
 	attempts: number;
-}
-
-export interface SyncWarningConfig {
-	syncWarningService: SyncWarningService;
-	uidValidity: number;
 }
 
 /**
@@ -347,6 +346,7 @@ export class BodySyncService {
 		private threadMessageService: IThreadMessageRepository,
 		private addressService: IAddressRepository,
 		private envelopeService: IEnvelopeRepository,
+		private readonly syncWarningService: SyncWarningService,
 		logger?: BodySyncLogger,
 		private readonly placementConfig?: PlacementConfig,
 		private readonly filterConfig?: FilterConfig,
@@ -354,7 +354,6 @@ export class BodySyncService {
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
 		unitOfWork?: IUnitOfWork,
-		private readonly syncWarningConfig?: SyncWarningConfig,
 	) {
 		this.log = logger ?? noopLogger;
 		this.unitOfWork =
@@ -374,7 +373,7 @@ export class BodySyncService {
 		messageIds: string[],
 		accountId: string,
 		accountConfigId: string,
-		folder: BodySyncFolder,
+		folder: BodySyncRoundFolder,
 		getConnection: ConnectionGetter,
 		force = false,
 	): Promise<SyncBodiesResult> {
@@ -540,18 +539,20 @@ export class BodySyncService {
 		// server silently omitted) — re-enqueue it.
 		const failedMessageIds = [...pending.values()];
 
-		if (this.syncWarningConfig) {
-			await this.syncWarningConfig.syncWarningService.settle(
-				{
-					accountConfigId,
-					accountId,
-					mailboxId: folder.mailboxId,
-					uidValidity: this.syncWarningConfig.uidValidity,
-				},
-				SyncWarningStage.Body,
-				{ failedUids: [...pending.keys()], syncedUids },
-			);
-		}
+		await this.syncWarningService.settle(
+			{
+				accountConfigId,
+				accountId,
+				mailboxId: folder.mailboxId,
+				uidValidity: folder.uidValidity,
+			},
+			SyncWarningStage.Body,
+			{
+				failedUids: [...pending.keys()],
+				syncedUids,
+				serverUids: { kind: "Unlisted" },
+			},
+		);
 
 		this.log.info(
 			{
