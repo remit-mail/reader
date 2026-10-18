@@ -11,7 +11,6 @@ import {
 	accountTable,
 	addressTable,
 	configImportTable,
-	filterAnchorTable,
 	filterTable,
 	labelTable,
 	mailboxTable,
@@ -19,7 +18,6 @@ import {
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { runInTransaction, serializeSqliteWrites } from "../tx.js";
 import { FilterRepo } from "./filter.js";
-import { FilterAnchorRepo } from "./filter-anchor.js";
 import { AccountRepo } from "./i4-account.js";
 import { AccountConfigRepo } from "./i4-account-config.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
@@ -44,7 +42,6 @@ const IMPORT_SCHEMA = {
 	address: addressTable,
 	configImport: configImportTable,
 	filter: filterTable,
-	filterAnchor: filterAnchorTable,
 	label: labelTable,
 	mailbox: mailboxTable,
 };
@@ -54,11 +51,10 @@ type ImportSchema = typeof IMPORT_SCHEMA;
 const CONFIG_ID = "0d9c8b7a6e5f4d3cb2a10f9e8";
 const ACCOUNT_ID = "6f4c2c309a2c4a7f9f9f1f2c3";
 const USER_ID = "7c1f0a2e-3b4d-4c5e-8f90-a1b2c3d4e5f6";
-const MESSAGE_ID = "c4b3a2918f7e6d5c4b3a29187";
 
 const document = () => ({
 	kind: "reader.config",
-	schemaVersion: 1,
+	schemaVersion: 2,
 	generator: {
 		app: "reader",
 		version: "v0.1.0",
@@ -102,11 +98,6 @@ const document = () => ({
 			literalClauses: [{ field: "From", value: "billing@example.com" }],
 			actionLabelName: "Facturen",
 			actionFolder: null,
-			anchor: {
-				sourceText: "the release note this filter was drawn from",
-				embeddingId: "amazon.titan-embed-text-v2:0@1024",
-				sourceMessageId: MESSAGE_ID,
-			},
 		},
 	],
 	addressFlags: [],
@@ -131,7 +122,6 @@ describe("a config import is atomic over the real sqlite savepoint", () => {
 			mailbox: new MailboxRepo(db as never),
 			label: new LabelRepo(db as never),
 			filter: new FilterRepo(db as never),
-			filterAnchor: new FilterAnchorRepo(db as never),
 			address: new AddressRepo(db as never),
 			configImport: new ConfigImportRepo(db as never),
 		};
@@ -158,10 +148,6 @@ describe("a config import is atomic over the real sqlite savepoint", () => {
 					throw new Error("this document names no folder roles");
 				},
 				transaction: (run) => runInTransaction(db, () => run()),
-				embedAnchor: async () => ({
-					embedding: [0.11, 0.22, 0.33],
-					embeddingId: "amazon.titan-embed-text-v2:0@1024",
-				}),
 			},
 			{
 				accountConfigId: CONFIG_ID,
@@ -211,10 +197,6 @@ describe("a config import is atomic over the real sqlite savepoint", () => {
 					throw new Error("this document names no folder roles");
 				},
 				transaction: (run) => runInTransaction(db, () => run()),
-				embedAnchor: async () => ({
-					embedding: [0.11, 0.22, 0.33],
-					embeddingId: "amazon.titan-embed-text-v2:0@1024",
-				}),
 			},
 			{
 				accountConfigId: CONFIG_ID,

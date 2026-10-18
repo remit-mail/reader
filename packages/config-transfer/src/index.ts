@@ -13,7 +13,6 @@ export {
 	readConfigForExport,
 } from "./export.js";
 export {
-	ANCHOR_EMBEDDING_PENDING,
 	type ImportConfigInput,
 	importConfig,
 } from "./import.js";
@@ -21,7 +20,6 @@ export type {
 	AppointFolderRole,
 	ConfigImportDeps,
 	ConfigImportRepositories,
-	EmbedAnchor,
 } from "./import-repositories.js";
 export {
 	type ConfigImportConflict,

@@ -14,17 +14,13 @@ import {
 	hasMatcher,
 	type MatchOperator,
 	matchJoinWord,
-	matchModeHint,
-	matchModeLabel,
+	PROPERTIES_MATCH_HINT,
 	type PreviewCount,
 	previewSettledReason,
 	type RuleClause,
-	type RuleMatchMode,
 	type RuleScope,
-	type RuleWiden,
 	ruleBlockedCopy,
 	unreadableBodyClauses,
-	widenChipLabel,
 } from "../components/filter-rule.js";
 
 /** What the action does. Delete, Move and Organize carry a glyph on the bar; Junk and Mark read live in the overflow menu. */
@@ -71,15 +67,14 @@ const VERB_COPY: Record<Verb, VerbCopy> = {
 export const verbCopy = (verb: Verb): VerbCopy => VERB_COPY[verb];
 
 /**
- * The three choices the match step offers a ticked selection. The two widened
- * doors are the shipped `RuleMatchMode` values; `selected` is not one of them
- * and is not a match mode at all — it is the bounded list of ticked message
- * ids, which no predicate stands in for.
+ * The two choices the match step offers a ticked selection. `selected` is the
+ * bounded list of ticked message ids, which no predicate stands in for;
+ * `properties` widens to every message matching literal clauses.
  */
-export type MatchDoor = "selected" | RuleMatchMode;
+export type MatchDoor = "selected" | "properties";
 
 /**
- * What the action is applied to. Beside the three doors sits `escalated`: the
+ * What the action is applied to. Beside the two doors sits `escalated`: the
  * selection the list escalated to a predicate, every message matching the query
  * it is showing rather than the rows on screen. It is offered no doors, because
  * the predicate is already the match and there is nothing left to widen; the
@@ -114,8 +109,7 @@ export interface WizardAnswers {
 	scope?: RuleScope;
 	/**
 	 * Entered by converting a search rather than by ticking rows. There is
-	 * nothing ticked to anchor on and the query has already answered what this
-	 * applies to, so the match step is dropped rather than opened past.
+	 * nothing ticked and the query has already answered what this applies to, so the match step is dropped rather than opened past.
 	 */
 	fromSearch?: boolean;
 }
@@ -170,13 +164,6 @@ export const backExits = (steps: readonly StepId[], step: StepId): boolean =>
 export interface WizardDraft {
 	clauses: readonly RuleClause[];
 	matchOperator: MatchOperator;
-	/**
-	 * The semantic widen the similar door rides on. Present makes the widen the
-	 * matcher, and it reads message bodies — so a body-text clause the user left
-	 * behind on the property door is readable here, and must not be held against
-	 * a one-time apply.
-	 */
-	widen?: RuleWiden;
 	/** The Move destination. Absent until the folder step is answered. */
 	moveMailboxId?: string;
 	/** Absent until the scope step is answered. */
@@ -189,26 +176,21 @@ export interface WizardDraft {
 const asRule = (draft: WizardDraft, scope: RuleScope): FilterRule => ({
 	clauses: [...draft.clauses],
 	matchOperator: draft.matchOperator,
-	widen: draft.widen,
 	moveMailboxId: draft.moveMailboxId,
 	scope,
 	until: draft.until,
 	name: draft.name,
 });
 
-/**
- * The draft's body-text clauses that nothing on its current match path can read.
- * Empty whenever the semantic widen is carrying the match, because the widen
- * reads bodies; empty for a rule with no body-text clause at all.
- */
+/** The draft's body-text clauses the organize matcher cannot read. */
 export const unreadableDraftClauses = (draft: WizardDraft): RuleClause[] =>
 	unreadableBodyClauses(asRule(draft, draft.scope ?? "once"));
 
 /**
  * Why a scope that persists cannot be saved from the door the wizard is on, or
  * `undefined` when it can. The ticked-rows door is a bounded list of ids and no
- * predicate at all: a rule saved through it carries neither an anchor nor a
- * clause, so it would match nothing, now and for future mail. The rule editor
+ * predicate at all: a rule saved through it carries no clause, so it would
+ * match nothing, now and for future mail. The rule editor
  * refuses that shape through `hasMatcher`, and so does this — one question, one
  * answer, in the editor's words (#1193).
  *
@@ -223,7 +205,7 @@ const missingPredicateReason = (draft: WizardDraft): string | undefined => {
 
 /**
  * The count the wizard is committing against. `uncounted` is a stated answer,
- * not a missing one: neither widened door carries a count until it has run
+ * not a missing one: the properties door carries no count until it has run
  * (#477 3.3), so there is nothing to wait for and nothing to display.
  */
 export type MatchCount = PreviewCount | { status: "uncounted" };
@@ -243,8 +225,8 @@ export const crossAccountDestinationReason =
 
 /**
  * The same restriction on the step that asks what the action applies to (#523).
- * Both widened doors are resolved by a preview one account answers, so a
- * selection with no single account has nothing to count them against. The ticked
+ * The properties door is resolved by a preview one account answers, so a
+ * selection with no single account has nothing to count it against. The ticked
  * rows are their own match and are unaffected.
  */
 export const crossAccountMatchReason =
@@ -287,10 +269,10 @@ const RESTRICTION_COPY: Record<
 /** What a restricted selection leaves the wizard's account-scoped steps to work with. */
 export interface WizardScope {
 	/**
-	 * The account a filter, a folder create and a widened door's preview all
-	 * belong to. Absent only when the selection has no single account — a
-	 * selection spanning folders of one account keeps it, so its widened doors
-	 * have something to count against.
+	 * The account a filter, a folder create and the properties door's preview
+	 * all belong to. Absent only when the selection has no single account — a
+	 * selection spanning folders of one account keeps it, so its properties door
+	 * has something to count against.
 	 */
 	accountId?: string;
 	/** What the rule step states, when the selection cannot reach a saved scope. */
@@ -302,8 +284,7 @@ export interface WizardScope {
 /**
  * Why an escalated predicate cannot become a rule (#1193). The list resolved it
  * to the query on screen before the wizard opened, so there is no clause to
- * build a rule from and no anchor to widen — and no door on the match step to
- * get one from. It applies once; the query itself is what makes a filter, from
+ * build a rule from — and no door on the match step to get one from. It applies once; the query itself is what makes a filter, from
  * the affordance above the results.
  */
 export const escalatedRuleReason =
@@ -343,16 +324,14 @@ export const wizardScopeFor = (
 };
 
 /**
- * The doors the match step offers. Withholding the two widened ones is what
+ * The doors the match step offers. Withholding the properties door is what
  * keeps a selection spanning accounts off a review that waits on a count nobody
  * can take; the step says why in `crossAccountMatchReason`.
  */
 export const matchDoorsFor = (
 	accountId: string | undefined,
 ): readonly MatchDoor[] =>
-	accountId === undefined
-		? ["selected"]
-		: ["selected", "similar", "properties"];
+	accountId === undefined ? ["selected"] : ["selected", "properties"];
 
 /**
  * The match reached nothing, so committing it would report a bulk action that
@@ -442,22 +421,9 @@ export type RunState =
 	| "runStopped"
 	| "commitFailed";
 
-/**
- * Why a sample has no rows (#452). An empty sample with no explanation reads as
- * "this rule matches nothing", which is the wrong conclusion whenever the mail
- * simply has not been indexed yet.
- */
-export type SampleEmptyReason = "noMatch" | "notIndexed";
-
-const SAMPLE_EMPTY_COPY: Record<SampleEmptyReason, string> = {
-	noMatch:
-		"Nothing matches this yet. Widen a property, or match on a different one.",
-	notIndexed:
-		"This mail isn't indexed yet, so nothing can be counted. The rule still matches once indexing catches up.",
-};
-
-export const sampleEmptyCopy = (reason: SampleEmptyReason): string =>
-	SAMPLE_EMPTY_COPY[reason];
+/** What an empty sample says, so it never reads as a blank. */
+export const SAMPLE_EMPTY_COPY =
+	"Nothing matches this yet. Widen a property, or match on a different one.";
 
 export interface RunOutcome {
 	state: RunState;
@@ -669,21 +635,18 @@ export const clauseSentence = (
 	operator: MatchOperator,
 ): string => clauses.map(clauseWords).join(` ${matchJoinWord(operator)} `);
 
-/** What a match door is called, with the ticked count the widen anchors on. */
+/** What a match door is called, with the ticked count. */
 export const matchDoorLabel = (
 	mode: MatchDoor,
 	selectedCount: number,
-): string => {
-	if (mode === "selected") return `These ${selectedCount} messages`;
-	if (mode === "similar") return widenChipLabel({ anchorCount: selectedCount });
-	return matchModeLabel("properties");
-};
+): string =>
+	mode === "selected" ? `These ${selectedCount} messages` : "Its properties";
 
 /** One line saying what a match door actually does, so the choice is never a guess. */
 export const matchDoorHint = (mode: MatchDoor): string =>
 	mode === "selected"
 		? "Only the messages ticked in the list."
-		: matchModeHint(mode);
+		: PROPERTIES_MATCH_HINT;
 
 /**
  * What an escalated predicate covers, in the words the list already used to
@@ -755,9 +718,6 @@ export const matchPhrase = ({
 		return escalatedCount === undefined
 			? `every message ${scope}`
 			: `all ${escalatedCount.toLocaleString()} messages ${scope}`;
-	}
-	if (mode === "similar") {
-		return `mail ${widenChipLabel({ anchorCount: selectedCount }).toLowerCase()}`;
 	}
 	if (clauses.length === 0) return "every message";
 	return `every message where ${clauseSentence(clauses, matchOperator)}`;

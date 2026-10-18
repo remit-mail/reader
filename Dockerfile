@@ -6,13 +6,13 @@
 #   npm run docker:build -- backend
 #
 # (`docker build --target backend -t remit/backend .` works the same way for
-# apisix/web/search-index-worker; the other targets share an
+# apisix/web; the other targets share an
 # ARG-parameterized install stage and need
 # `--build-arg SERVICE_NAME=backend` added when invoked directly instead of
 # through the npm script or docker-bake.hcl, both of which set it.)
 #
 # Roster (RFC 035 D1): apisix, backend, imap-worker, smtp-worker,
-# account-worker, search-index-worker, web.
+# account-worker, web.
 #
 # `npm run docker:build -- <target>` wraps this for local use; CI
 # (.github/workflows/images.yml) builds every target on push to main.
@@ -151,73 +151,6 @@ RUN mkdir -p dist-docker/backend-migrations \
 	&& cp -a deploy/vps/migrations-sqlite dist-docker/backend-migrations/migrations-sqlite
 
 ########################################################################
-# sqlite-vec-musl — compile the vec0 loadable extension against musl.
-#
-# The vector store's KNN read path — the Organize "find similar" widen
-# (packages/backend/src/service/organize.ts matchSemantic, pooling an anchor's
-# already-stored chunk vectors, no embedding model involved) — loads sqlite-vec
-# through better-sqlite3's loadExtension. The npm `sqlite-vec` package ships a
-# glibc-only prebuilt `vec0.so` (linked ld-linux / GLIBC_2.2.5) that cannot
-# dlopen on the Alpine/musl backend image, so the extension never loaded there
-# and semantic-capability.ts gated the widen off permanently. sqlite-vec is a
-# single-file C amalgamation; compile it against musl here and copy only the
-# ~140KB stripped `vec0.so` into the backend image — no model, no npm package,
-# no base-image switch.
-#
-# The version is NOT an ARG: it is derived from the same manifest the
-# search-index-worker image installs (docker/runtime/
-# search-index-worker/package.json), so the musl amalgamation cannot drift
-# from the npm package that writes vec.db. The sha256 below stays hand-pinned:
-# a version bump changes the download URL and tarball, so a bumped manifest
-# without a matching sha256 update fails this checksum and fails the build
-# loudly — the same review gate docker/hunspell/pin.env keeps for the
-# spellcheck engine.
-#
-# `-D__COSMOPOLITAN__` disables one platform-guarded typedef block
-# (`typedef u_int8_t uint8_t;`) that assumes a glibc/BSD `u_int8_t` musl does not
-# provide; stdint.h already defines those types, so the block is redundant here.
-# That macro is referenced nowhere else in the amalgamation, so defining it is a
-# surgical off-switch for that block, not a claim about the target platform.
-# SIMD (AVX/NEON) stays off — it is opt-in via SQLITE_VEC_ENABLE_*, and the
-# portable scalar path needs no runtime CPU-feature guarantee. The basename
-# stays `vec0` so SQLite derives the `sqlite3_vec_init` entry point from the
-# filename (it copies only alphabetic characters, dropping the `0`).
-########################################################################
-FROM docker.io/library/alpine:3.23 AS sqlite-vec-musl
-ARG SQLITE_VEC_SHA256=3acd67cb4aff080c7050926fd3cf8227905fe5b7ee3829d8ee5024ab1283cf61
-# The search-index-worker image `npm ci`s this exact manifest (see its install
-# stage below); copy it here too and read the pin out of it, so the musl
-# amalgamation is always built from the same version that writes vec.db.
-# The destination is absolute so the read below does not depend on the
-# stage's implicit default WORKDIR.
-COPY docker/runtime/search-index-worker/package.json /worker-package.json
-RUN apk add --no-cache build-base sqlite-dev sqlite curl jq
-WORKDIR /build
-# Read the exact sqlite-vec pin straight out of the worker's install manifest.
-# Deriving it here (rather than a second ARG) means the musl amalgamation is
-# always built from the same version that writes vec.db. The guard rejects a
-# loose manifest (caret/tilde/blank) so a drifted range fails the build before
-# a wrong-version tarball downloads — the sha256 checksum then catches any
-# real version move without a matching update.
-RUN SQLITE_VEC_VERSION="$(jq -r '.dependencies["sqlite-vec"]' /worker-package.json)" \
-	&& test -n "$SQLITE_VEC_VERSION" \
-	&& test "${SQLITE_VEC_VERSION#[^0-9]}" = "$SQLITE_VEC_VERSION" || { echo "FATAL: expected an exact sqlite-vec pin in worker manifest, got '$SQLITE_VEC_VERSION'" >&2; exit 1; } \
-	&& curl -fsSL -o amalgamation.tar.gz \
-		"https://github.com/asg017/sqlite-vec/releases/download/v${SQLITE_VEC_VERSION}/sqlite-vec-${SQLITE_VEC_VERSION}-amalgamation.tar.gz" \
-	&& echo "${SQLITE_VEC_SHA256}  amalgamation.tar.gz" | sha256sum -c - \
-	&& tar xzf amalgamation.tar.gz \
-	&& gcc -O2 -fPIC -shared -D__COSMOPOLITAN__ sqlite-vec.c -o vec0.so -lm \
-	&& strip vec0.so \
-	# Prove the stripped .so dlopens on musl and the `vec0` basename resolves the
-	# `sqlite3_vec_init` entry point, by creating the exact vec0 virtual table the
-	# store uses — offline (no network needed for the load). A musl ABI break, a
-	# renamed entry point, or a missing symbol fails the build here instead of
-	# shipping a backend image whose anchor widen 500s on first query.
-	&& sqlite3 :memory: ".load /build/vec0" \
-		"CREATE VIRTUAL TABLE t USING vec0(id TEXT PRIMARY KEY, embedding FLOAT[4] distance_metric=cosine)" \
-		"SELECT vec_version()"
-
-########################################################################
 # node-service-base — shared runtime layer for the six alpine-based images.
 #
 # Plain `alpine`, not `node:24-alpine`: the official node:*-alpine images
@@ -236,7 +169,7 @@ RUN SQLITE_VEC_VERSION="$(jq -r '.dependencies["sqlite-vec"]' /worker-package.js
 # plain alpine has no such user by default, unlike node:*-alpine) before any
 # per-target step, so npm install/COPY --chown never need a trailing
 # `chown -R /app` — that pattern doubles image size, because changing
-# ownership of an already-large tree (node_modules, a baked model) copies
+# ownership of an already-large tree (node_modules) copies
 # every file into a new union-fs layer instead of mutating in place.
 ########################################################################
 FROM docker.io/library/alpine:3.23 AS node-service-base
@@ -306,14 +239,6 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/config-save.mjs .
 # The migration set, staged in the builder into one directory so this COPY has a
 # single stable source. The migrate entrypoint applies ./migrations-sqlite.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./
-# The musl-compiled sqlite-vec loadable extension (see the sqlite-vec-musl stage).
-# SQLITE_VEC_EXTENSION_PATH short-circuits the npm package's glibc-only
-# getLoadablePath() in the vector store's loader
-# (packages/search-service/src/backends/sqlite-vec.ts), so the Organize anchor
-# widen's KNN reads over vec.db work on this Alpine image. Free-text
-# /search/semantic stays gated — it needs the query embedder this image omits.
-COPY --from=sqlite-vec-musl --chown=node:node /build/vec0.so ./vec0.so
-ENV SQLITE_VEC_EXTENSION_PATH=/app/vec0.so
 ENV SERVER_PORT=8080
 EXPOSE 8080
 CMD ["node", "server.mjs"]
@@ -375,98 +300,6 @@ ENV QUEUE_SIDECAR_DB=/data/queue/queue.db
 EXPOSE 9324
 HEALTHCHECK --interval=5s --timeout=5s --retries=10 \
 	CMD ["node", "-e", "require('http').get('http://127.0.0.1:9324/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
-CMD ["node", "server.mjs"]
-
-########################################################################
-# search-index-worker — bakes the local embedding model at build time.
-#
-# Exception to the alpine/musl base every other node-service image uses:
-# onnxruntime-node ships prebuilt binaries linked against glibc
-# (ld-linux-x86-64.so.2), which does not exist on musl. Verified by actually
-# trying alpine here first — the model bake step below fails with
-# ERR_DLOPEN_FAILED ("Error loading shared library ld-linux-x86-64.so.2: No
-# such file or directory") before it can even load the runtime. Rebuilding
-# onnxruntime-node from source for musl is out of proportion to this PR;
-# node:24-slim (glibc/Debian) stays for this one image only.
-########################################################################
-FROM docker.io/library/node:24-slim AS search-index-worker
-WORKDIR /app
-RUN chown node:node /app
-USER node
-ENV NODE_ENV=production
-COPY --chown=node:node docker/runtime/search-index-worker/package.json docker/runtime/search-index-worker/package-lock.json ./
-# npm ci: see node-service-installed's comment above — the committed
-# package-lock.json pins @huggingface/transformers' full transitive graph
-# (onnxruntime-node, sharp, ...), not just the top-level version.
-RUN npm ci --omit=dev --no-audit --no-fund --loglevel=error \
-	&& npm cache clean --force \
-	&& \
-	# onnxruntime-node ships prebuilt binaries for every platform plus a CUDA
-	# execution provider (~315MB alone) in one npm package; this image is
-	# linux/amd64, CPU-only (no GPU on the 2vCPU/4GB reference VPS), so prune
-	# everything but the linux/x64 CPU provider. onnxruntime-web (the
-	# browser/wasm build @huggingface/transformers also depends on) is never
-	# loaded from Node.js and is dropped entirely. Together this cuts a
-	# multi-hundred-MB dependency down to what the CPU embedding path uses.
-	#
-	# Every path below is asserted to exist right before removal and asserted
-	# gone right after: if a dependency bump moves these files, the build
-	# fails loudly instead of silently shipping the ~315MB CUDA provider in a
-	# "successful" image.
-	ORT_NODE_DIR=node_modules/onnxruntime-node/bin/napi-v6 && \
-	ORT_CUDA="$ORT_NODE_DIR/linux/x64/libonnxruntime_providers_cuda.so" && \
-	ORT_TENSORRT="$ORT_NODE_DIR/linux/x64/libonnxruntime_providers_tensorrt.so" && \
-	test -e "$ORT_CUDA" || { echo "FATAL: $ORT_CUDA missing before prune — onnxruntime-node layout changed, update the Dockerfile prune paths" >&2; exit 1; } && \
-	test -d node_modules/onnxruntime-web || { echo "FATAL: node_modules/onnxruntime-web missing before prune — dependency layout changed, update the Dockerfile prune paths" >&2; exit 1; } && \
-	rm -rf "$ORT_NODE_DIR/darwin" "$ORT_NODE_DIR/win32" "$ORT_NODE_DIR/linux/arm64" \
-		"$ORT_CUDA" "$ORT_TENSORRT" \
-		node_modules/onnxruntime-web && \
-	test ! -e "$ORT_CUDA" || { echo "FATAL: $ORT_CUDA still present after prune" >&2; exit 1; }
-USER root
-RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-	/usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
-USER node
-COPY --chown=node:node docker/runtime/search-index-worker/bake-model.mjs ./bake-model.mjs
-# Bake the int8-quantized model_quantized.onnx (~118MB), not the fp32
-# model.onnx (~470MB): SEARCH_EMBEDDING_DTYPE=q8 here and in the runtime ENV
-# below make the bake and the worker resolve the identical cached file. Search
-# scoring differs slightly from the fp32 deployment targets by design —
-# embeddings are a rebuildable projection re-derived on reindex, so cross-target
-# parity is not required (see deploy/vps/README.md).
-RUN MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2 && \
-	SEARCH_EMBEDDING_MODEL_ID="$MODEL_ID" SEARCH_EMBEDDING_DTYPE=q8 \
-		node bake-model.mjs && \
-	rm bake-model.mjs && \
-	# Assert the bake fetched the quantized weights and NOT the fp32 file: if a
-	# transformers.js bump changes the dtype→filename mapping or the default
-	# precision, fail the build loudly instead of silently shipping the ~470MB
-	# fp32 model (or an image with no model at all).
-	MODEL_CACHE="node_modules/@huggingface/transformers/.cache/$MODEL_ID/onnx" && \
-	test -f "$MODEL_CACHE/model_quantized.onnx" || { echo "FATAL: $MODEL_CACHE/model_quantized.onnx missing after bake — dtype=q8 did not resolve model_quantized.onnx, transformers.js dtype mapping changed" >&2; exit 1; } && \
-	test ! -f "$MODEL_CACHE/model.onnx" || { echo "FATAL: $MODEL_CACHE/model.onnx present after bake — fp32 weights baked into the image, dtype=q8 was ignored" >&2; exit 1; }
-# sharp is NOT pruned, unlike onnxruntime-web above, despite
-# `feature-extraction` (text embeddings) never calling into it at runtime:
-# @huggingface/transformers' Node entrypoint (transformers.node.mjs) has a
-# static top-level `import sharp from "sharp"`, so it's a hard module-load
-# dependency, not a lazily-invoked one. Verified by actually removing
-# node_modules/sharp and node_modules/@img here and re-running the exact
-# `pipeline("feature-extraction", ...)` call server.mjs makes — it throws
-# `ERR_MODULE_NOT_FOUND: Cannot find package 'sharp'` before any embedding
-# code runs, crash-looping the container. Keeping it is the correct,
-# verified call, not an oversight.
-COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/server.mjs ./server.mjs
-# The index provenance report `remit check-index` runs (#455): an alternate
-# entrypoint in this image, the same shape migrate.mjs has in the backend one.
-# It is here rather than in the backend image because SEARCH_EMBEDDING_DTYPE
-# below is part of the embedding identity and is set only here — read anywhere
-# else, the same environment names an embedder that never wrote a vector.
-COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/index-report.mjs ./index-report.mjs
-COPY --from=builder --chown=node:node /app/dist-docker/search-index-worker/index-reembed.mjs ./index-reembed.mjs
-ENV SEARCH_EMBEDDING_PROVIDER=local
-ENV SEARCH_EMBEDDING_MODEL_ID=Xenova/paraphrase-multilingual-MiniLM-L12-v2
-ENV SEARCH_EMBEDDING_DTYPE=q8
-HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=60s \
-	CMD ["node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='search-index-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
 CMD ["node", "server.mjs"]
 
 ########################################################################

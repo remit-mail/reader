@@ -170,7 +170,6 @@ const sender: IntelligenceData = {
 		summary: "Signed by example.test.",
 	},
 	category: { value: "personal" },
-	similar: [],
 };
 
 let harness: DomHarness | undefined;

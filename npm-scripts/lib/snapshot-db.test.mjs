@@ -106,18 +106,18 @@ describe("snapshot_db", () => {
 	});
 
 	it("treats a source that does not exist yet as a complete snapshot", () => {
-		// The vector store is created by the search-index worker on its first
-		// embedding write, so a young instance legitimately has none.
+		// The database is created by its first migration, so an instance that
+		// has not run one legitimately has none.
 		const box = sandbox();
-		const destination = join(box.dir, "vec-snapshot.db");
-		const output = snapshot(box, join(box.dir, "vec.db"), destination);
+		const destination = join(box.dir, "remit-snapshot.db");
+		const output = snapshot(box, join(box.dir, "remit.db"), destination);
 		assert.match(output, /does not exist yet/);
 		assert.equal(existsSync(destination), false);
 	});
 
 	it("does not create a database at a missing source path", () => {
 		const box = sandbox();
-		const source = join(box.dir, "vec.db");
+		const source = join(box.dir, "remit.db");
 		snapshot(box, source, join(box.dir, "out.db"));
 		assert.equal(existsSync(source), false);
 	});

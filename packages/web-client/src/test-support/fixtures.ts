@@ -104,6 +104,5 @@ export const makeConfig = (
 		updatedAt: 0,
 	},
 	accounts,
-	semanticSearchEnabled: true,
 	...overrides,
 });

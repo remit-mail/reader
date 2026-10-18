@@ -15,7 +15,6 @@ import {
 	type MatchMode,
 	type RunState,
 	ruleRestrictionFor,
-	type SampleEmptyReason,
 	type SelectionRestriction,
 	type StepId,
 	stepBlockedReason,
@@ -54,15 +53,12 @@ interface WizardEntry {
 	escalatedScope?: string;
 	escalatedTotal?: number;
 	scope?: RuleScope;
-	semanticUnavailable?: boolean;
-	semanticOff?: boolean;
-	semanticError?: string;
 	restriction?: SelectionRestriction;
 	runState?: RunState;
 	runFailureReason?: string;
 	failedBeyondNamed?: number;
 	bodyTextClause?: boolean;
-	sampleEmpty?: SampleEmptyReason;
+	sampleEmpty?: boolean;
 	sampleLoading?: boolean;
 	folderCreate?: "confirms" | "never confirms" | "fails";
 }
@@ -169,10 +165,6 @@ function WizardDriver({
 	);
 	const [until, setUntil] = useState("");
 	const [typedName, setTypedName] = useState<string>();
-	const [semanticFallbackTaken, setSemanticFallbackTaken] = useState(
-		Boolean(entry.semanticUnavailable || entry.semanticOff) &&
-			(entry.startMode === "properties" || entry.startAt === "properties"),
-	);
 	const [nudged, setNudged] = useState(false);
 	const [clauseSeq, setClauseSeq] = useState(0);
 	const [runState, setRunState] = useState<RunState>(
@@ -211,7 +203,6 @@ function WizardDriver({
 	const draft: WizardDraft = {
 		clauses,
 		matchOperator,
-		widen: mode === "similar" ? { anchorCount: selected.length } : undefined,
 		moveMailboxId: mailboxId,
 		scope,
 		until,
@@ -236,7 +227,6 @@ function WizardDriver({
 			uncountable || entry.sampleEmpty || entry.sampleLoading ? [] : covered,
 		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
-		emptyReason: entry.sampleEmpty,
 		loading: entry.sampleLoading,
 	};
 	const failures =
@@ -260,12 +250,6 @@ function WizardDriver({
 		if (next === "properties" && clauses.length === 0) {
 			setClauses(seedPropertyClauses());
 		}
-	};
-
-	const fallBackToProperties = () => {
-		setSemanticFallbackTaken(true);
-		setClauses(seedPropertyClauses());
-		setMode("properties");
 	};
 
 	const submitClause = () => {
@@ -325,14 +309,6 @@ function WizardDriver({
 				mode,
 				accountId: wizardScope.accountId,
 				onModeChange: changeMode,
-				semanticUnavailable:
-					entry.semanticUnavailable ||
-					entry.semanticOff ||
-					!!entry.semanticError,
-				semanticOff: entry.semanticOff,
-				semanticErrorDetail: entry.semanticError,
-				semanticFallbackTaken,
-				onSemanticFallback: fallBackToProperties,
 				escalatedScope: escalated,
 				sample,
 			}}
@@ -368,7 +344,6 @@ function WizardDriver({
 					fromSearch && conversion
 						? searchConversionNotice(conversion)
 						: undefined,
-				semanticFallbackTaken,
 				sample: { ...sample, label: "What this matches" },
 			}}
 			folder={{
@@ -506,7 +481,7 @@ export const OrganizeApplyToDesktop: Story = {
 	play: shows([
 		"What should this apply to?",
 		"These 3 messages",
-		"Similar to these 3",
+		"Its properties",
 	]),
 	globals: { viewport: { value: "desktop" } },
 	render: () => (
@@ -639,16 +614,13 @@ export const DeleteReviewTablet: Story = {
 	),
 };
 
-export const DeleteReviewSimilar: Story = {
-	name: "Delete — review, similar to these",
-	play: shows([
-		"Delete mail similar to these 3.",
-		"This covers messages not shown in the list.",
-	]),
+export const DeleteReviewProperties: Story = {
+	name: "Delete — review, matching properties",
+	play: shows(["This covers messages not shown in the list."]),
 	render: () => (
 		<Flow
 			preselected={3}
-			openAt={{ verb: "delete", startAt: "review", startMode: "similar" }}
+			openAt={{ verb: "delete", startAt: "review", startMode: "properties" }}
 		/>
 	),
 };
@@ -765,20 +737,6 @@ export const OrganizeApplyTo: Story = {
 	),
 };
 
-export const OrganizeSimilarDoor: Story = {
-	name: "Organize — similar to these",
-	play: shows([
-		"Similar to these 3",
-		"The first matches. The total is not known until the run finishes.",
-	]),
-	render: () => (
-		<Flow
-			preselected={3}
-			openAt={{ verb: "organize", startAt: "match", startMode: "similar" }}
-		/>
-	),
-};
-
 export const OrganizePropertyDoor: Story = {
 	name: "Organize — match on properties",
 	play: shows([
@@ -793,86 +751,25 @@ export const OrganizePropertyDoor: Story = {
 	),
 };
 
-export const OrganizeSemanticUnavailable: Story = {
-	name: "Organize — similar unavailable",
+export const OrganizePropertiesAddresses: Story = {
+	name: "Organize — properties, addresses",
+	play: shows(["automated@airbnb.com"]),
 	render: () => (
 		<Flow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "match", semanticUnavailable: true }}
-		/>
-	),
-	play: async ({ canvasElement }) => {
-		const canvas = within(canvasElement);
-		await userEvent.click(canvas.getByText("Similar to these 3"));
-		await expect(
-			await canvas.findByText(
-				"Similar-mail matching is unavailable right now — matching on the senders instead.",
-			),
-		).toBeVisible();
-	},
-};
-
-export const OrganizeSemanticOff: Story = {
-	name: "Organize — semantic search off",
-	play: shows([/Semantic search is off on this instance/, /remit semantic on/]),
-	render: () => (
-		<Flow
-			preselected={3}
-			openAt={{ verb: "organize", startAt: "match", semanticOff: true }}
+			openAt={{ verb: "organize", startAt: "properties" }}
 		/>
 	),
 };
 
-export const OrganizeSenderFallback: Story = {
-	name: "Organize — sender fallback, addresses",
-	play: shows([
-		"Similar-mail matching is unavailable right now. These are the senders of the messages you picked.",
-		"automated@airbnb.com",
-	]),
-	render: () => (
-		<Flow
-			preselected={3}
-			openAt={{
-				verb: "organize",
-				startAt: "properties",
-				semanticUnavailable: true,
-			}}
-		/>
-	),
-};
-
-export const OrganizeSenderFallbackDomain: Story = {
-	name: "Organize — sender fallback, one domain",
-	play: shows([
-		"npmjs.com",
-		"Similar-mail matching is unavailable right now. These are the senders of the messages you picked.",
-	]),
+export const OrganizePropertiesDomain: Story = {
+	name: "Organize — properties, one domain",
+	play: shows(["npmjs.com"]),
 	render: () => (
 		<Flow
 			messages={SELECTION_SEARCH_SAMPLE}
 			preselected={2}
-			openAt={{
-				verb: "organize",
-				startAt: "properties",
-				semanticUnavailable: true,
-			}}
-		/>
-	),
-};
-
-export const OrganizeSenderFallbackStanding: Story = {
-	name: "Organize — sender fallback, standing",
-	play: shows(["So you can find it later", "Rule name"]),
-	render: () => (
-		<Flow
-			preselected={4}
-			openAt={{
-				verb: "organize",
-				startAt: "name",
-				startMode: "properties",
-				scope: "standing",
-				semanticUnavailable: true,
-			}}
+			openAt={{ verb: "organize", startAt: "properties" }}
 		/>
 	),
 };
@@ -911,7 +808,7 @@ export const OrganizeNothingMatches: Story = {
 			openAt={{
 				verb: "organize",
 				startAt: "properties",
-				sampleEmpty: "noMatch",
+				sampleEmpty: true,
 			}}
 		/>
 	),
@@ -938,30 +835,13 @@ export const OrganizeUncountable: Story = {
 	),
 };
 
-export const OrganizeNothingIndexed: Story = {
-	name: "Organize — nothing indexed",
-	play: shows([
-		"This mail isn't indexed yet, so nothing can be counted. The rule still matches once indexing catches up.",
-	]),
-	render: () => (
-		<Flow
-			preselected={3}
-			openAt={{
-				verb: "organize",
-				startAt: "properties",
-				sampleEmpty: "notIndexed",
-			}}
-		/>
-	),
-};
-
 export const OrganizeScope: Story = {
 	name: "Organize — scope",
 	play: shows(["How long should this hold?", "Choose one of the three first."]),
 	render: () => (
 		<Flow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "rule", startMode: "similar" }}
+			openAt={{ verb: "organize", startAt: "rule", startMode: "properties" }}
 		/>
 	),
 };
@@ -978,7 +858,7 @@ export const OrganizeStanding: Story = {
 			openAt={{
 				verb: "organize",
 				startAt: "rule",
-				startMode: "similar",
+				startMode: "properties",
 				scope: "standing",
 			}}
 		/>
@@ -994,7 +874,7 @@ export const OrganizeUntil: Story = {
 			openAt={{
 				verb: "organize",
 				startAt: "rule",
-				startMode: "similar",
+				startMode: "properties",
 				scope: "until",
 			}}
 		/>
@@ -1038,24 +918,21 @@ export const OrganizeName: Story = {
 	render: () => (
 		<Flow
 			preselected={3}
-			openAt={{ verb: "organize", startAt: "name", startMode: "similar" }}
+			openAt={{ verb: "organize", startAt: "name", startMode: "properties" }}
 		/>
 	),
 };
 
 export const OrganizeReviewStanding: Story = {
 	name: "Organize — review, standing",
-	play: shows([
-		"Organize mail similar to these 3 and save a rule that keeps doing it.",
-		"Mail from Booking.com",
-	]),
+	play: shows([/that keeps doing it/]),
 	render: () => (
 		<Flow
 			preselected={3}
 			openAt={{
 				verb: "organize",
 				startAt: "review",
-				startMode: "similar",
+				startMode: "properties",
 				scope: "standing",
 			}}
 		/>
@@ -1318,7 +1195,7 @@ export const CrossAccountMatch: Story = {
 	name: "Apply to — selection spans accounts",
 	play: shows(
 		[/Matching beyond the messages you picked only works within one account/],
-		["Similar to these 3"],
+		["Its properties"],
 	),
 	render: () => (
 		<Flow
@@ -1334,7 +1211,7 @@ export const CrossAccountMatch: Story = {
 
 export const CrossFolderMatch: Story = {
 	name: "Apply to — selection spans folders",
-	play: shows(["Similar to these 3", "Its properties"], [/only works within/]),
+	play: shows(["These 3 messages", "Its properties"], [/only works within/]),
 	render: () => (
 		<Flow
 			preselected={3}
@@ -1379,23 +1256,6 @@ export const CrossFolderRule: Story = {
 	),
 };
 
-export const MatchWidenFailed: Story = {
-	name: "Apply to — the widen failed",
-	play: shows([
-		"Couldn't find similar messages: The matcher is not reachable right now.",
-	]),
-	render: () => (
-		<Flow
-			preselected={3}
-			openAt={{
-				verb: "organize",
-				startAt: "match",
-				semanticError: "The matcher is not reachable right now.",
-			}}
-		/>
-	),
-};
-
 export const MatchSampleLoading: Story = {
 	name: "Apply to — the sample is still arriving",
 	play: shows(["Fetching the messages this covers…"]),
@@ -1405,7 +1265,7 @@ export const MatchSampleLoading: Story = {
 			openAt={{
 				verb: "organize",
 				startAt: "match",
-				startMode: "similar",
+				startMode: "properties",
 				sampleLoading: true,
 			}}
 		/>

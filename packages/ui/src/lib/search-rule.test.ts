@@ -13,7 +13,6 @@ const conversion = (
 	matchOperator: "all",
 	droppedFacets: [],
 	keptTerms: false,
-	droppedSemantic: false,
 	...overrides,
 });
 
@@ -51,13 +50,11 @@ describe("searchConversionNotice", () => {
 				keptTerms: true,
 				scopedOut: { mailboxId: "mbx-archive", label: "Archive" },
 				droppedFacets: [{ type: "isUnread", label: "Unread" }],
-				droppedSemantic: true,
 			}),
 		);
 		assert.deepEqual(notice, {
 			scopedOutFolder: "Archive",
 			droppedFacets: ["Unread"],
-			droppedSemantic: true,
 		});
 	});
 
@@ -68,7 +65,6 @@ describe("searchConversionNotice", () => {
 		assert.deepEqual(notice, {
 			scopedOutFolder: undefined,
 			droppedFacets: [],
-			droppedSemantic: false,
 		});
 	});
 });

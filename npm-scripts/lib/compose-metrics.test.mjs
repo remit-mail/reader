@@ -198,13 +198,12 @@ describe("VictoriaMetrics scrapes every service that owns a signal", () => {
 		(match) => match[1],
 	);
 
-	it("names the six endpoints D3 assigns a signal to", () => {
+	it("names the five endpoints D3 assigns a signal to", () => {
 		assert.deepEqual(targets.sort(), [
 			"account-worker:9464",
 			"backend:8080",
 			"imap-worker:9464",
 			"queue:9324",
-			"search-index-worker:9464",
 			"smtp-worker:9464",
 		]);
 	});
@@ -253,13 +252,7 @@ describe("the metrics endpoint is not reachable through Caddy", () => {
 	});
 
 	it("never proxies to a worker or to the queue sidecar", () => {
-		const workers = [
-			"imap-worker",
-			"smtp-worker",
-			"account-worker",
-			"search-index-worker",
-			"queue",
-		];
+		const workers = ["imap-worker", "smtp-worker", "account-worker", "queue"];
 		for (const { matcher, upstreams } of routes) {
 			for (const upstream of upstreams) {
 				const host = upstream.split(":")[0];

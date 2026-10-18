@@ -5,10 +5,7 @@ import type {
 } from "@remit/data-ports";
 import { FilterMatchOperator } from "@remit/domain-enums";
 import { logger } from "@remit/logger-lambda";
-import {
-	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
-	NO_ACTION,
-} from "@remit/mailbox-service";
+import { NO_ACTION } from "@remit/mailbox-service";
 import { env } from "expect-env";
 import type { RemitClient } from "./data-client.js";
 import type { OrganizePredicate } from "./organize.js";
@@ -38,10 +35,8 @@ const filterJobColumns = (
 	filterId: string,
 ): Omit<CreateOrganizeJobRequestInput, keyof JobOwner | "ttl"> => ({
 	filterId,
-	anchorMessageId: NO_ACTION,
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [],
-	similarityThreshold: DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	actionLabelId: NO_ACTION,
 	actionMailboxId: NO_ACTION,
 });

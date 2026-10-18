@@ -28,7 +28,6 @@ import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { runInTransaction } from "../tx.js";
-import { DrizzleMessageRepository } from "./message.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -916,11 +915,6 @@ export class DrizzleThreadMessageRepository
 					.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
 				moved += 1;
 			}
-			await new DrizzleMessageRepository(
-				tx as unknown as ConstructorParameters<
-					typeof DrizzleMessageRepository
-				>[0],
-			).requestReembed([...new Set(rows.map((row) => row.messageId))]);
 			return { moved, dropped: rows.length - moved };
 		});
 	}

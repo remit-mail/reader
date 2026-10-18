@@ -12,7 +12,7 @@ the SQLite storage backend, and the web client. It is MIT licensed.
 ## What you get
 
 - A web mail client: reading, threading, search, compose, and account settings.
-- Full-text and semantic search over your mail, computed locally.
+- Full-text search over your mail, computed locally.
 - A single-VM deployment that stores everything in SQLite files on one disk —
   no database server to run.
 - Your IMAP credentials encrypted at rest with a key only you hold.

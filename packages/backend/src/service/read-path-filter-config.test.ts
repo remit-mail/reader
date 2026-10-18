@@ -1,31 +1,26 @@
 /**
- * The read-path body backfill must run a semantic (anchor-only) standing filter,
- * which needs the env-selected embedder wired into the filter config
- * `createRemitClient` hands its BodySyncService (issue #298).
+ * The read-path body backfill must run the account's standing filters through
+ * the filter config `createRemitClient` hands its BodySyncService (issues
+ * #223, #298).
  *
  * These drive the composed client — `createRemitClient(...).bodySync` — rather
- * than `buildReadPathFilterConfig` alone, so replacing that call with an inline
- * filter-config literal (which carries no embedder) fails here.
+ * than `buildReadPathFilterConfig` alone, so dropping that wiring fails here.
  */
 
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	CreateMessageLabelInput,
-	FilterAnchorItem,
 	FilterItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import {
-	buildMatchText,
 	type FilterMessage,
 	type IImapConnection,
 	NO_ACTION,
 } from "@remit/mailbox-service";
-import type { SearchService } from "@remit/search-service";
-import { buildEmbeddingServiceFromEnv } from "@remit/search-service/from-env";
 import type { SecretsService } from "@remit/secrets-service";
 import type { StorageService } from "@remit/storage-service";
 import {
@@ -55,51 +50,33 @@ const eml = (message: FilterMessage): Buffer =>
 	);
 
 /**
- * Anchor-only: no literal clauses, so it matches on the embedding alone. Its
- * action is a label, which the fake MessageLabel repository below records —
- * a move would run the real PlacementMoveService against SQS.
+ * A sender filter. Its action is a label, which the fake MessageLabel
+ * repository below records — a move would run the real PlacementMoveService
+ * against SQS.
  */
-const anchorOnlyFilter: FilterItem = {
-	filterId: "flt-semantic",
+const senderFilter: FilterItem = {
+	filterId: "flt-stripe",
 	accountConfigId: "cfg-1",
 	name: "receipts",
 	scope: "Standing",
 	state: FilterState.Active,
-	hasAnchor: true,
 	ruleChangedAt: 1,
 	matchOperator: FilterMatchOperator.Or,
-	literalClauses: [],
+	literalClauses: [{ field: "From", value: "billing@stripe.com" }],
 	actionLabelId: "lbl-receipts",
 	actionMailboxId: NO_ACTION,
 	createdAt: 1,
 	updatedAt: 1,
 } as unknown as FilterItem;
 
-// The read path must embed a candidate message under the same model that wrote
-// the anchors, so an anchor written from this text matches it exactly.
-const anchorFor = async (message: FilterMessage): Promise<FilterAnchorItem> => {
-	const embedding = buildEmbeddingServiceFromEnv();
-	const [anchorEmbedding] = await embedding.embed([buildMatchText(message)]);
-	return {
-		accountConfigId: "cfg-1",
-		filterId: "flt-semantic",
-		anchorEmbedding,
-		anchorEmbeddingId: embedding.embeddingId,
-		anchorSourceText: buildMatchText(message),
-		anchorMessageId: "m-anchor",
-	} as unknown as FilterAnchorItem;
-};
-
-const repositoriesWithAnchor = (
-	anchor: FilterAnchorItem,
+const repositoriesWithFilter = (
 	applied: CreateMessageLabelInput[] = [],
 ): RemitClientRepositories =>
 	({
 		filter: {
-			listByAccountAndState: async () => [anchorOnlyFilter],
+			listByAccountAndState: async () => [senderFilter],
 			refreshExpiry: async (filter: FilterItem) => filter,
 		},
-		filterAnchor: { get: async () => anchor },
 		messageLabel: {
 			apply: async (input: CreateMessageLabelInput) => {
 				applied.push(input);
@@ -151,7 +128,6 @@ const readBodyThroughClient = async (
 	const client = createRemitClient({
 		repositories,
 		storage,
-		search: {} as unknown as SearchService,
 		secrets: {} as unknown as SecretsService,
 		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/0/test",
 		sqsSmtpQueueUrl: "https://sqs.eu-west-1.amazonaws.com/0/test-smtp",
@@ -187,37 +163,28 @@ describe("createRemitClient read-path filter config", () => {
 		process.env.SQS_QUEUE_URL_MESSAGE_MGMT = previousQueueUrl;
 	});
 
-	it("labels a message an anchor-only filter matches on a read-path backfill", async () => {
+	it("labels a message a standing filter matches on a read-path backfill", async () => {
 		const applied: CreateMessageLabelInput[] = [];
 
-		await readBodyThroughClient(
-			repositoriesWithAnchor(await anchorFor(MESSAGE), applied),
-			MESSAGE,
-		);
+		await readBodyThroughClient(repositoriesWithFilter(applied), MESSAGE);
 
 		assert.deepEqual(
 			applied.map(({ labelId, appliedByFilterId }) => ({
 				labelId,
 				appliedByFilterId,
 			})),
-			[{ labelId: "lbl-receipts", appliedByFilterId: "flt-semantic" }],
+			[{ labelId: "lbl-receipts", appliedByFilterId: "flt-stripe" }],
 		);
 	});
 
-	it("leaves a message the anchor does not match unlabelled", async () => {
+	it("leaves a message the filter does not match unlabelled", async () => {
 		const applied: CreateMessageLabelInput[] = [];
 
-		await readBodyThroughClient(
-			repositoriesWithAnchor(
-				await anchorFor({
-					...MESSAGE,
-					subject: "Scheduled maintenance window",
-					text: "Our service will be unavailable on Sunday",
-				}),
-				applied,
-			),
-			MESSAGE,
-		);
+		await readBodyThroughClient(repositoriesWithFilter(applied), {
+			...MESSAGE,
+			from: "status@example.com",
+			fromName: "Status",
+		});
 
 		assert.deepEqual(applied, []);
 	});
@@ -229,9 +196,7 @@ describe("buildReadPathFilterConfig", () => {
 		delete process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
 		try {
 			assert.equal(
-				buildReadPathFilterConfig(
-					repositoriesWithAnchor(await anchorFor(MESSAGE)),
-				),
+				buildReadPathFilterConfig(repositoriesWithFilter()),
 				undefined,
 			);
 		} finally {

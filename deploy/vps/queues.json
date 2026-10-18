@@ -35,11 +35,6 @@
 			"deadLetter": { "name": "remit-message-mgmt-dlq", "maxReceiveCount": 3 }
 		},
 		{
-			"name": "remit-search-index",
-			"visibilityTimeoutSeconds": 300,
-			"deadLetter": { "name": "remit-search-index-dlq", "maxReceiveCount": 3 }
-		},
-		{
 			"name": "remit-smtp",
 			"visibilityTimeoutSeconds": 60,
 			"deadLetter": { "name": "remit-smtp-dlq", "maxReceiveCount": 3 }
@@ -69,7 +64,6 @@
 		{ "name": "remit-body-dlq", "visibilityTimeoutSeconds": 60 },
 		{ "name": "remit-mailbox-mgmt-dlq", "visibilityTimeoutSeconds": 60 },
 		{ "name": "remit-message-mgmt-dlq", "visibilityTimeoutSeconds": 60 },
-		{ "name": "remit-search-index-dlq", "visibilityTimeoutSeconds": 60 },
 		{ "name": "remit-smtp-dlq", "visibilityTimeoutSeconds": 60 },
 		{ "name": "remit-account-fanout-dlq", "visibilityTimeoutSeconds": 60 },
 		{ "name": "remit-account-finalize-dlq", "visibilityTimeoutSeconds": 60 },

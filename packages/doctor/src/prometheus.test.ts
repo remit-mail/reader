@@ -17,8 +17,8 @@ describe("parseMetrics", () => {
 	});
 
 	it("reads a sample with no labels", () => {
-		assert.deepEqual(parseMetrics("remit_search_index_backlog_rows 0\n"), [
-			{ name: "remit_search_index_backlog_rows", labels: {}, value: 0 },
+		assert.deepEqual(parseMetrics("remit_up 0\n"), [
+			{ name: "remit_up", labels: {}, value: 0 },
 		]);
 	});
 

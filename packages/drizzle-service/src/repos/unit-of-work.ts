@@ -9,9 +9,8 @@ import { DrizzleThreadMessageRepository } from "./thread-message.js";
 
 /**
  * Runs a write set inside a single transaction. The repositories handed
- * to the callback are bound to that transaction, so the data rows and the
- * transactional-outbox rows the message write appends commit atomically — a
- * throw anywhere rolls the whole set back, outbox included.
+ * to the callback are bound to that transaction, so the data rows commit
+ * atomically — a throw anywhere rolls the whole set back.
  */
 export class DrizzleUnitOfWork implements IUnitOfWork {
 	constructor(private db: Db<MessageDataSchema>) {}

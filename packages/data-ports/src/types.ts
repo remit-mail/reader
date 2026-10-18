@@ -15,7 +15,6 @@ import type {
 	ConfigImportUnresolvedRefSchema,
 	EnvelopeAddressSchema,
 	EnvelopeSchema,
-	FilterAnchorSchema,
 	FilterSchema,
 	LabelSchema,
 	MailboxLockSchema,
@@ -97,7 +96,6 @@ export type AddressItem = z.infer<typeof AddressSchema>;
 export type LabelItem = z.infer<typeof LabelSchema>;
 export type MessageLabelItem = z.infer<typeof MessageLabelSchema>;
 export type FilterItem = z.infer<typeof FilterSchema>;
-export type FilterAnchorItem = z.infer<typeof FilterAnchorSchema>;
 export type MessagePlacementMoveItem = z.infer<
 	typeof MessagePlacementMoveSchema
 >;
@@ -686,7 +684,6 @@ export type CreateFilterInput = Omit<
 	| "updatedAt"
 	| "state"
 	| "disabledReason"
-	| "hasAnchor"
 	| "ruleChangedAt"
 	| "actionChangedAt"
 	| "matchOperator"
@@ -696,7 +693,6 @@ export type CreateFilterInput = Omit<
 > & {
 	state?: FilterItem["state"];
 	disabledReason?: FilterItem["disabledReason"];
-	hasAnchor?: FilterItem["hasAnchor"];
 	matchOperator?: FilterItem["matchOperator"];
 	literalClauses?: FilterItem["literalClauses"];
 	actionLabelId?: FilterItem["actionLabelId"];
@@ -714,11 +710,6 @@ export type CreateFilterInput = Omit<
 // key, unlike the API-facing `UpdateFilterInput` for that same reason.
 export type UpdateFilterInput = Partial<
 	Omit<CreateFilterInput, "accountConfigId">
->;
-
-export type CreateFilterAnchorInput = Omit<
-	FilterAnchorItem,
-	"createdAt" | "updatedAt"
 >;
 
 export type CalendarCollectionItem = z.infer<typeof CalendarCollectionSchema>;

@@ -14,7 +14,6 @@ interface FilterEditorSurfaceProps {
 	folders: readonly FolderTreeNode[];
 	delimiter?: string;
 	labels: LabelOption[];
-	semanticUnavailable?: boolean;
 	onClose: () => void;
 }
 
@@ -30,7 +29,6 @@ export function FilterEditorSurface({
 	folders,
 	delimiter,
 	labels,
-	semanticUnavailable,
 	onClose,
 }: FilterEditorSurfaceProps) {
 	const isDesktop = useIsDesktop();
@@ -42,7 +40,6 @@ export function FilterEditorSurface({
 			folders={folders}
 			delimiter={delimiter}
 			labels={labels}
-			semanticUnavailable={semanticUnavailable}
 			onClose={onClose}
 		/>
 	);

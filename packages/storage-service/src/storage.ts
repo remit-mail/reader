@@ -334,8 +334,7 @@ export interface StorageService {
 
 	/**
 	 * List every extracted-text artifact stored for a message — the
-	 * `.skipped.json` markers are excluded. Used by the search-index worker
-	 * (#452) to fold attachment text into a message's vectors.
+	 * `.skipped.json` markers are excluded.
 	 */
 	listExtractedTexts(
 		accountConfigId: string,

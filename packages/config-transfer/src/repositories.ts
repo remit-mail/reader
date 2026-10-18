@@ -3,7 +3,6 @@ import type {
 	IAccountRepository,
 	IAccountSettingRepository,
 	IAddressRepository,
-	IFilterAnchorRepository,
 	IFilterRepository,
 	ILabelRepository,
 	IMailboxRepository,
@@ -24,7 +23,6 @@ export interface ConfigExportRepositories {
 	mailbox: Pick<IMailboxRepository, "listAllByAccount">;
 	label: Pick<ILabelRepository, "listByAccountConfig">;
 	filter: Pick<IFilterRepository, "listByAccountConfig">;
-	filterAnchor: Pick<IFilterAnchorRepository, "listByAccountConfig">;
 	/**
 	 * Not the suggest listing: that one hides an address the machine marked
 	 * `junkOnly` unless the account has corresponded with it, which is right for

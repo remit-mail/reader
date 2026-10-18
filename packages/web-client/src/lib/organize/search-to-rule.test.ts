@@ -9,13 +9,8 @@ const CONTEXT: SearchTokenContext = {
 	accountsByName: new Map([["work", "acc-work"]]),
 };
 
-const convert = (
-	query: string,
-	options: { searchHadSemanticReach?: boolean } = {},
-) =>
-	convertSearchToRule(parseSearchTokens(query, CONTEXT), {
-		searchHadSemanticReach: options.searchHadSemanticReach ?? false,
-	});
+const convert = (query: string) =>
+	convertSearchToRule(parseSearchTokens(query, CONTEXT));
 
 describe("convertSearchToRule — facet → clause mapping", () => {
 	it("maps literal terms to a HasWords clause", () => {
@@ -79,35 +74,6 @@ describe("convertSearchToRule — facets with no clause equivalent", () => {
 		assert.deepEqual(conversion.clauses, [
 			{ field: "HasWords", value: "standup" },
 		]);
-	});
-});
-
-describe("convertSearchToRule — semantic honesty (RFC 038 D5)", () => {
-	it("states the dropped reach when the search surfaced similar mail", () => {
-		// The literal filter cannot reproduce the reach the search just showed.
-		const conversion = convert("things like this", {
-			searchHadSemanticReach: true,
-		});
-		assert.equal(conversion.droppedSemantic, true);
-		// The literal words are still kept.
-		assert.deepEqual(conversion.clauses, [
-			{ field: "HasWords", value: "things like this" },
-		]);
-	});
-
-	it("says nothing when the search had no semantic reach to drop", () => {
-		const conversion = convert("things like this", {
-			searchHadSemanticReach: false,
-		});
-		assert.equal(conversion.droppedSemantic, false);
-	});
-
-	it("never reports dropped semantics for a facet-only search", () => {
-		const conversion = convert("from:a@b.com", {
-			searchHadSemanticReach: true,
-		});
-		assert.equal(conversion.keptTerms, false);
-		assert.equal(conversion.droppedSemantic, false);
 	});
 });
 

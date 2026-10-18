@@ -10,8 +10,6 @@ import {
 	PARKED_MAILBOX_ID,
 	sweepDuplicateMailboxMail,
 } from "./repair/duplicate-mailbox-mail.js";
-import { MESSAGE_REMOVED_EVENT } from "./repos/message.js";
-import { outboxTable } from "./schema/outbox.js";
 import {
 	applyMigration,
 	migrationJournal,
@@ -421,12 +419,6 @@ describe("(account_id, full_path) becomes unique", () => {
 		assert.deepEqual(messages, [
 			{ messageId: "kept" },
 			{ messageId: "unrelated" },
-		]);
-		const events = await handle.db
-			.select({ messageId: outboxTable.messageId, event: outboxTable.event })
-			.from(outboxTable);
-		assert.deepEqual(events, [
-			{ messageId: "stale", event: MESSAGE_REMOVED_EVENT },
 		]);
 		assert.deepEqual(await sweepDuplicateMailboxMail(handle.db, "repair"), {
 			mode: "repair",

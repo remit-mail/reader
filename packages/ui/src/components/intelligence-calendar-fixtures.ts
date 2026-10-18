@@ -367,7 +367,6 @@ export const organiserSender: IntelligenceData = {
 	},
 	category: { value: "personal" },
 	flags: { vip: true },
-	similar: [],
 };
 
 export const airlineSender: IntelligenceData = {
@@ -386,5 +385,4 @@ export const airlineSender: IntelligenceData = {
 		summary: "This message was signed by klm.example.",
 	},
 	category: { value: "transactional" },
-	similar: [],
 };

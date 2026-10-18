@@ -26,7 +26,7 @@ export interface SmtpDataPorts {
 // marked `external` for the Lambda esbuild build (LAMBDA_ESBUILD_OPTIONS), so
 // esbuild leaves this `import()` unresolved in the bundle. It resolves only
 // where the relational composition actually runs, which has the package
-// installed. Mirrors the search-index-worker data-ports seam.
+// installed.
 const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 	const sqliteDbPath = process.env.SQLITE_DB_PATH;
 	if (!sqliteDbPath) throw new Error("SQLITE_DB_PATH is required");

@@ -9,7 +9,7 @@ import { CONFIG_SCHEMA_ARTIFACT_PATH } from "./version.js";
  */
 export const committedSchemaPath = (): string =>
 	fileURLToPath(
-		new URL("../schema/reader-config.v1.schema.json", import.meta.url),
+		new URL("../schema/reader-config.v2.schema.json", import.meta.url),
 	);
 
 /** The generated artifact, at its path under the repository root. */

@@ -77,7 +77,7 @@ describe("thread rows filed under a doubled-bracket root", () => {
 
 	beforeEach(() => {
 		created.clear();
-		for (const table of ["thread_message", "outbox", "message"]) {
+		for (const table of ["thread_message", "message"]) {
 			sqlite.exec(`DELETE FROM ${table}`);
 		}
 	});
@@ -122,21 +122,13 @@ describe("thread rows filed under a doubled-bracket root", () => {
 		assert.deepEqual(threadsOf("m-reply"), [parentThread]);
 	});
 
-	test("queues each moved message once for re-indexing, and a second run finds nothing", async () => {
+	test("a second run finds nothing left to move", async () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
 		await moveMisfiledThreadRows(handle.db, "repair");
 		const second = await moveMisfiledThreadRows(handle.db, "repair");
 
 		assert.equal(second.misfiled, 0);
-		assert.deepEqual(
-			sqlite
-				.prepare(
-					"SELECT message_id, event FROM outbox WHERE processed_at IS NULL AND event = 'message.moved'",
-				)
-				.all(),
-			[{ message_id: "m-reply", event: "message.moved" }],
-		);
 	});
 
 	test("refuses to report success while rows stay misfiled", async () => {

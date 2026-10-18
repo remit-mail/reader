@@ -91,7 +91,6 @@ import { useRefreshControl } from "@/hooks/useRefreshControl";
 import { useRescueCandidates } from "@/hooks/useRescueCandidates";
 import { useResultCount } from "@/hooks/useResultCount";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
-import { useSemanticSearch } from "@/hooks/useSemanticSearch";
 import { useThreadActions } from "@/hooks/useThreadActions";
 import { useThreadMessageIds } from "@/hooks/useThreadMessageIds";
 import { useThreadRow } from "@/hooks/useThreadRow";
@@ -116,10 +115,7 @@ import { isRescueCandidate } from "@/lib/rescue-candidates";
 import { recordRescueSentToJunk } from "@/lib/rescue-telemetry";
 import { shouldRequestResultCount } from "@/lib/result-count";
 import { normalizeSearchQuery } from "@/lib/search-query";
-import {
-	relatedSearchResults,
-	threadToSearchResult,
-} from "@/lib/search-result";
+import { threadToSearchResult } from "@/lib/search-result";
 import { parseSearchTokens } from "@/lib/search-tokens";
 import { useTelemetry } from "@/lib/telemetry-context";
 import {
@@ -961,33 +957,14 @@ function MailboxList() {
 			threads.map((thread) => threadToSearchResult(thread, resultFolderIndex)),
 		[threads, resultFolderIndex],
 	);
-	// The route scopes this view and the top bar's chip says so, so every engine
-	// here respects it: the literal engine searches this mailbox, and the
-	// semantic engine takes the same `mailboxId`. No chip means global; a chip
-	// means nothing on the route reaches past it. Results are deduped by thread,
-	// so a thread never shows in both sections.
-	const { hits: semanticHits, isLoading: relatedLoading } = useSemanticSearch({
-		mailboxId,
-		filterCategory,
-	});
-	const relatedResults = useMemo(
-		() =>
-			relatedSearchResults(
-				semanticHits,
-				threads.map((t) => t.threadId),
-				resultFolderIndex,
-			),
-		[semanticHits, threads, resultFolderIndex],
-	);
-	// The two-engine results panel, whose semantic hits are in no list at all —
-	// each one carries the thread it belongs to.
+	// The results panel; each result carries the thread it belongs to.
 	const handleSelectSearchResult = useCallback(
 		(result: SearchResult) => {
 			const threadId =
 				result.threadId ??
 				threads.find((thread) => thread.messageId === result.id)?.threadId;
 			if (!threadId) return;
-			// Both sections are scoped to this mailbox, so a result's own mailbox is
+			// The search is scoped to this mailbox, so a result's own mailbox is
 			// normally this one; keep reading it off the result so a row can never
 			// open under a mailbox it does not belong to.
 			openThread(
@@ -1096,13 +1073,11 @@ function MailboxList() {
 			onClearFilters={onClearFilters}
 			searchResults={searchResults}
 			searchLoading={isLoading}
-			relatedResults={relatedResults}
-			relatedLoading={relatedLoading}
 			onSelectSearchResult={handleSelectSearchResult}
 			// A committed mailbox search renders in the body's own `MessageList`
 			// (its threads filter to the results), so the multi-select toolbar and
 			// the "Select all N matching" escalation are reachable on desktop (#212).
-			// The typing/uncommitted state still shows the two-engine panel.
+			// The typing/uncommitted state still shows the results panel.
 			searchResultsInBody
 			refreshControl={refreshControl}
 		>
@@ -1204,7 +1179,6 @@ function MailboxReading() {
 				isOpen={intelligence.drawerOpen}
 				onClose={intelligence.closeDrawer}
 				thread={selectedThread}
-				mailboxId={mailboxId}
 				accountId={mailboxAccountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
@@ -1221,7 +1195,6 @@ function MailboxReading() {
 function MailboxIntelligence() {
 	const replyWithText = useReplyWithText();
 	const {
-		mailboxId,
 		mailboxAccountId,
 		selectedThread,
 		onToggleIntelligence,
@@ -1233,7 +1206,6 @@ function MailboxIntelligence() {
 		<IntelligencePane
 			onClose={onToggleIntelligence}
 			thread={selectedThread}
-			mailboxId={mailboxId}
 			accountId={mailboxAccountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
@@ -1249,7 +1221,6 @@ function MailboxIntelligence() {
 function MailboxPhone() {
 	const replyWithText = useReplyWithText();
 	const {
-		mailboxId,
 		mailboxAccountId,
 		selectedThread,
 		conversation,
@@ -1288,7 +1259,6 @@ function MailboxPhone() {
 					isOpen={drawer.isOpen}
 					onClose={drawer.close}
 					thread={selectedThread}
-					mailboxId={mailboxId}
 					accountId={mailboxAccountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}

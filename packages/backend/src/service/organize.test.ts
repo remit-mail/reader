@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
-import type {
-	CreateFilterAnchorInput,
-	FilterAnchorItem,
-	FilterItem,
-} from "@remit/data-ports";
+import { describe, it } from "node:test";
+import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
-import type {
-	AnchorPayload,
-	ChunkMetadata,
-	VectorRecord,
-} from "@remit/search-service";
-import { createMemoryVectorStore } from "@remit/search-service";
 import type { RemitClient } from "./data-client.js";
 import {
 	applyOrganize,
@@ -24,66 +14,27 @@ import {
 	type OrganizeMatched,
 	type OrganizePredicate,
 } from "./organize.js";
-import {
-	_resetSemanticCapabilityForTest,
-	isSemanticSearchUnavailable,
-} from "./semantic-capability.js";
-
-const moduleNotFound = (): Error => {
-	const error = new Error("Cannot find package 'sqlite-vec' imported from …");
-	(error as Error & { code: string }).code = "ERR_MODULE_NOT_FOUND";
-	return error;
-};
 
 const ACCOUNT_CONFIG_ID = "cfg-1";
-const ANCHOR_VECTOR = [1, 0, 0, 0];
-const ORTHOGONAL_VECTOR = [0, 1, 0, 0];
-/** The model the fixtures' embedder is currently configured with. */
-const CURRENT_EMBEDDING_ID = "test-model@4";
-/** The model a persisted anchor was written under before a same-dimension swap. */
-const STALE_EMBEDDING_ID = "older-model@4";
-const ANCHOR_SOURCE_TEXT = "book me a table";
-
-const anchorPayload: AnchorPayload = {
-	anchorEmbedding: ANCHOR_VECTOR,
-	anchorEmbeddingId: CURRENT_EMBEDDING_ID,
-	anchorSourceText: ANCHOR_SOURCE_TEXT,
-};
-
-const metadata = (over: Partial<ChunkMetadata>): ChunkMetadata => ({
-	messageId: "msg-x",
-	threadId: "thread-x",
-	accountConfigId: ACCOUNT_CONFIG_ID,
-	mailboxIds: ["mbox-1"],
-	chunkType: "body",
-	sentDate: 1_700_000_000,
-	isRead: false,
-	hasAttachment: false,
-	hasStars: false,
-	...over,
-});
-
-const bodyChunk = (
-	messageId: string,
-	vector: number[],
-	over: Partial<ChunkMetadata> = {},
-): VectorRecord => ({
-	chunkId: `${messageId}#body`,
-	vector,
-	metadata: metadata({ messageId, ...over }),
-});
 
 const predicate = (
 	over: Partial<OrganizePredicate> = {},
 ): OrganizePredicate => ({
-	anchorMessageId: "msg-anchor",
 	matchOperator: FilterMatchOperator.And,
 	literalClauses: [],
-	similarityThreshold: 0.75,
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	...over,
 });
+
+/** A predicate that matches every corpus row whose subject says "reservation". */
+const reservations = (
+	over: Partial<OrganizePredicate> = {},
+): OrganizePredicate =>
+	predicate({
+		literalClauses: [{ field: "Subject", value: "reservation" }],
+		...over,
+	});
 
 /**
  * Run the matcher and assert it accepted the predicate, so every test that only
@@ -110,7 +61,6 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 	scope: "Standing",
 	state: FilterState.Active,
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
 	matchOperator: FilterMatchOperator.And,
@@ -124,10 +74,10 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 
 /**
  * A client that records MessageLabel writes and blows up if the back-apply path
- * ever touches Filter/FilterAnchor — the RFC 034 guardrail: this scope never
+ * ever writes a Filter — the RFC 034 guardrail: this scope never
  * persists a standing rule.
  *
- * `activeFilters`/`filterAnchorRows`/`threadMessages` model the account's
+ * `activeFilters`/`threadMessages` model the account's
  * *other*, already-existing standing filters and message rows. A back-apply
  * never arbitrates against them (reader #497), so `filterReads` pins that the
  * Active filter set is not even consulted.
@@ -135,7 +85,6 @@ const filterItem = (over: Partial<FilterItem> = {}): FilterItem => ({
 const trackingClient = (
 	seed: {
 		activeFilters?: FilterItem[];
-		filterAnchorRows?: FilterAnchorItem[];
 		threadMessages?: Record<
 			string,
 			{ fromEmail?: string; fromName?: string; subject?: string }
@@ -145,10 +94,7 @@ const trackingClient = (
 	const labeled: Array<{ messageId: string; labelId: string }> = [];
 	let filterWrites = 0;
 	let filterReads = 0;
-	let filterAnchorWrites = 0;
-	const anchorPuts: CreateFilterAnchorInput[] = [];
 	const activeFilters = seed.activeFilters ?? [];
-	const filterAnchorRows = seed.filterAnchorRows ?? [];
 	const threadMessages = seed.threadMessages ?? {};
 	const client = {
 		messageLabel: {
@@ -198,30 +144,12 @@ const trackingClient = (
 			},
 			refreshExpiry: async (filter: FilterItem) => filter,
 		},
-		filterAnchor: {
-			put: async (input: CreateFilterAnchorInput) => {
-				filterAnchorWrites += 1;
-				anchorPuts.push(input);
-				const row: FilterAnchorItem = { ...input, createdAt: 0, updatedAt: 1 };
-				const at = filterAnchorRows.findIndex(
-					(existing) => existing.filterId === input.filterId,
-				);
-				if (at === -1) filterAnchorRows.push(row);
-				else filterAnchorRows[at] = row;
-				return row;
-			},
-			get: async (_accountConfigId: string, filterId: string) =>
-				filterAnchorRows.find((row) => row.filterId === filterId) ?? null,
-			listByAccountConfig: async () => filterAnchorRows,
-		},
 	} as unknown as RemitClient;
 	return {
 		client,
 		labeled,
 		filterWrites: () => filterWrites,
 		filterReads: () => filterReads,
-		filterAnchorWrites: () => filterAnchorWrites,
-		anchorPuts,
 	};
 };
 
@@ -260,87 +188,6 @@ const trackingMoveService = () => {
 	};
 };
 
-/**
- * Deps whose semantic side is the in-memory vector store — the vector-backed
- * deployment. `listAccountFilterMessages` returns the given corpus (empty by
- * default), and constructing the semantic side is tracked so a literal-only
- * predicate can be shown never to build it. `filterAnchorRows` seeds the
- * account's *persisted* FilterAnchor rows (empty by default) — the reverse
- * lookup back-apply's anchor consultation reads (reader #350) — and `embed`
- * is a deterministic stand-in for the configured embedding model, used only
- * by the exclusive-move precedence check.
- */
-const matchDeps = (
-	store: ReturnType<typeof createMemoryVectorStore>,
-	corpus: OrganizeCandidate[] = [],
-	filterAnchorRows: FilterAnchorItem[] = [],
-): OrganizeMatchDeps & { semanticBuilds: () => number } => {
-	let semanticBuilds = 0;
-	return {
-		semantic: () => {
-			semanticBuilds += 1;
-			return {
-				buildAnchor: async () => anchorPayload,
-				vectorStore: store,
-				embed: async (text: string) =>
-					text.includes("reservation") ? ANCHOR_VECTOR : ORTHOGONAL_VECTOR,
-				embeddingId: CURRENT_EMBEDDING_ID,
-			};
-		},
-		listAccountFilterMessages: async () => ({ items: corpus }),
-		filterAnchors: {
-			get: async () => null,
-			listByAccountConfig: async () => filterAnchorRows,
-			put: async () => {
-				throw new Error("matchDeps must not repair an anchor");
-			},
-		},
-		semanticBuilds: () => semanticBuilds,
-	};
-};
-
-/**
- * Deps modelling a deployment that ships no vector pipeline: any attempt to
- * build or use the semantic side raises the missing-module shape, and the
- * literal corpus is served from plain rows.
- */
-const vectorlessDeps = (
-	corpus: OrganizeCandidate[],
-): OrganizeMatchDeps & { semanticUsed: () => boolean } => {
-	let semanticUsed = false;
-	return {
-		semantic: () => {
-			semanticUsed = true;
-			return {
-				buildAnchor: async () => {
-					throw moduleNotFound();
-				},
-				vectorStore: {
-					query: async () => {
-						throw moduleNotFound();
-					},
-					getByMessage: async () => {
-						throw moduleNotFound();
-					},
-				},
-				embed: async () => {
-					throw moduleNotFound();
-				},
-				embeddingId: CURRENT_EMBEDDING_ID,
-			};
-		},
-		listAccountFilterMessages: async () => ({ items: corpus }),
-		filterAnchors: {
-			get: async () => null,
-			listByAccountConfig: async () => [],
-			put: async () => {
-				throw moduleNotFound();
-			},
-		},
-		semanticUsed: () => semanticUsed,
-	};
-};
-
 const candidate = (
 	messageId: string,
 	over: Partial<OrganizeCandidate["message"]> = {},
@@ -356,486 +203,91 @@ const candidate = (
 	},
 });
 
+const reservation = (messageId: string): OrganizeCandidate =>
+	candidate(messageId, { subject: "Dinner reservation" });
+
+/** Deps that serve the given corpus as one page. */
+const corpusDeps = (corpus: OrganizeCandidate[]): OrganizeMatchDeps => ({
+	listAccountFilterMessages: async () => ({ items: corpus }),
+});
+
 describe("matchOrganize", () => {
-	it("returns every semantically matching message and excludes the misses", async () => {
-		const store = createMemoryVectorStore();
-		const matching = ["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"];
-		await store.upsert([
-			...matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)),
-			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
-		]);
-
-		const { messageIds, semanticUnavailable } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			predicate({ actionLabelId: "lbl-1" }),
-		);
-
-		assert.deepEqual([...messageIds].sort(), matching);
-		assert.equal(semanticUnavailable, false);
-	});
-
-	it("matches nothing when the predicate has neither an anchor nor a clause", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-
+	it("matches nothing when the predicate has no clause", async () => {
 		const { messageIds } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps([reservation("msg-1")]),
 			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				anchorMessageId: "None",
-			},
+			predicate(),
 		);
 
 		assert.deepEqual(messageIds, []);
 	});
 
-	it("refines the semantic set by literal clauses", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([
-			bodyChunk("msg-1", ANCHOR_VECTOR, {
-				subject: "Dinner reservation",
-				textPreview: "your table is booked",
-			}),
-			bodyChunk("msg-2", ANCHOR_VECTOR, {
-				subject: "Newsletter",
-				textPreview: "weekly digest",
-			}),
-		]);
-
+	it("matches a literal predicate against the corpus", async () => {
 		const { messageIds } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				literalClauses: [{ field: "Subject", value: "reservation" }],
-			},
-		);
-
-		assert.deepEqual(messageIds, ["msg-1"]);
-	});
-
-	it("never builds the semantic side for a purely-literal predicate", async () => {
-		const store = createMemoryVectorStore();
-		const deps = matchDeps(store, [
-			candidate("msg-1", { subject: "Dinner reservation" }),
-			candidate("msg-2", { subject: "Newsletter" }),
-		]);
-
-		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			anchorMessageId: "None",
-			literalClauses: [{ field: "Subject", value: "reservation" }],
-		});
-
-		assert.deepEqual(messageIds, ["msg-1"]);
-		assert.equal(
-			deps.semanticBuilds(),
-			0,
-			"a literal-only predicate must not construct the vector-backed side",
-		);
-	});
-});
-
-describe("matchOrganize honors the persisted FilterAnchor (reader #350)", () => {
-	it("still matches by reading the persisted anchor after the anchor message is purged", async () => {
-		const store = createMemoryVectorStore();
-		const matching = ["msg-1", "msg-2"];
-		await store.upsert([
-			...matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)),
-			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
-		]);
-
-		const persistedAnchor: FilterAnchorItem = {
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			filterId: "filter-a",
-			anchorEmbedding: ANCHOR_VECTOR,
-			anchorEmbeddingId: CURRENT_EMBEDDING_ID,
-			anchorSourceText: ANCHOR_SOURCE_TEXT,
-			anchorMessageId: "msg-anchor",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-
-		let buildAnchorCalls = 0;
-		const deps: OrganizeMatchDeps = {
-			semantic: () => ({
-				buildAnchor: async () => {
-					// The live path: the anchor message's chunks are gone (purged),
-					// exactly what buildMessageAnchor returns in that case today.
-					buildAnchorCalls += 1;
-					return null;
-				},
-				vectorStore: store,
-				embed: async () => ANCHOR_VECTOR,
-				embeddingId: CURRENT_EMBEDDING_ID,
-			}),
-			listAccountFilterMessages: async () => ({ items: [] }),
-			filterAnchors: {
-				get: async () => null,
-				listByAccountConfig: async () => [persistedAnchor],
-				put: async () => {
-					throw new Error("a current anchor must not be rewritten");
-				},
-			},
-		};
-
-		const { messageIds } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(
-			[...messageIds].sort(),
-			matching,
-			"the persisted anchor vector still finds the same matches the live message would have",
-		);
-		assert.equal(
-			buildAnchorCalls,
-			0,
-			"a persisted anchor must be read instead of re-deriving one from the (now-gone) live message",
-		);
-	});
-
-	it("falls back to deriving the anchor from the live message when no filter was ever anchored on it", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-
-		// No persisted FilterAnchor names this anchorMessageId — an ad hoc "all
-		// like these" widen over a bare message selection, never tied to a
-		// standing filter.
-		const { messageIds } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(messageIds, ["msg-1"]);
-	});
-});
-
-/**
- * A zero from the widen has two meanings and the preview could not tell them
- * apart (issue #452): no mail resembles the anchor, or the index holds nothing
- * to compare it against. Only the second is a reason to keep the rule.
- */
-describe("matchOrganize reporting an empty semantic index", () => {
-	it("flags a widen answered by an index with no vectors at all", async () => {
-		const { messageIds, semanticIndexEmpty, semanticUnavailable } =
-			await matchAccepted(
-				matchDeps(createMemoryVectorStore()),
-				ACCOUNT_CONFIG_ID,
-				predicate(),
-			);
-
-		assert.deepEqual(messageIds, []);
-		assert.equal(semanticIndexEmpty, true);
-		assert.equal(
-			semanticUnavailable,
-			false,
-			"an empty index is not a missing vector pipeline",
-		);
-	});
-
-	it("flags a widen whose anchor message has no chunk vectors to pool", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const deps: OrganizeMatchDeps = {
-			...matchDeps(store),
-			semantic: () => ({
-				buildAnchor: async () => null,
-				vectorStore: store,
-				embed: async () => ANCHOR_VECTOR,
-				embeddingId: CURRENT_EMBEDDING_ID,
-			}),
-		};
-
-		const { messageIds, semanticIndexEmpty } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(messageIds, []);
-		assert.equal(semanticIndexEmpty, true);
-	});
-
-	it("does not flag a populated index that simply holds nothing similar enough", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ORTHOGONAL_VECTOR)]);
-
-		const { messageIds, semanticIndexEmpty } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(
-			messageIds,
-			[],
-			"the one indexed message is below threshold",
-		);
-		assert.equal(
-			semanticIndexEmpty,
-			false,
-			"the index answered; the rule is what matched nothing",
-		);
-	});
-
-	it("does not flag a widen that matched", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-
-		const { messageIds, semanticIndexEmpty } = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(messageIds, ["msg-1"]);
-		assert.equal(semanticIndexEmpty, false);
-	});
-
-	it("does not flag a literal-only predicate, which never consults the index", async () => {
-		const { semanticIndexEmpty } = await matchAccepted(
-			matchDeps(createMemoryVectorStore(), [
-				candidate("msg-1", { subject: "Weekly newsletter" }),
+			corpusDeps([
+				candidate("msg-1", { subject: "Dinner reservation" }),
+				candidate("msg-2", { subject: "Weekly newsletter" }),
+				candidate("msg-3", { subject: "Table reservation confirmed" }),
 			]),
 			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				anchorMessageId: "None",
-				literalClauses: [{ field: "Subject", value: "reservation" }],
-			},
-		);
-
-		assert.equal(semanticIndexEmpty, false);
-	});
-});
-
-describe("matchOrganize on a deployment without the vector pipeline", () => {
-	const ORIGINAL = process.env.DATA_BACKEND;
-	beforeEach(() => {
-		process.env.DATA_BACKEND = "sqlite";
-		_resetSemanticCapabilityForTest();
-	});
-	afterEach(() => {
-		if (ORIGINAL === undefined) delete process.env.DATA_BACKEND;
-		else process.env.DATA_BACKEND = ORIGINAL;
-		_resetSemanticCapabilityForTest();
-	});
-
-	it("matches a literal predicate from the corpus without touching the vector store", async () => {
-		const deps = vectorlessDeps([
-			candidate("msg-1", { subject: "Dinner reservation" }),
-			candidate("msg-2", { subject: "Weekly newsletter" }),
-			candidate("msg-3", { subject: "Table reservation confirmed" }),
-		]);
-
-		const { messageIds, semanticUnavailable } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				anchorMessageId: "None",
-				literalClauses: [{ field: "Subject", value: "reservation" }],
-			},
+			reservations(),
 		);
 
 		assert.deepEqual(messageIds, ["msg-1", "msg-3"]);
-		assert.equal(semanticUnavailable, false);
-		assert.equal(
-			deps.semanticUsed(),
-			false,
-			"a literal-only predicate must never reach the vector store",
-		);
 	});
 
 	it("refuses a body-content (HasWords) clause as a result rather than matching it against a preview", async () => {
-		const deps = vectorlessDeps([
-			candidate("msg-1", { subject: "Dinner reservation" }),
-		]);
-
-		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			anchorMessageId: "None",
-			literalClauses: [{ field: "HasWords", value: "invoice" }],
-		});
-
-		assert.deepEqual(
-			result.rejected,
-			{
-				reason: "BodyContentWithoutVectorPipeline",
-				message: BODY_CONTENT_REJECTION_MESSAGE,
-			},
-			"the vector-free literal path must not silently narrow a body match to a preview",
-		);
-		assert.equal(deps.semanticUsed(), false);
-	});
-
-	// The refusal is the same whichever way the vector-free path is reached, so
-	// an anchored predicate that degrades onto it cannot land in the corpus scan
-	// with a body clause it can only mis-evaluate (reader #463).
-	it("refuses a body-content clause reached through the degraded widen fallback", async () => {
-		const deps = vectorlessDeps([
-			candidate("msg-1", { subject: "Dinner reservation" }),
-		]);
-
-		const result = await matchOrganize(deps, ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			literalClauses: [{ field: "HasWords", value: "invoice" }],
-		});
-
-		assert.equal(result.rejected?.reason, "BodyContentWithoutVectorPipeline");
-	});
-
-	it("degrades an anchor+clauses widen to the literal matches, flagged, instead of crashing", async () => {
-		const deps = vectorlessDeps([
-			candidate("msg-1", { subject: "Dinner reservation" }),
-			candidate("msg-2", { subject: "Weekly newsletter" }),
-		]);
-
-		const { messageIds, semanticUnavailable } = await matchAccepted(
-			deps,
+		const result = await matchOrganize(
+			corpusDeps([reservation("msg-1")]),
 			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				literalClauses: [{ field: "Subject", value: "reservation" }],
-			},
+			predicate({ literalClauses: [{ field: "HasWords", value: "invoice" }] }),
 		);
 
-		assert.deepEqual(messageIds, ["msg-1"]);
-		assert.equal(semanticUnavailable, true);
+		assert.deepEqual(result.rejected, {
+			reason: "BodyContentUnsupported",
+			message: BODY_CONTENT_REJECTION_MESSAGE,
+		});
 	});
 
-	it("degrades an anchor-only widen to an empty flagged result instead of crashing", async () => {
-		const deps = vectorlessDeps([candidate("msg-1"), candidate("msg-2")]);
-
-		const { messageIds, semanticUnavailable, semanticIndexEmpty } =
-			await matchAccepted(deps, ACCOUNT_CONFIG_ID, predicate());
-
-		assert.deepEqual(messageIds, []);
-		assert.equal(semanticUnavailable, true);
-		assert.equal(
-			semanticIndexEmpty,
-			false,
-			"a deployment with no vector pipeline has no index to call empty",
-		);
-	});
-
-	it("keeps widening from a drifted persisted anchor when no embedding model is available", async () => {
-		// Self-host: sqlite-vec is present, `@huggingface/transformers` is not.
-		// The anchor's stamp will never match — after a model swap, or forever
-		// for one pooled from pre-#349 chunks and stamped
-		// UNKNOWN_CHUNK_EMBEDDING_ID — and there is no embedder to repair it
-		// with, so the widen must query with the vector it has rather than go
-		// dark and take every later /search/semantic with it.
-		const store = createMemoryVectorStore();
-		await store.upsert([
-			bodyChunk("msg-1", ANCHOR_VECTOR),
-			bodyChunk("msg-stored-space", ORTHOGONAL_VECTOR),
-		]);
-		const drifted: FilterAnchorItem = {
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			filterId: "filter-a",
-			anchorEmbedding: ORTHOGONAL_VECTOR,
-			anchorEmbeddingId: STALE_EMBEDDING_ID,
-			anchorSourceText: ANCHOR_SOURCE_TEXT,
-			anchorMessageId: "msg-anchor",
-			createdAt: 0,
-			updatedAt: 0,
-		};
-		const deps: OrganizeMatchDeps = {
-			semantic: () => ({
-				buildAnchor: async () => {
-					throw new Error("a persisted anchor must not be re-derived");
-				},
-				vectorStore: store,
-				embed: async () => {
-					throw moduleNotFound();
-				},
-				embeddingId: CURRENT_EMBEDDING_ID,
-			}),
-			listAccountFilterMessages: async () => ({ items: [] }),
-			filterAnchors: {
-				get: async () => null,
-				listByAccountConfig: async () => [drifted],
-				put: async () => {
-					throw new Error("an unrepairable anchor must not be rewritten");
-				},
-			},
-		};
-
-		const { messageIds, semanticUnavailable } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(
-			messageIds,
-			["msg-stored-space"],
-			"the kNN read needs no embedder, so the stored anchor vector still returns real hits",
-		);
-		assert.equal(semanticUnavailable, false);
-		assert.equal(
-			isSemanticSearchUnavailable(),
-			false,
-			"one unrepairable anchor must not disable free-text semantic search for the rest of the process",
-		);
-	});
-
-	it("propagates a genuine (non-capability) semantic failure loudly", async () => {
-		const deps: OrganizeMatchDeps = {
-			semantic: () => ({
-				buildAnchor: async () => {
-					throw new Error("SQLITE_BUSY");
-				},
-				vectorStore: {
-					query: async () => [],
-					getByMessage: async () => [],
-				},
-				embed: async () => [],
-				embeddingId: CURRENT_EMBEDDING_ID,
-			}),
-			listAccountFilterMessages: async () => ({ items: [] }),
-			filterAnchors: {
-				get: async () => null,
-				listByAccountConfig: async () => [],
-				put: async () => {
-					throw new Error("unreachable");
-				},
-			},
-		};
-
+	it("propagates a failed corpus read loudly", async () => {
 		await assert.rejects(
-			() => matchOrganize(deps, ACCOUNT_CONFIG_ID, predicate()),
+			() =>
+				matchOrganize(
+					{
+						listAccountFilterMessages: async () => {
+							throw new Error("SQLITE_BUSY");
+						},
+					},
+					ACCOUNT_CONFIG_ID,
+					reservations(),
+				),
 			/SQLITE_BUSY/,
 		);
 	});
 });
 
 describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
-	it("applies the label to all N matches in one pass and writes zero Filter rows", async () => {
-		const store = createMemoryVectorStore();
-		const matching = ["msg-1", "msg-2", "msg-3", "msg-4", "msg-5"];
-		await store.upsert([
-			...matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)),
-			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
-		]);
+	const matching = ["msg-1", "msg-2", "msg-3"];
+	const corpus = (): OrganizeCandidate[] => [
+		...matching.map((id) => reservation(id)),
+		candidate("msg-miss", { subject: "Weekly newsletter" }),
+	];
 
-		const p = predicate({ actionLabelId: "lbl-1" });
+	it("applies the label to all N matches in one pass and writes zero Filter rows", async () => {
+		const p = reservations({ actionLabelId: "lbl-1" });
 
 		// The preview and the apply share the same matcher — the previewed set is
 		// exactly what gets applied.
 		const previewed = await matchAccepted(
-			matchDeps(store),
+			corpusDeps(corpus()),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
-		const applied = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, p);
+		const applied = await matchAccepted(
+			corpusDeps(corpus()),
+			ACCOUNT_CONFIG_ID,
+			p,
+		);
 		assert.deepEqual(previewed, applied);
 
 		const tracked = trackingClient();
@@ -857,20 +309,13 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			"every matching message gets the requested label",
 		);
 		assert.equal(tracked.filterWrites(), 0, "no Filter row is ever created");
-		assert.equal(
-			tracked.filterAnchorWrites(),
-			0,
-			"no FilterAnchor row is ever created",
-		);
 	});
 
 	it("counts a requested move as failed when no move service is wired", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
+		const p = reservations({ actionMailboxId: "mbox-target" });
 
 		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps([reservation("msg-1")]),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
@@ -887,26 +332,17 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 	});
 
 	it("moves every match through the wired move service and writes zero Filter rows", async () => {
-		const store = createMemoryVectorStore();
-		const matching = ["msg-1", "msg-2", "msg-3"];
-		await store.upsert([
-			...matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)),
-			bodyChunk("msg-miss", ORTHOGONAL_VECTOR),
-		]);
-		const p = predicate({ actionMailboxId: "mbox-target" });
+		const p = reservations({ actionMailboxId: "mbox-target" });
 
 		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps(corpus()),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -929,33 +365,23 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			"a move-only action applies no label",
 		);
 		assert.equal(tracked.filterWrites(), 0, "no Filter row is ever created");
-		assert.equal(
-			tracked.filterAnchorWrites(),
-			0,
-			"no FilterAnchor row is ever created",
-		);
 	});
 
 	it("applies both a label and a move when both actions are requested", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([bodyChunk("msg-1", ANCHOR_VECTOR)]);
-		const p = predicate({
+		const p = reservations({
 			actionLabelId: "lbl-1",
 			actionMailboxId: "mbox-target",
 		});
 
 		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps([reservation("msg-1")]),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
 		const tracked = trackingClient();
 		const mover = trackingMoveService();
 		const result = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
@@ -973,13 +399,11 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 	});
 
 	it("is idempotent on redelivery: a re-run re-issues the same move without double-enqueuing", async () => {
-		const store = createMemoryVectorStore();
-		const matching = ["msg-1", "msg-2"];
-		await store.upsert(matching.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
-		const p = predicate({ actionMailboxId: "mbox-target" });
+		const twice = ["msg-1", "msg-2"];
+		const p = reservations({ actionMailboxId: "mbox-target" });
 
 		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps(twice.map((id) => reservation(id))),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
@@ -987,34 +411,28 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 		const mover = trackingMoveService();
 
 		const first = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
 		);
 		const second = await applyOrganize(
-			{
-				client: tracked.client,
-				moveService: mover.moveService,
-			},
+			{ client: tracked.client, moveService: mover.moveService },
 			ACCOUNT_CONFIG_ID,
 			matched,
 			p,
 		);
 
-		assert.equal(first.applied, matching.length);
-		assert.equal(second.applied, matching.length);
+		assert.equal(first.applied, twice.length);
+		assert.equal(second.applied, twice.length);
 		assert.equal(
 			mover.enqueues(),
-			matching.length,
+			twice.length,
 			"the second pass drives the marker forward without a fresh enqueue",
 		);
 		assert.deepEqual(
 			[...mover.destinations().entries()].sort(),
-			matching.map((id): [string, string] => [id, "mbox-target"]),
+			twice.map((id): [string, string] => [id, "mbox-target"]),
 			"each message rests in the requested mailbox exactly once",
 		);
 	});
@@ -1028,10 +446,8 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
  */
 describe("a user-initiated apply outranks every standing filter (reader #497)", () => {
 	it("moves a hand-picked selection a standing filter claims for a different mailbox", async () => {
-		const store = createMemoryVectorStore();
 		const picked = ["msg-1", "msg-2", "msg-3"];
-		await store.upsert(picked.map((id) => bodyChunk(id, ANCHOR_VECTOR)));
-		const p = predicate({ actionMailboxId: "mbox-projects" });
+		const p = reservations({ actionMailboxId: "mbox-projects" });
 		// The standing rule that filed all three into Archive in the first place —
 		// moving them back out is the whole point of the button.
 		const standing = filterItem({
@@ -1043,7 +459,7 @@ describe("a user-initiated apply outranks every standing filter (reader #497)", 
 		});
 
 		const { messageIds: matched } = await matchAccepted(
-			matchDeps(store),
+			corpusDeps(picked.map((id) => reservation(id))),
 			ACCOUNT_CONFIG_ID,
 			p,
 		);
@@ -1086,103 +502,9 @@ describe("a user-initiated apply outranks every standing filter (reader #497)", 
 	});
 });
 
-/**
- * A same-dimension embedding-model swap leaves every persisted FilterAnchor
- * stamped with the old model's id and its vector in the old model's space.
- * Index-time matching repairs that lazily (RFC 039 Decision 1a); the
- * back-apply widen must do the same, or it queries with a stale-model vector
- * and silently disagrees with the pipeline it claims to mirror (reader #399).
- */
-describe("back-apply repairs a drifted anchor the way index-time matching does (reader #399)", () => {
-	// Written under the previous model: same dimensions, different space, so
-	// nothing but the id stamp distinguishes it from a usable anchor.
-	const staleAnchor = (filterId: string): FilterAnchorItem => ({
-		accountConfigId: ACCOUNT_CONFIG_ID,
-		filterId,
-		anchorEmbedding: ORTHOGONAL_VECTOR,
-		anchorEmbeddingId: STALE_EMBEDDING_ID,
-		anchorSourceText: ANCHOR_SOURCE_TEXT,
-		anchorMessageId: "msg-anchor",
-		createdAt: 0,
-		updatedAt: 0,
-	});
-
-	/** Every text embeds into the current model's space. */
-	const currentModelDeps = (
-		store: ReturnType<typeof createMemoryVectorStore>,
-		anchors: FilterAnchorItem[],
-		embed: (text: string) => Promise<number[]> = async () => ANCHOR_VECTOR,
-	): OrganizeMatchDeps & { anchorPuts: CreateFilterAnchorInput[] } => {
-		const anchorPuts: CreateFilterAnchorInput[] = [];
-		return {
-			semantic: () => ({
-				buildAnchor: async () => {
-					throw new Error("a persisted anchor must be repaired, not replaced");
-				},
-				vectorStore: store,
-				embed,
-				embeddingId: CURRENT_EMBEDDING_ID,
-			}),
-			listAccountFilterMessages: async () => ({ items: [] }),
-			filterAnchors: {
-				get: async () => null,
-				listByAccountConfig: async () => anchors,
-				put: async (input: CreateFilterAnchorInput) => {
-					anchorPuts.push(input);
-					return { ...input, createdAt: 0, updatedAt: 1 };
-				},
-			},
-			anchorPuts,
-		};
-	};
-
-	it("matchSemantic re-embeds a drifted persisted anchor instead of querying with the stale vector", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([
-			bodyChunk("msg-1", ANCHOR_VECTOR),
-			bodyChunk("msg-stale-space", ORTHOGONAL_VECTOR),
-		]);
-		const deps = currentModelDeps(store, [staleAnchor("filter-a")]);
-
-		const { messageIds } = await matchAccepted(
-			deps,
-			ACCOUNT_CONFIG_ID,
-			predicate(),
-		);
-
-		assert.deepEqual(
-			messageIds,
-			["msg-1"],
-			"the widen runs on the re-embedded anchor, not the stale-space vector that would have matched msg-stale-space",
-		);
-		assert.deepEqual(
-			deps.anchorPuts.map((put) => [put.filterId, put.anchorEmbeddingId]),
-			[["filter-a", CURRENT_EMBEDDING_ID]],
-			"the repair is written back in place under the current model's id",
-		);
-		assert.deepEqual(deps.anchorPuts[0].anchorEmbedding, ANCHOR_VECTOR);
-		assert.equal(deps.anchorPuts[0].anchorSourceText, ANCHOR_SOURCE_TEXT);
-	});
-});
-
 describe("matchOrganize with ListId and FromDomain clauses", () => {
-	const senderChunk = (
-		messageId: string,
-		fromEmail: string,
-		over: Partial<ChunkMetadata> = {},
-	): VectorRecord => ({
-		chunkId: `${messageId}#sender`,
-		vector: ANCHOR_VECTOR,
-		metadata: metadata({
-			messageId,
-			chunkType: "sender",
-			textPreview: fromEmail,
-			...over,
-		}),
-	});
-
-	it("matches a ListId clause exactly off the vector-free projection", async () => {
-		const deps = vectorlessDeps([
+	it("matches a ListId clause exactly off the thread rows", async () => {
+		const deps = corpusDeps([
 			candidate("msg-1", { listId: "weekly.news.example.com" }),
 			candidate("msg-2", { listId: "news.example.com" }),
 			candidate("msg-3", {}),
@@ -1190,15 +512,14 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 
 		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
-			anchorMessageId: "None",
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
 		});
 
 		assert.deepEqual(messageIds, ["msg-1"]);
 	});
 
-	it("matches a FromDomain clause public-suffix aware off the vector-free projection", async () => {
-		const deps = vectorlessDeps([
+	it("matches a FromDomain clause public-suffix aware off the thread rows", async () => {
+		const deps = corpusDeps([
 			candidate("msg-1", { from: "notifications@github.com" }),
 			candidate("msg-2", { from: "ci@sub.github.com" }),
 			candidate("msg-3", { from: "attacker@github.com.evil.example" }),
@@ -1206,51 +527,19 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 
 		const { messageIds } = await matchAccepted(deps, ACCOUNT_CONFIG_ID, {
 			...predicate(),
-			anchorMessageId: "None",
 			literalClauses: [{ field: "FromDomain", value: "github.com" }],
 		});
 
 		assert.deepEqual(messageIds, ["msg-1", "msg-2"]);
 	});
 
-	it("round-trips ListId and FromDomain through the semantic-arm chunk projection", async () => {
-		const store = createMemoryVectorStore();
-		await store.upsert([
-			senderChunk("msg-1", "ci@github.com", {
-				listId: "actions.github.com",
-			}),
-			bodyChunk("msg-1", ANCHOR_VECTOR, { listId: "actions.github.com" }),
-			senderChunk("msg-2", "hi@othersender.example", {
-				listId: "other.list.example",
-			}),
-			bodyChunk("msg-2", ANCHOR_VECTOR, { listId: "other.list.example" }),
-		]);
-
-		const byListId = await matchAccepted(matchDeps(store), ACCOUNT_CONFIG_ID, {
-			...predicate(),
-			literalClauses: [{ field: "ListId", value: "actions.github.com" }],
-		});
-		assert.deepEqual(byListId.messageIds, ["msg-1"]);
-
-		const byFromDomain = await matchAccepted(
-			matchDeps(store),
-			ACCOUNT_CONFIG_ID,
-			{
-				...predicate(),
-				literalClauses: [{ field: "FromDomain", value: "github.com" }],
-			},
-		);
-		assert.deepEqual(byFromDomain.messageIds, ["msg-1"]);
-	});
-
 	it("applies a ListId predicate to exactly the previewed set (preview == apply)", async () => {
-		const deps = vectorlessDeps([
+		const deps = corpusDeps([
 			candidate("msg-1", { listId: "weekly.news.example.com" }),
 			candidate("msg-2", { listId: "weekly.news.example.com" }),
 			candidate("msg-3", { listId: "other.example.com" }),
 		]);
 		const p = predicate({
-			anchorMessageId: "None",
 			actionLabelId: "lbl-list",
 			literalClauses: [{ field: "ListId", value: "weekly.news.example.com" }],
 		});
@@ -1302,9 +591,6 @@ const storeBackedDeps = (
 			.includes(needle);
 	};
 	return {
-		semantic: () => {
-			throw moduleNotFound();
-		},
 		listAccountFilterMessages: async (_accountConfigId, query) => {
 			pagesRead += 1;
 			const narrowed = rows.filter((row) =>
@@ -1323,13 +609,6 @@ const storeBackedDeps = (
 				items,
 				continuationToken: next < narrowed.length ? String(next) : undefined,
 			};
-		},
-		filterAnchors: {
-			get: async () => null,
-			listByAccountConfig: async () => [],
-			put: async () => {
-				throw new Error("unreachable");
-			},
 		},
 		pagesRead: () => pagesRead,
 	};
@@ -1356,7 +635,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
 			}),
 		);
@@ -1371,7 +649,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "From", value: "noreply@bank.example" }],
 			}),
 		);
@@ -1389,7 +666,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
 			}),
 		);
@@ -1407,7 +683,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
 			}),
 		);
@@ -1422,7 +697,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "From", value: "   " }],
 			}),
 		);
@@ -1441,7 +715,6 @@ describe("literal matching bounds the result, not the corpus (reader #459)", () 
 			deps,
 			ACCOUNT_CONFIG_ID,
 			predicate({
-				anchorMessageId: "None",
 				literalClauses: [{ field: "FromDomain", value: "bank.example" }],
 			}),
 		);

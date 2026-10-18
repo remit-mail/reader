@@ -145,7 +145,6 @@ e2e_dev_install_env() {
 		# cwd. The migrator is the exception — its drizzle folders are relative to
 		# deploy/vps, which is where e2e-dev-up.sh runs it from.
 		printf 'SQLITE_DB_PATH=%s/remit.db\n' "$DEV_STATE_DIR"
-		printf 'LOCAL_VECTORDB_PATH=%s/vec.db\n' "$DEV_STATE_DIR"
 		printf 'STORAGE_LOCAL_PATH=%s/storage\n' "$DEV_STATE_DIR"
 		printf 'QUEUE_SIDECAR_DB=%s/queue.db\n' "$DEV_STATE_DIR"
 		printf 'QUEUE_SIDECAR_QUEUES_CONFIG=%s/queues.json\n' "$DEPLOY_DIR"

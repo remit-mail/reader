@@ -1,41 +1,18 @@
 import { inspect } from "node:util";
 import type {
 	FilterItem,
-	IFilterAnchorRepository,
 	IFilterRepository,
 	IMailboxRepository,
 	IMessageLabelRepository,
 } from "@remit/data-ports";
 import { FilterDisabledReason, FilterState } from "@remit/domain-enums";
-import {
-	isEmbeddingCapabilityAbsence,
-	isEmbeddingCapabilityUnavailable,
-	recordEmbeddingCapabilityAbsence,
-} from "@remit/search-service/capability";
 import type { PlacementMoveService } from "../placement-move.js";
 import {
-	type AnchorEmbedder,
-	refreshAnchorForEmbedder,
-} from "./anchor-drift.js";
-import {
-	buildMatchText,
-	cosineSimilarity,
-	DEFAULT_SEMANTIC_MATCH_THRESHOLD,
 	type FilterMessage,
 	literalClausesMatch,
 	NO_ACTION,
 	selectMoveWinner,
 } from "./match.js";
-
-/**
- * Turns the candidate message's text into a single message-level vector to
- * compare against a filter's persisted `anchorEmbedding`. The anchor side is
- * embedded here only to repair a drifted anchor in place (see
- * {@link refreshAnchorForEmbedder}); the match itself reads `FilterAnchor` as
- * a fixed fact (RFC 034 Decision 2.1/2.3), and the incoming message is
- * embedded once per message, only when a semantic filter is actually in play.
- */
-export type MessageEmbedder = AnchorEmbedder;
 
 export interface FilterLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
@@ -48,21 +25,13 @@ export interface FilterLogger {
  * Dependencies for the index-time filter pass (RFC 034). Optional on
  * {@link BodySyncService} the same way {@link PlacementConfig} is — a deployment
  * without it simply runs no filter matching.
- *
- * `embedder` is optional on purpose: semantic-anchor filters cannot be evaluated
- * without it, so they are skipped when it is absent, but literal-clause filters
- * always run. The `FilterAnchor` write path (a separate ticket) and a wired
- * embedder are what light the semantic half up.
  */
 export interface FilterConfig {
 	filterService: IFilterRepository;
-	filterAnchorService: IFilterAnchorRepository;
 	messageLabelService: IMessageLabelRepository;
 	/** Names the account a filter's folder belongs to. */
 	mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
 	placementMoveService: PlacementMoveService;
-	embedder?: MessageEmbedder;
-	similarityThreshold?: number;
 }
 
 /**
@@ -79,13 +48,13 @@ const EMPTY_DECISION: FilterDecision = { labels: [] };
 
 /**
  * Evaluates a synced message against the account's active filters and resolves
- * the actions to apply (RFC 034). Reads only — listing filters, refreshing lazy
- * expiry, reading anchors, and embedding the message; the caller applies the
+ * the actions to apply (RFC 034). Reads only — listing filters and refreshing
+ * lazy expiry; the caller applies the
  * resulting {@link FilterDecision}.
  *
  * `evaluate` isolates every failure in this read/decision phase from body sync,
- * matching the placement-resolution precedent (#1246): a schema-drifted query or
- * a bad anchor must never fail the surrounding message store, since the body is
+ * matching the placement-resolution precedent (#1246): a schema-drifted query
+ * must never fail the surrounding message store, since the body is
  * already durable by the time this runs. The apply of the decision — label
  * writes and the move enqueue — is the caller's responsibility and is *not*
  * swallowed there, so a genuine DDB/SQS write failure still propagates and
@@ -158,44 +127,6 @@ export class FilterPipeline {
 		);
 		if (active.length === 0) return EMPTY_DECISION;
 
-		// The message is embedded lazily and at most once: `undefined` means not
-		// yet computed, `null` means computed-but-unavailable (no embedder). The
-		// embed only ever fires when a filter survives the literal pre-filter and
-		// carries an anchor — a purely-literal account never pays for it.
-		let messageEmbedding: number[] | null | undefined;
-		const embed = async (): Promise<number[] | null> => {
-			if (messageEmbedding !== undefined) return messageEmbedding;
-			const embedder = this.config.embedder;
-			if (!embedder) {
-				messageEmbedding = null;
-				return null;
-			}
-			messageEmbedding = await embedder
-				.embed(buildMatchText(msg))
-				.catch((error: unknown) => {
-					// This deployment carries no embedding pipeline at all — the
-					// container images ship without `@huggingface/transformers`. That is
-					// the same absence `SEARCH_EMBEDDING_PROVIDER=off` states, so it takes
-					// the same designed skip rather than an error-level
-					// `filter_anchor_match_failed` per semantic filter per message. The
-					// absence is remembered process-wide, so this is the only embed that
-					// pays for it: `buildFilterConfig` wires no embedder afterwards.
-					if (!isEmbeddingCapabilityAbsence(error)) throw error;
-					if (!isEmbeddingCapabilityUnavailable()) {
-						this.log.warn?.(
-							{
-								accountConfigId,
-								error: inspect(error),
-							},
-							"No embedding pipeline in this deployment; semantic filters are skipped (literal filters still run)",
-						);
-					}
-					recordEmbeddingCapabilityAbsence(error);
-					return null;
-				});
-			return messageEmbedding;
-		};
-
 		const matched: FilterItem[] = [];
 		for (const filter of active) {
 			// Lazy expiry (RFC 034 Decision 1.2): reading a Temporary filter past
@@ -204,32 +135,7 @@ export class FilterPipeline {
 			const usable = await this.config.filterService.refreshExpiry(filter);
 			if (usable.state !== FilterState.Active) continue;
 			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
-			// A bad or stale anchor vector (a dimension mismatch under a changed
-			// embedding model) throws from cosineSimilarity. Isolate it to this
-			// filter: it is skipped and loudly logged, and every other filter on
-			// the message still evaluates and applies. This sits inside the
-			// evaluate-level catch — a whole-phase failure still degrades to no
-			// filter actions — but stops one poisoned anchor from doing so.
-			const isMatch = await this.filterMatches(
-				accountConfigId,
-				usable,
-				msg,
-				embed,
-			).catch((error: unknown) => {
-				this.log.error?.(
-					{
-						alert: "filter_anchor_match_failed",
-						filterId: usable.filterId,
-						accountConfigId,
-						errorName: (error as { name?: string })?.name,
-						error: inspect(error),
-					},
-					"Filter anchor comparison failed; skipping this filter, other filters still evaluate (bad/stale anchor vector, non-fatal)",
-				);
-				return "skip" as const;
-			});
-			if (isMatch === "skip") continue;
-			if (isMatch) matched.push(usable);
+			if (filterMatches(usable, msg)) matched.push(usable);
 		}
 		if (matched.length === 0) return EMPTY_DECISION;
 
@@ -258,62 +164,12 @@ export class FilterPipeline {
 				: {}),
 		};
 	}
-
-	private async filterMatches(
-		accountConfigId: string,
-		filter: FilterItem,
-		msg: FilterMessage,
-		embed: () => Promise<number[] | null>,
-	): Promise<boolean> {
-		if (
-			!literalClausesMatch(filter.literalClauses, filter.matchOperator, msg)
-		) {
-			return false;
-		}
-
-		if (!filter.hasAnchor) {
-			// A filter with neither clauses nor an anchor has no predicate and
-			// matches nothing; a literal-only filter matched iff it had clauses.
-			return filter.literalClauses.length > 0;
-		}
-
-		// One deterministic point read per semantic candidate that survived the
-		// literal pre-filter — never a scan, never the anchor message itself
-		// (RFC 034 Decision 2.3).
-		let anchor = await this.config.filterAnchorService.get(
-			accountConfigId,
-			filter.filterId,
-		);
-		if (!anchor) {
-			this.log.warn?.(
-				{ filterId: filter.filterId, accountConfigId },
-				"Filter marked hasAnchor but no FilterAnchor row found; skipping semantic match",
-			);
-			return false;
-		}
-
-		// A re-embed failure here propagates to the per-filter catch in
-		// `match()`, which logs and skips this filter for this one evaluation
-		// exactly as an unrecoverable stale anchor does today.
-		anchor = await refreshAnchorForEmbedder(
-			{
-				anchorRepository: this.config.filterAnchorService,
-				embedder: this.config.embedder,
-			},
-			anchor,
-		);
-
-		const vector = await embed();
-		if (!vector) {
-			this.log.debug?.(
-				{ filterId: filter.filterId },
-				"No embedder configured; skipping semantic filter",
-			);
-			return false;
-		}
-
-		const threshold =
-			this.config.similarityThreshold ?? DEFAULT_SEMANTIC_MATCH_THRESHOLD;
-		return cosineSimilarity(vector, anchor.anchorEmbedding) >= threshold;
-	}
 }
+
+/**
+ * A filter with no clauses has no predicate and matches nothing; otherwise the
+ * clauses decide under their combine operator.
+ */
+const filterMatches = (filter: FilterItem, msg: FilterMessage): boolean =>
+	filter.literalClauses.length > 0 &&
+	literalClausesMatch(filter.literalClauses, filter.matchOperator, msg);

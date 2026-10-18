@@ -3,7 +3,6 @@ import type {
 	AccountItem,
 	AccountSettingItem,
 	AddressItem,
-	FilterAnchorItem,
 	FilterItem,
 	IAddressRepository,
 	LabelItem,
@@ -24,7 +23,6 @@ export interface ConfigFixture {
 	mailboxes: MailboxItem[];
 	labels: LabelItem[];
 	filters: FilterItem[];
-	anchors: FilterAnchorItem[];
 	addresses: AddressItem[];
 	/** Page size for the address listing, so paging is exercised. */
 	addressPageSize?: number;
@@ -130,26 +128,12 @@ export const makeFilter = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: NOW,
 	actionChangedAt: NOW,
 	matchOperator: "And",
 	literalClauses: [],
 	actionLabelId: "None",
 	actionMailboxId: "None",
-	createdAt: NOW,
-	updatedAt: NOW,
-	...overrides,
-});
-
-export const makeAnchor = (
-	overrides: Partial<FilterAnchorItem> & Pick<FilterAnchorItem, "filterId">,
-): FilterAnchorItem => ({
-	accountConfigId: ACCOUNT_CONFIG_ID,
-	anchorEmbedding: [0.11, 0.22, 0.33],
-	anchorEmbeddingId: "amazon.titan-embed-text-v2:0@1024",
-	anchorSourceText: "the release note this filter was drawn from",
-	anchorMessageId: "2c9e4b117d5a4f609a315b8c0",
 	createdAt: NOW,
 	updatedAt: NOW,
 	...overrides,
@@ -286,9 +270,6 @@ export const asRepositories = (
 	},
 	filter: {
 		listByAccountConfig: async () => fixture.filters,
-	},
-	filterAnchor: {
-		listByAccountConfig: async () => fixture.anchors,
 	},
 	address: asAddressRepository(fixture),
 });

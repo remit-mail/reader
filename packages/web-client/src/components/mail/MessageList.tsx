@@ -501,9 +501,8 @@ export const MessageList = ({
 	const orderedIds = useMemo(() => threads.map((t) => t.messageId), [threads]);
 
 	// The checked rows as the wizard reads them: the sample it shows under every
-	// screen that names a match, and the senders its widen falls back to on a
-	// deployment with no vector pipeline. Read off the already-loaded thread rows,
-	// so no extra round-trip.
+	// screen that names a match, and the senders its properties prefill reads.
+	// Read off the already-loaded thread rows, so no extra round-trip.
 	const wizardSelection = useMemo<WizardSelectionMessage[]>(() => {
 		const rows: WizardSelectionMessage[] = [];
 		for (const thread of threads) {

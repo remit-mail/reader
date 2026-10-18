@@ -8,7 +8,6 @@ import {
 	deriveFilterTtl,
 	FILTER_NO_ACTION,
 	type FilterItem,
-	type IFilterAnchorTransaction,
 	type IMailboxRepository,
 	type UpdateFilterInput,
 } from "@remit/data-ports";
@@ -18,11 +17,9 @@ import {
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
-import type { AnchorPayload } from "@remit/search-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
-import { buildFilterAnchor } from "../service/filter.js";
 import { queueOrganizeJob } from "../service/organize-queue.js";
 import type {
 	FilterDetailOperationIds,
@@ -33,32 +30,13 @@ import { assertAccountOwnership } from "./account-ownership.js";
 import { assertMailboxInAccount, assertMailboxSettled } from "./mailbox.js";
 
 /**
- * Minimal filter-service surface the create handler needs — declared as a
- * `Pick` so tests can stub it without a live table.
- */
-export interface FilterCrudDeps {
-	/**
-	 * Creates the `Filter` row and its optional sibling `FilterAnchor` row in
-	 * one transaction (#351) — a failure on the anchor write can never leave a
-	 * `Filter` durably marked `hasAnchor: true` with no matching anchor row,
-	 * and it surfaces as a failed create request rather than a silently
-	 * broken filter.
-	 */
-	filterAnchorTransaction: IFilterAnchorTransaction;
-	buildAnchor(
-		accountConfigId: string,
-		anchorMessageId: string,
-	): Promise<AnchorPayload | null>;
-}
-
-/**
  * Reduce a PATCH body to the fields a filter update may set (RFC 034, reader
  * #266). Preserves absence: a key not present in the body is not present in
  * the patch, so a name-only rename yields `{ name }` and never touches a
  * predicate/action/scope/expiresAt field — the service's
  * `changesRuleAssertion` guard then leaves `ruleChangedAt` untouched (Decision
  * 3.2). Any field outside this set — most notably a server-derived
- * `state`/`ttl`/`hasAnchor`/`ruleChangedAt` smuggled into the body — is
+ * `state`/`ttl`/`ruleChangedAt` smuggled into the body — is
  * dropped. `scope`/`expiresAt` land here as the caller sent them; a patch that
  * touches either still needs `resolveFilterScopeExpiry` to merge them against
  * the stored row and derive `ttl`/`state` before this reaches the repo.
@@ -84,28 +62,6 @@ export const pickFilterUpdate = (
 	}
 	if (Object.hasOwn(body, "state")) patch.state = body.state;
 	return patch;
-};
-
-/**
- * A filter's semantic anchor is set once, from `anchorMessageId`, only on
- * `CreateFilterInput` (RFC 034 Decision 2) — the generated `UpdateFilterInput`
- * carries no anchor field at all, so a well-behaved client cannot express this.
- * This only catches a caller handing the raw PATCH body an anchor field
- * anyway, and rejects it loudly rather than silently dropping it (reader
- * #266): repointing an anchor would silently change what a saved filter
- * matches with nothing visible changing, and that deserves a new filter
- * instead — scope and expiry cover the rest of what changed here.
- */
-const ANCHOR_MUTATION_FIELDS = ["anchorMessageId"] as const;
-
-export const rejectAnchorMutation = (body: Record<string, unknown>): void => {
-	const attempted = ANCHOR_MUTATION_FIELDS.find((field) =>
-		Object.hasOwn(body, field),
-	);
-	if (!attempted) return;
-	throw new BadRequestError(
-		"A filter's semantic anchor can't change after creation — create a new filter instead.",
-	);
 };
 
 export interface ResolvedScopeExpiry {
@@ -288,7 +244,6 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	expiresAt: item.expiresAt,
 	state: item.state,
 	disabledReason: item.disabledReason,
-	hasAnchor: item.hasAnchor,
 	ruleChangedAt: item.ruleChangedAt,
 	actionChangedAt: item.actionChangedAt,
 	matchOperator: item.matchOperator,
@@ -298,49 +253,6 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	createdAt: item.createdAt,
 	updatedAt: item.updatedAt,
 });
-
-/**
- * Create a filter, wiring the semantic anchor when `anchorMessageId` is set
- * (RFC 034 Decision 2). The anchor is built first, then the `Filter` row and
- * its sibling `FilterAnchor` row are written together in one transaction
- * (#351) — never as two independent writes a partial failure could split. A
- * message with no indexed chunks yields no anchor: the filter is created as
- * purely literal (`hasAnchor: false`) rather than with an empty anchor.
- */
-export const createFilterWithAnchor = async (
-	deps: FilterCrudDeps,
-	accountConfigId: string,
-	input: CreateFilterInput,
-): Promise<FilterItem> => {
-	const { anchorMessageId } = input;
-	const anchor = anchorMessageId
-		? await deps.buildAnchor(accountConfigId, anchorMessageId)
-		: null;
-
-	return deps.filterAnchorTransaction.createWithAnchor(
-		{
-			accountConfigId,
-			name: input.name,
-			scope: input.scope,
-			expiresAt: input.expiresAt,
-			ttl: deriveFilterTtl(input.scope, input.expiresAt),
-			matchOperator: input.matchOperator,
-			literalClauses: input.literalClauses,
-			actionLabelId: input.actionLabelId,
-			actionMailboxId: input.actionMailboxId,
-			hasAnchor: anchor !== null,
-		},
-		anchor && anchorMessageId
-			? {
-					accountConfigId,
-					anchorMessageId,
-					anchorEmbedding: anchor.anchorEmbedding,
-					anchorEmbeddingId: anchor.anchorEmbeddingId,
-					anchorSourceText: anchor.anchorSourceText,
-				}
-			: null,
-	);
-};
 
 const requireUserId = (event: APIGatewayProxyEvent): string => {
 	const userId = getSubFromEvent(event);
@@ -420,14 +332,17 @@ export const FilterOperations: Record<
 		assertAccountOwnership(account, accountConfigId, "act");
 		await assertActionMailboxSettled(client, accountId, input.actionMailboxId);
 
-		const filter = await createFilterWithAnchor(
-			{
-				filterAnchorTransaction: client.filterAnchorTransaction,
-				buildAnchor: buildFilterAnchor,
-			},
+		const filter = await client.filter.create({
 			accountConfigId,
-			input,
-		);
+			name: input.name,
+			scope: input.scope,
+			expiresAt: input.expiresAt,
+			ttl: deriveFilterTtl(input.scope, input.expiresAt),
+			matchOperator: input.matchOperator,
+			literalClauses: input.literalClauses,
+			actionLabelId: input.actionLabelId,
+			actionMailboxId: input.actionMailboxId,
+		});
 		// The new filter's first pass over the inbox. The worker reads the filter
 		// when it runs and refuses one that has nothing to run (#1354).
 		const job = await queueOrganizeJob(client, {
@@ -469,7 +384,6 @@ export const FilterDetailOperations: Record<
 			filterId: string;
 		};
 		const body = context.request.requestBody as Record<string, unknown>;
-		rejectAnchorMutation(body);
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);

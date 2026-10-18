@@ -2,8 +2,8 @@ import type { RuleClause } from "../components/filter-rule.js";
 import { deriveSenderClauses, distinctSenders } from "./sender-derivation.js";
 
 /**
- * The opening clauses for a rule matched on properties alone — no semantic
- * anchor (RFC 038 D2/D4). The selection is the only evidence available, so the
+ * The opening clauses for a rule matched on properties (RFC 038 D2). The
+ * selection is the only evidence available, so the
  * prefill reads it in the order the evidence is strongest:
  *
  * 1. One sender across the whole selection, or several that collapse to one

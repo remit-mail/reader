@@ -9,18 +9,13 @@ import {
 	Star,
 	X,
 } from "lucide-react";
-import { type ReactElement, type ReactNode, useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import {
 	categoryLabels,
 	categoryTone,
 	type ThreadCategory,
 } from "../category-presentation.js";
 import { cn } from "../lib/cn.js";
-import {
-	SEMANTIC_OFF_BUYS,
-	SEMANTIC_OFF_COMMAND,
-	SEMANTIC_OFF_TITLE,
-} from "../lib/semantic-off.js";
 import { Avatar } from "./avatar.js";
 import { Badge } from "./badge.js";
 import { Button } from "./button.js";
@@ -34,8 +29,8 @@ import { SegmentedControl } from "./segmented-control.js";
 
 /* ------------------------------------------------------------------ */
 /* The fourth pane: mail intelligence. Driven by real backend signals */
-/* (Address engagement counters, DKIM-mismatch category heuristics,   */
-/* semantic search) with reserved slots for local-LLM and Bedrock     */
+/* (Address engagement counters, DKIM-mismatch category heuristics)  */
+/* with reserved slots for local-LLM and Bedrock                      */
 /* features. Silent when there is nothing to say; loudest element on  */
 /* the screen when authenticity fails.                                */
 /* ------------------------------------------------------------------ */
@@ -84,48 +79,7 @@ export interface AuthenticityIntel {
 	 * domain-comparison line (there is no valid domain to show).
 	 */
 	addressUnreadable?: boolean;
-	/** Count of semantically similar messages (the campaign, not the instance). */
-	similarCount?: number;
 }
-
-export type MatchedChunk =
-	| "sender"
-	| "recipient"
-	| "subject"
-	| "attachment"
-	| "body"
-	| "entities";
-
-export interface SimilarMessageIntel {
-	id: string;
-	/** Mailbox the message lives in — the route param for opening it. */
-	mailboxId: string;
-	/** Conversation the message belongs to, which is what the reading pane opens. */
-	threadId: string;
-	fromName: string;
-	subject: string;
-	timeLabel: string;
-	matched: MatchedChunk;
-}
-
-/**
- * Renders a similar-message row as a real anchor so middle-click /
- * open-in-new-tab / deep-linking / screen-reader link semantics all work. The
- * web-client passes a router `<Link>` builder; when omitted the row falls back
- * to a non-navigating element that preserves the visual (static stories).
- */
-export interface SimilarMessageLinkProps {
-	mailboxId: string;
-	threadId: string;
-	messageId: string;
-	className: string;
-	ariaLabel?: string;
-	children: ReactNode;
-}
-
-export type SimilarMessageLinkComponent = (
-	props: SimilarMessageLinkProps,
-) => ReactElement;
 
 export interface SenderFlagsIntel {
 	vip?: boolean;
@@ -148,7 +102,6 @@ export interface IntelligenceData {
 	authenticity: AuthenticityIntel;
 	category: { value: ThreadCategory; overridden?: boolean };
 	flags?: SenderFlagsIntel;
-	similar: SimilarMessageIntel[];
 }
 
 export interface IntelligenceQuickActions {
@@ -169,18 +122,6 @@ export interface IntelligenceQuickActions {
 	 */
 	onReportSpam?: () => void;
 }
-
-/**
- * State of the similar-messages section. The host computes these from the
- * semantic-search query so the panel can show a skeleton while in flight and
- * "similarity search unavailable" on failure (the rest of the sidebar still
- * renders). Defaults to "ready" when omitted.
- *
- * "off" is not a failure and not a slow query: this instance stores no message
- * vectors, and it says so with the command that changes it. Without it the
- * section renders nothing at all, which reads as a sender nothing resembles.
- */
-export type SimilarState = "loading" | "error" | "off" | "ready";
 
 /**
  * The two halves of the panel. Sender is what this message is; Calendar is what
@@ -211,17 +152,8 @@ export interface IntelligenceCalendarSurface {
 export interface IntelligencePanelProps {
 	data: IntelligenceData;
 	onClose?: () => void;
-	onShowSimilar?: () => void;
 	/** Quick-action callbacks. When omitted the buttons are visual-only. */
 	actions?: IntelligenceQuickActions;
-	/** Loading/error state for the similar-messages section. */
-	similarState?: SimilarState;
-	/**
-	 * Render-prop that wraps each similar-message row in a real router anchor so
-	 * it opens that email (deep-link / middle-click / link a11y). When omitted the
-	 * rows render as static, non-navigating elements (stories / SSR previews).
-	 */
-	similarLinkComponent?: SimilarMessageLinkComponent;
 	/** Layout overrides (e.g. when hosted inside a resizable panel). */
 	className?: string;
 	/**
@@ -306,13 +238,7 @@ function SenderCard({ sender }: { sender: SenderIntel }) {
 	);
 }
 
-function Authenticity({
-	auth,
-	onShowSimilar,
-}: {
-	auth: AuthenticityIntel;
-	onShowSimilar?: () => void;
-}) {
+function Authenticity({ auth }: { auth: AuthenticityIntel }) {
 	if (auth.verdict === "aligned") {
 		return (
 			<div className="flex items-start gap-2 text-xs text-fg-muted">
@@ -353,16 +279,6 @@ function Authenticity({
 					)}
 				</div>
 			</div>
-			{auth.similarCount != null && auth.similarCount > 0 && (
-				<Button
-					variant="secondary"
-					size="sm"
-					className="mt-2 w-full border-danger/30 text-danger hover:bg-danger-soft"
-					onClick={onShowSimilar}
-				>
-					{auth.similarCount} similar messages
-				</Button>
-			)}
 		</div>
 	);
 }
@@ -408,22 +324,10 @@ function QuickAction({
 	);
 }
 
-const matchTone: Record<MatchedChunk, string> = {
-	sender: "matched: sender",
-	recipient: "matched: recipient",
-	subject: "matched: subject",
-	attachment: "matched: attachment",
-	body: "matched: body",
-	entities: "matched: entities",
-};
-
 export function IntelligencePanel({
 	data,
 	onClose,
-	onShowSimilar,
 	actions,
-	similarState = "ready",
-	similarLinkComponent,
 	className,
 	hideCloseButton = false,
 	reportSpamPending = false,
@@ -434,7 +338,7 @@ export function IntelligencePanel({
 	defaultTab = "sender",
 	touch,
 }: IntelligencePanelProps) {
-	const { sender, authenticity, category, flags = {}, similar } = data;
+	const { sender, authenticity, category, flags = {} } = data;
 	const [ownTab, setOwnTab] = useState<IntelligenceTabId>(defaultTab);
 	const tabStripName = useId();
 	const activeTab = tab ?? ownTab;
@@ -496,7 +400,7 @@ export function IntelligencePanel({
 					</IntelligenceSection>
 
 					<IntelligenceSection label="Authenticity">
-						<Authenticity auth={authenticity} onShowSimilar={onShowSimilar} />
+						<Authenticity auth={authenticity} />
 					</IntelligenceSection>
 
 					<IntelligenceSection label="Category">
@@ -561,80 +465,6 @@ export function IntelligencePanel({
 							</p>
 						)}
 					</IntelligenceSection>
-
-					{(similarState !== "ready" || similar.length > 0) && (
-						<IntelligenceSection label="Similar messages">
-							{similarState === "loading" ? (
-								<div className="animate-pulse space-y-2">
-									{Array.from({ length: 3 }).map((_, i) => (
-										// biome-ignore lint/suspicious/noArrayIndexKey: list is static, no stable id
-										<div key={i} className="space-y-1">
-											<div className="h-3 w-3/4 rounded bg-surface-sunken" />
-											<div className="h-2.5 w-1/2 rounded bg-surface-sunken" />
-										</div>
-									))}
-								</div>
-							) : similarState === "error" ? (
-								<p className="text-xs text-fg-subtle">
-									Similarity search unavailable
-								</p>
-							) : similarState === "off" ? (
-								<div className="space-y-1.5 text-xs text-fg-subtle">
-									<p className="text-fg-muted">{SEMANTIC_OFF_TITLE}</p>
-									<p>{SEMANTIC_OFF_BUYS}</p>
-									<p>
-										Run{" "}
-										<code className="rounded bg-surface-sunken px-1 py-px text-2xs text-fg-muted">
-											{SEMANTIC_OFF_COMMAND}
-										</code>{" "}
-										on the server.
-									</p>
-								</div>
-							) : (
-								<ul className="-mx-1 space-y-1">
-									{similar.map((s) => {
-										const rowClass =
-											"block w-full rounded-md px-1 py-1 text-left hover:bg-surface-sunken";
-										const ariaLabel = `Open message from ${s.fromName || "unknown sender"}: ${s.subject}`;
-										const inner = (
-											<>
-												<div className="flex items-baseline justify-between gap-2">
-													<span className="truncate text-xs font-medium text-fg">
-														{s.fromName}
-													</span>
-													<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-														{s.timeLabel}
-													</span>
-												</div>
-												<div className="truncate text-xs text-fg-muted">
-													{s.subject}
-												</div>
-												<span className="mt-1 inline-block rounded-full bg-surface-sunken px-1.5 py-px text-2xs text-fg-subtle">
-													{matchTone[s.matched]}
-												</span>
-											</>
-										);
-										return (
-											<li key={s.id}>
-												{similarLinkComponent ? (
-													similarLinkComponent({
-														mailboxId: s.mailboxId,
-														threadId: s.threadId,
-														messageId: s.id,
-														className: rowClass,
-														ariaLabel,
-														children: inner,
-													})
-												) : (
-													<div className={rowClass}>{inner}</div>
-												)}
-											</li>
-										);
-									})}
-								</ul>
-							)}
-						</IntelligenceSection>
-					)}
 
 					<IntelligenceSection
 						label="Coming soon"

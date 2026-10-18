@@ -18,15 +18,10 @@ import {
 	hasStoredCredential,
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
-import {
-	EMBEDDING_PROVIDER_OFF,
-	readEmbeddingProviderFromEnv,
-} from "@remit/search-service/from-env";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { embedAnchorText } from "../service/config-import.js";
 import { getClient } from "../service/data-client.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
@@ -152,21 +147,8 @@ const emptyConfigResponse = (
 			updatedAt: now,
 		},
 		accounts: [],
-		semanticSearchEnabled: semanticSearchEnabled(),
 	};
 };
-
-/**
- * Whether this instance embeds anything, read from the same
- * `SEARCH_EMBEDDING_PROVIDER` the search-index worker and the `remit` wrapper
- * read. It rides GET /config because the semantic surfaces need it before they
- * have a query to send: an off instance stores no vectors, so the Organize
- * widen and semantic filters have nothing to read, and a client that learns
- * that only from an empty result cannot tell it from a mailbox with nothing
- * similar in it (#1068).
- */
-const semanticSearchEnabled = (): boolean =>
-	readEmbeddingProviderFromEnv() !== EMBEDDING_PROVIDER_OFF;
 
 export const ConfigOperations: Record<
 	ConfigOperationIds,
@@ -244,7 +226,6 @@ export const ConfigOperations: Record<
 
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
-			semanticSearchEnabled: semanticSearchEnabled(),
 			...(pendingImport ? { pendingImport } : {}),
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
@@ -310,7 +291,6 @@ export const ConfigOperations: Record<
 						mailboxId,
 						lastKnownPath,
 					),
-				embedAnchor: embedAnchorText,
 			},
 			{
 				accountConfigId,

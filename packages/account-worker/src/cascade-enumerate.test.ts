@@ -96,13 +96,7 @@ const fullServices = (): CascadeServices =>
 			listByAccountConfig: async () => [{ accountSettingId: "set-1" }],
 		},
 		filterService: {
-			listByAccountConfig: async () => [
-				{ filterId: "flt-1", hasAnchor: true },
-				{ filterId: "flt-2", hasAnchor: false },
-			],
-		},
-		filterAnchorService: {
-			get: async () => ({ filterId: "flt-1" }),
+			listByAccountConfig: async () => [{ filterId: "flt-1" }],
 		},
 		labelService: {
 			listByAccountConfig: async () => [{ labelId: "lbl-1" }],
@@ -136,7 +130,6 @@ describe("enumerateCascadeEntities", () => {
 			"ThreadMessage",
 			"AccountSetting",
 			"Filter",
-			"FilterAnchor",
 			"Label",
 			"MessageLabel",
 			"Address",
@@ -146,40 +139,6 @@ describe("enumerateCascadeEntities", () => {
 		}
 
 		assert.equal(types[types.length - 1], "AccountConfig");
-	});
-
-	it("emits a Filter without a FilterAnchor when the filter has no anchor", async () => {
-		const services = fullServices();
-		services.filterService.listByAccountConfig = async () =>
-			[{ filterId: "flt-2", hasAnchor: false }] as never;
-
-		const { entities } = await enumerateCascadeEntities(
-			"cfg-1",
-			services,
-			noopLogger,
-		);
-
-		assert.equal(entities.filter((e) => e.entityType === "Filter").length, 1);
-		assert.equal(
-			entities.filter((e) => e.entityType === "FilterAnchor").length,
-			0,
-		);
-	});
-
-	it("skips the FilterAnchor when the anchor lookup returns null", async () => {
-		const services = fullServices();
-		services.filterAnchorService.get = async () => null as never;
-
-		const { entities } = await enumerateCascadeEntities(
-			"cfg-1",
-			services,
-			noopLogger,
-		);
-
-		assert.equal(
-			entities.filter((e) => e.entityType === "FilterAnchor").length,
-			0,
-		);
 	});
 
 	it("yields only the AccountConfig row for an empty tenant", async () => {

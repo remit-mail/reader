@@ -27,21 +27,15 @@ import type {
 } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
 
-const NONE = "None";
-
 /**
  * Normalize the request body into the flattened predicate the job row and the
- * matcher share. `anchorMessageId` collapses to the `"None"` sentinel when
- * absent, and `similarityThreshold` to the server default — the persisted entity
- * carries no optional fields (RFC 032).
+ * matcher share.
  */
 export const predicateFromInput = (
 	input: OrganizeInput,
 ): OrganizePredicate => ({
-	anchorMessageId: input.anchorMessageId ?? NONE,
 	matchOperator: input.matchOperator,
 	literalClauses: input.literalClauses,
-	similarityThreshold: input.similarityThreshold ?? 0.75,
 	actionLabelId: input.actionLabelId,
 	actionMailboxId: input.actionMailboxId,
 });
@@ -64,10 +58,8 @@ const toOrganizeJobResponse = (
 	userId: job.userId,
 	state: job.state,
 	filterId: job.filterId,
-	anchorMessageId: job.anchorMessageId,
 	matchOperator: job.matchOperator,
 	literalClauses: job.literalClauses,
-	similarityThreshold: job.similarityThreshold,
 	actionLabelId: job.actionLabelId,
 	actionMailboxId: job.actionMailboxId,
 	matchedCount: job.matchedCount,
@@ -159,13 +151,10 @@ export const OrganizeOperations: Record<
 		);
 		if (result.rejected) throw new BadRequestError(result.rejected.message);
 
-		const response: OrganizePreviewResponse = {
+		return {
 			matchedCount: result.messageIds.length,
 			messageIds: result.messageIds,
 		};
-		if (result.semanticUnavailable) response.semanticUnavailable = true;
-		if (result.semanticIndexEmpty) response.semanticIndexEmpty = true;
-		return response;
 	},
 };
 

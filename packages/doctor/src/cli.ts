@@ -35,9 +35,7 @@ const check = async (): Promise<number> => {
 	const alerts = config.webhookUrl === undefined ? "none" : "webhook";
 	await writeVerdict(
 		process.stdout,
-		json
-			? renderJson(result, config.searchEmbeddingProvider, alerts)
-			: renderLines(result, config.searchEmbeddingProvider, alerts),
+		json ? renderJson(result, alerts) : renderLines(result, alerts),
 	);
 	return exitCodeFor(result);
 };

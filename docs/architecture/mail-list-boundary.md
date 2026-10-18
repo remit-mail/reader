@@ -137,7 +137,6 @@ Every place the web client derives, filters, counts, sorts, groups or dedupes ma
 | # | Location | Why it is correct |
 |---|---|---|
 | 17 | `useRescueCandidates.ts:22` | one bounded server query, complete response — the reference pattern |
-| 18 | `useSemanticSearch.ts:80` | sends `category`, `hasAttachment`, `isRead`, `sentDateFrom/To` to the server; complete 20-row response |
 | 19 | `MailboxPane.tsx:373` `dedupeThreadMessages` / `dropDeletedThreads` | cross-page dedupe by id and a belt-and-braces repeat of the server's `excludeDeleted` |
 | 20 | `MailboxPane.tsx:731` `orderedIds` | keyboard adjacency over what is rendered |
 | 21 | `MessageList.tsx:1117` `allLoadedSelected` | "all loaded" is the deliberate first selection tier |
@@ -149,8 +148,6 @@ Every place the web client derives, filters, counts, sorts, groups or dedupes ma
 | 27 | `MailSidebarAdapter.tsx:88` `sortMailboxes` | presentation ordering over a complete list |
 | 28 | `BriefPane.tsx:104`, `FlaggedPane.tsx:96` `selectedThread` | lookup within the window that was rendered |
 | 29 | `display-category.ts:17` `toDisplayCategory` | per-row mapping, no window |
-| 30 | `search-result.ts:109` `relatedSearchResults`, `MailboxPane.tsx:877`, `DailyBrief.tsx:341` | dedupe of semantic hits against the literal list. The exclusion set is the loaded pages, so a semantic hit whose thread sits on an unfetched page is not suppressed. Correct as scoped: the target is "what the user can see", which is the loaded window by definition. The visible consequence is bounded and cosmetic. |
-| 31 | `useIntelligenceData.ts:253` `similar` | complete 5-row semantic response; self-exclusion shrinks it to 4, a limit nit rather than a boundary defect |
 
 One item in the original report does not hold. The comment at `MailboxPane.tsx:172` says the spam rescue candidates are computed "over the loaded pages". That has not been true since `useRescueCandidates` began issuing its own server query; the comment is stale and is the only defect there.
 

@@ -1,10 +1,10 @@
 /**
  * The filter rule as the user edits it (RFC 038).
  *
- * A rule is literal clauses combined under one match operator, an optional
- * semantic widen, an action, and a scope. This module is the vocabulary the
- * chip editor renders — a design model driven from fixtures, not the API.
- * Naming tracks the RFC: rule, clause, widen, scope.
+ * A rule is literal clauses combined under one match operator, an action, and
+ * a scope. This module is the vocabulary the chip editor renders — a design
+ * model driven from fixtures, not the API. Naming tracks the RFC: rule,
+ * clause, scope.
  */
 
 import type { FolderTreeNode } from "../lib/folder-tree.js";
@@ -27,9 +27,8 @@ export interface RuleClause {
 	field: ClauseField;
 	value: string;
 	/**
-	 * A `From` clause the server derived from the selection because the widen
-	 * could not run (#251). It is an ordinary visible, editable chip — this flag
-	 * only annotates where it came from.
+	 * A clause prefilled from the selection (#251). It is an ordinary visible,
+	 * editable chip — this flag only annotates where it came from.
 	 */
 	derived?: boolean;
 }
@@ -37,34 +36,9 @@ export interface RuleClause {
 /** How the clauses combine. Maps to the API's `And` / `Or`. */
 export type MatchOperator = "all" | "any";
 
-/**
- * What the rule matches on (RFC 038 D2/D3). `similar` rides the semantic widen
- * off the messages the rule was started from; `properties` uses literal clauses
- * only — sender, subject, list — and needs no vector pipeline at all. A surface
- * that offers both opens on `similar` wherever the deployment can serve it.
- */
-export type RuleMatchMode = "similar" | "properties";
-
-const matchModeLabels: Record<RuleMatchMode, string> = {
-	similar: "Anything similar",
-	properties: "Its properties",
-};
-
-export function matchModeLabel(mode: RuleMatchMode): string {
-	return matchModeLabels[mode];
-}
-
-const matchModeHints: Record<RuleMatchMode, string> = {
-	similar: "Reads the messages you picked and finds more that read like them.",
-	properties:
-		"Matches on what the messages say about themselves — sender, subject, list. No reading involved.",
-};
-
-/** One line saying what a match mode actually does, so the choice is never a
- *  guess (ux.md). */
-export function matchModeHint(mode: RuleMatchMode): string {
-	return matchModeHints[mode];
-}
+/** What matching on a message's properties does, in one line (ux.md). */
+export const PROPERTIES_MATCH_HINT =
+	"Matches on what the messages say about themselves — sender, subject, list. No reading involved.";
 
 /**
  * When the rule stops (RFC 038 D1). `once` is a one-time action, `standing`
@@ -72,26 +46,9 @@ export function matchModeHint(mode: RuleMatchMode): string {
  */
 export type RuleScope = "once" | "standing" | "until";
 
-/**
- * The semantic widen (RFC 038 D3): one chip backed by the anchor mechanism.
- * Absent from a rule means the chip is not present; a deployment that cannot
- * serve the widen never offers it at all.
- */
-export interface RuleWiden {
-	/** Anchors the similarity rides on — "similar to these N". */
-	anchorCount: number;
-	/**
-	 * The rule carries an anchor this deployment cannot evaluate — created
-	 * elsewhere, capability since lost (RFC 038 D4). The chip lists as inactive,
-	 * the rule matches by its literal clauses only, and nothing claims otherwise.
-	 */
-	inactive?: boolean;
-}
-
 export interface FilterRule {
 	clauses: RuleClause[];
 	matchOperator: MatchOperator;
-	widen?: RuleWiden;
 	/** The move-to-folder action's destination. Absent leaves mail in place. */
 	moveMailboxId?: string;
 	/**
@@ -116,15 +73,10 @@ export interface LabelOption {
  * The live match count (RFC 038 D1). `stale` marks a count the editor already
  * moved past — a clause changed after it was counted, so the number on screen
  * is the previous rule's until the next preview lands.
- *
- * `indexEmpty` is the server saying the semantic index had nothing to answer
- * with (issue #452). A zero counted against an empty index is a fact about the
- * index, not about the rule, and reading it as "no mail matches" talks a user
- * out of a rule that will match plenty once indexing catches up.
  */
 export type PreviewCount =
 	| { status: "loading" }
-	| { status: "ready"; count: number; stale?: boolean; indexEmpty?: boolean }
+	| { status: "ready"; count: number; stale?: boolean }
 	| { status: "error"; reason: string };
 
 const clauseFieldLabels: Record<ClauseField, string> = {
@@ -158,22 +110,17 @@ export function clauseFieldHint(field: ClauseField): string | undefined {
 
 /**
  * Whether a clause field matches on message body text, which only the live
- * index-time filter and the semantic widen can read.
+ * index-time filter can read.
  *
- * The vector-free matcher serves `From`/`Subject` from the core thread rows and
+ * The organize matcher serves `From`/`Subject` from the core thread rows and
  * carries no faithful body, so it rejects a body-text clause outright rather
  * than narrowing the match silently (`bodyContentRejection`,
- * backend/service/organize.ts). A rule with no active widen therefore cannot be
- * counted or applied one-time with such a clause in it — it can only be a
- * standing rule, where the index-time matcher reads the whole body.
+ * backend/service/organize.ts). Such a clause therefore cannot be counted or
+ * applied one-time — it can only be a standing rule, where the index-time
+ * matcher reads the whole body.
  */
 export function matchesBodyText(field: ClauseField): boolean {
 	return field === "HasWords";
-}
-
-/** Whether the rule's semantic widen is present and evaluable. */
-export function hasActiveWiden(rule: FilterRule): boolean {
-	return rule.widen !== undefined && !rule.widen.inactive;
 }
 
 /**
@@ -183,16 +130,14 @@ export function hasActiveWiden(rule: FilterRule): boolean {
  * asks the question here, so none of them can save that shape.
  */
 export function hasMatcher(rule: FilterRule): boolean {
-	return rule.clauses.length > 0 || hasActiveWiden(rule);
+	return rule.clauses.length > 0;
 }
 
 /**
- * The rule's body-text clauses that nothing on its current match path can read
- * — a `HasWords` chip with no active widen behind it. Empty for every rule the
- * literal matcher can evaluate.
+ * The rule's body-text clauses the organize matcher cannot read — a
+ * `HasWords` chip. Empty for every rule the literal matcher can evaluate.
  */
 export function unreadableBodyClauses(rule: FilterRule): RuleClause[] {
-	if (hasActiveWiden(rule)) return [];
 	return rule.clauses.filter((clause) => matchesBodyText(clause.field));
 }
 
@@ -204,10 +149,6 @@ export const clauseFieldOrder: ClauseField[] = [
 	"ListId",
 	"FromDomain",
 ];
-
-export function widenChipLabel(widen: RuleWiden): string {
-	return `Similar to these ${widen.anchorCount}`;
-}
 
 const matchOperatorLabels: Record<MatchOperator, string> = {
 	all: "Match all",
@@ -230,11 +171,6 @@ export function matchJoinWord(operator: MatchOperator): string {
 export function previewCountSummary(preview: PreviewCount): string {
 	if (preview.status === "loading") return "Counting matches…";
 	if (preview.status === "error") return preview.reason;
-	// An index with nothing in it counted nothing, so there is no count to mark
-	// as recounting. The sentence is about the index, not about the rule, and it
-	// reads the same whichever predicate is on screen.
-	if (preview.indexEmpty)
-		return "Still indexing — nothing to match against yet";
 	if (preview.count === 0) return "No mail matches yet";
 	const noun = preview.count === 1 ? "message" : "messages";
 	const base = `${preview.count} ${noun} match`;
@@ -265,7 +201,7 @@ export function commitLabel(scope: RuleScope): string {
  */
 export const ruleBlockedCopy = {
 	noMatch: "Add a clause so the rule has something to match.",
-	// A one-time apply runs the vector-free matcher, which cannot read message
+	// A one-time apply runs the organize matcher, which cannot read message
 	// bodies. Saved as a rule the same clause works, so say that rather than
 	// refusing the clause outright.
 	bodyTextOnce:
@@ -278,7 +214,7 @@ export const ruleBlockedCopy = {
 } as const;
 
 /**
- * What the count region says when there is no count to be had. The vector-free
+ * What the count region says when there is no count to be had. The organize
  * matcher will not read message bodies, so a `HasWords` clause cannot be counted
  * before it is saved — which is a different answer from a count of zero, and
  * the only one that keeps an empty sample from reading as "this matches
@@ -356,7 +292,6 @@ export const demoRule: FilterRule = {
 		{ id: "c2", field: "Subject", value: "pull request" },
 	],
 	matchOperator: "all",
-	widen: { anchorCount: 2 },
 	moveMailboxId: "mbx-archive",
 	scope: "standing",
 	name: "GitHub notifications",

@@ -56,10 +56,8 @@ const intelligence: IntelligenceData = {
 		claimedBrand: "Mondial Relay",
 		summary:
 			"The display name claims “Mondial Relay”, but the message was sent and signed by a personal gmail.example mailbox — not mondialrelay.fr.",
-		similarCount: 15,
 	},
 	category: { value: "automated" },
-	similar: [],
 };
 
 interface Message {

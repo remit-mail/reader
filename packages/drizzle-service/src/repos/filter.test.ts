@@ -33,7 +33,6 @@ describe("FilterRepo", () => {
 
 		assert.equal(filter.state, FilterState.Active);
 		assert.equal(filter.disabledReason, FilterDisabledReason.None);
-		assert.equal(filter.hasAnchor, false);
 		assert.equal(filter.literalClauses.length, 0);
 		assert.equal(filter.actionLabelId, "None");
 		assert.equal(filter.actionMailboxId, "None");

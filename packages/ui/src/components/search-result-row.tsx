@@ -16,8 +16,8 @@ export interface SearchResult {
 	sender: string;
 	/**
 	 * Sender address. The avatar's color is keyed on it, so a message keeps the
-	 * same circle in a search result as in the list it came from. Absent for
-	 * semantic hits, whose index carries no address; those key on the name.
+	 * same circle in a search result as in the list it came from. Absent keys
+	 * the avatar on the name.
 	 */
 	senderEmail?: string;
 	subject: string;
@@ -28,8 +28,7 @@ export interface SearchResult {
 	category?: { label: string; tone?: SearchResultTone };
 	/**
 	 * The thread this result belongs to. Lets the consumer open the conversation
-	 * directly — even when the message isn't in the currently loaded list, which is
-	 * the case for semantic "Related" hits surfaced from anywhere in the mailbox.
+	 * directly, even when the message isn't in the currently loaded list.
 	 */
 	threadId?: string;
 	/** The mailbox the result lives in; paired with {@link threadId} to open it. */
@@ -40,15 +39,6 @@ export interface SearchResult {
 	 * {@link provenanceFolderLabel} for which folders can be named.
 	 */
 	folder?: ResultFolder;
-	/**
-	 * Why a semantic ("Related") hit matched — a plain-language label derived
-	 * from `matchedChunkType` (e.g. "body", "subject", "attachment"), so the user
-	 * understands why the result showed up. Absent for literal "Top matches"
-	 * rows, which match by construction.
-	 */
-	matchedChunkLabel?: string;
-	/** Relevance figure (0–1) from the semantic engine; rendered beside the chip. */
-	score?: number;
 }
 
 export interface SearchResultRowProps {
@@ -91,9 +81,8 @@ function searchResultRowData(result: SearchResult): ThreadRowData {
  * shared `ComfortableRowBody`: the sender avatar, the unread dot, the star and
  * the sender/subject/snippet rhythm all come from one implementation, and a
  * message looks the same whether it was found or scrolled to. Everything only a
- * search knows — the folder a row was read from, the search's own category
- * chip, why a semantic hit matched and how strongly — rides in the row's badge
- * slot. Presentational and prop-driven; the app supplies `onClick` and the
+ * search knows — the folder a row was read from and the search's own category
+ * chip — rides in the row's badge slot. Presentational and prop-driven; the app supplies `onClick` and the
  * optional `query` to bold literal matches.
  */
 export function SearchResultRow({
@@ -129,16 +118,6 @@ export function SearchResultRow({
 							>
 								{result.category.label}
 							</Badge>
-						)}
-						{result.matchedChunkLabel && (
-							<Badge tone="neutral" className="shrink-0">
-								{`matched: ${result.matchedChunkLabel}`}
-							</Badge>
-						)}
-						{result.score != null && (
-							<span className="shrink-0 text-2xs text-fg-subtle tabular-nums">
-								{result.score.toFixed(2)}
-							</span>
 						)}
 					</>
 				}

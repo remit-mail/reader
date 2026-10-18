@@ -50,7 +50,7 @@ const parseLines = (out: string): [string, string][] =>
 
 describe("the line format", () => {
 	it("opens with the verdict, the timestamp and the headline", () => {
-		const records = parseLines(renderLines(degraded, "off", "webhook"));
+		const records = parseLines(renderLines(degraded, "webhook"));
 		assert.deepEqual(records.slice(0, 3), [
 			["verdict", "degraded"],
 			["checked-at", "2026-07-27T10:00:00.000Z"],
@@ -59,7 +59,7 @@ describe("the line format", () => {
 	});
 
 	it("carries one record per reason, then the details", () => {
-		const records = parseLines(renderLines(degraded, "off", "webhook"));
+		const records = parseLines(renderLines(degraded, "webhook"));
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
 			[
@@ -75,28 +75,25 @@ describe("the line format", () => {
 
 	it("uses a closed key vocabulary, so an unknown key is a version skew and not a value", () => {
 		const keys = new Set(
-			parseLines(renderLines(degraded, "off", "webhook")).map(([key]) => key),
+			parseLines(renderLines(degraded, "webhook")).map(([key]) => key),
 		);
 		assert.deepEqual([...keys].sort(), [
 			"alerts",
 			"checked-at",
 			"detail",
 			"reason",
-			"semantic",
 			"summary",
 			"verdict",
 		]);
 	});
 
 	it("puts no reason records in a healthy report", () => {
-		const records = parseLines(renderLines(healthy, "off", "webhook"));
-		assert.equal(records.length, 5);
+		const records = parseLines(renderLines(healthy, "webhook"));
+		assert.equal(records.length, 4);
 	});
 
 	it("never wraps a record, so one line is always one record", () => {
-		for (const line of renderLines(degraded, "off", "webhook")
-			.trimEnd()
-			.split("\n")) {
+		for (const line of renderLines(degraded, "webhook").trimEnd().split("\n")) {
 			assert.ok(line.length > 0);
 			assert.ok(!line.includes("\n"));
 		}
@@ -119,8 +116,8 @@ describe("the line format", () => {
 				},
 			],
 		};
-		const out = renderLines(nasty, "off", "webhook");
-		assert.equal(out.trimEnd().split("\n").length, 7);
+		const out = renderLines(nasty, "webhook");
+		assert.equal(out.trimEnd().split("\n").length, 6);
 		const records = parseLines(out);
 		assert.deepEqual(
 			records.filter(([key]) => key === "reason").map(([, value]) => value),
@@ -146,34 +143,19 @@ describe("the line format", () => {
 					},
 				],
 			},
-			"off",
 			"webhook",
 		);
-		assert.equal(out.trimEnd().split("\n").length, 6);
+		assert.equal(out.trimEnd().split("\n").length, 5);
 		assert.match(out, /reason scrape_failed a b c d/);
-	});
-
-	// The one record an operator reads to know whether "no semantic hits" means
-	// nothing matched or nothing is indexed. Verbatim, so `bedrock` and a value
-	// the wrapper does not know both arrive as themselves.
-	it("carries the deployment's embedding provider", () => {
-		for (const provider of ["off", "local", "bedrock"]) {
-			const records = parseLines(renderLines(healthy, provider, "webhook"));
-			assert.deepEqual(
-				records.filter(([key]) => key === "semantic"),
-				[["semantic", provider]],
-			);
-		}
 	});
 
 	it("says where alerts go, plainly when they go nowhere, in both renderings", () => {
 		const alertsOf = (alerts: "none" | "webhook") => ({
-			line: parseLines(renderLines(degraded, "off", alerts)).filter(
+			line: parseLines(renderLines(degraded, alerts)).filter(
 				([key]) => key === "alerts",
 			),
-			json: (
-				JSON.parse(renderJson(degraded, "off", alerts)) as { alerts: string }
-			).alerts,
+			json: (JSON.parse(renderJson(degraded, alerts)) as { alerts: string })
+				.alerts,
 		});
 		assert.deepEqual(alertsOf("none"), {
 			line: [
@@ -195,7 +177,7 @@ describe("the line format", () => {
 
 describe("the json format", () => {
 	it("parses, and carries the same verdict and reasons", () => {
-		const parsed = JSON.parse(renderJson(degraded, "off", "webhook")) as {
+		const parsed = JSON.parse(renderJson(degraded, "webhook")) as {
 			verdict: string;
 			reasons: { code: string; summary: string; detail: string | null }[];
 		};
@@ -208,7 +190,7 @@ describe("the json format", () => {
 	});
 
 	it("renders a healthy verdict as an empty reason list, not an absent key", () => {
-		const parsed = JSON.parse(renderJson(healthy, "off", "webhook")) as {
+		const parsed = JSON.parse(renderJson(healthy, "webhook")) as {
 			reasons: unknown[];
 		};
 		assert.deepEqual(parsed.reasons, []);
@@ -251,7 +233,7 @@ describe("writeVerdict", () => {
 		let settled = false;
 		const done = writeVerdict(
 			sink.stream,
-			renderLines(degraded, "off", "webhook"),
+			renderLines(degraded, "webhook"),
 		).then(() => {
 			settled = true;
 		});
@@ -259,7 +241,7 @@ describe("writeVerdict", () => {
 		assert.equal(settled, false, "resolved before the stream drained");
 		sink.release();
 		await done;
-		assert.equal(sink.chunks.join(""), renderLines(degraded, "off", "webhook"));
+		assert.equal(sink.chunks.join(""), renderLines(degraded, "webhook"));
 	});
 
 	it("resolves straight away when the write was taken", async () => {
@@ -273,7 +255,7 @@ describe("writeVerdict", () => {
 				assert.fail("waited on drain after a write that was taken");
 			},
 		} as unknown as NodeJS.WritableStream;
-		await writeVerdict(stream, renderJson(healthy, "off", "webhook"));
-		assert.equal(chunks.join(""), renderJson(healthy, "off", "webhook"));
+		await writeVerdict(stream, renderJson(healthy, "webhook"));
+		assert.equal(chunks.join(""), renderJson(healthy, "webhook"));
 	});
 });

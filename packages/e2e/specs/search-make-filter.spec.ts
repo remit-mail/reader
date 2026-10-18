@@ -10,7 +10,7 @@
  * What a filter cannot carry is named on the step rather than left unsaid: the
  * folder the search was limited to, and a facet that is no clause, are both
  * stated above the chips. So is the count, which a free-text query has none of —
- * the vector-free matcher will not read message bodies, and an empty sample that
+ * the organize matcher will not read message bodies, and an empty sample that
  * claims nothing matches is worse than one that says why it cannot say.
  *
  * Driven on the daily brief, the one view whose scope is nothing — a route that

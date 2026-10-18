@@ -2,9 +2,7 @@
 #
 # The development stack. SQLite is the backend the product ships
 # (deploy/vps/docker-compose.sqlite.yml), so a dev session here exercises the
-# code path a real install runs, semantic indexing included: the outbox relay is
-# the `search-index-worker` service below and the vector index fills as mail
-# arrives.
+# code path a real install runs.
 #
 # Web on 4123, backend on 4124 — the TLS front-end on 4143 proxies to 4123 and
 # bookmarks point at it.
@@ -15,8 +13,7 @@
 # the bind mount.
 #
 # Data lives in .remit/dev-sqlite inside the worktree, not in a docker volume:
-# two SQLite files (the app/auth database and sqlite-vec's vector store) plus the
-# message bodies. `down` keeps it; deleting that directory is what resets the
+# the SQLite app/auth database plus the message bodies. `down` keeps it; deleting that directory is what resets the
 # stack to a fresh install.
 
 name: remit-sqlite-dev
@@ -99,11 +96,6 @@ services:
   # storage as the backend, so a triggered sync flows mailboxes -> messages ->
   # body: metadata sync emits the SYNC_MESSAGE_BODY cue and this worker drains
   # `remit-body`, writing body.eml.
-  #
-  # The search-index queue is deliberately blanked here. The shim would poll it
-  # too, and then two processes would each load a 500 MB embedding model to
-  # index the same mail; on the published stack that queue belongs to the
-  # search-index-worker alone, and it does here as well.
   imap-worker:
     image: node:24
     container_name: remit-sqlite-dev-imap-worker
@@ -114,8 +106,6 @@ services:
       - localhost-dev-sqlite.env
       - path: localhost-dev-sqlite.local.env
         required: false
-    environment:
-      SQS_QUEUE_URL_SEARCH_INDEX: ""
     volumes:
       - .:/app
     command:
@@ -124,38 +114,6 @@ services:
       - --import
       - tsx
       - packages/imap-worker/src/e2e-processor-shim.ts
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
-      elasticmq:
-        condition: service_started
-    restart: unless-stopped
-
-  # Semantic search, both halves of it (RFC 036 D2). SQLite has no cross-process
-  # NOTIFY, so the outbox drain is the primary relay mechanism here: poller.ts
-  # starts a 2-second poll over the committed-but-unrelayed outbox rows, puts
-  # them on the search-index queue, and consumes that same queue with the
-  # production handler — embedding each message and writing the vector into
-  # LOCAL_VECTORDB_PATH. Without this service the outbox fills and
-  # message_embedding stays empty.
-  search-index-worker:
-    image: node:24
-    container_name: remit-sqlite-dev-search-index-worker
-    user: "${REMIT_DEV_UID:-1000}:${REMIT_DEV_GID:-1000}"
-    working_dir: /app
-    network_mode: host
-    env_file:
-      - localhost-dev-sqlite.env
-      - path: localhost-dev-sqlite.local.env
-        required: false
-    volumes:
-      - .:/app
-    command:
-      - node
-      - --env-file=localhost-dev-sqlite.env
-      - --import
-      - tsx
-      - packages/search-index-worker/src/poller.ts
     depends_on:
       migrate:
         condition: service_completed_successfully

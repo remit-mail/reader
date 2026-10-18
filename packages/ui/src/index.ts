@@ -358,8 +358,6 @@ export {
 	type ClauseDraft,
 	ClauseEditor,
 	type ClauseEditorProps,
-	WidenChip,
-	type WidenChipProps,
 } from "./components/filter-clause-chip.js";
 export {
 	FilterPreviewCount,
@@ -380,27 +378,22 @@ export {
 	demoSubjectPrefillRule,
 	demoVocabularyRule,
 	type FilterRule,
-	hasActiveWiden,
 	hasMatcher,
 	type LabelOption,
 	type MatchOperator,
 	matchesBodyText,
 	matchJoinWord,
-	matchModeHint,
-	matchModeLabel,
 	matchOperatorLabel,
+	PROPERTIES_MATCH_HINT,
 	type PreviewCount,
 	previewCountSummary,
 	previewSettledReason,
 	type RuleClause,
-	type RuleMatchMode,
 	type RuleScope,
-	type RuleWiden,
 	ruleBlockedCopy,
 	scopeLabel,
 	UNCOUNTABLE_PREDICATE_REASON,
 	unreadableBodyClauses,
-	widenChipLabel,
 } from "./components/filter-rule.js";
 export {
 	type ClauseEditState,
@@ -492,14 +485,9 @@ export {
 	type IntelligencePanelProps,
 	type IntelligenceQuickActions,
 	type IntelligenceTabId,
-	type MatchedChunk,
 	type SenderFlagsIntel,
 	type SenderIntel,
 	type SenderTrustLevel,
-	type SimilarMessageIntel,
-	type SimilarMessageLinkComponent,
-	type SimilarMessageLinkProps,
-	type SimilarState,
 } from "./components/intelligence-panel.js";
 export { IntelligenceSection } from "./components/intelligence-section.js";
 export {
@@ -750,7 +738,6 @@ export {
 	type SearchFieldSuggest,
 } from "./components/search-chip-input.js";
 export {
-	DROPPED_SEMANTIC_COPY,
 	droppedFacetsCopy,
 	hasConversionNotice,
 	makeFilterBlockedCopy,
@@ -1146,12 +1133,6 @@ export {
 	searchConversionNotice,
 } from "./lib/search-rule.js";
 export {
-	SEMANTIC_OFF_BUYS,
-	SEMANTIC_OFF_COMMAND,
-	SEMANTIC_OFF_TITLE,
-	semanticOffReason,
-} from "./lib/semantic-off.js";
-export {
 	collapsibleDomain,
 	deriveSenderClauses,
 	distinctSenders,
@@ -1228,10 +1209,9 @@ export {
 	type RunState,
 	ruleRestrictionFor,
 	runCopy,
-	type SampleEmptyReason,
+	SAMPLE_EMPTY_COPY,
 	type SelectionRestriction,
 	type StepId,
-	sampleEmptyCopy,
 	stepBlockedReason,
 	stepIndex,
 	stepLabel,

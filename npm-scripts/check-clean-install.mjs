@@ -37,7 +37,6 @@ const RESOLVES = [
 	"@remit/domain-enums",
 	"@remit/api-openapi-types",
 	"@remit/mailbox-service",
-	"@remit/search-service",
 	"@remit/storage-service",
 	"@remit/auth-service",
 	"@remit/secrets-service",

@@ -1,11 +1,5 @@
 import type { RemitImapFilterResponse } from "@remit/api-http-client/types.gen.ts";
-import {
-	Badge,
-	Button,
-	LabelChip,
-	type LabelOption,
-	WidenChip,
-} from "@remit/ui";
+import { Badge, Button, LabelChip, type LabelOption } from "@remit/ui";
 import { Trash2 } from "lucide-react";
 import type { FilterRunStatus } from "@/lib/organize/filter-run";
 import {
@@ -47,12 +41,6 @@ interface FiltersListProps {
 	runFilterId?: string;
 	/** How that run stands; a failure is reported above the list. */
 	runStatus?: FilterRunStatus;
-	/**
-	 * This deployment ships no vector pipeline (RFC 038 D4). A filter carrying a
-	 * semantic anchor lists with its widen chip inactive — it matches by its
-	 * literal clauses only.
-	 */
-	semanticUnavailable?: boolean;
 	/** Injected for deterministic status in tests; defaults to now. */
 	now?: number;
 }
@@ -60,9 +48,7 @@ interface FiltersListProps {
 /**
  * The account's standing filters, each opening its rule in the editor (RFC 038
  * D6). Expired temporary filters stay listed and are marked Expired distinctly
- * rather than hidden (RFC 034 Decision 1.2). A filter with a semantic anchor
- * shows the widen chip — inactive where this deployment cannot evaluate it
- * (D4), so the list says honestly that it matches by literal clauses only.
+ * rather than hidden (RFC 034 Decision 1.2).
  */
 export function FiltersList({
 	filters,
@@ -76,7 +62,6 @@ export function FiltersList({
 	onRunNow,
 	runFilterId,
 	runStatus,
-	semanticUnavailable = false,
 	now = Date.now(),
 }: FiltersListProps) {
 	if (filters.length === 0) {
@@ -156,25 +141,15 @@ export function FiltersList({
 									{runLine}
 								</p>
 							)}
-							{(filter.hasAnchor || label) && (
+							{label && (
 								<div className="mt-1.5 flex flex-wrap gap-1.5">
-									{filter.hasAnchor && (
-										<WidenChip
-											widen={{
-												anchorCount: 1,
-												...(semanticUnavailable ? { inactive: true } : {}),
-											}}
-										/>
-									)}
-									{label && (
-										<LabelChip
-											label={{
-												labelId: label.id,
-												name: label.name,
-												color: label.color,
-											}}
-										/>
-									)}
+									<LabelChip
+										label={{
+											labelId: label.id,
+											name: label.name,
+											color: label.color,
+										}}
+									/>
 								</div>
 							)}
 						</button>

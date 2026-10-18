@@ -5,7 +5,7 @@
  * says where it came from and spam is held out of the list. Both questions are
  * answered by joining the row's mailbox ids against the mailbox lists the
  * sidebar already loads: the id → folder map here is the only thing either
- * needs, so neither the search API nor the semantic index has to carry a folder.
+ * needs, so the search API does not have to carry a folder.
  *
  * The mailbox row carries the hierarchy delimiter its own server reports, and it
  * is kept alongside the path: a chip labelled by path shows the folder's own

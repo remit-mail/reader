@@ -32,7 +32,6 @@ const buildServices = (): CascadeServices =>
 		threadMessageService: { listAllByAccount: async () => [] },
 		accountSettingService: { listByAccountConfig: async () => [] },
 		filterService: { listByAccountConfig: async () => [] },
-		filterAnchorService: { get: async () => null },
 		labelService: { listByAccountConfig: async () => [] },
 		messageLabelService: { listByLabelId: async () => [] },
 	}) as unknown as CascadeServices;

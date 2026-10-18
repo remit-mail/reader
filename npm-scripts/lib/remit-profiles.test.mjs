@@ -41,7 +41,7 @@ after(() => {
 });
 
 const ALWAYS_ON =
-	"queue backend caddy web apisix imap-worker smtp-worker account-worker search-index-worker updater";
+	"queue backend caddy web apisix imap-worker smtp-worker account-worker updater";
 const PROFILE_SERVICES = "dozzle victoriametrics";
 
 function sandbox({ profileRunning = true, stopped = [], scenario = {} } = {}) {

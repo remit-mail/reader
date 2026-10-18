@@ -323,7 +323,6 @@ export const RICH_CONVERSION: SearchConversion = {
 		{ type: "before", label: "Before 2026-01-01" },
 	],
 	keptTerms: true,
-	droppedSemantic: true,
 };
 
 export const PLAIN_CONVERSION: SearchConversion = {
@@ -331,5 +330,4 @@ export const PLAIN_CONVERSION: SearchConversion = {
 	matchOperator: "all",
 	droppedFacets: [],
 	keptTerms: true,
-	droppedSemantic: false,
 };

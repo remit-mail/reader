@@ -39,12 +39,7 @@ const withTunnel = (
 		return new Response("", { status });
 	}) as unknown as typeof fetch;
 
-const ALL_WORKERS = [
-	"imap-worker",
-	"smtp-worker",
-	"account-worker",
-	"search-index-worker",
-];
+const ALL_WORKERS = ["imap-worker", "smtp-worker", "account-worker"];
 
 const heartbeatDir = async (services: readonly string[]): Promise<string> => {
 	const directory = await mkdtemp(join(tmpdir(), "remit-doctor-check-"));
@@ -60,7 +55,6 @@ describe("runCheck", () => {
 			"imap-worker",
 			"smtp-worker",
 			"account-worker",
-			"search-index-worker",
 		]);
 		const config = loadConfig({ DOCTOR_HEARTBEAT_DIR: directory });
 		const result = await runCheck(config, {}, new Date(), stack());
@@ -85,7 +79,6 @@ describe("runCheck", () => {
 				"imap-worker",
 				"smtp-worker",
 				"account-worker",
-				"search-index-worker",
 			]),
 		});
 		const result = await runCheck(

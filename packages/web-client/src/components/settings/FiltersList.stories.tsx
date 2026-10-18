@@ -39,7 +39,6 @@ const makeFilter = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
 	matchOperator: "And",

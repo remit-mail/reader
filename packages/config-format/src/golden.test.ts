@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readGoldenConfigDocument } from "./fixtures.js";
+import { liftToCurrentVersion } from "./migrations.js";
 import { readConfigDocument } from "./read.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
-test("the golden v1 document parses", () => {
+test("the golden v1 document reads at the current version", () => {
 	const document = readConfigDocument(readGoldenConfigDocument());
 
 	assert.equal(document.schemaVersion, CURRENT_SCHEMA_VERSION);
@@ -15,8 +16,11 @@ test("the golden v1 document parses", () => {
 	);
 });
 
-test("the golden v1 document round-trips through JSON unchanged", () => {
-	const source = readGoldenConfigDocument();
+test("the lifted golden document round-trips through JSON unchanged", () => {
+	const source = liftToCurrentVersion(
+		readGoldenConfigDocument() as Record<string, unknown>,
+		1,
+	);
 
 	const parsed = readConfigDocument(source);
 
@@ -39,7 +43,7 @@ test("the golden v1 document carries the parts a move has to preserve", () => {
 	);
 	assert.equal(document.filters[0]?.actionFolder?.folderPath, "INBOX.Facturen");
 	assert.equal(document.filters[0]?.actionLabelName, "Facturen");
-	assert.ok(document.filters[1]?.anchor?.sourceText);
+	assert.equal(document.filters[1]?.actionLabelName, "Te lezen");
 	assert.equal(document.addressFlags[0]?.flags.vip?.reason, "payment alerts");
 	assert.equal(
 		document.addressFlags[1]?.flags.unsubscribed?.expiresAt,

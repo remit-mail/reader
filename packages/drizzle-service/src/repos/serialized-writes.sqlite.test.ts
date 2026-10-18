@@ -5,7 +5,7 @@ import type { Db } from "../db.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
-	outboxTable,
+	messageFlagTable,
 } from "../schema/message-data.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import { runInTransaction, serializeSqliteWrites } from "../tx.js";
@@ -15,15 +15,16 @@ import { runInTransaction, serializeSqliteWrites } from "../tx.js";
 // statement can never land inside another unit's open SAVEPOINT (the
 // uncommitted-read / rollback hazard named on PR #1310). The db handle repos
 // hold is `serializeSqliteWrites(db)` — unserialized access is impossible by
-// construction. The `outbox` table stands in for any write target here (few
-// required columns, already dialect-cast for the repos).
+// construction. The `message_flag` table stands in for any write target here
+// (few required columns).
 
 const row = (id: string) => ({
-	id,
+	messageFlagId: id,
 	messageId: `msg-${id}`,
-	event: "message.body_synced" as const,
-	payload: { messageId: `msg-${id}` },
-	createdAt: new Date(),
+	flagName: "\\Seen",
+	setAt: 1,
+	createdAt: 1,
+	updatedAt: 1,
 });
 
 const nextTick = (): Promise<void> =>
@@ -45,7 +46,10 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 	});
 
 	const byId = (id: string) =>
-		raw.select().from(outboxTable).where(eq(outboxTable.id, id));
+		raw
+			.select()
+			.from(messageFlagTable)
+			.where(eq(messageFlagTable.messageFlagId, id));
 
 	test("a single-statement write does not interleave into an open transaction", async () => {
 		const order: string[] = [];
@@ -58,7 +62,7 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 		// event loop with the SAVEPOINT open), then throw so the whole unit rolls
 		// back.
 		const txDone = runInTransaction(db, async (tx) => {
-			await tx.insert(outboxTable).values(row("tx-row"));
+			await tx.insert(messageFlagTable).values(row("tx-row"));
 			order.push("tx-insert");
 			await barrier;
 			order.push("tx-throw");
@@ -72,7 +76,7 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 		await nextTick();
 
 		const singleWrite = db
-			.insert(outboxTable)
+			.insert(messageFlagTable)
 			.values(row("single-row"))
 			.then(() => {
 				order.push("single-committed");
@@ -116,7 +120,9 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 
 	test("concurrent single-statement writes all commit", async () => {
 		const ids = Array.from({ length: 20 }, (_, i) => `w-${i}`);
-		await Promise.all(ids.map((id) => db.insert(outboxTable).values(row(id))));
+		await Promise.all(
+			ids.map((id) => db.insert(messageFlagTable).values(row(id))),
+		);
 		for (const id of ids) {
 			assert.equal((await byId(id)).length, 1, `${id} must be committed`);
 		}
@@ -126,7 +132,7 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 		// A write executed via `.run()` (not `await`) must still go through the
 		// queue — the hardened wrapper intercepts every terminal executor.
 		const builder = db
-			.insert(outboxTable)
+			.insert(messageFlagTable)
 			.values(row("run-row")) as unknown as {
 			run: () => Promise<unknown>;
 		};
@@ -146,7 +152,7 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 		});
 
 		const txDone = runInTransaction(db, async (tx) => {
-			await tx.insert(outboxTable).values(row("values-tx-row"));
+			await tx.insert(messageFlagTable).values(row("values-tx-row"));
 			order.push("tx-insert");
 			await barrier;
 		});
@@ -155,7 +161,7 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 		await nextTick();
 
 		const runnable = db
-			.insert(outboxTable)
+			.insert(messageFlagTable)
 			.values(row("values-row"))
 			.returning() as unknown as { values: () => Promise<unknown[]> };
 		const executorWrite = runnable.values().then(() => {
@@ -179,18 +185,18 @@ describe("serialized SQLite writes (RFC 036 D3)", () => {
 
 	test("writes inside a transaction still commit atomically", async () => {
 		await runInTransaction(db, async (tx) => {
-			await tx.insert(outboxTable).values(row("a"));
+			await tx.insert(messageFlagTable).values(row("a"));
 			await tx
-				.update(outboxTable)
-				.set({ event: "message.moved" })
-				.where(eq(outboxTable.id, "a"));
+				.update(messageFlagTable)
+				.set({ flagName: "\\Flagged" })
+				.where(eq(messageFlagTable.messageFlagId, "a"));
 		});
 		const [committed] = await byId("a");
-		assert.equal(committed?.event, "message.moved");
+		assert.equal(committed?.flagName, "\\Flagged");
 
 		await assert.rejects(() =>
 			runInTransaction(db, async (tx) => {
-				await tx.insert(outboxTable).values(row("b"));
+				await tx.insert(messageFlagTable).values(row("b"));
 				throw new Error("boom");
 			}),
 		);

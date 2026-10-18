@@ -203,7 +203,6 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		wiring.filters
 			? {
 					filterService: store.filter,
-					filterAnchorService: store.filterAnchor,
 					messageLabelService: store.messageLabel,
 					mailboxService: store.mailbox,
 					placementMoveService,

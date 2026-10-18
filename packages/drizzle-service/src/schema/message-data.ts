@@ -1,7 +1,4 @@
 import * as entities from "@remit/drizzle-sqlite-schema";
-import { OUTBOX_EVENTS, type OutboxEvent, outboxTable } from "./outbox.js";
-
-export { OUTBOX_EVENTS, type OutboxEvent, outboxTable };
 
 const bodyPartContentTable = entities.bodyPartContents;
 const bodyPartParameterTable = entities.bodyPartParameters;
@@ -41,7 +38,6 @@ export const messageDataSchema = {
 	bodyStructureRefetch: bodyStructureRefetchTable,
 	message: messageTable,
 	messageFlag: messageFlagTable,
-	outbox: outboxTable,
 };
 
 export type MessageDataSchema = typeof messageDataSchema;

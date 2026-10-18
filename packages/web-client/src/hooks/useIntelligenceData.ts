@@ -1,7 +1,4 @@
-import {
-	addressOperationsSearchAddressesOptions,
-	semanticSearchOperationsSemanticSearchOptions,
-} from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { addressOperationsSearchAddressesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type {
 	RemitImapAddressResponse,
 	RemitImapThreadMessageResponse,
@@ -10,17 +7,14 @@ import { DisplayNameCorrespondence } from "@remit/domain-enums";
 import type {
 	AuthenticityIntel,
 	IntelligenceData,
-	MatchedChunk,
 	SenderFlagsIntel,
 	SenderIntel,
-	SimilarMessageIntel,
 } from "@remit/ui";
 import { isThreadCategory } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import { useSemanticSearchEnabled } from "@/hooks/useSemanticSearchEnabled";
 import { isServerError } from "@/lib/error-classifier";
-import { formatDate, formatEmailDate } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import {
 	pickSenderAddress,
 	senderAddressSearchQuery,
@@ -194,27 +188,16 @@ function readDomainList(value: unknown): string[] {
 	);
 }
 
-/**
- * Build authenticity intel from the thread message's authenticity field.
- *
- * `similarCount` is the number of semantic-search lookalikes; the panel uses
- * it to render the "N similar messages" campaign-reveal CTA inside the
- * danger panel. Passed in because it is derived from the semantic-search
- * result, not the thread row.
- */
+/** Build authenticity intel from the thread message's authenticity field. */
 export function buildAuthenticityIntel(
 	thread: RemitImapThreadMessageResponse,
-	similarCount: number,
 ): AuthenticityIntel {
-	const surfacedSimilar = similarCount > 0 ? similarCount : undefined;
-
 	if (isSenderAddressUnverifiable(thread.fromEmail)) {
 		return {
 			verdict: "mismatch",
 			fromDomain: "",
 			addressUnreadable: true,
 			summary: UNREADABLE_SENDER_SUMMARY,
-			similarCount: surfacedSimilar,
 		};
 	}
 
@@ -268,35 +251,11 @@ export function buildAuthenticityIntel(
 		dkimDomain,
 		claimedBrand,
 		summary,
-		// Surface the lookalike count so the panel renders the "N similar
-		// messages" campaign-reveal button.
-		similarCount: surfacedSimilar,
 	};
 }
 
 export interface UseIntelligenceDataResult {
 	data: IntelligenceData | null;
-	/**
-	 * True while similar-messages fetch is in flight. The rest of the data
-	 * (sender, authenticity, category, flags) arrives synchronously from the
-	 * already-loaded thread row.
-	 */
-	isSimilarLoading: boolean;
-	/** Non-null when the similar-messages fetch failed. */
-	similarError: unknown;
-	/**
-	 * True when the similar-messages failure is a fatal first-party 5xx. The
-	 * global escalation overlay handles it; the panel must NOT degrade it to the
-	 * benign grey "Similarity search unavailable" label. A soft (non-fatal)
-	 * error or an empty result keeps the panel quiet.
-	 */
-	similarErrorIsFatal: boolean;
-	/**
-	 * False on an instance with semantic search off (#1068): nothing is embedded,
-	 * so the query is never sent and the section states the setting instead of
-	 * rendering an empty list. `undefined` until the config read answers.
-	 */
-	semanticEnabled: boolean | undefined;
 	/**
 	 * True when the address lookup failed with a fatal first-party 5xx. The panel
 	 * must not silently render the sender's flags (VIP/muted/blocked) as absent —
@@ -318,20 +277,16 @@ export interface UseIntelligenceDataResult {
 
 /**
  * Maps a `RemitImapThreadMessageResponse` into `IntelligenceData` for the
- * `IntelligencePanel` component. Three data sources:
+ * `IntelligencePanel` component. Two data sources:
  *
  * 1. The thread row itself (already loaded) → sender basics, trust, authenticity, category.
  * 2. `GET /addresses/search?q=<email>` → address flags (VIP/muted/blocked/etc.)
  *    and first-seen timestamp. One round-trip per unique sender.
- * 3. `GET /search/semantic` → similar messages. Last to arrive; sidebar still
- *    renders if this fails.
  */
 export function useIntelligenceData(
 	thread: RemitImapThreadMessageResponse | null | undefined,
-	currentMailboxId?: string,
 ): UseIntelligenceDataResult {
 	const senderEmail = thread?.fromEmail ?? null;
-	const subject = thread?.subject ?? "";
 
 	// --- Address lookup: flags + first-seen timestamp ---
 	const { data: addressSearchResult, error: addressError } = useQuery({
@@ -347,70 +302,22 @@ export function useIntelligenceData(
 		senderEmail ?? undefined,
 	);
 
-	// --- Semantic search: similar messages ---
-	const semanticEnabled = useSemanticSearchEnabled();
-	const semanticQuery = [subject, senderEmail].filter(Boolean).join(" ");
-	const {
-		data: semanticResult,
-		isLoading: isSimilarLoading,
-		error: similarError,
-	} = useQuery({
-		...semanticSearchOperationsSemanticSearchOptions({
-			query: { query: semanticQuery, limit: 5 },
-		}),
-		// Waits for the config read rather than racing it. An off instance answers
-		// this query with an empty list, which the panel cannot tell from a sender
-		// nothing resembles, so the request is not worth sending on the chance the
-		// instance turns out to be on. `undefined` is that read still in flight;
-		// it is cached process-wide and every other surface already made it.
-		enabled:
-			Boolean(thread && semanticQuery.length > 3) && semanticEnabled === true,
-		staleTime: 60_000,
-		// A non-fatal failure (e.g. 404, no index yet) is acceptable — the sidebar
-		// degrades gracefully. A 5xx is NOT acceptable: it escalates globally and
-		// the panel must not present it as a benign "unavailable" state.
-		retry: 1,
-	});
-
 	const data = useMemo((): IntelligenceData | null => {
 		if (!thread) return null;
 
-		const similar: SimilarMessageIntel[] = (semanticResult?.items ?? [])
-			// Exclude the current message itself
-			.filter((r) => r.messageId !== thread.messageId)
-			.map((r) => ({
-				id: r.messageId,
-				threadId: r.threadId,
-				// Prefer the mailbox the user is already viewing when the message also
-				// lives there, so opening a similar message stays in the same folder;
-				// otherwise fall back to the first mailbox it lives in.
-				mailboxId:
-					currentMailboxId != null && r.mailboxIds.includes(currentMailboxId)
-						? currentMailboxId
-						: (r.mailboxIds[0] ?? ""),
-				fromName: r.fromName ?? "",
-				subject: r.subject ?? "(No subject)",
-				timeLabel: r.sentDate != null ? formatEmailDate(r.sentDate * 1000) : "",
-				matched: r.matchedChunkType as MatchedChunk,
-			}));
-
 		const sender = buildSenderIntel(thread, address);
 
-		const authenticity = buildAuthenticityIntel(thread, similar.length);
+		const authenticity = buildAuthenticityIntel(thread);
 
 		const category = buildCategoryIntel(thread, address);
 
 		const flags = buildSenderFlags(address);
 
-		return { sender, authenticity, category, flags, similar };
-	}, [thread, address, semanticResult, currentMailboxId]);
+		return { sender, authenticity, category, flags };
+	}, [thread, address]);
 
 	return {
 		data,
-		isSimilarLoading,
-		similarError,
-		similarErrorIsFatal: isServerError(similarError),
-		semanticEnabled,
 		addressErrorIsFatal: isServerError(addressError),
 		addressId: address?.addressId,
 		address,

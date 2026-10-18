@@ -11,7 +11,6 @@ import {
 	mailboxSpecialUseTable,
 	mailboxTable,
 	messageTable,
-	outboxTable,
 	threadMessageTable,
 } from "../schema.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
@@ -606,9 +605,6 @@ describe("MailboxRepo", () => {
 			return messageId;
 		};
 
-		const outboxEventsFor = async (messageId: string) =>
-			db.select().from(outboxTable).where(eq(outboxTable.messageId, messageId));
-
 		test("removes the folder, its mail and its own child rows, and nothing else's", async () => {
 			const accountId = randomId();
 			const doomed = mailboxCreated(
@@ -617,8 +613,8 @@ describe("MailboxRepo", () => {
 			const spared = mailboxCreated(
 				await repo.create(makeMailboxInput(accountId, "Keep")),
 			);
-			const doomedMessage = await seedMessage(doomed.mailboxId, 1);
-			const sparedMessage = await seedMessage(spared.mailboxId, 1);
+			await seedMessage(doomed.mailboxId, 1);
+			await seedMessage(spared.mailboxId, 1);
 			await db.insert(mailboxSpecialUseTable).values({
 				mailboxSpecialUseId: randomId(),
 				mailboxId: doomed.mailboxId,
@@ -653,24 +649,11 @@ describe("MailboxRepo", () => {
 				[],
 			);
 
-			// The search index is cleared by the outbox row, not by the delete.
-			const removals = await outboxEventsFor(doomedMessage);
-			assert.deepEqual(
-				removals.map((row) => row.event),
-				["message.removed"],
-			);
-
 			const survivors = await db
 				.select()
 				.from(messageTable)
 				.where(eq(messageTable.mailboxId, spared.mailboxId));
 			assert.equal(survivors.length, 1);
-			assert.equal(
-				(await outboxEventsFor(sparedMessage)).some(
-					(row) => row.event === "message.removed",
-				),
-				false,
-			);
 			assert.equal(
 				(await repo.get(accountId, spared.mailboxId)).mailboxId,
 				spared.mailboxId,

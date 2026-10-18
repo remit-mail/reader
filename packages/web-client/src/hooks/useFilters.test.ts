@@ -32,7 +32,6 @@ const filter = (
 		name: "Travel",
 		scope: "Standing",
 		state: "Active",
-		hasAnchor: false,
 		ruleChangedAt: 0,
 		actionChangedAt: 0,
 		matchOperator: "And",

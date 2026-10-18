@@ -65,9 +65,7 @@ describe("the reclassify picker on a sender that already carries an override", (
 
 		http = mockFetch((call) => {
 			if (call.path.endsWith("/config")) {
-				return makeConfig([makeAccount({ accountId: "acc-1" })], {
-					semanticSearchEnabled: false,
-				});
+				return makeConfig([makeAccount({ accountId: "acc-1" })]);
 			}
 			if (call.path.endsWith("/addresses/search")) {
 				return { items: [stored] };
@@ -115,9 +113,7 @@ describe("the reclassify picker on a sender that already carries an override", (
 	it("offers no removal on a sender that carries no override", async () => {
 		http = mockFetch((call) => {
 			if (call.path.endsWith("/config")) {
-				return makeConfig([makeAccount({ accountId: "acc-1" })], {
-					semanticSearchEnabled: false,
-				});
+				return makeConfig([makeAccount({ accountId: "acc-1" })]);
 			}
 			if (call.path.endsWith("/addresses/search")) {
 				return { items: [addressWith({})] };

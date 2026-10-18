@@ -783,8 +783,7 @@ export class MailboxManagementService {
 	/**
 	 * T8: the confirmed delete takes the folder's local mail with it (D8).
 	 * Removing the row alone leaves every `message` and `thread_message` row
-	 * keyed to a dead mailboxId — out of every reader, and still in the search
-	 * index, because nothing writes the `message.removed` outbox event.
+	 * keyed to a dead mailboxId — out of every reader.
 	 *
 	 * The removal is batched and the mailbox row goes last, so the row stays
 	 * `deleting` throughout and an SQS redelivery re-enters the handler, passes

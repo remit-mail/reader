@@ -46,13 +46,9 @@ interface MailViewChromeProps {
 	/** Literal/instant results — the "Top matches" section. */
 	searchResults?: SearchResult[];
 	searchLoading?: boolean;
-	/** Semantic results — the "Related" section. */
-	relatedResults?: SearchResult[];
-	relatedLoading?: boolean;
 	onSelectSearchResult?: (result: SearchResult) => void;
-	/** Section headings; see `MailListHeader`. */
+	/** Section heading; see `MailListHeader`. */
 	searchResultsLabel?: string;
-	relatedResultsLabel?: string;
 	/**
 	 * The body renders the committed search as a selectable list itself; see
 	 * `MailListHeader`. The mailbox route sets this so a committed search yields
@@ -78,11 +74,8 @@ export function MailViewChrome({
 	footer,
 	searchResults,
 	searchLoading,
-	relatedResults,
-	relatedLoading,
 	onSelectSearchResult,
 	searchResultsLabel,
-	relatedResultsLabel,
 	searchResultsInBody,
 	refreshControl,
 }: MailViewChromeProps) {
@@ -114,11 +107,8 @@ export function MailViewChrome({
 				searchFilter={filterConfig}
 				searchResults={searchResults}
 				searchLoading={searchLoading}
-				relatedResults={relatedResults}
-				relatedLoading={relatedLoading}
 				onSelectSearchResult={onSelectSearchResult}
 				searchResultsLabel={searchResultsLabel}
-				relatedResultsLabel={relatedResultsLabel}
 				searchResultsInBody={searchResultsInBody}
 				refreshControl={refreshControl}
 			>

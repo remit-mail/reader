@@ -46,10 +46,8 @@ import { useCreateFilter } from "@/hooks/useFilters";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";
 import { useMatchSample, useSearchMatchSample } from "@/hooks/useMatchSample";
 import { useOrganizeJob } from "@/hooks/useOrganizeJob";
-import { useOrganizeWiden } from "@/hooks/useOrganizeWiden";
 import { useRulePreview } from "@/hooks/useRulePreview";
 import { useSelectedSubjects } from "@/hooks/useSelectedSubjects";
-import { useSemanticSearchEnabled } from "@/hooks/useSemanticSearchEnabled";
 import type {
 	BulkActionProgress,
 	BulkActionTarget,
@@ -62,6 +60,7 @@ import { useMailContext } from "@/lib/mail-context";
 import { buildMoveOptions, folderDelimiter } from "@/lib/move-options";
 import {
 	buildWizardDraft,
+	type OrganizeMatchPredicate,
 	type OrganizeScope,
 	organizeScopeFor,
 } from "@/lib/organize/organize-model";
@@ -70,7 +69,6 @@ import {
 	SUPPORTED_CLAUSE_FIELDS,
 } from "@/lib/organize/rule-model";
 import { searchRuleAccountId } from "@/lib/organize/search-to-rule";
-import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 import { useSearchConversion } from "@/lib/search-conversion";
 import type { WizardSelectionMessage } from "@/lib/wizard-selection";
 import { useWizardEntryValue, useWizardStep } from "@/routing";
@@ -186,7 +184,6 @@ const NO_CONVERSION: SearchConversion = {
 	matchOperator: "all",
 	droppedFacets: [],
 	keptTerms: false,
-	droppedSemantic: false,
 };
 
 /** A search entry has nothing ticked; its match is the query's clauses (#477 3.2). */
@@ -269,7 +266,7 @@ const bulkActionFor = (
 };
 
 /**
- * Whether a widened match is applied by the server's own pass rather than over
+ * Whether the properties match is applied by the server's own pass rather than over
  * the ids it matched. The back-apply job carries a move and nothing else, so
  * Move, Junk and Organize hand it the whole match; Delete and Mark read have no
  * server-side pass and act on the ids the preview matched.
@@ -290,8 +287,7 @@ const noDestinationReason = (verb: Verb): string =>
 
 /**
  * Where the wizard meets the app (#483). The steps and their bodies belong to
- * `@remit/ui`; everything that talks to a server is here: the widen, the live
- * count, the folder create, the bulk call, the back-apply job and the filter.
+ * `@remit/ui`; everything that talks to a server is here: the live count, the folder create, the bulk call, the back-apply job and the filter.
  *
  * Every commit routes through `organize-model.ts`, so the four `OrganizeScope`
  * values are reconstructed in one place from the two answers the wizard asks
@@ -351,7 +347,6 @@ function SelectionWizardSession({
 		undefined,
 	);
 	const [nudgedStep, setNudgedStep] = useState<StepId | undefined>(undefined);
-	const [semanticFallbackTaken, setSemanticFallbackTaken] = useState(false);
 	const [committedScope, setCommittedScope] = useState<
 		OrganizeScope | undefined
 	>(undefined);
@@ -386,7 +381,6 @@ function SelectionWizardSession({
 		() => selection.map((message) => message.email).filter(Boolean),
 		[selection],
 	);
-	const anchorMessageId = messageIds[0];
 	const subjects = useSelectedSubjects(messageIds);
 	const { junkMailboxId } = useJunkMailbox(accountId);
 	const { inboxMailboxId } = useInboxMailbox(accountId);
@@ -410,26 +404,11 @@ function SelectionWizardSession({
 		[selection, inboxMailboxId],
 	);
 
-	// No door is offered over an escalated predicate, so nothing here has a widen
-	// to probe for.
-	const widen = useOrganizeWiden(
-		escalated ? undefined : accountId,
-		anchorMessageId,
-		senders,
-		subjects,
-	);
-	const { preview: probeWiden } = widen;
-	// The similar door has to know before it is pressed whether it can run, so
-	// the probe fires with the wizard rather than with the door (#477 3.6).
-	useEffect(() => {
-		probeWiden();
-	}, [probeWiden]);
-
 	// A door the wizard resolves itself, through the preview endpoint. The
 	// escalated predicate is resolved by the list before the wizard opens, and
 	// the ticked list is its own answer, so neither is previewed.
-	const previewed = mode === "similar" || mode === "properties";
-	const literalPredicate: OrganizeMatchPredicate = useMemo(
+	const previewed = mode === "properties";
+	const predicate: OrganizeMatchPredicate = useMemo(
 		() => ({
 			matchOperator: draft.matchOperator === "all" ? "And" : "Or",
 			literalClauses: draft.clauses.map((clause) => ({
@@ -439,8 +418,6 @@ function SelectionWizardSession({
 		}),
 		[draft.clauses, draft.matchOperator],
 	);
-	const predicate =
-		mode === "similar" ? widen.matchPredicate : literalPredicate;
 	// The count and the ids both come from the server, never from paging the list
 	// in the browser (#477 5.3). The ticked list is its own count, so no request
 	// is made for it.
@@ -552,11 +529,11 @@ function SelectionWizardSession({
 	// is how a footer comes to name a screen nobody is looking at.
 	const current = steps[stepIndex(steps, step)];
 
-	// A filter, a folder, and the preview that counts a widened door all belong to
-	// one account, so a selection spanning accounts reaches none of them and is
-	// told so on the step that asks (#477 5.5, #523). A selection spanning folders
-	// of one account is told about folders instead, and keeps its account: the
-	// preview behind a widened door has something to count against. The one-off
+	// A filter, a folder, and the preview that counts the properties door all
+	// belong to one account, so a selection spanning accounts reaches none of them
+	// and is told so on the step that asks (#477 5.5, #523). A selection spanning
+	// folders of one account is told about folders instead, and keeps its account:
+	// the preview behind the properties door has something to count against. The one-off
 	// scope and the ticked rows act on the messages themselves and are unaffected.
 	const wizardScope = wizardScopeFor(accountId, selectionRestriction);
 	// An escalated match is restricted on the same step for its own reason: the
@@ -581,64 +558,14 @@ function SelectionWizardSession({
 	const changeMode = useCallback(
 		(next: MatchDoor) => {
 			setDoor(next);
-			setDraft((held) => ({
-				...held,
-				widen:
-					next === "similar" && anchorMessageId
-						? { anchorCount: Math.max(selection.length, 1) }
-						: undefined,
-				...(next === "properties" && held.clauses.length === 0
-					? { clauses: seedPropertyClauses() }
-					: {}),
-			}));
+			setDraft((held) =>
+				next === "properties" && held.clauses.length === 0
+					? { ...held, clauses: seedPropertyClauses() }
+					: held,
+			);
 		},
-		[anchorMessageId, selection.length, seedPropertyClauses],
+		[seedPropertyClauses],
 	);
-
-	// The dimmed similar door, pressed. What the widen would have fallen back to
-	// is filled in on the property step instead of standing in for the semantic
-	// match without saying so (#477 3.6) — the same agreement the property step
-	// itself seeds from (#458), not senders alone: a selection with nothing in
-	// common on sender still shares a subject worth matching on.
-	const takeSemanticFallback = useCallback(() => {
-		setSemanticFallbackTaken(true);
-		setDoor("properties");
-		setDraft((held) => ({
-			...held,
-			widen: undefined,
-			clauses: seedPropertyClauses(),
-			matchOperator: "any",
-		}));
-		goToStep("properties");
-	}, [seedPropertyClauses, goToStep]);
-
-	// The probe lands after the door is on screen, so it can report the widen
-	// unavailable while the user is already holding it. The fallback is taken then
-	// rather than left as a door that counts nothing: the property step says, in
-	// so many words, that these are the senders it substituted (#477 3.6).
-	// Off is a deployment setting, not a probe result, and it reaches the door the
-	// same way the runtime failure does: dimmed, pressable, and falling back to
-	// the senders. Only the copy differs (#1068).
-	const semanticOff = useSemanticSearchEnabled() === false;
-	const semanticUnavailable =
-		semanticOff || widen.semanticUnavailable || widen.isError;
-	// Only while the door is the screen: the probe re-fires when the anchor
-	// changes under a background refetch, and a late answer that moved the step
-	// from Review would push an entry the wizard does not own and leave the count
-	// it rewinds by wrong.
-	useEffect(() => {
-		if (current !== "match") return;
-		if (mode !== "similar" || !semanticUnavailable || semanticFallbackTaken) {
-			return;
-		}
-		takeSemanticFallback();
-	}, [
-		current,
-		mode,
-		semanticUnavailable,
-		semanticFallbackTaken,
-		takeSemanticFallback,
-	]);
 
 	const startAddClause = useCallback(() => {
 		setClauseEdit({ mode: "add", draft: { field: "From", value: "" } });
@@ -757,7 +684,6 @@ function SelectionWizardSession({
 		const organizeDraft = buildWizardDraft({
 			mode: door,
 			ruleScope: named.scope,
-			anchorMessageId,
 			clauses: named.clauses,
 			matchOperator: named.matchOperator,
 			moveMailboxId: named.moveMailboxId,
@@ -797,7 +723,6 @@ function SelectionWizardSession({
 		runEscalated,
 		door,
 		named,
-		anchorMessageId,
 		verb,
 		accountId,
 		bulkTargets,
@@ -1016,10 +941,6 @@ function SelectionWizardSession({
 		messages: sampleMessages,
 		count,
 		label: mode === "selected" ? "Your selection" : "A sample of what matches",
-		emptyReason:
-			mode === "similar" && semanticUnavailable
-				? ("notIndexed" as const)
-				: ("noMatch" as const),
 		loading: escalated
 			? escalatedSample.isPending
 			: previewed && (count.status === "loading" || matchSample.isPending),
@@ -1044,12 +965,6 @@ function SelectionWizardSession({
 				mode,
 				accountId: wizardScope.accountId,
 				onModeChange: changeMode,
-				semanticUnavailable,
-				semanticOff,
-				semanticErrorDetail:
-					widen.error instanceof Error ? widen.error.message : undefined,
-				semanticFallbackTaken,
-				onSemanticFallback: takeSemanticFallback,
 				escalatedScope: escalated?.scope,
 				sample,
 			}}
@@ -1070,7 +985,6 @@ function SelectionWizardSession({
 				conversionNotice: conversion
 					? searchConversionNotice(conversion)
 					: undefined,
-				semanticFallbackTaken,
 				sample: { ...sample, label: "What this matches" },
 			}}
 			folder={{

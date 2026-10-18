@@ -19,21 +19,8 @@ import {
  * equivalent is never silently folded into the rule: a folder scope is reported
  * as dropped-and-kept-out (the filter matches everywhere, not just there), the
  * attribute facets (attachment / read state / starred / category / date) are
- * reported as left out, and a free-text query kept as a literal `HasWords` clause
- * is reported as having lost its semantic "similar mail" reach on a deployment
- * that cannot embed the query (D5). Pure functions only — the capability is
- * injected, not probed here.
+ * reported as left out. Pure functions only.
  */
-
-interface ConvertOptions {
-	/**
-	 * Whether the current search surfaced semantically-similar mail (a non-empty
-	 * "Related" section). This is the reach the literal filter cannot reproduce —
-	 * the direct existing signal, read from the search's own semantic results, not
-	 * a probe of deployment capability.
-	 */
-	searchHadSemanticReach: boolean;
-}
 
 type NoClauseFacet = Extract<SearchToken["type"], DroppedFacetType>;
 
@@ -61,7 +48,6 @@ const hasNoClauseEquivalent = (
  */
 export const convertSearchToRule = (
 	parsed: ParsedSearchQuery,
-	{ searchHadSemanticReach }: ConvertOptions,
 ): SearchConversion => {
 	const clauses: SearchConversion["clauses"] = [];
 	const droppedFacets: DroppedFacet[] = [];
@@ -101,7 +87,6 @@ export const convertSearchToRule = (
 		droppedFacets,
 		targetAccountId,
 		keptTerms,
-		droppedSemantic: keptTerms && searchHadSemanticReach,
 	};
 };
 

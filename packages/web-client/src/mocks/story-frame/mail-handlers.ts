@@ -27,7 +27,6 @@ import type {
 	RemitImapThreadMessageResponse,
 	RemitImapThreadSearchResponse,
 	RemitImapUpdateOutboxMessageInput,
-	SemanticSearchOperationsSemanticSearchResponse,
 	SyncOperationsGetSyncStatusResponse,
 	SyncOperationsTriggerSyncResponse,
 	SystemOperationsGetSystemUpdateResponse,
@@ -526,13 +525,6 @@ export const mailHandlers = (
 			HttpResponse.json<CalendarSuggestionOperationsListCalendarSuggestionsResponse>(
 				{ items: [] },
 			),
-		),
-		http.get(`${API}/search/semantic`, () =>
-			options.search === "holds"
-				? pending()
-				: HttpResponse.json<SemanticSearchOperationsSemanticSearchResponse>({
-						items: [],
-					}),
 		),
 		http.get(`${API}/me/quarantine`, () =>
 			HttpResponse.json<MeOperationsListQuarantineResponse>({

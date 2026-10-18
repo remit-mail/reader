@@ -8,7 +8,7 @@
 		},
 		"schemaVersion": {
 			"type": "number",
-			"const": 1
+			"const": 2
 		},
 		"generator": {
 			"description": "Which reader wrote this file, and when.",
@@ -494,38 +494,6 @@
 								"type": "null"
 							}
 						]
-					},
-					"anchor": {
-						"anyOf": [
-							{
-								"type": "object",
-								"properties": {
-									"sourceText": {
-										"type": "string",
-										"minLength": 1,
-										"maxLength": 512
-									},
-									"embeddingId": {
-										"type": "string",
-										"minLength": 1
-									},
-									"sourceMessageId": {
-										"type": "string",
-										"minLength": 25,
-										"maxLength": 25
-									}
-								},
-								"required": [
-									"sourceText",
-									"embeddingId",
-									"sourceMessageId"
-								],
-								"additionalProperties": false
-							},
-							{
-								"type": "null"
-							}
-						]
 					}
 				},
 				"required": [
@@ -535,8 +503,7 @@
 					"matchOperator",
 					"literalClauses",
 					"actionLabelName",
-					"actionFolder",
-					"anchor"
+					"actionFolder"
 				],
 				"additionalProperties": false
 			}
@@ -852,6 +819,6 @@
 		"addressFlags"
 	],
 	"additionalProperties": false,
-	"$id": "https://schemas.remit.email/reader-config.v1.schema.json",
-	"title": "reader configuration document, v1"
+	"$id": "https://schemas.remit.email/reader-config.v2.schema.json",
+	"title": "reader configuration document, v2"
 }

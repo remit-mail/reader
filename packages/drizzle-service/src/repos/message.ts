@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type {
 	CreateMessageInput,
 	IMessageRepository,
@@ -42,7 +41,6 @@ import {
 	messageFlagTable,
 	messageReferenceTable,
 	messageTable,
-	outboxTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
@@ -58,13 +56,6 @@ import {
 } from "./mappers.js";
 
 type DB = Db<MessageDataSchema>;
-
-const REEMBED_BATCH_SIZE = 500;
-
-export interface ReembedRequest {
-	queued: number;
-	alreadyQueued: number;
-}
 
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
@@ -120,21 +111,12 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	};
 }
 
-/**
- * Emitted into the transactional outbox when a message's rows are deleted, so
- * the search-index worker relays a search-index REMOVE and the vectors are
- * dropped.
- */
-export const MESSAGE_REMOVED_EVENT = "message.removed" as const;
-
-export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete" | "insert">;
+export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete">;
 
 /**
- * Delete a message and its whole per-message subtree by message id — the nine
- * child tables, the message row, and its prior CDC outbox rows — then append one
- * `message.removed` outbox row per id so search-index cleanup rides the same
- * transactional outbox as body-sync and move. Runs inside a caller-supplied
- * transaction so the row delete and the removal event commit atomically.
+ * Delete a message and its whole per-message subtree by message id — the
+ * child tables and the message row. Runs inside a caller-supplied transaction
+ * so the subtree goes atomically.
  */
 export async function deleteMessageSubtree(
 	tx: SubtreeDb,
@@ -175,19 +157,6 @@ export async function deleteMessageSubtree(
 	await tx
 		.delete(messageTable)
 		.where(inArray(messageTable.messageId, messageIds));
-
-	await tx
-		.delete(outboxTable)
-		.where(inArray(outboxTable.messageId, messageIds));
-	await tx.insert(outboxTable).values(
-		messageIds.map((messageId) => ({
-			id: randomUUID(),
-			messageId,
-			event: MESSAGE_REMOVED_EVENT,
-			payload: { messageId },
-			createdAt: new Date(),
-		})),
-	);
 }
 
 /**
@@ -257,11 +226,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 
 		// Faithful to ElectroDB message.create: a duplicate messageId raises a
 		// unique-constraint violation, surfaced as the domain conflict error.
-		//
-		// No outbox event. A freshly created message has neither a body nor a
-		// threadMessage yet, so there is nothing to index — the search-index
-		// relay never drained a creation event, and the rows accumulated forever
-		// (reader#1063). Body-sync appends the event once there is content.
 		try {
 			await this.db.insert(messageTable).values(row);
 		} catch (error) {
@@ -444,33 +408,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			updatedAt: now,
 		};
 
-		// A non-empty bodyStorageKey means body-sync just persisted the parsed
-		// body, so the message now has embeddable content and its threadMessage
-		// exists. Append a search-index event in the same transaction as the write
-		// (transactional outbox) — the search-index worker relays it to SQS and
-		// embeds.
-		// The outbox is append-only: the worker's content-hash gate makes a
-		// redundant pass near-free.
-		const bodySynced =
-			typeof input.bodyStorageKey === "string" &&
-			input.bodyStorageKey.length > 0;
-
-		await runInTransaction(this.db, async (tx) => {
-			await tx
-				.update(messageTable)
-				.set(setValues)
-				.where(eq(messageTable.messageId, messageId));
-
-			if (bodySynced) {
-				await tx.insert(outboxTable).values({
-					id: randomUUID(),
-					messageId,
-					event: "message.body_synced",
-					payload: { messageId },
-					createdAt: new Date(),
-				});
-			}
-		});
+		await this.db
+			.update(messageTable)
+			.set(setValues)
+			.where(eq(messageTable.messageId, messageId));
 		return this.get(messageId);
 	}
 
@@ -657,11 +598,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		newMailboxId: string,
 	): ReturnType<IMessageRepository["updateUid"]> {
 		// updateUid settles a move against confirmed IMAP state (the destination
-		// mailbox and its COPYUID). The message's search vectors still carry the
-		// old mailbox in their metadata and their body is unchanged, so a normal
-		// re-index would skip them on content hash. Enqueue a move re-index event
-		// in the same transaction as the update; the search-index worker drains it
-		// with force, refreshing the stored mailbox metadata.
+		// mailbox and its COPYUID).
 		//
 		// `originalUid` goes with the settle. It exists to say the row's `uid`
 		// was recorded under `originalMailboxId`, and that stops being true here;
@@ -669,82 +606,27 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		// in-flight one whenever the destination's counter happens to hand back
 		// the source's number, which on a young account is most of them (#1217).
 		// `originalMailboxId` stays: Undo restores the message to it.
-		const rows = await runInTransaction(this.db, async (tx) => {
-			const updated = await tx
-				.update(messageTable)
-				.set({
-					uid: newUid,
-					mailboxId: newMailboxId,
-					originalUid: null,
-					status: "active",
-					syncStatus: "synced",
-					// The settle clears the epitaph as well as the pair. `syncStatus`
-					// alone already gates every reader of it, so this is tidiness
-					// rather than correctness — but a row that has just settled has
-					// nothing it gave up on, and leaving a value there invites a
-					// reader that forgets the gate.
-					abandonedMutation: "none",
-					updatedAt: Date.now(),
-				})
-				.where(eq(messageTable.messageId, messageId))
-				.returning();
-			if (updated.length === 0) {
-				throw new NotFoundError(`Message not found: ${messageId}`);
-			}
-
-			await tx.insert(outboxTable).values({
-				id: randomUUID(),
-				messageId,
-				event: "message.moved",
-				payload: { messageId },
-				createdAt: new Date(),
-			});
-			return updated;
-		});
-		return toMessageItem(rows[0]);
-	}
-
-	async requestReembed(messageIds: string[]): Promise<ReembedRequest> {
-		const request: ReembedRequest = { queued: 0, alreadyQueued: 0 };
-		for (
-			let start = 0;
-			start < messageIds.length;
-			start += REEMBED_BATCH_SIZE
-		) {
-			const batch = messageIds.slice(start, start + REEMBED_BATCH_SIZE);
-			await runInTransaction(this.db, async (tx) => {
-				const present = await tx
-					.select({ messageId: messageTable.messageId })
-					.from(messageTable)
-					.where(inArray(messageTable.messageId, batch));
-				const pending = await tx
-					.selectDistinct({ messageId: outboxTable.messageId })
-					.from(outboxTable)
-					.where(
-						and(
-							inArray(outboxTable.messageId, batch),
-							eq(outboxTable.event, "message.moved"),
-							isNull(outboxTable.processedAt),
-						),
-					);
-				const pendingIds = new Set(pending.map(({ messageId }) => messageId));
-				const toQueue = present.filter(
-					({ messageId }) => !pendingIds.has(messageId),
-				);
-				request.alreadyQueued += present.length - toQueue.length;
-				request.queued += toQueue.length;
-				if (toQueue.length === 0) return;
-				await tx.insert(outboxTable).values(
-					toQueue.map(({ messageId }) => ({
-						id: randomUUID(),
-						messageId,
-						event: "message.moved" as const,
-						payload: { messageId },
-						createdAt: new Date(),
-					})),
-				);
-			});
+		const rows = await this.db
+			.update(messageTable)
+			.set({
+				uid: newUid,
+				mailboxId: newMailboxId,
+				originalUid: null,
+				status: "active",
+				syncStatus: "synced",
+				// The settle clears the epitaph as well as the pair. `syncStatus`
+				// alone already gates every reader of it, so this is tidiness
+				// rather than correctness — but a row that has just settled has
+				// nothing it gave up on, and leaving a value there invites a
+				// reader that forgets the gate.
+				abandonedMutation: "none",
+				updatedAt: Date.now(),
+			})
+			.where(eq(messageTable.messageId, messageId))
+			.returning();
+		if (rows.length === 0) {
+			throw new NotFoundError(`Message not found: ${messageId}`);
 		}
-		return request;
+		return toMessageItem(rows[0]);
 	}
 }

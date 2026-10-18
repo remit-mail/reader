@@ -3,8 +3,8 @@ import type { LayoutTier } from "@/hooks/useLayoutTier";
 /**
  * Which surface a list view shows its search on. Two surfaces exist:
  *
- * - the read-only two-engine `SearchResults` panel (literal "Top matches" +
- *   semantic "Related", cross-folder, spam offer), swapped into the list-pane
+ * - the read-only `SearchResults` panel ("Top matches", cross-folder, spam
+ *   offer), swapped into the list-pane
  *   body on tablet/desktop while searching; and
  * - the view's own body — for the mailbox route a selectable `MessageList` whose
  *   threads filter to the committed search — which hosts multi-select and the

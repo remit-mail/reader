@@ -19,8 +19,7 @@ export interface IMailboxRepository {
 	 *
 	 * The result is NOT a trusted tenant — it is derived from the row, so it must
 	 * never be fed back as the scope of a request-facing read. It has two uses:
-	 * pure system routing/indexing that has no tenant of its own (stream bridge,
-	 * search indexer), and ownership bootstrap where a request-facing caller
+	 * pure system routing that has no tenant of its own (stream bridge), and ownership bootstrap where a request-facing caller
 	 * compares the resolved owner's accountConfigId against its OWN authenticated
 	 * accountConfigId to decide the caller may proceed.
 	 */
@@ -76,8 +75,7 @@ export interface IMailboxRepository {
 	deleteMany(accountId: string, mailboxIds: string[]): Promise<void>;
 	/**
 	 * Remove a folder along with the mail it holds (D8): the messages through
-	 * `deleteMessageSubtree`, so the nine per-message child tables go and one
-	 * `message.removed` outbox row per message clears the search index; then the
+	 * `deleteMessageSubtree`, so the nine per-message child tables go; then the
 	 * mailbox's own child rows; then, last, the mailbox row itself.
 	 *
 	 * "Its own child rows" includes a `message_placement_move` marker naming this

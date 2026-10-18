@@ -34,7 +34,6 @@ import {
 	OutboxDetailOperations,
 	OutboxOperations,
 } from "./outbox.js";
-import { SemanticSearchOperations } from "./search.js";
 import { SyncOperations } from "./sync.js";
 import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
@@ -76,7 +75,6 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...OutboxAttachmentOperations,
 	...AddressOperations,
 	...AddressDetailOperations,
-	...SemanticSearchOperations,
 	...CalendarSuggestionOperations,
 	...MessageCalendarSuggestionOperations,
 	...CalendarSuggestionActionOperations,

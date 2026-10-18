@@ -24,18 +24,12 @@ export const DroppedFacets: Story = {
 	},
 };
 
-/** A deployment that cannot match by meaning — literal words kept, no similarity claim. */
-export const DroppedSemantic: Story = {
-	args: { notice: { droppedSemantic: true } },
-};
-
 /** Everything a rich search carried that the filter cannot. */
 export const Everything: Story = {
 	args: {
 		notice: {
 			scopedOutFolder: "Archive",
 			droppedFacets: ["Has attachment", "Before 2026-01-01"],
-			droppedSemantic: true,
 		},
 	},
 };

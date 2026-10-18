@@ -25,13 +25,8 @@
  * itself so it is there for every search on every view, whichever body is showing
  * the results.
  *
- * Results split into two sections, one per engine: literal/instant and semantic.
- * The consumer dedupes them — a thread in both appears only under the literal
- * section — and names them, so a view whose engines reach different mail says so
- * ("In Archive" / "Everywhere"). Each loads independently; an empty section
- * drops out kit-side, so a semantic-only result still shows when the literal
- * search finds nothing. The hamburger opens the nav drawer via the enclosing
- * `AppShellSlotted`.
+ * Results render as one section; an empty section drops out kit-side. The
+ * hamburger opens the nav drawer via the enclosing `AppShellSlotted`.
  *
  * This is also the one place the route's scope reaches the results list, so both
  * tiers agree on it: a global search labels every row with the folder it came
@@ -130,24 +125,16 @@ export interface MailListHeaderProps {
 	/** Literal/instant results — the "Top matches" section. */
 	searchResults?: SearchResult[];
 	searchLoading?: boolean;
-	/** Semantic results — the "Related" section, deduped against "Top matches". */
-	relatedResults?: SearchResult[];
-	relatedLoading?: boolean;
 	onSelectSearchResult?: (result: SearchResult) => void;
-	/**
-	 * Section headings. A view whose two engines cover different ground names
-	 * them by that ground ("In Archive" / "Everywhere") so the reach of a result
-	 * is on screen rather than inferred.
-	 */
+	/** The results section heading. */
 	searchResultsLabel?: string;
-	relatedResultsLabel?: string;
 	/**
 	 * The body renders the committed search itself as a selectable list — the
 	 * mailbox route's `MessageList` and the brief and Starred's own rows filter
 	 * to the search and host the multi-select toolbar and (on the mailbox route)
 	 * the "Select all N matching" escalation (#212). When set, a committed query
 	 * keeps the body on tablet/desktop instead of swapping in the read-only
-	 * two-engine `SearchResults` panel; the panel still shows while the query is
+	 * `SearchResults` panel; the panel still shows while the query is
 	 * being typed (uncommitted). A view whose body is not a search-result list
 	 * leaves this unset and keeps the panel for every query.
 	 */
@@ -231,11 +218,8 @@ export function MailListHeader({
 	searchFilter,
 	searchResults,
 	searchLoading,
-	relatedResults,
-	relatedLoading,
 	onSelectSearchResult,
 	searchResultsLabel = "Top matches",
-	relatedResultsLabel = "Related",
 	searchResultsInBody = false,
 	spamOffer,
 	refreshControl,
@@ -368,25 +352,17 @@ export function MailListHeader({
 		[parsed, searchInput, onSearchChange],
 	);
 	const topMatches = useMemo(() => searchResults ?? [], [searchResults]);
-	const related = useMemo(() => relatedResults ?? [], [relatedResults]);
-	// Always offer both sections while a query is present; the kit drops the empty
-	// ones, so a "Related"-only hit still shows and two empties fall to its empty
-	// state. The empty-query case (recent searches) is the kit's job.
+	// Offer the section while a query is present; the kit drops it when empty and
+	// shows its empty state. The empty-query case (recent searches) is the kit's job.
 	const sections = useMemo<SearchResultSection[]>(
 		() =>
 			hasQuery
-				? [
-						{ id: "top", label: searchResultsLabel, results: topMatches },
-						{ id: "related", label: relatedResultsLabel, results: related },
-					]
+				? [{ id: "top", label: searchResultsLabel, results: topMatches }]
 				: [],
-		[hasQuery, searchResultsLabel, relatedResultsLabel, topMatches, related],
+		[hasQuery, searchResultsLabel, topMatches],
 	);
-	// Skeleton only while nothing is in yet — once either section has rows, show
-	// them and let the other arrive (or not). Keeps the two sources independent.
-	const hasAnyResult = topMatches.length + related.length > 0;
-	const resultsLoading =
-		!hasAnyResult && (searchLoading === true || relatedLoading === true);
+	// Skeleton only while nothing is in yet.
+	const resultsLoading = topMatches.length === 0 && searchLoading === true;
 
 	// The mailbox's appointed role is what lets a search scoped to Spam show its
 	// rows rather than drop them.
@@ -426,10 +402,7 @@ export function MailListHeader({
 	// could not be turned into. The conversion is computed once, here, and reaches
 	// the wizard through its own context — the reason the affordance gives and the
 	// clauses the wizard seeds from are the same answer, without the per-keystroke
-	// object riding on the chrome the list reads. The literal filter cannot
-	// reproduce the search's semantic reach, so the conversion states it whenever
-	// the search surfaced a "Related" section — a direct signal, read here from
-	// the semantic results, never a capability probe.
+	// object riding on the chrome the list reads.
 	//
 	// It belongs to the search, not to any one way of showing it. The affordance
 	// therefore sits in the pane, above whichever body is up — the read-only
@@ -440,11 +413,7 @@ export function MailListHeader({
 	// to the URL, taking the affordance down with it a few hundred milliseconds
 	// after it appeared. Mounting it here instead keeps it up through that
 	// hand-back on every view.
-	const searchHadSemanticReach = related.length > 0;
-	const conversion = useMemo(
-		() => convertSearchToRule(parsed, { searchHadSemanticReach }),
-		[parsed, searchHadSemanticReach],
-	);
+	const conversion = useMemo(() => convertSearchToRule(parsed), [parsed]);
 	const searchConversion = hasQuery ? conversion : undefined;
 	// The wizard is a full-screen surface, so the phone takeover it was pressed
 	// from stands down rather than sitting under it — and the list underneath,

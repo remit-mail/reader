@@ -6,9 +6,8 @@ import type { RemitClient } from "@remit/backend/client";
 import {
 	buildOrganizeMatchDeps,
 	type OrganizeMatchDeps,
-	type OrganizeSemanticDeps,
 } from "@remit/backend/organize";
-import type { FilterAnchorItem, FilterItem } from "@remit/data-ports";
+import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { DrizzleThreadMessageRepository } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -43,10 +42,8 @@ const jobClient = (
 				organizeJobId: "job-1",
 				accountConfigId: "cfg-1",
 				filterId: "None",
-				anchorMessageId: "None",
 				matchOperator: "And",
 				literalClauses,
-				similarityThreshold: 0.75,
 				actionLabelId: "lbl-1",
 				actionMailboxId: "None",
 			}),
@@ -63,20 +60,10 @@ const jobClient = (
  */
 const explodingMatchDeps = (): OrganizeMatchDeps =>
 	({
-		semantic: () => {
-			throw new Error("the vector pipeline must not be reached");
-		},
 		listAccountFilterMessages: async () => {
 			throw new Error("SQLITE_BUSY");
 		},
-		filterAnchors: {
-			get: async () => null,
-			listByAccountConfig: async () => [],
-			put: async () => {
-				throw new Error("unreachable");
-			},
-		},
-	}) as unknown as OrganizeMatchDeps;
+	}) as OrganizeMatchDeps;
 
 describe("processOrganizeJob (reader #463)", () => {
 	it("fails the job on a refused rule and acknowledges the record", async () => {
@@ -136,7 +123,6 @@ const standingFilter = (over: Partial<FilterItem> = {}): FilterItem => ({
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 1,
 	actionChangedAt: 1,
 	matchOperator: "And",
@@ -193,10 +179,7 @@ interface World {
 	close: () => void;
 }
 
-const world = async (
-	filters: FilterItem[],
-	anchors: FilterAnchorItem[] = [],
-): Promise<World> => {
+const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
 	store.sqlite.exec(
 		readFileSync(
@@ -223,10 +206,8 @@ const world = async (
 				organizeJobId: "job-1",
 				accountConfigId: CONFIG,
 				filterId: "flt-1",
-				anchorMessageId: "None",
 				matchOperator: "And",
 				literalClauses: [],
-				similarityThreshold: 0.75,
 				actionLabelId: "None",
 				actionMailboxId: "None",
 			}),
@@ -251,10 +232,6 @@ const world = async (
 				filterUpdates.push({ filterId, patch });
 				return {};
 			},
-		},
-		filterAnchor: {
-			get: async (_cfg: string, filterId: string) =>
-				anchors.find((anchor) => anchor.filterId === filterId) ?? null,
 		},
 		account: {
 			listMailSourcesByAccountConfig: async () => [{ accountId: "acct-1" }],
@@ -320,50 +297,6 @@ const runFilterJob = (w: World) =>
 		matchDeps: buildOrganizeMatchDeps(w.client),
 		moveService: recordingMoves(w.moves),
 	});
-
-const EMBEDDING_ID = "test-model@4";
-const ANCHOR_VECTOR = [1, 0, 0, 0];
-const ORTHOGONAL_VECTOR = [0, 1, 0, 0];
-
-const persistedAnchor: FilterAnchorItem = {
-	filterId: "flt-1",
-	accountConfigId: CONFIG,
-	anchorMessageId: "msg-anchor",
-	anchorEmbedding: ANCHOR_VECTOR,
-	anchorEmbeddingId: EMBEDDING_ID,
-	anchorSourceText: "Your invoice",
-	createdAt: 0,
-	updatedAt: 0,
-};
-
-/**
- * The vector index answers the anchor with the inbox invoice, and only when
- * asked about the inbox: the kNN read is where a similarity filter finds its
- * candidates.
- */
-const vectorMatchDeps = (w: World): OrganizeMatchDeps => ({
-	...buildOrganizeMatchDeps(w.client),
-	semantic: () => ({
-		buildAnchor: async () => {
-			throw new Error("a filter widens on its persisted anchor");
-		},
-		vectorStore: {
-			query: async (query: { filter?: { mailboxId?: string } }) =>
-				query.filter?.mailboxId === INBOX
-					? [
-							{
-								chunkId: `${w.inbox}#body`,
-								score: 0.9,
-								metadata: { messageId: w.inbox, mailboxIds: [INBOX] },
-							},
-						]
-					: [],
-			getByMessage: async () => [],
-		} as unknown as OrganizeSemanticDeps["vectorStore"],
-		embed: async () => ANCHOR_VECTOR,
-		embeddingId: EMBEDDING_ID,
-	}),
-});
 
 describe("processOrganizeJob for a filter job (#1354)", () => {
 	let current: World | undefined;
@@ -471,33 +404,5 @@ describe("processOrganizeJob for a filter job (#1354)", () => {
 
 		assert.equal(current.updates.at(-1)?.state, "Failed");
 		assert.match(String(current.updates.at(-1)?.errorMessage), /deleted/);
-	});
-
-	it("moves a message the vector query found, though the preview scores below the threshold", async () => {
-		current = await world(
-			[standingFilter({ hasAnchor: true, literalClauses: [] })],
-			[persistedAnchor],
-		);
-
-		// The index-time evaluator embeds subject and preview; this embedder puts
-		// that text orthogonal to the anchor, so evaluate alone would call the
-		// message a miss. It only orders the move, so the vector match stands.
-		await processOrganizeJob(event, noopLogger, {
-			client: current.client,
-			matchDeps: vectorMatchDeps(current),
-			moveService: recordingMoves(current.moves),
-			embedder: {
-				embed: async () => ORTHOGONAL_VECTOR,
-				embeddingId: EMBEDDING_ID,
-			},
-		});
-
-		assert.deepEqual(current.moves, [
-			{ messageId: current.inbox, destinationMailboxId: "mbx-invoices" },
-		]);
-		const done = current.updates.at(-1);
-		assert.equal(done?.state, "Complete");
-		assert.equal(done?.matchedCount, 1);
-		assert.equal(done?.appliedCount, 1);
 	});
 });

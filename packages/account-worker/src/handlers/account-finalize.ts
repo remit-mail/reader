@@ -131,10 +131,7 @@ export const processAccountFinalize = async (
  * the work; this worker only ever consumes.
  *
  * Idempotency: the cascade on a missing key is a no-op, so a redelivered batch
- * (or container) no-ops on already-gone rows. Search-index cleanup is not driven
- * from here: on DynamoDB the fanout step enqueues a REMOVE per message id up
- * front; on the relational backends the cascade emits a `message.removed` outbox
- * row the search-index worker relays.
+ * (or container) no-ops on already-gone rows.
  */
 export const processAccountDataPurgeFinalize = async (
 	event: AccountDataPurgeFinalizeEvent,

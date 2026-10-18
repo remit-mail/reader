@@ -39,17 +39,6 @@ import {
 	ConfigImportVerdict,
 } from "./report.js";
 
-/**
- * The `<modelId>@<dimensions>` stamp an anchor carries when this deployment
- * could not embed its source text at import time. It matches no real embedder,
- * which is what makes the existing lazy repair (`refreshAnchorForEmbedder`)
- * treat the anchor as needing a fresh vector the first time it is matched —
- * the same route a model migration takes. Deliberately the same literal as
- * `UNKNOWN_CHUNK_EMBEDDING_ID` in `@remit/search-service`, which config
- * transfer cannot import without dragging the vector stack into the CLI.
- */
-export const ANCHOR_EMBEDDING_PENDING = "unknown";
-
 /** The named sentinel a Filter carries for "no action of this kind". */
 const NO_ACTION = "None";
 
@@ -288,56 +277,6 @@ const emptyProgress = (): ApplyProgress => ({
 	unresolvedRefs: [],
 });
 
-interface AnchorVector {
-	embedding: number[];
-	embeddingId: string;
-}
-
-/**
- * Every anchor's vector, computed before the transaction opens.
- *
- * Two reasons it happens here and not at the point of write. An embedder is a
- * network round trip and the sqlite write queue is process-wide, so embedding
- * inside the transaction holds that queue against every other writer for the
- * length of the call. And a failed embed is not a failed import: it degrades
- * exactly the way a deployment that ships no embedder does, landing the anchor
- * stamped `ANCHOR_EMBEDDING_PENDING` for the lazy repair to rebuild the first
- * time the filter runs. A 503 from the embedder must not cost a person their
- * configuration.
- */
-const embedAnchors = async (
-	deps: ConfigImportDeps,
-	document: ReaderConfigDocument,
-	warnings: ConfigImportProblem[],
-): Promise<Map<string, AnchorVector>> => {
-	const vectors = new Map<string, AnchorVector>();
-	const { embedAnchor } = deps;
-
-	for (const filter of document.filters) {
-		const { anchor } = filter;
-		if (anchor === null) continue;
-
-		const embedded = embedAnchor
-			? await embedAnchor(anchor.sourceText).catch(() => undefined)
-			: undefined;
-
-		if (embedded) {
-			vectors.set(normalize(filter.name), embedded);
-			continue;
-		}
-
-		warnings.push(
-			problem(
-				"anchor_not_embedded",
-				`The example behind filter "${filter.name}" is carried as text; its vector is rebuilt the first time the filter runs.`,
-				{ filter: filter.name },
-			),
-		);
-	}
-
-	return vectors;
-};
-
 /**
  * The id this instance will hold each account in the file under: the one it
  * already has for that id or email, or the file's own, which `create` preserves
@@ -399,7 +338,6 @@ const applyDocument = async (
 	input: ImportConfigInput,
 	document: ReaderConfigDocument,
 	existing: ExistingConfig,
-	anchorVectors: ReadonlyMap<string, AnchorVector>,
 	progress: ApplyProgress,
 ): Promise<string> => {
 	const { repositories } = deps;
@@ -485,8 +423,7 @@ const applyDocument = async (
 			account.email,
 			() =>
 				repositories.account.create({
-					// Verbatim: a resynced message id hashes from it, so preserving it is
-					// what keeps every filter anchor's provenance valid across the drop.
+					// Verbatim: a resynced message id hashes from it.
 					accountId: account.accountId,
 					accountConfigId,
 					...endpoints,
@@ -545,7 +482,6 @@ const applyDocument = async (
 	const existingFilterByName = new Map(
 		existing.filters.map((filter) => [normalize(filter.name), filter] as const),
 	);
-	const filterIdByName = new Map<string, string>();
 
 	const resolveFilterFolder = (
 		filter: ConfigFilter,
@@ -574,7 +510,6 @@ const applyDocument = async (
 					? NO_ACTION
 					: (labelIdByName.get(normalize(filter.actionLabelName)) ?? NO_ACTION),
 			actionMailboxId: folder.actionMailboxId,
-			hasAnchor: filter.anchor !== null,
 			...(folder.pending
 				? {
 						state: FilterState.Disabled,
@@ -603,7 +538,6 @@ const applyDocument = async (
 					)
 				).filterId;
 
-		filterIdByName.set(key, filterId);
 		items.push({
 			section: ConfigImportSection.Filters,
 			key: filter.name,
@@ -634,34 +568,6 @@ const applyDocument = async (
 				),
 			);
 		}
-	}
-
-	// ---- anchors --------------------------------------------------------
-	// Vectors were computed before the transaction opened; a missing one is an
-	// anchor carried as text, already warned about there.
-	for (const filter of document.filters) {
-		const { anchor } = filter;
-		if (anchor === null) continue;
-		const key = normalize(filter.name);
-		const filterId = filterIdByName.get(key);
-		if (filterId === undefined) {
-			throw new Error(
-				`Filter "${filter.name}" carries an anchor but the filter loop minted no id for it. The two loops read the same documents.filters, so this cannot happen without one of them changing.`,
-			);
-		}
-
-		const embedded = anchorVectors.get(key);
-
-		await write(ConfigImportSection.Filters, filter.name, () =>
-			repositories.filterAnchor.put({
-				accountConfigId,
-				filterId,
-				anchorEmbedding: embedded?.embedding ?? [],
-				anchorEmbeddingId: embedded?.embeddingId ?? ANCHOR_EMBEDDING_PENDING,
-				anchorSourceText: anchor.sourceText,
-				anchorMessageId: anchor.sourceMessageId,
-			}),
-		);
 	}
 
 	// ---- address flags --------------------------------------------------
@@ -940,7 +846,7 @@ class SettingWriter {
  * The order is fixed: parse and migrate, check every reference and every
  * natural key against what this configuration already holds, and only then
  * write — inside one transaction, accounts before labels before filters before
- * their anchors before addresses before settings, because each of those reads
+ * addresses before settings, because each of those reads
  * an id the one before it minted.
  *
  * A document this reader will not import is the operation's expected outcome,
@@ -1004,16 +910,11 @@ export const importConfig = async (
 		};
 	}
 
-	// Before the transaction: an embed is a network round trip, and the write
-	// queue it would otherwise hold is process-wide.
-	const embedWarnings: ConfigImportProblem[] = [];
-	const anchorVectors = await embedAnchors(deps, document, embedWarnings);
-
 	const { transaction } = deps;
 	const atomic = transaction !== undefined;
 	const progress = emptyProgress();
 	const apply = (): Promise<string> =>
-		applyDocument(deps, input, document, existing, anchorVectors, progress);
+		applyDocument(deps, input, document, existing, progress);
 
 	try {
 		const importId = await (transaction ? transaction(apply) : apply());
@@ -1026,7 +927,7 @@ export const importConfig = async (
 				applied: true,
 				items: progress.items,
 				errors: [],
-				warnings: [...embedWarnings, ...progress.warnings],
+				warnings: progress.warnings,
 				accountsNeedingCredentials: progress.accountsNeedingCredentials,
 			},
 		};
@@ -1062,7 +963,7 @@ export const importConfig = async (
 						{ section: error.section, key: error.key },
 					),
 				],
-				warnings: [...embedWarnings, ...landed.warnings],
+				warnings: landed.warnings,
 				accountsNeedingCredentials: landed.accountsNeedingCredentials,
 			},
 		};

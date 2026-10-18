@@ -15,12 +15,24 @@ export type ConfigMigration = {
 	migrate(document: ConfigDocumentShape): ConfigDocumentShape;
 };
 
+const dropFilterAnchors: ConfigMigration = {
+	from: 1,
+	to: 2,
+	migrate: (document) => ({
+		...document,
+		schemaVersion: 2,
+		filters: Array.isArray(document.filters)
+			? document.filters.map(({ anchor: _anchor, ...filter }) => filter)
+			: document.filters,
+	}),
+};
+
 /**
- * Empty at v1, and the golden fixture is the seed that keeps it honest: the
- * first migration added here has a committed v1 document to lift, so the chain
- * is exercised by the same test that proves v1 still parses.
+ * The golden v1 fixture is the seed that keeps the chain honest: every step
+ * has a committed v1 document to lift, so the chain is exercised by the same
+ * test that proves v1 still reads.
  */
-export const configMigrations: readonly ConfigMigration[] = [];
+export const configMigrations: readonly ConfigMigration[] = [dropFilterAnchors];
 
 /**
  * Apply the chain from `fromVersion` up to the current version. A gap in the

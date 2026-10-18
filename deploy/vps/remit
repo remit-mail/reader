@@ -162,14 +162,6 @@ Usage: $PROG <command> [args]
                        it once the cause is fixed. Sends are refused, since a
                        replay could deliver mail long after the user gave up
                        on it; folder syncs are refused, purge those instead.
-  semantic [on|off]    Store a vector for every message, or stop. That is what
-                       the Organize semantic widen and semantic filters read.
-                       With no argument it only prints the state. Text search
-                       works on every install and is not this setting, and the
-                       "Similar messages" panel needs a query embedder no image
-                       here carries, so it stays empty either way. What turning
-                       it on costs, and the remote-provider alternative: the
-                       Search section of README.md.
   config               Print the effective configuration, secrets redacted.
   config save <file>   Write every setting — accounts, filters, labels, folder
     [--user <email>]   roles, signatures, flagged senders — to <file> as one
@@ -182,18 +174,6 @@ Usage: $PROG <command> [args]
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
                        every start; this is how to look without waiting for one.
-  check-index          Report which embedding model the search index's vectors
-                       came from, counted per model and against the one this
-                       deployment is configured with. Reads the index and
-                       writes nothing. Vectors under an older model still
-                       answer queries, in a vector space of their own.
-  reembed [--model <id> | --all]
-                       Queue indexed messages for the search-index worker to
-                       embed again with the configured model. By default every
-                       message with vectors from another model; --model takes
-                       only those from the named one ('unknown' for vectors
-                       that recorded none); --all takes every indexed message.
-                       'check-index' shows the model names and the progress.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -337,10 +317,6 @@ profiles_of_services() {
 # The one incantation that brings an optional profile back. `remit` never starts
 # a profile on its own, so every command that can leave one down owes the
 # operator this line, and there is one copy of it to owe.
-#
-# The semantic profile is named by its verb instead: the profile alone starts a
-# worker that refuses at startup unless SEARCH_EMBEDDING_PROVIDER moved with it,
-# and `semantic on` is the one command that moves both.
 profile_recovery_hint() {
 	printf '  %s\n' "${1% }"
 	printf "Bring them back with:\n"
@@ -350,11 +326,7 @@ profile_recovery_hint() {
 		return 0
 	fi
 	for _prof in $_hinted; do
-		if [ "$_prof" = "$SEMANTIC_PROFILE" ]; then
-			printf "  %s semantic on\n" "$PROG"
-		else
-			printf "  docker compose -f %s --env-file .env --profile %s up -d\n" "$COMPOSE_FILE" "$_prof"
-		fi
+		printf "  docker compose -f %s --env-file .env --profile %s up -d\n" "$COMPOSE_FILE" "$_prof"
 	done
 }
 
@@ -587,14 +559,6 @@ pull_images() {
 	{
 		_rc=0
 		compose pull 2>&1 || _rc=$?
-		# An unscoped pull never names a service behind an inactive profile, so on
-		# an instance that turned semantic search on the one image carrying the
-		# model is the one image `update` would leave at its old tag. Naming it
-		# enables its profile. Inside the same pipeline, so the same log and the
-		# same failure classification cover it.
-		if [ "$_rc" = "0" ] && ! semantic_is_off; then
-			compose pull "$SEMANTIC_SERVICE" 2>&1 || _rc=$?
-		fi
 		printf '%s' "$_rc" >"$_status"
 	} | tee "$_log"
 	_code=$(cat "$_status" 2>/dev/null || printf 1)
@@ -737,205 +701,6 @@ report_profiles_gone() {
 cmd_logs() {
 	require_deployment
 	compose logs -f --tail=100 "$@"
-}
-
-# --- semantic search (issue #1068) ------------------------------------------
-#
-# What this turns on is a stored vector per message, which the Organize semantic
-# widen and semantic (anchor) filters read. Text search (FTS5) is part of the
-# database and unaffected; the "Similar messages" panel needs the typed query
-# embedded and no image here does that. Costs and the remote alternative are in
-# the Search section of README.md.
-#
-# SEARCH_EMBEDDING_PROVIDER decides whether anything embeds and the `semantic`
-# compose profile decides whether the worker that does it runs. Moving one
-# without the other is broken both ways, so this is the only place either moves.
-SEMANTIC_PROFILE=semantic
-SEMANTIC_SERVICE=search-index-worker
-SEMANTIC_VAR=SEARCH_EMBEDDING_PROVIDER
-SEMANTIC_OFF=off
-# What `semantic on` writes. `bedrock` is the one value it leaves alone: an
-# operator who pointed this at a remote provider did not ask for a local model.
-SEMANTIC_LOCAL=local
-SEMANTIC_REMOTE=bedrock
-# The unit-test and e2e embedder, which the setting also accepts. It writes
-# real-looking vectors no query can be matched against, so on a deployment it is
-# off with extra steps — reported as off, and replaced by `semantic on`.
-SEMANTIC_DETERMINISTIC=deterministic
-
-semantic_compose() {
-	docker compose \
-		--project-directory "$REMIT_DIR" \
-		-f "$REMIT_DIR/$COMPOSE_FILE" \
-		--env-file "$REMIT_DIR/.env" \
-		--profile "$SEMANTIC_PROFILE" \
-		"$@"
-}
-
-# The provider in .env, or `off` when the line is absent. Absent is off rather
-# than a default: a deployment whose .env never named this variable is one that
-# was never told to embed anything.
-semantic_provider() {
-	_sp=$(get_var "$SEMANTIC_VAR" 2>/dev/null || true)
-	[ -n "$_sp" ] || _sp=$SEMANTIC_OFF
-	printf '%s' "$_sp"
-}
-
-# Whether this deployment embeds nothing. Two values mean that, and every
-# command that branches on the state asks here rather than comparing to `off`.
-semantic_is_off() {
-	case "$(semantic_provider)" in
-	"$SEMANTIC_OFF" | "$SEMANTIC_DETERMINISTIC") return 0 ;;
-	esac
-	return 1
-}
-
-# One line for `remit status`, where every other line is one fact wide. It has
-# to answer the question an empty "Similar messages" panel raises — nothing
-# matched, or nothing indexed — so `off` carries the command that changes it.
-semantic_summary() {
-	case "$(semantic_provider)" in
-	"$SEMANTIC_OFF")
-		printf "off — text search only ('%s semantic on' turns it on)" "$PROG"
-		;;
-	"$SEMANTIC_DETERMINISTIC")
-		printf "off — %s is the test embedder, whose vectors match nothing ('%s semantic on' turns it on)" \
-			"$SEMANTIC_DETERMINISTIC" "$PROG"
-		;;
-	"$SEMANTIC_LOCAL")
-		printf 'on — embedded on this box by %s' "$SEMANTIC_SERVICE"
-		;;
-	*)
-		printf 'on — embedded by %s' "$(semantic_provider)"
-		;;
-	esac
-}
-
-semantic_worker_state() {
-	if [ -n "$(stopped_among "$SEMANTIC_SERVICE")" ]; then
-		printf 'not running'
-		return 0
-	fi
-	printf 'running'
-}
-
-# What the operator gets from every form of the command, the ones that change
-# nothing included. A setting that reports only when it moves is one nobody can
-# check.
-semantic_report() {
-	printf 'Semantic search:  %s\n' "$(semantic_summary)"
-	printf 'Worker:           %s %s\n' "$SEMANTIC_SERVICE" "$(semantic_worker_state)"
-	printf 'Text search:      on — FTS5, on every install, unaffected by this setting\n'
-	printf 'Similar messages: off — no image here embeds a typed query, either way\n'
-	if semantic_is_off; then
-		printf '\nOn, it stores a vector for every message, which is what the Organize\n'
-		printf 'semantic widen and semantic (anchor) filters read. The "Similar messages"\n'
-		printf 'panel needs the typed query embedded and no image here does that, so it\n'
-		printf 'stays empty whichever way this is set.\n'
-		printf '\nIt costs a large image pull and hours of CPU to index an existing mailbox\n'
-		printf 'once — the numbers are in the Search section of README.md. Stored vectors\n'
-		printf 'are kept while it is off.\n'
-	fi
-}
-
-cmd_semantic() {
-	require_deployment
-	[ $# -le 1 ] ||
-		die "semantic: takes one argument — 'on', 'off', or none to print the state"
-	if [ $# -eq 0 ]; then
-		semantic_report
-		return 0
-	fi
-	case "$1" in
-	on)
-		# `bedrock` is the one value left alone. Every other value that is not
-		# already `local` embeds nothing an operator can search — `off`, and the
-		# `deterministic` test embedder — so `on` replaces it.
-		if [ "$(semantic_provider)" != "$SEMANTIC_REMOTE" ]; then
-			set_var "$SEMANTIC_VAR" "$SEMANTIC_LOCAL"
-		fi
-		# The always-on services first, and through `up -d`: they read this
-		# variable too — the backend composes its search service from it — and
-		# `compose restart` reuses existing containers with the environment they
-		# were created with, so the edit reaches them no other way.
-		apply
-		# Then the worker, named rather than reached with --profile: naming a
-		# service on the command line enables its profile, which is how every
-		# other command in here starts one. The image is not on the box yet, so
-		# this is where the model image pull happens; its progress streams rather than
-		# sitting buffered behind a command that looks hung for minutes.
-		compose up -d "$SEMANTIC_SERVICE" || true
-		if [ -n "$(stopped_among "$SEMANTIC_SERVICE")" ]; then
-			die "semantic: $SEMANTIC_SERVICE did not start. $SEMANTIC_VAR is $(semantic_provider) in $REMIT_DIR/.env, so the setting moved and the worker did not — '$PROG logs $SEMANTIC_SERVICE' says why, and '$PROG semantic on' retries."
-		fi
-		semantic_report
-		;;
-	off)
-		set_var "$SEMANTIC_VAR" "$SEMANTIC_OFF"
-		# Removed, not stopped. A stopped container behind a profile is what every
-		# other command reads as "a profile service the operator enabled and
-		# something took down", so `remit restart` would offer to bring back the
-		# worker this command was asked to turn off. The vectors are on a volume
-		# and are not touched.
-		semantic_compose rm --force --stop "$SEMANTIC_SERVICE" >/dev/null || true
-		apply
-		semantic_report
-		;;
-	*)
-		die "semantic: '$1' is not a setting — use 'on', 'off', or no argument to print the state"
-		;;
-	esac
-}
-
-# Which embedder wrote the vectors that are in the index (#455). Changing the
-# model re-embeds a message only when something touches it, so an index quietly
-# comes to hold two vector spaces that are compared against each other and rank
-# worse for it. From outside, "indexed with the current model", "indexed with an
-# older one" and "not indexed yet" are the same empty result; this is how to tell
-# them apart.
-#
-# It runs in the worker's own image because that is where the configured
-# embedder resolves: the weight precision is part of the embedding identity and
-# is set in that image, so the same environment read anywhere else names a model
-# nothing wrote. --no-deps for the reason check-categories has it — this reads
-# and writes nothing, and `compose run` would otherwise start the queue and run
-# the migrate one-shot on the operator's behalf.
-cmd_check_index() {
-	require_deployment
-	[ $# -eq 0 ] || die "check-index: takes no arguments"
-	semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-report.mjs
-}
-
-cmd_reembed() {
-	require_deployment
-	_scope=stale
-	_model=""
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--all)
-			[ "$_scope" = stale ] || die "reembed: pass one of --all or --model, not both"
-			_scope=all
-			shift
-			;;
-		--model)
-			[ $# -ge 2 ] || die "reembed: --model needs a value"
-			[ "$_scope" = stale ] || die "reembed: pass one of --all or --model, not both"
-			[ -n "$2" ] || die "reembed: --model needs a value"
-			_scope=model
-			_model=$2
-			shift 2
-			;;
-		*) die "reembed: unknown option '$1'" ;;
-		esac
-	done
-	if semantic_is_off; then
-		die "reembed: semantic search is off ($SEMANTIC_VAR=$(semantic_provider)), so there is no model to re-embed with and every message would be queued. Run '$PROG semantic on' first."
-	fi
-	case "$_scope" in
-	all) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --all ;;
-	model) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs --model "$_model" ;;
-	*) semantic_compose run --rm --no-deps "$SEMANTIC_SERVICE" node index-reembed.mjs ;;
-	esac
 }
 
 # What the operator wants after a command that leaves the stack serving is the
@@ -1226,7 +991,6 @@ cmd_status() {
 	printf 'Directory: %s\n' "$REMIT_DIR"
 	printf 'Tag:       %s\n' "$(get_var REMIT_TAG)"
 	printf 'Origin:    %s\n' "$_origin"
-	printf 'Semantic:  %s\n' "$(semantic_summary)"
 	report_reachability "$_origin"
 	read_update_record
 	if [ -n "$UPDATE_RECORD_UNREADABLE" ]; then
@@ -2189,8 +1953,7 @@ mkdir -p /state/snapshots/$1
 chown \"\$own\" /state/snapshots 2>/dev/null || true
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
-snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db
-snapshot_db /data/sqlite/vec.db /state/snapshots/$1/vec.db'"
+snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
 }
 
 # Installs nothing: a rollback must not depend on the network whose failure it
@@ -2209,10 +1972,6 @@ if [ ! -f \"\$snap/remit.db\" ]; then
 fi
 rm -f /data/sqlite/remit.db /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm
 cp \"\$snap/remit.db\" /data/sqlite/remit.db
-if [ -f \"\$snap/vec.db\" ]; then
-  rm -f /data/sqlite/vec.db /data/sqlite/vec.db-wal /data/sqlite/vec.db-shm
-  cp \"\$snap/vec.db\" /data/sqlite/vec.db
-fi
 chown -R 1000:1000 /data/sqlite"
 }
 
@@ -4063,11 +3822,8 @@ main() {
 	purge) cmd_purge "$@" ;;
 	doctor) cmd_doctor "$@" ;;
 	redrive) cmd_redrive "$@" ;;
-	semantic) cmd_semantic "$@" ;;
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
-	check-index) cmd_check_index "$@" ;;
-	reembed) cmd_reembed "$@" ;;
 	cert) cmd_cert "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"

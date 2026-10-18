@@ -6,7 +6,6 @@ import {
 	ClauseChip,
 	type ClauseDraft,
 	ClauseEditor,
-	WidenChip,
 } from "./filter-clause-chip.js";
 import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
@@ -17,11 +16,8 @@ import {
 	type LabelOption,
 	type MatchOperator,
 	matchJoinWord,
-	matchModeHint,
-	matchModeLabel,
 	matchOperatorLabel,
 	type PreviewCount,
-	type RuleMatchMode,
 	type RuleScope,
 } from "./filter-rule.js";
 import { FolderTreePicker } from "./folder-tree-picker.js";
@@ -54,40 +50,17 @@ export interface FilterRuleEditorProps {
 	 */
 	notice?: ReactNode;
 	/**
-	 * Whether the deployment can serve the semantic widen (RFC 038 D4). When
-	 * false the "…and anything similar" chip is never offered — an already-present
-	 * widen still renders, marked inactive.
-	 */
-	semanticAvailable?: boolean;
-	/**
-	 * What the rule matches on, when the surface lets the user choose (RFC 038
-	 * D2/D3). Present only where both modes are reachable — the Organize flow on
-	 * a deployment that can serve the widen. Absent leaves the mode control off
-	 * entirely, which is every other entry point onto this editor.
-	 */
-	matchMode?: RuleMatchMode;
-	onChangeMatchMode?: (mode: RuleMatchMode) => void;
-	/**
 	 * The clause fields the add/edit picker offers, in menu order. Defaults to the
 	 * whole vocabulary; a consumer narrows it to the fields its deployment can
 	 * match, so the editor never offers a clause the backend cannot evaluate.
 	 */
 	clauseFields?: ClauseField[];
 	/**
-	 * Whether the semantic anchor is fixed and cannot be added, removed, or
-	 * repointed (RFC 038 D6, reader #266). True for an existing, persisted
-	 * filter — the update endpoint carries no anchor field at all, so
-	 * repointing one would silently change what a saved filter matches with
-	 * nothing visible changing, and that deserves a new filter instead. The
-	 * widen chip renders display-only (no remove affordance regardless of
-	 * `onRemoveWiden`) and carries a one-line note explaining why.
-	 *
-	 * Scope and expiry are NOT covered by this flag — they stay editable even
-	 * on an existing filter (reader #266). The only other thing this locks is
-	 * the "Just once" scope option, meaningless for an already-persisted
-	 * filter, which is dropped from the scope toggle.
+	 * The rule is an existing, persisted filter (reader #266). "Just once" is
+	 * meaningless for it, so the scope toggle drops that option; scope and
+	 * expiry otherwise stay editable.
 	 */
-	anchorLocked?: boolean;
+	persisted?: boolean;
 	/**
 	 * Values worth offering for the clause being edited — the consumer derives
 	 * them from the field and what has been typed so far (known senders for
@@ -104,8 +77,6 @@ export interface FilterRuleEditorProps {
 	onChangeDraftValue?: (value: string) => void;
 	onSubmitClause?: () => void;
 	onCancelClause?: () => void;
-	onAddWiden?: () => void;
-	onRemoveWiden?: () => void;
 	onChangeMatchOperator?: (operator: MatchOperator) => void;
 	onChangeMove?: (mailboxId: string) => void;
 	/**
@@ -139,11 +110,6 @@ export interface FilterRuleEditorProps {
 const matchOptions: { value: MatchOperator; label: string }[] = [
 	{ value: "all", label: matchOperatorLabel("all") },
 	{ value: "any", label: matchOperatorLabel("any") },
-];
-
-const matchModeOptions: { value: RuleMatchMode; label: string }[] = [
-	{ value: "similar", label: matchModeLabel("similar") },
-	{ value: "properties", label: matchModeLabel("properties") },
 ];
 
 const scopeOptions: { value: RuleScope; label: string }[] = [
@@ -454,11 +420,8 @@ export function FilterRuleEditor({
 	labels = [],
 	preview,
 	notice,
-	semanticAvailable = false,
-	matchMode,
-	onChangeMatchMode,
 	clauseFields,
-	anchorLocked = false,
+	persisted = false,
 	clauseSuggestions,
 	clauseEdit,
 	onStartAddClause,
@@ -468,8 +431,6 @@ export function FilterRuleEditor({
 	onChangeDraftValue,
 	onSubmitClause,
 	onCancelClause,
-	onAddWiden,
-	onRemoveWiden,
 	onChangeMatchOperator,
 	onChangeMove,
 	onCreateFolder,
@@ -481,16 +442,14 @@ export function FilterRuleEditor({
 	onCommit,
 	onCancel,
 }: FilterRuleEditorProps) {
-	const activeWiden = rule.widen && !rule.widen.inactive ? 1 : 0;
-	const matcherCount = rule.clauses.length + activeWiden;
-	const showOperator = matcherCount >= 2;
+	const showOperator = rule.clauses.length >= 2;
 	const join = matchJoinWord(rule.matchOperator);
 	const blockedReason = commitBlockedReason(rule, preview);
 	const needsName = rule.scope === "standing" || rule.scope === "until";
 	// A persisted filter is always Standing or Temporary — "once" was never a
 	// scope a saved row could hold, so an existing filter's editor never offers
 	// it (reader #266).
-	const availableScopeOptions = anchorLocked
+	const availableScopeOptions = persisted
 		? scopeOptions.filter((option) => option.value !== "once")
 		: scopeOptions;
 
@@ -505,23 +464,6 @@ export function FilterRuleEditor({
 
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
 				{notice}
-
-				{matchMode && (
-					<section className="space-y-1.5">
-						<p className="text-xs font-medium text-fg-muted">Match on</p>
-						<SegmentedControl
-							name="rule-match-mode"
-							size="sm"
-							aria-label="What the rule matches on"
-							options={matchModeOptions}
-							value={matchMode}
-							onChange={(value) => onChangeMatchMode?.(value)}
-						/>
-						<p className="text-2xs text-fg-subtle">
-							{matchModeHint(matchMode)}
-						</p>
-					</section>
-				)}
 
 				<section className="space-y-3">
 					<div className="flex flex-wrap items-center gap-1.5">
@@ -540,30 +482,9 @@ export function FilterRuleEditor({
 							</Fragment>
 						))}
 
-						{rule.widen && (
-							<>
-								{rule.clauses.length > 0 && !rule.widen.inactive && (
-									<span className="text-2xs font-medium uppercase text-fg-subtle">
-										{join}
-									</span>
-								)}
-								<WidenChip
-									widen={rule.widen}
-									onRemove={anchorLocked ? undefined : onRemoveWiden}
-								/>
-							</>
-						)}
-
 						{!clauseEdit && (
 							<AddChipButton label="Add clause" onClick={onStartAddClause} />
 						)}
-						{!rule.widen &&
-							!anchorLocked &&
-							semanticAvailable &&
-							matchMode !== "properties" &&
-							!clauseEdit && (
-								<AddChipButton label="…and similar" onClick={onAddWiden} />
-							)}
 					</div>
 
 					{clauseEdit && (
@@ -577,13 +498,6 @@ export function FilterRuleEditor({
 							onSubmit={onSubmitClause}
 							onCancel={onCancelClause}
 						/>
-					)}
-
-					{anchorLocked && rule.widen && (
-						<p className="text-2xs text-fg-subtle">
-							This filter's similar-mail match is fixed to the message it was
-							created from — create a new filter to change it.
-						</p>
 					)}
 
 					{showOperator && (

@@ -2,7 +2,10 @@ import { organizeOperationsPreviewOrganizeMutation } from "@remit/api-http-clien
 import { type PreviewCount, UNCOUNTABLE_PREDICATE_REASON } from "@remit/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { buildOrganizeInput } from "@/lib/organize/organize-model";
+import {
+	buildOrganizeInput,
+	type OrganizeMatchPredicate,
+} from "@/lib/organize/organize-model";
 import {
 	derivePreview,
 	isEvaluablePredicate,
@@ -10,13 +13,12 @@ import {
 	type PreviewState,
 	predicateSignature,
 } from "@/lib/organize/rule-model";
-import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
 
 /**
  * The live match count for the edited rule (RFC 038 D1). Every predicate change
  * schedules a debounced `POST /organize/preview` and, until it lands, reports
  * the last count as stale so the count never blanks and the commit gate can
- * hold apply. Seeded with the widen probe's count, so opening the editor shows a
+ * hold apply. Seeded with a count already known, so opening the editor shows a
  * settled number without an immediate re-fetch.
  *
  * Out-of-order responses are dropped: only the reply to the most recent request
@@ -24,9 +26,9 @@ import type { OrganizeMatchPredicate } from "@/lib/organize/sender-fallback";
  * server bounds the match, so a broad predicate over a large mailbox stays a
  * single cheap request; the debounce is what keeps rapid edits from spamming it.
  *
- * `seedCount` is the opening count a widen probe already knows; omit it (as the
- * settings editor does, having no probe) to open on `loading` and preview the
- * loaded predicate immediately.
+ * `seedCount` is an opening count already known; omit it (as the settings
+ * editor does) to open on `loading` and preview the loaded predicate
+ * immediately.
  *
  * `matchedIds` are the ids that count was counted over — the server's own
  * answer, bounded to the same cap the apply pass uses. A caller applying an
@@ -78,7 +80,6 @@ export const useRulePreview = (
 					setState({
 						count: response.matchedCount,
 						matchedIds: response.messageIds,
-						indexEmpty: response.semanticIndexEmpty === true,
 						previewedSignature: signature,
 					});
 				})

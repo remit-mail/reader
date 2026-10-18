@@ -10,9 +10,7 @@ import { FilterEditor } from "./FilterEditor";
  * `Flows/Settings Filters` — editing a standing filter in the same chip editor
  * the Organize surface uses (RFC 038 D6), rendered from the real web-client
  * component the settings page mounts. Each story opens a persisted filter into
- * the editor: a literal rule, an anchored rule with its widen chip, an
- * until-a-date rule, and the degraded case where the deployment cannot evaluate
- * the anchor and the widen lists inactive (D4).
+ * the editor: a literal rule and an until-a-date rule.
  */
 
 const ACCOUNT_ID = "acc-1";
@@ -47,7 +45,6 @@ const makeFilter = (
 	scope: "Standing",
 	state: "Active",
 	disabledReason: "None",
-	hasAnchor: false,
 	ruleChangedAt: 0,
 	actionChangedAt: 0,
 	matchOperator: "And",
@@ -65,7 +62,7 @@ const makeFilter = (
 /**
  * A bare client with no backend. The editor opens on `loading` and its preview
  * settles to the count region's error state — these stories exercise the editor
- * chrome (chips, read-only lifecycle, the widen chip), not the live count.
+ * chrome (chips, read-only lifecycle), not the live count.
  */
 function seededClient(): QueryClient {
 	return new QueryClient({
@@ -127,22 +124,6 @@ export const EditStandingRule: Story = {
 	),
 };
 
-/** A filter with a semantic anchor — the widen lists as an active chip. */
-export const EditAnchoredRule: Story = {
-	name: "Edit Anchored Rule",
-	render: () => (
-		<SheetStage>
-			<FilterEditor
-				accountId={ACCOUNT_ID}
-				filter={makeFilter({ hasAnchor: true, name: "GitHub" })}
-				folders={FOLDERS}
-				labels={LABELS}
-				onClose={() => undefined}
-			/>
-		</SheetStage>
-	),
-};
-
 /** A temporary filter — the scope loads as until-a-date with the stored date. */
 export const EditUntilADate: Story = {
 	name: "Edit Until A Date",
@@ -157,27 +138,6 @@ export const EditUntilADate: Story = {
 				})}
 				folders={FOLDERS}
 				labels={LABELS}
-				onClose={() => undefined}
-			/>
-		</SheetStage>
-	),
-};
-
-/**
- * The deployment cannot evaluate the filter's anchor (RFC 038 D4): the widen
- * chip lists inactive, the rule matches by its literal clauses only, and the
- * dead anchor is removable.
- */
-export const DegradedAnchor: Story = {
-	name: "Degraded Anchor",
-	render: () => (
-		<SheetStage>
-			<FilterEditor
-				accountId={ACCOUNT_ID}
-				filter={makeFilter({ hasAnchor: true, name: "Newsletters" })}
-				folders={FOLDERS}
-				labels={LABELS}
-				semanticUnavailable
 				onClose={() => undefined}
 			/>
 		</SheetStage>

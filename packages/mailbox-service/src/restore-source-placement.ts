@@ -67,10 +67,6 @@ export interface RestoreSourcePlacementInput {
  * has since left is the corruption this predicate exists to refuse. The loser
  * writes nothing at all, listing rows included, and answers `superseded`.
  *
- * No `message.moved` outbox row: nothing here moved. The optimistic write that
- * pointed the row at the destination never enqueued one either, so the search
- * index still holds the source and a revert has nothing to correct.
- *
  * The caller must have evidence, not an inference: this writes a placement, and
  * a placement written on a guess binds live mail to a uid that names somebody
  * else's message. Two kinds of caller qualify, and nothing else does.

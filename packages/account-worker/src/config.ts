@@ -26,8 +26,6 @@ export const getSqsClient = (queueUrl: string): SQSClient => {
 // no queue, so its Lambda doesn't carry the env vars. Eager evaluation here would
 // crash finalize at module load — getters defer the read to the fanout-only call
 // sites.
-export const getSearchIndexQueueUrl = (): string =>
-	env.SQS_QUEUE_URL_SEARCH_INDEX;
 // Optional, and read through `process.env` rather than expect-env so an unset
 // var yields undefined instead of throwing. IMAP_WORKER_STOP is a no-op
 // acknowledgement in the cascade contract — the account tombstone fence is what
@@ -48,7 +46,7 @@ let cascadeServicesPromise: Promise<CascadeServices> | null = null;
 
 // Every cascade service is a `RemitClient` repository, so the whole enumeration
 // runs on whatever backend `getClient()` resolved — DynamoDB (ElectroDB) or
-// SQLite (Drizzle). Filter/FilterAnchor/Label/MessageLabel (Smart Organize,
+// SQLite (Drizzle). Filter/Label/MessageLabel (Smart Organize,
 // RFC 034) are present on both via the client, so they need no
 // backend-specific wiring here.
 export const getCascadeServices = (): Promise<CascadeServices> => {
@@ -69,7 +67,6 @@ export const getCascadeServices = (): Promise<CascadeServices> => {
 			accountExportRequestService: remitClient.accountExportRequest,
 			accountSettingService: remitClient.accountSetting,
 			filterService: remitClient.filter,
-			filterAnchorService: remitClient.filterAnchor,
 			labelService: remitClient.label,
 			messageLabelService: remitClient.messageLabel,
 		}));
@@ -84,5 +81,3 @@ export const getStorageService = (): StorageService => {
 	}
 	return storageService;
 };
-
-export const dataBackend = process.env.DATA_BACKEND;

@@ -1,11 +1,9 @@
 /**
  * Senders in a selection turned into clauses (RFC 038 D2).
  *
- * The widen fallback for a deployment that ships no vector pipeline reaches for
- * this: the semantic anchor matches nothing there, so a widen degrades to the
- * literal vocabulary RFC 031 already matches vector-free — one `From` clause per
- * distinct sender, or a single `FromDomain` clause when they all sit on one
- * registrable domain. The same predicate matches at index time (RFC 034), so a
+ * The literal vocabulary RFC 031 matches — one `From` clause per distinct
+ * sender, or a single `FromDomain` clause when they all sit on one registrable
+ * domain. The same predicate matches at index time (RFC 034), so a
  * standing filter built from it keeps working on future mail.
  */
 

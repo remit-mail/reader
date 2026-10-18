@@ -1,6 +1,6 @@
 # Reference self-host deployment (RFC 036 D6). One .env file, no database
-# server: all relational state is two files on one local volume — the app/auth
-# database and the sqlite-vec vector store.
+# server: all relational state is one file on one local volume — the app/auth
+# database.
 #
 #   cp remit.env.template .env   # fill in the secrets, then:
 #   docker compose -f docker-compose.sqlite.yml up -d
@@ -18,10 +18,10 @@ x-app-env: &app-env
   env_file:
     - .env
   # Anchored separately from the block above so a service that needs one extra
-  # variable can merge this map into its own `environment:` — the four workers
+  # variable can merge this map into its own `environment:` — the three workers
   # do, for their heartbeat path. A plain `environment:` key on a service that
   # takes `<<: *app-env` REPLACES this map rather than extending it, which would
-  # silently drop DATA_BACKEND and both database paths.
+  # silently drop DATA_BACKEND and the database path.
   environment: &app-environment
     BETTER_AUTH_URL: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
     BETTER_AUTH_TRUSTED_ORIGINS: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
@@ -31,11 +31,10 @@ x-app-env: &app-env
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
     # SQLITE_DB_PATH holds both the app schema and the better-auth identity
-    # tables (one file, RFC 036 D3); LOCAL_VECTORDB_PATH is sqlite-vec's own
-    # separate file. Both live on the sqlite_data volume mounted at /data/sqlite.
+    # tables (one file, RFC 036 D3), on the sqlite_data volume mounted at
+    # /data/sqlite.
     DATA_BACKEND: sqlite
     SQLITE_DB_PATH: /data/sqlite/remit.db
-    LOCAL_VECTORDB_PATH: /data/sqlite/vec.db
     # V8 grows its old space against whatever the host has free, so on a 4 GB
     # box one heavy job can starve the whole stack instead of failing alone.
     # The ceiling makes that failure land inside one container: the process
@@ -54,8 +53,7 @@ services:
   # AWS Query protocol the SDK emits, so the app's SQS client reaches it
   # unchanged. Its queue set is declared in queues.json (mounted read-only,
   # the same way elasticmq.conf was); enqueued messages persist to a dedicated
-  # SQLite file on its own `queue_data` volume, isolated from the app/search
-  # store — so the outbox survives a restart.
+  # SQLite file on its own `queue_data` volume, isolated from the app store.
   # ---------------------------------------------------------------------
   queue:
     image: ghcr.io/remit-mail/reader/queue-sidecar:${REMIT_TAG:-latest}
@@ -257,11 +255,9 @@ services:
 
   # ---------------------------------------------------------------------
   # Workers — the queue pollers. Each opens the shared SQLite file (WAL) for its
-  # writes, and search-index-worker drains the outbox on a 2 s poll (RFC 036 D2).
-  # Three are always on; search-index-worker sits behind the `semantic` profile
-  # and only runs on an instance that opted into vector search (issue #1068).
+  # writes.
   #
-  # All four are healthchecked on heartbeat files (D1 of
+  # All three are healthchecked on heartbeat files (D1 of
   # docs/design/standalone-observability.md), one per poll loop:
   # /data/heartbeat/<service>.<queue>, rewritten at the top of every receive
   # attempt. A worker that wedges never exits, so `restart: unless-stopped`
@@ -280,11 +276,11 @@ services:
   #
   # The threshold is the longest a healthy loop can legitimately stay silent:
   # one record (the poller takes one message per receive) plus the 20 s long
-  # poll, plus slack. The per-record ceiling is 300 s for all four, from a
+  # poll, plus slack. The per-record ceiling is 300 s for all three, from a
   # different bound in each case — imapflow's default socket timeout per
-  # command, nodemailer's `socketTimeout` per send, and for account-worker and
-  # search-index-worker the 300 s visibility timeout the poller sets, past which
-  # the record is redelivered and a second run starts anyway. So 420 s
+  # command, nodemailer's `socketTimeout` per send, and for account-worker the
+  # 300 s visibility timeout the poller sets, past which the record is
+  # redelivered and a second run starts anyway. So 420 s
   # everywhere, and a rise in any one of those bounds moves only its own
   # service. Marked unhealthy after three consecutive failing checks: about nine
   # minutes after a loop stops.
@@ -368,80 +364,6 @@ services:
     healthcheck:
       test:
         ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='account-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 60s
-    stop_grace_period: 30s
-    restart: unless-stopped
-
-  # Off by default behind the `semantic` profile; `remit semantic on` moves the
-  # profile and SEARCH_EMBEDDING_PROVIDER together. Costs: README.md, Search.
-  #
-  # The outbox drain (RFC 036 D2) runs inside this container: a 2 s poll over
-  # the shared file's unprocessed outbox rows, relaying them onto the
-  # search-index queue. It needs SQLITE_DB_PATH (drain source) and
-  # LOCAL_VECTORDB_PATH (vector writes) — both set in the shared app env above.
-  search-index-worker:
-    image: ghcr.io/remit-mail/reader/search-index-worker:${REMIT_TAG:-latest}
-    profiles: ["semantic"]
-    <<: *app-env
-    environment:
-      <<: *app-environment
-      WORKER_HEARTBEAT_PREFIX: /data/heartbeat/search-index-worker
-      # This worker bounds its own resident memory against the box, because the
-      # heap ceiling above cannot: the embedding model, its inference arenas and
-      # its per-batch tensors are onnxruntime allocations outside V8's old space
-      # (#585). It starts at BATCH_MIN with one inference in flight and measures
-      # two numbers after every batch — the box's MemAvailable and its own RSS.
-      #
-      # It ramps towards BATCH_MAX and CONCURRENCY_MAX only after RAMP_AFTER
-      # consecutive readings leave more than HEADROOM_MB + RAMP_MARGIN_MB free
-      # AND keep its own RSS under RSS_CEILING_MB. The margin and the streak are
-      # what stop a box parked near the threshold from ramping and shedding on
-      # alternate batches. The RSS ceiling is the one a shed cannot walk back:
-      # onnxruntime sizes its arena to the widest batch it has ever run.
-      #
-      # Below HEADROOM_MB, or at RSS_CEILING_MB, it halves the batch, drops back
-      # to one inference and waits PAUSE_MS between batches. Below CRITICAL_MB it
-      # stops outright rather than pushing the host into swap, where the kernel
-      # picks its OOM victim by size and takes the backend instead of the
-      # indexer. That stop ends after STALL_MAX_MS and the message goes back on
-      # the queue, because the poller's visibility timeout is 300 s and a longer
-      # wait would have the record redelivered underneath it. Still deliberately
-      # no `mem_limit`: this slows a first index down, it never kills it.
-      #
-      # The defaults suit the 4 GB reference box. Raise HEADROOM_MB, BATCH_MAX
-      # and RSS_CEILING_MB together on a larger one to let a first index finish
-      # sooner. STALL_MAX_MS must stay below the 300 s visibility timeout.
-      SEARCH_INDEX_EMBED_BATCH_MIN: ${SEARCH_INDEX_EMBED_BATCH_MIN:-4}
-      SEARCH_INDEX_EMBED_BATCH_MAX: ${SEARCH_INDEX_EMBED_BATCH_MAX:-32}
-      SEARCH_INDEX_EMBED_CONCURRENCY_MAX: ${SEARCH_INDEX_EMBED_CONCURRENCY_MAX:-2}
-      SEARCH_INDEX_EMBED_RAMP_AFTER: ${SEARCH_INDEX_EMBED_RAMP_AFTER:-3}
-      SEARCH_INDEX_MEMORY_HEADROOM_MB: ${SEARCH_INDEX_MEMORY_HEADROOM_MB:-768}
-      SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB: ${SEARCH_INDEX_MEMORY_RAMP_MARGIN_MB:-256}
-      SEARCH_INDEX_MEMORY_CRITICAL_MB: ${SEARCH_INDEX_MEMORY_CRITICAL_MB:-384}
-      SEARCH_INDEX_RSS_CEILING_MB: ${SEARCH_INDEX_RSS_CEILING_MB:-1536}
-      SEARCH_INDEX_MEMORY_PAUSE_MS: ${SEARCH_INDEX_MEMORY_PAUSE_MS:-2000}
-      SEARCH_INDEX_MEMORY_STALL_MAX_MS: ${SEARCH_INDEX_MEMORY_STALL_MAX_MS:-240000}
-    volumes:
-      - message_storage:/data/storage
-      - sqlite_data:/data/sqlite
-      - heartbeat:/data/heartbeat
-    depends_on:
-      queue:
-        condition: service_healthy
-      migrate:
-        condition: service_completed_successfully
-      volume-init:
-        condition: service_completed_successfully
-    # The heartbeat covers the queue poll loop only. The outbox drain is a
-    # separate timer in this same container, and a drain that stops while the
-    # poll loop turns leaves this healthy — search falling behind is a backlog
-    # signal, not a liveness one.
-    healthcheck:
-      test:
-        ["CMD", "node", "-e", "const fs=require('node:fs'),d='/data/heartbeat',p='search-index-worker.',f=fs.readdirSync(d).filter(n=>n.startsWith(p));process.exit(f.length&&f.every(n=>Date.now()-fs.statSync(d+'/'+n).mtimeMs<420000)?0:1)"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -552,7 +474,7 @@ services:
   # cannot share its lifecycle.
   #
   # ITS TWO MOUNTS, AND NO OTHERS:
-  #   heartbeat:ro   the eleven poll-loop timestamps the workers write (D1). It
+  #   heartbeat:ro   the ten poll-loop timestamps the workers write (D1). It
   #                  reads them; it never writes one. The scheduler's file sits
   #                  on the same volume and is deliberately not in
   #                  DOCTOR_HEARTBEAT_SERVICES: its freshness follows a knob an
@@ -611,14 +533,6 @@ services:
       # generic — another edge brings its own.
       DOCTOR_TLS_MODE: ${TLS_MODE:-off}
       DOCTOR_TUNNEL_READY_URL: ${DOCTOR_TUNNEL_READY_URL:-}
-      # Same reasoning as TLS_MODE: which services are in the stack is a
-      # property of how the deployment is configured. On `off` the
-      # search-index-worker sits behind the `semantic` profile and writes no
-      # heartbeat, so watching for one would report an opt-out as a fault on
-      # every check. It is also the value `remit doctor` prints, so an operator
-      # reading "no semantic results" can tell nothing matched from nothing
-      # indexed.
-      DOCTOR_SEARCH_EMBEDDING_PROVIDER: ${SEARCH_EMBEDDING_PROVIDER:-off}
       # A runtime ceiling, not configuration. The checker holds no path, no
       # secret and no credential, and this carries none either.
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
@@ -633,7 +547,7 @@ services:
   # ---------------------------------------------------------------------
   # Backup sidecar (RFC 036 D6) — off by default. Enable with
   # `docker compose -f docker-compose.sqlite.yml --profile backup up -d`.
-  # VACUUM INTO snapshots of the two database files, then age + rclone
+  # VACUUM INTO snapshots of the database file, then age + rclone
   # (see remit.env.template).
   # ---------------------------------------------------------------------
   backup:
@@ -806,7 +720,7 @@ volumes:
   # not repoint this at NFS/CIFS.
   sqlite_data:
   # The queue sidecar's own SQLite file — durable enqueued work, isolated from
-  # the app/search store. Local disk only, for the same WAL reason as above.
+  # the app store. Local disk only, for the same WAL reason as above.
   queue_data:
   caddy_data:
   caddy_config:
@@ -823,7 +737,7 @@ volumes:
   # that mounts it. Safe to remove: it holds a reconstructible view of the past,
   # never state the stack reads back. `remit purge` destroys it with the rest.
   victoriametrics_data:
-  # One timestamp file per poll loop (D1), so eleven across the four workers.
+  # One timestamp file per poll loop (D1), so ten across the three workers.
   # Shared rather than per-service so a checker container can mount it read-only
   # and read every age at once; the workers themselves never read each other's
   # files.

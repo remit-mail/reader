@@ -9,9 +9,8 @@
  * saving, the account's filter names the newly-created folder as its move
  * target, where before it named the inbox.
  *
- * The live match count comes from `POST /organize/preview`, which the e2e lane
- * cannot answer for real (the vector index is deliberately not built here — see
- * organize-standing-filter.spec.ts). It is stubbed so the commit gate settles,
+ * The live match count comes from `POST /organize/preview`. It is stubbed so the
+ * commit gate settles,
  * exactly as the organize specs do; the folder create and the filter action
  * update it gates are both real backend calls.
  */

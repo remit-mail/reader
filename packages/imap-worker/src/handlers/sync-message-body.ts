@@ -133,7 +133,6 @@ export const syncMessageBody = async (
 		envelope: envelopeService,
 		placementMove: markerService,
 		filter: filterService,
-		filterAnchor: filterAnchorService,
 		messageLabel: messageLabelService,
 		storage,
 		secrets,
@@ -230,11 +229,9 @@ export const syncMessageBody = async (
 
 			// A matched filter's actions (label upsert, exclusive move) apply on
 			// the same body-sync pass, reusing the placement mover for the move
-			// (RFC 034 Decision 3.1). The env-provisioned embedder lets a semantic
-			// (anchor-only) filter match here instead of being silently skipped.
+			// (RFC 034 Decision 3.1).
 			const filterConfig = buildFilterConfig({
 				filterService,
-				filterAnchorService,
 				messageLabelService,
 				mailboxService,
 				placementMoveService,

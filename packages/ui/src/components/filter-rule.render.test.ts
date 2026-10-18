@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { ClauseChip, ClauseEditor, WidenChip } from "./filter-clause-chip.js";
+import { ClauseChip, ClauseEditor } from "./filter-clause-chip.js";
 import { FilterPreviewCount } from "./filter-preview-count.js";
 import {
 	type ClauseField,
@@ -44,7 +44,6 @@ const editor = (overrides: Partial<FilterRuleEditorProps> = {}) =>
 			rule: demoRule,
 			folders: FOLDERS,
 			preview: READY,
-			semanticAvailable: true,
 			...overrides,
 		}),
 	);
@@ -91,26 +90,6 @@ describe("commitBlockedReason", () => {
 
 	it("clears when a one-time rule has a matcher, a folder, and a settled count", () => {
 		assert.equal(commitBlockedReason(base, fresh), undefined);
-	});
-
-	it("an active widen alone is a matcher", () => {
-		assert.equal(
-			commitBlockedReason(
-				{ ...base, clauses: [], widen: { anchorCount: 2 } },
-				fresh,
-			),
-			undefined,
-		);
-	});
-
-	it("an inactive widen alone is not a matcher", () => {
-		assert.match(
-			commitBlockedReason(
-				{ ...base, clauses: [], widen: { anchorCount: 2, inactive: true } },
-				fresh,
-			) ?? "",
-			/Add a clause/,
-		);
 	});
 
 	it("asks for a matcher when there is none", () => {
@@ -221,32 +200,6 @@ describe("ClauseChip", () => {
 	});
 });
 
-describe("WidenChip", () => {
-	it("offers a removable similar-mail chip with the anchor count", () => {
-		const html = render(
-			createElement(WidenChip, {
-				widen: { anchorCount: 3 },
-				onRemove: () => {},
-			}),
-		);
-		assert.match(html, /and anything similar/);
-		assert.match(html, /Similar to these 3/);
-		assert.match(html, /aria-label="Remove the similar-mail widen"/);
-	});
-
-	it("marks a degraded widen inactive but keeps it removable", () => {
-		const html = render(
-			createElement(WidenChip, {
-				widen: { anchorCount: 2, inactive: true },
-				onRemove: () => {},
-			}),
-		);
-		assert.match(html, /not available here/);
-		assert.match(html, /line-through/);
-		assert.match(html, /aria-label="Remove the similar-mail widen"/);
-	});
-});
-
 describe("ClauseEditor", () => {
 	it("offers the field picker and a value input when adding", () => {
 		const html = render(
@@ -340,30 +293,6 @@ describe("FilterPreviewCount", () => {
 		assert.doesNotMatch(html, /role="alert"/);
 	});
 
-	// A zero counted against an index that holds nothing is not the same
-	// statement as a zero counted against the mail (#452), and reading it as one
-	// talks the user out of a rule that would match plenty.
-	it("says the index is still filling rather than that nothing matches", () => {
-		const html = render(
-			createElement(FilterPreviewCount, {
-				preview: { status: "ready", count: 0, indexEmpty: true },
-			}),
-		);
-		assert.match(html, /Still indexing/);
-		assert.doesNotMatch(html, /No mail matches yet/);
-		assert.doesNotMatch(html, /role="alert"/);
-	});
-
-	it("does not mark the empty-index line as recounting", () => {
-		const html = render(
-			createElement(FilterPreviewCount, {
-				preview: { status: "ready", count: 0, stale: true, indexEmpty: true },
-			}),
-		);
-		assert.match(html, /Still indexing/);
-		assert.doesNotMatch(html, /recounting/);
-	});
-
 	it("marks a changed set as recounting rather than blank", () => {
 		const html = render(
 			createElement(FilterPreviewCount, {
@@ -398,53 +327,6 @@ describe("FilterRuleEditor", () => {
 		assert.doesNotMatch(single, /aria-label="Match operator"/);
 	});
 
-	it("offers the widen add only when the deployment can serve it", () => {
-		const noWiden: FilterRule = { ...demoRule, widen: undefined };
-		assert.match(
-			editor({ rule: noWiden, semanticAvailable: true }),
-			/…and similar/,
-		);
-		assert.doesNotMatch(
-			editor({ rule: noWiden, semanticAvailable: false }),
-			/…and similar/,
-		);
-	});
-
-	it("renders a present widen even where the capability is absent", () => {
-		const html = editor({
-			rule: {
-				...demoRule,
-				widen: { anchorCount: 2, inactive: true },
-			},
-			semanticAvailable: false,
-		});
-		assert.match(html, /not available here/);
-	});
-
-	it("drops the join word before an inactive widen chip", () => {
-		const joins = (html: string) =>
-			html.match(/uppercase text-fg-subtle">and</g)?.length ?? 0;
-		assert.equal(joins(editor()), 2);
-		assert.equal(
-			joins(
-				editor({
-					rule: { ...demoRule, widen: { anchorCount: 2, inactive: true } },
-					semanticAvailable: false,
-				}),
-			),
-			1,
-		);
-	});
-
-	it("keeps a degraded widen removable in the editor", () => {
-		const html = editor({
-			rule: { ...demoRule, widen: { anchorCount: 2, inactive: true } },
-			semanticAvailable: false,
-			onRemoveWiden: () => {},
-		});
-		assert.match(html, /aria-label="Remove the similar-mail widen"/);
-	});
-
 	it("blocks the commit while the previewed set is recounting", () => {
 		const html = editor({
 			preview: { status: "ready", count: 47, stale: true },
@@ -454,7 +336,7 @@ describe("FilterRuleEditor", () => {
 		assert.match(html, /disabled/);
 	});
 
-	it("renders the sender-fallback From chips as ordinary editable chips", () => {
+	it("renders derived From chips as ordinary editable chips", () => {
 		const html = editor({ rule: demoSenderFallbackRule });
 		assert.match(html, /receipts@stripe\.com/);
 		assert.match(html, /receipts@lyft\.com/);
@@ -504,47 +386,20 @@ describe("FilterRuleEditor", () => {
 		assert.match(html, /Pick a folder/);
 	});
 
-	it("keeps scope and expiry live and editable on an anchor-locked (existing) filter (reader #266)", () => {
+	it("keeps scope and expiry live and editable on a persisted filter (reader #266)", () => {
 		const html = editor({
 			rule: { ...demoRule, scope: "until", until: "2027-09-01" },
-			anchorLocked: true,
+			persisted: true,
 		});
 		assert.match(html, /aria-label="Rule scope"/);
 		assert.match(html, /aria-label="Expiry date"/);
 		assert.match(html, /aria-label="Rule name"/);
 	});
 
-	it("drops the once option from the scope toggle on an anchor-locked filter", () => {
-		const locked = editor({ anchorLocked: true });
-		assert.doesNotMatch(locked, />Just once</);
-		const unlocked = editor({ anchorLocked: false });
-		assert.match(unlocked, />Just once</);
-	});
-
-	it("locks the widen chip and explains why only when one is present", () => {
-		const withWiden = editor({
-			rule: { ...demoRule, widen: { anchorCount: 2 } },
-			anchorLocked: true,
-		});
-		assert.doesNotMatch(
-			withWiden,
-			/aria-label="Remove the similar-mail widen"/,
-		);
-		assert.match(withWiden, /similar-mail match is fixed to the message/);
-
-		const literal = editor({
-			rule: { ...demoRule, widen: undefined },
-			anchorLocked: true,
-		});
-		assert.doesNotMatch(literal, /similar-mail match is fixed/);
-	});
-
-	it("never offers to add a widen on an anchor-locked filter, even when the deployment can serve it", () => {
-		const html = editor({
-			rule: { ...demoRule, widen: undefined },
-			anchorLocked: true,
-			semanticAvailable: true,
-		});
-		assert.doesNotMatch(html, /…and similar/);
+	it("drops the once option from the scope toggle on a persisted filter", () => {
+		const persisted = editor({ persisted: true });
+		assert.doesNotMatch(persisted, />Just once</);
+		const fresh = editor({ persisted: false });
+		assert.match(fresh, />Just once</);
 	});
 });

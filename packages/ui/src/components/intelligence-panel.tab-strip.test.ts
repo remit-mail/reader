@@ -33,7 +33,6 @@ const sender: IntelligenceData = {
 	},
 	category: { value: "personal" },
 	flags: {},
-	similar: [],
 };
 
 const inertCalendar: IntelligenceCalendarActions = {

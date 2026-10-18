@@ -7,7 +7,7 @@
 // ESM output otherwise throws `Dynamic require of "<mod>" is not supported`
 // whenever a bundled CJS dependency calls `require(...)` at runtime).
 //
-// Native/model-loading dependencies stay external — they are installed into
+// Native dependencies stay external — they are installed into
 // the runtime image from a minimal per-service package.json instead of being
 // bundled. Bundling per entrypoint (rather than `npm ci --omit=dev` of the
 // whole workspace) is what keeps a worker image from dragging in dependencies
@@ -77,37 +77,6 @@ const DIRNAME_DEFINES = {
 // JS would still leave its `.node` require unresolvable next to the bundle.
 const SQLITE = "better-sqlite3";
 
-// The embedding model path. search-index-worker is the process that actually
-// calls buildEmbeddingServiceFromEnv() (see
-// packages/search-index-worker/src/services.ts), so the model belongs in its
-// image and no other.
-//
-// better-sqlite3/sqlite-vec back the LOCAL_VECTORDB_PATH vector store, reached
-// only through `runtimeImport` (a dynamic `import(variable)` esbuild cannot see,
-// by design — see remit-search-service/src/backends/runtime-import.ts). Because
-// runtimeImport is invisible to esbuild they are never bundled; they are
-// installed into the runtime image instead. On DATA_BACKEND=sqlite (RFC 036)
-// this is the live vector path: search-index-worker WRITES embeddings, so its
-// runtime image (docker/runtime/search-index-worker/package.json) pins
-// `sqlite-vec` and runs on the glibc node:24-slim base, where the npm package's
-// glibc `vec0.so` loads directly.
-//
-// The backend image serves the READ side of the vector store — the Organize
-// "find similar" widen pools an anchor message's stored vectors and runs a KNN
-// query (no embedding model). The npm `vec0.so` is glibc-only and will not
-// dlopen on the Alpine/musl backend image, so that image compiles `vec0.so`
-// against musl (Dockerfile sqlite-vec-musl stage) and the store's loader reads
-// it via SQLITE_VEC_EXTENSION_PATH.
-//
-// It does NOT serve free-text /search/semantic READS: answering that query means
-// embedding it in-process, and @huggingface/transformers plus the model are
-// deliberately absent from that image (they would roughly quadruple it and park
-// the model's ~300 MiB in the API container). The /search/semantic endpoint
-// capability-gates to empty results instead of erroring — see
-// remit-backend/src/service/semantic-capability.ts and deploy/vps/README.md;
-// FTS/trigram text search covers the primary search contract on both profiles.
-const SEARCH_NATIVE = ["@huggingface/transformers"];
-
 /** @type {Array<{name: string, entry: string, outfile?: string, external?: string[], loader?: Record<string, string>}>} */
 export const TARGETS = [
 	{
@@ -142,28 +111,6 @@ export const TARGETS = [
 		name: "account-worker",
 		entry: "packages/account-worker/src/poller.ts",
 		external: [SQLITE],
-	},
-	{
-		name: "search-index-worker",
-		entry: "packages/search-index-worker/src/poller.ts",
-		external: [SQLITE, ...SEARCH_NATIVE],
-	},
-	// The provenance report `remit check-index` drives (#455), baked into the
-	// search-index-worker image as an alternate entrypoint — the same "one image,
-	// two commands" shape migrate.mjs has. This image and no other, because the
-	// configured embedder only resolves here: the weight precision is part of the
-	// embedding identity and is set in this image alone.
-	{
-		name: "search-index-report",
-		entry: "packages/search-index-worker/src/index-report.ts",
-		outfile: "dist-docker/search-index-worker/index-report.mjs",
-		external: [SQLITE, ...SEARCH_NATIVE],
-	},
-	{
-		name: "search-index-reembed",
-		entry: "packages/search-index-worker/src/index-reembed.ts",
-		outfile: "dist-docker/search-index-worker/index-reembed.mjs",
-		external: [SQLITE, ...SEARCH_NATIVE],
 	},
 	// The self-host queue backend (ADR: SQLite-backed SQS sidecar). better-sqlite3
 	// is a native module reached through @remit/queue-sidecar's store; keep it

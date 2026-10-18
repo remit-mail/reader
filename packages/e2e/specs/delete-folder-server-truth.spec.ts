@@ -5,7 +5,7 @@
  * confirm has to produce. Both halves are read from Dovecot and from the API,
  * because the two defects this closes were invisible from the read model
  * alone: the folder's `message` rows survived a delete keyed to a dead
- * mailboxId — out of every reader and still in the search index — and a
+ * mailboxId — out of every reader — and a
  * `deleting` row was hidden from the listing, so a delete that did not settle
  * looked like a folder that silently vanished while the server still held it.
  *

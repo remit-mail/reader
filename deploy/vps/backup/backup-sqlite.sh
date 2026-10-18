@@ -1,17 +1,14 @@
 #!/bin/sh
 # Nightly encrypted SQLite backup sidecar (RFC 036 D6).
 #
-# VACUUM INTO each database file -> gzip -> age-encrypt -> rclone copy to an
+# VACUUM INTO the database file -> gzip -> age-encrypt -> rclone copy to an
 # operator-supplied S3-compatible bucket, then prune anything older than
 # BACKUP_RETENTION_DAYS.
 #
 # VACUUM INTO is SQLite's online-backup primitive: it reads a consistent
 # snapshot of a live WAL database into a new, defragmented file without
-# blocking writers for more than a moment. Two files are snapshotted: the
-# app/auth database (SQLITE_DB_PATH) and the sqlite-vec vector store
-# (LOCAL_VECTORDB_PATH). The vector file is a rebuildable projection (embeddings
-# re-derive from IMAP on reindex), but snapshotting it is cheap and saves a full
-# re-embed after a restore.
+# blocking writers for more than a moment. The app/auth database
+# (SQLITE_DB_PATH) is the one file snapshotted.
 #
 # Runs in a plain sleep loop, not a cron daemon — the interval is one number
 # (BACKUP_INTERVAL_SECONDS, default 24h) and the container already restarts
@@ -25,7 +22,7 @@
 # is what the outer loop's `if !` sees, instead of silently "succeeding".
 #
 # The VACUUM INTO itself lives in snapshot-db.sh, shared with `remit update`
-# (RFC 037 R8). Both files are mounted beside each other, so $0's directory
+# (RFC 037 R8). The two scripts are mounted beside each other, so $0's directory
 # resolves it in the container and in a checkout alike.
 if [ "${1:-}" = "--run-once" ]; then
 	set -eu
@@ -36,7 +33,6 @@ if [ "${1:-}" = "--run-once" ]; then
 	. "${lib_dir}/snapshot-db.sh"
 
 	: "${SQLITE_DB_PATH:?set SQLITE_DB_PATH in .env}"
-	: "${LOCAL_VECTORDB_PATH:?set LOCAL_VECTORDB_PATH in .env}"
 	: "${BACKUP_AGE_RECIPIENT:?set BACKUP_AGE_RECIPIENT in .env — see the Backups section in remit.env.template}"
 	: "${BACKUP_RCLONE_REMOTE:?set BACKUP_RCLONE_REMOTE in .env — see the Backups section in remit.env.template}"
 	RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
@@ -45,10 +41,9 @@ if [ "${1:-}" = "--run-once" ]; then
 	work_dir="$(mktemp -d)"
 	trap 'rm -rf "$work_dir"' EXIT
 
-	# db=app/auth relational store, vec=sqlite-vec vector store. Each is
-	# VACUUM INTO'd to a fresh snapshot, then encrypted independently so a
-	# restore can put either file back on its own.
-	for pair in "db:$SQLITE_DB_PATH" "vec:$LOCAL_VECTORDB_PATH"; do
+	# db=app/auth relational store, VACUUM INTO'd to a fresh snapshot, then
+	# encrypted.
+	for pair in "db:$SQLITE_DB_PATH"; do
 		label="${pair%%:*}"
 		src="${pair#*:}"
 		snapshot="$work_dir/remit-${label}-${timestamp}.db"

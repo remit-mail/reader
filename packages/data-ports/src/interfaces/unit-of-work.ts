@@ -5,9 +5,7 @@ import type { IThreadMessageRepository } from "./thread-message.js";
 
 /**
  * The repositories a `saveMessage` write set touches, bound to a single unit of
- * work. On Postgres these are transaction-bound so every write — including the
- * transactional-outbox rows the message write appends — commits or rolls back
- * together.
+ * work, so every write commits or rolls back together.
  */
 export interface UnitOfWorkRepositories {
 	message: IMessageRepository;

@@ -15,7 +15,6 @@ export function IntelligenceDrawer({
 	isOpen,
 	onClose,
 	thread,
-	mailboxId,
 	accountId,
 	onAfterOptimisticRemove,
 	onReplyWithText,
@@ -24,7 +23,6 @@ export function IntelligenceDrawer({
 	isOpen: boolean;
 	onClose: () => void;
 	thread?: RemitImapThreadMessageResponse;
-	mailboxId?: string;
 	accountId?: string;
 	onAfterOptimisticRemove?: (messageIds: string[]) => void;
 	onReplyWithText?: ReplyWithText;
@@ -43,7 +41,6 @@ export function IntelligenceDrawer({
 			<IntelligencePane
 				onClose={onClose}
 				thread={thread}
-				mailboxId={mailboxId}
 				accountId={accountId}
 				hideCloseButton
 				onAfterOptimisticRemove={onAfterOptimisticRemove}

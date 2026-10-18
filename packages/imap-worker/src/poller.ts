@@ -6,9 +6,6 @@ import { handler } from "./index.js";
 /**
  * Production queue poller — the deployed form of `e2e-processor-shim.ts`.
  * Polls every imap-worker queue and invokes the production Lambda handler.
- * The search-index queue is NOT polled here: it is its own image/deployment
- * (`remit-search-index-worker`), unlike the e2e shim which piggybacks it
- * onto this same process for test convenience.
  */
 const log = createLogger();
 

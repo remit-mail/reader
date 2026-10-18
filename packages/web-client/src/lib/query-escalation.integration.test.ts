@@ -46,16 +46,16 @@ describe("global query/mutation escalation", () => {
 		assert.deepEqual(seen, ["internal server error"]);
 	});
 
-	it("a 5xx on a background REFETCH escalates — the exact #1059 bug (semantic-search-style query that 500s after first rendering data)", async () => {
+	it("a 5xx on a background REFETCH escalates — the exact #1059 bug (search-style query that 500s after first rendering data)", async () => {
 		const seen: string[] = [];
 		subscribeFatalError((fatal) => seen.push(fatal.message));
 		const client = makeClient();
-		const queryKey = ["semanticSearch"];
+		const queryKey = ["search"];
 		let calls = 0;
 		const queryFn = async () => {
 			calls += 1;
 			if (calls === 1) return { items: [] as string[] };
-			throw new ApiError("semantic search exploded", 500);
+			throw new ApiError("search exploded", 500);
 		};
 
 		// First load succeeds → query now has data (dataUpdatedAt !== 0). Under the
@@ -63,7 +63,7 @@ describe("global query/mutation escalation", () => {
 		await client.fetchQuery({ queryKey, queryFn });
 		await client.refetchQueries({ queryKey }).catch(() => {});
 
-		assert.deepEqual(seen, ["semantic search exploded"]);
+		assert.deepEqual(seen, ["search exploded"]);
 	});
 
 	it("a first-party 5xx from a mutation escalates to the fatal overlay seam", async () => {

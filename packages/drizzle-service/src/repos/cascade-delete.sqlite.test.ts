@@ -152,14 +152,6 @@ describe("createSqliteCascadeDeleter", () => {
 		);
 		assert.equal(count("mailbox", "mailbox_id", MAILBOX_ID), 0, "mailbox gone");
 		assert.equal(count("account", "account_id", ACCOUNT_ID), 0, "account gone");
-
-		const outboxRows = (
-			sqlite.prepare("SELECT COUNT(*) AS n FROM outbox").get() as { n: number }
-		).n;
-		assert.ok(
-			outboxRows >= 1,
-			"a message-removed outbox row must be emitted for search-index cleanup",
-		);
 		sqlite.close();
 	});
 });

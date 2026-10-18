@@ -13,7 +13,6 @@ import {
 	SEARCH_SCOPE_CHIP_ID,
 	scopeLabelForMailboxName,
 	searchScopeForRoute,
-	semanticMailboxScope,
 } from "./search-scope";
 
 const listFor: Record<string, BrowsedList["list"]> = {
@@ -117,97 +116,7 @@ describe("scopeLabelForMailboxName", () => {
 });
 
 // The invariant: no chip means global, a chip means every engine on that route
-// respects it. The semantic engine used to run unscoped inside a mailbox under
-// an "Everywhere" heading, contradicting the `in:` chip the same bar showed.
-describe("semanticMailboxScope — a chip binds every engine on the route", () => {
-	const mailbox = (mailboxId: string): BrowsedList => ({
-		list: "mailbox",
-		mailboxId,
-	});
-
-	it("pins a mailbox route to its own mailbox", () => {
-		assert.equal(
-			semanticMailboxScope({ browsed: mailbox("mbx-spam") }),
-			"mbx-spam",
-		);
-	});
-
-	it("a mailbox route ignores a caller asking for somewhere else", () => {
-		assert.equal(
-			semanticMailboxScope({
-				browsed: mailbox("mbx-spam"),
-				callerMailboxId: "mbx-archive",
-			}),
-			"mbx-spam",
-		);
-	});
-
-	it("a mailbox route ignores a typed in: term", () => {
-		assert.equal(
-			semanticMailboxScope({
-				browsed: mailbox("mbx-spam"),
-				inTokenMailboxId: "mbx-archive",
-			}),
-			"mbx-spam",
-		);
-	});
-
-	it("a mailbox route never widens to global", () => {
-		const scope = semanticMailboxScope({ browsed: mailbox("mbx-spam") });
-		assert.notEqual(scope, undefined, "a scoped route must carry a scope");
-	});
-
-	// Flagged and outbox are scoped to a collection, which the mailbox-scoped
-	// semantic API cannot express — so neither runs a semantic section, and
-	// neither may fall back to a typed `in:` under its own chip.
-	for (const routeId of [MAIL_FLAGGED_ROUTE_ID, MAIL_OUTBOX_ROUTE_ID]) {
-		it(`${routeId} never honours a typed in: term`, () => {
-			assert.equal(
-				semanticMailboxScope({
-					browsed: browsing(routeId),
-					inTokenMailboxId: "mbx-archive",
-				}),
-				undefined,
-			);
-		});
-	}
-
-	it("the daily brief is global — no route scope, no chip", () => {
-		assert.equal(
-			semanticMailboxScope({ browsed: browsing(MAIL_BRIEF_ROUTE_ID) }),
-			undefined,
-		);
-	});
-
-	it("the daily brief is the one route a typed in: narrows", () => {
-		assert.equal(
-			semanticMailboxScope({
-				browsed: browsing(MAIL_BRIEF_ROUTE_ID),
-				inTokenMailboxId: "mbx-archive",
-			}),
-			"mbx-archive",
-		);
-	});
-
-	it("every scoped route resolves a scope or refuses to widen", () => {
-		// Pins the invariant across the route table rather than one case at a
-		// time: on a scoped route the resolved scope is either the route's own
-		// mailbox, or nothing that came from the typed query.
-		const scoped = [
-			{ browsed: mailbox("mbx-spam"), expected: "mbx-spam" },
-			{ browsed: browsing(MAIL_FLAGGED_ROUTE_ID), expected: undefined },
-			{ browsed: browsing(MAIL_OUTBOX_ROUTE_ID), expected: undefined },
-		];
-		for (const { browsed: m, expected } of scoped) {
-			assert.equal(isScopedRoute(m), true);
-			assert.equal(
-				semanticMailboxScope({ browsed: m, inTokenMailboxId: "mbx-elsewhere" }),
-				expected,
-			);
-		}
-	});
-});
-
+// respects it.
 describe("resultsScopeForRoute", () => {
 	it("passes the global search through as global", () => {
 		assert.deepEqual(

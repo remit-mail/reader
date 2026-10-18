@@ -21,7 +21,6 @@ import { filterTable } from "../schema.js";
 type DB = Db<Record<string, unknown>>;
 
 const RULE_ASSERTION_FIELDS = [
-	"hasAnchor",
 	"matchOperator",
 	"literalClauses",
 	"actionLabelId",
@@ -37,7 +36,6 @@ const RULE_ASSERTION_FIELDS = [
  * narrower signal `selectMoveWinner` reads for exclusive-move precedence.
  */
 const ACTION_ASSERTION_FIELDS = [
-	"hasAnchor",
 	"matchOperator",
 	"literalClauses",
 	"actionLabelId",
@@ -81,7 +79,6 @@ function rowToFilter(row: typeof filterTable.$inferSelect): FilterItem {
 		ttl: row.ttl ?? undefined,
 		state: row.state,
 		disabledReason: row.disabledReason,
-		hasAnchor: row.hasAnchor,
 		ruleChangedAt: row.ruleChangedAt,
 		actionChangedAt: row.actionChangedAt,
 		matchOperator: row.matchOperator,
@@ -115,7 +112,6 @@ export class FilterRepo implements IFilterRepository {
 				ttl: input.ttl ?? null,
 				state: input.state ?? FilterState.Active,
 				disabledReason: input.disabledReason ?? FilterDisabledReason.None,
-				hasAnchor: input.hasAnchor ?? false,
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
 				matchOperator: input.matchOperator ?? FilterMatchOperator.And,

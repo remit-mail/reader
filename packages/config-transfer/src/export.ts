@@ -14,7 +14,6 @@ import type {
 	AccountItem,
 	AddressFlags,
 	AddressItem,
-	FilterAnchorItem,
 	FilterItem,
 	LabelItem,
 	MailboxItem,
@@ -245,7 +244,6 @@ const toConfigLabel = (label: LabelItem): ConfigLabel => ({
 
 const toConfigFilter = (
 	filter: FilterItem,
-	anchor: FilterAnchorItem | undefined,
 	labelNames: ReadonlyMap<string, string>,
 	index: MailboxIndex,
 ): ConfigFilter => {
@@ -274,16 +272,6 @@ const toConfigFilter = (
 			actionAccountId === undefined || actionPath === undefined
 				? null
 				: { accountId: actionAccountId, folderPath: actionPath },
-		// The stored vector is a function of the model that produced it, so it
-		// means nothing on an instance running another one. The source text is
-		// what travels; import re-embeds from it.
-		anchor: anchor
-			? {
-					sourceText: anchor.anchorSourceText,
-					embeddingId: anchor.anchorEmbeddingId,
-					sourceMessageId: anchor.anchorMessageId,
-				}
-			: null,
 	};
 };
 
@@ -378,7 +366,7 @@ export const readConfigForExport = async (
 	accountConfigId: string,
 	identity: ConfigExportIdentity,
 ): Promise<ReaderConfigDocument> => {
-	const [accountConfig, accounts, settingRows, labels, filters, anchors] =
+	const [accountConfig, accounts, settingRows, labels, filters] =
 		await Promise.all([
 			// A configuration nobody has added an account to yet holds no row. That
 			// is an empty export, not a failure: the file is the migration safety
@@ -393,7 +381,6 @@ export const readConfigForExport = async (
 			repositories.accountSetting.listByAccountConfig(accountConfigId),
 			repositories.label.listByAccountConfig(accountConfigId),
 			repositories.filter.listByAccountConfig(accountConfigId),
-			repositories.filterAnchor.listByAccountConfig(accountConfigId),
 		]);
 
 	const liveAccounts = accounts.filter(
@@ -414,9 +401,6 @@ export const readConfigForExport = async (
 	const index = buildMailboxIndex(mailboxesByAccount);
 	const labelNames = new Map(
 		labels.map((label) => [label.labelId, label.name] as const),
-	);
-	const anchorsByFilter = new Map(
-		anchors.map((anchor) => [anchor.filterId, anchor] as const),
 	);
 	const addresses = await readAddresses(repositories, accountConfigId);
 
@@ -448,14 +432,7 @@ export const readConfigForExport = async (
 			),
 		),
 		labels: labels.map(toConfigLabel),
-		filters: filters.map((filter) =>
-			toConfigFilter(
-				filter,
-				anchorsByFilter.get(filter.filterId),
-				labelNames,
-				index,
-			),
-		),
+		filters: filters.map((filter) => toConfigFilter(filter, labelNames, index)),
 		addressFlags: addresses
 			.filter((address) => carriesUserFlag(address.flags))
 			.map(toConfigAddressFlags),

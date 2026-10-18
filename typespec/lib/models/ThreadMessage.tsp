@@ -166,7 +166,7 @@ model ThreadMessage {
   @visibility(Lifecycle.Read)
   subject?: string;
 
-  @doc("Normalized `List-Id` header value (bracketed identifier, case-folded), denormalized at body-sync so the back-apply corpus projection can match a `ListId` clause vector-free. Absent when the message carries no `List-Id` header or was body-synced before this field existed.")
+  @doc("Normalized `List-Id` header value (bracketed identifier, case-folded), denormalized at body-sync so the back-apply corpus projection can match a `ListId` clause. Absent when the message carries no `List-Id` header or was body-synced before this field existed.")
   @visibility(Lifecycle.Read)
   listId?: String256;
 

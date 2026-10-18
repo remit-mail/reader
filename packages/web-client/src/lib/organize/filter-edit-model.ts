@@ -8,20 +8,15 @@ import { NO_ACTION } from "./organize-model";
 
 /**
  * The persisted filter as the chip editor's rule (RFC 038 D6). Loads the whole
- * rule the user edits: literal clauses, the match operator, the move action, the
- * scope (and, for a Temporary filter, the date it stops on), and the semantic
- * anchor as a widen chip. The anchor renders inactive when this deployment
- * cannot evaluate it (D4) — the rule then matches by its literal clauses only.
+ * rule the user edits: literal clauses, the match operator, the move action, and
+ * the scope (and, for a Temporary filter, the date it stops on).
  *
  * The scope maps `Standing` → "standing" and `Temporary` → "until"; a persisted
  * filter is never the one-time "once" scope. `moveMailboxId` and `labelId` both
  * drop the `"None"` sentinel to `undefined` so an empty select reads as "no
  * action" (issue #26).
  */
-export const filterToRule = (
-	filter: RemitImapFilterResponse,
-	semanticUnavailable = false,
-): FilterRule => {
+export const filterToRule = (filter: RemitImapFilterResponse): FilterRule => {
 	const clauses: RuleClause[] = filter.literalClauses.map((clause, index) => ({
 		id: `clause-${index}`,
 		field: clause.field,
@@ -30,9 +25,6 @@ export const filterToRule = (
 	return {
 		clauses,
 		matchOperator: filter.matchOperator === "And" ? "all" : "any",
-		widen: filter.hasAnchor
-			? { anchorCount: 1, ...(semanticUnavailable ? { inactive: true } : {}) }
-			: undefined,
 		moveMailboxId:
 			filter.actionMailboxId !== NO_ACTION ? filter.actionMailboxId : undefined,
 		labelId:
@@ -69,13 +61,12 @@ const predicateActionKey = (rule: FilterRule): string =>
 		operator: rule.matchOperator,
 		move: rule.moveMailboxId ?? null,
 		label: rule.labelId ?? null,
-		widen: rule.widen ? (rule.widen.inactive ? "inactive" : "active") : "none",
 	});
 
 /**
  * Whether the edited rule changes the predicate or the action versus the one it
  * was loaded from — the clauses, the match operator, the move target, the
- * label target, or the widen's presence. A change here is what bumps
+ * or the label target. A change here is what bumps
  * `ruleChangedAt` and offers the re-back-apply (RFC 034 Decision 3.2); the name
  * is deliberately excluded, so a cosmetic rename is not a rule change.
  */
@@ -93,7 +84,7 @@ const scopeExpiryKey = (rule: FilterRule): string =>
 /**
  * Whether the edited rule changes scope (standing ↔ until-a-date) or the date
  * itself, versus the one it was loaded from (reader #266). Scope and expiry
- * are mutable on an existing filter, unlike the anchor, and a change here
+ * are mutable on an existing filter, and a change here
  * bumps `ruleChangedAt` the same way a predicate/action change does — moving a
  * lapsed filter back to Standing (or extending its date) is the same kind of
  * "the user just reasserted this rule" moment, and re-offers the back-apply so
@@ -110,8 +101,7 @@ export const ruleChangesScopeOrExpiry = (
  * untouched (RFC 034 Decision 3.2). A predicate or action change sends the
  * operator, clauses, move target, and label target; a scope or expiry change
  * sends `scope` and, for the `until` scope, `expiresAt` (reader #266) —
- * either bumps `ruleChangedAt`. The anchor is never in the editor's gift, so
- * it never enters the patch; the partial update preserves it.
+ * either bumps `ruleChangedAt`.
  */
 export const buildUpdateFilterInput = (
 	rule: FilterRule,

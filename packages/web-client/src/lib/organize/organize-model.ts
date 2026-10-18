@@ -33,15 +33,22 @@ export type OrganizeScope =
 export const NO_ACTION = "None";
 
 /**
+ * The predicate a preview counts and a commit acts on: the operator and the
+ * literal clauses. The set it previews equals the set every commit scope acts on.
+ */
+export type OrganizeMatchPredicate = Pick<
+	RemitImapOrganizeInput,
+	"matchOperator" | "literalClauses"
+>;
+
+/**
  * The user's in-progress organize decision, independent of which scope they
- * land on. The anchor and predicate drive the match set; `moveMailboxId` and
+ * land on. The predicate drives the match set; `moveMailboxId` and
  * `labelId` are the two committable actions (issue #26) — independent of each
  * other, since a move is exclusive and a label is additive (RFC 034 Decision
  * 3.1).
  */
 export interface OrganizeDraft {
-	/** Semantic anchor — "mail like this one". The first selected message. */
-	anchorMessageId?: string;
 	/** How `literalClauses` combine. Ignored when there are none. */
 	matchOperator: RemitImapFilterMatchOperator;
 	/** Literal from/subject/has-words clauses (RFC 031). */
@@ -90,13 +97,12 @@ export const buildRunFilterInput = (
 /**
  * Build the read-only preview / back-apply matcher input. The action fields do
  * not affect which messages match — the preview returns exactly the set a job
- * with the same predicate would apply to — so a widen preview can pass this
- * before the user has chosen a folder or a label.
+ * with the same predicate would apply to — so a preview can pass this before
+ * the user has chosen a folder or a label.
  */
 export const buildOrganizeInput = (
 	draft: OrganizeDraft,
 ): RemitImapOrganizeInput => ({
-	...(draft.anchorMessageId ? { anchorMessageId: draft.anchorMessageId } : {}),
 	matchOperator: draft.matchOperator,
 	literalClauses: draft.literalClauses,
 	actionLabelId: draft.labelId ?? NO_ACTION,
@@ -111,9 +117,9 @@ export const buildOrganizeInput = (
 export interface WizardCommitAnswers {
 	/**
 	 * The door the match came through. An escalated predicate is not one: it has
-	 * no clauses to build a rule from and no anchor to widen, so a scope
-	 * reconstructed for it would be a rule matching everything. Typed to the
-	 * three doors so that cannot be written rather than merely not written.
+	 * no clauses to build a rule from, so a scope reconstructed for it would be a
+	 * rule matching everything. Typed to the doors so that cannot be written
+	 * rather than merely not written.
 	 */
 	mode: MatchDoor;
 	/** Absent on the verbs that never reach the scope step — those act once. */
@@ -123,7 +129,7 @@ export interface WizardCommitAnswers {
 /**
  * Which of the four commit scopes the wizard's answers add up to. Reconstructed
  * here and nowhere else, so a driver cannot invent a fifth: the ticked list at
- * scope once is `just-these`, a widened door at scope once is `all-like-these`,
+ * scope once is `just-these`, the properties door at scope once is `all-like-these`,
  * and the two persisting scopes are `standing` and `temporary`.
  */
 export const organizeScopeFor = ({
@@ -136,8 +142,6 @@ export const organizeScopeFor = ({
 };
 
 export interface WizardDraftInput extends WizardCommitAnswers {
-	/** The semantic anchor, present only while the similar door is the matcher. */
-	anchorMessageId?: string;
 	clauses: readonly RuleClause[];
 	matchOperator: MatchOperator;
 	moveMailboxId?: string;
@@ -152,15 +156,12 @@ export interface WizardDraftInput extends WizardCommitAnswers {
  * instant once there is a draft to carry it.
  */
 export const buildWizardDraft = ({
-	mode,
 	ruleScope,
-	anchorMessageId,
 	clauses,
 	matchOperator,
 	moveMailboxId,
 	until,
 }: WizardDraftInput): OrganizeDraft => ({
-	...(mode === "similar" && anchorMessageId ? { anchorMessageId } : {}),
 	matchOperator: matchOperator === "all" ? "And" : "Or",
 	literalClauses: clauses.map((clause) => ({
 		field: clause.field,
@@ -193,8 +194,5 @@ export const buildCreateFilterInput = (
 		literalClauses: draft.literalClauses,
 		actionLabelId: draft.labelId ?? NO_ACTION,
 		actionMailboxId: draft.moveMailboxId ?? NO_ACTION,
-		...(draft.anchorMessageId
-			? { anchorMessageId: draft.anchorMessageId }
-			: {}),
 	};
 };

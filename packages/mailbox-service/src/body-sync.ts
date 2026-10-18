@@ -128,8 +128,7 @@ export const isBodyPartDeferralEnabled = (): boolean => {
  * single HEAD and early-returns, skipping the body.eml GET, the MIME re-parse,
  * and the per-leaf HEADs on every warm re-open.
  *
- * Deliberately an S3-only marker (no Message-row flag): a DDB write would
- * re-fire the redundant vector upsert that #607 removed. A leading dot keeps it
+ * Deliberately an S3-only marker (no Message-row flag). A leading dot keeps it
  * out of any real IMAP section path (those are dot-separated digits).
  */
 const MATERIALIZED_SENTINEL_PART_PATH = ".materialized";
@@ -159,7 +158,7 @@ const isConnectionDrop = (error: unknown): boolean => {
 
 /**
  * Project a parsed message onto the fields a filter matches against (RFC 034) —
- * the literal-clause targets plus the text a semantic anchor embeds. Kept
+ * the literal-clause targets. Kept
  * separate from `ParsedMail` so {@link FilterPipeline} stays parser-agnostic.
  */
 const toFilterMessage = (parsed: ParsedMail): FilterMessage => ({
@@ -820,10 +819,10 @@ export class BodySyncService {
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
 		// so if we wrote it first and the parsed-cache write then failed, the
-		// requeued retry would skip the message — leaving parsedBody null and the
-		// search-index upsert bodyless forever. A parsed-cache failure here throws
-		// and propagates before bodyStorageKey is written, so the requeued message
-		// genuinely re-attempts the parsed write and gets indexed.
+		// requeued retry would skip the message — leaving parsedBody null forever.
+		// A parsed-cache failure here throws and propagates before bodyStorageKey
+		// is written, so the requeued message genuinely re-attempts the parsed
+		// write.
 		await this.storeParsedBodyCache(
 			accountConfigId,
 			accountId,
@@ -939,9 +938,8 @@ export class BodySyncService {
 		const moved = Boolean(resolved.move || filterMoved);
 
 		// ONE Message UpdateItem per synced message: bodyStorageKey + every
-		// classification/derived field + the move flag + the audit verdict. Each
-		// extra Message mutation emits a DDB stream record that fans out to a
-		// redundant S3-Vectors upsert, so we collapse them into a single write.
+		// classification/derived field + the move flag + the audit verdict,
+		// collapsed into a single write.
 		// The flag is folded in only when a move WAS applied (by the classifier or
 		// a filter); the verdict is folded in whenever Remit decided to act.
 		// Written LAST so bodyStorageKey — the skip-guard signal — is only durable
@@ -1512,8 +1510,7 @@ export class BodySyncService {
 	/**
 	 * Resolve the placement decision for a message, BEFORE the single Message
 	 * update — so both the `movedByRemit` flag and the audit verdict join that
-	 * one UpdateItem instead of a second mutation that would fan out another
-	 * redundant S3-Vectors upsert. Drives both directions (junk → inbox rescue,
+	 * one UpdateItem instead of a second mutation. Drives both directions (junk → inbox rescue,
 	 * inbox → junk demote) off the pure {@link classifyPlacement} verdict.
 	 *
 	 * Returns a {@link PlacementOutcome}: a `verdict` to persist whenever Remit

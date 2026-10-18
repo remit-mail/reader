@@ -377,7 +377,6 @@ function FlaggedReading() {
 				isOpen={intelligence.drawerOpen}
 				onClose={intelligence.closeDrawer}
 				thread={selectedThread}
-				mailboxId={selectedThread?.mailboxId}
 				accountId={selectedThread?.accountId}
 				onAfterOptimisticRemove={handleDeselectIfRemoved}
 				onReplyWithText={replyWithText}
@@ -401,7 +400,6 @@ function FlaggedIntelligence() {
 		<IntelligencePane
 			onClose={onToggleIntelligence}
 			thread={selectedThread}
-			mailboxId={selectedThread?.mailboxId}
 			accountId={selectedThread?.accountId}
 			onAfterOptimisticRemove={handleDeselectIfRemoved}
 			onReplyWithText={replyWithText}
@@ -445,7 +443,6 @@ function FlaggedPhone() {
 					isOpen={drawer.isOpen}
 					onClose={drawer.close}
 					thread={selectedThread}
-					mailboxId={selectedThread?.mailboxId}
 					accountId={selectedThread?.accountId}
 					onAfterOptimisticRemove={handleDeselectIfRemoved}
 					onReplyWithText={replyWithText}
