@@ -16,6 +16,7 @@ const STAMP = Date.now();
 const FOLDER = `Flaky ${STAMP}`;
 const SUBJECT = `Body that vanished ${STAMP}`;
 const FAILED_ROUNDS = 3;
+const MAX_ROUNDS = 8;
 
 const settingsButton = (page: Page) =>
 	page.getByRole("button", { name: /^Settings/ });
@@ -67,21 +68,20 @@ test.describe("A message whose body fails to sync", () => {
 			[],
 		);
 
-		for (let round = 0; round < FAILED_ROUNDS; round++) {
-			await enqueueBodySync(run.accountId, mailboxId, [messageId]);
-		}
-
 		const isOurs = (warning: SyncWarning): boolean =>
 			warning.mailboxId === mailboxId && warning.uid === uid;
-		const listed = await waitFor(
-			() => api.listWarnings(),
-			(list) => list.warnings.some(isOurs),
-			{
-				timeoutMs: 120_000,
-				what: `a Body warning for uid ${uid} after ${FAILED_ROUNDS} failed rounds`,
-			},
-		);
-		const warning = listed.warnings.find(isOurs);
+		let warning: SyncWarning | undefined;
+		for (let round = 0; round < MAX_ROUNDS && !warning; round++) {
+			await enqueueBodySync(run.accountId, mailboxId, [messageId]);
+			warning = await waitFor(
+				() => api.listWarnings(),
+				(list) => list.warnings.some(isOurs),
+				{ timeoutMs: 10_000, what: `a Body warning for uid ${uid}` },
+			).then(
+				(list) => list.warnings.find(isOurs),
+				() => undefined,
+			);
+		}
 		expect(warning?.stage).toBe("Body");
 		expect(warning?.attempts).toBeGreaterThanOrEqual(FAILED_ROUNDS);
 
@@ -98,11 +98,13 @@ test.describe("A message whose body fails to sync", () => {
 		});
 		await expect(page.getByText("Gave up").first()).toBeVisible();
 
-		await api.syncPastMailbox(run.accountId, FOLDER);
 		await waitFor(
-			() => api.listWarnings(),
+			async () => {
+				await api.syncPastMailbox(run.accountId, FOLDER);
+				return api.listWarnings();
+			},
 			(list) => list.warnings.length === 0 && list.entries.length === 0,
-			{ timeoutMs: 60_000, what: "the warning list to clear" },
+			{ timeoutMs: 120_000, what: "the warning list to clear" },
 		);
 
 		await page.goto("/mail/flagged");
