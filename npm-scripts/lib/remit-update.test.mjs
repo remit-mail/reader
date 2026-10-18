@@ -721,10 +721,10 @@ describe("remit update — the rollback's own gate fails", () => {
 // definitions belong to the version before it: a verb the release adds
 // answering `unknown command`, a profile its compose file never declares.
 //
-// The wrapper stand-ins are deliberately tiny. What is being asserted is that
-// the file the deployment carries afterwards is the release's and answers the
-// release's commands, and a real wrapper would prove that no better while
-// costing every assertion a 3000-line diff to read.
+// The installed stand-in is deliberately tiny: what is asserted is that the
+// file the deployment carries afterwards is the release's and answers the
+// release's commands. The release's wrapper is the real one with a verb added,
+// because the run continues in it.
 const wrapperWith = (verbs) =>
 	[
 		"#!/bin/sh",
@@ -741,7 +741,12 @@ const wrapperWith = (verbs) =>
 // The release adds a verb to the wrapper, an always-on service to the compose
 // file, and a service behind a profile the previous release never declared —
 // the three shapes #1072 was observed in.
-const RELEASE_WRAPPER = wrapperWith(["doctor", "semantic"]);
+const withVerb = (source, verb) =>
+	source.replace(
+		/^\tupdate\) cmd_update "\$@" ;;$/m,
+		(line) => `${line}\n\t${verb}) printf '${verb}\\n' ;;`,
+	);
+const RELEASE_WRAPPER = withVerb(WRAPPER_SOURCE, "whats-new");
 const RELEASE_COMPOSE = readFileSync(COMPOSE, "utf8").replace(
 	/^services:$/m,
 	[
@@ -791,7 +796,7 @@ describe("remit update — the release's wrapper and compose file", () => {
 	});
 
 	it("leaves the deployment carrying the release's commands", () => {
-		assert.equal(wrapperAnswers(box, "semantic"), 0);
+		assert.equal(wrapperAnswers(box, "whats-new"), 0);
 	});
 
 	it("re-stamps it with this deployment's own values", () => {
@@ -833,7 +838,7 @@ describe("remit update — the gate fails on the release's own files", () => {
 
 	it("puts the deployment's own wrapper back", () => {
 		assert.equal(box.installedWrapper(), wasInstalled);
-		assert.notEqual(wrapperAnswers(box, "semantic"), 0);
+		assert.notEqual(wrapperAnswers(box, "whats-new"), 0);
 	});
 
 	it("puts the deployment's own compose file back", () => {
@@ -973,6 +978,79 @@ describe("remit update — the release's Caddy configuration", () => {
 		assert.ok(
 			restarted < logIndex(box, /^compose up -d queue migrate backend$/),
 		);
+	});
+});
+
+// The update is driven by the previous release's wrapper, and that one has
+// never heard of the Caddy files: it is the release before they were host
+// files. One `remit update` still has to leave the release's set live.
+function updateFromPreCaddyWrapper(scenario, runId) {
+	const box = sandbox({ scenario, releaseCaddy: RELEASE_CADDY });
+	const previous = join(box.dir, "previous-remit");
+	writeExecutable(
+		previous,
+		WRAPPER_SOURCE.replace(
+			/^HOST_ASSETS=.*$/m,
+			'HOST_ASSETS="remit docker-compose.sqlite.yml"',
+		),
+	);
+	writeFileSync(
+		join(box.state, "request.json"),
+		JSON.stringify({
+			runId,
+			targetVersion: "v1.5.0",
+			requestedAt: justNow(),
+			requestedBy: "owner@example.test",
+		}),
+	);
+	const result = spawnSync("sh", [previous, "update"], {
+		env: box.env,
+		encoding: "utf8",
+	});
+	return { box, result };
+}
+
+describe("remit update — from a wrapper that predates the release's Caddy set", () => {
+	const requested = "5e1d0c2b-3a4f-4b6e-9c70-aabbccddeeff";
+	const { box, result } = updateFromPreCaddyWrapper(
+		{ probe: "ok", migrate_exit: 0 },
+		requested,
+	);
+
+	it("succeeds under the id the request named", () => {
+		assert.equal(result.status, 0, result.stderr);
+		assert.equal(box.stateJson().run.outcome, "succeeded");
+		assert.equal(box.stateJson().run.runId, requested);
+	});
+
+	it("leaves the release's Caddy set live", () => {
+		for (const [name, body] of Object.entries(RELEASE_CADDY)) {
+			assert.equal(box.installedCaddy(name), body, name);
+		}
+		assert.ok(box.log().includes("compose restart caddy"));
+	});
+
+	it("hands over once", () => {
+		const handoffs = result.stdout.match(/continuing the update in/g) ?? [];
+		assert.equal(handoffs.length, 1, result.stdout);
+	});
+});
+
+describe("remit update — from that wrapper, to a Caddy set that will not load", () => {
+	const { box, result } = updateFromPreCaddyWrapper(
+		{ probe: "ok", migrate_exit: 0, caddy_adapt: "fail" },
+		"7a2b3c4d-5e6f-4a1b-8c2d-0123456789ab",
+	);
+
+	it("fails the update loudly before anything is stopped", () => {
+		assert.notEqual(result.status, 0);
+		assert.equal(box.stateJson().run.outcome, "abandoned");
+		assert.match(box.stateJson().run.message, /Caddy configuration/);
+		assert.equal(box.dotenv("REMIT_TAG"), "v1.0.0");
+		assert.ok(!box.log().includes("compose stop"));
+		for (const name of CADDY_FILES) {
+			assert.equal(box.installedCaddy(name), shippedCaddy(name), name);
+		}
 	});
 });
 

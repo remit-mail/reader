@@ -472,8 +472,12 @@ in order:
 1. The manifest at `REMIT_UPDATE_MANIFEST_URL` is fetched and validated. A
    version at or below the running one is refused, as is a manifest naming
    images from outside its own registry.
-2. Every image is pulled at the target version, and the release's own `remit`
-   wrapper, compose file and `caddy/` files are fetched with them. The wrapper
+2. The release's own `remit` wrapper is fetched, stamped for this deployment
+   and put through `sh -n`, and the run continues in it under the same run id
+   and lock. The release's own rules stage and install its files, so a change
+   to the wrapper, compose file or Caddy files lands in this update rather than
+   the next. Every image is then pulled at the target version, and the
+   release's wrapper, compose file and `caddy/` files are fetched with them. The wrapper
    is stamped for this deployment and put through `sh -n`, the compose file
    through `docker compose config`, and every Caddy mode file through
    `caddy adapt` against the release's `routes.caddy`. A failure here — a
