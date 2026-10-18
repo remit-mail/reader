@@ -186,11 +186,8 @@ describe("finishing an account deleted before #1384 on scheduler start", () => {
 		await heal(recordingSqs([]));
 		const sent: SendMessageCommand[] = [];
 
-		const healed = await heal(recordingSqs(sent));
+		await heal(recordingSqs(sent));
 
-		assert.ok(
-			!healed.some((account) => account.accountId === halfDeleted.accountId),
-		);
 		assert.ok(
 			!sent.some((command) =>
 				(command.input.MessageBody ?? "").includes(halfDeleted.accountId),

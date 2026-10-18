@@ -46,19 +46,6 @@ export interface QueueAttributes {
 	readonly redrivePolicy: string | null;
 }
 
-export type ReleaseRedrive =
-	| {
-			readonly kind: "redriven";
-			readonly deadLetterName: string;
-			readonly release: string;
-			readonly moved: number;
-	  }
-	| {
-			readonly kind: "already-redriven";
-			readonly deadLetterName: string;
-			readonly release: string;
-	  };
-
 interface QueueRow {
 	name: string;
 	fifo: number;
@@ -163,11 +150,9 @@ export class QueueStore {
 				created_at INTEGER NOT NULL,
 				PRIMARY KEY (queue_name, dedup_id)
 			);
-			CREATE TABLE IF NOT EXISTS release_redrives (
-				dead_letter_queue TEXT PRIMARY KEY,
-				release TEXT NOT NULL,
-				moved INTEGER NOT NULL,
-				redriven_at INTEGER NOT NULL
+			CREATE TABLE IF NOT EXISTS release_redrive (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				release TEXT NOT NULL
 			);
 		`);
 	}
@@ -498,40 +483,19 @@ export class QueueStore {
 		return redrive();
 	}
 
-	/**
-	 * Redrive a dead-letter queue once for a release. The marker holds the
-	 * release that last redrove it, so a restart of the same release moves
-	 * nothing: what fails again stays on the dead-letter queue for an operator
-	 * to see, instead of cycling through its source queue on every boot.
-	 */
-	redriveForRelease(
-		deadLetterName: string,
-		release: string,
-		now = Date.now(),
-	): ReleaseRedrive {
-		const run = this.db.transaction((): ReleaseRedrive => {
+	redriveForRelease(release: string, deadLetterNames: string[]): void {
+		this.db.transaction((): void => {
 			const marker = this.db
-				.prepare(
-					"SELECT release FROM release_redrives WHERE dead_letter_queue = ?",
-				)
-				.get(deadLetterName) as { release: string } | undefined;
-			if (marker?.release === release) {
-				return { kind: "already-redriven", deadLetterName, release };
-			}
-			const moved = this.redriveDeadLetters(deadLetterName, now);
+				.prepare("SELECT release FROM release_redrive WHERE id = 1")
+				.get() as { release: string } | undefined;
+			if (marker?.release === release) return;
+			for (const name of deadLetterNames) this.redriveDeadLetters(name);
 			this.db
 				.prepare(
-					`INSERT INTO release_redrives (dead_letter_queue, release, moved, redriven_at)
-					VALUES (?, ?, ?, ?)
-					ON CONFLICT(dead_letter_queue) DO UPDATE SET
-						release = excluded.release,
-						moved = excluded.moved,
-						redriven_at = excluded.redriven_at`,
+					"INSERT INTO release_redrive (id, release) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET release = excluded.release",
 				)
-				.run(deadLetterName, release, moved, now);
-			return { kind: "redriven", deadLetterName, release, moved };
-		});
-		return run();
+				.run(release);
+		})();
 	}
 
 	private moveToQueue(

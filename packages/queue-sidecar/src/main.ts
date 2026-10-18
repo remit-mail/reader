@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { bootstrapQueues, loadQueuesConfig } from "./queues-config.js";
-import { redriveOnRelease } from "./release-redrive.js";
+import { redriveOnRelease } from "./redrive.js";
 import { createSidecarServer, type SidecarLog } from "./server.js";
 import { QueueStore } from "./store.js";
 
@@ -52,21 +52,7 @@ if (queuesConfigPath) {
 }
 
 const release = process.env.QUEUE_SIDECAR_RELEASE;
-if (release) {
-	for (const outcome of redriveOnRelease(store, release)) {
-		log.info(
-			{ ...outcome },
-			outcome.kind === "redriven"
-				? "sidecar: dead-letter queue redriven for this release"
-				: "sidecar: dead-letter queue already redriven for this release",
-		);
-	}
-} else {
-	log.info(
-		{},
-		"sidecar: no release named; dead-letter queues left as they are",
-	);
-}
+if (release) redriveOnRelease(store, release);
 
 const server = createSidecarServer({ store, accountId, log });
 

@@ -62,9 +62,6 @@ services:
     environment:
       QUEUE_SIDECAR_QUEUES_CONFIG: /etc/queue/queues.json
       QUEUE_SIDECAR_DB: /data/queue/queue.db
-      # The release the images run. The sidecar redrives the replayable
-      # dead-letter queues once per release, so mail a fixed bug stranded gets
-      # another try without `remit redrive`.
       QUEUE_SIDECAR_RELEASE: ${REMIT_TAG:-latest}
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     volumes:

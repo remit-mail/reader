@@ -4,7 +4,7 @@ export {
 	parseQueuesConfig,
 	type QueuesConfig,
 } from "./queues-config.js";
-export { redriveOnRelease } from "./release-redrive.js";
+export { redriveOnRelease } from "./redrive.js";
 export {
 	type CreateSidecarOptions,
 	createSidecarServer,
@@ -20,7 +20,6 @@ export {
 	type QueueRecord,
 	QueueStore,
 	type ReceivedMessage,
-	type ReleaseRedrive,
 	type SendResult,
 	SqsError,
 	validateFifoSend,
