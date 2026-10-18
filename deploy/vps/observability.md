@@ -302,9 +302,10 @@ Metrics live on their own `victoriametrics_data` volume and are never backed up.
 
 Every worker queue in `queues.json` has a dead-letter queue (`<queue>-dlq`,
 `maxReceiveCount = 3`). A message a worker's handler keeps failing to process is
-redelivered up to 3 times, then quarantined in the DLQ. A message that lands in
-a DLQ is not automatically retried or drained; it sits there until an operator
-looks at it.
+redelivered up to 3 times, then quarantined in the DLQ. The first start of each
+release moves the three replayable DLQs below back to their queues once, so
+mail a fixed bug stranded gets another try with no command run. Whatever fails
+again stays in the DLQ until an operator looks at it or the next release.
 
 `remit doctor` reports a non-empty dead-letter queue by name, across all of
 them, and exits non-zero. Per-queue depth, rather than the total, is

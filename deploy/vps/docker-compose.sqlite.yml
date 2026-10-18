@@ -62,6 +62,7 @@ services:
     environment:
       QUEUE_SIDECAR_QUEUES_CONFIG: /etc/queue/queues.json
       QUEUE_SIDECAR_DB: /data/queue/queue.db
+      QUEUE_SIDECAR_RELEASE: ${REMIT_TAG:-latest}
       NODE_OPTIONS: "--max-old-space-size=${REMIT_NODE_HEAP_MB:-512}"
     volumes:
       - ./queues.json:/etc/queue/queues.json:ro

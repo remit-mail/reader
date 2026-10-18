@@ -1,4 +1,3 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountResponse,
 	CreateAccountInput,
@@ -37,6 +36,7 @@ import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent } from "../auth.js";
+import { deleteAccount } from "../service/account-deletion.js";
 import { getClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
@@ -529,23 +529,16 @@ export const AccountDetailOperations: Record<
 		assertAccountOwnership(existing, accountConfigId, "act");
 
 		const deletedAt = Date.now();
-		await account.update(accountId, {
+		await deleteAccount(
+			{
+				account,
+				sqsClient,
+				accountFanoutQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+				log: logger,
+			},
+			existing,
 			deletedAt,
-			isActive: false,
-		});
-
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-				MessageBody: JSON.stringify({
-					type: "AccountDataPurge",
-					accountId,
-					accountConfigId,
-				}),
-			}),
 		);
-		// biome-ignore lint/plugin/no-logger-info: account data purge is an audit-grade signal
-		logger.info({ accountId, accountConfigId }, "Account data purge initiated");
 
 		return {
 			accountId,

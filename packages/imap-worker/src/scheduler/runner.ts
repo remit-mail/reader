@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { setTimeout as delay } from "node:timers/promises";
+import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger-lambda";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
@@ -38,6 +39,7 @@ const log = createLogger();
 
 const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
 const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
+const accountFanoutQueueUrl = env.SQS_QUEUE_URL_ACCOUNT_FANOUT;
 
 const tickIntervalMs = getTickIntervalMs();
 const offlineIntervalMs = getOfflineIntervalMs();
@@ -73,6 +75,13 @@ const runLoop = async (): Promise<void> => {
 	await clearHeartbeats().catch(onClearError);
 	const client = await getClient();
 	const { account } = client;
+	await finishHalfDeletedAccounts({
+		account,
+		configImport: client.configImport,
+		sqsClient: createQueueProducer({ queueUrl: accountFanoutQueueUrl }),
+		accountFanoutQueueUrl,
+		log,
+	});
 	await runSchedulerLoop({
 		tick: runSchedulerTick,
 		tickDeps: {

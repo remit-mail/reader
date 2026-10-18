@@ -150,6 +150,10 @@ export class QueueStore {
 				created_at INTEGER NOT NULL,
 				PRIMARY KEY (queue_name, dedup_id)
 			);
+			CREATE TABLE IF NOT EXISTS release_redrive (
+				id INTEGER PRIMARY KEY CHECK (id = 1),
+				release TEXT NOT NULL
+			);
 		`);
 	}
 
@@ -477,6 +481,21 @@ export class QueueStore {
 			return rows.length;
 		});
 		return redrive();
+	}
+
+	redriveForRelease(release: string, deadLetterNames: string[]): void {
+		this.db.transaction((): void => {
+			const marker = this.db
+				.prepare("SELECT release FROM release_redrive WHERE id = 1")
+				.get() as { release: string } | undefined;
+			if (marker?.release === release) return;
+			for (const name of deadLetterNames) this.redriveDeadLetters(name);
+			this.db
+				.prepare(
+					"INSERT INTO release_redrive (id, release) VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET release = excluded.release",
+				)
+				.run(release);
+		})();
 	}
 
 	private moveToQueue(

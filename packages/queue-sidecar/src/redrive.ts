@@ -1,3 +1,5 @@
+import type { QueueStore } from "./store.js";
+
 export type RedriveVerdict =
 	| { kind: "redrive" }
 	| { kind: "refuse"; reason: string };
@@ -39,6 +41,15 @@ export const redriveVerdict = (deadLetterQueue: string): RedriveVerdict => {
 		reason: `${deadLetterQueue} is not a dead-letter queue remit redrives; it redrives remit-body-dlq, remit-flags-dlq.fifo and remit-message-mgmt-dlq.`,
 	};
 };
+
+export const redriveOnRelease = (store: QueueStore, release: string): void =>
+	store.redriveForRelease(
+		release,
+		store
+			.listQueues()
+			.map((queue) => queue.name)
+			.filter((name) => redriveVerdict(name).kind === "redrive"),
+	);
 
 export interface RedriveOptions {
 	deadLetterQueue: string;

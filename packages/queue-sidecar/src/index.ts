@@ -4,6 +4,7 @@ export {
 	parseQueuesConfig,
 	type QueuesConfig,
 } from "./queues-config.js";
+export { redriveOnRelease } from "./redrive.js";
 export {
 	type CreateSidecarOptions,
 	createSidecarServer,

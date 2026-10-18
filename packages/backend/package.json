@@ -35,6 +35,10 @@
       "types": "./src/service/sender-category.ts",
       "default": "./src/service/sender-category.ts"
     },
+    "./account-deletion": {
+      "types": "./src/service/account-deletion.ts",
+      "default": "./src/service/account-deletion.ts"
+    },
     "./trigger-sync": {
       "types": "./src/service/trigger-sync.ts",
       "default": "./src/service/trigger-sync.ts"

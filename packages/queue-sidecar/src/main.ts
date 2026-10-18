@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { bootstrapQueues, loadQueuesConfig } from "./queues-config.js";
+import { redriveOnRelease } from "./redrive.js";
 import { createSidecarServer, type SidecarLog } from "./server.js";
 import { QueueStore } from "./store.js";
 
@@ -49,6 +50,9 @@ if (queuesConfigPath) {
 } else {
 	log.info({}, "sidecar: no queues config; queues created on demand");
 }
+
+const release = process.env.QUEUE_SIDECAR_RELEASE;
+if (release) redriveOnRelease(store, release);
 
 const server = createSidecarServer({ store, accountId, log });
 
