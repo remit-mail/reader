@@ -675,6 +675,7 @@ describe("MailboxRepo", () => {
 				accountConfigId: accountId,
 				name: "Invoices → Bound",
 				scope: "Standing",
+				literalClauses: [{ field: "Subject", value: "invoice" }],
 				ruleChangedAt: 0,
 				actionChangedAt: 0,
 				actionMailboxId: mailbox.mailboxId,

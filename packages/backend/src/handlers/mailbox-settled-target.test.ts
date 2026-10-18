@@ -82,9 +82,7 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 				return { filterId: "flt-1" };
 			},
 			listByAccountConfig: async () => [],
-		},
-		filterAnchorTransaction: {
-			createWithAnchor: async (input: unknown) => {
+			create: async (input: unknown) => {
 				writes.filters.push(input);
 				return { filterId: "flt-1" };
 			},

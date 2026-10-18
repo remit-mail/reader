@@ -53,16 +53,11 @@ const receipt: FilterMessage = {
 	listId: "",
 };
 
-const addFilter = (input: Partial<CreateFilterInput>) =>
+const senders = (actionMailboxId: string) =>
 	store.filter.create({
 		accountConfigId: ACCOUNT,
 		name: "rule",
 		scope: FilterScope.Standing,
-		...input,
-	});
-
-const senders = (actionMailboxId: string) =>
-	addFilter({
 		matchOperator: FilterMatchOperator.Or,
 		literalClauses: [
 			{ field: FilterClauseField.From, value: "npm@github.com" },
@@ -141,21 +136,6 @@ describe("FilterPipeline over literal filters", () => {
 			destinationMailboxId: projects,
 			filterId: rival.filterId,
 		});
-	});
-});
-
-describe("FilterPipeline over a filter with no clauses", () => {
-	it("matches nothing", async () => {
-		await addFilter({ actionLabelId: "lbl-1" });
-
-		const decision = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			receipt,
-		);
-
-		assert.deepEqual(decision, { labels: [] });
 	});
 });
 

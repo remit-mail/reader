@@ -126,7 +126,7 @@ const CASES = {
 	restart: {
 		refusal: /^remit: restart: unknown option/m,
 		takes: [
-			{ args: [], proof: / up -d$/m },
+			{ args: [], proof: / up -d --remove-orphans$/m },
 			{ args: ["--hard"], proof: / stop$/m },
 		],
 		refuses: [

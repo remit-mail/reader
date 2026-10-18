@@ -43,7 +43,7 @@ test("the golden v1 document carries the parts a move has to preserve", () => {
 	);
 	assert.equal(document.filters[0]?.actionFolder?.folderPath, "INBOX.Facturen");
 	assert.equal(document.filters[0]?.actionLabelName, "Facturen");
-	assert.equal(document.filters[1]?.actionLabelName, "Te lezen");
+	assert.equal(document.filters.length, 1, "the anchor-only filter is dropped");
 	assert.equal(document.addressFlags[0]?.flags.vip?.reason, "payment alerts");
 	assert.equal(
 		document.addressFlags[1]?.flags.unsubscribed?.expiresAt,

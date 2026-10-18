@@ -213,8 +213,8 @@ const matchLiteral = async (
  * The matcher shared by preview and apply — the previewed set equals the applied
  * set for the same input. Read-only. Returns the matching message ids, bounded.
  *
- * - A predicate with no clause matches nothing, mirroring the index-time filter
- *   matcher.
+ * - An ad-hoc predicate with no clause matches nothing: a run-now request
+ *   carries none, and an empty predicate must never sweep the whole mailbox.
  * - A predicate the corpus read cannot evaluate (a body-content clause on an
  *   "all like these" pass, see {@link bodyContentRejection}) comes back as a
  *   rejection, so a caller can tell a refused rule from a broken deployment

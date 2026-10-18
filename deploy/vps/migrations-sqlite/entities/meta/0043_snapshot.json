@@ -2112,8 +2112,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false,
-          "default": "'[]'"
+          "autoincrement": false
         },
         "action_label_id": {
           "name": "action_label_id",

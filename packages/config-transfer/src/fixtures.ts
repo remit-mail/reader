@@ -131,7 +131,7 @@ export const makeFilter = (
 	ruleChangedAt: NOW,
 	actionChangedAt: NOW,
 	matchOperator: "And",
-	literalClauses: [],
+	literalClauses: [{ field: "Subject", value: "release notes" }],
 	actionLabelId: "None",
 	actionMailboxId: "None",
 	createdAt: NOW,

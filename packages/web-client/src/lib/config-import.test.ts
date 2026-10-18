@@ -239,11 +239,6 @@ test("a pending folder names the setting waiting on it, and repeats are folded",
 					message: "not here yet",
 					details: { folderPath: "Raadsstukken", accountId: "acct-1" },
 				},
-				{
-					code: "anchor_not_embedded",
-					message: "carried as text",
-					details: { filter: "Waternet" },
-				},
 			],
 		}),
 	);

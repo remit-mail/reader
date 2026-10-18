@@ -166,10 +166,5 @@ export class FilterPipeline {
 	}
 }
 
-/**
- * A filter with no clauses has no predicate and matches nothing; otherwise the
- * clauses decide under their combine operator.
- */
 const filterMatches = (filter: FilterItem, msg: FilterMessage): boolean =>
-	filter.literalClauses.length > 0 &&
 	literalClausesMatch(filter.literalClauses, filter.matchOperator, msg);

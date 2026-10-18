@@ -1,3 +1,4 @@
+import { z } from "zod/v4";
 import { ConfigVersionError } from "./errors.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
@@ -15,15 +16,20 @@ export type ConfigMigration = {
 	migrate(document: ConfigDocumentShape): ConfigDocumentShape;
 };
 
+const V1FiltersSchema = z.array(
+	z.looseObject({ literalClauses: z.array(z.unknown()), anchor: z.unknown() }),
+);
+
+/** An anchor-only filter has no clauses left to match on, so it goes with its anchor. */
 const dropFilterAnchors: ConfigMigration = {
 	from: 1,
 	to: 2,
 	migrate: (document) => ({
 		...document,
 		schemaVersion: 2,
-		filters: Array.isArray(document.filters)
-			? document.filters.map(({ anchor: _anchor, ...filter }) => filter)
-			: document.filters,
+		filters: V1FiltersSchema.parse(document.filters)
+			.filter((filter) => filter.literalClauses.length > 0)
+			.map(({ anchor: _anchor, ...filter }) => filter),
 	}),
 };
 

@@ -10,13 +10,18 @@ import {
 import { readConfigDocument } from "./read.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
-test("v1 lifts to v2 by dropping each filter's anchor", () => {
+test("v1 lifts to v2 by dropping each anchor and every anchor-only filter", () => {
 	const source = readGoldenConfigDocument() as Record<string, unknown>;
 
 	const lifted = liftToCurrentVersion(source, 1, configMigrations, 2);
 
 	assert.equal(lifted.schemaVersion, 2);
-	for (const filter of lifted.filters as Record<string, unknown>[]) {
+	const filters = lifted.filters as Record<string, unknown>[];
+	assert.deepEqual(
+		filters.map((filter) => filter.name),
+		["Invoices to Facturen"],
+	);
+	for (const filter of filters) {
 		assert.equal("anchor" in filter, false);
 	}
 });

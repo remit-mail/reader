@@ -19,11 +19,11 @@ Each question is answered by a different surface. (1) is container state. (2) an
 
 ## Current state
 
-**Logs.** Every service writes structured JSON to stdout through `@remit/logger-lambda`. The exported `Logger` interface is implementation-free and is what the five consuming packages (`backend`, `imap-worker`, `smtp-worker`, `account-worker`, `search-index-worker`) import. Behind it sits AWS Lambda Powertools: the JSON field shape is Powertools', and `withTelemetry` takes a Lambda `Context`. The standalone stack runs no Lambda — `@remit/sqs-client`'s poller fabricates `{ functionName } as Context` for every invocation, so `addContext` records one field and `captureColdStartMetric` fires once per container lifetime.
+**Logs.** Every service writes structured JSON to stdout through `@remit/logger-lambda`. The exported `Logger` interface is implementation-free and is what the four consuming packages (`backend`, `imap-worker`, `smtp-worker`, `account-worker`) import. Behind it sits AWS Lambda Powertools: the JSON field shape is Powertools', and `withTelemetry` takes a Lambda `Context`. The standalone stack runs no Lambda — `@remit/sqs-client`'s poller fabricates `{ functionName } as Context` for every invocation, so `addContext` records one field and `captureColdStartMetric` fires once per container lifetime.
 
-**Metrics.** The same package exports a Powertools `Metrics` instance. It emits CloudWatch Embedded Metric Format on stdout. Handlers already write to it: `invocationCount`, `invocationLatency` and `errorCount` in `withTelemetry`; `imapOperationLatency` and `imapOperationFailures` in `imap-worker`; `smtpSendFailures` in `smtp-worker`; `searchIndexProcessed`, `searchIndexSkipped` and `searchIndexFailures` in `search-index-worker`; and, per handler, `flagPushFailed`, `imapSyncCursorStalled`, `placementMoveFailed` and the body-sync counters. Several of those are the domain signals D3 asks for, already emitted into a format nothing in this deployment reads.
+**Metrics.** The same package exports a Powertools `Metrics` instance. It emits CloudWatch Embedded Metric Format on stdout. Handlers already write to it: `invocationCount`, `invocationLatency` and `errorCount` in `withTelemetry`; `imapOperationLatency` and `imapOperationFailures` in `imap-worker`; `smtpSendFailures` in `smtp-worker`; and, per handler, `flagPushFailed`, `imapSyncCursorStalled`, `placementMoveFailed` and the body-sync counters. Several of those are the domain signals D3 asks for, already emitted into a format nothing in this deployment reads.
 
-**Health.** `queue`, `backend`, `apisix` and `web` have compose healthchecks. `imap-worker`, `smtp-worker`, `account-worker` and `search-index-worker` have none, in the compose file or in their image. `caddy` has none by design (RFC 037 D5 keeps it serving 502s through an outage). A worker whose poll loop wedges inside a socket read never exits, so `restart: unless-stopped` never fires, and `docker compose ps` reports it running. Mail silently stops arriving.
+**Health.** `queue`, `backend`, `apisix` and `web` have compose healthchecks. `imap-worker`, `smtp-worker` and `account-worker` have none, in the compose file or in their image. `caddy` has none by design (RFC 037 D5 keeps it serving 502s through an outage). A worker whose poll loop wedges inside a socket read never exits, so `restart: unless-stopped` never fires, and `docker compose ps` reports it running. Mail silently stops arriving.
 
 **Queues.** All eleven work queues in `queues.json` have a dead-letter queue at `maxReceiveCount = 3`. A message that reaches one sits there until someone looks. `deploy/vps/observability.md` covers this under "Queue failures: the dead-letter queues", where reading a queue's depth is an escape hatch: a hand-written node one-liner through `docker compose exec queue`, once per queue, speaking the SQS wire protocol by hand. It is the signal that most warrants an alert and the one hardest to reach.
 
@@ -60,7 +60,6 @@ The host agent an operator already runs reports CPU, memory, disk and network. I
 | IMAP failures, with authentication failures counted separately | `imap-worker` |
 | SMTP failures, with authentication failures counted separately | `smtp-worker` |
 | Handler outcome (success/failure) and duration, per queue and event type | each worker |
-| Search index backlog — unprocessed outbox rows | `search-index-worker` |
 
 **Sync age is measured from `mailbox.last_message_sync_at`, not `account.last_sync_at`.** `account.last_sync_at` is stamped in one place, `packages/imap-worker/src/handlers/sync-mailboxes.ts:192`, after the mailbox *list* sync and before the per-mailbox fan-out that fetches messages. A deployment whose message handlers all throw — a bad cursor, a server that rejects `SEARCH` — keeps that column fresh forever while no mail arrives. `mailbox.last_message_sync_at` is stamped at the end of a message-sync round, after the fetch and the writes, on every path in `packages/mailbox-service/src/message-sync.ts`. The exported series is, per account, the age of the newest such stamp across that account's mailboxes: seconds since this account last completed a round trip that would have found new mail if there were any.
 
@@ -88,7 +87,7 @@ This is where DLQ depth is surfaced, and the README's one-liner section is delet
 
 Powertools `Metrics` emits CloudWatch Embedded Metric Format. EMF cannot serve a Prometheus endpoint at any configuration, so D2 forces this: a registry (prom-client or equivalent) replaces it, and the registry is what `/metrics` renders. `withTelemetry` keeps its name, its call sites and its per-invocation timing, and records into the registry instead.
 
-The call sites are the inventory above — the three in `withTelemetry` plus roughly ten named metrics across `imap-worker`, `smtp-worker` and `search-index-worker`. Most of them become D3 series unchanged; the migration is a registry swap behind the same function names, not a re-instrumentation.
+The call sites are the inventory above — the three in `withTelemetry` plus roughly ten named metrics across `imap-worker` and `smtp-worker`. Most of them become D3 series unchanged; the migration is a registry swap behind the same function names, not a re-instrumentation.
 
 ### D6. The logging implementation is replaced too, in its own PR
 

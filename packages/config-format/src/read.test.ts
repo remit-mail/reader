@@ -11,6 +11,7 @@ import {
 } from "./errors.js";
 import { readGoldenConfigDocument } from "./fixtures.js";
 import { readConfigDocument } from "./read.js";
+import { CURRENT_SCHEMA_VERSION } from "./version.js";
 
 type Mutable = Record<string, unknown>;
 type MutableAccount = Record<string, unknown>;
@@ -50,14 +51,15 @@ test("a document with no kind at all is refused as the wrong kind", () => {
 });
 
 test("a newer document is refused by version, before its shape is judged", () => {
-	const source = { ...document(), schemaVersion: 2, somethingV2Added: true };
+	const newer = CURRENT_SCHEMA_VERSION + 1;
+	const source = { ...document(), schemaVersion: newer, somethingAdded: true };
 
 	assert.throws(
 		() => readConfigDocument(source),
 		(error: unknown) => {
 			assert.ok(error instanceof ConfigVersionError);
-			assert.equal(error.documentVersion, 2);
-			assert.equal(error.supportedVersion, 1);
+			assert.equal(error.documentVersion, newer);
+			assert.equal(error.supportedVersion, CURRENT_SCHEMA_VERSION);
 			return true;
 		},
 	);

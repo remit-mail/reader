@@ -82,13 +82,14 @@ model Filter {
   @visibility(Lifecycle.Read)
   actionChangedAt: int64;
 
-  @doc("How literalClauses combine. Meaningless when literalClauses is empty.")
+  @doc("How literalClauses combine.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
   matchOperator: FilterMatchOperator = FilterMatchOperator.And;
 
-  @doc("Literal from/subject/has-words predicate clauses (RFC 031). A filter with no clauses matches nothing.")
+  @doc("Literal from/subject/has-words predicate clauses (RFC 031). A filter carries at least one.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)
-  literalClauses: FilterClause[] = #[];
+  @minItems(1)
+  literalClauses: FilterClause[];
 
   @doc("Label applied when this filter matches — additive action, any number of filters can independently apply their own label (RFC 034 Decision 3.1). The named sentinel `\"None\"` means no label action; never an empty/optional field.")
   @visibility(Lifecycle.Create, Lifecycle.Read, Lifecycle.Update)

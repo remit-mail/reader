@@ -606,7 +606,7 @@ check_migrate() {
 }
 
 apply() {
-	if ! compose up -d; then
+	if ! compose up -d --remove-orphans; then
 		check_migrate
 		die "docker compose up failed (see above)"
 	fi

@@ -687,14 +687,12 @@ export type CreateFilterInput = Omit<
 	| "ruleChangedAt"
 	| "actionChangedAt"
 	| "matchOperator"
-	| "literalClauses"
 	| "actionLabelId"
 	| "actionMailboxId"
 > & {
 	state?: FilterItem["state"];
 	disabledReason?: FilterItem["disabledReason"];
 	matchOperator?: FilterItem["matchOperator"];
-	literalClauses?: FilterItem["literalClauses"];
 	actionLabelId?: FilterItem["actionLabelId"];
 	actionMailboxId?: FilterItem["actionMailboxId"];
 };

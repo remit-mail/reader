@@ -115,7 +115,7 @@ export class FilterRepo implements IFilterRepository {
 				ruleChangedAt: createdRuleChangedAt,
 				actionChangedAt: createdRuleChangedAt,
 				matchOperator: input.matchOperator ?? FilterMatchOperator.And,
-				literalClauses: input.literalClauses ?? [],
+				literalClauses: input.literalClauses,
 				actionLabelId: input.actionLabelId ?? "None",
 				actionMailboxId: input.actionMailboxId ?? "None",
 				createdAt: now,

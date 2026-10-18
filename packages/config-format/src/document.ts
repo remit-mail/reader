@@ -215,7 +215,7 @@ export const FilterSchema = z.strictObject({
 	/** ISO 8601 with offset when the scope is Temporary, otherwise null. */
 	expiresAt: IsoDateTime.nullable(),
 	matchOperator: z.enum(FilterMatchOperator),
-	literalClauses: z.array(FilterClauseSchema),
+	literalClauses: z.array(FilterClauseSchema).min(1),
 	/** The label this filter applies, by name — ids are local to an instance. */
 	actionLabelName: z.string().min(1).max(140).nullable(),
 	actionFolder: FolderRefSchema.nullable(),
