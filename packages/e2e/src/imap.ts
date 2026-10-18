@@ -346,11 +346,6 @@ export const moveServerMessage = async (
 	}
 };
 
-/**
- * Delete one message on the server and expunge it, the way another mail client
- * would, behind the app's back: the app still holds the row and the uid until
- * a later sync of that folder.
- */
 export const expungeServerMessage = async (
 	user: string,
 	mailbox: string,

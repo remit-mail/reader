@@ -176,6 +176,23 @@ describe("a message whose headers fail to sync", () => {
 });
 
 describe("a message whose body fails to sync", () => {
+	it("drops the warning once a header round finds the message gone from the server", async () => {
+		const uid = imap.deliver("INBOX", eml({ "Message-ID": "<c@example.com>" }));
+		await syncFolder(store, account, inbox, imap);
+		const { messageId } = await messageAtUid(store, inbox, uid);
+		const silent = imap.connection();
+		silent.fetchMessageBodies = async function* () {
+			yield* [];
+		};
+		for (let round = 0; round < 3; round++) await syncBody(messageId, silent);
+		assert.deepEqual(await warnings(), [{ uid, stage: "Body", attempts: 3 }]);
+
+		imap.expunge("INBOX", uid);
+		await syncHeaders();
+
+		assert.deepEqual(await warnings(), []);
+	});
+
 	it("keeps one warning per failed round and drops it once the body is stored", async () => {
 		const uid = imap.deliver("INBOX", eml({ "Message-ID": "<b@example.com>" }));
 		await syncFolder(store, account, inbox, imap);

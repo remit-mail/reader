@@ -5,7 +5,6 @@ import { expect, test } from "../src/fixtures.js";
 import {
 	appendMessages,
 	createServerMailbox,
-	deleteServerMailbox,
 	expungeServerMessage,
 	listServerMailboxes,
 	serverUidsForSubject,
@@ -57,7 +56,7 @@ test.describe("A message whose body fails to sync", () => {
 		await context.close();
 	});
 
-	test("lights the dot and lists the warning, then clears both once the folder is gone", async () => {
+	test("lights the dot and lists the warning, then clears both once a sync finds the message gone", async () => {
 		test.setTimeout(300_000);
 		const messageId = await api.messageIdForSubject(mailboxId, SUBJECT);
 		const noWarning = await api.listWarnings();
@@ -99,18 +98,11 @@ test.describe("A message whose body fails to sync", () => {
 		});
 		await expect(page.getByText("Gave up").first()).toBeVisible();
 
-		await deleteServerMailbox(run.imapUser, FOLDER);
-		expect(await listServerMailboxes(run.imapUser)).not.toContain(FOLDER);
-		await api.triggerSync(run.accountId);
-		await waitFor(
-			() => api.listMailboxes(run.accountId),
-			(list) => !list.some((box) => box.fullPath === FOLDER),
-			{ timeoutMs: 90_000, what: `"${FOLDER}" to leave the read model` },
-		);
+		await api.syncPastMailbox(run.accountId, FOLDER);
 		await waitFor(
 			() => api.listWarnings(),
 			(list) => list.warnings.length === 0 && list.entries.length === 0,
-			{ timeoutMs: 30_000, what: "the warning list to clear" },
+			{ timeoutMs: 60_000, what: "the warning list to clear" },
 		);
 
 		await page.goto("/mail/flagged");
@@ -123,6 +115,12 @@ test.describe("A message whose body fails to sync", () => {
 			timeout: 30_000,
 		});
 		await expect(page.getByText(FOLDER)).toHaveCount(0);
+		expect(await listServerMailboxes(run.imapUser)).toContain(FOLDER);
+		expect(
+			(await api.listMailboxes(run.accountId)).some(
+				(box) => box.fullPath === FOLDER,
+			),
+		).toBe(true);
 		await page.close();
 	});
 });

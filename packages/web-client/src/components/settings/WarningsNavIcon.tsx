@@ -5,7 +5,7 @@ import { useWarningsAttention } from "@/hooks/useWarningsAttention";
 export function WarningsNavIcon() {
 	const attention = useWarningsAttention();
 	return (
-		<AttentionDot show={attention !== undefined} label={attention ?? ""}>
+		<AttentionDot label={attention}>
 			<TriangleAlert className="size-4" />
 		</AttentionDot>
 	);

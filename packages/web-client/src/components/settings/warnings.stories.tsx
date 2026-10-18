@@ -259,7 +259,8 @@ export const DotOnPhone: Story = {
 	parameters: { msw: { handlers: failingWorld() } },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await userEvent.click(await canvas.findByLabelText("Open folders"));
+		const [menu] = await canvas.findAllByRole("button", { name: "Menu" });
+		await userEvent.click(menu);
 		const page = within(canvasElement.ownerDocument.body);
 		await expect(await page.findByText("Sync warnings")).toBeInTheDocument();
 	},

@@ -122,7 +122,6 @@ export interface OutboxRow {
 	textBody?: string;
 }
 
-/** One message that failed to sync for enough rounds to be listed (`GET /me/quarantine`). */
 export interface SyncWarning {
 	syncWarningId: string;
 	mailboxId: string;
@@ -583,7 +582,6 @@ export class ApiClient {
 		return this.json("POST", "/accounts/test-connection", input);
 	}
 
-	/** The list behind Settings › Warnings and the dot on the way there. */
 	listWarnings(): Promise<WarningList> {
 		return this.json("GET", "/me/quarantine");
 	}

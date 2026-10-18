@@ -60,10 +60,6 @@ export interface ShellTopBarProps {
 	onCompose: () => void;
 	onReportBug: () => void;
 	onOpenSettings: () => void;
-	/**
-	 * What needs a look in settings, read out beside the dot on the Settings
-	 * button. Absent when nothing does, and the button carries no dot.
-	 */
 	settingsAttention?: string;
 	/**
 	 * The key that composes, as the host's keymap reads it — `c`, `⌘N`,
@@ -129,10 +125,7 @@ export function ShellTopBar({
 						variant="ghost"
 						size="sm"
 						icon={
-							<AttentionDot
-								show={settingsAttention !== undefined}
-								label={settingsAttention ?? ""}
-							>
+							<AttentionDot label={settingsAttention}>
 								<Settings className="size-4" />
 							</AttentionDot>
 						}

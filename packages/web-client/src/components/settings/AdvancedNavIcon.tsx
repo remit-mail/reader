@@ -16,7 +16,7 @@ export function AdvancedNavIcon() {
 		selfUpdate.surface.section.status === "available";
 
 	return (
-		<AttentionDot show={updateAvailable} label="Update available">
+		<AttentionDot label={updateAvailable ? "Update available" : undefined}>
 			<Wrench className="size-4" />
 		</AttentionDot>
 	);

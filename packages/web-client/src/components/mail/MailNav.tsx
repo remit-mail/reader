@@ -42,10 +42,7 @@ export function MailNav({ accounts, onMailboxSelect }: MailNavProps) {
 			</div>
 			<div className="border-t border-line px-2 py-2">
 				<NavLink to="/settings/accounts" onClick={onMailboxSelect}>
-					<AttentionDot
-						show={settingsAttention !== undefined}
-						label={settingsAttention ?? ""}
-					>
+					<AttentionDot label={settingsAttention}>
 						<Settings className="size-4 shrink-0" />
 					</AttentionDot>
 					<span className="flex-1 truncate text-left">Settings</span>

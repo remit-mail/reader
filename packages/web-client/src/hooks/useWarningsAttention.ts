@@ -25,7 +25,7 @@ export function warningsAttentionOf(
 	if (isUnauthenticated(error)) return WARNINGS_ATTENTION.signedOut;
 	if (error) return WARNINGS_ATTENTION.unread;
 	if (!data) return undefined;
-	if (data.entries.length > 0 || data.warnings.length > 0) {
+	if ((data.entries?.length ?? 0) > 0 || (data.warnings?.length ?? 0) > 0) {
 		return WARNINGS_ATTENTION.listed;
 	}
 	return undefined;

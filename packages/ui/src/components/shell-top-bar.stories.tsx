@@ -146,10 +146,6 @@ export const RefreshFailed: Story = {
 	render: () => <Bar refreshState="error" />,
 };
 
-/**
- * A message failed to sync or was set aside. The Settings button carries a dot
- * and nothing else: no count, no copy, no toast. The Warnings page says what.
- */
 export const SettingsAttention: Story = {
 	render: () => <Bar settingsAttention="Sync warnings" />,
 };
