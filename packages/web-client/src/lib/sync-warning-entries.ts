@@ -1,4 +1,5 @@
 import type { RemitImapSyncWarningResponse } from "@remit/api-http-client/types.gen.ts";
+import { syncWarningState } from "@remit/data-ports/sync-warning-state";
 import {
 	canonicalRoleLabel,
 	folderLeaf,
@@ -24,6 +25,7 @@ export function toSyncWarningEntry(
 		syncWarningId: wire.syncWarningId,
 		uid: wire.uid,
 		stage: wire.stage,
+		state: syncWarningState(wire.stage, wire.attempts),
 		attempts: wire.attempts,
 		createdAt: wire.createdAt,
 		folderLabel: folderLabel(folder),

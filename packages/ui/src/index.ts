@@ -904,13 +904,8 @@ export {
 export { syncWarningDemoEntries } from "./components/sync-warning-fixtures.js";
 export {
 	formatSyncWarningReport,
-	SYNC_WARNING_REPORT_DISCLAIMER,
 	type SyncWarningEntry,
-	type SyncWarningStage,
-	type SyncWarningState,
 	syncWarningIssueTitle,
-	syncWarningState,
-	syncWarningSummary,
 } from "./components/sync-warning-report.js";
 export {
 	SyncWarningRow,

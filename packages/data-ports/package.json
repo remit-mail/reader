@@ -60,6 +60,10 @@
 		"./message-settlement": {
 			"types": "./src/message-settlement.ts",
 			"default": "./src/message-settlement.ts"
+		},
+		"./sync-warning-state": {
+			"types": "./src/sync-warning-state.ts",
+			"default": "./src/sync-warning-state.ts"
 		}
 	},
 	"scripts": {

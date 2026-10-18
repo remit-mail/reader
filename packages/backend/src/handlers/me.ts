@@ -8,8 +8,8 @@ import type {
 	VipSuggestionsResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger-lambda";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
@@ -20,8 +20,6 @@ import type { MeOperationIds, OperationHandler } from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
-
-const SURFACED_WARNING_ATTEMPTS = attemptBudget("BODY_SYNC_MAX_ATTEMPTS", 3);
 
 const SURFACED_WARNING_CAP = 200;
 
@@ -53,7 +51,7 @@ export const MeOperations: Record<
 			quarantine.listByAccountConfigId(accountConfigId),
 			syncWarning.listSurfacedByAccountConfigId(
 				accountConfigId,
-				SURFACED_WARNING_ATTEMPTS,
+				SYNC_WARNING_SURFACE_ATTEMPTS,
 				SURFACED_WARNING_CAP,
 			),
 		]);

@@ -3,7 +3,6 @@ import { Badge } from "./badge.js";
 import { Button } from "./button.js";
 import {
 	type SyncWarningEntry,
-	syncWarningState,
 	syncWarningSummary,
 } from "./sync-warning-report.js";
 
@@ -20,11 +19,11 @@ function formatCreatedAt(epochMillis: number): string {
 }
 
 export function SyncWarningRow({ entry, onReport }: SyncWarningRowProps) {
-	const gaveUp = syncWarningState(entry.stage) === "GaveUp";
+	const gaveUp = entry.state === "GaveUp";
 	return (
 		<li className="flex flex-col gap-2 border-b border-line px-row-inset py-3 last:border-b-0 sm:flex-row sm:items-start sm:justify-between">
 			<div className="min-w-0 space-y-1">
-				<p className="text-sm text-fg">{syncWarningSummary(entry.stage)}</p>
+				<p className="text-sm text-fg">{syncWarningSummary(entry)}</p>
 				<p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-2xs text-fg-subtle">
 					<Badge tone={gaveUp ? "danger" : "warning"}>
 						{gaveUp ? "Gave up" : "Retrying"}

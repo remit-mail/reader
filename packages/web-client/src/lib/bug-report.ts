@@ -53,7 +53,6 @@ export interface BugReportContext {
 	 * @remit/ui so the MIME tree is fenced after truncation, never before.
 	 */
 	quarantine?: QuarantineReportSections;
-	/** A sync warning report, from `formatSyncWarningReport` in @remit/ui. */
 	syncWarning?: string;
 	/** Overrides the derived title, e.g. for a quarantine report. */
 	title?: string;

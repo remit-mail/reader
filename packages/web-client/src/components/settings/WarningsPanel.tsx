@@ -1,11 +1,3 @@
-/**
- * Settings › Warnings — the messages sync could not finish, and the messages
- * it set aside.
- *
- * Every read state says something: the lists, the reassurance that they are
- * empty, the failure to read them, and a lapsed session. None of them is an
- * empty panel.
- */
 import {
 	configOperationsGetConfigOptions,
 	meOperationsListQuarantineOptions,
@@ -197,12 +189,6 @@ export function WarningsPanelView({ read, signIn }: WarningsPanelViewProps) {
 	);
 }
 
-/**
- * A row names the folder it came from by the leaf of its path, which cannot be
- * cut until that account's own delimiter has arrived. A mailbox the account no
- * longer lists never gets one, and keeps its whole path — `folderLeaf` on an
- * empty delimiter is the path itself.
- */
 function delimiterForMailbox(
 	folders: ResultFolderIndex,
 	mailboxId: string,
@@ -210,13 +196,6 @@ function delimiterForMailbox(
 	return folders.get(mailboxId)?.hierarchyDelimiter ?? "";
 }
 
-/**
- * The folder names come from the account's mailbox lists, which are a second
- * read — started alongside the warnings list, never behind it. Until both have
- * landed the pane says it is still reading, because a path cut on a delimiter
- * that has not arrived is a wrong folder name rather than a late one, and a
- * failure on either read is reported rather than papered over with a guess.
- */
 export function WarningsPanel() {
 	const list = useQuery({
 		...meOperationsListQuarantineOptions(),

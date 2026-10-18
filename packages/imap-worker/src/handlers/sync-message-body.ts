@@ -1,5 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import { isNotFoundError } from "@remit/data-ports/errors";
+import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import type { Logger } from "@remit/logger-lambda";
 import { recordImapFailure } from "@remit/logger-lambda";
 import {
@@ -32,7 +33,12 @@ const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
 
 export const getBodySyncMaxAttempts = (
 	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("BODY_SYNC_MAX_ATTEMPTS", 3, processEnv);
+): number =>
+	attemptBudget(
+		"BODY_SYNC_MAX_ATTEMPTS",
+		SYNC_WARNING_SURFACE_ATTEMPTS,
+		processEnv,
+	);
 
 export const BODY_SYNC_MAX_ATTEMPTS = getBodySyncMaxAttempts();
 

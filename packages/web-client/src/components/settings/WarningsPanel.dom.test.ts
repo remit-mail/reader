@@ -98,7 +98,7 @@ const mount = async (
 };
 
 describe("WarningsPanel reads", () => {
-	it("lists a warning by its folder leaf beside the set-aside message", async () => {
+	it("lists a body that gave up and a header still retrying beside the set-aside message", async () => {
 		const view = await mount(
 			() => MAILBOXES,
 			(pane) => /Gave up/.test(pane.text()),
@@ -117,12 +117,25 @@ describe("WarningsPanel reads", () => {
 						attempts: 3,
 						createdAt: Date.parse("2026-10-17T08:12:00Z"),
 					},
+					{
+						syncWarningId: "w-2",
+						accountConfigId: "cfg-1",
+						accountId: ACCOUNT_ID,
+						mailboxId: MAILBOX_ID,
+						uidValidity: 1_712_000_000,
+						uid: 50874,
+						stage: "Header",
+						attempts: 5,
+						createdAt: Date.parse("2026-10-16T21:40:00Z"),
+					},
 				],
-				warningsTotal: 1,
+				warningsTotal: 2,
 			}),
 		);
 
 		assert.match(view.text(), /uid 51002/);
+		assert.match(view.text(), /Retrying/);
+		assert.match(view.text(), /uid 50874/);
 		assert.match(view.text(), /Messages set aside/);
 		assert.match(view.text(), /uid 40251/);
 	});
