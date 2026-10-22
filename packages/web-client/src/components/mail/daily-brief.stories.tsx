@@ -7,6 +7,8 @@ import { longPress } from "@/mocks/story-frame/touch";
 
 const world = mailWorld();
 
+const routeLoad = { timeout: 5000 };
+
 const meta = {
 	title: "Playground/Shipped/Mail/Daily brief",
 	component: AppStory,
@@ -51,7 +53,7 @@ export const Default: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(
-			await canvas.findByText("Q3 planning", {}, { timeout: 5000 }),
+			await canvas.findByText("Q3 planning", {}, routeLoad),
 		).toBeVisible();
 		await expect(canvas.getByText("Autumn sale starts now")).toBeVisible();
 	},
@@ -61,7 +63,7 @@ export const Phone: Story = {
 	globals: phone,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(await canvas.findByText("Q3 planning")).toBeVisible();
+		await expect(await canvas.findByText("Q3 planning", {}, routeLoad)).toBeVisible();
 	},
 };
 
@@ -71,14 +73,14 @@ export const CaughtUp: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(await canvas.findByText("You're caught up")).toBeVisible();
+		await expect(await canvas.findByText("You're caught up", {}, routeLoad)).toBeVisible();
 	},
 };
 
 export const FilteredToCategory: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		await openFilters(canvasElement);
 		await pick(canvasElement, "Categories", "Newsletter");
 		await waitFor(() =>
@@ -93,13 +95,13 @@ export const FilteredToCategory: Story = {
 export const WorkOnly: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Dinner on Saturday?");
+		await canvas.findByText("Dinner on Saturday?", {}, routeLoad);
 		await openFilters(canvasElement);
 		await pick(canvasElement, "Accounts", "alice.tan");
 		await waitFor(() =>
 			expect(canvas.queryByText("Dinner on Saturday?")).not.toBeInTheDocument(),
 		);
-		await expect(await canvas.findByText("Q3 planning")).toBeVisible();
+		await expect(await canvas.findByText("Q3 planning", {}, routeLoad)).toBeVisible();
 	},
 };
 
@@ -115,7 +117,7 @@ export const SelectAllThenNarrow: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		await expect(
 			await canvas.findByRole("button", { name: /^Show (all|\d+ more)/ }),
 		).toBeVisible();
@@ -148,7 +150,7 @@ export const SelectAllThenNarrow: Story = {
 export const ShiftArrowRange: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		rows(canvasElement)[0]?.focus();
 		await userEvent.keyboard("j");
 		await userEvent.keyboard("{Shift>}{ArrowDown}{ArrowDown}{/Shift}");
@@ -161,7 +163,7 @@ export const ShiftArrowRange: Story = {
 export const OpenWithJ: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		rows(canvasElement)[0]?.focus();
 		await userEvent.keyboard("j");
 		await waitFor(() =>
@@ -175,7 +177,7 @@ export const OpenWithJ: Story = {
 export const MultiSelect: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		const [first, , third] = rows(canvasElement);
 		for (const row of [first, third]) {
 			const toggle = row?.querySelector<HTMLElement>(
@@ -191,7 +193,7 @@ export const MultiSelectPhone: Story = {
 	globals: phone,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Q3 planning");
+		await canvas.findByText("Q3 planning", {}, routeLoad);
 		const first = rows(canvasElement)[0];
 		if (first) await longPress(first);
 		await expect(await canvas.findByText("1 message selected")).toBeVisible();
@@ -203,7 +205,7 @@ export const Search: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
 		await expect(
-			await canvas.findByText("Signed lease attached"),
+			await canvas.findByText("Signed lease attached", {}, routeLoad),
 		).toBeVisible();
 		await expect(canvas.queryByText("Dinner on Saturday?")).toBeNull();
 	},
@@ -213,7 +215,7 @@ export const SearchWithChips: Story = {
 	args: { url: "/mail/brief?q=your" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await canvas.findByText("Signed lease attached");
+		await canvas.findByText("Signed lease attached", {}, routeLoad);
 		await openFilters(canvasElement);
 		await pick(canvasElement, "Attributes", "Unread");
 		await waitFor(() =>
@@ -228,9 +230,7 @@ export const SearchOfChipsOnly: Story = {
 	args: { url: "/mail/brief?q=is:unread" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const offer = await canvas.findByRole("button", {
-			name: "Make this a filter",
-		});
+		const offer = await canvas.findByRole("button", { name: "Make this a filter" }, routeLoad);
 		await userEvent.click(offer);
 		await expect(
 			await canvas.findByText(/isn't a filter condition/, { selector: "p" }),
@@ -242,7 +242,7 @@ export const SearchHitOutsideTheBrief: Story = {
 	args: { url: "/mail/brief?q=outline" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await userEvent.click(await canvas.findByText("Conference talk outline"));
+		await userEvent.click(await canvas.findByText("Conference talk outline", {}, routeLoad));
 		await waitFor(() =>
 			expect(
 				canvas.getAllByText("Here is the rough structure for the keynote."),
