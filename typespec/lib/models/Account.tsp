@@ -340,52 +340,49 @@ model AccountSyncStatusResponse {
 }
 
 @doc("Account configuration response")
-model AccountConfigResponse
-  is PickProperties<
-    AccountConfig,
-
-      | "accountConfigId"
-      | "userId"
-      | "name"
-      | "state"
-      | "deletedAt"
-      | "cascadeStartedAt"
-      | "createdAt"
-      | "updatedAt"
-  >;
+model AccountConfigResponse is PickProperties<
+  AccountConfig,
+  | "accountConfigId"
+  | "userId"
+  | "name"
+  | "state"
+  | "deletedAt"
+  | "cascadeStartedAt"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 @doc("Account response (excluding sensitive fields). Display name, mute flag, and signatures are sourced from per-account AccountSetting rows (RFC 032), not the Account entity, but are surfaced here so the response shape is unchanged.")
 model AccountResponse {
   ...PickProperties<
     Account,
-
-      | "accountId"
-      | "accountConfigId"
-      | "username"
-      | "email"
-      | "authType"
-      | "syncedServices"
-      | "grantedScopes"
-      | "imapHost"
-      | "imapPort"
-      | "imapTls"
-      | "imapStartTls"
-      | "smtpEnabled"
-      | "smtpHost"
-      | "smtpPort"
-      | "smtpTls"
-      | "smtpStartTls"
-      | "smtpUsername"
-      | "isActive"
-      | "connectionState"
-      | "lastConnectedAt"
-      | "lastSyncAt"
-      | "lastError"
-      | "syncPhase"
-      | "mailboxCountTotal"
-      | "mailboxCountSynced"
-      | "createdAt"
-      | "updatedAt"
+    | "accountId"
+    | "accountConfigId"
+    | "username"
+    | "email"
+    | "authType"
+    | "syncedServices"
+    | "grantedScopes"
+    | "imapHost"
+    | "imapPort"
+    | "imapTls"
+    | "imapStartTls"
+    | "smtpEnabled"
+    | "smtpHost"
+    | "smtpPort"
+    | "smtpTls"
+    | "smtpStartTls"
+    | "smtpUsername"
+    | "isActive"
+    | "connectionState"
+    | "lastConnectedAt"
+    | "lastSyncAt"
+    | "lastError"
+    | "syncPhase"
+    | "mailboxCountTotal"
+    | "mailboxCountSynced"
+    | "createdAt"
+    | "updatedAt"
   >;
 
   @doc("User-chosen display name for this account. Optional; when absent the UI derives a label from the email address. Sourced from a per-account AccountSetting row (RFC 032).")
@@ -408,25 +405,23 @@ model AccountResponse {
 }
 
 @doc("Address response for address book entries")
-model AddressResponse
-  is PickProperties<
-    Address,
-
-      | "addressId"
-      | "accountConfigId"
-      | "displayName"
-      | "localPart"
-      | "domain"
-      | "normalizedEmail"
-      | "flags"
-      | "inboundCount"
-      | "outboundCount"
-      | "replyCount"
-      | "lastInboundAt"
-      | "lastReplyAt"
-      | "createdAt"
-      | "updatedAt"
-  >;
+model AddressResponse is PickProperties<
+  Address,
+  | "addressId"
+  | "accountConfigId"
+  | "displayName"
+  | "localPart"
+  | "domain"
+  | "normalizedEmail"
+  | "flags"
+  | "inboundCount"
+  | "outboundCount"
+  | "replyCount"
+  | "lastInboundAt"
+  | "lastReplyAt"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 @doc("Full configuration description including accounts")
 model ConfigDescriptionResponse {

@@ -40,9 +40,10 @@ namespace RemitApi {
     @doc("Request full erasure of the current user's account and all associated data")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
-    op deleteMe(
-      @body body: DeleteMeInput,
-    ): DeleteAccountConfigResponse | ValidationError | UnauthorizedError;
+    op deleteMe(@body body: DeleteMeInput):
+      | DeleteAccountConfigResponse
+      | ValidationError
+      | UnauthorizedError;
 
     @doc("List wellknown senders the user has not yet promoted to VIP. Ranked by `replyCount + inboundCount` desc with `lastInboundAt` desc as the tie-breaker. Capped at 10.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -60,9 +61,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/export/{exportId}")
-    op getExport(
-      @path exportId: string,
-    ): AccountExportRequestResponse | NotFoundError | UnauthorizedError;
+    op getExport(@path exportId: string):
+      | AccountExportRequestResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("List every message the sync path could not read, for the current user across all of their mail accounts (issue #72). Backs the quarantine section in settings. Unpaginated: the list is small by design, and an entry is a defect waiting to be reported rather than a page of mail.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -159,10 +161,10 @@ namespace RemitApi {
   namespace MailboxDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getMailbox(
-      @path accountId: UUID,
-      @path mailboxId: UUID,
-    ): MailboxResponse | NotFoundError | UnauthorizedError;
+    op getMailbox(@path accountId: UUID, @path mailboxId: UUID):
+      | MailboxResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("Rename a folder, or dismiss a folder mutation that failed. `fullPath` records the rename target over the folder and everything under it; the folder keeps the path the mail server holds until the rename lands. A `fullPath` equal to the folder's current one is a dismissal: it clears a failed rename or delete and enqueues nothing. Refused with 400 for INBOX at either end, a name reserved for a system folder, and a name another folder already has; with 409 when a mutation is already in flight on the folder or on anything inside it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -248,10 +250,10 @@ namespace RemitApi {
   namespace FilterDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getFilter(
-      @path accountId: UUID,
-      @path filterId: UUID,
-    ): FilterResponse | NotFoundError | UnauthorizedError;
+    op getFilter(@path accountId: UUID, @path filterId: UUID):
+      | FilterResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -308,10 +310,10 @@ namespace RemitApi {
   namespace LabelDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getLabel(
-      @path accountId: UUID,
-      @path labelId: UUID,
-    ): LabelResponse | NotFoundError | UnauthorizedError;
+    op getLabel(@path accountId: UUID, @path labelId: UUID):
+      | LabelResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @patch(#{ implicitOptionality: true })
@@ -363,10 +365,10 @@ namespace RemitApi {
     @doc("Get the status of a back-apply job, including matched/applied/failed counts. Terminal states are Complete and Failed.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getOrganizeJob(
-      @path accountId: UUID,
-      @path organizeJobId: UUID,
-    ): OrganizeJobResponse | NotFoundError | UnauthorizedError;
+    op getOrganizeJob(@path accountId: UUID, @path organizeJobId: UUID):
+      | OrganizeJobResponse
+      | NotFoundError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -383,18 +385,20 @@ namespace RemitApi {
     @doc("Create a calendar collection. Refused with 400 when `urlSegment` is empty or already taken in this account config — the segment is the collection's identity, so a second create under the same one would otherwise silently return the collection that already exists. With `subscriptionUrl` the feed is fetched first and a fetch that fails is refused with 400 `subscription_unreachable`, naming why and never the URL.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
-    op createCalendar(
-      @body input: CreateCalendarInput,
-    ): CalendarResponse | ValidationError | UnauthorizedError;
+    op createCalendar(@body input: CreateCalendarInput):
+      | CalendarResponse
+      | ValidationError
+      | UnauthorizedError;
   }
 
   @route("/calendars/{calendarId}")
   namespace CalendarDetailOperations {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getCalendar(
-      @path calendarId: UUID,
-    ): CalendarResponse | NotFoundError | UnauthorizedError;
+    op getCalendar(@path calendarId: UUID):
+      | CalendarResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("Update a calendar collection. `subscriptionEnabled` is refused with 400 `not_subscribed` on a collection that is not `Subscribed`. Turning it off stops the refresh and removes nothing.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -421,9 +425,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/feed")
-    op getCalendarFeed(
-      @path calendarId: UUID,
-    ): CalendarFeedStateResponse | NotFoundError | UnauthorizedError;
+    op getCalendarFeed(@path calendarId: UUID):
+      | CalendarFeedStateResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("""
       Mint the calendar's feed address, or replace the one it has, and answer
@@ -438,17 +443,19 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @put
     @route("/feed")
-    op putCalendarFeed(
-      @path calendarId: UUID,
-    ): CalendarFeedResponse | NotFoundError | UnauthorizedError;
+    op putCalendarFeed(@path calendarId: UUID):
+      | CalendarFeedResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("Revoke the calendar's feed address. Every subscribed client starts getting 404 on its next poll. Answered 404 when the calendar has no feed, so a revoke is never reported as having taken something away that was not there.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @delete
     @route("/feed")
-    op revokeCalendarFeed(
-      @path calendarId: UUID,
-    ): CalendarNoContent | NotFoundError | UnauthorizedError;
+    op revokeCalendarFeed(@path calendarId: UUID):
+      | CalendarNoContent
+      | NotFoundError
+      | UnauthorizedError;
   }
 
   @route("/feeds/calendar")
@@ -479,7 +486,10 @@ namespace RemitApi {
       @doc("HTTP-date a subscriber last saw the calendar at. Ignored when `If-None-Match` also arrives (RFC 9110 13.2.2), and compared at whole seconds, which is the resolution the `Last-Modified` it came from has.")
       @header("If-Modified-Since")
       ifModifiedSince?: string,
-    ): CalendarFeedIcalResponse | CalendarFeedNotModified | CalendarFeedNotFound;
+    ):
+      | CalendarFeedIcalResponse
+      | CalendarFeedNotModified
+      | CalendarFeedNotFound;
   }
 
   @route("/calendar-events")
@@ -681,9 +691,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
     @route("/status")
-    op getSyncStatus(
-      @path accountId: UUID,
-    ): AccountSyncStatusResponse | NotFoundError | UnauthorizedError;
+    op getSyncStatus(@path accountId: UUID):
+      | AccountSyncStatusResponse
+      | NotFoundError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -705,9 +716,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/test-connection")
-    op testConnection(
-      @body input: TestConnectionInput,
-    ): TestConnectionResponse | NotFoundError | UnauthorizedError;
+    op testConnection(@body input: TestConnectionInput):
+      | TestConnectionResponse
+      | NotFoundError
+      | UnauthorizedError;
   }
 
   // ============================================
@@ -734,9 +746,10 @@ namespace RemitApi {
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @post
     @route("/start")
-    op microsoftOAuthStart(
-      @body input: MicrosoftOAuthStartRequest,
-    ): MicrosoftOAuthStartResponse | ValidationError | UnauthorizedError;
+    op microsoftOAuthStart(@body input: MicrosoftOAuthStartRequest):
+      | MicrosoftOAuthStartResponse
+      | ValidationError
+      | UnauthorizedError;
 
     @doc("Microsoft OAuth2 callback endpoint — receives the authorization code from Microsoft and exchanges it for tokens. This endpoint is intentionally unauthenticated: the browser is redirected here by Microsoft after the user grants consent, before any Cognito session is available. CSRF is prevented by an HMAC-signed state parameter.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1010,9 +1023,10 @@ namespace RemitApi {
     @doc("Get an outbox message by ID")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op getOutboxMessage(
-      @path outboxMessageId: UUID,
-    ): OutboxMessageResponse | NotFoundError | UnauthorizedError;
+    op getOutboxMessage(@path outboxMessageId: UUID):
+      | OutboxMessageResponse
+      | NotFoundError
+      | UnauthorizedError;
 
     @doc("Update a draft outbox message")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
@@ -1053,7 +1067,10 @@ namespace RemitApi {
     op mintOutboxAttachment(
       @path outboxMessageId: UUID,
       @body input: MintOutboxAttachmentInput,
-    ): MintOutboxAttachmentResponse | OutboxAttachmentRejected | UnauthorizedError;
+    ):
+      | MintOutboxAttachmentResponse
+      | OutboxAttachmentRejected
+      | UnauthorizedError;
   }
 
   @route("/outbox/{outboxMessageId}/attachments/{outboxAttachmentId}")
@@ -1230,7 +1247,10 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<CalendarSuggestionResponse> | ValidationError | UnauthorizedError;
+    ):
+      | ResultList<CalendarSuggestionResponse>
+      | ValidationError
+      | UnauthorizedError;
   }
 
   @route("/messages/{messageId}/calendar-suggestions")
@@ -1238,9 +1258,10 @@ namespace RemitApi {
     @doc("Every suggestion read out of one message, in whatever state each has reached — a superseded revision included, so the card can say which revision replaced it.")
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
-    op listMessageCalendarSuggestions(
-      @path messageId: UUID,
-    ): ResultList<CalendarSuggestionResponse> | ValidationError | UnauthorizedError;
+    op listMessageCalendarSuggestions(@path messageId: UUID):
+      | ResultList<CalendarSuggestionResponse>
+      | ValidationError
+      | UnauthorizedError;
   }
 
   @route("/calendar-suggestions/{suggestionId}")

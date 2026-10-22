@@ -78,18 +78,16 @@ model CreateExportResponse {
 }
 
 @doc("Response body for GET /me/export/{exportId}")
-model AccountExportRequestResponse
-  is PickProperties<
-    AccountExportRequest,
-
-      | "accountExportRequestId"
-      | "accountConfigId"
-      | "userId"
-      | "state"
-      | "createdAt"
-      | "updatedAt"
-      | "expiresAt"
-      | "objectKey"
-      | "downloadUrl"
-      | "errorMessage"
-  >;
+model AccountExportRequestResponse is PickProperties<
+  AccountExportRequest,
+  | "accountExportRequestId"
+  | "accountConfigId"
+  | "userId"
+  | "state"
+  | "createdAt"
+  | "updatedAt"
+  | "expiresAt"
+  | "objectKey"
+  | "downloadUrl"
+  | "errorMessage"
+>;

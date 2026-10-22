@@ -157,24 +157,23 @@ model OutboxMessage {
 model OutboxMessageResponse {
   ...PickProperties<
     OutboxMessage,
-
-      | "outboxMessageId"
-      | "accountId"
-      | "fromAddress"
-      | "fromName"
-      | "toAddresses"
-      | "ccAddresses"
-      | "bccAddresses"
-      | "subject"
-      | "textBody"
-      | "htmlBody"
-      | "inReplyTo"
-      | "references"
-      | "status"
-      | "lastError"
-      | "sentAt"
-      | "createdAt"
-      | "updatedAt"
+    | "outboxMessageId"
+    | "accountId"
+    | "fromAddress"
+    | "fromName"
+    | "toAddresses"
+    | "ccAddresses"
+    | "bccAddresses"
+    | "subject"
+    | "textBody"
+    | "htmlBody"
+    | "inReplyTo"
+    | "references"
+    | "status"
+    | "lastError"
+    | "sentAt"
+    | "createdAt"
+    | "updatedAt"
   >;
 
   @doc("Files on this message. Empty when it carries none.")

@@ -143,26 +143,24 @@ model CreateOrganizeJobResponse {
 }
 
 @doc("Job item returned by GET /accounts/{accountId}/organize/{organizeJobId}. `ttl` is internal bookkeeping and not surfaced.")
-model OrganizeJobResponse
-  is PickProperties<
-    OrganizeJobRequest,
-
-      | "organizeJobId"
-      | "accountConfigId"
-      | "userId"
-      | "state"
-      | "filterId"
-      | "matchOperator"
-      | "literalClauses"
-      | "actionLabelId"
-      | "actionMailboxId"
-      | "matchedCount"
-      | "appliedCount"
-      | "failedCount"
-      | "errorMessage"
-      | "createdAt"
-      | "updatedAt"
-  >;
+model OrganizeJobResponse is PickProperties<
+  OrganizeJobRequest,
+  | "organizeJobId"
+  | "accountConfigId"
+  | "userId"
+  | "state"
+  | "filterId"
+  | "matchOperator"
+  | "literalClauses"
+  | "actionLabelId"
+  | "actionMailboxId"
+  | "matchedCount"
+  | "appliedCount"
+  | "failedCount"
+  | "errorMessage"
+  | "createdAt"
+  | "updatedAt"
+>;
 
 @doc("Response body for POST /accounts/{accountId}/organize/preview — the messages the same matcher would apply the action to, without applying it. Bounded server-side.")
 model OrganizePreviewResponse {

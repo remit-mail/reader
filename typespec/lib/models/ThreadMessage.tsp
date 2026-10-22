@@ -223,24 +223,23 @@ model ThreadMessage {
 model ThreadMessageResponse {
   ...PickProperties<
     ThreadMessage,
-
-      | "threadMessageId"
-      | "threadId"
-      | "messageId"
-      | "accountConfigId"
-      | "mailboxId"
-      | "subject"
-      | "fromEmail"
-      | "fromName"
-      | "sentDate"
-      | "isRead"
-      | "hasAttachment"
-      | "hasStars"
-      | "star"
-      | "isDeleted"
-      | "snippet"
-      | "createdAt"
-      | "updatedAt"
+    | "threadMessageId"
+    | "threadId"
+    | "messageId"
+    | "accountConfigId"
+    | "mailboxId"
+    | "subject"
+    | "fromEmail"
+    | "fromName"
+    | "sentDate"
+    | "isRead"
+    | "hasAttachment"
+    | "hasStars"
+    | "star"
+    | "isDeleted"
+    | "snippet"
+    | "createdAt"
+    | "updatedAt"
   >;
 
   @doc("Header-derived category for the message, served from the ThreadMessage row. Always present: the column is NOT NULL with an `uncategorized` default, and `uncategorized` is a named value — no category — never a stand-in for `personal` (issue #45).")
