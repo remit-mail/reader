@@ -63,7 +63,9 @@ export const Phone: Story = {
 	globals: phone,
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(await canvas.findByText("Q3 planning", {}, routeLoad)).toBeVisible();
+		await expect(
+			await canvas.findByText("Q3 planning", {}, routeLoad),
+		).toBeVisible();
 	},
 };
 
@@ -73,7 +75,9 @@ export const CaughtUp: Story = {
 	},
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(await canvas.findByText("You're caught up", {}, routeLoad)).toBeVisible();
+		await expect(
+			await canvas.findByText("You're caught up", {}, routeLoad),
+		).toBeVisible();
 	},
 };
 
@@ -101,7 +105,9 @@ export const WorkOnly: Story = {
 		await waitFor(() =>
 			expect(canvas.queryByText("Dinner on Saturday?")).not.toBeInTheDocument(),
 		);
-		await expect(await canvas.findByText("Q3 planning", {}, routeLoad)).toBeVisible();
+		await expect(
+			await canvas.findByText("Q3 planning", {}, routeLoad),
+		).toBeVisible();
 	},
 };
 
@@ -230,7 +236,11 @@ export const SearchOfChipsOnly: Story = {
 	args: { url: "/mail/brief?q=is:unread" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		const offer = await canvas.findByRole("button", { name: "Make this a filter" }, routeLoad);
+		const offer = await canvas.findByRole(
+			"button",
+			{ name: "Make this a filter" },
+			routeLoad,
+		);
 		await userEvent.click(offer);
 		await expect(
 			await canvas.findByText(/isn't a filter condition/, { selector: "p" }),
@@ -242,7 +252,9 @@ export const SearchHitOutsideTheBrief: Story = {
 	args: { url: "/mail/brief?q=outline" },
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await userEvent.click(await canvas.findByText("Conference talk outline", {}, routeLoad));
+		await userEvent.click(
+			await canvas.findByText("Conference talk outline", {}, routeLoad),
+		);
 		await waitFor(() =>
 			expect(
 				canvas.getAllByText("Here is the rough structure for the keynote."),
