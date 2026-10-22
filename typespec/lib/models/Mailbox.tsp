@@ -283,25 +283,24 @@ model RenameMailboxInput {
 model MailboxResponse {
   ...PickProperties<
     Mailbox,
-
-      | "mailboxId"
-      | "accountId"
-      | "fullPath"
-      | "namespaceType"
-      | "namespacePrefix"
-      | "hierarchyDelimiter"
-      | "messageCount"
-      | "unseenCount"
-      | "deletedCount"
-      | "specialUse"
-      | "lastSyncUid"
-      | "highWaterMarkUid"
-      | "lastMessageSyncAt"
-      | "syncStatus"
-      | "pendingPath"
-      | "syncFailureReason"
-      | "createdAt"
-      | "updatedAt"
+    | "mailboxId"
+    | "accountId"
+    | "fullPath"
+    | "namespaceType"
+    | "namespacePrefix"
+    | "hierarchyDelimiter"
+    | "messageCount"
+    | "unseenCount"
+    | "deletedCount"
+    | "specialUse"
+    | "lastSyncUid"
+    | "highWaterMarkUid"
+    | "lastMessageSyncAt"
+    | "syncStatus"
+    | "pendingPath"
+    | "syncFailureReason"
+    | "createdAt"
+    | "updatedAt"
   >;
 
   @doc("Mailbox-level mute flag. When set, this mailbox is hidden from unified/brief views (sync is unaffected). Sourced from a per-mailbox AccountSetting row (RFC 032).")

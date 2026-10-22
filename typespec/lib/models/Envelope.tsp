@@ -111,8 +111,7 @@ model MessageReference {
 }
 
 @doc("Message reference response for In-Reply-To and References headers")
-model MessageReferenceResponse
-  is PickProperties<
-    MessageReference,
-    "messageIdValue" | "referenceType" | "referenceOrder"
-  >;
+model MessageReferenceResponse is PickProperties<
+  MessageReference,
+  "messageIdValue" | "referenceType" | "referenceOrder"
+>;

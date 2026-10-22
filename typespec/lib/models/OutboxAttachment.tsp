@@ -137,13 +137,12 @@ model MintOutboxAttachmentResponse {
 model OutboxAttachmentResponse {
   ...PickProperties<
     OutboxAttachment,
-
-      | "outboxAttachmentId"
-      | "outboxMessageId"
-      | "filename"
-      | "contentType"
-      | "sizeBytes"
-      | "state"
+    | "outboxAttachmentId"
+    | "outboxMessageId"
+    | "filename"
+    | "contentType"
+    | "sizeBytes"
+    | "state"
   >;
 
   @doc("Content-ID the body refers to this file by, as `cid:<contentId>`")
