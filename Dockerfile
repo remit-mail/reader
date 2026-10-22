@@ -46,7 +46,7 @@ ARG SPELLCHECK_ENGINE=${SPELLCHECK_ENGINE:-none}
 # checksum, so the npm ci layer still only busts when an install input
 # changes — the same cache property, without the labs frontend.
 ########################################################################
-FROM docker.io/library/node:24 AS manifests
+FROM docker.io/library/node:25 AS manifests
 WORKDIR /src
 COPY . .
 RUN find . -type f ! -name package.json ! -name package-lock.json \
@@ -70,10 +70,10 @@ RUN find . -type f ! -name package.json ! -name package-lock.json \
 # stays unconditional while the 3.4 GB toolchain is never fetched. The web
 # client stages nothing from build/hunspell when the language list is empty.
 ########################################################################
-FROM docker.io/library/node:24 AS hunspell-wasm-none
+FROM docker.io/library/node:25 AS hunspell-wasm-none
 RUN mkdir -p /out
 
-FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm-built
+FROM docker.io/emscripten/emsdk:6.0.12 AS hunspell-wasm-built
 WORKDIR /src
 COPY docker/hunspell/ ./docker/hunspell/
 ENV OUT_DIR=/out
@@ -86,7 +86,7 @@ FROM hunspell-wasm-${SPELLCHECK_ENGINE} AS hunspell-wasm
 # apisix route table, and one esbuild bundle per node-service entrypoint.
 # Shared by every target below so the expensive steps run once.
 ########################################################################
-FROM docker.io/library/node:24 AS builder
+FROM docker.io/library/node:25 AS builder
 WORKDIR /app
 
 # Manifests only, first — so an npm ci is only re-run when a package.json or
@@ -331,7 +331,7 @@ CMD ["node", "server.mjs"]
 ########################################################################
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
-FROM docker.io/apache/apisix:3.13.0-debian AS apisix
+FROM docker.io/apache/apisix:3.19.0-debian AS apisix
 COPY --from=builder /app/packages/apisix/config.yaml /usr/local/apisix/conf/config.yaml
 COPY --from=builder /app/packages/apisix/apisix.yaml /usr/local/apisix/conf/apisix.yaml
 # The upstream image's docker-entrypoint.sh only trusts config.yaml's
