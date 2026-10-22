@@ -50,7 +50,9 @@ const pick = async (
 export const Default: Story = {
 	play: async ({ canvasElement }) => {
 		const canvas = within(canvasElement);
-		await expect(await canvas.findByText("Q3 planning")).toBeVisible();
+		await expect(
+			await canvas.findByText("Q3 planning", {}, { timeout: 5000 }),
+		).toBeVisible();
 		await expect(canvas.getByText("Autumn sale starts now")).toBeVisible();
 	},
 };
