@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -28,7 +28,7 @@ jobs:
         run: npm ci --no-audit --no-fund --loglevel=error
       - name: Build
         run: npm run build -w @remit/docs-site
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: docs-site
           path: doc/remit.email/output
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
       - uses: actions/download-artifact@v8
