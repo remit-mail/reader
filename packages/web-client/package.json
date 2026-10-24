@@ -86,7 +86,7 @@
 		"aws-amplify": "^6",
 		"@aws-amplify/ui-react": "^6",
 		"aws-rum-web": "^3",
-		"better-auth": "^1.6.23",
+		"better-auth": "^1.7.12",
 		"i18next": "^24",
 		"i18next-browser-languagedetector": "^8",
 		"i18next-http-backend": "^4.0.2",
