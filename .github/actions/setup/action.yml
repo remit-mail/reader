@@ -13,7 +13,7 @@ runs:
   steps:
     - uses: actions/setup-node@v4
       with:
-        node-version: 22
+        node-version-file: .nvmrc
 
     # Keyed on the lockfile, but a stale entry still holds nearly every tarball,
     # so the restore-keys fallback keeps a lockfile change off the network.

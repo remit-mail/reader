@@ -38,11 +38,12 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Offer the preview checkbox
         env:
@@ -88,12 +89,13 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
             .github/actions
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Decide whether this preview may deploy
         id: guard
@@ -137,7 +139,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.guard.outputs.eligible == 'true'
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: pr-source/package-lock.json
 
@@ -216,11 +218,12 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       # The build takes minutes, and this push then waits its turn behind
       # every other pending gh-pages push, which can take minutes more. A

@@ -14,7 +14,8 @@
 # `publish-dry-run`, because only a job in that workflow can be a dependency of
 # the `gate` job branch protection requires.
 #
-# Auth is the granular access token in the `NPM_TOKEN` secret.
+# Auth is npm Trusted Publishing: the job mints a GitHub OIDC token (needs npm
+# >= 11.5.1, which Node 24 bundles), so no npm token lives in the environment.
 name: Publish
 
 on:
@@ -29,15 +30,17 @@ jobs:
   publish:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
-          registry-url: https://registry.npmjs.org
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
       # @remit/web-client-dist is the built web client, and the build stages the
@@ -48,5 +51,3 @@ jobs:
       # generated (build/) before the workspace set that depends on them. Safe on
       # every run.
       - run: npm run release
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

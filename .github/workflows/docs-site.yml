@@ -20,7 +20,7 @@ jobs:
           fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
       # The site is a workspace of the root manifest, so it installs and builds
       # from there -- that is also what puts it in `npm run typecheck`.
@@ -61,7 +61,7 @@ jobs:
           fetch-depth: 1
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
       - uses: actions/download-artifact@v8
         with:
           name: docs-site

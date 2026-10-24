@@ -24,6 +24,7 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
   remove:
@@ -52,11 +53,12 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
 
       - name: Delete every preview for this pull request
         run: >-
