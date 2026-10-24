@@ -10,9 +10,9 @@ import type {
 	FlagsMergePatch,
 	ResultList,
 } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

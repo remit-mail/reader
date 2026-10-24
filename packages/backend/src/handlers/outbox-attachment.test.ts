@@ -24,6 +24,7 @@ import type {
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
 import { ForbiddenError, NotFoundError } from "@remit/data-ports/errors";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	OutboxAttachmentRejectionReason,
 	OutboxMessageStatus,
@@ -40,7 +41,6 @@ import { createFilesystemStorageService } from "@remit/storage-service/filesyste
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
-import { deriveAccountConfigId } from "../auth.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import {

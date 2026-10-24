@@ -3,7 +3,6 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import type {
 	BodyPartItem,
 	EnvelopeAddressItem,
-	MessageItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
@@ -12,6 +11,10 @@ import {
 	ContentDisposition,
 	MediaType,
 } from "@remit/domain-enums";
+import {
+	materializeBodyParts,
+	resolveMessageOwnership,
+} from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 
@@ -61,23 +64,6 @@ const toPage = (result: {
 	continuationToken: result.continuationToken,
 });
 
-const owningAccountId = async (
-	deps: McpDeps,
-	accountConfigId: string,
-	message: MessageItem,
-): Promise<string> => {
-	const accounts = await deps.account.listAllByAccountConfig(accountConfigId);
-	const mailboxes = await Promise.all(
-		accounts.map((account) =>
-			deps.mailbox.get(account.accountId, [message.mailboxId]),
-		),
-	);
-	const owner = mailboxes.flat()[0];
-	if (!owner)
-		throw new NotFoundError(`Message not found: ${message.messageId}`);
-	return owner.accountId;
-};
-
 const addressesByRole = (addresses: EnvelopeAddressItem[], role: string) =>
 	addresses
 		.filter((address) => address.addressRole === role)
@@ -105,20 +91,13 @@ const truncateUtf8 = (text: string) => {
 	};
 };
 
-const readBodyText = async (
+const readPlainText = async (
 	deps: McpDeps,
 	accountConfigId: string,
 	accountId: string,
-	message: MessageItem,
+	messageId: string,
 	parts: BodyPartItem[],
 ) => {
-	if (!message.bodyStorageKey) return { bodyAvailable: false };
-	await deps.bodySync.ensureBodyPartsStored(
-		accountConfigId,
-		accountId,
-		message.messageId,
-		message.bodyStorageKey,
-	);
 	const texts = await Promise.all(
 		parts
 			.filter(isPlainTextLeaf)
@@ -127,17 +106,14 @@ const readBodyText = async (
 				deps.storage.retrieveBodyPart(
 					accountConfigId,
 					accountId,
-					message.messageId,
+					messageId,
 					part.partPath,
 				),
 			),
 	);
 	const stored = texts.filter((text): text is Buffer => text !== null);
-	if (stored.length === 0) return { bodyAvailable: true, bodyText: null };
-	return {
-		bodyAvailable: true,
-		...truncateUtf8(stored.map((text) => text.toString("utf8")).join("\n\n")),
-	};
+	if (stored.length === 0) return { bodyText: null };
+	return truncateUtf8(stored.map((text) => text.toString("utf8")).join("\n\n"));
 };
 
 export const registerReadTools = (
@@ -294,9 +270,29 @@ export const registerReadTools = (
 			annotations: READ_ONLY,
 		},
 		async (args) => {
+			const ownership = await resolveMessageOwnership(
+				deps,
+				[args.messageId],
+				accountConfigId,
+			);
+			if (ownership.outcome !== "Owned") {
+				throw new NotFoundError(`Message not found: ${args.messageId}`);
+			}
+			const { accountId } = ownership;
 			const message = await deps.message.get(args.messageId);
-			const accountId = await owningAccountId(deps, accountConfigId, message);
 			const description = await deps.message.describe(args.messageId);
+			const materialized = await materializeBodyParts(deps.bodySync, {
+				accountConfigId,
+				accountId,
+				mailboxId: message.mailboxId,
+				messageId: message.messageId,
+				uid: message.uid,
+				bodyStorageKey: message.bodyStorageKey,
+				cue: deps.bodySyncQueue,
+				logger: deps.logger,
+			});
+			const bodyAvailable =
+				Boolean(message.bodyStorageKey) && materialized.ready;
 			const envelope = description.envelope[0];
 			const addresses = description.envelopeAddress;
 			return asJson({
@@ -320,13 +316,16 @@ export const registerReadTools = (
 						mediaType: `${part.mediaType}/${part.mediaSubtype}`.toLowerCase(),
 						sizeOctets: part.sizeOctets,
 					})),
-				...(await readBodyText(
-					deps,
-					accountConfigId,
-					accountId,
-					message,
-					description.bodyPart,
-				)),
+				bodyAvailable,
+				...(bodyAvailable
+					? await readPlainText(
+							deps,
+							accountConfigId,
+							accountId,
+							message.messageId,
+							description.bodyPart,
+						)
+					: {}),
 			});
 		},
 	);

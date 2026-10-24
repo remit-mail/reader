@@ -4,7 +4,11 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import type { BodySyncService } from "@remit/mailbox-service";
+import type {
+	BodyPartMaterializer,
+	BodySyncCue,
+	MaterializeLogger,
+} from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
 
 export interface McpDeps {
@@ -16,5 +20,7 @@ export interface McpDeps {
 		"listByMailbox" | "listByThread" | "searchByDate"
 	>;
 	storage: Pick<StorageService, "retrieveBodyPart">;
-	bodySync: Pick<BodySyncService, "ensureBodyPartsStored">;
+	bodySync: BodyPartMaterializer;
+	bodySyncQueue: BodySyncCue | undefined;
+	logger: MaterializeLogger;
 }

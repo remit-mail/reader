@@ -6,10 +6,10 @@ import type {
 	CalendarEventIndexItem,
 	CalendarObjectItem,
 } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CalendarSource, RecurrenceScope } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

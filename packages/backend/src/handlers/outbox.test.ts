@@ -28,6 +28,7 @@ import type {
 } from "@remit/data-ports";
 import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import {
 	OutboxAttachmentService,
@@ -39,7 +40,6 @@ import {
 } from "@remit/storage-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import {

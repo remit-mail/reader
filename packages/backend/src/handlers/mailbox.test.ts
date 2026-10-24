@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

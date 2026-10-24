@@ -19,10 +19,10 @@ import type {
 	ResultList,
 } from "@remit/data-ports";
 import { APPENDED_UID_NONE } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

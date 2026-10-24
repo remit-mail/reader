@@ -38,6 +38,7 @@ type Seeded = {
 let store: Store;
 let storage: StorageService;
 let deps: McpDeps;
+const rearmed: string[] = [];
 let mine: Seeded;
 let theirs: Seeded;
 
@@ -107,6 +108,12 @@ before(async () => {
 			new SyncWarningService(store.syncWarning),
 			silentLog,
 		),
+		bodySyncQueue: {
+			requestBodySync: async ({ messageId }) => {
+				rearmed.push(messageId);
+			},
+		},
+		logger: silentLog,
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");
@@ -190,10 +197,9 @@ describe("the read tools behind mail:read", () => {
 			name: "list_mailboxes",
 			arguments: {},
 		});
-		const refused =
-			body.error !== undefined ||
-			(body.result as ToolResult | undefined)?.isError === true;
-		assert.ok(refused, JSON.stringify(body));
+		assert.equal(body.result, undefined);
+		assert.equal(body.error?.code, -32601);
+		assert.match(body.error?.message ?? "", /method not found/i);
 	});
 });
 
@@ -293,6 +299,47 @@ describe("get_message", () => {
 			"Hello mine, your invoice is attached.",
 		);
 		assert.equal(message.truncated, false);
+	});
+
+	it("re-arms the body sync when the stored body is missing", async () => {
+		const userId = "mcp-missing-body-user";
+		const imap = new FakeImapServer();
+		const account = await seedAccount(store, {
+			accountConfigId: deriveAccountConfigId(userId),
+			username: "missing@example.com",
+			email: "missing@example.com",
+		});
+		const inbox = await seedMailbox(store, account, "INBOX");
+		imap.addFolder("INBOX");
+		const messageId = await arriveAt(
+			store,
+			imap,
+			account,
+			inbox,
+			eml({ "Message-ID": "<missing@example.com>" }, "never stored"),
+		);
+		const stored = await store.message.get(mine.invoiceId);
+		await store.message.update(messageId, {
+			bodyStorageKey: stored.bodyStorageKey?.replace(mine.invoiceId, messageId),
+		});
+
+		const handler = createMcpHandler(
+			{ userId, scopes: [MCP_READ_SCOPE] },
+			deps,
+		);
+		const body = await rpc(handler, "tools/call", {
+			name: "get_message",
+			arguments: { messageId },
+		});
+		const result = body.result as unknown as ToolResult;
+		assert.notEqual(result.isError, true, result.content[0]?.text);
+		const message = JSON.parse(result.content[0].text) as {
+			bodyAvailable: boolean;
+			bodyText?: string;
+		};
+		assert.equal(message.bodyAvailable, false);
+		assert.equal(message.bodyText, undefined);
+		assert.deepEqual(rearmed, [messageId]);
 	});
 
 	it("refuses another user's message as not found", async () => {

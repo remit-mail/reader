@@ -1,4 +1,4 @@
-import { base36uuidv5, REMIT_NAMESPACE } from "@remit/data-ports/id";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 
 const LOCAL_BYPASS_VARS = [
@@ -31,13 +31,6 @@ export const assertLocalBypassNotInDeployedEnv = (
 		`Refusing to start: local auth bypass ${leaked.join(", ")} is set while NODE_ENV=${env.NODE_ENV ?? "(unset)"}. These overrides bypass authentication and must never be present in a deployed environment.`,
 	);
 };
-
-/**
- * Derive a deterministic accountConfigId from a Cognito subject (`sub`) claim.
- * One Cognito user maps to exactly one account config.
- */
-export const deriveAccountConfigId = (sub: string): string =>
-	base36uuidv5(`account:${sub}`, REMIT_NAMESPACE);
 
 const getSubFromClaims = (event: APIGatewayProxyEvent): string | undefined => {
 	const claims = event.requestContext?.authorizer?.claims;

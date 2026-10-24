@@ -237,6 +237,16 @@ export {
 } from "./message-parser.js";
 export { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 export {
+	type BodyPartMaterializer,
+	type BodySyncCue,
+	type MaterializeLogger,
+	type MaterializeResult,
+	type MessageOwnership,
+	type MessageOwnershipClient,
+	materializeBodyParts,
+	resolveMessageOwnership,
+} from "./message-read.js";
+export {
 	type ImapConnectionFactory,
 	MessageSyncService,
 	type SyncedMessage,

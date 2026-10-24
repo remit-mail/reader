@@ -256,8 +256,8 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 
 	it("deriveAccountConfigId pins the account config a user id maps to", () => {
 		assert.equal(
-			deriveAccountConfigId("golden-user"),
-			"9q5uxd4ubwl6ap5wzitaiml3n",
+			deriveAccountConfigId("golden-cognito-sub"),
+			"97h2fhd0c32ocenk6ju12oxto",
 		);
 	});
 

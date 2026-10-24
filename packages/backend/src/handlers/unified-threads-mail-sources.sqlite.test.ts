@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	AccountAuthType,
 	AccountService,
@@ -22,7 +23,6 @@ import {
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,
