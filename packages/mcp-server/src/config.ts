@@ -4,6 +4,7 @@ export interface McpServerConfig {
 	sqliteDbPath: string;
 	port: number;
 	bodySyncQueueUrl: string | undefined;
+	mailboxQueueUrl: string;
 	trustedProxies: ReadonlySet<string>;
 }
 
@@ -51,6 +52,7 @@ export const resolveMcpServerConfig = (): McpServerConfig => {
 		sqliteDbPath: required("SQLITE_DB_PATH"),
 		port: parsePort(process.env.MCP_PORT),
 		bodySyncQueueUrl: process.env.SQS_QUEUE_URL_BODY,
+		mailboxQueueUrl: required("SQS_QUEUE_URL"),
 		trustedProxies: new Set(
 			(process.env.MCP_TRUSTED_PROXIES ?? "")
 				.split(",")

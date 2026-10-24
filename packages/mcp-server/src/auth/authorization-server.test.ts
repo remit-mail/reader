@@ -10,7 +10,11 @@ import {
 	createJwtVerifier,
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import {
+	BodySyncService,
+	MailboxQueueService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	openStore,
 	type Store,
@@ -136,6 +140,14 @@ before(async () => {
 		),
 		bodySyncQueue: undefined,
 		logger: silentLog,
+		folders: {
+			mailboxQueue: new MailboxQueueService({
+				mailboxService: store.mailbox,
+				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
+			}),
+			settleTimeoutMs: 100,
+			pollIntervalMs: 10,
+		},
 	};
 	({ auth, app } = buildApp());
 });

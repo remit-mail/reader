@@ -15,8 +15,6 @@ import {
 import { z } from "zod";
 import type { FolderToolDeps, McpDeps } from "./deps.js";
 
-export const MCP_RULES_SCOPE = "mail:rules";
-
 const CREATE_DELIMITER = "/";
 
 const FOLDER_WRITE = {

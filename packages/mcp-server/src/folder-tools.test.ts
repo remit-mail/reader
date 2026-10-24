@@ -22,13 +22,9 @@ import {
 	seedMailbox,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
-import { MCP_RULES_SCOPE } from "./folder-tools.js";
-import {
-	createMcpHandler,
-	MCP_READ_SCOPE,
-	type McpRequestHandler,
-} from "./server.js";
+import { createMcpHandler, type McpRequestHandler } from "./server.js";
 
 const USER_ID = "folder-user";
 const OTHER_USER_ID = "folder-other-user";
