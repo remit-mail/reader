@@ -13,7 +13,6 @@
     "node": ">=22"
   },
   "scripts": {
-    "postinstall": "patch-package --error-on-fail --error-on-warn",
     "codegen": "make",
     "codegen:openapi": "tsp compile ./typespec",
     "codegen:sqlite": "tsp compile ./typespec --config ./typespec/tspconfig.sqlite.yaml",
@@ -30,7 +29,6 @@
     "check:consumer-typecheck": "node npm-scripts/check-consumer-typecheck.mjs",
     "check:clean-install": "node npm-scripts/check-clean-install.mjs",
     "check:web-client-consumer": "node npm-scripts/check-web-client-consumer.mjs",
-    "check:patches-applied": "node npm-scripts/check-patches-applied.mjs",
     "check:ci-coverage": "node npm-scripts/check-ci-coverage.mjs",
     "check:typecheck-coverage": "node npm-scripts/check-typecheck-coverage.mjs",
     "bootstrap:publish-metadata": "node npm-scripts/set-publish-metadata.mjs",
@@ -72,7 +70,7 @@
     "@kattebak/typespec-drizzle-orm-generator": "^5.0.2",
     "@kattebak/typespec-enum-emitter": "~1.2.3",
     "@kattebak/typespec-openapi-types-emitter": "1.0.2",
-    "@kattebak/typespec-zod-emitter": "^2.0.3",
+    "@kattebak/typespec-zod-emitter": "^2.4.3",
     "@remit/api-openapi-types": "file:build/openapi-types",
     "@remit/api-zod-schemas": "file:build/zod-schemas",
     "@remit/domain-enums": "file:build/ts-enums",
@@ -85,7 +83,6 @@
     "@typespec/openapi3": "~1.17.0",
     "drizzle-orm": "0.45.2",
     "openapi-client-axios": "^7.9.1",
-    "patch-package": "^8.0.1",
     "sharp": "^0.35.5",
     "short-uuid": "^6.0.3",
     "tsx": "^4",

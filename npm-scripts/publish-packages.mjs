@@ -50,7 +50,6 @@ const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 // expects the consumer to supply — merged onto whatever the emitter declared so
 // a standalone install resolves them.
 const generatedPeerDependencies = {
-	"@remit/api-zod-schemas": { zod: "^3.0.0" },
 	"@remit/electrodb-entities": { electrodb: ">=3.0.0" },
 	"@remit/api-http-client": { "@tanstack/react-query": "^5.0.0" },
 };
