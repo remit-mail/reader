@@ -17,6 +17,7 @@ nav:
       - operations/deployment.md
       - operations/updating.md
       - operations/backup.md
+      - operations/mcp.md
   - items:
       - security.md
       - roadmap.md

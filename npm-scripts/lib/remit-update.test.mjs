@@ -33,6 +33,7 @@ const SNAPSHOT_LIB = join(ROOT, "deploy", "vps", "backup", "snapshot-db.sh");
 const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
 const CADDY_FILES = [
 	"routes.caddy",
+	"mcp.caddy",
 	"off.caddy",
 	"internal.caddy",
 	"tailscale.caddy",
@@ -913,12 +914,18 @@ describe("remit update — a release whose wrapper will not parse", () => {
 
 const RELEASE_ROUTES = `(upstream) {\n\treverse_proxy apisix:9080\n}\n${shippedCaddy("routes.caddy")}`;
 const RELEASE_MODES = Object.fromEntries(
-	CADDY_FILES.filter((name) => name !== "routes.caddy").map((name) => [
+	CADDY_FILES.filter(
+		(name) => name !== "routes.caddy" && name !== "mcp.caddy",
+	).map((name) => [
 		name,
 		`import /etc/caddy/routes.caddy\n${shippedCaddy(name)}`,
 	]),
 );
-const RELEASE_CADDY = { "routes.caddy": RELEASE_ROUTES, ...RELEASE_MODES };
+const RELEASE_CADDY = {
+	"routes.caddy": RELEASE_ROUTES,
+	"mcp.caddy": shippedCaddy("mcp.caddy"),
+	...RELEASE_MODES,
+};
 
 const logIndex = (box, pattern) =>
 	box

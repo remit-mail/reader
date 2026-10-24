@@ -4,6 +4,7 @@
 # Caddy's root CA on the client (README: TLS). PUBLIC_ORIGIN must be https://…
 # and its host is the name on the certificate.
 import /etc/caddy/routes.caddy
+import /etc/caddy/mcp.caddy
 
 {$PUBLIC_ORIGIN} {
 	tls internal
@@ -21,4 +22,10 @@ import /etc/caddy/routes.caddy
 	}
 
 	import routes
+}
+
+# The MCP connector's own host (mcp.caddy).
+{$MCP_PUBLIC_ORIGIN} {
+	tls internal
+	import mcp_proxy
 }

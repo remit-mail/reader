@@ -268,15 +268,18 @@ const CASES = {
 		],
 	},
 	mcp: {
-		refusal: /^remit: mcp( login)?: (unknown|takes|name)/m,
+		refusal: /^remit: mcp( login)?: (unknown|takes|needs)/m,
 		takes: [
 			{
 				args: ["login"],
-				proof: / exec mcp node --import tsx src\/cli\/mcp-login\.ts$/m,
+				proof: / exec mcp node mcp-login\.mjs$/m,
 			},
 		],
 		refuses: [
-			{ args: [], message: /^remit: mcp: name a subcommand/m },
+			{
+				args: [],
+				message: /^remit: mcp: needs 'enable <origin>', 'disable' or 'login'/m,
+			},
 			{ args: ["zzz"], message: /^remit: mcp: unknown subcommand 'zzz'/m },
 			{
 				args: ["login", "zzz"],

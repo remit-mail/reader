@@ -23,9 +23,13 @@ services:
   # `!override` replaces the base list instead of appending to it — compose
   # merges sequences, and inheriting 80/443 would collide with anything already
   # holding those ports.
+  #
+  # The second port is the MCP connector's origin (E2E_MCP_PORT in e2e.env): a
+  # different host:port on the same Caddy, which routes it by host match.
   caddy:
     ports: !override
       - "127.0.0.1:${E2E_HTTP_PORT:-18080}:80"
+      - "127.0.0.1:${E2E_MCP_PORT:-18081}:80"
 
   # At-least-once delivery is a property of the queue, not of the app, so the
   # only way to drive a redelivery from outside is to put the event back on the

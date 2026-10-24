@@ -1,0 +1,35 @@
+# The MCP connector's host (remit-mail/remit#1342). Every mode file imports this
+# next to routes.caddy. MCP_PUBLIC_ORIGIN is its own origin, and may be a
+# different domain from PUBLIC_ORIGIN; compose hands Caddy http://mcp.invalid
+# when it is unset, so with the `mcp` profile off no real host reaches it.
+#
+# Two ways in, because the mode files differ in what their site address is:
+#
+#   a site     of its own, {$MCP_PUBLIC_ORIGIN}, in the modes that hold a
+#              certificate (acme, internal, tailscale). Caddy obtains one for
+#              the MCP host the way it does for the main origin.
+#   mcp_route  a host match inside the catch-all :80 site, for the modes with
+#              no name on the site (off, tunnel). Under tunnel the origin is
+#              https at Cloudflare's edge and plain HTTP here, so either scheme
+#              matches.
+#
+# The client address is stated here the same way routes.caddy states it, and
+# any copy a client sent is replaced. Authorization and WWW-Authenticate pass
+# through untouched, since reverse_proxy strips neither. flush_interval -1
+# streams every response as it is written: the MCP transport may answer with
+# server-sent events, which a buffering proxy holds until the stream ends.
+
+(mcp_proxy) {
+	request_header X-Remit-Client-IP {client_ip}
+	reverse_proxy mcp:8080 {
+		import upstream
+		flush_interval -1
+	}
+}
+
+(mcp_route) {
+	@mcp expression `"{$MCP_PUBLIC_ORIGIN}" in ["http://" + {http.request.hostport}, "https://" + {http.request.hostport}]`
+	route @mcp {
+		import mcp_proxy
+	}
+}

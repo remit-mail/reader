@@ -5,7 +5,13 @@
 # (docker-compose.yml: TAILSCALED_SOCKET) and HTTPS enabled for the tailnet.
 # PUBLIC_ORIGIN must be https://<name>.<tailnet>.ts.net
 import /etc/caddy/routes.caddy
+import /etc/caddy/mcp.caddy
 
 {$PUBLIC_ORIGIN} {
 	import routes
+}
+
+# The MCP connector's own host (mcp.caddy).
+{$MCP_PUBLIC_ORIGIN} {
+	import mcp_proxy
 }

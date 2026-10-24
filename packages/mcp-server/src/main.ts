@@ -83,7 +83,9 @@ const app = createMcpApp({
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
 	trustedProxies: config.trustedProxies,
-	pageAssets: loadPageAssets(fileURLToPath(PAGE_ASSETS_DIR)),
+	pageAssets: loadPageAssets(
+		config.pageAssetsDir ?? fileURLToPath(PAGE_ASSETS_DIR),
+	),
 });
 
 serve({
