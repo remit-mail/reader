@@ -70,7 +70,7 @@ function dispatchedSubcommands() {
 // would have answered cannot change the verdict — and a stand-in that succeeds
 // is the hostile case: a verb that swallows its argument runs to the end of its
 // normal path and exits 0.
-function run(args, dotenv = []) {
+function run(args, dotenv = [], extraEnv = {}) {
 	const dir = mkdtempSync(join(TMP_ROOT, "remit-args-"));
 	sandboxes.push(dir);
 	const deployment = join(dir, "deployment");
@@ -106,6 +106,7 @@ function run(args, dotenv = []) {
 			HOME: dir,
 			REMIT_DIR: deployment,
 			ARGV_LOG: argv,
+			...extraEnv,
 		},
 	});
 	return { ...result, argv: readFileSync(argv, "utf8") };
@@ -303,6 +304,18 @@ const CASES = {
 			},
 		],
 	},
+	sync: {
+		// Only a remote target answers it; without one it says how to get one.
+		refusal: /^remit: sync: /m,
+		takes: [],
+		refuses: [
+			{ args: [], message: /needs a remote target; set REMIT_API_URL/m },
+			{
+				args: ["who@example.com"],
+				message: /needs a remote target; set REMIT_API_URL/m,
+			},
+		],
+	},
 	"probe-host": {
 		refusal: /^remit: probe-host: needs one origin/m,
 		takes: [{ args: ["127.0.0.1"], proof: /loopback 127\.0\.0\.1/ }],
@@ -382,3 +395,67 @@ for (const [command, spec] of Object.entries(CASES)) {
 		}
 	});
 }
+
+// A remote target (REMIT_API_URL or --api-url) is another install's API. The
+// commands that drive this box's docker stack have no meaning there, and running
+// them anyway would act on whatever deployment this shell happens to sit beside.
+const API_URL = "https://app.remit.email/api";
+const REMOTE_FORMS = new Set(["status", "sync", "help", "--help", "-h"]);
+
+describe("remit against a remote target", () => {
+	const vmOnly = [...dispatchedSubcommands()].filter(
+		(name) => !REMOTE_FORMS.has(name),
+	);
+
+	for (const command of vmOnly) {
+		it(`refuses ${command} without touching docker`, () => {
+			const result = run([command], [], { REMIT_API_URL: API_URL });
+			assert.notEqual(result.status, 0);
+			assert.match(
+				result.stderr,
+				new RegExp(
+					`^remit: ${command}: runs on the VM against its docker stack, not against REMIT_API_URL`,
+					"m",
+				),
+			);
+			assert.equal(result.argv, "");
+		});
+	}
+
+	for (const flag of [["--api-url", API_URL], [`--api-url=${API_URL}`]]) {
+		it(`selects the target with ${flag[0].split("=")[0]}${flag.length === 1 ? "=" : " "}<url>`, () => {
+			const result = run([...flag, "update"]);
+			assert.notEqual(result.status, 0);
+			assert.match(result.stderr, /^remit: update: runs on the VM/m);
+			assert.match(
+				result.stderr,
+				/REMIT_API_URL \(https:\/\/app\.remit\.email\/api\)/,
+			);
+			assert.equal(result.argv, "");
+		});
+	}
+
+	for (const args of [
+		["--api-url"],
+		["--api-url=", "status"],
+		["--api-url", "", "status"],
+	]) {
+		it(`refuses ${form(args)} without a URL`, () => {
+			const result = run(args);
+			assert.notEqual(result.status, 0);
+			assert.match(result.stderr, /^remit: --api-url needs a URL/m);
+			assert.equal(result.argv, "");
+		});
+	}
+
+	it("still prints help", () => {
+		const result = run(["help"], [], { REMIT_API_URL: API_URL });
+		assert.equal(result.status, 0);
+		assert.match(result.stdout, /^Remote target: REMIT_API_URL or --api-url/m);
+	});
+
+	it("leaves the local path alone when REMIT_API_URL is empty", () => {
+		const result = run(["status"], [], { REMIT_API_URL: "" });
+		assert.match(result.stdout, /^Directory: /m);
+	});
+});

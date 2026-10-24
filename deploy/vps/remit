@@ -193,6 +193,14 @@ Usage: $PROG <command> [args]
                        install.sh; useful on its own to check an origin.
   help                 This message.
 
+Remote target: REMIT_API_URL or --api-url, e.g. https://app.remit.email/api,
+runs these against that install's API instead of this box:
+  status               The deployed commit and the accounts.
+  sync <account>       Start a sync of one account, by email or id.
+Access auth is CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET (a service
+token) when both are set, else 'cloudflared access token'. Every other command
+runs on the VM and is refused.
+
 Deployment directory: $REMIT_DIR (override with \$REMIT_DIR)
 Compose file:         $REMIT_DIR/$COMPOSE_FILE
 EOF
@@ -3938,7 +3946,64 @@ path_entry_stale() {
 	[ "$(unstamped_wrapper "$_pe")" != "$(unstamped_wrapper "$REMIT_DIR/remit")" ]
 }
 
+# A remote target is another install's API, reached over HTTPS through the
+# generated client in a reader checkout (packages/remit-cli). Only commands the
+# API answers have a remote form; the rest drive this box's docker stack.
+remote_exec() {
+	_self=$(readlink -f "$0" 2>/dev/null || printf '%s' "$0")
+	_repo=$(cd "$(dirname "$_self")/../.." 2>/dev/null && pwd) || _repo=""
+	_cli="$_repo/packages/remit-cli/src/main.ts"
+	[ -f "$_cli" ] ||
+		die "a remote target runs from a reader checkout: run deploy/vps/remit from a clone of github.com/remit-mail/reader"
+	[ -f "$_repo/node_modules/@remit/api-http-client/index.ts" ] ||
+		die "a remote target needs the checkout's dependencies and generated client: run 'npm ci && npm run codegen' in $_repo"
+	have node || die "a remote target needs node on PATH"
+	export REMIT_API_URL
+	cd "$_repo"
+	exec node --import tsx "$_cli" "$@"
+}
+
+remote_main() {
+	[ $# -gt 0 ] || {
+		usage >&2
+		exit 2
+	}
+	_rcmd=$1
+	shift
+	case "$_rcmd" in
+	status | sync) remote_exec "$_rcmd" "$@" ;;
+	help | --help | -h)
+		[ $# -eq 0 ] || die "$_rcmd: unknown argument '$1' — $_rcmd takes no arguments"
+		usage
+		;;
+	restart | logs | update | down | purge | doctor | redrive | config | check-categories | cert | mcp | probe-host)
+		die "$_rcmd: runs on the VM against its docker stack, not against REMIT_API_URL ($REMIT_API_URL); unset it, or run $PROG $_rcmd on the VM"
+		;;
+	*)
+		printf '%s: unknown command '\''%s'\''\n\n' "$PROG" "$_rcmd" >&2
+		usage >&2
+		exit 2
+		;;
+	esac
+}
+
 main() {
+	case "${1:-}" in
+	--api-url)
+		[ -n "${2:-}" ] || die "--api-url needs a URL, e.g. https://app.remit.email/api"
+		REMIT_API_URL=$2
+		shift 2
+		;;
+	--api-url=*)
+		REMIT_API_URL=${1#--api-url=}
+		[ -n "$REMIT_API_URL" ] || die "--api-url needs a URL, e.g. https://app.remit.email/api"
+		shift
+		;;
+	esac
+	if [ -n "${REMIT_API_URL:-}" ]; then
+		remote_main "$@"
+		return
+	fi
 	if [ "${REMIT_QUIET:-0}" != "1" ] && path_entry_stale "$0"; then
 		printf '%s: %s is a copy of an older release; %s/remit is the wrapper this deployment updates, and re-running install.sh replaces the copy with a link to it.\n' \
 			"$PROG" "$0" "$REMIT_DIR" >&2
@@ -3962,6 +4027,7 @@ main() {
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
 	mcp) cmd_mcp "$@" ;;
+	sync) die "sync: starts a sync through the API, so it needs a remote target; set REMIT_API_URL or pass --api-url" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"
