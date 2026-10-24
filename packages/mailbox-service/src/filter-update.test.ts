@@ -25,7 +25,7 @@ const awaiting = {
 	actionMailboxId: "None",
 };
 
-const valueOf = <T>(outcome: Refusable<T>): T => {
+const acceptedValue = <T>(outcome: Refusable<T>): T => {
 	if (!outcome.ok) assert.fail(`refused: ${outcome.refusal.message}`);
 	return outcome.value;
 };
@@ -76,7 +76,7 @@ describe("resolveFilterUpdate: state (#1103)", () => {
 	}
 
 	it("keeps a disabled filter disabled, with its reason, through an expiry edit", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				{ ...standing, state: FilterState.Disabled },
 				{
@@ -106,7 +106,7 @@ describe("resolveFilterUpdate: state (#1103)", () => {
 		});
 
 		it(`turns on a ${reason} filter once the patch names a folder`, () => {
-			const resolved = valueOf(
+			const resolved = acceptedValue(
 				resolveFilterUpdate(
 					{ ...awaiting, disabledReason: reason },
 					{ state: FilterState.Active, actionMailboxId: "mbx-picked" },
@@ -118,7 +118,7 @@ describe("resolveFilterUpdate: state (#1103)", () => {
 	}
 
 	it("keeps a folderless reason when the user turns an awaiting filter off again", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(awaiting, { state: FilterState.Disabled }, NOW),
 		);
 		assert.equal(resolved.state, FilterState.Disabled);
@@ -136,7 +136,7 @@ describe("resolveFilterUpdate: state (#1103)", () => {
 			expiresAt: "2026-01-01T00:00:00+00:00",
 			disabledReason: FilterDisabledReason.FolderCreateFailed,
 		};
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				lapsed,
 				{
@@ -204,7 +204,7 @@ describe("resolveFilterUpdate: state (#1103)", () => {
 
 describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	it("moves Standing to Temporary given a future expiresAt", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(standing, {
 				scope: FilterScope.Temporary,
 				expiresAt: "2099-01-01T00:00:00+00:00",
@@ -231,7 +231,7 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	});
 
 	it("clears expiresAt/ttl and reports Active when moving Temporary to Standing", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				{
 					...standing,
@@ -249,7 +249,7 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	});
 
 	it("recomputes ttl for an expiresAt-only change on an already-Temporary filter", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				{
 					...standing,
@@ -269,7 +269,7 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	});
 
 	it("reactivates a lapsed filter extended into the future", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				{
 					...standing,
@@ -284,7 +284,7 @@ describe("resolveFilterUpdate: scope and expiry (reader #266)", () => {
 	});
 
 	it("reads Expired immediately when the new expiresAt is already in the past", () => {
-		const resolved = valueOf(
+		const resolved = acceptedValue(
 			resolveFilterUpdate(
 				{
 					...standing,
