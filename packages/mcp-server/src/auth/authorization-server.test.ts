@@ -88,11 +88,11 @@ before(async () => {
 		.getSetCookie()
 		.map((value) => value.split(";")[0])
 		.join("; ");
-	mainJwt = (
-		(await mainAuth.api.getToken({ headers: new Headers({ cookie }) })) as {
-			token: string;
-		}
-	).token;
+	const minted = await mainAuth.handler(
+		new Request(`${MAIN_ORIGIN}/api/auth/token`, { headers: { cookie } }),
+	);
+	assert.equal(minted.status, 200);
+	mainJwt = ((await minted.json()) as { token: string }).token;
 
 	store = await openStore();
 	const storage = store.storage();
@@ -367,7 +367,9 @@ describe("the MCP authorization server", () => {
 	});
 
 	it("refuses an MCP token on the main API", async () => {
-		const jwks = (await mainAuth.api.getJwks()) as JSONWebKeySet;
+		const jwks = (await (
+			await mainAuth.handler(new Request(`${MAIN_ORIGIN}/api/auth/jwks`))
+		).json()) as JSONWebKeySet;
 		const mainVerifier = createJwtVerifier(
 			resolveVerifierConfig(MAIN_ORIGIN),
 			createLocalJWKSet(jwks),
