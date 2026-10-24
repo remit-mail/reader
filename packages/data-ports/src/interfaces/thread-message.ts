@@ -157,7 +157,9 @@ export interface IThreadMessageRepository {
 	 * counterpart of `countByMailbox`.
 	 *
 	 * A page size bounds the rows a response carries and has no bearing on how
-	 * much matches, so a count returns no rows and is answered in full.
+	 * much matches, so a count returns no rows and is answered in full — except
+	 * that a count with search text stops at 1000, where walking the matches
+	 * further buys a number nobody reads.
 	 *
 	 * Distinct on `threadId`, unlike `countByMailbox`, because the cross-account
 	 * listing is collapsed by thread before it is rendered: a row is per mailbox,
@@ -252,8 +254,8 @@ export interface IThreadMessageRepository {
 	 *
 	 * The number is over the whole mailbox. No page size bounds it and no cursor
 	 * narrows it, so it does not shrink as the caller pages and does not change
-	 * when the page size does (#305). There is nothing to cap: the count is one
-	 * aggregate read that returns no rows.
+	 * when the page size does (#305). A count with search text stops at 1000,
+	 * as `countThreadsInScope` does.
 	 */
 	countByMailbox(
 		accountConfigId: string,

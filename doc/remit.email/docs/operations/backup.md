@@ -25,7 +25,7 @@ Each night it snapshots both database files with `VACUUM INTO`, encrypts it with
 
 ## Restore
 
-Put the decrypted files back on the `sqlite_data` volume, owned by uid 1000, and start the stack. Bodies refill from IMAP on the next syncs.
+Put the decrypted `app.db` and `mail.db` back on the `sqlite_data` volume, owned by uid 1000, delete `search.db` there, and start the stack. Bodies refill from IMAP on the next syncs.
 
 Test a restore before you need one: decrypt a backup with the `age` private key, `gunzip` it, and open it with `sqlite3`. A backup nobody has ever opened is a hope.
 

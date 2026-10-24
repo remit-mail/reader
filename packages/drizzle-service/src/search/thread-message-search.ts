@@ -178,28 +178,14 @@ export class SearchIndex {
 	/** One page of matching thread messages, in the query's order. */
 	async candidates(query: CandidateQuery): Promise<SearchCandidate[]> {
 		const table = threadMessageSearchTable;
-		const rank = query.rank ?? sql<number>`0`;
-		const { after } = query;
-		const dateAfter = after
-			? or(
-					query.order === "desc"
-						? lt(table.sentDate, after.sentDate)
-						: gt(table.sentDate, after.sentDate),
-					and(
-						eq(table.sentDate, after.sentDate),
-						gt(table.threadMessageId, after.threadMessageId),
-					),
-				)
-			: undefined;
-		const keyset =
-			after && query.rank
-				? or(lt(rank, after.rank), and(eq(rank, after.rank), dateAfter))
-				: dateAfter;
-		return this.search
+		// The rank is computed once, in the inner select, and read by name
+		// after it: written out in the keyset and the ordering it would bind
+		// every term's parameters four times.
+		const matches = this.search
 			.select({
 				threadMessageId: table.threadMessageId,
 				sentDate: table.sentDate,
-				rank,
+				rank: (query.rank ?? sql<number>`0`).as("sender_rank"),
 			})
 			.from(table)
 			.where(
@@ -209,13 +195,36 @@ export class SearchIndex {
 						? sql`${table.mailboxId} in (select value from json_each(${JSON.stringify(query.mailboxIds)}))`
 						: undefined,
 					query.where,
-					keyset,
 				),
 			)
+			.as("matches");
+		const { after } = query;
+		const dateAfter = after
+			? or(
+					query.order === "desc"
+						? lt(matches.sentDate, after.sentDate)
+						: gt(matches.sentDate, after.sentDate),
+					and(
+						eq(matches.sentDate, after.sentDate),
+						gt(matches.threadMessageId, after.threadMessageId),
+					),
+				)
+			: undefined;
+		const keyset =
+			after && query.rank
+				? or(
+						lt(matches.rank, after.rank),
+						and(eq(matches.rank, after.rank), dateAfter),
+					)
+				: dateAfter;
+		return this.search
+			.select()
+			.from(matches)
+			.where(keyset)
 			.orderBy(
-				...(query.rank ? [desc(rank)] : []),
-				query.order === "desc" ? desc(table.sentDate) : asc(table.sentDate),
-				asc(table.threadMessageId),
+				...(query.rank ? [desc(matches.rank)] : []),
+				query.order === "desc" ? desc(matches.sentDate) : asc(matches.sentDate),
+				asc(matches.threadMessageId),
 			)
 			.limit(query.limit);
 	}

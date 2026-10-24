@@ -48,6 +48,8 @@ export interface SiteResult {
 	readonly scanned: number;
 	readonly claiming: number;
 	readonly rewritten: number;
+	/** The keys of the rows rewritten, so a caller can follow them elsewhere. */
+	readonly rewrittenIds: readonly string[];
 }
 
 export interface DisplayNameReport {
@@ -112,7 +114,7 @@ export const sweepDisplayNames = async (
 	for (const site of SITES) {
 		const rows = await candidates(client, site);
 		let claiming = 0;
-		let rewritten = 0;
+		const rewrittenIds: string[] = [];
 
 		for (const row of rows) {
 			const name = row.name ?? "";
@@ -120,7 +122,9 @@ export const sweepDisplayNames = async (
 			if (stored === name) continue;
 			claiming += 1;
 			if (mode === "repair") {
-				rewritten += await rewrite(client, site, row, stored);
+				if ((await rewrite(client, site, row, stored)) > 0) {
+					rewrittenIds.push(row.id);
+				}
 			}
 		}
 
@@ -128,7 +132,8 @@ export const sweepDisplayNames = async (
 			table: site.table,
 			scanned: rows.length,
 			claiming,
-			rewritten,
+			rewritten: rewrittenIds.length,
+			rewrittenIds,
 		});
 	}
 

@@ -118,11 +118,19 @@ const parseMode = (argv: readonly string[]): Mode => {
 const displayNameStep = async (
 	client: DisplayNameRepairClient,
 	mode: DisplayNameRepairMode,
+	search?: SearchIndex,
 ): Promise<void> => {
 	const report = await sweepDisplayNames(client, mode);
 	for (const line of formatDisplayNameReport(report)) {
 		logStep({ step: "display-name-repair" }, line);
 	}
+	// The sender text is in the search index too; a rewritten thread row is
+	// written there again so a search no longer finds the claim.
+	await search?.sync(
+		report.sites
+			.filter((site) => site.table === "thread_message")
+			.flatMap((site) => site.rewrittenIds),
+	);
 };
 
 /**
@@ -231,7 +239,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			}
 		}
 
-		await displayNameStep(paramRepairClient, "repair");
+		await displayNameStep(paramRepairClient, "repair", search);
 
 		await strandedSentStep(paramRepairClient, "repair");
 

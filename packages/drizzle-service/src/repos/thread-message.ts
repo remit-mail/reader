@@ -20,6 +20,7 @@ import {
 	not,
 	or,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
 import { runBatch } from "../batch.js";
@@ -264,9 +265,18 @@ function buildFieldTermCondition(
 	return operator === "or" ? or(...conditions) : and(...conditions);
 }
 
-// How many candidates one round trip takes from the search index: a page of
-// ids the mail database is then asked for, under D1's 100 bound parameters.
-const CANDIDATES_PER_READ = 90;
+const CANDIDATES_PER_READ = 500;
+
+/**
+ * Where a count over a text search stops. Without text a count is one
+ * aggregate; with text it walks the matches, and a number past this is not
+ * worth walking further for.
+ */
+export const TEXT_SEARCH_COUNT_CAP = 1000;
+
+// A list of ids bound as one JSON parameter, however long it is.
+const inJson = (column: SQLWrapper, values: readonly string[]): SQL =>
+	sql`${column} in (select value from json_each(${JSON.stringify(values)}))`;
 
 interface PageQuery {
 	accountConfigId: string;
@@ -370,6 +380,29 @@ export class DrizzleThreadMessageRepository
 	 * Walk every match of a text query in order, a page of candidates at a
 	 * time, handing each page's accepted rows to `visit` until it returns false.
 	 */
+	/**
+	 * The mail rows behind one page of candidates, kept to the query's folder
+	 * scope and row conditions: a candidate the index still holds for a row
+	 * that has since moved folders, or gone, does not come back.
+	 */
+	private matchedRows(
+		query: Omit<PageQuery, "limit" | "text" | "after" | "order">,
+		ids: readonly string[],
+	) {
+		return and(
+			eq(threadMessageTable.accountConfigId, query.accountConfigId),
+			inJson(threadMessageTable.threadMessageId, ids),
+			query.mailboxIds
+				? inJson(threadMessageTable.mailboxId, query.mailboxIds)
+				: undefined,
+			...query.row,
+		);
+	}
+
+	/**
+	 * Walk every match of a text query in order, a page of candidates at a
+	 * time, handing each page's accepted rows to `visit` until it returns false.
+	 */
 	private async eachMatch(
 		query: Omit<PageQuery, "limit" | "text"> & { text: SQL },
 		visit: (rows: RankedRow[]) => boolean,
@@ -391,13 +424,9 @@ export class DrizzleThreadMessageRepository
 				.select()
 				.from(threadMessageTable)
 				.where(
-					and(
-						eq(threadMessageTable.accountConfigId, query.accountConfigId),
-						inArray(
-							threadMessageTable.threadMessageId,
-							candidates.map((candidate) => candidate.threadMessageId),
-						),
-						...query.row,
+					this.matchedRows(
+						query,
+						candidates.map((candidate) => candidate.threadMessageId),
 					),
 				);
 			const byId = new Map(rows.map((row) => [row.threadMessageId, row]));
@@ -413,7 +442,8 @@ export class DrizzleThreadMessageRepository
 
 	/**
 	 * How many rows a search accepts, or how many conversations they belong to.
-	 * Without a text condition it is one COUNT; with one it walks every match.
+	 * Without a text condition it is one COUNT; with one it walks the matches,
+	 * reading only their thread ids, and stops at {@link TEXT_SEARCH_COUNT_CAP}.
 	 */
 	private async countMatches(
 		query: Omit<PageQuery, "limit" | "after" | "order">,
@@ -439,15 +469,37 @@ export class DrizzleThreadMessageRepository
 				);
 			return count;
 		}
-		const threadIds: string[] = [];
-		await this.eachMatch(
-			{ ...query, text: query.text, order: "desc", after: null },
-			(rows) => {
-				threadIds.push(...rows.map((row) => row.threadId));
-				return true;
-			},
-		);
-		return unit === "threads" ? new Set(threadIds).size : threadIds.length;
+		const threads = new Set<string>();
+		let rows = 0;
+		let after: SearchPosition | null = null;
+		for (;;) {
+			const candidates = await this.search.candidates({
+				accountConfigId: query.accountConfigId,
+				mailboxIds: query.mailboxIds,
+				where: query.text,
+				order: "desc",
+				after,
+				limit: CANDIDATES_PER_READ,
+			});
+			const last = candidates.at(-1);
+			if (!last) break;
+			const matched = await this.db
+				.select({ threadId: threadMessageTable.threadId })
+				.from(threadMessageTable)
+				.where(
+					this.matchedRows(
+						query,
+						candidates.map((candidate) => candidate.threadMessageId),
+					),
+				);
+			rows += matched.length;
+			for (const row of matched) threads.add(row.threadId);
+			const counted = unit === "threads" ? threads.size : rows;
+			if (counted >= TEXT_SEARCH_COUNT_CAP) return TEXT_SEARCH_COUNT_CAP;
+			if (candidates.length < CANDIDATES_PER_READ) break;
+			after = last;
+		}
+		return unit === "threads" ? threads.size : rows;
 	}
 
 	async close(): Promise<void> {

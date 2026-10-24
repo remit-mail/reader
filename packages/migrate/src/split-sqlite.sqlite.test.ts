@@ -213,4 +213,24 @@ describe("splitting the single database file", () => {
 		await assert.rejects(split(), /UNIQUE constraint failed/);
 		assert.equal(count(targets.app, "label"), 1);
 	});
+
+	test("refuses a source still holding changes not yet pushed to the server", async () => {
+		const sqlite = new Database(source);
+		drizzle(sqlite)
+			.insert(entities.messageFlagPushes)
+			.values({
+				messageId: "msg-1",
+				flagName: "\\Seen",
+				accountId: "acc-1",
+				accountConfigId: "cfg-1",
+				mailboxId: "mbx-1",
+				operation: "add",
+				createdAt: NOW,
+				updatedAt: NOW,
+			})
+			.run();
+		sqlite.close();
+
+		await assert.rejects(split(), /drain the queue first/);
+	});
 });

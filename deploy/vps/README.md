@@ -538,11 +538,12 @@ default. Turn it on from the install directory:
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
 ```
 
-It runs `VACUUM INTO` on the database file nightly, encrypts it with `age`,
-and ships it to an S3-compatible bucket via `rclone`. Retention defaults to 30
-days. Message bodies re-sync from IMAP after a restore, so they are deliberately
-not backed up here. Restore is putting the file back on the `sqlite_data` volume
-and starting the stack.
+It runs `VACUUM INTO` on `app.db` and `mail.db` nightly, encrypts them with
+`age`, and ships them to an S3-compatible bucket via `rclone`. Retention
+defaults to 30 days. Message bodies re-sync from IMAP after a restore and the
+search index rebuilds from `mail.db`, so neither is backed up here. Restore is
+putting `app.db` and `mail.db` back on the `sqlite_data` volume, deleting
+`search.db` there, and starting the stack.
 
 See the Backups section in `remit.env.template` for the variables
 (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, and the `RCLONE_CONFIG_*` vars

@@ -1,4 +1,4 @@
-import { getTableColumns, getTableName, is } from "drizzle-orm";
+import { count, getTableColumns, getTableName, is } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { SQLiteTable } from "drizzle-orm/sqlite-core";
 import * as authTables from "../../auth-service/src/schema/auth-schema-sqlite.js";
@@ -100,11 +100,32 @@ const copyTable = async (
 
 export type SplitSqliteReport = Record<string, number>;
 
+// Flag changes and moves the old stack queued but has not yet pushed to the
+// server. They are not copied: their ids point at mail the split leaves to
+// resync. A source that still holds any is refused, so nothing the user did is
+// dropped without a word.
+const PENDING_PUSH_TABLES: readonly SQLiteTable[] = [
+	mailTables.messageFlagPushes,
+	mailTables.messagePlacementMoves,
+];
+
+const refusePendingPushes = async (source: AnyDb): Promise<void> => {
+	for (const table of PENDING_PUSH_TABLES) {
+		const [{ n }] = await source.select({ n: count() }).from(table);
+		if (n > 0) {
+			throw new Error(
+				`${getTableName(table)} holds ${n} change(s) not yet pushed to the mail server — drain the queue first: start the old release, wait until the queue is idle, stop it, then run the split again`,
+			);
+		}
+	}
+};
+
 /** Copy from the old single database into migrated app and mail databases. */
 export const splitSqlite = async (
 	source: AnyDb,
 	targets: { app: AnyDb; mail: AnyDb },
 ): Promise<SplitSqliteReport> => {
+	await refusePendingPushes(source);
 	const report: SplitSqliteReport = {};
 	for (const table of APP_TABLES) {
 		report[getTableName(table)] = await copyTable(
