@@ -1,10 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { registerReadTools } from "./read-tools.js";
-
-export const MCP_READ_SCOPE = "mail:read";
 
 export interface McpPrincipal {
 	userId: string;

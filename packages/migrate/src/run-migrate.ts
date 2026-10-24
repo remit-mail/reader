@@ -342,6 +342,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			migrationsTable: "__drizzle_migrations_meta",
 		});
 
+		logStep({}, "applying mcp authorization server migrations (sqlite)");
+		sqliteMigrate(db, {
+			migrationsFolder: "migrations-sqlite/mcp",
+			migrationsTable: "__drizzle_migrations_mcp",
+		});
+
 		// After the generated migrations, which is where the column and the
 		// filter's index come from, and before the FTS transaction: the repair
 		// does not depend on either index and must not be inside a transaction

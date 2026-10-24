@@ -91,7 +91,7 @@ exec_real() {
 
 schema_total() {
 	_st=0
-	for _t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
+	for _t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta __drizzle_migrations_mcp; do
 		_c=$(sqlite3 "$1" "SELECT count(*) FROM $_t" 2>/dev/null || printf 0)
 		[ -n "$_c" ] || _c=0
 		_st=$((_st + _c))

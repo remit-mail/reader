@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1792851696683,
+      "tag": "0000_mcp_authorization_server",
+      "breakpoints": true
+    }
+  ]
+}

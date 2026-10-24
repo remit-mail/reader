@@ -92,6 +92,9 @@
     "typespec-electrodb-emitter": "^5.2.2"
   },
   "overrides": {
+    "@modelcontextprotocol/sdk": {
+      "zod": "^4.6.7"
+    },
     "@vitest/mocker": "^4.1.12",
     "@xmldom/xmldom": "^0.8.15",
     "adm-zip": "^0.6.0",

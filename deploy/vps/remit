@@ -2351,7 +2351,7 @@ command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null 2>&1 || exit 0
 [ -f /data/sqlite/remit.db ] || exit 0
 exec su-exec 1000:1000 sh -c 'total=0
-for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
+for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta __drizzle_migrations_mcp; do
   c=\$(sqlite3 /data/sqlite/remit.db \"SELECT count(*) FROM \$t\" 2>/dev/null || printf 0)
   total=\$((total + c))
 done
