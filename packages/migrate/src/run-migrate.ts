@@ -16,7 +16,6 @@ import {
 	sweepDuplicateMailboxMail,
 } from "../../drizzle-service/src/repair/duplicate-mailbox-mail.js";
 import {
-	type ForwardedPartsRepairClient,
 	type ForwardedPartsRepairMode,
 	formatForwardedPartsReport,
 	sweepForwardedMessageParts,
@@ -251,10 +250,10 @@ const junkOnlyAddressStep = async (
 };
 
 const forwardedPartsStep = async (
-	client: ForwardedPartsRepairClient,
+	db: Parameters<typeof sweepForwardedMessageParts>[0],
 	mode: ForwardedPartsRepairMode,
 ): Promise<void> => {
-	const report = await sweepForwardedMessageParts(client, mode);
+	const report = await sweepForwardedMessageParts(db, mode);
 	for (const line of formatForwardedPartsReport(report)) {
 		logStep({ step: "forwarded-message-parts-repair" }, line);
 	}
@@ -272,8 +271,7 @@ const threadRootStep = async (
 
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
-	JunkOnlyRepairClient &
-	ForwardedPartsRepairClient;
+	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const dbPath = process.env.SQLITE_DB_PATH;
@@ -313,7 +311,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
 			await threadRootStep(db, "check");
-			await forwardedPartsStep(paramRepairClient, "check");
+			await forwardedPartsStep(db, "check");
 			return;
 		}
 
@@ -367,7 +365,7 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		// Touches only body part rows and mailbox sync cursors, which no index
 		// or trigger installed below covers.
-		await forwardedPartsStep(paramRepairClient, "repair");
+		await forwardedPartsStep(db, "repair");
 
 		logStep({}, "installing address-sightings index (sqlite)");
 		sqlite.exec(sqliteAddressSightingsIndexSql);
@@ -385,8 +383,9 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// build) needs a one-time backfill, since the triggers only see writes
 		// that happen after they exist.
 		//
-		// Install and backfill run in one transaction so a crash between them can
-		// never leave the table existing but empty (which would make every later
+		// The shape is read first and decides the statement list; install and
+		// backfill then run as one transaction, so a crash between them can never
+		// leave the table existing but empty (which would make every later
 		// run skip the backfill and search silently miss the pre-existing rows).
 		// The backfill is gated on the table being newly created — the steady
 		// state where the triggers already keep it in sync must not re-insert
@@ -401,35 +400,46 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		// place: the documented recovery above, taken automatically because the
 		// alternative is a search that raises on every keystroke.
 		logStep({}, "installing FTS5 search index objects (sqlite)");
-		const installSearchIndex = sqlite.transaction(() => {
-			const existing = sqlite
-				.prepare(
-					"SELECT sql FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
-				)
-				.get() as { sql: string } | undefined;
-			const ftsUsable =
-				existing !== undefined &&
-				searchIndexShapeIsCurrent(existing.sql, sqliteSearchIndexSql);
-			if (existing !== undefined && !ftsUsable) {
-				logStep({}, "dropping stale FTS5 index (missing indexed columns)");
-				sqlite.exec("DROP TABLE thread_message_fts");
-				for (const suffix of ["ai", "ad", "au"]) {
-					sqlite.exec(`DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`);
-				}
-			}
-			sqlite.exec(sqliteSearchIndexSql);
-			if (!ftsUsable) {
-				logStep({}, "backfilling FTS5 index from existing threads");
-				sqlite.exec(
-					`INSERT INTO thread_message_fts(rowid, subject, sender, body)
+		const existing = sqlite
+			.prepare(
+				"SELECT sql FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
+			)
+			.get() as { sql: string } | undefined;
+		const ftsUsable =
+			existing !== undefined &&
+			searchIndexShapeIsCurrent(existing.sql, sqliteSearchIndexSql);
+		const stale = existing !== undefined && !ftsUsable;
+		if (stale) {
+			logStep({}, "dropping stale FTS5 index (missing indexed columns)");
+		}
+		if (!ftsUsable) {
+			logStep({}, "backfilling FTS5 index from existing threads");
+		}
+		const searchIndexStatements = [
+			...(stale
+				? [
+						"DROP TABLE thread_message_fts",
+						...["ai", "ad", "au"].map(
+							(suffix) => `DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`,
+						),
+					]
+				: []),
+			sqliteSearchIndexSql,
+			...(ftsUsable
+				? []
+				: [
+						`INSERT INTO thread_message_fts(rowid, subject, sender, body)
 					 SELECT rowid, coalesce(subject, ''),
 					        coalesce(from_name, '') || ' ' || coalesce(from_email, ''),
 					        coalesce(snippet, '')
 					 FROM thread_message`,
-				);
-			}
-		});
-		installSearchIndex();
+					]),
+		];
+		sqlite
+			.transaction(() => {
+				for (const statement of searchIndexStatements) sqlite.exec(statement);
+			})
+			.immediate();
 	} finally {
 		sqlite.close();
 	}

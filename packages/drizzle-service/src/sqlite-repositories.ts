@@ -3,8 +3,8 @@ import { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 import { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 import { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
 import { CalendarObjectRepo } from "./repos/calendar-object.js";
+import { DrizzleCalendarStore } from "./repos/calendar-store.js";
 import { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
-import { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 import { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 import { FilterRepo } from "./repos/filter.js";
 import { AccountRepo } from "./repos/i4-account.js";
@@ -29,12 +29,9 @@ import { MessageLabelRepo } from "./repos/message-label.js";
 import { QuarantineRepo } from "./repos/quarantine.js";
 import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
-import { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
 import type { MessageDataSchema } from "./schema/message-data.js";
-import { runInTransaction } from "./tx.js";
 
-// Every repo over the one serialized SQLite connection (RFC 036 D3), so a plain
-// repo write and a unit-of-work transaction share one write queue.
+// Every repo over the one SQLite connection (RFC 036 D3).
 export const createSqliteRepositories = (db: Db<MessageDataSchema>) => ({
 	accountConfig: new AccountConfigRepo(db),
 	account: new AccountRepo(db),
@@ -65,10 +62,7 @@ export const createSqliteRepositories = (db: Db<MessageDataSchema>) => ({
 	calendarEventIndex: new CalendarEventIndexRepo(db),
 	calendarFeedToken: new CalendarFeedTokenRepo(db),
 	calendarSuggestion: new CalendarSuggestionRepo(db),
-	calendarUnitOfWork: new DrizzleCalendarUnitOfWork(db),
-	unitOfWork: new DrizzleUnitOfWork(db),
-	writeSet: <T>(run: () => Promise<T>): Promise<T> =>
-		runInTransaction(db, () => run()),
+	calendarStore: new DrizzleCalendarStore(db),
 });
 
 export type SqliteRepositories = ReturnType<typeof createSqliteRepositories>;

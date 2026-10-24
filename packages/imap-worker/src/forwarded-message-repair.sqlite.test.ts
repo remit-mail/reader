@@ -5,6 +5,10 @@ import { dirname, resolve } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { BodyPartUpsertInput } from "@remit/data-ports";
+import {
+	createSqliteDatabase,
+	messageDataSchema,
+} from "@remit/drizzle-service";
 import type { ImapBodyStructure } from "@remit/mailbox-service/types";
 import Database from "better-sqlite3";
 import { sweepForwardedMessageParts } from "../../drizzle-service/src/repair/forwarded-message-parts.js";
@@ -115,14 +119,12 @@ const arrangeRepaired = async () => {
 		w.account.accountId,
 		inbox.mailboxId,
 	);
-	const report = await sweepForwardedMessageParts(
-		{
-			all: async (sql, params) => sqlite.prepare(sql).all(...params),
-			run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
-		},
-		"repair",
-	);
 	sqlite.close();
+	const repairDb = await createSqliteDatabase(messageDataSchema, {
+		filename: String(process.env.SQLITE_DB_PATH),
+	});
+	const report = await sweepForwardedMessageParts(repairDb.db, "repair");
+	await repairDb.close();
 	assert.equal(report.messages, 1);
 	return { w, inbox, uid, sync, messageId: seeded.messageId, before };
 };

@@ -178,7 +178,7 @@ export class MailboxQueueService {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const oldPath = mailbox.fullPath;
 
-		// One intent over the folder and every descendant, in one transaction:
+		// One intent over the folder and every descendant, in one batch:
 		// IMAP RENAME moves the subtree in one command, so a partially recorded
 		// rename is the state that produced today's phantom rows (D6). A
 		// descendant already mid-mutation refuses the whole rename.

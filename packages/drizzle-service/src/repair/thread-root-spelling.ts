@@ -3,7 +3,6 @@ import { and, count, eq, like } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { DrizzleThreadMessageRepository } from "../repos/thread-message.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { runInTransaction } from "../tx.js";
 
 type ThreadRootDb = Db<Record<string, unknown>>;
 
@@ -113,29 +112,27 @@ export const moveMisfiledThreadRows = async (
 		return { mode, misfiled, moved: 0, dropped: 0 };
 	}
 
-	return runInTransaction(db, async (tx) => {
-		const threadMessages = new DrizzleThreadMessageRepository(tx);
-		let moved = 0;
-		let dropped = 0;
-		for (let pass = 0; pass < MAX_PASSES; pass += 1) {
-			const threads = await misfiledThreads(tx);
-			if (threads.length === 0) return { mode, misfiled, moved, dropped };
-			for (const thread of threads) {
-				const result = await threadMessages.rekeyThread(
-					thread.accountConfigId,
-					thread.from,
-					await threadOfParent(tx, thread),
-				);
-				moved += result.moved;
-				dropped += result.dropped;
-			}
+	const threadMessages = new DrizzleThreadMessageRepository(db);
+	let moved = 0;
+	let dropped = 0;
+	for (let pass = 0; pass < MAX_PASSES; pass += 1) {
+		const threads = await misfiledThreads(db);
+		if (threads.length === 0) return { mode, misfiled, moved, dropped };
+		for (const thread of threads) {
+			const result = await threadMessages.rekeyThread(
+				thread.accountConfigId,
+				thread.from,
+				await threadOfParent(db, thread),
+			);
+			moved += result.moved;
+			dropped += result.dropped;
 		}
-		const left = await misfiledThreads(tx);
-		if (left.length === 0) return { mode, misfiled, moved, dropped };
-		throw new Error(
-			`${rowsIn(left)} thread row(s) still filed under a doubled-bracket root after ${MAX_PASSES} passes: ${left.map((thread) => `${thread.from} (parent ${thread.parent})`).join(", ")}`,
-		);
-	});
+	}
+	const left = await misfiledThreads(db);
+	if (left.length === 0) return { mode, misfiled, moved, dropped };
+	throw new Error(
+		`${rowsIn(left)} thread row(s) still filed under a doubled-bracket root after ${MAX_PASSES} passes: ${left.map((thread) => `${thread.from} (parent ${thread.parent})`).join(", ")}`,
+	);
 };
 
 export const formatThreadRootReport = (report: ThreadRootReport): string[] => {

@@ -272,10 +272,6 @@ export const ConfigOperations: Record<
 		const outcome = await importConfig(
 			{
 				repositories: client,
-				// Passed through as-is, undefined included: a backend with no
-				// cross-entity transaction writes without one, and the report words
-				// what survived a failure from whether this is here.
-				transaction: client.writeSet,
 				appointFolderRole: (
 					configId,
 					accountId,

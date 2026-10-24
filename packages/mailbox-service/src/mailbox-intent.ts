@@ -32,7 +32,7 @@ const carriesIntent = (row: Pick<MailboxItem, "syncStatus">): boolean =>
  * The identity is the pair: the row sits at or under the path the rename is
  * leaving, **and** the target it recorded is exactly what this rename's own
  * rebase would have written for it. Nothing but this intent writes that pair,
- * because the intent is recorded over one subtree in one transaction (D6) and
+ * because the intent is recorded over one subtree in one batch (D6) and
  * the transition is the only writer of either field (D3).
  */
 export const recordedByRename = (

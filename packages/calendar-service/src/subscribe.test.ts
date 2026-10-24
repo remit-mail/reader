@@ -39,16 +39,14 @@ const subscribed = async (): Promise<{
 	collection: CalendarCollectionItem;
 }> => {
 	const store = new MemoryCalendarStore();
-	const collection = await store.transaction((repos) =>
-		repos.calendarCollection.create({
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			urlSegment: "harbour-rota",
-			displayName: "Harbour rota",
-			source: CalendarSource.Subscribed,
-			subscriptionUrl: SECRET_URL,
-			subscriptionEnabled: true,
-		}),
-	);
+	const collection = await store.repos.calendarCollection.create({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		urlSegment: "harbour-rota",
+		displayName: "Harbour rota",
+		source: CalendarSource.Subscribed,
+		subscriptionUrl: SECRET_URL,
+		subscriptionEnabled: true,
+	});
 	return { store, collection };
 };
 
@@ -56,12 +54,11 @@ const drawn = async (
 	store: MemoryCalendarStore,
 	collection: CalendarCollectionItem,
 ) => {
-	const current = await store.transaction((repos) =>
-		repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+	const current = await store.repos.calendarCollection.get(
+		ACCOUNT_CONFIG_ID,
+		collection.calendarId,
 	);
-	const instances = await store.transaction((repos) =>
-		listCalendarInstances(repos, [current], WINDOW),
-	);
+	const instances = await listCalendarInstances(store.repos, [current], WINDOW);
 	return instances.map((instance) => ({
 		summary: instance.summary,
 		startAt: instance.startAt,
@@ -352,8 +349,9 @@ describe("writeCalendarFeed", () => {
 			},
 		]);
 
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const stored = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(stored.subscriptionCheckedAt, 5_000);
 		assert.equal(stored.subscriptionFetchedAt, 5_000);
@@ -364,8 +362,9 @@ describe("writeCalendarFeed", () => {
 		const { store, collection } = await subscribed();
 		await writeFeed(store, collection, GOOGLE_FEED, 5_000);
 		const sequenceBefore = (
-			await store.transaction((repos) =>
-				repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+			await store.repos.calendarCollection.get(
+				ACCOUNT_CONFIG_ID,
+				collection.calendarId,
 			)
 		).syncSequence;
 
@@ -387,8 +386,9 @@ describe("writeCalendarFeed", () => {
 		);
 		assert.equal(summaries.includes("Tide table review"), false);
 		assert.equal(summaries.length, 6);
-		const after = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const after = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(after.syncSequence, sequenceBefore + 1);
 	});
@@ -396,8 +396,9 @@ describe("writeCalendarFeed", () => {
 	it("writes nothing when a second fetch differs only in its export stamps", async () => {
 		const { store, collection } = await subscribed();
 		await writeFeed(store, collection, GOOGLE_FEED, 5_000);
-		const before = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const before = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 
 		const restamped = GOOGLE_FEED.replaceAll(
@@ -413,8 +414,9 @@ describe("writeCalendarFeed", () => {
 			removed: 0,
 			skipped: 0,
 		});
-		const after = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const after = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(after.syncSequence, before.syncSequence);
 		assert.equal(after.subscriptionFetchedAt, 9_000);
@@ -422,12 +424,10 @@ describe("writeCalendarFeed", () => {
 
 	it("writes nothing for a subscription paused while its feed was read", async () => {
 		const { store, collection } = await subscribed();
-		await store.transaction((repos) =>
-			repos.calendarCollection.update(
-				ACCOUNT_CONFIG_ID,
-				collection.calendarId,
-				{ subscriptionEnabled: false },
-			),
+		await store.repos.calendarCollection.update(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
+			{ subscriptionEnabled: false },
 		);
 
 		const write = await writeFeed(store, collection, GOOGLE_FEED, 5_000);
@@ -440,8 +440,9 @@ describe("writeCalendarFeed", () => {
 			skipped: 0,
 		});
 		assert.deepEqual(await drawn(store, collection), []);
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const stored = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(stored.subscriptionFetchedAt, 0);
 	});
@@ -479,8 +480,9 @@ describe("writeCalendarFeed", () => {
 
 		assert.equal(write.written, 1);
 		assert.equal(write.skipped, 2);
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const stored = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(
 			stored.subscriptionError,
@@ -509,8 +511,9 @@ describe("refreshCalendarSubscription", () => {
 			ok: false,
 			reason: "the feed answered HTTP 503",
 		});
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const stored = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(stored.subscriptionCheckedAt, 9_000);
 		assert.equal(stored.subscriptionFetchedAt, 5_000);
@@ -557,8 +560,9 @@ describe("refreshCalendarSubscription", () => {
 
 		assert.deepEqual(asked, [SECRET_URL]);
 		assert.ok(refreshed.ok);
-		const stored = await store.transaction((repos) =>
-			repos.calendarCollection.get(ACCOUNT_CONFIG_ID, collection.calendarId),
+		const stored = await store.repos.calendarCollection.get(
+			ACCOUNT_CONFIG_ID,
+			collection.calendarId,
 		);
 		assert.equal(stored.subscriptionError, "");
 		assert.equal(stored.subscriptionFetchedAt, 6_000);

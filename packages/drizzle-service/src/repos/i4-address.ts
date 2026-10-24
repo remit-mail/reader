@@ -35,7 +35,6 @@ import {
 } from "../repair/junk-only-address.js";
 import { addressTable } from "../schema/i4-address.js";
 import { envelopeAddressTable } from "../schema/message-data.js";
-import { runInTransaction } from "../tx.js";
 import {
 	addressCorrespondence,
 	addressListable,
@@ -464,12 +463,9 @@ export class AddressRepo implements IAddressRepository {
 
 	/**
 	 * Read the flags, fold `merge` over them, and write the result back only if
-	 * the column still holds the bytes the read returned. Read and write share
-	 * one serialized unit, so the only writer that can slip between them is the
-	 * junk-only reconcile, which runs its raw statement outside the write queue;
-	 * that write fails the guard and the merge folds again over the winner
-	 * instead of overwriting it. The unit never throws, so a reconcile statement
-	 * landing inside its savepoint is never rolled back with it.
+	 * the column still holds the bytes the read returned. A writer that lands
+	 * between the read and the write fails the guard, and the merge folds again
+	 * over the winner instead of overwriting it.
 	 */
 	private async mergeStoredFlags(
 		accountConfigId: string,
@@ -482,28 +478,7 @@ export class AddressRepo implements IAddressRepository {
 			eq(addressTable.addressId, addressId),
 		);
 		for (let attempt = 0; attempt < MERGE_FLAGS_ATTEMPTS; attempt++) {
-			const result = await runInTransaction(
-				this.db,
-				async (tx): Promise<MergeAttempt> => {
-					const [current] = await tx
-						.select({ stored: storedFlagsSql })
-						.from(addressTable)
-						.where(key);
-					if (!current) return { outcome: "missing" };
-					const [row] = await tx
-						.update(addressTable)
-						.set({
-							...extra,
-							flags: merge(parseStoredFlags(current.stored)) as never,
-							updatedAt: Date.now(),
-						})
-						.where(and(key, eq(storedFlagsSql, current.stored)))
-						.returning();
-					return row
-						? { outcome: "merged", address: rowToAddress(row) }
-						: { outcome: "contended" };
-				},
-			);
+			const result = await this.mergeStoredFlagsOnce(key, merge, extra);
 			if (result.outcome === "merged") return result.address;
 			if (result.outcome === "missing")
 				throw new NotFoundError(`Address not found: ${addressId}`);
@@ -511,6 +486,30 @@ export class AddressRepo implements IAddressRepository {
 		throw new Error(
 			`Address flags stayed contended after ${MERGE_FLAGS_ATTEMPTS} attempts: ${addressId}`,
 		);
+	}
+
+	private async mergeStoredFlagsOnce(
+		key: SQL | undefined,
+		merge: (current: AddressFlags) => AddressFlags,
+		extra: AddressUpdate,
+	): Promise<MergeAttempt> {
+		const [current] = await this.db
+			.select({ stored: storedFlagsSql })
+			.from(addressTable)
+			.where(key);
+		if (!current) return { outcome: "missing" };
+		const [row] = await this.db
+			.update(addressTable)
+			.set({
+				...extra,
+				flags: merge(parseStoredFlags(current.stored)) as never,
+				updatedAt: Date.now(),
+			})
+			.where(and(key, eq(storedFlagsSql, current.stored)))
+			.returning();
+		return row
+			? { outcome: "merged", address: rowToAddress(row) }
+			: { outcome: "contended" };
 	}
 
 	async mergeFlags(

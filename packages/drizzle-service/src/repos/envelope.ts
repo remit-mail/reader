@@ -9,6 +9,7 @@ import type {
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
 import { eq, inArray } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -33,7 +34,6 @@ import {
 	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
-import { runInTransaction } from "../tx.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -174,28 +174,30 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			(r) => r.bodyPartParameterId,
 		);
 
-		await runInTransaction(this.db, async (tx) => {
-			await tx
-				.insert(bodyPartTable)
-				.values(dedupedBodyPartRows)
+		const insertParts = this.db
+			.insert(bodyPartTable)
+			.values(dedupedBodyPartRows)
+			.onConflictDoUpdate({
+				target: bodyPartTable.bodyPartId,
+				set: { updatedAt: now },
+			});
+		if (dedupedParameterRows.length === 0) {
+			await runBatch(this.db, [insertParts]);
+			return;
+		}
+		await runBatch(this.db, [
+			insertParts,
+			this.db
+				.insert(bodyPartParameterTable)
+				.values(dedupedParameterRows)
 				.onConflictDoUpdate({
-					target: bodyPartTable.bodyPartId,
-					set: { updatedAt: now },
-				});
-
-			if (dedupedParameterRows.length > 0) {
-				await tx
-					.insert(bodyPartParameterTable)
-					.values(dedupedParameterRows)
-					.onConflictDoUpdate({
-						target: bodyPartParameterTable.bodyPartParameterId,
-						set: {
-							parameterValue: bodyPartParameterTable.parameterValue,
-							updatedAt: now,
-						},
-					});
-			}
-		});
+					target: bodyPartParameterTable.bodyPartParameterId,
+					set: {
+						parameterValue: bodyPartParameterTable.parameterValue,
+						updatedAt: now,
+					},
+				}),
+		]);
 	}
 
 	async replaceMessageReferences(
@@ -204,12 +206,16 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 	): Promise<void> {
 		const now = Date.now();
 		const envelopeId = deriveEnvelopeId(messageId);
-		await runInTransaction(this.db, async (tx) => {
-			await tx
-				.delete(messageReferenceTable)
-				.where(eq(messageReferenceTable.messageId, messageId));
-			if (references.length === 0) return;
-			await tx.insert(messageReferenceTable).values(
+		const clear = this.db
+			.delete(messageReferenceTable)
+			.where(eq(messageReferenceTable.messageId, messageId));
+		if (references.length === 0) {
+			await runBatch(this.db, [clear]);
+			return;
+		}
+		await runBatch(this.db, [
+			clear,
+			this.db.insert(messageReferenceTable).values(
 				references.map((reference) => ({
 					...reference,
 					messageReferenceId: deterministicBase36Id(
@@ -220,18 +226,16 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 					createdAt: now,
 					updatedAt: now,
 				})),
-			);
-		});
+			),
+		]);
 	}
 
 	async deleteManyEnvelopes(envelopeIds: string[]): Promise<void> {
 		if (envelopeIds.length === 0) return;
 
-		await runInTransaction(this.db, async (tx) => {
-			await tx
-				.delete(envelopeTable)
-				.where(inArray(envelopeTable.envelopeId, envelopeIds));
-		});
+		await this.db
+			.delete(envelopeTable)
+			.where(inArray(envelopeTable.envelopeId, envelopeIds));
 	}
 
 	async createEnvelope(input: CreateEnvelopeInput): Promise<EnvelopeItem> {

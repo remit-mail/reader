@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { provisionDefaultCalendar } from "@remit/calendar-service";
-import type { ICalendarUnitOfWork } from "@remit/data-ports";
+import type { ICalendarStore } from "@remit/data-ports";
 import type { Db } from "../db.js";
 import {
 	calendarEventIndexTable,
@@ -10,14 +10,14 @@ import {
 } from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
-import { DrizzleCalendarUnitOfWork } from "./calendar-unit-of-work.js";
+import { DrizzleCalendarStore } from "./calendar-store.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-default";
 
 describe("provisioning the default calendar", () => {
 	let db: Db<Record<string, unknown>>;
 	let close: () => Promise<void>;
-	let unitOfWork: ICalendarUnitOfWork;
+	let store: ICalendarStore;
 
 	before(async () => {
 		const created = await createSqliteTestDb({
@@ -27,7 +27,7 @@ describe("provisioning the default calendar", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		unitOfWork = new DrizzleCalendarUnitOfWork(db);
+		store = new DrizzleCalendarStore(db);
 	});
 
 	after(() => close());
@@ -35,7 +35,7 @@ describe("provisioning the default calendar", () => {
 	test("leaves one calendar behind when several first reads arrive together", async () => {
 		const provisioned = await Promise.all(
 			Array.from({ length: 8 }, () =>
-				provisionDefaultCalendar(unitOfWork, ACCOUNT_CONFIG_ID),
+				provisionDefaultCalendar(store, ACCOUNT_CONFIG_ID),
 			),
 		);
 
@@ -61,7 +61,7 @@ describe("provisioning the default calendar", () => {
 		await repo.bumpSyncSequence(ACCOUNT_CONFIG_ID, before.calendarId);
 
 		const again = await provisionDefaultCalendar(
-			unitOfWork,
+			store,
 			ACCOUNT_CONFIG_ID,
 			"A different name",
 		);

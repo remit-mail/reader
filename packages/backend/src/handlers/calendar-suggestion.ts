@@ -335,7 +335,7 @@ export const CalendarSuggestionActionOperations: Record<
 			throw new BadRequestError(corrected.error.message);
 		}
 
-		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
+		const accepted = await acceptCalendarSuggestion(client.calendarStore, {
 			accountConfigId,
 			calendarId,
 			suggestion: corrected.value,
@@ -412,7 +412,7 @@ export const CalendarSuggestionActionOperations: Record<
 			accountConfigId,
 			suggestionId,
 		);
-		const reopened = await reopenCalendarSuggestion(client.calendarUnitOfWork, {
+		const reopened = await reopenCalendarSuggestion(client.calendarStore, {
 			accountConfigId,
 			suggestion,
 		});

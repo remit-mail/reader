@@ -150,7 +150,7 @@ const feedNotFound = (): RawApiResponse =>
  * write and every delete goes through, so it only ever moves forward.
  *
  * A row whose collection is gone is the same 404. It should not exist — a
- * calendar's delete takes its token with it, in one transaction — and serving a
+ * calendar's delete takes its token with it, in one batch — and serving a
  * blank calendar for one would be worse than saying nothing.
  */
 export const serveCalendarFeed = async (

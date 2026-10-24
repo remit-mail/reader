@@ -13,7 +13,6 @@ import {
 	DrizzleEnvelopeRepository,
 	DrizzleMessageRepository,
 	DrizzleThreadMessageRepository,
-	DrizzleUnitOfWork,
 	MailboxRepo,
 	MailboxSpecialUseRepo,
 	SyncWarningRepo,
@@ -125,8 +124,6 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 			new AddressRepo(db),
 			threadMessages,
 			new SyncWarningService(new SyncWarningRepo(db)),
-			undefined,
-			new DrizzleUnitOfWork(db),
 		).syncMessages(inbox.mailboxId, accountId, ACCOUNT_CONFIG_ID);
 		const [synced] = await messages.listAllByMailbox(inbox.mailboxId);
 		if (!synced) throw new Error("sync stored no message");

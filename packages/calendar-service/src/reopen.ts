@@ -2,10 +2,10 @@ import type { CalendarAnswerOvertaken as CalendarAnswerOvertakenValue } from "@r
 import type {
 	CalendarCollectionItem,
 	CalendarObjectItem,
+	CalendarRepositories,
 	CalendarSuggestionItem,
-	CalendarUnitOfWorkRepositories,
+	ICalendarStore,
 	ICalendarSuggestionRepository,
-	ICalendarUnitOfWork,
 } from "@remit/data-ports";
 import {
 	CalendarAnswerOvertaken,
@@ -13,7 +13,7 @@ import {
 	CalendarSuggestionState,
 } from "@remit/domain-enums";
 import { type CalendarResult, calendarFailure } from "./errors.js";
-import { deleteCalendarObject } from "./put.js";
+import { deleteCalendarObjectWrite } from "./put.js";
 import { followingUidPrefix } from "./scope.js";
 
 export interface ReopenCalendarSuggestionInput {
@@ -93,7 +93,7 @@ export const answersOvertakenBy = async (
 };
 
 const locateAnswered = async (
-	repos: CalendarUnitOfWorkRepositories,
+	repos: CalendarRepositories,
 	collections: CalendarCollectionItem[],
 	calendarObjectId: string,
 ): Promise<
@@ -110,7 +110,7 @@ const locateAnswered = async (
 };
 
 const partsOf = async (
-	repos: CalendarUnitOfWorkRepositories,
+	repos: CalendarRepositories,
 	suggestion: CalendarSuggestionItem,
 	collection: CalendarCollectionItem,
 	answered: CalendarObjectItem,
@@ -123,7 +123,7 @@ const partsOf = async (
 ];
 
 export const reopenCalendarSuggestion = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	input: ReopenCalendarSuggestionInput,
 ): Promise<CalendarResult<CalendarSuggestionItem>> => {
 	const { accountConfigId, suggestion } = input;
@@ -143,48 +143,57 @@ export const reopenCalendarSuggestion = async (
 		);
 	}
 
-	return unitOfWork.transaction(async (repos) => {
-		const holders = othersIn(
-			await holdersByObject(repos.calendarSuggestion, accountConfigId, [
-				suggestion,
-			]),
+	const { repos } = store;
+	const holders = othersIn(
+		await holdersByObject(repos.calendarSuggestion, accountConfigId, [
 			suggestion,
+		]),
+		suggestion,
+	);
+	if (overtakenOf(holders) === CalendarAnswerOvertaken.Cancellation) {
+		return calendarFailure<CalendarSuggestionItem>(
+			"AnswerOvertaken",
+			"The cancellation of this event was answered into the same event, so this answer can no longer be taken back.",
 		);
-		if (overtakenOf(holders) === CalendarAnswerOvertaken.Cancellation) {
-			return calendarFailure<CalendarSuggestionItem>(
-				"AnswerOvertaken",
-				"The cancellation of this event was answered into the same event, so this answer can no longer be taken back.",
-			);
-		}
+	}
 
-		const located =
-			suggestion.acceptedCalendarObjectId === "" || holders.length > 0
-				? undefined
-				: await locateAnswered(
-						repos,
-						await repos.calendarCollection.listByAccountConfig(accountConfigId),
-						suggestion.acceptedCalendarObjectId,
-					);
-		if (located) {
-			for (const object of await partsOf(
-				repos,
-				suggestion,
-				located.collection,
-				located.object,
-			)) {
-				await deleteCalendarObject(unitOfWork, {
+	const located =
+		suggestion.acceptedCalendarObjectId === "" || holders.length > 0
+			? undefined
+			: await locateAnswered(
+					repos,
+					await repos.calendarCollection.listByAccountConfig(accountConfigId),
+					suggestion.acceptedCalendarObjectId,
+				);
+	const removals = located
+		? (
+				await partsOf(repos, suggestion, located.collection, located.object)
+			).map((object) =>
+				deleteCalendarObjectWrite({
 					accountConfigId,
 					calendarId: located.collection.calendarId,
 					calendarObjectId: object.calendarObjectId,
-				});
-			}
-		}
+				}),
+			)
+		: [];
 
-		const settled = await repos.calendarSuggestion.settle(
+	await store.commit([
+		...removals,
+		{
+			kind: "SettleSuggestion",
+			accountConfigId,
+			suggestionId: suggestion.suggestionId,
+			settle: {
+				state: CalendarSuggestionState.Pending,
+				acceptedCalendarObjectId: "",
+			},
+		},
+	]);
+	return {
+		ok: true,
+		value: await repos.calendarSuggestion.get(
 			accountConfigId,
 			suggestion.suggestionId,
-			{ state: CalendarSuggestionState.Pending, acceptedCalendarObjectId: "" },
-		);
-		return { ok: true, value: settled };
-	});
+		),
+	};
 };

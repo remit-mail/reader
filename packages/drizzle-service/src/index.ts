@@ -3,8 +3,8 @@ export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
 export { CalendarObjectRepo } from "./repos/calendar-object.js";
+export { DrizzleCalendarStore } from "./repos/calendar-store.js";
 export { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
-export { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 export {
 	type CascadeDeleteLogger,
 	type CascadeDeleter,
@@ -49,7 +49,6 @@ export { MessageLabelRepo } from "./repos/message-label.js";
 export { QuarantineRepo } from "./repos/quarantine.js";
 export { SyncWarningRepo } from "./repos/sync-warning.js";
 export { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
-export { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
 export * from "./schema/i4-account-config.js";
 export * from "./schema/i4-account-export-request.js";
 export * from "./schema/i4-account-setting.js";
@@ -74,4 +73,3 @@ export {
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "./sqlite-repositories.js";
-export { runInTransaction, serializeSqliteWrites } from "./tx.js";

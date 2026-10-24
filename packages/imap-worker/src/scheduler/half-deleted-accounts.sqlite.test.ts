@@ -91,7 +91,6 @@ const importAccount = async (email: string): Promise<AccountItem> => {
 	const outcome = await importConfig(
 		{
 			repositories: client,
-			transaction: client.writeSet,
 			appointFolderRole: async () => {},
 		},
 		{

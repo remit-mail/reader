@@ -39,10 +39,10 @@ These are what every adapter must satisfy and what a caller may rely on. Everyth
 
 **Transactions.**
 
-- **C5.** Every write made through a unit of work's repositories commits together or not at all. A throw rolls the whole set back.
-- **C6.** A transaction opened inside another on the same adapter joins the outer unit; it does not start a second independent one.
-- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. An adapter's transaction machinery — savepoints, nesting detection, write serialization — is below this line and stays private to it.
-- **C8.** `unitOfWork` is optional on the client, and its absence is resolved by the composition, which substitutes a pass-through unit. An adapter with no cross-entity atomicity is composed with that substitution; no caller branches on presence.
+- **C5.** No transaction stays open across an `await`. A write set is an atomic batch, the shape of D1's `batch()`: its statements commit together or not at all, and none of them reads another's result. Decisions are made against reads taken before the batch.
+- **C6.** A write that is not one batch is an idempotent step: keyed on derived ids, upserts and conditional `WHERE` clauses, so a queue redelivery or a second tab repeating it converges on the same rows.
+- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. How an adapter runs a batch — one synchronous `IMMEDIATE` transaction on better-sqlite3 — is below this line and stays private to it.
+- **C8.** The calendar store is the one cross-repository write port: `commit` takes a list of writes and applies them as one batch.
 
 **Text matching.**
 
