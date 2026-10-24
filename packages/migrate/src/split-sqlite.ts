@@ -9,7 +9,7 @@ import * as mcpTables from "../../mcp-server/src/auth/schema.js";
 
 /**
  * The one-time move from the single self-host database file to the app, tenant
- * mail and tenant search databases (#1420), run as `migrate --split-from`.
+ * mail and tenant search databases (#1420), run by the migrate one-shot.
  *
  * Every app table is copied whole. Of the mail tables only the rows the IMAP
  * server cannot give back are copied: what the user wrote or decided locally,
@@ -126,33 +126,30 @@ export type SplitSqliteReport = Record<string, number>;
 
 // Flag changes and moves the old stack queued but has not yet pushed to the
 // server. They are not copied: their ids point at mail the split leaves to
-// resync. A source that still holds any is refused, so nothing the user did is
-// dropped without a word.
+// resync, and that resync takes the server state as it finds it. The counts
+// are reported so the loss is stated rather than silent.
 const PENDING_PUSH_TABLES: readonly SQLiteTable[] = [
 	mailTables.messageFlagPushes,
 	mailTables.messagePlacementMoves,
 ];
 
-const refusePendingPushes = async (source: AnyDb): Promise<void> => {
-	for (const table of PENDING_PUSH_TABLES) {
-		const [{ n }] = await source.select({ n: count() }).from(table);
-		if (n > 0) {
-			throw new Error(
-				`${getTableName(table)} holds ${n} change(s) not yet pushed to the mail server — drain the queue first: start the old release, wait until the queue is idle, stop it, then run the split again`,
-			);
-		}
+/** Whether an app database already holds a row in any app table. */
+export const holdsAppRows = async (db: AnyDb): Promise<boolean> => {
+	for (const table of [...APP_TABLES, ...MCP_TABLES]) {
+		if (!(await hasTable(db, table))) continue;
+		if ((await db.select().from(table).limit(1)).length > 0) return true;
 	}
+	return false;
 };
 
 /** Copy from the old single database into migrated app and mail databases. */
 export const splitSqlite = async (
 	source: AnyDb,
 	targets: { app: AnyDb; mail: AnyDb },
-): Promise<SplitSqliteReport> => {
-	await refusePendingPushes(source);
-	const report: SplitSqliteReport = {};
+): Promise<{ copied: SplitSqliteReport; dropped: SplitSqliteReport }> => {
+	const copied: SplitSqliteReport = {};
 	for (const table of APP_TABLES) {
-		report[getTableName(table)] = await copyTable(
+		copied[getTableName(table)] = await copyTable(
 			source,
 			targets.app,
 			table,
@@ -161,7 +158,7 @@ export const splitSqlite = async (
 	}
 	for (const table of MCP_TABLES) {
 		if (!(await hasTable(source, table))) continue;
-		report[getTableName(table)] = await copyTable(
+		copied[getTableName(table)] = await copyTable(
 			source,
 			targets.app,
 			table,
@@ -169,12 +166,17 @@ export const splitSqlite = async (
 		);
 	}
 	for (const [table, transform] of [...MAILBOX_TABLES, ...LOCAL_MAIL_TABLES]) {
-		report[getTableName(table)] = await copyTable(
+		copied[getTableName(table)] = await copyTable(
 			source,
 			targets.mail,
 			table,
 			transform,
 		);
 	}
-	return report;
+	const dropped: SplitSqliteReport = {};
+	for (const table of PENDING_PUSH_TABLES) {
+		const [{ n }] = await source.select({ n: count() }).from(table);
+		if (n > 0) dropped[getTableName(table)] = n;
+	}
+	return { copied, dropped };
 };

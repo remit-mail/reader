@@ -186,6 +186,8 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 The relational store is three files on the `sqlite_data` named volume: the app
 database (`app.db`: accounts, settings, rules and the better-auth identity
 tables), the mail database (`mail.db`) and its search index (`search.db`).
+An install from before the three files splits its single `remit.db` into them
+on the first `remit update`, and keeps the original as `remit.db.pre-split`.
 The volume **must be local disk**: WAL's cross-process coordination uses a shared-memory
 file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
