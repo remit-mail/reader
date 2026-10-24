@@ -1,10 +1,9 @@
 /**
  * A test's view of what a request wrote to the log.
  *
- * pino writes through `process.stdout` once its `write` is replaced, so the hook
- * is installed when this module is evaluated — import it above anything that
- * pulls in the logger. Writes pass through whenever nothing is capturing, so the
- * test runner's own output still reaches the terminal.
+ * The Node logger writes through `process.stdout`, so the hook is installed when
+ * this module is evaluated. Writes pass through whenever nothing is capturing, so
+ * the test runner's own output still reaches the terminal.
  */
 
 const originalWrite = process.stdout.write.bind(process.stdout);

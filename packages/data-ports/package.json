@@ -66,7 +66,78 @@
 			"default": "./src/sync-warning-state.ts"
 		}
 	},
+	"packManifest": {
+		"main": "dist/index.js",
+		"types": "dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"./conformance": {
+				"types": "./dist/conformance/index.d.ts",
+				"default": "./dist/conformance/index.js"
+			},
+			"./errors": {
+				"types": "./dist/errors.d.ts",
+				"default": "./dist/errors.js"
+			},
+			"./id": {
+				"types": "./dist/id.d.ts",
+				"default": "./dist/id.js"
+			},
+			"./account-settings": {
+				"types": "./dist/account-settings.d.ts",
+				"default": "./dist/account-settings.js"
+			},
+			"./display-name": {
+				"types": "./dist/display-name.d.ts",
+				"default": "./dist/display-name.js"
+			},
+			"./folder-role": {
+				"types": "./dist/folder-role.d.ts",
+				"default": "./dist/folder-role.js"
+			},
+			"./mutation-events": {
+				"types": "./dist/mutation-events.d.ts",
+				"default": "./dist/mutation-events.js"
+			},
+			"./virtual-copy": {
+				"types": "./dist/virtual-copy.d.ts",
+				"default": "./dist/virtual-copy.js"
+			},
+			"./mailbox-name": {
+				"types": "./dist/mailbox-name.d.ts",
+				"default": "./dist/mailbox-name.js"
+			},
+			"./wellknown": {
+				"types": "./dist/wellknown.d.ts",
+				"default": "./dist/wellknown.js"
+			},
+			"./update-manifest": {
+				"types": "./dist/update-manifest.d.ts",
+				"default": "./dist/update-manifest.js"
+			},
+			"./message-parts": {
+				"types": "./dist/message-parts.d.ts",
+				"default": "./dist/message-parts.js"
+			},
+			"./message-settlement": {
+				"types": "./dist/message-settlement.d.ts",
+				"default": "./dist/message-settlement.js"
+			},
+			"./sync-warning-state": {
+				"types": "./dist/sync-warning-state.d.ts",
+				"default": "./dist/sync-warning-state.js"
+			}
+		},
+		"files": [
+			"dist"
+		]
+	},
 	"scripts": {
+		"prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+		"postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=85 --test 'src/**/*.test.ts'"
 	},

@@ -63,6 +63,7 @@
   },
   "dependencies": {
     "@remit/api-http-client": "file:build/remit-client",
+    "@remit/api-openapi-spec": "file:build/remit-openapi3",
     "@remit/drizzle-pg-schema": "file:build/drizzle-entities",
     "@remit/drizzle-sqlite-schema": "file:build/drizzle-entities-sqlite"
   },

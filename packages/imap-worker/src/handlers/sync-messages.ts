@@ -15,7 +15,8 @@ import type {
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
-import { type Logger, recordImapFailure } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createManagedConnectionFactory,

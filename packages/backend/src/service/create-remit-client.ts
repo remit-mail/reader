@@ -30,7 +30,7 @@ import type {
 	ISyncWarningRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	BodySyncQueueService,
 	BodySyncService,

@@ -1,4 +1,4 @@
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import type { Auth } from "./auth.js";
 import { CLIENT_IP_HEADER } from "./auth.js";
 import { AUTH_BASE_PATH } from "./config.js";

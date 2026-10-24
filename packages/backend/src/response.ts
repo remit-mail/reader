@@ -1,4 +1,4 @@
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context as OpenAPIContext } from "openapi-backend";
 import {

@@ -2,6 +2,7 @@ import "typespec-electrodb-emitter";
 
 import "../enums/OutboxMessageStatus.tsp";
 import "../scalars/string.tsp";
+import "../util.tsp";
 
 namespace RemitImap;
 
@@ -247,3 +248,6 @@ model UpdateOutboxMessageInput {
   @doc("For replies: full References chain from parent")
   references?: string[];
 }
+
+@doc("A page of the current account's outbox messages.")
+model OutboxMessageListResponse is ResultList<OutboxMessageResponse>;

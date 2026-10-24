@@ -5,7 +5,7 @@ import {
 	FilterDisabledReason,
 	FilterState,
 } from "@remit/domain-enums";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	type FilterMessage,
 	FilterPipeline,
