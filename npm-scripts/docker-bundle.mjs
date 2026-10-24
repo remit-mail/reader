@@ -201,6 +201,11 @@ export const TARGETS = [
 		outfile: "dist-docker/backend/config-save.mjs",
 		external: [SQLITE],
 	},
+	{
+		name: "backend-remit-cli",
+		entry: "packages/remit-cli/src/main.ts",
+		outfile: "dist-docker/backend/remit-cli.mjs",
+	},
 ];
 
 async function main() {

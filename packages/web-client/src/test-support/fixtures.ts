@@ -104,5 +104,6 @@ export const makeConfig = (
 		updatedAt: 0,
 	},
 	accounts,
+	buildCommit: "dev",
 	...overrides,
 });
