@@ -12,8 +12,8 @@
  * What catches a regression to one batch is the per-account pair: each
  * account's subjects have to have left that account's own INBOX and arrived in
  * that account's own Trash. A batch spanning accounts is refused whole before
- * any of it is applied (`assertMessagesOwned` in
- * `packages/backend/src/handlers/message.ts`), so a client that sent one call
+ * any of it is applied (`ownedMessages` in
+ * `packages/mailbox-service/src/ownership.ts`), so a client that sent one call
  * fails the run outright — the run screen never says it deleted them, and the
  * waits on the second server never settle.
  *

@@ -1,5 +1,4 @@
 import type {
-	BodyPartContentUpsertInput,
 	BodyPartItem,
 	BodyPartUpsertInput,
 	CreateEnvelopeInput,
@@ -17,14 +16,12 @@ import {
 	NotFoundError,
 } from "../error.js";
 import {
-	bodyPartContentId as deriveBodyPartContentId,
 	bodyPartId as deriveBodyPartId,
 	bodyPartParameterId as deriveBodyPartParameterId,
 	envelopeId as deriveEnvelopeId,
 	deterministicBase36Id,
 } from "../id.js";
 import {
-	bodyPartContentTable,
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
@@ -38,7 +35,6 @@ import {
 } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
 import {
-	toBodyPartContentItem,
 	toBodyPartItem,
 	toBodyPartParameterItem,
 	toBodyPartStorageItem,
@@ -70,7 +66,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			bodyPartParameters,
 			rawMessageStorages,
 			bodyPartStorages,
-			bodyPartContents,
 		] = await Promise.all([
 			this.db
 				.select()
@@ -100,10 +95,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 				.select()
 				.from(bodyPartStorageTable)
 				.where(eq(bodyPartStorageTable.messageId, messageId)),
-			this.db
-				.select()
-				.from(bodyPartContentTable)
-				.where(eq(bodyPartContentTable.messageId, messageId)),
 		]);
 
 		if (envelopes.length === 0) {
@@ -118,7 +109,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			bodyPartParameter: bodyPartParameters.map(toBodyPartParameterItem),
 			rawMessageStorage: rawMessageStorages.map(toRawMessageStorageItem),
 			bodyPartStorage: bodyPartStorages.map(toBodyPartStorageItem),
-			bodyPartContent: bodyPartContents.map(toBodyPartContentItem),
 		};
 	}
 
@@ -329,37 +319,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 		await this.db
 			.delete(envelopeTable)
 			.where(eq(envelopeTable.envelopeId, envelopeId));
-	}
-
-	async upsertBodyPartContents(
-		messageId: string,
-		contents: BodyPartContentUpsertInput[],
-	): Promise<void> {
-		if (contents.length === 0) return;
-
-		const now = Date.now();
-
-		const rows = contents.map((c) => ({
-			bodyPartContentId: deriveBodyPartContentId(messageId, c.bodyPartId),
-			messageId,
-			bodyPartId: c.bodyPartId,
-			content: c.content,
-			contentLength: c.content.length,
-			createdAt: now,
-			updatedAt: now,
-		}));
-
-		await this.db
-			.insert(bodyPartContentTable)
-			.values(rows)
-			.onConflictDoUpdate({
-				target: bodyPartContentTable.bodyPartContentId,
-				set: {
-					content: bodyPartContentTable.content,
-					contentLength: bodyPartContentTable.contentLength,
-					updatedAt: now,
-				},
-			});
 	}
 
 	async listBodyParts(messageId: string): Promise<BodyPartItem[]> {

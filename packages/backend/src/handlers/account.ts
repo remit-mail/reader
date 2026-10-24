@@ -23,6 +23,7 @@ import {
 	RefreshTokenError,
 } from "@remit/mail-oauth-service";
 import {
+	ownedAccount,
 	resolveConnectionCredentials,
 	testImapConnection,
 	testSmtpConnection,
@@ -39,6 +40,7 @@ import { getAccountConfigIdFromEvent } from "../auth.js";
 import { deleteAccount } from "../service/account-deletion.js";
 import { getClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
+import { unwrap } from "../service/refusal.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
@@ -59,7 +61,6 @@ import {
 	writeAccountComposeLanguages,
 	writeAccountMuted,
 } from "./account-overrides.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 import {
 	loadSignatureForAccount,
 	upsertAccountSignature,
@@ -314,7 +315,7 @@ export const AccountOperations: Record<
 
 		if (!imapPassword && input.accountId) {
 			const existingAccount = await account.get(input.accountId);
-			assertAccountOwnership(existingAccount, accountConfigId, "read");
+			unwrap(ownedAccount(existingAccount, accountConfigId, "read"));
 
 			const authType = existingAccount.authType ?? "password";
 			if (authType === "oauthMicrosoft") {
@@ -426,7 +427,7 @@ export const AccountDetailOperations: Record<
 		const { account, accountSetting, mailbox, secrets } = await getClient();
 
 		const existing = await account.get(accountId);
-		assertAccountOwnership(existing, accountConfigId, "act");
+		unwrap(ownedAccount(existing, accountConfigId, "act"));
 
 		const entityFields: { [K in AccountEntityField]: AccountUpdate[K] } = {
 			imapHost: input.imapHost,
@@ -526,7 +527,7 @@ export const AccountDetailOperations: Record<
 		const { account } = await getClient();
 
 		const existing = await account.get(accountId);
-		assertAccountOwnership(existing, accountConfigId, "act");
+		unwrap(ownedAccount(existing, accountConfigId, "act"));
 
 		const deletedAt = Date.now();
 		await deleteAccount(

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import {
-	bodyPartContentId,
 	bodyPartId,
 	bodyPartParameterId,
 	deterministicBase36Id,
@@ -57,13 +56,6 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		assert.equal(
 			envelopeAddressId(MESSAGE, "to", 1),
 			"5f4e930e-e418-51a2-9402-657822f8688b",
-		);
-	});
-
-	test("bodyPartContentId pins the body_part_content primary key", () => {
-		assert.equal(
-			bodyPartContentId(MESSAGE, "bodypart-golden"),
-			"c0ee5f7d-1894-5957-9f65-d9aafdf306ab",
 		);
 	});
 });

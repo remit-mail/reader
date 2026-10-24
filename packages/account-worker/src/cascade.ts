@@ -109,12 +109,6 @@ export const collectMessageChildEntities = (
 			key: { bodyPartStorageId: bps.bodyPartStorageId },
 		});
 	}
-	for (const bpc of messageData.bodyPartContent) {
-		entities.push({
-			entityType: "BodyPartContent",
-			key: { bodyPartContentId: bpc.bodyPartContentId },
-		});
-	}
 };
 
 export const enumerateCascadeEntities = async (
@@ -220,13 +214,6 @@ export const enumerateCascadeEntities = async (
 					entities.push({
 						entityType: "BodyPartStorage",
 						key: { bodyPartStorageId: bps.bodyPartStorageId },
-					});
-				}
-
-				for (const bpc of messageData.bodyPartContent) {
-					entities.push({
-						entityType: "BodyPartContent",
-						key: { bodyPartContentId: bpc.bodyPartContentId },
 					});
 				}
 			}
@@ -341,29 +328,3 @@ export const enumerateCascadeEntities = async (
 
 	return { entities, messageIds };
 };
-
-export const COVERED_ENTITY_TYPES = [
-	"Account",
-	"AccountConfig",
-	"AccountSetting",
-	"Address",
-	"BodyPart",
-	"BodyPartContent",
-	"BodyPartParameter",
-	"BodyPartStorage",
-	"Envelope",
-	"EnvelopeAddress",
-	"Filter",
-	"Label",
-	"Mailbox",
-	"MailboxLock",
-	"Message",
-	"MessageFlag",
-	"MessageFlagPush",
-	"MessageLabel",
-	"MessagePlacementMove",
-	"MessageReference",
-	"OutboxMessage",
-	"RawMessageStorage",
-	"ThreadMessage",
-] as const;

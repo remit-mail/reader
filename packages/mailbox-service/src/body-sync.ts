@@ -1777,8 +1777,8 @@ export class BodySyncService {
 		}
 
 		const log = this.log;
-		// A parse of its own: classification, the snippet and search read an
-		// inline forwarded message's text, which `ignoreEmbedded` keeps out.
+		// A parse of its own: classification and the snippet, which search reads,
+		// need an inline forwarded message's text, which `ignoreEmbedded` keeps out.
 		const pairs = await mapMessagePartsToContent(
 			bodyParts,
 			await parsePartSource(body),
@@ -1802,12 +1802,7 @@ export class BodySyncService {
 			return { stored: 0 };
 		}
 
-		const bodyPartIdByPath = new Map(
-			bodyParts.map((bp) => [bp.partPath, bp.bodyPartId]),
-		);
-
 		let stored = 0;
-		const textContents: { bodyPartId: string; content: string }[] = [];
 		await pMap(
 			pairs,
 			async (entry) => {
@@ -1831,29 +1826,9 @@ export class BodySyncService {
 					contentType: entry.contentType,
 				});
 				stored++;
-
-				if (
-					entry.contentType.toLowerCase().startsWith("text/") &&
-					entry.content.length > 0
-				) {
-					const bodyPartId = bodyPartIdByPath.get(entry.partPath);
-					if (bodyPartId) {
-						textContents.push({
-							bodyPartId,
-							content: entry.content.toString("utf8"),
-						});
-					}
-				}
 			},
 			{ concurrency: BODY_PART_STORE_CONCURRENCY },
 		);
-
-		if (textContents.length > 0) {
-			await this.envelopeService.upsertBodyPartContents(
-				messageId,
-				textContents,
-			);
-		}
 
 		this.log.info(
 			{ messageId, partCount: pairs.length, stored },

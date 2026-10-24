@@ -1,5 +1,6 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { logger } from "@remit/logger-lambda";
+import { ownedAccount } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -8,10 +9,10 @@ import {
 	type FireAndForgetLogger,
 	fireAndForget,
 } from "../service/fire-and-forget.js";
+import { unwrap } from "../service/refusal.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type { OperationHandler, SyncOperationIds } from "../types.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
 
 interface SyncTriggerDeps {
@@ -84,7 +85,7 @@ export const SyncOperations: Record<
 		const { accountId } = context.request.params as { accountId: string };
 
 		const account = await (await getClient()).account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
+		unwrap(ownedAccount(account, accountConfigId, "act"));
 
 		void triggerSyncSafe(account.accountId, accountConfigId);
 
@@ -101,7 +102,7 @@ export const SyncOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "read");
+		unwrap(ownedAccount(account, accountConfigId, "read"));
 
 		// Collect all mailboxes (read-only — does not write or contend with sync lock)
 		const mailboxes = await client.mailbox.listAllByAccount(accountId);
