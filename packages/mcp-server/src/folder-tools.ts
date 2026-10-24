@@ -7,8 +7,6 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	changeFolderPath,
 	createFolder,
-	folderInAccount,
-	ownedAccount,
 	settledFolder,
 } from "@remit/mailbox-service";
 import { z } from "zod";
@@ -184,29 +182,13 @@ export const registerFolderTools = (
 		async ({ accountId, mailboxId, fullPath }) => {
 			const { folders } = deps;
 
-			const owned = ownedAccount(
-				await deps.account.get(accountId),
-				accountConfigId,
-				"act",
-			);
-			if (!owned.ok) return refused(owned.refusal);
-
-			const owner = await deps.mailbox.resolveAccountId(mailboxId);
-			if (owner === null) {
-				return refused({
-					kind: "NotFound",
-					message: `Mailbox not found: ${mailboxId}`,
-				});
-			}
-			const inAccount = folderInAccount(
-				{ mailboxId, accountId: owner },
-				accountId,
-				"act",
-			);
-			if (!inAccount.ok) return refused(inAccount.refusal);
-
 			const changed = await changeFolderPath(
-				{ mailbox: deps.mailbox, mailboxQueue: folders.mailboxQueue },
+				{
+					account: deps.account,
+					mailbox: deps.mailbox,
+					mailboxQueue: folders.mailboxQueue,
+				},
+				accountConfigId,
 				{ accountId, mailboxId, fullPath },
 			);
 			if (!changed.ok) return refused(changed.refusal);

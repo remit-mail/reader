@@ -13,6 +13,7 @@ import {
 	folderInAccount,
 	folderInFlight,
 	ownedAccount,
+	ownedFolder,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -77,29 +78,33 @@ export const applyMailboxPatch = async (
 	body: RenameMailboxInput,
 ): Promise<MailboxItem> => {
 	const { fullPath } = body;
-	const changes = pickMailboxOverrideChanges(body);
-	if (Object.keys(changes).length > 0) {
+	const applyOverrides = async (): Promise<void> => {
+		const changes = pickMailboxOverrideChanges(body);
+		if (Object.keys(changes).length === 0) return;
 		await applyMailboxOverrideChanges(
 			client.accountSetting,
 			accountConfigId,
 			mailboxId,
 			changes,
 		);
-	}
+	};
 
 	if (!fullPath) {
-		return client.mailbox.get(accountId, mailboxId);
+		const folder = unwrap(
+			await ownedFolder(client, accountConfigId, accountId, mailboxId),
+		);
+		await applyOverrides();
+		return folder;
 	}
 
-	const changed = await changeFolderPath(client, {
-		accountId,
-		mailboxId,
-		fullPath,
-	});
-	if (!changed.ok && changed.refusal.kind === "NotSettled") {
-		throw new ConflictError(changed.refusal.message);
-	}
-	const { outcome, mailbox } = unwrap(changed);
+	const { outcome, mailbox } = unwrap(
+		await changeFolderPath(client, accountConfigId, {
+			accountId,
+			mailboxId,
+			fullPath,
+		}),
+	);
+	await applyOverrides();
 	if (outcome === "AlreadyRecorded") {
 		throw new ConflictError(folderInFlight(mailbox));
 	}
@@ -299,12 +304,6 @@ export const MailboxDetailOperations: Record<
 		const body = context.request.requestBody as RenameMailboxInput;
 
 		const client = await getClient();
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		const existing = await client.mailbox.get(accountId, mailboxId);
-		unwrap(folderInAccount(existing, accountId, "act"));
-
 		const mailbox = await applyMailboxPatch(
 			client,
 			accountConfigId,

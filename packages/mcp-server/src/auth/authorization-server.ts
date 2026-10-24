@@ -13,6 +13,7 @@ import {
 	type BetterAuthOptions,
 	type BetterAuthPlugin,
 	betterAuth,
+	type GenericEndpointContext,
 } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import {
@@ -42,11 +43,9 @@ export const MCP_PATH = "/mcp";
 export const SIGN_IN_PATH = "/mcp/sign-in";
 export const CONNECTED_APPS_API_PATH = "/mcp/connected-apps";
 export const REVOKE_CLIENT_API_PATH = "/mcp/revoke-client";
-export const DEVICE_API_PATHS = ["/device", "/device/approve", "/device/deny"];
 export const JWKS_PATH = "/jwks";
 export const OAUTH2_PATH_PREFIX = "/oauth2/";
 export const DEVICE_CODE_PATH = "/device/code";
-export const DEVICE_VERIFY_PATH = "/device";
 export const DEVICE_APPROVE_PATH = "/device/approve";
 export const DEVICE_DENY_PATH = "/device/deny";
 
@@ -145,6 +144,27 @@ const userCodeOf = (body: unknown): string | undefined => {
 	if (typeof body !== "object" || body === null) return undefined;
 	const userCode = (body as { userCode?: unknown }).userCode;
 	return typeof userCode === "string" ? userCode : undefined;
+};
+
+interface DeviceCodeRow {
+	oauthClientId: string | null;
+	scope: string | null;
+	resources: string[] | null;
+}
+
+const deviceCodeOf = async (
+	ctx: GenericEndpointContext,
+	userCode: string,
+): Promise<DeviceCodeRow | null> => {
+	const find = (value: string) =>
+		ctx.context.adapter.findOne<DeviceCodeRow>({
+			model: "deviceCode",
+			where: [{ field: "userCode", value }],
+		});
+	return (
+		(await find(userCode)) ??
+		(await find(userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase()))
+	);
 };
 
 const hasResource = (fields: unknown): boolean =>
@@ -326,16 +346,7 @@ const remitMcpBridge = (
 						const session = await getSessionFromCtx(ctx);
 						const userCode = userCodeOf(ctx.body);
 						if (!session || !userCode) return;
-						const findByUserCode = (value: string) =>
-							ctx.context.adapter.findOne<{ oauthClientId: string | null }>({
-								model: "deviceCode",
-								where: [{ field: "userCode", value }],
-							});
-						const deviceCode =
-							(await findByUserCode(userCode)) ??
-							(await findByUserCode(
-								userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
-							));
+						const deviceCode = await deviceCodeOf(ctx, userCode);
 						if (!deviceCode?.oauthClientId) return;
 						const client = await ctx.context.adapter.findOne<{
 							userId: string | null;
@@ -395,20 +406,7 @@ const remitMcpBridge = (
 						const session = await getSessionFromCtx(ctx);
 						const userCode = userCodeOf(ctx.body);
 						if (!session || !userCode) return;
-						const findApproved = (value: string) =>
-							ctx.context.adapter.findOne<{
-								oauthClientId: string | null;
-								scope: string | null;
-								resources: string[] | null;
-							}>({
-								model: "deviceCode",
-								where: [{ field: "userCode", value }],
-							});
-						const deviceCode =
-							(await findApproved(userCode)) ??
-							(await findApproved(
-								userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
-							));
+						const deviceCode = await deviceCodeOf(ctx, userCode);
 						if (!deviceCode?.oauthClientId) return;
 						const grant = grantOf(session.user.id, deviceCode.oauthClientId);
 						const existing = await ctx.context.adapter.findOne({
@@ -489,18 +487,64 @@ export const createMcpAuth = (config: McpAuthConfig) =>
 
 export type McpAuth = ReturnType<typeof createMcpAuth>;
 
+export interface SignIn {
+	email: string;
+	password: string;
+	oauth_query: string;
+}
+
 export interface McpAuthRoutes {
 	handle(request: Request): Promise<Response>;
-	hasSession(request: Request): Promise<boolean>;
 	serverMetadata(request: Request): Promise<Response>;
+	hasSession(headers: Headers): Promise<boolean>;
+	signIn(headers: Headers, body: SignIn): Promise<Response>;
+	consent(
+		headers: Headers,
+		body: { accept: boolean; oauth_query: string },
+	): Promise<Response>;
+	clientName(headers: Headers, clientId: string): Promise<string | undefined>;
+	claimDeviceCode(headers: Headers, userCode: string): Promise<boolean>;
+	decideDeviceCode(
+		headers: Headers,
+		userCode: string,
+		approve: boolean,
+	): Promise<Response>;
+	connectedApps(headers: Headers): Promise<Response>;
+	revokeClient(headers: Headers, clientId: string): Promise<Response>;
 }
 
 const DEVICE_AUTH_PATHS: ReadonlySet<string> = new Set([
 	DEVICE_CODE_PATH,
-	DEVICE_VERIFY_PATH,
+	DEVICE_PATH,
 	DEVICE_APPROVE_PATH,
 	DEVICE_DENY_PATH,
 ]);
+
+const jsonHeaders = (headers: Headers): Headers => {
+	const json = new Headers(headers);
+	json.set("accept", "application/json");
+	json.set("content-type", "application/json");
+	return json;
+};
+
+const postToRouter = (
+	auth: McpAuth,
+	headers: Headers,
+	path: string,
+	body: SignIn | { accept: boolean; oauth_query: string },
+): Promise<Response> =>
+	auth.handler(
+		new Request(`${auth.options.baseURL}${AUTH_BASE_PATH}${path}`, {
+			method: "POST",
+			headers: jsonHeaders(headers),
+			body: JSON.stringify(body),
+		}),
+	);
+
+const refusedWith = (error: unknown): undefined => {
+	if (isAPIError(error)) return undefined;
+	throw error;
+};
 
 const isServedAuthPath = (path: string): boolean =>
 	path.startsWith(OAUTH2_PATH_PREFIX) ||
@@ -508,7 +552,6 @@ const isServedAuthPath = (path: string): boolean =>
 	path === SIGN_IN_PATH ||
 	path === CONNECTED_APPS_API_PATH ||
 	path === REVOKE_CLIENT_API_PATH ||
-	DEVICE_API_PATHS.includes(path) ||
 	path === JWKS_PATH;
 
 export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
@@ -522,9 +565,51 @@ export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
 		}
 		return auth.handler(request);
 	},
-	hasSession: async (request) =>
-		(await auth.api.getSession({ headers: request.headers })) !== null,
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
+	hasSession: async (headers) =>
+		(await auth.api.getSession({ headers })) !== null,
+	// These two go through the router rather than auth.api: only the router
+	// applies the sign-in rate limit, and the authorization they resume needs
+	// a request.
+	signIn: (headers, body) => postToRouter(auth, headers, SIGN_IN_PATH, body),
+	consent: (headers, body) =>
+		postToRouter(auth, headers, "/oauth2/consent", body),
+	clientName: async (headers, clientId) => {
+		const client = await auth.api
+			.getOAuthClientPublic({ query: { client_id: clientId }, headers })
+			.catch(refusedWith);
+		if (!client) return undefined;
+		return client.client_name ?? clientId;
+	},
+	claimDeviceCode: async (headers, userCode) => {
+		const response = await auth.api.deviceVerify({
+			query: { user_code: userCode },
+			headers,
+			asResponse: true,
+		});
+		await response.body?.cancel();
+		return response.ok;
+	},
+	decideDeviceCode: (headers, userCode, approve) =>
+		approve
+			? auth.api.deviceApprove({
+					body: { userCode },
+					headers: jsonHeaders(headers),
+					asResponse: true,
+				})
+			: auth.api.deviceDeny({
+					body: { userCode },
+					headers: jsonHeaders(headers),
+					asResponse: true,
+				}),
+	connectedApps: (headers) =>
+		auth.api.remitMcpConnectedApps({ headers, asResponse: true }),
+	revokeClient: (headers, clientId) =>
+		auth.api.remitMcpRevokeClient({
+			body: { client_id: clientId },
+			headers: jsonHeaders(headers),
+			asResponse: true,
+		}),
 });
 
 const audienceOf = (aud: unknown): string[] => {

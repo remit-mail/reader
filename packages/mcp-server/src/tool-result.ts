@@ -14,6 +14,7 @@ const REFUSAL_FIX: Record<Refusal["kind"], string> = {
 	Invalid: "",
 	Forbidden: " Use an accountId and mailboxId from list_mailboxes.",
 	NotFound: " Use an accountId and mailboxId from list_mailboxes.",
+	Conflict: " Wait for it to settle, then call this tool again.",
 	NotSettled: " Wait for it to settle, then call this tool again.",
 };
 

@@ -137,6 +137,7 @@ export {
 	type FolderPathOutcome,
 	type NewFolder,
 	type NewFolderOutcome,
+	ownedFolder,
 } from "./folder-operations.js";
 export {
 	type FolderPlacementLookup,

@@ -1,11 +1,9 @@
 import { setTimeout } from "node:timers/promises";
 import { deviceLogin } from "./device-login.js";
 
-const origin = process.argv[2] ?? process.env.MCP_PUBLIC_ORIGIN;
+const origin = process.env.MCP_PUBLIC_ORIGIN;
 if (!origin) {
-	process.stderr.write(
-		"Usage: mcp-login <origin>, or set MCP_PUBLIC_ORIGIN to the MCP server's origin\n",
-	);
+	process.stderr.write("Missing required env var: MCP_PUBLIC_ORIGIN\n");
 	process.exit(2);
 }
 

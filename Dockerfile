@@ -129,7 +129,6 @@ ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
 
 RUN npm run build:dist -w packages/web-client -- --auth better-auth
 
-# The stylesheet the MCP server's login, consent and device pages link to.
 RUN npm run build -w packages/mcp-server
 
 # Only the brotli form of the engine and the dictionaries lands in the image;
@@ -332,10 +331,7 @@ COPY --from=builder --chown=node:node /app/dist-docker/doctor/check.mjs ./check.
 CMD ["node", "server.mjs"]
 
 ########################################################################
-# mcp-server — the MCP connector (remit-mail/remit#1342): its OAuth
-# authorization server and /mcp, answering on MCP_PUBLIC_ORIGIN. Runs only
-# under the `mcp` compose profile. better-sqlite3 is its one native dependency,
-# installed by node-service-installed like the other sqlite images.
+# mcp-server — the MCP connector, behind the `mcp` compose profile.
 ########################################################################
 FROM node-service-installed AS mcp-server
 COPY --from=builder --chown=node:node /app/dist-docker/mcp-server/server.mjs ./server.mjs

@@ -1,4 +1,5 @@
 import type {
+	AccountItem,
 	IAccountRepository,
 	IMailboxRepository,
 	MailboxItem,
@@ -8,10 +9,11 @@ import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { carriesIntent, folderInFlight } from "./mailbox-intent.js";
 import type { MailboxQueueService } from "./mailbox-queue.js";
-import { ownedAccount } from "./ownership.js";
+import { folderInAccount, ownedAccount } from "./ownership.js";
 import { accept, invalid, type Refusable, refuse } from "./refusal.js";
 
 export interface FolderPathDeps {
+	account: { get(accountId: string): Promise<AccountItem> };
 	mailbox: {
 		get(accountId: string, mailboxId: string): Promise<MailboxItem>;
 		listAllByAccount(accountId: string): Promise<MailboxItem[]>;
@@ -107,12 +109,34 @@ const renameTargetRefusal = async (
 // A fullPath equal to the confirmed one is not a rename: it dismisses a failed
 // intent, the one route out of `failed` that enqueues nothing. The row keeps
 // the path the server holds until the rename settles.
+export const ownedFolder = async (
+	deps: Pick<FolderPathDeps, "account" | "mailbox">,
+	accountConfigId: string,
+	accountId: string,
+	mailboxId: string,
+): Promise<Refusable<MailboxItem>> => {
+	const owned = ownedAccount(
+		await deps.account.get(accountId),
+		accountConfigId,
+		"act",
+	);
+	if (!owned.ok) return owned;
+	return folderInAccount(
+		await deps.mailbox.get(accountId, mailboxId),
+		accountId,
+		"act",
+	);
+};
+
 export const changeFolderPath = async (
 	deps: FolderPathDeps,
+	accountConfigId: string,
 	change: FolderPathChange,
 ): Promise<Refusable<FolderPathOutcome>> => {
 	const { accountId, mailboxId, fullPath } = change;
-	const before = await deps.mailbox.get(accountId, mailboxId);
+	const folder = await ownedFolder(deps, accountConfigId, accountId, mailboxId);
+	if (!folder.ok) return folder;
+	const before = folder.value;
 	if (fullPath === before.fullPath) {
 		return accept({
 			outcome: "Recorded",
@@ -133,12 +157,7 @@ export const changeFolderPath = async (
 		) {
 			return accept({ outcome: "AlreadyRecorded", mailbox: before });
 		}
-		return refuse({
-			kind: "NotSettled",
-			message: folderInFlight(before),
-			mailboxId,
-			syncStatus: before.syncStatus,
-		});
+		return refuse({ kind: "Conflict", message: folderInFlight(before) });
 	}
 
 	return accept({

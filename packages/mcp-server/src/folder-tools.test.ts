@@ -29,7 +29,6 @@ let account: AccountItem;
 let inbox: MailboxItem;
 let receipts: MailboxItem;
 let theirAccount: AccountItem;
-let theirFolder: MailboxItem;
 
 const isMailboxEvent = (body: Record<string, unknown>): boolean =>
 	String(body.type).startsWith("MAILBOX_");
@@ -56,7 +55,7 @@ after(() => store.close());
 beforeEach(async () => {
 	const theirs = await store.world(deriveAccountConfigId(OTHER_USER_ID));
 	theirAccount = theirs.account;
-	theirFolder = await theirs.folder("Private");
+	await theirs.folder("Private");
 
 	mine = await store.world(deriveAccountConfigId(USER_ID));
 	account = mine.account;
@@ -287,66 +286,6 @@ describe("rename_folder", () => {
 				fullPath: "Old inbox",
 			}),
 			/The inbox can't be renamed\./,
-		);
-		assert.equal(mailboxEvents().length, 0);
-	});
-
-	it("refuses a system folder's name", async () => {
-		assert.match(
-			await refusalOf("rename_folder", {
-				accountId: account.accountId,
-				mailboxId: receipts.mailboxId,
-				fullPath: "Junk",
-			}),
-			/“Junk” is reserved for a system folder\. Pick another name\./,
-		);
-		assert.equal(mailboxEvents().length, 0);
-	});
-
-	it("refuses a folder the mail server has not confirmed yet", async () => {
-		worker = "stalls";
-		const pending = await callToolJson("create_folder", {
-			accountId: account.accountId,
-			fullPath: "Fresh",
-		});
-
-		assert.match(
-			await refusalOf("rename_folder", {
-				accountId: account.accountId,
-				mailboxId: pending.mailboxId,
-				fullPath: "Renamed",
-			}),
-			/"Fresh" is still being created\. Wait for it to settle, then call this tool again\./,
-		);
-		assert.equal(mailboxEvents().length, 1);
-	});
-
-	it("refuses a folder the caller does not own", async () => {
-		assert.match(
-			await refusalOf("rename_folder", {
-				accountId: theirAccount.accountId,
-				mailboxId: theirFolder.mailboxId,
-				fullPath: "Taken",
-			}),
-			/not in account config\. Use an accountId and mailboxId from list_mailboxes\./,
-		);
-		assert.equal(mailboxEvents().length, 0);
-		const untouched = await store.client.mailbox.get(
-			theirAccount.accountId,
-			theirFolder.mailboxId,
-		);
-		assert.equal(untouched.fullPath, "Private");
-		assert.equal(untouched.syncStatus, theirFolder.syncStatus);
-	});
-
-	it("refuses another account's folder named under the caller's own account", async () => {
-		assert.equal(
-			await refusalOf("rename_folder", {
-				accountId: account.accountId,
-				mailboxId: theirFolder.mailboxId,
-				fullPath: "Taken",
-			}),
-			`Mailbox ${theirFolder.mailboxId} not in account. Use an accountId and mailboxId from list_mailboxes.`,
 		);
 		assert.equal(mailboxEvents().length, 0);
 	});

@@ -549,21 +549,9 @@ services:
     restart: unless-stopped
 
   # ---------------------------------------------------------------------
-  # MCP connector (remit-mail/remit#1342) — off by default. `remit mcp enable
-  # <origin>` adds `mcp` to COMPOSE_PROFILES and sets MCP_PUBLIC_ORIGIN; Caddy
-  # sends that origin's host here (caddy/mcp.caddy). It reads the shared SQLite
-  # file and storage, and queues work on the same queues as the backend: the
-  # SQS_QUEUE_URL* values reach it from .env the same way they reach
-  # the backend.
-  #
-  # MCP_PUBLIC_ORIGIN and MCP_AUTH_SECRET are not `:?`-guarded, for the reason
-  # the tunnel's token is not: compose interpolates the whole file before it
-  # filters by profile. A missing one fails this container at start, by name.
-  #
-  # The server takes X-Remit-Client-IP only from an address in
-  # MCP_TRUSTED_PROXIES, and Caddy's is assigned at start. It is resolved here
-  # from the service name, and `restart: true` restarts this service whenever
-  # compose replaces caddy, so the address never goes stale.
+  # MCP connector — off by default; `remit mcp enable <origin>` turns it on.
+  # MCP_PUBLIC_ORIGIN and MCP_AUTH_SECRET are not `:?`-guarded because compose
+  # interpolates the whole file before it filters by profile.
   # ---------------------------------------------------------------------
   mcp:
     image: ghcr.io/remit-mail/reader/mcp-server:${REMIT_TAG:-latest}
@@ -572,8 +560,6 @@ services:
     environment:
       <<: *app-environment
       MCP_PORT: "8080"
-    command:
-      ["sh", "-c", "MCP_TRUSTED_PROXIES=$$(getent hosts caddy | awk '{print $$1; exit}') exec node server.mjs"]
     volumes:
       - message_storage:/data/storage
       - sqlite_data:/data/sqlite
@@ -586,7 +572,6 @@ services:
         condition: service_completed_successfully
       caddy:
         condition: service_started
-        restart: true
     healthcheck:
       test:
         ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/.well-known/oauth-protected-resource',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]

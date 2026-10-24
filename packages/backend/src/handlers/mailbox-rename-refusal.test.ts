@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { MailboxItem } from "@remit/data-ports";
+import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { applyMailboxPatch, type MailboxPatchClient } from "./mailbox.js";
 
@@ -30,6 +30,10 @@ const clientOver = (
 	const dismissals: string[] = [];
 	const settings: string[] = [];
 	const client: MailboxPatchClient = {
+		account: {
+			get: async (accountId) =>
+				({ accountId, accountConfigId: CONFIG_ID }) as AccountItem,
+		},
 		mailbox: {
 			get: async () => row,
 			listAllByAccount: async () => [row, ...others],

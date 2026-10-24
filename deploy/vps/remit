@@ -87,8 +87,7 @@ SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh
 CADDY_ASSETS="caddy/routes.caddy caddy/mcp.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
 HOST_ASSETS="remit docker-compose.sqlite.yml $CADDY_ASSETS"
 
-# What Caddy is handed for MCP_PUBLIC_ORIGIN while the connector is off — the
-# same default docker-compose.sqlite.yml gives it. A name nothing resolves.
+# Caddy's MCP_PUBLIC_ORIGIN while the connector is off; nothing resolves it.
 MCP_UNSET_ORIGIN="http://mcp.invalid"
 
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
@@ -3637,19 +3636,10 @@ cmd_check_categories() {
 	compose run --rm --no-deps migrate node migrate.mjs --check
 }
 
-# --- mcp (remit-mail/remit#1342) ---------------------------------------------
-#
-# The connector is a compose profile, and turning it on is two .env values and
-# that profile: MCP_PUBLIC_ORIGIN, which Caddy routes (caddy/mcp.caddy) and the
-# server answers on, and `mcp` in COMPOSE_PROFILES, the same line TLS_MODE=tunnel
-# starts the tunnel agent through. Kept in COMPOSE_PROFILES rather than passed
-# as --profile, so every later `compose` call here — restart, update, purge —
-# sees the service without being told.
+# --- mcp ---------------------------------------------------------------------
 
 MCP_PROFILE=mcp
 
-# scheme://host[:port] and nothing else: the server refuses an origin with a
-# path, and Caddy matches on the host.
 mcp_origin_valid() {
 	case "$1" in
 	http://* | https://*) ;;
@@ -3663,9 +3653,6 @@ mcp_origin_valid() {
 	return 0
 }
 
-# COMPOSE_PROFILES with `mcp` added or taken out, every other entry untouched.
-# The template's value is `${TLS_MODE:-}`, which compose expands; it is carried
-# through as text.
 profiles_with_mcp() {
 	case ",$1," in
 	*",$MCP_PROFILE,"*) printf '%s' "$1" ;;
@@ -3678,8 +3665,6 @@ profiles_without_mcp() {
 	printf ',%s,' "$1" | sed -e "s/,$MCP_PROFILE,/,/g" -e 's/^,//' -e 's/,$//'
 }
 
-# An .env written before the template carried COMPOSE_PROFILES has no line to
-# extend; the template's value is what it would have held.
 current_profiles() {
 	if grep -q '^COMPOSE_PROFILES=' "$REMIT_DIR/.env"; then
 		get_var COMPOSE_PROFILES
@@ -3742,9 +3727,7 @@ mcp_disable() {
 	printf 'Its client registrations and tokens stay in the database; %s mcp enable brings them back.\n' "$PROG"
 }
 
-# RFC 8628 device login, run in the mcp container so this script needs nothing
-# but docker. It talks to MCP_PUBLIC_ORIGIN, the address the printed command
-# points Claude Code at. Not -T: it prints while it polls.
+# Not -T: it prints while it polls.
 mcp_login() {
 	[ $# -eq 0 ] || die "mcp login: takes no arguments"
 	compose exec mcp node mcp-login.mjs

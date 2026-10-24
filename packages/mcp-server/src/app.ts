@@ -1,21 +1,13 @@
-import { CLIENT_IP_HEADER } from "@remit/auth-service";
 import { extractBearerToken } from "@remit/auth-service/verifier";
 import { z } from "zod";
 import {
-	AUTH_BASE_PATH,
-	CONNECTED_APPS_API_PATH,
 	CONNECTED_APPS_PATH,
 	CONSENT_PATH,
-	DEVICE_APPROVE_PATH,
-	DEVICE_DENY_PATH,
 	DEVICE_PATH,
-	DEVICE_VERIFY_PATH,
 	LOGIN_PATH,
 	MCP_PATH,
 	type McpAuthRoutes,
 	mcpResource,
-	REVOKE_CLIENT_API_PATH,
-	SIGN_IN_PATH,
 } from "./auth/authorization-server.js";
 import { MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
@@ -33,21 +25,15 @@ import {
 	deviceView,
 	loginView,
 } from "./pages/views.js";
-import { createMcpHandler } from "./server.js";
+import { createMcpHandler, type McpRequestHandler } from "./server.js";
 
 export interface McpAppConfig {
 	origin: string;
 	authRoutes: McpAuthRoutes;
 	verifier: TokenVerifier;
 	deps: McpDeps;
-	trustedProxies: ReadonlySet<string>;
 	pageAssets: PageAssets;
 }
-
-export type McpAppHandler = (
-	request: Request,
-	peerAddress: string | undefined,
-) => Promise<Response>;
 
 const PROTECTED_RESOURCE_METADATA_PATH =
 	"/.well-known/oauth-protected-resource";
@@ -68,28 +54,25 @@ const connectedAppsSchema = z.object({
 	),
 });
 
-const FORWARDED_HEADERS = ["cookie", "origin", "user-agent", CLIENT_IP_HEADER];
+const redirectSchema = z.object({ url: z.string() });
+
+const failureSchema = z.object({
+	message: z.string().optional(),
+	error_description: z.string().optional(),
+});
+
+const failureOf = async (response: Response): Promise<string> => {
+	const failure = failureSchema.parse(await response.json());
+	return (
+		failure.error_description ??
+		failure.message ??
+		`The request failed with status ${response.status}.`
+	);
+};
 
 const formString = (form: FormData, name: string): string => {
 	const value = form.get(name);
 	return typeof value === "string" ? value : "";
-};
-
-const redirectUrlOf = (body: unknown): string | undefined => {
-	if (typeof body !== "object" || body === null) return undefined;
-	const url = (body as { url?: unknown }).url;
-	return typeof url === "string" ? url : undefined;
-};
-
-const messageOf = (body: unknown): string => {
-	if (typeof body !== "object" || body === null) return "The request failed.";
-	const { message, error_description } = body as {
-		message?: unknown;
-		error_description?: unknown;
-	};
-	if (typeof error_description === "string") return error_description;
-	if (typeof message === "string") return message;
-	return "The request failed.";
 };
 
 const redirectWithCookies = (location: string, from: Response): Response => {
@@ -105,9 +88,8 @@ export const createMcpApp = ({
 	authRoutes,
 	verifier,
 	deps,
-	trustedProxies,
 	pageAssets,
-}: McpAppConfig): McpAppHandler => {
+}: McpAppConfig): McpRequestHandler => {
 	const resource = mcpResource(origin);
 	const resourceMetadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
 	const challenge = (error?: string): Response =>
@@ -123,60 +105,18 @@ export const createMcpApp = ({
 				].join(""),
 			},
 		});
-	const withClientIp = (
-		request: Request,
-		peerAddress: string | undefined,
-	): Request => {
-		const forwarded = request.headers.get(CLIENT_IP_HEADER);
-		const clientIp =
-			forwarded && peerAddress && trustedProxies.has(peerAddress)
-				? forwarded
-				: peerAddress;
-		const headers = new Headers(request.headers);
-		headers.delete(CLIENT_IP_HEADER);
-		if (clientIp) headers.set(CLIENT_IP_HEADER, clientIp);
-		return new Request(request, { headers });
-	};
-
-	const forwardedHeaders = (request: Request): Headers => {
-		const headers = new Headers({
-			accept: "application/json",
-			"content-type": "application/json",
-		});
-		for (const name of FORWARDED_HEADERS) {
-			const value = request.headers.get(name);
-			if (value !== null) headers.set(name, value);
-		}
-		return headers;
-	};
-
-	const callAuth = (
-		request: Request,
-		path: string,
-		body: Record<string, unknown>,
-	): Promise<Response> => {
-		const headers = forwardedHeaders(request);
-		return authRoutes.handle(
-			new Request(`${origin}${AUTH_BASE_PATH}${path}`, {
-				method: "POST",
-				headers,
-				body: JSON.stringify(body),
-			}),
-		);
-	};
 
 	const continueFrom = async (response: Response): Promise<Response> => {
-		const body: unknown = await response.json();
-		const location = response.ok ? redirectUrlOf(body) : undefined;
-		if (!location) {
+		if (!response.ok) {
 			return errorPage(
 				"Connecting failed",
-				messageOf(body),
+				await failureOf(response),
 				"Go back to your MCP client and connect remit again.",
 				response.status,
 			);
 		}
-		return redirectWithCookies(location, response);
+		const { url } = redirectSchema.parse(await response.json());
+		return redirectWithCookies(url, response);
 	};
 
 	const toLogin = (returnTo: string): Response =>
@@ -215,7 +155,7 @@ export const createMcpApp = ({
 			? { oauth_query: oauthQuery }
 			: { return_to: returnTo };
 		const email = formString(form, "email");
-		const response = await callAuth(request, SIGN_IN_PATH, {
+		const response = await authRoutes.signIn(request.headers, {
 			email,
 			password: formString(form, "password"),
 			oauth_query: oauthQuery,
@@ -256,19 +196,8 @@ export const createMcpApp = ({
 			const scopes = (url.searchParams.get("scope") ?? "")
 				.split(" ")
 				.filter((scope) => scope.length > 0);
-			const response = await authRoutes.handle(
-				new Request(
-					`${origin}${AUTH_BASE_PATH}/oauth2/public-client?${new URLSearchParams({ client_id: clientId })}`,
-					{
-						headers: {
-							accept: "application/json",
-							cookie: request.headers.get("cookie") ?? "",
-						},
-					},
-				),
-			);
-			if (!response.ok) {
-				await response.body?.cancel();
+			const clientName = await authRoutes.clientName(request.headers, clientId);
+			if (!clientName) {
 				return errorPage(
 					"Connecting failed",
 					"This sign-in request names an app remit does not know.",
@@ -276,39 +205,15 @@ export const createMcpApp = ({
 					400,
 				);
 			}
-			const client = (await response.json()) as { client_name?: unknown };
-			return consentView(
-				url.search.slice(1),
-				typeof client.client_name === "string" ? client.client_name : clientId,
-				scopes,
-			);
+			return consentView(url.search.slice(1), clientName, scopes);
 		}
 		const form = await request.formData();
 		return continueFrom(
-			await callAuth(request, "/oauth2/consent", {
+			await authRoutes.consent(request.headers, {
 				accept: formString(form, "accept") === "true",
 				oauth_query: formString(form, "oauth_query"),
 			}),
 		);
-	};
-
-	const claimCode = async (
-		request: Request,
-		userCode: string,
-	): Promise<boolean> => {
-		const response = await authRoutes.handle(
-			new Request(
-				`${origin}${AUTH_BASE_PATH}${DEVICE_VERIFY_PATH}?${new URLSearchParams({ user_code: userCode })}`,
-				{
-					headers: {
-						accept: "application/json",
-						cookie: request.headers.get("cookie") ?? "",
-					},
-				},
-			),
-		);
-		await response.body?.cancel();
-		return response.ok;
 	};
 
 	const invalidCode = (userCode: string): Response =>
@@ -326,23 +231,27 @@ export const createMcpApp = ({
 
 	const device = async (request: Request): Promise<Response> => {
 		const url = new URL(request.url);
-		if (!(await authRoutes.hasSession(request))) {
+		if (!(await authRoutes.hasSession(request.headers))) {
 			return toLogin(`${url.pathname}${url.search}`);
 		}
 		if (request.method === "GET") {
 			const userCode = (url.searchParams.get("user_code") ?? "").trim();
 			if (!userCode) return deviceView({ kind: "enter", userCode: "" });
-			if (!(await claimCode(request, userCode))) return invalidCode(userCode);
+			if (!(await authRoutes.claimDeviceCode(request.headers, userCode))) {
+				return invalidCode(userCode);
+			}
 			return deviceView({ kind: "confirm", userCode });
 		}
 		const form = await request.formData();
 		const userCode = formString(form, "user_code");
 		const approve = formString(form, "action") === "approve";
-		if (!(await claimCode(request, userCode))) return invalidCode(userCode);
-		const response = await callAuth(
-			request,
-			approve ? DEVICE_APPROVE_PATH : DEVICE_DENY_PATH,
-			{ userCode },
+		if (!(await authRoutes.claimDeviceCode(request.headers, userCode))) {
+			return invalidCode(userCode);
+		}
+		const response = await authRoutes.decideDeviceCode(
+			request.headers,
+			userCode,
+			approve,
 		);
 		if (response.status === 401) {
 			return toLogin(
@@ -355,7 +264,7 @@ export const createMcpApp = ({
 					kind: "enter",
 					userCode,
 					error: pageError(
-						messageOf(await response.json()),
+						await failureOf(response),
 						"Run remit mcp login again and enter the new code.",
 					),
 				},
@@ -369,14 +278,7 @@ export const createMcpApp = ({
 	const listConnectedApps = async (
 		request: Request,
 	): Promise<ConnectedAppGrant[] | undefined> => {
-		const response = await authRoutes.handle(
-			new Request(`${origin}${AUTH_BASE_PATH}${CONNECTED_APPS_API_PATH}`, {
-				headers: {
-					accept: "application/json",
-					cookie: request.headers.get("cookie") ?? "",
-				},
-			}),
-		);
+		const response = await authRoutes.connectedApps(request.headers);
 		if (response.status === 401) {
 			await response.body?.cancel();
 			return undefined;
@@ -401,9 +303,7 @@ export const createMcpApp = ({
 		if (!before) return toLogin(CONNECTED_APPS_PATH);
 		const name =
 			before.find((app) => app.clientId === clientId)?.clientName ?? clientId;
-		const response = await callAuth(request, REVOKE_CLIENT_API_PATH, {
-			client_id: clientId,
-		});
+		const response = await authRoutes.revokeClient(request.headers, clientId);
 		if (response.status === 401) return toLogin(CONNECTED_APPS_PATH);
 		if (!response.ok) {
 			return connectedAppsView(
@@ -411,7 +311,7 @@ export const createMcpApp = ({
 				response.status,
 				undefined,
 				pageError(
-					`Disconnecting ${name} failed: ${messageOf(await response.json())}`,
+					`Disconnecting ${name} failed: ${await failureOf(response)}`,
 					"Reload the page and try again.",
 				),
 			);
@@ -432,8 +332,7 @@ export const createMcpApp = ({
 		return createMcpHandler(verification.principal, deps)(request);
 	};
 
-	return async (incoming, peerAddress) => {
-		const request = withClientIp(incoming, peerAddress);
+	return async (request) => {
 		const { pathname } = new URL(request.url);
 		if (pathname === "/.well-known/oauth-authorization-server") {
 			return authRoutes.serverMetadata(request);

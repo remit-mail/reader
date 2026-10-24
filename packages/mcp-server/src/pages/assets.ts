@@ -16,8 +16,6 @@ export interface PageAsset {
 
 export type PageAssets = ReadonlyMap<string, PageAsset>;
 
-export const PAGE_ASSETS_DIR = new URL("../../dist/pages/", import.meta.url);
-
 export const loadPageAssets = (dir: string): PageAssets => {
 	if (!existsSync(join(dir, "pages.css"))) {
 		throw new Error(

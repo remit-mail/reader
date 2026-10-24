@@ -6,8 +6,7 @@ export interface McpServerConfig {
 	bodySyncQueueUrl: string | undefined;
 	mailboxQueueUrl: string;
 	organizeQueueUrl: string;
-	trustedProxies: ReadonlySet<string>;
-	pageAssetsDir: string | undefined;
+	pageAssetsDir: string;
 }
 
 const MIN_SECRET_LENGTH = 32;
@@ -56,12 +55,6 @@ export const resolveMcpServerConfig = (): McpServerConfig => {
 		bodySyncQueueUrl: process.env.SQS_QUEUE_URL_BODY,
 		mailboxQueueUrl: required("SQS_QUEUE_URL"),
 		organizeQueueUrl: required("SQS_QUEUE_URL_ACCOUNT_FANOUT"),
-		pageAssetsDir: process.env.MCP_PAGE_ASSETS_DIR,
-		trustedProxies: new Set(
-			(process.env.MCP_TRUSTED_PROXIES ?? "")
-				.split(",")
-				.map((address) => address.trim())
-				.filter((address) => address.length > 0),
-		),
+		pageAssetsDir: required("MCP_PAGE_ASSETS_DIR"),
 	};
 };

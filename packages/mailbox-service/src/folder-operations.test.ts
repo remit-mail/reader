@@ -44,7 +44,8 @@ const rename = (
 	fullPath: string,
 ): Promise<Refusable<FolderPathOutcome>> =>
 	changeFolderPath(
-		{ mailbox: store.mailbox, mailboxQueue },
+		{ account: store.account, mailbox: store.mailbox, mailboxQueue },
+		account.accountConfigId,
 		{
 			accountId: mailbox.accountId,
 			mailboxId: mailbox.mailboxId,
@@ -168,10 +169,8 @@ describe("changeFolderPath records a pending rename the mail server settles", ()
 		assert.equal((await rename(folder, "Paperwork")).ok, true);
 
 		assert.deepEqual(refusalOf(await rename(folder, "Bills")), {
-			kind: "NotSettled",
+			kind: "Conflict",
 			message: `A rename is in progress for "Receipts".`,
-			mailboxId: folder.mailboxId,
-			syncStatus: MailboxSyncStatus.pending,
 		});
 		assert.equal(capture.sent.length, 1);
 	});
@@ -229,6 +228,27 @@ describe("createFolder for another tenant", () => {
 				accountId: account.accountId,
 				namespaceType: "personal",
 				fullPath: "Receipts",
+			},
+		);
+
+		assert.deepEqual(refusalOf(outcome), {
+			kind: "Forbidden",
+			message: `Account ${account.accountId} not in account config`,
+		});
+		assert.deepEqual(capture.sent, []);
+	});
+});
+
+describe("changeFolderPath for another tenant", () => {
+	it("refuses a caller who does not own the account, recording nothing", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		const outcome = await changeFolderPath(
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
+			"cfg-x",
+			{
+				accountId: account.accountId,
+				mailboxId: folder.mailboxId,
+				fullPath: "Paperwork",
 			},
 		);
 

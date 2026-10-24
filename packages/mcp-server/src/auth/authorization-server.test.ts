@@ -20,9 +20,10 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
-import { createMcpApp, type McpAppHandler } from "../app.js";
+import { createMcpApp } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
 import type { McpDeps } from "../deps.js";
+import type { McpRequestHandler } from "../server.js";
 import { ruleDeps } from "../test-rule-deps.js";
 import {
 	BROWSER_TOKEN_TTL_SECONDS,
@@ -41,7 +42,6 @@ const CALLBACK = "https://claude.ai/api/mcp/auth_callback";
 const EMAIL = "owner@remit.test";
 const PASSWORD = "correct horse battery staple";
 const PEER = "203.0.113.7";
-const PROXY = "10.0.0.2";
 
 const MIGRATIONS = new URL(
 	"../../../../deploy/vps/migrations-sqlite/",
@@ -55,7 +55,15 @@ let database: McpAuthDatabase;
 let deps: McpDeps;
 let mainAuth: Auth;
 let auth: McpAuth;
-let app: McpAppHandler;
+let handler: McpRequestHandler;
+
+// Caddy overwrites X-Remit-Client-IP with the connection's address on every
+// request, so a request here arrives with the header Caddy set.
+const app = (request: Request, clientIp: string): Promise<Response> => {
+	const headers = new Headers(request.headers);
+	headers.set("x-remit-client-ip", clientIp);
+	return handler(new Request(request, { headers }));
+};
 let mainSessionToken: string;
 let mainJwt: string;
 
@@ -69,7 +77,7 @@ const sharedRows = (): unknown[] => {
 	return rows;
 };
 
-const buildApp = (): { auth: McpAuth; app: McpAppHandler } => {
+const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
 	const instance = createMcpAuth({
 		origin: MCP_ORIGIN,
 		secret: "mcp-instance-secret-0123456789abcdef",
@@ -77,12 +85,11 @@ const buildApp = (): { auth: McpAuth; app: McpAppHandler } => {
 	});
 	return {
 		auth: instance,
-		app: createMcpApp({
+		handler: createMcpApp({
 			origin: MCP_ORIGIN,
 			authRoutes: createMcpAuthRoutes(instance),
 			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
 			deps,
-			trustedProxies: new Set([PROXY]),
 			pageAssets: new Map(),
 		}),
 	};
@@ -143,7 +150,7 @@ before(async () => {
 		logger: silentLog,
 		...ruleDeps(store),
 	};
-	({ auth, app } = buildApp());
+	({ auth, handler } = buildApp());
 });
 
 after(async () => {
@@ -570,17 +577,16 @@ describe("the MCP authorization server", () => {
 		assert.deepEqual(sharedRows(), shared);
 	});
 
-	it("keys the sign-in limit on the peer, not a spoofed client address", async () => {
+	it("keys the sign-in limit on the client address Caddy sets", async () => {
 		const { challenge } = pkce();
 		const toLogin = locationOf(await call(authorizeUrl(clientId, challenge)));
-		const attempt = (spoofed: string) =>
+		const attempt = (clientIp: string) =>
 			app(
 				new Request(`${MCP_ORIGIN}/login`, {
 					method: "POST",
 					headers: {
 						"content-type": "application/x-www-form-urlencoded",
 						origin: MCP_ORIGIN,
-						"x-remit-client-ip": spoofed,
 					},
 					body: new URLSearchParams({
 						email: EMAIL,
@@ -588,13 +594,14 @@ describe("the MCP authorization server", () => {
 						oauth_query: toLogin.search.slice(1),
 					}),
 				}),
-				"203.0.113.99",
+				clientIp,
 			);
 		const statuses: number[] = [];
 		for (let i = 0; i < 6; i += 1) {
-			statuses.push((await attempt(`198.51.100.${i + 1}`)).status);
+			statuses.push((await attempt("203.0.113.99")).status);
 		}
 		assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429]);
+		assert.equal((await attempt("203.0.113.100")).status, 401);
 	});
 
 	it("sends a signed-out visitor of the connected-apps and device pages to sign in", async () => {

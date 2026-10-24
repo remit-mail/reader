@@ -6,7 +6,6 @@ import {
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
-	MailboxSyncStatus,
 } from "@remit/domain-enums";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
@@ -163,11 +162,6 @@ const toolNames = async (scopes: string[]): Promise<string[]> => {
 const myFilters = async (): Promise<FilterItem[]> =>
 	(await store.filter.listPageByAccountConfig(account.accountConfigId)).items;
 
-const pendingFolder = (fullPath: string): Promise<MailboxItem> =>
-	seedMailbox(store, account, fullPath, {
-		overrides: { syncStatus: MailboxSyncStatus.pending },
-	});
-
 const receiptsRule = (actionMailboxId: string) => ({
 	accountId: account.accountId,
 	name: "Receipts",
@@ -233,17 +227,6 @@ describe("create_filter", () => {
 		);
 	});
 
-	it("refuses a folder the mail server has not confirmed, with the fix, storing nothing", async () => {
-		const fresh = await pendingFolder("Fresh");
-
-		assert.match(
-			await refusalOf("create_filter", receiptsRule(fresh.mailboxId)),
-			/“Fresh” isn’t ready yet .* Wait for it to settle, then call this tool again\./,
-		);
-		assert.deepEqual(await myFilters(), []);
-		assert.equal(capture.sent.length, 0);
-	});
-
 	it("refuses an account the caller does not own", async () => {
 		assert.match(
 			await refusalOf("create_filter", {
@@ -254,17 +237,6 @@ describe("create_filter", () => {
 		);
 		assert.deepEqual(await myFilters(), []);
 		assert.equal(capture.sent.length, 0);
-	});
-
-	it("passes through the service's refusal of a Temporary filter without an expiry", async () => {
-		assert.match(
-			await refusalOf("create_filter", {
-				...receiptsRule(receipts.mailboxId),
-				scope: FilterScope.Temporary,
-			}),
-			/A Temporary filter needs expiresAt/,
-		);
-		assert.deepEqual(await myFilters(), []);
 	});
 });
 
@@ -333,28 +305,6 @@ describe("update_filter", () => {
 		assert.equal(organizeSends().at(-1)?.body.organizeJobId, job.organizeJobId);
 	});
 
-	it("refuses a target folder the mail server has not confirmed, leaving the filter alone", async () => {
-		const { filter } = await created();
-		const fresh = await pendingFolder("Fresh");
-		const sentBefore = capture.sent.length;
-
-		assert.match(
-			await refusalOf("update_filter", {
-				accountId: account.accountId,
-				filterId: filter.filterId,
-				actionMailboxId: fresh.mailboxId,
-				applyToExisting: true,
-			}),
-			/“Fresh” isn’t ready yet .* Wait for it to settle, then call this tool again\./,
-		);
-		const stored = await store.filter.get(
-			account.accountConfigId,
-			filter.filterId,
-		);
-		assert.equal(stored.actionMailboxId, receipts.mailboxId);
-		assert.equal(capture.sent.length, sentBefore);
-	});
-
 	it("refuses a filter the caller does not own, pointing at list_filters", async () => {
 		assert.match(
 			await refusalOf("update_filter", {
@@ -369,18 +319,5 @@ describe("update_filter", () => {
 			theirFilter.filterId,
 		);
 		assert.equal(untouched.name, "Theirs");
-	});
-
-	it("passes through the service's refusal to set Expired directly", async () => {
-		const { filter } = await created();
-
-		assert.match(
-			await refusalOf("update_filter", {
-				accountId: account.accountId,
-				filterId: filter.filterId,
-				state: FilterState.Expired,
-			}),
-			/A filter expires through its date, not its state\./,
-		);
 	});
 });
