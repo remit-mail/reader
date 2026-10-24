@@ -55,7 +55,6 @@ const syncHeaders = (
 		store.threadMessage,
 		new SyncWarningService(syncWarnings),
 		silentLog,
-		store.unitOfWork,
 		store.flagPush,
 		store.messageFlag,
 	).syncMessages(inbox.mailboxId, account.accountId, account.accountConfigId);

@@ -225,11 +225,10 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		wiring.calendar
 			? {
 					calendarSuggestionService: store.calendarSuggestion,
-					calendarUnitOfWork: store.calendarUnitOfWork,
+					calendarStore: store.calendarStore,
 					filterService: store.filter,
 				}
 			: undefined,
-		store.unitOfWork,
 	);
 };
 

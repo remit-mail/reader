@@ -1,8 +1,11 @@
 import type {
 	CalendarCollectionItem,
 	CalendarObjectItem,
-	ICalendarUnitOfWork,
+	DeleteCalendarObjectWrite,
+	ICalendarStore,
+	PutCalendarObjectWrite,
 } from "@remit/data-ports";
+import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { CalendarSource } from "@remit/domain-enums";
 import type { CalendarResult } from "./errors.js";
 import { computeEtag } from "./etag.js";
@@ -23,83 +26,92 @@ export interface PutCalendarObjectInput {
 }
 
 /**
- * Writes one calendar resource. Every caller that stores an event goes through
- * here — a REST handler, a DAV PUT, an accepted suggestion — because the object
- * row, its occurrence rows and the collection's sequence bump are one fact, and
- * a caller that writes any of them alone leaves the store describing a calendar
- * that does not exist.
+ * Turns one calendar resource into the write that stores it, read in the
+ * collection's timezone. Every caller that stores an event goes through here —
+ * a REST handler, a DAV PUT, an accepted suggestion, a feed refresh — because
+ * the object row, its occurrence rows and the collection's sequence bump are
+ * one fact, and a caller that writes any of them alone leaves the store
+ * describing a calendar that does not exist.
  *
  * The bytes are stored exactly as given: parsing is for validating and
  * projecting them, never for rewriting them. Refusing the resource is a
  * returned value — the input is client-supplied, so malformed iCalendar is an
  * outcome the caller renders, not a fault.
  */
-export const putCalendarObject = async (
-	unitOfWork: ICalendarUnitOfWork,
+export const prepareCalendarObject = async (
+	collection: Pick<CalendarCollectionItem, "timezone">,
 	input: PutCalendarObjectInput,
-): Promise<CalendarResult<CalendarObjectItem>> => {
+): Promise<CalendarResult<PutCalendarObjectWrite>> => {
 	const parsed = await parseCalendar(input.icalData);
 	if (!parsed.ok) return parsed;
 
-	return unitOfWork.transaction(async (repos) => {
-		const collection = await repos.calendarCollection.get(
-			input.accountConfigId,
-			input.calendarId,
-		);
+	const projection = projectCalendar(parsed.value, collection.timezone);
+	if (!projection.ok) return projection;
 
-		const projection = projectCalendar(parsed.value, collection.timezone);
-		if (!projection.ok) return projection;
+	const expansion = expandCalendar(parsed.value, collection.timezone);
+	return {
+		ok: true,
+		value: {
+			kind: "PutObject",
+			accountConfigId: input.accountConfigId,
+			object: {
+				...projection.value,
+				calendarId: input.calendarId,
+				resourceName: input.resourceName,
+				icalData: input.icalData,
+				etag: computeEtag(input.icalData),
+				expandedThrough: expansion.expandedThrough,
+			},
+			occurrences: expansion.occurrences,
+		},
+	};
+};
 
-		const expansion = expandCalendar(parsed.value, collection.timezone);
-		const syncSequence = await repos.calendarCollection.bumpSyncSequence(
-			input.accountConfigId,
-			input.calendarId,
-		);
+/** The resource a committed put wrote, under the id its name derives to. */
+export const readWrittenObject = (
+	store: ICalendarStore,
+	write: PutCalendarObjectWrite,
+): Promise<CalendarObjectItem> =>
+	store.repos.calendarObject.get(
+		write.object.calendarId,
+		deriveCalendarObjectId(write.object.calendarId, write.object.resourceName),
+	);
 
-		const object = await repos.calendarObject.put({
-			...projection.value,
-			calendarId: input.calendarId,
-			resourceName: input.resourceName,
-			icalData: input.icalData,
-			etag: computeEtag(input.icalData),
-			syncSequence,
-			expandedThrough: expansion.expandedThrough,
-		});
-
-		await repos.calendarEventIndex.replaceForObject(
-			input.calendarId,
-			object.calendarObjectId,
-			expansion.occurrences,
-		);
-
-		return { ok: true, value: object };
-	});
+/** Writes one calendar resource into its collection. */
+export const putCalendarObject = async (
+	store: ICalendarStore,
+	input: PutCalendarObjectInput,
+): Promise<CalendarResult<CalendarObjectItem>> => {
+	const collection = await store.repos.calendarCollection.get(
+		input.accountConfigId,
+		input.calendarId,
+	);
+	const write = await prepareCalendarObject(collection, input);
+	if (!write.ok) return write;
+	await store.commit([write.value]);
+	return { ok: true, value: await readWrittenObject(store, write.value) };
 };
 
 /**
- * Removes a resource and the occurrences it produced, in one unit — an object
- * dropped without its occurrence rows leaves a calendar showing events no
- * resource backs, which nothing later can attribute or clean up.
+ * Removes a resource and the occurrences it produced — an object dropped
+ * without its occurrence rows leaves a calendar showing events no resource
+ * backs, which nothing later can attribute or clean up.
  */
+export const deleteCalendarObjectWrite = (input: {
+	accountConfigId: string;
+	calendarId: string;
+	calendarObjectId: string;
+}): DeleteCalendarObjectWrite => ({ kind: "DeleteObject", ...input });
+
 export const deleteCalendarObject = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	input: {
 		accountConfigId: string;
 		calendarId: string;
 		calendarObjectId: string;
 	},
 ): Promise<void> => {
-	await unitOfWork.transaction(async (repos) => {
-		await repos.calendarEventIndex.deleteForObject(
-			input.calendarId,
-			input.calendarObjectId,
-		);
-		await repos.calendarObject.delete(input.calendarId, input.calendarObjectId);
-		await repos.calendarCollection.bumpSyncSequence(
-			input.accountConfigId,
-			input.calendarId,
-		);
-	});
+	await store.commit([deleteCalendarObjectWrite(input)]);
 };
 
 /**
@@ -109,15 +121,13 @@ export const deleteCalendarObject = async (
  * the collection the first one made rather than a rival copy of it.
  */
 export const provisionDefaultCalendar = (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	accountConfigId: string,
 	displayName = "Calendar",
 ): Promise<CalendarCollectionItem> =>
-	unitOfWork.transaction((repos) =>
-		repos.calendarCollection.create({
-			accountConfigId,
-			urlSegment: DEFAULT_CALENDAR_URL_SEGMENT,
-			displayName,
-			source: CalendarSource.Default,
-		}),
-	);
+	store.repos.calendarCollection.create({
+		accountConfigId,
+		urlSegment: DEFAULT_CALENDAR_URL_SEGMENT,
+		displayName,
+		source: CalendarSource.Default,
+	});

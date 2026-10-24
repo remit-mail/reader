@@ -8,8 +8,8 @@ import type {
 	ICalendarEventIndexRepository,
 	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
+	ICalendarStore,
 	ICalendarSuggestionRepository,
-	ICalendarUnitOfWork,
 	IConfigImportRepository,
 	IEnvelopeRepository,
 	IFilterRepository,
@@ -29,7 +29,6 @@ import type {
 	ISenderSignerStandingRepository,
 	ISyncWarningRepository,
 	IThreadMessageRepository,
-	IUnitOfWork,
 } from "@remit/data-ports";
 import { logger } from "@remit/logger-lambda";
 import {
@@ -115,7 +114,7 @@ export interface RemitClient {
 	senderSignerStanding: ISenderSignerStandingRepository;
 
 	// The calendar store (issue #15) and the cards a message offers into it
-	// (issue #1033). Every write goes through `calendarUnitOfWork`: the object,
+	// (issue #1033). Every write goes through `calendarStore`: the object,
 	// its occurrence rows, the collection's sequence bump and — when the write
 	// came from accepting a suggestion — that suggestion's own state are one
 	// fact, and the repositories beside it are the read side. A backend that
@@ -126,12 +125,7 @@ export interface RemitClient {
 	calendarEventIndex: ICalendarEventIndexRepository;
 	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
-	calendarUnitOfWork: ICalendarUnitOfWork;
-
-	// Atomic write set for a message save. Present on the relational backend (real
-	// transaction); absent on DynamoDB, where callers fall back to per-repo
-	// writes with that backend's own (non-transactional) guarantees.
-	unitOfWork?: IUnitOfWork;
+	calendarStore: ICalendarStore;
 
 	// Storage service
 	storage: StorageService;
@@ -179,13 +173,6 @@ export interface RemitClient {
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
-
-	// Runs an arbitrary set of repository writes as one transaction. Absent on a
-	// backend with no cross-entity transaction, where the caller's contract is
-	// instead: validate before the first write, fail fast, and report what
-	// landed. The message-save write set has its own bound repositories and uses
-	// `unitOfWork`; this one takes the repos as they are.
-	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
 }
 
 export interface RemitClientRepositories {
@@ -218,9 +205,7 @@ export interface RemitClientRepositories {
 	calendarEventIndex: ICalendarEventIndexRepository;
 	calendarFeedToken: ICalendarFeedTokenRepository;
 	calendarSuggestion: ICalendarSuggestionRepository;
-	calendarUnitOfWork: ICalendarUnitOfWork;
-	unitOfWork?: IUnitOfWork;
-	writeSet?: <T>(run: () => Promise<T>) => Promise<T>;
+	calendarStore: ICalendarStore;
 }
 
 export interface RemitClientSharedDeps {
@@ -415,10 +400,9 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		// card (issue #1033, the same argument as the filter wiring above).
 		{
 			calendarSuggestionService: repositories.calendarSuggestion,
-			calendarUnitOfWork: repositories.calendarUnitOfWork,
+			calendarStore: repositories.calendarStore,
 			filterService: repositories.filter,
 		},
-		repositories.unitOfWork,
 	);
 
 	return {
@@ -448,9 +432,7 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		calendarEventIndex: repositories.calendarEventIndex,
 		calendarFeedToken: repositories.calendarFeedToken,
 		calendarSuggestion: repositories.calendarSuggestion,
-		calendarUnitOfWork: repositories.calendarUnitOfWork,
-		unitOfWork: repositories.unitOfWork,
-		writeSet: repositories.writeSet,
+		calendarStore: repositories.calendarStore,
 
 		storage,
 		secrets,

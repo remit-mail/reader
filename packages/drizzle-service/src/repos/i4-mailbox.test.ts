@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -14,7 +15,6 @@ import {
 	threadMessageTable,
 } from "../schema.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { runInTransaction } from "../tx.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { DrizzleMessageRepository, deleteMessageSubtree } from "./message.js";
 import { mailboxCreated } from "./test-helpers.js";
@@ -703,7 +703,7 @@ describe("MailboxRepo", () => {
 
 			// The shape an interruption leaves: one message's rows already gone,
 			// the mailbox row still there and still `deleting`.
-			await runInTransaction(db, (tx) => deleteMessageSubtree(tx, [first]));
+			await runBatch(db, deleteMessageSubtree(db, [first]));
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: EVERY_STATE,
 				to: MailboxSyncStatus.deleting,

@@ -1,5 +1,4 @@
 import type { Db } from "./db.js";
-import { serializeSqliteWrites } from "./tx.js";
 
 // The one place a SQLite connection is opened for the app (RFC 036 D3). Every
 // writer container (backend, imap-worker, smtp-worker, account-worker) opens the
@@ -7,10 +6,9 @@ import { serializeSqliteWrites } from "./tx.js";
 // readers, a 5 s busy_timeout so a writer waits out another's short transaction
 // instead of failing, synchronous=NORMAL (durable under WAL), foreign keys on.
 //
-// The handle is wrapped by `serializeSqliteWrites` before it leaves this
-// function, so a repo's insert/update/delete cannot bypass the in-process write
-// serialization (RFC 036 D3). `run`/`transaction`/reads pass through by design —
-// see the wrapper's comment.
+// No write on this handle holds a transaction open across an `await`: a write
+// set runs as one synchronous batch (`batch.ts`), so the shared connection is
+// never inside another caller's transaction when a plain write lands.
 //
 // better-sqlite3 and its drizzle driver are imported dynamically so the whole
 // module stays out of the DynamoDB Lambda bundle (this package is `external`
@@ -40,10 +38,10 @@ export async function createSqliteDatabase<
 	sqlite.pragma("synchronous = NORMAL");
 	sqlite.pragma("foreign_keys = ON");
 
-	const base: Db<TSchema> = drizzle(sqlite, { schema });
+	const db: Db<TSchema> = drizzle(sqlite, { schema });
 
 	return {
-		db: serializeSqliteWrites(base),
+		db,
 		close: async () => {
 			sqlite.close();
 		},

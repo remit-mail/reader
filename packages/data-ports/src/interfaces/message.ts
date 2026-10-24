@@ -23,9 +23,10 @@ export interface IMessageRepository {
 	delete(messageId: string): Promise<void>;
 	deleteMany(messageIds: string[]): Promise<void>;
 	/**
-	 * Delete the row only while its placement still matches what the caller
-	 * read (imap-mutations R3). Resolves `false` when the predicate did not
-	 * match and nothing was deleted.
+	 * Delete the row, its per-message subtree and its thread listings, only
+	 * while its placement still matches what the caller read (imap-mutations
+	 * R3). Resolves `false` when the predicate did not match and nothing was
+	 * deleted.
 	 */
 	deleteIfPlacement(
 		messageId: string,

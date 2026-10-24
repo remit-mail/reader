@@ -1,11 +1,11 @@
 import { count, eq, gt, inArray } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { deleteMessageSubtree } from "../repos/message.js";
 import { mailboxTable } from "../schema/i4-mailbox.js";
 import { messageTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { messageLabelTable } from "../schema.js";
-import { runInTransaction } from "../tx.js";
 
 export const PARKED_MAILBOX_ID = "DuplicateMailboxRemoved";
 
@@ -62,15 +62,15 @@ export const sweepDuplicateMailboxMail = async (
 	for (;;) {
 		const messageIds = await nextParkedBatch(db);
 		if (messageIds.length === 0) break;
-		await runInTransaction(db, async (tx) => {
-			await deleteMessageSubtree(tx, messageIds);
-			await tx
+		await runBatch(db, [
+			...deleteMessageSubtree(db, messageIds),
+			db
 				.delete(threadMessageTable)
-				.where(inArray(threadMessageTable.messageId, messageIds));
-			await tx
+				.where(inArray(threadMessageTable.messageId, messageIds)),
+			db
 				.delete(messageLabelTable)
-				.where(inArray(messageLabelTable.messageId, messageIds));
-		});
+				.where(inArray(messageLabelTable.messageId, messageIds)),
+		]);
 		removed += messageIds.length;
 	}
 	return { mode, duplicatePaths, parked, removed };

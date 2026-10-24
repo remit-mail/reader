@@ -52,12 +52,11 @@ export interface IOutboxAttachmentRepository {
 	 * from these rows and the receiving server rejects it.
 	 *
 	 * A count-then-insert only satisfies that under serializable isolation or an
-	 * external lock. **The drizzle/SQLite implementation gets it from the lock,
-	 * not from the schema or the isolation level:** `runInTransaction` opens a
-	 * unit with `BEGIN IMMEDIATE`, so it holds the file's write lock from before
-	 * its first read, and the module-level write queue in `tx.ts` orders the
-	 * units inside one process. Two writer processes against one SQLite file are
-	 * ordered by that lock rather than over-admitting.
+	 * external lock. **The drizzle/SQLite implementation gets it from the batch,
+	 * not from the schema or the isolation level:** the insert, the count and a
+	 * delete of the new row when it breaks the cap commit as one batch, and
+	 * batches are serialized, so the later of two reservations sees the earlier
+	 * one's row.
 	 *
 	 * **An adapter without serializable isolation must not do a
 	 * read-then-write.** On DynamoDB in particular, a Query followed by a

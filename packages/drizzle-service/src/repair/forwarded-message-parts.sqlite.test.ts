@@ -6,10 +6,7 @@ import type Database from "better-sqlite3";
 import { DrizzleEnvelopeRepository } from "../repos/envelope.js";
 import { DrizzleMessageRepository } from "../repos/message.js";
 import { createShippedSqliteDb } from "../test-sqlite.js";
-import {
-	type ForwardedPartsRepairClient,
-	sweepForwardedMessageParts,
-} from "./forwarded-message-parts.js";
+import { sweepForwardedMessageParts } from "./forwarded-message-parts.js";
 
 const leaf = (
 	partPath: string,
@@ -65,11 +62,6 @@ const PLAIN: BodyPartUpsertInput[] = [
 		dispositionFilename: "invoice.pdf",
 	},
 ];
-
-const clientOver = (sqlite: Database.Database): ForwardedPartsRepairClient => ({
-	all: async (sql, params) => sqlite.prepare(sql).all(...params),
-	run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
-});
 
 describe("messages whose forwarded message lost its part row", () => {
 	let handle: ReturnType<typeof createShippedSqliteDb>;
@@ -136,10 +128,7 @@ describe("messages whose forwarded message lost its part row", () => {
 	});
 
 	test("check mode reports what it would do and writes nothing", async () => {
-		const report = await sweepForwardedMessageParts(
-			clientOver(sqlite),
-			"check",
-		);
+		const report = await sweepForwardedMessageParts(handle.db, "check");
 
 		assert.equal(report.messages, 2);
 		assert.equal(report.partsDropped, 0);
@@ -149,10 +138,7 @@ describe("messages whose forwarded message lost its part row", () => {
 	test("drops the broken parts and nothing else", async () => {
 		const mailboxesBefore = sqlite.prepare("SELECT * FROM mailbox").all();
 
-		const report = await sweepForwardedMessageParts(
-			clientOver(sqlite),
-			"repair",
-		);
+		const report = await sweepForwardedMessageParts(handle.db, "repair");
 
 		assert.equal(report.messages, 2);
 		assert.equal(report.partsDropped, 10);
@@ -172,10 +158,7 @@ describe("messages whose forwarded message lost its part row", () => {
 	});
 
 	test("a second run writes nothing", async () => {
-		const report = await sweepForwardedMessageParts(
-			clientOver(sqlite),
-			"repair",
-		);
+		const report = await sweepForwardedMessageParts(handle.db, "repair");
 
 		assert.equal(report.messages, 0);
 		assert.equal(report.partsDropped, 0);
@@ -190,9 +173,7 @@ describe("messages whose forwarded message lost its part row", () => {
 		await message("forwarded", "inbox", 42, OVERWRITTEN_FORWARD);
 		sqlite.exec("DROP TABLE body_part_storage");
 
-		await assert.rejects(
-			sweepForwardedMessageParts(clientOver(sqlite), "repair"),
-		);
+		await assert.rejects(sweepForwardedMessageParts(handle.db, "repair"));
 		assert.equal(count("body_part_parameter", "forwarded"), 2);
 		assert.equal(count("body_structure_refetch", "forwarded"), 0);
 		assert.equal(count("body_part", "forwarded"), 5);

@@ -7,19 +7,20 @@ import {
 	type CalendarFeedFetcher,
 	DEFAULT_CALENDAR_URL_SEGMENT,
 	isResolvableZone,
+	prepareCalendarObject,
 	provisionDefaultCalendar,
-	putCalendarObject,
 	readCalendarFeed,
 	readSubscriptionUrl,
 	writeCalendarFeed,
 } from "@remit/calendar-service";
 import type {
 	CalendarCollectionItem,
+	CalendarWrite,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
 	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
-	ICalendarUnitOfWork,
+	ICalendarStore,
 	UpdateCalendarCollectionInput,
 } from "@remit/data-ports";
 import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
@@ -42,7 +43,7 @@ export interface CalendarDeps {
 	calendarObject: ICalendarObjectRepository;
 	calendarEventIndex: ICalendarEventIndexRepository;
 	calendarFeedToken: ICalendarFeedTokenRepository;
-	calendarUnitOfWork: ICalendarUnitOfWork;
+	calendarStore: ICalendarStore;
 }
 
 /** Why a calendar request was refused, in a form a client can branch on. */
@@ -103,7 +104,7 @@ export const calendarDepsOf = (client: RemitClient): CalendarDeps => ({
 	calendarObject: client.calendarObject,
 	calendarEventIndex: client.calendarEventIndex,
 	calendarFeedToken: client.calendarFeedToken,
-	calendarUnitOfWork: client.calendarUnitOfWork,
+	calendarStore: client.calendarStore,
 });
 
 const toCalendarResponse = (
@@ -144,7 +145,7 @@ export const listCalendarsFor = async (
 		await deps.calendarCollection.listByAccountConfig(accountConfigId);
 	if (existing.length > 0) return existing;
 
-	await provisionDefaultCalendar(deps.calendarUnitOfWork, accountConfigId);
+	await provisionDefaultCalendar(deps.calendarStore, accountConfigId);
 	return deps.calendarCollection.listByAccountConfig(accountConfigId);
 };
 
@@ -235,33 +236,36 @@ const createSubscribedCalendarFor = async (
 		);
 	}
 
-	const created = await deps.calendarUnitOfWork.transaction(async (repos) => {
-		const made = await repos.calendarCollection.createExclusive({
-			accountConfigId,
-			urlSegment: collection.urlSegment,
-			displayName: input.displayName,
-			color: input.color,
-			timezone: collection.timezone,
-			source: CalendarSource.Subscribed,
-			subscriptionUrl: url.value,
-			subscriptionEnabled: true,
-		});
-		if (!made) return null;
-		await writeCalendarFeed(
-			deps.calendarUnitOfWork,
-			{ accountConfigId, calendarId: made.calendarId },
-			feed.value,
-			now,
-		);
-		return repos.calendarCollection.get(accountConfigId, made.calendarId);
+	const { repos } = deps.calendarStore;
+	const made = await repos.calendarCollection.createExclusive({
+		accountConfigId,
+		urlSegment: collection.urlSegment,
+		displayName: input.displayName,
+		color: input.color,
+		timezone: collection.timezone,
+		source: CalendarSource.Subscribed,
+		subscriptionUrl: url.value,
+		subscriptionEnabled: true,
 	});
-	if (!created) {
+	if (!made) {
 		return refuseCalendar(
 			"UrlSegmentTaken",
 			`"${collection.urlSegment}" already addresses a calendar on this account — pick another`,
 		);
 	}
-	return { ok: true, value: created };
+	// A separate step from the create: a collection the feed write never
+	// reached is enabled and never checked, so the scheduled refresh takes it
+	// on its next pass and fills it from the same feed.
+	await writeCalendarFeed(
+		deps.calendarStore,
+		{ accountConfigId, calendarId: made.calendarId },
+		feed.value,
+		now,
+	);
+	return {
+		ok: true,
+		value: await repos.calendarCollection.get(accountConfigId, made.calendarId),
+	};
 };
 
 export const createCalendarFor = async (
@@ -297,16 +301,15 @@ export const createCalendarFor = async (
 	// The write decides, not a prior read: two creates of one segment arriving
 	// together would both find it free, and the loser would silently be handed
 	// the winner's calendar to write into.
-	const created = await deps.calendarUnitOfWork.transaction((repos) =>
-		repos.calendarCollection.createExclusive({
+	const created =
+		await deps.calendarStore.repos.calendarCollection.createExclusive({
 			accountConfigId,
 			urlSegment,
 			displayName: input.displayName,
 			color: input.color,
 			timezone: timezone.value,
 			source: CalendarSource.UserCreated,
-		}),
-	);
+		});
 	if (!created) {
 		return refuseCalendar(
 			"UrlSegmentTaken",
@@ -336,18 +339,9 @@ export const deleteCalendarFor = async (
 		);
 	}
 
-	await deps.calendarUnitOfWork.transaction(async (repos) => {
-		const objects = await repos.calendarObject.listByCalendar(calendarId);
-		for (const object of objects) {
-			await repos.calendarEventIndex.deleteForObject(
-				calendarId,
-				object.calendarObjectId,
-			);
-			await repos.calendarObject.delete(calendarId, object.calendarObjectId);
-		}
-		await repos.calendarFeedToken.delete(accountConfigId, calendarId);
-		await repos.calendarCollection.delete(accountConfigId, calendarId);
-	});
+	await deps.calendarStore.commit([
+		{ kind: "DeleteCollection", accountConfigId, calendarId },
+	]);
 	return { ok: true, value: null };
 };
 
@@ -407,17 +401,14 @@ export const updateCalendarFor = async (
 	const rezone =
 		patch.timezone !== undefined && patch.timezone !== current.value.timezone;
 
-	const updated = await deps.calendarUnitOfWork.transaction(async (repos) => {
-		const collection = await repos.calendarCollection.update(
-			accountConfigId,
+	const { repos } = deps.calendarStore;
+	const rewrites: CalendarWrite[] = [];
+	if (rezone) {
+		const zone = { timezone: patch.timezone ?? current.value.timezone };
+		for (const object of await repos.calendarObject.listByCalendar(
 			calendarId,
-			patch,
-		);
-		if (!rezone) return collection;
-
-		const objects = await repos.calendarObject.listByCalendar(calendarId);
-		for (const object of objects) {
-			const rewritten = await putCalendarObject(deps.calendarUnitOfWork, {
+		)) {
+			const rewritten = await prepareCalendarObject(zone, {
 				accountConfigId,
 				calendarId,
 				resourceName: object.resourceName,
@@ -428,10 +419,17 @@ export const updateCalendarFor = async (
 					`stored calendar object ${object.calendarObjectId} was refused on re-expansion: ${rewritten.error.code}`,
 				);
 			}
+			rewrites.push(rewritten.value);
 		}
-		return repos.calendarCollection.get(accountConfigId, calendarId);
-	});
-	return { ok: true, value: updated };
+	}
+	await deps.calendarStore.commit([
+		{ kind: "UpdateCollection", accountConfigId, calendarId, patch },
+		...rewrites,
+	]);
+	return {
+		ok: true,
+		value: await repos.calendarCollection.get(accountConfigId, calendarId),
+	};
 };
 
 export const CalendarOperations: Record<

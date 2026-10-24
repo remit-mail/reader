@@ -90,7 +90,6 @@ const syncService = () =>
 		store.threadMessage,
 		new SyncWarningService(store.syncWarning),
 		silentLog,
-		store.unitOfWork,
 		store.flagPush,
 		store.messageFlag,
 		new QuarantineService(

@@ -220,7 +220,6 @@ export const syncFolder = async (
 		store.threadMessage,
 		new SyncWarningService(store.syncWarning),
 		silentLog,
-		store.unitOfWork,
 		store.flagPush,
 		store.messageFlag,
 	);

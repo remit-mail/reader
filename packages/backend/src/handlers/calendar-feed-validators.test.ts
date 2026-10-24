@@ -36,24 +36,21 @@ const ICAL = [
 	"END:VCALENDAR",
 ].join("\r\n");
 
-const depsOf = (store: MemoryCalendarStore): Promise<CalendarDeps> =>
-	store.transaction(async (repos) => ({
-		...repos,
-		calendarUnitOfWork: store,
-	}));
+const depsOf = (store: MemoryCalendarStore): CalendarDeps => ({
+	...store.repos,
+	calendarStore: store,
+});
 
 const tokenFor = async (
 	store: MemoryCalendarStore,
 	calendarId: string,
 ): Promise<string> => {
 	const minted = mintCalendarFeedToken();
-	await store.transaction(async (repos) =>
-		repos.calendarFeedToken.put({
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			calendarId,
-			tokenHash: minted.tokenHash,
-		}),
-	);
+	await store.repos.calendarFeedToken.put({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		calendarId,
+		tokenHash: minted.tokenHash,
+	});
 	return minted.token;
 };
 
@@ -65,15 +62,13 @@ interface Fixture {
 
 const fixture = async (): Promise<Fixture> => {
 	const store = new MemoryCalendarStore();
-	const deps = await depsOf(store);
+	const deps = depsOf(store);
 
-	const collection = await store.transaction(async (repos) =>
-		repos.calendarCollection.create({
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			urlSegment: "work",
-			displayName: "Work",
-		}),
-	);
+	const collection = await store.repos.calendarCollection.create({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		urlSegment: "work",
+		displayName: "Work",
+	});
 
 	const written = await putCalendarObject(store, {
 		accountConfigId: ACCOUNT_CONFIG_ID,

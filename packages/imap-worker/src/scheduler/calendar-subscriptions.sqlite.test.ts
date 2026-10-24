@@ -87,7 +87,7 @@ describe("refreshDueCalendarSubscriptions", () => {
 		const tally = await refreshDueCalendarSubscriptions(
 			{
 				calendarCollection: client.calendarCollection,
-				calendarUnitOfWork: client.calendarUnitOfWork,
+				calendarStore: client.calendarStore,
 				log: logged().log,
 				fetcher: recording(asked, () => new Response(FEED, { status: 200 })),
 			},
@@ -114,7 +114,7 @@ describe("refreshDueCalendarSubscriptions", () => {
 		const tally = await refreshDueCalendarSubscriptions(
 			{
 				calendarCollection: client.calendarCollection,
-				calendarUnitOfWork: client.calendarUnitOfWork,
+				calendarStore: client.calendarStore,
 				log,
 				fetcher: recording([], (url) =>
 					url === broken.subscriptionUrl

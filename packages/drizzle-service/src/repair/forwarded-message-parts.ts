@@ -1,3 +1,14 @@
+import { asc, eq, inArray } from "drizzle-orm";
+import { runBatch, type SqliteBatchItem } from "../batch.js";
+import type { Db } from "../db.js";
+import {
+	bodyPartParameterTable,
+	bodyPartStorageTable,
+	bodyPartTable,
+	bodyStructureRefetchTable,
+	messageTable,
+} from "../schema/message-data.js";
+
 /**
  * The repair for messages whose forwarded message lost its own part row.
  *
@@ -18,14 +29,7 @@
  * stays where it is stored.
  */
 
-/**
- * The smallest surface this needs, so the module imports no schema and no
- * driver and can be driven by the migrator's `better-sqlite3` handle or a test.
- */
-export interface ForwardedPartsRepairClient {
-	all(sql: string, params: unknown[]): Promise<unknown[]>;
-	run(sql: string, params: unknown[]): Promise<number>;
-}
+type ForwardedPartsDb = Db<Record<string, unknown>>;
 
 export type ForwardedPartsRepairMode = "check" | "repair";
 
@@ -34,16 +38,6 @@ export type ForwardedPartsReport = {
 	readonly messages: number;
 	readonly partsDropped: number;
 };
-
-const AFFECTED_SQL = `SELECT DISTINCT message_id FROM body_part
-WHERE parent_body_part_id = body_part_id
-ORDER BY message_id`;
-
-const PART_TABLES = [
-	"body_part_parameter",
-	"body_part_storage",
-	"body_part",
-] as const;
 
 /** Well under SQLite's bound-parameter limit. */
 const CHUNK = 500;
@@ -56,50 +50,85 @@ const chunks = (ids: readonly string[]): string[][] => {
 	return out;
 };
 
+const affectedMessageIds = async (db: ForwardedPartsDb): Promise<string[]> => {
+	const rows = await db
+		.selectDistinct({ messageId: bodyPartTable.messageId })
+		.from(bodyPartTable)
+		.where(eq(bodyPartTable.parentBodyPartId, bodyPartTable.bodyPartId))
+		.orderBy(asc(bodyPartTable.messageId));
+	return rows.map((row) => row.messageId);
+};
+
+const storedMessageIds = async (
+	db: ForwardedPartsDb,
+	ids: string[],
+): Promise<string[]> => {
+	const rows = await db
+		.select({ messageId: messageTable.messageId })
+		.from(messageTable)
+		.where(inArray(messageTable.messageId, ids));
+	return rows.map((row) => row.messageId);
+};
+
 /**
- * One transaction, so a message never keeps half of its part rows and is never
- * left without parts and off the queue. The rows that hang off a part go
- * before the part rows themselves.
+ * One batch, so a message never keeps half of its part rows and is never left
+ * without parts and off the queue. The rows that hang off a part go before the
+ * part rows themselves. A rerun finds only what a failed run left behind.
  */
 export const sweepForwardedMessageParts = async (
-	client: ForwardedPartsRepairClient,
+	db: ForwardedPartsDb,
 	mode: ForwardedPartsRepairMode,
 ): Promise<ForwardedPartsReport> => {
-	const messageIds = (
-		(await client.all(AFFECTED_SQL, [])) as { message_id: string }[]
-	).map((row) => row.message_id);
+	const messageIds = await affectedMessageIds(db);
 
 	if (mode === "check" || messageIds.length === 0) {
 		return { mode, messages: messageIds.length, partsDropped: 0 };
 	}
 
-	const drop = async (): Promise<number> => {
-		let partsDropped = 0;
-		const now = Date.now();
-		for (const ids of chunks(messageIds)) {
-			const placeholders = ids.map(() => "?").join(", ");
-			await client.run(
-				`INSERT OR IGNORE INTO body_structure_refetch (message_id, created_at, updated_at)
-SELECT message_id, ?, ? FROM message WHERE message_id IN (${placeholders})`,
-				[now, now, ...ids],
+	const now = Date.now();
+	const items: SqliteBatchItem[] = [];
+	const partDeletes = new Set<number>();
+	for (const ids of chunks(messageIds)) {
+		const queued = await storedMessageIds(db, ids);
+		if (queued.length > 0) {
+			items.push(
+				db
+					.insert(bodyStructureRefetchTable)
+					.values(
+						queued.map((messageId) => ({
+							messageId,
+							createdAt: now,
+							updatedAt: now,
+						})),
+					)
+					.onConflictDoNothing(),
 			);
-			for (const table of PART_TABLES) {
-				const dropped = await client.run(
-					`DELETE FROM ${table} WHERE message_id IN (${placeholders})`,
-					ids,
-				);
-				if (table === "body_part") partsDropped += dropped;
-			}
 		}
-		return partsDropped;
-	};
+		items.push(
+			db
+				.delete(bodyPartParameterTable)
+				.where(inArray(bodyPartParameterTable.messageId, ids)),
+			db
+				.delete(bodyPartStorageTable)
+				.where(inArray(bodyPartStorageTable.messageId, ids)),
+		);
+		partDeletes.add(items.length);
+		items.push(
+			db
+				.delete(bodyPartTable)
+				.where(inArray(bodyPartTable.messageId, ids))
+				.returning({ bodyPartId: bodyPartTable.bodyPartId }),
+		);
+	}
 
-	await client.run("BEGIN IMMEDIATE", []);
-	const partsDropped = await drop().catch(async (error: unknown) => {
-		await client.run("ROLLBACK", []);
-		throw error;
-	});
-	await client.run("COMMIT", []);
+	const results = await runBatch(db, items);
+	const partsDropped = results.reduce<number>(
+		(total, result, index) =>
+			partDeletes.has(index) && Array.isArray(result)
+				? total + result.length
+				: total,
+		0,
+	);
 
 	return { mode, messages: messageIds.length, partsDropped };
 };

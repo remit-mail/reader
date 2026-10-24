@@ -8,7 +8,6 @@ import type {
 	IMessageFlagRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
-	IUnitOfWork,
 	MailboxItem,
 	ThreadMessageItem,
 } from "@remit/data-ports";
@@ -48,7 +47,6 @@ import {
 	matchCursorRebuild,
 } from "./mailbox-cursor-rebuild.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
-import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { QuarantineService } from "./quarantine.js";
 import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import type { SyncWarningRound, SyncWarningService } from "./sync-warning.js";
@@ -341,7 +339,6 @@ const messageIdForSighting = (
 
 export class MessageSyncService {
 	private log: SyncLogger;
-	private unitOfWork: IUnitOfWork;
 
 	constructor(
 		private connectionFactory: ManagedConnectionFactory,
@@ -355,11 +352,10 @@ export class MessageSyncService {
 		private mailboxSpecialUseService: IMailboxSpecialUseRepository,
 		private messageService: IMessageRepository,
 		private envelopeService: IEnvelopeRepository,
-		addressService: IAddressRepository,
+		private addressService: IAddressRepository,
 		private threadMessageService: IThreadMessageRepository,
 		private syncWarningService: SyncWarningService,
 		logger?: SyncLogger,
-		unitOfWork?: IUnitOfWork,
 		/**
 		 * Pending outbound flag-push markers (#1273). Supplied, an inbound
 		 * metadata change never overwrites a local flip that IMAP has not been
@@ -381,14 +377,6 @@ export class MessageSyncService {
 		private quarantineService?: QuarantineService,
 	) {
 		this.log = logger ?? noopLogger;
-		this.unitOfWork =
-			unitOfWork ??
-			new PassThroughUnitOfWork({
-				message: messageService,
-				envelope: envelopeService,
-				address: addressService,
-				threadMessage: threadMessageService,
-			});
 	}
 
 	/**
@@ -786,9 +774,7 @@ export class MessageSyncService {
 		await pMap(
 			matched,
 			async ({ messageId, newUid, threadMessage }) => {
-				await this.unitOfWork.transaction((repos) =>
-					repos.message.updateUid(messageId, newUid, mailboxId),
-				);
+				await this.messageService.updateUid(messageId, newUid, mailboxId);
 				// Rewrite the denormalized ThreadMessage.uid alongside Message.uid —
 				// a normal move keeps both in sync (see buildThreadMessageMoveUpdate
 				// in message-move.ts), and the rebuild must too, or a resumed
@@ -796,22 +782,20 @@ export class MessageSyncService {
 				// reads uid from ThreadMessage) and any reader of the list
 				// projection sees a stale UID.
 				if (threadMessage) {
-					await this.unitOfWork.transaction((repos) =>
-						repos.threadMessage.update(
-							threadMessage.accountConfigId,
-							threadMessage.threadMessageId,
-							{ uid: newUid },
-							{
-								composites: {
-									sentDate: threadMessage.sentDate,
-									mailboxId: threadMessage.mailboxId,
-									isRead: threadMessage.isRead,
-									isDeleted: threadMessage.isDeleted,
-									hasStars: threadMessage.hasStars,
-									hasAttachment: threadMessage.hasAttachment,
-								},
+					await this.threadMessageService.update(
+						threadMessage.accountConfigId,
+						threadMessage.threadMessageId,
+						{ uid: newUid },
+						{
+							composites: {
+								sentDate: threadMessage.sentDate,
+								mailboxId: threadMessage.mailboxId,
+								isRead: threadMessage.isRead,
+								isDeleted: threadMessage.isDeleted,
+								hasStars: threadMessage.hasStars,
+								hasAttachment: threadMessage.hasAttachment,
 							},
-						),
+						},
 					);
 				}
 			},
@@ -821,15 +805,13 @@ export class MessageSyncService {
 		await pMap(
 			staleMessageIds,
 			(messageId) =>
-				this.unitOfWork.transaction((repos) =>
-					reconcileStaleMessage(
-						{
-							messageService: repos.message,
-							threadMessageService: repos.threadMessage,
-						},
-						accountConfigId,
-						messageId,
-					),
+				reconcileStaleMessage(
+					{
+						messageService: this.messageService,
+						threadMessageService: this.threadMessageService,
+					},
+					accountConfigId,
+					messageId,
 				),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
@@ -1715,132 +1697,128 @@ export class MessageSyncService {
 		let owned = false;
 		let unresolvedSighting = false;
 
-		// One unit of work for the whole message: on Postgres these repos are
-		// transaction-bound, so the Envelope, addresses, Message, BodyParts and
-		// ThreadMessage — and the transactional-outbox rows the Message write
-		// appends — all commit together. A throw anywhere rolls the whole set
-		// back, so a failed save never strands a Message without its Envelope
-		// (#1072). Writes run in sequence: a single transaction serialises on one
-		// connection, and it lets the Envelope land before the Message, with the
-		// ThreadMessage written last so the list path never anchors on a
-		// ThreadMessage whose Message does not yet exist (#1209).
-		await this.unitOfWork.transaction(async (repos) => {
-			await repos.envelope.upsertEnvelope({
-				envelopeId,
-				messageId,
-				dateValue: sentDate,
-				dateRaw: envelope.date,
-				subject: envelope.subject,
-				messageIdValue: envelope.messageId,
-			});
-
-			const messageReferences = messageReferencesOf(envelope, msg.references);
-			if (messageReferences.length > 0) {
-				await repos.envelope.replaceMessageReferences(
-					messageId,
-					messageReferences,
-				);
-			}
-
-			for (const { addresses, role } of addressOps) {
-				await this.saveAddresses(
-					repos.address,
-					messageId,
-					accountConfigId,
-					addresses,
-					role,
-					sighting,
-				);
-			}
-
-			// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
-			// envelope, so persisting BodyParts here is "free" — no extra round-trip.
-			if (bodyParts.length > 0) {
-				await repos.envelope.upsertBodyParts(messageId, bodyParts);
-			}
-
-			const { item, created } = await repos.message.upsertWithStatus({
-				messageId,
-				mailboxId,
-				uid: msg.uid,
-				sequenceNumber: msg.seq,
-				rfc822Size: msg.size ?? 0,
-				internalDate: msg.internalDate.getTime(),
-				envelopeId,
-				rootBodyPartId,
-			});
-
-			// The server has just named this folder and this UID for a message the
-			// database holds under another folder. `upsertWithStatus` left the row
-			// alone, so the pointer is repaired here — mailbox and UID together,
-			// because a UID only means anything inside the folder that issued it.
-			//
-			// Only when the message has really left the folder the row points at
-			// (#1146). A sighting alone does not say that: a Gmail label, a Sieve
-			// `fileinto` beside a `keep` and an echoed Sent copy all put the same
-			// message in a second real folder while the first still holds it, and
-			// following those took the mail out of the Inbox. `confirmDepartures`
-			// asked the source before this batch was saved, and its verdict names
-			// the placement it was reached for — so a row that has moved since
-			// matches nothing, and `unresolvedSighting` holds this UID back for
-			// the next round rather than repairing the row against a stale answer.
-			const contested = !created && sightingContestsPlacement(mailbox, item);
-			const verdict = placementKey(messageId, item.mailboxId, item.uid);
-			unresolvedSighting = contested && !departures.settled.has(verdict);
-			const repointed =
-				contested &&
-				departures.departed.has(verdict) &&
-				!(await this.holdsCopyOf(repos.message, messageId, mailboxId));
-			if (repointed) {
-				await repos.message.updateUid(messageId, msg.uid, mailboxId);
-				await this.repointThreadMessage(
-					repos.threadMessage,
-					accountConfigId,
-					messageId,
-					mailboxId,
-					msg.uid,
-					sighting === "discarded",
-				);
-			}
-
-			owned = created || item.mailboxId === mailboxId || repointed;
-
-			// Withholding reads the pointer, so it is re-derived whenever the
-			// pointer could have changed the answer: a save into Junk, and a
-			// re-point in either direction. The reconcile both applies and lifts,
-			// so a sender whose only mail was moved out of Junk is restored by the
-			// same call that would have withheld them (#859).
-			if (sighting === "junk" || repointed) {
-				await repos.address.reconcileJunkOnlyForMessage(
-					messageId,
-					roles.configJunkRoles,
-				);
-			}
-
-			await this.createThreadForMessage(
-				repos.threadMessage,
-				messageId,
-				mailboxId,
-				accountId,
-				accountConfigId,
-				msg.uid,
-				msg.internalDate.getTime(),
-				sentDate,
-				envelope,
-				msg.flags,
-				// The category of the Message this same save just wrote. A new
-				// message is `uncategorized` until body-sync classifies it; a row
-				// created for a Message that is ALREADY classified takes the decided
-				// value rather than sitting stale forever behind a body-sync pass that
-				// will skip it. That happens on thread-root drift — the same message
-				// re-saved under different `References` mints a second threadId and so
-				// a second row — not on a second mailbox, which resolves to the row
-				// that already exists (issue #320).
-				item.category,
-				msg.references,
-				hasAttachment,
-			);
+		// Every write below is an idempotent upsert keyed on a derived id, so a
+		// save that fails part-way is repaired by the next round repeating it: the
+		// UID's watermark only moves once the save returns. The order is the
+		// guarantee a reader gets in between: the Envelope lands before the
+		// Message (#1072), and the ThreadMessage is written last so the list path
+		// never anchors on a ThreadMessage whose Message does not yet exist
+		// (#1209).
+		await this.envelopeService.upsertEnvelope({
+			envelopeId,
+			messageId,
+			dateValue: sentDate,
+			dateRaw: envelope.date,
+			subject: envelope.subject,
+			messageIdValue: envelope.messageId,
 		});
+
+		const messageReferences = messageReferencesOf(envelope, msg.references);
+		if (messageReferences.length > 0) {
+			await this.envelopeService.replaceMessageReferences(
+				messageId,
+				messageReferences,
+			);
+		}
+
+		for (const { addresses, role } of addressOps) {
+			await this.saveAddresses(
+				this.addressService,
+				messageId,
+				accountConfigId,
+				addresses,
+				role,
+				sighting,
+			);
+		}
+
+		// IMAP returns BODYSTRUCTURE in the same FETCH that returns the
+		// envelope, so persisting BodyParts here is "free" — no extra round-trip.
+		if (bodyParts.length > 0) {
+			await this.envelopeService.upsertBodyParts(messageId, bodyParts);
+		}
+
+		const { item, created } = await this.messageService.upsertWithStatus({
+			messageId,
+			mailboxId,
+			uid: msg.uid,
+			sequenceNumber: msg.seq,
+			rfc822Size: msg.size ?? 0,
+			internalDate: msg.internalDate.getTime(),
+			envelopeId,
+			rootBodyPartId,
+		});
+
+		// The server has just named this folder and this UID for a message the
+		// database holds under another folder. `upsertWithStatus` left the row
+		// alone, so the pointer is repaired here — mailbox and UID together,
+		// because a UID only means anything inside the folder that issued it.
+		//
+		// Only when the message has really left the folder the row points at
+		// (#1146). A sighting alone does not say that: a Gmail label, a Sieve
+		// `fileinto` beside a `keep` and an echoed Sent copy all put the same
+		// message in a second real folder while the first still holds it, and
+		// following those took the mail out of the Inbox. `confirmDepartures`
+		// asked the source before this batch was saved, and its verdict names
+		// the placement it was reached for — so a row that has moved since
+		// matches nothing, and `unresolvedSighting` holds this UID back for
+		// the next round rather than repairing the row against a stale answer.
+		const contested = !created && sightingContestsPlacement(mailbox, item);
+		const verdict = placementKey(messageId, item.mailboxId, item.uid);
+		unresolvedSighting = contested && !departures.settled.has(verdict);
+		const repointed =
+			contested &&
+			departures.departed.has(verdict) &&
+			!(await this.holdsCopyOf(this.messageService, messageId, mailboxId));
+		if (repointed) {
+			await this.messageService.updateUid(messageId, msg.uid, mailboxId);
+			await this.repointThreadMessage(
+				this.threadMessageService,
+				accountConfigId,
+				messageId,
+				mailboxId,
+				msg.uid,
+				sighting === "discarded",
+			);
+		}
+
+		owned = created || item.mailboxId === mailboxId || repointed;
+
+		// Withholding reads the pointer, so it is re-derived whenever the
+		// pointer could have changed the answer: a save into Junk, and a
+		// re-point in either direction. The reconcile both applies and lifts,
+		// so a sender whose only mail was moved out of Junk is restored by the
+		// same call that would have withheld them (#859).
+		if (sighting === "junk" || repointed) {
+			await this.addressService.reconcileJunkOnlyForMessage(
+				messageId,
+				roles.configJunkRoles,
+			);
+		}
+
+		await this.createThreadForMessage(
+			this.threadMessageService,
+			messageId,
+			mailboxId,
+			accountId,
+			accountConfigId,
+			msg.uid,
+			msg.internalDate.getTime(),
+			sentDate,
+			envelope,
+			msg.flags,
+			// The category of the Message this same save just wrote. A new
+			// message is `uncategorized` until body-sync classifies it; a row
+			// created for a Message that is ALREADY classified takes the decided
+			// value rather than sitting stale forever behind a body-sync pass that
+			// will skip it. That happens on thread-root drift — the same message
+			// re-saved under different `References` mints a second threadId and so
+			// a second row — not on a second mailbox, which resolves to the row
+			// that already exists (issue #320).
+			item.category,
+			msg.references,
+			hasAttachment,
+		);
 
 		return { messageId, uid: msg.uid, owned, unresolvedSighting };
 	}

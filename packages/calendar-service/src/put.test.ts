@@ -275,14 +275,12 @@ describe("putCalendarObject", () => {
 
 	it("projects the event in the collection's timezone", async () => {
 		const store = new MemoryCalendarStore();
-		const collection = await store.transaction((repos) =>
-			repos.calendarCollection.create({
-				accountConfigId: ACCOUNT_CONFIG_ID,
-				urlSegment: "berlin",
-				displayName: "Berlin",
-				timezone: "Europe/Berlin",
-			}),
-		);
+		const collection = await store.repos.calendarCollection.create({
+			accountConfigId: ACCOUNT_CONFIG_ID,
+			urlSegment: "berlin",
+			displayName: "Berlin",
+			timezone: "Europe/Berlin",
+		});
 
 		const result = await putCalendarObject(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,

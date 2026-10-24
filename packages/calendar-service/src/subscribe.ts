@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import type {
 	CalendarCollectionItem,
-	ICalendarUnitOfWork,
+	CalendarWrite,
+	ICalendarStore,
 } from "@remit/data-ports";
 import ICAL from "ical.js";
 import { type CalendarResult, calendarFailure } from "./errors.js";
 import { readCalendarComponent, serializeCalendar } from "./parse.js";
-import { deleteCalendarObject, putCalendarObject } from "./put.js";
+import { deleteCalendarObjectWrite, prepareCalendarObject } from "./put.js";
 
 export const CALENDAR_SUBSCRIPTION_TIMEOUT_MS = 30_000;
 
@@ -271,99 +272,111 @@ const feedErrorOf = (write: CalendarFeedWrite): string =>
 		: `${write.skipped} ${write.skipped === 1 ? "event" : "events"} in the feed could not be stored`;
 
 /**
- * Makes a subscribed collection hold what the feed holds, in one unit.
+ * Makes a subscribed collection hold what the feed holds, in one commit.
  *
- * Every resource goes through `putCalendarObject`, the one write path, so a
- * subscribed event is stored, projected and expanded the way any other event
+ * Every resource goes through `prepareCalendarObject`, the one write path, so
+ * a subscribed event is stored, projected and expanded the way any other event
  * is. A resource whose bytes have not changed is left alone, and one the feed
  * no longer carries is removed. A resource the write path refuses is counted
  * and recorded on the collection rather than failing the whole refresh.
+ *
+ * Repeating a refresh converges: a resource is keyed by its name, so a second
+ * run over the same feed finds every resource unchanged.
  */
 export const writeCalendarFeed = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	target: CalendarSubscriptionTarget,
 	split: CalendarFeedSplit,
 	now: number,
-): Promise<CalendarFeedWrite> =>
-	unitOfWork.transaction(async (repos) => {
-		const current = await repos.calendarCollection.get(
-			target.accountConfigId,
-			target.calendarId,
-		);
-		if (!current.subscriptionEnabled) {
-			return { paused: true, written: 0, unchanged: 0, removed: 0, skipped: 0 };
-		}
-		const stored = await repos.calendarObject.listByCalendar(target.calendarId);
-		const storedByName = new Map(
-			stored.map((object) => [object.resourceName, object]),
-		);
-		const kept = new Set<string>();
-		const write: CalendarFeedWrite = {
-			paused: false,
-			written: 0,
-			unchanged: 0,
-			removed: 0,
-			skipped: split.unreadable,
-		};
+): Promise<CalendarFeedWrite> => {
+	const current = await store.repos.calendarCollection.get(
+		target.accountConfigId,
+		target.calendarId,
+	);
+	if (!current.subscriptionEnabled) {
+		return { paused: true, written: 0, unchanged: 0, removed: 0, skipped: 0 };
+	}
+	const stored = await store.repos.calendarObject.listByCalendar(
+		target.calendarId,
+	);
+	const storedByName = new Map(
+		stored.map((object) => [object.resourceName, object]),
+	);
+	const kept = new Set<string>();
+	const writes: CalendarWrite[] = [];
+	const write: CalendarFeedWrite = {
+		paused: false,
+		written: 0,
+		unchanged: 0,
+		removed: 0,
+		skipped: split.unreadable,
+	};
 
-		for (const resource of split.resources) {
-			const existing = storedByName.get(resource.resourceName);
-			if (
-				existing &&
-				comparable(existing.icalData) === comparable(resource.icalData)
-			) {
-				kept.add(resource.resourceName);
-				write.unchanged += 1;
-				continue;
-			}
-			const put = await putCalendarObject(unitOfWork, {
-				accountConfigId: target.accountConfigId,
-				calendarId: target.calendarId,
-				resourceName: resource.resourceName,
-				icalData: resource.icalData,
-			});
-			if (!put.ok) {
-				write.skipped += 1;
-				continue;
-			}
+	for (const resource of split.resources) {
+		const existing = storedByName.get(resource.resourceName);
+		if (
+			existing &&
+			comparable(existing.icalData) === comparable(resource.icalData)
+		) {
 			kept.add(resource.resourceName);
-			write.written += 1;
+			write.unchanged += 1;
+			continue;
 		}
+		const put = await prepareCalendarObject(current, {
+			accountConfigId: target.accountConfigId,
+			calendarId: target.calendarId,
+			resourceName: resource.resourceName,
+			icalData: resource.icalData,
+		});
+		if (!put.ok) {
+			write.skipped += 1;
+			continue;
+		}
+		writes.push(put.value);
+		kept.add(resource.resourceName);
+		write.written += 1;
+	}
 
-		for (const object of stored) {
-			if (kept.has(object.resourceName)) continue;
-			await deleteCalendarObject(unitOfWork, {
+	for (const object of stored) {
+		if (kept.has(object.resourceName)) continue;
+		writes.push(
+			deleteCalendarObjectWrite({
 				accountConfigId: target.accountConfigId,
 				calendarId: target.calendarId,
 				calendarObjectId: object.calendarObjectId,
-			});
-			write.removed += 1;
-		}
-
-		await repos.calendarCollection.update(
-			target.accountConfigId,
-			target.calendarId,
-			{
-				subscriptionCheckedAt: now,
-				subscriptionFetchedAt: now,
-				subscriptionError: truncate(feedErrorOf(write)),
-			},
+			}),
 		);
-		return write;
+		write.removed += 1;
+	}
+
+	writes.push({
+		kind: "UpdateCollection",
+		accountConfigId: target.accountConfigId,
+		calendarId: target.calendarId,
+		patch: {
+			subscriptionCheckedAt: now,
+			subscriptionFetchedAt: now,
+			subscriptionError: truncate(feedErrorOf(write)),
+		},
 	});
+	await store.commit(writes);
+	return write;
+};
 
 /** Records a refresh that stored nothing, and why. Every stored event stays. */
 export const recordCalendarFeedFailure = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	target: CalendarSubscriptionTarget,
 	reason: string,
 	now: number,
 ): Promise<void> => {
-	await unitOfWork.transaction((repos) =>
-		repos.calendarCollection.update(target.accountConfigId, target.calendarId, {
+	await store.repos.calendarCollection.update(
+		target.accountConfigId,
+		target.calendarId,
+		{
 			subscriptionCheckedAt: now,
 			subscriptionError: truncate(reason),
-		}),
+		},
 	);
 };
 
@@ -391,7 +404,7 @@ export const readCalendarFeed = async (
  * records its reason on the collection and removes nothing.
  */
 export const refreshCalendarSubscription = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	collection: CalendarCollectionItem,
 	now: number,
 	fetcher: CalendarFeedFetcher = fetch,
@@ -402,10 +415,10 @@ export const refreshCalendarSubscription = async (
 	};
 	const feed = await readCalendarFeed(collection.subscriptionUrl, fetcher);
 	if (!feed.ok) {
-		await recordCalendarFeedFailure(unitOfWork, target, feed.reason, now);
+		await recordCalendarFeedFailure(store, target, feed.reason, now);
 		return feed;
 	}
-	const write = await writeCalendarFeed(unitOfWork, target, feed.value, now);
+	const write = await writeCalendarFeed(store, target, feed.value, now);
 	return { ok: true, value: write };
 };
 

@@ -13,21 +13,23 @@ import {
 	asc,
 	desc,
 	eq,
+	exists,
 	getTableColumns,
 	gt,
 	inArray,
 	lt,
+	not,
 	or,
 	type SQL,
 	sql,
 } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { runInTransaction } from "../tx.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -881,42 +883,57 @@ export class DrizzleThreadMessageRepository
 		toThreadId: string,
 	): Promise<{ moved: number; dropped: number }> {
 		if (fromThreadId === toThreadId) return { moved: 0, dropped: 0 };
-		return runInTransaction(this.db, async (tx) => {
-			const rows = await tx
-				.select({
-					threadMessageId: threadMessageTable.threadMessageId,
-					messageId: threadMessageTable.messageId,
-				})
-				.from(threadMessageTable)
-				.where(
-					and(
-						eq(threadMessageTable.accountConfigId, accountConfigId),
-						eq(threadMessageTable.threadId, fromThreadId),
-					),
-				);
-			if (rows.length === 0) return { moved: 0, dropped: 0 };
+		const rows = await this.db
+			.select({
+				threadMessageId: threadMessageTable.threadMessageId,
+				messageId: threadMessageTable.messageId,
+			})
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					eq(threadMessageTable.threadId, fromThreadId),
+				),
+			);
+		if (rows.length === 0) return { moved: 0, dropped: 0 };
 
-			let moved = 0;
-			for (const row of rows) {
-				const target = deriveThreadMessageId(toThreadId, row.messageId);
-				const [existing] = await tx
+		// Per row: drop it when the target row already exists, otherwise move it
+		// onto the target id. The delete runs first, so the two statements never
+		// both apply to one row, and a rerun finds only rows a failed run left.
+		const items = rows.flatMap((row) => {
+			const target = deriveThreadMessageId(toThreadId, row.messageId);
+			const targetStored = exists(
+				this.db
 					.select({ threadMessageId: threadMessageTable.threadMessageId })
 					.from(threadMessageTable)
-					.where(eq(threadMessageTable.threadMessageId, target));
-				if (existing) {
-					await tx
-						.delete(threadMessageTable)
-						.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-					continue;
-				}
-				await tx
+					.where(eq(threadMessageTable.threadMessageId, target)),
+			);
+			const source = and(
+				eq(threadMessageTable.threadMessageId, row.threadMessageId),
+				eq(threadMessageTable.threadId, fromThreadId),
+			);
+			return [
+				this.db
+					.delete(threadMessageTable)
+					.where(and(source, targetStored))
+					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
+				this.db
 					.update(threadMessageTable)
 					.set({ threadId: toThreadId, threadMessageId: target })
-					.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-				moved += 1;
-			}
-			return { moved, dropped: rows.length - moved };
+					.where(and(source, not(targetStored)))
+					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
+			];
 		});
+		const results = await runBatch(this.db, items);
+		const count = (parity: number): number =>
+			results.reduce<number>(
+				(total, result, index) =>
+					index % 2 === parity && Array.isArray(result)
+						? total + result.length
+						: total,
+				0,
+			);
+		return { moved: count(1), dropped: count(0) };
 	}
 
 	async findByMessageId(

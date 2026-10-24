@@ -14,6 +14,7 @@ import type {
 import { MailboxCursorState } from "@remit/domain-enums";
 import { and, asc, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
 import shortUuid from "short-uuid";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -29,7 +30,6 @@ import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.j
 import { messageTable } from "../schema/message-data.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { runInTransaction } from "../tx.js";
 import { deleteMessageSubtree } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
@@ -40,20 +40,30 @@ const generateMailboxId = () => base36Translator.fromUUID(randomUUID());
 type DB = Db<Record<string, unknown>>;
 
 /**
- * Message subtrees removed per transaction by {@link MailboxRepo.deleteMailboxWithMail},
+ * Message subtrees removed per batch by {@link MailboxRepo.deleteMailboxWithMail},
  * matching `SUBTREE_BATCH_SIZE` in the account purge. On SQLite each batch holds
- * the process's only write slot, so the bound is what keeps a large folder's
- * delete from parking every other writer behind it (D8).
+ * the file's write lock, so the bound is what keeps a large folder's delete from
+ * parking every other writer behind it (D8).
  */
 const MAIL_DELETE_BATCH_SIZE = 100;
 
-/** Refuses a subtree intent from inside the transaction, so the throw is the rollback. */
-class SubtreeContested extends Error {
-	constructor() {
-		super("mailbox subtree transition contested");
-		this.name = "SubtreeContested";
-	}
-}
+const postStateTerms = (
+	mailboxId: string,
+	to: MailboxItem["syncStatus"],
+	written: Partial<typeof mailboxTable.$inferInsert>,
+): SQL | undefined =>
+	and(
+		eq(mailboxTable.mailboxId, mailboxId),
+		eq(mailboxTable.syncStatus, to),
+		written.fullPath === undefined
+			? undefined
+			: eq(mailboxTable.fullPath, written.fullPath),
+		written.pendingPath === undefined
+			? undefined
+			: written.pendingPath === null
+				? isNull(mailboxTable.pendingPath)
+				: eq(mailboxTable.pendingPath, written.pendingPath),
+	);
 
 /** The WHERE terms of a folder-state transition (folder-rename-and-delete.md D3). */
 const stateTerms = (expected: MailboxStatePredicate): SQL[] => {
@@ -292,54 +302,100 @@ export class MailboxRepo implements IMailboxRepository {
 		mailboxId: string,
 		intent: MailboxSubtreeTransitionIntent,
 	): Promise<MailboxItem[] | null> {
-		return runInTransaction(this.db, async (tx) => {
-			const repo = new MailboxRepo(tx);
-			const root = await repo
-				.get(accountId, mailboxId)
-				.catch((error: unknown) => {
-					if (error instanceof NotFoundError) return null;
-					throw error;
-				});
-			if (!root) return null;
+		const root = await this.get(accountId, mailboxId).catch(
+			(error: unknown) => {
+				if (error instanceof NotFoundError) return null;
+				throw error;
+			},
+		);
+		if (!root) return null;
 
-			const subtree = [
-				root,
-				...(await repo.findByPathPrefix(
-					accountId,
-					root.fullPath,
-					root.hierarchyDelimiter,
-				)),
-			];
+		const subtree = [
+			root,
+			...(await this.findByPathPrefix(
+				accountId,
+				root.fullPath,
+				root.hierarchyDelimiter,
+			)),
+		];
+		if (subtree.some((row) => !intent.from.includes(row.syncStatus))) {
+			return null;
+		}
+		const accountMailboxes = await this.db.$count(
+			mailboxTable,
+			eq(mailboxTable.accountId, accountId),
+		);
 
-			const written: MailboxItem[] = [];
-			for (const row of subtree) {
-				// The from-state predicate rides each UPDATE rather than a read
-				// taken before them (D3). Read-then-check-then-write is safe on
-				// SQLite only because `runInTransaction` serializes top-level
-				// writes; under Postgres READ COMMITTED a single-row transition
-				// committing in between is missed entirely.
-				const [updated] = await tx
+		const writes = subtree.map((row) => ({
+			mailboxId: row.mailboxId,
+			set: transitionSet(intent.to, intent.rowSet(row)),
+		}));
+		const subtreeIds = writes.map((write) => write.mailboxId);
+
+		// A subtree cannot be half-renamed. Every UPDATE carries the same guard:
+		// each subtree row is still in a from-state or already in the state this
+		// batch writes for it, and no folder joined or left the account since the
+		// read. The batch's own writes leave both counts unchanged, so the guard
+		// holds for every statement or for none.
+		const guard = and(
+			eq(
+				this.db.$count(
+					mailboxTable,
+					and(
+						eq(mailboxTable.accountId, accountId),
+						or(
+							...writes.map((write) =>
+								or(
+									and(
+										eq(mailboxTable.mailboxId, write.mailboxId),
+										inArray(mailboxTable.syncStatus, [...intent.from]),
+									),
+									postStateTerms(write.mailboxId, intent.to, write.set),
+								),
+							),
+						),
+					),
+				),
+				writes.length,
+			),
+			eq(
+				this.db.$count(mailboxTable, eq(mailboxTable.accountId, accountId)),
+				accountMailboxes,
+			),
+		);
+
+		const results = await runBatch(
+			this.db,
+			writes.map((write) =>
+				this.db
 					.update(mailboxTable)
-					.set(transitionSet(intent.to, intent.rowSet(row)))
+					.set(write.set)
 					.where(
 						and(
 							eq(mailboxTable.accountId, accountId),
-							eq(mailboxTable.mailboxId, row.mailboxId),
+							eq(mailboxTable.mailboxId, write.mailboxId),
 							inArray(mailboxTable.syncStatus, [...intent.from]),
+							guard,
 						),
 					)
-					.returning();
-				if (updated) written.push(rowToMailbox(updated));
-			}
+					.returning(),
+			),
+		);
+		if (results.flat().length === 0) return null;
 
-			// A subtree cannot be half-renamed: one row that moved out from under
-			// this call refuses the whole intent, and the throw is what rolls the
-			// rest back.
-			if (written.length !== subtree.length) throw new SubtreeContested();
-			return written;
-		}).catch((error: unknown) => {
-			if (error instanceof SubtreeContested) return null;
-			throw error;
+		const settled = await this.db
+			.select()
+			.from(mailboxTable)
+			.where(
+				and(
+					eq(mailboxTable.accountId, accountId),
+					inArray(mailboxTable.mailboxId, subtreeIds),
+				),
+			);
+		const byId = new Map(settled.map((row) => [row.mailboxId, row]));
+		return subtreeIds.flatMap((id) => {
+			const row = byId.get(id);
+			return row ? [rowToMailbox(row)] : [];
 		});
 	}
 
@@ -357,24 +413,24 @@ export class MailboxRepo implements IMailboxRepository {
 
 	async deleteMany(accountId: string, mailboxIds: string[]): Promise<void> {
 		if (mailboxIds.length === 0) return;
-		await runInTransaction(this.db, async (tx) => {
-			await tx
+		await runBatch(this.db, [
+			this.db
 				.delete(syncWarningTable)
 				.where(
 					and(
 						eq(syncWarningTable.accountId, accountId),
 						inArray(syncWarningTable.mailboxId, mailboxIds),
 					),
-				);
-			await tx
+				),
+			this.db
 				.delete(mailboxTable)
 				.where(
 					and(
 						eq(mailboxTable.accountId, accountId),
 						inArray(mailboxTable.mailboxId, mailboxIds),
 					),
-				);
-		});
+				),
+		]);
 	}
 
 	async listByAccount(
@@ -529,14 +585,14 @@ export class MailboxRepo implements IMailboxRepository {
 			if (rows.length === 0) break;
 			const messageIds = rows.map((row) => row.messageId);
 
-			await runInTransaction(this.db, async (tx) => {
-				// The primitive the rest of the codebase deletes mail with: nine
-				// per-message child tables. A bespoke table list would orphan them.
-				await deleteMessageSubtree(tx, messageIds);
-				await tx
+			// The primitive the rest of the codebase deletes mail with: nine
+			// per-message child tables. A bespoke table list would orphan them.
+			await runBatch(this.db, [
+				...deleteMessageSubtree(this.db, messageIds),
+				this.db
 					.delete(threadMessageTable)
-					.where(inArray(threadMessageTable.messageId, messageIds));
-			});
+					.where(inArray(threadMessageTable.messageId, messageIds)),
+			]);
 		}
 
 		await this.db

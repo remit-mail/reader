@@ -11,8 +11,7 @@ import {
 } from "./create-remit-client.js";
 
 // The SQLite adapter composition (RFC 036). Every repo runs on the single
-// serialized connection `createSqliteDatabase` opens (D3), so a plain repo
-// write cannot bypass serialization and join an open transaction's savepoint.
+// connection `createSqliteDatabase` opens (D3).
 export const buildSqliteClient = async (): Promise<RemitClient> => {
 	const sqliteDbPath = env.SQLITE_DB_PATH;
 
