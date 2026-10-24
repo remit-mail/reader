@@ -259,10 +259,7 @@ export {
 	type BodySyncCue,
 	type MaterializeLogger,
 	type MaterializeResult,
-	type MessageOwnership,
-	type MessageOwnershipClient,
 	materializeBodyParts,
-	resolveMessageOwnership,
 } from "./message-read.js";
 export {
 	type ImapConnectionFactory,
@@ -303,7 +300,13 @@ export {
 	OutboxQueueService,
 	type UpdateDraftInput,
 } from "./outbox-queue.js";
-export { folderInAccount, ownedAccount, settledFolder } from "./ownership.js";
+export {
+	folderInAccount,
+	type MessageOwnershipClient,
+	ownedAccount,
+	ownedMessages,
+	settledFolder,
+} from "./ownership.js";
 export {
 	type PlacementMoveConfig,
 	type PlacementMoveLogger,

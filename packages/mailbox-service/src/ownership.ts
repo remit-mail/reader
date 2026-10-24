@@ -1,6 +1,12 @@
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { type AccessMode, accept, type Refusable, refuse } from "./refusal.js";
+import {
+	type AccessMode,
+	accept,
+	invalid,
+	type Refusable,
+	refuse,
+} from "./refusal.js";
 
 // A read refuses with NotFound so another tenant's account does not leak its
 // existence; an action names the resource already, so it is refused outright.
@@ -71,4 +77,64 @@ export const settledFolder = <
 		mailboxId: target.mailboxId,
 		syncStatus: target.syncStatus,
 	});
+};
+
+export interface MessageOwnershipClient {
+	message: { get(messageId: string): Promise<{ mailboxId: string }> };
+	mailbox: {
+		get(
+			accountId: string,
+			mailboxIds: string[],
+		): Promise<{ mailboxId: string; accountId: string }[]>;
+	};
+	account: {
+		listAllByAccountConfig(
+			accountConfigId: string,
+		): Promise<{ accountId: string }[]>;
+	};
+}
+
+// Messages carry no tenant, so ownership resolves through the caller's own
+// accounts: a mailbox resolves only under the account that owns it, and the
+// whole batch must land on one account because the downstream services take
+// a single accountId.
+export const ownedMessages = async (
+	client: MessageOwnershipClient,
+	messageIds: string[],
+	callerAccountConfigId: string,
+	mode: AccessMode,
+): Promise<Refusable<string>> => {
+	const messages = await Promise.all(
+		messageIds.map((id) => client.message.get(id)),
+	);
+	const mailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
+
+	const ownedAccounts = await client.account.listAllByAccountConfig(
+		callerAccountConfigId,
+	);
+
+	const accountByMailbox = new Map<string, string>();
+	for (const { accountId } of ownedAccounts) {
+		const rows = await client.mailbox.get(accountId, mailboxIds);
+		for (const row of rows) {
+			accountByMailbox.set(row.mailboxId, row.accountId);
+		}
+	}
+
+	if (mailboxIds.some((id) => !accountByMailbox.has(id))) {
+		if (mode === "read") {
+			return refuse({ kind: "NotFound", message: "Message not found" });
+		}
+		return refuse({
+			kind: "Forbidden",
+			message: "Message not in account config",
+		});
+	}
+
+	const accountIds = [...new Set(accountByMailbox.values())];
+	const [accountId] = accountIds;
+	if (accountIds.length !== 1 || accountId === undefined) {
+		return invalid("All messages must belong to the same account");
+	}
+	return accept(accountId);
 };
