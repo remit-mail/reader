@@ -253,6 +253,24 @@ export const AccountEdit: Story = {
 	},
 };
 
+export const AccountEditRevealPassword: Story = {
+	name: "Accounts — edit, reveal password",
+	globals: desktop,
+	play: async ({ canvasElement }) => {
+		const panel = within(await openEditPanel(canvasElement, 0));
+		const password = panel.getByLabelText("Password");
+		await expect(password).toHaveValue("");
+		await expect(password).toHaveAttribute(
+			"placeholder",
+			"Leave empty to keep current",
+		);
+		await userEvent.type(password, "new-app-password");
+		await userEvent.click(panel.getByRole("button", { name: "Show password" }));
+		await expect(password).toHaveAttribute("type", "text");
+		await expect(password).toHaveValue("new-app-password");
+	},
+};
+
 export const AccountEditClosed: Story = {
 	name: "Accounts — edit panel closed",
 	globals: desktop,

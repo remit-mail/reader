@@ -202,9 +202,13 @@ describe("AccountFormPanel — provider presets", () => {
 });
 
 describe("AccountFormPanel — editing an account", () => {
-	it("shows a placeholder for the stored password and keeps it on save", async () => {
+	it("starts the password blank and keeps the stored one on save", async () => {
 		const dom = mount({ account });
-		assert.equal(field(dom, "account-password").value, "••••••••••");
+		assert.equal(field(dom, "account-password").value, "");
+		assert.equal(
+			field(dom, "account-password").placeholder,
+			"Leave empty to keep current",
+		);
 
 		await submit(dom);
 
@@ -223,7 +227,26 @@ describe("AccountFormPanel — editing an account", () => {
 		assert.equal(body(saved()).password, "new-app-password");
 	});
 
-	it("tests the connection against the stored password rather than the placeholder", async () => {
+	it("reveals the password the user types, not a mask", () => {
+		const dom = mount({ account });
+		dom.type(field(dom, "account-password"), "new-app-password");
+
+		dom.click(dom.byLabel("Show password"));
+
+		const input = field(dom, "account-password");
+		assert.equal(input.getAttribute("type"), "text");
+		assert.equal(input.value, "new-app-password");
+	});
+
+	it("reveals an empty field before anything is typed", () => {
+		const dom = mount({ account });
+
+		dom.click(dom.byLabel("Show password"));
+
+		assert.equal(field(dom, "account-password").value, "");
+	});
+
+	it("tests the connection against the stored password while the field is blank", async () => {
 		const dom = mount({ account });
 		dom.click(dom.byText("button", "Test IMAP Connection"));
 		await dom.flush();
