@@ -1,4 +1,16 @@
-import { and, asc, eq, gt, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	gt,
+	inArray,
+	lt,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import type { Db } from "../db.js";
@@ -12,6 +24,9 @@ export const threadMessageSearchTable = sqliteTable("thread_message_fts", {
 	rowid: integer("rowid").notNull(),
 	threadMessageId: text("thread_message_id").notNull(),
 	accountConfigId: text("account_config_id").notNull(),
+	mailboxId: text("mailbox_id").notNull(),
+	sentDate: integer("sent_date").notNull(),
+	listId: text("list_id").notNull(),
 	subject: text("subject").notNull(),
 	sender: text("sender").notNull(),
 	body: text("body").notNull(),
@@ -21,10 +36,10 @@ type AnyDb = Db<Record<string, unknown>>;
 
 type SearchDocument = typeof threadMessageSearchTable.$inferInsert;
 
-// D1 refuses a statement with more than 100 bound parameters. A document is six
-// parameters, so fifteen documents per insert stay under it.
-const DOCUMENTS_PER_STATEMENT = 15;
-const DOCUMENTS_PER_REBUILD_PAGE = DOCUMENTS_PER_STATEMENT * 20;
+// D1 refuses a statement with more than 100 bound parameters. A document is
+// nine parameters, so ten documents per insert stay under it.
+const DOCUMENTS_PER_STATEMENT = 10;
+const DOCUMENTS_PER_REBUILD_PAGE = DOCUMENTS_PER_STATEMENT * 30;
 
 // The document's rowid, derived from its thread message id so a write or a
 // removal finds the document without a lookup. 53 bits, the integers a number
@@ -47,6 +62,9 @@ export const searchRowid = (threadMessageId: string): number => {
 const indexedColumns = {
 	threadMessageId: threadMessageTable.threadMessageId,
 	accountConfigId: threadMessageTable.accountConfigId,
+	mailboxId: threadMessageTable.mailboxId,
+	sentDate: threadMessageTable.sentDate,
+	listId: threadMessageTable.listId,
 	subject: threadMessageTable.subject,
 	fromName: threadMessageTable.fromName,
 	fromEmail: threadMessageTable.fromEmail,
@@ -56,6 +74,9 @@ const indexedColumns = {
 interface IndexedRow {
 	threadMessageId: string;
 	accountConfigId: string;
+	mailboxId: string;
+	sentDate: number;
+	listId: string | null;
 	subject: string | null;
 	fromName: string | null;
 	fromEmail: string | null;
@@ -66,6 +87,9 @@ const toDocument = (row: IndexedRow): SearchDocument => ({
 	rowid: searchRowid(row.threadMessageId),
 	threadMessageId: row.threadMessageId,
 	accountConfigId: row.accountConfigId,
+	mailboxId: row.mailboxId,
+	sentDate: row.sentDate,
+	listId: row.listId ?? "",
 	subject: row.subject ?? "",
 	sender: `${row.fromName ?? ""} ${row.fromEmail ?? ""}`,
 	body: row.snippet ?? "",
@@ -79,6 +103,28 @@ const chunk = <T>(items: readonly T[], size: number): T[][] => {
 	return chunks;
 };
 
+/** Where a page of candidates resumes: the last one the previous page held. */
+export interface SearchPosition {
+	rank: number;
+	sentDate: number;
+	threadMessageId: string;
+}
+
+export type SearchCandidate = SearchPosition;
+
+export interface CandidateQuery {
+	accountConfigId: string;
+	/** The mailboxes in scope; every mailbox of the config when absent. */
+	mailboxIds?: readonly string[];
+	/** The text condition, over the columns of {@link threadMessageSearchTable}. */
+	where: SQL;
+	/** Ranks first, highest first, when given. */
+	rank?: SQL<number>;
+	order: "asc" | "desc";
+	after: SearchPosition | null;
+	limit: number;
+}
+
 /**
  * The thread-message search index, kept in its own database.
  *
@@ -86,6 +132,10 @@ const chunk = <T>(items: readonly T[], size: number): T[][] => {
  * the same batch: a write reads the rows it names back from the mail database
  * and makes the index match them, so repeating one is harmless and a missed one
  * is repaired by the next write to that row or by {@link rebuild}.
+ *
+ * A search is answered here — matched, scoped to its mailboxes, ordered and
+ * cut to a page — and the mail database is then asked for that page's rows
+ * only, so no statement carries more ids than a page holds.
  */
 export class SearchIndex {
 	constructor(
@@ -125,39 +175,62 @@ export class SearchIndex {
 			.where(eq(threadMessageSearchTable.accountConfigId, accountConfigId));
 	}
 
-	/** The thread message ids whose documents match an FTS5 query. */
-	async matching(
-		accountConfigId: string,
-		matchExpression: string,
-	): Promise<string[]> {
-		const rows = await this.search
-			.select({ threadMessageId: threadMessageSearchTable.threadMessageId })
-			.from(threadMessageSearchTable)
+	/** One page of matching thread messages, in the query's order. */
+	async candidates(query: CandidateQuery): Promise<SearchCandidate[]> {
+		const table = threadMessageSearchTable;
+		const rank = query.rank ?? sql<number>`0`;
+		const { after } = query;
+		const dateAfter = after
+			? or(
+					query.order === "desc"
+						? lt(table.sentDate, after.sentDate)
+						: gt(table.sentDate, after.sentDate),
+					and(
+						eq(table.sentDate, after.sentDate),
+						gt(table.threadMessageId, after.threadMessageId),
+					),
+				)
+			: undefined;
+		const keyset =
+			after && query.rank
+				? or(lt(rank, after.rank), and(eq(rank, after.rank), dateAfter))
+				: dateAfter;
+		return this.search
+			.select({
+				threadMessageId: table.threadMessageId,
+				sentDate: table.sentDate,
+				rank,
+			})
+			.from(table)
 			.where(
 				and(
-					eq(threadMessageSearchTable.accountConfigId, accountConfigId),
-					sql`${threadMessageSearchTable} match ${matchExpression}`,
+					eq(table.accountConfigId, query.accountConfigId),
+					query.mailboxIds
+						? sql`${table.mailboxId} in (select value from json_each(${JSON.stringify(query.mailboxIds)}))`
+						: undefined,
+					query.where,
+					keyset,
 				),
-			);
-		return rows.map((row) => row.threadMessageId);
+			)
+			.orderBy(
+				...(query.rank ? [desc(rank)] : []),
+				query.order === "desc" ? desc(table.sentDate) : asc(table.sentDate),
+				asc(table.threadMessageId),
+			)
+			.limit(query.limit);
 	}
 
 	/**
-	 * Whether the index holds nothing while the mail database holds thread
-	 * messages: a search database that is new beside an existing mail database,
-	 * or one deleted to be rebuilt.
+	 * Whether the index has fallen out of step with the mail database: a
+	 * different number of documents than thread messages, as a new or deleted
+	 * search database, or a write that died between the two, leaves it.
 	 */
 	async needsRebuild(): Promise<boolean> {
-		const [document] = await this.search
-			.select({ rowid: threadMessageSearchTable.rowid })
-			.from(threadMessageSearchTable)
-			.limit(1);
-		if (document) return false;
-		const [thread] = await this.mail
-			.select({ threadMessageId: threadMessageTable.threadMessageId })
-			.from(threadMessageTable)
-			.limit(1);
-		return thread !== undefined;
+		const [[documents], [threads]] = await Promise.all([
+			this.search.select({ n: count() }).from(threadMessageSearchTable),
+			this.mail.select({ n: count() }).from(threadMessageTable),
+		]);
+		return documents?.n !== threads?.n;
 	}
 
 	/** Drop every document and index the whole mail database again. */

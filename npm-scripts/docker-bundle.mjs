@@ -158,7 +158,6 @@ export const TARGETS = [
 		// leaves unresolved; keep it external and install it in the runtime
 		// stage, the same treatment pg gets.
 		external: [SQLITE],
-		loader: { ".sql": "text" },
 	},
 	// Same "backend image with a command" shape as backend-migrate, for the
 	// one-time ListId backfill (issue #263) — never wired into a compose
@@ -187,15 +186,6 @@ export const TARGETS = [
 		name: "backend-config-save",
 		entry: "packages/backend/scripts/config-save.ts",
 		outfile: "dist-docker/backend/config-save.mjs",
-		external: [SQLITE],
-	},
-	// The one-time move from the single database file to the app, mail and
-	// search databases (#1420), run by hand once per install with the stack
-	// stopped, through the migrate service so the migration sets are beside it.
-	{
-		name: "backend-split-sqlite",
-		entry: "packages/migrate/src/split-sqlite-cli.ts",
-		outfile: "dist-docker/backend/split-sqlite.mjs",
 		external: [SQLITE],
 	},
 ];

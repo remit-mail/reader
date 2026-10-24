@@ -458,4 +458,6 @@ CREATE INDEX `thread_message_by_unread` ON `thread_message` (`account_config_id`
 CREATE INDEX `thread_message_by_message_id` ON `thread_message` (`message_id`);--> statement-breakpoint
 CREATE INDEX `thread_message_by_thread_id` ON `thread_message` (`thread_id`,`sent_date`);--> statement-breakpoint
 CREATE INDEX `thread_message_primary` ON `thread_message` (`account_config_id`,`thread_message_id`);--> statement-breakpoint
-CREATE INDEX `tm_by_mailbox_category_date` ON `thread_message` (`account_config_id`,`mailbox_id`,`category`,`is_deleted`,`sent_date`);
+CREATE INDEX `tm_by_mailbox_category_date` ON `thread_message` (`account_config_id`,`mailbox_id`,`category`,`is_deleted`,`sent_date`);--> statement-breakpoint
+CREATE INDEX `address_by_normalized_email` ON `address` (`account_config_id`,`normalized_email`);--> statement-breakpoint
+CREATE INDEX `envelope_address_by_address_id` ON `envelope_address` (`address_id`,`message_id`);

@@ -10,7 +10,9 @@
 -- to a folded LIKE over the mail rows instead.
 --
 -- The index is contentful: it keeps its own copy of the text, because the rows
--- it indexes live in the tenant mail database. Each document's rowid is derived
+-- it indexes live in the tenant mail database. It also carries the mailbox, the
+-- sent date and the List-Id, unindexed, so a search is scoped, ordered and cut
+-- to a page here and the mail database is asked for that page only. Each document's rowid is derived
 -- from its thread_message_id, so a write finds the document it replaces without
 -- a lookup. The application writes it after each mail write and can rebuild it
 -- from the mail database (`migrate --rebuild-search`); no trigger feeds it, and
@@ -18,6 +20,9 @@
 CREATE VIRTUAL TABLE IF NOT EXISTS thread_message_fts USING fts5(
 	thread_message_id UNINDEXED,
 	account_config_id UNINDEXED,
+	mailbox_id UNINDEXED,
+	sent_date UNINDEXED,
+	list_id UNINDEXED,
 	subject,
 	sender,
 	body,

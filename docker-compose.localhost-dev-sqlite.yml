@@ -31,8 +31,7 @@ services:
 
   # One-shot migrator, ordered before every app service — the same shape the
   # published stack runs (deploy/vps/docker-compose.sqlite.yml) and the same
-  # artifact: packages/migrate imports its SQL as text, which only esbuild
-  # resolves, so the entrypoint is bundled first and then run rather than
+  # artifact: the entrypoint is bundled first and then run rather than
   # executed through tsx. Its drizzle folders are relative to deploy/vps, which
   # is why it runs from there; every path in the env file is absolute so the
   # database it opens is the one the app services open.

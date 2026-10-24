@@ -1,4 +1,4 @@
-// How the `thread_message.category` repair reaches an instance (#321, D16).
+// How a row repair reaches an instance (#321, D16).
 //
 // The repair is only correct if it runs everywhere, and `remit update` moves an
 // image tag and runs `compose pull` against the compose file already on disk —
@@ -20,7 +20,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const read = (...parts) => readFileSync(join(ROOT, ...parts), "utf8");
 
 const RUN_MIGRATE = read("packages", "migrate", "src", "run-migrate.ts");
-const REPAIR_CALL = "repairThreadMessageCategoryStep(";
+const REPAIR_CALL = "displayNameStep(";
 
 function section(source, from, to) {
 	const start = source.indexOf(from);
@@ -30,7 +30,7 @@ function section(source, from, to) {
 	return source.slice(start, end);
 }
 
-describe("the category repair ships inside the migrate entrypoint", () => {
+describe("the repairs ship inside the migrate entrypoint", () => {
 	it("runs on the sqlite path", () => {
 		const sqlite = section(
 			RUN_MIGRATE,
@@ -100,16 +100,6 @@ describe("the category repair ships inside the migrate entrypoint", () => {
 				);
 			}
 		}
-	});
-
-	// The steady state is zero divergence, and SQLite takes its exclusive write
-	// lock when an UPDATE begins — before it can know the WHERE matches nothing. An
-	// unconditional statement would contend for that lock on every boot of a
-	// healthy instance, and losing it fails the migration and holds the app plane
-	// down.
-	it("issues no write when the check found nothing to repair", () => {
-		assert.match(RUN_MIGRATE, /report\.repairable === 0/);
-		assert.match(RUN_MIGRATE, /formatRepairSkipped\(report\)/);
 	});
 
 	// `compose run` starts the service's dependencies unless told not to, and

@@ -49,6 +49,18 @@ export const shippedTableDdl = (table: string): string => {
 	return match[0];
 };
 
+/** The one statement of the mail baseline that creates a named index. */
+export const shippedIndexDdl = (index: string): string => {
+	const [baseline] = migrationJournal("mail");
+	const statement = migrationSql("mail", baseline.tag)
+		.split("--> statement-breakpoint")
+		.find((candidate) => candidate.includes(`INDEX \`${index}\``));
+	if (!statement) {
+		throw new Error(`${index} not found in migration ${baseline.tag}`);
+	}
+	return statement;
+};
+
 /** Run every committed migration of a set against an open database. */
 export const applyMigrationSet = (
 	sqlite: Database.Database,

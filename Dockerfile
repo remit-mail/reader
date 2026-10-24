@@ -236,9 +236,6 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-classifi
 # their configuration before a migration drops the database, with no browser and
 # no session — see packages/backend/scripts/config-save.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/config-save.mjs ./config-save.mjs
-# Same shape again, for the one-time split of the single database file into the
-# app, mail and search databases (#1420) — see packages/migrate/src/split-sqlite.ts.
-COPY --from=builder --chown=node:node /app/dist-docker/backend/split-sqlite.mjs ./split-sqlite.mjs
 # The migration set, staged in the builder into one directory so this COPY has a
 # single stable source. The migrate entrypoint applies ./migrations-sqlite.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./

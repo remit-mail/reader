@@ -3,17 +3,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
-import { fileURLToPath } from "node:url";
 import * as entities from "@remit/drizzle-sqlite-schema";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import type { SqliteDatabasePaths } from "../../drizzle-service/src/databases.js";
 import { applyMigrationSet } from "../../drizzle-service/src/test-shipped-sqlite-schema.js";
 import { splitSqlite } from "./split-sqlite.js";
-
-const MIGRATIONS_ROOT = fileURLToPath(
-	new URL("../../../deploy/vps/", import.meta.url),
-);
 
 const NOW = 1_700_000_000_000;
 
@@ -81,6 +75,19 @@ const seedSource = (path: string): void => {
 			...stamps,
 		})
 		.run();
+	db.insert(entities.addresses)
+		.values({
+			addressId: "adr-1",
+			accountConfigId: "cfg-1",
+			localPart: "spam",
+			domain: "example.test",
+			normalizedEmail: "spam@example.test",
+			normalizedCompound: "spam@example.test",
+			flags: { muted: { value: true, setAt: NOW } },
+			inboundCount: 12,
+			...stamps,
+		})
+		.run();
 	db.insert(entities.outboxMessages)
 		.values({
 			outboxMessageId: "out-1",
@@ -125,16 +132,31 @@ const hasTable = (path: string, table: string): boolean => {
 describe("splitting the single database file", () => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-split-"));
 	const source = join(dir, "remit.db");
-	const targets: SqliteDatabasePaths = {
-		app: join(dir, "app.db"),
-		mail: join(dir, "mail.db"),
-		search: join(dir, "search.db"),
+	const targets = { app: join(dir, "app.db"), mail: join(dir, "mail.db") };
+
+	const split = async (): Promise<void> => {
+		const from = new Database(source, { readonly: true });
+		const app = new Database(targets.app);
+		const mail = new Database(targets.mail);
+		try {
+			await splitSqlite(drizzle(from), {
+				app: drizzle(app),
+				mail: drizzle(mail),
+			});
+		} finally {
+			from.close();
+			app.close();
+			mail.close();
+		}
 	};
-	const split = () =>
-		splitSqlite({ source, targets, migrationsRoot: MIGRATIONS_ROOT });
 
 	before(async () => {
 		seedSource(source);
+		for (const set of ["app", "mail"] as const) {
+			const sqlite = new Database(targets[set]);
+			applyMigrationSet(sqlite, set);
+			sqlite.close();
+		}
 		await split();
 	});
 
@@ -177,14 +199,18 @@ describe("splitting the single database file", () => {
 		});
 	});
 
-	test("creates the search database empty, to fill as mail resyncs", () => {
-		assert.equal(count(targets.search, "thread_message_fts"), 0);
+	test("keeps the user's flags on an address and counts its mail again", () => {
+		const sqlite = new Database(targets.mail, { readonly: true });
+		const address = sqlite
+			.prepare("SELECT flags, inbound_count FROM address")
+			.get() as { flags: string; inbound_count: number };
+		sqlite.close();
+		assert.equal(JSON.parse(address.flags).muted.value, true);
+		assert.equal(address.inbound_count, 0);
 	});
 
-	test("copies nothing twice when run again", async () => {
-		await split();
+	test("fails rather than merge into a database that already holds the rows", async () => {
+		await assert.rejects(split(), /UNIQUE constraint failed/);
 		assert.equal(count(targets.app, "label"), 1);
-		assert.equal(count(targets.mail, "message_label"), 1);
-		assert.equal(count(targets.mail, "mailbox"), 1);
 	});
 });

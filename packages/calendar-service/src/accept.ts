@@ -133,15 +133,16 @@ export interface AcceptedCalendarSuggestion {
 }
 
 /**
- * Adds a suggested event to a calendar, as one unit.
+ * Adds a suggested event to a calendar, then settles the suggestion.
  *
  * The resource is written through `putCalendarObject`, the same function every
  * other calendar write goes through, so an event added from a mail and one
  * added from the week grid are the same kind of row — and a native client
- * editing it afterwards edits the same bytes. The suggestion's own state is
- * settled in the same commit: a suggestion marked `Accepted` with no
- * resource behind it, or a resource with the card still asking, is a state
- * nothing later can repair.
+ * editing it afterwards edits the same bytes. The event and the suggestion
+ * live in different databases, so the commit writes the event first and
+ * settles the card second. A failure between the two leaves the card still
+ * asking with the event in the calendar, and accepting again repairs it: the
+ * event write lands on the same resource and the settle follows.
  *
  * Accepting a `Cancel` suggestion writes `STATUS:CANCELLED` through that same
  * path, but only onto a resource that is already there. Nothing withdraws an

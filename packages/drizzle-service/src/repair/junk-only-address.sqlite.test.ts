@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
@@ -186,15 +185,6 @@ describe("addresses standing only on mail in Junk", () => {
 		accountSetting = new AccountSettingRepo(db as never);
 		applyMigrationSet(sqlite, "app");
 		applyMigrationSet(sqlite, "mail");
-		sqlite.exec(
-			readFileSync(
-				new URL(
-					"../../../../npm-scripts/sqlite-address-sightings-index.sql",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
 	});
 
 	after(() => {

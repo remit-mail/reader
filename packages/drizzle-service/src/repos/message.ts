@@ -618,6 +618,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					),
 				),
 		);
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(eq(threadMessageTable.messageId, messageId));
 		const [moved] = await runBatch(this.db, [
 			this.db
 				.update(messageTable)
@@ -647,6 +651,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				})
 				.where(and(eq(threadMessageTable.messageId, messageId), landed)),
 		] as const);
+		await this.search.sync(listings.map((row) => row.threadMessageId));
 		return moved.length > 0;
 	}
 

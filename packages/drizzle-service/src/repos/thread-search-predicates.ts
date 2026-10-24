@@ -1,6 +1,5 @@
-import { type SQL, sql } from "drizzle-orm";
-import { threadMessageTable } from "../schema/thread-message.js";
-import type { SearchIndex } from "../search/thread-message-search.js";
+import { type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import { threadMessageSearchTable as fts } from "../search/thread-message-search.js";
 
 // Accent- and case-insensitive substring match over the whole mailbox, isolated
 // here as the one text-search seam whose behaviour is engine-specific. The
@@ -10,20 +9,20 @@ import type { SearchIndex } from "../search/thread-message-search.js";
 
 const escapeLike = (term: string): string => term.replace(/[\\%_]/g, "\\$&");
 
-// Text search is the FTS5 trigram index in the tenant search database (#1420):
-// `thread_message_fts` indexes the folded subject, the sender, and the body
-// preview the row carries, and MATCH is an accent- and case-insensitive
-// substring search (the tokenizer folds both sides, so the needle is passed
-// through untransformed). The index lives in another database, so a term is
-// matched there first and arrives here as the set of thread message ids it
-// matched, bound as one JSON parameter — the outer WHERE still narrows by
-// mailbox, and drops any id whose row is gone.
+// Every predicate here is a condition over `thread_message_fts`, the FTS5
+// trigram index in the tenant search database (#1420). It indexes the folded
+// subject, the sender and the body preview the row carries, and MATCH is an
+// accent- and case-insensitive substring search (the tokenizer folds both
+// sides, so the needle is passed through untransformed). The predicate is a
+// `rowid IN (subquery)` over the same table, so terms combine with AND and OR
+// like any other condition.
 //
 // Trigram indexing needs three characters, so a one- or two-character term
-// falls back to the unindexed folded LIKE scan D4 names — lower() both sides,
-// substring-match, `escape '\'` making the JS-escaped metacharacters literal.
-// It is case-insensitive for ASCII and does not fold diacritics; the accepted
-// difference between a short term and an indexed one (contract C10).
+// falls back to a folded LIKE scan of the index's own copy of the text —
+// lower() both sides, substring-match, `escape '\'` making the JS-escaped
+// metacharacters literal. It is case-insensitive for ASCII and does not fold
+// diacritics; the accepted difference between a short term and an indexed one
+// (contract C10).
 
 // FTS5 treats bare query text as its match grammar (AND/OR/NEAR/`*`/`-`/`:`), so
 // wrap the term as a double-quoted string literal — doubling embedded quotes —
@@ -52,47 +51,24 @@ const isAscii = (term: string): boolean =>
 export const isNarrowableTerm = (term: string): boolean =>
 	isTrigramIndexable(term) || isAscii(term);
 
-/** Where a term is matched: the index, and the account config it is scoped to. */
-export interface ThreadSearchScope {
-	index: SearchIndex;
-	accountConfigId: string;
-}
-
-const indexedMatch = async (
-	scope: ThreadSearchScope,
-	column: "subject" | "sender" | "body",
-	term: string,
-): Promise<SQL> => {
-	const ids = await scope.index.matching(
-		scope.accountConfigId,
-		`${column} : ${ftsPhrase(term)}`,
-	);
-	return sql`${threadMessageTable.threadMessageId} in (select value from json_each(${JSON.stringify(ids)}))`;
-};
-
-const SUBJECT_FOLDED = sql`lower(coalesce(subject, ''))`;
-const FROM_FOLDED = sql`lower(coalesce(from_name, '') || ' ' || coalesce(from_email, ''))`;
-const BODY_FOLDED = sql`lower(coalesce(snippet, ''))`;
-const LIST_ID_FOLDED = sql`lower(coalesce(list_id, ''))`;
+const ftsRowidMatch = (matchExpr: string): SQL =>
+	sql`${fts}.rowid in (select rowid from ${fts} where ${fts} match ${matchExpr})`;
 
 const likePattern = (term: string): SQL =>
 	sql`'%' || lower(${escapeLike(term)}) || '%'`;
 
-export const subjectMatch = async (
-	scope: ThreadSearchScope,
-	term: string,
-): Promise<SQL> =>
-	isTrigramIndexable(term)
-		? indexedMatch(scope, "subject", term)
-		: sql`${SUBJECT_FOLDED} like ${likePattern(term)} escape '\\'`;
+const folded = (column: SQLWrapper, term: string): SQL =>
+	sql`lower(${column}) like ${likePattern(term)} escape '\\'`;
 
-export const fromMatch = async (
-	scope: ThreadSearchScope,
-	term: string,
-): Promise<SQL> =>
+export const subjectMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
-		? indexedMatch(scope, "sender", term)
-		: sql`${FROM_FOLDED} like ${likePattern(term)} escape '\\'`;
+		? ftsRowidMatch(`subject : ${ftsPhrase(term)}`)
+		: folded(fts.subject, term);
+
+export const fromMatch = (term: string): SQL =>
+	isTrigramIndexable(term)
+		? ftsRowidMatch(`sender : ${ftsPhrase(term)}`)
+		: folded(fts.sender, term);
 
 /**
  * Match the body text the row carries: the stored preview, quoted replies
@@ -105,27 +81,16 @@ export const fromMatch = async (
  * the preview is what is stored — but a term the reader can see on the row is
  * now found wherever that row sits in the collection.
  */
-export const bodyMatch = async (
-	scope: ThreadSearchScope,
-	term: string,
-): Promise<SQL> =>
+export const bodyMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
-		? indexedMatch(scope, "body", term)
-		: sql`${BODY_FOLDED} like ${likePattern(term)} escape '\\'`;
+		? ftsRowidMatch(`body : ${ftsPhrase(term)}`)
+		: folded(fts.body, term);
 
-// The FTS index carries subject and sender only, so a List-Id term is always
-// the folded LIKE scan. It is the narrowing half of a rule back-apply, where a
-// scan of one config's rows beats reading them all into the service (#459).
-export const listIdMatch = (term: string): SQL =>
-	sql`${LIST_ID_FOLDED} like ${likePattern(term)} escape '\\'`;
+// The List-Id is carried unindexed, so a List-Id term is always the folded LIKE
+// scan. It is the narrowing half of a rule back-apply (#459).
+export const listIdMatch = (term: string): SQL => folded(fts.listId, term);
 
-export const senderMatchRank = async (
-	scope: ThreadSearchScope,
-	terms: readonly string[],
-): Promise<SQL<number>> => {
-	if (terms.length === 0) return sql<number>`0`;
-	const matches = await Promise.all(
-		terms.map((term) => fromMatch(scope, term)),
-	);
-	return sql<number>`case when ${sql.join(matches, sql` or `)} then 1 else 0 end`;
-};
+export const senderMatchRank = (terms: readonly string[]): SQL<number> =>
+	terms.length === 0
+		? sql<number>`0`
+		: sql<number>`case when ${sql.join(terms.map(fromMatch), sql` or `)} then 1 else 0 end`;
