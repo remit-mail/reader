@@ -423,8 +423,13 @@ export class MemoryCalendarStore implements ICalendarStore {
 					calendarId,
 					resourceName,
 				);
-				if (stored === null) return;
-				await this.apply({ ...write, kind: "PutObject" });
+				if (stored === null || stored.etag !== write.readEtag) return;
+				await this.apply({
+					kind: "PutObject",
+					accountConfigId: write.accountConfigId,
+					object: write.object,
+					occurrences: write.occurrences,
+				});
 				return;
 			}
 			case "DeleteObject":

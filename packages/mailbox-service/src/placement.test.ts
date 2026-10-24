@@ -4,6 +4,7 @@ import type {
 	AccountItem,
 	CreateMessageInput,
 	MailboxItem,
+	MessageItem,
 } from "@remit/data-ports";
 import { MessagePlacementUnsettledError } from "@remit/data-ports/errors";
 import { deriveAddressId } from "@remit/data-ports/id";
@@ -294,7 +295,12 @@ describe("a user mutation writes only against the placement it read", () => {
 });
 
 describe("a filing that exhausted its retries", () => {
-	const resolve = (messageId: string, uid: number, source: MailboxItem) =>
+	const resolve = (
+		messageId: string,
+		uid: number,
+		source: MailboxItem,
+		placement: Pick<MessageItem, "status" | "mailboxId" | "uid">,
+	) =>
 		resolveExhaustedPlacementMoveFailure(
 			{
 				messageService: store.message,
@@ -303,6 +309,7 @@ describe("a filing that exhausted its retries", () => {
 				log: silentLog,
 			},
 			{
+				placement,
 				accountId: account.accountId,
 				accountConfigId: account.accountConfigId,
 				messageId,
@@ -317,14 +324,23 @@ describe("a filing that exhausted its retries", () => {
 		const uid = imap.deliver("INBOX", eml({}));
 		const messageId = await rowIn(inbox, uid);
 		await file(messageId, junk);
-		return { messageId, uid };
+		const read = await row(messageId);
+		return {
+			messageId,
+			uid,
+			placement: {
+				status: read.status,
+				mailboxId: read.mailboxId,
+				uid: read.uid,
+			},
+		};
 	};
 
 	it("removes the row of a message gone from the folder it left", async () => {
-		const { messageId, uid } = await filedFromInbox();
+		const { messageId, uid, placement } = await filedFromInbox();
 		imap.expunge("INBOX", uid);
 
-		const { outcome } = await resolve(messageId, uid, inbox);
+		const { outcome } = await resolve(messageId, uid, inbox, placement);
 
 		assert.equal(outcome, "reconciled");
 		await assert.rejects(row(messageId));
@@ -332,9 +348,9 @@ describe("a filing that exhausted its retries", () => {
 	});
 
 	it("puts a message still in its source back there instead of leaving it moving", async () => {
-		const { messageId, uid } = await filedFromInbox();
+		const { messageId, uid, placement } = await filedFromInbox();
 
-		const { outcome } = await resolve(messageId, uid, inbox);
+		const { outcome } = await resolve(messageId, uid, inbox, placement);
 
 		assert.equal(outcome, "broken");
 		const restored = await row(messageId);
@@ -347,7 +363,7 @@ describe("a filing that exhausted its retries", () => {
 	});
 
 	it("does not read a dropped FETCH row as the message being gone", async () => {
-		const { messageId, uid } = await filedFromInbox();
+		const { messageId, uid, placement } = await filedFromInbox();
 		const connection = imap.connection();
 		connection.fetchMessages = async () => [];
 
@@ -359,6 +375,7 @@ describe("a filing that exhausted its retries", () => {
 				log: silentLog,
 			},
 			{
+				placement,
 				accountId: account.accountId,
 				accountConfigId: account.accountConfigId,
 				messageId,
@@ -374,10 +391,10 @@ describe("a filing that exhausted its retries", () => {
 	});
 
 	it("leaves a row another lane already settled to that lane", async () => {
-		const { messageId, uid } = await filedFromInbox();
+		const { messageId, uid, placement } = await filedFromInbox();
 		await confirmMove(messageId, 5);
 
-		const { outcome } = await resolve(messageId, uid, inbox);
+		const { outcome } = await resolve(messageId, uid, inbox, placement);
 
 		assert.equal(outcome, "broken");
 		const after = await row(messageId);

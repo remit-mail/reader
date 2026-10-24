@@ -1,4 +1,4 @@
-import type { IMessageRepository } from "@remit/data-ports";
+import type { IMessageRepository, MessageItem } from "@remit/data-ports";
 import type { FlagPushLogger } from "./flag-push.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { IImapConnection } from "./types.js";
@@ -10,6 +10,8 @@ export interface ResolveExhaustedFlagPushDeps {
 }
 
 export interface ResolveExhaustedFlagPushInput {
+	/** Where the row stood when the caller read it; the delete holds only while it still does. */
+	placement: Pick<MessageItem, "status" | "mailboxId" | "uid">;
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
@@ -76,9 +78,10 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
-		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
-			uid,
-		});
+		const reconciled = await deps.messageService.deleteIfPlacement(
+			messageId,
+			input.placement,
+		);
 		deps.log.info(
 			{
 				metric: "flag_push_stale_row_reconciled",

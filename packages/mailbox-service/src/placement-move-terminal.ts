@@ -1,4 +1,4 @@
-import type { IMessageRepository } from "@remit/data-ports";
+import type { IMessageRepository, MessageItem } from "@remit/data-ports";
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveLogger } from "./placement-move.js";
@@ -17,6 +17,8 @@ export interface ResolveExhaustedPlacementMoveDeps {
 }
 
 export interface ResolveExhaustedPlacementMoveInput {
+	/** Where the row stood when the caller read it; the delete holds only while it still does. */
+	placement: Pick<MessageItem, "status" | "mailboxId" | "uid">;
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
@@ -90,10 +92,10 @@ export const resolveExhaustedPlacementMoveFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId);
-		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
-			mailboxId: sourceMailboxId,
-			uid,
-		});
+		const reconciled = await deps.messageService.deleteIfPlacement(
+			messageId,
+			input.placement,
+		);
 		deps.log.info(
 			{
 				metric: "placement_move_stale_row_reconciled",

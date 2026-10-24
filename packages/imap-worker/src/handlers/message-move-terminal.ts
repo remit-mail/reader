@@ -1,12 +1,9 @@
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
-import {
-	MessageMutation,
-	MessageStatus,
-	MessageSyncStatus,
-} from "@remit/domain-enums";
+import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
@@ -31,6 +28,8 @@ export interface ResolveExhaustedMessageMoveDeps {
 }
 
 export interface ResolveExhaustedMessageMoveInput {
+	/** Where the row stood when the caller read it; the delete holds only while it still does. */
+	placement: Pick<MessageItem, "status" | "mailboxId" | "uid">;
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
@@ -114,9 +113,10 @@ export const resolveExhaustedMessageMoveFailure = async (
 	await connection.openBox(sourceMailboxPath, true);
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
-		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
-			status: MessageStatus.moving,
-		});
+		const reconciled = await deps.messageService.deleteIfPlacement(
+			messageId,
+			input.placement,
+		);
 		deps.log.info(
 			{
 				metric: "message_move_stale_row_reconciled",

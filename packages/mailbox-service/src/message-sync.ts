@@ -802,15 +802,13 @@ export class MessageSyncService {
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
-		const uidRead = new Map(
-			existingRows.map((row) => [row.messageId, row.uid]),
-		);
+		const stale = new Set(staleMessageIds);
 		await pMap(
-			staleMessageIds,
-			(messageId) =>
-				this.messageService.deleteIfPlacement(messageId, {
+			existingRows.filter((row) => stale.has(row.messageId)),
+			(row) =>
+				this.messageService.deleteIfPlacement(row.messageId, {
 					mailboxId,
-					uid: uidRead.get(messageId),
+					uid: row.uid,
 				}),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
