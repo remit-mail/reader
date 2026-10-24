@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
-import Database from "better-sqlite3";
+import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
 import { buildSqliteClient } from "../service/compose-sqlite.js";
 import type { RemitClient } from "../service/data-client.js";
 
@@ -23,12 +22,7 @@ export const createCalendarSqliteClient = async (): Promise<{
 	cleanup: () => void;
 }> => {
 	const directory = mkdtempSync(join(tmpdir(), "remit-calendar-handlers-"));
-	const path = join(directory, "remit.db");
-	const sqlite = new Database(path);
-	applyShippedMigrations(sqlite);
-	sqlite.close();
-
-	process.env.SQLITE_DB_PATH = path;
+	createShippedSqliteFiles(directory);
 	return {
 		client: await buildSqliteClient(),
 		cleanup: () => rmSync(directory, { recursive: true, force: true }),

@@ -12,6 +12,7 @@ import {
 	mailboxSpecialUseTable,
 	mailboxTable,
 } from "../schema.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
 import { MailboxRepo } from "./i4-mailbox.js";
@@ -56,8 +57,11 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		});
 		close = testDb.close;
 		db = testDb.db;
-		repo = new MailboxSpecialUseRepo(testDb.db as never);
-		mailboxes = new MailboxRepo(testDb.db as never);
+		repo = new MailboxSpecialUseRepo(testDb.db as never, testDb.db as never);
+		mailboxes = new MailboxRepo(
+			testDb.db as never,
+			new SearchIndex(testDb.db as never, testDb.db as never),
+		);
 		accountSettings = new AccountSettingRepo(testDb.db as never);
 	});
 

@@ -6,9 +6,9 @@ import * as authSchemaSqlite from "./schema/auth-schema-sqlite.js";
 
 export interface AuthConfig {
 	/**
-	 * Path to the shared database file (RFC 036 D3). The identity tables live
-	 * beside the app tables and are driven through the drizzle adapter's
-	 * `sqlite` provider.
+	 * Path to the app database file (#1420). The identity tables live beside
+	 * the app tables and are driven through the drizzle adapter's `sqlite`
+	 * provider.
 	 */
 	connectionString: string;
 	secret: string;

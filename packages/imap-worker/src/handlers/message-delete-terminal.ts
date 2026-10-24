@@ -1,14 +1,13 @@
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
+	MessageItem,
 } from "@remit/data-ports";
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
-	reconcileStaleMessage,
 	restoreSourcePlacement,
-	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
 
 export interface MessageDeleteTerminalLogger {
@@ -16,9 +15,11 @@ export interface MessageDeleteTerminalLogger {
 	error(obj: Record<string, unknown>, msg: string): void;
 }
 
-export interface ResolveExhaustedMessageDeleteDeps
-	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "transitionPlacement">;
+export interface ResolveExhaustedMessageDeleteDeps {
+	messageService: Pick<
+		IMessageRepository,
+		"deleteIfPlacement" | "transitionPlacement"
+	>;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"
@@ -27,6 +28,8 @@ export interface ResolveExhaustedMessageDeleteDeps
 }
 
 export interface ResolveExhaustedMessageDeleteInput {
+	/** Where the row stood when the caller read it; the delete holds only while it still does. */
+	placement: Pick<MessageItem, "status" | "mailboxId" | "uid">;
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
@@ -53,7 +56,7 @@ export interface ResolveExhaustedMessageDeleteResult {
  *    than by a FETCH coming back empty. The move to Trash landed server-side,
  *    or a foreign client moved or expunged the message; from here those are
  *    indistinguishable and have the same answer. The stale rows are deleted via
- *    {@link reconcileStaleMessage} and the caller resyncs the affected folders,
+ *    `deleteIfPlacement` and the caller resyncs the affected folders,
  *    so whichever folder actually holds the message re-projects it with the
  *    server's own UID. Metric only, no alarm — routine.
  * 2. BROKEN — the message is still at the source, so the delete never took
@@ -93,10 +96,9 @@ export const resolveExhaustedMessageDeleteFailure = async (
 	await connection.openBox(sourceMailboxPath, true);
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			deps,
-			accountConfigId,
+		const reconciled = await deps.messageService.deleteIfPlacement(
 			messageId,
+			input.placement,
 		);
 		deps.log.info(
 			{
@@ -106,7 +108,7 @@ export const resolveExhaustedMessageDeleteFailure = async (
 				messageId,
 				uid,
 				sourceMailboxPath,
-				threadMessagesDeleted,
+				reconciled,
 			},
 			"Message no longer at its delete source after retry exhaustion (the delete landed server-side, or an external delete or move); stale row reconciled",
 		);

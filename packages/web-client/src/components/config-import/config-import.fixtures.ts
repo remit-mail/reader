@@ -174,7 +174,7 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 		{
 			code: "import_write_failed",
 			message:
-				"the filter store refused the write The items above it were written and remain; the import stopped here.",
+				"the filter store refused the write The items above it were written and remain; import the same file again with merge to finish.",
 			details: { section: "filters", key: "Bonnetjes" },
 		},
 	],
@@ -182,26 +182,25 @@ export const partialImportReport: RemitImapConfigImportReport = report({
 });
 
 /**
- * The same stop with no section written: a store that holds the import in one
- * transaction undoes the earlier writes, so the report carries no landed item
- * and `applied` is false. Warnings go with them.
+ * The same stop with no section written: the first write was the one that
+ * failed, so the report carries no landed item and `applied` is false.
  */
 export const nothingLandedImportReport: RemitImapConfigImportReport = report({
 	applied: false,
 	items: [
 		item(
-			"filters",
-			"Bonnetjes",
+			"accounts",
+			"matthijs@ischen.nl",
 			"rejected",
-			"the filter store refused the write",
+			"the account store refused the write",
 		),
 	],
 	errors: [
 		{
 			code: "import_write_failed",
 			message:
-				"the filter store refused the write Nothing was written; the import stopped here.",
-			details: { section: "filters", key: "Bonnetjes" },
+				"the account store refused the write The items above it were written and remain; import the same file again with merge to finish.",
+			details: { section: "accounts", key: "matthijs@ischen.nl" },
 		},
 	],
 	warnings: [],

@@ -485,6 +485,11 @@ export const handleMessageDelete = async (
 		const settled = await resolveExhaustedMessageDeleteFailure(
 			{ messageService, threadMessageService, log },
 			{
+				placement: {
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
 				accountId,
 				accountConfigId,
 				messageId,

@@ -12,7 +12,6 @@ import type {
 	IQuarantineRepository,
 	ISyncWarningRepository,
 	IThreadMessageRepository,
-	IUnitOfWork,
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
@@ -101,7 +100,6 @@ export const syncMessages = async (
 		syncWarning: syncWarningRepository,
 		flagPush: flagPushMarkerService,
 		messageFlag: messageFlagService,
-		unitOfWork,
 		secrets,
 	} = await getClient();
 
@@ -213,7 +211,6 @@ export const syncMessages = async (
 								syncWarningRepository,
 								flagPushMarkerService,
 								messageFlagService,
-								unitOfWork,
 							},
 							log,
 						);
@@ -292,7 +289,6 @@ interface SyncDeps {
 	syncWarningRepository: ISyncWarningRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
-	unitOfWork?: IUnitOfWork;
 }
 
 // Bounds concurrent SQS sends while re-arming stuck flag-push markers —
@@ -386,7 +382,6 @@ const syncMailboxMessages = async (
 		syncWarningRepository,
 		flagPushMarkerService,
 		messageFlagService,
-		unitOfWork,
 	} = deps;
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
@@ -409,7 +404,6 @@ const syncMailboxMessages = async (
 		threadMessageService,
 		new SyncWarningService(syncWarningRepository),
 		log,
-		unitOfWork,
 		flagPushMarkerService,
 		messageFlagService,
 		new QuarantineService(

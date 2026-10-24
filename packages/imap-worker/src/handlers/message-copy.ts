@@ -10,7 +10,6 @@ import {
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
-	reconcileStaleMessage,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
@@ -130,6 +129,11 @@ export const handleMessageCopy = async (
 	// whether THIS copy is still outstanding, and a `deleting` row is somebody
 	// else's work — reading it as unsettled is what would let the second COPY
 	// through.
+	const copyPlacement = {
+		status: copyRow.status,
+		mailboxId: copyRow.mailboxId,
+		uid: copyRow.uid,
+	};
 	if (copyRow.status !== MessageStatus.moving) {
 		log.info(
 			{ accountId, newMessageId, uid: copyRow.uid, status: copyRow.status },
@@ -174,10 +178,9 @@ export const handleMessageCopy = async (
 				destinationMailboxId,
 			);
 			if (destination.kind === "gone") {
-				const { threadMessagesDeleted } = await reconcileStaleMessage(
-					{ messageService, threadMessageService },
-					account.accountConfigId,
+				const reconciled = await messageService.deleteIfPlacement(
 					newMessageId,
+					copyPlacement,
 				);
 				log.warn(
 					{
@@ -186,7 +189,7 @@ export const handleMessageCopy = async (
 						sourceMessageId,
 						newMessageId,
 						mailboxId: destinationMailboxId,
-						threadMessagesDeleted,
+						reconciled,
 					},
 					"Skipping MESSAGE_COPY: destination mailbox no longer exists (deleted); optimistic copy row reconciled away",
 				);
@@ -268,10 +271,9 @@ export const handleMessageCopy = async (
 			// reality, the same terminal outcome `resolveExhaustedMessageMoveFailure`
 			// calls `reconciled`. Routine: metric, no alarm.
 			const settleNeverLanded = async (reason: string): Promise<void> => {
-				const { threadMessagesDeleted } = await reconcileStaleMessage(
-					{ messageService, threadMessageService },
-					account.accountConfigId,
+				const reconciled = await messageService.deleteIfPlacement(
 					newMessageId,
+					copyPlacement,
 				);
 				log.info(
 					{
@@ -280,7 +282,7 @@ export const handleMessageCopy = async (
 						sourceMessageId,
 						newMessageId,
 						destination: destinationMailboxPath,
-						threadMessagesDeleted,
+						reconciled,
 						reason,
 					},
 					"Copy absent from its destination; optimistic copy row reconciled away",

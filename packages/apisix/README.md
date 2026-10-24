@@ -30,7 +30,8 @@ parity — this is the local incarnation.
 #    container can resolve (host.docker.internal) so the token issuer, the
 #    discovery doc, and the JWKS all agree:
 DATA_BACKEND=sqlite SERVER_PORT=5436 \
-  SQLITE_DB_PATH=.remit/remit.db \
+  SQLITE_APP_DB_PATH=.remit/app.db SQLITE_MAIL_DB_PATH=.remit/mail.db \
+  SQLITE_SEARCH_DB_PATH=.remit/search.db \
   BETTER_AUTH_URL=http://host.docker.internal:5436 \
   BETTER_AUTH_SECRET=e2e-better-auth-secret-at-least-32-chars-long \
   npm run dev:sqlite

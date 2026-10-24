@@ -12,7 +12,6 @@ import {
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
-	reconcileStaleMessage,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -329,18 +328,18 @@ export const handleMessageMove = async (
 				sourceMailboxId,
 			);
 			if (source.kind === "gone") {
-				const { threadMessagesDeleted } = await reconcileStaleMessage(
-					{ messageService, threadMessageService },
-					account.accountConfigId,
-					messageId,
-				);
+				const reconciled = await messageService.deleteIfPlacement(messageId, {
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				});
 				log.warn(
 					{
 						metric: "message_move_source_gone",
 						accountId,
 						messageId,
 						mailboxId: sourceMailboxId,
-						threadMessagesDeleted,
+						reconciled,
 					},
 					"MESSAGE_MOVE not pushed: source mailbox no longer exists (deleted); stale row reconciled",
 				);
@@ -685,6 +684,11 @@ export const handleMessageMove = async (
 					const settled = await resolveExhaustedMessageMoveFailure(
 						{ messageService, threadMessageService, log },
 						{
+							placement: {
+								status: message.status,
+								mailboxId: message.mailboxId,
+								uid: message.uid,
+							},
 							accountId,
 							accountConfigId: account.accountConfigId,
 							messageId,

@@ -373,36 +373,9 @@ const settle = (
 	return next;
 };
 
-/**
- * A transaction that actually rolls back. The backend's `writeSet` discards
- * every write on a throw, so a fake that merely called through would let an
- * atomicity test pass over a store that had kept half a document — which is the
- * one thing these tests exist to catch. Each collection is restored to the
- * instance it had on entry.
- */
-const transactionOver =
-	(store: Store) =>
-	async <T>(run: () => Promise<T>): Promise<T> => {
-		const before = {
-			accountConfigs: new Map(store.accountConfigs),
-			accounts: [...store.accounts],
-			settings: new Map(store.settings),
-			mailboxes: [...store.mailboxes],
-			labels: [...store.labels],
-			filters: [...store.filters],
-			addresses: [...store.addresses],
-			imports: [...store.imports],
-		};
-		return run().catch((error: unknown) => {
-			Object.assign(store, before);
-			throw error;
-		});
-	};
-
 const depsOf = (store: Store, accountConfigId: string): ConfigImportDeps => ({
 	repositories: repositoriesOf(store, accountConfigId),
 	appointFolderRole: appointFolderRoleInto(store),
-	transaction: transactionOver(store),
 	now: () => NOW,
 });
 
@@ -1569,7 +1542,7 @@ test("the dry run names the same folders and credentials the apply does", async 
 	assert.deepEqual(planStore.accounts, []);
 });
 
-test("a write that fails after validation leaves nothing behind and names where it stopped", async () => {
+test("a write that fails part-way reports what it did leave behind and names where it stopped", async () => {
 	const document = await exportSource();
 	const store = emptyStore();
 	store.failOn = "filter";
@@ -1577,40 +1550,8 @@ test("a write that fails after validation leaves nothing behind and names where 
 	const report = reportOf(await apply(store, document));
 
 	assert.equal(report.valid, true);
-	assert.equal(report.applied, false);
 	assert.equal(report.errors[0]?.code, "import_write_failed");
 	assert.equal(report.errors[0]?.details?.section, "filters");
-	assert.match(report.errors[0]?.message ?? "", /Nothing was written/);
-	assert.equal(report.items[0]?.verdict, "rejected");
-
-	// Filters fail after accounts and labels have been written, so these are the
-	// assertions that make the claim: the rollback undid them too.
-	assert.deepEqual(store.imports, []);
-	assert.deepEqual(store.accounts, []);
-	assert.deepEqual(store.labels, []);
-	assert.deepEqual(store.filters, []);
-	assert.equal(store.accountConfigs.size, 0);
-});
-
-test("a write that fails without a transaction reports what it did leave behind", async () => {
-	const document = await exportSource();
-	const store = emptyStore();
-	store.failOn = "filter";
-
-	const deps = depsOf(store, TARGET_CONFIG_ID);
-	const report = reportOf(
-		await importConfig(
-			{ ...deps, transaction: undefined },
-			{
-				accountConfigId: TARGET_CONFIG_ID,
-				userId: TARGET_USER_ID,
-				document,
-				mode: "apply",
-				onExisting: "abort",
-			},
-		),
-	);
-
 	assert.equal(report.applied, true);
 	assert.match(report.errors[0]?.message ?? "", /were written and remain/);
 	assert.equal(
@@ -1620,6 +1561,29 @@ test("a write that fails without a transaction reports what it did leave behind"
 		true,
 	);
 	assert.equal(store.accounts.length > 0, true);
+});
+
+test("a stopped import imported again with merge reaches what one clean import holds", async () => {
+	const document = await exportSource();
+	const clean = emptyStore();
+	await apply(clean, document);
+
+	const store = emptyStore();
+	store.failOn = "filter";
+	await apply(store, document);
+	store.failOn = undefined;
+	const report = reportOf(await apply(store, document, "merge"));
+
+	assert.deepEqual(report.errors, []);
+	const held = (target: Store) => ({
+		accounts: target.accounts.map((account) => account.email).sort(),
+		labels: target.labels.map((label) => label.name).sort(),
+		filters: target.filters.length,
+		addresses: target.addresses.length,
+		settings: [...target.settings.keys()].sort(),
+	});
+	assert.deepEqual(held(store), held(clean));
+	assert.ok(held(clean).filters > 0, "the file carries filters to land");
 });
 
 test("the configuration row is created when the database holds none, and named from the file", async () => {

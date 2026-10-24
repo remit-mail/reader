@@ -4,14 +4,16 @@ import type {
 	CalendarFeedTokenItem,
 	CalendarObjectItem,
 	CalendarOccurrenceInput,
+	CalendarRepositories,
 	CalendarSuggestionItem,
+	CalendarWrite,
 	CreateCalendarCollectionInput,
 	ICalendarCollectionRepository,
 	ICalendarEventIndexRepository,
 	ICalendarFeedTokenRepository,
 	ICalendarObjectRepository,
+	ICalendarStore,
 	ICalendarSuggestionRepository,
-	ICalendarUnitOfWork,
 	PutCalendarFeedTokenInput,
 	PutCalendarObjectInput as PutCalendarObjectRow,
 	PutCalendarSuggestionInput,
@@ -35,13 +37,11 @@ import { CalendarSuggestionState } from "@remit/domain-enums";
 export class MissingRow extends NotFoundError {}
 
 /**
- * A pass-through unit of work over plain maps — the shape the port documents
- * for a backend with no cross-entity transaction. It proves the write path
- * calls what it should, in the order it should; that the three writes stand or
- * fall together is proven against a real transaction, in
+ * The calendar store over plain maps. A commit applies its writes in order;
+ * that they stand or fall together on a real database is proven in
  * drizzle-service's calendar-put.sqlite.test.ts.
  */
-export class MemoryCalendarStore implements ICalendarUnitOfWork {
+export class MemoryCalendarStore implements ICalendarStore {
 	readonly collections = new Map<string, CalendarCollectionItem>();
 	readonly objects = new Map<string, CalendarObjectItem>();
 	readonly occurrences = new Map<string, CalendarEventIndexItem[]>();
@@ -384,21 +384,102 @@ export class MemoryCalendarStore implements ICalendarUnitOfWork {
 		return this.suggestionRepo;
 	}
 
-	transaction<T>(
-		fn: (repos: {
-			calendarCollection: ICalendarCollectionRepository;
-			calendarObject: ICalendarObjectRepository;
-			calendarEventIndex: ICalendarEventIndexRepository;
-			calendarSuggestion: ICalendarSuggestionRepository;
-			calendarFeedToken: ICalendarFeedTokenRepository;
-		}) => Promise<T>,
-	): Promise<T> {
-		return fn({
+	get repos(): CalendarRepositories {
+		return {
 			calendarCollection: this.collectionRepo,
 			calendarObject: this.objectRepo,
 			calendarEventIndex: this.eventIndexRepo,
 			calendarSuggestion: this.suggestionRepo,
 			calendarFeedToken: this.feedTokenRepo,
-		});
+		};
+	}
+
+	async commit(writes: readonly CalendarWrite[]): Promise<void> {
+		for (const write of writes) await this.apply(write);
+	}
+
+	private async apply(write: CalendarWrite): Promise<void> {
+		switch (write.kind) {
+			case "PutObject": {
+				const { calendarId } = write.object;
+				const syncSequence = await this.collectionRepo.bumpSyncSequence(
+					write.accountConfigId,
+					calendarId,
+				);
+				const object = await this.objectRepo.put({
+					...write.object,
+					syncSequence,
+				});
+				await this.eventIndexRepo.replaceForObject(
+					calendarId,
+					object.calendarObjectId,
+					write.occurrences,
+				);
+				return;
+			}
+			case "ReprojectObject": {
+				const { calendarId, resourceName } = write.object;
+				const stored = await this.objectRepo.findByResourceName(
+					calendarId,
+					resourceName,
+				);
+				if (stored === null || stored.etag !== write.readEtag) return;
+				await this.apply({
+					kind: "PutObject",
+					accountConfigId: write.accountConfigId,
+					object: write.object,
+					occurrences: write.occurrences,
+				});
+				return;
+			}
+			case "DeleteObject":
+				await this.eventIndexRepo.deleteForObject(
+					write.calendarId,
+					write.calendarObjectId,
+				);
+				await this.objectRepo.delete(write.calendarId, write.calendarObjectId);
+				await this.collectionRepo.bumpSyncSequence(
+					write.accountConfigId,
+					write.calendarId,
+				);
+				return;
+			case "SettleSuggestion":
+				await this.suggestionRepo.settle(
+					write.accountConfigId,
+					write.suggestionId,
+					write.settle,
+				);
+				return;
+			case "UpdateCollection":
+				await this.collectionRepo.update(
+					write.accountConfigId,
+					write.calendarId,
+					write.patch,
+				);
+				return;
+			case "DeleteCollection": {
+				for (const object of await this.objectRepo.listByCalendar(
+					write.calendarId,
+				)) {
+					await this.eventIndexRepo.deleteForObject(
+						write.calendarId,
+						object.calendarObjectId,
+					);
+					await this.objectRepo.delete(
+						write.calendarId,
+						object.calendarObjectId,
+					);
+				}
+				await this.feedTokenRepo.delete(
+					write.accountConfigId,
+					write.calendarId,
+				);
+				await this.collectionRepo.delete(
+					write.accountConfigId,
+					write.calendarId,
+				);
+				return;
+			}
+		}
 	}
 }

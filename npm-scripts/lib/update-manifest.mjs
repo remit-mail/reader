@@ -9,7 +9,7 @@ export const REPO_SLUG = DEFAULT_REGISTRY.replace(/^ghcr\.io\//, "");
 // The SQLite migration sets the self-host stack applies, in the layout the
 // migrate one-shot reads (packages/migrate/src/run-migrate.ts). Each set is a
 // drizzle folder whose meta/_journal.json lists one entry per migration.
-export const SQLITE_MIGRATION_SETS = ["auth", "entities", "meta", "mcp"];
+export const SQLITE_MIGRATION_SETS = ["app", "mail", "search", "mcp"];
 
 // Read from the schema source as text, not imported: this module runs in the
 // install-free CI suite (npm-scripts/test-script-suites.mjs in ci.yml's

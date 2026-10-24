@@ -1,16 +1,17 @@
 ---
 title: Backup
-description: One SQLite file and one key. Everything else re-syncs.
+description: Two SQLite files and one key. Everything else re-syncs.
 ---
 
 # Backup
 
-Two files are worth protecting:
+Three files are worth protecting:
 
-1. `remit.db`: accounts, identities, messages, settings, rules.
-2. `.env`, for `FAKE_KMS_DATAKEY`: the key that decrypts every stored mailbox credential. No other copy exists, and no database backup replaces it.
+1. `app.db`: accounts, identities, settings, rules.
+2. `mail.db`: the message index, the outbox, labels and quarantined mail.
+3. `.env`, for `FAKE_KMS_DATAKEY`: the key that decrypts every stored mailbox credential. No other copy exists, and no database backup replaces it.
 
-Backups skip message bodies on purpose. Bodies are a cache and re-sync from IMAP after a restore.
+Backups skip message bodies and `search.db` on purpose. Bodies are a cache and re-sync from IMAP after a restore, and the search index rebuilds from `mail.db`.
 
 ## The backup sidecar
 
@@ -20,11 +21,11 @@ The compose file carries a `backup` service behind a profile, off by default. Tu
 docker compose -f docker-compose.sqlite.yml --env-file .env --profile backup up -d
 ```
 
-Each night it snapshots the database file with `VACUUM INTO`, encrypts it with `age`, and ships it to an S3-compatible bucket via `rclone`. Retention defaults to 30 days. The variables (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, the `RCLONE_CONFIG_*` set for your provider) are documented in `remit.env.template`.
+Each night it snapshots both database files with `VACUUM INTO`, encrypts it with `age`, and ships it to an S3-compatible bucket via `rclone`. Retention defaults to 30 days. The variables (`BACKUP_AGE_RECIPIENT`, `BACKUP_RCLONE_REMOTE`, the `RCLONE_CONFIG_*` set for your provider) are documented in `remit.env.template`.
 
 ## Restore
 
-Put the decrypted file back on the `sqlite_data` volume, owned by uid 1000, and start the stack. Bodies refill from IMAP on the next syncs.
+Put the decrypted `app.db` and `mail.db` back on the `sqlite_data` volume, owned by uid 1000, delete `search.db` there, and start the stack. Bodies refill from IMAP on the next syncs.
 
 Test a restore before you need one: decrypt a backup with the `age` private key, `gunzip` it, and open it with `sqlite3`. A backup nobody has ever opened is a hope.
 

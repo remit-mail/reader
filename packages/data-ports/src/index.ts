@@ -9,13 +9,20 @@ export type { ICalendarEventIndexRepository } from "./interfaces/calendar-event-
 export type { ICalendarFeedTokenRepository } from "./interfaces/calendar-feed-token.js";
 export type { ICalendarObjectRepository } from "./interfaces/calendar-object.js";
 export type {
+	CalendarRepositories,
+	CalendarWrite,
+	DeleteCalendarCollectionWrite,
+	DeleteCalendarObjectWrite,
+	ICalendarStore,
+	PutCalendarObjectWrite,
+	ReprojectCalendarObjectWrite,
+	SettleCalendarSuggestionWrite,
+	UpdateCalendarCollectionWrite,
+} from "./interfaces/calendar-store.js";
+export type {
 	ICalendarSuggestionRepository,
 	SettleCalendarSuggestionInput,
 } from "./interfaces/calendar-suggestion.js";
-export type {
-	CalendarUnitOfWorkRepositories,
-	ICalendarUnitOfWork,
-} from "./interfaces/calendar-unit-of-work.js";
 export type { IConfigImportRepository } from "./interfaces/config-import.js";
 export type { IEnvelopeRepository } from "./interfaces/envelope.js";
 export type { IFilterRepository } from "./interfaces/filter.js";
@@ -49,10 +56,6 @@ export type {
 	SurfacedSyncWarnings,
 } from "./interfaces/sync-warning.js";
 export type { IThreadMessageRepository } from "./interfaces/thread-message.js";
-export type {
-	IUnitOfWork,
-	UnitOfWorkRepositories,
-} from "./interfaces/unit-of-work.js";
 export type { MessageSettlementFields } from "./message-settlement.js";
 export {
 	abandonedMutationOf,

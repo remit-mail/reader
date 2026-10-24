@@ -1,0 +1,273 @@
+import type {
+	CalendarRepositories,
+	CalendarWrite,
+	ICalendarStore,
+} from "@remit/data-ports";
+import { deriveCalendarObjectId } from "@remit/data-ports/id";
+import { and, eq, exists, sql } from "drizzle-orm";
+import { runBatch, type SqliteBatchItem } from "../batch.js";
+import type { Db } from "../db.js";
+import {
+	calendarEventIndexTable,
+	calendarFeedTokenTable,
+	calendarObjectTable,
+	calendarSuggestionTable,
+	calendarTable,
+} from "../schema.js";
+import { CalendarCollectionRepo } from "./calendar-collection.js";
+import { CalendarEventIndexRepo } from "./calendar-event-index.js";
+import { CalendarFeedTokenRepo } from "./calendar-feed-token.js";
+import { CalendarObjectRepo } from "./calendar-object.js";
+import { CalendarSuggestionRepo } from "./calendar-suggestion.js";
+
+type DB = Db<Record<string, unknown>>;
+
+export class DrizzleCalendarStore implements ICalendarStore {
+	readonly repos: CalendarRepositories;
+
+	constructor(
+		private db: DB,
+		private mail: DB,
+	) {
+		this.repos = {
+			calendarCollection: new CalendarCollectionRepo(db),
+			calendarObject: new CalendarObjectRepo(db),
+			calendarEventIndex: new CalendarEventIndexRepo(db),
+			calendarSuggestion: new CalendarSuggestionRepo(mail),
+			calendarFeedToken: new CalendarFeedTokenRepo(db),
+		};
+	}
+
+	async commit(writes: readonly CalendarWrite[]): Promise<void> {
+		const settlements = writes.filter(
+			(write) => write.kind === "SettleSuggestion",
+		);
+		await runBatch(
+			this.db,
+			writes
+				.filter((write) => write.kind !== "SettleSuggestion")
+				.flatMap((write) => this.statements(write)),
+		);
+		await runBatch(
+			this.mail,
+			settlements.flatMap((write) => this.statements(write)),
+		);
+	}
+
+	private collection(accountConfigId: string, calendarId: string) {
+		return and(
+			eq(calendarTable.accountConfigId, accountConfigId),
+			eq(calendarTable.calendarId, calendarId),
+		);
+	}
+
+	/**
+	 * The sequence the bump just wrote, read inside the batch. A collection that
+	 * is gone yields NULL, which the NOT NULL column refuses, so the whole batch
+	 * fails rather than storing an orphan.
+	 */
+	private bumpedSequence(accountConfigId: string, calendarId: string) {
+		return sql<number>`(${this.db
+			.select({ syncSequence: calendarTable.syncSequence })
+			.from(calendarTable)
+			.where(this.collection(accountConfigId, calendarId))})`;
+	}
+
+	private bump(accountConfigId: string, calendarId: string): SqliteBatchItem {
+		return this.db
+			.update(calendarTable)
+			.set({
+				syncSequence: sql`${calendarTable.syncSequence} + 1`,
+				updatedAt: Date.now(),
+			})
+			.where(this.collection(accountConfigId, calendarId));
+	}
+
+	private clearOccurrences(
+		calendarId: string,
+		calendarObjectId: string,
+	): SqliteBatchItem {
+		return this.db
+			.delete(calendarEventIndexTable)
+			.where(
+				and(
+					eq(calendarEventIndexTable.calendarId, calendarId),
+					eq(calendarEventIndexTable.calendarObjectId, calendarObjectId),
+				),
+			);
+	}
+
+	private statements(write: CalendarWrite): SqliteBatchItem[] {
+		const now = Date.now();
+		switch (write.kind) {
+			case "PutObject": {
+				const { calendarId, resourceName } = write.object;
+				const calendarObjectId = deriveCalendarObjectId(
+					calendarId,
+					resourceName,
+				);
+				const syncSequence = this.bumpedSequence(
+					write.accountConfigId,
+					calendarId,
+				);
+				const items: SqliteBatchItem[] = [
+					this.bump(write.accountConfigId, calendarId),
+					this.db
+						.insert(calendarObjectTable)
+						.values({
+							...write.object,
+							calendarObjectId,
+							syncSequence,
+							createdAt: now,
+							updatedAt: now,
+						})
+						.onConflictDoUpdate({
+							target: calendarObjectTable.calendarObjectId,
+							set: { ...write.object, syncSequence, updatedAt: now },
+						}),
+					this.clearOccurrences(calendarId, calendarObjectId),
+				];
+				if (write.occurrences.length === 0) return items;
+				return [
+					...items,
+					this.db.insert(calendarEventIndexTable).values(
+						write.occurrences.map((occurrence) => ({
+							...occurrence,
+							calendarId,
+							calendarObjectId,
+							createdAt: now,
+							updatedAt: now,
+						})),
+					),
+				];
+			}
+			case "ReprojectObject": {
+				const { calendarId, resourceName } = write.object;
+				const calendarObjectId = deriveCalendarObjectId(
+					calendarId,
+					resourceName,
+				);
+				// Every statement reads the object it rewrites at the version the
+				// caller read, so a resource edited or deleted since writes nothing.
+				const asRead = and(
+					eq(calendarObjectTable.calendarObjectId, calendarObjectId),
+					eq(calendarObjectTable.etag, write.readEtag),
+				);
+				const unchanged = exists(
+					this.db
+						.select({ id: calendarObjectTable.calendarObjectId })
+						.from(calendarObjectTable)
+						.where(asRead),
+				);
+				const value = <T>(field: T, name: string) => sql<T>`${field}`.as(name);
+				return [
+					this.bump(write.accountConfigId, calendarId),
+					this.db
+						.update(calendarObjectTable)
+						.set({
+							...write.object,
+							syncSequence: this.bumpedSequence(
+								write.accountConfigId,
+								calendarId,
+							),
+							updatedAt: now,
+						})
+						.where(asRead),
+					this.db
+						.delete(calendarEventIndexTable)
+						.where(
+							and(
+								eq(calendarEventIndexTable.calendarId, calendarId),
+								eq(calendarEventIndexTable.calendarObjectId, calendarObjectId),
+								unchanged,
+							),
+						),
+					...write.occurrences.map((occurrence) =>
+						this.db.insert(calendarEventIndexTable).select(
+							this.db
+								.select({
+									calendarId: value(calendarId, "calendar_id"),
+									calendarObjectId: value(
+										calendarObjectId,
+										"calendar_object_id",
+									),
+									recurrenceId: value(occurrence.recurrenceId, "recurrence_id"),
+									startAt: value(occurrence.startAt, "start_at"),
+									endAt: value(occurrence.endAt, "end_at"),
+									allDay: value(occurrence.allDay ? 1 : 0, "all_day"),
+									summary: value(occurrence.summary, "summary"),
+									status: value(occurrence.status, "status"),
+									transparency: value(occurrence.transparency, "transparency"),
+									createdAt: value(now, "created_at"),
+									updatedAt: value(now, "updated_at"),
+								})
+								.from(calendarObjectTable)
+								.where(asRead),
+						),
+					),
+				];
+			}
+			case "DeleteObject":
+				return [
+					this.clearOccurrences(write.calendarId, write.calendarObjectId),
+					this.db
+						.delete(calendarObjectTable)
+						.where(
+							and(
+								eq(calendarObjectTable.calendarId, write.calendarId),
+								eq(
+									calendarObjectTable.calendarObjectId,
+									write.calendarObjectId,
+								),
+							),
+						),
+					this.bump(write.accountConfigId, write.calendarId),
+				];
+			case "SettleSuggestion":
+				return [
+					this.mail
+						.update(calendarSuggestionTable)
+						.set({ ...write.settle, updatedAt: now })
+						.where(
+							and(
+								eq(
+									calendarSuggestionTable.accountConfigId,
+									write.accountConfigId,
+								),
+								eq(calendarSuggestionTable.suggestionId, write.suggestionId),
+							),
+						),
+				];
+			case "UpdateCollection":
+				return [
+					this.db
+						.update(calendarTable)
+						.set({ ...write.patch, updatedAt: now })
+						.where(this.collection(write.accountConfigId, write.calendarId)),
+				];
+			case "DeleteCollection":
+				return [
+					this.db
+						.delete(calendarEventIndexTable)
+						.where(eq(calendarEventIndexTable.calendarId, write.calendarId)),
+					this.db
+						.delete(calendarObjectTable)
+						.where(eq(calendarObjectTable.calendarId, write.calendarId)),
+					this.db
+						.delete(calendarFeedTokenTable)
+						.where(
+							and(
+								eq(
+									calendarFeedTokenTable.accountConfigId,
+									write.accountConfigId,
+								),
+								eq(calendarFeedTokenTable.calendarId, write.calendarId),
+							),
+						),
+					this.db
+						.delete(calendarTable)
+						.where(this.collection(write.accountConfigId, write.calendarId)),
+				];
+		}
+	}
+}

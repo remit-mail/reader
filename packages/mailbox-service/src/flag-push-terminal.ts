@@ -1,18 +1,17 @@
+import type { IMessageRepository, MessageItem } from "@remit/data-ports";
 import type { FlagPushLogger } from "./flag-push.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import {
-	reconcileStaleMessage,
-	type StaleMessageReconcileDeps,
-} from "./stale-message-reconcile.js";
 import type { IImapConnection } from "./types.js";
 
-export interface ResolveExhaustedFlagPushDeps
-	extends StaleMessageReconcileDeps {
+export interface ResolveExhaustedFlagPushDeps {
+	messageService: Pick<IMessageRepository, "deleteIfPlacement">;
 	markerService: { delete(messageId: string, flagName: string): Promise<void> };
 	log: FlagPushLogger;
 }
 
 export interface ResolveExhaustedFlagPushInput {
+	/** Where the row stood when the caller read it; the delete holds only while it still does. */
+	placement: Pick<MessageItem, "status" | "mailboxId" | "uid">;
 	accountId: string;
 	accountConfigId: string;
 	messageId: string;
@@ -39,7 +38,7 @@ export interface ResolveExhaustedFlagPushResult {
  *    IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather than by a
  *    FETCH coming back empty. Per invariant 2, an external delete supersedes
  *    the marker entirely: the marker is dropped and the stale
- *    Message/ThreadMessage rows are deleted via {@link reconcileStaleMessage}.
+ *    Message/ThreadMessage rows are deleted via `deleteIfPlacement`.
  *    Metric only, no alarm — routine.
  * 2. BROKEN — the message still exists, but the flag push keeps failing.
  *    Broken code or a broken account, not a transient blip. The marker is
@@ -79,10 +78,9 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			deps,
-			accountConfigId,
+		const reconciled = await deps.messageService.deleteIfPlacement(
 			messageId,
+			input.placement,
 		);
 		deps.log.info(
 			{
@@ -93,7 +91,7 @@ export const resolveExhaustedFlagPushFailure = async (
 				flagName,
 				uid,
 				mailboxPath,
-				threadMessagesDeleted,
+				reconciled,
 			},
 			"Message no longer at its flag-push mailbox after retry exhaustion (external delete); marker dropped, stale row reconciled",
 		);

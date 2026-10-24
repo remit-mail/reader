@@ -5,7 +5,9 @@
 	"type": "module",
 	"description": "One-shot schema migrator for the self-host stack, bundled into the backend image as migrate.mjs.",
 	"scripts": {
-		"test:typecheck": "tsgo --noEmit"
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node $NODE_TEST_FLAGS --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
 		"@remit/drizzle-service": "*",

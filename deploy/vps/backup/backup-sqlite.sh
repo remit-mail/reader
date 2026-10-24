@@ -7,8 +7,9 @@
 #
 # VACUUM INTO is SQLite's online-backup primitive: it reads a consistent
 # snapshot of a live WAL database into a new, defragmented file without
-# blocking writers for more than a moment. The app/auth database
-# (SQLITE_DB_PATH) is the one file snapshotted.
+# blocking writers for more than a moment. The app database
+# (SQLITE_APP_DB_PATH) and the tenant mail database (SQLITE_MAIL_DB_PATH) are
+# snapshotted; the search database is not, since it rebuilds from the mail one.
 #
 # Runs in a plain sleep loop, not a cron daemon — the interval is one number
 # (BACKUP_INTERVAL_SECONDS, default 24h) and the container already restarts
@@ -32,7 +33,8 @@ if [ "${1:-}" = "--run-once" ]; then
 	if [ "$lib_dir" = "/" ]; then lib_dir=""; fi
 	. "${lib_dir}/snapshot-db.sh"
 
-	: "${SQLITE_DB_PATH:?set SQLITE_DB_PATH in .env}"
+	: "${SQLITE_APP_DB_PATH:?set SQLITE_APP_DB_PATH in .env}"
+	: "${SQLITE_MAIL_DB_PATH:?set SQLITE_MAIL_DB_PATH in .env}"
 	: "${BACKUP_AGE_RECIPIENT:?set BACKUP_AGE_RECIPIENT in .env — see the Backups section in remit.env.template}"
 	: "${BACKUP_RCLONE_REMOTE:?set BACKUP_RCLONE_REMOTE in .env — see the Backups section in remit.env.template}"
 	RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-30}"
@@ -41,9 +43,8 @@ if [ "${1:-}" = "--run-once" ]; then
 	work_dir="$(mktemp -d)"
 	trap 'rm -rf "$work_dir"' EXIT
 
-	# db=app/auth relational store, VACUUM INTO'd to a fresh snapshot, then
-	# encrypted.
-	for pair in "db:$SQLITE_DB_PATH"; do
+	# Each database VACUUM INTO'd to a fresh snapshot, then encrypted.
+	for pair in "app:$SQLITE_APP_DB_PATH" "mail:$SQLITE_MAIL_DB_PATH"; do
 		label="${pair%%:*}"
 		src="${pair#*:}"
 		snapshot="$work_dir/remit-${label}-${timestamp}.db"

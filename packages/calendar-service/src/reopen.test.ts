@@ -124,13 +124,11 @@ const answerOf = async (
 };
 
 const secondCalendar = (store: MemoryCalendarStore) =>
-	store.transaction((repos) =>
-		repos.calendarCollection.create({
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			urlSegment: "personal",
-			displayName: "Personal",
-		}),
-	);
+	store.repos.calendarCollection.create({
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		urlSegment: "personal",
+		displayName: "Personal",
+	});
 
 describe("reopenCalendarSuggestion", () => {
 	for (const answer of [

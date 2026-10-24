@@ -28,31 +28,23 @@ export interface SmtpDataPorts {
 // where the relational composition actually runs, which has the package
 // installed.
 const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
-	const sqliteDbPath = process.env.SQLITE_DB_PATH;
-	if (!sqliteDbPath) throw new Error("SQLITE_DB_PATH is required");
-
 	const {
-		AccountRepo,
-		AddressRepo,
-		createSqliteDatabase,
-		DrizzleEnvelopeRepository,
-		DrizzleMessageRepository,
-		messageDataSchema,
-		OutboxAttachmentRepo,
-		OutboxMessageRepo,
+		createSqliteRepositories,
+		openSqliteDatabases,
+		sqliteDatabasePathsFromEnv,
 	} = await import("@remit/drizzle-service");
 
-	const { db } = await createSqliteDatabase(messageDataSchema, {
-		filename: sqliteDbPath,
-	});
+	const repositories = createSqliteRepositories(
+		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
+	);
 
 	return {
-		account: new AccountRepo(db),
-		outboxMessage: new OutboxMessageRepo(db),
-		outboxAttachment: new OutboxAttachmentRepo(db),
-		address: new AddressRepo(db),
-		message: new DrizzleMessageRepository(db),
-		envelope: new DrizzleEnvelopeRepository(db),
+		account: repositories.account,
+		outboxMessage: repositories.outboxMessage,
+		outboxAttachment: repositories.outboxAttachment,
+		address: repositories.address,
+		message: repositories.message,
+		envelope: repositories.envelope,
 	};
 };
 
@@ -71,12 +63,12 @@ export const setSmtpDataPorts = (ports: SmtpDataPorts): void => {
 /**
  * The SMTP data ports for this process: the ones a composition root registered,
  * or — for a process that registered none — the SQLite composition this build
- * contains. `SQLITE_DB_PATH` is that composition's precondition, not a backend
+ * contains. `SQLITE_APP_DB_PATH` is that composition's precondition, not a backend
  * selection.
  */
 export const buildDataPortsFromEnv = async (): Promise<SmtpDataPorts> => {
 	if (injectedDataPorts) return injectedDataPorts;
-	if (process.env.SQLITE_DB_PATH) return buildSqliteDataPorts();
+	if (process.env.SQLITE_APP_DB_PATH) return buildSqliteDataPorts();
 	throw new Error(
 		"no SMTP data ports registered — register them with setSmtpDataPorts() from your composition root",
 	);

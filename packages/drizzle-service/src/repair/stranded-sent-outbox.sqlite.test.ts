@@ -10,10 +10,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import Database from "better-sqlite3";
-import {
-	applyMigration,
-	shippedTableDdl,
-} from "../test-shipped-sqlite-schema.js";
+import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	STRANDED_AFTER_MILLIS,
 	type StrandedSentRepairClient,
@@ -82,11 +79,7 @@ describe("outbox rows stranded at sent", () => {
 
 	before(() => {
 		sqlite = new Database(":memory:");
-		sqlite.exec(
-			shippedTableDdl("0000_happy_roland_deschain", "outbox_message"),
-		);
-		sqlite.exec(shippedTableDdl("0013_low_harpoon", "outbox_attachment"));
-		applyMigration(sqlite, "0015_true_meggan");
+		applyMigrationSet(sqlite, "mail");
 	});
 
 	after(() => {

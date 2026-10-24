@@ -1,8 +1,7 @@
 import { serve } from "@hono/node-server";
 import {
-	createSqliteDatabase,
 	createSqliteRepositories,
-	messageDataSchema,
+	openSqliteDatabases,
 } from "@remit/drizzle-service";
 import { logger } from "@remit/logger-lambda";
 import {
@@ -28,10 +27,9 @@ const FOLDER_POLL_INTERVAL_MS = 500;
 
 const config = resolveMcpServerConfig();
 
-const { db } = await createSqliteDatabase(messageDataSchema, {
-	filename: config.sqliteDbPath,
-});
-const repositories = createSqliteRepositories(db);
+const repositories = createSqliteRepositories(
+	await openSqliteDatabases(config.databases),
+);
 const storage = createStorageService();
 
 const deps: McpDeps = {
@@ -70,7 +68,7 @@ const deps: McpDeps = {
 const auth = createMcpAuth({
 	origin: config.origin,
 	secret: config.secret,
-	db: openMcpAuthDatabase(config.sqliteDbPath).db,
+	db: openMcpAuthDatabase(config.databases.app).db,
 });
 const app = createMcpApp({
 	origin: config.origin,

@@ -1,16 +1,8 @@
-import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { pushSQLiteSchema } from "drizzle-kit/api";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Db } from "./db.js";
-
-// The exact FTS5 objects the migrator installs (RFC 036 D4), read from the one
-// committed source so a test runs the real search path, not a hand-copied twin.
-const searchIndexDdl = (): string =>
-	readFileSync(
-		new URL("../../../npm-scripts/sqlite-search-index.sql", import.meta.url),
-		"utf8",
-	);
+import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
 // A real better-sqlite3 database (in-memory by default) with the schema pushed
 // from the drizzle table objects — the sqlite `pushSchema` — so a repo runs
@@ -53,11 +45,11 @@ export async function createSqliteTestDb<
 		sqlite.exec(statement);
 	}
 
-	// Install the FTS5 search objects on top of the pushed schema so the
-	// thread-message search predicates run their real trigram path (RFC 036 D4).
-	// Opt-in: only schemas that include the `thread_message` table can carry it.
+	// Install the committed search set beside the pushed schema so the
+	// thread-message search predicates run their real trigram path. The one
+	// handle then plays both the mail and the search database.
 	if (options?.searchIndex) {
-		sqlite.exec(searchIndexDdl());
+		applyMigrationSet(sqlite, "search");
 	}
 
 	return {

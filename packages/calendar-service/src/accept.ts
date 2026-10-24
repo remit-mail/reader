@@ -2,8 +2,9 @@ import type { CalendarInviteAnswer as CalendarInviteAnswerValue } from "@remit/a
 import type {
 	CalendarObjectItem,
 	CalendarSuggestionItem,
-	ICalendarUnitOfWork,
+	ICalendarStore,
 } from "@remit/data-ports";
+import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import {
 	CalendarInviteAnswer,
 	CalendarInviteMethod,
@@ -12,7 +13,7 @@ import {
 import ICAL from "ical.js";
 import type { CalendarResult } from "./errors.js";
 import { parseCalendar, serializeCalendar } from "./parse.js";
-import { putCalendarObject } from "./put.js";
+import { prepareCalendarObject, readWrittenObject } from "./put.js";
 import { mailAddressOf } from "./suggest.js";
 
 const eventsOf = (component: ICAL.Component): ICAL.Component[] =>
@@ -132,15 +133,16 @@ export interface AcceptedCalendarSuggestion {
 }
 
 /**
- * Adds a suggested event to a calendar, as one unit.
+ * Adds a suggested event to a calendar, then settles the suggestion.
  *
  * The resource is written through `putCalendarObject`, the same function every
  * other calendar write goes through, so an event added from a mail and one
  * added from the week grid are the same kind of row — and a native client
- * editing it afterwards edits the same bytes. The suggestion's own state is
- * settled inside that transaction: a suggestion marked `Accepted` with no
- * resource behind it, or a resource with the card still asking, is a state
- * nothing later can repair.
+ * editing it afterwards edits the same bytes. The event and the suggestion
+ * live in different databases, so the commit writes the event first and
+ * settles the card second. A failure between the two leaves the card still
+ * asking with the event in the calendar, and accepting again repairs it: the
+ * event write lands on the same resource and the settle follows.
  *
  * Accepting a `Cancel` suggestion writes `STATUS:CANCELLED` through that same
  * path, but only onto a resource that is already there. Nothing withdraws an
@@ -157,7 +159,7 @@ export interface AcceptedCalendarSuggestion {
  * leaving the calendar showing the meeting twice.
  */
 export const acceptCalendarSuggestion = async (
-	unitOfWork: ICalendarUnitOfWork,
+	store: ICalendarStore,
 	input: AcceptCalendarSuggestionInput,
 ): Promise<CalendarResult<AcceptedCalendarSuggestion>> => {
 	const icalData = await buildAcceptedCalendar(
@@ -167,63 +169,82 @@ export const acceptCalendarSuggestion = async (
 	);
 	if (!icalData.ok) return icalData;
 
-	return unitOfWork.transaction(async (repos) => {
-		const existing = await repos.calendarObject.findByUid(
-			input.calendarId,
-			input.suggestion.icalUid,
-		);
+	const existing = await store.repos.calendarObject.findByUid(
+		input.calendarId,
+		input.suggestion.icalUid,
+	);
 
-		// A cancellation cancels something. With no resource carrying this UID
-		// there is nothing in the calendar to withdraw, and writing one would
-		// invent a meeting the user never had purely to mark it cancelled. Clear
-		// the card and leave the calendar untouched.
-		if (
-			input.suggestion.method === CalendarInviteMethod.Cancel &&
-			existing === null
-		) {
-			const cleared = await repos.calendarSuggestion.settle(
-				input.accountConfigId,
-				input.suggestion.suggestionId,
-				{
+	// A cancellation cancels something. With no resource carrying this UID
+	// there is nothing in the calendar to withdraw, and writing one would
+	// invent a meeting the user never had purely to mark it cancelled. Clear
+	// the card and leave the calendar untouched.
+	if (
+		input.suggestion.method === CalendarInviteMethod.Cancel &&
+		existing === null
+	) {
+		await store.commit([
+			{
+				kind: "SettleSuggestion",
+				accountConfigId: input.accountConfigId,
+				suggestionId: input.suggestion.suggestionId,
+				settle: {
 					state: CalendarSuggestionState.Dismissed,
 					acceptedCalendarObjectId: "",
 				},
-			);
-			return {
-				ok: true,
-				value: {
-					suggestion: cleared,
-					outcome: "NothingToCancel",
-					object: null,
-				},
-			};
-		}
-
-		const written = await putCalendarObject(unitOfWork, {
-			accountConfigId: input.accountConfigId,
-			calendarId: input.calendarId,
-			resourceName:
-				existing?.resourceName ?? `${input.suggestion.suggestionId}.ics`,
-			icalData: icalData.value,
-		});
-		if (!written.ok) return written;
-
-		const settled = await repos.calendarSuggestion.settle(
-			input.accountConfigId,
-			input.suggestion.suggestionId,
-			{
-				state: stateOf[input.answer],
-				acceptedCalendarObjectId: written.value.calendarObjectId,
 			},
-		);
-
+		]);
 		return {
 			ok: true,
 			value: {
-				suggestion: settled,
-				outcome: "Written",
-				object: written.value,
+				suggestion: await store.repos.calendarSuggestion.get(
+					input.accountConfigId,
+					input.suggestion.suggestionId,
+				),
+				outcome: "NothingToCancel",
+				object: null,
 			},
 		};
+	}
+
+	const collection = await store.repos.calendarCollection.get(
+		input.accountConfigId,
+		input.calendarId,
+	);
+	const write = await prepareCalendarObject(collection, {
+		accountConfigId: input.accountConfigId,
+		calendarId: input.calendarId,
+		resourceName:
+			existing?.resourceName ?? `${input.suggestion.suggestionId}.ics`,
+		icalData: icalData.value,
 	});
+	if (!write.ok) return write;
+
+	const calendarObjectId = deriveCalendarObjectId(
+		write.value.object.calendarId,
+		write.value.object.resourceName,
+	);
+	await store.commit([
+		write.value,
+		{
+			kind: "SettleSuggestion",
+			accountConfigId: input.accountConfigId,
+			suggestionId: input.suggestion.suggestionId,
+			settle: {
+				state: stateOf[input.answer],
+				acceptedCalendarObjectId: calendarObjectId,
+			},
+		},
+	]);
+
+	return {
+		ok: true,
+		value: {
+			suggestion: await store.repos.calendarSuggestion.get(
+				input.accountConfigId,
+				input.suggestion.suggestionId,
+			),
+			outcome: "Written",
+			object: await readWrittenObject(store, write.value),
+		},
+	};
 };

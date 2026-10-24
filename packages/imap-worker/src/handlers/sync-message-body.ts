@@ -141,7 +141,7 @@ export const syncMessageBody = async (
 		syncWarning: syncWarningRepository,
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
-		calendarUnitOfWork,
+		calendarStore,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);
@@ -261,7 +261,7 @@ export const syncMessageBody = async (
 				{ flagQueueService },
 				// An invitation becomes a card the first time the message is seen,
 				// alongside the filters that run on the same pass (issue #1033).
-				{ calendarSuggestionService, calendarUnitOfWork, filterService },
+				{ calendarSuggestionService, calendarStore, filterService },
 			);
 
 			// Guard at the openBox choke point (epic #1281 invariants 3 & 5). The
@@ -326,7 +326,6 @@ export const syncMessageBody = async (
 				const { brokenMessageIds } = await resolveExhaustedBodySyncFailures(
 					{
 						messageService,
-						threadMessageService,
 						storageService: storage,
 						log,
 					},

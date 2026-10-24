@@ -371,11 +371,6 @@ export {
 	SpamReportService,
 } from "./spam-report.js";
 export {
-	reconcileStaleMessage,
-	type StaleMessageReconcileDeps,
-	type StaleMessageReconcileResult,
-} from "./stale-message-reconcile.js";
-export {
 	type ServerUids,
 	type SyncWarningContext,
 	type SyncWarningRound,

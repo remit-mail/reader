@@ -2,10 +2,6 @@ import type { IMessageRepository } from "@remit/data-ports";
 import type { StorageService } from "@remit/storage-service";
 import type { BodySyncLogger } from "./body-sync.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import {
-	reconcileStaleMessage,
-	type StaleMessageReconcileDeps,
-} from "./stale-message-reconcile.js";
 import type { IImapConnection } from "./types.js";
 
 /**
@@ -17,9 +13,8 @@ import type { IImapConnection } from "./types.js";
  */
 const BODY_SYNC_FAILED_MARKER_PATH = ".sync-failed";
 
-export interface ResolveExhaustedBodySyncDeps
-	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "get" | "delete">;
+export interface ResolveExhaustedBodySyncDeps {
+	messageService: Pick<IMessageRepository, "get" | "deleteIfPlacement">;
 	storageService: Pick<StorageService, "storeBodyPart" | "bodyPartExists">;
 	log: BodySyncLogger;
 }
@@ -90,7 +85,7 @@ const markMessageBodySyncFailed = async (
  *    the four sites that used to read an empty FETCH as absence: it issues
  *    back-to-back single-UID FETCHes on one connection, which is the
  *    condition imapflow #408 drops rows under. The stale row is deleted via
- *    {@link reconcileStaleMessage} so the existing missing-row 404 path
+ *    `deleteIfPlacement` so the existing missing-row 404 path
  *    takes over. Callers should emit a metric only — this is routine, not an
  *    incident.
  * 2. BROKEN — the message still exists on IMAP but its body could not be
@@ -130,10 +125,13 @@ export const resolveExhaustedBodySyncFailures = async (
 		const message = await deps.messageService.get(messageId);
 
 		if (await isMessageGoneFromOpenMailbox(connection, message.uid)) {
-			const { threadMessagesDeleted } = await reconcileStaleMessage(
-				deps,
-				accountConfigId,
+			const reconciled = await deps.messageService.deleteIfPlacement(
 				messageId,
+				{
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				},
 			);
 			deps.log.info(
 				{
@@ -143,7 +141,7 @@ export const resolveExhaustedBodySyncFailures = async (
 					mailboxId,
 					messageId,
 					uid: message.uid,
-					threadMessagesDeleted,
+					reconciled,
 				},
 				"Message no longer exists on IMAP after retry exhaustion; stale row reconciled",
 			);

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { after, before, beforeEach, describe, test } from "node:test";
 import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
@@ -7,18 +6,13 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
-import {
-	applyMigration,
-	shippedTableDdl,
-} from "../test-shipped-sqlite-schema.js";
+import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	type JunkOnlyReport,
 	sweepJunkOnlyAddresses,
 } from "./junk-only-address.js";
-
-const DDL_TAG = "0000_happy_roland_deschain";
 
 const clientOver = (sqlite: Database.Database): JunkOnlyRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
@@ -53,11 +47,11 @@ describe("addresses standing only on mail in Junk", () => {
 		sqlite
 			.prepare(
 				`INSERT OR IGNORE INTO account (
-					account_id, account_config_id, username, email, imap_host,
-					imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
+					account_id, account_config_id, username, email, synced_services,
+					imap_host, imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
 					connection_state, created_at, updated_at
-				) VALUES (?, 'cfg-1', 'user', 'user@example.com', 'imap.example.com',
-					993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
+				) VALUES (?, 'cfg-1', 'user', 'user@example.com', '["Mail"]',
+					'imap.example.com', 993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
 			)
 			.run(accountId);
 	};
@@ -187,32 +181,10 @@ describe("addresses standing only on mail in Junk", () => {
 	before(() => {
 		sqlite = new Database(":memory:");
 		const db = drizzle(sqlite);
-		specialUse = new MailboxSpecialUseRepo(db as never);
+		specialUse = new MailboxSpecialUseRepo(db as never, db as never);
 		accountSetting = new AccountSettingRepo(db as never);
-		for (const table of [
-			"address",
-			"envelope_address",
-			"message",
-			"mailbox",
-			"mailbox_special_use_entry",
-			"account_setting",
-			"account",
-		]) {
-			sqlite.exec(shippedTableDdl(DDL_TAG, table));
-		}
-		// `mailbox` is read through the repo, which selects every column the
-		// entity declares — including the rename target added after this DDL.
-		applyMigration(sqlite, "0028_mailbox_pending_path");
-		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
-		sqlite.exec(
-			readFileSync(
-				new URL(
-					"../../../../npm-scripts/sqlite-address-sightings-index.sql",
-					import.meta.url,
-				),
-				"utf8",
-			),
-		);
+		applyMigrationSet(sqlite, "app");
+		applyMigrationSet(sqlite, "mail");
 	});
 
 	after(() => {

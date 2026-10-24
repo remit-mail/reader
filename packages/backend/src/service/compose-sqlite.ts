@@ -1,26 +1,20 @@
 import {
-	createSqliteDatabase,
 	createSqliteRepositories,
-	messageDataSchema,
+	openSqliteDatabases,
+	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
-import { env } from "expect-env";
 import {
 	buildSharedDeps,
 	createRemitClient,
 	type RemitClient,
 } from "./create-remit-client.js";
 
-// The SQLite adapter composition (RFC 036). Every repo runs on the single
-// serialized connection `createSqliteDatabase` opens (D3), so a plain repo
-// write cannot bypass serialization and join an open transaction's savepoint.
+// The SQLite adapter composition (RFC 036). Every repo runs on the database
+// that holds its tables: app, tenant mail or tenant search (#1420).
 export const buildSqliteClient = async (): Promise<RemitClient> => {
-	const sqliteDbPath = env.SQLITE_DB_PATH;
-
-	const { db } = await createSqliteDatabase(messageDataSchema, {
-		filename: sqliteDbPath,
-	});
+	const databases = await openSqliteDatabases(sqliteDatabasePathsFromEnv());
 	return createRemitClient({
-		repositories: createSqliteRepositories(db),
+		repositories: createSqliteRepositories(databases),
 		...buildSharedDeps(),
 	});
 };

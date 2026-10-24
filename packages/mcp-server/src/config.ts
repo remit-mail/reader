@@ -1,7 +1,11 @@
+import {
+	type SqliteDatabasePaths,
+	sqliteDatabasePathsFromEnv,
+} from "@remit/drizzle-service";
 export interface McpServerConfig {
 	origin: string;
 	secret: string;
-	sqliteDbPath: string;
+	databases: SqliteDatabasePaths;
 	port: number;
 	bodySyncQueueUrl: string | undefined;
 	mailboxQueueUrl: string;
@@ -50,7 +54,7 @@ export const resolveMcpServerConfig = (): McpServerConfig => {
 	return {
 		origin: parseOrigin(required("MCP_PUBLIC_ORIGIN")),
 		secret,
-		sqliteDbPath: required("SQLITE_DB_PATH"),
+		databases: sqliteDatabasePathsFromEnv(),
 		port: parsePort(process.env.MCP_PORT),
 		bodySyncQueueUrl: process.env.SQS_QUEUE_URL_BODY,
 		mailboxQueueUrl: required("SQS_QUEUE_URL"),

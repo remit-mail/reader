@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, test } from "node:test";
+import * as entities from "@remit/drizzle-sqlite-schema";
 import {
 	generateSQLiteDrizzleJson,
 	generateSQLiteMigration,
 } from "drizzle-kit/api";
+import { getTableName, is } from "drizzle-orm";
+import { SQLiteTable } from "drizzle-orm/sqlite-core";
 
 /**
  * Every committed SQLite migration set must describe the schema its drizzle
@@ -31,14 +34,14 @@ import {
 
 const REPO_ROOT = new URL("../../../", import.meta.url);
 
-const CONFIGS = [
-	"packages/migrate/drizzle.entities.sqlite.config.ts",
-	"packages/migrate/drizzle.auth.sqlite.config.ts",
-	"packages/migrate/drizzle.meta.sqlite.config.ts",
-	"packages/migrate/drizzle.mcp.sqlite.config.ts",
-];
+const CONFIGS = {
+	app: "packages/migrate/drizzle.app.sqlite.config.ts",
+	mail: "packages/migrate/drizzle.mail.sqlite.config.ts",
+	search: "packages/migrate/drizzle.search.sqlite.config.ts",
+	mcp: "packages/migrate/drizzle.mcp.sqlite.config.ts",
+};
 
-type DrizzleConfig = { schema: string; out: string };
+type DrizzleConfig = { schema: string[]; out: string };
 
 const loadConfig = async (path: string): Promise<DrizzleConfig> =>
 	(
@@ -47,11 +50,38 @@ const loadConfig = async (path: string): Promise<DrizzleConfig> =>
 		}
 	).default;
 
+const loadSchema = async (
+	config: DrizzleConfig,
+): Promise<Record<string, unknown>> =>
+	Object.assign(
+		{},
+		...(await Promise.all(
+			config.schema.map(
+				(path) =>
+					import(new URL(path, REPO_ROOT).href) as Promise<
+						Record<string, unknown>
+					>,
+			),
+		)),
+	);
+
+const tableNames = (schema: Record<string, unknown>): string[] =>
+	Object.values(schema)
+		.filter((value) => is(value, SQLiteTable))
+		.map((table) => getTableName(table as SQLiteTable));
+
+interface Journal {
+	entries: Array<{ idx: number; tag: string }>;
+}
+
+const journalOf = (out: string): Journal =>
+	JSON.parse(
+		readFileSync(new URL(`${out}/meta/_journal.json`, REPO_ROOT), "utf8"),
+	) as Journal;
+
 const latestSnapshot = (out: string): Record<string, unknown> => {
 	const dir = new URL(`${out}/`, REPO_ROOT);
-	const journal = JSON.parse(
-		readFileSync(new URL("meta/_journal.json", dir), "utf8"),
-	) as { entries: Array<{ idx: number }> };
+	const journal = journalOf(out);
 	const idx = Math.max(...journal.entries.map((entry) => entry.idx));
 	return JSON.parse(
 		readFileSync(
@@ -62,12 +92,10 @@ const latestSnapshot = (out: string): Record<string, unknown> => {
 };
 
 describe("committed sqlite migrations", () => {
-	for (const configPath of CONFIGS) {
+	for (const configPath of Object.values(CONFIGS)) {
 		test(`${configPath} — the set matches its schema`, async () => {
 			const config = await loadConfig(configPath);
-			const schema = (await import(
-				new URL(config.schema, REPO_ROOT).href
-			)) as Record<string, unknown>;
+			const schema = await loadSchema(config);
 
 			const drift = await generateSQLiteMigration(
 				latestSnapshot(config.out) as unknown as Parameters<
@@ -84,8 +112,45 @@ describe("committed sqlite migrations", () => {
 		});
 	}
 
+	for (const configPath of Object.values(CONFIGS)) {
+		test(`${configPath} — the journal names every file on disk once, in order`, async () => {
+			const { out } = await loadConfig(configPath);
+			const { entries } = journalOf(out);
+			assert.deepEqual(
+				entries.map((entry) => entry.idx),
+				entries.map((_, index) => index),
+			);
+			assert.deepEqual(
+				entries.map((entry) => `${entry.tag}.sql`).sort(),
+				readdirSync(new URL(`${out}/`, REPO_ROOT))
+					.filter((name) => name.endsWith(".sql"))
+					.sort(),
+			);
+		});
+	}
+
+	// A new TypeSpec entity has to be placed in a database: one that is in
+	// neither set is never migrated anywhere, and one in both is two tables.
+	test("place every generated entity table in exactly one database", async () => {
+		const [app, mail] = await Promise.all(
+			[CONFIGS.app, CONFIGS.mail].map(async (path) =>
+				tableNames(await loadSchema(await loadConfig(path))),
+			),
+		);
+		const placed = [...app, ...mail].sort();
+		assert.deepEqual(placed, [...new Set(placed)]);
+		for (const table of tableNames(entities)) {
+			assert.ok(placed.includes(table), `${table} is in no database`);
+		}
+	});
+
+	test("keep the search set free of drizzle tables", async () => {
+		const config = await loadConfig(CONFIGS.search);
+		assert.deepEqual(tableNames(await loadSchema(config)), []);
+	});
+
 	test("declare mailbox.highest_modseq as text", async () => {
-		const { out } = await loadConfig(CONFIGS[0]);
+		const { out } = await loadConfig(CONFIGS.mail);
 		const snapshot = latestSnapshot(out) as {
 			tables: Record<
 				string,

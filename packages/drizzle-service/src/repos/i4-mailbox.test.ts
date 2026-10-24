@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -13,8 +14,8 @@ import {
 	messageTable,
 	threadMessageTable,
 } from "../schema.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { runInTransaction } from "../tx.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { DrizzleMessageRepository, deleteMessageSubtree } from "./message.js";
 import { mailboxCreated } from "./test-helpers.js";
@@ -54,7 +55,10 @@ describe("MailboxRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new MailboxRepo(db as never);
+		repo = new MailboxRepo(
+			db as never,
+			new SearchIndex(db as never, db as never),
+		);
 	});
 
 	after(async () => {
@@ -475,9 +479,7 @@ describe("MailboxRepo", () => {
 				{
 					from: [MailboxSyncStatus.synced, MailboxSyncStatus.failed],
 					to: MailboxSyncStatus.pending,
-					rowSet: (row) => ({
-						pendingPath: row.fullPath.replace("Work", "Archive"),
-					}),
+					newPath: "Archive",
 				},
 			);
 
@@ -510,7 +512,7 @@ describe("MailboxRepo", () => {
 				{
 					from: [MailboxSyncStatus.synced],
 					to: MailboxSyncStatus.pending,
-					rowSet: (row) => ({ pendingPath: `Moved/${row.fullPath}` }),
+					newPath: "Moved/Work",
 				},
 			);
 
@@ -526,46 +528,12 @@ describe("MailboxRepo", () => {
 			);
 		});
 
-		test("the from-state predicate rides each UPDATE, not a prior read", async () => {
-			// A read-then-check-then-write version passes the case above and still
-			// misses a row that leaves an accepted state after the read. The
-			// predicate is on the UPDATE, so the affected-row count catches it.
-			const accountId = randomId();
-			const { parent, child } = await seedSubtree(accountId);
-
-			const refused = await repo.transitionSubtree(
-				accountId,
-				parent.mailboxId,
-				{
-					from: [MailboxSyncStatus.synced],
-					to: MailboxSyncStatus.pending,
-					rowSet: (row) => {
-						if (row.mailboxId === parent.mailboxId) {
-							// Not a real concurrent writer — the shape of one. The row
-							// leaves `synced` after the subtree was resolved.
-							db.update(mailboxTable)
-								.set({ syncStatus: MailboxSyncStatus.deleting })
-								.where(eq(mailboxTable.mailboxId, child.mailboxId))
-								.run();
-						}
-						return { pendingPath: row.fullPath };
-					},
-				},
-			);
-
-			assert.equal(refused, null);
-			assert.equal(
-				(await repo.get(accountId, parent.mailboxId)).syncStatus,
-				MailboxSyncStatus.synced,
-			);
-		});
-
 		test("an absent folder is a null", async () => {
 			assert.equal(
 				await repo.transitionSubtree(randomId(), "no-such-mailbox", {
 					from: EVERY_STATE,
 					to: MailboxSyncStatus.pending,
-					rowSet: () => ({}),
+					newPath: "Anywhere",
 				}),
 				null,
 			);
@@ -575,7 +543,10 @@ describe("MailboxRepo", () => {
 	describe("deleteMailboxWithMail — the folder's mail goes with it (D8)", () => {
 		const seedMessage = async (mailboxId: string, uid: number) => {
 			const messageId = randomId();
-			await new DrizzleMessageRepository(db as never).create({
+			await new DrizzleMessageRepository(
+				db as never,
+				new SearchIndex(db as never, db as never),
+			).create({
 				messageId,
 				mailboxId,
 				uid,
@@ -703,7 +674,7 @@ describe("MailboxRepo", () => {
 
 			// The shape an interruption leaves: one message's rows already gone,
 			// the mailbox row still there and still `deleting`.
-			await runInTransaction(db, (tx) => deleteMessageSubtree(tx, [first]));
+			await runBatch(db, deleteMessageSubtree(db, [first]));
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: EVERY_STATE,
 				to: MailboxSyncStatus.deleting,

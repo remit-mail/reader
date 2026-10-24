@@ -12,8 +12,22 @@ import type {
 	UpdateMailboxInput,
 } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNull,
+	not,
+	notInArray,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import shortUuid from "short-uuid";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -29,7 +43,7 @@ import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.j
 import { messageTable } from "../schema/message-data.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { runInTransaction } from "../tx.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 import { deleteMessageSubtree } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
@@ -40,20 +54,24 @@ const generateMailboxId = () => base36Translator.fromUUID(randomUUID());
 type DB = Db<Record<string, unknown>>;
 
 /**
- * Message subtrees removed per transaction by {@link MailboxRepo.deleteMailboxWithMail},
+ * Message subtrees removed per batch by {@link MailboxRepo.deleteMailboxWithMail},
  * matching `SUBTREE_BATCH_SIZE` in the account purge. On SQLite each batch holds
- * the process's only write slot, so the bound is what keeps a large folder's
- * delete from parking every other writer behind it (D8).
+ * the file's write lock, so the bound is what keeps a large folder's delete from
+ * parking every other writer behind it (D8).
  */
 const MAIL_DELETE_BATCH_SIZE = 100;
 
-/** Refuses a subtree intent from inside the transaction, so the throw is the rollback. */
-class SubtreeContested extends Error {
-	constructor() {
-		super("mailbox subtree transition contested");
-		this.name = "SubtreeContested";
-	}
-}
+/**
+ * The folders under `path`. A flat namespace nests nothing: with no delimiter
+ * the prefix is the folder's own path, which would match every sibling
+ * starting with it. Lengths are SQL's, so a path is measured the way `substr`
+ * cuts it, in characters rather than UTF-16 units.
+ */
+const descendantOf = (path: string, delimiter: string): SQL => {
+	if (delimiter.length === 0) return sql`0`;
+	const prefix = `${path}${delimiter}`;
+	return sql`substr(${mailboxTable.fullPath}, 1, length(${prefix})) = ${prefix}`;
+};
 
 /** The WHERE terms of a folder-state transition (folder-rename-and-delete.md D3). */
 const stateTerms = (expected: MailboxStatePredicate): SQL[] => {
@@ -130,7 +148,10 @@ export function rowToMailbox(
 }
 
 export class MailboxRepo implements IMailboxRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private search: SearchIndex,
+	) {}
 
 	async create(input: CreateMailboxInput): Promise<CreateMailboxResult> {
 		const now = Date.now();
@@ -292,55 +313,55 @@ export class MailboxRepo implements IMailboxRepository {
 		mailboxId: string,
 		intent: MailboxSubtreeTransitionIntent,
 	): Promise<MailboxItem[] | null> {
-		return runInTransaction(this.db, async (tx) => {
-			const repo = new MailboxRepo(tx);
-			const root = await repo
-				.get(accountId, mailboxId)
-				.catch((error: unknown) => {
-					if (error instanceof NotFoundError) return null;
-					throw error;
-				});
-			if (!root) return null;
+		const root = await this.get(accountId, mailboxId).catch(
+			(error: unknown) => {
+				if (error instanceof NotFoundError) return null;
+				throw error;
+			},
+		);
+		if (!root) return null;
 
-			const subtree = [
-				root,
-				...(await repo.findByPathPrefix(
-					accountId,
-					root.fullPath,
-					root.hierarchyDelimiter,
-				)),
-			];
+		const inSubtree = and(
+			eq(mailboxTable.accountId, accountId),
+			or(
+				eq(mailboxTable.mailboxId, root.mailboxId),
+				descendantOf(root.fullPath, root.hierarchyDelimiter),
+			),
+		);
 
-			const written: MailboxItem[] = [];
-			for (const row of subtree) {
-				// The from-state predicate rides each UPDATE rather than a read
-				// taken before them (D3). Read-then-check-then-write is safe on
-				// SQLite only because `runInTransaction` serializes top-level
-				// writes; under Postgres READ COMMITTED a single-row transition
-				// committing in between is missed entirely.
-				const [updated] = await tx
-					.update(mailboxTable)
-					.set(transitionSet(intent.to, intent.rowSet(row)))
-					.where(
-						and(
-							eq(mailboxTable.accountId, accountId),
-							eq(mailboxTable.mailboxId, row.mailboxId),
-							inArray(mailboxTable.syncStatus, [...intent.from]),
+		// One statement, so a subtree is never half-renamed: every row takes its
+		// rebased target together, and only while none of them is outside a
+		// from-state. Lengths are SQL's, counted the way `substr` counts.
+		const written = await this.db
+			.update(mailboxTable)
+			.set({
+				...transitionSet(intent.to, undefined),
+				pendingPath: sql`${intent.newPath} || substr(${mailboxTable.fullPath}, length(${root.fullPath}) + 1)`,
+			})
+			.where(
+				and(
+					inSubtree,
+					not(
+						exists(
+							this.db
+								.select({ mailboxId: mailboxTable.mailboxId })
+								.from(mailboxTable)
+								.where(
+									and(
+										inSubtree,
+										notInArray(mailboxTable.syncStatus, [...intent.from]),
+									),
+								),
 						),
-					)
-					.returning();
-				if (updated) written.push(rowToMailbox(updated));
-			}
-
-			// A subtree cannot be half-renamed: one row that moved out from under
-			// this call refuses the whole intent, and the throw is what rolls the
-			// rest back.
-			if (written.length !== subtree.length) throw new SubtreeContested();
-			return written;
-		}).catch((error: unknown) => {
-			if (error instanceof SubtreeContested) return null;
-			throw error;
-		});
+					),
+				),
+			)
+			.returning();
+		if (written.length === 0) return null;
+		return [
+			...written.filter((row) => row.mailboxId === root.mailboxId),
+			...written.filter((row) => row.mailboxId !== root.mailboxId),
+		].map(rowToMailbox);
 	}
 
 	async resolveAccountId(mailboxId: string): Promise<string | null> {
@@ -357,24 +378,24 @@ export class MailboxRepo implements IMailboxRepository {
 
 	async deleteMany(accountId: string, mailboxIds: string[]): Promise<void> {
 		if (mailboxIds.length === 0) return;
-		await runInTransaction(this.db, async (tx) => {
-			await tx
+		await runBatch(this.db, [
+			this.db
 				.delete(syncWarningTable)
 				.where(
 					and(
 						eq(syncWarningTable.accountId, accountId),
 						inArray(syncWarningTable.mailboxId, mailboxIds),
 					),
-				);
-			await tx
+				),
+			this.db
 				.delete(mailboxTable)
 				.where(
 					and(
 						eq(mailboxTable.accountId, accountId),
 						inArray(mailboxTable.mailboxId, mailboxIds),
 					),
-				);
-		});
+				),
+		]);
 	}
 
 	async listByAccount(
@@ -469,17 +490,16 @@ export class MailboxRepo implements IMailboxRepository {
 		pathPrefix: string,
 		delimiter = "/",
 	): Promise<MailboxItem[]> {
-		// A flat namespace nests nothing: with no delimiter the prefix is the
-		// folder’s own path, which would match every sibling starting with it.
-		if (delimiter.length === 0) return [];
 		const rows = await this.db
 			.select()
 			.from(mailboxTable)
-			.where(eq(mailboxTable.accountId, accountId));
-		const fullPrefix = `${pathPrefix}${delimiter}`;
-		return rows
-			.filter((r) => r.fullPath.startsWith(fullPrefix))
-			.map(rowToMailbox);
+			.where(
+				and(
+					eq(mailboxTable.accountId, accountId),
+					descendantOf(pathPrefix, delimiter),
+				),
+			);
+		return rows.map(rowToMailbox);
 	}
 
 	async findBySyncStatus(
@@ -528,15 +548,20 @@ export class MailboxRepo implements IMailboxRepository {
 				.limit(MAIL_DELETE_BATCH_SIZE);
 			if (rows.length === 0) break;
 			const messageIds = rows.map((row) => row.messageId);
+			const listings = await this.db
+				.select({ threadMessageId: threadMessageTable.threadMessageId })
+				.from(threadMessageTable)
+				.where(inArray(threadMessageTable.messageId, messageIds));
 
-			await runInTransaction(this.db, async (tx) => {
-				// The primitive the rest of the codebase deletes mail with: nine
-				// per-message child tables. A bespoke table list would orphan them.
-				await deleteMessageSubtree(tx, messageIds);
-				await tx
+			// The primitive the rest of the codebase deletes mail with: nine
+			// per-message child tables. A bespoke table list would orphan them.
+			await runBatch(this.db, [
+				...deleteMessageSubtree(this.db, messageIds),
+				this.db
 					.delete(threadMessageTable)
-					.where(inArray(threadMessageTable.messageId, messageIds));
-			});
+					.where(inArray(threadMessageTable.messageId, messageIds)),
+			]);
+			await this.search.sync(listings.map((row) => row.threadMessageId));
 		}
 
 		await this.db

@@ -13,21 +13,27 @@ import {
 	asc,
 	desc,
 	eq,
-	getTableColumns,
+	exists,
 	gt,
 	inArray,
 	lt,
+	not,
 	or,
 	type SQL,
+	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { runInTransaction } from "../tx.js";
+import type {
+	SearchIndex,
+	SearchPosition,
+} from "../search/thread-message-search.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -175,51 +181,64 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
+// The columns the search index is built from; an update that sets none of them
+// leaves the index as it is.
+const touchesSearchIndex = (input: UpdateThreadMessageInput): boolean =>
+	input.mailboxId !== undefined ||
+	input.sentDate !== undefined ||
+	input.listId !== undefined ||
+	input.subject !== undefined ||
+	input.fromName !== undefined ||
+	input.fromEmail !== undefined ||
+	input.snippet !== undefined;
+
 const queryTerms = (query: string | undefined): string[] =>
 	query ? query.split(/\s+/).filter(Boolean) : [];
 
-// Translate SearchOptions into SQL conditions: subject/from/query as indexed
-// text predicates, muted as a subquery over the sender's address, the rest as
-// plain column equalities. A multi-word `query`
-// matches rows where every token appears in the subject, the from fields or the
-// body preview (AND across tokens, OR across fields) — the same shape as the
-// DynamoDB model.
-function buildSearchConditions(search: SearchOptions): SQL[] {
-	const conditions: SQL[] = [];
+// The two halves of a search: the text condition, over the search index, and
+// the conditions over the thread message row itself.
+interface SearchConditions {
+	text: SQL | undefined;
+	row: SQL[];
+}
 
-	if (search.subject) conditions.push(subjectMatch(search.subject));
-	if (search.from) conditions.push(fromMatch(search.from));
-
-	if (search.query) {
-		for (const token of queryTerms(search.query)) {
-			conditions.push(
-				sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
-			);
-		}
+// Translate SearchOptions into conditions: subject/from/query as indexed text
+// predicates, muted as a subquery over the sender's address, the rest as plain
+// column equalities. A multi-word `query` matches rows where every token
+// appears in the subject, the from fields or the body preview (AND across
+// tokens, OR across fields) — the same shape as the DynamoDB model.
+function buildSearchConditions(search: SearchOptions): SearchConditions {
+	const text: SQL[] = [];
+	if (search.subject) text.push(subjectMatch(search.subject));
+	if (search.from) text.push(fromMatch(search.from));
+	for (const token of queryTerms(search.query)) {
+		text.push(
+			sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
+		);
 	}
 
+	const row: SQL[] = [];
 	if (search.muted !== undefined) {
-		conditions.push(search.muted ? mutedSender() : sql`not ${mutedSender()}`);
+		row.push(search.muted ? mutedSender() : sql`not ${mutedSender()}`);
 	}
-
 	if (search.unread !== undefined) {
-		conditions.push(eq(threadMessageTable.isRead, !search.unread));
+		row.push(eq(threadMessageTable.isRead, !search.unread));
 	}
 	if (search.starred !== undefined) {
-		conditions.push(eq(threadMessageTable.hasStars, search.starred));
+		row.push(eq(threadMessageTable.hasStars, search.starred));
 	}
 	if (search.attachments !== undefined) {
-		conditions.push(eq(threadMessageTable.hasAttachment, search.attachments));
+		row.push(eq(threadMessageTable.hasAttachment, search.attachments));
 	}
 	// An equality over a column on the row, so it sits inside the keyset window
 	// rather than filtering what the window returned: a page is a full page of
 	// matches however rare the category is. Served by
 	// tm_by_mailbox_category_date.
 	if (search.category?.length) {
-		conditions.push(inArray(threadMessageTable.category, search.category));
+		row.push(inArray(threadMessageTable.category, search.category));
 	}
 
-	return conditions;
+	return { text: text.length > 0 ? and(...text) : undefined, row };
 }
 
 const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
@@ -246,6 +265,41 @@ function buildFieldTermCondition(
 	return operator === "or" ? or(...conditions) : and(...conditions);
 }
 
+const CANDIDATES_PER_READ = 500;
+
+/**
+ * Where a count over a text search stops. Without text a count is one
+ * aggregate; with text it walks the matches, and a number past this is not
+ * worth walking further for.
+ */
+export const TEXT_SEARCH_COUNT_CAP = 1000;
+
+// A list of ids bound as one JSON parameter, however long it is.
+const inJson = (column: SQLWrapper, values: readonly string[]): SQL =>
+	sql`${column} in (select value from json_each(${JSON.stringify(values)}))`;
+
+interface PageQuery {
+	accountConfigId: string;
+	mailboxIds?: readonly string[];
+	text: SQL | undefined;
+	rank?: SQL<number>;
+	row: Array<SQL | undefined>;
+	order: "asc" | "desc";
+	after: SearchPosition | null;
+	limit: number;
+}
+
+type RankedRow = Row & { rank: number };
+
+const positionOf = (cursor: DateCursor | RankedDateCursor | null) =>
+	cursor
+		? {
+				rank: "r" in cursor ? cursor.r : 0,
+				sentDate: cursor.s,
+				threadMessageId: cursor.id,
+			}
+		: null;
+
 // Keyset cursor over (sent_date, thread_message_id). `desc` walks newest→oldest,
 // `asc` oldest→newest; the id tiebreak keeps paging stable across equal dates.
 function sentDateCursorCond(
@@ -266,27 +320,186 @@ function sentDateCursorCond(
 	);
 }
 
-function rankedDateCursorCond(
-	order: "asc" | "desc",
-	rank: SQL<number>,
-	cursor: RankedDateCursor | null,
-): SQL | undefined {
-	if (!cursor) return undefined;
-	return or(
-		lt(rank, cursor.r),
-		and(eq(rank, cursor.r), sentDateCursorCond(order, cursor)),
-	);
-}
-
 // ─── Repository ──────────────────────────────────────────────────────────────
 
 export class DrizzleThreadMessageRepository
 	implements IThreadMessageRepository
 {
-	private db: Db<Record<string, unknown>>;
+	constructor(
+		private readonly db: Db<Record<string, unknown>>,
+		private readonly search: SearchIndex,
+	) {}
 
-	constructor(db: Db<Record<string, unknown>>) {
-		this.db = db;
+	/**
+	 * One page of rows in date order (ranked first when asked). Without a text
+	 * condition it is one query over the mail database. With one, the search
+	 * index finds, scopes and orders the matches and hands over a page of ids at
+	 * a time; the mail database keeps the ones its own conditions accept, until
+	 * the page is full or the matches run out.
+	 */
+	private async page(query: PageQuery): Promise<RankedRow[]> {
+		if (!query.text) {
+			const rows = await this.db
+				.select()
+				.from(threadMessageTable)
+				.where(
+					and(
+						eq(threadMessageTable.accountConfigId, query.accountConfigId),
+						query.mailboxIds
+							? inArray(threadMessageTable.mailboxId, [...query.mailboxIds])
+							: undefined,
+						...query.row,
+						sentDateCursorCond(
+							query.order,
+							query.after && {
+								s: query.after.sentDate,
+								id: query.after.threadMessageId,
+							},
+						),
+					),
+				)
+				.orderBy(
+					query.order === "desc"
+						? desc(threadMessageTable.sentDate)
+						: asc(threadMessageTable.sentDate),
+					asc(threadMessageTable.threadMessageId),
+				)
+				.limit(query.limit);
+			return rows.map((row) => ({ ...row, rank: 0 }));
+		}
+
+		const page: RankedRow[] = [];
+		await this.eachMatch({ ...query, text: query.text }, (rows) => {
+			page.push(...rows.slice(0, query.limit - page.length));
+			return page.length < query.limit;
+		});
+		return page;
+	}
+
+	/**
+	 * Walk every match of a text query in order, a page of candidates at a
+	 * time, handing each page's accepted rows to `visit` until it returns false.
+	 */
+	/**
+	 * The mail rows behind one page of candidates, kept to the query's folder
+	 * scope and row conditions: a candidate the index still holds for a row
+	 * that has since moved folders, or gone, does not come back.
+	 */
+	private matchedRows(
+		query: Omit<PageQuery, "limit" | "text" | "after" | "order">,
+		ids: readonly string[],
+	) {
+		return and(
+			eq(threadMessageTable.accountConfigId, query.accountConfigId),
+			inJson(threadMessageTable.threadMessageId, ids),
+			query.mailboxIds
+				? inJson(threadMessageTable.mailboxId, query.mailboxIds)
+				: undefined,
+			...query.row,
+		);
+	}
+
+	/**
+	 * Walk every match of a text query in order, a page of candidates at a
+	 * time, handing each page's accepted rows to `visit` until it returns false.
+	 */
+	private async eachMatch(
+		query: Omit<PageQuery, "limit" | "text"> & { text: SQL },
+		visit: (rows: RankedRow[]) => boolean,
+	): Promise<void> {
+		let after = query.after;
+		for (;;) {
+			const candidates = await this.search.candidates({
+				accountConfigId: query.accountConfigId,
+				mailboxIds: query.mailboxIds,
+				where: query.text,
+				rank: query.rank,
+				order: query.order,
+				after,
+				limit: CANDIDATES_PER_READ,
+			});
+			const last = candidates.at(-1);
+			if (!last) return;
+			const rows = await this.db
+				.select()
+				.from(threadMessageTable)
+				.where(
+					this.matchedRows(
+						query,
+						candidates.map((candidate) => candidate.threadMessageId),
+					),
+				);
+			const byId = new Map(rows.map((row) => [row.threadMessageId, row]));
+			const accepted = candidates.flatMap((candidate) => {
+				const row = byId.get(candidate.threadMessageId);
+				return row ? [{ ...row, rank: candidate.rank }] : [];
+			});
+			if (!visit(accepted)) return;
+			if (candidates.length < CANDIDATES_PER_READ) return;
+			after = last;
+		}
+	}
+
+	/**
+	 * How many rows a search accepts, or how many conversations they belong to.
+	 * Without a text condition it is one COUNT; with one it walks the matches,
+	 * reading only their thread ids, and stops at {@link TEXT_SEARCH_COUNT_CAP}.
+	 */
+	private async countMatches(
+		query: Omit<PageQuery, "limit" | "after" | "order">,
+		unit: "rows" | "threads",
+	): Promise<number> {
+		if (!query.text) {
+			const [{ count }] = await this.db
+				.select({
+					count:
+						unit === "threads"
+							? sql<number>`cast(count(distinct ${threadMessageTable.threadId}) as int)`
+							: sql<number>`cast(count(*) as int)`,
+				})
+				.from(threadMessageTable)
+				.where(
+					and(
+						eq(threadMessageTable.accountConfigId, query.accountConfigId),
+						query.mailboxIds
+							? inArray(threadMessageTable.mailboxId, [...query.mailboxIds])
+							: undefined,
+						...query.row,
+					),
+				);
+			return count;
+		}
+		const threads = new Set<string>();
+		let rows = 0;
+		let after: SearchPosition | null = null;
+		for (;;) {
+			const candidates = await this.search.candidates({
+				accountConfigId: query.accountConfigId,
+				mailboxIds: query.mailboxIds,
+				where: query.text,
+				order: "desc",
+				after,
+				limit: CANDIDATES_PER_READ,
+			});
+			const last = candidates.at(-1);
+			if (!last) break;
+			const matched = await this.db
+				.select({ threadId: threadMessageTable.threadId })
+				.from(threadMessageTable)
+				.where(
+					this.matchedRows(
+						query,
+						candidates.map((candidate) => candidate.threadMessageId),
+					),
+				);
+			rows += matched.length;
+			for (const row of matched) threads.add(row.threadId);
+			const counted = unit === "threads" ? threads.size : rows;
+			if (counted >= TEXT_SEARCH_COUNT_CAP) return TEXT_SEARCH_COUNT_CAP;
+			if (candidates.length < CANDIDATES_PER_READ) break;
+			after = last;
+		}
+		return unit === "threads" ? threads.size : rows;
 	}
 
 	async close(): Promise<void> {
@@ -333,7 +546,10 @@ export class DrizzleThreadMessageRepository
 			.values(row)
 			.onConflictDoNothing()
 			.returning();
-		if (inserted) return toItem(inserted);
+		if (inserted) {
+			await this.search.sync([threadMessageId]);
+			return toItem(inserted);
+		}
 
 		const [existing] = await this.db
 			.select()
@@ -432,6 +648,7 @@ export class DrizzleThreadMessageRepository
 			)
 			.returning();
 		if (!row) throw new NotFoundError("ThreadMessage not found");
+		if (touchesSearchIndex(input)) await this.search.sync([threadMessageId]);
 		return toItem(row);
 	}
 
@@ -447,6 +664,7 @@ export class DrizzleThreadMessageRepository
 					eq(threadMessageTable.threadMessageId, threadMessageId),
 				),
 			);
+		await this.search.sync([threadMessageId]);
 	}
 
 	async deleteMany(
@@ -463,6 +681,7 @@ export class DrizzleThreadMessageRepository
 					inArray(threadMessageTable.threadMessageId, ids),
 				),
 			);
+		await this.search.sync(ids);
 	}
 
 	async listByAccount(
@@ -510,56 +729,31 @@ export class DrizzleThreadMessageRepository
 			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
-		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
-			: null;
+		const search = options?.search
+			? buildSearchConditions(options.search)
+			: { text: undefined, row: [] };
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: options?.inboxMailboxIds?.size
+				? [...options.inboxMailboxIds]
+				: undefined,
+			text: search.text,
+			row: [
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+				...search.row,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(
+				options?.continuationToken
+					? decodeDateCursor(options.continuationToken)
+					: null,
+			),
+			limit: options?.limit ?? 100,
+		});
 
-		const cursorCond = cursor
-			? order === "desc"
-				? or(
-						lt(threadMessageTable.sentDate, cursor.s),
-						and(
-							eq(threadMessageTable.sentDate, cursor.s),
-							gt(threadMessageTable.threadMessageId, cursor.id),
-						),
-					)
-				: or(
-						gt(threadMessageTable.sentDate, cursor.s),
-						and(
-							eq(threadMessageTable.sentDate, cursor.s),
-							gt(threadMessageTable.threadMessageId, cursor.id),
-						),
-					)
-			: undefined;
-
-		const mailboxCond = options?.inboxMailboxIds?.size
-			? inArray(threadMessageTable.mailboxId, [...options.inboxMailboxIds])
-			: undefined;
-
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					mailboxCond,
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					...(options?.search ? buildSearchConditions(options.search) : []),
-					cursorCond,
-				),
-			)
-			.orderBy(
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(options?.limit ?? 100);
-
-		const lastRow = rows[rows.length - 1];
+		const lastRow = rows.at(-1);
 		const hasMore =
 			options?.limit !== undefined && rows.length === options.limit;
 		return {
@@ -589,57 +783,40 @@ export class DrizzleThreadMessageRepository
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
 		const limit = clampThreadSearchLimit(options?.limit);
 		const cursor = options?.continuationToken
 			? decodeSearchCursor(options.continuationToken)
 			: null;
 		const ranked = cursor?.v !== 1;
+		const terms = queryTerms(search.query);
+		const conditions = buildSearchConditions(search);
 
-		const mailboxCond = options?.mailboxIds?.size
-			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
-			: undefined;
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: options?.mailboxIds?.size
+				? [...options.mailboxIds]
+				: undefined,
+			text: conditions.text,
+			rank: ranked && terms.length > 0 ? senderMatchRank(terms) : undefined,
+			row: [
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+				...conditions.row,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(cursor),
+			limit,
+		});
 
-		const senderRank = ranked
-			? senderMatchRank(queryTerms(search.query))
-			: sql<number>`0`;
-
-		const rows = await this.db
-			.select({
-				...getTableColumns(threadMessageTable),
-				senderRank,
-			})
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					mailboxCond,
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					...buildSearchConditions(search),
-					cursor?.v === 1
-						? sentDateCursorCond(order, cursor)
-						: rankedDateCursorCond(order, senderRank, cursor),
-				),
-			)
-			.orderBy(
-				...(ranked ? [desc(senderRank)] : []),
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(limit);
-
-		const lastRow = rows[rows.length - 1];
+		const lastRow = rows.at(-1);
 		return {
 			items: rows.map(toItem),
 			continuationToken:
 				rows.length === limit && lastRow
 					? ranked
 						? encodeRankedDateCursor(
-								lastRow.senderRank,
+								lastRow.rank,
 								lastRow.sentDate,
 								lastRow.threadMessageId,
 							)
@@ -668,42 +845,33 @@ export class DrizzleThreadMessageRepository
 			mailboxIds?: readonly string[];
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
 		const limit = clampThreadSearchLimit(options?.limit);
-		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
-			: null;
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: options?.mailboxIds,
+			text: buildFieldTermCondition(terms, options?.operator ?? "and"),
+			row: [
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(
+				options?.continuationToken
+					? decodeDateCursor(options.continuationToken)
+					: null,
+			),
+			limit,
+		});
 
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					options?.mailboxIds
-						? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
-						: undefined,
-					buildFieldTermCondition(terms, options?.operator ?? "and"),
-					sentDateCursorCond(order, cursor),
-				),
-			)
-			.orderBy(
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(limit);
-
-		const lastRow = rows[rows.length - 1];
 		return {
 			items: rows.map(toItem),
 			continuationToken:
-				rows.length === limit && lastRow
-					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+				rows.length === limit && rows.at(-1)
+					? encodeDateCursor(
+							rows[rows.length - 1].sentDate,
+							rows[rows.length - 1].threadMessageId,
+						)
 					: undefined,
 		};
 	}
@@ -730,26 +898,23 @@ export class DrizzleThreadMessageRepository
 			excludeDeleted?: boolean;
 		},
 	): Promise<number> {
-		const mailboxCond = options?.mailboxIds?.size
-			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
-			: undefined;
-
-		const [{ count }] = await this.db
-			.select({
-				count: sql<number>`cast(count(distinct ${threadMessageTable.threadId}) as int)`,
-			})
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					mailboxCond,
+		const conditions = buildSearchConditions(search);
+		return this.countMatches(
+			{
+				accountConfigId,
+				mailboxIds: options?.mailboxIds?.size
+					? [...options.mailboxIds]
+					: undefined,
+				text: conditions.text,
+				row: [
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
-				),
-			);
-		return count;
+					...conditions.row,
+				],
+			},
+			"threads",
+		);
 	}
 
 	async listByStarred(
@@ -763,48 +928,42 @@ export class DrizzleThreadMessageRepository
 			search?: SearchOptions;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
 		// Default before the has-more check, or an absent limit silently truncates
 		// at the implicit cap with no continuation token.
 		const limit = options?.limit ?? DEFAULT_LIST_LIMIT;
-		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
-			: null;
+		const search = options?.search
+			? buildSearchConditions(options.search)
+			: { text: undefined, row: [] };
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: options?.mailboxIds?.size
+				? [...options.mailboxIds]
+				: undefined,
+			text: search.text,
+			row: [
+				eq(threadMessageTable.hasStars, true),
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+				...search.row,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(
+				options?.continuationToken
+					? decodeDateCursor(options.continuationToken)
+					: null,
+			),
+			limit,
+		});
 
-		const mailboxCond = options?.mailboxIds?.size
-			? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
-			: undefined;
-
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.hasStars, true),
-					mailboxCond,
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					...(options?.search ? buildSearchConditions(options.search) : []),
-					sentDateCursorCond(order, cursor),
-				),
-			)
-			.orderBy(
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(limit);
-
-		const lastRow = rows[rows.length - 1];
-		const hasMore = rows.length === limit;
 		return {
 			items: rows.map(toItem),
 			continuationToken:
-				hasMore && lastRow
-					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+				rows.length === limit && rows.at(-1)
+					? encodeDateCursor(
+							rows[rows.length - 1].sentDate,
+							rows[rows.length - 1].threadMessageId,
+						)
 					: undefined,
 		};
 	}
@@ -881,42 +1040,63 @@ export class DrizzleThreadMessageRepository
 		toThreadId: string,
 	): Promise<{ moved: number; dropped: number }> {
 		if (fromThreadId === toThreadId) return { moved: 0, dropped: 0 };
-		return runInTransaction(this.db, async (tx) => {
-			const rows = await tx
-				.select({
-					threadMessageId: threadMessageTable.threadMessageId,
-					messageId: threadMessageTable.messageId,
-				})
-				.from(threadMessageTable)
-				.where(
-					and(
-						eq(threadMessageTable.accountConfigId, accountConfigId),
-						eq(threadMessageTable.threadId, fromThreadId),
-					),
-				);
-			if (rows.length === 0) return { moved: 0, dropped: 0 };
+		const rows = await this.db
+			.select({
+				threadMessageId: threadMessageTable.threadMessageId,
+				messageId: threadMessageTable.messageId,
+			})
+			.from(threadMessageTable)
+			.where(
+				and(
+					eq(threadMessageTable.accountConfigId, accountConfigId),
+					eq(threadMessageTable.threadId, fromThreadId),
+				),
+			);
+		if (rows.length === 0) return { moved: 0, dropped: 0 };
 
-			let moved = 0;
-			for (const row of rows) {
-				const target = deriveThreadMessageId(toThreadId, row.messageId);
-				const [existing] = await tx
+		// Per row: drop it when the target row already exists, otherwise move it
+		// onto the target id. The delete runs first, so the two statements never
+		// both apply to one row, and a rerun finds only rows a failed run left.
+		const items = rows.flatMap((row) => {
+			const target = deriveThreadMessageId(toThreadId, row.messageId);
+			const targetStored = exists(
+				this.db
 					.select({ threadMessageId: threadMessageTable.threadMessageId })
 					.from(threadMessageTable)
-					.where(eq(threadMessageTable.threadMessageId, target));
-				if (existing) {
-					await tx
-						.delete(threadMessageTable)
-						.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-					continue;
-				}
-				await tx
+					.where(eq(threadMessageTable.threadMessageId, target)),
+			);
+			const source = and(
+				eq(threadMessageTable.threadMessageId, row.threadMessageId),
+				eq(threadMessageTable.threadId, fromThreadId),
+			);
+			return [
+				this.db
+					.delete(threadMessageTable)
+					.where(and(source, targetStored))
+					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
+				this.db
 					.update(threadMessageTable)
 					.set({ threadId: toThreadId, threadMessageId: target })
-					.where(eq(threadMessageTable.threadMessageId, row.threadMessageId));
-				moved += 1;
-			}
-			return { moved, dropped: rows.length - moved };
+					.where(and(source, not(targetStored)))
+					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
+			];
 		});
+		const results = await runBatch(this.db, items);
+		await this.search.sync(
+			rows.flatMap((row) => [
+				row.threadMessageId,
+				deriveThreadMessageId(toThreadId, row.messageId),
+			]),
+		);
+		const count = (parity: number): number =>
+			results.reduce<number>(
+				(total, result, index) =>
+					index % 2 === parity && Array.isArray(result)
+						? total + result.length
+						: total,
+				0,
+			);
+		return { moved: count(1), dropped: count(0) };
 	}
 
 	async findByMessageId(
@@ -1037,40 +1217,35 @@ export class DrizzleThreadMessageRepository
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
 		const limit = options?.count ?? 100;
-		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
-			: null;
+		const conditions = buildSearchConditions(search);
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: [mailboxId],
+			text: conditions.text,
+			row: [
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+				...conditions.row,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(
+				options?.continuationToken
+					? decodeDateCursor(options.continuationToken)
+					: null,
+			),
+			limit,
+		});
 
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.mailboxId, mailboxId),
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					...buildSearchConditions(search),
-					sentDateCursorCond(order, cursor),
-				),
-			)
-			.orderBy(
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(limit);
-
-		const lastRow = rows[rows.length - 1];
 		return {
 			items: rows.map(toItem),
 			continuationToken:
-				rows.length === limit && lastRow
-					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+				rows.length === limit && rows.at(-1)
+					? encodeDateCursor(
+							rows[rows.length - 1].sentDate,
+							rows[rows.length - 1].threadMessageId,
+						)
 					: undefined,
 		};
 	}
@@ -1093,45 +1268,40 @@ export class DrizzleThreadMessageRepository
 		options?: {
 			order?: "asc" | "desc";
 			limit?: number;
-			continuationToken?: string;
 			attributes?: string[];
+			continuationToken?: string;
 			excludeDeleted?: boolean;
 		},
 	): Promise<ResultList<ThreadMessageItem>> {
-		const order = options?.order ?? "desc";
 		const limit = clampThreadSearchLimit(options?.limit);
-		const cursor = options?.continuationToken
-			? decodeDateCursor(options.continuationToken)
-			: null;
+		const conditions = buildSearchConditions(search);
+		const rows = await this.page({
+			accountConfigId,
+			mailboxIds: [mailboxId],
+			text: conditions.text,
+			row: [
+				options?.excludeDeleted
+					? eq(threadMessageTable.isDeleted, false)
+					: undefined,
+				...conditions.row,
+			],
+			order: options?.order ?? "desc",
+			after: positionOf(
+				options?.continuationToken
+					? decodeDateCursor(options.continuationToken)
+					: null,
+			),
+			limit,
+		});
 
-		const rows = await this.db
-			.select()
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.mailboxId, mailboxId),
-					options?.excludeDeleted
-						? eq(threadMessageTable.isDeleted, false)
-						: undefined,
-					...buildSearchConditions(search),
-					sentDateCursorCond(order, cursor),
-				),
-			)
-			.orderBy(
-				order === "desc"
-					? desc(threadMessageTable.sentDate)
-					: asc(threadMessageTable.sentDate),
-				asc(threadMessageTable.threadMessageId),
-			)
-			.limit(limit);
-
-		const lastRow = rows[rows.length - 1];
 		return {
 			items: rows.map(toItem),
 			continuationToken:
-				rows.length === limit && lastRow
-					? encodeDateCursor(lastRow.sentDate, lastRow.threadMessageId)
+				rows.length === limit && rows.at(-1)
+					? encodeDateCursor(
+							rows[rows.length - 1].sentDate,
+							rows[rows.length - 1].threadMessageId,
+						)
 					: undefined,
 		};
 	}
@@ -1150,20 +1320,21 @@ export class DrizzleThreadMessageRepository
 			order?: "asc" | "desc";
 		},
 	): Promise<number> {
-		const [{ count }] = await this.db
-			.select({ count: sql<number>`cast(count(*) as int)` })
-			.from(threadMessageTable)
-			.where(
-				and(
-					eq(threadMessageTable.accountConfigId, accountConfigId),
-					eq(threadMessageTable.mailboxId, mailboxId),
+		const conditions = buildSearchConditions(search);
+		return this.countMatches(
+			{
+				accountConfigId,
+				mailboxIds: [mailboxId],
+				text: conditions.text,
+				row: [
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
-				),
-			);
-		return count;
+					...conditions.row,
+				],
+			},
+			"rows",
+		);
 	}
 
 	async listAllByAccount(
@@ -1181,6 +1352,7 @@ export class DrizzleThreadMessageRepository
 			.delete(threadMessageTable)
 			.where(eq(threadMessageTable.accountConfigId, accountConfigId))
 			.returning({ id: threadMessageTable.threadMessageId });
+		await this.search.removeAccount(accountConfigId);
 		return result.length;
 	}
 }

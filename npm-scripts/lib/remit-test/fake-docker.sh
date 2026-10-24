@@ -40,7 +40,7 @@
 #                             volume, and whether the daemon says so at all
 #
 # With FAKE_REAL_DB=1 the snapshot, restore and schema read run for real against
-# $FAKE_SQLITE_DIR/remit.db (a host directory standing in for the sqlite volume)
+# $FAKE_SQLITE_DIR/app.db (a host directory standing in for the sqlite volume)
 # and `compose up ... migrate` applies the run's migration to it, so a
 # migration-update test asserts a real byte-restore and a real schema-version
 # transition. sqlite3/su-exec/apk/chown must be fakes on PATH.
@@ -91,8 +91,8 @@ exec_real() {
 
 schema_total() {
 	_st=0
-	for _t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta __drizzle_migrations_mcp; do
-		_c=$(sqlite3 "$1" "SELECT count(*) FROM $_t" 2>/dev/null || printf 0)
+	for _p in app.db:__drizzle_migrations_app mail.db:__drizzle_migrations_mail search.db:__drizzle_migrations_search app.db:__drizzle_migrations_mcp; do
+		_c=$(sqlite3 "$1/${_p%%:*}" "SELECT count(*) FROM ${_p#*:}" 2>/dev/null || printf 0)
 		[ -n "$_c" ] || _c=0
 		_st=$((_st + _c))
 	done
@@ -106,14 +106,14 @@ schema_total() {
 # back at the old version via `pick`) changes nothing.
 apply_migrate() {
 	[ -n "${FAKE_SQLITE_DIR:-}" ] || return 0
-	_db="$FAKE_SQLITE_DIR/remit.db"
+	_db="$FAKE_SQLITE_DIR/app.db"
 	[ -f "$_db" ] || return 0
 	[ "$(pick migrate_exit 0)" = "0" ] || return 0
 	_target=$(pick target_schema 0)
-	_cur=$(schema_total "$_db")
+	_cur=$(schema_total "$FAKE_SQLITE_DIR")
 	[ "$_cur" -lt "$_target" ] || return 0
 	sqlite3 "$_db" "ALTER TABLE message ADD COLUMN filter_move text" 2>/dev/null || true
-	sqlite3 "$_db" "INSERT INTO __drizzle_migrations_entities (id, hash, created_at) VALUES ($_cur, 'applied', $_cur)" 2>/dev/null || true
+	sqlite3 "$_db" "INSERT INTO __drizzle_migrations_app (id, hash, created_at) VALUES ($_cur, 'applied', $_cur)" 2>/dev/null || true
 }
 
 next_id() {
@@ -958,7 +958,7 @@ run_cmd() {
 		printf '%s\n' "$_script"
 	} >>"$S/volume-scripts"
 	case "$_script" in
-	*"-s /data/sqlite/remit.db"*)
+	*"-s /data/sqlite/app.db"*)
 		# Whether the volume holds a database, which is what routes a stopped stack
 		# between the plain and the atomic path. 0 is a database, 3 an empty volume,
 		# and any other status a probe that never ran — `data_probe=fail` is that

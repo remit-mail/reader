@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test } from "node:test";
+import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
 import { _resetForTest, getClient, type RemitClient } from "./data-client.js";
 
 const REQUIRED_KEYS: ReadonlyArray<keyof RemitClient> = [
@@ -34,16 +35,21 @@ afterEach(() => {
 	_resetForTest();
 });
 
+const DATABASE_ENV = Object.values(SQLITE_DATABASE_ENV);
+
 const withSqliteDbPath = async (run: () => Promise<void>): Promise<void> => {
-	const saved = process.env.SQLITE_DB_PATH;
+	const saved = DATABASE_ENV.map((name) => process.env[name]);
 	const dir = mkdtempSync(join(tmpdir(), "remit-data-client-"));
-	process.env.SQLITE_DB_PATH = join(dir, "remit.db");
+	for (const name of DATABASE_ENV) process.env[name] = join(dir, `${name}.db`);
 	try {
 		await run();
 	} finally {
 		_resetForTest();
-		if (saved === undefined) delete process.env.SQLITE_DB_PATH;
-		else process.env.SQLITE_DB_PATH = saved;
+		DATABASE_ENV.forEach((name, index) => {
+			const value = saved[index];
+			if (value === undefined) delete process.env[name];
+			else process.env[name] = value;
+		});
 		rmSync(dir, { recursive: true, force: true });
 	}
 };
@@ -64,12 +70,12 @@ test("getClient() falls back to the in-package composition and constructs every 
 });
 
 test("getClient() names setClient when nothing is registered and there is no database to open", async () => {
-	const saved = process.env.SQLITE_DB_PATH;
-	delete process.env.SQLITE_DB_PATH;
+	const saved = process.env.SQLITE_APP_DB_PATH;
+	delete process.env.SQLITE_APP_DB_PATH;
 
 	try {
 		await assert.rejects(getClient(), /register one with setClient\(\)/);
 	} finally {
-		if (saved !== undefined) process.env.SQLITE_DB_PATH = saved;
+		if (saved !== undefined) process.env.SQLITE_APP_DB_PATH = saved;
 	}
 });

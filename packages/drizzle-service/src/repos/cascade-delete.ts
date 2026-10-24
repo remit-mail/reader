@@ -1,5 +1,10 @@
 import { and, eq, inArray, or, type SQL } from "drizzle-orm";
-import type { Db } from "../db.js";
+import { runBatch, type SqliteBatchItem } from "../batch.js";
+import {
+	openSqliteDatabases,
+	type SqliteDatabasePaths,
+	type SqliteDatabases,
+} from "../databases.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
 import { addressTable } from "../schema/i4-address.js";
@@ -8,13 +13,11 @@ import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
-import { messageDataSchema } from "../schema/message-data.js";
 import { quarantineTable } from "../schema/quarantine.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { createSqliteDatabase } from "../sqlite-client.js";
-import { runInTransaction } from "../tx.js";
-import { deleteMessageSubtree, type SubtreeDb } from "./message.js";
+import { SearchIndex } from "../search/thread-message-search.js";
+import { deleteMessageSubtree } from "./message.js";
 
 export interface CascadeEntity {
 	entityType: string;
@@ -24,8 +27,6 @@ export interface CascadeEntity {
 export interface CascadeDeleteLogger {
 	info(obj: Record<string, unknown>, msg: string): void;
 }
-
-type CascadeDb = Db<Record<string, unknown>>;
 
 /**
  * Per-message entity types. Their rows are removed with the message subtree by
@@ -71,14 +72,17 @@ const groupByType = (
 
 /**
  * Relational equivalent of the DynamoDB BatchWriteItem cascade: delete every
- * enumerated row for an account/tenant in one transaction. Message subtrees
+ * enumerated row for an account/tenant, one batch per database — the mail rows
+ * first, then the app rows, then the search documents of the deleted thread
+ * messages. Every statement is keyed, so a rerun after a failure between two
+ * batches deletes what is left. Message subtrees
  * (message + nine child tables) are deleted set-wise by message id; the remaining
  * entity types are deleted by their enumerated primary keys. AccountConfig is
  * never deleted here — the caller removes it last through its repository, the
  * cascade-in-progress marker.
  */
 export const runDrizzleCascadeDelete = async (
-	db: CascadeDb,
+	{ app, mail, search }: SqliteDatabases,
 	entities: CascadeEntity[],
 	log: CascadeDeleteLogger,
 ): Promise<void> => {
@@ -91,109 +95,132 @@ export const runDrizzleCascadeDelete = async (
 		}
 	}
 
-	await runInTransaction(db, async (tx) => {
-		const messageIds = (grouped.get("Message") ?? []).map((k) => k.messageId);
-		await deleteMessageSubtree(tx as unknown as SubtreeDb, messageIds);
+	const items: SqliteBatchItem[] = [];
+	const appItems: SqliteBatchItem[] = [];
+	const messageIds = (grouped.get("Message") ?? []).map((k) => k.messageId);
+	items.push(...deleteMessageSubtree(mail, messageIds));
 
-		const threadMessageIds = (grouped.get("ThreadMessage") ?? []).map(
-			(k) => k.threadMessageId,
-		);
-		if (threadMessageIds.length > 0) {
-			await tx
+	const threadMessageIds = (grouped.get("ThreadMessage") ?? []).map(
+		(k) => k.threadMessageId,
+	);
+	if (threadMessageIds.length > 0) {
+		items.push(
+			mail
 				.delete(threadMessageTable)
-				.where(inArray(threadMessageTable.threadMessageId, threadMessageIds));
-		}
+				.where(inArray(threadMessageTable.threadMessageId, threadMessageIds)),
+		);
+	}
 
-		const mailboxIds = (grouped.get("Mailbox") ?? []).map((k) => k.mailboxId);
-		if (mailboxIds.length > 0) {
-			await tx
+	const mailboxIds = (grouped.get("Mailbox") ?? []).map((k) => k.mailboxId);
+	if (mailboxIds.length > 0) {
+		items.push(
+			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.mailboxId, mailboxIds));
-			await tx
+				.where(inArray(syncWarningTable.mailboxId, mailboxIds)),
+		);
+		items.push(
+			mail
 				.delete(mailboxTable)
-				.where(inArray(mailboxTable.mailboxId, mailboxIds));
-		}
-
-		const outboxMessageIds = (grouped.get("OutboxMessage") ?? []).map(
-			(k) => k.outboxMessageId,
+				.where(inArray(mailboxTable.mailboxId, mailboxIds)),
 		);
-		if (outboxMessageIds.length > 0) {
-			await tx
+	}
+
+	const outboxMessageIds = (grouped.get("OutboxMessage") ?? []).map(
+		(k) => k.outboxMessageId,
+	);
+	if (outboxMessageIds.length > 0) {
+		items.push(
+			mail
 				.delete(outboxMessageTable)
-				.where(inArray(outboxMessageTable.outboxMessageId, outboxMessageIds));
-		}
-
-		const lockKeys = grouped.get("MailboxLock") ?? [];
-		if (lockKeys.length > 0) {
-			const conditions: SQL[] = lockKeys.map((k) =>
-				and(
-					eq(mailboxLockTable.mailboxId, k.mailboxId),
-					eq(mailboxLockTable.eventName, k.eventName),
-				),
-			) as SQL[];
-			await tx.delete(mailboxLockTable).where(or(...conditions));
-		}
-
-		const accountSettingIds = (grouped.get("AccountSetting") ?? []).map(
-			(k) => k.accountSettingId,
+				.where(inArray(outboxMessageTable.outboxMessageId, outboxMessageIds)),
 		);
-		if (accountSettingIds.length > 0) {
-			await tx
+	}
+
+	const lockKeys = grouped.get("MailboxLock") ?? [];
+	if (lockKeys.length > 0) {
+		const conditions: SQL[] = lockKeys.map((k) =>
+			and(
+				eq(mailboxLockTable.mailboxId, k.mailboxId),
+				eq(mailboxLockTable.eventName, k.eventName),
+			),
+		) as SQL[];
+		items.push(mail.delete(mailboxLockTable).where(or(...conditions)));
+	}
+
+	const accountSettingIds = (grouped.get("AccountSetting") ?? []).map(
+		(k) => k.accountSettingId,
+	);
+	if (accountSettingIds.length > 0) {
+		appItems.push(
+			app
 				.delete(accountSettingTable)
 				.where(
 					inArray(accountSettingTable.accountSettingId, accountSettingIds),
-				);
-		}
+				),
+		);
+	}
 
-		const addressIds = (grouped.get("Address") ?? []).map((k) => k.addressId);
-		if (addressIds.length > 0) {
-			await tx
+	const addressIds = (grouped.get("Address") ?? []).map((k) => k.addressId);
+	if (addressIds.length > 0) {
+		items.push(
+			mail
 				.delete(addressTable)
-				.where(inArray(addressTable.addressId, addressIds));
-		}
+				.where(inArray(addressTable.addressId, addressIds)),
+		);
+	}
 
-		const accountIds = (grouped.get("Account") ?? []).map((k) => k.accountId);
-		if (accountIds.length > 0) {
-			// Quarantine rows are deleted set-wise by account rather than from an
-			// enumerated key, the way message subtrees are. They carry the user's
-			// own folder names and parser output quoting the message, so account
-			// deletion has to take them even though nothing enumerates them.
-			await tx
+	const accountIds = (grouped.get("Account") ?? []).map((k) => k.accountId);
+	if (accountIds.length > 0) {
+		// Quarantine rows are deleted set-wise by account rather than from an
+		// enumerated key, the way message subtrees are. They carry the user's
+		// own folder names and parser output quoting the message, so account
+		// deletion has to take them even though nothing enumerates them.
+		items.push(
+			mail
 				.delete(quarantineTable)
-				.where(inArray(quarantineTable.accountId, accountIds));
-			await tx
+				.where(inArray(quarantineTable.accountId, accountIds)),
+		);
+		items.push(
+			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.accountId, accountIds));
-			await tx
+				.where(inArray(syncWarningTable.accountId, accountIds)),
+		);
+		appItems.push(
+			app
 				.delete(accountTable)
-				.where(inArray(accountTable.accountId, accountIds));
-		}
+				.where(inArray(accountTable.accountId, accountIds)),
+		);
+	}
 
-		const placementMoveMessageIds = (
-			grouped.get("MessagePlacementMove") ?? []
-		).map((k) => k.messageId);
-		if (placementMoveMessageIds.length > 0) {
-			await tx
+	const placementMoveMessageIds = (
+		grouped.get("MessagePlacementMove") ?? []
+	).map((k) => k.messageId);
+	if (placementMoveMessageIds.length > 0) {
+		items.push(
+			mail
 				.delete(messagePlacementMoveTable)
 				.where(
 					inArray(messagePlacementMoveTable.messageId, placementMoveMessageIds),
-				);
-		}
-
-		// Composite key (messageId, flagName) — a message can carry an
-		// independent pending read-state marker and pending star marker at once
-		// (issue #1273), so a single-column inArray cannot target one row.
-		const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
-		if (flagPushKeys.length > 0) {
-			const conditions: SQL[] = flagPushKeys.map((k) =>
-				and(
-					eq(messageFlagPushTable.messageId, k.messageId),
-					eq(messageFlagPushTable.flagName, k.flagName),
 				),
-			) as SQL[];
-			await tx.delete(messageFlagPushTable).where(or(...conditions));
-		}
-	});
+		);
+	}
+
+	// Composite key (messageId, flagName) — a message can carry an
+	// independent pending read-state marker and pending star marker at once
+	// (issue #1273), so a single-column inArray cannot target one row.
+	const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
+	if (flagPushKeys.length > 0) {
+		const conditions: SQL[] = flagPushKeys.map((k) =>
+			and(
+				eq(messageFlagPushTable.messageId, k.messageId),
+				eq(messageFlagPushTable.flagName, k.flagName),
+			),
+		) as SQL[];
+		items.push(mail.delete(messageFlagPushTable).where(or(...conditions)));
+	}
+	await runBatch(mail, items);
+	await runBatch(app, appItems);
+	await new SearchIndex(mail, search).sync(threadMessageIds);
 
 	log.info({ entityCount: entities.length }, "Drizzle cascade delete complete");
 };
@@ -204,15 +231,13 @@ export type CascadeDeleter = (
 ) => Promise<void>;
 
 /**
- * Open the shared SQLite file through the same serialized connection every
- * writer uses and bind a cascade deleter to it. Async because opening the
- * SQLite handle loads the native binding lazily.
+ * Open the SQLite databases through the same connection settings every writer
+ * uses and bind a cascade deleter to them. Async because opening a SQLite handle
+ * loads the native binding lazily.
  */
 export const createSqliteCascadeDeleter = async (
-	dbPath: string,
+	paths: SqliteDatabasePaths,
 ): Promise<CascadeDeleter> => {
-	const { db } = await createSqliteDatabase(messageDataSchema, {
-		filename: dbPath,
-	});
-	return (entities, log) => runDrizzleCascadeDelete(db, entities, log);
+	const databases = await openSqliteDatabases(paths);
+	return (entities, log) => runDrizzleCascadeDelete(databases, entities, log);
 };

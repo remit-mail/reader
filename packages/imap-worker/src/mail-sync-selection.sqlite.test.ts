@@ -19,6 +19,7 @@ import {
 	DrizzleMessageRepository,
 	MailboxLockRepo,
 	MailboxRepo,
+	SearchIndex,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger-lambda";
@@ -52,9 +53,12 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db);
-	mailboxes = new MailboxRepo(store.db);
-	messages = new DrizzleMessageRepository(store.db as never);
+	accounts = new AccountRepo(store.db, store.db);
+	mailboxes = new MailboxRepo(store.db, new SearchIndex(store.db, store.db));
+	messages = new DrizzleMessageRepository(
+		store.db as never,
+		new SearchIndex(store.db as never, store.db as never),
+	);
 	locks = new MailboxLockRepo(store.db);
 	client = {
 		account: accounts,

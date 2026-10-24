@@ -22,7 +22,7 @@ Both entity packages are generated from TypeSpec and published regardless of whi
 
 A composition root supplies the client. `setClient(client)` registers one; `getClient()` returns it. A process that is handed a client never reaches anything else.
 
-A process that is not handed one falls back to the single composition its own build contains, through a dynamic `import()` (A5). The fallback checks its precondition first — the SQLite composition requires `SQLITE_DB_PATH` — and when the precondition is absent it raises the registration error naming `setClient`, because a process that reaches the client with neither an injected client nor a database to open has a composition-root ordering bug and must be told so. Silently opening an empty database and serving an empty mailbox is the failure this check exists to prevent.
+A process that is not handed one falls back to the single composition its own build contains, through a dynamic `import()` (A5). The fallback checks its precondition first — the SQLite composition requires `SQLITE_APP_DB_PATH` — and when the precondition is absent it raises the registration error naming `setClient`, because a process that reaches the client with neither an injected client nor a database to open has a composition-root ordering bug and must be told so. Silently opening an empty database and serving an empty mailbox is the failure this check exists to prevent.
 
 That check is a precondition, not a selection. Nothing picks between adapters at runtime.
 
@@ -39,10 +39,10 @@ These are what every adapter must satisfy and what a caller may rely on. Everyth
 
 **Transactions.**
 
-- **C5.** Every write made through a unit of work's repositories commits together or not at all. A throw rolls the whole set back.
-- **C6.** A transaction opened inside another on the same adapter joins the outer unit; it does not start a second independent one.
-- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. An adapter's transaction machinery — savepoints, nesting detection, write serialization — is below this line and stays private to it.
-- **C8.** `unitOfWork` is optional on the client, and its absence is resolved by the composition, which substitutes a pass-through unit. An adapter with no cross-entity atomicity is composed with that substitution; no caller branches on presence.
+- **C5.** No transaction stays open across an `await`. A write set is an atomic batch, the shape of D1's `batch()`: its statements commit together or not at all, and none of them reads another's result. Decisions are made against reads taken before the batch.
+- **C6.** A write that is not one batch is an idempotent step: keyed on derived ids, upserts and conditional `WHERE` clauses, so a queue redelivery or a second tab repeating it converges on the same rows.
+- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. How an adapter runs a batch — one synchronous `IMMEDIATE` transaction on better-sqlite3 — is below this line and stays private to it.
+- **C8.** The calendar store is the one cross-repository write port: `commit` takes a list of writes and applies them as one batch.
 
 **Text matching.**
 
@@ -73,7 +73,7 @@ Two limits are inherent rather than incidental. `@remit/data-ports` publishes ra
 
 **Can two adapters run in one process?** Nothing prevents it — no module-global fixes a dialect, and every adapter's tables come from its own imports. `setClient` holds one client because one client is what any current process needs; a name-keyed registry over it is additive.
 
-**Why is `SQLITE_DB_PATH` read in the composition root at all?** To tell a missing database apart from a missing registration, so the second one says `setClient`. It never chooses between adapters.
+**Why is `SQLITE_APP_DB_PATH` read in the composition root at all?** To tell a missing database apart from a missing registration, so the second one says `setClient`. It never chooses between adapters.
 
 **What does a caller do about C10?** Nothing, unless it needs folding guaranteed, in which case it is choosing a backend and should say so. Search behaviour that must be identical everywhere cannot be built on substring matching in the first place.
 

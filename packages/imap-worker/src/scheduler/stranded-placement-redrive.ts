@@ -36,7 +36,6 @@ export interface StrandedPlacementRedriveDeps {
 		| "message"
 		| "placementMove"
 		| "threadMessage"
-		| "unitOfWork"
 	>;
 	emit: (event: StrandedPlacementEvent) => Promise<void>;
 	log: Logger;
@@ -106,32 +105,10 @@ const removeUnresolvableCopy = async (
 	reason: string,
 	now: number,
 ): Promise<boolean> => {
-	const { unitOfWork } = deps.client;
-	if (!unitOfWork) {
-		throw new Error(
-			"Removing an unresolvable copy needs the store's unit of work",
-		);
-	}
-	const removed = await unitOfWork.transaction(async (repos) => {
-		const deleted = await repos.message.deleteIfPlacement(row.messageId, {
-			status: MessageStatus.moving,
-			mailboxId: row.mailboxId,
-			uid: 0,
-		});
-		if (!deleted) return false;
-		const listings = await repos.threadMessage.findAllByMessageId(
-			account.accountConfigId,
-			row.messageId,
-		);
-		if (listings.length > 0) {
-			await repos.threadMessage.deleteMany(
-				listings.map((listing) => ({
-					accountConfigId: listing.accountConfigId,
-					threadMessageId: listing.threadMessageId,
-				})),
-			);
-		}
-		return true;
+	const removed = await deps.client.message.deleteIfPlacement(row.messageId, {
+		status: MessageStatus.moving,
+		mailboxId: row.mailboxId,
+		uid: 0,
 	});
 	if (!removed) return false;
 	deps.log.error(

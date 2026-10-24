@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { AddressFlags } from "@remit/data-ports";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { serializeSqliteWrites } from "../tx.js";
 import { AddressRepo } from "./i4-address.js";
 
 const FLAG_KEYS = [
@@ -25,7 +24,7 @@ describe("concurrent flag merges on one address", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AddressRepo(serializeSqliteWrites(db) as never);
+		repo = new AddressRepo(db as never);
 	});
 
 	after(async () => {

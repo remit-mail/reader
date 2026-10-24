@@ -6,11 +6,11 @@ import type {
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
-import { and, eq, inArray, lt } from "drizzle-orm";
+import { and, eq, gt, gte, inArray, lt, or, sum } from "drizzle-orm";
+import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { outboxAttachmentTable } from "../schema/i4-outbox-attachment.js";
-import { runInTransaction } from "../tx.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -37,40 +37,30 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 	constructor(private db: DB) {}
 
 	/**
-	 * The per-message cap: the count and the insert are one transaction, on the
-	 * transaction's own handle, so a concurrent reservation cannot land between
-	 * them. See the port's contract for the invariant this owes its callers and
-	 * what an adapter on another engine has to do to keep it.
+	 * The per-message cap. The insert, the read of the draft's live rows and a
+	 * delete of the new row when it breaks the cap run as one batch, which
+	 * commits as a unit and serializes against every other batch. Of two
+	 * concurrent reservations the later one sees the earlier one's row, so it
+	 * is the one removed when the two together do not fit.
 	 */
 	async reserve(
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult> {
-		return runInTransaction(this.db, async (tx) => {
-			const existing = await tx
-				.select()
-				.from(outboxAttachmentTable)
-				.where(
-					and(
-						eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
-						eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
-					),
-				);
-
-			const live = existing
-				.map(rowToOutboxAttachment)
-				.filter((item) => holdsRoom(item, cap.nowSeconds));
-			const usedBytes = live.reduce((total, item) => total + item.sizeBytes, 0);
-
-			if (live.length >= cap.maxCount) {
-				return { outcome: "OverCountCap", usedBytes };
-			}
-			if (usedBytes + input.sizeBytes > cap.maxTotalBytes) {
-				return { outcome: "OverByteCap", usedBytes };
-			}
-
-			const now = Date.now();
-			const [row] = await tx
+		const now = Date.now();
+		const draft = and(
+			eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
+			eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
+		);
+		const live = and(
+			draft,
+			or(
+				eq(outboxAttachmentTable.state, "Stored"),
+				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
+			),
+		);
+		const [inserted, rows, removed] = await runBatch(this.db, [
+			this.db
 				.insert(outboxAttachmentTable)
 				.values({
 					outboxAttachmentId: input.outboxAttachmentId,
@@ -86,10 +76,49 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 					createdAt: now,
 					updatedAt: now,
 				})
-				.returning();
+				.returning(),
+			this.db.select().from(outboxAttachmentTable).where(draft),
+			this.db
+				.delete(outboxAttachmentTable)
+				.where(
+					and(
+						eq(
+							outboxAttachmentTable.outboxAttachmentId,
+							input.outboxAttachmentId,
+						),
+						or(
+							gt(this.db.$count(outboxAttachmentTable, live), cap.maxCount),
+							gt(
+								this.db
+									.select({ total: sum(outboxAttachmentTable.sizeBytes) })
+									.from(outboxAttachmentTable)
+									.where(live),
+								cap.maxTotalBytes,
+							),
+						),
+					),
+				)
+				.returning({
+					outboxAttachmentId: outboxAttachmentTable.outboxAttachmentId,
+				}),
+		] as const);
 
+		const others = rows
+			.map(rowToOutboxAttachment)
+			.filter(
+				(item) =>
+					item.outboxAttachmentId !== input.outboxAttachmentId &&
+					holdsRoom(item, cap.nowSeconds),
+			);
+		const usedBytes = others.reduce((total, item) => total + item.sizeBytes, 0);
+		const [row] = inserted;
+		if (removed.length === 0 && row) {
 			return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
-		});
+		}
+		if (others.length >= cap.maxCount) {
+			return { outcome: "OverCountCap", usedBytes };
+		}
+		return { outcome: "OverByteCap", usedBytes };
 	}
 
 	async get(

@@ -1,30 +1,25 @@
-import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
 import type { Db } from "./db.js";
 import {
-	applyMigration,
-	migrationJournal,
+	applyMigrationSet,
+	MIGRATION_SETS,
 } from "./test-shipped-sqlite-schema.js";
 
 /**
- * The store a test runs against: the committed SQLite entity migrations, in the
- * order the migrator runs them, over the same engine a self-host deployment
- * boots. Applying the shipped DDL rather than pushing the drizzle table objects
- * is the point — a test then fails when the two drift (reader#73).
+ * The store a test runs against: the committed SQLite migrations, in the order
+ * the migrator runs them, over the same engine a self-host deployment boots.
+ * Applying the shipped DDL rather than pushing the drizzle table objects is the
+ * point — a test then fails when the two drift (reader#73).
+ *
+ * All three sets land in the one database, which a test then hands to every
+ * repo whatever database the repo runs on in a deployment. Their tables do not
+ * overlap, so nothing collides.
  */
 export const applyShippedMigrations = (sqlite: Database.Database): void => {
-	for (const entry of [...migrationJournal()].sort(
-		(left, right) => left.idx - right.idx,
-	)) {
-		applyMigration(sqlite, entry.tag);
-	}
-	sqlite.exec(
-		readFileSync(
-			new URL("../../../npm-scripts/sqlite-search-index.sql", import.meta.url),
-			"utf8",
-		),
-	);
+	for (const set of MIGRATION_SETS) applyMigrationSet(sqlite, set);
 };
 
 /**
@@ -43,4 +38,26 @@ export const createShippedSqliteDb = (): {
 		sqlite,
 		close: () => sqlite.close(),
 	};
+};
+
+/**
+ * The three database files a deployment runs on, each migrated with its own
+ * set, under `directory` — and the environment pointed at them, so a
+ * composition root a test builds opens them exactly as a deployment does.
+ */
+export const createShippedSqliteFiles = (
+	directory: string,
+): SqliteDatabasePaths => {
+	const paths: SqliteDatabasePaths = {
+		app: join(directory, "app.db"),
+		mail: join(directory, "mail.db"),
+		search: join(directory, "search.db"),
+	};
+	for (const set of MIGRATION_SETS) {
+		const sqlite = new Database(paths[set]);
+		applyMigrationSet(sqlite, set);
+		sqlite.close();
+		process.env[SQLITE_DATABASE_ENV[set]] = paths[set];
+	}
+	return paths;
 };

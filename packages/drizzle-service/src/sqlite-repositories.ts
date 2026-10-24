@@ -1,10 +1,10 @@
-import type { Db } from "./db.js";
+import type { SqliteDatabases } from "./databases.js";
 import { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 import { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 import { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
 import { CalendarObjectRepo } from "./repos/calendar-object.js";
+import { DrizzleCalendarStore } from "./repos/calendar-store.js";
 import { CalendarSuggestionRepo } from "./repos/calendar-suggestion.js";
-import { DrizzleCalendarUnitOfWork } from "./repos/calendar-unit-of-work.js";
 import { DrizzleEnvelopeRepository } from "./repos/envelope.js";
 import { FilterRepo } from "./repos/filter.js";
 import { AccountRepo } from "./repos/i4-account.js";
@@ -29,46 +29,47 @@ import { MessageLabelRepo } from "./repos/message-label.js";
 import { QuarantineRepo } from "./repos/quarantine.js";
 import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
-import { DrizzleUnitOfWork } from "./repos/unit-of-work.js";
-import type { MessageDataSchema } from "./schema/message-data.js";
-import { runInTransaction } from "./tx.js";
+import { SearchIndex } from "./search/thread-message-search.js";
 
-// Every repo over the one serialized SQLite connection (RFC 036 D3), so a plain
-// repo write and a unit-of-work transaction share one write queue.
-export const createSqliteRepositories = (db: Db<MessageDataSchema>) => ({
-	accountConfig: new AccountConfigRepo(db),
-	account: new AccountRepo(db),
-	accountSetting: new AccountSettingRepo(db),
-	address: new AddressRepo(db),
-	mailbox: new MailboxRepo(db),
-	mailboxSpecialUse: new MailboxSpecialUseRepo(db),
-	mailboxLock: new MailboxLockRepo(db),
-	message: new DrizzleMessageRepository(db),
-	messageFlag: new DrizzleMessageFlagRepository(db),
-	outboxMessage: new OutboxMessageRepo(db),
-	outboxAttachment: new OutboxAttachmentRepo(db),
-	threadMessage: new DrizzleThreadMessageRepository(db),
-	envelope: new DrizzleEnvelopeRepository(db),
-	accountExportRequest: new AccountExportRequestRepo(db),
-	configImport: new ConfigImportRepo(db),
-	quarantine: new QuarantineRepo(db),
-	syncWarning: new SyncWarningRepo(db),
-	organizeJobRequest: new OrganizeJobRequestRepo(db),
-	placementMove: new MessagePlacementMoveRepo(db),
-	flagPush: new MessageFlagPushRepo(db),
-	filter: new FilterRepo(db),
-	label: new LabelRepo(db),
-	messageLabel: new MessageLabelRepo(db),
-	senderSignerStanding: new SenderSignerStandingRepo(db),
-	calendarCollection: new CalendarCollectionRepo(db),
-	calendarObject: new CalendarObjectRepo(db),
-	calendarEventIndex: new CalendarEventIndexRepo(db),
-	calendarFeedToken: new CalendarFeedTokenRepo(db),
-	calendarSuggestion: new CalendarSuggestionRepo(db),
-	calendarUnitOfWork: new DrizzleCalendarUnitOfWork(db),
-	unitOfWork: new DrizzleUnitOfWork(db),
-	writeSet: <T>(run: () => Promise<T>): Promise<T> =>
-		runInTransaction(db, () => run()),
-});
+// Every repo over the database that holds its tables (#1420).
+export const createSqliteRepositories = ({
+	app,
+	mail,
+	search,
+}: SqliteDatabases) => {
+	const searchIndex = new SearchIndex(mail, search);
+	return {
+		accountConfig: new AccountConfigRepo(app, mail),
+		account: new AccountRepo(app, mail),
+		accountSetting: new AccountSettingRepo(app),
+		address: new AddressRepo(mail),
+		mailbox: new MailboxRepo(mail, searchIndex),
+		mailboxSpecialUse: new MailboxSpecialUseRepo(app, mail),
+		mailboxLock: new MailboxLockRepo(mail),
+		message: new DrizzleMessageRepository(mail, searchIndex),
+		messageFlag: new DrizzleMessageFlagRepository(mail),
+		outboxMessage: new OutboxMessageRepo(mail),
+		outboxAttachment: new OutboxAttachmentRepo(mail),
+		threadMessage: new DrizzleThreadMessageRepository(mail, searchIndex),
+		envelope: new DrizzleEnvelopeRepository(mail),
+		accountExportRequest: new AccountExportRequestRepo(app),
+		configImport: new ConfigImportRepo(app),
+		quarantine: new QuarantineRepo(mail),
+		syncWarning: new SyncWarningRepo(mail),
+		organizeJobRequest: new OrganizeJobRequestRepo(mail),
+		placementMove: new MessagePlacementMoveRepo(mail),
+		flagPush: new MessageFlagPushRepo(mail),
+		filter: new FilterRepo(app),
+		label: new LabelRepo(app),
+		messageLabel: new MessageLabelRepo(mail),
+		senderSignerStanding: new SenderSignerStandingRepo(mail),
+		calendarCollection: new CalendarCollectionRepo(app),
+		calendarObject: new CalendarObjectRepo(app),
+		calendarEventIndex: new CalendarEventIndexRepo(app),
+		calendarFeedToken: new CalendarFeedTokenRepo(app),
+		calendarSuggestion: new CalendarSuggestionRepo(mail),
+		calendarStore: new DrizzleCalendarStore(app, mail),
+	};
+};
 
 export type SqliteRepositories = ReturnType<typeof createSqliteRepositories>;

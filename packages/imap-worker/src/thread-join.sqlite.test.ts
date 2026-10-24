@@ -11,7 +11,7 @@ import {
 	DrizzleEnvelopeRepository,
 	DrizzleMessageRepository,
 	DrizzleThreadMessageRepository,
-	DrizzleUnitOfWork,
+	SearchIndex,
 	SyncWarningRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -70,13 +70,11 @@ const syncInOrder = async (
 		{} as never,
 		{} as IMailboxRepository,
 		{} as IMailboxSpecialUseRepository,
-		new DrizzleMessageRepository(typed),
+		new DrizzleMessageRepository(typed, new SearchIndex(typed, typed)),
 		new DrizzleEnvelopeRepository(typed),
 		new AddressRepo(db as never),
-		new DrizzleThreadMessageRepository(db),
+		new DrizzleThreadMessageRepository(db, new SearchIndex(db, db)),
 		new SyncWarningService(new SyncWarningRepo(db as never)),
-		undefined,
-		new DrizzleUnitOfWork(typed),
 	);
 	const save = (
 		service as unknown as {

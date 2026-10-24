@@ -116,16 +116,25 @@ describe("updateFlags keeps the star and its colour in step", () => {
 });
 
 describe("a flag push that exhausted its retries", () => {
-	const resolve = async (connect: () => FakeImapConnection) => {
+	const resolve = async (
+		connect: () => FakeImapConnection,
+		afterRead: () => Promise<unknown> = async () => {},
+	) => {
 		await update({ isRead: true });
+		const read = await store.message.get(messageId);
+		await afterRead();
 		return resolveExhaustedFlagPushFailure(
 			{
 				messageService: store.message,
-				threadMessageService: store.threadMessage,
 				markerService: store.flagPush,
 				log: silentLog,
 			},
 			{
+				placement: {
+					status: read.status,
+					mailboxId: read.mailboxId,
+					uid: read.uid,
+				},
 				accountId: account.accountId,
 				accountConfigId: account.accountConfigId,
 				messageId,
@@ -149,6 +158,27 @@ describe("a flag push that exhausted its retries", () => {
 			null,
 		);
 		await assert.rejects(store.message.get(messageId));
+	});
+
+	it("leaves a row the user moved after the push read it", async () => {
+		const imap = new FakeImapServer();
+		imap.addFolder("INBOX");
+		const archive = await seedMailbox(store, account, "Archive");
+
+		const { outcome } = await resolve(
+			() => imap.connection(),
+			() =>
+				store.message.transitionPlacement(
+					messageId,
+					{ mailboxId: inbox.mailboxId },
+					{ mailboxId: archive.mailboxId, uid: 7 },
+				),
+		);
+
+		assert.equal(outcome, "reconciled");
+		const moved = await store.message.get(messageId);
+		assert.equal(moved.mailboxId, archive.mailboxId);
+		assert.equal(moved.uid, 7);
 	});
 
 	it("keeps the push and the rows of a message still there, dropped FETCH row or not", async () => {

@@ -19,9 +19,10 @@ import {
 	listObjectInstances,
 	OFFSET_BEARING,
 	parseCalendar,
-	projectCalendar,
+	prepareCalendarObject,
 	putCalendarObject,
 	type RecurrenceScopeValue,
+	readWrittenObject,
 	type ScopedWrite,
 	toOffsetIso,
 	toUtcIso,
@@ -283,7 +284,7 @@ export const commitScopedWrite = async (
 	write: ScopedWrite,
 ): Promise<CalendarOutcome<CalendarObjectItem | null>> => {
 	if (write.kind === "Delete") {
-		await deleteCalendarObject(deps.calendarUnitOfWork, {
+		await deleteCalendarObject(deps.calendarStore, {
 			accountConfigId,
 			calendarId: object.calendarId,
 			calendarObjectId: object.calendarObjectId,
@@ -291,58 +292,39 @@ export const commitScopedWrite = async (
 		return { ok: true, value: null };
 	}
 
-	// Both resources are read before either is written. A refusal returned from
-	// inside the write set would commit it — the truncated head alone, with the
-	// remainder of the series gone — so nothing that can be refused is left
-	// inside it, and a refusal from the write path there is a broken invariant
-	// rather than an outcome.
-	const checked = await Promise.all(
-		[write.icalData, ...(write.kind === "Split" ? [write.following] : [])].map(
-			(icalData) => readWritableCalendar(icalData, collectionTimezone),
-		),
-	);
-	const refused = checked.find((result) => !result.ok);
-	if (refused && !refused.ok) return refused;
-
-	return deps.calendarUnitOfWork.transaction(async () => {
-		const head = await putCalendarObject(deps.calendarUnitOfWork, {
-			accountConfigId,
-			calendarId: object.calendarId,
-			resourceName: object.resourceName,
-			icalData: write.icalData,
-		});
-		if (!head.ok) throw refusedAfterValidation(head.error.code);
-		if (write.kind === "Replace") return { ok: true, value: head.value };
-
-		const following = await putCalendarObject(deps.calendarUnitOfWork, {
-			accountConfigId,
-			calendarId: object.calendarId,
-			resourceName: `${deps.newId()}.ics`,
-			icalData: write.following,
-		});
-		if (!following.ok) throw refusedAfterValidation(following.error.code);
-		// The remainder is what the patch applied to, and it lives under an id the
-		// caller has never seen — returning the truncated head instead would leave
-		// them holding the resource their edit is not in.
-		return { ok: true, value: following.value };
+	// Both resources are prepared before either is written, so a refusal of
+	// either one commits nothing: half a split is never stored.
+	const zone = { timezone: collectionTimezone };
+	const head = await prepareCalendarObject(zone, {
+		accountConfigId,
+		calendarId: object.calendarId,
+		resourceName: object.resourceName,
+		icalData: write.icalData,
 	});
-};
+	if (!head.ok) return head;
+	if (write.kind === "Replace") {
+		await deps.calendarStore.commit([head.value]);
+		return {
+			ok: true,
+			value: await readWrittenObject(deps.calendarStore, head.value),
+		};
+	}
 
-const refusedAfterValidation = (code: string): Error =>
-	new Error(
-		`the calendar write path refused text this request had already validated (${code})`,
-	);
-
-/** Reads a resource the same way the write path will, without writing it. */
-const readWritableCalendar = async (
-	icalData: string,
-	collectionTimezone: string,
-): Promise<CalendarOutcome<null>> => {
-	const parsed = await parseCalendar(icalData);
-	if (!parsed.ok) return parsed;
-	const projected = projectCalendar(parsed.value, collectionTimezone);
-	if (!projected.ok) return projected;
-	return { ok: true, value: null };
+	const following = await prepareCalendarObject(zone, {
+		accountConfigId,
+		calendarId: object.calendarId,
+		resourceName: `${deps.newId()}.ics`,
+		icalData: write.following,
+	});
+	if (!following.ok) return following;
+	await deps.calendarStore.commit([head.value, following.value]);
+	// The remainder is what the patch applied to, and it lives under an id the
+	// caller has never seen — returning the truncated head instead would leave
+	// them holding the resource their edit is not in.
+	return {
+		ok: true,
+		value: await readWrittenObject(deps.calendarStore, following.value),
+	};
 };
 
 export const createCalendarEventFor = async (
@@ -365,7 +347,7 @@ export const createCalendarEventFor = async (
 	);
 	if (!built.ok) return built;
 
-	return putCalendarObject(deps.calendarUnitOfWork, {
+	return putCalendarObject(deps.calendarStore, {
 		accountConfigId,
 		calendarId: collection.value.calendarId,
 		resourceName: `${id}.ics`,

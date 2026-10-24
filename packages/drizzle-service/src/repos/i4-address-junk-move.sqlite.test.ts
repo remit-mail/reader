@@ -124,7 +124,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 	before(async () => {
 		({ db, sqlite, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
-		specialUse = new MailboxSpecialUseRepo(db as never);
+		specialUse = new MailboxSpecialUseRepo(db as never, db as never);
 	});
 
 	/**

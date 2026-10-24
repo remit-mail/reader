@@ -7,14 +7,13 @@ import {
 import {
 	type BodyPartItem,
 	type IAddressRepository,
+	type ICalendarStore,
 	type ICalendarSuggestionRepository,
-	type ICalendarUnitOfWork,
 	type IEnvelopeRepository,
 	type IFilterRepository,
 	type IMailboxSpecialUseRepository,
 	type IMessageRepository,
 	type IThreadMessageRepository,
-	type IUnitOfWork,
 	isSenderMuted,
 	type MessageItem,
 	type ThreadMessageItem,
@@ -75,7 +74,6 @@ import {
 	hasDecidedCategory,
 } from "./message-category.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import { PassThroughUnitOfWork } from "./pass-through-unit-of-work.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
@@ -318,7 +316,7 @@ export interface UnsubscribeConfig {
 /**
  * What body sync needs to offer a mail's invitation as a card (issue #1033).
  *
- * The unit of work is here to provision the account's default collection on
+ * The calendar store is here to provision the account's default collection on
  * first use, through the one function every other caller provisions with. That
  * is not bookkeeping: an invitation whose DTSTART names no zone is RFC 5545
  * floating time, and reading it anywhere but where the user's calendar lives
@@ -330,14 +328,13 @@ export interface UnsubscribeConfig {
  */
 export interface CalendarSuggestionConfig {
 	calendarSuggestionService: ICalendarSuggestionRepository;
-	calendarUnitOfWork: ICalendarUnitOfWork;
+	calendarStore: ICalendarStore;
 	filterService: Pick<IFilterRepository, "listByAccountAndState">;
 }
 
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
-	private readonly unitOfWork: IUnitOfWork;
 
 	constructor(
 		private messageService: IMessageRepository,
@@ -352,17 +349,8 @@ export class BodySyncService {
 		private readonly quarantineConfig?: QuarantineConfig,
 		private readonly unsubscribeConfig?: UnsubscribeConfig,
 		private readonly calendarConfig?: CalendarSuggestionConfig,
-		unitOfWork?: IUnitOfWork,
 	) {
 		this.log = logger ?? noopLogger;
-		this.unitOfWork =
-			unitOfWork ??
-			new PassThroughUnitOfWork({
-				message: messageService,
-				envelope: envelopeService,
-				address: addressService,
-				threadMessage: threadMessageService,
-			});
 		this.filterPipeline = filterConfig
 			? new FilterPipeline(filterConfig, this.log)
 			: undefined;
@@ -1131,12 +1119,7 @@ export class BodySyncService {
 			);
 		}
 
-		return this.reconcileGoneMessage(
-			message,
-			accountId,
-			accountConfigId,
-			mailboxPath,
-		);
+		return this.reconcileGoneMessage(message, accountId, mailboxPath);
 	}
 
 	/**
@@ -1149,7 +1132,6 @@ export class BodySyncService {
 	private async reconcileGoneMessage(
 		message: MessageItem,
 		accountId: string,
-		accountConfigId: string,
 		mailboxPath: string,
 	): Promise<never> {
 		const { messageId, uid } = message;
@@ -1162,26 +1144,10 @@ export class BodySyncService {
 			);
 		}
 
-		const reconciled = await this.unitOfWork.transaction(async (repos) => {
-			const deleted = await repos.message.deleteIfPlacement(messageId, {
-				status: message.status,
-				mailboxId: message.mailboxId,
-				uid,
-			});
-			if (!deleted) return false;
-			const threadMessages = await repos.threadMessage.findAllByMessageId(
-				accountConfigId,
-				messageId,
-			);
-			if (threadMessages.length > 0) {
-				await repos.threadMessage.deleteMany(
-					threadMessages.map((row) => ({
-						accountConfigId: row.accountConfigId,
-						threadMessageId: row.threadMessageId,
-					})),
-				);
-			}
-			return true;
+		const reconciled = await this.messageService.deleteIfPlacement(messageId, {
+			status: message.status,
+			mailboxId: message.mailboxId,
+			uid,
 		});
 
 		if (!reconciled) {
@@ -1394,7 +1360,7 @@ export class BodySyncService {
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarUnitOfWork, calendarSuggestionService, filterService } =
+		const { calendarStore, calendarSuggestionService, filterService } =
 			this.calendarConfig;
 
 		await Promise.resolve()
@@ -1424,7 +1390,7 @@ export class BodySyncService {
 				// the organizer meant it. Idempotent: the id is derived, so a second
 				// first use returns the collection the first one made.
 				const collection = await provisionDefaultCalendar(
-					calendarUnitOfWork,
+					calendarStore,
 					accountConfigId,
 				);
 				for (const part of parts) {

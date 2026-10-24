@@ -298,7 +298,11 @@ describe("runDrizzleCascadeDelete", () => {
 	];
 
 	test("deletes every enumerated row across all tables", async () => {
-		await runDrizzleCascadeDelete(db as never, entities, log);
+		await runDrizzleCascadeDelete(
+			{ app: db, mail: db, search: db } as never,
+			entities,
+			log,
+		);
 
 		assert.equal(
 			(
@@ -434,7 +438,7 @@ describe("runDrizzleCascadeDelete", () => {
 		await assert.rejects(
 			() =>
 				runDrizzleCascadeDelete(
-					db as never,
+					{ app: db, mail: db, search: db } as never,
 					[{ entityType: "Nonsense", key: { id: "x" } }],
 					log,
 				),

@@ -44,7 +44,6 @@ const resolve = (failedMessageIds: string[], connection = imap.connection()) =>
 	resolveExhaustedBodySyncFailures(
 		{
 			messageService: store.message,
-			threadMessageService: store.threadMessage,
 			storageService: storage,
 			log: silentLog,
 		},
@@ -128,7 +127,6 @@ describe("a body sync that exhausted its retries", () => {
 		const result = await resolveExhaustedBodySyncFailures(
 			{
 				messageService: store.message,
-				threadMessageService: store.threadMessage,
 				storageService: storage,
 				log: silentLog,
 			},

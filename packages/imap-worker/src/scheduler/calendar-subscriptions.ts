@@ -6,7 +6,7 @@ import {
 } from "@remit/calendar-service";
 import type {
 	ICalendarCollectionRepository,
-	ICalendarUnitOfWork,
+	ICalendarStore,
 } from "@remit/data-ports";
 import type { Logger } from "@remit/logger-lambda";
 import pMap from "p-map";
@@ -24,7 +24,7 @@ export interface CalendarSubscriptionRefreshDeps {
 		ICalendarCollectionRepository,
 		"listEnabledSubscriptions"
 	>;
-	calendarUnitOfWork: ICalendarUnitOfWork;
+	calendarStore: ICalendarStore;
 	log: Logger;
 	fetcher?: CalendarFeedFetcher;
 }
@@ -52,7 +52,7 @@ export const refreshDueCalendarSubscriptions = async (
 		due,
 		(collection) =>
 			refreshCalendarSubscription(
-				deps.calendarUnitOfWork,
+				deps.calendarStore,
 				collection,
 				now,
 				deps.fetcher,
@@ -85,7 +85,7 @@ export const refreshDueCalendarSubscriptions = async (
 
 export const buildCalendarSubscriptionRefresh =
 	(
-		client: Pick<RemitClient, "calendarCollection" | "calendarUnitOfWork">,
+		client: Pick<RemitClient, "calendarCollection" | "calendarStore">,
 		log: Logger,
 	): ((
 		now: number,
@@ -95,7 +95,7 @@ export const buildCalendarSubscriptionRefresh =
 		refreshDueCalendarSubscriptions(
 			{
 				calendarCollection: client.calendarCollection,
-				calendarUnitOfWork: client.calendarUnitOfWork,
+				calendarStore: client.calendarStore,
 				log,
 			},
 			now,

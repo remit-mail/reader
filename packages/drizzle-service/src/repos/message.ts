@@ -9,6 +9,7 @@ import {
 	and,
 	asc,
 	eq,
+	exists,
 	gt,
 	inArray,
 	isNotNull,
@@ -17,7 +18,7 @@ import {
 	or,
 	type SQL,
 } from "drizzle-orm";
-
+import { runBatch, type SqliteBatchItem } from "../batch.js";
 import type { Db } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -42,7 +43,8 @@ import {
 	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
-import { runInTransaction } from "../tx.js";
+import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -112,46 +114,53 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete">;
 
 /**
- * Delete a message and its whole per-message subtree by message id — the
- * child tables and the message row. Runs inside a caller-supplied transaction
- * so the subtree goes atomically.
+ * The statements that delete a message and its whole per-message subtree by
+ * message id: the child tables, then the message row. The caller runs them as
+ * one batch so the subtree goes atomically; the last statement returns the
+ * message ids it removed. `guard` rides every statement, so
+ * a guard that reads the message row holds until the last statement removes it.
  */
-export async function deleteMessageSubtree(
-	tx: SubtreeDb,
+export function deleteMessageSubtree(
+	db: SubtreeDb,
 	messageIds: string[],
-): Promise<void> {
-	if (messageIds.length === 0) return;
-
-	await tx
-		.delete(messageFlagTable)
-		.where(inArray(messageFlagTable.messageId, messageIds));
-	await tx
-		.delete(messageReferenceTable)
-		.where(inArray(messageReferenceTable.messageId, messageIds));
-	await tx
-		.delete(envelopeAddressTable)
-		.where(inArray(envelopeAddressTable.messageId, messageIds));
-	await tx
-		.delete(bodyPartParameterTable)
-		.where(inArray(bodyPartParameterTable.messageId, messageIds));
-	await tx
-		.delete(bodyPartStorageTable)
-		.where(inArray(bodyPartStorageTable.messageId, messageIds));
-	await tx
-		.delete(rawMessageStorageTable)
-		.where(inArray(rawMessageStorageTable.messageId, messageIds));
-	await tx
-		.delete(bodyPartTable)
-		.where(inArray(bodyPartTable.messageId, messageIds));
-	await tx
-		.delete(bodyStructureRefetchTable)
-		.where(inArray(bodyStructureRefetchTable.messageId, messageIds));
-	await tx
-		.delete(envelopeTable)
-		.where(inArray(envelopeTable.messageId, messageIds));
-	await tx
-		.delete(messageTable)
-		.where(inArray(messageTable.messageId, messageIds));
+	guard?: SQL,
+): SqliteBatchItem[] {
+	if (messageIds.length === 0) return [];
+	return [
+		db
+			.delete(messageFlagTable)
+			.where(and(inArray(messageFlagTable.messageId, messageIds), guard)),
+		db
+			.delete(messageReferenceTable)
+			.where(and(inArray(messageReferenceTable.messageId, messageIds), guard)),
+		db
+			.delete(envelopeAddressTable)
+			.where(and(inArray(envelopeAddressTable.messageId, messageIds), guard)),
+		db
+			.delete(bodyPartParameterTable)
+			.where(and(inArray(bodyPartParameterTable.messageId, messageIds), guard)),
+		db
+			.delete(bodyPartStorageTable)
+			.where(and(inArray(bodyPartStorageTable.messageId, messageIds), guard)),
+		db
+			.delete(rawMessageStorageTable)
+			.where(and(inArray(rawMessageStorageTable.messageId, messageIds), guard)),
+		db
+			.delete(bodyPartTable)
+			.where(and(inArray(bodyPartTable.messageId, messageIds), guard)),
+		db
+			.delete(bodyStructureRefetchTable)
+			.where(
+				and(inArray(bodyStructureRefetchTable.messageId, messageIds), guard),
+			),
+		db
+			.delete(envelopeTable)
+			.where(and(inArray(envelopeTable.messageId, messageIds), guard)),
+		db
+			.delete(messageTable)
+			.where(and(inArray(messageTable.messageId, messageIds), guard))
+			.returning({ messageId: messageTable.messageId }),
+	];
 }
 
 /**
@@ -183,11 +192,14 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 };
 
 export class DrizzleMessageRepository implements IMessageRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private search: SearchIndex,
+	) {}
 
-	async create(input: CreateMessageInput): Promise<MessageItem> {
+	private rowOf(input: CreateMessageInput) {
 		const now = Date.now();
-		const row = {
+		return {
 			messageId: input.messageId,
 			mailboxId: input.mailboxId,
 			uid: input.uid,
@@ -218,6 +230,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			createdAt: now,
 			updatedAt: now,
 		};
+	}
+
+	async create(input: CreateMessageInput): Promise<MessageItem> {
+		const row = this.rowOf(input);
 
 		// Faithful to ElectroDB message.create: a duplicate messageId raises a
 		// unique-constraint violation, surfaced as the domain conflict error.
@@ -240,17 +256,13 @@ export class DrizzleMessageRepository implements IMessageRepository {
 	async upsertWithStatus(
 		input: CreateMessageInput,
 	): Promise<{ item: MessageItem; created: boolean }> {
-		const existing = await this.db
-			.select()
-			.from(messageTable)
-			.where(eq(messageTable.messageId, input.messageId));
-
-		if (existing.length > 0) {
-			return { item: toMessageItem(existing[0]), created: false };
-		}
-
-		const item = await this.create(input);
-		return { item, created: true };
+		const [inserted] = await this.db
+			.insert(messageTable)
+			.values(this.rowOf(input))
+			.onConflictDoNothing({ target: messageTable.messageId })
+			.returning();
+		if (inserted) return { item: toMessageItem(inserted), created: true };
+		return { item: await this.get(input.messageId), created: false };
 	}
 
 	async get(messageId: string): Promise<MessageItem>;
@@ -434,28 +446,35 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		messageId: string,
 		expected: PlacementPredicate,
 	): Promise<boolean> {
-		return runInTransaction(this.db, async (tx) => {
-			const claimed = await tx
-				.update(messageTable)
-				.set({ updatedAt: Date.now() })
+		const placed = exists(
+			this.db
+				.select({ messageId: messageTable.messageId })
+				.from(messageTable)
 				.where(
 					and(
 						eq(messageTable.messageId, messageId),
 						...placementTerms(expected),
 					),
-				)
-				.returning({ messageId: messageTable.messageId });
-			if (claimed.length === 0) return false;
-			await deleteMessageSubtree(tx as unknown as SubtreeDb, [messageId]);
-			return true;
-		});
+				),
+		);
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(eq(threadMessageTable.messageId, messageId));
+		const results = await runBatch(this.db, [
+			this.db
+				.delete(threadMessageTable)
+				.where(and(eq(threadMessageTable.messageId, messageId), placed)),
+			...deleteMessageSubtree(this.db, [messageId], placed),
+		]);
+		await this.search.sync(listings.map((row) => row.threadMessageId));
+		const removed = results.at(-1);
+		return Array.isArray(removed) && removed.length > 0;
 	}
 
 	async deleteMany(messageIds: string[]): Promise<void> {
 		if (messageIds.length === 0) return;
-		await runInTransaction(this.db, (tx) =>
-			deleteMessageSubtree(tx as unknown as SubtreeDb, messageIds),
-		);
+		await runBatch(this.db, deleteMessageSubtree(this.db, messageIds));
 	}
 
 	async listByMailbox(
@@ -579,6 +598,61 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.returning();
 		if (rows.length === 0) return undefined;
 		return toMessageItem(rows[0]);
+	}
+
+	async repointIfPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+		to: { mailboxId: string; uid: number; isDeleted: boolean },
+	): Promise<boolean> {
+		const now = Date.now();
+		const landed = exists(
+			this.db
+				.select({ messageId: messageTable.messageId })
+				.from(messageTable)
+				.where(
+					and(
+						eq(messageTable.messageId, messageId),
+						eq(messageTable.mailboxId, to.mailboxId),
+						eq(messageTable.uid, to.uid),
+					),
+				),
+		);
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(eq(threadMessageTable.messageId, messageId));
+		const [moved] = await runBatch(this.db, [
+			this.db
+				.update(messageTable)
+				.set({
+					uid: to.uid,
+					mailboxId: to.mailboxId,
+					originalUid: null,
+					status: "active",
+					syncStatus: "synced",
+					abandonedMutation: "none",
+					updatedAt: now,
+				})
+				.where(
+					and(
+						eq(messageTable.messageId, messageId),
+						...placementTerms(expected),
+					),
+				)
+				.returning({ messageId: messageTable.messageId }),
+			this.db
+				.update(threadMessageTable)
+				.set({
+					mailboxId: to.mailboxId,
+					uid: to.uid,
+					isDeleted: to.isDeleted,
+					updatedAt: now,
+				})
+				.where(and(eq(threadMessageTable.messageId, messageId), landed)),
+		] as const);
+		await this.search.sync(listings.map((row) => row.threadMessageId));
+		return moved.length > 0;
 	}
 
 	async updateUid(

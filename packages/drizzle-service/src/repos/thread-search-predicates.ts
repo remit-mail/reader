@@ -1,4 +1,5 @@
-import { type SQL, sql } from "drizzle-orm";
+import { type SQL, type SQLWrapper, sql } from "drizzle-orm";
+import { threadMessageSearchTable as fts } from "../search/thread-message-search.js";
 
 // Accent- and case-insensitive substring match over the whole mailbox, isolated
 // here as the one text-search seam whose behaviour is engine-specific. The
@@ -8,19 +9,20 @@ import { type SQL, sql } from "drizzle-orm";
 
 const escapeLike = (term: string): string => term.replace(/[\\%_]/g, "\\$&");
 
-// Text search is the external-content FTS5 trigram index that
-// npm-scripts/sqlite-search-index.sql installs (RFC 036 D4): `thread_message_fts`
-// indexes the folded subject, the sender, and the body preview the row carries,
-// and MATCH is an accent- and
-// case-insensitive substring search (the tokenizer folds both sides, so the
-// needle is passed through untransformed). The predicate is a `rowid IN
-// (subquery)` over that index — the outer WHERE still narrows by mailbox.
+// Every predicate here is a condition over `thread_message_fts`, the FTS5
+// trigram index in the tenant search database (#1420). It indexes the folded
+// subject, the sender and the body preview the row carries, and MATCH is an
+// accent- and case-insensitive substring search (the tokenizer folds both
+// sides, so the needle is passed through untransformed). The predicate is a
+// `rowid IN (subquery)` over the same table, so terms combine with AND and OR
+// like any other condition.
 //
 // Trigram indexing needs three characters, so a one- or two-character term
-// falls back to the unindexed folded LIKE scan D4 names — lower() both sides,
-// substring-match, `escape '\'` making the JS-escaped metacharacters literal.
-// It is case-insensitive for ASCII and does not fold diacritics; the accepted
-// difference between a short term and an indexed one (contract C10).
+// falls back to a folded LIKE scan of the index's own copy of the text —
+// lower() both sides, substring-match, `escape '\'` making the JS-escaped
+// metacharacters literal. It is case-insensitive for ASCII and does not fold
+// diacritics; the accepted difference between a short term and an indexed one
+// (contract C10).
 
 // FTS5 treats bare query text as its match grammar (AND/OR/NEAR/`*`/`-`/`:`), so
 // wrap the term as a double-quoted string literal — doubling embedded quotes —
@@ -50,25 +52,23 @@ export const isNarrowableTerm = (term: string): boolean =>
 	isTrigramIndexable(term) || isAscii(term);
 
 const ftsRowidMatch = (matchExpr: string): SQL =>
-	sql`"thread_message"."rowid" in (select "rowid" from "thread_message_fts" where "thread_message_fts" match ${matchExpr})`;
-
-const SUBJECT_FOLDED = sql`lower(coalesce(subject, ''))`;
-const FROM_FOLDED = sql`lower(coalesce(from_name, '') || ' ' || coalesce(from_email, ''))`;
-const BODY_FOLDED = sql`lower(coalesce(snippet, ''))`;
-const LIST_ID_FOLDED = sql`lower(coalesce(list_id, ''))`;
+	sql`${fts}.rowid in (select rowid from ${fts} where ${fts} match ${matchExpr})`;
 
 const likePattern = (term: string): SQL =>
 	sql`'%' || lower(${escapeLike(term)}) || '%'`;
 
+const folded = (column: SQLWrapper, term: string): SQL =>
+	sql`lower(${column}) like ${likePattern(term)} escape '\\'`;
+
 export const subjectMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
 		? ftsRowidMatch(`subject : ${ftsPhrase(term)}`)
-		: sql`${SUBJECT_FOLDED} like ${likePattern(term)} escape '\\'`;
+		: folded(fts.subject, term);
 
 export const fromMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
 		? ftsRowidMatch(`sender : ${ftsPhrase(term)}`)
-		: sql`${FROM_FOLDED} like ${likePattern(term)} escape '\\'`;
+		: folded(fts.sender, term);
 
 /**
  * Match the body text the row carries: the stored preview, quoted replies
@@ -84,13 +84,11 @@ export const fromMatch = (term: string): SQL =>
 export const bodyMatch = (term: string): SQL =>
 	isTrigramIndexable(term)
 		? ftsRowidMatch(`body : ${ftsPhrase(term)}`)
-		: sql`${BODY_FOLDED} like ${likePattern(term)} escape '\\'`;
+		: folded(fts.body, term);
 
-// The FTS index carries subject and sender only, so a List-Id term is always
-// the folded LIKE scan. It is the narrowing half of a rule back-apply, where a
-// scan of one config's rows beats reading them all into the service (#459).
-export const listIdMatch = (term: string): SQL =>
-	sql`${LIST_ID_FOLDED} like ${likePattern(term)} escape '\\'`;
+// The List-Id is carried unindexed, so a List-Id term is always the folded LIKE
+// scan. It is the narrowing half of a rule back-apply (#459).
+export const listIdMatch = (term: string): SQL => folded(fts.listId, term);
 
 export const senderMatchRank = (terms: readonly string[]): SQL<number> =>
 	terms.length === 0

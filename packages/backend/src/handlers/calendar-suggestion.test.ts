@@ -8,8 +8,8 @@ import type {
 	CalendarSuggestionItem,
 	CreateFilterInput,
 	FilterItem,
+	ICalendarStore,
 	ICalendarSuggestionRepository,
-	ICalendarUnitOfWork,
 	MessageData,
 	PutCalendarSuggestionInput,
 	SettleCalendarSuggestionInput,
@@ -806,7 +806,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 			urlSegment: "default",
 			displayName: "Calendar",
 		});
-		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
+		const accepted = await acceptCalendarSuggestion(client.calendarStore, {
 			accountConfigId,
 			calendarId: calendar.calendarId,
 			suggestion: await putSuggestion(accountConfigId, messageId),
@@ -982,7 +982,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 		calendarId: string,
 		suggestion: CalendarSuggestionItem,
 	): Promise<CalendarSuggestionItem> => {
-		const accepted = await acceptCalendarSuggestion(client.calendarUnitOfWork, {
+		const accepted = await acceptCalendarSuggestion(client.calendarStore, {
 			accountConfigId,
 			calendarId,
 			suggestion,
@@ -1123,21 +1123,29 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			calendar.calendarId,
 			await putInvite(accountConfigId, "msg-rollback", 0),
 		);
-		const failing: ICalendarUnitOfWork = {
-			transaction: (fn) =>
-				client.calendarUnitOfWork.transaction((repos) =>
-					fn({
-						...repos,
-						calendarCollection: Object.assign(
-							Object.create(repos.calendarCollection),
-							{
-								bumpSyncSequence: async () => {
-									throw new Error("disk full");
-								},
-							},
-						),
-					}),
-				),
+		const answered = await client.calendarObject.get(
+			calendar.calendarId,
+			card.acceptedCalendarObjectId,
+		);
+		const {
+			calendarObjectId: _id,
+			syncSequence: _sequence,
+			createdAt: _created,
+			updatedAt: _updated,
+			...object
+		} = answered;
+		const failing: ICalendarStore = {
+			repos: client.calendarStore.repos,
+			commit: (writes) =>
+				client.calendarStore.commit([
+					...writes,
+					{
+						kind: "PutObject",
+						accountConfigId,
+						object: { ...object, calendarId: "no-such-calendar" },
+						occurrences: [],
+					},
+				]),
 		};
 
 		await assert.rejects(
@@ -1146,14 +1154,14 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 					accountConfigId,
 					suggestion: card,
 				}),
-			/disk full/,
+			/NOT NULL constraint failed/,
 		);
 
-		const object = await client.calendarObject.find(
+		const kept = await client.calendarObject.find(
 			calendar.calendarId,
 			card.acceptedCalendarObjectId,
 		);
-		assert.ok(object, "the event is still on the calendar");
+		assert.ok(kept, "the event is still on the calendar");
 		assert.ok(
 			(
 				await client.calendarEventIndex.listForObject(

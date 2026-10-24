@@ -7,7 +7,6 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { rebaseMailboxPath } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
@@ -178,7 +177,7 @@ export class MailboxQueueService {
 		const mailbox = await this.mailboxService.get(accountId, mailboxId);
 		const oldPath = mailbox.fullPath;
 
-		// One intent over the folder and every descendant, in one transaction:
+		// One intent over the folder and every descendant, in one batch:
 		// IMAP RENAME moves the subtree in one command, so a partially recorded
 		// rename is the state that produced today's phantom rows (D6). A
 		// descendant already mid-mutation refuses the whole rename.
@@ -188,24 +187,7 @@ export class MailboxQueueService {
 			{
 				from: INTENT_RECORDABLE_FROM,
 				to: MailboxSyncStatus.pending,
-				rowSet: (row) => {
-					const target = rebaseMailboxPath(
-						row.fullPath,
-						oldPath,
-						newPath,
-						mailbox.hierarchyDelimiter,
-					);
-					// The subtree is the folder and the rows under its own prefix, so
-					// every one of them rebases. A row that does not is a resolution
-					// bug, and recording an intent with no target for it would strand
-					// it `pending` with nothing able to settle it.
-					if (target === undefined) {
-						throw new Error(
-							`Mailbox ${row.mailboxId} at "${row.fullPath}" is not under "${oldPath}"`,
-						);
-					}
-					return { pendingPath: target };
-				},
+				newPath,
 			},
 		);
 		if (!written) {

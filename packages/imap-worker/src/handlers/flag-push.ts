@@ -249,8 +249,13 @@ export const handleFlagPush = async (
 					// two terminal outcomes (epic invariant 3) instead of
 					// dead-lettering with no diagnosis.
 					const { outcome } = await resolveExhaustedFlagPushFailure(
-						{ markerService, messageService, threadMessageService, log },
+						{ markerService, messageService, log },
 						{
+							placement: {
+								status: message.status,
+								mailboxId: message.mailboxId,
+								uid: message.uid,
+							},
 							accountId,
 							accountConfigId,
 							messageId,

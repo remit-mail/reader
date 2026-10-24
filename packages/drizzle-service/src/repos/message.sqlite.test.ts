@@ -4,19 +4,20 @@ import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "../schema/message-data.js";
+import { messageDataSchema } from "../schema/message-data.js";
+import { threadMessageTable } from "../schema/thread-message.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import { DrizzleMessageRepository } from "./message.js";
 
+const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
+
 // Runs the ported message repo against a real better-sqlite3 database
-// (RFC 036 D1). Exercises the SQLite-specific seams: the SAVEPOINT-bracketed
-// transaction, the unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
+// (RFC 036 D1). Exercises the SQLite-specific seams: the batched delete, the
+// unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 
 describe("DrizzleMessageRepository (sqlite)", () => {
-	let db: SqliteTestDb<MessageDataSchema>;
+	let db: SqliteTestDb<typeof SCHEMA>;
 	let close: () => Promise<void>;
 	let repo: DrizzleMessageRepository;
 
@@ -41,8 +42,8 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 	};
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(messageDataSchema));
-		repo = new DrizzleMessageRepository(db);
+		({ db, close } = await createSqliteTestDb(SCHEMA));
+		repo = new DrizzleMessageRepository(db, new SearchIndex(db, db));
 	});
 
 	after(async () => {
@@ -125,6 +126,25 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 	// The state every inbound sync row is born in, and the one the re-point gate
 	// in mailbox-service has to accept (#1096): the sync path supplies no
 	// syncStatus and nothing later promotes what the repository writes here.
+	test("two concurrent saves of one message both succeed, one of them creating it", async () => {
+		const messageId = "00000000-0000-0000-1111-000000000099";
+		const input = {
+			...BASE_INPUT,
+			messageId,
+			envelopeId: deriveEnvelopeId(messageId),
+			rootBodyPartId: deriveRootBodyPartId(messageId),
+		};
+
+		const saves = await Promise.all([
+			repo.upsertWithStatus(input),
+			repo.upsertWithStatus(input),
+		]);
+
+		assert.deepEqual(saves.map((save) => save.created).sort(), [false, true]);
+		assert.equal(saves[0]?.item.messageId, messageId);
+		assert.equal(saves[1]?.item.messageId, messageId);
+	});
+
 	test("upsertWithStatus writes pending when the caller names no syncStatus", async () => {
 		const inboundId = "00000000-0000-0000-2222-000000000009";
 		const { item, created } = await repo.upsertWithStatus({

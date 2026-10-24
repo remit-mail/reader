@@ -259,9 +259,9 @@ const landingState = (
 
 /**
  * What the apply has decided so far. Owned by `importConfig` rather than by
- * `applyDocument` so a write that fails part-way still has it: on a backend
- * without a transaction those items are what actually landed, and a report that
- * threw them away would name a stopping point without naming the state.
+ * `applyDocument` so a write that fails part-way still has it: those items are
+ * what actually landed, and a report that threw them away would name a stopping
+ * point without naming the state.
  */
 interface ApplyProgress {
 	items: ConfigImportItemReport[];
@@ -317,8 +317,7 @@ const foldersFor = (
 
 /**
  * A write that failed after validation. It carries the item it stopped on so
- * the report can name it: the import is atomic, so nothing landed, and where it
- * stopped is the only fact worth recovering from.
+ * the report can name it beside what landed before it.
  */
 class ImportWriteError extends Error {
 	constructor(
@@ -845,7 +844,7 @@ class SettingWriter {
  *
  * The order is fixed: parse and migrate, check every reference and every
  * natural key against what this configuration already holds, and only then
- * write — inside one transaction, accounts before labels before filters before
+ * write — accounts before labels before filters before
  * addresses before settings, because each of those reads
  * an id the one before it minted.
  *
@@ -910,14 +909,16 @@ export const importConfig = async (
 		};
 	}
 
-	const { transaction } = deps;
-	const atomic = transaction !== undefined;
 	const progress = emptyProgress();
-	const apply = (): Promise<string> =>
-		applyDocument(deps, input, document, existing, progress);
 
 	try {
-		const importId = await (transaction ? transaction(apply) : apply());
+		const importId = await applyDocument(
+			deps,
+			input,
+			document,
+			existing,
+			progress,
+		);
 		return {
 			outcome: "report",
 			report: {
@@ -934,9 +935,10 @@ export const importConfig = async (
 	} catch (error) {
 		if (!(error instanceof ImportWriteError)) throw error;
 		// What the report owes the reader is where it stopped and what is now in
-		// the store. Under a transaction the answer to the second is "nothing";
-		// without one it is everything recorded up to the failure.
-		const landed = atomic ? emptyProgress() : progress;
+		// the store: everything recorded up to the failure. Every write is keyed on
+		// a natural key, so importing the same file again with merge folds the
+		// rest in over what landed.
+		const landed = progress;
 		return {
 			outcome: "report",
 			report: {
@@ -955,11 +957,7 @@ export const importConfig = async (
 				errors: [
 					problem(
 						"import_write_failed",
-						`${error.message} ${
-							atomic
-								? "Nothing was written; the import stopped here."
-								: "The items above it were written and remain; the import stopped here."
-						}`,
+						`${error.message} The items above it were written and remain; import the same file again with merge to finish.`,
 						{ section: error.section, key: error.key },
 					),
 				],

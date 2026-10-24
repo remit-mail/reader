@@ -8,7 +8,6 @@ import {
 	isCursorRebuildNeeded,
 	isMessageGoneFromOpenMailbox,
 	MailboxCursorPausedError,
-	reconcileStaleMessage,
 	resolveExhaustedPlacementMoveFailure,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
@@ -185,6 +184,11 @@ export const handlePlacementMovePush = async (
 	}
 
 	const message = await messageService.get(messageId);
+	const placementRead = {
+		status: message.status,
+		mailboxId: message.mailboxId,
+		uid: message.uid,
+	};
 
 	// A newer local action (drag-and-drop move, auto-moved Undo) already
 	// changed the message's location away from what this marker still
@@ -224,14 +228,13 @@ export const handlePlacementMovePush = async (
 			destinationMailboxId: marker.destinationMailboxId,
 		};
 		if (source.kind === "gone") {
-			const { threadMessagesDeleted } = await reconcileStaleMessage(
-				{ messageService, threadMessageService },
-				accountConfigId,
+			const reconciled = await messageService.deleteIfPlacement(
 				messageId,
+				placementRead,
 			);
 			await markerService.delete(messageId);
 			log.error(
-				{ ...context, threadMessagesDeleted },
+				{ ...context, reconciled },
 				"Placement move not pushed: its source folder is gone; the stale row was reconciled",
 			);
 			if (destination.kind === "present") {
@@ -337,10 +340,9 @@ export const handlePlacementMovePush = async (
 					if (outcome.kind === "not-found") {
 						// External delete supersedes the marker entirely (epic invariant 2).
 						await markerService.delete(messageId);
-						const { threadMessagesDeleted } = await reconcileStaleMessage(
-							{ messageService, threadMessageService },
-							accountConfigId,
+						const reconciled = await messageService.deleteIfPlacement(
 							messageId,
+							placementRead,
 						);
 						log.info(
 							{
@@ -348,7 +350,7 @@ export const handlePlacementMovePush = async (
 								accountId,
 								uid: message.uid,
 								sourceMailboxPath: sourceMailbox.fullPath,
-								threadMessagesDeleted,
+								reconciled,
 							},
 							"Message no longer at its pending-move source (external delete or moved away); marker dropped, stale row reconciled",
 						);
@@ -434,6 +436,11 @@ export const handlePlacementMovePush = async (
 					const { outcome } = await resolveExhaustedPlacementMoveFailure(
 						{ markerService, messageService, threadMessageService, log },
 						{
+							placement: {
+								status: message.status,
+								mailboxId: message.mailboxId,
+								uid: message.uid,
+							},
 							accountId,
 							accountConfigId,
 							messageId,

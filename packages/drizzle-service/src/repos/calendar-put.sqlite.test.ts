@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import {
+	prepareCalendarObject,
 	provisionDefaultCalendar,
 	putCalendarObject,
 } from "@remit/calendar-service";
 import type {
-	CalendarUnitOfWorkRepositories,
-	ICalendarUnitOfWork,
+	CalendarRepositories,
+	CalendarWrite,
+	ICalendarStore,
 } from "@remit/data-ports";
 import type { Db } from "../db.js";
 import {
@@ -15,7 +17,7 @@ import {
 	calendarTable,
 } from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
-import { DrizzleCalendarUnitOfWork } from "./calendar-unit-of-work.js";
+import { DrizzleCalendarStore } from "./calendar-store.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-1";
 
@@ -34,35 +36,37 @@ const RESOURCE = [
 ].join("\r\n");
 
 /**
- * Fails the third of the write set's three writes. The occurrence rows are
- * written last, so a failure there is the case that proves the boundary: the
- * object row and the sequence bump are already in the transaction when it
- * happens.
+ * Appends a write that fails to every commit: a resource put into a collection
+ * that does not exist, which the store refuses at its last statement. Every
+ * statement of the real write set has run by then, so a failure there is the
+ * case that proves the boundary.
  */
-class FailingIndexUnitOfWork implements ICalendarUnitOfWork {
-	constructor(private inner: ICalendarUnitOfWork) {}
+class FailingLastWriteStore implements ICalendarStore {
+	constructor(private inner: ICalendarStore) {}
 
-	transaction<T>(
-		fn: (repos: CalendarUnitOfWorkRepositories) => Promise<T>,
-	): Promise<T> {
-		return this.inner.transaction((repos) =>
-			fn({
-				...repos,
-				calendarEventIndex: {
-					...repos.calendarEventIndex,
-					replaceForObject: () => {
-						throw new Error("the index write failed");
-					},
-				},
-			}),
+	get repos(): CalendarRepositories {
+		return this.inner.repos;
+	}
+
+	async commit(writes: readonly CalendarWrite[]): Promise<void> {
+		const orphan = await prepareCalendarObject(
+			{ timezone: "" },
+			{
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				calendarId: "no-such-calendar",
+				resourceName: "orphan.ics",
+				icalData: RESOURCE,
+			},
 		);
+		assert.ok(orphan.ok);
+		await this.inner.commit([...writes, orphan.value]);
 	}
 }
 
 describe("the calendar write path against sqlite", () => {
 	let db: Db<Record<string, unknown>>;
 	let close: () => Promise<void>;
-	let unitOfWork: ICalendarUnitOfWork;
+	let store: ICalendarStore;
 	let calendarId: string;
 
 	before(async () => {
@@ -73,11 +77,8 @@ describe("the calendar write path against sqlite", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		unitOfWork = new DrizzleCalendarUnitOfWork(db);
-		const collection = await provisionDefaultCalendar(
-			unitOfWork,
-			ACCOUNT_CONFIG_ID,
-		);
+		store = new DrizzleCalendarStore(db, db);
+		const collection = await provisionDefaultCalendar(store, ACCOUNT_CONFIG_ID);
 		calendarId = collection.calendarId;
 	});
 
@@ -87,7 +88,7 @@ describe("the calendar write path against sqlite", () => {
 	const occurrences = () => db.select().from(calendarEventIndexTable);
 
 	test("writes the object, its occurrences and the sequence bump together", async () => {
-		const result = await putCalendarObject(unitOfWork, {
+		const result = await putCalendarObject(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "review.ics",
@@ -111,17 +112,17 @@ describe("the calendar write path against sqlite", () => {
 		);
 	});
 
-	test("a failing index write leaves no object behind", async () => {
+	test("a failing write in the batch leaves no object behind", async () => {
 		const before = await objects();
 
 		await assert.rejects(
-			putCalendarObject(new FailingIndexUnitOfWork(unitOfWork), {
+			putCalendarObject(new FailingLastWriteStore(store), {
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "doomed.ics",
 				icalData: RESOURCE,
 			}),
-			/the index write failed/,
+			/NOT NULL constraint failed/,
 		);
 
 		const after = await objects();
@@ -132,17 +133,17 @@ describe("the calendar write path against sqlite", () => {
 		);
 	});
 
-	test("a failing index write leaves the collection's sequence where it was", async () => {
+	test("a failing write in the batch leaves the collection's sequence where it was", async () => {
 		const [before] = await db.select().from(calendarTable);
 
 		await assert.rejects(
-			putCalendarObject(new FailingIndexUnitOfWork(unitOfWork), {
+			putCalendarObject(new FailingLastWriteStore(store), {
 				accountConfigId: ACCOUNT_CONFIG_ID,
 				calendarId,
 				resourceName: "doomed-again.ics",
 				icalData: RESOURCE,
 			}),
-			/the index write failed/,
+			/NOT NULL constraint failed/,
 		);
 
 		const [after] = await db.select().from(calendarTable);
@@ -153,7 +154,7 @@ describe("the calendar write path against sqlite", () => {
 		const before = await objects();
 		const [collectionBefore] = await db.select().from(calendarTable);
 
-		const result = await putCalendarObject(unitOfWork, {
+		const result = await putCalendarObject(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "backwards.ics",
@@ -178,7 +179,7 @@ describe("the calendar write path against sqlite", () => {
 	});
 
 	test("rewriting a resource replaces its occurrences rather than adding to them", async () => {
-		const first = await putCalendarObject(unitOfWork, {
+		const first = await putCalendarObject(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "shrinking.ics",
@@ -186,7 +187,7 @@ describe("the calendar write path against sqlite", () => {
 		});
 		assert.ok(first.ok);
 
-		const second = await putCalendarObject(unitOfWork, {
+		const second = await putCalendarObject(store, {
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			calendarId,
 			resourceName: "shrinking.ics",

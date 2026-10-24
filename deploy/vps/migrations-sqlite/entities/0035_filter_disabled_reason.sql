@@ -1,1 +1,0 @@
-ALTER TABLE `filter` ADD `disabled_reason` text DEFAULT 'None' NOT NULL;
