@@ -33,9 +33,14 @@ const run = (cmd, args, opts = {}) =>
 // the registry.
 const IMPORTED = "@remit/backend";
 
-// Packages that publish compiled output, typechecked by a consumer with strict
-// flags on.
-const STRICT_IMPORTS = ["@remit/logger", "@remit/data-ports"];
+// Entries that publish compiled output, typechecked by a consumer with strict
+// flags on. The consumer keeps skipLibCheck, as the reader-cloudflare Worker
+// does, so what is held to the flags is each entry's declared surface.
+const STRICT_IMPORTS = [
+	"@remit/logger",
+	"@remit/data-ports",
+	"@remit/backend/api",
+];
 
 const withTempDir = (fn) => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-consumer-tc-"));
@@ -126,9 +131,7 @@ withTempDir((tmp) => {
 		`import * as Imported from "${IMPORTED}";\nimport * as Api from "${IMPORTED}/api";\nexport type Probe = [typeof Imported, typeof Api];\n`,
 	);
 
-	// The compiled packages are held to the flags a strict consumer turns on —
-	// the reader-cloudflare Worker among them. They ship declarations, so these
-	// flags never reach their source.
+	// The compiled entries are held to the flags a strict consumer turns on.
 	compile(
 		"strict-consumer",
 		{

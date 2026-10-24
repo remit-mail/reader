@@ -23,6 +23,7 @@ import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbo
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
 import { applyMigrationSets } from "./migration-sets.js";
 import { splitSqlite } from "./split-sqlite.js";
+
 // The drizzle-service modules above are reached by module path rather than
 // through the package entry point: this entrypoint is bundled by esbuild, and
 // everything reached this way is pure TypeScript over the drizzle query builder,
