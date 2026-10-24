@@ -3,9 +3,9 @@ import { join } from "node:path";
 import {
 	type CascadeDeleter,
 	createSqliteCascadeDeleter,
+	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger-lambda";
-import { env } from "expect-env";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
 
 // Mirrors `@remit/storage-service`'s filesystem-backend default: bodies
@@ -30,14 +30,14 @@ const deleteStoragePrefix = async (
 };
 
 // The Drizzle cascade deleter is opened once, on first use, and reused: it
-// opens the shared file at `SQLITE_DB_PATH` (the native binding loads there,
+// opens the app, mail and search databases (the native binding loads there,
 // hence async). Built lazily so the fanout worker — which signs out but never
 // cascade-deletes — does not open a database handle it will not use.
 let deleterPromise: Promise<CascadeDeleter> | undefined;
 
 const getDeleter = (): Promise<CascadeDeleter> => {
 	if (!deleterPromise)
-		deleterPromise = createSqliteCascadeDeleter(env.SQLITE_DB_PATH);
+		deleterPromise = createSqliteCascadeDeleter(sqliteDatabasePathsFromEnv());
 	return deleterPromise;
 };
 

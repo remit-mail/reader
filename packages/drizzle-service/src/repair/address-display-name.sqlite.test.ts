@@ -17,11 +17,9 @@ const clientOver = (sqlite: Database.Database): DisplayNameRepairClient => ({
 });
 
 const seed = (sqlite: Database.Database): void => {
-	sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "address"));
-	sqlite.exec(
-		shippedTableDdl("0000_happy_roland_deschain", "envelope_address"),
-	);
-	sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "thread_message"));
+	sqlite.exec(shippedTableDdl("address"));
+	sqlite.exec(shippedTableDdl("envelope_address"));
+	sqlite.exec(shippedTableDdl("thread_message"));
 
 	const address = sqlite.prepare(
 		`INSERT INTO address (

@@ -1,7 +1,7 @@
 import type { ResultCount } from "@remit/ui";
 
 /**
- * Shortest free text a count is asked for. `npm-scripts/sqlite-search-index.sql`
+ * Shortest free text a count is asked for. The search migration set
  * documents that a query under three characters falls out of the trigram index
  * onto a folded `LIKE` scan, so counting one is a mailbox scan per typed
  * character. The list itself still pages — only the count waits.

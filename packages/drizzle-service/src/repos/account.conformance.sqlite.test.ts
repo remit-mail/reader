@@ -13,7 +13,7 @@ accountRepositoryConformance({
 			accounts: accountTable,
 		});
 		close = closeDb;
-		return new AccountRepo(db as never);
+		return new AccountRepo(db as never, db as never);
 	},
 	teardown: async () => {
 		await close?.();

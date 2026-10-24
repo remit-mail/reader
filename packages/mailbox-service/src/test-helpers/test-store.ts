@@ -13,9 +13,8 @@ import type {
 } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
-	createSqliteDatabase,
 	createSqliteRepositories,
-	messageDataSchema,
+	openSqliteDatabases,
 } from "@remit/drizzle-service";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
 import type { StorageService } from "@remit/storage-service";
@@ -38,7 +37,8 @@ const UPLOAD_URLS = {
 
 /**
  * The store the app opens: the committed migrations applied to a file, then
- * that file opened the way the app opens it, with every repo the app composes.
+ * that file opened the way the app opens it — as the app, mail and search
+ * database at once — with every repo the app composes.
  * Storage made from it lives in the same directory and goes with it.
  */
 let migrated: string | undefined;
@@ -60,12 +60,14 @@ export const openStore = async () => {
 	const dir = mkdtempSync(join(tmpdir(), "mbx-store-"));
 	const filename = join(dir, "store.sqlite");
 	copyFileSync(migratedTemplate(), filename);
-	const { db, close } = await createSqliteDatabase(messageDataSchema, {
-		filename,
+	const { close, ...databases } = await openSqliteDatabases({
+		app: filename,
+		mail: filename,
+		search: filename,
 	});
 	let storages = 0;
 	return {
-		...createSqliteRepositories(db),
+		...createSqliteRepositories(databases),
 		storage: (): StorageService =>
 			createFilesystemStorageService(
 				join(dir, `storage-${++storages}`),

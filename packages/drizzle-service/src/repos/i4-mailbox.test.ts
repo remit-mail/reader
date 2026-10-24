@@ -14,6 +14,7 @@ import {
 	messageTable,
 	threadMessageTable,
 } from "../schema.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { DrizzleMessageRepository, deleteMessageSubtree } from "./message.js";
@@ -54,7 +55,10 @@ describe("MailboxRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new MailboxRepo(db as never);
+		repo = new MailboxRepo(
+			db as never,
+			new SearchIndex(db as never, db as never),
+		);
 	});
 
 	after(async () => {
@@ -539,7 +543,10 @@ describe("MailboxRepo", () => {
 	describe("deleteMailboxWithMail — the folder's mail goes with it (D8)", () => {
 		const seedMessage = async (mailboxId: string, uid: number) => {
 			const messageId = randomId();
-			await new DrizzleMessageRepository(db as never).create({
+			await new DrizzleMessageRepository(
+				db as never,
+				new SearchIndex(db as never, db as never),
+			).create({
 				messageId,
 				mailboxId,
 				uid,

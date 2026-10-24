@@ -37,7 +37,10 @@ function rowToAccountConfig(
 }
 
 export class AccountConfigRepo implements IAccountConfigRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private mail: DB,
+	) {}
 
 	async create(input: CreateAccountConfigInput): Promise<AccountConfigItem> {
 		const now = Date.now();
@@ -179,7 +182,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 				.select()
 				.from(accountTable)
 				.where(eq(accountTable.accountConfigId, accountConfigId)),
-			this.db
+			this.mail
 				.select()
 				.from(addressTable)
 				.where(eq(addressTable.accountConfigId, accountConfigId)),

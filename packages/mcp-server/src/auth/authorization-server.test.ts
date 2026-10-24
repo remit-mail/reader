@@ -97,11 +97,11 @@ const buildApp = (): { auth: McpAuth; handler: McpRequestHandler } => {
 
 before(async () => {
 	dir = mkdtempSync(join(tmpdir(), "mcp-auth-"));
-	filename = join(dir, "remit.db");
+	filename = join(dir, "app.db");
 	const migrating = new Database(filename);
 	migrating.pragma("journal_mode = WAL");
 	migrating.pragma("foreign_keys = ON");
-	for (const set of ["auth", "mcp"]) {
+	for (const set of ["app", "mcp"]) {
 		migrate(drizzle(migrating), {
 			migrationsFolder: fileURLToPath(new URL(set, MIGRATIONS)),
 			migrationsTable: `__drizzle_migrations_${set}`,

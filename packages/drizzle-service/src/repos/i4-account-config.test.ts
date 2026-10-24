@@ -12,7 +12,7 @@ describe("AccountConfigRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AccountConfigRepo(db as never);
+		repo = new AccountConfigRepo(db as never, db as never);
 	});
 
 	after(async () => {
@@ -58,7 +58,7 @@ describe("AccountConfigRepo", () => {
 		const userId = randomId();
 		const cfg = await repo.create({ userId });
 
-		const accountRepo = new AccountRepo(db as never);
+		const accountRepo = new AccountRepo(db as never, db as never);
 		const addrRepo = new AddressRepo(db as never);
 
 		await accountRepo.create({

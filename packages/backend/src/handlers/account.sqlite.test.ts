@@ -19,6 +19,7 @@ import {
 	AccountSettingRepo,
 	ConfigImportRepo,
 	MailboxRepo,
+	SearchIndex,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
@@ -133,8 +134,8 @@ beforeEach(async () => {
 	});
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db);
-	const accountConfig = new AccountConfigRepo(store.db);
+	accounts = new AccountRepo(store.db, store.db);
+	const accountConfig = new AccountConfigRepo(store.db, store.db);
 	await accountConfig.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		userId: SUB,
@@ -143,7 +144,7 @@ beforeEach(async () => {
 		accountConfig,
 		account: accounts,
 		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(store.db),
+		mailbox: new MailboxRepo(store.db, new SearchIndex(store.db, store.db)),
 		configImport: new ConfigImportRepo(store.db),
 		secrets,
 	} as unknown as RemitClient);

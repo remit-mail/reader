@@ -41,7 +41,7 @@ const { withRateLimitLogging } = await import("./rate-limit-log.js");
 const SIGN_IN_MAX = 2;
 const MIGRATIONS = resolve(
 	import.meta.dirname,
-	"../../../deploy/vps/migrations-sqlite/auth",
+	"../../../deploy/vps/migrations-sqlite/app",
 );
 
 type Line = Record<string, unknown>;

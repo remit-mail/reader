@@ -9,7 +9,7 @@ import { CLIENT_IP_HEADER, createAuth } from "./auth.js";
 const SIGN_IN_MAX = 2;
 const MIGRATIONS = resolve(
 	import.meta.dirname,
-	"../../../deploy/vps/migrations-sqlite/auth",
+	"../../../deploy/vps/migrations-sqlite/app",
 );
 
 const createDatabase = async (dir: string, name: string): Promise<string> => {

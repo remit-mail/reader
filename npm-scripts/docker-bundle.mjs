@@ -171,7 +171,6 @@ export const TARGETS = [
 		// leaves unresolved; keep it external and install it in the runtime
 		// stage, the same treatment pg gets.
 		external: [SQLITE],
-		loader: { ".sql": "text" },
 	},
 	// Same "backend image with a command" shape as backend-migrate, for the
 	// one-time ListId backfill (issue #263) — never wired into a compose

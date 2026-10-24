@@ -67,7 +67,7 @@ const account = async (): Promise<AccountItem> =>
 before(() => {
 	const db = createShippedSqliteDb();
 	close = db.close;
-	repo = new AccountRepo(db.db);
+	repo = new AccountRepo(db.db, db.db);
 });
 
 after(() => {

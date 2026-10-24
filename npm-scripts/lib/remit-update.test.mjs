@@ -103,52 +103,59 @@ const WHOLE_STACK = COMPOSE_ALWAYS_ON.filter(
 	(service) => !["migrate", "updater", "volume-init"].includes(service),
 );
 
-// A real remit.db at schema total 8 (6 entity migrations, 1 auth, 1 meta), the
+// The three databases a deployment runs on, and the migration table the migrate
+// one-shot writes in each.
+const SCHEMA_TABLES = [
+	["app.db", "__drizzle_migrations_app"],
+	["mail.db", "__drizzle_migrations_mail"],
+	["search.db", "__drizzle_migrations_search"],
+];
+
+// Real databases at schema total 8 (6 app migrations, 1 mail, 1 search), the
 // tables named exactly as the migrate one-shot writes them, so the wrapper's own
-// schema read and the fake migrate operate on the layout production runs.
-function seedDatabase(path) {
-	const db = new DatabaseSync(path);
-	db.exec("PRAGMA journal_mode = WAL");
-	db.exec("CREATE TABLE message (id INTEGER PRIMARY KEY, subject TEXT)");
-	db.exec("INSERT INTO message VALUES (1, 'hello')");
-	for (const [table, rows] of [
-		["__drizzle_migrations_entities", 6],
-		["__drizzle_migrations_auth", 1],
-		["__drizzle_migrations_meta", 1],
-	]) {
+// schema read and the fake migrate operate on the layout production runs. The
+// rows the tests write and read back live in app.db.
+function seedDatabase(dir) {
+	for (const [file, table] of SCHEMA_TABLES) {
+		const db = new DatabaseSync(join(dir, file));
+		db.exec("PRAGMA journal_mode = WAL");
+		if (file === "app.db") {
+			db.exec("CREATE TABLE message (id INTEGER PRIMARY KEY, subject TEXT)");
+			db.exec("INSERT INTO message VALUES (1, 'hello')");
+		}
 		db.exec(
 			`CREATE TABLE ${table} (id INTEGER PRIMARY KEY, hash TEXT, created_at INTEGER)`,
 		);
+		const rows = file === "app.db" ? 6 : 1;
 		for (let i = 0; i < rows; i += 1) {
 			db.exec(`INSERT INTO ${table} VALUES (${i}, 'h${i}', ${i})`);
 		}
+		db.close();
 	}
-	db.close();
 }
 
-// A remit.db that exists but has none of the drizzle bookkeeping tables: the
+// An app.db that exists but has none of the drizzle bookkeeping tables: the
 // window before the migrate one-shot has run, where every migration table
 // count falls through the sqlite3 fallback to 0. The instance is at schema 0,
 // not unknown.
-function seedBareDatabase(path) {
-	const db = new DatabaseSync(path);
+function seedBareDatabase(dir) {
+	const db = new DatabaseSync(join(dir, "app.db"));
 	db.exec("PRAGMA journal_mode = WAL");
 	db.exec("CREATE TABLE message (id INTEGER PRIMARY KEY, subject TEXT)");
 	db.close();
 }
 
-function schemaTotal(dbPath) {
-	const db = new DatabaseSync(dbPath);
+// The sum over the databases beside an app.db, live or snapshotted.
+function schemaTotal(appDbPath) {
 	let total = 0;
-	for (const table of [
-		"__drizzle_migrations_entities",
-		"__drizzle_migrations_auth",
-		"__drizzle_migrations_meta",
-	]) {
+	for (const [file, table] of SCHEMA_TABLES) {
+		const path = join(dirname(appDbPath), file);
+		if (!existsSync(path)) continue;
+		const db = new DatabaseSync(path);
 		const { n } = db.prepare(`SELECT count(*) AS n FROM ${table}`).get();
+		db.close();
 		total += n;
 	}
-	db.close();
 	return total;
 }
 
@@ -172,7 +179,7 @@ function applyMigrationAndWrite(dbPath, subject) {
 	const db = new DatabaseSync(dbPath);
 	db.exec("ALTER TABLE message ADD COLUMN filter_move text");
 	db.exec(
-		"INSERT INTO __drizzle_migrations_entities (id, hash, created_at) VALUES (99, 'applied', 99)",
+		"INSERT INTO __drizzle_migrations_app (id, hash, created_at) VALUES (99, 'applied', 99)",
 	);
 	db.prepare("INSERT INTO message (id, subject) VALUES (2, ?)").run(subject);
 	db.close();
@@ -377,7 +384,7 @@ function sandbox({
 	// node:sqlite, su-exec drops its uid argument and execs, apk and chown are
 	// no-ops (the sandbox is one uid, and there is no package index to hit).
 	if (realDb) {
-		(bareDb ? seedBareDatabase : seedDatabase)(join(sqlite, "remit.db"));
+		(bareDb ? seedBareDatabase : seedDatabase)(sqlite);
 		writeExecutable(
 			join(bin, "sqlite3"),
 			`#!/bin/sh\nexec node "${SQLITE_SHIM}" "$@"\n`,
@@ -415,7 +422,7 @@ function sandbox({
 		...env,
 	};
 
-	const liveDb = join(sqlite, "remit.db");
+	const liveDb = join(sqlite, "app.db");
 	return {
 		dir,
 		deployment,
@@ -439,7 +446,7 @@ function sandbox({
 			const snapDir = join(state, "snapshots");
 			const runs = readdirSync(snapDir);
 			assert.equal(runs.length, 1, `expected one snapshot, saw ${runs.length}`);
-			return join(snapDir, runs[0], "remit.db");
+			return join(snapDir, runs[0], "app.db");
 		},
 		run(args, extra = {}) {
 			return spawnSync("sh", [REMIT, ...args], {
@@ -1352,11 +1359,11 @@ describe("the restore", () => {
 	it("unlinks the WAL and shared-memory sidecars before copying", () => {
 		assert.ok(
 			restore.includes(
-				"rm -f /data/sqlite/remit.db /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm",
+				"rm -f /data/sqlite/app.db /data/sqlite/app.db-wal /data/sqlite/app.db-shm",
 			),
 		);
 		assert.ok(
-			restore.indexOf("rm -f /data/sqlite/remit.db") < restore.indexOf("cp "),
+			restore.indexOf("rm -f /data/sqlite/app.db") < restore.indexOf("cp "),
 		);
 	});
 
@@ -1383,7 +1390,8 @@ describe("the snapshot", () => {
 
 	it("goes through the shared VACUUM INTO primitive", () => {
 		assert.ok(snap.includes(". /snapshot-db.sh"));
-		assert.ok(snap.includes("snapshot_db /data/sqlite/remit.db"));
+		assert.ok(snap.includes("snapshot_db /data/sqlite/app.db"));
+		assert.ok(snap.includes("snapshot_db /data/sqlite/mail.db"));
 	});
 });
 
@@ -2211,9 +2219,11 @@ function interruptedAfterTheMigration(phase, scenario = {}) {
 		scenario: { probe: "ok", migrate_exit: 0, target_schema: 9, ...scenario },
 		manifest: { ...MANIFEST, schemaVersion: 9 },
 	});
-	const snapshot = join(box.state, "snapshots", "run-1", "remit.db");
+	const snapshot = join(box.state, "snapshots", "run-1", "app.db");
 	mkdirSync(dirname(snapshot), { recursive: true });
-	copyFileSync(box.liveDb, snapshot);
+	for (const [file] of SCHEMA_TABLES) {
+		copyFileSync(join(box.sqlite, file), join(dirname(snapshot), file));
+	}
 	applyMigrationAndWrite(box.liveDb, "written after the migration");
 	box.writeBreadcrumb({
 		runId: "run-1",
@@ -2442,7 +2452,7 @@ describe("a snapshot that cannot be pruned does not hold back the commit (reader
 		const removable = join(box.state, "snapshots", "run-2026-08");
 		for (const dir of [stuck, removable]) {
 			mkdirSync(dir, { recursive: true });
-			writeFileSync(join(dir, "remit.db"), "an older release's snapshot");
+			writeFileSync(join(dir, "app.db"), "an older release's snapshot");
 		}
 		const realRm = spawnSync("sh", ["-c", "command -v rm"], {
 			encoding: "utf8",
@@ -2845,7 +2855,7 @@ describe("the updater proves its mount before serving (reader#272)", () => {
 
 describe("the backup sidecar", () => {
 	// It is a stock image behind a profile under `restart: unless-stopped`, so an
-	// unscoped stop leaves it running — and it opens remit.db read-write every
+	// unscoped stop leaves it running — and it opens app.db read-write every
 	// interval, which races the restore.
 	const box = sandbox({
 		scenario: {

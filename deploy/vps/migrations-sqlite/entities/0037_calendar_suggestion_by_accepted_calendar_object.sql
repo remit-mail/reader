@@ -1,1 +1,0 @@
-CREATE INDEX `calendar_suggestion_by_accepted_calendar_object` ON `calendar_suggestion` (`account_config_id`,`accepted_calendar_object_id`);

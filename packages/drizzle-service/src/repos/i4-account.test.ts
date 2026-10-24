@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { AccountRepo } from "./i4-account.js";
 import { MailboxRepo } from "./i4-mailbox.js";
@@ -26,7 +27,7 @@ describe("AccountRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AccountRepo(db as never);
+		repo = new AccountRepo(db as never, db as never);
 	});
 
 	after(async () => {
@@ -160,7 +161,10 @@ describe("AccountRepo", () => {
 		const accountConfigId = randomId();
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
-		const mailboxRepo = new MailboxRepo(db as never);
+		const mailboxRepo = new MailboxRepo(
+			db as never,
+			new SearchIndex(db as never, db as never),
+		);
 		mailboxCreated(
 			await mailboxRepo.create({
 				accountId: account.accountId,

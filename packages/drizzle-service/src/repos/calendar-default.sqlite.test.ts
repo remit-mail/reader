@@ -27,7 +27,7 @@ describe("provisioning the default calendar", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		store = new DrizzleCalendarStore(db);
+		store = new DrizzleCalendarStore(db, db);
 	});
 
 	after(() => close());

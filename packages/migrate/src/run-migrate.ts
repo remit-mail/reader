@@ -1,25 +1,10 @@
-// esbuild bundles this as text (see npm-scripts/docker-bundle.mjs's ".sql"
-// loader) so the migrate step runs the exact SQL the test harness applies —
-// one source of truth, two consumers.
-import sqliteAddressMutedIndexSql from "../../../npm-scripts/sqlite-address-muted-index.sql";
-import sqliteAddressSightingsIndexSql from "../../../npm-scripts/sqlite-address-sightings-index.sql";
-import sqliteSearchIndexSql from "../../../npm-scripts/sqlite-search-index.sql";
+import { sqliteDatabasePathsFromEnv } from "../../drizzle-service/src/databases.js";
 import {
 	type DisplayNameRepairClient,
 	type DisplayNameRepairMode,
 	formatDisplayNameReport,
 	sweepDisplayNames,
 } from "../../drizzle-service/src/repair/address-display-name.js";
-import {
-	type DuplicateMailRepairMode,
-	formatDuplicateMailReport,
-	sweepDuplicateMailboxMail,
-} from "../../drizzle-service/src/repair/duplicate-mailbox-mail.js";
-import {
-	type ForwardedPartsRepairMode,
-	formatForwardedPartsReport,
-	sweepForwardedMessageParts,
-} from "../../drizzle-service/src/repair/forwarded-message-parts.js";
 import {
 	formatJunkOnlyReport,
 	type JunkOnlyRepairClient,
@@ -32,28 +17,15 @@ import {
 	type StrandedSentRepairMode,
 	sweepStrandedSentOutbox,
 } from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
-import {
-	type CategoryDivergenceReport,
-	checkThreadMessageCategory,
-	formatCheckReport,
-	formatRepairResult,
-	formatRepairSkipped,
-	type RepairSqlClient,
-	readResidual,
-	repairThreadMessageCategory,
-} from "../../drizzle-service/src/repair/thread-message-category.js";
-import {
-	formatThreadRootReport,
-	moveMisfiledThreadRows,
-	type ThreadRootRepairMode,
-} from "../../drizzle-service/src/repair/thread-root-spelling.js";
 import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
-import { searchIndexShapeIsCurrent } from "../../drizzle-service/src/repos/search-index-shape.js";
+import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
 // Reached by module path rather than through either package's entry point: this
 // entrypoint is bundled by esbuild, and everything reached this way is pure
 // TypeScript over the drizzle query builder, so bundling it drags in no native
 // driver — better-sqlite3 stays external and dynamically imported below.
 import { logger } from "../../logger-lambda/src/logger.js";
+import { applyMigrationSets } from "./migration-sets.js";
+import { splitSqlite } from "./split-sqlite.js";
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs
@@ -62,79 +34,54 @@ import { logger } from "../../logger-lambda/src/logger.js";
  * first, instead of N app containers racing to migrate on boot.
  *
  * SQLite is the only backend this stack deploys, so `DATA_BACKEND` is checked
- * rather than dispatched on: it applies the sqlite migration sets against the
- * local database file and installs the idempotent DDL objects around them.
+ * rather than dispatched on: it applies each database's migration set — app,
+ * tenant mail and tenant search (#1420) — against its local file and installs
+ * the idempotent DDL objects around them.
  */
 
 /**
  * This migrator applies generated schema migrations, installs the idempotent
- * DDL objects around them, and rewrites row content in five places.
+ * DDL objects around them, and rewrites row content in three places.
  *
- * That last clause is an amendment (#321, D16). This file used to state that it
- * never rewrites row content, and the rule behind it still holds: when a
- * column's MEANING changes, rows written under the old meaning are stale rather
- * than convertible, and the remedy is `remit purge` followed by a re-sync — the
- * mail is on the server, and re-fetching it is cheaper to operate and to reason
- * about than a bespoke one-shot rewrite that every future install carries
- * forever.
+ * The rule behind that clause still holds: when a column's MEANING changes,
+ * rows written under the old meaning are stale rather than convertible, and the
+ * remedy is `remit purge` followed by a re-sync — the mail is on the server,
+ * and re-fetching it is cheaper to operate and to reason about than a bespoke
+ * one-shot rewrite that every future install carries forever. The exceptions
+ * are state a re-sync cannot repair, and the image is the only artefact an
+ * update delivers (#281), so they live here.
  *
- * The first exception is `thread_message.category`, and the reason is delivery. It is
- * a denormalized copy of `message.category` that nothing has ever read, so its
- * write path was never load-bearing and the column drifted; #304 turns it into
- * the SQL predicate behind the inbox category filter. The correction therefore
- * has to be on every existing instance before that read path goes live, and the
- * image is the only artefact an update delivers: `remit update` moves an image
- * tag and runs `compose pull` against the compose file already on disk, so a
- * compose-level step reaches nobody who is already installed (#281). This
- * entrypoint is in the image, six services gate on it, and `check_migrate()`
- * enforces it again — so the repair lives here. A doc comment does not outrank
- * the repair running.
+ * The first is a display name that claims to be somebody else's address
+ * (#826). An attacker chose that string, and the spoofing messages are still on
+ * the server, so a re-sync plants the names again. It runs from Node because
+ * the decision has to be the same function the guard uses. It removes the
+ * address and keeps the rest of the name.
  *
- * The repair is bounded to a value that is a primary-key probe away in the same
- * database: it copies `message.category` onto rows that disagree with it, and
- * nothing else. It is not a precedent for converting rows whose meaning changed.
+ * The second is an outbox row stranded at `sent` (#824): mail the user has
+ * lost sight of that is on no server folder to re-fetch. It flips a status and
+ * writes the reason, on rows an hour past any retry, and touches nothing else.
  *
- * The second is a display name that claims to be somebody else's address (#826).
- * Nothing here converts a meaning: an attacker chose that string, it was stored
- * verbatim, and on 2026-08-18 it took private mail to a stranger. Purge and
- * re-sync is no remedy — the spoofing messages are still on the server, so a
- * re-sync plants the names again — and the guard that now refuses them only
- * covers what is harvested next. It runs from Node rather than as a SQL
- * migration because the decision has to be the same function the guard uses;
- * see the repair module for what a SQL twin of it destroys. It removes the
- * address and keeps the rest of the name — the remedy is the claim, not the
- * text around it.
- *
- * The third is an outbox row stranded at `sent` (#824), and the reason is
- * again delivery. The message was sent, the copy for the Sent folder never
- * landed, and `sent` is the status the Outbox list hides — so it is mail the
- * user has lost sight of on an instance already running. Purge and re-sync is
- * no remedy: the message is on no server folder to re-fetch. It flips a status
- * and writes the reason, on rows an hour past any retry, and touches nothing
- * else.
- *
- * The fourth is mail the folder dedupe migration could not move onto the
- * surviving row (#386). The migration parks it, and it is removed here through
- * `deleteMessageSubtree`. In
- * `--check` mode the report also counts the duplicate paths the pending
- * migration will merge, since nothing has been parked yet.
- *
- * The fifth is a forwarded message whose part row the MIME walker overwrote
- * with its own root. The lost row is only on the mail server, so the repair
- * drops the message's part rows, and message sync re-reads the structure of
- * any message left without parts. Purge and re-sync would do the same for
- * every message rather than these.
-
+ * The third marks an address seen only on mail in Junk, so it is not offered
+ * as a sender to trust.
  */
 
 /**
  * `--check` is the read-only mode of this same entrypoint (D17): it reports what
  * the repair would do and applies nothing at all, migrations included, so it can
- * be pointed at a live instance. Anything else is refused rather than ignored —
+ * be pointed at a live instance. `--rebuild-search` runs the full migration and
+ * then rebuilds the search index from the mail database, the recovery for an
+ * index that has drifted. `--split-from <path>` runs once per install, before
+ * the stack first starts on this release: it migrates the three databases and
+ * copies the old single file into them (#1420). Anything else is refused
+ * rather than ignored —
  * a mistyped flag that silently ran the full migration is the failure mode this
  * guards.
  */
-type Mode = "migrate" | "check";
+type Mode =
+	| { kind: "migrate" }
+	| { kind: "check" }
+	| { kind: "rebuild-search" }
+	| { kind: "split"; source: string };
 
 // A schema change applied to someone's database is an audit-grade signal, and
 // this one-shot's output is the only record that it ran and what it did — it
@@ -147,48 +94,20 @@ const logStep = (fields: Record<string, unknown>, msg: string): void => {
 
 const parseMode = (argv: readonly string[]): Mode => {
 	if (argv.length === 0) {
-		return "migrate";
+		return { kind: "migrate" };
 	}
 	if (argv.length === 1 && argv[0] === "--check") {
-		return "check";
+		return { kind: "check" };
+	}
+	if (argv.length === 1 && argv[0] === "--rebuild-search") {
+		return { kind: "rebuild-search" };
+	}
+	if (argv.length === 2 && argv[0] === "--split-from" && argv[1]) {
+		return { kind: "split", source: argv[1] };
 	}
 	throw new Error(
-		`unrecognised argument: ${argv.join(" ")} — the only option is --check`,
+		`unrecognised argument: ${argv.join(" ")} — the options are --check, --rebuild-search and --split-from <path>`,
 	);
-};
-
-const logReport = (report: CategoryDivergenceReport): void => {
-	for (const line of formatCheckReport(report)) {
-		logStep({ step: "category-check" }, line);
-	}
-};
-
-/**
- * Report first, then repair only if the report found something to write, then
- * re-read the residual. The before-numbers are the evidence an upgrade leaves
- * behind, the skip is what keeps a steady-state boot from taking SQLite's write
- * lock, and the re-read is what distinguishes "nothing to do" from "did not run"
- * — a repair that never ran logs no `step: "category-repair"` line at all.
- */
-const repairThreadMessageCategoryStep = async (
-	client: RepairSqlClient,
-): Promise<void> => {
-	const report = await checkThreadMessageCategory(client);
-	logReport(report);
-
-	const log = (lines: readonly string[]): void => {
-		for (const line of lines) {
-			logStep({ step: "category-repair" }, line);
-		}
-	};
-
-	if (report.repairable === 0) {
-		log(formatRepairSkipped(report));
-		return;
-	}
-
-	const result = await repairThreadMessageCategory(client);
-	log(formatRepairResult(result, await readResidual(client)));
 };
 
 /**
@@ -199,11 +118,19 @@ const repairThreadMessageCategoryStep = async (
 const displayNameStep = async (
 	client: DisplayNameRepairClient,
 	mode: DisplayNameRepairMode,
+	search?: SearchIndex,
 ): Promise<void> => {
 	const report = await sweepDisplayNames(client, mode);
 	for (const line of formatDisplayNameReport(report)) {
 		logStep({ step: "display-name-repair" }, line);
 	}
+	// The sender text is in the search index too; a rewritten thread row is
+	// written there again so a search no longer finds the claim.
+	await search?.sync(
+		report.sites
+			.filter((site) => site.table === "thread_message")
+			.flatMap((site) => site.rewrittenIds),
+	);
 };
 
 /**
@@ -218,16 +145,6 @@ const strandedSentStep = async (
 	const report = await sweepStrandedSentOutbox(client, mode);
 	for (const line of formatStrandedSentReport(report)) {
 		logStep({ step: "stranded-sent-repair" }, line);
-	}
-};
-
-const duplicateMailStep = async (
-	db: Parameters<typeof sweepDuplicateMailboxMail>[0],
-	mode: DuplicateMailRepairMode,
-): Promise<void> => {
-	const report = await sweepDuplicateMailboxMail(db, mode);
-	for (const line of formatDuplicateMailReport(report)) {
-		logStep({ step: "duplicate-mailbox-mail-repair" }, line);
 	}
 };
 
@@ -249,193 +166,99 @@ const junkOnlyAddressStep = async (
 	}
 };
 
-const forwardedPartsStep = async (
-	db: Parameters<typeof sweepForwardedMessageParts>[0],
-	mode: ForwardedPartsRepairMode,
-): Promise<void> => {
-	const report = await sweepForwardedMessageParts(db, mode);
-	for (const line of formatForwardedPartsReport(report)) {
-		logStep({ step: "forwarded-message-parts-repair" }, line);
-	}
-};
-
-const threadRootStep = async (
-	db: Parameters<typeof moveMisfiledThreadRows>[0],
-	mode: ThreadRootRepairMode,
-): Promise<void> => {
-	const report = await moveMisfiledThreadRows(db, mode);
-	for (const line of formatThreadRootReport(report)) {
-		logStep({ step: "thread-root-repair" }, line);
-	}
-};
-
 type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
 
 const runSqlite = async (mode: Mode): Promise<void> => {
-	const dbPath = process.env.SQLITE_DB_PATH;
-	if (!dbPath) {
-		throw new Error("SQLITE_DB_PATH is required when DATA_BACKEND=sqlite");
-	}
+	const paths = sqliteDatabasePathsFromEnv();
 
 	// Dynamic imports so the module stays bundleable with the native
 	// better-sqlite3 binding marked external (see npm-scripts/docker-bundle.mjs).
 	const { default: Database } = await import("better-sqlite3");
 	const { drizzle: sqliteDrizzle } = await import("drizzle-orm/better-sqlite3");
-	const { migrate: sqliteMigrate } = await import(
-		"drizzle-orm/better-sqlite3/migrator"
-	);
 
-	// `--check` opens the file read-only, so "writes nothing" is enforced by the
-	// engine rather than by reading the queries — that is what makes it safe to
-	// point at a live instance.
-	const sqlite = new Database(dbPath, { readonly: mode === "check" });
-	const sqliteRepairClient: RepairSqlClient = {
-		all: async (sql) => sqlite.prepare(sql).all(),
-		run: async (sql) => sqlite.prepare(sql).run().changes,
+	// `--check` opens the files read-only, so "writes nothing" is enforced by
+	// the engine rather than by reading the queries — that is what makes it safe
+	// to point at a live instance.
+	const readonly = mode.kind === "check";
+	const open = (path: string) => {
+		const sqlite = new Database(path, { readonly });
+		if (!readonly) {
+			// WAL + busy_timeout are the cross-process write coordination RFC 036
+			// D3 requires; set them on the migrator connection too so a concurrent
+			// app boot never trips on a fresh database file.
+			sqlite.pragma("journal_mode = WAL");
+			sqlite.pragma("busy_timeout = 5000");
+			sqlite.pragma("foreign_keys = ON");
+		}
+		return sqlite;
 	};
+	const appSqlite = open(paths.app);
+	const mailSqlite = open(paths.mail);
+	const searchSqlite = open(paths.search);
 	// One handle, both parameterised repairs: the two clients are the same
 	// three lines, and a second copy is a second thing to keep in step.
 	const paramRepairClient: ParamRepairClient = {
-		all: async (sql, params) => sqlite.prepare(sql).all(...params),
-		run: async (sql, params) => sqlite.prepare(sql).run(...params).changes,
+		all: async (sql, params) => mailSqlite.prepare(sql).all(...params),
+		run: async (sql, params) => mailSqlite.prepare(sql).run(...params).changes,
 	};
-	const db = sqliteDrizzle(sqlite);
-	const specialUse = new MailboxSpecialUseRepo(db);
+	const app = sqliteDrizzle(appSqlite);
+	const db = sqliteDrizzle(mailSqlite);
+	const searchDb = sqliteDrizzle(searchSqlite);
+	const search = new SearchIndex(db, searchDb);
+	const specialUse = new MailboxSpecialUseRepo(app, db);
 	try {
-		if (mode === "check") {
-			logReport(await checkThreadMessageCategory(sqliteRepairClient));
+		if (mode.kind === "check") {
 			await displayNameStep(paramRepairClient, "check");
 			await strandedSentStep(paramRepairClient, "check");
-			await duplicateMailStep(db, "check");
 			await junkOnlyAddressStep(paramRepairClient, specialUse, "check");
-			await threadRootStep(db, "check");
-			await forwardedPartsStep(db, "check");
 			return;
 		}
 
-		// WAL + busy_timeout are the cross-process write coordination RFC 036 D3
-		// requires; set them on the migrator connection too so a concurrent app
-		// boot never trips on a fresh database file.
-		sqlite.pragma("journal_mode = WAL");
-		sqlite.pragma("busy_timeout = 5000");
-		sqlite.pragma("foreign_keys = ON");
+		await applyMigrationSets(
+			{ app, mail: db, search: searchDb },
+			".",
+			(database) =>
+				logStep({ database }, "applying schema migrations (sqlite)"),
+		);
 
-		logStep({}, "applying entity schema migrations (sqlite)");
-		sqliteMigrate(db, {
-			migrationsFolder: "migrations-sqlite/entities",
-			migrationsTable: "__drizzle_migrations_entities",
-		});
+		if (mode.kind === "split") {
+			const source = new Database(mode.source, {
+				readonly: true,
+				fileMustExist: true,
+			});
+			try {
+				const copied = await splitSqlite(sqliteDrizzle(source), {
+					app,
+					mail: db,
+				});
+				logStep({ copied }, "split the single database file");
+			} finally {
+				source.close();
+			}
+		}
 
-		logStep({}, "applying auth schema migrations (sqlite)");
-		sqliteMigrate(db, {
-			migrationsFolder: "migrations-sqlite/auth",
-			migrationsTable: "__drizzle_migrations_auth",
-		});
+		await displayNameStep(paramRepairClient, "repair", search);
 
-		logStep({}, "applying instance-owner schema migrations (sqlite)");
-		sqliteMigrate(db, {
-			migrationsFolder: "migrations-sqlite/meta",
-			migrationsTable: "__drizzle_migrations_meta",
-		});
-
-		logStep({}, "applying mcp authorization server migrations (sqlite)");
-		sqliteMigrate(db, {
-			migrationsFolder: "migrations-sqlite/mcp",
-			migrationsTable: "__drizzle_migrations_mcp",
-		});
-
-		// After the generated migrations, which is where the column and the
-		// filter's index come from, and before the FTS transaction: the repair
-		// does not depend on either index and must not be inside a transaction
-		// that also builds one. Its own UPDATE touches only `category`, and the
-		// FTS trigger fires on `subject`/`from_name`/`from_email` only, so the
-		// repair re-tokenizes nothing.
-		await repairThreadMessageCategoryStep(sqliteRepairClient);
-
-		// Before the FTS transaction for the same reason, and because it does write
-		// `thread_message.from_name`: the AFTER UPDATE trigger re-tokenizes those
-		// rows where the index already exists, and where it does not, the backfill
-		// below reads the repaired names.
-		await displayNameStep(paramRepairClient, "repair");
-
-		// Independent of every other step here: it touches `outbox_message` and
-		// `outbox_attachment`, which no index and no trigger installed below
-		// covers.
 		await strandedSentStep(paramRepairClient, "repair");
-
-		await duplicateMailStep(db, "repair");
-
-		await threadRootStep(db, "repair");
-
-		// Touches only body part rows and mailbox sync cursors, which no index
-		// or trigger installed below covers.
-		await forwardedPartsStep(db, "repair");
-
-		logStep({}, "installing address-sightings index (sqlite)");
-		sqlite.exec(sqliteAddressSightingsIndexSql);
-
-		logStep({}, "installing address normalized-email index (sqlite)");
-		sqlite.exec(sqliteAddressMutedIndexSql);
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
 
-		// The external-content FTS5 trigram table + its thread_message
-		// maintenance triggers, the final idempotent step (RFC 036 D4). The
-		// triggers keep the index
-		// in sync on every write from here on; a database that already had thread
-		// rows before this table existed (an upgrade from the wave-1 folded-LIKE
-		// build) needs a one-time backfill, since the triggers only see writes
-		// that happen after they exist.
-		//
-		// Install and backfill run in one transaction so a crash between them can
-		// never leave the table existing but empty (which would make every later
-		// run skip the backfill and search silently miss the pre-existing rows).
-		// The backfill is gated on the table being newly created — the steady
-		// state where the triggers already keep it in sync must not re-insert
-		// every row. An external-content index cannot be scanned bare (its
-		// computed `sender` has no content-table column), so the guard, not a
-		// NOT-IN diff, is what keeps this from double-indexing.
-		//
-		// An index installed by an earlier build carries the columns that build
-		// asked for, and `CREATE ... IF NOT EXISTS` leaves it exactly as it is.
-		// A predicate naming a column it does not have then fails every search
-		// outright, so a stale shape is dropped and rebuilt rather than left in
-		// place: the documented recovery above, taken automatically because the
-		// alternative is a search that raises on every keystroke.
-		logStep({}, "installing FTS5 search index objects (sqlite)");
-		const installSearchIndex = sqlite.transaction(() => {
-			const existing = sqlite
-				.prepare(
-					"SELECT sql FROM sqlite_master WHERE type='table' AND name='thread_message_fts'",
-				)
-				.get() as { sql: string } | undefined;
-			const ftsUsable =
-				existing !== undefined &&
-				searchIndexShapeIsCurrent(existing.sql, sqliteSearchIndexSql);
-			if (existing !== undefined && !ftsUsable) {
-				logStep({}, "dropping stale FTS5 index (missing indexed columns)");
-				sqlite.exec("DROP TABLE thread_message_fts");
-				for (const suffix of ["ai", "ad", "au"]) {
-					sqlite.exec(`DROP TRIGGER IF EXISTS thread_message_fts_${suffix}`);
-				}
-			}
-			sqlite.exec(sqliteSearchIndexSql);
-			if (!ftsUsable) {
-				logStep({}, "backfilling FTS5 index from existing threads");
-				sqlite.exec(
-					`INSERT INTO thread_message_fts(rowid, subject, sender, body)
-					 SELECT rowid, coalesce(subject, ''),
-					        coalesce(from_name, '') || ' ' || coalesce(from_email, ''),
-					        coalesce(snippet, '')
-					 FROM thread_message`,
-				);
-			}
-		});
-		installSearchIndex();
+		// The search index is written after each mail write and never with it,
+		// so it only needs building here when it cannot have followed: a count
+		// that disagrees with the mail database's (a new or deleted search
+		// database, a write that died between the two), or an operator asking
+		// for it.
+		if (mode.kind === "rebuild-search" || (await search.needsRebuild())) {
+			logStep({}, "rebuilding the search index from the mail database");
+			const indexed = await search.rebuild();
+			logStep({ indexed }, "search index rebuilt");
+		}
 	} finally {
-		sqlite.close();
+		appSqlite.close();
+		mailSqlite.close();
+		searchSqlite.close();
 	}
 };
 
@@ -453,7 +276,7 @@ const run = async (): Promise<void> => {
 		);
 	}
 	await runSqlite(mode);
-	logStep({ mode }, "migrate done");
+	logStep({ mode: mode.kind }, "migrate done");
 };
 
 run()

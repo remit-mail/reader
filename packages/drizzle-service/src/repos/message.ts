@@ -44,6 +44,7 @@ import {
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -191,7 +192,10 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 };
 
 export class DrizzleMessageRepository implements IMessageRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private search: SearchIndex,
+	) {}
 
 	private rowOf(input: CreateMessageInput) {
 		const now = Date.now();
@@ -453,12 +457,17 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					),
 				),
 		);
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(eq(threadMessageTable.messageId, messageId));
 		const results = await runBatch(this.db, [
 			this.db
 				.delete(threadMessageTable)
 				.where(and(eq(threadMessageTable.messageId, messageId), placed)),
 			...deleteMessageSubtree(this.db, [messageId], placed),
 		]);
+		await this.search.sync(listings.map((row) => row.threadMessageId));
 		const removed = results.at(-1);
 		return Array.isArray(removed) && removed.length > 0;
 	}
@@ -609,6 +618,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					),
 				),
 		);
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(eq(threadMessageTable.messageId, messageId));
 		const [moved] = await runBatch(this.db, [
 			this.db
 				.update(messageTable)
@@ -638,6 +651,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				})
 				.where(and(eq(threadMessageTable.messageId, messageId), landed)),
 		] as const);
+		await this.search.sync(listings.map((row) => row.threadMessageId));
 		return moved.length > 0;
 	}
 

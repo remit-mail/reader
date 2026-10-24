@@ -90,8 +90,11 @@ function rowToSpecialUse(
 export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	private readonly accountSetting: AccountSettingRepo;
 
-	constructor(private db: DB) {
-		this.accountSetting = new AccountSettingRepo(db);
+	constructor(
+		private app: DB,
+		private db: DB,
+	) {
+		this.accountSetting = new AccountSettingRepo(app);
 	}
 
 	async create(
@@ -199,7 +202,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	async resolveJunkRolesForConfig(
 		accountConfigId: string,
 	): Promise<JunkRoleMailboxes> {
-		const accounts = await this.db
+		const accounts = await this.app
 			.select({ accountId: accountTable.accountId })
 			.from(accountTable)
 			.where(eq(accountTable.accountConfigId, accountConfigId));
@@ -213,7 +216,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	 * run one pass over the address table instead of one per config.
 	 */
 	async resolveJunkRolesForInstance(): Promise<JunkRoleMailboxes> {
-		const accounts = await this.db
+		const accounts = await this.app
 			.select({ accountId: accountTable.accountId })
 			.from(accountTable);
 		return this.resolveJunkRoles(accounts.map((row) => row.accountId));
@@ -260,7 +263,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		accountIds: readonly string[],
 		roles: readonly CanonicalMailboxRoleValue[],
 	): Promise<Map<string, string>> {
-		const accounts = await this.db
+		const accounts = await this.app
 			.select({
 				accountId: accountTable.accountId,
 				accountConfigId: accountTable.accountConfigId,
@@ -363,7 +366,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		accountId: string,
 		role: CanonicalMailboxRoleValue,
 	): Promise<string | undefined> {
-		const [account] = await this.db
+		const [account] = await this.app
 			.select({ accountConfigId: accountTable.accountConfigId })
 			.from(accountTable)
 			.where(eq(accountTable.accountId, accountId));

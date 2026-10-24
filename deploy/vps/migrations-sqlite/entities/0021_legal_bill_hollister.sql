@@ -1,1 +1,0 @@
-ALTER TABLE `message` ADD `classification_state` text DEFAULT 'NotExamined' NOT NULL;

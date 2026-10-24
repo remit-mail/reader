@@ -5,9 +5,10 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { mailboxTable } from "../schema.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
-	applyMigration,
+	applyMigrationSet,
 	shippedTableDdl,
 } from "../test-shipped-sqlite-schema.js";
 import { MailboxRepo } from "./i4-mailbox.js";
@@ -40,7 +41,10 @@ describe("MailboxRepo (sqlite)", () => {
 	before(async () => {
 		const testDb = await createSqliteTestDb({ mailbox: mailboxTable });
 		close = testDb.close;
-		repo = new MailboxRepo(testDb.db as never);
+		repo = new MailboxRepo(
+			testDb.db as never,
+			new SearchIndex(testDb.db as never, testDb.db as never),
+		);
 	});
 
 	after(async () => {
@@ -204,15 +208,12 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 
 	before(() => {
 		const sqlite = new Database(":memory:");
-		sqlite.exec(shippedTableDdl("0000_happy_roland_deschain", "mailbox"));
-		applyMigration(sqlite, "0002_highest_modseq_text");
-		applyMigration(sqlite, "0026_mailbox_sync_status_backfill");
-		applyMigration(sqlite, "0027_mailbox_sync_status_total");
-		applyMigration(sqlite, "0028_mailbox_pending_path");
-		applyMigration(sqlite, "0031_mailbox_path_unique");
-		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
+		applyMigrationSet(sqlite, "mail");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
-		repo = new MailboxRepo(db as never);
+		repo = new MailboxRepo(
+			db as never,
+			new SearchIndex(db as never, db as never),
+		);
 		close = async () => {
 			sqlite.close();
 		};
@@ -223,10 +224,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 	});
 
 	test("declares highest_modseq as text", () => {
-		assert.match(
-			shippedTableDdl("0002_highest_modseq_text", "__new_mailbox"),
-			/`highest_modseq` text NOT NULL/,
-		);
+		assert.match(shippedTableDdl("mailbox"), /`highest_modseq` text NOT NULL/);
 	});
 
 	test("reads a plain-digit cursor back as a string", async () => {

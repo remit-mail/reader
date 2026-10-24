@@ -26,13 +26,13 @@ export const setClient = (client: RemitClient): void => {
  * `@remit/drizzle-service` or drizzle-orm (both `external` for the Lambda
  * esbuild build).
  *
- * `SQLITE_DB_PATH` is the precondition the composition needs, checked ahead of
+ * `SQLITE_APP_DB_PATH` is the precondition the composition needs, checked ahead of
  * the import so its absence names `setClient` instead of failing on module
  * resolution inside a bundle, or — worse — opening an empty database and
  * serving an empty mailbox. It is a precondition, not a backend selection.
  */
 const buildRelationalClient = async (): Promise<RemitClient> => {
-	if (!process.env.SQLITE_DB_PATH) {
+	if (!process.env.SQLITE_APP_DB_PATH) {
 		throw new Error(
 			"no client registered — register one with setClient() from your composition root",
 		);
