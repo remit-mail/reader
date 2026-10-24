@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
+import { registerFilterTools } from "./filter-tools.js";
 import { registerFolderTools } from "./folder-tools.js";
 import { registerReadTools } from "./read-tools.js";
 
@@ -20,6 +21,7 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	}
 	if (principal.scopes.includes(MCP_RULES_SCOPE)) {
 		registerFolderTools(server, deps, deriveAccountConfigId(principal.userId));
+		registerFilterTools(server, deps, principal.userId);
 	}
 	return server;
 };

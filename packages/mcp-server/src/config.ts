@@ -5,6 +5,7 @@ export interface McpServerConfig {
 	port: number;
 	bodySyncQueueUrl: string | undefined;
 	mailboxQueueUrl: string;
+	organizeQueueUrl: string;
 	trustedProxies: ReadonlySet<string>;
 }
 
@@ -53,6 +54,7 @@ export const resolveMcpServerConfig = (): McpServerConfig => {
 		port: parsePort(process.env.MCP_PORT),
 		bodySyncQueueUrl: process.env.SQS_QUEUE_URL_BODY,
 		mailboxQueueUrl: required("SQS_QUEUE_URL"),
+		organizeQueueUrl: required("SQS_QUEUE_URL_ACCOUNT_FANOUT"),
 		trustedProxies: new Set(
 			(process.env.MCP_TRUSTED_PROXIES ?? "")
 				.split(",")

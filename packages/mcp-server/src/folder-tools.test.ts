@@ -13,6 +13,7 @@ import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
+import { ORGANIZE_QUEUE } from "./test-rule-deps.js";
 
 const USER_ID = "folder-user";
 const OTHER_USER_ID = "folder-other-user";
@@ -78,6 +79,8 @@ beforeEach(async () => {
 		mailbox: client.mailbox,
 		message: client.message,
 		threadMessage: client.threadMessage,
+		filter: client.filter,
+		organizeJobRequest: client.organizeJobRequest,
 		storage: client.storage,
 		bodySync: new BodySyncService(
 			client.message,
@@ -95,6 +98,7 @@ beforeEach(async () => {
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
 		},
+		filters: { organizeQueueUrl: ORGANIZE_QUEUE, logger: silentLog },
 	};
 });
 
@@ -193,10 +197,9 @@ describe("the folder tools behind mail:rules", () => {
 	});
 
 	it("are listed for a token with mail:rules", async () => {
-		assert.deepEqual(await toolNames([MCP_RULES_SCOPE]), [
-			"create_folder",
-			"rename_folder",
-		]);
+		const names = await toolNames([MCP_RULES_SCOPE]);
+		assert.equal(names.includes("create_folder"), true);
+		assert.equal(names.includes("rename_folder"), true);
 	});
 });
 

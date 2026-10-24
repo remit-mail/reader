@@ -10,11 +10,7 @@ import {
 	createJwtVerifier,
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
-import {
-	BodySyncService,
-	MailboxQueueService,
-	SyncWarningService,
-} from "@remit/mailbox-service";
+import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
 	openStore,
 	type Store,
@@ -26,6 +22,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp, type McpAppHandler } from "../app.js";
 import type { McpDeps } from "../deps.js";
+import { ruleDeps } from "../test-rule-deps.js";
 import {
 	createBetterAuthTokenVerifier,
 	createMcpAuth,
@@ -140,14 +137,7 @@ before(async () => {
 		),
 		bodySyncQueue: undefined,
 		logger: silentLog,
-		folders: {
-			mailboxQueue: new MailboxQueueService({
-				mailboxService: store.mailbox,
-				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
-			}),
-			settleTimeoutMs: 100,
-			pollIntervalMs: 10,
-		},
+		...ruleDeps(store),
 	};
 	({ auth, app } = buildApp());
 });
