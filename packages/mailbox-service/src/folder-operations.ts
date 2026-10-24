@@ -34,6 +34,29 @@ export interface FolderPathChange {
 	fullPath: string;
 }
 
+export const folderNameRefusal = (
+	target: string,
+	hierarchyDelimiter: string,
+): Refusable<string> => {
+	if (target.trim().length === 0) {
+		return invalid("A folder needs a name.");
+	}
+	if (target.toUpperCase() === "INBOX") {
+		return invalid("“INBOX” is reserved for the inbox.");
+	}
+
+	// The mailbox sweep reads an unflagged folder under a role's conventional
+	// name as a duplicate and reaps it, with its mail, once another folder holds
+	// the flag.
+	const leaf = mailboxLeafName({ fullPath: target, hierarchyDelimiter });
+	if (isReservedFolderName(leaf)) {
+		return invalid(
+			`“${leaf}” is reserved for a system folder. Pick another name.`,
+		);
+	}
+	return accept(target);
+};
+
 const renameTargetRefusal = async (
 	deps: Pick<FolderPathDeps, "mailbox">,
 	accountId: string,
@@ -45,25 +68,8 @@ const renameTargetRefusal = async (
 	if (before.fullPath.toUpperCase() === "INBOX") {
 		return invalid("The inbox can't be renamed.");
 	}
-	if (target.trim().length === 0) {
-		return invalid("A folder needs a name.");
-	}
-	if (target.toUpperCase() === "INBOX") {
-		return invalid("“INBOX” is reserved for the inbox.");
-	}
-
-	// The mailbox sweep reads an unflagged folder under a role's conventional
-	// name as a duplicate and reaps it, with its mail, once another folder holds
-	// the flag.
-	const leaf = mailboxLeafName({
-		fullPath: target,
-		hierarchyDelimiter: before.hierarchyDelimiter,
-	});
-	if (isReservedFolderName(leaf)) {
-		return invalid(
-			`“${leaf}” is reserved for a system folder. Pick another name.`,
-		);
-	}
+	const named = folderNameRefusal(target, before.hierarchyDelimiter);
+	if (!named.ok) return named;
 
 	// A path a pending rename is heading for is as taken as one a folder sits
 	// at. A failed rename keeps its target only so the client can offer a
