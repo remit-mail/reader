@@ -30,7 +30,6 @@ import {
 } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
-	bodyPartContentTable,
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
@@ -45,7 +44,6 @@ import {
 } from "../schema/message-data.js";
 import { runInTransaction } from "../tx.js";
 import {
-	toBodyPartContentItem,
 	toBodyPartItem,
 	toBodyPartParameterItem,
 	toBodyPartStorageItem,
@@ -139,9 +137,6 @@ export async function deleteMessageSubtree(
 	await tx
 		.delete(bodyPartStorageTable)
 		.where(inArray(bodyPartStorageTable.messageId, messageIds));
-	await tx
-		.delete(bodyPartContentTable)
-		.where(inArray(bodyPartContentTable.messageId, messageIds));
 	await tx
 		.delete(rawMessageStorageTable)
 		.where(inArray(rawMessageStorageTable.messageId, messageIds));
@@ -293,7 +288,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			bodyPartParameters,
 			rawMessageStorages,
 			bodyPartStorages,
-			bodyPartContents,
 		] = await Promise.all([
 			this.db
 				.select()
@@ -331,10 +325,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				.select()
 				.from(bodyPartStorageTable)
 				.where(eq(bodyPartStorageTable.messageId, messageId)),
-			this.db
-				.select()
-				.from(bodyPartContentTable)
-				.where(eq(bodyPartContentTable.messageId, messageId)),
 		]);
 
 		if (messages.length === 0) {
@@ -358,7 +348,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			bodyPartParameter: bodyPartParameters.map(toBodyPartParameterItem),
 			rawMessageStorage: rawMessageStorages.map(toRawMessageStorageItem),
 			bodyPartStorage: bodyPartStorages.map(toBodyPartStorageItem),
-			bodyPartContent: bodyPartContents.map(toBodyPartContentItem),
 		};
 	}
 

@@ -41,7 +41,6 @@ ORDER BY message_id`;
 
 const PART_TABLES = [
 	"body_part_parameter",
-	"body_part_content",
 	"body_part_storage",
 	"body_part",
 ] as const;

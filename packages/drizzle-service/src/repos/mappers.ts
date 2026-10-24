@@ -1,5 +1,4 @@
 import type {
-	BodyPartContentItem,
 	BodyPartItem,
 	BodyPartParameterItem,
 	BodyPartStorageItem,
@@ -9,7 +8,6 @@ import type {
 	RawMessageStorageItem,
 } from "@remit/data-ports";
 import type {
-	bodyPartContentTable,
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
@@ -153,19 +151,5 @@ export function toBodyPartStorageItem(
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.dedupHash !== null ? { dedupHash: row.dedupHash } : {}),
-	};
-}
-
-export function toBodyPartContentItem(
-	row: typeof bodyPartContentTable.$inferSelect,
-): BodyPartContentItem {
-	return {
-		bodyPartContentId: row.bodyPartContentId,
-		messageId: row.messageId,
-		bodyPartId: row.bodyPartId,
-		content: row.content,
-		contentLength: row.contentLength,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
 	};
 }

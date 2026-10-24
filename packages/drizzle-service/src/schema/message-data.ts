@@ -1,6 +1,5 @@
 import * as entities from "@remit/drizzle-sqlite-schema";
 
-const bodyPartContentTable = entities.bodyPartContents;
 const bodyPartParameterTable = entities.bodyPartParameters;
 const bodyPartStorageTable = entities.bodyPartStorages;
 const bodyPartTable = entities.bodyParts;
@@ -13,7 +12,6 @@ const messageTable = entities.messageRecords;
 const rawMessageStorageTable = entities.rawMessageStorages;
 
 export {
-	bodyPartContentTable,
 	bodyPartParameterTable,
 	bodyPartStorageTable,
 	bodyPartTable,
@@ -34,7 +32,6 @@ export const messageDataSchema = {
 	bodyPartParameter: bodyPartParameterTable,
 	rawMessageStorage: rawMessageStorageTable,
 	bodyPartStorage: bodyPartStorageTable,
-	bodyPartContent: bodyPartContentTable,
 	bodyStructureRefetch: bodyStructureRefetchTable,
 	message: messageTable,
 	messageFlag: messageFlagTable,

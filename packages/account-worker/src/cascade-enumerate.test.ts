@@ -18,11 +18,10 @@ const messageWithChildren = {
 	bodyPartParameter: [{ bodyPartParameterId: "bpp-1" }],
 	rawMessageStorage: [{ rawStorageId: "rms-1" }],
 	bodyPartStorage: [{ bodyPartStorageId: "bps-1" }],
-	bodyPartContent: [{ bodyPartContentId: "bpc-1" }],
 } as unknown as MessageDescription;
 
 describe("collectMessageChildEntities", () => {
-	it("expands the nine child entities of one message", () => {
+	it("expands the eight child entities of one message", () => {
 		const entities: CascadeEntity[] = [];
 		collectMessageChildEntities(entities, messageWithChildren);
 
@@ -36,13 +35,7 @@ describe("collectMessageChildEntities", () => {
 			"BodyPartParameter",
 			"RawMessageStorage",
 			"BodyPartStorage",
-			"BodyPartContent",
 		]);
-		assert.equal(
-			entities.find((e) => e.entityType === "BodyPartContent")?.key
-				.bodyPartContentId,
-			"bpc-1",
-		);
 	});
 
 	it("appends nothing when every child list is empty", () => {
@@ -56,7 +49,6 @@ describe("collectMessageChildEntities", () => {
 			bodyPartParameter: [],
 			rawMessageStorage: [],
 			bodyPartStorage: [],
-			bodyPartContent: [],
 		} as unknown as MessageDescription);
 		assert.equal(entities.length, 0);
 	});
@@ -122,7 +114,6 @@ describe("enumerateCascadeEntities", () => {
 			"Mailbox",
 			"Message",
 			"MessageFlag",
-			"BodyPartContent",
 			"OutboxMessage",
 			"MailboxLock",
 			"MessagePlacementMove",
