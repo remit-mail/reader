@@ -11,6 +11,7 @@ import {
 	provisionDefaultCalendar,
 	readCalendarFeed,
 	readSubscriptionUrl,
+	reprojectionOf,
 	writeCalendarFeed,
 } from "@remit/calendar-service";
 import type {
@@ -419,7 +420,7 @@ export const updateCalendarFor = async (
 					`stored calendar object ${object.calendarObjectId} was refused on re-expansion: ${rewritten.error.code}`,
 				);
 			}
-			rewrites.push(rewritten.value);
+			rewrites.push(reprojectionOf(rewritten.value));
 		}
 	}
 	await deps.calendarStore.commit([

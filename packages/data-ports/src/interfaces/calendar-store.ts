@@ -33,6 +33,16 @@ export interface PutCalendarObjectWrite {
 	occurrences: CalendarOccurrenceInput[];
 }
 
+/**
+ * Rewrites a resource that is already stored, the way a put does, but only
+ * while it is still there: a resource deleted since it was read stays deleted.
+ * A collection whose timezone changed re-projects every resource this way.
+ */
+export interface ReprojectCalendarObjectWrite
+	extends Omit<PutCalendarObjectWrite, "kind"> {
+	kind: "ReprojectObject";
+}
+
 /** Removes a resource with its occurrence rows, and bumps the sequence. */
 export interface DeleteCalendarObjectWrite {
 	kind: "DeleteObject";
@@ -75,6 +85,7 @@ export interface DeleteCalendarCollectionWrite {
 
 export type CalendarWrite =
 	| PutCalendarObjectWrite
+	| ReprojectCalendarObjectWrite
 	| DeleteCalendarObjectWrite
 	| SettleCalendarSuggestionWrite
 	| UpdateCalendarCollectionWrite

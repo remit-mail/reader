@@ -121,7 +121,6 @@ describe("a flag push that exhausted its retries", () => {
 		return resolveExhaustedFlagPushFailure(
 			{
 				messageService: store.message,
-				threadMessageService: store.threadMessage,
 				markerService: store.flagPush,
 				log: silentLog,
 			},

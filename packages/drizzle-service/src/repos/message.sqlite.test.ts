@@ -4,19 +4,19 @@ import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "../schema/message-data.js";
+import { messageDataSchema } from "../schema/message-data.js";
+import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import { DrizzleMessageRepository } from "./message.js";
 
+const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
+
 // Runs the ported message repo against a real better-sqlite3 database
-// (RFC 036 D1). Exercises the SQLite-specific seams: the SAVEPOINT-bracketed
-// transaction, the unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
+// (RFC 036 D1). Exercises the SQLite-specific seams: the batched delete, the
+// unique-violation → CreateFailedConflictError mapping, and the JSON/boolean columns.
 
 describe("DrizzleMessageRepository (sqlite)", () => {
-	let db: SqliteTestDb<MessageDataSchema>;
+	let db: SqliteTestDb<typeof SCHEMA>;
 	let close: () => Promise<void>;
 	let repo: DrizzleMessageRepository;
 
@@ -41,7 +41,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 	};
 
 	before(async () => {
-		({ db, close } = await createSqliteTestDb(messageDataSchema));
+		({ db, close } = await createSqliteTestDb(SCHEMA));
 		repo = new DrizzleMessageRepository(db);
 	});
 

@@ -1,13 +1,10 @@
+import type { IMessageRepository } from "@remit/data-ports";
 import type { FlagPushLogger } from "./flag-push.js";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
-import {
-	reconcileStaleMessage,
-	type StaleMessageReconcileDeps,
-} from "./stale-message-reconcile.js";
 import type { IImapConnection } from "./types.js";
 
-export interface ResolveExhaustedFlagPushDeps
-	extends StaleMessageReconcileDeps {
+export interface ResolveExhaustedFlagPushDeps {
+	messageService: Pick<IMessageRepository, "deleteIfPlacement">;
 	markerService: { delete(messageId: string, flagName: string): Promise<void> };
 	log: FlagPushLogger;
 }
@@ -39,7 +36,7 @@ export interface ResolveExhaustedFlagPushResult {
  *    IMAP, confirmed by {@link isMessageGoneFromOpenMailbox} rather than by a
  *    FETCH coming back empty. Per invariant 2, an external delete supersedes
  *    the marker entirely: the marker is dropped and the stale
- *    Message/ThreadMessage rows are deleted via {@link reconcileStaleMessage}.
+ *    Message/ThreadMessage rows are deleted via `deleteIfPlacement`.
  *    Metric only, no alarm — routine.
  * 2. BROKEN — the message still exists, but the flag push keeps failing.
  *    Broken code or a broken account, not a transient blip. The marker is
@@ -79,11 +76,9 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			deps,
-			accountConfigId,
-			messageId,
-		);
+		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
+			uid,
+		});
 		deps.log.info(
 			{
 				metric: "flag_push_stale_row_reconciled",
@@ -93,7 +88,7 @@ export const resolveExhaustedFlagPushFailure = async (
 				flagName,
 				uid,
 				mailboxPath,
-				threadMessagesDeleted,
+				reconciled,
 			},
 			"Message no longer at its flag-push mailbox after retry exhaustion (external delete); marker dropped, stale row reconciled",
 		);

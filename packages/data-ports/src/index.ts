@@ -15,6 +15,7 @@ export type {
 	DeleteCalendarObjectWrite,
 	ICalendarStore,
 	PutCalendarObjectWrite,
+	ReprojectCalendarObjectWrite,
 	SettleCalendarSuggestionWrite,
 	UpdateCalendarCollectionWrite,
 } from "./interfaces/calendar-store.js";

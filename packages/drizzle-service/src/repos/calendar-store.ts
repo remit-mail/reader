@@ -4,7 +4,7 @@ import type {
 	ICalendarStore,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, exists, not, sql } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import type { Db } from "../db.js";
 import {
@@ -76,7 +76,8 @@ export class DrizzleCalendarStore implements ICalendarStore {
 	private statements(write: CalendarWrite): SqliteBatchItem[] {
 		const now = Date.now();
 		switch (write.kind) {
-			case "PutObject": {
+			case "PutObject":
+			case "ReprojectObject": {
 				const { calendarId, resourceName } = write.object;
 				const calendarObjectId = deriveCalendarObjectId(
 					calendarId,
@@ -89,35 +90,68 @@ export class DrizzleCalendarStore implements ICalendarStore {
 					.select({ syncSequence: calendarTable.syncSequence })
 					.from(calendarTable)
 					.where(this.collection(write.accountConfigId, calendarId))})`;
+				const object =
+					write.kind === "PutObject"
+						? this.db
+								.insert(calendarObjectTable)
+								.values({
+									...write.object,
+									calendarObjectId,
+									syncSequence,
+									createdAt: now,
+									updatedAt: now,
+								})
+								.onConflictDoUpdate({
+									target: calendarObjectTable.calendarObjectId,
+									set: { ...write.object, syncSequence, updatedAt: now },
+								})
+						: this.db
+								.update(calendarObjectTable)
+								.set({ ...write.object, syncSequence, updatedAt: now })
+								.where(
+									eq(calendarObjectTable.calendarObjectId, calendarObjectId),
+								);
 				const items: SqliteBatchItem[] = [
 					this.bump(write.accountConfigId, calendarId),
-					this.db
-						.insert(calendarObjectTable)
-						.values({
-							...write.object,
-							calendarObjectId,
-							syncSequence,
-							createdAt: now,
-							updatedAt: now,
-						})
-						.onConflictDoUpdate({
-							target: calendarObjectTable.calendarObjectId,
-							set: { ...write.object, syncSequence, updatedAt: now },
-						}),
+					object,
 					this.clearOccurrences(calendarId, calendarObjectId),
 				];
 				if (write.occurrences.length === 0) return items;
+				const occurrences = this.db.insert(calendarEventIndexTable).values(
+					write.occurrences.map((occurrence) => ({
+						...occurrence,
+						calendarId,
+						calendarObjectId,
+						createdAt: now,
+						updatedAt: now,
+					})),
+				);
+				if (write.kind === "PutObject") return [...items, occurrences];
+				// A resource deleted since it was read wrote nothing above, so the
+				// occurrences written for it go again in the same batch.
 				return [
 					...items,
-					this.db.insert(calendarEventIndexTable).values(
-						write.occurrences.map((occurrence) => ({
-							...occurrence,
-							calendarId,
-							calendarObjectId,
-							createdAt: now,
-							updatedAt: now,
-						})),
-					),
+					occurrences,
+					this.db
+						.delete(calendarEventIndexTable)
+						.where(
+							and(
+								eq(calendarEventIndexTable.calendarObjectId, calendarObjectId),
+								not(
+									exists(
+										this.db
+											.select({ id: calendarObjectTable.calendarObjectId })
+											.from(calendarObjectTable)
+											.where(
+												eq(
+													calendarObjectTable.calendarObjectId,
+													calendarObjectId,
+												),
+											),
+									),
+								),
+							),
+						),
 				];
 			}
 			case "DeleteObject":

@@ -48,7 +48,6 @@ import {
 } from "./mailbox-cursor-rebuild.js";
 import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
 import type { QuarantineService } from "./quarantine.js";
-import { reconcileStaleMessage } from "./stale-message-reconcile.js";
 import type { SyncWarningRound, SyncWarningService } from "./sync-warning.js";
 import {
 	advanceChangeCursor,
@@ -719,9 +718,10 @@ export class MessageSyncService {
 	 *   untouched.
 	 * - Server message with no row → normal new-message sync (the same
 	 *   `trySaveMessage` pipeline the regular batch sync uses).
-	 * - Row with no counterpart → expunged; reconcile via {@link
-	 *   reconcileStaleMessage} (#1283 — the exact same "gone upstream" outcome
-	 *   as a body-sync retry exhaustion finding a stale row).
+	 * - Row with no counterpart → expunged; removed through `deleteIfPlacement`
+	 *   on the uid the rebuild read (#1283 — the exact same "gone upstream"
+	 *   outcome as a body-sync retry exhaustion finding a stale row), so a row
+	 *   a move re-pointed in the meantime is left alone.
 	 *
 	 * Idempotent by construction: re-entering mid-rebuild (crash recovery —
 	 * the mailbox was left `rebuilding`) simply redoes the same match/rewrite
@@ -802,17 +802,16 @@ export class MessageSyncService {
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
+		const uidRead = new Map(
+			existingRows.map((row) => [row.messageId, row.uid]),
+		);
 		await pMap(
 			staleMessageIds,
 			(messageId) =>
-				reconcileStaleMessage(
-					{
-						messageService: this.messageService,
-						threadMessageService: this.threadMessageService,
-					},
-					accountConfigId,
-					messageId,
-				),
+				this.messageService.deleteIfPlacement(messageId, {
+					mailboxId,
+					uid: uidRead.get(messageId),
+				}),
 			{ concurrency: MESSAGE_SAVE_CONCURRENCY },
 		);
 
@@ -1766,21 +1765,22 @@ export class MessageSyncService {
 		const contested = !created && sightingContestsPlacement(mailbox, item);
 		const verdict = placementKey(messageId, item.mailboxId, item.uid);
 		unresolvedSighting = contested && !departures.settled.has(verdict);
-		const repointed =
+		const repointable =
 			contested &&
 			departures.departed.has(verdict) &&
 			!(await this.holdsCopyOf(this.messageService, messageId, mailboxId));
-		if (repointed) {
-			await this.messageService.updateUid(messageId, msg.uid, mailboxId);
-			await this.repointThreadMessage(
-				this.threadMessageService,
-				accountConfigId,
+		// A user move landing between the read above and this write wins: the
+		// re-point names the placement it read, writes nothing when the row has
+		// moved since, and the UID waits for the next round.
+		const repointed =
+			repointable &&
+			(await this.messageService.repointIfPlacement(
 				messageId,
-				mailboxId,
-				msg.uid,
-				sighting === "discarded",
-			);
-		}
+				{ status: item.status, mailboxId: item.mailboxId, uid: item.uid },
+				{ mailboxId, uid: msg.uid, isDeleted: sighting === "discarded" },
+			));
+
+		if (repointable && !repointed) unresolvedSighting = true;
 
 		owned = created || item.mailboxId === mailboxId || repointed;
 
@@ -1838,52 +1838,6 @@ export class MessageSyncService {
 			deriveCopyMessageId(messageId, mailboxId),
 		]);
 		return rows.length > 0;
-	}
-
-	/**
-	 * Follow a re-pointed Message with the ThreadMessage row that renders it.
-	 * The listing and every folder count read that row, so leaving it behind
-	 * would show the message in the folder it just left and hide it from the one
-	 * it landed in. `isDeleted` follows the same rule the move path uses — true
-	 * in Trash, false anywhere else — so a message another client rescues out of
-	 * Trash stops being filtered out of listings.
-	 */
-	private async repointThreadMessage(
-		threadMessageService: IThreadMessageRepository,
-		accountConfigId: string,
-		messageId: string,
-		mailboxId: string,
-		uid: number,
-		isDeleted: boolean,
-	): Promise<void> {
-		const row = await threadMessageService.findByMessageId(
-			accountConfigId,
-			messageId,
-		);
-		if (row === null) return;
-		if (
-			row.mailboxId === mailboxId &&
-			row.uid === uid &&
-			row.isDeleted === isDeleted
-		) {
-			return;
-		}
-
-		await threadMessageService.update(
-			row.accountConfigId,
-			row.threadMessageId,
-			{ mailboxId, uid, isDeleted },
-			{
-				composites: {
-					mailboxId: row.mailboxId,
-					sentDate: row.sentDate,
-					isRead: row.isRead,
-					isDeleted: row.isDeleted,
-					hasStars: row.hasStars,
-					hasAttachment: row.hasAttachment,
-				},
-			},
-		);
 	}
 
 	private async saveAddresses(
@@ -1957,16 +1911,9 @@ export class MessageSyncService {
 	}
 
 	/**
-	 * Create or update Thread and ThreadMessage for a synced message.
-	 *
-	 * A message keeps the thread it is already stored in; a reply joins the
-	 * thread its parent is stored in; otherwise the thread is derived from the
-	 * root `threadRootOf` names. Replies that arrived before this message, and
-	 * so were keyed on its own id, follow it into its thread.
-	 *
-	 * `category` is the value the caller already holds from the Message it just
-	 * wrote, so the row starts out agreeing with it rather than defaulting to
-	 * `uncategorized` behind an already-classified message.
+	 * The thread a synced message files under. A message keeps the thread it is
+	 * already stored in; a reply joins the thread its parent is stored in;
+	 * otherwise the thread is derived from the root `threadRootOf` names.
 	 */
 	private async threadFor(
 		threadMessageService: IThreadMessageRepository,
@@ -1989,13 +1936,36 @@ export class MessageSyncService {
 					deriveMessageId(accountId, parent),
 				)
 			: null;
-		const threadId =
+		return (
 			parentRow?.threadId ??
 			deriveThreadId(
 				accountConfigId,
 				threadRootOf(envelope, references, messageId),
-			);
+			)
+		);
+	}
 
+	/**
+	 * Joins the rows written on either side of a parent and its reply, after
+	 * this message's own row exists. Replies that arrived before this message,
+	 * and so were keyed on its own id, follow it into its thread; and a reply
+	 * whose parent was saved while it was being saved follows the parent, but
+	 * only from the thread it derived for itself — a thread it joined or was
+	 * already stored in is left as it is.
+	 *
+	 * Both checks run after the create, so of a parent and a reply saved
+	 * concurrently at least one sees the other's row: neither is left in a
+	 * thread of its own.
+	 */
+	private async joinThreads(
+		threadMessageService: IThreadMessageRepository,
+		messageId: string,
+		accountId: string,
+		accountConfigId: string,
+		envelope: ImapEnvelope,
+		references: string[] | undefined,
+		threadId: string,
+	): Promise<void> {
 		if (isValidMessageId(envelope.messageId)) {
 			await threadMessageService.rekeyThread(
 				accountConfigId,
@@ -2003,9 +1973,34 @@ export class MessageSyncService {
 				threadId,
 			);
 		}
-		return threadId;
+
+		const parent = parentOf(envelope, references);
+		if (!parent) return;
+		const derived = deriveThreadId(
+			accountConfigId,
+			threadRootOf(envelope, references, messageId),
+		);
+		if (threadId !== derived) return;
+		const parentRow = await threadMessageService.findByMessageId(
+			accountConfigId,
+			deriveMessageId(accountId, parent),
+		);
+		if (!parentRow || parentRow.threadId === threadId) return;
+		await threadMessageService.rekeyThread(
+			accountConfigId,
+			threadId,
+			parentRow.threadId,
+		);
 	}
 
+	/**
+	 * Create the ThreadMessage for a synced message, then join it to its
+	 * parent and replies.
+	 *
+	 * `category` is the value the caller already holds from the Message it just
+	 * wrote, so the row starts out agreeing with it rather than defaulting to
+	 * `uncategorized` behind an already-classified message.
+	 */
 	private async createThreadForMessage(
 		threadMessageService: IThreadMessageRepository,
 		messageId: string,
@@ -2087,6 +2082,16 @@ export class MessageSyncService {
 				}
 				throw error;
 			});
+
+		await this.joinThreads(
+			threadMessageService,
+			messageId,
+			accountId,
+			accountConfigId,
+			envelope,
+			references,
+			threadId,
+		);
 	}
 }
 

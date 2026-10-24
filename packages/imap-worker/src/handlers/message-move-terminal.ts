@@ -2,13 +2,15 @@ import type {
 	IMessageRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
-import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
+import {
+	MessageMutation,
+	MessageStatus,
+	MessageSyncStatus,
+} from "@remit/domain-enums";
 import {
 	type IImapConnection,
 	isMessageGoneFromOpenMailbox,
-	reconcileStaleMessage,
 	restoreSourcePlacement,
-	type StaleMessageReconcileDeps,
 } from "@remit/mailbox-service";
 
 export interface MessageMoveTerminalLogger {
@@ -16,9 +18,11 @@ export interface MessageMoveTerminalLogger {
 	error(obj: Record<string, unknown>, msg: string): void;
 }
 
-export interface ResolveExhaustedMessageMoveDeps
-	extends StaleMessageReconcileDeps {
-	messageService: Pick<IMessageRepository, "delete" | "transitionPlacement">;
+export interface ResolveExhaustedMessageMoveDeps {
+	messageService: Pick<
+		IMessageRepository,
+		"deleteIfPlacement" | "transitionPlacement"
+	>;
 	threadMessageService: Pick<
 		IThreadMessageRepository,
 		"findAllByMessageId" | "deleteMany" | "update"
@@ -58,7 +62,7 @@ export interface ResolveExhaustedMessageMoveResult {
  *    the connection dropped before the tagged OK was read, or a foreign client
  *    moved or expunged the message; from here those are indistinguishable and
  *    have the same answer. The stale Message/ThreadMessage rows are deleted
- *    via {@link reconcileStaleMessage} and the caller resyncs both folders, so
+ *    via `deleteIfPlacement` and the caller resyncs both folders, so
  *    whichever folder actually holds the message re-projects it with the
  *    server's own UID. Metric only, no alarm — routine.
  * 2. BROKEN — the message is still at the source, so the move never took
@@ -110,11 +114,9 @@ export const resolveExhaustedMessageMoveFailure = async (
 	await connection.openBox(sourceMailboxPath, true);
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			deps,
-			accountConfigId,
-			messageId,
-		);
+		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
+			status: MessageStatus.moving,
+		});
 		deps.log.info(
 			{
 				metric: "message_move_stale_row_reconciled",
@@ -123,7 +125,7 @@ export const resolveExhaustedMessageMoveFailure = async (
 				messageId,
 				uid,
 				sourceMailboxPath,
-				threadMessagesDeleted,
+				reconciled,
 			},
 			"Message no longer at its move source after retry exhaustion (move landed server-side, or an external delete or move); stale row reconciled",
 		);

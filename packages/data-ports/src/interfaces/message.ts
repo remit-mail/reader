@@ -66,6 +66,19 @@ export interface IMessageRepository {
 		expected: PlacementPredicate,
 		next: PlacementTransitionInput,
 	): Promise<MessageItem | undefined>;
+	/**
+	 * Re-point a row at the placement the mail server named for it, settled,
+	 * only while it still sits where the caller read it (imap-mutations R1/R3):
+	 * a user move landing in between wins and this writes nothing. The row's
+	 * thread listings follow in the same batch, so the listing never shows the
+	 * message in a folder its row has left. Resolves `false` when the
+	 * predicate did not match.
+	 */
+	repointIfPlacement(
+		messageId: string,
+		expected: PlacementPredicate,
+		to: { mailboxId: string; uid: number; isDeleted: boolean },
+	): Promise<boolean>;
 }
 
 export type { MessageIdSource };

@@ -1,4 +1,4 @@
-import { asc, eq, inArray } from "drizzle-orm";
+import { asc, eq, inArray, sql } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import type { Db } from "../db.js";
 import {
@@ -59,17 +59,6 @@ const affectedMessageIds = async (db: ForwardedPartsDb): Promise<string[]> => {
 	return rows.map((row) => row.messageId);
 };
 
-const storedMessageIds = async (
-	db: ForwardedPartsDb,
-	ids: string[],
-): Promise<string[]> => {
-	const rows = await db
-		.select({ messageId: messageTable.messageId })
-		.from(messageTable)
-		.where(inArray(messageTable.messageId, ids));
-	return rows.map((row) => row.messageId);
-};
-
 /**
  * One batch, so a message never keeps half of its part rows and is never left
  * without parts and off the queue. The rows that hang off a part go before the
@@ -89,21 +78,21 @@ export const sweepForwardedMessageParts = async (
 	const items: SqliteBatchItem[] = [];
 	const partDeletes = new Set<number>();
 	for (const ids of chunks(messageIds)) {
-		const queued = await storedMessageIds(db, ids);
-		if (queued.length > 0) {
-			items.push(
-				db
-					.insert(bodyStructureRefetchTable)
-					.values(
-						queued.map((messageId) => ({
-							messageId,
-							createdAt: now,
-							updatedAt: now,
-						})),
-					)
-					.onConflictDoNothing(),
-			);
-		}
+		items.push(
+			db
+				.insert(bodyStructureRefetchTable)
+				.select(
+					db
+						.select({
+							messageId: messageTable.messageId,
+							createdAt: sql<number>`${now}`.as("created_at"),
+							updatedAt: sql<number>`${now}`.as("updated_at"),
+						})
+						.from(messageTable)
+						.where(inArray(messageTable.messageId, ids)),
+				)
+				.onConflictDoNothing(),
+		);
 		items.push(
 			db
 				.delete(bodyPartParameterTable)

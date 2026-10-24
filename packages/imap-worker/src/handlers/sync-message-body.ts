@@ -326,7 +326,6 @@ export const syncMessageBody = async (
 				const { brokenMessageIds } = await resolveExhaustedBodySyncFailures(
 					{
 						messageService,
-						threadMessageService,
 						storageService: storage,
 						log,
 					},
