@@ -134,7 +134,10 @@ export {
 	createFolder,
 	type FolderPathChange,
 	type FolderPathDeps,
+	type FolderPathOutcome,
 	type NewFolder,
+	type NewFolderOutcome,
+	ownedFolder,
 } from "./folder-operations.js";
 export {
 	type FolderPlacementLookup,
@@ -198,6 +201,7 @@ export {
 	type CursorRebuildSnapshot,
 	matchCursorRebuild,
 } from "./mailbox-cursor-rebuild.js";
+export { folderInFlight } from "./mailbox-intent.js";
 export {
 	type CreateMailboxInput,
 	type DeleteMailboxInput,

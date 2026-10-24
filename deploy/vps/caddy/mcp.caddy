@@ -1,0 +1,19 @@
+# The MCP connector's host. Sites that hold a certificate import mcp_proxy
+# under {$MCP_PUBLIC_ORIGIN}; the catch-all :80 sites (off, tunnel) match it by
+# host with mcp_route. X-Remit-Client-IP is overwritten, as in routes.caddy.
+# flush_interval -1 keeps server-sent events unbuffered.
+
+(mcp_proxy) {
+	request_header X-Remit-Client-IP {client_ip}
+	reverse_proxy mcp:8080 {
+		import upstream
+		flush_interval -1
+	}
+}
+
+(mcp_route) {
+	@mcp expression `"{$MCP_PUBLIC_ORIGIN}" in ["http://" + {http.request.hostport}, "https://" + {http.request.hostport}]`
+	route @mcp {
+		import mcp_proxy
+	}
+}

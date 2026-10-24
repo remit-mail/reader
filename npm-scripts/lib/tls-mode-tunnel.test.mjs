@@ -409,7 +409,7 @@ if (CR) {
 				`${join(workdir, "echo.caddy")}:/etc/caddy/Caddyfile:ro`,
 				IMAGE,
 			);
-			// Both files mounted where docker-compose.sqlite.yml mounts them.
+			// The files mounted where docker-compose.sqlite.yml mounts them.
 			// Nothing is synthesized: this is the deployment's configuration,
 			// served.
 			run(
@@ -423,6 +423,8 @@ if (CR) {
 				"127.0.0.1::80",
 				"-v",
 				`${join(CADDY_DIR, "routes.caddy")}:/etc/caddy/routes.caddy:ro`,
+				"-v",
+				`${join(CADDY_DIR, "mcp.caddy")}:/etc/caddy/mcp.caddy:ro`,
 				"-v",
 				`${join(CADDY_DIR, "tunnel.caddy")}:/etc/caddy/Caddyfile:ro`,
 				IMAGE,

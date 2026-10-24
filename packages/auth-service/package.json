@@ -17,6 +17,10 @@
     "./verifier": {
       "types": "./src/verifier.ts",
       "default": "./src/verifier.ts"
+    },
+    "./schema": {
+      "types": "./src/schema/auth-schema-sqlite.ts",
+      "default": "./src/schema/auth-schema-sqlite.ts"
     }
   },
   "scripts": {

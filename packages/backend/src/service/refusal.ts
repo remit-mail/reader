@@ -1,5 +1,6 @@
 import {
 	BadRequestError,
+	ConflictError,
 	ForbiddenError,
 	type HTTPError,
 	MailboxNotSettledError,
@@ -15,6 +16,8 @@ export const refusalError = (refusal: Refusal): HTTPError => {
 			return new ForbiddenError(refusal.message);
 		case "NotFound":
 			return new NotFoundError(refusal.message);
+		case "Conflict":
+			return new ConflictError(refusal.message);
 		case "NotSettled":
 			return new MailboxNotSettledError(
 				refusal.message,

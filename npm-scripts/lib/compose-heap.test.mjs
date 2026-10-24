@@ -158,6 +158,7 @@ describe("the deployment's Node services run under a heap ceiling", () => {
 			"backend",
 			"doctor",
 			"imap-worker",
+			"mcp",
 			"migrate",
 			"queue",
 			"scheduler",

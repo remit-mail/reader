@@ -64,6 +64,7 @@ ASSETS=(
 	# have the daemon create a directory where this file belongs.
 	"observability/scrape.yml"
 	"caddy/routes.caddy"
+	"caddy/mcp.caddy"
 	"caddy/off.caddy"
 	"caddy/internal.caddy"
 	"caddy/tailscale.caddy"

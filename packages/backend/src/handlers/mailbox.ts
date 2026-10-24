@@ -4,14 +4,16 @@ import type {
 	RenameMailboxInput,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
+import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { MessageSystemFlag } from "@remit/domain-enums";
 import {
 	changeFolderPath,
 	createFolder,
 	type FolderPathDeps,
 	folderInAccount,
+	folderInFlight,
 	ownedAccount,
+	ownedFolder,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
@@ -76,23 +78,37 @@ export const applyMailboxPatch = async (
 	body: RenameMailboxInput,
 ): Promise<MailboxItem> => {
 	const { fullPath } = body;
-	const changes = pickMailboxOverrideChanges(body);
-	if (Object.keys(changes).length > 0) {
+	const applyOverrides = async (): Promise<void> => {
+		const changes = pickMailboxOverrideChanges(body);
+		if (Object.keys(changes).length === 0) return;
 		await applyMailboxOverrideChanges(
 			client.accountSetting,
 			accountConfigId,
 			mailboxId,
 			changes,
 		);
-	}
+	};
 
 	if (!fullPath) {
-		return client.mailbox.get(accountId, mailboxId);
+		const folder = unwrap(
+			await ownedFolder(client, accountConfigId, accountId, mailboxId),
+		);
+		await applyOverrides();
+		return folder;
 	}
 
-	return unwrap(
-		await changeFolderPath(client, { accountId, mailboxId, fullPath }),
+	const { outcome, mailbox } = unwrap(
+		await changeFolderPath(client, accountConfigId, {
+			accountId,
+			mailboxId,
+			fullPath,
+		}),
 	);
+	await applyOverrides();
+	if (outcome === "AlreadyRecorded") {
+		throw new ConflictError(folderInFlight(mailbox));
+	}
+	return mailbox;
 };
 
 /**
@@ -223,7 +239,13 @@ export const MailboxOperations: Record<
 			namespaceType,
 			fullPath,
 		});
-		return toMailboxResponse(unwrap(created));
+		const { outcome, mailbox } = unwrap(created);
+		if (outcome === "Existing") {
+			throw new BadRequestError(
+				`A folder named “${fullPath}” is already there.`,
+			);
+		}
+		return toMailboxResponse(mailbox);
 	},
 };
 
@@ -282,12 +304,6 @@ export const MailboxDetailOperations: Record<
 		const body = context.request.requestBody as RenameMailboxInput;
 
 		const client = await getClient();
-		const account = await client.account.get(accountId);
-		unwrap(ownedAccount(account, accountConfigId, "act"));
-
-		const existing = await client.mailbox.get(accountId, mailboxId);
-		unwrap(folderInAccount(existing, accountId, "act"));
-
 		const mailbox = await applyMailboxPatch(
 			client,
 			accountConfigId,

@@ -6,6 +6,7 @@ export type Refusal =
 	| { kind: "Invalid"; message: string }
 	| { kind: "Forbidden"; message: string }
 	| { kind: "NotFound"; message: string }
+	| { kind: "Conflict"; message: string }
 	| {
 			kind: "NotSettled";
 			message: string;

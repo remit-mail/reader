@@ -148,6 +148,29 @@ describe("createFilter", () => {
 		);
 		assert.deepEqual(capture.sent, []);
 	});
+
+	it("refuses a Temporary filter without an expiry, storing nothing", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+
+		const outcome = await createFilter(
+			deps(),
+			{ accountConfigId: account.accountConfigId, userId: "user-1" },
+			{
+				accountId: account.accountId,
+				filter: { ...rule(folder.mailboxId), scope: FilterScope.Temporary },
+			},
+		);
+
+		assert.deepEqual(refusalOf(outcome), {
+			kind: "Invalid",
+			message:
+				"A Temporary filter needs expiresAt — pick a date, or switch scope to Standing.",
+		});
+		assert.deepEqual(
+			await store.filter.listByAccountConfig(account.accountConfigId),
+			[],
+		);
+	});
 });
 
 describe("updateFilter", () => {

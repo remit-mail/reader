@@ -17,12 +17,10 @@ import {
 	storeBody,
 } from "@remit/mailbox-service/test-helpers/test-store";
 import type { StorageService } from "@remit/storage-service";
+import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
-import {
-	createMcpHandler,
-	MCP_READ_SCOPE,
-	type McpRequestHandler,
-} from "./server.js";
+import { createMcpHandler, type McpRequestHandler } from "./server.js";
+import { ruleDeps } from "./test-rule-deps.js";
 
 const USER_ID = "mcp-user";
 const OTHER_USER_ID = "mcp-other-user";
@@ -114,6 +112,7 @@ before(async () => {
 			},
 		},
 		logger: silentLog,
+		...ruleDeps(store),
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");

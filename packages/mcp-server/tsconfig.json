@@ -2,7 +2,22 @@
 	"extends": "../../tsconfig.json",
 	"compilerOptions": {
 		"outDir": "dist",
-		"rootDir": "src"
+		"jsx": "react-jsx",
+		"lib": [
+			"ES2022",
+			"DOM",
+			"DOM.Iterable"
+		]
 	},
-	"include": ["src/**/*.ts"]
+	"include": [
+		"src/**/*.ts",
+		"src/**/*.tsx",
+		"../ui/src/components/mcp-*.tsx",
+		"../ui/src/components/auth-card.tsx",
+		"../ui/src/components/auth-hero.tsx",
+		"../ui/src/components/banner.tsx",
+		"../ui/src/components/button.tsx",
+		"../ui/src/components/input.tsx",
+		"vite.pages.config.ts"
+	]
 }

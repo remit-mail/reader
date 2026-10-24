@@ -1,0 +1,3 @@
+@import "@remit/ui/tokens.css";
+
+@source "../../../ui/src/components/**/*.tsx";

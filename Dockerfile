@@ -129,6 +129,8 @@ ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
 
 RUN npm run build:dist -w packages/web-client -- --auth better-auth
 
+RUN npm run build -w packages/mcp-server
+
 # Only the brotli form of the engine and the dictionaries lands in the image;
 # the server sends it with Content-Encoding: br, so what the browser receives
 # is the upstream source byte for byte.
@@ -326,6 +328,20 @@ CMD ["node", "server.mjs"]
 FROM node-service-installed AS doctor
 COPY --from=builder --chown=node:node /app/dist-docker/doctor/server.mjs ./server.mjs
 COPY --from=builder --chown=node:node /app/dist-docker/doctor/check.mjs ./check.mjs
+CMD ["node", "server.mjs"]
+
+########################################################################
+# mcp-server — the MCP connector, behind the `mcp` compose profile.
+########################################################################
+FROM node-service-installed AS mcp-server
+COPY --from=builder --chown=node:node /app/dist-docker/mcp-server/server.mjs ./server.mjs
+COPY --from=builder --chown=node:node /app/dist-docker/mcp-server/mcp-login.mjs ./mcp-login.mjs
+COPY --from=builder --chown=node:node /app/packages/mcp-server/dist/pages ./pages
+ENV MCP_PAGE_ASSETS_DIR=/app/pages
+ENV MCP_PORT=8080
+EXPOSE 8080
+HEALTHCHECK --interval=5s --timeout=5s --retries=10 --start-period=30s \
+	CMD ["node", "-e", "require('http').get('http://127.0.0.1:8080/.well-known/oauth-protected-resource',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
 CMD ["node", "server.mjs"]
 
 ########################################################################

@@ -220,8 +220,12 @@ services:
       - "${CADDY_HTTPS_BIND:-0.0.0.0:443}:443"
     environment:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}
+      # The MCP connector's host (caddy/mcp.caddy). Unset, it is a name nothing
+      # resolves, so with the `mcp` profile off no request is routed there.
+      MCP_PUBLIC_ORIGIN: ${MCP_PUBLIC_ORIGIN:-http://mcp.invalid}
     volumes:
       - ./caddy/routes.caddy:/etc/caddy/routes.caddy:ro
+      - ./caddy/mcp.caddy:/etc/caddy/mcp.caddy:ro
       - ./caddy/${TLS_MODE:-off}.caddy:/etc/caddy/Caddyfile:ro
       - ${TAILSCALED_SOCKET:-/dev/null}:/var/run/tailscale/tailscaled.sock
       - caddy_data:/data
@@ -542,6 +546,40 @@ services:
     depends_on:
       volume-init:
         condition: service_completed_successfully
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # MCP connector — off by default; `remit mcp enable <origin>` turns it on.
+  # MCP_PUBLIC_ORIGIN and MCP_AUTH_SECRET are not `:?`-guarded because compose
+  # interpolates the whole file before it filters by profile.
+  # ---------------------------------------------------------------------
+  mcp:
+    image: ghcr.io/remit-mail/reader/mcp-server:${REMIT_TAG:-latest}
+    profiles: ["mcp"]
+    <<: *app-env
+    environment:
+      <<: *app-environment
+      MCP_PORT: "8080"
+    volumes:
+      - message_storage:/data/storage
+      - sqlite_data:/data/sqlite
+    depends_on:
+      queue:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      volume-init:
+        condition: service_completed_successfully
+      caddy:
+        condition: service_started
+    healthcheck:
+      test:
+        ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:8080/.well-known/oauth-protected-resource',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+      start_interval: 1s
     restart: unless-stopped
 
   # ---------------------------------------------------------------------

@@ -11,6 +11,14 @@
     "./scheduler": {
       "types": "./src/scheduler/handler.ts",
       "default": "./src/scheduler/handler.ts"
+    },
+    "./mailbox-management": {
+      "types": "./src/handlers/mailbox-management.ts",
+      "default": "./src/handlers/mailbox-management.ts"
+    },
+    "./test-helpers/test-world": {
+      "types": "./src/test-helpers/test-world.ts",
+      "default": "./src/test-helpers/test-world.ts"
     }
   },
   "bin": {

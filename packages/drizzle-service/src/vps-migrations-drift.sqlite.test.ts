@@ -35,6 +35,7 @@ const CONFIGS = [
 	"packages/migrate/drizzle.entities.sqlite.config.ts",
 	"packages/migrate/drizzle.auth.sqlite.config.ts",
 	"packages/migrate/drizzle.meta.sqlite.config.ts",
+	"packages/migrate/drizzle.mcp.sqlite.config.ts",
 ];
 
 type DrizzleConfig = { schema: string; out: string };

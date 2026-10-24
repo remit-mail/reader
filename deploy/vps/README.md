@@ -178,6 +178,7 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `migrate` | `ghcr.io/remit-mail/reader/backend` (command override) | One-shot: applies the SQLite migrations, repairs `thread_message.category`, and installs the FTS5 search index before any app service starts. See [maintenance.md](maintenance.md). |
 | `volume-init` | `ghcr.io/remit-mail/reader/backend` (entrypoint override) | One-shot: fixes ownership of the data volumes so the non-root app user can write them. |
 | `doctor` | `ghcr.io/remit-mail/reader/doctor` | Reads the metrics on an interval, computes one verdict, and posts a settled change of it to a webhook. Mounts no docker socket and publishes no port. See [observability.md](observability.md). |
+| `mcp` | `ghcr.io/remit-mail/reader/mcp-server` | Off by default (`profiles: ["mcp"]`). The MCP connector for claude.ai and Claude Code, on its own origin (`MCP_PUBLIC_ORIGIN`). Turned on with `remit mcp enable <origin>`. See [the MCP connector docs](../../doc/remit.email/docs/operations/mcp.md). |
 | `backup` | `alpine:3.23` | Off by default (`profiles: ["backup"]`). Nightly encrypted database snapshot. See [Backups](#backups). |
 | `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [observability.md](observability.md). |
 | `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |

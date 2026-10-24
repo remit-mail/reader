@@ -84,8 +84,11 @@ SNAPSHOT_LIB_MOUNT="${REMIT_UPDATE_SNAPSHOT_LIB-$REMIT_DIR/backup/snapshot-db.sh
 # as a basename and a second deployment may have set to its own. The Caddy files
 # are one set: every mode file imports routes.caddy, so half a set is a Caddy
 # that will not load.
-CADDY_ASSETS="caddy/routes.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
+CADDY_ASSETS="caddy/routes.caddy caddy/mcp.caddy caddy/off.caddy caddy/internal.caddy caddy/tailscale.caddy caddy/acme.caddy caddy/tunnel.caddy"
 HOST_ASSETS="remit docker-compose.sqlite.yml $CADDY_ASSETS"
+
+# Caddy's MCP_PUBLIC_ORIGIN while the connector is off; nothing resolves it.
+MCP_UNSET_ORIGIN="http://mcp.invalid"
 
 # 300 seconds from `up -d` returning. Generous on purpose: a release that
 # migrates a large mailbox index is the normal slow case, and rolling back a
@@ -174,6 +177,16 @@ Usage: $PROG <command> [args]
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
                        every start; this is how to look without waiting for one.
+  mcp enable <origin>  Turn on the MCP connector, so claude.ai and Claude Code
+                       can read your mail. It answers on <origin>, e.g.
+                       https://mcp.example.com, which may be a different
+                       domain from this instance; point its DNS (or a tunnel
+                       hostname) at this box first.
+  mcp disable          Turn the connector off. Nothing answers at its origin
+                       afterwards; its connections are kept for next time.
+  mcp login            Connect a headless Claude Code to the MCP server: prints
+                       a code to approve in a browser, then the
+                       'claude mcp add' line that carries the issued token.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -2175,14 +2188,21 @@ validate_caddy_files() {
 	[ -n "$_vcf_image" ] || return 1
 	_vcf_modes=""
 	for _a in $CADDY_ASSETS; do
-		[ "$_a" = caddy/routes.caddy ] || _vcf_modes="$_vcf_modes ${_a#caddy/}"
+		case "$_a" in
+		caddy/routes.caddy | caddy/mcp.caddy) ;;
+		*) _vcf_modes="$_vcf_modes ${_a#caddy/}" ;;
+		esac
 	done
+	_vcf_mcp=$(get_var MCP_PUBLIC_ORIGIN)
+	[ -n "$_vcf_mcp" ] || _vcf_mcp=$MCP_UNSET_ORIGIN
 	capped_run "$HELPER_RUN_TIMEOUT" docker run --rm \
 		-v "$STATE_MOUNT:/state:ro" \
 		-e "PUBLIC_ORIGIN=$(get_var PUBLIC_ORIGIN)" \
+		-e "MCP_PUBLIC_ORIGIN=$_vcf_mcp" \
 		--entrypoint sh "$_vcf_image" -c "set -eu
 src=/state/host-files/$1/incoming/caddy
 cp \"\$src/routes.caddy\" /etc/caddy/routes.caddy
+cp \"\$src/mcp.caddy\" /etc/caddy/mcp.caddy
 for mode in$_vcf_modes; do
   caddy adapt --adapter caddyfile --config \"\$src/\$mode\" >/dev/null
 done"
@@ -2351,7 +2371,7 @@ command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null 2>&1 || exit 0
 [ -f /data/sqlite/remit.db ] || exit 0
 exec su-exec 1000:1000 sh -c 'total=0
-for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
+for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta __drizzle_migrations_mcp; do
   c=\$(sqlite3 /data/sqlite/remit.db \"SELECT count(*) FROM \$t\" 2>/dev/null || printf 0)
   total=\$((total + c))
 done
@@ -3616,6 +3636,116 @@ cmd_check_categories() {
 	compose run --rm --no-deps migrate node migrate.mjs --check
 }
 
+# --- mcp ---------------------------------------------------------------------
+
+MCP_PROFILE=mcp
+
+mcp_origin_valid() {
+	case "$1" in
+	http://* | https://*) ;;
+	*) return 1 ;;
+	esac
+	_mov_rest=${1#*://}
+	[ -n "$_mov_rest" ] || return 1
+	case "$_mov_rest" in
+	*/* | *\?* | *#* | *@* | *" "* | :*) return 1 ;;
+	esac
+	return 0
+}
+
+profiles_with_mcp() {
+	case ",$1," in
+	*",$MCP_PROFILE,"*) printf '%s' "$1" ;;
+	,,) printf '%s' "$MCP_PROFILE" ;;
+	*) printf '%s,%s' "$1" "$MCP_PROFILE" ;;
+	esac
+}
+
+profiles_without_mcp() {
+	printf ',%s,' "$1" | sed -e "s/,$MCP_PROFILE,/,/g" -e 's/^,//' -e 's/,$//'
+}
+
+current_profiles() {
+	if grep -q '^COMPOSE_PROFILES=' "$REMIT_DIR/.env"; then
+		get_var COMPOSE_PROFILES
+		return 0
+	fi
+	# shellcheck disable=SC2016 # ${TLS_MODE:-} is compose's syntax, written literally
+	printf '%s' '${TLS_MODE:-}'
+}
+
+new_mcp_secret() {
+	_nms=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+	[ "${#_nms}" -eq 64 ] || die "mcp enable: could not read 32 random bytes from /dev/urandom for MCP_AUTH_SECRET"
+	printf '%s' "$_nms"
+}
+
+mcp_enable() {
+	[ $# -eq 1 ] || die "mcp enable: needs one origin, e.g. '$PROG mcp enable https://mcp.example.com'"
+	_mo=${1%/}
+	mcp_origin_valid "$_mo" ||
+		die "mcp enable: '$1' is not an origin. Give the scheme and host only, e.g. https://mcp.example.com"
+	_pub=$(get_var PUBLIC_ORIGIN)
+	[ "$_mo" != "${_pub%/}" ] ||
+		die "mcp enable: $_mo is this instance's own origin. The connector needs a host of its own, e.g. https://mcp.$(origin_host "$_pub")"
+	_mode=$(get_var TLS_MODE)
+	case "$_mode:$_mo" in
+	off:* | :* | *:https://*) ;;
+	*) die "mcp enable: TLS_MODE=$_mode serves https, so the connector's origin must be https:// too (got $_mo)" ;;
+	esac
+	case "$(get_var MCP_AUTH_SECRET)" in
+	"" | *CHANGE_ME*)
+		set_var MCP_AUTH_SECRET "$(new_mcp_secret)"
+		printf 'MCP_AUTH_SECRET: generated\n'
+		;;
+	esac
+	set_var MCP_PUBLIC_ORIGIN "$_mo"
+	set_var COMPOSE_PROFILES "$(profiles_with_mcp "$(current_profiles)")"
+	apply
+	printf '\nMCP connector on at %s\n' "$_mo"
+	if [ "$_mode" = "tunnel" ]; then
+		printf '%s needs a public hostname of its own on the tunnel, routed to http://caddy:80.\n' "$(origin_host "$_mo")"
+	else
+		printf '%s has to resolve to this box, the way %s does.\n' "$(origin_host "$_mo")" "$(origin_host "$_pub")"
+	fi
+	printf 'claude.ai:   add a custom connector with the URL %s/mcp\n' "$_mo"
+	printf 'Claude Code: claude mcp add --transport http remit %s/mcp\n' "$_mo"
+}
+
+mcp_disable() {
+	[ $# -eq 0 ] || die "mcp disable: takes no arguments"
+	_was=$(get_var MCP_PUBLIC_ORIGIN)
+	set_var COMPOSE_PROFILES "$(profiles_without_mcp "$(current_profiles)")"
+	set_var MCP_PUBLIC_ORIGIN ""
+	compose_all rm --force --stop mcp
+	apply
+	if [ -n "$_was" ]; then
+		printf '\nMCP connector off. Nothing answers at %s now.\n' "$_was"
+	else
+		printf '\nMCP connector off.\n'
+	fi
+	printf 'Its client registrations and tokens stay in the database; %s mcp enable brings them back.\n' "$PROG"
+}
+
+# Not -T: it prints while it polls.
+mcp_login() {
+	[ $# -eq 0 ] || die "mcp login: takes no arguments"
+	compose exec mcp node mcp-login.mjs
+}
+
+cmd_mcp() {
+	require_deployment
+	[ $# -gt 0 ] || die "mcp: needs 'enable <origin>', 'disable' or 'login'"
+	_mcp_sub=$1
+	shift
+	case "$_mcp_sub" in
+	enable) mcp_enable "$@" ;;
+	disable) mcp_disable "$@" ;;
+	login) mcp_login "$@" ;;
+	*) die "mcp: unknown subcommand '$_mcp_sub' — use 'enable <origin>', 'disable' or 'login'" ;;
+	esac
+}
+
 # --- doctor (docs/design/standalone-observability.md D4) --------------------
 #
 # The verdict is computed in the `doctor` container and nowhere else. The
@@ -3825,6 +3955,7 @@ main() {
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
+	mcp) cmd_mcp "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"

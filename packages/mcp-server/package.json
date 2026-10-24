@@ -3,32 +3,43 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "main": "src/index.ts",
-  "types": "src/index.ts",
-  "exports": {
-    ".": {
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
-    }
-  },
   "scripts": {
+    "build": "vite build --config vite.pages.config.ts",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
-    "test": "npm run test:typecheck && npm run test:run"
+    "test": "npm run test:typecheck && npm run test:run",
+    "start": "MCP_PAGE_ASSETS_DIR=dist/pages node --import tsx src/main.ts",
+    "mcp-login": "node --import tsx src/cli/mcp-login.ts"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "^1.7.12",
+    "@hono/node-server": "^2.1.3",
     "@modelcontextprotocol/sdk": "1.32.1",
+    "@remit/auth-service": "*",
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
+    "@remit/drizzle-service": "*",
+    "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/storage-service": "*",
-    "zod": "^3.25.0"
+    "@remit/ui": "*",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-auth": "^1.7.12",
+    "better-sqlite3": "^12.11.1",
+    "drizzle-orm": "^0.45.2",
+    "jose": "^6.2.3",
+    "react": "^19",
+    "react-dom": "^19",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@remit/drizzle-service": "*",
-    "@types/better-sqlite3": "^7.6.13",
-    "better-sqlite3": "^12.11.1",
-    "tsx": "*"
+    "@remit/imap-worker": "*",
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "tsx": "*",
+    "vite": "^7.3.7"
   },
   "license": "MIT"
 }

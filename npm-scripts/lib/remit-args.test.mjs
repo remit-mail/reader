@@ -267,6 +267,26 @@ const CASES = {
 			{ args: ["--out"], message: /^remit: cert: unknown option/m },
 		],
 	},
+	mcp: {
+		refusal: /^remit: mcp( login)?: (unknown|takes|needs)/m,
+		takes: [
+			{
+				args: ["login"],
+				proof: / exec mcp node mcp-login\.mjs$/m,
+			},
+		],
+		refuses: [
+			{
+				args: [],
+				message: /^remit: mcp: needs 'enable <origin>', 'disable' or 'login'/m,
+			},
+			{ args: ["zzz"], message: /^remit: mcp: unknown subcommand 'zzz'/m },
+			{
+				args: ["login", "zzz"],
+				message: /^remit: mcp login: takes no arguments/m,
+			},
+		],
+	},
 	redrive: {
 		refusal: /^remit: redrive: name one dead-letter queue/m,
 		takes: [
