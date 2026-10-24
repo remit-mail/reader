@@ -8,7 +8,6 @@ import {
 	changeFolderPath,
 	createFolder,
 	folderInAccount,
-	folderNameRefusal,
 	ownedAccount,
 	type Refusal,
 	settledFolder,
@@ -45,10 +44,6 @@ const REFUSAL_FIX: Record<Refusal["kind"], string> = {
 
 const refused = (refusal: Refusal): CallToolResult =>
 	toolError(`${refusal.message}${REFUSAL_FIX[refusal.kind]}`);
-
-const NOT_CONFIGURED = toolError(
-	"Folder changes are not configured on this MCP server: it has no mailbox queue. Ask the instance's operator to set one up.",
-);
 
 type Watched = { state: "Present"; folder: MailboxItem } | { state: "Gone" };
 
@@ -167,11 +162,7 @@ export const registerFolderTools = (
 			annotations: FOLDER_WRITE,
 		},
 		async ({ accountId, fullPath }) => {
-			const folders = deps.folders;
-			if (!folders) return NOT_CONFIGURED;
-
-			const named = folderNameRefusal(fullPath, CREATE_DELIMITER);
-			if (!named.ok) return refused(named.refusal);
+			const { folders } = deps;
 
 			const owned = ownedAccount(
 				await deps.account.get(accountId),
@@ -221,8 +212,7 @@ export const registerFolderTools = (
 			annotations: FOLDER_WRITE,
 		},
 		async ({ accountId, mailboxId, fullPath }) => {
-			const folders = deps.folders;
-			if (!folders) return NOT_CONFIGURED;
+			const { folders } = deps;
 
 			const owned = ownedAccount(
 				await deps.account.get(accountId),

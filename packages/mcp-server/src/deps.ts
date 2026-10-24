@@ -33,5 +33,5 @@ export interface McpDeps {
 	bodySync: BodyPartMaterializer;
 	bodySyncQueue: BodySyncCue | undefined;
 	logger: MaterializeLogger;
-	folders?: FolderToolDeps;
+	folders: FolderToolDeps;
 }

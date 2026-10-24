@@ -229,17 +229,6 @@ describe("the folder tools behind mail:rules", () => {
 			"rename_folder",
 		]);
 	});
-
-	it("tell the caller when the server has no mailbox queue", async () => {
-		deps = { ...deps, folders: undefined };
-		assert.match(
-			await refusalOf("create_folder", {
-				accountId: account.accountId,
-				fullPath: "Projects",
-			}),
-			/not configured/,
-		);
-	});
 });
 
 describe("create_folder", () => {
@@ -256,28 +245,6 @@ describe("create_folder", () => {
 			capture.sent.map(({ body }) => body.type),
 			["MAILBOX_CREATE"],
 		);
-	});
-
-	it("refuses INBOX", async () => {
-		assert.match(
-			await refusalOf("create_folder", {
-				accountId: account.accountId,
-				fullPath: "inbox",
-			}),
-			/reserved for the inbox/,
-		);
-		assert.equal(capture.sent.length, 0);
-	});
-
-	it("refuses a system folder's name", async () => {
-		assert.match(
-			await refusalOf("create_folder", {
-				accountId: account.accountId,
-				fullPath: "Projects/Trash",
-			}),
-			/“Trash” is reserved for a system folder\. Pick another name\./,
-		);
-		assert.equal(capture.sent.length, 0);
 	});
 
 	it("refuses an account the caller does not own", async () => {

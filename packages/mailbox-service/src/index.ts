@@ -134,7 +134,6 @@ export {
 	createFolder,
 	type FolderPathChange,
 	type FolderPathDeps,
-	folderNameRefusal,
 	type NewFolder,
 } from "./folder-operations.js";
 export {

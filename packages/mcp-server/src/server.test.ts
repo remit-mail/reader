@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import {
+	BodySyncService,
+	MailboxQueueService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
@@ -114,6 +118,14 @@ before(async () => {
 			},
 		},
 		logger: silentLog,
+		folders: {
+			mailboxQueue: new MailboxQueueService({
+				mailboxService: store.mailbox,
+				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
+			}),
+			settleTimeoutMs: 100,
+			pollIntervalMs: 10,
+		},
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");
