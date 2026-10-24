@@ -48,11 +48,11 @@ describe("addresses standing only on mail in Junk", () => {
 		sqlite
 			.prepare(
 				`INSERT OR IGNORE INTO account (
-					account_id, account_config_id, username, email, imap_host,
-					imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
+					account_id, account_config_id, username, email, synced_services,
+					imap_host, imap_port, imap_tls, imap_start_tls, smtp_port, is_active,
 					connection_state, created_at, updated_at
-				) VALUES (?, 'cfg-1', 'user', 'user@example.com', 'imap.example.com',
-					993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
+				) VALUES (?, 'cfg-1', 'user', 'user@example.com', '["Mail"]',
+					'imap.example.com', 993, 1, 0, 465, 1, 'disconnected', 0, 0)`,
 			)
 			.run(accountId);
 	};
