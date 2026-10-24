@@ -12,6 +12,7 @@ import { logger } from "@remit/logger-lambda";
 import {
 	BodySyncQueueService,
 	BodySyncService,
+	MailboxQueueService,
 	SyncWarningService,
 } from "@remit/mailbox-service";
 import { createStorageService } from "@remit/storage-service/s3";
@@ -24,6 +25,9 @@ import {
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import type { McpDeps } from "./deps.js";
+
+const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
+const FOLDER_POLL_INTERVAL_MS = 500;
 
 const config = resolveMcpServerConfig();
 
@@ -38,6 +42,8 @@ const deps: McpDeps = {
 	mailbox: repositories.mailbox,
 	message: repositories.message,
 	threadMessage: repositories.threadMessage,
+	filter: repositories.filter,
+	organizeJobRequest: repositories.organizeJobRequest,
 	storage,
 	bodySync: new BodySyncService(
 		repositories.message,
@@ -52,6 +58,16 @@ const deps: McpDeps = {
 		? new BodySyncQueueService({ sqsQueueUrl: config.bodySyncQueueUrl, logger })
 		: undefined,
 	logger,
+	folders: {
+		mailboxQueue: new MailboxQueueService({
+			mailboxService: repositories.mailbox,
+			sqsQueueUrl: config.mailboxQueueUrl,
+			logger,
+		}),
+		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
+		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
+	},
+	filters: { organizeQueueUrl: config.organizeQueueUrl, logger },
 };
 
 const auth = createMcpAuth({

@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import {
-	BodySyncService,
-	MailboxQueueService,
-	SyncWarningService,
-} from "@remit/mailbox-service";
+import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
@@ -24,6 +20,7 @@ import type { StorageService } from "@remit/storage-service";
 import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
+import { ruleDeps } from "./test-rule-deps.js";
 
 const USER_ID = "mcp-user";
 const OTHER_USER_ID = "mcp-other-user";
@@ -115,14 +112,7 @@ before(async () => {
 			},
 		},
 		logger: silentLog,
-		folders: {
-			mailboxQueue: new MailboxQueueService({
-				mailboxService: store.mailbox,
-				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
-			}),
-			settleTimeoutMs: 100,
-			pollIntervalMs: 10,
-		},
+		...ruleDeps(store),
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");

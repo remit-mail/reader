@@ -1,7 +1,9 @@
 import type {
 	IAccountRepository,
+	IFilterRepository,
 	IMailboxRepository,
 	IMessageRepository,
+	IOrganizeJobRequestRepository,
 	IThreadMessageRepository,
 } from "@remit/data-ports";
 import type {
@@ -9,6 +11,7 @@ import type {
 	BodySyncCue,
 	MailboxQueueService,
 	MaterializeLogger,
+	OrganizeJobLogger,
 } from "@remit/mailbox-service";
 import type { StorageService } from "@remit/storage-service";
 
@@ -21,17 +24,31 @@ export interface FolderToolDeps {
 	pollIntervalMs: number;
 }
 
+export interface FilterToolDeps {
+	organizeQueueUrl: string;
+	logger: OrganizeJobLogger;
+}
+
 export interface McpDeps {
 	account: Pick<IAccountRepository, "get" | "listAllByAccountConfig">;
-	mailbox: Pick<IMailboxRepository, "get" | "listAllByAccount">;
+	mailbox: Pick<
+		IMailboxRepository,
+		"get" | "listAllByAccount" | "resolveAccountId"
+	>;
 	message: Pick<IMessageRepository, "get" | "describe">;
 	threadMessage: Pick<
 		IThreadMessageRepository,
 		"listByMailbox" | "listByThread" | "searchByDate"
 	>;
+	filter: Pick<
+		IFilterRepository,
+		"listPageByAccountConfig" | "refreshExpiry" | "create" | "get" | "update"
+	>;
+	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create">;
 	storage: Pick<StorageService, "retrieveBodyPart">;
 	bodySync: BodyPartMaterializer;
 	bodySyncQueue: BodySyncCue | undefined;
 	logger: MaterializeLogger;
 	folders: FolderToolDeps;
+	filters: FilterToolDeps;
 }

@@ -9,13 +9,11 @@ import {
 	createFolder,
 	folderInAccount,
 	ownedAccount,
-	type Refusal,
 	settledFolder,
 } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { FolderToolDeps, McpDeps } from "./deps.js";
-
-export const MCP_RULES_SCOPE = "mail:rules";
+import { asJson, refused, toolError } from "./tool-result.js";
 
 const CREATE_DELIMITER = "/";
 
@@ -25,25 +23,6 @@ const FOLDER_WRITE = {
 	idempotentHint: true,
 	openWorldHint: false,
 } as const;
-
-const asJson = (value: unknown): CallToolResult => ({
-	content: [{ type: "text", text: JSON.stringify(value) }],
-});
-
-const toolError = (message: string): CallToolResult => ({
-	isError: true,
-	content: [{ type: "text", text: message }],
-});
-
-const REFUSAL_FIX: Record<Refusal["kind"], string> = {
-	Invalid: "",
-	Forbidden: " Use an accountId and mailboxId from list_mailboxes.",
-	NotFound: " Use an accountId and mailboxId from list_mailboxes.",
-	NotSettled: " Wait for it to settle, then call this tool again.",
-};
-
-const refused = (refusal: Refusal): CallToolResult =>
-	toolError(`${refusal.message}${REFUSAL_FIX[refusal.kind]}`);
 
 type Watched = { state: "Present"; folder: MailboxItem } | { state: "Gone" };
 

@@ -6,7 +6,6 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import {
 	BodySyncService,
 	MailboxManagementService,
-	MailboxQueueService,
 	SyncWarningService,
 } from "@remit/mailbox-service";
 import { FakeImapServer } from "@remit/mailbox-service/test-helpers/fake-imap";
@@ -22,13 +21,10 @@ import {
 	seedMailbox,
 	silentLog,
 } from "@remit/mailbox-service/test-helpers/test-store";
+import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
-import { MCP_RULES_SCOPE } from "./folder-tools.js";
-import {
-	createMcpHandler,
-	MCP_READ_SCOPE,
-	type McpRequestHandler,
-} from "./server.js";
+import { createMcpHandler, type McpRequestHandler } from "./server.js";
+import { ruleDeps } from "./test-rule-deps.js";
 
 const USER_ID = "folder-user";
 const OTHER_USER_ID = "folder-other-user";
@@ -99,14 +95,7 @@ beforeEach(async () => {
 		),
 		bodySyncQueue: undefined,
 		logger: silentLog,
-		folders: {
-			mailboxQueue: new MailboxQueueService({
-				mailboxService: store.mailbox,
-				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
-			}),
-			settleTimeoutMs: 100,
-			pollIntervalMs: 10,
-		},
+		...ruleDeps(store),
 	};
 	account = await seedAccount(store, {
 		accountConfigId: deriveAccountConfigId(USER_ID),
@@ -224,10 +213,9 @@ describe("the folder tools behind mail:rules", () => {
 	});
 
 	it("are listed for a token with mail:rules", async () => {
-		assert.deepEqual(await toolNames([MCP_RULES_SCOPE]), [
-			"create_folder",
-			"rename_folder",
-		]);
+		const names = await toolNames([MCP_RULES_SCOPE]);
+		assert.equal(names.includes("create_folder"), true);
+		assert.equal(names.includes("rename_folder"), true);
 	});
 });
 

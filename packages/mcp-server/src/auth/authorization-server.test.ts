@@ -22,6 +22,7 @@ import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp, type McpAppHandler } from "../app.js";
 import type { McpDeps } from "../deps.js";
+import { ruleDeps } from "../test-rule-deps.js";
 import {
 	createBetterAuthTokenVerifier,
 	createMcpAuth,
@@ -136,6 +137,7 @@ before(async () => {
 		),
 		bodySyncQueue: undefined,
 		logger: silentLog,
+		...ruleDeps(store),
 	};
 	({ auth, app } = buildApp());
 });
