@@ -232,9 +232,12 @@ const CASES = {
 				args: ["save", "config.json", "--user", "who@example.com"],
 				proof: /node config-save\.mjs --user who@example\.com$/m,
 			},
+			{
+				args: ["export"],
+				proof: / migrate node remit-cli\.mjs config export$/m,
+			},
 		],
 		refuses: [
-			{ args: ["zzz"], message: /^remit: config: unknown argument 'zzz'/m },
 			{
 				args: ["save", "config.json", "--zzz"],
 				message: /^remit: config save: unknown option '--zzz'/m,
@@ -382,3 +385,26 @@ for (const [command, spec] of Object.entries(CASES)) {
 		}
 	});
 }
+
+describe("what remit hands to the API package", () => {
+	it("runs every command it does not own, and status's second half, in the migrate container", () => {
+		for (const [args, call] of [
+			[
+				["accounts", "add", "--email", "me@example.com"],
+				"accounts add --email me@example.com",
+			],
+			[["sync", "me@example.com"], "sync me@example.com"],
+			[["status"], "status"],
+		]) {
+			const result = run(args);
+			assert.match(
+				result.argv,
+				new RegExp(
+					` run --rm --no-deps -T -e REMIT_EMAIL -e REMIT_PASSWORD -e REMIT_TOKEN -e REMIT_ACCOUNT_PASSWORD migrate node remit-cli\\.mjs ${call}$`,
+					"m",
+				),
+				args.join(" "),
+			);
+		}
+	});
+});

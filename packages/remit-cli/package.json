@@ -1,0 +1,17 @@
+{
+	"name": "@remit/remit-cli",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"description": "The remit wrapper's remote target: its API-backed commands against a reader install over HTTPS.",
+	"scripts": {
+		"start": "node --import tsx src/main.ts",
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node $NODE_TEST_FLAGS --import tsx --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"license": "MIT",
+	"dependencies": {
+		"@remit/api-http-client": "*"
+	}
+}

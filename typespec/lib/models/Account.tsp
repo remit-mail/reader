@@ -431,6 +431,9 @@ model ConfigDescriptionResponse {
   @doc("Associated email accounts")
   accounts: AccountResponse[];
 
+  @doc("The commit the serving build was made from, or `dev` for a build made outside CI and git")
+  buildCommit: string;
+
   @doc("Absent unless a configuration import is still waiting on folders IMAP has not produced yet (#1021). Nothing polls a separate route for it.")
   pendingImport?: PendingConfigImport;
 }

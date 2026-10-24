@@ -102,6 +102,24 @@ Compose's `restart` reuses the existing containers with the environment they
 were created with and reports success; `remit restart` runs `up -d`, which
 recreates the containers whose configuration changed.
 
+## API commands and the remote target
+
+`remit status` (after its host report), `remit accounts`, `remit sync`,
+`remit config export|import`, `remit folder-role` and `remit filters` go
+through the API. On the VM they run in the `migrate` container against this
+stack and sign in with `REMIT_EMAIL` and `REMIT_PASSWORD`, or `REMIT_TOKEN`.
+
+`REMIT_API_URL` (or `--api-url`, with `--target standalone|cloudflare`)
+runs them from a reader checkout, after `npm ci && npm run codegen`, against
+another install. Cloudflare Access takes a service token from
+`CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, and otherwise the token
+from `cloudflared access login`.
+
+```bash
+cloudflared access login https://app.remit.email
+REMIT_API_URL=https://app.remit.email/api deploy/vps/remit status
+```
+
 ## A second deployment on one host
 
 A second deployment is a project name and a port:

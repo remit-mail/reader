@@ -125,6 +125,9 @@ const toAccountConfigResponse = (
 	updatedAt: config.updatedAt,
 });
 
+const buildCommit = (): string =>
+	process.env.REMIT_WORKER_SHA || process.env.GITHUB_SHA || "dev";
+
 /**
  * Returned by GET /config when no AccountConfig row exists yet for this user.
  * GET must never mutate state, so instead of creating a row we synthesize a
@@ -147,6 +150,7 @@ const emptyConfigResponse = (
 			updatedAt: now,
 		},
 		accounts: [],
+		buildCommit: buildCommit(),
 	};
 };
 
@@ -227,6 +231,7 @@ export const ConfigOperations: Record<
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
 			...(pendingImport ? { pendingImport } : {}),
+			buildCommit: buildCommit(),
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
 					acc,
