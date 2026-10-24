@@ -1,27 +1,15 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import {
-	BodySyncService,
-	MailboxManagementService,
-	MailboxQueueService,
-	SyncWarningService,
-} from "@remit/mailbox-service";
-import { FakeImapServer } from "@remit/mailbox-service/test-helpers/fake-imap";
-import {
-	captureQueue,
-	type QueueCapture,
-	type QueuedEvent,
-} from "@remit/mailbox-service/test-helpers/test-queue";
+import { processMailboxManagement } from "@remit/imap-worker/mailbox-management";
 import {
 	openStore,
-	type Store,
-	seedAccount,
-	seedMailbox,
-	silentLog,
-} from "@remit/mailbox-service/test-helpers/test-store";
+	type World,
+} from "@remit/imap-worker/test-helpers/test-world";
+import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
@@ -30,10 +18,10 @@ const USER_ID = "folder-user";
 const OTHER_USER_ID = "folder-other-user";
 
 type Worker = "settles" | "stalls";
+type MailboxEvent = Parameters<typeof processMailboxManagement>[0];
 
-let store: Store;
-let capture: QueueCapture;
-let imap: FakeImapServer;
+let store: Awaited<ReturnType<typeof openStore>>;
+let mine: World;
 let deps: McpDeps;
 let worker: Worker;
 let account: AccountItem;
@@ -42,87 +30,72 @@ let receipts: MailboxItem;
 let theirAccount: AccountItem;
 let theirFolder: MailboxItem;
 
-const runWorker = async (event: QueuedEvent["body"]): Promise<void> => {
-	const management = new MailboxManagementService(store.mailbox);
-	const connect = async () => imap.connection();
-	if (event.type === "MAILBOX_CREATE") {
-		await management.syncCreate(
-			String(event.accountId),
-			String(event.mailboxId),
-			String(event.path),
-			connect,
-			event.subscribe === true,
-		);
-		return;
-	}
-	if (event.type === "MAILBOX_RENAME") {
-		await management.syncRename(
-			String(event.accountId),
-			String(event.mailboxId),
-			String(event.oldPath),
-			String(event.newPath),
-			connect,
-		);
-	}
-};
+const isMailboxEvent = (body: Record<string, unknown>): boolean =>
+	String(body.type).startsWith("MAILBOX_");
+
+const mailboxEvents = (): MailboxEvent[] =>
+	mine
+		.queued()
+		.filter(isMailboxEvent)
+		.map((body) => body as unknown as MailboxEvent);
+
+const runWorker = (event: MailboxEvent): Promise<void> =>
+	processMailboxManagement(event, mine.log, mine.scope);
 
 const drainQueue = async (): Promise<void> => {
-	for (const { body } of capture.sent) await runWorker(body);
+	for (const event of mailboxEvents()) await runWorker(event);
 };
 
+before(async () => {
+	store = await openStore();
+});
+
+after(() => store.close());
+
 beforeEach(async () => {
-	capture = captureQueue();
+	const theirs = await store.world(deriveAccountConfigId(OTHER_USER_ID));
+	theirAccount = theirs.account;
+	theirFolder = await theirs.folder("Private");
+
+	mine = await store.world(deriveAccountConfigId(USER_ID));
+	account = mine.account;
+	inbox = await mine.folder("INBOX");
+	receipts = await mine.folder("Receipts");
+	await mine.folder("Archive");
+
 	worker = "settles";
-	capture.answer(async () => {
-		const event = capture.sent.at(-1);
-		if (worker === "settles" && event) await runWorker(event.body);
+	mine.queue.answer(async () => {
+		const last = mine.queued().at(-1);
+		if (worker === "settles" && last && isMailboxEvent(last)) {
+			await runWorker(last as unknown as MailboxEvent);
+		}
 		return {};
 	});
-	store = await openStore();
-	imap = new FakeImapServer();
-	const storage = store.storage();
+
+	const { client } = store;
 	deps = {
-		...store,
-		storage,
+		account: client.account,
+		mailbox: client.mailbox,
+		message: client.message,
+		threadMessage: client.threadMessage,
+		storage: client.storage,
 		bodySync: new BodySyncService(
-			store.message,
-			storage,
-			store.threadMessage,
-			store.address,
-			store.envelope,
-			new SyncWarningService(store.syncWarning),
+			client.message,
+			client.storage,
+			client.threadMessage,
+			client.address,
+			client.envelope,
+			new SyncWarningService(client.syncWarning),
 			silentLog,
 		),
 		bodySyncQueue: undefined,
 		logger: silentLog,
 		folders: {
-			mailboxQueue: new MailboxQueueService({
-				mailboxService: store.mailbox,
-				sqsQueueUrl: "http://localhost:9324/000000000000/mailbox-mgmt",
-			}),
+			mailboxQueue: client.mailboxQueue,
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
 		},
 	};
-	account = await seedAccount(store, {
-		accountConfigId: deriveAccountConfigId(USER_ID),
-	});
-	inbox = await seedMailbox(store, account, "INBOX");
-	receipts = await seedMailbox(store, account, "Receipts");
-	await seedMailbox(store, account, "Archive");
-	for (const path of ["INBOX", "Receipts", "Archive"]) imap.addFolder(path);
-
-	theirAccount = await seedAccount(store, {
-		accountConfigId: deriveAccountConfigId(OTHER_USER_ID),
-		username: "them@example.com",
-		email: "them@example.com",
-	});
-	theirFolder = await seedMailbox(store, theirAccount, "Private");
-});
-
-afterEach(async () => {
-	capture.restore();
-	await store.close();
 });
 
 type RpcBody = {
@@ -201,7 +174,7 @@ const toolNames = async (scopes: string[]): Promise<string[]> => {
 };
 
 const foldersAt = async (fullPath: string): Promise<MailboxItem[]> =>
-	(await store.mailbox.listAllByAccount(account.accountId)).filter(
+	(await store.client.mailbox.listAllByAccount(account.accountId)).filter(
 		(folder) => folder.fullPath === fullPath,
 	);
 
@@ -216,7 +189,7 @@ describe("the folder tools behind mail:rules", () => {
 			arguments: { accountId: account.accountId, fullPath: "Projects" },
 		});
 		assert.equal(body.error?.code, -32601);
-		assert.equal(capture.sent.length, 0);
+		assert.equal(mailboxEvents().length, 0);
 	});
 
 	it("are listed for a token with mail:rules", async () => {
@@ -236,9 +209,9 @@ describe("create_folder", () => {
 
 		assert.equal(created.fullPath, "Projects/Acme");
 		assert.equal(created.syncStatus, MailboxSyncStatus.synced);
-		assert.equal(imap.hasFolder("Projects/Acme"), true);
+		assert.equal(mine.imap.hasFolder("Projects/Acme"), true);
 		assert.deepEqual(
-			capture.sent.map(({ body }) => body.type),
+			mailboxEvents().map((event) => event.type),
 			["MAILBOX_CREATE"],
 		);
 	});
@@ -251,9 +224,9 @@ describe("create_folder", () => {
 			}),
 			/not in account config\. Use an accountId and mailboxId from list_mailboxes\./,
 		);
-		assert.equal(capture.sent.length, 0);
+		assert.equal(mailboxEvents().length, 0);
 		assert.deepEqual(
-			(await store.mailbox.listAllByAccount(theirAccount.accountId)).map(
+			(await store.client.mailbox.listAllByAccount(theirAccount.accountId)).map(
 				(folder) => folder.fullPath,
 			),
 			["Private"],
@@ -277,9 +250,9 @@ describe("create_folder", () => {
 		assert.equal(settled.mailboxId, first.mailboxId);
 		assert.equal(settled.syncStatus, MailboxSyncStatus.synced);
 
-		assert.equal(capture.sent.length, 1);
+		assert.equal(mailboxEvents().length, 1);
 		assert.equal((await foldersAt("Slow")).length, 1);
-		assert.equal(imap.hasFolder("Slow"), true);
+		assert.equal(mine.imap.hasFolder("Slow"), true);
 	});
 });
 
@@ -294,8 +267,8 @@ describe("rename_folder", () => {
 		assert.equal(moved.mailboxId, receipts.mailboxId);
 		assert.equal(moved.fullPath, "Archive/Receipts");
 		assert.equal(moved.syncStatus, MailboxSyncStatus.synced);
-		assert.equal(imap.hasFolder("Archive/Receipts"), true);
-		assert.equal(imap.hasFolder("Receipts"), false);
+		assert.equal(mine.imap.hasFolder("Archive/Receipts"), true);
+		assert.equal(mine.imap.hasFolder("Receipts"), false);
 	});
 
 	it("refuses to rename INBOX", async () => {
@@ -307,7 +280,7 @@ describe("rename_folder", () => {
 			}),
 			/The inbox can't be renamed\./,
 		);
-		assert.equal(capture.sent.length, 0);
+		assert.equal(mailboxEvents().length, 0);
 	});
 
 	it("refuses a system folder's name", async () => {
@@ -319,7 +292,7 @@ describe("rename_folder", () => {
 			}),
 			/“Junk” is reserved for a system folder\. Pick another name\./,
 		);
-		assert.equal(capture.sent.length, 0);
+		assert.equal(mailboxEvents().length, 0);
 	});
 
 	it("refuses a folder the mail server has not confirmed yet", async () => {
@@ -335,9 +308,9 @@ describe("rename_folder", () => {
 				mailboxId: pending.mailboxId,
 				fullPath: "Renamed",
 			}),
-			/isn’t ready yet .* Wait for it to settle, then call this tool again\./,
+			/"Fresh" is still being created\. Wait for it to settle, then call this tool again\./,
 		);
-		assert.equal(capture.sent.length, 1);
+		assert.equal(mailboxEvents().length, 1);
 	});
 
 	it("refuses a folder the caller does not own", async () => {
@@ -349,8 +322,8 @@ describe("rename_folder", () => {
 			}),
 			/not in account config\. Use an accountId and mailboxId from list_mailboxes\./,
 		);
-		assert.equal(capture.sent.length, 0);
-		const untouched = await store.mailbox.get(
+		assert.equal(mailboxEvents().length, 0);
+		const untouched = await store.client.mailbox.get(
 			theirAccount.accountId,
 			theirFolder.mailboxId,
 		);
@@ -359,13 +332,15 @@ describe("rename_folder", () => {
 	});
 
 	it("refuses another account's folder named under the caller's own account", async () => {
-		const result = await callTool("rename_folder", {
-			accountId: account.accountId,
-			mailboxId: theirFolder.mailboxId,
-			fullPath: "Taken",
-		});
-		assert.equal(result.isError, true);
-		assert.equal(capture.sent.length, 0);
+		assert.equal(
+			await refusalOf("rename_folder", {
+				accountId: account.accountId,
+				mailboxId: theirFolder.mailboxId,
+				fullPath: "Taken",
+			}),
+			`Mailbox ${theirFolder.mailboxId} not in account. Use an accountId and mailboxId from list_mailboxes.`,
+		);
+		assert.equal(mailboxEvents().length, 0);
 	});
 
 	it("returns the pending state on timeout and resumes on retry without renaming twice", async () => {
@@ -382,13 +357,13 @@ describe("rename_folder", () => {
 		assert.equal(first.pendingPath, "Bills");
 
 		await callToolJson("rename_folder", args);
-		assert.equal(capture.sent.length, 1);
+		assert.equal(mailboxEvents().length, 1);
 
 		await drainQueue();
 		const settled = await callToolJson("rename_folder", args);
 		assert.equal(settled.fullPath, "Bills");
 		assert.equal(settled.syncStatus, MailboxSyncStatus.synced);
-		assert.equal(capture.sent.length, 1);
-		assert.equal(imap.hasFolder("Bills"), true);
+		assert.equal(mailboxEvents().length, 1);
+		assert.equal(mine.imap.hasFolder("Bills"), true);
 	});
 });

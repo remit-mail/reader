@@ -4,13 +4,14 @@ import type {
 	RenameMailboxInput,
 } from "@remit/api-openapi-types";
 import type { IAccountSettingRepository, MailboxItem } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
+import { BadRequestError, ConflictError } from "@remit/data-ports/errors";
 import { MessageSystemFlag } from "@remit/domain-enums";
 import {
 	changeFolderPath,
 	createFolder,
 	type FolderPathDeps,
 	folderInAccount,
+	folderInFlight,
 	ownedAccount,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -90,9 +91,19 @@ export const applyMailboxPatch = async (
 		return client.mailbox.get(accountId, mailboxId);
 	}
 
-	return unwrap(
-		await changeFolderPath(client, { accountId, mailboxId, fullPath }),
-	);
+	const changed = await changeFolderPath(client, {
+		accountId,
+		mailboxId,
+		fullPath,
+	});
+	if (!changed.ok && changed.refusal.kind === "NotSettled") {
+		throw new ConflictError(changed.refusal.message);
+	}
+	const { outcome, mailbox } = unwrap(changed);
+	if (outcome === "AlreadyRecorded") {
+		throw new ConflictError(folderInFlight(mailbox));
+	}
+	return mailbox;
 };
 
 /**
@@ -223,7 +234,13 @@ export const MailboxOperations: Record<
 			namespaceType,
 			fullPath,
 		});
-		return toMailboxResponse(unwrap(created));
+		const { outcome, mailbox } = unwrap(created);
+		if (outcome === "Existing") {
+			throw new BadRequestError(
+				`A folder named “${fullPath}” is already there.`,
+			);
+		}
+		return toMailboxResponse(mailbox);
 	},
 };
 

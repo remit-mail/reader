@@ -23,7 +23,10 @@ export interface FolderToolDeps {
 
 export interface McpDeps {
 	account: Pick<IAccountRepository, "get" | "listAllByAccountConfig">;
-	mailbox: Pick<IMailboxRepository, "get" | "listAllByAccount">;
+	mailbox: Pick<
+		IMailboxRepository,
+		"get" | "listAllByAccount" | "findByPath" | "resolveAccountId"
+	>;
 	message: Pick<IMessageRepository, "get" | "describe">;
 	threadMessage: Pick<
 		IThreadMessageRepository,

@@ -161,32 +161,23 @@ export const registerFolderTools = (
 		},
 		async ({ accountId, fullPath }) => {
 			const { folders } = deps;
-
-			const owned = ownedAccount(
-				await deps.account.get(accountId),
-				accountConfigId,
-				"act",
-			);
-			if (!owned.ok) return refused(owned.refusal);
-
-			const existing = (await deps.mailbox.listAllByAccount(accountId)).find(
-				(folder) => folder.fullPath === fullPath,
-			);
-			if (existing) {
-				return createOutcome(
-					await awaitSettled(deps, folders, accountId, existing.mailboxId),
-					fullPath,
-				);
-			}
-
 			const created = await createFolder(
-				{ account: deps.account, mailboxQueue: folders.mailboxQueue },
+				{
+					account: deps.account,
+					mailbox: deps.mailbox,
+					mailboxQueue: folders.mailboxQueue,
+				},
 				accountConfigId,
 				{ accountId, namespaceType: "personal", fullPath },
 			);
 			if (!created.ok) return refused(created.refusal);
 			return createOutcome(
-				await awaitSettled(deps, folders, accountId, created.value.mailboxId),
+				await awaitSettled(
+					deps,
+					folders,
+					accountId,
+					created.value.mailbox.mailboxId,
+				),
 				fullPath,
 			);
 		},
@@ -219,27 +210,25 @@ export const registerFolderTools = (
 			);
 			if (!owned.ok) return refused(owned.refusal);
 
-			const before = folderInAccount(
-				await deps.mailbox.get(accountId, mailboxId),
+			const owner = await deps.mailbox.resolveAccountId(mailboxId);
+			if (owner === null) {
+				return refused({
+					kind: "NotFound",
+					message: `Mailbox not found: ${mailboxId}`,
+				});
+			}
+			const inAccount = folderInAccount(
+				{ mailboxId, accountId: owner },
 				accountId,
 				"act",
 			);
-			if (!before.ok) return refused(before.refusal);
+			if (!inAccount.ok) return refused(inAccount.refusal);
 
-			const resuming =
-				before.value.syncStatus === MailboxSyncStatus.pending &&
-				before.value.pendingPath === fullPath;
-			if (!resuming) {
-				if (before.value.syncStatus !== MailboxSyncStatus.failed) {
-					const settled = settledFolder(before.value);
-					if (!settled.ok) return refused(settled.refusal);
-				}
-				const changed = await changeFolderPath(
-					{ mailbox: deps.mailbox, mailboxQueue: folders.mailboxQueue },
-					{ accountId, mailboxId, fullPath },
-				);
-				if (!changed.ok) return refused(changed.refusal);
-			}
+			const changed = await changeFolderPath(
+				{ mailbox: deps.mailbox, mailboxQueue: folders.mailboxQueue },
+				{ accountId, mailboxId, fullPath },
+			);
+			if (!changed.ok) return refused(changed.refusal);
 
 			return renameOutcome(
 				await awaitSettled(deps, folders, accountId, mailboxId),

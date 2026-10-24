@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { changeFolderPath, createFolder } from "./folder-operations.js";
+import {
+	changeFolderPath,
+	createFolder,
+	type FolderPathOutcome,
+} from "./folder-operations.js";
 import { MailboxQueueService } from "./mailbox-queue.js";
 import { folderInAccount } from "./ownership.js";
 import type { Refusable } from "./refusal.js";
@@ -38,7 +42,7 @@ afterEach(async () => {
 const rename = (
 	mailbox: MailboxItem,
 	fullPath: string,
-): Promise<Refusable<MailboxItem>> =>
+): Promise<Refusable<FolderPathOutcome>> =>
 	changeFolderPath(
 		{ mailbox: store.mailbox, mailboxQueue },
 		{
@@ -147,12 +151,36 @@ describe("changeFolderPath records a pending rename the mail server settles", ()
 		assert.equal(row.pendingPath, undefined);
 		assert.deepEqual(capture.sent, []);
 	});
+
+	it("returns the recorded intent when asked for the target it is already heading for", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		assert.equal((await rename(folder, "Paperwork")).ok, true);
+
+		const again = await rename(folder, "Paperwork");
+
+		assert.equal(again.ok && again.value.outcome, "AlreadyRecorded");
+		assert.equal(again.ok && again.value.mailbox.pendingPath, "Paperwork");
+		assert.equal(capture.sent.length, 1);
+	});
+
+	it("refuses a new target while another change is in flight", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		assert.equal((await rename(folder, "Paperwork")).ok, true);
+
+		assert.deepEqual(refusalOf(await rename(folder, "Bills")), {
+			kind: "NotSettled",
+			message: `A rename is in progress for "Receipts".`,
+			mailboxId: folder.mailboxId,
+			syncStatus: MailboxSyncStatus.pending,
+		});
+		assert.equal(capture.sent.length, 1);
+	});
 });
 
 describe("createFolder", () => {
 	it("records a pending folder and queues its create", async () => {
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			account.accountConfigId,
 			{
 				accountId: account.accountId,
@@ -162,18 +190,19 @@ describe("createFolder", () => {
 		);
 
 		assert.equal(outcome.ok, true);
-		assert.equal(outcome.ok && outcome.value.syncStatus, "pending");
+		assert.equal(outcome.ok && outcome.value.outcome, "Created");
+		assert.equal(outcome.ok && outcome.value.mailbox.syncStatus, "pending");
 		assert.deepEqual(
 			capture.sent.map((event) => event.body.type),
 			["MAILBOX_CREATE"],
 		);
 	});
 
-	it("refuses a path the account already has", async () => {
-		await seedMailbox(store, account, "Receipts");
+	it("returns the folder already at that path", async () => {
+		const existing = await seedMailbox(store, account, "Receipts");
 
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			account.accountConfigId,
 			{
 				accountId: account.accountId,
@@ -182,9 +211,10 @@ describe("createFolder", () => {
 			},
 		);
 
-		assert.deepEqual(
-			refusalOf(outcome),
-			invalid("A folder named “Receipts” is already there."),
+		assert.equal(outcome.ok && outcome.value.outcome, "Existing");
+		assert.equal(
+			outcome.ok && outcome.value.mailbox.mailboxId,
+			existing.mailboxId,
 		);
 		assert.deepEqual(capture.sent, []);
 	});
@@ -193,7 +223,7 @@ describe("createFolder", () => {
 describe("createFolder for another tenant", () => {
 	it("refuses a caller who does not own the account, recording nothing", async () => {
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			"cfg-x",
 			{
 				accountId: account.accountId,

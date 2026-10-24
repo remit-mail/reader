@@ -15,7 +15,7 @@ export const INTENT_RECORDABLE_FROM = [
 	MailboxSyncStatus.failed,
 ] as const;
 
-const carriesIntent = (row: Pick<MailboxItem, "syncStatus">): boolean =>
+export const carriesIntent = (row: Pick<MailboxItem, "syncStatus">): boolean =>
 	(INTENT_RECORDABLE_FROM as readonly string[]).includes(row.syncStatus);
 
 /**
@@ -60,6 +60,8 @@ const inFlight = (row: MailboxItem): string => {
 	return `"${row.fullPath}" is still being created`;
 };
 
+export const folderInFlight = (row: MailboxItem): string => `${inFlight(row)}.`;
+
 /**
  * Say why a folder intent lost its compare-and-set (D3).
  *
@@ -86,7 +88,7 @@ export const refuseContestedIntent = async (
 		});
 	if (!root) throw new NotFoundError(`Mailbox not found: ${mailboxId}`);
 
-	if (!carriesIntent(root)) throw new ConflictError(`${inFlight(root)}.`);
+	if (!carriesIntent(root)) throw new ConflictError(folderInFlight(root));
 
 	const descendants =
 		scope === "subtree"

@@ -255,6 +255,13 @@ describe("MailboxOperations_createMailbox", () => {
 					accountConfigId: deriveAccountConfigId(SUB),
 				}),
 			},
+			mailbox: {
+				findByPath: async () => ({
+					mailboxId: "mbx-receipts",
+					accountId: ACCOUNT_ID,
+					fullPath: "Receipts",
+				}),
+			},
 			mailboxQueue: {
 				createMailbox: async () => ({ outcome: "PathTaken" }),
 			},

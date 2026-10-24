@@ -94,7 +94,7 @@ export interface SeededMessage {
  */
 export const openStore = async (): Promise<{
 	client: RemitClient;
-	world: () => Promise<World>;
+	world: (accountConfigId?: string) => Promise<World>;
 	close: () => void;
 }> => {
 	const directory = mkdtempSync(join(tmpdir(), "imap-worker-world-"));
@@ -112,7 +112,8 @@ export const openStore = async (): Promise<{
 	setClient(client);
 	return {
 		client,
-		world: () => createWorld(client),
+		world: (accountConfigId = `cfg-${randomUUID()}`) =>
+			createWorld(client, accountConfigId),
 		close: () => {
 			_resetForTest();
 			rmSync(directory, { recursive: true, force: true });
@@ -147,12 +148,14 @@ export interface World {
 	connectionFactory: () => ManagedConnectionFactory;
 }
 
-const createWorld = async (client: RemitClient): Promise<World> => {
+const createWorld = async (
+	client: RemitClient,
+	accountConfigId: string,
+): Promise<World> => {
 	const queue = captureQueue();
 
 	const imap = new FakeImapServer();
 	const logs: LogLine[] = [];
-	const accountConfigId = `cfg-${randomUUID()}`;
 	const password = await client.secrets.encrypt("app-password");
 	const account = await client.account.create({
 		accountConfigId,
