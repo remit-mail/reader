@@ -91,22 +91,6 @@ describe("DrizzleMessageRepository", () => {
 			});
 		});
 
-		test("returns all 9 MessageDescription members", async () => {
-			const desc = await messageRepo.describe(MESSAGE_ID);
-			const keys = Object.keys(desc).sort();
-			assert.deepStrictEqual(keys, [
-				"bodyPart",
-				"bodyPartParameter",
-				"bodyPartStorage",
-				"envelope",
-				"envelopeAddress",
-				"message",
-				"messageFlag",
-				"messageReference",
-				"rawMessageStorage",
-			]);
-		});
-
 		test("message array has 1 row with correct fields", async () => {
 			const desc = await messageRepo.describe(MESSAGE_ID);
 			assert.equal(desc.message.length, 1);

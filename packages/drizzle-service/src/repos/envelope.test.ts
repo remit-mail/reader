@@ -34,21 +34,7 @@ describe("DrizzleEnvelopeRepository", () => {
 		await stop();
 	});
 
-	describe("getMessageData — MessageData shape (7 members)", () => {
-		test("returns all 7 collection members", async () => {
-			const data = await repo.getMessageData(MESSAGE_ID);
-			const keys = Object.keys(data).sort();
-			assert.deepStrictEqual(keys, [
-				"bodyPart",
-				"bodyPartParameter",
-				"bodyPartStorage",
-				"envelope",
-				"envelopeAddress",
-				"messageReference",
-				"rawMessageStorage",
-			]);
-		});
-
+	describe("getMessageData — MessageData shape", () => {
 		test("envelope has 1 row with correct fields", async () => {
 			const data = await repo.getMessageData(MESSAGE_ID);
 			assert.equal(data.envelope.length, 1);

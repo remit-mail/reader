@@ -328,28 +328,3 @@ export const enumerateCascadeEntities = async (
 
 	return { entities, messageIds };
 };
-
-export const COVERED_ENTITY_TYPES = [
-	"Account",
-	"AccountConfig",
-	"AccountSetting",
-	"Address",
-	"BodyPart",
-	"BodyPartParameter",
-	"BodyPartStorage",
-	"Envelope",
-	"EnvelopeAddress",
-	"Filter",
-	"Label",
-	"Mailbox",
-	"MailboxLock",
-	"Message",
-	"MessageFlag",
-	"MessageFlagPush",
-	"MessageLabel",
-	"MessagePlacementMove",
-	"MessageReference",
-	"OutboxMessage",
-	"RawMessageStorage",
-	"ThreadMessage",
-] as const;

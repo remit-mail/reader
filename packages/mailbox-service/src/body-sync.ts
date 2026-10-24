@@ -1777,8 +1777,8 @@ export class BodySyncService {
 		}
 
 		const log = this.log;
-		// A parse of its own: classification, the snippet and search read an
-		// inline forwarded message's text, which `ignoreEmbedded` keeps out.
+		// A parse of its own: classification and the snippet, which search reads,
+		// need an inline forwarded message's text, which `ignoreEmbedded` keeps out.
 		const pairs = await mapMessagePartsToContent(
 			bodyParts,
 			await parsePartSource(body),
