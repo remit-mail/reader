@@ -3,13 +3,23 @@ import { extractBearerToken } from "@remit/auth-service/verifier";
 import {
 	AUTH_BASE_PATH,
 	CONSENT_PATH,
+	DEVICE_APPROVE_PATH,
+	DEVICE_DENY_PATH,
+	DEVICE_PATH,
+	DEVICE_VERIFY_PATH,
 	LOGIN_PATH,
 	MCP_PATH,
 	type McpAuthRoutes,
 	mcpResource,
 	SIGN_IN_PATH,
 } from "./auth/authorization-server.js";
-import { consentPage, errorPage, loginPage } from "./auth/pages.js";
+import {
+	consentPage,
+	deviceDonePage,
+	devicePage,
+	errorPage,
+	loginPage,
+} from "./auth/pages.js";
 import { MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import type { McpDeps } from "./deps.js";
@@ -54,6 +64,12 @@ const messageOf = (body: unknown): string => {
 	if (typeof message === "string") return message;
 	return "The request failed.";
 };
+
+const cookieHeaderOf = (response: Response): string =>
+	response.headers
+		.getSetCookie()
+		.map((cookie) => cookie.split(";")[0])
+		.join("; ");
 
 const redirectWithCookies = (location: string, from: Response): Response => {
 	const headers = new Headers({ location, "cache-control": "no-store" });
@@ -100,11 +116,7 @@ export const createMcpApp = ({
 		return new Request(request, { headers });
 	};
 
-	const callAuth = (
-		request: Request,
-		path: string,
-		body: Record<string, unknown>,
-	): Promise<Response> => {
+	const forwardedHeaders = (request: Request): Headers => {
 		const headers = new Headers({
 			accept: "application/json",
 			"content-type": "application/json",
@@ -113,6 +125,15 @@ export const createMcpApp = ({
 			const value = request.headers.get(name);
 			if (value !== null) headers.set(name, value);
 		}
+		return headers;
+	};
+
+	const callAuth = (
+		request: Request,
+		path: string,
+		body: Record<string, unknown>,
+	): Promise<Response> => {
+		const headers = forwardedHeaders(request);
 		return authRoutes.handle(
 			new Request(`${origin}${AUTH_BASE_PATH}${path}`, {
 				method: "POST",
@@ -190,6 +211,55 @@ export const createMcpApp = ({
 		);
 	};
 
+	const device = async (request: Request): Promise<Response> => {
+		if (request.method === "GET") {
+			const userCode = new URL(request.url).searchParams.get("user_code");
+			return devicePage(userCode ?? "", undefined);
+		}
+		const form = await request.formData();
+		const userCode = formString(form, "user_code").trim();
+		const approve = formString(form, "action") === "approve";
+		const signedIn = await callAuth(request, SIGN_IN_PATH, {
+			email: formString(form, "email"),
+			password: formString(form, "password"),
+			oauth_query: "",
+		});
+		if (signedIn.status === 401) {
+			return devicePage(userCode, "Wrong email or password.", 401);
+		}
+		if (signedIn.status === 429) {
+			return devicePage(userCode, "Too many attempts. Wait a minute.", 429);
+		}
+		if (!signedIn.ok) {
+			return errorPage(messageOf(await signedIn.json()), signedIn.status);
+		}
+		const headers = forwardedHeaders(request);
+		headers.set("cookie", cookieHeaderOf(signedIn));
+		const claimed = await authRoutes.handle(
+			new Request(
+				`${origin}${AUTH_BASE_PATH}${DEVICE_VERIFY_PATH}?${new URLSearchParams({ user_code: userCode })}`,
+				{ headers },
+			),
+		);
+		if (!claimed.ok) {
+			return devicePage(userCode, messageOf(await claimed.json()), 400);
+		}
+		const decided = await authRoutes.handle(
+			new Request(
+				`${origin}${AUTH_BASE_PATH}${approve ? DEVICE_APPROVE_PATH : DEVICE_DENY_PATH}`,
+				{ method: "POST", headers, body: JSON.stringify({ userCode }) },
+			),
+		);
+		if (!decided.ok) {
+			return devicePage(
+				userCode,
+				messageOf(await decided.json()),
+				decided.status,
+			);
+		}
+		return deviceDonePage(approve);
+	};
+
 	const serveMcp = async (request: Request): Promise<Response> => {
 		const bearer = extractBearerToken(
 			request.headers.get("authorization") ?? undefined,
@@ -220,6 +290,7 @@ export const createMcpApp = ({
 		if (pathname === MCP_PATH) return serveMcp(request);
 		if (pathname === LOGIN_PATH) return login(request);
 		if (pathname === CONSENT_PATH) return consent(request);
+		if (pathname === DEVICE_PATH) return device(request);
 		return authRoutes.handle(request);
 	};
 };

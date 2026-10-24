@@ -1,6 +1,8 @@
 import {
+	DEVICE_CODE_GRANT_TYPE,
 	getOAuthProviderApi,
 	type OAuthOptions,
+	oauthDeviceAuthorization,
 	oauthProvider,
 	oauthProviderAuthServerMetadata,
 	type Scope,
@@ -17,6 +19,7 @@ import {
 	APIError,
 	createAuthEndpoint,
 	createAuthMiddleware,
+	getSessionFromCtx,
 	isAPIError,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
@@ -32,15 +35,23 @@ import type { TokenVerifier } from "./token-verifier.js";
 export const AUTH_BASE_PATH = "/auth";
 export const LOGIN_PATH = "/login";
 export const CONSENT_PATH = "/consent";
+export const DEVICE_PATH = "/device";
 export const MCP_PATH = "/mcp";
 export const SIGN_IN_PATH = "/mcp/sign-in";
 export const JWKS_PATH = "/jwks";
 export const OAUTH2_PATH_PREFIX = "/oauth2/";
+export const DEVICE_CODE_PATH = "/device/code";
+export const DEVICE_VERIFY_PATH = "/device";
+export const DEVICE_APPROVE_PATH = "/device/approve";
+export const DEVICE_DENY_PATH = "/device/deny";
 
 export const ALLOWED_REDIRECT_URIS = [
 	"https://claude.ai/api/mcp/auth_callback",
 	"https://claude.com/api/mcp/auth_callback",
 ] as const;
+
+export const DEVICE_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+export const BROWSER_TOKEN_TTL_SECONDS = 60 * 60;
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
@@ -81,6 +92,13 @@ const buildOAuthOptions = (origin: string): OAuthOptions<Scope[]> => {
 		schema: modelNames,
 		scopes: [...MCP_SCOPES, OFFLINE_ACCESS_SCOPE],
 		grantTypes: ["authorization_code", "refresh_token"],
+		// A refreshable token stays short; the device flow, which a static
+		// header carries and nothing refreshes, gets the long default. Every
+		// browser authorization is made refreshable by the authorize hook.
+		accessTokenExpiresIn: DEVICE_TOKEN_TTL_SECONDS,
+		scopeExpirations: {
+			[OFFLINE_ACCESS_SCOPE]: `${BROWSER_TOKEN_TTL_SECONDS}s`,
+		},
 		loginPage: `${origin}${LOGIN_PATH}`,
 		consentPage: `${origin}${CONSENT_PATH}`,
 		allowDynamicClientRegistration: true,
@@ -95,6 +113,33 @@ const redirectUrisOf = (body: unknown): unknown[] => {
 	if (typeof body !== "object" || body === null) return [];
 	const uris = (body as { redirect_uris?: unknown }).redirect_uris;
 	return Array.isArray(uris) ? uris : [];
+};
+
+const grantTypesOf = (body: unknown): unknown[] => {
+	if (typeof body !== "object" || body === null) return [];
+	const grantTypes = (body as { grant_types?: unknown }).grant_types;
+	return Array.isArray(grantTypes) ? grantTypes : [];
+};
+
+const isDeviceOnlyClient = (body: unknown): boolean => {
+	const grantTypes = grantTypesOf(body);
+	return (
+		grantTypes.includes(DEVICE_CODE_GRANT_TYPE) &&
+		!grantTypes.includes("authorization_code")
+	);
+};
+
+const withOfflineAccess = (query: Record<string, unknown>) => {
+	if (typeof query.scope !== "string") return query;
+	const scopes = query.scope.split(" ").filter((scope) => scope.length > 0);
+	if (scopes.includes(OFFLINE_ACCESS_SCOPE)) return query;
+	return { ...query, scope: [...scopes, OFFLINE_ACCESS_SCOPE].join(" ") };
+};
+
+const userCodeOf = (body: unknown): string | undefined => {
+	if (typeof body !== "object" || body === null) return undefined;
+	const userCode = (body as { userCode?: unknown }).userCode;
+	return typeof userCode === "string" ? userCode : undefined;
 };
 
 const hasResource = (fields: unknown): boolean =>
@@ -165,15 +210,62 @@ const remitMcpBridge = (
 		hooks: {
 			before: [
 				{
-					matcher: (ctx) =>
-						ctx.path === "/oauth2/authorize" && !hasResource(ctx.query),
-					handler: createAuthMiddleware(async (ctx) => ({
-						context: { query: { ...ctx.query, resource } },
-					})),
+					matcher: (ctx) => ctx.path === "/oauth2/authorize",
+					handler: createAuthMiddleware(async (ctx) => {
+						const query = withOfflineAccess(ctx.query ?? {});
+						return {
+							context: {
+								query: hasResource(query) ? query : { ...query, resource },
+							},
+						};
+					}),
+				},
+				{
+					matcher: (ctx) => ctx.path === DEVICE_APPROVE_PATH,
+					handler: createAuthMiddleware(async (ctx) => {
+						const session = await getSessionFromCtx(ctx);
+						const userCode = userCodeOf(ctx.body);
+						if (!session || !userCode) return;
+						const findByUserCode = (value: string) =>
+							ctx.context.adapter.findOne<{ oauthClientId: string | null }>({
+								model: "deviceCode",
+								where: [{ field: "userCode", value }],
+							});
+						const deviceCode =
+							(await findByUserCode(userCode)) ??
+							(await findByUserCode(
+								userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
+							));
+						if (!deviceCode?.oauthClientId) return;
+						const client = await ctx.context.adapter.findOne<{
+							userId: string | null;
+						}>({
+							model: "oauthClient",
+							where: [{ field: "clientId", value: deviceCode.oauthClientId }],
+						});
+						if (client?.userId && client.userId !== session.user.id) {
+							throw new APIError("FORBIDDEN", {
+								error: "access_denied",
+								error_description: "This device belongs to another account",
+							});
+						}
+						await ctx.context.adapter.update({
+							model: "oauthClient",
+							where: [{ field: "clientId", value: deviceCode.oauthClientId }],
+							update: { userId: session.user.id },
+						});
+					}),
 				},
 				{
 					matcher: (ctx) =>
 						ctx.path === "/oauth2/token" && !hasResource(ctx.body),
+					handler: createAuthMiddleware(async (ctx) => ({
+						context: { body: { ...ctx.body, resource } },
+					})),
+				},
+				{
+					matcher: (ctx) =>
+						ctx.path === DEVICE_CODE_PATH && !hasResource(ctx.body),
 					handler: createAuthMiddleware(async (ctx) => ({
 						context: { body: { ...ctx.body, resource } },
 					})),
@@ -185,7 +277,8 @@ const remitMcpBridge = (
 						const refused = uris.find(
 							(uri) => typeof uri !== "string" || !isAllowedRedirectUri(uri),
 						);
-						if (uris.length === 0 || refused !== undefined) {
+						const missing = uris.length === 0 && !isDeviceOnlyClient(ctx.body);
+						if (missing || refused !== undefined) {
 							throw new APIError("BAD_REQUEST", {
 								error: "invalid_redirect_uri",
 								error_description: `redirect_uris must be ${ALLOWED_REDIRECT_URIS.join(" or ")}, or a loopback address`,
@@ -228,6 +321,10 @@ export const buildMcpAuthOptions = (
 				jwt: { issuer: config.origin, audience: mcpResource(config.origin) },
 			}),
 			oauthProvider(oauthOptions),
+			oauthDeviceAuthorization({
+				schema: { deviceCode: { modelName: "mcp_device_code" } },
+				verificationUri: `${config.origin}${DEVICE_PATH}`,
+			}),
 			remitMcpBridge(config.db, mcpResource(config.origin), oauthOptions),
 		],
 	} satisfies BetterAuthOptions;
@@ -251,8 +348,16 @@ export interface McpAuthRoutes {
 	serverMetadata(request: Request): Promise<Response>;
 }
 
+const DEVICE_AUTH_PATHS: ReadonlySet<string> = new Set([
+	DEVICE_CODE_PATH,
+	DEVICE_VERIFY_PATH,
+	DEVICE_APPROVE_PATH,
+	DEVICE_DENY_PATH,
+]);
+
 const isServedAuthPath = (path: string): boolean =>
 	path.startsWith(OAUTH2_PATH_PREFIX) ||
+	DEVICE_AUTH_PATHS.has(path) ||
 	path === SIGN_IN_PATH ||
 	path === JWKS_PATH;
 
