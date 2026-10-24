@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MessageDescription } from "@remit/data-ports";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import {
 	type CascadeEntity,
 	type CascadeServices,

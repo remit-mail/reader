@@ -13,7 +13,7 @@ import type {
 } from "@remit/data-ports";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { SyncPhase } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	createConnectionWithCredentials,

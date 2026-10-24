@@ -7,7 +7,7 @@ import type { RemitClient } from "@remit/backend/client";
 import { importConfig } from "@remit/config-transfer";
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import { openStore } from "../test-helpers/test-world.js";
 
 const FANOUT_URL = "http://queue:9324/000000000000/remit-account-fanout";

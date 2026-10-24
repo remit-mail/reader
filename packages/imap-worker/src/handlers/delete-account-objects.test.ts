@@ -6,7 +6,7 @@ import {
 	S3Client,
 } from "@aws-sdk/client-s3";
 import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import { mockClient } from "aws-sdk-client-mock";
 import type { DeleteAccountObjectsEvent } from "../events.js";
 import { handleDeleteAccountObjects } from "./delete-account-objects.js";

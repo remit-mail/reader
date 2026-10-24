@@ -1,5 +1,5 @@
 import { PassThrough } from "node:stream";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { StorageService } from "@remit/storage-service";
 import { ZipArchive } from "archiver";
 import type { CascadeServices } from "../cascade.js";

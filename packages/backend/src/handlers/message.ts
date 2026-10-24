@@ -17,7 +17,7 @@ import {
 	SenderTrust,
 	type StarColor,
 } from "@remit/domain-enums";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,

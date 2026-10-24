@@ -1,7 +1,9 @@
 import { inspect } from "node:util";
 import { logger } from "@remit/logger";
-import { withTelemetry } from "@remit/logger-lambda/node";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import { handleApiEvent } from "./api.js";
+
+installNodeLogger();
 
 export { api, handleApiEvent, OpenAPISpec } from "./api.js";
 

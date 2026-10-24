@@ -3,7 +3,7 @@ import {
 	createSqliteRepositories,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import {
 	BodySyncQueueService,

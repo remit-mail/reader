@@ -1,6 +1,6 @@
 import { getClient } from "@remit/backend/client";
-import { createLogger } from "@remit/logger-lambda";
-import { withTelemetry } from "@remit/logger-lambda/node";
+import { createLogger } from "@remit/logger";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
 import { env } from "expect-env";
@@ -10,6 +10,8 @@ import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerTick } from "./run-tick.js";
 import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
+
+installNodeLogger();
 
 const log = createLogger();
 

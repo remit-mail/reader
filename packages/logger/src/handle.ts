@@ -1,7 +1,9 @@
 import {
 	createJsonLogger,
+	type EmitLevel,
 	type LogBindings,
 	type Logger,
+	levelMethods,
 	normalizeLogArguments,
 } from "./logger.js";
 
@@ -17,8 +19,6 @@ let installed: Logger = createJsonLogger();
 export const setLogger = (next: Logger): void => {
 	installed = next;
 };
-
-type EmitLevel = "trace" | "debug" | "info" | "warn" | "error" | "fatal";
 
 // The implementation is looked up on every call, not captured, so a module that
 // takes a handle at import time still writes through whatever the composition
@@ -38,18 +38,7 @@ const handle = (persistent: LogBindings): Logger => {
 	};
 
 	return {
-		trace: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("trace", first, second),
-		debug: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("debug", first, second),
-		info: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("info", first, second),
-		warn: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("warn", first, second),
-		error: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("error", first, second),
-		fatal: (first: LogBindings | string, second?: LogBindings | string) =>
-			emit("fatal", first, second),
+		...levelMethods(emit),
 		child: (bindings: LogBindings): Logger =>
 			handle({ ...persistent, ...bindings }),
 		setBindings: (bindings: LogBindings): void => {

@@ -5,7 +5,7 @@ import type {
 	UpdateFilterInput,
 } from "@remit/api-openapi-types";
 import type { FilterItem } from "@remit/data-ports";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	createFilter,
 	listFilters,

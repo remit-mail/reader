@@ -5,7 +5,7 @@ import {
 	createSqliteCascadeDeleter,
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
 
 // Mirrors `@remit/storage-service`'s filesystem-backend default: bodies

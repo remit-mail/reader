@@ -1,8 +1,11 @@
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger";
 import { startMetricsServer } from "@remit/logger-lambda/metrics";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { fanoutHandler, finalizeHandler } from "./index.js";
+
+installNodeLogger();
 
 /**
  * Production queue poller, and the standalone entrypoint for the dedicated

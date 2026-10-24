@@ -33,6 +33,10 @@ const run = (cmd, args, opts = {}) =>
 // the registry.
 const IMPORTED = "@remit/backend";
 
+// Packages that publish compiled output, typechecked by a consumer with strict
+// flags on.
+const STRICT_IMPORTS = ["@remit/logger", "@remit/data-ports"];
+
 const withTempDir = (fn) => {
 	const dir = mkdtempSync(join(tmpdir(), "remit-consumer-tc-"));
 	try {
@@ -81,46 +85,65 @@ withTempDir((tmp) => {
 		{ cwd: consumer, stdio: "inherit" },
 	);
 
-	writeFileSync(
-		join(consumer, "tsconfig.json"),
-		JSON.stringify(
-			{
-				compilerOptions: {
-					module: "NodeNext",
-					moduleResolution: "NodeNext",
-					target: "ES2022",
-					strict: true,
-					types: ["node"],
-					esModuleInterop: true,
-					skipLibCheck: true,
-					noEmit: true,
+	const compile = (name, extraOptions, source) => {
+		writeFileSync(
+			join(consumer, `${name}.tsconfig.json`),
+			JSON.stringify(
+				{
+					compilerOptions: {
+						module: "NodeNext",
+						moduleResolution: "NodeNext",
+						target: "ES2022",
+						strict: true,
+						types: ["node"],
+						esModuleInterop: true,
+						skipLibCheck: true,
+						noEmit: true,
+						...extraOptions,
+					},
+					files: [`${name}.ts`],
 				},
-				files: ["consumer.ts"],
-			},
-			null,
-			2,
-		),
-	);
-	writeFileSync(
-		join(consumer, "consumer.ts"),
-		`import * as Imported from "${IMPORTED}";\nexport type Probe = typeof Imported;\n`,
+				null,
+				2,
+			),
+		);
+		writeFileSync(join(consumer, `${name}.ts`), source);
+		run(
+			"node",
+			[
+				join(consumer, "node_modules", "typescript", "bin", "tsc"),
+				"--noEmit",
+				"-p",
+				`${name}.tsconfig.json`,
+			],
+			{ cwd: consumer, stdio: "inherit" },
+		);
+	};
+
+	compile(
+		"consumer",
+		{},
+		`import * as Imported from "${IMPORTED}";\nimport * as Api from "${IMPORTED}/api";\nexport type Probe = [typeof Imported, typeof Api];\n`,
 	);
 
-	run(
-		"node",
-		[
-			join(consumer, "node_modules", "typescript", "bin", "tsc"),
-			"--noEmit",
-			"-p",
-			"tsconfig.json",
-		],
+	// The compiled packages are held to the flags a strict consumer turns on —
+	// the reader-cloudflare Worker among them. They ship declarations, so these
+	// flags never reach their source.
+	compile(
+		"strict-consumer",
 		{
-			cwd: consumer,
-			stdio: "inherit",
+			noImplicitOverride: true,
+			verbatimModuleSyntax: true,
+			exactOptionalPropertyTypes: true,
+			noUncheckedIndexedAccess: true,
 		},
+		STRICT_IMPORTS.map(
+			(name, index) =>
+				`import * as Strict${index} from "${name}";\nexport type Probe${index} = typeof Strict${index};\n`,
+		).join(""),
 	);
 
 	console.log(
-		`Consumer typecheck OK: a clean install of ${IMPORTED} compiles a type import of it.`,
+		`Consumer typecheck OK: a clean install of ${IMPORTED} compiles a type import of it and of ${IMPORTED}/api, and ${STRICT_IMPORTS.join(", ")} compile under strict consumer flags.`,
 	);
 });

@@ -10,6 +10,7 @@
 		"test": "npm run test:typecheck && npm run test:run"
 	},
 	"dependencies": {
+		"@remit/logger": "*",
 		"@remit/drizzle-service": "*",
 		"@remit/logger-lambda": "*",
 		"@types/better-sqlite3": "^7.6.13",

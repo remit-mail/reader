@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import type { SenderCategoryBackApplyEvent } from "../events.js";
 import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
 

@@ -28,25 +28,38 @@ const manifestPath = join(pkgDir, "package.json");
 const backupPath = join(pkgDir, ".package.json.workspace");
 const mode = process.argv[2];
 
+const restoreWorkspaceManifest = () => {
+	if (existsSync(backupPath)) renameSync(backupPath, manifestPath);
+};
+
 if (mode === "prepack") {
+	// A pack that died between prepack and postpack left the packed manifest in
+	// place; put the workspace one back before reading it.
+	restoreWorkspaceManifest();
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
 	if (!manifest.packManifest) {
 		throw new Error(`${manifest.name} declares no packManifest`);
 	}
-	rmSync(join(pkgDir, "dist"), { recursive: true, force: true });
-	execFileSync(
-		join(repoRoot, "node_modules/.bin/tsc"),
-		["-p", "tsconfig.build.json"],
-		{ cwd: pkgDir, stdio: "inherit" },
-	);
 	const { packManifest, ...rest } = manifest;
 	writeFileSync(backupPath, readFileSync(manifestPath));
-	writeFileSync(
-		manifestPath,
-		`${JSON.stringify({ ...rest, ...packManifest }, null, "\t")}\n`,
-	);
+	let packed = false;
+	try {
+		rmSync(join(pkgDir, "dist"), { recursive: true, force: true });
+		execFileSync(
+			join(repoRoot, "node_modules/.bin/tsc"),
+			["-p", "tsconfig.build.json"],
+			{ cwd: pkgDir, stdio: "inherit" },
+		);
+		writeFileSync(
+			manifestPath,
+			`${JSON.stringify({ ...rest, ...packManifest }, null, "\t")}\n`,
+		);
+		packed = true;
+	} finally {
+		if (!packed) restoreWorkspaceManifest();
+	}
 } else if (mode === "postpack") {
-	if (existsSync(backupPath)) renameSync(backupPath, manifestPath);
+	restoreWorkspaceManifest();
 } else {
 	throw new Error("usage: pack-dist.mjs prepack|postpack");
 }

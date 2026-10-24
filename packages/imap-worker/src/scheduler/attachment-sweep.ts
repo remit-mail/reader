@@ -1,6 +1,6 @@
 import type { RemitClient } from "@remit/backend/client";
 import type { AccountItem } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { sweepAbandonedOutboxAttachments } from "@remit/storage-service";
 /**
  * Collect attachment bytes the database does not know about. Both scheduler

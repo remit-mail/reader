@@ -23,7 +23,7 @@ process.stdout.write = ((
 
 // Capturing starts before the install: an unusable LOG_LEVEL is reported when
 // the Node logger is installed, not on the first call.
-const { createLogger } = await import("./index.js");
+const { createLogger } = await import("@remit/logger");
 const { installNodeLogger } = await import("./node.js");
 installNodeLogger();
 capturing = false;

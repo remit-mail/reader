@@ -21,6 +21,7 @@
 		"dev": "node --import tsx src/e2e-processor-shim.ts"
 	},
 	"dependencies": {
+		"@remit/logger": "*",
 		"@remit/data-ports": "*",
 		"@remit/drizzle-service": "*",
 		"@remit/logger-lambda": "*",

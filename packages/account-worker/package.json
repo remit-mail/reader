@@ -33,6 +33,7 @@
 		"dev": "node --import tsx src/poller.ts"
 	},
 	"dependencies": {
+		"@remit/logger": "*",
 		"@remit/data-ports": "*",
 		"@remit/logger-lambda": "*",
 		"@remit/drizzle-service": "*",

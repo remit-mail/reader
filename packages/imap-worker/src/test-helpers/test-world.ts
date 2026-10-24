@@ -22,7 +22,7 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { ManagedConnectionFactory } from "@remit/mailbox-service";
 import {
 	eml,

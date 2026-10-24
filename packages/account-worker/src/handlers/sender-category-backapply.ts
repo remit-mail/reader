@@ -4,7 +4,7 @@ import {
 	SENDER_CATEGORY_BACKAPPLY_LIMIT,
 } from "@remit/backend/sender-category";
 import { NotFoundError } from "@remit/data-ports/errors";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { SenderCategoryBackApplyEvent } from "../events.js";
 
 export interface ProcessSenderCategoryBackApplyDeps {

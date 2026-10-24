@@ -27,7 +27,7 @@ process.stdout.write = ((
 	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
 }) as typeof process.stdout.write;
 
-const { createLogger, logger, withLogContext } = await import("./index.js");
+const { createLogger, logger, withLogContext } = await import("@remit/logger");
 const { installNodeLogger, withTelemetry } = await import("./node.js");
 installNodeLogger();
 

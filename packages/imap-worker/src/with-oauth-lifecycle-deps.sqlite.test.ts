@@ -14,7 +14,7 @@ import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { AccountRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { MailConnectionError } from "@remit/mailbox-service/types";
 import type { SecretsService } from "@remit/secrets-service";

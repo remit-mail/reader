@@ -12,7 +12,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
 import { handler } from "./index.js";
 

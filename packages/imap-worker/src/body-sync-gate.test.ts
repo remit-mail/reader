@@ -5,7 +5,7 @@ import {
 	ParameterNotFound,
 	SSMClient,
 } from "@aws-sdk/client-ssm";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { mockClient } from "aws-sdk-client-mock";
 import { isBodySyncEnabled, resetBodySyncGateCache } from "./body-sync-gate.js";
 

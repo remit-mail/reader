@@ -1,3 +1,5 @@
+import { logger } from "@remit/logger";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import { sqliteDatabasePathsFromEnv } from "../../drizzle-service/src/databases.js";
 import {
 	type DisplayNameRepairClient,
@@ -19,11 +21,6 @@ import {
 } from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
 import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
-// Reached by module path rather than through either package's entry point: this
-// entrypoint is bundled by esbuild, and everything reached this way is pure
-// TypeScript over the drizzle query builder, so bundling it drags in no native
-// driver — better-sqlite3 stays external and dynamically imported below.
-import { logger } from "../../logger-lambda/src/logger.js";
 import {
 	type LegacySplitOutcome,
 	legacyDatabasePath,
@@ -32,6 +29,13 @@ import {
 	splitLegacyDatabase,
 } from "./legacy-split.js";
 import { applyMigrationSets } from "./migration-sets.js";
+// The drizzle-service modules above are reached by module path rather than
+// through the package entry point: this entrypoint is bundled by esbuild, and
+// everything reached this way is pure TypeScript over the drizzle query builder,
+// so bundling it drags in no native driver — better-sqlite3 stays external and
+// dynamically imported below.
+
+installNodeLogger();
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs

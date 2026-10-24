@@ -1,7 +1,7 @@
 import { getClient } from "@remit/backend/client";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	BodySyncService,

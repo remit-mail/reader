@@ -28,7 +28,7 @@
 
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
 	type AccountCredentialsDeps,

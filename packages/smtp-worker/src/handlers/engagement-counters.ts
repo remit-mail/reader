@@ -1,6 +1,6 @@
 import type { OutboxMessageItem } from "@remit/data-ports";
 import { bareMessageId, wireMessageId } from "@remit/data-ports/id";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { EngagementCounterDeps, SendTenant } from "./send-message-core.js";
 
 /**

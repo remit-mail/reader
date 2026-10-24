@@ -13,7 +13,7 @@ import {
 import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
 import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	hasStoredCredential,
 	type StoredCredentialFields,

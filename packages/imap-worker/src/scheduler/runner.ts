@@ -2,7 +2,8 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
 import { getClient } from "@remit/backend/client";
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
@@ -14,6 +15,8 @@ import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
 import { runSchedulerTick } from "./run-tick.js";
 import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
+
+installNodeLogger();
 
 /**
  * The scheduled-sync runner for every deployment that has no EventBridge: the
