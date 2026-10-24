@@ -16,6 +16,11 @@ import {
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
+import {
+	pickFilterUpdate,
+	resolveFilterScopeExpiry as resolveFilterScopeExpiryOutcome,
+	resolveFilterUpdate as resolveFilterUpdateOutcome,
+} from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import {
@@ -23,13 +28,17 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { unwrap } from "../service/refusal.js";
 import { sqsClient } from "../service/sqs.js";
-import {
-	FilterOperations,
-	pickFilterUpdate,
-	resolveFilterScopeExpiry,
-	resolveFilterUpdate,
-} from "./filter.js";
+import { FilterOperations } from "./filter.js";
+
+const resolveFilterUpdate = (
+	...args: Parameters<typeof resolveFilterUpdateOutcome>
+) => unwrap(resolveFilterUpdateOutcome(...args));
+
+const resolveFilterScopeExpiry = (
+	...args: Parameters<typeof resolveFilterScopeExpiryOutcome>
+) => unwrap(resolveFilterScopeExpiryOutcome(...args));
 
 describe("pickFilterUpdate", () => {
 	it("carries scope and expiresAt through, alongside the predicate/action fields", () => {

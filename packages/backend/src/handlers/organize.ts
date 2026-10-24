@@ -5,6 +5,11 @@ import type {
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import {
+	type OrganizeJobRequest,
+	ownedAccount,
+	queueOrganizeJob,
+} from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
@@ -16,16 +21,13 @@ import {
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
-import {
-	type OrganizeJobRequest,
-	queueOrganizeJob,
-} from "../service/organize-queue.js";
+import { organizeJobDeps } from "../service/organize-queue.js";
+import { unwrap } from "../service/refusal.js";
 import type {
 	OperationHandler,
 	OrganizeJobDetailOperationIds,
 	OrganizeOperationIds,
 } from "../types.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
  * Normalize the request body into the flattened predicate the job row and the
@@ -47,7 +49,7 @@ const assertAccount = async (
 	mode: "read" | "act",
 ): Promise<void> => {
 	const account = await client.account.get(accountId);
-	assertAccountOwnership(account, accountConfigId, mode);
+	unwrap(ownedAccount(account, accountConfigId, mode));
 };
 
 const toOrganizeJobResponse = (
@@ -115,7 +117,7 @@ export const OrganizeOperations: Record<
 		await assertAccount(client, accountId, accountConfigId, "act");
 
 		const job = await queueOrganizeJob(
-			client,
+			organizeJobDeps(client),
 			await requestedJob(client, { accountConfigId, userId }, input),
 		);
 

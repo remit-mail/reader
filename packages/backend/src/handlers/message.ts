@@ -31,6 +31,7 @@ import {
 	NoJunkMailboxError,
 	resolveFolderPlacement,
 	resolveMessageOwnership,
+	settledFolder,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -50,12 +51,12 @@ import {
 } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
 import { getClient } from "../service/data-client.js";
+import { unwrap } from "../service/refusal.js";
 import type {
 	MessageBulkOperationIds,
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { assertMailboxSettled } from "./mailbox.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
@@ -846,7 +847,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
-		assertMailboxSettled(destination);
+		unwrap(settledFolder(destination));
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
@@ -896,7 +897,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
-		assertMailboxSettled(destination);
+		unwrap(settledFolder(destination));
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(

@@ -58,7 +58,7 @@ The lock is enforced rather than remembered: `syncStatus` and `pendingPath` come
 
 The all-or-nothing subtree check is the UPDATEs' own affected-row count against the resolved row count, with the from-state predicate on each UPDATE. A read-then-write check would be safe on SQLite only because `runInTransaction` serializes every top-level write behind one queue, and would leave the race open on Postgres under READ COMMITTED. The same applies to the per-row settle in D15: with the `pendingPath` predicate on the transition it is one conditional write, not a read followed by a write.
 
-A client that loses the compare-and-set gets **409** with a message naming the intent already in flight — `A delete is already in progress for "Receipts".` Existence is established by the handler's `assertMailboxInAccount` read beforehand, so a lost CAS is a conflict; the one case where the row disappeared in between is classified by a single primary-key read on the conflict path and reported as 404.
+A client that loses the compare-and-set gets **409** with a message naming the intent already in flight — `A delete is already in progress for "Receipts".` Existence is established by the handler's `folderInAccount` read beforehand, so a lost CAS is a conflict; the one case where the row disappeared in between is classified by a single primary-key read on the conflict path and reported as 404.
 
 *Buys:* correctness with more than one client, from the field the readers already consult, unbypassable by construction. *Gives up:* no queue position or wait time is reported to the loser; it learns the state, not the ETA.
 

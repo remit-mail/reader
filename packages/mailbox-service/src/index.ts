@@ -81,6 +81,19 @@ export {
 	testImapConnection,
 	testSmtpConnection,
 } from "./connection-test.js";
+export {
+	type CreatedFilter,
+	createFilter,
+	type FilterPage,
+	type FilterPatch,
+	listFilters,
+	type NewFilter,
+	pickFilterUpdate,
+	type ResolvedScopeExpiry,
+	resolveFilterScopeExpiry,
+	resolveFilterUpdate,
+	updateFilter,
+} from "./filter-operations.js";
 export { extractListId, normalizeListId } from "./filters/list-id.js";
 export {
 	clauseMatches,
@@ -118,6 +131,15 @@ export {
 	type UpdateFlagsInput,
 	type UpdateFlagsResult,
 } from "./flag-queue.js";
+export {
+	changeFolderPath,
+	createFolder,
+	type FolderDeps,
+	type FolderPathChange,
+	type FolderPathDeps,
+	type NewFolder,
+	renameFolder,
+} from "./folder-operations.js";
 export {
 	type FolderPlacementLookup,
 	resolveAccountFolderPlacements,
@@ -253,6 +275,15 @@ export {
 	type SyncMessagesResult,
 } from "./message-sync.js";
 export {
+	type OrganizeJobDeps,
+	type OrganizeJobMessage,
+	type OrganizeJobOwner,
+	type OrganizeJobPredicate,
+	type OrganizeJobRequest,
+	organizeJobMessage,
+	queueOrganizeJob,
+} from "./organize-job.js";
+export {
 	type CompleteOutboxAttachmentInput,
 	type CompleteOutboxAttachmentOutcome,
 	type MintOutboxAttachmentInput,
@@ -277,6 +308,7 @@ export {
 	OutboxQueueService,
 	type UpdateDraftInput,
 } from "./outbox-queue.js";
+export { folderInAccount, ownedAccount, settledFolder } from "./ownership.js";
 export {
 	type PlacementMoveConfig,
 	type PlacementMoveLogger,
@@ -307,6 +339,15 @@ export {
 	resolveMailboxRole,
 	shapeFromMessageData,
 } from "./quarantine.js";
+export {
+	type AccessMode,
+	accept,
+	invalid,
+	type Refusable,
+	type Refusal,
+	type Refused,
+	refuse,
+} from "./refusal.js";
 export {
 	type RestoreSourcePlacementDeps,
 	type RestoreSourcePlacementInput,

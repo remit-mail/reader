@@ -38,7 +38,7 @@ export interface IOutboxMessageRepository {
 	 * GET doesn't leak existence. `mode: "act"` throws ForbiddenError instead,
 	 * for action verbs (PATCH/POST/DELETE) where the caller has already named
 	 * the resource and the API contract says to explicitly deny rather than
-	 * feign 404 — see assertAccountOwnership / assertMessagesOwned.
+	 * feign 404 — see ownedAccount / assertMessagesOwned.
 	 */
 	get(
 		accountConfigId: string,
