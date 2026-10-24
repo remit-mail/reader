@@ -12,6 +12,7 @@ export const GENERATED_PACKAGES = [
 	{ dir: "build/zod-schemas", name: "@remit/api-zod-schemas" },
 	{ dir: "build/ddb-entities", name: "@remit/electrodb-entities" },
 	{ dir: "build/remit-client", name: "@remit/api-http-client" },
+	{ dir: "build/remit-openapi3", name: "@remit/api-openapi-spec" },
 	{ dir: "build/drizzle-entities", name: "@remit/drizzle-pg-schema" },
 	{
 		dir: "build/drizzle-entities-sqlite",

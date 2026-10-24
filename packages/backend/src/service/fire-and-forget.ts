@@ -1,5 +1,5 @@
 import { inspect } from "node:util";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 

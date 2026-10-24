@@ -5,7 +5,7 @@ import {
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
 import { readCalendarFeedToken } from "@remit/calendar-service";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { defaultErrorCode } from "./error.js";
 import { formatResponse } from "./response.js";

@@ -3,6 +3,7 @@ all: build/remit-openapi3/openapi.json build/remit-client build/drizzle-entities
 build/remit-openapi3/openapi.json: $(shell find typespec/ -type f)
 	node npm-scripts/check-patches-applied.mjs
 	npx tsp compile ./typespec
+	echo '{"name":"@remit/api-openapi-spec","version":"0.0.0","description":"Remit API OpenAPI 3 document, generated from TypeSpec.","exports":{".":"./openapi.json","./openapi.json":"./openapi.json"},"files":["openapi.json"]}' > build/remit-openapi3/package.json
 
 build/remit-client: build/remit-openapi3/openapi.json openapi-ts.config.js
 	npx @hey-api/openapi-ts

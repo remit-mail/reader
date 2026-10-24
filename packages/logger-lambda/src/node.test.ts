@@ -7,7 +7,7 @@ import type { Context } from "aws-lambda";
 // silenced and only what reaches the metric registry is observed.
 process.env.LOG_LEVEL = "silent";
 
-const { withTelemetry } = await import("./logger.js");
+const { withTelemetry } = await import("./node.js");
 const { registry, resetMetrics } = await import("./metrics.js");
 
 type Recorded = { mock: { calls: { arguments: unknown[] }[] } };

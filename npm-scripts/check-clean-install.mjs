@@ -42,7 +42,9 @@ const RESOLVES = [
 	"@remit/secrets-service",
 	"@remit/sqs-client",
 	"@remit/mail-oauth-service",
+	"@remit/logger",
 	"@remit/logger-lambda",
+	"@remit/api-openapi-spec",
 	"@remit/api-zod-schemas",
 	"@remit/drizzle-sqlite-schema",
 ];

@@ -26,6 +26,6 @@
 	},
 	"dependencies": {
 		"@aws-sdk/client-kms": "*",
-		"@remit/logger-lambda": "*"
+		"@remit/logger": "*"
 	}
 }

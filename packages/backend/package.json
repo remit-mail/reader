@@ -11,6 +11,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./api": {
+      "types": "./src/api.ts",
+      "default": "./src/api.ts"
+    },
     "./client": {
       "types": "./src/service/data-client.ts",
       "default": "./src/service/data-client.ts"
@@ -90,7 +94,9 @@
     "openapi-backend": "*",
     "p-map": "*",
     "@types/aws-lambda": "*",
-    "@types/better-sqlite3": "^7.6.13"
+    "@types/better-sqlite3": "^7.6.13",
+    "@remit/logger": "*",
+    "@remit/api-openapi-spec": "*"
   },
   "publishConfig": {
     "access": "public"

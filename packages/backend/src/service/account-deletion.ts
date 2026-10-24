@@ -5,7 +5,7 @@ import type {
 	IAccountRepository,
 	IConfigImportRepository,
 } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 
 export interface AccountDeletionDeps {
 	account: Pick<IAccountRepository, "update">;

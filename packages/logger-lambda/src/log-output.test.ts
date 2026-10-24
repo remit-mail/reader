@@ -13,10 +13,9 @@ const originalWrite = process.stdout.write.bind(process.stdout);
 const written: string[] = [];
 let capturing = false;
 
-// pino uses `process.stdout` directly when its `write` has been replaced, and
-// the real fd otherwise — so the hook has to be in place before the import
-// below, and it passes writes through whenever a test is not capturing so the
-// test runner's own output still reaches the terminal.
+// The Node logger writes through `process.stdout.write`; the hook passes
+// writes through whenever a test is not capturing so the test runner's own
+// output still reaches the terminal.
 process.stdout.write = ((
 	chunk: string | Uint8Array,
 	...rest: unknown[]
@@ -28,9 +27,9 @@ process.stdout.write = ((
 	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
 }) as typeof process.stdout.write;
 
-const { createLogger, logger, withLogContext, withTelemetry } = await import(
-	"./logger.js"
-);
+const { createLogger, logger, withLogContext } = await import("./index.js");
+const { installNodeLogger, withTelemetry } = await import("./node.js");
+installNodeLogger();
 
 const parse = (): Line[] =>
 	written
