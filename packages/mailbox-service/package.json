@@ -40,6 +40,10 @@
     "./test-helpers/test-queue": {
       "types": "./src/test-helpers/test-queue.ts",
       "default": "./src/test-helpers/test-queue.ts"
+    },
+    "./test-helpers/test-store": {
+      "types": "./src/test-helpers/test-store.ts",
+      "default": "./src/test-helpers/test-store.ts"
     }
   },
   "scripts": {
