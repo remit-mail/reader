@@ -238,6 +238,8 @@ COPY --from=builder --chown=node:node /app/dist-docker/backend/backfill-classifi
 # their configuration before a migration drops the database, with no browser and
 # no session — see packages/backend/scripts/config-save.ts.
 COPY --from=builder --chown=node:node /app/dist-docker/backend/config-save.mjs ./config-save.mjs
+# The API commands `remit` delegates to, run in the migrate service against apisix.
+COPY --from=builder --chown=node:node /app/dist-docker/backend/remit-cli.mjs ./remit-cli.mjs
 # The migration set, staged in the builder into one directory so this COPY has a
 # single stable source. The migrate entrypoint applies ./migrations-sqlite.
 COPY --from=builder --chown=node:node /app/dist-docker/backend-migrations/ ./
