@@ -1,10 +1,6 @@
 import type { QuarantineReportSections } from "@remit/ui";
-import {
-	APP_BUILD_TIME,
-	APP_SHORT_SHA,
-	GITHUB_COMMIT_URL,
-	GITHUB_NEW_ISSUE_URL,
-} from "./app-info";
+import { getRuntimeConfig } from "../runtime-config";
+import { APP_BUILD_TIME, APP_SHORT_SHA, GITHUB_COMMIT_URL } from "./app-info";
 import { getRecentErrors } from "./console-errors";
 import {
 	getFailingRequest,
@@ -243,7 +239,7 @@ function issueUrl(ctx: BugReportContext, overrides?: BodyOverrides): string {
 		title: buildIssueTitle(ctx),
 		body: buildIssueBody(ctx, overrides),
 	});
-	return `${GITHUB_NEW_ISSUE_URL}?${params.toString()}`;
+	return `${getRuntimeConfig().issuesUrl}?${params.toString()}`;
 }
 
 /**
