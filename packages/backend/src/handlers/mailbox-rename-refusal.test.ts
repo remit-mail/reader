@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { applyMailboxPatch, type MailboxPatchClient } from "./mailbox.js";
+import {
+	applyMailboxPatch,
+	type MailboxPatchClient,
+} from "../service/folders.js";
+import { unwrap } from "../service/outcome.js";
 
 const ACCOUNT_ID = "acc-1";
 const CONFIG_ID = "cfg-1";
@@ -62,7 +66,7 @@ const patch = (
 	client: MailboxPatchClient,
 	body: Record<string, unknown>,
 ): Promise<MailboxItem> =>
-	applyMailboxPatch(client, CONFIG_ID, "mbx-1", ACCOUNT_ID, body);
+	applyMailboxPatch(client, CONFIG_ID, "mbx-1", ACCOUNT_ID, body).then(unwrap);
 
 const refusedWith = (message: string) => (error: unknown) =>
 	(error as { statusCode?: number }).statusCode === 400 &&

@@ -1,287 +1,26 @@
 import type {
 	CreateFilterInput,
-	CreateFilterResponse,
-	FilterResponse,
-	UpdateFilterInput as UpdateFilterRequestBody,
+	UpdateFilterInput,
 } from "@remit/api-openapi-types";
-import {
-	deriveFilterTtl,
-	FILTER_NO_ACTION,
-	type FilterItem,
-	type IMailboxRepository,
-	type UpdateFilterInput,
-} from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
-import {
-	FilterDisabledReason,
-	FilterScope,
-	FilterState,
-} from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
+import {
+	authenticatedUserFromEvent,
+	getAccountConfigIdFromEvent,
+} from "../auth.js";
 import { getClient } from "../service/data-client.js";
-import { queueOrganizeJob } from "../service/organize-queue.js";
+import {
+	createFilter,
+	listFilters,
+	toFilterResponse,
+	updateFilter,
+} from "../service/filters.js";
+import { unwrap } from "../service/outcome.js";
 import type {
 	FilterDetailOperationIds,
 	FilterOperationIds,
 	OperationHandler,
 } from "../types.js";
 import { assertAccountOwnership } from "./account-ownership.js";
-import { assertMailboxInAccount, assertMailboxSettled } from "./mailbox.js";
-
-/**
- * Reduce a PATCH body to the fields a filter update may set (RFC 034, reader
- * #266). Preserves absence: a key not present in the body is not present in
- * the patch, so a name-only rename yields `{ name }` and never touches a
- * predicate/action/scope/expiresAt field — the service's
- * `changesRuleAssertion` guard then leaves `ruleChangedAt` untouched (Decision
- * 3.2). Any field outside this set — most notably a server-derived
- * `state`/`ttl`/`ruleChangedAt` smuggled into the body — is
- * dropped. `scope`/`expiresAt` land here as the caller sent them; a patch that
- * touches either still needs `resolveFilterScopeExpiry` to merge them against
- * the stored row and derive `ttl`/`state` before this reaches the repo.
- */
-export const pickFilterUpdate = (
-	body: Partial<UpdateFilterRequestBody>,
-): Partial<UpdateFilterInput> => {
-	const patch: Partial<UpdateFilterInput> = {};
-	if (Object.hasOwn(body, "name")) patch.name = body.name;
-	if (Object.hasOwn(body, "scope")) patch.scope = body.scope;
-	if (Object.hasOwn(body, "expiresAt")) patch.expiresAt = body.expiresAt;
-	if (Object.hasOwn(body, "matchOperator")) {
-		patch.matchOperator = body.matchOperator;
-	}
-	if (Object.hasOwn(body, "literalClauses")) {
-		patch.literalClauses = body.literalClauses;
-	}
-	if (Object.hasOwn(body, "actionLabelId")) {
-		patch.actionLabelId = body.actionLabelId;
-	}
-	if (Object.hasOwn(body, "actionMailboxId")) {
-		patch.actionMailboxId = body.actionMailboxId;
-	}
-	if (Object.hasOwn(body, "state")) patch.state = body.state;
-	return patch;
-};
-
-export interface ResolvedScopeExpiry {
-	scope: FilterItem["scope"];
-	expiresAt?: string;
-	ttl?: number;
-	state: FilterItem["state"];
-}
-
-/**
- * Merge a PATCH body's `scope`/`expiresAt` against the filter's stored values
- * and resolve the full set the row must land on (reader #266). Only called
- * when the patch touches `scope` or `expiresAt` — one that touches neither
- * leaves both, and `ttl`/`state`, untouched exactly as before this ticket.
- *
- * A `Temporary` result always carries a defined `expiresAt` — moving to
- * `Temporary` without one is rejected, matching the Filter model's invariant
- * that a Temporary filter always has an expiry (RFC 034 Decision 1.1). Moving
- * to `Standing` clears `expiresAt`/`ttl`, matching the model's invariant that
- * both stay absent outside `Temporary` (RFC 034 Decision 1.4) — the reserved
- * `ttl` attribute must never linger once a filter is no longer temporary.
- *
- * `state` is recomputed the same comparison `refreshExpiry` runs, so a filter
- * extended past a lapsed `expiresAt` (or switched to `Standing`) reads Active
- * immediately — the index-time worker's `byAccountAndState` query needs that
- * now, not on whatever read happens to touch the row next.
- */
-export const resolveFilterScopeExpiry = (
-	current: Pick<FilterItem, "scope" | "expiresAt">,
-	patch: Partial<UpdateFilterInput>,
-): ResolvedScopeExpiry => {
-	const scope = patch.scope ?? current.scope;
-
-	if (scope !== FilterScope.Temporary) {
-		if (Object.hasOwn(patch, "expiresAt") && patch.expiresAt) {
-			throw new BadRequestError(
-				"expiresAt only applies to a Temporary filter — switch scope to Temporary to set one.",
-			);
-		}
-		return {
-			scope,
-			expiresAt: undefined,
-			ttl: undefined,
-			state: FilterState.Active,
-		};
-	}
-
-	const expiresAt = Object.hasOwn(patch, "expiresAt")
-		? patch.expiresAt
-		: current.expiresAt;
-	if (!expiresAt) {
-		throw new BadRequestError(
-			"A Temporary filter needs expiresAt — pick a date, or switch scope to Standing.",
-		);
-	}
-
-	const ttl = deriveFilterTtl(scope, expiresAt);
-	const state =
-		new Date(expiresAt).getTime() > Date.now()
-			? FilterState.Active
-			: FilterState.Expired;
-
-	return { scope, expiresAt, ttl, state };
-};
-
-const hasLapsed = (
-	filter: Pick<FilterItem, "scope" | "expiresAt">,
-	now: number,
-): boolean =>
-	filter.scope === FilterScope.Temporary &&
-	filter.expiresAt !== undefined &&
-	new Date(filter.expiresAt).getTime() <= now;
-
-const FOLDERLESS_REASONS: ReadonlySet<FilterItem["disabledReason"]> = new Set([
-	FilterDisabledReason.AwaitingFolder,
-	FilterDisabledReason.FolderCreateFailed,
-]);
-
-const folderlessRefusal = (
-	reason: FilterItem["disabledReason"],
-): BadRequestError =>
-	new BadRequestError(
-		reason === FilterDisabledReason.AwaitingFolder
-			? "This filter has no folder to move mail into yet. Wait for its folder to be created on the mail server, or pick a folder in the rule, then turn it on."
-			: "The mail server refused to create this filter's folder. Pick a folder in the rule, then turn it on.",
-	);
-
-export const resolveFilterUpdate = (
-	current: Pick<
-		FilterItem,
-		"scope" | "expiresAt" | "state" | "disabledReason" | "actionMailboxId"
-	>,
-	patch: Partial<UpdateFilterInput>,
-	now: number = Date.now(),
-): Partial<UpdateFilterInput> => {
-	if (patch.state === FilterState.Expired) {
-		throw new BadRequestError(
-			"A filter expires through its date, not its state. Set it Active or Disabled, or change its expiry.",
-		);
-	}
-	const folderless =
-		current.state === FilterState.Disabled &&
-		FOLDERLESS_REASONS.has(current.disabledReason);
-	const folder = patch.actionMailboxId ?? current.actionMailboxId;
-	const picked = folderless && folder !== FILTER_NO_ACTION;
-	const pickedReason = picked
-		? { disabledReason: FilterDisabledReason.UserDisabled }
-		: {};
-
-	const touchesTiming =
-		Object.hasOwn(patch, "scope") || Object.hasOwn(patch, "expiresAt");
-	if (!touchesTiming && patch.state === undefined) {
-		return { ...patch, ...pickedReason };
-	}
-
-	const timing = touchesTiming
-		? resolveFilterScopeExpiry(current, patch)
-		: undefined;
-	const lapsed = timing
-		? timing.state === FilterState.Expired
-		: hasLapsed(current, now);
-
-	if (patch.state === FilterState.Active && lapsed) {
-		throw new BadRequestError(
-			"This filter has expired. Move its date forward or make it Standing to turn it back on.",
-		);
-	}
-
-	const wanted = patch.state ?? current.state;
-	const merged = { ...patch, ...timing };
-	if (wanted === FilterState.Disabled) {
-		return {
-			...merged,
-			state: FilterState.Disabled,
-			...(folderless
-				? pickedReason
-				: patch.state === FilterState.Disabled
-					? { disabledReason: FilterDisabledReason.UserDisabled }
-					: {}),
-		};
-	}
-	if (lapsed) {
-		return {
-			...merged,
-			state: FilterState.Expired,
-			disabledReason: FilterDisabledReason.None,
-		};
-	}
-	if (folderless && folder === FILTER_NO_ACTION) {
-		throw folderlessRefusal(current.disabledReason);
-	}
-	return {
-		...merged,
-		state: FilterState.Active,
-		disabledReason: FilterDisabledReason.None,
-	};
-};
-
-const assertEnabledTargetExists = async (
-	client: {
-		mailbox: Pick<IMailboxRepository, "get" | "resolveAccountId">;
-	},
-	accountId: string,
-	actionMailboxId: string,
-): Promise<void> => {
-	if (actionMailboxId === FILTER_NO_ACTION) return;
-	if ((await client.mailbox.resolveAccountId(actionMailboxId)) === null) {
-		throw new BadRequestError(
-			"The folder this filter moves mail into no longer exists. Pick another folder, then turn the filter on.",
-		);
-	}
-	await assertActionMailboxSettled(client, accountId, actionMailboxId);
-};
-
-const toFilterResponse = (item: FilterItem): FilterResponse => ({
-	filterId: item.filterId,
-	accountConfigId: item.accountConfigId,
-	name: item.name,
-	scope: item.scope,
-	expiresAt: item.expiresAt,
-	state: item.state,
-	disabledReason: item.disabledReason,
-	ruleChangedAt: item.ruleChangedAt,
-	actionChangedAt: item.actionChangedAt,
-	matchOperator: item.matchOperator,
-	literalClauses: item.literalClauses,
-	actionLabelId: item.actionLabelId,
-	actionMailboxId: item.actionMailboxId,
-	createdAt: item.createdAt,
-	updatedAt: item.updatedAt,
-});
-
-const requireUserId = (event: APIGatewayProxyEvent): string => {
-	const userId = getSubFromEvent(event);
-	if (!userId) {
-		throw new Error(
-			"Missing Cognito `sub`: cannot attribute an organize job to a user",
-		);
-	}
-	return userId;
-};
-
-/**
- * A filter's `actionMailboxId` is a durable reference, so its target has to be
- * a folder the mail server has settled (D12, first row) — 422 otherwise. The
- * sentinel means "no move action" and binds to nothing, so it is not gated,
- * and neither is a filter that touches the field at all.
- */
-const assertActionMailboxSettled = async (
-	client: { mailbox: Pick<IMailboxRepository, "get"> },
-	accountId: string,
-	actionMailboxId: string | undefined,
-): Promise<void> => {
-	if (actionMailboxId === undefined || actionMailboxId === FILTER_NO_ACTION) {
-		return;
-	}
-	const target = await client.mailbox.get(accountId, actionMailboxId);
-	assertMailboxInAccount(target, accountId, "act");
-	assertMailboxSettled(target);
-};
 
 export const FilterOperations: Record<
 	FilterOperationIds,
@@ -289,68 +28,30 @@ export const FilterOperations: Record<
 > = {
 	FilterOperations_listFilters: async (context, ...args: unknown[]) => {
 		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
 
-		const client = await getClient();
-		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "read");
-
-		const { filter } = client;
-		const page = await filter.listPageByAccountConfig(accountConfigId, {
-			continuationToken,
-		});
-
-		// Reading the list is one of the touch points that lazily expires a past
-		// Temporary filter (RFC 034 Decision 1.2) — a no-op write for Standing or
-		// not-yet-expired filters.
-		const items = await Promise.all(
-			page.items.map((item) => filter.refreshExpiry(item)),
+		return unwrap(
+			await listFilters(await getClient(), authenticatedUserFromEvent(event), {
+				accountId,
+				continuationToken,
+			}),
 		);
-
-		return {
-			items: items.map(toFilterResponse),
-			continuationToken: page.continuationToken,
-		};
 	},
 
-	FilterOperations_createFilter: async (
-		context,
-		...args: unknown[]
-	): Promise<CreateFilterResponse> => {
+	FilterOperations_createFilter: async (context, ...args: unknown[]) => {
 		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId } = context.request.params as { accountId: string };
-		const input = context.request.requestBody as CreateFilterInput;
-		const userId = requireUserId(event);
+		const filter = context.request.requestBody as CreateFilterInput;
 
-		const client = await getClient();
-		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
-		await assertActionMailboxSettled(client, accountId, input.actionMailboxId);
-
-		const filter = await client.filter.create({
-			accountConfigId,
-			name: input.name,
-			scope: input.scope,
-			expiresAt: input.expiresAt,
-			ttl: deriveFilterTtl(input.scope, input.expiresAt),
-			matchOperator: input.matchOperator,
-			literalClauses: input.literalClauses,
-			actionLabelId: input.actionLabelId,
-			actionMailboxId: input.actionMailboxId,
-		});
-		// The new filter's first pass over the inbox. The worker reads the filter
-		// when it runs and refuses one that has nothing to run (#1354).
-		const job = await queueOrganizeJob(client, {
-			accountConfigId,
-			userId,
-			filterId: filter.filterId,
-		});
-		return { ...toFilterResponse(filter), organizeJobId: job.organizeJobId };
+		return unwrap(
+			await createFilter(await getClient(), authenticatedUserFromEvent(event), {
+				accountId,
+				filter,
+			}),
+		);
 	},
 };
 
@@ -378,39 +79,19 @@ export const FilterDetailOperations: Record<
 
 	FilterDetailOperations_updateFilter: async (context, ...args: unknown[]) => {
 		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
 			filterId: string;
 		};
-		const body = context.request.requestBody as Record<string, unknown>;
+		const patch = context.request.requestBody as Partial<UpdateFilterInput>;
 
-		const client = await getClient();
-		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
-
-		const { filter } = client;
-		const patch = pickFilterUpdate(body as Partial<UpdateFilterRequestBody>);
-		await assertActionMailboxSettled(client, accountId, patch.actionMailboxId);
-		const current = await filter.get(accountConfigId, filterId);
-		const resolvedPatch = resolveFilterUpdate(current, patch);
-		if (
-			patch.state === FilterState.Active &&
-			patch.actionMailboxId === undefined
-		) {
-			await assertEnabledTargetExists(
-				client,
+		return unwrap(
+			await updateFilter(await getClient(), authenticatedUserFromEvent(event), {
 				accountId,
-				current.actionMailboxId,
-			);
-		}
-
-		const updated = await filter.update(
-			accountConfigId,
-			filterId,
-			resolvedPatch,
+				filterId,
+				patch,
+			}),
 		);
-		return toFilterResponse(updated);
 	},
 
 	FilterDetailOperations_deleteFilter: async (context, ...args: unknown[]) => {

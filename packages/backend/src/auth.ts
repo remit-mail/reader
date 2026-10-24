@@ -90,3 +90,20 @@ export const getAccountConfigIdFromEvent = (
 		"Missing accountConfigId: no Cognito `sub` claim on the request, and neither LOCAL_ACCOUNT_CONFIG_ID nor LOCAL_COGNITO_SUB env var is set",
 	);
 };
+
+/**
+ * The caller a service function acts for, whatever transport authenticated it.
+ * `userId` is the Cognito `sub`, absent for seeded fixtures that pin only an
+ * accountConfigId.
+ */
+export interface AuthenticatedUser {
+	accountConfigId: string;
+	userId: string | undefined;
+}
+
+export const authenticatedUserFromEvent = (
+	event: APIGatewayProxyEvent,
+): AuthenticatedUser => ({
+	accountConfigId: getAccountConfigIdFromEvent(event),
+	userId: getSubFromEvent(event),
+});

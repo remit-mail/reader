@@ -23,13 +23,22 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { sqsClient } from "../service/sqs.js";
 import {
-	FilterOperations,
 	pickFilterUpdate,
-	resolveFilterScopeExpiry,
-	resolveFilterUpdate,
-} from "./filter.js";
+	resolveFilterScopeExpiry as resolveFilterScopeExpiryOutcome,
+	resolveFilterUpdate as resolveFilterUpdateOutcome,
+} from "../service/filters.js";
+import { unwrap } from "../service/outcome.js";
+import { sqsClient } from "../service/sqs.js";
+import { FilterOperations } from "./filter.js";
+
+const resolveFilterUpdate = (
+	...args: Parameters<typeof resolveFilterUpdateOutcome>
+) => unwrap(resolveFilterUpdateOutcome(...args));
+
+const resolveFilterScopeExpiry = (
+	...args: Parameters<typeof resolveFilterScopeExpiryOutcome>
+) => unwrap(resolveFilterScopeExpiryOutcome(...args));
 
 describe("pickFilterUpdate", () => {
 	it("carries scope and expiresAt through, alongside the predicate/action fields", () => {
