@@ -684,6 +684,11 @@ export const handleMessageMove = async (
 					const settled = await resolveExhaustedMessageMoveFailure(
 						{ messageService, threadMessageService, log },
 						{
+							placement: {
+								status: message.status,
+								mailboxId: message.mailboxId,
+								uid: message.uid,
+							},
 							accountId,
 							accountConfigId: account.accountConfigId,
 							messageId,

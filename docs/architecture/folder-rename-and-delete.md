@@ -56,7 +56,7 @@ Without it there is a reachable failure with no bug anywhere in the sequence. A 
 
 The lock is enforced rather than remembered: `syncStatus` and `pendingPath` come off `UpdateMailboxInput`, so the transition is the only way to write them and bypassing it is a type error. Two current callers move onto it — the worker's INBOX backstop and the sweep's explicit `synced` insert.
 
-The subtree intent is one batch. Its first UPDATE claims every row under the folder's path to the intent's state, and only while none of them is outside a from-state and the subtree still holds the rows that were read; each row's own write then requires the claimed state and the claim's `updatedAt` stamp. A contested subtree claims nothing, so nothing after the claim writes. The same applies to the per-row settle in D15: with the `pendingPath` predicate on the transition it is one conditional write, not a read followed by a write.
+The subtree intent is one UPDATE over the folder and every row under its path: each takes the new path in place of the folder's own as its `pendingPath`, and only while no row of the subtree is outside a from-state. A contested subtree writes nothing. The same applies to the per-row settle in D15: with the `pendingPath` predicate on the transition it is one conditional write, not a read followed by a write.
 
 A client that loses the compare-and-set gets **409** with a message naming the intent already in flight — `A delete is already in progress for "Receipts".` Existence is established by the handler's `folderInAccount` read beforehand, so a lost CAS is a conflict; the one case where the row disappeared in between is classified by a single primary-key read on the conflict path and reported as 404.
 

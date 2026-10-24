@@ -4,7 +4,7 @@ import type {
 	ICalendarStore,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
-import { and, eq, exists, not, sql } from "drizzle-orm";
+import { and, eq, exists, sql } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import type { Db } from "../db.js";
 import {
@@ -49,6 +49,18 @@ export class DrizzleCalendarStore implements ICalendarStore {
 		);
 	}
 
+	/**
+	 * The sequence the bump just wrote, read inside the batch. A collection that
+	 * is gone yields NULL, which the NOT NULL column refuses, so the whole batch
+	 * fails rather than storing an orphan.
+	 */
+	private bumpedSequence(accountConfigId: string, calendarId: string) {
+		return sql<number>`(${this.db
+			.select({ syncSequence: calendarTable.syncSequence })
+			.from(calendarTable)
+			.where(this.collection(accountConfigId, calendarId))})`;
+	}
+
 	private bump(accountConfigId: string, calendarId: string): SqliteBatchItem {
 		return this.db
 			.update(calendarTable)
@@ -76,82 +88,111 @@ export class DrizzleCalendarStore implements ICalendarStore {
 	private statements(write: CalendarWrite): SqliteBatchItem[] {
 		const now = Date.now();
 		switch (write.kind) {
-			case "PutObject":
+			case "PutObject": {
+				const { calendarId, resourceName } = write.object;
+				const calendarObjectId = deriveCalendarObjectId(
+					calendarId,
+					resourceName,
+				);
+				const syncSequence = this.bumpedSequence(
+					write.accountConfigId,
+					calendarId,
+				);
+				const items: SqliteBatchItem[] = [
+					this.bump(write.accountConfigId, calendarId),
+					this.db
+						.insert(calendarObjectTable)
+						.values({
+							...write.object,
+							calendarObjectId,
+							syncSequence,
+							createdAt: now,
+							updatedAt: now,
+						})
+						.onConflictDoUpdate({
+							target: calendarObjectTable.calendarObjectId,
+							set: { ...write.object, syncSequence, updatedAt: now },
+						}),
+					this.clearOccurrences(calendarId, calendarObjectId),
+				];
+				if (write.occurrences.length === 0) return items;
+				return [
+					...items,
+					this.db.insert(calendarEventIndexTable).values(
+						write.occurrences.map((occurrence) => ({
+							...occurrence,
+							calendarId,
+							calendarObjectId,
+							createdAt: now,
+							updatedAt: now,
+						})),
+					),
+				];
+			}
 			case "ReprojectObject": {
 				const { calendarId, resourceName } = write.object;
 				const calendarObjectId = deriveCalendarObjectId(
 					calendarId,
 					resourceName,
 				);
-				// The sequence the bump just wrote, read inside the batch. A
-				// collection that is gone yields NULL, which the NOT NULL column
-				// refuses, so the whole batch fails rather than storing an orphan.
-				const syncSequence = sql<number>`(${this.db
-					.select({ syncSequence: calendarTable.syncSequence })
-					.from(calendarTable)
-					.where(this.collection(write.accountConfigId, calendarId))})`;
-				const object =
-					write.kind === "PutObject"
-						? this.db
-								.insert(calendarObjectTable)
-								.values({
-									...write.object,
-									calendarObjectId,
-									syncSequence,
-									createdAt: now,
-									updatedAt: now,
-								})
-								.onConflictDoUpdate({
-									target: calendarObjectTable.calendarObjectId,
-									set: { ...write.object, syncSequence, updatedAt: now },
-								})
-						: this.db
-								.update(calendarObjectTable)
-								.set({ ...write.object, syncSequence, updatedAt: now })
-								.where(
-									eq(calendarObjectTable.calendarObjectId, calendarObjectId),
-								);
-				const items: SqliteBatchItem[] = [
-					this.bump(write.accountConfigId, calendarId),
-					object,
-					this.clearOccurrences(calendarId, calendarObjectId),
-				];
-				if (write.occurrences.length === 0) return items;
-				const occurrences = this.db.insert(calendarEventIndexTable).values(
-					write.occurrences.map((occurrence) => ({
-						...occurrence,
-						calendarId,
-						calendarObjectId,
-						createdAt: now,
-						updatedAt: now,
-					})),
+				// Every statement reads the object it rewrites at the version the
+				// caller read, so a resource edited or deleted since writes nothing.
+				const asRead = and(
+					eq(calendarObjectTable.calendarObjectId, calendarObjectId),
+					eq(calendarObjectTable.etag, write.readEtag),
 				);
-				if (write.kind === "PutObject") return [...items, occurrences];
-				// A resource deleted since it was read wrote nothing above, so the
-				// occurrences written for it go again in the same batch.
+				const unchanged = exists(
+					this.db
+						.select({ id: calendarObjectTable.calendarObjectId })
+						.from(calendarObjectTable)
+						.where(asRead),
+				);
+				const value = <T>(field: T, name: string) => sql<T>`${field}`.as(name);
 				return [
-					...items,
-					occurrences,
+					this.bump(write.accountConfigId, calendarId),
+					this.db
+						.update(calendarObjectTable)
+						.set({
+							...write.object,
+							syncSequence: this.bumpedSequence(
+								write.accountConfigId,
+								calendarId,
+							),
+							updatedAt: now,
+						})
+						.where(asRead),
 					this.db
 						.delete(calendarEventIndexTable)
 						.where(
 							and(
+								eq(calendarEventIndexTable.calendarId, calendarId),
 								eq(calendarEventIndexTable.calendarObjectId, calendarObjectId),
-								not(
-									exists(
-										this.db
-											.select({ id: calendarObjectTable.calendarObjectId })
-											.from(calendarObjectTable)
-											.where(
-												eq(
-													calendarObjectTable.calendarObjectId,
-													calendarObjectId,
-												),
-											),
-									),
-								),
+								unchanged,
 							),
 						),
+					...write.occurrences.map((occurrence) =>
+						this.db.insert(calendarEventIndexTable).select(
+							this.db
+								.select({
+									calendarId: value(calendarId, "calendar_id"),
+									calendarObjectId: value(
+										calendarObjectId,
+										"calendar_object_id",
+									),
+									recurrenceId: value(occurrence.recurrenceId, "recurrence_id"),
+									startAt: value(occurrence.startAt, "start_at"),
+									endAt: value(occurrence.endAt, "end_at"),
+									allDay: value(occurrence.allDay ? 1 : 0, "all_day"),
+									summary: value(occurrence.summary, "summary"),
+									status: value(occurrence.status, "status"),
+									transparency: value(occurrence.transparency, "transparency"),
+									createdAt: value(now, "created_at"),
+									updatedAt: value(now, "updated_at"),
+								})
+								.from(calendarObjectTable)
+								.where(asRead),
+						),
+					),
 				];
 			}
 			case "DeleteObject":

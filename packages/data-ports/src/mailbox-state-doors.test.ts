@@ -78,7 +78,7 @@ const transition: MailboxTransitionIntent = {
 const subtree: MailboxSubtreeTransitionIntent = {
 	from: ["synced", "failed"],
 	to: "pending",
-	rowSet: (row) => ({ pendingPath: row.fullPath }),
+	newPath: "Archive",
 };
 
 // The predicate names states, never a free-form column: a caller cannot smuggle
@@ -91,10 +91,7 @@ const notAState: MailboxStatePredicate = {
 
 test("the folder-state doors are the two transitions", () => {
 	assert.equal(transition.to, "synced");
-	assert.equal(
-		subtree.rowSet({ fullPath: "Work" } as never).pendingPath,
-		"Work",
-	);
+	assert.equal(subtree.newPath, "Archive");
 	assert.equal(ordinary.messageCount, 12);
 	assert.deepEqual(
 		[syncStatus, pendingPath, createdWithTarget, notAState].length,

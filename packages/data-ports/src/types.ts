@@ -451,14 +451,15 @@ export type MailboxTransitionIntent = MailboxStatePredicate & {
 };
 
 /**
- * A subtree intent recorded all-or-nothing (D6). It carries no
- * `wherePendingPath`: its accepted from-states are `synced` and the two failed
- * variants, and both failed variants are legal starting points.
+ * A subtree intent recorded all-or-nothing (D6): every row of the subtree takes
+ * `newPath` in place of the named folder's path as its `pendingPath`. It
+ * carries no `wherePendingPath`: its accepted from-states are `synced` and the
+ * two failed variants, and both failed variants are legal starting points.
  */
 export type MailboxSubtreeTransitionIntent = {
 	from: readonly MailboxItem["syncStatus"][];
 	to: MailboxItem["syncStatus"];
-	rowSet: (row: MailboxItem) => MailboxTransitionWrite;
+	newPath: string;
 };
 
 export type CreateMessageInput = Omit<

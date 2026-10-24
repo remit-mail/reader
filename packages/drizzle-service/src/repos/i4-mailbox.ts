@@ -60,6 +60,18 @@ type DB = Db<Record<string, unknown>>;
  */
 const MAIL_DELETE_BATCH_SIZE = 100;
 
+/**
+ * The folders under `path`. A flat namespace nests nothing: with no delimiter
+ * the prefix is the folder's own path, which would match every sibling
+ * starting with it. Lengths are SQL's, so a path is measured the way `substr`
+ * cuts it, in characters rather than UTF-16 units.
+ */
+const descendantOf = (path: string, delimiter: string): SQL => {
+	if (delimiter.length === 0) return sql`0`;
+	const prefix = `${path}${delimiter}`;
+	return sql`substr(${mailboxTable.fullPath}, 1, length(${prefix})) = ${prefix}`;
+};
+
 /** The WHERE terms of a folder-state transition (folder-rename-and-delete.md D3). */
 const stateTerms = (expected: MailboxStatePredicate): SQL[] => {
 	const terms: SQL[] = [
@@ -305,35 +317,23 @@ export class MailboxRepo implements IMailboxRepository {
 		);
 		if (!root) return null;
 
-		const subtree = [
-			root,
-			...(await this.findByPathPrefix(
-				accountId,
-				root.fullPath,
-				root.hierarchyDelimiter,
-			)),
-		];
-
-		const prefix = `${root.fullPath}${root.hierarchyDelimiter}`;
 		const inSubtree = and(
 			eq(mailboxTable.accountId, accountId),
-			root.hierarchyDelimiter.length === 0
-				? eq(mailboxTable.mailboxId, root.mailboxId)
-				: or(
-						eq(mailboxTable.mailboxId, root.mailboxId),
-						sql`substr(${mailboxTable.fullPath}, 1, ${prefix.length}) = ${prefix}`,
-					),
+			or(
+				eq(mailboxTable.mailboxId, root.mailboxId),
+				descendantOf(root.fullPath, root.hierarchyDelimiter),
+			),
 		);
-		const stamp = Date.now();
 
-		// A subtree cannot be half-renamed. The claim moves every row of the
-		// subtree to the intent's state in one statement, and only while none of
-		// them is outside a from-state and the subtree still holds the rows read
-		// above. Each row's own write then requires the claim's state and stamp,
-		// so it lands only behind a claim this batch made.
-		const claim = this.db
+		// One statement, so a subtree is never half-renamed: every row takes its
+		// rebased target together, and only while none of them is outside a
+		// from-state. Lengths are SQL's, counted the way `substr` counts.
+		const written = await this.db
 			.update(mailboxTable)
-			.set({ ...transitionSet(intent.to, undefined), updatedAt: stamp })
+			.set({
+				...transitionSet(intent.to, undefined),
+				pendingPath: sql`${intent.newPath} || substr(${mailboxTable.fullPath}, length(${root.fullPath}) + 1)`,
+			})
 			.where(
 				and(
 					inSubtree,
@@ -350,30 +350,14 @@ export class MailboxRepo implements IMailboxRepository {
 								),
 						),
 					),
-					eq(this.db.$count(mailboxTable, inSubtree), subtree.length),
 				),
-			);
-		const rows = subtree.map((row) =>
-			this.db
-				.update(mailboxTable)
-				.set(transitionSet(intent.to, intent.rowSet(row)))
-				.where(
-					and(
-						eq(mailboxTable.accountId, accountId),
-						eq(mailboxTable.mailboxId, row.mailboxId),
-						eq(mailboxTable.syncStatus, intent.to),
-						eq(mailboxTable.updatedAt, stamp),
-					),
-				)
-				.returning(),
-		);
-
-		const results = await runBatch(this.db, [claim, ...rows]);
-		const settled = results
-			.slice(1)
-			.flatMap((result) => (Array.isArray(result) ? result : []));
-		if (settled.length !== subtree.length) return null;
-		return settled.map(rowToMailbox);
+			)
+			.returning();
+		if (written.length === 0) return null;
+		return [
+			...written.filter((row) => row.mailboxId === root.mailboxId),
+			...written.filter((row) => row.mailboxId !== root.mailboxId),
+		].map(rowToMailbox);
 	}
 
 	async resolveAccountId(mailboxId: string): Promise<string | null> {
@@ -502,17 +486,16 @@ export class MailboxRepo implements IMailboxRepository {
 		pathPrefix: string,
 		delimiter = "/",
 	): Promise<MailboxItem[]> {
-		// A flat namespace nests nothing: with no delimiter the prefix is the
-		// folder’s own path, which would match every sibling starting with it.
-		if (delimiter.length === 0) return [];
 		const rows = await this.db
 			.select()
 			.from(mailboxTable)
-			.where(eq(mailboxTable.accountId, accountId));
-		const fullPrefix = `${pathPrefix}${delimiter}`;
-		return rows
-			.filter((r) => r.fullPath.startsWith(fullPrefix))
-			.map(rowToMailbox);
+			.where(
+				and(
+					eq(mailboxTable.accountId, accountId),
+					descendantOf(pathPrefix, delimiter),
+				),
+			);
+		return rows.map(rowToMailbox);
 	}
 
 	async findBySyncStatus(

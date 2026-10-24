@@ -251,6 +251,11 @@ export const handleFlagPush = async (
 					const { outcome } = await resolveExhaustedFlagPushFailure(
 						{ markerService, messageService, log },
 						{
+							placement: {
+								status: message.status,
+								mailboxId: message.mailboxId,
+								uid: message.uid,
+							},
 							accountId,
 							accountConfigId,
 							messageId,

@@ -35,12 +35,15 @@ export interface PutCalendarObjectWrite {
 
 /**
  * Rewrites a resource that is already stored, the way a put does, but only
- * while it is still there: a resource deleted since it was read stays deleted.
+ * while it is still the version that was read: a resource edited or deleted
+ * since stays as that edit left it.
  * A collection whose timezone changed re-projects every resource this way.
  */
 export interface ReprojectCalendarObjectWrite
 	extends Omit<PutCalendarObjectWrite, "kind"> {
 	kind: "ReprojectObject";
+	/** The etag the resource carried when it was read; a later edit wins. */
+	readEtag: string;
 }
 
 /** Removes a resource with its occurrence rows, and bumps the sequence. */

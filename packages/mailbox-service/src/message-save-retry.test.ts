@@ -47,9 +47,10 @@ const failingFirstCreate = (
 	});
 };
 
-const syncOnce = (threadMessage: IThreadMessageRepository) =>
-	new MessageSyncService(
-		{ getConnection: () => imap.connection(), close: async () => {} },
+const syncOnce = (threadMessage: IThreadMessageRepository) => {
+	const connection = imap.connection();
+	return new MessageSyncService(
+		{ getConnection: () => connection, close: async () => {} },
 		store.mailbox,
 		store.mailboxSpecialUse,
 		store.message,
@@ -59,6 +60,7 @@ const syncOnce = (threadMessage: IThreadMessageRepository) =>
 		new SyncWarningService(store.syncWarning),
 		silentLog,
 	).syncMessages(inbox.mailboxId, account.accountId, account.accountConfigId);
+};
 
 describe("a message save that fails at its last write", () => {
 	it("is completed by the next round, with one row of each", async () => {

@@ -125,6 +125,25 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 	// The state every inbound sync row is born in, and the one the re-point gate
 	// in mailbox-service has to accept (#1096): the sync path supplies no
 	// syncStatus and nothing later promotes what the repository writes here.
+	test("two concurrent saves of one message both succeed, one of them creating it", async () => {
+		const messageId = "00000000-0000-0000-1111-000000000099";
+		const input = {
+			...BASE_INPUT,
+			messageId,
+			envelopeId: deriveEnvelopeId(messageId),
+			rootBodyPartId: deriveRootBodyPartId(messageId),
+		};
+
+		const saves = await Promise.all([
+			repo.upsertWithStatus(input),
+			repo.upsertWithStatus(input),
+		]);
+
+		assert.deepEqual(saves.map((save) => save.created).sort(), [false, true]);
+		assert.equal(saves[0]?.item.messageId, messageId);
+		assert.equal(saves[1]?.item.messageId, messageId);
+	});
+
 	test("upsertWithStatus writes pending when the caller names no syncStatus", async () => {
 		const inboundId = "00000000-0000-0000-2222-000000000009";
 		const { item, created } = await repo.upsertWithStatus({
