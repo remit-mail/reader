@@ -45,9 +45,6 @@ export const isOAuthMicrosoftAccount = (
 	account: Pick<RemitImapAccountResponse, "authType">,
 ): boolean => account.authType === "oauthMicrosoft";
 
-// Placeholder shown when editing - indicates password exists but isn't shown
-const PASSWORD_PLACEHOLDER = "••••••••••";
-
 /**
  * Derive the initial state of the "use different SMTP credentials" checkbox
  * from a persisted account. Returns true when the account stores an SMTP
@@ -103,9 +100,6 @@ export const AccountFormPanel = ({
 	const queryClient = useQueryClient();
 	const isEditing = !!account;
 
-	// Track if user has modified the password field
-	const [passwordModified, setPasswordModified] = useState(false);
-
 	// Selected provider preset (empty string = "Custom / other", manual entry)
 	const [presetId, setPresetId] = useState("");
 	// When a preset is selected its server fields are read-only until the
@@ -143,7 +137,7 @@ export const AccountFormPanel = ({
 				email: account.email,
 				displayName: account.displayName || "",
 				username: account.username || "",
-				password: PASSWORD_PLACEHOLDER, // Show placeholder to indicate password exists
+				password: "",
 				imapHost: account.imapHost,
 				imapPort: account.imapPort,
 				imapTls: account.imapTls,
@@ -156,7 +150,6 @@ export const AccountFormPanel = ({
 				smtpPassword: "",
 				useDifferentSmtpCreds,
 			});
-			setPasswordModified(false);
 		} else {
 			form.reset({
 				email: "",
@@ -173,7 +166,6 @@ export const AccountFormPanel = ({
 				smtpStartTls: true,
 				useDifferentSmtpCreds: false,
 			});
-			setPasswordModified(false);
 		}
 	}, [account, form]);
 
@@ -203,8 +195,7 @@ export const AccountFormPanel = ({
 
 	const handleTestImap = () => {
 		const values = form.getValues();
-		// If editing and password not modified, send accountId so server uses stored password
-		const useStoredPassword = isEditing && !passwordModified;
+		const useStoredPassword = isEditing && !values.password;
 		testMutation.mutate({
 			body: {
 				accountId: useStoredPassword ? account?.accountId : undefined,
@@ -220,8 +211,7 @@ export const AccountFormPanel = ({
 
 	const handleTestSmtp = () => {
 		const values = form.getValues();
-		// If editing and password not modified, send accountId so server uses stored password
-		const useStoredPassword = isEditing && !passwordModified;
+		const useStoredPassword = isEditing && !values.password;
 		testMutation.mutate({
 			body: {
 				accountId: useStoredPassword ? account?.accountId : undefined,
@@ -298,8 +288,7 @@ export const AccountFormPanel = ({
 		if (isEditing && account) {
 			const body = {
 				...baseBody,
-				// Only send password if it was modified
-				password: passwordModified ? values.password : undefined,
+				password: values.password || undefined,
 			};
 			updateMutation.mutate({ path: { accountId: account.accountId }, body });
 		} else {
@@ -611,16 +600,7 @@ export const AccountFormPanel = ({
 							</label>
 							<PasswordInput
 								id="account-password"
-								{...form.register("password", {
-									onChange: () => setPasswordModified(true),
-								})}
-								onFocus={() => {
-									// Clear placeholder when user focuses the field
-									if (isEditing && !passwordModified) {
-										form.setValue("password", "");
-										setPasswordModified(true);
-									}
-								}}
+								{...form.register("password")}
 								placeholder={isEditing ? "Leave empty to keep current" : ""}
 							/>
 							{form.formState.errors.password && (
