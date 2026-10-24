@@ -32,28 +32,28 @@ export class HTTPError extends Error {
 }
 
 export class BadRequestError extends HTTPError {
-	name = "BadRequestError";
-	public statusCode = 400;
+	override name = "BadRequestError";
+	public override statusCode = 400;
 }
 
 export class ClientError extends HTTPError {
-	name = "ClientError";
-	public statusCode = 401;
+	override name = "ClientError";
+	public override statusCode = 401;
 }
 
 export class ForbiddenError extends HTTPError {
-	name = "ForbiddenError";
-	public statusCode = 403;
+	override name = "ForbiddenError";
+	public override statusCode = 403;
 }
 
 export class NotFoundError extends HTTPError {
-	name = "NotFoundError";
-	public statusCode = 404;
+	override name = "NotFoundError";
+	public override statusCode = 404;
 }
 
 export class ConflictError extends HTTPError {
-	name = "ConflictError";
-	public statusCode = 409;
+	override name = "ConflictError";
+	public override statusCode = 409;
 }
 
 /**
@@ -64,7 +64,7 @@ export class ConflictError extends HTTPError {
  * (the delete endpoint's body carries no accountId).
  */
 export class FolderRoleUnresolvedError extends ConflictError {
-	name = "FolderRoleUnresolvedError";
+	override name = "FolderRoleUnresolvedError";
 
 	constructor(
 		message: string,
@@ -92,8 +92,8 @@ export class FolderRoleUnresolvedError extends ConflictError {
  * what separates them for a client that reads no further.
  */
 export class MailboxNotSettledError extends HTTPError {
-	name = "MailboxNotSettledError";
-	public statusCode = 422;
+	override name = "MailboxNotSettledError";
+	public override statusCode = 422;
 
 	constructor(message: string, mailboxId: string, syncStatus: string) {
 		super(message);
@@ -115,7 +115,7 @@ export class MailboxNotSettledError extends HTTPError {
 export type MessagePlacementUnsettledReason = "in_flight";
 
 export class MessagePlacementUnsettledError extends ConflictError {
-	name = "MessagePlacementUnsettledError";
+	override name = "MessagePlacementUnsettledError";
 
 	constructor(
 		message: string,
@@ -138,7 +138,7 @@ export class MessagePlacementUnsettledError extends ConflictError {
  * claiming the user deleted it.
  */
 export class MessageGoneFromServerError extends NotFoundError {
-	name = "MessageGoneFromServerError";
+	override name = "MessageGoneFromServerError";
 
 	constructor(messageId: string) {
 		super("This message is no longer on the mail server.");
@@ -158,7 +158,7 @@ export class MessageGoneFromServerError extends NotFoundError {
  * goes through.
  */
 export class ConfigNotEmptyError extends ConflictError {
-	name = "ConfigNotEmptyError";
+	override name = "ConfigNotEmptyError";
 
 	constructor(message: string, details: Record<string, string>) {
 		super(message);
@@ -174,13 +174,13 @@ export class ConfigNotEmptyError extends ConflictError {
  * error instead of retrying (no 202, no silent skip).
  */
 export class UnrecoverableBodyError extends HTTPError {
-	name = "UnrecoverableBodyError";
-	public statusCode = 422;
+	override name = "UnrecoverableBodyError";
+	public override statusCode = 422;
 }
 
 export class CreateFailedConflictError extends ConflictError {
-	public statusCode = 409;
-	name = "CreateFailedConflictError";
+	public override statusCode = 409;
+	override name = "CreateFailedConflictError";
 	constructor(resourceType: string, params: unknown) {
 		super(
 			`${resourceType} with properties "${JSON.stringify(params)}" already exists.`,
@@ -189,9 +189,9 @@ export class CreateFailedConflictError extends ConflictError {
 }
 
 export class UnhandledError extends HTTPError {
-	name = "UnhandledError";
-	public statusCode = 500;
-	readonly cause: Error | undefined;
+	override name = "UnhandledError";
+	public override statusCode = 500;
+	override readonly cause: Error | undefined;
 
 	constructor(message: string, cause?: Error) {
 		super(message);
@@ -209,8 +209,8 @@ export class UnhandledError extends HTTPError {
 }
 
 export class InternalServerError extends UnhandledError {
-	name = "InternalServerError";
-	public statusCode = 500;
+	override name = "InternalServerError";
+	public override statusCode = 500;
 }
 
 /**
@@ -232,7 +232,7 @@ export const isNotFoundError = (error: unknown): boolean =>
 	(error as { name?: string })?.name === "NotFoundError";
 
 export class MailSyncOffError extends BadRequestError {
-	name = "MailSyncOffError";
+	override name = "MailSyncOffError";
 
 	constructor(message: string, accountId: string) {
 		super(message);

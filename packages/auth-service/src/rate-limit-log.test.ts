@@ -15,16 +15,14 @@ import { CLIENT_IP_HEADER, createAuth } from "./auth.js";
  */
 
 process.env.LOG_LEVEL = "info";
-process.env.REMIT_SERVICE_NAME = "auth-service-test";
 
 const originalWrite = process.stdout.write.bind(process.stdout);
 const written: string[] = [];
 let capturing = false;
 
-// pino writes to `process.stdout` only when its `write` has been replaced, and
-// to the raw fd otherwise, so the hook must be installed before the module
-// under test imports the logger. Writes pass through while nothing is
-// capturing, so the test runner's own output still reaches the terminal.
+// The logger writes its lines through `process.stdout`. Writes pass through
+// while nothing is capturing, so the test runner's own output still reaches
+// the terminal.
 process.stdout.write = ((
 	chunk: string | Uint8Array,
 	...rest: unknown[]
@@ -47,7 +45,7 @@ const MIGRATIONS = resolve(
 type Line = Record<string, unknown>;
 
 // better-auth writes its own advisories through console, so the captured
-// stream is not all pino JSON; only the structured lines are of interest here.
+// stream is not all JSON; only the structured lines are of interest here.
 const asJsonObject = (line: string): Line | null => {
 	try {
 		const parsed: unknown = JSON.parse(line);

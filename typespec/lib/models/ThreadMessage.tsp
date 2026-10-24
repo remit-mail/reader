@@ -9,6 +9,7 @@ import "../enums/SenderTrust.tsp";
 import "../enums/StarColor.tsp";
 import "../scalars/string.tsp";
 import "./Message.tsp";
+import "../util.tsp";
 
 namespace RemitImap;
 
@@ -319,3 +320,6 @@ model ThreadSearchResponse {
     """)
   count?: int32;
 }
+
+@doc("A page of thread messages.")
+model ThreadMessageListResponse is ResultList<ThreadMessageResponse>;

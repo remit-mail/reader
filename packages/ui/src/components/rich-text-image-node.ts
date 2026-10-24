@@ -32,7 +32,7 @@ export class ImageNode extends DecoratorNode<null> {
 	/** @internal */
 	__preview = "";
 
-	$config() {
+	override $config() {
 		return this.config("image", {
 			importDOM: {
 				img: () => ({ conversion: $convertImageElement, priority: 0 }),
@@ -46,20 +46,20 @@ export class ImageNode extends DecoratorNode<null> {
 		this.__alt = alt;
 	}
 
-	afterCloneFrom(prevNode: this): void {
+	override afterCloneFrom(prevNode: this): void {
 		super.afterCloneFrom(prevNode);
 		this.__src = prevNode.__src;
 		this.__alt = prevNode.__alt;
 		this.__preview = prevNode.__preview;
 	}
 
-	createDOM(config: EditorConfig): HTMLImageElement {
+	override createDOM(config: EditorConfig): HTMLImageElement {
 		const element = this.buildImage(this.__preview || this.__src);
 		addClassNamesToElement(element, config.theme.image);
 		return element;
 	}
 
-	updateDOM(prevNode: this, element: HTMLImageElement): boolean {
+	override updateDOM(prevNode: this, element: HTMLImageElement): boolean {
 		const shown = this.__preview || this.__src;
 		if ((prevNode.__preview || prevNode.__src) !== shown)
 			element.setAttribute("src", shown);
@@ -67,15 +67,17 @@ export class ImageNode extends DecoratorNode<null> {
 		return false;
 	}
 
-	exportDOM(): DOMExportOutput {
+	override exportDOM(): DOMExportOutput {
 		return { element: this.buildImage(this.__src) };
 	}
 
-	exportJSON(): SerializedImageNode {
+	override exportJSON(): SerializedImageNode {
 		return { ...super.exportJSON(), alt: this.getAlt(), src: this.getSrc() };
 	}
 
-	updateFromJSON(serializedNode: LexicalUpdateJSON<SerializedImageNode>): this {
+	override updateFromJSON(
+		serializedNode: LexicalUpdateJSON<SerializedImageNode>,
+	): this {
 		return super
 			.updateFromJSON(serializedNode)
 			.setSrc(serializedNode.src)
@@ -113,11 +115,11 @@ export class ImageNode extends DecoratorNode<null> {
 	}
 
 	/** The text alternative is what a plain-text reader is left with. */
-	getTextContent(): string {
+	override getTextContent(): string {
 		return this.getAlt();
 	}
 
-	isInline(): true {
+	override isInline(): true {
 		return true;
 	}
 

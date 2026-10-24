@@ -6,7 +6,7 @@ import {
 	MessageSyncStatus,
 } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger-lambda";
-import { recordImapFailure } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	guardConnectionCursor,
 	type IImapConnection,

@@ -1,11 +1,10 @@
 import { inspect } from "node:util";
+import { createLogger, type Logger } from "@remit/logger-lambda";
 import {
-	createLogger,
-	type Logger,
 	queueNameFromEventSource,
 	recordQueueEvent,
-	withTelemetry,
-} from "@remit/logger-lambda";
+} from "@remit/logger-lambda/metrics";
+import { withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,

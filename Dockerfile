@@ -216,11 +216,6 @@ USER node
 ########################################################################
 FROM node-service-installed AS backend
 COPY --from=builder --chown=node:node /app/dist-docker/backend/server.mjs ./server.mjs
-# Same convention the Lambda path already uses (infra's NodeJSArmFunction
-# `extraFiles`): packages/backend/src/index.ts looks for
-# openapi.json next to the entrypoint before falling back to the repo's
-# build/ tree, which does not exist in this image.
-COPY --from=builder --chown=node:node /app/build/remit-openapi3/openapi.json ./openapi.json
 # migrate.mjs is an alternate entrypoint baked into this same image — "the
 # backend image with a migrate command" (RFC 035 D8) — not a ninth image.
 # The deploy/vps/docker-compose.yml `migrate` one-shot service overrides CMD

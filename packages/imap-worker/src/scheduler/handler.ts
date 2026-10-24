@@ -1,5 +1,6 @@
 import { getClient } from "@remit/backend/client";
-import { createLogger, withTelemetry } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger-lambda";
+import { withTelemetry } from "@remit/logger-lambda/node";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
 import { env } from "expect-env";

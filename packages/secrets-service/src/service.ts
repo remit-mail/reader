@@ -10,7 +10,7 @@ import {
 	GenerateDataKeyCommand,
 	KMSClient,
 } from "@aws-sdk/client-kms";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12;

@@ -21,9 +21,11 @@ process.stdout.write = ((
 	return (originalWrite as (...args: unknown[]) => boolean)(chunk, ...rest);
 }) as typeof process.stdout.write;
 
-// Capturing starts before the import: an unusable LOG_LEVEL is reported while
-// the module is evaluated, not on the first call.
-const { createLogger } = await import("./logger.js");
+// Capturing starts before the install: an unusable LOG_LEVEL is reported when
+// the Node logger is installed, not on the first call.
+const { createLogger } = await import("./index.js");
+const { installNodeLogger } = await import("./node.js");
+installNodeLogger();
 capturing = false;
 
 const startup = written
