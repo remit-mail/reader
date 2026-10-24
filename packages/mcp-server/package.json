@@ -15,7 +15,8 @@
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
-    "start": "node --import tsx src/main.ts"
+    "start": "node --import tsx src/main.ts",
+    "mcp-login": "node --import tsx src/cli/mcp-login.ts"
   },
   "dependencies": {
     "@better-auth/core": "^1.7.12",

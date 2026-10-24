@@ -174,6 +174,9 @@ Usage: $PROG <command> [args]
                        with the messages it copies, per cause. Reads the
                        database and writes nothing. The repair itself runs on
                        every start; this is how to look without waiting for one.
+  mcp login            Connect a headless Claude Code to the MCP server: prints
+                       a code to approve in a browser, then the
+                       'claude mcp add' line that carries the issued token.
   cert                 Export Caddy's root CA to the current directory, so
                        browsers stop warning (TLS_MODE=internal only).
   probe-host <origin>  Report how a name resolves from this box. Used by
@@ -3428,6 +3431,23 @@ cmd_redrive() {
 	compose exec -T queue node redrive.mjs "$1"
 }
 
+# RFC 8628 device login, run in the mcp container so this script needs nothing
+# but docker. It talks to MCP_PUBLIC_ORIGIN, the address the printed command
+# points Claude Code at. Not -T: it prints while it polls.
+cmd_mcp() {
+	require_deployment
+	[ $# -gt 0 ] || die "mcp: name a subcommand, e.g. '$PROG mcp login'"
+	_sub=$1
+	shift
+	case "$_sub" in
+	login)
+		[ $# -eq 0 ] || die "mcp login: takes no arguments"
+		compose exec mcp node --import tsx src/cli/mcp-login.ts
+		;;
+	*) die "mcp: unknown subcommand '$_sub'" ;;
+	esac
+}
+
 # The root CA only exists in internal mode, and only on the caddy volume: the
 # first thing an internal-mode operator has to do is get it off the box, so it
 # is a command rather than a compose invocation to copy out of the docs.
@@ -3825,6 +3845,7 @@ main() {
 	config) cmd_config "$@" ;;
 	check-categories) cmd_check_categories "$@" ;;
 	cert) cmd_cert "$@" ;;
+	mcp) cmd_mcp "$@" ;;
 	probe-host)
 		[ $# -eq 1 ] || die "probe-host: needs one origin or hostname"
 		probe_host "$1"

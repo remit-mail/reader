@@ -41,5 +41,22 @@ export const consentPage = (
 		`<p>${escapeHtml(clientName)} asks for:</p><ul>${scopes.map((scope) => `<li>${escapeHtml(scope)}</li>`).join("")}</ul><form method="post"><input type="hidden" name="oauth_query" value="${escapeHtml(oauthQuery)}"><button type="submit" name="accept" value="true">Allow</button><button type="submit" name="accept" value="false">Deny</button></form>`,
 	);
 
+export const devicePage = (
+	userCode: string,
+	error: string | undefined,
+	status = 200,
+): Response =>
+	page(
+		"Connect a device to remit",
+		`${error ? `<p role="alert">${escapeHtml(error)}</p>` : ""}<p>Enter the code your terminal shows, then sign in to allow or deny it.</p><form method="post"><label>Code <input type="text" name="user_code" value="${escapeHtml(userCode)}" autocomplete="off" autocapitalize="characters" required></label><label>Email <input type="email" name="email" autocomplete="username" required></label><label>Password <input type="password" name="password" autocomplete="current-password" required></label><button type="submit" name="action" value="approve">Allow</button><button type="submit" name="action" value="deny">Deny</button></form>`,
+		status,
+	);
+
+export const deviceDonePage = (approved: boolean): Response =>
+	page(
+		approved ? "Device connected" : "Device denied",
+		`<p>${approved ? "Return to your terminal; it finishes signing in by itself." : "The device gets no access. You can close this page."}</p>`,
+	);
+
 export const errorPage = (message: string, status: number): Response =>
 	page("Something went wrong", `<p>${escapeHtml(message)}</p>`, status);

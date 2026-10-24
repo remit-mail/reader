@@ -1,6 +1,8 @@
 import {
+	DEVICE_CODE_GRANT_TYPE,
 	getOAuthProviderApi,
 	type OAuthOptions,
+	oauthDeviceAuthorization,
 	oauthProvider,
 	oauthProviderAuthServerMetadata,
 	type Scope,
@@ -32,10 +34,15 @@ import type { TokenVerifier } from "./token-verifier.js";
 export const AUTH_BASE_PATH = "/auth";
 export const LOGIN_PATH = "/login";
 export const CONSENT_PATH = "/consent";
+export const DEVICE_PATH = "/device";
 export const MCP_PATH = "/mcp";
 export const SIGN_IN_PATH = "/mcp/sign-in";
 export const JWKS_PATH = "/jwks";
 export const OAUTH2_PATH_PREFIX = "/oauth2/";
+export const DEVICE_CODE_PATH = "/device/code";
+export const DEVICE_VERIFY_PATH = "/device";
+export const DEVICE_APPROVE_PATH = "/device/approve";
+export const DEVICE_DENY_PATH = "/device/deny";
 
 export const ALLOWED_REDIRECT_URIS = [
 	"https://claude.ai/api/mcp/auth_callback",
@@ -95,6 +102,20 @@ const redirectUrisOf = (body: unknown): unknown[] => {
 	if (typeof body !== "object" || body === null) return [];
 	const uris = (body as { redirect_uris?: unknown }).redirect_uris;
 	return Array.isArray(uris) ? uris : [];
+};
+
+const grantTypesOf = (body: unknown): unknown[] => {
+	if (typeof body !== "object" || body === null) return [];
+	const grantTypes = (body as { grant_types?: unknown }).grant_types;
+	return Array.isArray(grantTypes) ? grantTypes : [];
+};
+
+const isDeviceOnlyClient = (body: unknown): boolean => {
+	const grantTypes = grantTypesOf(body);
+	return (
+		grantTypes.includes(DEVICE_CODE_GRANT_TYPE) &&
+		!grantTypes.includes("authorization_code")
+	);
 };
 
 const hasResource = (fields: unknown): boolean =>
@@ -179,13 +200,21 @@ const remitMcpBridge = (
 					})),
 				},
 				{
+					matcher: (ctx) =>
+						ctx.path === DEVICE_CODE_PATH && !hasResource(ctx.body),
+					handler: createAuthMiddleware(async (ctx) => ({
+						context: { body: { ...ctx.body, resource } },
+					})),
+				},
+				{
 					matcher: (ctx) => ctx.path === "/oauth2/register",
 					handler: createAuthMiddleware(async (ctx) => {
 						const uris = redirectUrisOf(ctx.body);
 						const refused = uris.find(
 							(uri) => typeof uri !== "string" || !isAllowedRedirectUri(uri),
 						);
-						if (uris.length === 0 || refused !== undefined) {
+						const missing = uris.length === 0 && !isDeviceOnlyClient(ctx.body);
+						if (missing || refused !== undefined) {
 							throw new APIError("BAD_REQUEST", {
 								error: "invalid_redirect_uri",
 								error_description: `redirect_uris must be ${ALLOWED_REDIRECT_URIS.join(" or ")}, or a loopback address`,
@@ -228,6 +257,10 @@ export const buildMcpAuthOptions = (
 				jwt: { issuer: config.origin, audience: mcpResource(config.origin) },
 			}),
 			oauthProvider(oauthOptions),
+			oauthDeviceAuthorization({
+				schema: { deviceCode: { modelName: "mcp_device_code" } },
+				verificationUri: `${config.origin}${DEVICE_PATH}`,
+			}),
 			remitMcpBridge(config.db, mcpResource(config.origin), oauthOptions),
 		],
 	} satisfies BetterAuthOptions;
@@ -251,8 +284,16 @@ export interface McpAuthRoutes {
 	serverMetadata(request: Request): Promise<Response>;
 }
 
+const DEVICE_AUTH_PATHS: ReadonlySet<string> = new Set([
+	DEVICE_CODE_PATH,
+	DEVICE_VERIFY_PATH,
+	DEVICE_APPROVE_PATH,
+	DEVICE_DENY_PATH,
+]);
+
 const isServedAuthPath = (path: string): boolean =>
 	path.startsWith(OAUTH2_PATH_PREFIX) ||
+	DEVICE_AUTH_PATHS.has(path) ||
 	path === SIGN_IN_PATH ||
 	path === JWKS_PATH;
 

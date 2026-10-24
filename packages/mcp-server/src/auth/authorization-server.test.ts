@@ -21,6 +21,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { migrate } from "drizzle-orm/better-sqlite3/migrator";
 import { createLocalJWKSet, type JSONWebKeySet } from "jose";
 import { createMcpApp, type McpAppHandler } from "../app.js";
+import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
 import type { McpDeps } from "../deps.js";
 import {
 	createBetterAuthTokenVerifier,
@@ -553,5 +554,153 @@ describe("the MCP authorization server", () => {
 			statuses.push((await attempt(`198.51.100.${i + 1}`)).status);
 		}
 		assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429]);
+	});
+});
+
+describe("device authorization (RFC 8628)", () => {
+	const deviceIo = (
+		peer: string,
+		onSleep: (userCode: string, round: number, ms: number) => Promise<void>,
+	): DeviceLoginIo & { lines: string[] } => {
+		const lines: string[] = [];
+		let round = 0;
+		return {
+			lines,
+			fetch: (input, init) =>
+				app(
+					new Request(input instanceof Request ? input : String(input), init),
+					peer,
+				),
+			print: (line) => lines.push(line),
+			sleep: async (ms) => {
+				const userCode = /enter the code (\S+)$/.exec(lines[0] ?? "")?.[1];
+				assert.ok(userCode, `no user code in ${JSON.stringify(lines)}`);
+				round += 1;
+				await onSleep(userCode, round, ms);
+			},
+		};
+	};
+
+	const decide = (
+		peer: string,
+		userCode: string,
+		action: "approve" | "deny",
+	): Promise<Response> =>
+		app(
+			new Request(`${MCP_ORIGIN}/device`, {
+				method: "POST",
+				headers: {
+					"content-type": "application/x-www-form-urlencoded",
+					origin: MCP_ORIGIN,
+				},
+				body: new URLSearchParams({
+					user_code: userCode,
+					email: EMAIL,
+					password: PASSWORD,
+					action,
+				}),
+			}),
+			peer,
+		);
+
+	const updateDeviceCode = (sql: string, ...params: unknown[]): void => {
+		const sqlite = new Database(filename);
+		sqlite.prepare(sql).run(...params);
+		sqlite.close();
+	};
+
+	const elapse = (userCode: string, ms: number): void =>
+		updateDeviceCode(
+			"UPDATE mcp_device_code SET last_polled_at = last_polled_at - ? WHERE user_code = ?",
+			ms,
+			userCode,
+		);
+
+	it("approves a device code, issues an MCP token and serves tools/list", async () => {
+		const peer = "203.0.113.21";
+		const io = deviceIo(peer, async (userCode, round, ms) => {
+			if (round === 1) return;
+			const page = await app(
+				new Request(`${MCP_ORIGIN}/device?user_code=${userCode}`),
+				peer,
+			);
+			assert.equal(page.status, 200);
+			assert.match(await page.text(), new RegExp(`value="${userCode}"`));
+			const approved = await decide(peer, userCode, "approve");
+			assert.equal(approved.status, 200, await approved.clone().text());
+			assert.match(await approved.text(), /Device connected/);
+			elapse(userCode, ms);
+		});
+
+		const result = await deviceLogin(MCP_ORIGIN, io);
+		assert.ok(result.ok, JSON.stringify(result));
+		assert.match(
+			io.lines[0] ?? "",
+			/^Open https:\/\/mcp\.remit\.test\/device and enter the code /,
+		);
+		assert.equal(
+			result.command,
+			`claude mcp add --transport http --header "Authorization: Bearer ${result.accessToken}" remit ${MCP_ORIGIN}/mcp`,
+		);
+		const [, payload] = result.accessToken.split(".");
+		assert.ok(payload, "the access token is not a JWT");
+		const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
+			aud: string | string[];
+			scope: string;
+		};
+		assert.ok([claims.aud].flat().includes(RESOURCE));
+		assert.equal(claims.scope, "mail:read mail:rules");
+
+		const response = await listTools(result.accessToken);
+		assert.equal(response.status, 200);
+		const rpc = (await response.json()) as {
+			result: { tools: { name: string }[] };
+		};
+		assert.ok(rpc.result.tools.some((tool) => tool.name === "list_threads"));
+	});
+
+	it("refuses a denied device code", async () => {
+		const peer = "203.0.113.22";
+		const io = deviceIo(peer, async (userCode, _round, ms) => {
+			const denied = await decide(peer, userCode, "deny");
+			assert.equal(denied.status, 200, await denied.clone().text());
+			assert.match(await denied.text(), /Device denied/);
+			elapse(userCode, ms);
+		});
+		const result = await deviceLogin(MCP_ORIGIN, io);
+		assert.deepEqual(result.ok ? "issued" : result.error, "access_denied");
+	});
+
+	it("refuses an expired device code, at approval and at the token endpoint", async () => {
+		const peer = "203.0.113.23";
+		const io = deviceIo(peer, async (userCode) => {
+			updateDeviceCode(
+				"UPDATE mcp_device_code SET expires_at = ? WHERE user_code = ?",
+				Date.now() - 1000,
+				userCode,
+			);
+			const approved = await decide(peer, userCode, "approve");
+			assert.equal(approved.status, 400);
+			assert.doesNotMatch(await approved.text(), /Device connected/);
+		});
+		const result = await deviceLogin(MCP_ORIGIN, io);
+		assert.deepEqual(result.ok ? "issued" : result.error, "expired_token");
+	});
+
+	it("refuses a device code for an unregistered client", async () => {
+		const peer = "203.0.113.24";
+		const authorization = await app(
+			new Request(`${MCP_ORIGIN}/auth/device/code`, {
+				method: "POST",
+				headers: { "content-type": "application/x-www-form-urlencoded" },
+				body: new URLSearchParams({ client_id: "unregistered-client" }),
+			}),
+			peer,
+		);
+		assert.equal(authorization.status, 400);
+		assert.equal(
+			((await authorization.json()) as { error: string }).error,
+			"invalid_client",
+		);
 	});
 });
