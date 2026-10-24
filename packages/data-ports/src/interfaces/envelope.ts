@@ -1,5 +1,4 @@
 import type {
-	BodyPartContentUpsertInput,
 	BodyPartItem,
 	BodyPartUpsertInput,
 	CreateEnvelopeInput,
@@ -23,10 +22,6 @@ export interface IEnvelopeRepository {
 	upsertBodyParts(
 		messageId: string,
 		parts: BodyPartUpsertInput[],
-	): Promise<void>;
-	upsertBodyPartContents(
-		messageId: string,
-		contents: BodyPartContentUpsertInput[],
 	): Promise<void>;
 	replaceMessageReferences(
 		messageId: string,

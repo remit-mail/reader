@@ -41,7 +41,6 @@ const MESSAGE_CHILD_TYPES = new Set([
 	"BodyPart",
 	"BodyPartParameter",
 	"BodyPartStorage",
-	"BodyPartContent",
 	"RawMessageStorage",
 ]);
 

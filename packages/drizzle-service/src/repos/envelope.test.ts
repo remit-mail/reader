@@ -34,13 +34,12 @@ describe("DrizzleEnvelopeRepository", () => {
 		await stop();
 	});
 
-	describe("getMessageData — MessageData shape (8 members)", () => {
-		test("returns all 8 collection members", async () => {
+	describe("getMessageData — MessageData shape (7 members)", () => {
+		test("returns all 7 collection members", async () => {
 			const data = await repo.getMessageData(MESSAGE_ID);
 			const keys = Object.keys(data).sort();
 			assert.deepStrictEqual(keys, [
 				"bodyPart",
-				"bodyPartContent",
 				"bodyPartParameter",
 				"bodyPartStorage",
 				"envelope",
@@ -70,7 +69,6 @@ describe("DrizzleEnvelopeRepository", () => {
 			assert.equal(data.bodyPartParameter.length, 0);
 			assert.equal(data.rawMessageStorage.length, 0);
 			assert.equal(data.bodyPartStorage.length, 0);
-			assert.equal(data.bodyPartContent.length, 0);
 		});
 
 		test("throws NotFoundError for unknown messageId", async () => {

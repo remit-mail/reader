@@ -91,12 +91,11 @@ describe("DrizzleMessageRepository", () => {
 			});
 		});
 
-		test("returns all 10 MessageDescription members", async () => {
+		test("returns all 9 MessageDescription members", async () => {
 			const desc = await messageRepo.describe(MESSAGE_ID);
 			const keys = Object.keys(desc).sort();
 			assert.deepStrictEqual(keys, [
 				"bodyPart",
-				"bodyPartContent",
 				"bodyPartParameter",
 				"bodyPartStorage",
 				"envelope",
@@ -132,7 +131,6 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(desc.bodyPartParameter.length, 0);
 			assert.equal(desc.rawMessageStorage.length, 0);
 			assert.equal(desc.bodyPartStorage.length, 0);
-			assert.equal(desc.bodyPartContent.length, 0);
 		});
 
 		test("throws NotFoundError for unknown messageId", async () => {

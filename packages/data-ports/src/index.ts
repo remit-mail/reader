@@ -75,8 +75,6 @@ export type {
 	AccountSettingValue,
 	AddressFlags,
 	AddressItem,
-	BodyPartContentItem,
-	BodyPartContentUpsertInput,
 	BodyPartItem,
 	BodyPartParameterItem,
 	BodyPartParameterUpsertInput,

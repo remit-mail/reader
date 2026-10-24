@@ -42,9 +42,3 @@ export const envelopeAddressId = (
 	order: number,
 ): string =>
 	generateDeterministicId(`envelopeaddress:${messageId}:${role}:${order}`);
-
-export const bodyPartContentId = (
-	messageId: string,
-	bodyPartId: string,
-): string =>
-	generateDeterministicId(`bodypartcontent:${messageId}:${bodyPartId}`);

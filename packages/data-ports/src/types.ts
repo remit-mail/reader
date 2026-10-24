@@ -2,7 +2,6 @@ import type {
 	AccountConfigSchema,
 	AccountSchema,
 	AddressSchema,
-	BodyPartContentSchema,
 	BodyPartParameterSchema,
 	BodyPartSchema,
 	BodyPartStorageSchema,
@@ -86,7 +85,6 @@ export type EnvelopeAddressItem = z.infer<typeof EnvelopeAddressSchema>;
 export type BodyPartParameterItem = z.infer<typeof BodyPartParameterSchema>;
 export type RawMessageStorageItem = z.infer<typeof RawMessageStorageSchema>;
 export type BodyPartStorageItem = z.infer<typeof BodyPartStorageSchema>;
-export type BodyPartContentItem = z.infer<typeof BodyPartContentSchema>;
 export type EnvelopeItem = z.infer<typeof EnvelopeSchema>;
 export type MailboxLockItem = z.infer<typeof MailboxLockSchema>;
 export type MailboxSpecialUseItem = z.infer<
@@ -190,7 +188,6 @@ export type MessageData = {
 	bodyPartParameter: BodyPartParameterItem[];
 	rawMessageStorage: RawMessageStorageItem[];
 	bodyPartStorage: BodyPartStorageItem[];
-	bodyPartContent: BodyPartContentItem[];
 };
 
 export type MessageDescription = {
@@ -203,7 +200,6 @@ export type MessageDescription = {
 	bodyPartParameter: BodyPartParameterItem[];
 	rawMessageStorage: RawMessageStorageItem[];
 	bodyPartStorage: BodyPartStorageItem[];
-	bodyPartContent: BodyPartContentItem[];
 };
 
 export type WithMailboxLockResult<T> = {
@@ -379,11 +375,6 @@ export type BodyPartUpsertInput = {
 	isMultipart: boolean;
 	multipartSubtype?: BodyPartItem["multipartSubtype"];
 	parameters: BodyPartParameterUpsertInput[];
-};
-
-export type BodyPartContentUpsertInput = {
-	bodyPartId: string;
-	content: string;
 };
 
 /**
