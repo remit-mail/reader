@@ -1,9 +1,13 @@
-import type { IAccountRepository, MailboxItem } from "@remit/data-ports";
+import type {
+	IAccountRepository,
+	IMailboxRepository,
+	MailboxItem,
+} from "@remit/data-ports";
 import { isReservedFolderName } from "@remit/data-ports/folder-role";
 import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { MailboxQueueService } from "./mailbox-queue.js";
-import { ownedAccount } from "./ownership.js";
+import { ownedAccount, settledFolder } from "./ownership.js";
 import { accept, invalid, type Refusable } from "./refusal.js";
 
 export interface FolderPathDeps {
@@ -19,6 +23,7 @@ export interface FolderPathDeps {
 
 export interface CreateFolderDeps {
 	account: Pick<IAccountRepository, "get">;
+	mailbox: Pick<IMailboxRepository, "findByPath">;
 	mailboxQueue: Pick<MailboxQueueService, "createMailbox">;
 }
 
@@ -95,10 +100,21 @@ export const changeFolderPath = async (
 ): Promise<Refusable<MailboxItem>> => {
 	const { accountId, mailboxId, fullPath } = change;
 	const before = await deps.mailbox.get(accountId, mailboxId);
+	if (
+		before.syncStatus === MailboxSyncStatus.pending &&
+		before.pendingPath === fullPath
+	) {
+		return accept(before);
+	}
 	if (fullPath === before.fullPath) {
 		return accept(
 			await deps.mailboxQueue.dismissMailboxIntent(mailboxId, accountId),
 		);
+	}
+	// A failed rename stays renameable: calling again is its retry.
+	if (before.syncStatus !== MailboxSyncStatus.failed) {
+		const settled = settledFolder(before);
+		if (!settled.ok) return settled;
 	}
 
 	const target = await renameTargetRefusal(deps, accountId, before, fullPath);
@@ -144,7 +160,13 @@ export const createFolder = async (
 		true,
 	);
 	if (created.outcome === "PathTaken") {
-		return invalid(`A folder named “${fullPath}” is already there.`);
+		const existing = await deps.mailbox.findByPath(accountId, fullPath);
+		if (!existing) {
+			throw new Error(
+				`No folder at "${fullPath}" after its create reported the path taken`,
+			);
+		}
+		return accept(existing);
 	}
 	return accept(created.mailbox);
 };

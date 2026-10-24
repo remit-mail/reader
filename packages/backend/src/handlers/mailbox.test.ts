@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
-import { BadRequestError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
@@ -247,7 +246,7 @@ describe("MailboxOperations_createMailbox", () => {
 		_resetForTest();
 	});
 
-	it("refuses a path the account already has a folder at", async () => {
+	it("returns the folder the account already has at that path", async () => {
 		setClient({
 			account: {
 				get: async () => ({
@@ -255,26 +254,32 @@ describe("MailboxOperations_createMailbox", () => {
 					accountConfigId: deriveAccountConfigId(SUB),
 				}),
 			},
+			mailbox: {
+				findByPath: async () => ({
+					mailboxId: "mbx-receipts",
+					accountId: ACCOUNT_ID,
+					fullPath: "Receipts",
+					syncStatus: "synced",
+				}),
+			},
 			mailboxQueue: {
 				createMailbox: async () => ({ outcome: "PathTaken" }),
 			},
 		} as unknown as RemitClient);
 
-		await assert.rejects(
-			createMailbox(
-				{
-					request: {
-						params: { accountId: ACCOUNT_ID },
-						requestBody: { namespaceType: "personal", fullPath: "Receipts" },
-					},
-				} as unknown as Context,
-				{
-					requestContext: { authorizer: { claims: { sub: SUB } } },
-				} as unknown as APIGatewayProxyEvent,
-			),
-			(error: unknown) =>
-				error instanceof BadRequestError &&
-				error.message === "A folder named “Receipts” is already there.",
-		);
+		const response = (await createMailbox(
+			{
+				request: {
+					params: { accountId: ACCOUNT_ID },
+					requestBody: { namespaceType: "personal", fullPath: "Receipts" },
+				},
+			} as unknown as Context,
+			{
+				requestContext: { authorizer: { claims: { sub: SUB } } },
+			} as unknown as APIGatewayProxyEvent,
+		)) as { mailboxId: string; fullPath: string };
+
+		assert.equal(response.mailboxId, "mbx-receipts");
+		assert.equal(response.fullPath, "Receipts");
 	});
 });

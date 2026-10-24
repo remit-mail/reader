@@ -147,12 +147,36 @@ describe("changeFolderPath records a pending rename the mail server settles", ()
 		assert.equal(row.pendingPath, undefined);
 		assert.deepEqual(capture.sent, []);
 	});
+
+	it("returns the recorded intent when asked for the target it is already heading for", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		assert.equal((await rename(folder, "Paperwork")).ok, true);
+
+		const again = await rename(folder, "Paperwork");
+
+		assert.equal(again.ok && again.value.pendingPath, "Paperwork");
+		assert.equal(capture.sent.length, 1);
+	});
+
+	it("refuses a new target while another change is in flight", async () => {
+		const folder = await seedMailbox(store, account, "Receipts");
+		assert.equal((await rename(folder, "Paperwork")).ok, true);
+
+		assert.deepEqual(refusalOf(await rename(folder, "Bills")), {
+			kind: "NotSettled",
+			message:
+				"“Receipts” isn’t ready yet — the mail server hasn’t confirmed it.",
+			mailboxId: folder.mailboxId,
+			syncStatus: MailboxSyncStatus.pending,
+		});
+		assert.equal(capture.sent.length, 1);
+	});
 });
 
 describe("createFolder", () => {
 	it("records a pending folder and queues its create", async () => {
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			account.accountConfigId,
 			{
 				accountId: account.accountId,
@@ -169,11 +193,11 @@ describe("createFolder", () => {
 		);
 	});
 
-	it("refuses a path the account already has", async () => {
-		await seedMailbox(store, account, "Receipts");
+	it("returns the folder already at that path", async () => {
+		const existing = await seedMailbox(store, account, "Receipts");
 
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			account.accountConfigId,
 			{
 				accountId: account.accountId,
@@ -182,10 +206,7 @@ describe("createFolder", () => {
 			},
 		);
 
-		assert.deepEqual(
-			refusalOf(outcome),
-			invalid("A folder named “Receipts” is already there."),
-		);
+		assert.equal(outcome.ok && outcome.value.mailboxId, existing.mailboxId);
 		assert.deepEqual(capture.sent, []);
 	});
 });
@@ -193,7 +214,7 @@ describe("createFolder", () => {
 describe("createFolder for another tenant", () => {
 	it("refuses a caller who does not own the account, recording nothing", async () => {
 		const outcome = await createFolder(
-			{ account: store.account, mailboxQueue },
+			{ account: store.account, mailbox: store.mailbox, mailboxQueue },
 			"cfg-x",
 			{
 				accountId: account.accountId,
