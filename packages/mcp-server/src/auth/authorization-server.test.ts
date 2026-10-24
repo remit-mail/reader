@@ -24,9 +24,11 @@ import { createMcpApp, type McpAppHandler } from "../app.js";
 import { type DeviceLoginIo, deviceLogin } from "../cli/device-login.js";
 import type { McpDeps } from "../deps.js";
 import {
+	BROWSER_TOKEN_TTL_SECONDS,
 	createBetterAuthTokenVerifier,
 	createMcpAuth,
 	createMcpAuthRoutes,
+	DEVICE_TOKEN_TTL_SECONDS,
 	type McpAuth,
 } from "./authorization-server.js";
 import { type McpAuthDatabase, openMcpAuthDatabase } from "./database.js";
@@ -312,6 +314,22 @@ const exchange = (
 		withResource,
 	);
 
+type AccessClaims = {
+	aud: string | string[];
+	azp: string;
+	scope: string;
+	iat: number;
+	exp: number;
+};
+
+const claimsOf = (accessToken: string): AccessClaims => {
+	const [, payload] = accessToken.split(".");
+	assert.ok(payload, "the access token is not a JWT");
+	return JSON.parse(
+		Buffer.from(payload, "base64url").toString(),
+	) as AccessClaims;
+};
+
 const listTools = (bearer: string | undefined): Promise<Response> =>
 	call("/mcp", {
 		method: "POST",
@@ -370,6 +388,8 @@ describe("the MCP authorization server", () => {
 		assert.equal(status, 200, JSON.stringify(body));
 		assert.ok(body.access_token && body.refresh_token);
 		accessToken = body.access_token;
+		const claims = claimsOf(accessToken);
+		assert.equal(claims.exp - claims.iat, BROWSER_TOKEN_TTL_SECONDS);
 		refreshToken = body.refresh_token;
 
 		const response = await listTools(accessToken);
@@ -642,14 +662,10 @@ describe("device authorization (RFC 8628)", () => {
 			result.command,
 			`claude mcp add --transport http --header "Authorization: Bearer ${result.accessToken}" remit ${MCP_ORIGIN}/mcp`,
 		);
-		const [, payload] = result.accessToken.split(".");
-		assert.ok(payload, "the access token is not a JWT");
-		const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as {
-			aud: string | string[];
-			scope: string;
-		};
+		const claims = claimsOf(result.accessToken);
 		assert.ok([claims.aud].flat().includes(RESOURCE));
 		assert.equal(claims.scope, "mail:read mail:rules");
+		assert.equal(claims.exp - claims.iat, DEVICE_TOKEN_TTL_SECONDS);
 
 		const response = await listTools(result.accessToken);
 		assert.equal(response.status, 200);
@@ -657,6 +673,69 @@ describe("device authorization (RFC 8628)", () => {
 			result: { tools: { name: string }[] };
 		};
 		assert.ok(rpc.result.tools.some((tool) => tool.name === "list_threads"));
+	});
+
+	it("lists a device login as its own client and refuses its token once revoked", async () => {
+		const peer = "203.0.113.25";
+		const io = deviceIo(peer, async (userCode, _round, ms) => {
+			const approved = await decide(peer, userCode, "approve");
+			assert.equal(approved.status, 200, await approved.clone().text());
+			elapse(userCode, ms);
+		});
+		const result = await deviceLogin(MCP_ORIGIN, io);
+		assert.ok(result.ok, JSON.stringify(result));
+		assert.equal((await listTools(result.accessToken)).status, 200);
+		const deviceClientId = claimsOf(result.accessToken).azp;
+
+		const signedIn = await app(
+			new Request(`${MCP_ORIGIN}/auth/mcp/sign-in`, {
+				method: "POST",
+				headers: { "content-type": "application/json", origin: MCP_ORIGIN },
+				body: JSON.stringify({
+					email: EMAIL,
+					password: PASSWORD,
+					oauth_query: "",
+				}),
+			}),
+			peer,
+		);
+		assert.equal(signedIn.status, 200, await signedIn.clone().text());
+		const session = { cookie: cookiesOf(signedIn), origin: MCP_ORIGIN };
+
+		const listed = await app(
+			new Request(`${MCP_ORIGIN}/auth/oauth2/get-clients`, {
+				headers: session,
+			}),
+			peer,
+		);
+		assert.equal(listed.status, 200, await listed.clone().text());
+		const clients = (await listed.json()) as {
+			client_id: string;
+			client_name: string;
+		}[];
+		assert.deepEqual(
+			clients
+				.filter((client) => client.client_id === deviceClientId)
+				.map((client) => client.client_name),
+			["remit mcp login"],
+		);
+
+		const revoked = await app(
+			new Request(`${MCP_ORIGIN}/auth/oauth2/delete-client`, {
+				method: "POST",
+				headers: { ...session, "content-type": "application/json" },
+				body: JSON.stringify({ client_id: deviceClientId }),
+			}),
+			peer,
+		);
+		assert.equal(revoked.status, 200, await revoked.clone().text());
+
+		const refused = await listTools(result.accessToken);
+		assert.equal(refused.status, 401);
+		assert.match(
+			refused.headers.get("www-authenticate") ?? "",
+			/error="invalid_token"/,
+		);
 	});
 
 	it("refuses a denied device code", async () => {

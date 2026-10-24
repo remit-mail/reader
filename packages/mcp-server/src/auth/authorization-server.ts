@@ -19,6 +19,7 @@ import {
 	APIError,
 	createAuthEndpoint,
 	createAuthMiddleware,
+	getSessionFromCtx,
 	isAPIError,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
@@ -48,6 +49,9 @@ export const ALLOWED_REDIRECT_URIS = [
 	"https://claude.ai/api/mcp/auth_callback",
 	"https://claude.com/api/mcp/auth_callback",
 ] as const;
+
+export const DEVICE_TOKEN_TTL_SECONDS = 90 * 24 * 60 * 60;
+export const BROWSER_TOKEN_TTL_SECONDS = 60 * 60;
 
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 
@@ -88,6 +92,13 @@ const buildOAuthOptions = (origin: string): OAuthOptions<Scope[]> => {
 		schema: modelNames,
 		scopes: [...MCP_SCOPES, OFFLINE_ACCESS_SCOPE],
 		grantTypes: ["authorization_code", "refresh_token"],
+		// A refreshable token stays short; the device flow, which a static
+		// header carries and nothing refreshes, gets the long default. Every
+		// browser authorization is made refreshable by the authorize hook.
+		accessTokenExpiresIn: DEVICE_TOKEN_TTL_SECONDS,
+		scopeExpirations: {
+			[OFFLINE_ACCESS_SCOPE]: `${BROWSER_TOKEN_TTL_SECONDS}s`,
+		},
 		loginPage: `${origin}${LOGIN_PATH}`,
 		consentPage: `${origin}${CONSENT_PATH}`,
 		allowDynamicClientRegistration: true,
@@ -116,6 +127,19 @@ const isDeviceOnlyClient = (body: unknown): boolean => {
 		grantTypes.includes(DEVICE_CODE_GRANT_TYPE) &&
 		!grantTypes.includes("authorization_code")
 	);
+};
+
+const withOfflineAccess = (query: Record<string, unknown>) => {
+	if (typeof query.scope !== "string") return query;
+	const scopes = query.scope.split(" ").filter((scope) => scope.length > 0);
+	if (scopes.includes(OFFLINE_ACCESS_SCOPE)) return query;
+	return { ...query, scope: [...scopes, OFFLINE_ACCESS_SCOPE].join(" ") };
+};
+
+const userCodeOf = (body: unknown): string | undefined => {
+	if (typeof body !== "object" || body === null) return undefined;
+	const userCode = (body as { userCode?: unknown }).userCode;
+	return typeof userCode === "string" ? userCode : undefined;
 };
 
 const hasResource = (fields: unknown): boolean =>
@@ -186,11 +210,51 @@ const remitMcpBridge = (
 		hooks: {
 			before: [
 				{
-					matcher: (ctx) =>
-						ctx.path === "/oauth2/authorize" && !hasResource(ctx.query),
-					handler: createAuthMiddleware(async (ctx) => ({
-						context: { query: { ...ctx.query, resource } },
-					})),
+					matcher: (ctx) => ctx.path === "/oauth2/authorize",
+					handler: createAuthMiddleware(async (ctx) => {
+						const query = withOfflineAccess(ctx.query ?? {});
+						return {
+							context: {
+								query: hasResource(query) ? query : { ...query, resource },
+							},
+						};
+					}),
+				},
+				{
+					matcher: (ctx) => ctx.path === DEVICE_APPROVE_PATH,
+					handler: createAuthMiddleware(async (ctx) => {
+						const session = await getSessionFromCtx(ctx);
+						const userCode = userCodeOf(ctx.body);
+						if (!session || !userCode) return;
+						const findByUserCode = (value: string) =>
+							ctx.context.adapter.findOne<{ oauthClientId: string | null }>({
+								model: "deviceCode",
+								where: [{ field: "userCode", value }],
+							});
+						const deviceCode =
+							(await findByUserCode(userCode)) ??
+							(await findByUserCode(
+								userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
+							));
+						if (!deviceCode?.oauthClientId) return;
+						const client = await ctx.context.adapter.findOne<{
+							userId: string | null;
+						}>({
+							model: "oauthClient",
+							where: [{ field: "clientId", value: deviceCode.oauthClientId }],
+						});
+						if (client?.userId && client.userId !== session.user.id) {
+							throw new APIError("FORBIDDEN", {
+								error: "access_denied",
+								error_description: "This device belongs to another account",
+							});
+						}
+						await ctx.context.adapter.update({
+							model: "oauthClient",
+							where: [{ field: "clientId", value: deviceCode.oauthClientId }],
+							update: { userId: session.user.id },
+						});
+					}),
 				},
 				{
 					matcher: (ctx) =>
