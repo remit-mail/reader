@@ -3,6 +3,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MCP_READ_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
+import { MCP_RULES_SCOPE, registerFolderTools } from "./folder-tools.js";
 import { registerReadTools } from "./read-tools.js";
 
 export interface McpPrincipal {
@@ -16,6 +17,9 @@ const buildServer = (principal: McpPrincipal, deps: McpDeps): McpServer => {
 	const server = new McpServer({ name: "remit-reader", version: "1.0.0" });
 	if (principal.scopes.includes(MCP_READ_SCOPE)) {
 		registerReadTools(server, deps, deriveAccountConfigId(principal.userId));
+	}
+	if (principal.scopes.includes(MCP_RULES_SCOPE)) {
+		registerFolderTools(server, deps, deriveAccountConfigId(principal.userId));
 	}
 	return server;
 };

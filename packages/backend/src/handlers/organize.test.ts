@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { OrganizeInput } from "@remit/api-openapi-types";
 import type {
 	CreateOrganizeJobRequestInput,
@@ -12,6 +11,10 @@ import type {
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { FilterMatchOperator } from "@remit/domain-enums";
+import {
+	captureQueue,
+	type QueuedEvent,
+} from "@remit/mailbox-service/test-helpers/test-queue";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
@@ -21,7 +24,6 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { sqsClient } from "../service/sqs.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
@@ -85,7 +87,7 @@ const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const ACCOUNT_ID = "acc-995";
 
 const createdRows: CreateOrganizeJobRequestInput[] = [];
-const enqueued: SendMessageCommand[] = [];
+let enqueued: QueuedEvent[] = [];
 
 const installClient = (): void => {
 	createdRows.length = 0;
@@ -146,11 +148,7 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 	const withStubbedQueue = (): void => {
 		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
 			"http://localhost:9324/queue/account-fanout-test";
-		enqueued.length = 0;
-		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
-			enqueued.push(command);
-			return {};
-		});
+		enqueued = captureQueue().sent;
 		installClient();
 	};
 
@@ -194,12 +192,8 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 	const withFilter = (filter: FilterItem): void => {
 		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
 			"http://localhost:9324/queue/account-fanout-test";
-		enqueued.length = 0;
 		createdRows.length = 0;
-		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
-			enqueued.push(command);
-			return {};
-		});
+		enqueued = captureQueue().sent;
 		setClient({
 			account: {
 				get: async () => ({

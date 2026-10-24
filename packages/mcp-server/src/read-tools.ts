@@ -11,10 +11,7 @@ import {
 	ContentDisposition,
 	MediaType,
 } from "@remit/domain-enums";
-import {
-	materializeBodyParts,
-	resolveMessageOwnership,
-} from "@remit/mailbox-service";
+import { materializeBodyParts, ownedMessages } from "@remit/mailbox-service";
 import { z } from "zod";
 import type { McpDeps } from "./deps.js";
 
@@ -270,15 +267,16 @@ export const registerReadTools = (
 			annotations: READ_ONLY,
 		},
 		async (args) => {
-			const ownership = await resolveMessageOwnership(
+			const owned = await ownedMessages(
 				deps,
 				[args.messageId],
 				accountConfigId,
+				"read",
 			);
-			if (ownership.outcome !== "Owned") {
+			if (!owned.ok) {
 				throw new NotFoundError(`Message not found: ${args.messageId}`);
 			}
-			const { accountId } = ownership;
+			const accountId = owned.value;
 			const message = await deps.message.get(args.messageId);
 			const description = await deps.message.describe(args.messageId);
 			const materialized = await materializeBodyParts(deps.bodySync, {
