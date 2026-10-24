@@ -26,6 +26,8 @@ export interface RumConfig {
  */
 export type TlsMode = "internal" | "acme" | "tailscale" | "off";
 
+const DEFAULT_ISSUES_URL = "https://github.com/remit-mail/reader/issues/new";
+
 const TLS_MODES: readonly TlsMode[] = ["internal", "acme", "tailscale", "off"];
 
 const isTlsMode = (value: unknown): value is TlsMode =>
@@ -40,6 +42,7 @@ export interface RemitRuntimeConfig {
 	mailboxPollIntervalSeconds?: string;
 	disableDevtools: boolean;
 	tlsMode: TlsMode;
+	issuesUrl: string;
 }
 
 interface RawRuntimeConfig {
@@ -51,6 +54,7 @@ interface RawRuntimeConfig {
 	mailboxPollIntervalSeconds?: string | number;
 	disableDevtools?: boolean;
 	tlsMode?: string;
+	issuesUrl?: string;
 }
 
 declare global {
@@ -85,5 +89,6 @@ export const getRuntimeConfig = (): RemitRuntimeConfig => {
 				: undefined,
 		disableDevtools: raw.disableDevtools ?? false,
 		tlsMode: isTlsMode(raw.tlsMode) ? raw.tlsMode : "off",
+		issuesUrl: raw.issuesUrl ?? DEFAULT_ISSUES_URL,
 	};
 };

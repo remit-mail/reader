@@ -48,6 +48,20 @@ describe("buildGitHubIssueUrl", () => {
 		);
 	});
 
+	it("points at the issues URL the runtime config names", () => {
+		globalThis.__REMIT_CONFIG__ = {
+			issuesUrl: "https://github.com/remit-mail/reader-cloudflare/issues/new",
+		};
+		const url = buildGitHubIssueUrl(baseCtx);
+		globalThis.__REMIT_CONFIG__ = undefined;
+		assert.ok(
+			url.startsWith(
+				"https://github.com/remit-mail/reader-cloudflare/issues/new?",
+			),
+			`Expected the configured issues URL, got: ${url}`,
+		);
+	});
+
 	it("prefills a title param", () => {
 		const url = buildGitHubIssueUrl(baseCtx);
 		assert.ok(url.includes("title="), "Expected a title param");

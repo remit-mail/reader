@@ -30,6 +30,3 @@ export const APP_SHA_IS_COMMIT = /^[0-9a-f]{40}$/.test(APP_SHA);
 export const GITHUB_COMMIT_URL: string | undefined = APP_SHA_IS_COMMIT
 	? `https://github.com/remit-mail/reader/commit/${APP_SHA}`
 	: undefined;
-
-export const GITHUB_NEW_ISSUE_URL =
-	"https://github.com/remit-mail/reader/issues/new";
