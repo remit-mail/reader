@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import type { Db } from "./db.js";
@@ -18,6 +19,12 @@ export const applyShippedMigrations = (sqlite: Database.Database): void => {
 	)) {
 		applyMigration(sqlite, entry.tag);
 	}
+	sqlite.exec(
+		readFileSync(
+			new URL("../../../npm-scripts/sqlite-search-index.sql", import.meta.url),
+			"utf8",
+		),
+	);
 };
 
 /**

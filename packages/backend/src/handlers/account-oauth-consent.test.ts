@@ -7,10 +7,10 @@ import type {
 	AccountResponse,
 	AccountService as AccountServiceName,
 } from "@remit/api-openapi-types";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { AccountService } from "@remit/domain-enums";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

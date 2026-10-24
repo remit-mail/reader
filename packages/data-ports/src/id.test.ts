@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	bareMessageId,
 	base36uuidv5,
+	deriveAccountConfigId,
 	deriveAddressId,
 	deriveBodyPartId,
 	deriveCalendarId,
@@ -250,6 +251,13 @@ describe("derived ids are stored primary keys: a changed value orphans every row
 		assert.equal(
 			base36uuidv5("golden-seed", REMIT_NAMESPACE),
 			"67hxxs95ofdk5frbprqyrgwmo",
+		);
+	});
+
+	it("deriveAccountConfigId pins the account config a user id maps to", () => {
+		assert.equal(
+			deriveAccountConfigId("golden-cognito-sub"),
+			"97h2fhd0c32ocenk6ju12oxto",
 		);
 	});
 

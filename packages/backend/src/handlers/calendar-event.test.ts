@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import { authenticateSelfHostRequest } from "../jwt-auth.js";
 import {
 	_resetForTest,

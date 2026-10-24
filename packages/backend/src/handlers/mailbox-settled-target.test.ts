@@ -11,10 +11,10 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,

@@ -7,6 +7,7 @@ import type {
 	AccountService as AccountServiceName,
 } from "@remit/api-openapi-types";
 import type { AccountItem } from "@remit/data-ports";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	AccountAuthType,
 	AccountService,
@@ -28,7 +29,6 @@ import {
 } from "@remit/secrets-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import {

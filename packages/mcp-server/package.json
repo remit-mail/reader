@@ -1,0 +1,34 @@
+{
+  "name": "@remit/mcp-server",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "test:typecheck": "tsgo --noEmit",
+    "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
+    "test": "npm run test:typecheck && npm run test:run"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "@remit/data-ports": "*",
+    "@remit/domain-enums": "*",
+    "@remit/mailbox-service": "*",
+    "@remit/storage-service": "*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@remit/drizzle-service": "*",
+    "@types/better-sqlite3": "^7.6.13",
+    "better-sqlite3": "^12.11.1",
+    "tsx": "*"
+  },
+  "license": "MIT"
+}

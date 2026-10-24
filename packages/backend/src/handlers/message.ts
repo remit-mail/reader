@@ -25,9 +25,12 @@ import {
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
+	type MessageOwnershipClient,
 	MoveNotSettledError,
+	materializeBodyParts,
 	NoJunkMailboxError,
 	resolveFolderPlacement,
+	resolveMessageOwnership,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -56,69 +59,23 @@ import { assertMailboxSettled } from "./mailbox.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
-interface MessageOwnershipClient {
-	message: { get(messageId: string): Promise<{ mailboxId: string }> };
-	mailbox: {
-		get(
-			accountId: string,
-			mailboxIds: string[],
-		): Promise<{ mailboxId: string; accountId: string }[]>;
-	};
-	account: {
-		listAllByAccountConfig(
-			accountConfigId: string,
-		): Promise<{ accountId: string }[]>;
-	};
-}
-
-/**
- * Resolve the account that owns every message in `messageIds` and assert the
- * caller owns it. Messages have no tenant column, so ownership resolves through
- * the mailbox: the caller's own accounts (from their accountConfigId) scope a
- * mailbox lookup, and a mailbox resolves only under the account that owns it —
- * a foreign message never resolves and throws before any content is returned or
- * mutated (`read` -> 404, no existence leak; `act` -> 403). The tenant comes
- * from the caller's config, never from the row being read. The whole batch must
- * resolve to a single account — the downstream flag/move/delete services take
- * one accountId — so a batch spanning accounts is rejected. Returns that
- * accountId so callers reuse it without another lookup.
- */
 export const assertMessagesOwned = async (
 	client: MessageOwnershipClient,
 	messageIds: string[],
 	callerAccountConfigId: string,
 	mode: "read" | "act",
 ): Promise<string> => {
-	const messages = await Promise.all(
-		messageIds.map((id) => client.message.get(id)),
-	);
-	const mailboxIds = [...new Set(messages.map((m) => m.mailboxId))];
-
-	const ownedAccounts = await client.account.listAllByAccountConfig(
+	const ownership = await resolveMessageOwnership(
+		client,
+		messageIds,
 		callerAccountConfigId,
 	);
-
-	const accountByMailbox = new Map<string, string>();
-	for (const { accountId } of ownedAccounts) {
-		const rows = await client.mailbox.get(accountId, mailboxIds);
-		for (const row of rows) {
-			accountByMailbox.set(row.mailboxId, row.accountId);
-		}
-	}
-
-	if (mailboxIds.some((id) => !accountByMailbox.has(id))) {
-		if (mode === "read") {
-			throw new NotFoundError("Message not found");
-		}
-		throw new ForbiddenError("Message not in account config");
-	}
-
-	const accountIds = [...new Set(accountByMailbox.values())];
-	if (accountIds.length !== 1) {
+	if (ownership.outcome === "Owned") return ownership.accountId;
+	if (ownership.outcome === "MixedAccounts") {
 		throw new BadRequestError("All messages must belong to the same account");
 	}
-
-	return accountIds[0];
+	if (mode === "read") throw new NotFoundError("Message not found");
+	throw new ForbiddenError("Message not in account config");
 };
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
@@ -250,94 +207,6 @@ export const buildBodyPartResponses = (
 			sign: context.sign,
 		}),
 	}));
-};
-
-/**
- * The slice of `BodySyncService` the read path needs to lazily materialize
- * deferred per-part objects. Narrowed to one method so the orchestration below
- * can be unit-tested without standing up the whole client.
- */
-export interface BodyPartMaterializer {
-	ensureBodyPartsStored(
-		accountConfigId: string,
-		accountId: string,
-		messageId: string,
-		bodyStorageKey: string,
-	): Promise<unknown>;
-}
-
-export interface MaterializeLogger {
-	warn(obj: Record<string, unknown>, msg: string): void;
-	error(obj: Record<string, unknown>, msg: string): void;
-}
-
-/**
- * Re-arms the body-sync cue for one message (the read-path slice of
- * `BodySyncQueueService`). Narrowed to one method so the orchestration below can
- * be unit-tested without an SQS client.
- */
-export interface BodySyncCue {
-	requestBodySync(input: {
-		accountId: string;
-		mailboxId: string;
-		messageId: string;
-		uid?: number;
-	}): Promise<void>;
-}
-
-export interface MaterializeResult {
-	/** `false` when the body object was missing — the caller must not 200 the body. */
-	ready: boolean;
-}
-
-/**
- * Materialize the deferred per-part storage objects for a message before the
- * SPA fetches any `contentUrl`. Distinguishes the two failure modes the body
- * contract cares about:
- *
- * - Missing storage object (never synced or lost) — re-arm the SYNC_MESSAGE_BODY
- *   cue so the worker (re)stores the body, and report `ready: false`. Not a
- *   500: a retry succeeds once the worker catches up.
- * - Any other error — rethrow so the request 500s and the bug is observable.
- *   Never swallowed, never "best-effort".
- *
- * No-op (`ready: true`) when the body isn't stored yet (no `bodyStorageKey`) or
- * when the parts were written eagerly.
- */
-export const materializeBodyParts = async (
-	materializer: BodyPartMaterializer,
-	args: {
-		accountConfigId: string;
-		accountId: string;
-		mailboxId: string;
-		messageId: string;
-		uid?: number;
-		bodyStorageKey: string | undefined;
-		cue: BodySyncCue | undefined;
-		logger: MaterializeLogger;
-	},
-): Promise<MaterializeResult> => {
-	const { accountConfigId, accountId, mailboxId, messageId, uid } = args;
-	if (!args.bodyStorageKey) return { ready: true };
-
-	try {
-		await materializer.ensureBodyPartsStored(
-			accountConfigId,
-			accountId,
-			messageId,
-			args.bodyStorageKey,
-		);
-		return { ready: true };
-	} catch (error: unknown) {
-		if (!isStorageNotFoundError(error)) throw error;
-
-		args.logger.warn(
-			{ messageId, accountId, mailboxId },
-			"Body object missing on read; re-arming body-sync cue and signalling retry",
-		);
-		await args.cue?.requestBodySync({ accountId, mailboxId, messageId, uid });
-		return { ready: false };
-	}
 };
 
 export interface SpamReportBulkFailure {

@@ -12,6 +12,9 @@ export const base36uuidv5 = (name: string, namespace: string): string =>
 
 export const REMIT_NAMESPACE = "9e89694d-214b-4d9b-99f5-214b4d9b99f5";
 
+export const deriveAccountConfigId = (userId: string): string =>
+	base36uuidv5(`account:${userId}`, REMIT_NAMESPACE);
+
 export const deriveAddressId = (
 	accountConfigId: string,
 	email: string,

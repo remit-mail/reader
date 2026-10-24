@@ -1,4 +1,5 @@
 import { readConfigForExport } from "@remit/config-transfer";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { env } from "expect-env";
 // Reached by module path rather than through either package's entry point, the
 // same way the migrate entrypoint reaches its repairs: this file is bundled by
@@ -6,7 +7,6 @@ import { env } from "expect-env";
 // driver behind it into a script that reads one table.
 import { auth_user } from "../../auth-service/src/schema/auth-schema-sqlite.js";
 import { createSqliteDatabase } from "../../drizzle-service/src/sqlite-client.js";
-import { deriveAccountConfigId } from "../src/auth.js";
 import { getClient } from "../src/service/data-client.js";
 import { exportIdentity } from "../src/service/export-identity.js";
 

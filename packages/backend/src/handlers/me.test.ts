@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it, mock } from "node:test";
 import type { QuarantineListResponse } from "@remit/api-openapi-types";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
 	QuarantineFailureCode,
 	QuarantineFailureStage,
@@ -8,7 +9,6 @@ import {
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { deriveAccountConfigId } from "../auth.js";
 import {
 	_resetForTest,
 	type RemitClient,
