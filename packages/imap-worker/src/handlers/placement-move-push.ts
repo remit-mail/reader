@@ -1,6 +1,6 @@
 import { getClient } from "@remit/backend/client";
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	guardConnectionCursor,

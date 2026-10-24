@@ -5,7 +5,7 @@ import type {
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	type OrganizeJobRequest,
 	ownedAccount,

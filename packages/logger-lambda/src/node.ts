@@ -3,7 +3,6 @@ import {
 	DEFAULT_LOG_LEVEL,
 	isLogLevel,
 	LOG_LEVELS,
-	type Logger,
 	logger,
 	setLogger,
 	withLogContext,
@@ -12,13 +11,14 @@ import type { Context } from "aws-lambda";
 import { recordHandlerOutcome } from "./metrics.js";
 
 /**
- * The Node host's logger: the platform-neutral JSON line from `@remit/logger`,
- * written synchronously to stdout, at the level `LOG_LEVEL` names and under the
- * service `REMIT_SERVICE_NAME` names. A level nobody can spell is worth one line
- * rather than a crashed container: the operator asked for something and did not
- * get it, and every other line still arrives.
+ * Plugs the Node host's logger into every `@remit/logger` handle: the
+ * platform-neutral JSON line, written synchronously to stdout, at the level
+ * `LOG_LEVEL` names and under the service `REMIT_SERVICE_NAME` names. Every
+ * Node entry point calls it once at startup. A level nobody can spell is worth
+ * one line rather than a crashed container: the operator asked for something and
+ * did not get it, and every other line still arrives.
  */
-export const nodeLogger = (): Logger => {
+export const installNodeLogger = (): void => {
 	const requested = process.env.LOG_LEVEL?.trim().toLowerCase();
 	const level =
 		requested && isLogLevel(requested) ? requested : DEFAULT_LOG_LEVEL;
@@ -29,22 +29,13 @@ export const nodeLogger = (): Logger => {
 			process.stdout.write(`${line}\n`);
 		},
 	});
+	setLogger(log);
 	if (requested && requested !== level) {
 		log.warn(
 			{ configured: requested, expected: LOG_LEVELS.join(", ") },
 			`LOG_LEVEL is not a level name; logging at ${level}`,
 		);
 	}
-	return log;
-};
-
-let installed = false;
-
-/** Plugs `nodeLogger()` into every `@remit/logger` handle, once per process. */
-export const installNodeLogger = (): void => {
-	if (installed) return;
-	installed = true;
-	setLogger(nodeLogger());
 };
 
 // The scope opens around the wrapper's own two lines, not just the handler:
@@ -52,13 +43,9 @@ export const installNodeLogger = (): void => {
 // written after the handler has already unwound, so a scope opened inside the
 // handler no longer covers it. Everything the invocation writes — the wrapper's
 // lines and the handler's — carries the same `requestId`.
-//
-// Wrapping a handler is what makes a module a Lambda entry point, so this is
-// where the Node logger is installed.
 export const withTelemetry = <TEvent, TResult>(
 	handler: (event: TEvent, context: Context) => Promise<TResult>,
 ): ((event: TEvent, context: Context) => Promise<TResult>) => {
-	installNodeLogger();
 	return async (event: TEvent, context: Context): Promise<TResult> =>
 		withLogContext({ requestId: context.awsRequestId }, async () => {
 			logger.debug("Lambda invocation started", {

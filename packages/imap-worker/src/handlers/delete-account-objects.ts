@@ -4,7 +4,7 @@ import {
 	S3Client,
 } from "@aws-sdk/client-s3";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import type { DeleteAccountObjectsEvent } from "../events.js";

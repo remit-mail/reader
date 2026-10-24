@@ -18,7 +18,7 @@ import type {
 	IThreadMessageRepository,
 	MessageDescription,
 } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 
 export interface CascadeEntity {
 	entityType: string;

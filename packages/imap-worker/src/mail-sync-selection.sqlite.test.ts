@@ -22,7 +22,7 @@ import {
 	SearchIndex,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessages } from "./handlers/sync-messages.js";
 import { runSchedulerTick } from "./scheduler/run-tick.js";

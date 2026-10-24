@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { deriveAddressId, deriveMessageId } from "@remit/data-ports/id";
 import type { ConnectionState } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import {
 	createMailOAuthService,
 	microsoftProviderConfig,

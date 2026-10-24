@@ -13,7 +13,7 @@ import {
 	AccountService,
 	ConnectionState,
 } from "@remit/domain-enums";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	createMailOAuthService,
 	type MailOAuthService,

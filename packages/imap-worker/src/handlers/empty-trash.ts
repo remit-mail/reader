@@ -3,7 +3,7 @@ import type { MessageItem } from "@remit/data-ports";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
 import { isAcceptedSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import {
 	buildThreadMessageUndelete,
 	carriesForeignUid,

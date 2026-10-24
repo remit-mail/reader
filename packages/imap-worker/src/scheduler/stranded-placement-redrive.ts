@@ -8,7 +8,7 @@ import {
 } from "@remit/data-ports/id";
 import { PATHLESS_MUTATION_EVENT_SCHEMA_VERSION } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { isCursorRebuildNeeded } from "@remit/mailbox-service";
 import type {
 	MessageCopyEventV3,

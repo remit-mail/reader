@@ -1,3 +1,4 @@
+import spec from "@remit/api-openapi-spec/openapi.json" with { type: "json" };
 import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger, withLogContext } from "@remit/logger";
 import type { APIGatewayProxyEvent, Context } from "aws-lambda";
@@ -12,7 +13,6 @@ import { usesBetterAuthJwt } from "./data-backend.js";
 import { defaultErrorCode, handleError } from "./error.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
-import { openApiSpec } from "./openapi-document.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
@@ -22,7 +22,20 @@ import { formatResponse, postResponseHandler } from "./response.js";
 // process at startup rather than silently opening authentication at runtime.
 assertLocalBypassNotInDeployedEnv();
 
-const OpenAPISpec: Document = openApiSpec;
+const isDocument = (value: unknown): value is Document =>
+	typeof value === "object" &&
+	value !== null &&
+	"openapi" in value &&
+	typeof value.openapi === "string" &&
+	"paths" in value;
+
+// Imported, not read from disk, so no host has to place openapi.json next to the
+// entry point — a Worker has no filesystem to read it from.
+if (!isDocument(spec)) {
+	throw new Error("@remit/api-openapi-spec is not an OpenAPI document");
+}
+// Typed as a Document so importers do not see the JSON literal type.
+export const OpenAPISpec: Document = spec;
 
 const api = new OpenAPIBackend({
 	definition: OpenAPISpec,
@@ -95,7 +108,7 @@ api.register(handlers);
 api.init();
 
 export { setLogger } from "@remit/logger";
-export { api, OpenAPISpec };
+export { api };
 
 const readOriginHeader = (
 	headers: APIGatewayProxyEvent["headers"],

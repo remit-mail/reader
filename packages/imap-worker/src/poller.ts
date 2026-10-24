@@ -1,8 +1,11 @@
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger";
 import { startMetricsServer } from "@remit/logger-lambda/metrics";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { handler } from "./index.js";
+
+installNodeLogger();
 
 /**
  * Production queue poller — the deployed form of `e2e-processor-shim.ts`.

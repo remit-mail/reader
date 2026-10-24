@@ -1,4 +1,4 @@
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { CascadeEntity } from "./cascade.js";
 
 /**

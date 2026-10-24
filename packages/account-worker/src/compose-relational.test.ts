@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import { buildRelationalDeletionCapabilities } from "./compose-relational.js";
 
 const exists = (path: string): Promise<boolean> =>

@@ -13,7 +13,7 @@ import {
 	SearchIndex,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import type { OrganizeJobEvent } from "../events.js";
 import {
 	type ProcessOrganizeJobDeps,

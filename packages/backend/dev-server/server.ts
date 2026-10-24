@@ -1,12 +1,13 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import {
 	metricsContentType,
 	onScrape,
 	renderMetrics,
 	setAccountSyncAges,
 } from "@remit/logger-lambda/metrics";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import {
 	isStorageNotFoundError,
 	UPLOAD_ROUTE_PREFIX,
@@ -29,6 +30,8 @@ import { createLambdaContext, createLambdaEvent } from "./lambda-helpers.js";
 import { checkRelationalStore } from "./relational-health.js";
 import { collectAccountSyncAges } from "./sync-age.js";
 import { receiveUpload } from "./upload-handler.js";
+
+installNodeLogger();
 
 const app = express();
 

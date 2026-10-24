@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { ImapWorkerStopEvent } from "./events.js";
 import { processEvent } from "./processor.js";
 

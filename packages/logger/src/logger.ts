@@ -14,7 +14,7 @@ export const LOG_LEVELS = [
 
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-type EmitLevel = Exclude<LogLevel, "silent">;
+export type EmitLevel = Exclude<LogLevel, "silent">;
 
 export const DEFAULT_LOG_LEVEL: LogLevel = "info";
 
@@ -37,6 +37,33 @@ export interface Logger {
 	child(bindings: LogBindings): Logger;
 	setBindings(bindings: LogBindings): void;
 }
+
+export type LogMethods = Pick<
+	Logger,
+	"trace" | "debug" | "info" | "warn" | "error" | "fatal"
+>;
+
+/** The six level methods of a Logger, each routed through `emit`. */
+export const levelMethods = (
+	emit: (
+		level: EmitLevel,
+		first: LogBindings | string,
+		second?: LogBindings | string,
+	) => void,
+): LogMethods => ({
+	trace: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("trace", first, second),
+	debug: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("debug", first, second),
+	info: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("info", first, second),
+	warn: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("warn", first, second),
+	error: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("error", first, second),
+	fatal: (first: LogBindings | string, second?: LogBindings | string) =>
+		emit("fatal", first, second),
+});
 
 export interface JsonLoggerOptions {
 	readonly level?: LogLevel;
@@ -167,18 +194,7 @@ export const createJsonLogger = (options: JsonLoggerOptions = {}): Logger => {
 		};
 
 		return {
-			trace: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("trace", first, second),
-			debug: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("debug", first, second),
-			info: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("info", first, second),
-			warn: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("warn", first, second),
-			error: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("error", first, second),
-			fatal: (first: LogBindings | string, second?: LogBindings | string) =>
-				emit("fatal", first, second),
+			...levelMethods(emit),
 			child: (bindings: LogBindings): Logger =>
 				build({ ...persistent, ...bindings }),
 			setBindings: (bindings: LogBindings): void => {
