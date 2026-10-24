@@ -1,11 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type {
-	AccountItem,
-	FilterItem,
-	MailboxItem,
-	OrganizeJobRequestItem,
-} from "@remit/data-ports";
+import type { AccountItem, FilterItem, MailboxItem } from "@remit/data-ports";
 import {
 	FilterDisabledReason,
 	FilterMatchOperator,
@@ -15,13 +10,16 @@ import {
 } from "@remit/domain-enums";
 import {
 	createFilter,
+	type FilterPatch,
 	listFilters,
 	type NewFilter,
 	updateFilter,
 } from "./filter-operations.js";
 import type { Refusable } from "./refusal.js";
 import {
+	captureQueue,
 	openStore,
+	type QueueCapture,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -29,15 +27,18 @@ import {
 
 let store: Store;
 let account: AccountItem;
-let dispatched: OrganizeJobRequestItem[];
+let capture: QueueCapture;
+
+const FANOUT_QUEUE = "http://localhost:4566/000000000000/account-fanout";
 
 beforeEach(async () => {
+	capture = captureQueue();
 	store = await openStore();
 	account = await seedAccount(store);
-	dispatched = [];
 });
 
 afterEach(async () => {
+	capture.restore();
 	await store.close();
 });
 
@@ -46,9 +47,8 @@ const deps = () => ({
 	mailbox: store.mailbox,
 	filter: store.filter,
 	organizeJobRequest: store.organizeJobRequest,
-	dispatchOrganizeJob: async (job: OrganizeJobRequestItem) => {
-		dispatched.push(job);
-	},
+	sqsQueueUrl: FANOUT_QUEUE,
+	logger: { info: () => {} },
 });
 
 const rule = (actionMailboxId: string): NewFilter => ({
@@ -113,10 +113,17 @@ describe("createFilter", () => {
 		assert.equal(job.filterId, outcome.value.filter.filterId);
 		assert.equal(job.userId, "user-1");
 		assert.deepEqual(job.literalClauses, []);
-		assert.deepEqual(
-			dispatched.map((queued) => queued.organizeJobId),
-			[job.organizeJobId],
-		);
+		assert.equal(job.actionMailboxId, "None");
+		assert.deepEqual(capture.sent, [
+			{
+				queueUrl: FANOUT_QUEUE,
+				body: {
+					type: "OrganizeJob",
+					accountConfigId: account.accountConfigId,
+					organizeJobId: job.organizeJobId,
+				},
+			},
+		]);
 	});
 
 	it("waits for the folder it moves mail into, storing nothing", async () => {
@@ -139,11 +146,55 @@ describe("createFilter", () => {
 			await store.filter.listByAccountConfig(account.accountConfigId),
 			[],
 		);
-		assert.deepEqual(dispatched, []);
+		assert.deepEqual(capture.sent, []);
 	});
 });
 
 describe("updateFilter", () => {
+	it("writes only the fields a patch may set, dropping server-derived ones", async () => {
+		const filter = await storedFilter({});
+		const smuggled: Record<string, unknown> = {
+			name: "Bills",
+			ttl: 123,
+			disabledReason: FilterDisabledReason.FolderMissing,
+			ruleChangedAt: 999,
+			filterId: "sneaky",
+		};
+
+		const outcome = await updateFilter(deps(), account.accountConfigId, {
+			accountId: account.accountId,
+			filterId: filter.filterId,
+			patch: smuggled as FilterPatch,
+		});
+
+		assert.equal(outcome.ok, true);
+		const stored = await store.filter.get(
+			account.accountConfigId,
+			filter.filterId,
+		);
+		assert.equal(stored.name, "Bills");
+		assert.equal(stored.ttl, undefined);
+		assert.equal(stored.disabledReason, FilterDisabledReason.None);
+		assert.equal(stored.ruleChangedAt, filter.ruleChangedAt);
+	});
+
+	it("records UserDisabled when the user turns a filter off", async () => {
+		const filter = await storedFilter({});
+
+		await updateFilter(deps(), account.accountConfigId, {
+			accountId: account.accountId,
+			filterId: filter.filterId,
+			patch: { state: FilterState.Disabled },
+		});
+
+		const stored = await store.filter.get(
+			account.accountConfigId,
+			filter.filterId,
+		);
+		assert.equal(stored.state, FilterState.Disabled);
+		assert.equal(stored.disabledReason, FilterDisabledReason.UserDisabled);
+	});
+
 	it("refuses to bind to a folder the mail server has not confirmed", async () => {
 		const filter = await storedFilter({});
 		const folder = await pendingFolder("Receipts");

@@ -1,9 +1,11 @@
+import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateOrganizeJobRequestInput,
 	IOrganizeJobRequestRepository,
 	OrganizeJobRequestItem,
 } from "@remit/data-ports";
 import { FilterMatchOperator } from "@remit/domain-enums";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import { NO_ACTION } from "./filters/match.js";
 
 const ORGANIZE_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -21,24 +23,25 @@ export type OrganizeJobPredicate = Pick<
 export type OrganizeJobRequest = OrganizeJobOwner &
 	({ predicate: OrganizeJobPredicate } | { filterId: string });
 
+export interface OrganizeJobLogger {
+	info(obj: Record<string, unknown>, msg: string): void;
+}
+
 export interface OrganizeJobDeps {
 	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create">;
-	dispatchOrganizeJob: (job: OrganizeJobRequestItem) => Promise<void>;
+	sqsQueueUrl: string;
+	logger: OrganizeJobLogger;
 }
 
-export interface OrganizeJobMessage {
-	type: "OrganizeJob";
-	accountConfigId: string;
-	organizeJobId: string;
-}
+const producers = new Map<string, SQSClient>();
 
-export const organizeJobMessage = (
-	job: Pick<OrganizeJobRequestItem, "accountConfigId" | "organizeJobId">,
-): OrganizeJobMessage => ({
-	type: "OrganizeJob",
-	accountConfigId: job.accountConfigId,
-	organizeJobId: job.organizeJobId,
-});
+const producerFor = (queueUrl: string): SQSClient => {
+	const existing = producers.get(queueUrl);
+	if (existing) return existing;
+	const producer = createQueueProducer({ queueUrl });
+	producers.set(queueUrl, producer);
+	return producer;
+};
 
 const jobColumns = (
 	request: OrganizeJobRequest,
@@ -66,6 +69,25 @@ export const queueOrganizeJob = async (
 		...jobColumns(request),
 		ttl: Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS,
 	});
-	await deps.dispatchOrganizeJob(job);
+
+	await producerFor(deps.sqsQueueUrl).send(
+		new SendMessageCommand({
+			QueueUrl: deps.sqsQueueUrl,
+			MessageBody: JSON.stringify({
+				type: "OrganizeJob",
+				accountConfigId: job.accountConfigId,
+				organizeJobId: job.organizeJobId,
+			}),
+		}),
+	);
+
+	deps.logger.info(
+		{
+			accountConfigId: job.accountConfigId,
+			organizeJobId: job.organizeJobId,
+			filterId: job.filterId,
+		},
+		"Organize back-apply job initiated",
+	);
 	return job;
 };

@@ -5,12 +5,14 @@ import type {
 	OrganizePreviewResponse,
 } from "@remit/api-openapi-types";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
+import { logger } from "@remit/logger-lambda";
 import {
 	type OrganizeJobRequest,
 	ownedAccount,
 	queueOrganizeJob,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient, type RemitClient } from "../service/data-client.js";
@@ -21,7 +23,6 @@ import {
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
-import { organizeJobDeps } from "../service/organize-queue.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	OperationHandler,
@@ -117,7 +118,11 @@ export const OrganizeOperations: Record<
 		await assertAccount(client, accountId, accountConfigId, "act");
 
 		const job = await queueOrganizeJob(
-			organizeJobDeps(client),
+			{
+				organizeJobRequest: client.organizeJobRequest,
+				sqsQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+				logger,
+			},
 			await requestedJob(client, { accountConfigId, userId }, input),
 		);
 

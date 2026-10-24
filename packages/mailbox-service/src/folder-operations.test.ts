@@ -2,11 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import {
-	createFolder,
-	type FolderDeps,
-	renameFolder,
-} from "./folder-operations.js";
+import { changeFolderPath, createFolder } from "./folder-operations.js";
 import { MailboxQueueService } from "./mailbox-queue.js";
 import { folderInAccount } from "./ownership.js";
 import type { Refusable } from "./refusal.js";
@@ -22,20 +18,16 @@ import {
 let store: Store;
 let capture: QueueCapture;
 let account: AccountItem;
-let deps: FolderDeps;
+let mailboxQueue: MailboxQueueService;
 
 beforeEach(async () => {
 	capture = captureQueue();
 	store = await openStore();
 	account = await seedAccount(store);
-	deps = {
-		account: store.account,
-		mailbox: store.mailbox,
-		mailboxQueue: new MailboxQueueService({
-			mailboxService: store.mailbox,
-			sqsQueueUrl: "http://localhost:4566/000000000000/mailbox",
-		}),
-	};
+	mailboxQueue = new MailboxQueueService({
+		mailboxService: store.mailbox,
+		sqsQueueUrl: "http://localhost:4566/000000000000/mailbox",
+	});
 });
 
 afterEach(async () => {
@@ -46,13 +38,15 @@ afterEach(async () => {
 const rename = (
 	mailbox: MailboxItem,
 	fullPath: string,
-	accountConfigId = account.accountConfigId,
 ): Promise<Refusable<MailboxItem>> =>
-	renameFolder(deps, accountConfigId, {
-		accountId: mailbox.accountId,
-		mailboxId: mailbox.mailboxId,
-		fullPath,
-	});
+	changeFolderPath(
+		{ mailbox: store.mailbox, mailboxQueue },
+		{
+			accountId: mailbox.accountId,
+			mailboxId: mailbox.mailboxId,
+			fullPath,
+		},
+	);
 
 const refusalOf = <T>(outcome: Refusable<T>) => {
 	assert.equal(outcome.ok, false, "expected a refusal");
@@ -61,7 +55,7 @@ const refusalOf = <T>(outcome: Refusable<T>) => {
 
 const invalid = (message: string) => ({ kind: "Invalid", message });
 
-describe("renameFolder refuses a rename no retry could satisfy", () => {
+describe("changeFolderPath refuses a rename no retry could satisfy", () => {
 	it("keeps INBOX where it is", async () => {
 		const inbox = await seedMailbox(store, account, "INBOX");
 
@@ -118,21 +112,9 @@ describe("renameFolder refuses a rename no retry could satisfy", () => {
 			invalid("“Bills” is already being renamed to “Paperwork”."),
 		);
 	});
-
-	it("refuses a caller who does not own the account, recording nothing", async () => {
-		const folder = await seedMailbox(store, account, "Receipts");
-
-		assert.deepEqual(refusalOf(await rename(folder, "Paperwork", "cfg-x")), {
-			kind: "Forbidden",
-			message: `Account ${account.accountId} not in account config`,
-		});
-		const after = await store.mailbox.get(account.accountId, folder.mailboxId);
-		assert.equal(after.syncStatus, MailboxSyncStatus.synced);
-		assert.deepEqual(capture.sent, []);
-	});
 });
 
-describe("renameFolder records a pending rename the mail server settles", () => {
+describe("changeFolderPath records a pending rename the mail server settles", () => {
 	it("keeps the confirmed path, records the target and queues the rename", async () => {
 		const folder = await seedMailbox(store, account, "Receipts");
 
@@ -169,11 +151,15 @@ describe("renameFolder records a pending rename the mail server settles", () => 
 
 describe("createFolder", () => {
 	it("records a pending folder and queues its create", async () => {
-		const outcome = await createFolder(deps, account.accountConfigId, {
-			accountId: account.accountId,
-			namespaceType: "personal",
-			fullPath: "Receipts",
-		});
+		const outcome = await createFolder(
+			{ account: store.account, mailboxQueue },
+			account.accountConfigId,
+			{
+				accountId: account.accountId,
+				namespaceType: "personal",
+				fullPath: "Receipts",
+			},
+		);
 
 		assert.equal(outcome.ok, true);
 		assert.equal(outcome.ok && outcome.value.syncStatus, "pending");
@@ -186,16 +172,40 @@ describe("createFolder", () => {
 	it("refuses a path the account already has", async () => {
 		await seedMailbox(store, account, "Receipts");
 
-		const outcome = await createFolder(deps, account.accountConfigId, {
-			accountId: account.accountId,
-			namespaceType: "personal",
-			fullPath: "Receipts",
-		});
+		const outcome = await createFolder(
+			{ account: store.account, mailboxQueue },
+			account.accountConfigId,
+			{
+				accountId: account.accountId,
+				namespaceType: "personal",
+				fullPath: "Receipts",
+			},
+		);
 
 		assert.deepEqual(
 			refusalOf(outcome),
 			invalid("A folder named “Receipts” is already there."),
 		);
+		assert.deepEqual(capture.sent, []);
+	});
+});
+
+describe("createFolder for another tenant", () => {
+	it("refuses a caller who does not own the account, recording nothing", async () => {
+		const outcome = await createFolder(
+			{ account: store.account, mailboxQueue },
+			"cfg-x",
+			{
+				accountId: account.accountId,
+				namespaceType: "personal",
+				fullPath: "Receipts",
+			},
+		);
+
+		assert.deepEqual(refusalOf(outcome), {
+			kind: "Forbidden",
+			message: `Account ${account.accountId} not in account config`,
+		});
 		assert.deepEqual(capture.sent, []);
 	});
 });

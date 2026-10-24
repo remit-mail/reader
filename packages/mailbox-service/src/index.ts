@@ -88,9 +88,6 @@ export {
 	type FilterPatch,
 	listFilters,
 	type NewFilter,
-	pickFilterUpdate,
-	type ResolvedScopeExpiry,
-	resolveFilterScopeExpiry,
 	resolveFilterUpdate,
 	updateFilter,
 } from "./filter-operations.js";
@@ -132,13 +129,12 @@ export {
 	type UpdateFlagsResult,
 } from "./flag-queue.js";
 export {
+	type CreateFolderDeps,
 	changeFolderPath,
 	createFolder,
-	type FolderDeps,
 	type FolderPathChange,
 	type FolderPathDeps,
 	type NewFolder,
-	renameFolder,
 } from "./folder-operations.js";
 export {
 	type FolderPlacementLookup,
@@ -276,11 +272,10 @@ export {
 } from "./message-sync.js";
 export {
 	type OrganizeJobDeps,
-	type OrganizeJobMessage,
+	type OrganizeJobLogger,
 	type OrganizeJobOwner,
 	type OrganizeJobPredicate,
 	type OrganizeJobRequest,
-	organizeJobMessage,
 	queueOrganizeJob,
 } from "./organize-job.js";
 export {

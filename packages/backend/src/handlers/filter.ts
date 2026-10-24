@@ -5,6 +5,7 @@ import type {
 	UpdateFilterInput,
 } from "@remit/api-openapi-types";
 import type { FilterItem } from "@remit/data-ports";
+import { logger } from "@remit/logger-lambda";
 import {
 	createFilter,
 	listFilters,
@@ -12,9 +13,9 @@ import {
 	updateFilter,
 } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import { env } from "expect-env";
 import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
-import { organizeJobDeps } from "../service/organize-queue.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	FilterDetailOperationIds,
@@ -91,7 +92,9 @@ export const FilterOperations: Record<
 					account: client.account,
 					mailbox: client.mailbox,
 					filter: client.filter,
-					...organizeJobDeps(client),
+					organizeJobRequest: client.organizeJobRequest,
+					sqsQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+					logger,
 				},
 				{ accountConfigId, userId },
 				{ accountId, filter },

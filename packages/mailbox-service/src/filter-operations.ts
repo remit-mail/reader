@@ -45,7 +45,7 @@ export type FilterPatch = Pick<
 	| "state"
 >;
 
-export interface ResolvedScopeExpiry {
+interface ResolvedScopeExpiry {
 	scope: FilterItem["scope"];
 	expiresAt?: string;
 	ttl?: number;
@@ -74,7 +74,7 @@ interface ActionFolderDeps {
 
 // Only these keys reach the repo, and a key absent from the body stays absent,
 // so a rename never bumps ruleChangedAt and a smuggled ttl is dropped.
-export const pickFilterUpdate = (body: FilterPatch): FilterPatch => {
+const pickFilterUpdate = (body: FilterPatch): FilterPatch => {
 	const patch: FilterPatch = {};
 	if (Object.hasOwn(body, "name")) patch.name = body.name;
 	if (Object.hasOwn(body, "scope")) patch.scope = body.scope;
@@ -97,7 +97,7 @@ export const pickFilterUpdate = (body: FilterPatch): FilterPatch => {
 
 // A Temporary filter always carries expiresAt; outside Temporary both
 // expiresAt and the table-wide ttl stay absent, or the row would be swept.
-export const resolveFilterScopeExpiry = (
+const resolveFilterScopeExpiry = (
 	current: Pick<FilterItem, "scope" | "expiresAt">,
 	patch: FilterPatch,
 ): Refusable<ResolvedScopeExpiry> => {

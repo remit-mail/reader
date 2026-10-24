@@ -3,7 +3,7 @@ import { isReservedFolderName } from "@remit/data-ports/folder-role";
 import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import type { MailboxQueueService } from "./mailbox-queue.js";
-import { folderInAccount, ownedAccount } from "./ownership.js";
+import { ownedAccount } from "./ownership.js";
 import { accept, invalid, type Refusable } from "./refusal.js";
 
 export interface FolderPathDeps {
@@ -17,12 +17,9 @@ export interface FolderPathDeps {
 	>;
 }
 
-export interface FolderDeps extends FolderPathDeps {
+export interface CreateFolderDeps {
 	account: Pick<IAccountRepository, "get">;
-	mailboxQueue: Pick<
-		MailboxQueueService,
-		"createMailbox" | "renameMailbox" | "dismissMailboxIntent"
-	>;
+	mailboxQueue: Pick<MailboxQueueService, "createMailbox">;
 }
 
 export interface NewFolder {
@@ -112,30 +109,8 @@ export const changeFolderPath = async (
 	);
 };
 
-export const renameFolder = async (
-	deps: FolderDeps,
-	accountConfigId: string,
-	change: FolderPathChange,
-): Promise<Refusable<MailboxItem>> => {
-	const owned = ownedAccount(
-		await deps.account.get(change.accountId),
-		accountConfigId,
-		"act",
-	);
-	if (!owned.ok) return owned;
-
-	const inAccount = folderInAccount(
-		await deps.mailbox.get(change.accountId, change.mailboxId),
-		change.accountId,
-		"act",
-	);
-	if (!inAccount.ok) return inAccount;
-
-	return changeFolderPath(deps, change);
-};
-
 export const createFolder = async (
-	deps: Pick<FolderDeps, "account" | "mailboxQueue">,
+	deps: CreateFolderDeps,
 	accountConfigId: string,
 	folder: NewFolder,
 ): Promise<Refusable<MailboxItem>> => {
