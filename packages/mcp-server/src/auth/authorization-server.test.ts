@@ -79,6 +79,7 @@ const buildApp = (): { auth: McpAuth; app: McpAppHandler } => {
 			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
 			deps,
 			trustedProxies: new Set([PROXY]),
+			pageAssets: new Map(),
 		}),
 	};
 };
@@ -259,7 +260,9 @@ const consent = async (toConsent: URL, cookie: string): Promise<URL> => {
 		headers: { cookie },
 	});
 	assert.equal(consentPage.status, 200);
-	assert.match(await consentPage.text(), /Claude/);
+	const html = await consentPage.text();
+	assert.match(html, /Claude/);
+	assert.match(html, /Read your mail/);
 
 	return locationOf(
 		await form(
@@ -268,6 +271,22 @@ const consent = async (toConsent: URL, cookie: string): Promise<URL> => {
 			cookie,
 		),
 	);
+};
+
+const authorizeSignedIn = async (
+	clientId: string,
+	challenge: string,
+	cookie: string,
+): Promise<string> => {
+	const next = locationOf(
+		await call(authorizeUrl(clientId, challenge), { headers: { cookie } }),
+	);
+	const callback =
+		next.pathname === "/consent" ? await consent(next, cookie) : next;
+	assert.equal(`${callback.origin}${callback.pathname}`, CALLBACK);
+	const code = callback.searchParams.get("code");
+	assert.ok(code, "the callback carries no code");
+	return code;
 };
 
 type TokenResponse = {
@@ -553,5 +572,67 @@ describe("the MCP authorization server", () => {
 			statuses.push((await attempt(`198.51.100.${i + 1}`)).status);
 		}
 		assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429]);
+	});
+
+	it("sends a signed-out visitor of the connected-apps and device pages to sign in", async () => {
+		for (const [path, returnTo] of [
+			["/apps", "/apps"],
+			["/device?user_code=ABCD-EFGH", "/device?user_code=ABCD-EFGH"],
+		] as const) {
+			const toLogin = locationOf(await call(path));
+			assert.equal(toLogin.pathname, "/login");
+			assert.equal(toLogin.searchParams.get("return_to"), returnTo);
+		}
+	});
+
+	it("disconnecting an app kills its access and refresh tokens and spares the others", async () => {
+		const mint = async (id: string) => {
+			const { verifier, challenge } = pkce();
+			const code = await authorizeSignedIn(id, challenge, mcpSessionCookie);
+			const { status, body } = await exchange(id, code, verifier);
+			assert.equal(status, 200, JSON.stringify(body));
+			assert.ok(body.access_token && body.refresh_token);
+			return { access: body.access_token, refresh: body.refresh_token };
+		};
+		const otherClientId = await registerClient();
+		const revoked = await mint(clientId);
+		const spared = await mint(otherClientId);
+		assert.equal((await listTools(revoked.access)).status, 200);
+		assert.equal((await listTools(spared.access)).status, 200);
+
+		const listed = await call("/apps", {
+			headers: { cookie: mcpSessionCookie },
+		});
+		assert.equal(listed.status, 200);
+		const listedHtml = await listed.text();
+		assert.ok(listedHtml.includes(`value="${clientId}"`));
+		assert.ok(listedHtml.includes(`value="${otherClientId}"`));
+
+		const disconnected = await form(
+			"/apps",
+			{ client_id: clientId },
+			mcpSessionCookie,
+		);
+		assert.equal(disconnected.status, 200);
+		const disconnectedHtml = await disconnected.text();
+		assert.match(disconnectedHtml, /Disconnected Claude/);
+		assert.ok(!disconnectedHtml.includes(`value="${clientId}"`));
+		assert.ok(disconnectedHtml.includes(`value="${otherClientId}"`));
+
+		const refused = await listTools(revoked.access);
+		assert.equal(refused.status, 401);
+		assert.match(
+			refused.headers.get("www-authenticate") ?? "",
+			/error="invalid_token"/,
+		);
+		const refreshed = await token({
+			grant_type: "refresh_token",
+			client_id: clientId,
+			refresh_token: revoked.refresh,
+		});
+		assert.notEqual(refreshed.status, 200);
+		assert.equal(refreshed.body.access_token, undefined);
+
+		assert.equal((await listTools(spared.access)).status, 200);
 	});
 });

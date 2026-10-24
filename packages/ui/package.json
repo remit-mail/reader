@@ -7,6 +7,7 @@
 	],
 	"exports": {
 		".": "./src/index.ts",
+		"./mcp-pages": "./src/mcp-pages.ts",
 		"./rich-text": "./src/rich-text.ts",
 		"./spellcheck-worker": "./src/components/rich-text-spellcheck-worker-provider.ts",
 		"./tokens.css": "./src/tokens.css"

@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import {
 	type Http2Bindings,
 	type HttpBindings,
@@ -24,6 +25,7 @@ import {
 import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import type { McpDeps } from "./deps.js";
+import { loadPageAssets, PAGE_ASSETS_DIR } from "./pages/assets.js";
 
 const config = resolveMcpServerConfig();
 
@@ -65,6 +67,7 @@ const app = createMcpApp({
 	verifier: createBetterAuthTokenVerifier(auth, config.origin),
 	deps,
 	trustedProxies: config.trustedProxies,
+	pageAssets: loadPageAssets(fileURLToPath(PAGE_ASSETS_DIR)),
 });
 
 serve({
