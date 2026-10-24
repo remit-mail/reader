@@ -256,7 +256,7 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 const publish = (pkgDir) => {
 	const { error, status, signal } = spawnSync(
 		"npm",
-		["publish", "--access", "public"],
+		["publish", "--access", "public", "--provenance"],
 		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
 	);
 	if (error) return { ok: false, error: error.message };

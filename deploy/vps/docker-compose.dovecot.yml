@@ -119,7 +119,7 @@ services:
       retries: 30
 
   fake-microsoft:
-    image: node:22-alpine
+    image: node:24-alpine
     command: ["node", "/srv/token-server.mjs"]
     volumes:
       - ../../docker/test/fake-microsoft/token-server.mjs:/srv/token-server.mjs:ro
