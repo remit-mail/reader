@@ -21,7 +21,7 @@ import {
 	ConnectionState,
 	MailboxCursorState,
 } from "@remit/domain-enums";
-import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
+import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger-lambda";
 import type { ManagedConnectionFactory } from "@remit/mailbox-service";
 import {
@@ -33,7 +33,6 @@ import {
 	type QueueCapture,
 } from "@remit/mailbox-service/test-helpers/test-queue";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
-import Database from "better-sqlite3";
 import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { syncMessages } from "../handlers/sync-messages.js";
 
@@ -98,11 +97,7 @@ export const openStore = async (): Promise<{
 	close: () => void;
 }> => {
 	const directory = mkdtempSync(join(tmpdir(), "imap-worker-world-"));
-	const path = join(directory, "remit.db");
-	const sqlite = new Database(path);
-	applyShippedMigrations(sqlite);
-	sqlite.close();
-	process.env.SQLITE_DB_PATH = path;
+	createShippedSqliteFiles(directory);
 	delete process.env.S3_BUCKET_NAME;
 	process.env.STORAGE_LOCAL_PATH = join(directory, "storage");
 	process.env.BETTER_AUTH_URL = "https://mail.example.com";

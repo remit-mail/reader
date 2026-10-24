@@ -189,6 +189,15 @@ export const TARGETS = [
 		outfile: "dist-docker/backend/config-save.mjs",
 		external: [SQLITE],
 	},
+	// The one-time move from the single database file to the app, mail and
+	// search databases (#1420), run by hand once per install with the stack
+	// stopped, through the migrate service so the migration sets are beside it.
+	{
+		name: "backend-split-sqlite",
+		entry: "packages/migrate/src/split-sqlite-cli.ts",
+		outfile: "dist-docker/backend/split-sqlite.mjs",
+		external: [SQLITE],
+	},
 ];
 
 async function main() {

@@ -7,18 +7,13 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
-import {
-	applyMigration,
-	shippedTableDdl,
-} from "../test-shipped-sqlite-schema.js";
+import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	type JunkOnlyRepairClient,
 	type JunkOnlyRepairMode,
 	type JunkOnlyReport,
 	sweepJunkOnlyAddresses,
 } from "./junk-only-address.js";
-
-const DDL_TAG = "0000_happy_roland_deschain";
 
 const clientOver = (sqlite: Database.Database): JunkOnlyRepairClient => ({
 	all: async (sql, params) => sqlite.prepare(sql).all(...params),
@@ -187,23 +182,10 @@ describe("addresses standing only on mail in Junk", () => {
 	before(() => {
 		sqlite = new Database(":memory:");
 		const db = drizzle(sqlite);
-		specialUse = new MailboxSpecialUseRepo(db as never);
+		specialUse = new MailboxSpecialUseRepo(db as never, db as never);
 		accountSetting = new AccountSettingRepo(db as never);
-		for (const table of [
-			"address",
-			"envelope_address",
-			"message",
-			"mailbox",
-			"mailbox_special_use_entry",
-			"account_setting",
-			"account",
-		]) {
-			sqlite.exec(shippedTableDdl(DDL_TAG, table));
-		}
-		// `mailbox` is read through the repo, which selects every column the
-		// entity declares — including the rename target added after this DDL.
-		applyMigration(sqlite, "0028_mailbox_pending_path");
-		applyMigration(sqlite, "0033_mailbox_sync_failure_reason");
+		applyMigrationSet(sqlite, "app");
+		applyMigrationSet(sqlite, "mail");
 		sqlite.exec(
 			readFileSync(
 				new URL(

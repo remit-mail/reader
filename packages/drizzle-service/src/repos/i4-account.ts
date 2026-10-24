@@ -71,7 +71,10 @@ export function rowToAccount(
 }
 
 export class AccountRepo implements IAccountRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private mail: DB,
+	) {}
 
 	async create(input: CreateAccountInput): Promise<AccountItem> {
 		const now = Date.now();
@@ -265,7 +268,7 @@ export class AccountRepo implements IAccountRepository {
 				.select()
 				.from(accountTable)
 				.where(eq(accountTable.accountId, accountId)),
-			this.db
+			this.mail
 				.select()
 				.from(mailboxTable)
 				.where(eq(mailboxTable.accountId, accountId)),

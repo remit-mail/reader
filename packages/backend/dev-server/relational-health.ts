@@ -1,15 +1,15 @@
 import { access, constants } from "node:fs/promises";
+import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
 import { isSelfHostSqlBackend } from "../src/data-backend.js";
 
 // The SELECT ping opens a read-only connection, so it keeps succeeding on a
 // file that can still be read but no longer written — permissions revoked to
 // read-only, or the volume remounted read-only under the process. The backend
-// must write (better-auth persists sessions to this same file, RFC 036 D3), so
-// a readable-but-unwritable store has to report unhealthy. `access(R_OK|W_OK)`
+// must write all three databases (better-auth persists sessions to the app
+// one), so a readable-but-unwritable store has to report unhealthy. `access(R_OK|W_OK)`
 // checks both bits in one fresh syscall; the read-only query never covers
 // writability. The query after it still exercises the SQL engine itself.
-const pingSqlite = async (): Promise<void> => {
-	const path = process.env.SQLITE_DB_PATH ?? "";
+const pingSqlite = async (path: string): Promise<void> => {
 	await access(path, constants.R_OK | constants.W_OK);
 
 	const { default: Database } = await import("better-sqlite3");
@@ -31,7 +31,9 @@ export const checkRelationalStore = async (): Promise<boolean> => {
 	if (!isSelfHostSqlBackend()) return true;
 
 	try {
-		await pingSqlite();
+		for (const name of Object.values(SQLITE_DATABASE_ENV)) {
+			await pingSqlite(process.env[name] ?? "");
+		}
 		return true;
 	} catch {
 		return false;

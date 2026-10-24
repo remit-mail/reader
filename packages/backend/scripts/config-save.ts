@@ -56,14 +56,14 @@ const parseArguments = (argv: readonly string[]): Options => {
 
 /**
  * The configuration behind a sign-in. Identity lives in better-auth's own
- * tables in the same database file, and the configuration id derives from the
+ * tables in the app database, and the configuration id derives from the
  * user id, so the email on the sign-in screen is the one thing an operator can
  * be expected to know.
  */
 const accountConfigIdForUser = async (email: string): Promise<string> => {
 	const { db, close } = await createSqliteDatabase(
 		{ auth_user },
-		{ filename: env.SQLITE_DB_PATH },
+		{ filename: env.SQLITE_APP_DB_PATH },
 	);
 	try {
 		const users = await db

@@ -71,7 +71,7 @@ export const setDeletionCapabilities = (
 const buildDeletionCapabilitiesFromEnv =
 	async (): Promise<DeletionCapabilities> => {
 		if (injectedCapabilities) return injectedCapabilities;
-		if (process.env.SQLITE_DB_PATH) {
+		if (process.env.SQLITE_APP_DB_PATH) {
 			const { buildRelationalDeletionCapabilities } = await import(
 				"./compose-relational.js"
 			);

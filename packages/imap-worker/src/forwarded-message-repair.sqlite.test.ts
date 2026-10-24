@@ -110,7 +110,7 @@ const arrangeRepaired = async () => {
 	const [seeded] = await w.client.message.listAllByMailbox(inbox.mailboxId);
 	assert.ok(seeded);
 
-	const sqlite = new Database(String(process.env.SQLITE_DB_PATH));
+	const sqlite = new Database(String(process.env.SQLITE_MAIL_DB_PATH));
 	sqlite
 		.prepare("DELETE FROM body_part WHERE message_id = ?")
 		.run(seeded.messageId);
@@ -121,7 +121,7 @@ const arrangeRepaired = async () => {
 	);
 	sqlite.close();
 	const repairDb = await createSqliteDatabase(messageDataSchema, {
-		filename: String(process.env.SQLITE_DB_PATH),
+		filename: String(process.env.SQLITE_MAIL_DB_PATH),
 	});
 	const report = await sweepForwardedMessageParts(repairDb.db, "repair");
 	await repairDb.close();

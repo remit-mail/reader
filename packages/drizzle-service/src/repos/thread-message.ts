@@ -30,6 +30,7 @@ import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -37,6 +38,7 @@ import {
 	listIdMatch,
 	senderMatchRank,
 	subjectMatch,
+	type ThreadSearchScope,
 } from "./thread-search-predicates.js";
 
 export const deriveThreadMessageId = (
@@ -177,6 +179,14 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
+// The columns the search index is built from; an update that sets none of them
+// leaves the index as it is.
+const touchesSearchIndex = (input: UpdateThreadMessageInput): boolean =>
+	input.subject !== undefined ||
+	input.fromName !== undefined ||
+	input.fromEmail !== undefined ||
+	input.snippet !== undefined;
+
 const queryTerms = (query: string | undefined): string[] =>
 	query ? query.split(/\s+/).filter(Boolean) : [];
 
@@ -186,18 +196,23 @@ const queryTerms = (query: string | undefined): string[] =>
 // matches rows where every token appears in the subject, the from fields or the
 // body preview (AND across tokens, OR across fields) — the same shape as the
 // DynamoDB model.
-function buildSearchConditions(search: SearchOptions): SQL[] {
+async function buildSearchConditions(
+	scope: ThreadSearchScope,
+	search: SearchOptions,
+): Promise<SQL[]> {
 	const conditions: SQL[] = [];
 
-	if (search.subject) conditions.push(subjectMatch(search.subject));
-	if (search.from) conditions.push(fromMatch(search.from));
+	if (search.subject)
+		conditions.push(await subjectMatch(scope, search.subject));
+	if (search.from) conditions.push(await fromMatch(scope, search.from));
 
-	if (search.query) {
-		for (const token of queryTerms(search.query)) {
-			conditions.push(
-				sql`(${subjectMatch(token)} or ${fromMatch(token)} or ${bodyMatch(token)})`,
-			);
-		}
+	for (const token of queryTerms(search.query)) {
+		const [subject, from, body] = await Promise.all([
+			subjectMatch(scope, token),
+			fromMatch(scope, token),
+			bodyMatch(scope, token),
+		]);
+		conditions.push(sql`(${subject} or ${from} or ${body})`);
 	}
 
 	if (search.muted !== undefined) {
@@ -224,10 +239,13 @@ function buildSearchConditions(search: SearchOptions): SQL[] {
 	return conditions;
 }
 
-const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
-	if (term.field === "subject") return subjectMatch(term.contains);
+const fieldTermCondition = async (
+	scope: ThreadSearchScope,
+	term: ThreadMessageFieldTerm,
+): Promise<SQL> => {
+	if (term.field === "subject") return subjectMatch(scope, term.contains);
 	if (term.field === "listId") return listIdMatch(term.contains);
-	return fromMatch(term.contains);
+	return fromMatch(scope, term.contains);
 };
 
 // Combine the caller's terms into one condition, or `undefined` when there are
@@ -237,13 +255,16 @@ const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
 // left out rather than emitted: under `and` a missing conjunct only widens the
 // candidate set, which the caller refines anyway, but under `or` a missing
 // branch loses matches outright, so the whole narrowing goes.
-function buildFieldTermCondition(
+async function buildFieldTermCondition(
+	scope: ThreadSearchScope,
 	terms: readonly ThreadMessageFieldTerm[],
 	operator: "and" | "or",
-): SQL | undefined {
+): Promise<SQL | undefined> {
 	const narrowable = terms.filter((term) => isNarrowableTerm(term.contains));
 	if (operator === "or" && narrowable.length !== terms.length) return undefined;
-	const conditions = narrowable.map(fieldTermCondition);
+	const conditions = await Promise.all(
+		narrowable.map((term) => fieldTermCondition(scope, term)),
+	);
 	if (conditions.length === 0) return undefined;
 	return operator === "or" ? or(...conditions) : and(...conditions);
 }
@@ -285,10 +306,13 @@ function rankedDateCursorCond(
 export class DrizzleThreadMessageRepository
 	implements IThreadMessageRepository
 {
-	private db: Db<Record<string, unknown>>;
+	constructor(
+		private readonly db: Db<Record<string, unknown>>,
+		private readonly search: SearchIndex,
+	) {}
 
-	constructor(db: Db<Record<string, unknown>>) {
-		this.db = db;
+	private scope(accountConfigId: string): ThreadSearchScope {
+		return { index: this.search, accountConfigId };
 	}
 
 	async close(): Promise<void> {
@@ -335,7 +359,10 @@ export class DrizzleThreadMessageRepository
 			.values(row)
 			.onConflictDoNothing()
 			.returning();
-		if (inserted) return toItem(inserted);
+		if (inserted) {
+			await this.search.sync([threadMessageId]);
+			return toItem(inserted);
+		}
 
 		const [existing] = await this.db
 			.select()
@@ -434,6 +461,7 @@ export class DrizzleThreadMessageRepository
 			)
 			.returning();
 		if (!row) throw new NotFoundError("ThreadMessage not found");
+		if (touchesSearchIndex(input)) await this.search.sync([threadMessageId]);
 		return toItem(row);
 	}
 
@@ -449,6 +477,7 @@ export class DrizzleThreadMessageRepository
 					eq(threadMessageTable.threadMessageId, threadMessageId),
 				),
 			);
+		await this.search.sync([threadMessageId]);
 	}
 
 	async deleteMany(
@@ -465,6 +494,7 @@ export class DrizzleThreadMessageRepository
 					inArray(threadMessageTable.threadMessageId, ids),
 				),
 			);
+		await this.search.sync(ids);
 	}
 
 	async listByAccount(
@@ -549,7 +579,12 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...(options?.search ? buildSearchConditions(options.search) : []),
+					...(options?.search
+						? await buildSearchConditions(
+								this.scope(accountConfigId),
+								options.search,
+							)
+						: []),
 					cursorCond,
 				),
 			)
@@ -603,7 +638,10 @@ export class DrizzleThreadMessageRepository
 			: undefined;
 
 		const senderRank = ranked
-			? senderMatchRank(queryTerms(search.query))
+			? await senderMatchRank(
+					this.scope(accountConfigId),
+					queryTerms(search.query),
+				)
 			: sql<number>`0`;
 
 		const rows = await this.db
@@ -619,7 +657,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
+					...(await buildSearchConditions(this.scope(accountConfigId), search)),
 					cursor?.v === 1
 						? sentDateCursorCond(order, cursor)
 						: rankedDateCursorCond(order, senderRank, cursor),
@@ -688,7 +726,11 @@ export class DrizzleThreadMessageRepository
 					options?.mailboxIds
 						? inArray(threadMessageTable.mailboxId, [...options.mailboxIds])
 						: undefined,
-					buildFieldTermCondition(terms, options?.operator ?? "and"),
+					await buildFieldTermCondition(
+						this.scope(accountConfigId),
+						terms,
+						options?.operator ?? "and",
+					),
 					sentDateCursorCond(order, cursor),
 				),
 			)
@@ -748,7 +790,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
+					...(await buildSearchConditions(this.scope(accountConfigId), search)),
 				),
 			);
 		return count;
@@ -788,7 +830,12 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...(options?.search ? buildSearchConditions(options.search) : []),
+					...(options?.search
+						? await buildSearchConditions(
+								this.scope(accountConfigId),
+								options.search,
+							)
+						: []),
 					sentDateCursorCond(order, cursor),
 				),
 			)
@@ -925,6 +972,12 @@ export class DrizzleThreadMessageRepository
 			];
 		});
 		const results = await runBatch(this.db, items);
+		await this.search.sync(
+			rows.flatMap((row) => [
+				row.threadMessageId,
+				deriveThreadMessageId(toThreadId, row.messageId),
+			]),
+		);
 		const count = (parity: number): number =>
 			results.reduce<number>(
 				(total, result, index) =>
@@ -1070,7 +1123,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
+					...(await buildSearchConditions(this.scope(accountConfigId), search)),
 					sentDateCursorCond(order, cursor),
 				),
 			)
@@ -1131,7 +1184,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
+					...(await buildSearchConditions(this.scope(accountConfigId), search)),
 					sentDateCursorCond(order, cursor),
 				),
 			)
@@ -1177,7 +1230,7 @@ export class DrizzleThreadMessageRepository
 					options?.excludeDeleted
 						? eq(threadMessageTable.isDeleted, false)
 						: undefined,
-					...buildSearchConditions(search),
+					...(await buildSearchConditions(this.scope(accountConfigId), search)),
 				),
 			);
 		return count;
@@ -1198,6 +1251,7 @@ export class DrizzleThreadMessageRepository
 			.delete(threadMessageTable)
 			.where(eq(threadMessageTable.accountConfigId, accountConfigId))
 			.returning({ id: threadMessageTable.threadMessageId });
+		await this.search.removeAccount(accountConfigId);
 		return result.length;
 	}
 }

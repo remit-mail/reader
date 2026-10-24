@@ -77,7 +77,7 @@ describe("the calendar write path against sqlite", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		store = new DrizzleCalendarStore(db);
+		store = new DrizzleCalendarStore(db, db);
 		const collection = await provisionDefaultCalendar(store, ACCOUNT_CONFIG_ID);
 		calendarId = collection.calendarId;
 	});

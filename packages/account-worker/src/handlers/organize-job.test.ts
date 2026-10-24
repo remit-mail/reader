@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterEach, describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import {
@@ -9,7 +8,10 @@ import {
 } from "@remit/backend/organize";
 import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { DrizzleThreadMessageRepository } from "@remit/drizzle-service";
+import {
+	DrizzleThreadMessageRepository,
+	SearchIndex,
+} from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger-lambda/noop-logger";
 import type { OrganizeJobEvent } from "../events.js";
@@ -181,16 +183,10 @@ interface World {
 
 const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
-	store.sqlite.exec(
-		readFileSync(
-			new URL(
-				"../../../../npm-scripts/sqlite-search-index.sql",
-				import.meta.url,
-			),
-			"utf8",
-		),
+	const threadMessage = new DrizzleThreadMessageRepository(
+		store.db as never,
+		new SearchIndex(store.db as never, store.db as never),
 	);
-	const threadMessage = new DrizzleThreadMessageRepository(store.db as never);
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];
 	const filterUpdates: World["filterUpdates"] = [];

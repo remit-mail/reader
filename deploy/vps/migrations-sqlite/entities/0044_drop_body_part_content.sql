@@ -1,1 +1,0 @@
-DROP TABLE `body_part_content`;

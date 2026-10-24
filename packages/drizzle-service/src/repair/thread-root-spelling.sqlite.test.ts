@@ -5,6 +5,7 @@ import { deriveThreadId } from "@remit/data-ports/id";
 import type Database from "better-sqlite3";
 import { DrizzleMessageRepository } from "../repos/message.js";
 import { deriveThreadMessageId } from "../repos/thread-message.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createShippedSqliteDb } from "../test-sqlite.js";
 import { moveMisfiledThreadRows } from "./thread-root-spelling.js";
 
@@ -29,6 +30,7 @@ describe("thread rows filed under a doubled-bracket root", () => {
 				handle.db as unknown as ConstructorParameters<
 					typeof DrizzleMessageRepository
 				>[0],
+				new SearchIndex(handle.db, handle.db),
 			).create({
 				messageId,
 				mailboxId: "mbx",
@@ -96,7 +98,11 @@ describe("thread rows filed under a doubled-bracket root", () => {
 			"<reply@remit.test>",
 		);
 
-		const report = await moveMisfiledThreadRows(handle.db, "repair");
+		const report = await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"repair",
+		);
 
 		assert.equal(report.moved, 2);
 		assert.deepEqual(threadsOf("m-reply"), [parentThread]);
@@ -107,7 +113,11 @@ describe("thread rows filed under a doubled-bracket root", () => {
 		await insert("m-parent", rootThread, PARENT, "<root@remit.test>");
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
-		await moveMisfiledThreadRows(handle.db, "repair");
+		await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"repair",
+		);
 
 		assert.deepEqual(threadsOf("m-reply"), [rootThread]);
 	});
@@ -116,7 +126,11 @@ describe("thread rows filed under a doubled-bracket root", () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 		await insert("m-reply", parentThread, "<reply@remit.test>", DOUBLED);
 
-		const report = await moveMisfiledThreadRows(handle.db, "repair");
+		const report = await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"repair",
+		);
 
 		assert.equal(report.dropped, 1);
 		assert.deepEqual(threadsOf("m-reply"), [parentThread]);
@@ -125,8 +139,16 @@ describe("thread rows filed under a doubled-bracket root", () => {
 	test("a second run finds nothing left to move", async () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
-		await moveMisfiledThreadRows(handle.db, "repair");
-		const second = await moveMisfiledThreadRows(handle.db, "repair");
+		await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"repair",
+		);
+		const second = await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"repair",
+		);
 
 		assert.equal(second.misfiled, 0);
 	});
@@ -136,7 +158,11 @@ describe("thread rows filed under a doubled-bracket root", () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
 		await assert.rejects(
-			moveMisfiledThreadRows(handle.db, "repair"),
+			moveMisfiledThreadRows(
+				handle.db,
+				new SearchIndex(handle.db, handle.db),
+				"repair",
+			),
 			/still filed under a doubled-bracket root/,
 		);
 	});
@@ -144,7 +170,11 @@ describe("thread rows filed under a doubled-bracket root", () => {
 	test("check mode reports the split and writes nothing", async () => {
 		await insert("m-reply", splitThread, "<reply@remit.test>", DOUBLED);
 
-		const report = await moveMisfiledThreadRows(handle.db, "check");
+		const report = await moveMisfiledThreadRows(
+			handle.db,
+			new SearchIndex(handle.db, handle.db),
+			"check",
+		);
 
 		assert.equal(report.misfiled, 1);
 		assert.deepEqual(threadsOf("m-reply"), [splitThread]);

@@ -1,1 +1,0 @@
-ALTER TABLE `mailbox` ADD `pending_path` text;

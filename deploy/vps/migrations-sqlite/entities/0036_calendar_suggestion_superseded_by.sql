@@ -1,1 +1,0 @@
-ALTER TABLE `calendar_suggestion` ADD `superseded_by_message_id` text DEFAULT '' NOT NULL;

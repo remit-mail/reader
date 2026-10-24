@@ -43,6 +43,7 @@ import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.j
 import { messageTable } from "../schema/message-data.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 import { deleteMessageSubtree } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
@@ -147,7 +148,10 @@ export function rowToMailbox(
 }
 
 export class MailboxRepo implements IMailboxRepository {
-	constructor(private db: DB) {}
+	constructor(
+		private db: DB,
+		private search: SearchIndex,
+	) {}
 
 	async create(input: CreateMailboxInput): Promise<CreateMailboxResult> {
 		const now = Date.now();
@@ -544,6 +548,10 @@ export class MailboxRepo implements IMailboxRepository {
 				.limit(MAIL_DELETE_BATCH_SIZE);
 			if (rows.length === 0) break;
 			const messageIds = rows.map((row) => row.messageId);
+			const listings = await this.db
+				.select({ threadMessageId: threadMessageTable.threadMessageId })
+				.from(threadMessageTable)
+				.where(inArray(threadMessageTable.messageId, messageIds));
 
 			// The primitive the rest of the codebase deletes mail with: nine
 			// per-message child tables. A bespoke table list would orphan them.
@@ -553,6 +561,7 @@ export class MailboxRepo implements IMailboxRepository {
 					.delete(threadMessageTable)
 					.where(inArray(threadMessageTable.messageId, messageIds)),
 			]);
+			await this.search.sync(listings.map((row) => row.threadMessageId));
 		}
 
 		await this.db

@@ -182,9 +182,10 @@ signing in at the address you set as `PUBLIC_ORIGIN`.
 | `dozzle` | `amir20/dozzle` | Off by default (`profiles: ["observability"]`). Live log tail and search. Binds `127.0.0.1` only. See [observability.md](observability.md). |
 | `victoriametrics` | `victoriametrics/victoria-metrics` | Off by default (`profiles: ["observability"]`). Scrapes the `/metrics` endpoints, stores the series, serves the query UI. Binds `127.0.0.1` only. |
 
-The relational store and the better-auth identity tables share one file
-(`/data/sqlite/remit.db`). It sits on the `sqlite_data` named volume, which
-**must be local disk**: WAL's cross-process coordination uses a shared-memory
+The relational store is three files on the `sqlite_data` named volume: the app
+database (`app.db`: accounts, settings, rules and the better-auth identity
+tables), the mail database (`mail.db`) and its search index (`search.db`).
+The volume **must be local disk**: WAL's cross-process coordination uses a shared-memory
 file next to the database that does not work over NFS/CIFS. Message bodies live
 on the `message_storage` named volume and are not part of the nightly snapshot
 (see [Backups](#backups)).

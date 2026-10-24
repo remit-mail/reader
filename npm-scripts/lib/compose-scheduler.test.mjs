@@ -107,7 +107,14 @@ describe("the stack fetches mail with no browser open", {
 	it("is handed the relational store it reads the account list from", () => {
 		const scheduler = resolved().services.scheduler;
 		assert.equal(scheduler.environment.DATA_BACKEND, "sqlite");
-		assert.equal(scheduler.environment.SQLITE_DB_PATH, "/data/sqlite/remit.db");
+		assert.equal(
+			scheduler.environment.SQLITE_APP_DB_PATH,
+			"/data/sqlite/app.db",
+		);
+		assert.equal(
+			scheduler.environment.SQLITE_MAIL_DB_PATH,
+			"/data/sqlite/mail.db",
+		);
 		assert.deepEqual(
 			scheduler.volumes.map((volume) => `${volume.source}:${volume.target}`),
 			[

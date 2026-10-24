@@ -1,5 +1,5 @@
 // The instance-owner singleton, used to generate the committed SQLite
-// migrations (deploy/vps/migrations-sqlite/meta).
+// migrations (deploy/vps/migrations-sqlite/app).
 import { sql } from "drizzle-orm";
 import { check, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 

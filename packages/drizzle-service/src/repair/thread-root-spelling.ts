@@ -3,6 +3,7 @@ import { and, count, eq, like } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { DrizzleThreadMessageRepository } from "../repos/thread-message.js";
 import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 
 type ThreadRootDb = Db<Record<string, unknown>>;
 
@@ -104,6 +105,7 @@ const rowsIn = (threads: readonly MisfiledThread[]): number =>
 
 export const moveMisfiledThreadRows = async (
 	db: ThreadRootDb,
+	search: SearchIndex,
 	mode: ThreadRootRepairMode,
 ): Promise<ThreadRootReport> => {
 	const found = await misfiledThreads(db);
@@ -112,7 +114,7 @@ export const moveMisfiledThreadRows = async (
 		return { mode, misfiled, moved: 0, dropped: 0 };
 	}
 
-	const threadMessages = new DrizzleThreadMessageRepository(db);
+	const threadMessages = new DrizzleThreadMessageRepository(db, search);
 	let moved = 0;
 	let dropped = 0;
 	for (let pass = 0; pass < MAX_PASSES; pass += 1) {

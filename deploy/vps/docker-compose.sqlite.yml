@@ -1,6 +1,6 @@
 # Reference self-host deployment (RFC 036 D6). One .env file, no database
-# server: all relational state is one file on one local volume — the app/auth
-# database.
+# server: all relational state is three files on one local volume — the app,
+# mail and search databases.
 #
 #   cp remit.env.template .env   # fill in the secrets, then:
 #   docker compose -f docker-compose.sqlite.yml up -d
@@ -30,11 +30,13 @@ x-app-env: &app-env
     MSOAUTH_REDIRECT_URI: ${PUBLIC_ORIGIN:?set PUBLIC_ORIGIN in .env}/api/accounts/oauth/microsoft/callback
     # The backend is pinned here, not read from .env: choosing this compose file
     # is what selects SQLite, so the file and the backend can never disagree.
-    # SQLITE_DB_PATH holds both the app schema and the better-auth identity
-    # tables (one file, RFC 036 D3), on the sqlite_data volume mounted at
-    # /data/sqlite.
+    # Three databases on the sqlite_data volume mounted at /data/sqlite
+    # (#1420): the app database (accounts, settings, rules and the better-auth
+    # identity tables), the tenant mail database and its search index.
     DATA_BACKEND: sqlite
-    SQLITE_DB_PATH: /data/sqlite/remit.db
+    SQLITE_APP_DB_PATH: /data/sqlite/app.db
+    SQLITE_MAIL_DB_PATH: /data/sqlite/mail.db
+    SQLITE_SEARCH_DB_PATH: /data/sqlite/search.db
     # V8 grows its old space against whatever the host has free, so on a 4 GB
     # box one heavy job can starve the whole stack instead of failing alone.
     # The ceiling makes that failure land inside one container: the process
@@ -725,7 +727,7 @@ volumes:
   caddy_data:
   caddy_config:
   # The updater's own state (RFC 037): the run lock, recovery breadcrumb and the
-  # pre-update snapshots. Kept off remit.db so a rollback cannot erase the record
+  # pre-update snapshots. Kept off the databases so a rollback cannot erase the record
   # of the run that performed it.
   updater_state:
   # The backend<->updater control seam: request.json and state.json, and nothing

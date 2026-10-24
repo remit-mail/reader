@@ -22,7 +22,7 @@ Both entity packages are generated from TypeSpec and published regardless of whi
 
 A composition root supplies the client. `setClient(client)` registers one; `getClient()` returns it. A process that is handed a client never reaches anything else.
 
-A process that is not handed one falls back to the single composition its own build contains, through a dynamic `import()` (A5). The fallback checks its precondition first — the SQLite composition requires `SQLITE_DB_PATH` — and when the precondition is absent it raises the registration error naming `setClient`, because a process that reaches the client with neither an injected client nor a database to open has a composition-root ordering bug and must be told so. Silently opening an empty database and serving an empty mailbox is the failure this check exists to prevent.
+A process that is not handed one falls back to the single composition its own build contains, through a dynamic `import()` (A5). The fallback checks its precondition first — the SQLite composition requires `SQLITE_APP_DB_PATH` — and when the precondition is absent it raises the registration error naming `setClient`, because a process that reaches the client with neither an injected client nor a database to open has a composition-root ordering bug and must be told so. Silently opening an empty database and serving an empty mailbox is the failure this check exists to prevent.
 
 That check is a precondition, not a selection. Nothing picks between adapters at runtime.
 
@@ -73,7 +73,7 @@ Two limits are inherent rather than incidental. `@remit/data-ports` publishes ra
 
 **Can two adapters run in one process?** Nothing prevents it — no module-global fixes a dialect, and every adapter's tables come from its own imports. `setClient` holds one client because one client is what any current process needs; a name-keyed registry over it is additive.
 
-**Why is `SQLITE_DB_PATH` read in the composition root at all?** To tell a missing database apart from a missing registration, so the second one says `setClient`. It never chooses between adapters.
+**Why is `SQLITE_APP_DB_PATH` read in the composition root at all?** To tell a missing database apart from a missing registration, so the second one says `setClient`. It never chooses between adapters.
 
 **What does a caller do about C10?** Nothing, unless it needs folding guaranteed, in which case it is choosing a backend and should say so. Search behaviour that must be identical everywhere cannot be built on substring matching in the first place.
 

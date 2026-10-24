@@ -28,9 +28,9 @@ PROG=remit
 #
 # STATE_DIR is where a run's lock, breadcrumb, state and snapshots live: the
 # updater's own volume when this wrapper runs inside the updater container, a
-# directory beside .env when an operator runs it from a shell. Never remit.db —
-# a rollback restores that file to before the run, which would destroy the
-# record of the rollback describing it.
+# directory beside .env when an operator runs it from a shell. Never the
+# databases — a rollback restores them to before the run, which would destroy
+# the record of the rollback describing it.
 #
 # STATE_MOUNT is the same location named the way the *host* docker daemon reads
 # it, because the helper containers below bind it. They are the same string
@@ -1015,7 +1015,7 @@ cmd_status() {
 #
 # Everything a run needs to survive its own death lives on the updater's volume:
 # the lock, the breadcrumb, state.json and the snapshots. None of it goes in
-# remit.db, because a rollback restores that file to before the run and would
+# the databases, because a rollback restores them to before the run and would
 # destroy the record of the rollback describing it.
 
 RUN_ID=""
@@ -1953,7 +1953,9 @@ mkdir -p /state/snapshots/$1
 chown \"\$own\" /state/snapshots 2>/dev/null || true
 chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
-snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
+snapshot_db /data/sqlite/app.db /state/snapshots/$1/app.db
+snapshot_db /data/sqlite/mail.db /state/snapshots/$1/mail.db
+snapshot_db /data/sqlite/search.db /state/snapshots/$1/search.db'"
 }
 
 # Installs nothing: a rollback must not depend on the network whose failure it
@@ -1966,12 +1968,16 @@ snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
 restore_snapshot() {
 	volume_run "set -eu
 snap=/state/snapshots/$1
-if [ ! -f \"\$snap/remit.db\" ]; then
+if [ ! -f \"\$snap/app.db\" ]; then
   echo 'the snapshot for this run is missing' >&2
   exit 1
 fi
-rm -f /data/sqlite/remit.db /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm
-cp \"\$snap/remit.db\" /data/sqlite/remit.db
+rm -f /data/sqlite/app.db /data/sqlite/app.db-wal /data/sqlite/app.db-shm
+rm -f /data/sqlite/mail.db /data/sqlite/mail.db-wal /data/sqlite/mail.db-shm
+rm -f /data/sqlite/search.db /data/sqlite/search.db-wal /data/sqlite/search.db-shm
+cp \"\$snap/app.db\" /data/sqlite/app.db
+if [ -f \"\$snap/mail.db\" ]; then cp \"\$snap/mail.db\" /data/sqlite/mail.db; fi
+if [ -f \"\$snap/search.db\" ]; then cp \"\$snap/search.db\" /data/sqlite/search.db; fi
 chown -R 1000:1000 /data/sqlite"
 }
 
@@ -2349,10 +2355,10 @@ read_schema_version() {
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null 2>&1 || exit 0
 command -v su-exec >/dev/null 2>&1 || apk add --no-cache su-exec >/dev/null 2>&1 || exit 0
-[ -f /data/sqlite/remit.db ] || exit 0
+[ -f /data/sqlite/app.db ] || exit 0
 exec su-exec 1000:1000 sh -c 'total=0
-for t in __drizzle_migrations_entities __drizzle_migrations_auth __drizzle_migrations_meta; do
-  c=\$(sqlite3 /data/sqlite/remit.db \"SELECT count(*) FROM \$t\" 2>/dev/null || printf 0)
+for p in app.db:__drizzle_migrations_app mail.db:__drizzle_migrations_mail search.db:__drizzle_migrations_search; do
+  c=\$(sqlite3 /data/sqlite/\${p%%:*} \"SELECT count(*) FROM \${p#*:}\" 2>/dev/null || printf 0)
   total=\$((total + c))
 done
 printf %s \"\$total\"'"
@@ -2546,7 +2552,7 @@ stack_is_running() {
 # stopped box can still hold every account and message on the volume. Read
 # through the same mount the snapshot binds, so both are answering for the same
 # data, and the statement read is the one the rollback depends on — a snapshot
-# without a remit.db in it is what restore_snapshot refuses, so anything else
+# without an app.db in it is what restore_snapshot refuses, so anything else
 # here would route a run into a rollback it cannot perform.
 #
 # 0 is a database with bytes in it, 1 a volume without one, and 2 a probe that
@@ -2557,7 +2563,7 @@ stack_is_running() {
 deployment_data_state() {
 	_dds=0
 	volume_run "set -eu
-if [ -s /data/sqlite/remit.db ]; then exit 0; fi
+if [ -s /data/sqlite/app.db ]; then exit 0; fi
 exit 3" >/dev/null 2>&1 || _dds=$?
 	case "$_dds" in
 	0) return 0 ;;
@@ -2631,7 +2637,7 @@ assert_bind_identity() {
 # Two passes, because the stop set is not one list. `compose config --services`
 # names the always-on services; `backup` sits behind an inactive profile and is
 # only seen by `ps`, yet it must stop too — it is a stock alpine image under
-# `restart: unless-stopped` that opens remit.db read-write every interval, a
+# `restart: unless-stopped` that opens the databases read-write every interval, a
 # collision during the restore.
 stop_everything() {
 	_stopset=$(compose config --services 2>/dev/null | grep -vxE 'updater|caddy|tunnel' | tr '\n' ' ')

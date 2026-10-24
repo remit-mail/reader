@@ -22,7 +22,7 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db);
+	accounts = new AccountRepo(store.db, store.db);
 });
 
 afterEach(() => close());

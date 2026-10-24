@@ -2,9 +2,8 @@
 // the names the repos and `pushSchema` (test-db.ts) consume. Each table appears
 // exactly once here — `pushSchema` registers a table's indexes per exported
 // binding, so exposing one table under two names creates duplicate index names
-// and breaks `apply()`. The committed-migration `generate` reads
-// schema-full-sqlite.ts instead (the entity package wholesale), so the
-// migration is driven by the entities, not by this hand-maintained alias list.
+// and breaks `apply()`. The committed migrations are generated from the
+// per-database lists in schema-sets/, not from this alias list.
 
 import * as entities from "@remit/drizzle-sqlite-schema";
 

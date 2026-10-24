@@ -96,7 +96,10 @@ export type CalendarWrite =
 
 /**
  * The calendar store (issue #15). Reads go through `repos`; a write set is a
- * list of writes that `commit` applies as one atomic batch, in order. Writing a
+ * list of writes that `commit` applies in order: the calendar writes as one
+ * atomic batch, then the suggestion settlements, which live with the mail
+ * (#1420). A commit that fails between the two is repaired by repeating it,
+ * since every write in it converges on a rerun. Writing a
  * resource is three writes — the object, its replaced occurrence rows and the
  * collection's sequence bump — and none of them is meaningful without the
  * others: an object with stale occurrences is a calendar showing events the

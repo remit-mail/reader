@@ -133,7 +133,11 @@ describe("createSqliteCascadeDeleter", () => {
 			{ entityType: "Account", key: { accountId: ACCOUNT_ID } },
 		];
 
-		const deleter = await createSqliteCascadeDeleter(filename);
+		const deleter = await createSqliteCascadeDeleter({
+			app: filename,
+			mail: filename,
+			search: filename,
+		});
 		await deleter(entities, log);
 
 		const sqlite = new Database(filename);

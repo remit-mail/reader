@@ -1,0 +1,190 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
+import * as entities from "@remit/drizzle-sqlite-schema";
+import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/better-sqlite3";
+import type { SqliteDatabasePaths } from "../../drizzle-service/src/databases.js";
+import { applyMigrationSet } from "../../drizzle-service/src/test-shipped-sqlite-schema.js";
+import { splitSqlite } from "./split-sqlite.js";
+
+const MIGRATIONS_ROOT = fileURLToPath(
+	new URL("../../../deploy/vps/", import.meta.url),
+);
+
+const NOW = 1_700_000_000_000;
+
+// A database in the single-file layout the split replaces: every app and mail
+// table in one file, holding app rows, local mail rows and a message the IMAP
+// server can give back.
+const seedSource = (path: string): void => {
+	const sqlite = new Database(path);
+	applyMigrationSet(sqlite, "app");
+	applyMigrationSet(sqlite, "mail");
+	const db = drizzle(sqlite);
+	const stamps = { createdAt: NOW, updatedAt: NOW };
+	db.insert(entities.accountConfigs)
+		.values({ accountConfigId: "cfg-1", userId: "user-1", ...stamps })
+		.run();
+	db.insert(entities.labels)
+		.values({
+			labelId: "lbl-1",
+			accountConfigId: "cfg-1",
+			name: "Receipts",
+			normalizedName: "receipts",
+			...stamps,
+		})
+		.run();
+	db.insert(entities.mailboxes)
+		.values({
+			mailboxId: "mbx-1",
+			accountId: "acc-1",
+			namespacePrefix: "",
+			hierarchyDelimiter: "/",
+			fullPath: "INBOX",
+			uidValidity: 7,
+			uidNext: 42,
+			highestModseq: "9000",
+			messageCount: 41,
+			unseenCount: 3,
+			deletedCount: 0,
+			totalSize: 123_456,
+			lastSyncUid: 41,
+			highWaterMarkUid: 41,
+			lastMessageSyncAt: NOW,
+			initialSyncCompletedAt: NOW,
+			...stamps,
+		})
+		.run();
+	db.insert(entities.messageRecords)
+		.values({
+			messageId: "msg-1",
+			mailboxId: "mbx-1",
+			uid: 41,
+			sequenceNumber: 41,
+			rfc822Size: 100,
+			internalDate: NOW,
+			envelopeId: "env-1",
+			rootBodyPartId: "bp-1",
+			...stamps,
+		})
+		.run();
+	db.insert(entities.messageLabels)
+		.values({
+			messageLabelId: "ml-1",
+			messageId: "msg-1",
+			labelId: "lbl-1",
+			accountConfigId: "cfg-1",
+			...stamps,
+		})
+		.run();
+	db.insert(entities.outboxMessages)
+		.values({
+			outboxMessageId: "out-1",
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			fromAddress: "me@example.test",
+			toAddresses: ["you@example.test"],
+			messageIdValue: "<out-1@example.test>",
+			status: "queued",
+			...stamps,
+		})
+		.run();
+	sqlite.close();
+};
+
+const count = (path: string, table: string): number => {
+	const sqlite = new Database(path, { readonly: true });
+	try {
+		return (
+			sqlite.prepare(`SELECT count(*) AS n FROM ${table}`).get() as {
+				n: number;
+			}
+		).n;
+	} finally {
+		sqlite.close();
+	}
+};
+
+const hasTable = (path: string, table: string): boolean => {
+	const sqlite = new Database(path, { readonly: true });
+	try {
+		return (
+			sqlite
+				.prepare("SELECT 1 FROM sqlite_master WHERE name = ?")
+				.get(table) !== undefined
+		);
+	} finally {
+		sqlite.close();
+	}
+};
+
+describe("splitting the single database file", () => {
+	const dir = mkdtempSync(join(tmpdir(), "remit-split-"));
+	const source = join(dir, "remit.db");
+	const targets: SqliteDatabasePaths = {
+		app: join(dir, "app.db"),
+		mail: join(dir, "mail.db"),
+		search: join(dir, "search.db"),
+	};
+	const split = () =>
+		splitSqlite({ source, targets, migrationsRoot: MIGRATIONS_ROOT });
+
+	before(async () => {
+		seedSource(source);
+		await split();
+	});
+
+	after(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("keeps the app rows in the app database", () => {
+		assert.equal(count(targets.app, "account_config"), 1);
+		assert.equal(count(targets.app, "label"), 1);
+		assert.equal(hasTable(targets.app, "message"), false);
+	});
+
+	test("keeps the local-only mail rows in the mail database", () => {
+		assert.equal(count(targets.mail, "message_label"), 1);
+		assert.equal(count(targets.mail, "outbox_message"), 1);
+		assert.equal(hasTable(targets.mail, "account_config"), false);
+	});
+
+	test("leaves the mail the server can give back to resync", () => {
+		assert.equal(count(targets.mail, "message"), 0);
+		assert.equal(count(source, "message"), 1);
+	});
+
+	test("keeps each mailbox's id and starts its message sync over", () => {
+		const sqlite = new Database(targets.mail, { readonly: true });
+		const mailbox = sqlite
+			.prepare(
+				"SELECT mailbox_id, full_path, highest_modseq, last_sync_uid, high_water_mark_uid, initial_sync_completed_at FROM mailbox",
+			)
+			.get();
+		sqlite.close();
+		assert.deepEqual(mailbox, {
+			mailbox_id: "mbx-1",
+			full_path: "INBOX",
+			highest_modseq: "0",
+			last_sync_uid: 0,
+			high_water_mark_uid: 0,
+			initial_sync_completed_at: null,
+		});
+	});
+
+	test("creates the search database empty, to fill as mail resyncs", () => {
+		assert.equal(count(targets.search, "thread_message_fts"), 0);
+	});
+
+	test("copies nothing twice when run again", async () => {
+		await split();
+		assert.equal(count(targets.app, "label"), 1);
+		assert.equal(count(targets.mail, "message_label"), 1);
+		assert.equal(count(targets.mail, "mailbox"), 1);
+	});
+});

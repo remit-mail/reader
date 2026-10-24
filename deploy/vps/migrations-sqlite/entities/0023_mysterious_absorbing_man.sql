@@ -1,1 +1,0 @@
-ALTER TABLE `message` ADD `abandoned_mutation` text DEFAULT 'none' NOT NULL;

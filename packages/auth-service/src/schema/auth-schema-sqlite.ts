@@ -1,6 +1,6 @@
 // The five better-auth identity tables, in the shape better-auth's drizzle
 // adapter emits with `provider: "sqlite"`. Used to generate the committed
-// sqlite migrations (deploy/vps/migrations-sqlite/auth).
+// sqlite migrations (deploy/vps/migrations-sqlite/app).
 //
 // Hand-maintained, deliberately. The `@better-auth/cli generate` command no
 // longer emits this shape: it writes `mode: "timestamp_ms"` where these columns

@@ -1,1 +1,0 @@
-ALTER TABLE `message` ADD `spam_report` text;

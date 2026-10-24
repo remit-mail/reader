@@ -1,4 +1,6 @@
 import { type SQL, sql } from "drizzle-orm";
+import { threadMessageTable } from "../schema/thread-message.js";
+import type { SearchIndex } from "../search/thread-message-search.js";
 
 // Accent- and case-insensitive substring match over the whole mailbox, isolated
 // here as the one text-search seam whose behaviour is engine-specific. The
@@ -8,13 +10,14 @@ import { type SQL, sql } from "drizzle-orm";
 
 const escapeLike = (term: string): string => term.replace(/[\\%_]/g, "\\$&");
 
-// Text search is the external-content FTS5 trigram index that
-// npm-scripts/sqlite-search-index.sql installs (RFC 036 D4): `thread_message_fts`
-// indexes the folded subject, the sender, and the body preview the row carries,
-// and MATCH is an accent- and
-// case-insensitive substring search (the tokenizer folds both sides, so the
-// needle is passed through untransformed). The predicate is a `rowid IN
-// (subquery)` over that index — the outer WHERE still narrows by mailbox.
+// Text search is the FTS5 trigram index in the tenant search database (#1420):
+// `thread_message_fts` indexes the folded subject, the sender, and the body
+// preview the row carries, and MATCH is an accent- and case-insensitive
+// substring search (the tokenizer folds both sides, so the needle is passed
+// through untransformed). The index lives in another database, so a term is
+// matched there first and arrives here as the set of thread message ids it
+// matched, bound as one JSON parameter — the outer WHERE still narrows by
+// mailbox, and drops any id whose row is gone.
 //
 // Trigram indexing needs three characters, so a one- or two-character term
 // falls back to the unindexed folded LIKE scan D4 names — lower() both sides,
@@ -49,8 +52,23 @@ const isAscii = (term: string): boolean =>
 export const isNarrowableTerm = (term: string): boolean =>
 	isTrigramIndexable(term) || isAscii(term);
 
-const ftsRowidMatch = (matchExpr: string): SQL =>
-	sql`"thread_message"."rowid" in (select "rowid" from "thread_message_fts" where "thread_message_fts" match ${matchExpr})`;
+/** Where a term is matched: the index, and the account config it is scoped to. */
+export interface ThreadSearchScope {
+	index: SearchIndex;
+	accountConfigId: string;
+}
+
+const indexedMatch = async (
+	scope: ThreadSearchScope,
+	column: "subject" | "sender" | "body",
+	term: string,
+): Promise<SQL> => {
+	const ids = await scope.index.matching(
+		scope.accountConfigId,
+		`${column} : ${ftsPhrase(term)}`,
+	);
+	return sql`${threadMessageTable.threadMessageId} in (select value from json_each(${JSON.stringify(ids)}))`;
+};
 
 const SUBJECT_FOLDED = sql`lower(coalesce(subject, ''))`;
 const FROM_FOLDED = sql`lower(coalesce(from_name, '') || ' ' || coalesce(from_email, ''))`;
@@ -60,14 +78,20 @@ const LIST_ID_FOLDED = sql`lower(coalesce(list_id, ''))`;
 const likePattern = (term: string): SQL =>
 	sql`'%' || lower(${escapeLike(term)}) || '%'`;
 
-export const subjectMatch = (term: string): SQL =>
+export const subjectMatch = async (
+	scope: ThreadSearchScope,
+	term: string,
+): Promise<SQL> =>
 	isTrigramIndexable(term)
-		? ftsRowidMatch(`subject : ${ftsPhrase(term)}`)
+		? indexedMatch(scope, "subject", term)
 		: sql`${SUBJECT_FOLDED} like ${likePattern(term)} escape '\\'`;
 
-export const fromMatch = (term: string): SQL =>
+export const fromMatch = async (
+	scope: ThreadSearchScope,
+	term: string,
+): Promise<SQL> =>
 	isTrigramIndexable(term)
-		? ftsRowidMatch(`sender : ${ftsPhrase(term)}`)
+		? indexedMatch(scope, "sender", term)
 		: sql`${FROM_FOLDED} like ${likePattern(term)} escape '\\'`;
 
 /**
@@ -81,9 +105,12 @@ export const fromMatch = (term: string): SQL =>
  * the preview is what is stored — but a term the reader can see on the row is
  * now found wherever that row sits in the collection.
  */
-export const bodyMatch = (term: string): SQL =>
+export const bodyMatch = async (
+	scope: ThreadSearchScope,
+	term: string,
+): Promise<SQL> =>
 	isTrigramIndexable(term)
-		? ftsRowidMatch(`body : ${ftsPhrase(term)}`)
+		? indexedMatch(scope, "body", term)
 		: sql`${BODY_FOLDED} like ${likePattern(term)} escape '\\'`;
 
 // The FTS index carries subject and sender only, so a List-Id term is always
@@ -92,7 +119,13 @@ export const bodyMatch = (term: string): SQL =>
 export const listIdMatch = (term: string): SQL =>
 	sql`${LIST_ID_FOLDED} like ${likePattern(term)} escape '\\'`;
 
-export const senderMatchRank = (terms: readonly string[]): SQL<number> =>
-	terms.length === 0
-		? sql<number>`0`
-		: sql<number>`case when ${sql.join(terms.map(fromMatch), sql` or `)} then 1 else 0 end`;
+export const senderMatchRank = async (
+	scope: ThreadSearchScope,
+	terms: readonly string[],
+): Promise<SQL<number>> => {
+	if (terms.length === 0) return sql<number>`0`;
+	const matches = await Promise.all(
+		terms.map((term) => fromMatch(scope, term)),
+	);
+	return sql<number>`case when ${sql.join(matches, sql` or `)} then 1 else 0 end`;
+};

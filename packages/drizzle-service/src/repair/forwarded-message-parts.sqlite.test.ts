@@ -5,6 +5,7 @@ import type { BodyPartUpsertInput } from "@remit/data-ports";
 import type Database from "better-sqlite3";
 import { DrizzleEnvelopeRepository } from "../repos/envelope.js";
 import { DrizzleMessageRepository } from "../repos/message.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createShippedSqliteDb } from "../test-sqlite.js";
 import { sweepForwardedMessageParts } from "./forwarded-message-parts.js";
 
@@ -89,7 +90,7 @@ describe("messages whose forwarded message lost its part row", () => {
 		const db = handle.db as unknown as ConstructorParameters<
 			typeof DrizzleMessageRepository
 		>[0];
-		await new DrizzleMessageRepository(db).create({
+		await new DrizzleMessageRepository(db, new SearchIndex(db, db)).create({
 			messageId,
 			mailboxId,
 			uid,

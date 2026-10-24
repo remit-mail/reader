@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
@@ -19,6 +18,7 @@ import {
 	LabelRepo,
 	MailboxRepo,
 	MessageLabelRepo,
+	SearchIndex,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -44,24 +44,18 @@ let close: () => void;
 
 beforeEach(() => {
 	const store = createShippedSqliteDb();
-	store.sqlite.exec(
-		readFileSync(
-			new URL(
-				"../../../../npm-scripts/sqlite-search-index.sql",
-				import.meta.url,
-			),
-			"utf8",
-		),
-	);
 	close = store.close;
 	const db = store.db as never;
 	client = {
-		account: new AccountRepo(store.db),
+		account: new AccountRepo(store.db, store.db),
 		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(store.db),
+		mailbox: new MailboxRepo(store.db, new SearchIndex(store.db, store.db)),
 		address: new AddressRepo(store.db),
-		message: new DrizzleMessageRepository(db),
-		threadMessage: new DrizzleThreadMessageRepository(db),
+		message: new DrizzleMessageRepository(db, new SearchIndex(db, db)),
+		threadMessage: new DrizzleThreadMessageRepository(
+			db,
+			new SearchIndex(db, db),
+		),
 		label: new LabelRepo(store.db),
 		messageLabel: new MessageLabelRepo(store.db),
 	} as unknown as UnifiedThreadClient & RemitClient;

@@ -25,20 +25,32 @@ type DB = Db<Record<string, unknown>>;
 export class DrizzleCalendarStore implements ICalendarStore {
 	readonly repos: CalendarRepositories;
 
-	constructor(private db: DB) {
+	constructor(
+		private db: DB,
+		private mail: DB,
+	) {
 		this.repos = {
 			calendarCollection: new CalendarCollectionRepo(db),
 			calendarObject: new CalendarObjectRepo(db),
 			calendarEventIndex: new CalendarEventIndexRepo(db),
-			calendarSuggestion: new CalendarSuggestionRepo(db),
+			calendarSuggestion: new CalendarSuggestionRepo(mail),
 			calendarFeedToken: new CalendarFeedTokenRepo(db),
 		};
 	}
 
 	async commit(writes: readonly CalendarWrite[]): Promise<void> {
+		const settlements = writes.filter(
+			(write) => write.kind === "SettleSuggestion",
+		);
 		await runBatch(
 			this.db,
-			writes.flatMap((write) => this.statements(write)),
+			writes
+				.filter((write) => write.kind !== "SettleSuggestion")
+				.flatMap((write) => this.statements(write)),
+		);
+		await runBatch(
+			this.mail,
+			settlements.flatMap((write) => this.statements(write)),
 		);
 	}
 
@@ -213,7 +225,7 @@ export class DrizzleCalendarStore implements ICalendarStore {
 				];
 			case "SettleSuggestion":
 				return [
-					this.db
+					this.mail
 						.update(calendarSuggestionTable)
 						.set({ ...write.settle, updatedAt: now })
 						.where(

@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import shortUuid from "short-uuid";
 import { threadMessageTable } from "../schema/thread-message.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	clampThreadSearchLimit,
@@ -86,7 +87,10 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = new DrizzleThreadMessageRepository(harness.db);
+		repo = new DrizzleThreadMessageRepository(
+			harness.db,
+			new SearchIndex(harness.db, harness.db),
+		);
 	});
 
 	after(async () => {
@@ -387,7 +391,10 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = new DrizzleThreadMessageRepository(harness.db);
+		repo = new DrizzleThreadMessageRepository(
+			harness.db,
+			new SearchIndex(harness.db, harness.db),
+		);
 	});
 
 	after(async () => {
@@ -914,7 +921,10 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = new DrizzleThreadMessageRepository(harness.db);
+		repo = new DrizzleThreadMessageRepository(
+			harness.db,
+			new SearchIndex(harness.db, harness.db),
+		);
 	});
 
 	after(async () => {
@@ -1086,7 +1096,10 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = new DrizzleThreadMessageRepository(harness.db);
+		repo = new DrizzleThreadMessageRepository(
+			harness.db,
+			new SearchIndex(harness.db, harness.db),
+		);
 	});
 
 	after(async () => {

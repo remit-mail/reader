@@ -1,3 +1,11 @@
+export {
+	hasSqliteDatabaseEnv,
+	openSqliteDatabases,
+	SQLITE_DATABASE_ENV,
+	type SqliteDatabasePaths,
+	type SqliteDatabases,
+	sqliteDatabasePathsFromEnv,
+} from "./databases.js";
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
@@ -64,6 +72,7 @@ export * from "./schema/message-data.js";
 export { messageDataSchema } from "./schema/message-data.js";
 export * from "./schema/quarantine.js";
 export * from "./schema/sync-warning.js";
+export { SearchIndex } from "./search/thread-message-search.js";
 export {
 	createSqliteDatabase,
 	type SqliteClient,

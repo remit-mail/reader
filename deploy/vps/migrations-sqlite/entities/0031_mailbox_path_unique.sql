@@ -1,1 +1,0 @@
-CREATE UNIQUE INDEX `mailbox_by_account_full_path` ON `mailbox` (`account_id`,`full_path`);

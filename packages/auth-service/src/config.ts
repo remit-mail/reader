@@ -34,11 +34,14 @@ export interface DataConnectionConfig {
 
 /**
  * Resolve where identity data lives, from the same env vars the rest of the
- * self-host stack reads (RFC 036 D5). The identity tables share the app
- * database file, so the locator is `SQLITE_DB_PATH`.
+ * self-host stack reads (RFC 036 D5). The identity tables live in the app
+ * database, so the locator is `SQLITE_APP_DB_PATH`.
  */
 export const resolveDataConnectionConfig = (): DataConnectionConfig => ({
-	connectionString: required("SQLITE_DB_PATH", process.env.SQLITE_DB_PATH),
+	connectionString: required(
+		"SQLITE_APP_DB_PATH",
+		process.env.SQLITE_APP_DB_PATH,
+	),
 });
 
 /**
