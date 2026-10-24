@@ -189,7 +189,12 @@ describe("the filter tools behind mail:rules", () => {
 			name: "create_filter",
 			arguments: receiptsRule(receipts.mailboxId),
 		});
-		assert.equal(body.error?.code, -32601);
+		const result = body.result as {
+			isError?: boolean;
+			content: { text: string }[];
+		};
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /Tool create_filter not found/);
 		assert.deepEqual(await myFilters(), []);
 		assert.equal(capture.sent.length, 0);
 	});

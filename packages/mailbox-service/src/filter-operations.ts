@@ -301,6 +301,11 @@ export const createFilter = async (
 		"act",
 	);
 	if (!owned.ok) return owned;
+	const scoped = resolveFilterScopeExpiry(
+		{ scope: rule.scope, expiresAt: undefined },
+		{ scope: rule.scope, expiresAt: rule.expiresAt },
+	);
+	if (!scoped.ok) return scoped;
 	const target = await settledActionFolder(
 		deps,
 		accountId,
@@ -311,9 +316,9 @@ export const createFilter = async (
 	const filter = await deps.filter.create({
 		accountConfigId,
 		name: rule.name,
-		scope: rule.scope,
-		expiresAt: rule.expiresAt,
-		ttl: deriveFilterTtl(rule.scope, rule.expiresAt),
+		scope: scoped.value.scope,
+		expiresAt: scoped.value.expiresAt,
+		ttl: scoped.value.ttl,
 		matchOperator: rule.matchOperator,
 		literalClauses: rule.literalClauses,
 		actionLabelId: rule.actionLabelId,

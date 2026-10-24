@@ -17,5 +17,8 @@ const REFUSAL_FIX: Record<Refusal["kind"], string> = {
 	NotSettled: " Wait for it to settle, then call this tool again.",
 };
 
+const sentence = (message: string): string =>
+	/[.!?]$/.test(message) ? message : `${message}.`;
+
 export const refused = (refusal: Refusal): CallToolResult =>
-	toolError(`${refusal.message}${REFUSAL_FIX[refusal.kind]}`);
+	toolError(`${sentence(refusal.message)}${REFUSAL_FIX[refusal.kind]}`);

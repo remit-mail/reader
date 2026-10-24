@@ -192,7 +192,12 @@ describe("the folder tools behind mail:rules", () => {
 			name: "create_folder",
 			arguments: { accountId: account.accountId, fullPath: "Projects" },
 		});
-		assert.equal(body.error?.code, -32601);
+		const result = body.result as {
+			isError?: boolean;
+			content: { text: string }[];
+		};
+		assert.equal(result.isError, true);
+		assert.match(result.content[0].text, /Tool create_folder not found/);
 		assert.equal(mailboxEvents().length, 0);
 	});
 
