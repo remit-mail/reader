@@ -128,6 +128,13 @@ export const TARGETS = [
 		entry: "packages/queue-sidecar/src/redrive-cli.ts",
 		outfile: "dist-docker/queue-sidecar/redrive.mjs",
 	},
+	// The MCP connector (remit-mail/remit#1342): the authorization server and
+	// /mcp, on the shared SQLite file. Its own image, behind the `mcp` profile.
+	{
+		name: "mcp-server",
+		entry: "packages/mcp-server/src/main.ts",
+		external: [SQLITE],
+	},
 	// The checker (standalone-observability D9). No `external`: it imports
 	// nothing outside Node's standard library, which is what lets its runtime
 	// image install no packages at all.

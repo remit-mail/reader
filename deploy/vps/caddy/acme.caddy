@@ -3,7 +3,13 @@
 # reachable from the internet, and PUBLIC_ORIGIN's host must resolve in public
 # DNS to this box. PUBLIC_ORIGIN must be https://…
 import /etc/caddy/routes.caddy
+import /etc/caddy/mcp.caddy
 
 {$PUBLIC_ORIGIN} {
 	import routes
+}
+
+# The MCP connector's own host (mcp.caddy).
+{$MCP_PUBLIC_ORIGIN} {
+	import mcp_proxy
 }

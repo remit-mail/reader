@@ -329,6 +329,20 @@ COPY --from=builder --chown=node:node /app/dist-docker/doctor/check.mjs ./check.
 CMD ["node", "server.mjs"]
 
 ########################################################################
+# mcp-server — the MCP connector (remit-mail/remit#1342): its OAuth
+# authorization server and /mcp, answering on MCP_PUBLIC_ORIGIN. Runs only
+# under the `mcp` compose profile. better-sqlite3 is its one native dependency,
+# installed by node-service-installed like the other sqlite images.
+########################################################################
+FROM node-service-installed AS mcp-server
+COPY --from=builder --chown=node:node /app/dist-docker/mcp-server/server.mjs ./server.mjs
+ENV MCP_PORT=8080
+EXPOSE 8080
+HEALTHCHECK --interval=5s --timeout=5s --retries=10 --start-period=30s \
+	CMD ["node", "-e", "require('http').get('http://127.0.0.1:8080/.well-known/oauth-protected-resource',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+CMD ["node", "server.mjs"]
+
+########################################################################
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
 FROM docker.io/apache/apisix:3.13.0-debian AS apisix

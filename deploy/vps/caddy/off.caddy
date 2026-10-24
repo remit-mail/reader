@@ -2,7 +2,10 @@
 # Reach this over a private network (a tailnet, a VPN, an SSH tunnel); there
 # is no TLS here. PUBLIC_ORIGIN must be http://…
 import /etc/caddy/routes.caddy
+import /etc/caddy/mcp.caddy
 
 :80 {
+	# The MCP connector's host first (mcp.caddy), ahead of the catch-all.
+	import mcp_route
 	import routes
 }
