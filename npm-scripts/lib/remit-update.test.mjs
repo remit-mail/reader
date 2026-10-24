@@ -2887,6 +2887,24 @@ describe("remit status", () => {
 		assert.match(status.stdout, /Updates:\s+up to date/);
 		assert.match(status.stdout, /Update:\s+succeeded/);
 	});
+
+	// reader#1420. The migrate one-shot splits an old single remit.db only while
+	// app.db is empty; one left beside an app.db with data may hold mail state
+	// the instance never received, and only the operator can decide what it is.
+	it("says so when an old remit.db was not split into an app.db with data", () => {
+		const box = sandbox({ realDb: true, scenario: { probe: "ok" } });
+		writeFileSync(join(box.sqlite, "remit.db"), "the single database file");
+		const status = box.run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.match(status.stdout, /Database:\s+remit\.db was not split/);
+	});
+
+	it("says nothing about remit.db once it is split", () => {
+		const box = sandbox({ realDb: true, scenario: { probe: "ok" } });
+		const status = box.run(["status"]);
+		assert.equal(status.status, 0, status.stderr);
+		assert.ok(!status.stdout.includes("Database:"), status.stdout);
+	});
 });
 
 // reader#573. install.sh's first update is the only one that runs in the

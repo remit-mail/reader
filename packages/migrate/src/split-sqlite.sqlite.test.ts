@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	renameSync,
+	rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
@@ -294,5 +300,37 @@ describe("the migrate one-shot on a single-file install", () => {
 	test("does nothing on the next run", () => {
 		assert.equal(second.kind, "absent");
 		assert.equal(count(paths.app, "account_config"), 1);
+	});
+
+	test("splits again after dying before app.db was moved into place", async () => {
+		renameSync(paths.app, `${paths.app}.splitting`);
+		renameSync(`${source}.pre-split`, source);
+
+		const redo = await migrate();
+
+		assert.equal(redo.kind, "split");
+		assert.equal(count(paths.app, "account_config"), 1);
+		assert.equal(count(paths.mail, "outbox_message"), 1);
+		assert.deepEqual(readdirSync(dir).sort(), [
+			"app.db",
+			"mail.db",
+			"remit.db.pre-split",
+			"search.db",
+		]);
+	});
+
+	test("fails at once while an old backend holds the source", async () => {
+		rmSync(paths.app);
+		renameSync(`${source}.pre-split`, source);
+		const oldBackend = new Database(source);
+		oldBackend.exec("BEGIN IMMEDIATE");
+		try {
+			await assert.rejects(migrate(), /locked|busy/i);
+		} finally {
+			oldBackend.exec("ROLLBACK");
+			oldBackend.close();
+		}
+		assert.equal(existsSync(source), true);
+		assert.equal(existsSync(paths.app), false);
 	});
 });

@@ -224,6 +224,11 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		if (mode.kind === "split" && outcome.kind === "absent") {
 			throw new Error(`--split-from: ${source} does not exist`);
 		}
+		if (mode.kind === "split" && outcome.kind === "superseded") {
+			throw new Error(
+				`--split-from: ${paths.app} already holds data, so ${source} was not split into it`,
+			);
+		}
 		reportLegacySplit(source, outcome);
 	}
 

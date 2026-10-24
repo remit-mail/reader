@@ -997,6 +997,21 @@ report_reachability() {
 	printf 'Serving:   %s\n' "$(serve_probe "$_origin")"
 }
 
+# The migrate one-shot splits an old single remit.db into the three databases
+# only while app.db holds nothing (#1420). Both present means it declined: the
+# old file may hold data the running instance never received, and only an
+# operator can decide what it is. Same three answers as deployment_data_state.
+report_unsplit_database() {
+	_ud=0
+	volume_run "if [ -f /data/sqlite/remit.db ] && [ -s /data/sqlite/app.db ]; then exit 0; fi
+exit 3" >/dev/null 2>&1 || _ud=$?
+	case "$_ud" in
+	0) printf 'Database:  remit.db was not split, because app.db already held data. It may hold data this instance does not have; check it, then move it aside.\n' ;;
+	3) ;;
+	*) printf 'Database:  unknown — the database volume (%s) could not be read\n' "$(sqlite_volume)" ;;
+	esac
+}
+
 cmd_status() {
 	require_deployment
 	[ $# -eq 0 ] || die "status: unknown argument '$1' — status takes no arguments"
@@ -1013,6 +1028,7 @@ cmd_status() {
 		report_check "$UPDATE_CHECK_JSON"
 		report_last_run "$UPDATE_RUN_JSON"
 	fi
+	report_unsplit_database
 	printf '\n'
 	compose ps
 }
