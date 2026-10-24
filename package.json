@@ -10,7 +10,7 @@
     "doc/*"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=24"
   },
   "scripts": {
     "postinstall": "patch-package --error-on-fail --error-on-warn",
