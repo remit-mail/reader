@@ -4,8 +4,9 @@ import type { AccountSettingItem, MailboxItem } from "@remit/data-ports";
 import { isPublicApiError } from "@remit/data-ports/errors";
 import { composeFolderRoleAppointmentLabelName } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
+import { settledFolder } from "@remit/mailbox-service";
+import { unwrap } from "../service/refusal.js";
 import { refreshFolderAppointmentLabels } from "./folder-role-labels.js";
-import { assertMailboxSettled } from "./mailbox.js";
 
 const mailbox = (over: Partial<MailboxItem>): MailboxItem =>
 	({
@@ -14,6 +15,9 @@ const mailbox = (over: Partial<MailboxItem>): MailboxItem =>
 		hierarchyDelimiter: "/",
 		...over,
 	}) as unknown as MailboxItem;
+
+const unwrapSettled = (target: MailboxItem): MailboxItem =>
+	unwrap(settledFolder(target));
 
 const caught = (run: () => void): unknown => {
 	let thrown: unknown;
@@ -30,24 +34,24 @@ const publicErrorOf = (error: unknown) => {
 	return isPublicApiError(publicApiError) ? publicApiError : undefined;
 };
 
-describe("assertMailboxSettled", () => {
+describe("an unsettled folder refused over REST", () => {
 	it("refuses a folder the mail server has not created yet", () => {
 		const error = caught(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.pending })),
+			unwrapSettled(mailbox({ syncStatus: MailboxSyncStatus.pending })),
 		);
 		assert.equal(publicErrorOf(error)?.code, "mailbox_not_settled");
 	});
 
 	it("refuses a folder on its way out", () => {
 		const error = caught(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.deleting })),
+			unwrapSettled(mailbox({ syncStatus: MailboxSyncStatus.deleting })),
 		);
 		assert.equal(publicErrorOf(error)?.code, "mailbox_not_settled");
 	});
 
 	it("carries the mailbox and its state, so the client words a wait", () => {
 		const error = caught(() =>
-			assertMailboxSettled(
+			unwrapSettled(
 				mailbox({ mailboxId: "mb-9", syncStatus: MailboxSyncStatus.pending }),
 			),
 		);
@@ -63,7 +67,7 @@ describe("assertMailboxSettled", () => {
 		// folder mid-mutation — and the user has a retry or a dismissal to make
 		// before anything should point at it.
 		const error = caught(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.failed })),
+			unwrapSettled(mailbox({ syncStatus: MailboxSyncStatus.failed })),
 		);
 		assert.equal(publicErrorOf(error)?.code, "mailbox_not_settled");
 	});
@@ -73,15 +77,14 @@ describe("assertMailboxSettled", () => {
 		// This means "the folder you are pointing at has not settled yet", which
 		// is different copy and a different remedy (D4).
 		const error = caught(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.pending })),
+			unwrapSettled(mailbox({ syncStatus: MailboxSyncStatus.pending })),
 		);
 		assert.equal((error as { statusCode?: number }).statusCode, 422);
 	});
 
 	it("words each state differently, because each has its own remedy", () => {
 		const messageFor = (syncStatus: MailboxItem["syncStatus"]) =>
-			(caught(() => assertMailboxSettled(mailbox({ syncStatus }))) as Error)
-				.message;
+			(caught(() => unwrapSettled(mailbox({ syncStatus }))) as Error).message;
 
 		assert.match(messageFor(MailboxSyncStatus.pending), /hasn.t confirmed it/);
 		assert.match(messageFor(MailboxSyncStatus.deleting), /being deleted/);
@@ -90,7 +93,7 @@ describe("assertMailboxSettled", () => {
 
 	it("allows a settled folder", () => {
 		assert.doesNotThrow(() =>
-			assertMailboxSettled(mailbox({ syncStatus: MailboxSyncStatus.synced })),
+			unwrapSettled(mailbox({ syncStatus: MailboxSyncStatus.synced })),
 		);
 	});
 });

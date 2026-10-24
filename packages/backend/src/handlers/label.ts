@@ -9,15 +9,16 @@ import type {
 	LabelItem,
 	UpdateLabelInput,
 } from "@remit/data-ports";
+import { ownedAccount } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
+import { unwrap } from "../service/refusal.js";
 import type {
 	LabelDetailOperationIds,
 	LabelOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 
 /**
  * Minimal label-service surface the CRUD handlers need — declared as a `Pick`
@@ -111,7 +112,7 @@ export const LabelOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "read");
+		unwrap(ownedAccount(account, accountConfigId, "read"));
 
 		const page = await client.label.listPageByAccountConfig(accountConfigId, {
 			continuationToken,
@@ -142,7 +143,7 @@ export const LabelOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
+		unwrap(ownedAccount(account, accountConfigId, "act"));
 
 		const label = await client.label.create({
 			accountConfigId,
@@ -167,7 +168,7 @@ export const LabelDetailOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "read");
+		unwrap(ownedAccount(account, accountConfigId, "read"));
 
 		const label = await client.label.get(accountConfigId, labelId);
 		const filters = await findFiltersForLabel(client, accountConfigId, labelId);
@@ -185,7 +186,7 @@ export const LabelDetailOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
+		unwrap(ownedAccount(account, accountConfigId, "act"));
 
 		const updated = await client.label.update(accountConfigId, labelId, body);
 		const filters = await findFiltersForLabel(client, accountConfigId, labelId);
@@ -202,7 +203,7 @@ export const LabelDetailOperations: Record<
 
 		const client = await getClient();
 		const account = await client.account.get(accountId);
-		assertAccountOwnership(account, accountConfigId, "act");
+		unwrap(ownedAccount(account, accountConfigId, "act"));
 
 		await deleteLabelWithCascade(client, accountConfigId, labelId);
 		return { statusCode: 204 };

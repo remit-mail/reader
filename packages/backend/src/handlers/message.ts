@@ -5,10 +5,8 @@ import type {
 } from "@remit/api-openapi-types";
 import type { MailboxItem } from "@remit/data-ports";
 import {
-	BadRequestError,
 	ForbiddenError,
 	MessagePlacementUnsettledError,
-	NotFoundError,
 	UnrecoverableBodyError,
 } from "@remit/data-ports/errors";
 import { isEncapsulatedMessage } from "@remit/data-ports/message-parts";
@@ -25,12 +23,12 @@ import {
 	isCursorRebuildNeeded,
 	isMessageBodySyncBroken,
 	MailboxCursorPausedError,
-	type MessageOwnershipClient,
 	MoveNotSettledError,
 	materializeBodyParts,
 	NoJunkMailboxError,
+	ownedMessages,
 	resolveFolderPlacement,
-	resolveMessageOwnership,
+	settledFolder,
 } from "@remit/mailbox-service";
 import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
@@ -50,33 +48,14 @@ import {
 } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
 import { getClient } from "../service/data-client.js";
+import { unwrap } from "../service/refusal.js";
 import type {
 	MessageBulkOperationIds,
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
-import { assertMailboxSettled } from "./mailbox.js";
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
-
-export const assertMessagesOwned = async (
-	client: MessageOwnershipClient,
-	messageIds: string[],
-	callerAccountConfigId: string,
-	mode: "read" | "act",
-): Promise<string> => {
-	const ownership = await resolveMessageOwnership(
-		client,
-		messageIds,
-		callerAccountConfigId,
-	);
-	if (ownership.outcome === "Owned") return ownership.accountId;
-	if (ownership.outcome === "MixedAccounts") {
-		throw new BadRequestError("All messages must belong to the same account");
-	}
-	if (mode === "read") throw new NotFoundError("Message not found");
-	throw new ForbiddenError("Message not in account config");
-};
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
 	isStorageNotFoundErrorFromService(error);
@@ -316,11 +295,8 @@ export const MessageOperations: Record<
 		const accountConfigId = getAccountConfigIdFromEvent(event);
 		const { messageId } = context.request.params as { messageId: string };
 		const client = await getClient();
-		const ownedAccountId = await assertMessagesOwned(
-			client,
-			[messageId],
-			accountConfigId,
-			"read",
+		const ownedAccountId = unwrap(
+			await ownedMessages(client, [messageId], accountConfigId, "read"),
 		);
 		const description = await client.message.describe(messageId);
 
@@ -597,11 +573,8 @@ export const MessageOperations: Record<
 		// so resolve the owning account and prove the caller owns it BEFORE any
 		// storage read or backfill. `read` mode throws NotFoundError (→ 404) on a
 		// foreign message and never leaks the owner's accountConfigId.
-		const accountId = await assertMessagesOwned(
-			client,
-			[messageId],
-			accountConfigId,
-			"read",
+		const accountId = unwrap(
+			await ownedMessages(client, [messageId], accountConfigId, "read"),
 		);
 
 		// Resolve the message row for its mailboxId / bodyStorageKey.
@@ -696,11 +669,8 @@ export const MessageOperations: Record<
 		};
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			[messageId],
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, [messageId], accountConfigId, "act"),
 		);
 
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS event
@@ -743,11 +713,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
 		// FlagQueueService handles: MessageFlag + ThreadMessage updates + SQS events
@@ -784,11 +751,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
@@ -826,11 +790,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
 		// Destination must belong to the same (caller-owned) account, and must be
@@ -846,7 +807,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
-		assertMailboxSettled(destination);
+		unwrap(settledFolder(destination));
 
 		// MessageMoveService handles: Message + ThreadMessage updates + SQS events
 		await client.messageMove.moveMessages(
@@ -876,11 +837,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
 		// Destination must belong to the same (caller-owned) account, and must be
@@ -896,7 +854,7 @@ export const MessageBulkOperations: Record<
 				`Destination mailbox ${destinationMailboxId} not in account`,
 			);
 		}
-		assertMailboxSettled(destination);
+		unwrap(settledFolder(destination));
 
 		// MessageMoveService handles: Message copies + ThreadMessage creation + SQS events
 		await client.messageMove.copyMessages(
@@ -929,7 +887,7 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		await assertMessagesOwned(client, messageIds, accountConfigId, "act");
+		unwrap(await ownedMessages(client, messageIds, accountConfigId, "act"));
 
 		// Scoped by accountConfigId (RFC 030) — a foreign labelId 404s here rather
 		// than silently applying to messages under someone else's label.
@@ -970,11 +928,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 		const setBy = getSubFromEvent(event) ?? accountConfigId;
 
@@ -1001,11 +956,8 @@ export const MessageBulkOperations: Record<
 		}
 
 		const client = await getClient();
-		const accountId = await assertMessagesOwned(
-			client,
-			messageIds,
-			accountConfigId,
-			"act",
+		const accountId = unwrap(
+			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
 
 		return settleSpamReportBulk(messageIds, (messageId) =>

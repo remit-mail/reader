@@ -2,19 +2,23 @@ import type {
 	AppointFolderRoleInput,
 	CanonicalMailboxRole,
 } from "@remit/api-openapi-types";
+import {
+	folderInAccount,
+	ownedAccount,
+	settledFolder,
+} from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getClient } from "../service/data-client.js";
+import { unwrap } from "../service/refusal.js";
 import type { FolderRoleOperationIds, OperationHandler } from "../types.js";
 import { toAccountResponse } from "./account-guards.js";
 import { loadAccountOverrides } from "./account-overrides.js";
-import { assertAccountOwnership } from "./account-ownership.js";
 import { loadSignatureForAccount } from "./account-signature.js";
 import {
 	resolveAccountFolderAppointments,
 	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
-import { assertMailboxInAccount, assertMailboxSettled } from "./mailbox.js";
 
 /**
  * RFC 032 exclusive-folder-appointment (#976): the single write operation for
@@ -41,13 +45,13 @@ export const FolderRoleOperations: Record<
 
 		const { account, accountSetting, mailbox } = await getClient();
 		const existing = await account.get(accountId);
-		assertAccountOwnership(existing, accountConfigId, "act");
+		unwrap(ownedAccount(existing, accountConfigId, "act"));
 
 		let lastKnownPath: string | undefined;
 		if (body.mailboxId) {
 			const target = await mailbox.get(accountId, body.mailboxId);
-			assertMailboxInAccount(target, accountId, "act");
-			assertMailboxSettled(target);
+			unwrap(folderInAccount(target, accountId, "act"));
+			unwrap(settledFolder(target));
 			lastKnownPath = target.fullPath;
 		}
 

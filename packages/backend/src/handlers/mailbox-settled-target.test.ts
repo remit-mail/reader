@@ -13,6 +13,7 @@ import { afterEach, describe, it, mock } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
+import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import {
@@ -20,7 +21,6 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { sqsClient } from "../service/sqs.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import { MessageBulkOperations } from "./message.js";
@@ -58,7 +58,7 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 	const row = target(syncStatus);
 	process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
 		"http://localhost:9324/queue/account-fanout-test";
-	mock.method(sqsClient, "send", async () => ({}));
+	captureQueue();
 
 	setClient({
 		account: {
