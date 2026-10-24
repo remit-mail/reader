@@ -553,7 +553,7 @@ services:
   # <origin>` adds `mcp` to COMPOSE_PROFILES and sets MCP_PUBLIC_ORIGIN; Caddy
   # sends that origin's host here (caddy/mcp.caddy). It reads the shared SQLite
   # file and storage, and queues work on the same queues as the backend: the
-  # SQS_QUEUE_URL* values reach it from .env through env_file, as they reach
+  # SQS_QUEUE_URL* values reach it from .env the same way they reach
   # the backend.
   #
   # MCP_PUBLIC_ORIGIN and MCP_AUTH_SECRET are not `:?`-guarded, for the reason

@@ -4,7 +4,8 @@ import { McpErrorNotice } from "./mcp-error-notice.js";
 import { mcpErrorFixture } from "./mcp-fixtures.js";
 
 const meta: Meta<typeof McpErrorNotice> = {
-	title: "MCP/McpErrorNotice",
+	title: "Playground/Proposed/MCP/McpErrorNotice",
+	tags: ["proposed"],
 	component: McpErrorNotice,
 	parameters: { layout: "padded" },
 	decorators: [

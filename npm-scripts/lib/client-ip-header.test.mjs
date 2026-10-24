@@ -23,9 +23,7 @@ const CADDY_DIR = join(ROOT, "deploy", "vps", "caddy");
 // modes of their own.
 const MODE_FILES = readdirSync(CADDY_DIR).filter(
 	(name) =>
-		name.endsWith(".caddy") &&
-		name !== "routes.caddy" &&
-		name !== "mcp.caddy",
+		name.endsWith(".caddy") && name !== "routes.caddy" && name !== "mcp.caddy",
 );
 
 const ROUTES = readFileSync(join(CADDY_DIR, "routes.caddy"), "utf8");

@@ -3,7 +3,8 @@ import { mcpPermissionsFixture } from "./mcp-fixtures.js";
 import { McpPermissionList } from "./mcp-permission-list.js";
 
 const meta: Meta<typeof McpPermissionList> = {
-	title: "MCP/McpPermissionList",
+	title: "Playground/Proposed/MCP/McpPermissionList",
+	tags: ["proposed"],
 	component: McpPermissionList,
 	parameters: { layout: "padded" },
 };

@@ -4,7 +4,8 @@ import { McpConsentPage } from "./mcp-consent-page.js";
 import { mcpPermissionsFixture } from "./mcp-fixtures.js";
 
 const meta: Meta<typeof McpConsentPage> = {
-	title: "MCP/McpConsentPage",
+	title: "Playground/Proposed/MCP/McpConsentPage",
+	tags: ["proposed"],
 	component: McpConsentPage,
 	parameters: { layout: "fullscreen" },
 	args: { clientName: "Claude", oauthQuery: "client_id=abc&sig=xyz" },

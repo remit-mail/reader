@@ -4,7 +4,8 @@ import { McpDevicePage } from "./mcp-device-page.js";
 import { mcpErrorFixture } from "./mcp-fixtures.js";
 
 const meta: Meta<typeof McpDevicePage> = {
-	title: "MCP/McpDevicePage",
+	title: "Playground/Proposed/MCP/McpDevicePage",
+	tags: ["proposed"],
 	component: McpDevicePage,
 	parameters: { layout: "fullscreen" },
 };

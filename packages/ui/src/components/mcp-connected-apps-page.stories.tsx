@@ -4,7 +4,8 @@ import { McpConnectedAppsPage } from "./mcp-connected-apps-page.js";
 import { mcpErrorFixture, mcpPermissionsFixture } from "./mcp-fixtures.js";
 
 const meta: Meta<typeof McpConnectedAppsPage> = {
-	title: "MCP/McpConnectedAppsPage",
+	title: "Playground/Proposed/MCP/McpConnectedAppsPage",
+	tags: ["proposed"],
 	component: McpConnectedAppsPage,
 	parameters: { layout: "fullscreen" },
 };

@@ -591,6 +591,7 @@ describe("the stand-in's service list is the compose file's", () => {
 				...COMPOSE_ALWAYS_ON,
 				"backup",
 				"dozzle",
+				"mcp",
 				"tunnel",
 				"victoriametrics",
 			].sort(),

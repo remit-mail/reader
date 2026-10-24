@@ -3,7 +3,8 @@ import { McpErrorPage } from "./mcp-error-page.js";
 import { mcpErrorFixture } from "./mcp-fixtures.js";
 
 const meta: Meta<typeof McpErrorPage> = {
-	title: "MCP/McpErrorPage",
+	title: "Playground/Proposed/MCP/McpErrorPage",
+	tags: ["proposed"],
 	component: McpErrorPage,
 	parameters: { layout: "fullscreen" },
 };

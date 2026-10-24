@@ -2,7 +2,8 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { McpPage } from "./mcp-page.js";
 
 const meta: Meta<typeof McpPage> = {
-	title: "MCP/McpPage",
+	title: "Playground/Proposed/MCP/McpPage",
+	tags: ["proposed"],
 	component: McpPage,
 	parameters: { layout: "fullscreen" },
 };

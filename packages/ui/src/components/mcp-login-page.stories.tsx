@@ -4,7 +4,8 @@ import { mcpErrorFixture } from "./mcp-fixtures.js";
 import { McpLoginPage } from "./mcp-login-page.js";
 
 const meta: Meta<typeof McpLoginPage> = {
-	title: "MCP/McpLoginPage",
+	title: "Playground/Proposed/MCP/McpLoginPage",
+	tags: ["proposed"],
 	component: McpLoginPage,
 	parameters: { layout: "fullscreen" },
 	args: { hiddenFields: { oauth_query: "client_id=abc&sig=xyz" } },
