@@ -104,4 +104,6 @@ export const auth_jwks = sqliteTable("auth_jwks", {
 	privateKey: text("private_key").notNull(),
 	createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 	expiresAt: integer("expires_at", { mode: "timestamp" }),
+	alg: text("alg"),
+	crv: text("crv"),
 });
