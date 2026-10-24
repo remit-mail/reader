@@ -1,13 +1,11 @@
 import { CLIENT_IP_HEADER } from "@remit/auth-service";
 import { extractBearerToken } from "@remit/auth-service/verifier";
-import { APIError } from "better-auth/api";
 import {
 	AUTH_BASE_PATH,
-	authServerMetadataHandler,
 	CONSENT_PATH,
 	LOGIN_PATH,
 	MCP_PATH,
-	type McpAuth,
+	type McpAuthRoutes,
 	mcpResource,
 	SIGN_IN_PATH,
 } from "./auth/authorization-server.js";
@@ -15,14 +13,20 @@ import { consentPage, errorPage, loginPage } from "./auth/pages.js";
 import { MCP_SCOPES } from "./auth/scopes.js";
 import type { TokenVerifier } from "./auth/token-verifier.js";
 import type { McpDeps } from "./deps.js";
-import { createMcpHandler, type McpRequestHandler } from "./server.js";
+import { createMcpHandler } from "./server.js";
 
 export interface McpAppConfig {
 	origin: string;
-	auth: McpAuth;
+	authRoutes: McpAuthRoutes;
 	verifier: TokenVerifier;
 	deps: McpDeps;
+	trustedProxies: ReadonlySet<string>;
 }
+
+export type McpAppHandler = (
+	request: Request,
+	peerAddress: string | undefined,
+) => Promise<Response>;
 
 const PROTECTED_RESOURCE_METADATA_PATH =
 	"/.well-known/oauth-protected-resource";
@@ -61,10 +65,11 @@ const redirectWithCookies = (location: string, from: Response): Response => {
 
 export const createMcpApp = ({
 	origin,
-	auth,
+	authRoutes,
 	verifier,
 	deps,
-}: McpAppConfig): McpRequestHandler => {
+	trustedProxies,
+}: McpAppConfig): McpAppHandler => {
 	const resource = mcpResource(origin);
 	const resourceMetadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${MCP_PATH}`;
 	const challenge = (error?: string): Response =>
@@ -80,7 +85,20 @@ export const createMcpApp = ({
 				].join(""),
 			},
 		});
-	const authServerMetadata = authServerMetadataHandler(auth);
+	const withClientIp = (
+		request: Request,
+		peerAddress: string | undefined,
+	): Request => {
+		const forwarded = request.headers.get(CLIENT_IP_HEADER);
+		const clientIp =
+			forwarded && peerAddress && trustedProxies.has(peerAddress)
+				? forwarded
+				: peerAddress;
+		const headers = new Headers(request.headers);
+		headers.delete(CLIENT_IP_HEADER);
+		if (clientIp) headers.set(CLIENT_IP_HEADER, clientIp);
+		return new Request(request, { headers });
+	};
 
 	const callAuth = (
 		request: Request,
@@ -95,7 +113,7 @@ export const createMcpApp = ({
 			const value = request.headers.get(name);
 			if (value !== null) headers.set(name, value);
 		}
-		return auth.handler(
+		return authRoutes.handle(
 			new Request(`${origin}${AUTH_BASE_PATH}${path}`, {
 				method: "POST",
 				headers,
@@ -142,21 +160,24 @@ export const createMcpApp = ({
 			const scopes = (url.searchParams.get("scope") ?? "")
 				.split(" ")
 				.filter((scope) => scope.length > 0);
-			const client = await auth.api
-				.getOAuthClientPublic({
-					query: { client_id: clientId },
-					headers: request.headers,
-				})
-				.catch((error: unknown) => {
-					if (error instanceof APIError) return undefined;
-					throw error;
-				});
-			if (!client) {
+			const response = await authRoutes.handle(
+				new Request(
+					`${origin}${AUTH_BASE_PATH}/oauth2/public-client?${new URLSearchParams({ client_id: clientId })}`,
+					{
+						headers: {
+							accept: "application/json",
+							cookie: request.headers.get("cookie") ?? "",
+						},
+					},
+				),
+			);
+			if (!response.ok) {
 				return errorPage("Sign in again from your MCP client.", 400);
 			}
+			const client = (await response.json()) as { client_name?: unknown };
 			return consentPage(
 				url.search.slice(1),
-				client.client_name ?? clientId,
+				typeof client.client_name === "string" ? client.client_name : clientId,
 				scopes,
 			);
 		}
@@ -179,10 +200,11 @@ export const createMcpApp = ({
 		return createMcpHandler(verification.principal, deps)(request);
 	};
 
-	return async (request) => {
+	return async (incoming, peerAddress) => {
+		const request = withClientIp(incoming, peerAddress);
 		const { pathname } = new URL(request.url);
 		if (pathname === "/.well-known/oauth-authorization-server") {
-			return authServerMetadata(request);
+			return authRoutes.serverMetadata(request);
 		}
 		if (
 			pathname === resourceMetadataPath ||
@@ -198,7 +220,6 @@ export const createMcpApp = ({
 		if (pathname === MCP_PATH) return serveMcp(request);
 		if (pathname === LOGIN_PATH) return login(request);
 		if (pathname === CONSENT_PATH) return consent(request);
-		if (pathname.startsWith(`${AUTH_BASE_PATH}/`)) return auth.handler(request);
-		return new Response("Not found", { status: 404 });
+		return authRoutes.handle(request);
 	};
 };

@@ -17,21 +17,25 @@ import {
 	APIError,
 	createAuthEndpoint,
 	createAuthMiddleware,
+	isAPIError,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { z } from "zod";
+import { refuseSharedTableWrites } from "./database.js";
+import { checkRemitPassword } from "./remit-password.js";
 import * as mcpTables from "./schema.js";
 import { MCP_SCOPES, OFFLINE_ACCESS_SCOPE } from "./scopes.js";
 import type { TokenVerifier } from "./token-verifier.js";
-import type { UserAuthenticator } from "./user-authenticator.js";
 
 export const AUTH_BASE_PATH = "/auth";
 export const LOGIN_PATH = "/login";
 export const CONSENT_PATH = "/consent";
 export const MCP_PATH = "/mcp";
 export const SIGN_IN_PATH = "/mcp/sign-in";
+export const JWKS_PATH = "/jwks";
+export const OAUTH2_PATH_PREFIX = "/oauth2/";
 
 export const ALLOWED_REDIRECT_URIS = [
 	"https://claude.ai/api/mcp/auth_callback",
@@ -57,7 +61,6 @@ export interface McpAuthConfig {
 	origin: string;
 	secret: string;
 	db: BetterSQLite3Database;
-	users: UserAuthenticator;
 }
 
 export const mcpResource = (origin: string): string => `${origin}${MCP_PATH}`;
@@ -94,8 +97,14 @@ const redirectUrisOf = (body: unknown): unknown[] => {
 	return Array.isArray(uris) ? uris : [];
 };
 
+const hasResource = (fields: unknown): boolean =>
+	typeof fields === "object" &&
+	fields !== null &&
+	(fields as { resource?: unknown }).resource !== undefined;
+
 const remitMcpBridge = (
-	users: UserAuthenticator,
+	db: BetterSQLite3Database,
+	resource: string,
 	oauthOptions: OAuthOptions<Scope[]>,
 ) =>
 	({
@@ -112,14 +121,18 @@ const remitMcpBridge = (
 					}),
 				},
 				async (ctx) => {
-					const result = await users.authenticate(ctx.body);
+					const result = await checkRemitPassword(
+						db,
+						ctx.body.email,
+						ctx.body.password,
+					);
 					if (!result.ok) {
 						throw new APIError("UNAUTHORIZED", {
 							message: "Invalid email or password",
 						});
 					}
 					const user = await ctx.context.internalAdapter.findUserById(
-						result.user.id,
+						result.userId,
 					);
 					if (!user) {
 						throw new APIError("UNAUTHORIZED", {
@@ -152,6 +165,20 @@ const remitMcpBridge = (
 		hooks: {
 			before: [
 				{
+					matcher: (ctx) =>
+						ctx.path === "/oauth2/authorize" && !hasResource(ctx.query),
+					handler: createAuthMiddleware(async (ctx) => ({
+						context: { query: { ...ctx.query, resource } },
+					})),
+				},
+				{
+					matcher: (ctx) =>
+						ctx.path === "/oauth2/token" && !hasResource(ctx.body),
+					handler: createAuthMiddleware(async (ctx) => ({
+						context: { body: { ...ctx.body, resource } },
+					})),
+				},
+				{
 					matcher: (ctx) => ctx.path === "/oauth2/register",
 					handler: createAuthMiddleware(async (ctx) => {
 						const uris = redirectUrisOf(ctx.body);
@@ -171,7 +198,7 @@ const remitMcpBridge = (
 	}) satisfies BetterAuthPlugin;
 
 export const buildMcpAuthOptions = (
-	config: Omit<McpAuthConfig, "db">,
+	config: McpAuthConfig,
 	database: BetterAuthOptions["database"],
 ) => {
 	const oauthOptions = buildOAuthOptions(config.origin);
@@ -201,7 +228,7 @@ export const buildMcpAuthOptions = (
 				jwt: { issuer: config.origin, audience: mcpResource(config.origin) },
 			}),
 			oauthProvider(oauthOptions),
-			remitMcpBridge(config.users, oauthOptions),
+			remitMcpBridge(config.db, mcpResource(config.origin), oauthOptions),
 		],
 	} satisfies BetterAuthOptions;
 };
@@ -210,7 +237,7 @@ export const createMcpAuth = (config: McpAuthConfig) =>
 	betterAuth(
 		buildMcpAuthOptions(
 			config,
-			drizzleAdapter(config.db, {
+			drizzleAdapter(refuseSharedTableWrites(config.db), {
 				provider: "sqlite",
 				schema: { ...mcpTables, auth_user, auth_account },
 			}),
@@ -219,10 +246,29 @@ export const createMcpAuth = (config: McpAuthConfig) =>
 
 export type McpAuth = ReturnType<typeof createMcpAuth>;
 
-export const authServerMetadataHandler = (
-	auth: McpAuth,
-): ((request: Request) => Promise<Response>) =>
-	oauthProviderAuthServerMetadata(auth);
+export interface McpAuthRoutes {
+	handle(request: Request): Promise<Response>;
+	serverMetadata(request: Request): Promise<Response>;
+}
+
+const isServedAuthPath = (path: string): boolean =>
+	path.startsWith(OAUTH2_PATH_PREFIX) ||
+	path === SIGN_IN_PATH ||
+	path === JWKS_PATH;
+
+export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
+	handle: async (request) => {
+		const { pathname } = new URL(request.url);
+		if (!pathname.startsWith(AUTH_BASE_PATH)) {
+			return new Response("Not found", { status: 404 });
+		}
+		if (!isServedAuthPath(pathname.slice(AUTH_BASE_PATH.length))) {
+			return new Response("Not found", { status: 404 });
+		}
+		return auth.handler(request);
+	},
+	serverMetadata: oauthProviderAuthServerMetadata(auth),
+});
 
 const audienceOf = (aud: unknown): string[] => {
 	if (typeof aud === "string") return [aud];
@@ -240,7 +286,7 @@ export const createBetterAuthTokenVerifier = (
 		const payload = await auth.api
 			.remitMcpVerifyAccessToken({ body: { token: bearer } })
 			.catch((error: unknown) => {
-				if (error instanceof APIError) return undefined;
+				if (isAPIError(error)) return undefined;
 				throw error;
 			});
 		if (!payload) return { ok: false, reason: "invalid_token" };

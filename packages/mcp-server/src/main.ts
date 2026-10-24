@@ -1,4 +1,8 @@
-import { serve } from "@hono/node-server";
+import {
+	type Http2Bindings,
+	type HttpBindings,
+	serve,
+} from "@hono/node-server";
 import {
 	createSqliteDatabase,
 	createSqliteRepositories,
@@ -15,9 +19,9 @@ import { createMcpApp } from "./app.js";
 import {
 	createBetterAuthTokenVerifier,
 	createMcpAuth,
+	createMcpAuthRoutes,
 } from "./auth/authorization-server.js";
-import { openMcpAuthDatabases } from "./auth/database.js";
-import { createRemitPasswordAuthenticator } from "./auth/user-authenticator.js";
+import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import type { McpDeps } from "./deps.js";
 
@@ -50,21 +54,22 @@ const deps: McpDeps = {
 	logger,
 };
 
-const authDatabases = openMcpAuthDatabases(config.sqliteDbPath);
 const auth = createMcpAuth({
 	origin: config.origin,
 	secret: config.secret,
-	db: authDatabases.db,
-	users: createRemitPasswordAuthenticator(authDatabases.readonlyDb),
+	db: openMcpAuthDatabase(config.sqliteDbPath).db,
+});
+const app = createMcpApp({
+	origin: config.origin,
+	authRoutes: createMcpAuthRoutes(auth),
+	verifier: createBetterAuthTokenVerifier(auth, config.origin),
+	deps,
+	trustedProxies: config.trustedProxies,
 });
 
 serve({
-	fetch: createMcpApp({
-		origin: config.origin,
-		auth,
-		verifier: createBetterAuthTokenVerifier(auth, config.origin),
-		deps,
-	}),
+	fetch: (request: Request, env: HttpBindings | Http2Bindings) =>
+		app(request, env.incoming.socket.remoteAddress),
 	hostname: "0.0.0.0",
 	port: config.port,
 });
