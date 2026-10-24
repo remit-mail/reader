@@ -253,10 +253,12 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 
 // One package failing must not abandon the rest of the run, so this reports the
 // outcome instead of throwing; the caller collects failures and exits non-zero.
+// Verbose, because npm logs a refused trusted-publishing token exchange only at
+// that level and otherwise reports it as a bare ENEEDAUTH.
 const publish = (pkgDir) => {
 	const { error, status, signal } = spawnSync(
 		"npm",
-		["publish", "--access", "public", "--provenance"],
+		["publish", "--access", "public", "--provenance", "--loglevel=verbose"],
 		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
 	);
 	if (error) return { ok: false, error: error.message };
@@ -293,6 +295,9 @@ if (dryRun) {
 		stdio: "inherit",
 	});
 }
+
+if (!dryRun)
+	console.log(`\nPublishing with npm ${run("npm", ["--version"]).trim()}\n`);
 
 const packages = [...generated, ...workspacePackages()];
 const summary = [];
