@@ -24,8 +24,14 @@ import { SearchIndex } from "../../drizzle-service/src/search/thread-message-sea
 // TypeScript over the drizzle query builder, so bundling it drags in no native
 // driver — better-sqlite3 stays external and dynamically imported below.
 import { logger } from "../../logger-lambda/src/logger.js";
+import {
+	type LegacySplitOutcome,
+	legacyDatabasePath,
+	PRE_SPLIT_SUFFIX,
+	type SqliteDriver,
+	splitLegacyDatabase,
+} from "./legacy-split.js";
 import { applyMigrationSets } from "./migration-sets.js";
-import { splitSqlite } from "./split-sqlite.js";
 
 /**
  * One-shot migrator for the VPS/self-host compose stack (RFC 035 D8). Runs
@@ -70,10 +76,9 @@ import { splitSqlite } from "./split-sqlite.js";
  * the repair would do and applies nothing at all, migrations included, so it can
  * be pointed at a live instance. `--rebuild-search` runs the full migration and
  * then rebuilds the search index from the mail database, the recovery for an
- * index that has drifted. `--split-from <path>` runs once per install, before
- * the stack first starts on this release: it migrates the three databases and
- * copies the old single file into them (#1420). Anything else is refused
- * rather than ignored —
+ * index that has drifted. `--split-from <path>` names the old single database
+ * file when it is not `remit.db` beside app.db; the split from it (#1420)
+ * otherwise runs unasked, once. Anything else is refused rather than ignored —
  * a mistyped flag that silently ran the full migration is the failure mode this
  * guards.
  */
@@ -170,6 +175,30 @@ type ParamRepairClient = DisplayNameRepairClient &
 	StrandedSentRepairClient &
 	JunkOnlyRepairClient;
 
+const reportLegacySplit = (
+	source: string,
+	outcome: LegacySplitOutcome,
+): void => {
+	if (outcome.kind === "superseded") {
+		logger.warn(
+			{ source },
+			"the old single database file was left in place: app.db already holds data",
+		);
+		return;
+	}
+	if (outcome.kind !== "split") return;
+	logStep(
+		{ copied: outcome.copied, kept: `${source}${PRE_SPLIT_SUFFIX}` },
+		"split the single database file",
+	);
+	if (Object.keys(outcome.dropped).length > 0) {
+		logger.warn(
+			{ dropped: outcome.dropped },
+			"dropped flag changes and moves not yet pushed to the mail server; the resync takes the server state",
+		);
+	}
+};
+
 const runSqlite = async (mode: Mode): Promise<void> => {
 	const paths = sqliteDatabasePathsFromEnv();
 
@@ -177,6 +206,26 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	// better-sqlite3 binding marked external (see npm-scripts/docker-bundle.mjs).
 	const { default: Database } = await import("better-sqlite3");
 	const { drizzle: sqliteDrizzle } = await import("drizzle-orm/better-sqlite3");
+	const driver: SqliteDriver = { Database, drizzle: sqliteDrizzle };
+
+	// Before any of the three files is opened: opening app.db creates it, and
+	// an app.db with data in it is what says the split already happened.
+	if (mode.kind !== "check") {
+		const source =
+			mode.kind === "split" ? mode.source : legacyDatabasePath(paths);
+		const outcome = await splitLegacyDatabase(
+			source,
+			paths,
+			driver,
+			".",
+			(database) =>
+				logStep({ database }, "applying schema migrations (sqlite)"),
+		);
+		if (mode.kind === "split" && outcome.kind === "absent") {
+			throw new Error(`--split-from: ${source} does not exist`);
+		}
+		reportLegacySplit(source, outcome);
+	}
 
 	// `--check` opens the files read-only, so "writes nothing" is enforced by
 	// the engine rather than by reading the queries — that is what makes it safe
@@ -222,22 +271,6 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			(database) =>
 				logStep({ database }, "applying schema migrations (sqlite)"),
 		);
-
-		if (mode.kind === "split") {
-			const source = new Database(mode.source, {
-				readonly: true,
-				fileMustExist: true,
-			});
-			try {
-				const copied = await splitSqlite(sqliteDrizzle(source), {
-					app,
-					mail: db,
-				});
-				logStep({ copied }, "split the single database file");
-			} finally {
-				source.close();
-			}
-		}
 
 		await displayNameStep(paramRepairClient, "repair", search);
 

@@ -1957,6 +1957,10 @@ volume_run() {
 # root-owned and every later prune failing with EACCES (reader#1071). The chown
 # runs on every snapshot, so a directory an older release created wrong is
 # repaired by the next update rather than needing an operator.
+#
+# remit.db is the single file an install from before the three databases ran
+# on (#1420). The migrate one-shot splits it and renames it aside, so on the
+# update that does that the snapshot of it is what a rollback puts back.
 snapshot_databases() {
 	volume_run "set -eu
 command -v sqlite3 >/dev/null 2>&1 || apk add --no-cache sqlite >/dev/null
@@ -1968,7 +1972,8 @@ chown 1000:1000 /state/snapshots/$1
 exec su-exec 1000:1000 sh -c '. /snapshot-db.sh
 snapshot_db /data/sqlite/app.db /state/snapshots/$1/app.db
 snapshot_db /data/sqlite/mail.db /state/snapshots/$1/mail.db
-snapshot_db /data/sqlite/search.db /state/snapshots/$1/search.db'"
+snapshot_db /data/sqlite/search.db /state/snapshots/$1/search.db
+snapshot_db /data/sqlite/remit.db /state/snapshots/$1/remit.db'"
 }
 
 # Installs nothing: a rollback must not depend on the network whose failure it
@@ -1981,14 +1986,18 @@ snapshot_db /data/sqlite/search.db /state/snapshots/$1/search.db'"
 restore_snapshot() {
 	volume_run "set -eu
 snap=/state/snapshots/$1
-if [ ! -f \"\$snap/app.db\" ]; then
+if [ ! -f \"\$snap/app.db\" ] && [ ! -f \"\$snap/remit.db\" ]; then
   echo 'the snapshot for this run is missing' >&2
   exit 1
 fi
 rm -f /data/sqlite/app.db /data/sqlite/app.db-wal /data/sqlite/app.db-shm
 rm -f /data/sqlite/mail.db /data/sqlite/mail.db-wal /data/sqlite/mail.db-shm
 rm -f /data/sqlite/search.db /data/sqlite/search.db-wal /data/sqlite/search.db-shm
-cp \"\$snap/app.db\" /data/sqlite/app.db
+if [ -f \"\$snap/remit.db\" ]; then
+  rm -f /data/sqlite/remit.db-wal /data/sqlite/remit.db-shm
+  cp \"\$snap/remit.db\" /data/sqlite/remit.db
+fi
+if [ -f \"\$snap/app.db\" ]; then cp \"\$snap/app.db\" /data/sqlite/app.db; fi
 if [ -f \"\$snap/mail.db\" ]; then cp \"\$snap/mail.db\" /data/sqlite/mail.db; fi
 if [ -f \"\$snap/search.db\" ]; then cp \"\$snap/search.db\" /data/sqlite/search.db; fi
 chown -R 1000:1000 /data/sqlite"
@@ -2572,8 +2581,9 @@ stack_is_running() {
 # stopped box can still hold every account and message on the volume. Read
 # through the same mount the snapshot binds, so both are answering for the same
 # data, and the statement read is the one the rollback depends on — a snapshot
-# without an app.db in it is what restore_snapshot refuses, so anything else
-# here would route a run into a rollback it cannot perform.
+# without an app.db or a pre-#1420 remit.db in it is what restore_snapshot
+# refuses, so anything else here would route a run into a rollback it cannot
+# perform.
 #
 # 0 is a database with bytes in it, 1 a volume without one, and 2 a probe that
 # did not run at all: no daemon, no image, a timeout. That third answer is not a
@@ -2583,7 +2593,7 @@ stack_is_running() {
 deployment_data_state() {
 	_dds=0
 	volume_run "set -eu
-if [ -s /data/sqlite/app.db ]; then exit 0; fi
+if [ -s /data/sqlite/app.db ] || [ -s /data/sqlite/remit.db ]; then exit 0; fi
 exit 3" >/dev/null 2>&1 || _dds=$?
 	case "$_dds" in
 	0) return 0 ;;

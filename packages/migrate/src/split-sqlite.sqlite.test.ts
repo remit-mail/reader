@@ -1,12 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, describe, test } from "node:test";
+import { fileURLToPath } from "node:url";
 import * as entities from "@remit/drizzle-sqlite-schema";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { applyMigrationSet } from "../../drizzle-service/src/test-shipped-sqlite-schema.js";
+import { legacyDatabasePath, splitLegacyDatabase } from "./legacy-split.js";
 import { splitSqlite } from "./split-sqlite.js";
 
 const NOW = 1_700_000_000_000;
@@ -213,24 +215,84 @@ describe("splitting the single database file", () => {
 		await assert.rejects(split(), /UNIQUE constraint failed/);
 		assert.equal(count(targets.app, "label"), 1);
 	});
+});
 
-	test("refuses a source still holding changes not yet pushed to the server", async () => {
-		const sqlite = new Database(source);
-		drizzle(sqlite)
-			.insert(entities.messageFlagPushes)
-			.values({
-				messageId: "msg-1",
-				flagName: "\\Seen",
-				accountId: "acc-1",
-				accountConfigId: "cfg-1",
-				mailboxId: "mbx-1",
-				operation: "add",
-				createdAt: NOW,
-				updatedAt: NOW,
-			})
-			.run();
-		sqlite.close();
+const seedPendingFlagPush = (path: string): void => {
+	const sqlite = new Database(path);
+	drizzle(sqlite)
+		.insert(entities.messageFlagPushes)
+		.values({
+			messageId: "msg-1",
+			flagName: "\\Seen",
+			accountId: "acc-1",
+			accountConfigId: "cfg-1",
+			mailboxId: "mbx-1",
+			operation: "add",
+			createdAt: NOW,
+			updatedAt: NOW,
+		})
+		.run();
+	sqlite.close();
+};
 
-		await assert.rejects(split(), /drain the queue first/);
+describe("the migrate one-shot on a single-file install", () => {
+	const dir = mkdtempSync(join(tmpdir(), "remit-auto-split-"));
+	const paths = {
+		app: join(dir, "app.db"),
+		mail: join(dir, "mail.db"),
+		search: join(dir, "search.db"),
+	};
+	const source = legacyDatabasePath(paths);
+	const migrationsRoot = fileURLToPath(
+		new URL("../../../deploy/vps", import.meta.url),
+	);
+	const migrate = () =>
+		splitLegacyDatabase(
+			source,
+			paths,
+			{ Database, drizzle },
+			migrationsRoot,
+			() => {},
+		);
+
+	let first: Awaited<ReturnType<typeof migrate>>;
+	let second: Awaited<ReturnType<typeof migrate>>;
+
+	before(async () => {
+		seedSource(source);
+		seedPendingFlagPush(source);
+		first = await migrate();
+		second = await migrate();
+	});
+
+	after(() => {
+		rmSync(dir, { recursive: true, force: true });
+	});
+
+	test("splits into the three databases, dropping the unpushed changes", () => {
+		assert.equal(first.kind, "split");
+		assert.deepEqual(first.kind === "split" && first.dropped, {
+			message_flag_push: 1,
+		});
+		assert.equal(count(paths.app, "account_config"), 1);
+		assert.equal(count(paths.mail, "outbox_message"), 1);
+		assert.equal(count(paths.mail, "message_flag_push"), 0);
+		assert.equal(hasTable(paths.search, "__drizzle_migrations_search"), true);
+	});
+
+	test("keeps the original as remit.db.pre-split and leaves no staging file", () => {
+		assert.equal(existsSync(source), false);
+		assert.equal(count(`${source}.pre-split`, "account_config"), 1);
+		assert.deepEqual(readdirSync(dir).sort(), [
+			"app.db",
+			"mail.db",
+			"remit.db.pre-split",
+			"search.db",
+		]);
+	});
+
+	test("does nothing on the next run", () => {
+		assert.equal(second.kind, "absent");
+		assert.equal(count(paths.app, "account_config"), 1);
 	});
 });
