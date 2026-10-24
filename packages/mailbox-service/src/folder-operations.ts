@@ -6,9 +6,10 @@ import type {
 import { isReservedFolderName } from "@remit/data-ports/folder-role";
 import { mailboxLeafName } from "@remit/data-ports/mailbox-name";
 import { MailboxSyncStatus } from "@remit/domain-enums";
+import { carriesIntent, folderInFlight } from "./mailbox-intent.js";
 import type { MailboxQueueService } from "./mailbox-queue.js";
-import { ownedAccount, settledFolder } from "./ownership.js";
-import { accept, invalid, type Refusable } from "./refusal.js";
+import { ownedAccount } from "./ownership.js";
+import { accept, invalid, type Refusable, refuse } from "./refusal.js";
 
 export interface FolderPathDeps {
 	mailbox: {
@@ -31,6 +32,18 @@ export interface NewFolder {
 	accountId: string;
 	namespaceType: MailboxItem["namespaceType"];
 	fullPath: string;
+}
+
+// AlreadyRecorded: the folder is already heading for the requested path, so
+// nothing new was recorded or queued.
+export interface FolderPathOutcome {
+	outcome: "Recorded" | "AlreadyRecorded";
+	mailbox: MailboxItem;
+}
+
+export interface NewFolderOutcome {
+	outcome: "Created" | "Existing";
+	mailbox: MailboxItem;
 }
 
 export interface FolderPathChange {
@@ -97,39 +110,52 @@ const renameTargetRefusal = async (
 export const changeFolderPath = async (
 	deps: FolderPathDeps,
 	change: FolderPathChange,
-): Promise<Refusable<MailboxItem>> => {
+): Promise<Refusable<FolderPathOutcome>> => {
 	const { accountId, mailboxId, fullPath } = change;
 	const before = await deps.mailbox.get(accountId, mailboxId);
-	if (
-		before.syncStatus === MailboxSyncStatus.pending &&
-		before.pendingPath === fullPath
-	) {
-		return accept(before);
-	}
 	if (fullPath === before.fullPath) {
-		return accept(
-			await deps.mailboxQueue.dismissMailboxIntent(mailboxId, accountId),
-		);
-	}
-	// A failed rename stays renameable: calling again is its retry.
-	if (before.syncStatus !== MailboxSyncStatus.failed) {
-		const settled = settledFolder(before);
-		if (!settled.ok) return settled;
+		return accept({
+			outcome: "Recorded",
+			mailbox: await deps.mailboxQueue.dismissMailboxIntent(
+				mailboxId,
+				accountId,
+			),
+		});
 	}
 
 	const target = await renameTargetRefusal(deps, accountId, before, fullPath);
 	if (!target.ok) return target;
 
-	return accept(
-		await deps.mailboxQueue.renameMailbox(mailboxId, fullPath, accountId),
-	);
+	if (!carriesIntent(before)) {
+		if (
+			before.syncStatus === MailboxSyncStatus.pending &&
+			before.pendingPath === fullPath
+		) {
+			return accept({ outcome: "AlreadyRecorded", mailbox: before });
+		}
+		return refuse({
+			kind: "NotSettled",
+			message: folderInFlight(before),
+			mailboxId,
+			syncStatus: before.syncStatus,
+		});
+	}
+
+	return accept({
+		outcome: "Recorded",
+		mailbox: await deps.mailboxQueue.renameMailbox(
+			mailboxId,
+			fullPath,
+			accountId,
+		),
+	});
 };
 
 export const createFolder = async (
 	deps: CreateFolderDeps,
 	accountConfigId: string,
 	folder: NewFolder,
-): Promise<Refusable<MailboxItem>> => {
+): Promise<Refusable<NewFolderOutcome>> => {
 	const { accountId, namespaceType, fullPath } = folder;
 	const owned = ownedAccount(
 		await deps.account.get(accountId),
@@ -166,7 +192,7 @@ export const createFolder = async (
 				`No folder at "${fullPath}" after its create reported the path taken`,
 			);
 		}
-		return accept(existing);
+		return accept({ outcome: "Existing", mailbox: existing });
 	}
-	return accept(created.mailbox);
+	return accept({ outcome: "Created", mailbox: created.mailbox });
 };

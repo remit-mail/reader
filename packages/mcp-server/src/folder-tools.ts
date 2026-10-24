@@ -174,7 +174,12 @@ export const registerFolderTools = (
 			);
 			if (!created.ok) return refused(created.refusal);
 			return createOutcome(
-				await awaitSettled(deps, folders, accountId, created.value.mailboxId),
+				await awaitSettled(
+					deps,
+					folders,
+					accountId,
+					created.value.mailbox.mailboxId,
+				),
 				fullPath,
 			);
 		},

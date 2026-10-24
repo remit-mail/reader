@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { changeFolderPath, createFolder } from "./folder-operations.js";
+import {
+	changeFolderPath,
+	createFolder,
+	type FolderPathOutcome,
+} from "./folder-operations.js";
 import { MailboxQueueService } from "./mailbox-queue.js";
 import { folderInAccount } from "./ownership.js";
 import type { Refusable } from "./refusal.js";
@@ -38,7 +42,7 @@ afterEach(async () => {
 const rename = (
 	mailbox: MailboxItem,
 	fullPath: string,
-): Promise<Refusable<MailboxItem>> =>
+): Promise<Refusable<FolderPathOutcome>> =>
 	changeFolderPath(
 		{ mailbox: store.mailbox, mailboxQueue },
 		{
@@ -154,7 +158,8 @@ describe("changeFolderPath records a pending rename the mail server settles", ()
 
 		const again = await rename(folder, "Paperwork");
 
-		assert.equal(again.ok && again.value.pendingPath, "Paperwork");
+		assert.equal(again.ok && again.value.outcome, "AlreadyRecorded");
+		assert.equal(again.ok && again.value.mailbox.pendingPath, "Paperwork");
 		assert.equal(capture.sent.length, 1);
 	});
 
@@ -164,8 +169,7 @@ describe("changeFolderPath records a pending rename the mail server settles", ()
 
 		assert.deepEqual(refusalOf(await rename(folder, "Bills")), {
 			kind: "NotSettled",
-			message:
-				"“Receipts” isn’t ready yet — the mail server hasn’t confirmed it.",
+			message: `A rename is in progress for "Receipts".`,
 			mailboxId: folder.mailboxId,
 			syncStatus: MailboxSyncStatus.pending,
 		});
@@ -186,7 +190,8 @@ describe("createFolder", () => {
 		);
 
 		assert.equal(outcome.ok, true);
-		assert.equal(outcome.ok && outcome.value.syncStatus, "pending");
+		assert.equal(outcome.ok && outcome.value.outcome, "Created");
+		assert.equal(outcome.ok && outcome.value.mailbox.syncStatus, "pending");
 		assert.deepEqual(
 			capture.sent.map((event) => event.body.type),
 			["MAILBOX_CREATE"],
@@ -206,7 +211,11 @@ describe("createFolder", () => {
 			},
 		);
 
-		assert.equal(outcome.ok && outcome.value.mailboxId, existing.mailboxId);
+		assert.equal(outcome.ok && outcome.value.outcome, "Existing");
+		assert.equal(
+			outcome.ok && outcome.value.mailbox.mailboxId,
+			existing.mailboxId,
+		);
 		assert.deepEqual(capture.sent, []);
 	});
 });

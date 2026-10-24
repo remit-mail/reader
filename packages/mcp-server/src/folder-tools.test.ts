@@ -312,7 +312,7 @@ describe("rename_folder", () => {
 				mailboxId: pending.mailboxId,
 				fullPath: "Renamed",
 			}),
-			/isn’t ready yet .* Wait for it to settle, then call this tool again\./,
+			/"Fresh" is still being created\. Wait for it to settle, then call this tool again\./,
 		);
 		assert.equal(mailboxEvents().length, 1);
 	});
