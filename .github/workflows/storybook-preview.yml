@@ -38,6 +38,7 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
@@ -88,6 +89,7 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
             .github/actions
           sparse-checkout-cone-mode: false
 
@@ -216,6 +218,7 @@ jobs:
         with:
           sparse-checkout: |
             npm-scripts
+            .nvmrc
           sparse-checkout-cone-mode: false
 
       - uses: actions/setup-node@v4
