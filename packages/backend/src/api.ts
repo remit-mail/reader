@@ -1,7 +1,11 @@
 import spec from "@remit/api-openapi-spec/openapi.json" with { type: "json" };
 import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger, withLogContext } from "@remit/logger";
-import type { APIGatewayProxyEvent, Context } from "aws-lambda";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context,
+} from "aws-lambda";
 import {
 	type Document,
 	OpenAPIBackend,
@@ -37,7 +41,7 @@ if (!isDocument(spec)) {
 // Typed as a Document so importers do not see the JSON literal type.
 export const OpenAPISpec: Document = spec;
 
-const api = new OpenAPIBackend({
+const api: OpenAPIBackend = new OpenAPIBackend({
 	definition: OpenAPISpec,
 	quick: true,
 	// Coerce query/path params to their schema types. API Gateway delivers every
@@ -130,7 +134,7 @@ const readOriginHeader = (
 export const handleApiEvent = async (
 	event: APIGatewayProxyEvent,
 	context: Context,
-) => {
+): Promise<APIGatewayProxyResult> => {
 	// A calendar feed carries its credential in the path, so the raw path is a
 	// secret and cannot be a log field (issue #1065). Redacted once, here, where
 	// every line inside the request picks it up from the scope.

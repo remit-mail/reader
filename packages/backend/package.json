@@ -52,7 +52,62 @@
       "default": "./dev-server/content-handler.ts"
     }
   },
+  "packManifest": {
+    "main": "dist/src/index.js",
+    "types": "dist/src/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/src/index.d.ts",
+        "default": "./dist/src/index.js"
+      },
+      "./api": {
+        "types": "./dist/src/api.d.ts",
+        "default": "./dist/src/api.js"
+      },
+      "./client": {
+        "types": "./dist/src/service/data-client.d.ts",
+        "default": "./dist/src/service/data-client.js"
+      },
+      "./create-remit-client": {
+        "types": "./dist/src/service/create-remit-client.d.ts",
+        "default": "./dist/src/service/create-remit-client.js"
+      },
+      "./folder-role-appointments": {
+        "types": "./dist/src/handlers/folder-role-appointments.d.ts",
+        "default": "./dist/src/handlers/folder-role-appointments.js"
+      },
+      "./folder-role-labels": {
+        "types": "./dist/src/handlers/folder-role-labels.d.ts",
+        "default": "./dist/src/handlers/folder-role-labels.js"
+      },
+      "./organize": {
+        "types": "./dist/src/service/organize.d.ts",
+        "default": "./dist/src/service/organize.js"
+      },
+      "./sender-category": {
+        "types": "./dist/src/service/sender-category.d.ts",
+        "default": "./dist/src/service/sender-category.js"
+      },
+      "./account-deletion": {
+        "types": "./dist/src/service/account-deletion.d.ts",
+        "default": "./dist/src/service/account-deletion.js"
+      },
+      "./trigger-sync": {
+        "types": "./dist/src/service/trigger-sync.d.ts",
+        "default": "./dist/src/service/trigger-sync.js"
+      },
+      "./content-handler": {
+        "types": "./dist/dev-server/content-handler.d.ts",
+        "default": "./dist/dev-server/content-handler.js"
+      }
+    },
+    "files": [
+      "dist"
+    ]
+  },
   "scripts": {
+    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+    "postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file .env.test --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=76 --test 'src/**/*.test.ts' 'dev-server/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",

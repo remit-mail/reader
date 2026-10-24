@@ -29,6 +29,7 @@ import {
 	splitLegacyDatabase,
 } from "./legacy-split.js";
 import { applyMigrationSets } from "./migration-sets.js";
+
 // The drizzle-service modules above are reached by module path rather than
 // through the package entry point: this entrypoint is bundled by esbuild, and
 // everything reached this way is pure TypeScript over the drizzle query builder,

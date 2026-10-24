@@ -1,0 +1,9 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"rootDir": ".",
+		"outDir": "dist"
+	},
+	"include": ["src/**/*.ts", "dev-server/content-handler.ts"],
+	"exclude": ["src/**/*.test.ts", "src/**/*fixture*.ts", "src/**/test-*.ts"]
+}
