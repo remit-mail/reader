@@ -17,11 +17,14 @@ import {
 	appendMessages,
 	createServerMailbox,
 	deleteServerMailbox,
+	listServerMailboxes,
 	listServerSubjects,
+	waitForServerMailbox,
 } from "../src/imap.js";
 import {
 	callTool,
 	connectAsClient,
+	connectWithDeviceCode,
 	enableMcpProfile,
 	mcpOrigin,
 	mcpRequest,
@@ -171,5 +174,148 @@ test.describe("the MCP connector with the profile on", () => {
 			await deleteServerMailbox(run.imapUser, folder);
 			await api.triggerSync(run.accountId);
 		}
+	});
+
+	type Folder = { mailboxId: string; fullPath: string; syncStatus: string };
+
+	const settledFolder = (
+		token: string,
+		tool: "create_folder" | "rename_folder",
+		args: Record<string, unknown>,
+	): Promise<Folder> =>
+		waitFor(
+			() => callTool(mcpOrigin(), token, tool, args) as Promise<Folder>,
+			(folder) => folder.syncStatus === "synced",
+			{ timeoutMs: 90_000, what: `${tool} to settle` },
+		);
+
+	const dropServerFolders = async (
+		user: string,
+		paths: string[],
+	): Promise<void> => {
+		const present = await listServerMailboxes(user);
+		for (const path of paths) {
+			if (present.includes(path)) await deleteServerMailbox(user, path);
+		}
+	};
+
+	test("creates and renames a folder, and Dovecot lists the result", async ({
+		api,
+		run,
+	}) => {
+		test.setTimeout(240_000);
+		const created = `MCP-${randomUUID().slice(0, 8)}`;
+		const renamed = `${created}-renamed`;
+		try {
+			const token = await connectAsClient(
+				mcpOrigin(),
+				run,
+				"mail:read mail:rules",
+			);
+			const folder = await settledFolder(token, "create_folder", {
+				accountId: run.accountId,
+				fullPath: created,
+			});
+			expect(folder.fullPath).toBe(created);
+			expect(await listServerMailboxes(run.imapUser)).toContain(created);
+
+			const moved = await settledFolder(token, "rename_folder", {
+				accountId: run.accountId,
+				mailboxId: folder.mailboxId,
+				fullPath: renamed,
+			});
+			expect(moved.fullPath).toBe(renamed);
+			const serverFolders = await listServerMailboxes(run.imapUser);
+			expect(serverFolders).toContain(renamed);
+			expect(serverFolders).not.toContain(created);
+		} finally {
+			await dropServerFolders(run.imapUser, [created, renamed]);
+			await api.triggerSync(run.accountId);
+		}
+	});
+
+	test("a filter created over MCP moves the existing mail on Dovecot", async ({
+		api,
+		run,
+	}) => {
+		test.setTimeout(240_000);
+		const target = `MCP-filter-${randomUUID().slice(0, 8)}`;
+		const marker = `mcp-filter-${randomUUID()}`;
+		const subject = `Sorted over MCP ${marker}`;
+		await createServerMailbox(run.imapUser, target);
+		try {
+			await appendMessages(run.imapUser, [{ subject, body: "To be sorted." }]);
+			await api.triggerSync(run.accountId);
+			const token = await connectAsClient(
+				mcpOrigin(),
+				run,
+				"mail:read mail:rules",
+			);
+
+			type Listed = {
+				accounts: {
+					accountId: string;
+					mailboxes: { mailboxId: string; fullPath: string }[];
+				}[];
+			};
+			const listed = await waitFor(
+				() =>
+					callTool(mcpOrigin(), token, "list_mailboxes", {}) as Promise<Listed>,
+				(value) =>
+					value.accounts.some((account) =>
+						account.mailboxes.some((mailbox) => mailbox.fullPath === target),
+					),
+				{ timeoutMs: 60_000, what: `"${target}" in list_mailboxes` },
+			);
+			const targetId = listed.accounts
+				.flatMap((account) => account.mailboxes)
+				.find((mailbox) => mailbox.fullPath === target)?.mailboxId;
+			if (!targetId) throw new Error("unreachable: the target was matched");
+			await waitFor(
+				() =>
+					callTool(mcpOrigin(), token, "search_threads", {
+						query: marker,
+					}) as Promise<{ items: unknown[] }>,
+				({ items }) => items.length === 1,
+				{ timeoutMs: 60_000, what: `"${subject}" synced into remit` },
+			);
+
+			const created = (await callTool(mcpOrigin(), token, "create_filter", {
+				accountId: run.accountId,
+				name: `Sort ${marker}`,
+				literalClauses: [{ field: "Subject", value: marker }],
+				actionMailboxId: targetId,
+			})) as { organizeJobId: string };
+			expect(created.organizeJobId).toBeTruthy();
+
+			await waitForServerMailbox(
+				run.imapUser,
+				target,
+				(subjects) => subjects.includes(subject),
+				{ timeoutMs: 120_000, what: `"${subject}" moved into "${target}"` },
+			);
+			expect(await listServerSubjects(run.imapUser, "INBOX")).not.toContain(
+				subject,
+			);
+		} finally {
+			await deleteServerMailbox(run.imapUser, target);
+			await api.triggerSync(run.accountId);
+		}
+	});
+
+	test("a device code approved on the device page reads mail through a tool", async ({
+		run,
+	}) => {
+		test.setTimeout(180_000);
+		const token = await connectWithDeviceCode(mcpOrigin(), run);
+		const listed = (await callTool(
+			mcpOrigin(),
+			token,
+			"list_mailboxes",
+			{},
+		)) as { accounts: { accountId: string }[] };
+		expect(listed.accounts.map((account) => account.accountId)).toContain(
+			run.accountId,
+		);
 	});
 });

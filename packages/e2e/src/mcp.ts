@@ -10,6 +10,7 @@ import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
 const deployDir = join(
@@ -21,6 +22,8 @@ const deployDir = join(
 	"vps",
 );
 const envFile = join(deployDir, ".env");
+
+const DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
 /** The connector's origin: a second loopback port on the same Caddy. */
 export const mcpOrigin = (): string => {
@@ -134,6 +137,7 @@ const redirectOf = (response: Response, origin: string): URL => {
 export const connectAsClient = async (
 	origin: string,
 	credentials: { email: string; password: string },
+	scope = "mail:read",
 ): Promise<string> => {
 	const metadata = (await (
 		await fetch(`${origin}/.well-known/oauth-authorization-server`)
@@ -172,7 +176,7 @@ export const connectAsClient = async (
 				response_type: "code",
 				client_id: clientId,
 				redirect_uri: callback,
-				scope: "mail:read",
+				scope,
 				state: "e2e-state",
 				code_challenge: challenge,
 				code_challenge_method: "S256",
@@ -236,4 +240,132 @@ export const connectAsClient = async (
 		);
 	}
 	return body.access_token;
+};
+
+/**
+ * RFC 8628, as `remit mcp login` runs it: a device-only client, a user code,
+ * the signed-in approval on the device page, and the token poll.
+ */
+export const connectWithDeviceCode = async (
+	origin: string,
+	credentials: { email: string; password: string },
+): Promise<string> => {
+	const metadata = (await (
+		await fetch(`${origin}/.well-known/oauth-authorization-server`)
+	).json()) as {
+		registration_endpoint: string;
+		device_authorization_endpoint: string;
+		token_endpoint: string;
+	};
+	const registered = await fetch(metadata.registration_endpoint, {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({
+			client_name: "remit e2e device",
+			grant_types: [DEVICE_CODE_GRANT],
+			token_endpoint_auth_method: "none",
+		}),
+	});
+	if (registered.status !== 201) {
+		throw new Error(
+			`registration answered ${registered.status}: ${await registered.text()}`,
+		);
+	}
+	const { client_id: clientId } = (await registered.json()) as {
+		client_id: string;
+	};
+	const resource = `${origin}/mcp`;
+	const authorized = await fetch(metadata.device_authorization_endpoint, {
+		method: "POST",
+		headers: { "content-type": "application/x-www-form-urlencoded" },
+		body: new URLSearchParams({
+			client_id: clientId,
+			scope: "mail:read mail:rules",
+			resource,
+		}),
+	});
+	if (!authorized.ok) {
+		throw new Error(
+			`device authorization answered ${authorized.status}: ${await authorized.text()}`,
+		);
+	}
+	const grant = (await authorized.json()) as {
+		device_code: string;
+		user_code: string;
+		interval: number;
+	};
+
+	const devicePage = `/device?${new URLSearchParams({ user_code: grant.user_code })}`;
+	const signedIn = await fetch(`${origin}/login`, {
+		method: "POST",
+		redirect: "manual",
+		headers: {
+			"content-type": "application/x-www-form-urlencoded",
+			origin,
+		},
+		body: new URLSearchParams({
+			email: credentials.email,
+			password: credentials.password,
+			return_to: devicePage,
+		}),
+	});
+	const cookie = cookiesOf(signedIn);
+	const returned = redirectOf(signedIn, origin);
+	if (`${returned.pathname}${returned.search}` !== devicePage) {
+		throw new Error(`sign-in returned to ${returned}, not the device page`);
+	}
+	const confirm = await fetch(`${origin}${devicePage}`, {
+		headers: { cookie },
+	});
+	if (confirm.status !== 200) {
+		throw new Error(`the device page answered ${confirm.status}`);
+	}
+	await confirm.body?.cancel();
+	const approved = await fetch(`${origin}/device`, {
+		method: "POST",
+		headers: {
+			"content-type": "application/x-www-form-urlencoded",
+			origin,
+			cookie,
+		},
+		body: new URLSearchParams({
+			user_code: grant.user_code,
+			action: "approve",
+		}),
+	});
+	const approvedPage = await approved.text();
+	if (approved.status !== 200 || !approvedPage.includes("Device connected")) {
+		throw new Error(`approval answered ${approved.status}`);
+	}
+
+	const poll = () =>
+		fetch(metadata.token_endpoint, {
+			method: "POST",
+			headers: { "content-type": "application/x-www-form-urlencoded" },
+			body: new URLSearchParams({
+				grant_type: DEVICE_CODE_GRANT,
+				device_code: grant.device_code,
+				client_id: clientId,
+				resource,
+			}),
+		});
+	const deadline = Date.now() + 60_000;
+	let intervalMs = grant.interval * 1000;
+	while (Date.now() < deadline) {
+		await setTimeout(intervalMs);
+		const polled = await poll();
+		const body = (await polled.json()) as {
+			access_token?: string;
+			error?: string;
+		};
+		if (polled.ok && body.access_token) return body.access_token;
+		if (body.error === "slow_down") {
+			intervalMs += 5_000;
+			continue;
+		}
+		if (body.error !== "authorization_pending") {
+			throw new Error(`the token poll answered ${JSON.stringify(body)}`);
+		}
+	}
+	throw new Error("the device code was never exchanged for a token");
 };
