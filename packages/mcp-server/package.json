@@ -12,6 +12,7 @@
     }
   },
   "scripts": {
+    "build": "vite build --config vite.pages.config.ts",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run",
@@ -32,17 +33,25 @@
     "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/storage-service": "*",
+    "@remit/ui": "*",
     "@types/better-sqlite3": "^7.6.13",
     "better-auth": "^1.7.12",
     "better-call": "1.4.4",
     "better-sqlite3": "^12.11.1",
     "drizzle-orm": "^0.45.2",
     "jose": "^6.2.3",
+    "react": "^19",
+    "react-dom": "^19",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@remit/imap-worker": "*",
-    "tsx": "*"
+    "@tailwindcss/vite": "^4",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "tailwindcss": "^4",
+    "tsx": "*",
+    "vite": "^7.3.7"
   },
   "license": "MIT"
 }

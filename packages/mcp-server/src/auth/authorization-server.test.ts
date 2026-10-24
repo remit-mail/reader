@@ -83,6 +83,7 @@ const buildApp = (): { auth: McpAuth; app: McpAppHandler } => {
 			verifier: createBetterAuthTokenVerifier(instance, MCP_ORIGIN),
 			deps,
 			trustedProxies: new Set([PROXY]),
+			pageAssets: new Map(),
 		}),
 	};
 };
@@ -264,7 +265,9 @@ const consent = async (toConsent: URL, cookie: string): Promise<URL> => {
 		headers: { cookie },
 	});
 	assert.equal(consentPage.status, 200);
-	assert.match(await consentPage.text(), /Claude/);
+	const html = await consentPage.text();
+	assert.match(html, /Claude/);
+	assert.match(html, /Read your mail/);
 
 	return locationOf(
 		await form(
@@ -273,6 +276,22 @@ const consent = async (toConsent: URL, cookie: string): Promise<URL> => {
 			cookie,
 		),
 	);
+};
+
+const authorizeSignedIn = async (
+	clientId: string,
+	challenge: string,
+	cookie: string,
+): Promise<string> => {
+	const next = locationOf(
+		await call(authorizeUrl(clientId, challenge), { headers: { cookie } }),
+	);
+	const callback =
+		next.pathname === "/consent" ? await consent(next, cookie) : next;
+	assert.equal(`${callback.origin}${callback.pathname}`, CALLBACK);
+	const code = callback.searchParams.get("code");
+	assert.ok(code, "the callback carries no code");
+	return code;
 };
 
 type TokenResponse = {
@@ -577,9 +596,91 @@ describe("the MCP authorization server", () => {
 		}
 		assert.deepEqual(statuses, [401, 401, 401, 401, 401, 429]);
 	});
+
+	it("sends a signed-out visitor of the connected-apps and device pages to sign in", async () => {
+		for (const [path, returnTo] of [
+			["/apps", "/apps"],
+			["/device?user_code=ABCD-EFGH", "/device?user_code=ABCD-EFGH"],
+		] as const) {
+			const toLogin = locationOf(await call(path));
+			assert.equal(toLogin.pathname, "/login");
+			assert.equal(toLogin.searchParams.get("return_to"), returnTo);
+		}
+	});
+
+	it("disconnecting an app kills its access and refresh tokens and spares the others", async () => {
+		const mint = async (id: string) => {
+			const { verifier, challenge } = pkce();
+			const code = await authorizeSignedIn(id, challenge, mcpSessionCookie);
+			const { status, body } = await exchange(id, code, verifier);
+			assert.equal(status, 200, JSON.stringify(body));
+			assert.ok(body.access_token && body.refresh_token);
+			return { access: body.access_token, refresh: body.refresh_token };
+		};
+		const otherClientId = await registerClient();
+		const revoked = await mint(clientId);
+		const spared = await mint(otherClientId);
+		assert.equal((await listTools(revoked.access)).status, 200);
+		assert.equal((await listTools(spared.access)).status, 200);
+
+		const listed = await call("/apps", {
+			headers: { cookie: mcpSessionCookie },
+		});
+		assert.equal(listed.status, 200);
+		const listedHtml = await listed.text();
+		assert.ok(listedHtml.includes(`value="${clientId}"`));
+		assert.ok(listedHtml.includes(`value="${otherClientId}"`));
+
+		const disconnected = await form(
+			"/apps",
+			{ client_id: clientId },
+			mcpSessionCookie,
+		);
+		assert.equal(disconnected.status, 200);
+		const disconnectedHtml = await disconnected.text();
+		assert.match(disconnectedHtml, /Disconnected Claude/);
+		assert.ok(!disconnectedHtml.includes(`value="${clientId}"`));
+		assert.ok(disconnectedHtml.includes(`value="${otherClientId}"`));
+
+		const refused = await listTools(revoked.access);
+		assert.equal(refused.status, 401);
+		assert.match(
+			refused.headers.get("www-authenticate") ?? "",
+			/error="invalid_token"/,
+		);
+		const refreshed = await token({
+			grant_type: "refresh_token",
+			client_id: clientId,
+			refresh_token: revoked.refresh,
+		});
+		assert.notEqual(refreshed.status, 200);
+		assert.equal(refreshed.body.access_token, undefined);
+
+		assert.equal((await listTools(spared.access)).status, 200);
+	});
 });
 
 describe("device authorization (RFC 8628)", () => {
+	let deviceSessionCookie: string;
+
+	before(async () => {
+		const signedIn = await call("/auth/mcp/sign-in", {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				accept: "application/json",
+				origin: MCP_ORIGIN,
+			},
+			body: JSON.stringify({
+				email: EMAIL,
+				password: PASSWORD,
+				oauth_query: "",
+			}),
+		});
+		assert.equal(signedIn.status, 200, await signedIn.clone().text());
+		deviceSessionCookie = cookiesOf(signedIn);
+	});
+
 	const deviceIo = (
 		peer: string,
 		onSleep: (userCode: string, round: number, ms: number) => Promise<void>,
@@ -614,13 +715,9 @@ describe("device authorization (RFC 8628)", () => {
 				headers: {
 					"content-type": "application/x-www-form-urlencoded",
 					origin: MCP_ORIGIN,
+					cookie: deviceSessionCookie,
 				},
-				body: new URLSearchParams({
-					user_code: userCode,
-					email: EMAIL,
-					password: PASSWORD,
-					action,
-				}),
+				body: new URLSearchParams({ user_code: userCode, action }),
 			}),
 			peer,
 		);
@@ -643,7 +740,9 @@ describe("device authorization (RFC 8628)", () => {
 		const io = deviceIo(peer, async (userCode, round, ms) => {
 			if (round === 1) return;
 			const page = await app(
-				new Request(`${MCP_ORIGIN}/device?user_code=${userCode}`),
+				new Request(`${MCP_ORIGIN}/device?user_code=${userCode}`, {
+					headers: { cookie: deviceSessionCookie },
+				}),
 				peer,
 			);
 			assert.equal(page.status, 200);

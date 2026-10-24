@@ -21,6 +21,7 @@ import {
 	createAuthMiddleware,
 	getSessionFromCtx,
 	isAPIError,
+	sessionMiddleware,
 } from "better-auth/api";
 import { setSessionCookie } from "better-auth/cookies";
 import { jwt } from "better-auth/plugins";
@@ -36,8 +37,12 @@ export const AUTH_BASE_PATH = "/auth";
 export const LOGIN_PATH = "/login";
 export const CONSENT_PATH = "/consent";
 export const DEVICE_PATH = "/device";
+export const CONNECTED_APPS_PATH = "/apps";
 export const MCP_PATH = "/mcp";
 export const SIGN_IN_PATH = "/mcp/sign-in";
+export const CONNECTED_APPS_API_PATH = "/mcp/connected-apps";
+export const REVOKE_CLIENT_API_PATH = "/mcp/revoke-client";
+export const DEVICE_API_PATHS = ["/device", "/device/approve", "/device/deny"];
 export const JWKS_PATH = "/jwks";
 export const OAUTH2_PATH_PREFIX = "/oauth2/";
 export const DEVICE_CODE_PATH = "/device/code";
@@ -147,6 +152,28 @@ const hasResource = (fields: unknown): boolean =>
 	fields !== null &&
 	(fields as { resource?: unknown }).resource !== undefined;
 
+interface ConsentRow {
+	clientId: string;
+	scopes: string[];
+	createdAt: Date;
+}
+
+interface ClientRow {
+	name: string | null;
+}
+
+interface ConnectedApp {
+	clientId: string;
+	clientName: string;
+	scopes: string[];
+	connectedAt: Date;
+}
+
+const grantOf = (userId: string, clientId: string) => [
+	{ field: "userId", value: userId },
+	{ field: "clientId", value: clientId },
+];
+
 const remitMcpBridge = (
 	db: BetterSQLite3Database,
 	resource: string,
@@ -198,13 +225,86 @@ const remitMcpBridge = (
 					body: z.object({ token: z.string() }),
 					metadata: { SERVER_ONLY: true },
 				},
-				async (ctx) =>
-					ctx.json(
-						await getOAuthProviderApi(
-							ctx,
-							oauthOptions,
-						).requireActiveAccessToken(ctx.body.token),
-					),
+				async (ctx) => {
+					const payload = await getOAuthProviderApi(
+						ctx,
+						oauthOptions,
+					).requireActiveAccessToken(ctx.body.token);
+					const clientId = payload.azp ?? payload.client_id;
+					if (typeof payload.sub !== "string" || typeof clientId !== "string") {
+						throw new APIError("UNAUTHORIZED", { error: "invalid_token" });
+					}
+					const consent = await ctx.context.adapter.findOne({
+						model: "oauthConsent",
+						where: grantOf(payload.sub, clientId),
+					});
+					if (!consent) {
+						throw new APIError("UNAUTHORIZED", {
+							error: "invalid_token",
+							error_description: "The user disconnected this client",
+						});
+					}
+					return ctx.json(payload);
+				},
+			),
+			remitMcpConnectedApps: createAuthEndpoint(
+				CONNECTED_APPS_API_PATH,
+				{ method: "GET", use: [sessionMiddleware] },
+				async (ctx) => {
+					const consents = await ctx.context.adapter.findMany<ConsentRow>({
+						model: "oauthConsent",
+						where: [{ field: "userId", value: ctx.context.session.user.id }],
+					});
+					const apps = new Map<string, ConnectedApp>();
+					for (const consent of consents) {
+						const known = apps.get(consent.clientId);
+						if (known) {
+							known.scopes = [...new Set([...known.scopes, ...consent.scopes])];
+							continue;
+						}
+						const client = await ctx.context.adapter.findOne<ClientRow>({
+							model: "oauthClient",
+							where: [{ field: "clientId", value: consent.clientId }],
+						});
+						apps.set(consent.clientId, {
+							clientId: consent.clientId,
+							clientName: client?.name ?? consent.clientId,
+							scopes: consent.scopes,
+							connectedAt: consent.createdAt,
+						});
+					}
+					return ctx.json({ apps: [...apps.values()] });
+				},
+			),
+			remitMcpRevokeClient: createAuthEndpoint(
+				REVOKE_CLIENT_API_PATH,
+				{
+					method: "POST",
+					use: [sessionMiddleware],
+					body: z.object({ client_id: z.string().min(1) }),
+				},
+				async (ctx) => {
+					const grant = grantOf(
+						ctx.context.session.user.id,
+						ctx.body.client_id,
+					);
+					const revoked = new Date();
+					await ctx.context.adapter.deleteMany({
+						model: "oauthConsent",
+						where: grant,
+					});
+					await ctx.context.adapter.updateMany({
+						model: "oauthRefreshToken",
+						where: grant,
+						update: { revoked },
+					});
+					await ctx.context.adapter.updateMany({
+						model: "oauthAccessToken",
+						where: grant,
+						update: { revoked },
+					});
+					return ctx.json({ revoked: true });
+				},
 			),
 		},
 		hooks: {
@@ -287,6 +387,52 @@ const remitMcpBridge = (
 					}),
 				},
 			],
+			after: [
+				{
+					matcher: (ctx) => ctx.path === DEVICE_APPROVE_PATH,
+					handler: createAuthMiddleware(async (ctx) => {
+						if (isAPIError(ctx.context.returned)) return;
+						const session = await getSessionFromCtx(ctx);
+						const userCode = userCodeOf(ctx.body);
+						if (!session || !userCode) return;
+						const findApproved = (value: string) =>
+							ctx.context.adapter.findOne<{
+								oauthClientId: string | null;
+								scope: string | null;
+								resources: string[] | null;
+							}>({
+								model: "deviceCode",
+								where: [{ field: "userCode", value }],
+							});
+						const deviceCode =
+							(await findApproved(userCode)) ??
+							(await findApproved(
+								userCode.replace(/[^a-zA-Z0-9]/g, "").toUpperCase(),
+							));
+						if (!deviceCode?.oauthClientId) return;
+						const grant = grantOf(session.user.id, deviceCode.oauthClientId);
+						const existing = await ctx.context.adapter.findOne({
+							model: "oauthConsent",
+							where: grant,
+						});
+						if (existing) return;
+						const now = new Date();
+						await ctx.context.adapter.create({
+							model: "oauthConsent",
+							data: {
+								clientId: deviceCode.oauthClientId,
+								userId: session.user.id,
+								scopes: (deviceCode.scope ?? "")
+									.split(" ")
+									.filter((scope) => scope.length > 0),
+								resources: deviceCode.resources ?? [resource],
+								createdAt: now,
+								updatedAt: now,
+							},
+						});
+					}),
+				},
+			],
 		},
 	}) satisfies BetterAuthPlugin;
 
@@ -345,6 +491,7 @@ export type McpAuth = ReturnType<typeof createMcpAuth>;
 
 export interface McpAuthRoutes {
 	handle(request: Request): Promise<Response>;
+	hasSession(request: Request): Promise<boolean>;
 	serverMetadata(request: Request): Promise<Response>;
 }
 
@@ -359,6 +506,9 @@ const isServedAuthPath = (path: string): boolean =>
 	path.startsWith(OAUTH2_PATH_PREFIX) ||
 	DEVICE_AUTH_PATHS.has(path) ||
 	path === SIGN_IN_PATH ||
+	path === CONNECTED_APPS_API_PATH ||
+	path === REVOKE_CLIENT_API_PATH ||
+	DEVICE_API_PATHS.includes(path) ||
 	path === JWKS_PATH;
 
 export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
@@ -372,6 +522,8 @@ export const createMcpAuthRoutes = (auth: McpAuth): McpAuthRoutes => ({
 		}
 		return auth.handler(request);
 	},
+	hasSession: async (request) =>
+		(await auth.api.getSession({ headers: request.headers })) !== null,
 	serverMetadata: oauthProviderAuthServerMetadata(auth),
 });
 
