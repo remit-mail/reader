@@ -12,7 +12,20 @@ import type {
 	UpdateMailboxInput,
 } from "@remit/data-ports";
 import { MailboxCursorState } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, isNull, or, type SQL } from "drizzle-orm";
+import {
+	and,
+	asc,
+	eq,
+	exists,
+	gt,
+	inArray,
+	isNull,
+	not,
+	notInArray,
+	or,
+	type SQL,
+	sql,
+} from "drizzle-orm";
 import shortUuid from "short-uuid";
 import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
@@ -46,24 +59,6 @@ type DB = Db<Record<string, unknown>>;
  * parking every other writer behind it (D8).
  */
 const MAIL_DELETE_BATCH_SIZE = 100;
-
-const postStateTerms = (
-	mailboxId: string,
-	to: MailboxItem["syncStatus"],
-	written: Partial<typeof mailboxTable.$inferInsert>,
-): SQL | undefined =>
-	and(
-		eq(mailboxTable.mailboxId, mailboxId),
-		eq(mailboxTable.syncStatus, to),
-		written.fullPath === undefined
-			? undefined
-			: eq(mailboxTable.fullPath, written.fullPath),
-		written.pendingPath === undefined
-			? undefined
-			: written.pendingPath === null
-				? isNull(mailboxTable.pendingPath)
-				: eq(mailboxTable.pendingPath, written.pendingPath),
-	);
 
 /** The WHERE terms of a folder-state transition (folder-rename-and-delete.md D3). */
 const stateTerms = (expected: MailboxStatePredicate): SQL[] => {
@@ -318,85 +313,67 @@ export class MailboxRepo implements IMailboxRepository {
 				root.hierarchyDelimiter,
 			)),
 		];
-		if (subtree.some((row) => !intent.from.includes(row.syncStatus))) {
-			return null;
-		}
-		const accountMailboxes = await this.db.$count(
-			mailboxTable,
+
+		const prefix = `${root.fullPath}${root.hierarchyDelimiter}`;
+		const inSubtree = and(
 			eq(mailboxTable.accountId, accountId),
-		);
-
-		const writes = subtree.map((row) => ({
-			mailboxId: row.mailboxId,
-			set: transitionSet(intent.to, intent.rowSet(row)),
-		}));
-		const subtreeIds = writes.map((write) => write.mailboxId);
-
-		// A subtree cannot be half-renamed. Every UPDATE carries the same guard:
-		// each subtree row is still in a from-state or already in the state this
-		// batch writes for it, and no folder joined or left the account since the
-		// read. The batch's own writes leave both counts unchanged, so the guard
-		// holds for every statement or for none.
-		const guard = and(
-			eq(
-				this.db.$count(
-					mailboxTable,
-					and(
-						eq(mailboxTable.accountId, accountId),
-						or(
-							...writes.map((write) =>
-								or(
-									and(
-										eq(mailboxTable.mailboxId, write.mailboxId),
-										inArray(mailboxTable.syncStatus, [...intent.from]),
-									),
-									postStateTerms(write.mailboxId, intent.to, write.set),
-								),
-							),
-						),
+			root.hierarchyDelimiter.length === 0
+				? eq(mailboxTable.mailboxId, root.mailboxId)
+				: or(
+						eq(mailboxTable.mailboxId, root.mailboxId),
+						sql`substr(${mailboxTable.fullPath}, 1, ${prefix.length}) = ${prefix}`,
 					),
-				),
-				writes.length,
-			),
-			eq(
-				this.db.$count(mailboxTable, eq(mailboxTable.accountId, accountId)),
-				accountMailboxes,
-			),
 		);
+		const stamp = Date.now();
 
-		const results = await runBatch(
-			this.db,
-			writes.map((write) =>
-				this.db
-					.update(mailboxTable)
-					.set(write.set)
-					.where(
-						and(
-							eq(mailboxTable.accountId, accountId),
-							eq(mailboxTable.mailboxId, write.mailboxId),
-							inArray(mailboxTable.syncStatus, [...intent.from]),
-							guard,
-						),
-					)
-					.returning(),
-			),
-		);
-		if (results.flat().length === 0) return null;
-
-		const settled = await this.db
-			.select()
-			.from(mailboxTable)
+		// A subtree cannot be half-renamed. The claim moves every row of the
+		// subtree to the intent's state in one statement, and only while none of
+		// them is outside a from-state and the subtree still holds the rows read
+		// above. Each row's own write then requires the claim's state and stamp,
+		// so it lands only behind a claim this batch made.
+		const claim = this.db
+			.update(mailboxTable)
+			.set({ ...transitionSet(intent.to, undefined), updatedAt: stamp })
 			.where(
 				and(
-					eq(mailboxTable.accountId, accountId),
-					inArray(mailboxTable.mailboxId, subtreeIds),
+					inSubtree,
+					not(
+						exists(
+							this.db
+								.select({ mailboxId: mailboxTable.mailboxId })
+								.from(mailboxTable)
+								.where(
+									and(
+										inSubtree,
+										notInArray(mailboxTable.syncStatus, [...intent.from]),
+									),
+								),
+						),
+					),
+					eq(this.db.$count(mailboxTable, inSubtree), subtree.length),
 				),
 			);
-		const byId = new Map(settled.map((row) => [row.mailboxId, row]));
-		return subtreeIds.flatMap((id) => {
-			const row = byId.get(id);
-			return row ? [rowToMailbox(row)] : [];
-		});
+		const rows = subtree.map((row) =>
+			this.db
+				.update(mailboxTable)
+				.set(transitionSet(intent.to, intent.rowSet(row)))
+				.where(
+					and(
+						eq(mailboxTable.accountId, accountId),
+						eq(mailboxTable.mailboxId, row.mailboxId),
+						eq(mailboxTable.syncStatus, intent.to),
+						eq(mailboxTable.updatedAt, stamp),
+					),
+				)
+				.returning(),
+		);
+
+		const results = await runBatch(this.db, [claim, ...rows]);
+		const settled = results
+			.slice(1)
+			.flatMap((result) => (Array.isArray(result) ? result : []));
+		if (settled.length !== subtree.length) return null;
+		return settled.map(rowToMailbox);
 	}
 
 	async resolveAccountId(mailboxId: string): Promise<string | null> {

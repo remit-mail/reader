@@ -62,6 +62,7 @@ export {
 	provisionDefaultCalendar,
 	putCalendarObject,
 	readWrittenObject,
+	reprojectionOf,
 } from "./put.js";
 export {
 	answersOvertakenBy,

@@ -52,7 +52,9 @@ type AddressUpdate = Partial<{
 		| SQL;
 }>;
 
-const MERGE_FLAGS_ATTEMPTS = 8;
+// Every contended round lets at least one merge through, so a burst of N
+// concurrent merges on one address settles within N rounds.
+const MERGE_FLAGS_ATTEMPTS = 64;
 
 /**
  * The stored flags exactly as they sit in the column, so a merge can guard its

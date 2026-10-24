@@ -1,3 +1,4 @@
+import type { IMessageRepository } from "@remit/data-ports";
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
 import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveLogger } from "./placement-move.js";
@@ -5,17 +6,12 @@ import {
 	type RestoreSourcePlacementDeps,
 	restoreSourcePlacement,
 } from "./restore-source-placement.js";
-import {
-	reconcileStaleMessage,
-	type StaleMessageReconcileDeps,
-} from "./stale-message-reconcile.js";
 import type { IImapConnection } from "./types.js";
 
 export interface ResolveExhaustedPlacementMoveDeps {
-	messageService: StaleMessageReconcileDeps["messageService"] &
+	messageService: Pick<IMessageRepository, "deleteIfPlacement"> &
 		RestoreSourcePlacementDeps["messageService"];
-	threadMessageService: StaleMessageReconcileDeps["threadMessageService"] &
-		RestoreSourcePlacementDeps["threadMessageService"];
+	threadMessageService: RestoreSourcePlacementDeps["threadMessageService"];
 	markerService: { delete(messageId: string): Promise<void> };
 	log: PlacementMoveLogger;
 }
@@ -47,7 +43,7 @@ export interface ResolveExhaustedPlacementMoveResult {
  *    than by a FETCH coming back empty. Per invariant 2, an external delete
  *    supersedes the marker entirely: the marker is dropped and the stale
  *    Message/ThreadMessage rows are deleted via
- *    {@link reconcileStaleMessage}. This is also the
+ *    `deleteIfPlacement`. This is also the
  *    outcome for the (rarer, functionally indistinguishable from here) case
  *    where a foreign client moved the message elsewhere — either way, our
  *    prediction no longer holds, and the marker cannot be honoured. Metric
@@ -94,11 +90,10 @@ export const resolveExhaustedPlacementMoveFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId);
-		const { threadMessagesDeleted } = await reconcileStaleMessage(
-			deps,
-			accountConfigId,
-			messageId,
-		);
+		const reconciled = await deps.messageService.deleteIfPlacement(messageId, {
+			mailboxId: sourceMailboxId,
+			uid,
+		});
 		deps.log.info(
 			{
 				metric: "placement_move_stale_row_reconciled",
@@ -107,7 +102,7 @@ export const resolveExhaustedPlacementMoveFailure = async (
 				messageId,
 				uid,
 				sourceMailboxPath,
-				threadMessagesDeleted,
+				reconciled,
 			},
 			"Message no longer at its pending-move source after retry exhaustion (external delete or move); marker dropped, stale row reconciled",
 		);

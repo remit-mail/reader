@@ -957,7 +957,7 @@ export const importConfig = async (
 				errors: [
 					problem(
 						"import_write_failed",
-						`${error.message} The items above it were written and remain; the import stopped here.`,
+						`${error.message} The items above it were written and remain; import the same file again with merge to finish.`,
 						{ section: error.section, key: error.key },
 					),
 				],

@@ -492,8 +492,9 @@ export type CreateMessageInput = Omit<
  * The six placement fields are omitted rather than merely discouraged
  * (docs/architecture/imap-mutations.md R3): where they are gone from the only
  * general-purpose writer, a placement written without a predicate is a type
- * error rather than a convention someone has to remember. `transitionPlacement`
- * and the settle in `updateUid` are the two doors, and they are the whole set.
+ * error rather than a convention someone has to remember. `transitionPlacement`,
+ * `repointIfPlacement` and the settle in `updateUid` are the doors, and they
+ * are the whole set.
  */
 export type UpdateMessageInput = Partial<
 	Omit<

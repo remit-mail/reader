@@ -2,8 +2,9 @@ import type { OutboxAttachmentItem } from "../types.js";
 
 /**
  * Whether an attachment is spoken for: uploaded and confirmed, or reserved and
- * not yet lapsed. The cap counts these and nothing else. One definition, because
- * the repository and the service both have to agree on it exactly.
+ * not yet lapsed. The cap counts these and nothing else. The SQLite repository
+ * states the same rule as the `WHERE` of its conditional insert, and the two
+ * must agree exactly: a row this calls live is one that insert counts.
  */
 export const holdsRoom = (
 	item: OutboxAttachmentItem,
@@ -52,11 +53,11 @@ export interface IOutboxAttachmentRepository {
 	 * from these rows and the receiving server rejects it.
 	 *
 	 * A count-then-insert only satisfies that under serializable isolation or an
-	 * external lock. **The drizzle/SQLite implementation gets it from the batch,
-	 * not from the schema or the isolation level:** the insert, the count and a
-	 * delete of the new row when it breaks the cap commit as one batch, and
-	 * batches are serialized, so the later of two reservations sees the earlier
-	 * one's row.
+	 * external lock. **The drizzle/SQLite implementation is one conditional
+	 * write, not a count-then-insert:** an `INSERT … SELECT … WHERE` that reads
+	 * the draft's live count and total in the statement that writes the row, so
+	 * the later of two reservations sees the earlier one's row. A row holds room
+	 * while {@link holdsRoom} says so: stored, or a reservation not yet expired.
 	 *
 	 * **An adapter without serializable isolation must not do a
 	 * read-then-write.** On DynamoDB in particular, a Query followed by a

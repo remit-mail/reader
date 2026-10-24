@@ -5,9 +5,7 @@ import type {
 	OutboxAttachmentItem,
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
-import { holdsRoom } from "@remit/data-ports";
-import { and, eq, gt, gte, inArray, lt, or, sum } from "drizzle-orm";
-import { runBatch } from "../batch.js";
+import { and, eq, gte, inArray, lt, lte, or, sql, sum } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { outboxAttachmentTable } from "../schema/i4-outbox-attachment.js";
@@ -37,85 +35,75 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 	constructor(private db: DB) {}
 
 	/**
-	 * The per-message cap. The insert, the read of the draft's live rows and a
-	 * delete of the new row when it breaks the cap run as one batch, which
-	 * commits as a unit and serializes against every other batch. Of two
-	 * concurrent reservations the later one sees the earlier one's row, so it
-	 * is the one removed when the two together do not fit.
+	 * The per-message cap, as one conditional insert: the row is written only
+	 * while the draft's live rows leave room for it, and the count and the sum
+	 * are read by the same statement that writes. Of two concurrent
+	 * reservations the later one sees the earlier one's row.
 	 */
 	async reserve(
 		input: CreateOutboxAttachmentInput,
 		cap: OutboxAttachmentCap,
 	): Promise<ReserveOutboxAttachmentResult> {
 		const now = Date.now();
-		const draft = and(
+		const live = and(
 			eq(outboxAttachmentTable.accountConfigId, input.accountConfigId),
 			eq(outboxAttachmentTable.outboxMessageId, input.outboxMessageId),
-		);
-		const live = and(
-			draft,
 			or(
 				eq(outboxAttachmentTable.state, "Stored"),
 				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
 			),
 		);
-		const [inserted, rows, removed] = await runBatch(this.db, [
-			this.db
-				.insert(outboxAttachmentTable)
-				.values({
-					outboxAttachmentId: input.outboxAttachmentId,
-					outboxMessageId: input.outboxMessageId,
-					accountId: input.accountId,
-					accountConfigId: input.accountConfigId,
-					filename: input.filename,
-					contentType: input.contentType,
-					sizeBytes: input.sizeBytes,
-					state: "Pending",
-					storageKey: input.storageKey,
-					reservationExpiresAt: input.reservationExpiresAt,
-					createdAt: now,
-					updatedAt: now,
-				})
-				.returning(),
-			this.db.select().from(outboxAttachmentTable).where(draft),
-			this.db
-				.delete(outboxAttachmentTable)
-				.where(
-					and(
-						eq(
-							outboxAttachmentTable.outboxAttachmentId,
-							input.outboxAttachmentId,
-						),
-						or(
-							gt(this.db.$count(outboxAttachmentTable, live), cap.maxCount),
-							gt(
-								this.db
-									.select({ total: sum(outboxAttachmentTable.sizeBytes) })
-									.from(outboxAttachmentTable)
-									.where(live),
-								cap.maxTotalBytes,
-							),
-						),
-					),
-				)
-				.returning({
-					outboxAttachmentId: outboxAttachmentTable.outboxAttachmentId,
-				}),
-		] as const);
+		const used = this.db
+			.select({ total: sum(outboxAttachmentTable.sizeBytes) })
+			.from(outboxAttachmentTable)
+			.where(live);
+		const fits = and(
+			lt(this.db.$count(outboxAttachmentTable, live), cap.maxCount),
+			lte(sql`coalesce((${used}), 0)`, cap.maxTotalBytes - input.sizeBytes),
+		);
+		const constant = <T>(value: T, name: string) => sql<T>`${value}`.as(name);
 
-		const others = rows
-			.map(rowToOutboxAttachment)
-			.filter(
-				(item) =>
-					item.outboxAttachmentId !== input.outboxAttachmentId &&
-					holdsRoom(item, cap.nowSeconds),
-			);
-		const usedBytes = others.reduce((total, item) => total + item.sizeBytes, 0);
-		const [row] = inserted;
-		if (removed.length === 0 && row) {
-			return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
-		}
-		if (others.length >= cap.maxCount) {
+		const [row] = await this.db
+			.insert(outboxAttachmentTable)
+			.select(
+				this.db
+					.select({
+						outboxAttachmentId: constant(
+							input.outboxAttachmentId,
+							"outbox_attachment_id",
+						),
+						outboxMessageId: constant(
+							input.outboxMessageId,
+							"outbox_message_id",
+						),
+						accountId: constant(input.accountId, "account_id"),
+						accountConfigId: constant(
+							input.accountConfigId,
+							"account_config_id",
+						),
+						filename: constant(input.filename, "filename"),
+						contentType: constant(input.contentType, "content_type"),
+						sizeBytes: constant(input.sizeBytes, "size_bytes"),
+						state: constant("Pending" as const, "state"),
+						storageKey: constant(input.storageKey, "storage_key"),
+						reservationExpiresAt: constant(
+							input.reservationExpiresAt,
+							"reservation_expires_at",
+						),
+						createdAt: constant(now, "created_at"),
+						updatedAt: constant(now, "updated_at"),
+					})
+					.from(sql`(select 1)`)
+					.where(fits),
+			)
+			.returning();
+		if (row) return { outcome: "Reserved", item: rowToOutboxAttachment(row) };
+
+		const held = (
+			await this.db.select().from(outboxAttachmentTable).where(live)
+		).map(rowToOutboxAttachment);
+		const usedBytes = held.reduce((total, item) => total + item.sizeBytes, 0);
+		if (held.length >= cap.maxCount) {
 			return { outcome: "OverCountCap", usedBytes };
 		}
 		return { outcome: "OverByteCap", usedBytes };

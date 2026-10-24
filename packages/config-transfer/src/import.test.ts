@@ -1563,6 +1563,29 @@ test("a write that fails part-way reports what it did leave behind and names whe
 	assert.equal(store.accounts.length > 0, true);
 });
 
+test("a stopped import imported again with merge reaches what one clean import holds", async () => {
+	const document = await exportSource();
+	const clean = emptyStore();
+	await apply(clean, document);
+
+	const store = emptyStore();
+	store.failOn = "filter";
+	await apply(store, document);
+	store.failOn = undefined;
+	const report = reportOf(await apply(store, document, "merge"));
+
+	assert.deepEqual(report.errors, []);
+	const held = (target: Store) => ({
+		accounts: target.accounts.map((account) => account.email).sort(),
+		labels: target.labels.map((label) => label.name).sort(),
+		filters: target.filters.length,
+		addresses: target.addresses.length,
+		settings: [...target.settings.keys()].sort(),
+	});
+	assert.deepEqual(held(store), held(clean));
+	assert.ok(held(clean).filters > 0, "the file carries filters to land");
+});
+
 test("the configuration row is created when the database holds none, and named from the file", async () => {
 	const document = await exportSource();
 	const store = emptyStore();

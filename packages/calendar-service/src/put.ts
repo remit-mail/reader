@@ -4,6 +4,7 @@ import type {
 	DeleteCalendarObjectWrite,
 	ICalendarStore,
 	PutCalendarObjectWrite,
+	ReprojectCalendarObjectWrite,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { CalendarSource } from "@remit/domain-enums";
@@ -66,6 +67,11 @@ export const prepareCalendarObject = async (
 		},
 	};
 };
+
+/** The same write, applied only to a resource that is still stored. */
+export const reprojectionOf = (
+	write: PutCalendarObjectWrite,
+): ReprojectCalendarObjectWrite => ({ ...write, kind: "ReprojectObject" });
 
 /** The resource a committed put wrote, under the id its name derives to. */
 export const readWrittenObject = (

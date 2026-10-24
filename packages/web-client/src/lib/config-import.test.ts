@@ -135,7 +135,7 @@ test("a stopped import splits the write order into landed, failed and never reac
 				{
 					code: "import_write_failed",
 					message:
-						"the filter store refused the write The items above it were written and remain; the import stopped here.",
+						"the filter store refused the write The items above it were written and remain; import the same file again with merge to finish.",
 					details: { section: "filters", key: "Receipts" },
 				},
 			],
@@ -151,38 +151,7 @@ test("a stopped import splits the write order into landed, failed and never reac
 	assert.equal(byId.get("settings")?.state, "not-attempted");
 });
 
-test("an import the server says wrote nothing marks no section landed, whatever ran before the stop", () => {
-	const results = sectionResults(
-		reportOf({
-			applied: false,
-			items: [
-				item("filters", "Receipts", "rejected", "the store refused the write"),
-			],
-			errors: [
-				{
-					code: "import_write_failed",
-					message:
-						"the store refused the write Nothing was written; the import stopped here.",
-					details: { section: "filters", key: "Receipts" },
-				},
-			],
-		}),
-	);
-
-	const byId = new Map(results.map((result) => [result.section, result]));
-	assert.equal(byId.get("accounts")?.state, "not-landed");
-	assert.match(
-		byId.get("accounts")?.detail ?? "",
-		/Nothing from this section was written/,
-	);
-	assert.equal(byId.get("labels")?.state, "not-landed");
-	assert.equal(byId.get("filters")?.state, "failed");
-	assert.equal(byId.get("addressFlags")?.state, "not-attempted");
-	assert.equal(byId.get("settings")?.state, "not-attempted");
-	assert.equal(results.filter((result) => result.state === "landed").length, 0);
-});
-
-test("a first write that fails on a store with no transaction lands nothing either", () => {
+test("a first write that fails lands nothing", () => {
 	const results = sectionResults(
 		reportOf({
 			applied: false,
@@ -193,7 +162,7 @@ test("a first write that fails on a store with no transaction lands nothing eith
 				{
 					code: "import_write_failed",
 					message:
-						"the store refused The items above it were written and remain; the import stopped here.",
+						"the store refused The items above it were written and remain; import the same file again with merge to finish.",
 					details: { section: "accounts", key: "a@example.test" },
 				},
 			],

@@ -55,10 +55,10 @@ export interface IMailboxRepository {
 	): Promise<MailboxItem | null>;
 	/**
 	 * Record one intent across a folder and every descendant, all-or-nothing, in
-	 * one batch (D6). Each row's UPDATE carries the from-state predicate and a
-	 * guard over the whole resolved subtree, so a concurrent single-row
-	 * transition makes every UPDATE write nothing rather than being missed by a
-	 * prior read.
+	 * one batch (D6). The batch first claims the whole subtree, only while no row
+	 * of it is outside a from-state, and each row's own write requires that
+	 * claim, so a concurrent single-row transition makes the whole batch write
+	 * nothing rather than being missed by a prior read.
 	 *
 	 * Resolves with every written row, or with `null` when any row in the
 	 * subtree was not in an accepted from-state — in which case nothing was

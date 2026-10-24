@@ -37,10 +37,9 @@ import { CalendarSuggestionState } from "@remit/domain-enums";
 export class MissingRow extends NotFoundError {}
 
 /**
- * The calendar store over plain maps. A commit applies its writes in order and
- * puts every map back when one of them throws; that the writes stand or fall
- * together on a real database is proven in drizzle-service's
- * calendar-put.sqlite.test.ts.
+ * The calendar store over plain maps. A commit applies its writes in order;
+ * that they stand or fall together on a real database is proven in
+ * drizzle-service's calendar-put.sqlite.test.ts.
  */
 export class MemoryCalendarStore implements ICalendarStore {
 	readonly collections = new Map<string, CalendarCollectionItem>();
@@ -396,39 +395,7 @@ export class MemoryCalendarStore implements ICalendarStore {
 	}
 
 	async commit(writes: readonly CalendarWrite[]): Promise<void> {
-		const snapshot = {
-			collections: new Map(this.collections),
-			objects: new Map(this.objects),
-			occurrences: new Map(this.occurrences),
-			suggestions: new Map(this.suggestions),
-			feedTokens: new Map(this.feedTokens),
-		};
-		const applied = writes.reduce<Promise<void>>(
-			(previous, write) => previous.then(() => this.apply(write)),
-			Promise.resolve(),
-		);
-		await applied.catch((error: unknown) => {
-			this.restore(snapshot);
-			throw error;
-		});
-	}
-
-	private restore(snapshot: {
-		collections: Map<string, CalendarCollectionItem>;
-		objects: Map<string, CalendarObjectItem>;
-		occurrences: Map<string, CalendarEventIndexItem[]>;
-		suggestions: Map<string, CalendarSuggestionItem>;
-		feedTokens: Map<string, CalendarFeedTokenItem>;
-	}): void {
-		const reset = <V>(target: Map<string, V>, source: Map<string, V>) => {
-			target.clear();
-			for (const [key, value] of source) target.set(key, value);
-		};
-		reset(this.collections, snapshot.collections);
-		reset(this.objects, snapshot.objects);
-		reset(this.occurrences, snapshot.occurrences);
-		reset(this.suggestions, snapshot.suggestions);
-		reset(this.feedTokens, snapshot.feedTokens);
+		for (const write of writes) await this.apply(write);
 	}
 
 	private async apply(write: CalendarWrite): Promise<void> {
@@ -448,6 +415,16 @@ export class MemoryCalendarStore implements ICalendarStore {
 					object.calendarObjectId,
 					write.occurrences,
 				);
+				return;
+			}
+			case "ReprojectObject": {
+				const { calendarId, resourceName } = write.object;
+				const stored = await this.objectRepo.findByResourceName(
+					calendarId,
+					resourceName,
+				);
+				if (stored === null) return;
+				await this.apply({ ...write, kind: "PutObject" });
 				return;
 			}
 			case "DeleteObject":
