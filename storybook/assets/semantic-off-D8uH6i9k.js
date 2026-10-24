@@ -1,0 +1,1 @@
+const s="Semantic search is off on this instance.",e="On, it stores a vector for every message, which is what the Organize widen to similar mail and semantic filters read.",a="remit semantic on",t=`${s} ${e} Run '${a}' on the server.`;export{s as S,e as a,a as b,t as s};

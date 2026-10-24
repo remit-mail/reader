@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>MCP connector — Reader</title><meta name="description" content="Let claude.ai and Claude Code read your mail, on a host of its own."/><style>
+:root {
+	--sidebar: 17rem;
+	--measure: 44rem;
+	--bg: #ffffff;
+	--bg-soft: #f6f7f8;
+	--text: #16181d;
+	--muted: #5b6270;
+	--rule: #dfe3e8;
+	--link: #1c4fd8;
+	--code-bg: #f0f2f4;
+	--font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+	--mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+	color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #14161a;
+		--bg-soft: #191c21;
+		--text: #e6e8ec;
+		--muted: #9aa2b1;
+		--rule: #2b3038;
+		--link: #8fb4ff;
+		--code-bg: #22262d;
+	}
+}
+
+* { box-sizing: border-box; }
+
+body {
+	margin: 0;
+	background: var(--bg);
+	color: var(--text);
+	font-family: var(--font);
+	font-size: 1rem;
+	line-height: 1.65;
+	-webkit-text-size-adjust: 100%;
+}
+
+a { color: var(--link); }
+
+.skip {
+	position: absolute;
+	left: -9999px;
+}
+
+.skip:focus {
+	left: 1rem;
+	top: 1rem;
+	z-index: 20;
+	background: var(--bg);
+	border: 1px solid var(--rule);
+	padding: 0.5rem 0.75rem;
+}
+
+.layout {
+	display: flex;
+	align-items: flex-start;
+	gap: 0;
+}
+
+.sidebar {
+	position: sticky;
+	top: 0;
+	flex: 0 0 var(--sidebar);
+	width: var(--sidebar);
+	height: 100vh;
+	overflow-y: auto;
+	padding: 2rem 1.25rem;
+	background: var(--bg-soft);
+	border-right: 1px solid var(--rule);
+}
+
+.brand {
+	display: inline-block;
+	font-size: 1.05rem;
+	font-weight: 650;
+	letter-spacing: -0.01em;
+	color: var(--text);
+	text-decoration: none;
+	margin-bottom: 1.5rem;
+}
+
+.nav-group {
+	margin-bottom: 1.5rem;
+}
+
+.nav-heading {
+	margin: 0 0 0.4rem;
+	font-size: 0.7rem;
+	font-weight: 650;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--muted);
+}
+
+.nav-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.nav-list a {
+	display: block;
+	padding: 0.25rem 0.5rem;
+	margin-left: -0.5rem;
+	border-radius: 4px;
+	font-size: 0.925rem;
+	color: var(--text);
+	text-decoration: none;
+}
+
+.nav-list a:hover { background: var(--code-bg); }
+
+.nav-list a[aria-current="page"] {
+	color: var(--link);
+	font-weight: 600;
+}
+
+.nav-group-elsewhere {
+	padding-top: 1rem;
+	border-top: 1px solid var(--rule);
+}
+
+.main {
+	flex: 1 1 auto;
+	min-width: 0;
+	padding: 2.5rem 2rem 5rem;
+}
+
+.prose {
+	max-width: var(--measure);
+}
+
+.prose > :first-child { margin-top: 0; }
+
+.prose h1 {
+	font-size: 1.9rem;
+	line-height: 1.2;
+	letter-spacing: -0.02em;
+	margin: 0 0 1.25rem;
+}
+
+.prose h2 {
+	font-size: 1.3rem;
+	margin: 2.5rem 0 0.75rem;
+	padding-bottom: 0.3rem;
+	border-bottom: 1px solid var(--rule);
+}
+
+.prose h3 {
+	font-size: 1.05rem;
+	margin: 1.75rem 0 0.5rem;
+}
+
+.prose p, .prose ul, .prose ol { margin: 0 0 1rem; }
+.prose li { margin-bottom: 0.25rem; }
+
+.prose code {
+	font-family: var(--mono);
+	font-size: 0.875em;
+	background: var(--code-bg);
+	padding: 0.1em 0.35em;
+	border-radius: 3px;
+}
+
+.prose pre {
+	background: var(--code-bg);
+	padding: 0.9rem 1rem;
+	border-radius: 6px;
+	overflow-x: auto;
+	line-height: 1.5;
+	margin: 0 0 1.25rem;
+}
+
+.prose pre code {
+	background: none;
+	padding: 0;
+	font-size: 0.85rem;
+}
+
+.prose blockquote {
+	margin: 0 0 1rem;
+	padding-left: 1rem;
+	border-left: 3px solid var(--rule);
+	color: var(--muted);
+}
+
+.prose table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 0 0 1.25rem;
+	font-size: 0.925rem;
+	display: block;
+	overflow-x: auto;
+}
+
+.prose th, .prose td {
+	border: 1px solid var(--rule);
+	padding: 0.45rem 0.7rem;
+	text-align: left;
+	vertical-align: top;
+}
+
+.prose th { background: var(--bg-soft); }
+
+.prose hr {
+	border: 0;
+	border-top: 1px solid var(--rule);
+	margin: 2rem 0;
+}
+
+.prose img { max-width: 100%; height: auto; }
+
+.footer {
+	max-width: var(--measure);
+	margin-top: 3rem;
+	padding-top: 1rem;
+	border-top: 1px solid var(--rule);
+	font-size: 0.85rem;
+	color: var(--muted);
+}
+
+@media (max-width: 52rem) {
+	.layout { display: block; }
+
+	.sidebar {
+		position: static;
+		width: auto;
+		height: auto;
+		border-right: 0;
+		border-bottom: 1px solid var(--rule);
+		padding: 1.25rem 1rem;
+	}
+
+	.nav-group { margin-bottom: 1rem; }
+	.main { padding: 1.75rem 1rem 3rem; }
+}
+</style></head><body><a class="skip" href="#content">Skip to content</a><div class="layout"><nav class="sidebar" aria-label="Documentation"><a class="brand" href="../../">Reader</a><div class="nav-group"><h2 class="nav-heading">Getting started</h2><ul class="nav-list"><li><a href="../../getting-started/install/">Install</a></li><li><a href="../../getting-started/first-account/">Your first account</a></li><li><a href="../../getting-started/updating/">Updating</a></li></ul></div><div class="nav-group"><h2 class="nav-heading">Architecture</h2><ul class="nav-list"><li><a href="../../architecture/overview/">Architecture overview</a></li><li><a href="../../architecture/sync/">Sync</a></li><li><a href="../../architecture/mutations/">IMAP mutations</a></li><li><a href="../../architecture/search-and-classification/">Search and classification</a></li></ul></div><div class="nav-group"><h2 class="nav-heading">Operations</h2><ul class="nav-list"><li><a href="../../operations/deployment/">Deployment</a></li><li><a href="../../operations/updating/">Updating in depth</a></li><li><a href="../../operations/backup/">Backup</a></li><li><a href="../../operations/mcp/" aria-current="page">MCP connector</a></li></ul></div><div class="nav-group"><ul class="nav-list"><li><a href="../../security/">Security</a></li><li><a href="../../roadmap/">Roadmap</a></li><li><a href="../../contributing/">Contributing</a></li></ul></div><div class="nav-group nav-group-elsewhere"><h2 class="nav-heading">Elsewhere</h2><ul class="nav-list"><li><a href="../../storybook/">Storybook</a></li><li><a href="https://github.com/remit-mail/reader">GitHub</a></li></ul></div></nav><main class="main" id="content"><article class="prose"><h1>MCP connector</h1>
+<p>The connector lets an MCP client read your mail on your own instance. claude.ai and Claude Code are the two clients set up below. A client signs in with your remit password, you allow it, and it gets a token that works on the connector and nowhere else.</p>
+<p>The connector is off by default. It runs in its own container and answers on its own origin, such as <code>https://mcp.example.com</code>. That origin can be a different domain from your instance. While it is off, nothing answers there.</p>
+<h2>Turn it on</h2>
+<ol>
+<li>
+<p>Give the connector a hostname. Point its DNS at the box the way the instance's own name points there. Under <code>--tls-mode tunnel</code>, add it as a second public hostname on the same tunnel, routed to <code>http://caddy:80</code>.</p>
+</li>
+<li>
+<p>Run:</p>
+<pre><code class="language-bash">remit mcp enable https://mcp.example.com
+</code></pre>
+<p>This sets <code>MCP_PUBLIC_ORIGIN</code>, generates <code>MCP_AUTH_SECRET</code>, adds <code>mcp</code> to <code>COMPOSE_PROFILES</code> and restarts. Caddy gets a certificate for the new name in the <code>acme</code> and <code>internal</code> modes. Under <code>tunnel</code> the certificate stays at Cloudflare.</p>
+</li>
+</ol>
+<p>The origin must be <code>https://</code> in every mode except <code>off</code>. claude.ai connects from Anthropic's servers, so for claude.ai the host must also be reachable from the internet.</p>
+<p>To turn it off:</p>
+<pre><code class="language-bash">remit mcp disable
+</code></pre>
+<p>The container goes and the origin is cleared. Client registrations and tokens stay in the database, so turning it back on restores existing connections.</p>
+<h2>claude.ai</h2>
+<ol>
+<li>Open <strong>Settings → Connectors → Add custom connector</strong>.</li>
+<li>Enter the URL <code>https://mcp.example.com/mcp</code>. Leave the OAuth client fields empty: claude.ai registers itself.</li>
+<li>Connect. A remit sign-in page opens on your MCP host. Sign in, then allow the access it asks for.</li>
+</ol>
+<h2>Claude Code, with a browser</h2>
+<pre><code class="language-bash">claude mcp add --transport http remit https://mcp.example.com/mcp
+</code></pre>
+<p>Then run <code>/mcp</code> inside Claude Code and pick <code>remit</code>. A browser opens on the sign-in page. Sign in and allow. Claude Code keeps the token and refreshes it.</p>
+<h2>Claude Code, headless</h2>
+<p>On a machine with no browser, use the device code flow:</p>
+<pre><code class="language-bash">remit mcp login
+</code></pre>
+<p>It prints a short code and a URL. Open the URL on any device, sign in, and enter the code. The command then prints a <code>claude mcp add --header</code> line carrying the token. Run that line on the headless machine.</p>
+<h2>Cloudflare settings for the MCP host</h2>
+<p>Cloudflare sits between the client and the connector when the host is proxied through it, and always under <code>--tls-mode tunnel</code>. Its defaults break the OAuth flow and the MCP transport in several ways. Set these for the MCP hostname only. The instance's own hostname keeps its own settings.</p>
+<table>
+<thead>
+<tr>
+<th>Setting</th>
+<th>Value</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Caching</td>
+<td>A Cache Rule that bypasses the cache for the hostname</td>
+<td>The metadata documents, tokens and tool results are per-request. A cached answer hands one client another client's response.</td>
+</tr>
+<tr>
+<td>Bot Fight Mode, Super Bot Fight Mode, challenges</td>
+<td>Off for the hostname, or a WAF skip rule for it</td>
+<td>claude.ai calls from Anthropic's servers and Claude Code calls from a terminal. Neither can solve a challenge page.</td>
+</tr>
+<tr>
+<td>Cloudflare Access</td>
+<td>No Access application on the hostname</td>
+<td>Access answers with its own login page. The connector does its own sign-in with OAuth, which a client cannot complete behind Access.</td>
+</tr>
+<tr>
+<td>WAF</td>
+<td>No managed or custom rule that blocks <code>POST</code> with a JSON body</td>
+<td>Every MCP request is a JSON <code>POST</code> to <code>/mcp</code>, and registration and token exchange are <code>POST</code>s too.</td>
+</tr>
+<tr>
+<td>Request and response headers</td>
+<td>No Transform Rule that removes <code>Authorization</code> or <code>WWW-Authenticate</code></td>
+<td><code>Authorization</code> carries the token. <code>WWW-Authenticate</code> on a 401 tells the client where to sign in.</td>
+</tr>
+<tr>
+<td>Buffering</td>
+<td>No Worker or rule that buffers the response, and no response compression rewrite on <code>text/event-stream</code></td>
+<td>The MCP transport may stream its answer as server-sent events. A buffered stream reaches the client only when it ends.</td>
+</tr>
+</tbody>
+</table>
+<p>Caddy replaces any <code>X-Remit-Client-IP</code> a client sends with the address Cloudflare reports in <code>Cf-Connecting-Ip</code>. The sign-in rate limit then counts each client on its own address.</p>
+</article><footer class="footer">Source and issues: <a href="https://github.com/remit-mail/reader">https://github.com/remit-mail/reader</a></footer></main></div></body></html>
