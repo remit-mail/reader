@@ -1,4 +1,5 @@
-import { createLogger, startMetricsServer } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger-lambda";
+import { startMetricsServer } from "@remit/logger-lambda/metrics";
 import { runQueuePoller } from "@remit/sqs-client/poller";
 import { env } from "expect-env";
 import { handler } from "./index.js";

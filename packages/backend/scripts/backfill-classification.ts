@@ -2,12 +2,15 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { logger } from "@remit/logger-lambda";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import {
 	backfillClassifications,
 	type ClassificationBackfillCheckpoint,
 	type ClassificationBackfillCheckpointStore,
 } from "@remit/mailbox-service";
 import { getClient } from "../src/service/data-client.js";
+
+installNodeLogger();
 
 /**
  * One-time, full-corpus classification backfill over the stored-body cohort

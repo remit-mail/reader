@@ -9,6 +9,7 @@ import "../enums/MessageFlag.tsp";
 import "../enums/NamespaceType.tsp";
 import "../scalars/string.tsp";
 import "./Address.tsp";
+import "../util.tsp";
 
 namespace RemitImap;
 
@@ -309,3 +310,6 @@ model MailboxResponse {
   @doc("User-chosen sidebar label for this mailbox. Optional; when absent the UI uses the canonical/derived folder label. Sourced from a per-mailbox AccountSetting row (RFC 032).")
   displayNameOverride?: String256;
 }
+
+@doc("A page of an account's mailboxes.")
+model MailboxListResponse is ResultList<MailboxResponse>;

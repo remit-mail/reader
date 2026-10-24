@@ -45,7 +45,7 @@ const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 
 // The TypeSpec-generated packages (dir/name mapping shared with
 // check-consumer-typecheck.mjs via lib/generated-packages.mjs), in dependency
-// order (all are leaves), plus two data packages built by other tooling.
+// order (all are leaves), plus the built web client as a data package.
 // `peerDependencies` names the runtime libraries the built output imports but
 // expects the consumer to supply — merged onto whatever the emitter declared so
 // a standalone install resolves them.
@@ -60,21 +60,6 @@ const generated = [
 		name,
 		peerDependencies: generatedPeerDependencies[name] ?? {},
 	})),
-	// The @typespec/openapi3 emitter writes only openapi.json, no manifest, so
-	// the publish tool synthesizes one. The spec ships as a data package: the
-	// closed platform resolves openapi.json from it instead of a local build tree.
-	{
-		dir: "build/remit-openapi3",
-		name: "@remit/api-openapi-spec",
-		peerDependencies: {},
-		manifest: {
-			name: "@remit/api-openapi-spec",
-			version: "0.0.0",
-			description: "Remit API OpenAPI 3 document, generated from TypeSpec.",
-			exports: { ".": "./openapi.json", "./openapi.json": "./openapi.json" },
-			files: ["openapi.json"],
-		},
-	},
 	// The built web client as a static-asset data package: index.html, the
 	// hashed asset bundle, locales, and the default runtime config.js
 	// (better-auth self-host). A deployment installs it and replaces config.js

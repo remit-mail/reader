@@ -1,8 +1,12 @@
 # @remit/logger-lambda
 
-The logging seam every Remit service writes through. One JSON object per line on
-stdout, via [pino](https://getpino.io/). The exported `Logger` interface is what
-consuming code imports; the writer behind it is an implementation detail.
+The Node host for [`@remit/logger`](../logger/README.md). Its root entry
+re-exports the platform-neutral handles (`logger`, `createLogger`,
+`withLogContext`); `@remit/logger-lambda/node` holds what only a Node process
+can run: `nodeLogger()`, which writes one JSON object per line on stdout at
+`LOG_LEVEL`, `installNodeLogger()`, which plugs it into every handle, and
+`withTelemetry`, the Lambda wrapper that installs it and records handler
+metrics. A Workers host imports neither `./node` nor `./metrics`.
 
 The field names on each line are a contract an operator's log pipeline parses.
 They are documented, with the reserved names and the personal-data caveat, in
@@ -60,7 +64,8 @@ exported `registry` — see `queue-sidecar/src/metrics.ts`. Declaring it here
 would render it in every process that imports this module, including the ones
 that cannot know its value.
 
-`withTelemetry` records handler duration and outcome into the same registry.
+`withTelemetry` (from `@remit/logger-lambda/node`) installs the Node logger and
+records handler duration and outcome into the same registry.
 
 Both argument orders work: `(bindings, message)` and `(message, bindings)`.
 Bindings land at the top level of the line, never nested. A value under `error`

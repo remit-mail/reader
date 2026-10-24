@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { getClient } from "@remit/backend/client";
-import { recordImapFailure } from "@remit/logger-lambda";
+import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	createQueueProducer,
 	isLocalEndpoint,

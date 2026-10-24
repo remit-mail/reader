@@ -1,0 +1,41 @@
+{
+	"name": "@remit/logger",
+	"version": "0.0.1",
+	"description": "The Remit logging seam: the Logger interface, a platform-neutral JSON line writer, and the handle every package logs through.",
+	"type": "module",
+	"main": "src/index.ts",
+	"types": "src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"default": "./src/index.ts"
+		}
+	},
+	"packManifest": {
+		"main": "dist/index.js",
+		"types": "dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			}
+		},
+		"files": ["dist"]
+	},
+	"scripts": {
+		"prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+		"postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
+		"test:typecheck": "tsgo --noEmit",
+		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-lines=90 --test 'src/**/*.test.ts'",
+		"test": "npm run test:typecheck && npm run test:run"
+	},
+	"license": "MIT",
+	"publishConfig": {
+		"access": "public"
+	},
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/remit-mail/reader.git",
+		"directory": "packages/logger"
+	}
+}

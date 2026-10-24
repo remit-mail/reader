@@ -1,2 +1,8 @@
-export * from "./logger.js";
-export * from "./metrics.js";
+export {
+	createLogger,
+	type LogBindings,
+	type Logger,
+	logger,
+	setLogger,
+	withLogContext,
+} from "@remit/logger";
