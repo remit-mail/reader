@@ -19,13 +19,6 @@ const DESKTOP = { width: 1512, height: 864 };
 const messageRow = (page: Page, subject: string): Locator =>
 	page.locator("[data-message-row]").filter({ hasText: subject });
 
-/** The phases the worker writes while a sync round is actually running. */
-const SYNC_IN_PROGRESS = new Set([
-	"discovering_mailboxes",
-	"syncing_inbox",
-	"syncing_others",
-]);
-
 const inboxLastSyncedAt = (
 	status: AccountSyncStatus,
 	inboxId: string,
@@ -88,14 +81,9 @@ test.describe("Mail refresh (#582)", () => {
 		// wait-or-reconcile decision (docs/architecture/imap-mutations.md), taken
 		// here rather than in the client because the tab cannot distinguish rounds
 		// from the status endpoint alone.
-		await waitFor(
-			() => api.getSyncStatus(run.accountId),
-			(status: AccountSyncStatus) =>
-				!SYNC_IN_PROGRESS.has(status.syncPhase ?? "idle"),
-			{
-				timeoutMs: 45_000,
-				what: "any earlier sync round to settle before the click",
-			},
+		await api.waitForSyncIdle(
+			run.accountId,
+			"any earlier sync round to settle before the click",
 		);
 
 		const subject = `Refresh manual ${tag}`;
