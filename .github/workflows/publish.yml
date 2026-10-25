@@ -5,9 +5,11 @@
 # differs from the version on npm, patch-bumping from the registry version (or
 # seeding 0.0.1). No changesets, no committed version bumps.
 #
-# Pushes to main publish for real, gated behind the `NPM_PUBLISH_ENABLED`
-# repository variable so publishing is armed deliberately. Set the variable to
-# `true` to go live.
+# Publishing runs on `pkgs-v*` tags (`v*` tags release the app and are handled by
+# release.yml). The release script bumps each changed package by a patch from the
+# registry version. It is gated behind the `NPM_PUBLISH_ENABLED` repository
+# variable so publishing is armed deliberately. Set the variable to `true` to go
+# live.
 #
 # The pull request half — the dry run that packs every package and checks the
 # publish surface without writing to the registry — lives in ci.yml as
@@ -21,10 +23,10 @@ name: Publish
 
 on:
   push:
-    branches: [main]
+    tags: ["pkgs-v*"]
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: publish
   cancel-in-progress: false
 
 jobs:
