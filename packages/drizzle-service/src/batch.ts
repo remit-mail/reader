@@ -28,7 +28,8 @@ const runSync = (item: SqliteBatchItem): unknown => {
  * On better-sqlite3 the batch is one synchronous IMMEDIATE transaction: it
  * never yields the event loop, so no other write on the shared connection lands
  * inside it, and IMMEDIATE takes the file's write lock before the first
- * statement so a writer in another process waits out the busy timeout.
+ * statement so a writer in another process waits out the busy timeout. On a
+ * Durable Object's `durable-sqlite` handle it is one `transactionSync`.
  */
 export const runBatch = async <
 	TSchema extends Record<string, unknown>,
