@@ -27,11 +27,7 @@ import {
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { calendarDepsOf } from "./calendar.js";
 import {
 	calendarEventDepsOf,
@@ -48,6 +44,7 @@ import {
 	settleSuggestion,
 	toCalendarSuggestionResponse,
 } from "./calendar-suggestion.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-1";
 
@@ -316,21 +313,23 @@ describe("muteSender", () => {
  * The unit tests above pin each half; these pin what one request does.
  */
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
+const withEvent = bindHandlers(() => client);
 
-const listSuggestions =
-	CalendarSuggestionOperations.CalendarSuggestionOperations_listCalendarSuggestions as Handler;
-const acceptSuggestion =
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion as Handler;
-const dismissSuggestion =
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion as Handler;
-const listMessageSuggestions =
-	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions as Handler;
-const reopenSuggestion =
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_reopenCalendarSuggestion as Handler;
+const listSuggestions = withEvent(
+	CalendarSuggestionOperations.CalendarSuggestionOperations_listCalendarSuggestions,
+);
+const acceptSuggestion = withEvent(
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion,
+);
+const dismissSuggestion = withEvent(
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion,
+);
+const listMessageSuggestions = withEvent(
+	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions,
+);
+const reopenSuggestion = withEvent(
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_reopenCalendarSuggestion,
+);
 
 interface Card {
 	suggestionId: string;
@@ -457,13 +456,10 @@ const seedMessageFrom = async (
 };
 
 before(async () => {
-	_resetForTest();
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
 });
 
 after(() => {
-	_resetForTest();
 	cleanup();
 });
 

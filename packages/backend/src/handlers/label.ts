@@ -10,11 +10,9 @@ import type {
 	UpdateLabelInput,
 } from "@remit/data-ports";
 import { ownedAccount } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
 import type {
+	HandlerContext,
 	LabelDetailOperationIds,
 	LabelOperationIds,
 	OperationHandler,
@@ -102,15 +100,14 @@ export const LabelOperations: Record<
 	LabelOperationIds,
 	OperationHandler<LabelOperationIds>
 > = {
-	LabelOperations_listLabels: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	LabelOperations_listLabels: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 
@@ -135,13 +132,12 @@ export const LabelOperations: Record<
 		};
 	},
 
-	LabelOperations_createLabel: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	LabelOperations_createLabel: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as CreateLabelRequestBody;
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
@@ -158,15 +154,14 @@ export const LabelDetailOperations: Record<
 	LabelDetailOperationIds,
 	OperationHandler<LabelDetailOperationIds>
 > = {
-	LabelDetailOperations_getLabel: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	LabelDetailOperations_getLabel: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, labelId } = context.request.params as {
 			accountId: string;
 			labelId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 
@@ -175,16 +170,15 @@ export const LabelDetailOperations: Record<
 		return toLabelResponse(label, filters.length);
 	},
 
-	LabelDetailOperations_updateLabel: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	LabelDetailOperations_updateLabel: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, labelId } = context.request.params as {
 			accountId: string;
 			labelId: string;
 		};
 		const body = context.request.requestBody as Partial<UpdateLabelRequestBody>;
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
@@ -193,15 +187,14 @@ export const LabelDetailOperations: Record<
 		return toLabelResponse(updated, filters.length);
 	},
 
-	LabelDetailOperations_deleteLabel: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	LabelDetailOperations_deleteLabel: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, labelId } = context.request.params as {
 			accountId: string;
 			labelId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 

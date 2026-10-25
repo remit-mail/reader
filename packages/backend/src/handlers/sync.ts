@@ -1,10 +1,7 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
 import { logger } from "@remit/logger";
 import { ownedAccount } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import {
 	type FireAndForgetLogger,
 	fireAndForget,
@@ -12,7 +9,11 @@ import {
 import { unwrap } from "../service/refusal.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
-import type { OperationHandler, SyncOperationIds } from "../types.js";
+import type {
+	HandlerContext,
+	OperationHandler,
+	SyncOperationIds,
+} from "../types.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
 
 interface SyncTriggerDeps {
@@ -79,12 +80,11 @@ export const SyncOperations: Record<
 	SyncOperationIds,
 	OperationHandler<SyncOperationIds>
 > = {
-	SyncOperations_triggerSync: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	SyncOperations_triggerSync: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const account = await (await getClient()).account.get(accountId);
+		const account = await ctx.client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
 		void triggerSyncSafe(account.accountId, accountConfigId);
@@ -95,12 +95,11 @@ export const SyncOperations: Record<
 		};
 	},
 
-	SyncOperations_getSyncStatus: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	SyncOperations_getSyncStatus: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 

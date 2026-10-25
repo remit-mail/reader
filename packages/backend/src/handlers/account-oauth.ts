@@ -23,14 +23,16 @@ import {
 	RefreshTokenError,
 } from "@remit/mail-oauth-service";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getMsOAuthConfig } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
 import { rawApiResponse } from "../response.js";
-import { getClient } from "../service/data-client.js";
-import type { MicrosoftOAuthOperationIds, OperationHandler } from "../types.js";
+import type {
+	HandlerContext,
+	MicrosoftOAuthOperationIds,
+	OperationHandler,
+} from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
@@ -300,12 +302,13 @@ export const MicrosoftOAuthOperations: Record<
 > = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<{ authorizationUrl: string }> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 
-		const input = JSON.parse(event.body ?? "{}") as MicrosoftOAuthStartRequest;
+		const input = JSON.parse(
+			ctx.request.body ?? "{}",
+		) as MicrosoftOAuthStartRequest;
 		const email = typeof input.email === "string" ? input.email : undefined;
 		const services = orderServices(input.services ?? [AccountService.Mail]);
 
@@ -350,11 +353,10 @@ export const MicrosoftOAuthOperations: Record<
 
 	MicrosoftOAuthOperations_microsoftOAuthCallback: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<APIGatewayProxyResult> => {
-		const event = args[0] as APIGatewayProxyEvent;
 		const webOrigin = getWebOrigin();
-		const qs = event.queryStringParameters ?? {};
+		const qs = ctx.request.query;
 
 		// Marked raw so the response formatter forwards the Location header
 		// instead of serializing this object as a JSON body. Microsoft's browser
@@ -506,7 +508,7 @@ export const MicrosoftOAuthOperations: Record<
 			);
 		}
 
-		const { account, accountConfig, secrets } = await getClient();
+		const { account, accountConfig, secrets } = ctx.client;
 
 		// Reconnect when an active OAuth account already onboards this mailbox.
 		// Same natural key as the IMAP create guard (#635); the OAuth flow returns

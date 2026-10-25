@@ -1,7 +1,9 @@
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import type { Request } from "openapi-backend";
+import type { HandlerRequest } from "./types.js";
 
-export const normalizeRequest = (event: APIGatewayProxyEvent): Request => ({
+export const normalizeRequest = (
+	event: APIGatewayProxyEvent,
+): HandlerRequest => ({
 	method: event.httpMethod,
 	path: event.path,
 	query: (event.queryStringParameters ?? {}) as Record<string, string>,

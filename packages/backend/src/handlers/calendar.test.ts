@@ -10,11 +10,7 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CalendarSource, RecurrenceScope } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import {
 	type CalendarDeps,
 	CalendarDetailOperations,
@@ -37,6 +33,7 @@ import {
 	updateCalendarEventFor,
 } from "./calendar-event.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 
 /**
  * The calendar handlers against the store the self-host build ships.
@@ -153,13 +150,10 @@ const seedWeekly = async (
 };
 
 before(async () => {
-	_resetForTest();
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
 });
 
 after(() => {
-	_resetForTest();
 	cleanup();
 });
 
@@ -753,19 +747,20 @@ describe("updateCalendarFor", () => {
  * suites above hold the inner functions; these hold what the API answers with.
  */
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
+const withEvent = bindHandlers(() => client);
 
-const createCalendar =
-	CalendarOperations.CalendarOperations_createCalendar as Handler;
-const getCalendar =
-	CalendarDetailOperations.CalendarDetailOperations_getCalendar as Handler;
-const updateCalendar =
-	CalendarDetailOperations.CalendarDetailOperations_updateCalendar as Handler;
-const deleteCalendar =
-	CalendarDetailOperations.CalendarDetailOperations_deleteCalendar as Handler;
+const createCalendar = withEvent(
+	CalendarOperations.CalendarOperations_createCalendar,
+);
+const getCalendar = withEvent(
+	CalendarDetailOperations.CalendarDetailOperations_getCalendar,
+);
+const updateCalendar = withEvent(
+	CalendarDetailOperations.CalendarDetailOperations_updateCalendar,
+);
+const deleteCalendar = withEvent(
+	CalendarDetailOperations.CalendarDetailOperations_deleteCalendar,
+);
 
 const contextOf = (request: {
 	params?: Record<string, string>;

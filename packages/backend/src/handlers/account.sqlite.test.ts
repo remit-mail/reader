@@ -28,30 +28,29 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { ConfigOperations } from "./config.js";
+import { bindHandlers } from "./handler-context-fixture.js";
+
+let client: RemitClient;
 
 const SUB = "cognito-sub-1180";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<unknown>;
+const withEvent = bindHandlers(() => client);
 
-const getConfig = ConfigOperations.ConfigOperations_getConfig as Handler;
-const createAccount =
-	AccountOperations.AccountOperations_createAccount as Handler;
-const updateAccount =
-	AccountDetailOperations.AccountDetailOperations_updateAccount as Handler;
-const deleteAccount =
-	AccountDetailOperations.AccountDetailOperations_deleteAccount as Handler;
+const getConfig = withEvent(ConfigOperations.ConfigOperations_getConfig);
+const createAccount = withEvent(
+	AccountOperations.AccountOperations_createAccount,
+);
+const updateAccount = withEvent(
+	AccountDetailOperations.AccountDetailOperations_updateAccount,
+);
+const deleteAccount = withEvent(
+	AccountDetailOperations.AccountDetailOperations_deleteAccount,
+);
 
 const event = (body?: unknown): APIGatewayProxyEvent =>
 	({
@@ -140,19 +139,18 @@ beforeEach(async () => {
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		userId: SUB,
 	});
-	setClient({
+	client = {
 		accountConfig: repos.accountConfig,
 		account: accounts,
 		accountSetting: repos.accountSetting,
 		mailbox: repos.mailbox,
 		configImport: repos.configImport,
 		secrets,
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 });
 
 afterEach(() => {
 	mock.restoreAll();
-	_resetForTest();
 	close();
 });
 

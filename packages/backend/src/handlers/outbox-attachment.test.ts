@@ -48,10 +48,15 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 import {
 	completeOutboxAttachment,
 	mintOutboxAttachment,
 } from "./outbox-attachment.js";
+
+let client: RemitClient;
+
+const withEvent = bindHandlers(() => client);
 
 process.env.CONTENT_DELIVERY_DOMAIN = "https://content.test";
 
@@ -213,7 +218,7 @@ const install = async (
 	});
 
 	const attachmentRows = new Map<string, OutboxAttachmentItem>();
-	setClient({
+	client = {
 		outboxMessage,
 		storage,
 		outboxAttachment: new OutboxAttachmentService({
@@ -221,7 +226,7 @@ const install = async (
 			outboxAttachmentService: createAttachmentRepository(attachmentRows),
 			storage,
 		}),
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 
 	return { storage, basePath, rows: attachmentRows };
 };
@@ -267,7 +272,10 @@ const mint = (
 	outboxMessageId = DRAFT_ID,
 ): Promise<APIGatewayProxyResult> =>
 	respond(() =>
-		mintOutboxAttachment(mintContext(body, outboxMessageId), authorizedEvent()),
+		withEvent(mintOutboxAttachment)(
+			mintContext(body, outboxMessageId),
+			authorizedEvent(),
+		),
 	);
 
 const complete = (
@@ -275,7 +283,7 @@ const complete = (
 	outboxMessageId = DRAFT_ID,
 ): Promise<APIGatewayProxyResult> =>
 	respond(() =>
-		completeOutboxAttachment(
+		withEvent(completeOutboxAttachment)(
 			completeContext(outboxAttachmentId, outboxMessageId),
 			authorizedEvent(),
 		),
@@ -732,6 +740,7 @@ describe("completing an attachment (#679)", () => {
 describe("the mint route through the whole request pipeline", () => {
 	it("reaches its handler with the real built spec in front of it", async () => {
 		await install();
+		setClient(client);
 		const { api } = await import("../index.js");
 
 		const body = JSON.stringify({

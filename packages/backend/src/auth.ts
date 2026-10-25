@@ -1,5 +1,6 @@
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
+import type { HandlerIdentity } from "./types.js";
 
 const LOCAL_BYPASS_VARS = [
 	"LOCAL_ACCOUNT_CONFIG_ID",
@@ -83,3 +84,20 @@ export const getAccountConfigIdFromEvent = (
 		"Missing accountConfigId: no Cognito `sub` claim on the request, and neither LOCAL_ACCOUNT_CONFIG_ID nor LOCAL_COGNITO_SUB env var is set",
 	);
 };
+
+const getEmailFromClaims = (event: APIGatewayProxyEvent): string => {
+	const email = event.requestContext?.authorizer?.claims?.email;
+	return typeof email === "string" ? email : "";
+};
+
+// A public route (the OAuth callback, a calendar feed) carries no identity, so
+// the missing-accountConfigId error waits for a handler that reads it.
+export const getIdentityFromEvent = (
+	event: APIGatewayProxyEvent,
+): HandlerIdentity => ({
+	get accountConfigId() {
+		return getAccountConfigIdFromEvent(event);
+	},
+	email: getEmailFromClaims(event),
+	sub: getSubFromEvent(event),
+});

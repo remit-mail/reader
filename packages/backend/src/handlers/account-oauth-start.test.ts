@@ -13,6 +13,11 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../service/data-client.js";
 import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 
 const WEB_ORIGIN = "https://mail.example.com";
@@ -125,12 +130,15 @@ before(async () => {
 		SecretString: secretString,
 	})) as typeof SecretsManagerClient.prototype.send;
 
+	setClient({} as unknown as RemitClient);
+
 	({ handler } = (await import("../index.js")) as unknown as {
 		handler: typeof handler;
 	});
 });
 
 after(() => {
+	_resetForTest();
 	SecretsManagerClient.prototype.send = originalSend;
 	restoreStdout();
 });

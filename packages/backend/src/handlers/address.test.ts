@@ -13,25 +13,22 @@ import type {
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 
-const searchAddresses =
-	AddressOperations.AddressOperations_searchAddresses as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<ResultList<AddressItem>>;
+const withEvent = bindHandlers(() => client);
 
-const updateAddress =
-	AddressDetailOperations.AddressDetailOperations_updateAddress as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<AddressResponse>;
+let client: RemitClient;
+
+const searchAddresses = withEvent<ResultList<AddressItem>>(
+	AddressOperations.AddressOperations_searchAddresses,
+);
+
+const updateAddress = withEvent<AddressResponse>(
+	AddressDetailOperations.AddressDetailOperations_updateAddress,
+);
 
 const SUB = "cognito-sub-704";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -84,13 +81,12 @@ const clientReturning = (items: AddressItem[], seen: Listing[]): RemitClient =>
 
 afterEach(() => {
 	mock.restoreAll();
-	_resetForTest();
 });
 
 describe("AddressOperations_searchAddresses", () => {
 	it("looks a partial term up against the caller's own addresses (#704)", async () => {
 		const seen: Listing[] = [];
-		setClient(clientReturning([address({})], seen));
+		client = clientReturning([address({})], seen);
 
 		const response = await searchAddresses(
 			contextFor({ q: "Po", limit: 8 }),
@@ -109,22 +105,20 @@ describe("AddressOperations_searchAddresses", () => {
 
 	it("hands the suggestion list back in the order it was ranked", async () => {
 		const seen: Listing[] = [];
-		setClient(
-			clientReturning(
-				[
-					address({
-						addressId: "addr-frequent",
-						normalizedEmail: "zoe@pocahondas.nl",
-					}),
-					address({
-						addressId: "addr-stranger",
-						normalizedEmail: "aaron@pocahondas.nl",
-						inboundCount: 0,
-						replyCount: 0,
-					}),
-				],
-				seen,
-			),
+		client = clientReturning(
+			[
+				address({
+					addressId: "addr-frequent",
+					normalizedEmail: "zoe@pocahondas.nl",
+				}),
+				address({
+					addressId: "addr-stranger",
+					normalizedEmail: "aaron@pocahondas.nl",
+					inboundCount: 0,
+					replyCount: 0,
+				}),
+			],
+			seen,
 		);
 
 		const response = await searchAddresses(
@@ -140,7 +134,7 @@ describe("AddressOperations_searchAddresses", () => {
 
 	it("asks for a suggestion-sized window when the caller names no limit", async () => {
 		const seen: Listing[] = [];
-		setClient(clientReturning([], seen));
+		client = clientReturning([], seen);
 
 		await searchAddresses(contextFor({ q: "po" }), eventFor(SUB));
 
@@ -189,7 +183,7 @@ const clientHolding = (
 describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 	it("forwards the grant to the merge patch and hands it back on the address", async () => {
 		const seen: FlagsMergePatch[] = [];
-		setClient(clientHolding(address({ flags: {} }), seen));
+		client = clientHolding(address({ flags: {} }), seen);
 
 		const response = await updateAddress(
 			updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
@@ -202,11 +196,9 @@ describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 
 	it("clears the grant by naming the key, the removal form every flag shares", async () => {
 		const seen: FlagsMergePatch[] = [];
-		setClient(
-			clientHolding(
-				address({ flags: { neverSpam: { value: true, setAt: 10 } } }),
-				seen,
-			),
+		client = clientHolding(
+			address({ flags: { neverSpam: { value: true, setAt: 10 } } }),
+			seen,
 		);
 
 		const response = await updateAddress(
@@ -222,13 +214,11 @@ describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 	it("clears the category override, which has no false-equivalent value to send", async () => {
 		const seen: FlagsMergePatch[] = [];
-		setClient(
-			clientHolding(
-				address({
-					flags: { category: { value: "newsletter", setAt: 10 } },
-				}),
-				seen,
-			),
+		client = clientHolding(
+			address({
+				flags: { category: { value: "newsletter", setAt: 10 } },
+			}),
+			seen,
 		);
 
 		const response = await updateAddress(
@@ -242,16 +232,14 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 
 	it("clears a boolean flag by the same route, leaving the untouched ones alone", async () => {
 		const seen: FlagsMergePatch[] = [];
-		setClient(
-			clientHolding(
-				address({
-					flags: {
-						muted: { value: true, setAt: 10 },
-						vip: { value: true, setAt: 11 },
-					},
-				}),
-				seen,
-			),
+		client = clientHolding(
+			address({
+				flags: {
+					muted: { value: true, setAt: 10 },
+					vip: { value: true, setAt: 11 },
+				},
+			}),
+			seen,
 		);
 
 		const response = await updateAddress(
@@ -265,11 +253,9 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 
 	it("removes a key named in both halves, because clearFlags is applied last", async () => {
 		const seen: FlagsMergePatch[] = [];
-		setClient(
-			clientHolding(
-				address({ flags: { muted: { value: true, setAt: 10 } } }),
-				seen,
-			),
+		client = clientHolding(
+			address({ flags: { muted: { value: true, setAt: 10 } } }),
+			seen,
 		);
 
 		const response = await updateAddress(
@@ -304,7 +290,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 	it("enqueues a back-apply naming the sender and the set it was fired for", async () => {
 		const enqueued: SendMessageCommand[] = [];
 		withStubbedQueue(enqueued);
-		setClient(clientHolding(address({ flags: {} }), []));
+		client = clientHolding(address({ flags: {} }), []);
 
 		await updateAddress(
 			updateContextFor({
@@ -330,7 +316,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 		mock.method(sqsClient, "send", async () => {
 			throw new Error("AWS.SimpleQueueService.NonExistentQueue");
 		});
-		setClient(clientHolding(address({ flags: {} }), []));
+		client = clientHolding(address({ flags: {} }), []);
 
 		await assert.rejects(
 			updateAddress(
@@ -350,11 +336,9 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 	it("enqueues nothing when the override is cleared back to auto", async () => {
 		const enqueued: SendMessageCommand[] = [];
 		withStubbedQueue(enqueued);
-		setClient(
-			clientHolding(
-				address({ flags: { category: { value: "newsletter", setAt: 10 } } }),
-				[],
-			),
+		client = clientHolding(
+			address({ flags: { category: { value: "newsletter", setAt: 10 } } }),
+			[],
 		);
 
 		const response = await updateAddress(
@@ -369,7 +353,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 	it("enqueues nothing for a flag that has no bearing on classification", async () => {
 		const enqueued: SendMessageCommand[] = [];
 		withStubbedQueue(enqueued);
-		setClient(clientHolding(address({ flags: {} }), []));
+		client = clientHolding(address({ flags: {} }), []);
 
 		await updateAddress(
 			updateContextFor({ flags: { muted: { value: true, setAt: 20 } } }),

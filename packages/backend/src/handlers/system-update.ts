@@ -6,11 +6,14 @@ import type {
 	SystemUpdateRun,
 } from "@remit/api-openapi-types";
 import { ConflictError, HTTPError } from "@remit/data-ports/errors";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getSubFromEvent } from "../auth.js";
 import { defaultErrorCode } from "../error.js";
-import type { OperationHandler, SystemOperationIds } from "../types.js";
+import type {
+	HandlerContext,
+	OperationHandler,
+	SystemOperationIds,
+} from "../types.js";
 
 class TargetVersionMismatchError extends HTTPError {
 	name = "TargetVersionMismatchError";
@@ -168,13 +171,11 @@ export const SystemOperations: Record<
 > = {
 	SystemOperations_getSystemUpdate: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
-
-		const event = args[0] as APIGatewayProxyEvent;
-		if (!getSubFromEvent(event)) return unauthorized();
+		if (!ctx.identity.sub) return unauthorized();
 
 		// A refresh asks for a fresh answer, and only the updater can fetch one, so
 		// the request goes on the control seam for its watch loop to pick up (#599).
@@ -189,13 +190,11 @@ export const SystemOperations: Record<
 
 	SystemOperations_applySystemUpdate: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
-
-		const event = args[0] as APIGatewayProxyEvent;
-		const sub = getSubFromEvent(event);
+		const sub = ctx.identity.sub;
 		if (!sub) return unauthorized();
 
 		const { targetVersion } = context.request.requestBody as {

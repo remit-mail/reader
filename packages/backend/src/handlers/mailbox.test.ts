@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { BadRequestError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
@@ -7,29 +7,29 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 import {
 	MailboxDetailOperations,
 	MailboxOperations,
 	TrashOperations,
 } from "./mailbox.js";
 
+const withEvent = bindHandlers(() => client);
+
+let client: RemitClient;
+
 const SUB = "cognito-sub-887";
 const ACCOUNT_ID = "acc-887";
 
-const emptyTrash = TrashOperations.TrashOperations_emptyTrash as unknown as (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<{ deletedCount: number }>;
+const emptyTrash = withEvent<{ deletedCount: number }>(
+	TrashOperations.TrashOperations_emptyTrash,
+);
 
 const callEmptyTrash = (
 	serviceEmptyTrash: () => Promise<{ deletedCount: number }>,
 ): Promise<{ deletedCount: number }> => {
-	setClient({
+	client = {
 		account: {
 			get: async () => ({
 				accountId: ACCOUNT_ID,
@@ -37,7 +37,7 @@ const callEmptyTrash = (
 			}),
 		},
 		messageMove: { emptyTrash: serviceEmptyTrash },
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 
 	return emptyTrash(
 		{ request: { params: { accountId: ACCOUNT_ID } } } as unknown as Context,
@@ -48,10 +48,6 @@ const callEmptyTrash = (
 };
 
 describe("TrashOperations_emptyTrash", () => {
-	afterEach(() => {
-		_resetForTest();
-	});
-
 	it("reports the service's count rather than one of its own", async () => {
 		// The handler resolves no folder and counts no rows: a second read would
 		// be free to disagree with the one that actually marked them.
@@ -73,11 +69,9 @@ describe("TrashOperations_emptyTrash", () => {
 	});
 });
 
-const deleteMailbox =
-	MailboxDetailOperations.MailboxDetailOperations_deleteMailbox as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<{ statusCode: number }>;
+const deleteMailbox = withEvent<{ statusCode: number }>(
+	MailboxDetailOperations.MailboxDetailOperations_deleteMailbox,
+);
 
 const folder = (over: Partial<MailboxItem> = {}): MailboxItem =>
 	({
@@ -100,7 +94,7 @@ const callDelete = (
 	world: DeleteWorld,
 ): { run: () => Promise<{ statusCode: number }>; deleted: string[] } => {
 	const deleted: string[] = [];
-	setClient({
+	client = {
 		account: {
 			get: async () => ({
 				accountId: ACCOUNT_ID,
@@ -131,7 +125,7 @@ const callDelete = (
 				deleted.push(mailboxId);
 			},
 		},
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 
 	return {
 		deleted,
@@ -152,10 +146,6 @@ const refusal = (match: RegExp) => (error: unknown) =>
 	match.test((error as Error).message);
 
 describe("MailboxDetailOperations_deleteMailbox — what it refuses (D4, D16)", () => {
-	afterEach(() => {
-		_resetForTest();
-	});
-
 	it("refuses the inbox", async () => {
 		const { run, deleted } = callDelete({
 			mailbox: folder({ fullPath: "INBOX" }),
@@ -236,19 +226,13 @@ describe("MailboxDetailOperations_deleteMailbox — what it refuses (D4, D16)", 
 	});
 });
 
-const createMailbox =
-	MailboxOperations.MailboxOperations_createMailbox as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<unknown>;
+const createMailbox = withEvent<unknown>(
+	MailboxOperations.MailboxOperations_createMailbox,
+);
 
 describe("MailboxOperations_createMailbox", () => {
-	afterEach(() => {
-		_resetForTest();
-	});
-
 	it("refuses a path the account already has a folder at", async () => {
-		setClient({
+		client = {
 			account: {
 				get: async () => ({
 					accountId: ACCOUNT_ID,
@@ -265,7 +249,7 @@ describe("MailboxOperations_createMailbox", () => {
 			mailboxQueue: {
 				createMailbox: async () => ({ outcome: "PathTaken" }),
 			},
-		} as unknown as RemitClient);
+		} as unknown as RemitClient;
 
 		await assert.rejects(
 			createMailbox(

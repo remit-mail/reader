@@ -11,11 +11,9 @@ import {
 	ownedAccount,
 	queueOrganizeJob,
 } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient, type RemitClient } from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import {
 	buildOrganizeMatchDeps,
 	matchOrganize,
@@ -25,6 +23,7 @@ import {
 } from "../service/organize.js";
 import { unwrap } from "../service/refusal.js";
 import type {
+	HandlerContext,
 	OperationHandler,
 	OrganizeJobDetailOperationIds,
 	OrganizeOperationIds,
@@ -100,21 +99,20 @@ export const OrganizeOperations: Record<
 > = {
 	OrganizeOperations_createOrganizeJob: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<CreateOrganizeJobResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as OrganizeInput;
 
-		const userId = getSubFromEvent(event);
+		const userId = ctx.identity.sub;
 		if (!userId) {
 			throw new Error(
 				"Missing Cognito `sub`: cannot attribute an organize job to a user",
 			);
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		await assertAccount(client, accountId, accountConfigId, "act");
 
 		const job = await queueOrganizeJob(
@@ -135,14 +133,13 @@ export const OrganizeOperations: Record<
 
 	OrganizeOperations_previewOrganize: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<OrganizePreviewResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const input = context.request.requestBody as OrganizeInput;
 
-		const client = await getClient();
+		const client = ctx.client;
 		await assertAccount(client, accountId, accountConfigId, "read");
 
 		if (input.filterId) {
@@ -171,16 +168,15 @@ export const OrganizeJobDetailOperations: Record<
 > = {
 	OrganizeJobDetailOperations_getOrganizeJob: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<OrganizeJobResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, organizeJobId } = context.request.params as {
 			accountId: string;
 			organizeJobId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		await assertAccount(client, accountId, accountConfigId, "read");
 
 		const job = await client.organizeJobRequest.get(organizeJobId);

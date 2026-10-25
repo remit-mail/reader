@@ -7,11 +7,12 @@ import {
 	ownedAccount,
 	settledFolder,
 } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
-import type { FolderRoleOperationIds, OperationHandler } from "../types.js";
+import type {
+	FolderRoleOperationIds,
+	HandlerContext,
+	OperationHandler,
+} from "../types.js";
 import { toAccountResponse } from "./account-guards.js";
 import { loadAccountOverrides } from "./account-overrides.js";
 import { loadSignatureForAccount } from "./account-signature.js";
@@ -33,17 +34,16 @@ export const FolderRoleOperations: Record<
 > = {
 	FolderRoleOperations_appointFolderRole: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, role } = context.request.params as {
 			accountId: string;
 			role: CanonicalMailboxRole;
 		};
 		const body = context.request.requestBody as AppointFolderRoleInput;
 
-		const { account, accountSetting, mailbox } = await getClient();
+		const { account, accountSetting, mailbox } = ctx.client;
 		const existing = await account.get(accountId);
 		unwrap(ownedAccount(existing, accountConfigId, "act"));
 

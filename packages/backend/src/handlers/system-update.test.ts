@@ -12,8 +12,14 @@ import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { handlerContextFromEvent } from "../handler-context.js";
 import { normalizeRequest } from "../request.js";
 import { formatResponse } from "../response.js";
+import {
+	_resetForTest,
+	type RemitClient,
+	setClient,
+} from "../service/data-client.js";
 import { SystemOperations } from "./system-update.js";
 
 const tmpRoot = join(
@@ -53,6 +59,7 @@ before(() => {
 
 after(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
+	_resetForTest();
 });
 
 beforeEach(() => {
@@ -82,17 +89,25 @@ const getContext = (query: Record<string, unknown> = {}): Context =>
 const postContext = (targetVersion: string): Context =>
 	({ request: { requestBody: { targetVersion } } }) as unknown as Context;
 
-const getSystemUpdate =
-	SystemOperations.SystemOperations_getSystemUpdate as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<unknown>;
+const noStore = {} as unknown as RemitClient;
 
-const applySystemUpdate =
-	SystemOperations.SystemOperations_applySystemUpdate as unknown as (
-		context: Context,
-		event: APIGatewayProxyEvent,
-	) => Promise<unknown>;
+const getSystemUpdate = (
+	context: Context,
+	event: APIGatewayProxyEvent,
+): Promise<unknown> =>
+	SystemOperations.SystemOperations_getSystemUpdate(
+		context,
+		handlerContextFromEvent(noStore, event),
+	);
+
+const applySystemUpdate = (
+	context: Context,
+	event: APIGatewayProxyEvent,
+): Promise<unknown> =>
+	SystemOperations.SystemOperations_applySystemUpdate(
+		context,
+		handlerContextFromEvent(noStore, event),
+	);
 
 const getUpdate = (
 	event: APIGatewayProxyEvent,
@@ -425,6 +440,7 @@ describe("GET /system/update through the whole request pipeline", () => {
 		// string — and goes through the real built spec, which is where the press
 		// was being answered with 400 instead of reaching the handler at all.
 		writeState(okState);
+		setClient(noStore);
 		const { api } = await import("../index.js");
 
 		const event = {

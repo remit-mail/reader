@@ -15,15 +15,14 @@ import {
 	ownedAccount,
 	ownedFolder,
 } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
 	applyPendingMoveCountPrediction,
 	type PendingUnseenFlagPush,
 } from "../derive/pendingMoveCounts.js";
-import { getClient } from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
 import type {
+	HandlerContext,
 	MailboxDetailOperationIds,
 	MailboxOperationIds,
 	OperationHandler,
@@ -120,10 +119,8 @@ export const applyMailboxPatch = async (
  * imap-worker bulk sync path through `RemitClient.placementMove` on every
  * backend, so this is a real signal on the self-host stack too.
  */
-const loadPendingMoves = (
-	client: Awaited<ReturnType<typeof getClient>>,
-	accountId: string,
-) => client.placementMove.listByAccountId(accountId);
+const loadPendingMoves = (client: RemitClient, accountId: string) =>
+	client.placementMove.listByAccountId(accountId);
 
 /**
  * Every pending `\Seen` flag-push marker (issue #1273) for an account —
@@ -132,7 +129,7 @@ const loadPendingMoves = (
  * on both backends, so this is a real signal on the self-host stack too.
  */
 const loadPendingUnseenFlagPushes = async (
-	client: Awaited<ReturnType<typeof getClient>>,
+	client: RemitClient,
 	accountId: string,
 ): Promise<PendingUnseenFlagPush[]> => {
 	const pushes = await client.flagPush.listByAccountId(accountId);
@@ -175,15 +172,14 @@ export const MailboxOperations: Record<
 	MailboxOperationIds,
 	OperationHandler<MailboxOperationIds>
 > = {
-	MailboxOperations_listMailboxes: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MailboxOperations_listMailboxes: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 
@@ -227,14 +223,13 @@ export const MailboxOperations: Record<
 		};
 	},
 
-	MailboxOperations_createMailbox: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MailboxOperations_createMailbox: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { namespaceType, fullPath } = context.request
 			.requestBody as CreateMailboxInput;
 
-		const created = await createFolder(await getClient(), accountConfigId, {
+		const created = await createFolder(ctx.client, accountConfigId, {
 			accountId,
 			namespaceType,
 			fullPath,
@@ -253,15 +248,14 @@ export const MailboxDetailOperations: Record<
 	MailboxDetailOperationIds,
 	OperationHandler<MailboxDetailOperationIds>
 > = {
-	MailboxDetailOperations_getMailbox: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MailboxDetailOperations_getMailbox: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
 			accountId: string;
 			mailboxId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 
@@ -293,17 +287,16 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_renameMailbox: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
 			accountId: string;
 			mailboxId: string;
 		};
 		const body = context.request.requestBody as RenameMailboxInput;
 
-		const client = await getClient();
+		const client = ctx.client;
 		const mailbox = await applyMailboxPatch(
 			client,
 			accountConfigId,
@@ -321,16 +314,15 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_deleteMailbox: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
 			accountId: string;
 			mailboxId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
@@ -371,12 +363,11 @@ export const TrashOperations: Record<
 	TrashOperationIds,
 	OperationHandler<TrashOperationIds>
 > = {
-	TrashOperations_emptyTrash: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	TrashOperations_emptyTrash: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const client = await getClient();
+		const client = ctx.client;
 
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));

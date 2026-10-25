@@ -4,11 +4,7 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { authenticateSelfHostRequest } from "../jwt-auth.js";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { CalendarOperations } from "./calendar.js";
 import {
 	CalendarEventDetailOperations,
@@ -16,6 +12,7 @@ import {
 	CalendarFreeBusyOperations,
 } from "./calendar-event.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 
 /**
  * The event, free/busy and window wrappers driven the way an HTTP request
@@ -23,27 +20,32 @@ import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
  * self-host build ships (issue #1033).
  */
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
+const withEvent = bindHandlers(() => client);
 
-const listCalendars =
-	CalendarOperations.CalendarOperations_listCalendars as Handler;
-const createCalendar =
-	CalendarOperations.CalendarOperations_createCalendar as Handler;
-const listEvents =
-	CalendarEventOperations.CalendarEventOperations_listCalendarEvents as Handler;
-const createEvent =
-	CalendarEventOperations.CalendarEventOperations_createCalendarEvent as Handler;
-const getEvent =
-	CalendarEventDetailOperations.CalendarEventDetailOperations_getCalendarEvent as Handler;
-const updateEvent =
-	CalendarEventDetailOperations.CalendarEventDetailOperations_updateCalendarEvent as Handler;
-const deleteEvent =
-	CalendarEventDetailOperations.CalendarEventDetailOperations_deleteCalendarEvent as Handler;
-const listFreeBusy =
-	CalendarFreeBusyOperations.CalendarFreeBusyOperations_listCalendarFreeBusy as Handler;
+const listCalendars = withEvent(
+	CalendarOperations.CalendarOperations_listCalendars,
+);
+const createCalendar = withEvent(
+	CalendarOperations.CalendarOperations_createCalendar,
+);
+const listEvents = withEvent(
+	CalendarEventOperations.CalendarEventOperations_listCalendarEvents,
+);
+const createEvent = withEvent(
+	CalendarEventOperations.CalendarEventOperations_createCalendarEvent,
+);
+const getEvent = withEvent(
+	CalendarEventDetailOperations.CalendarEventDetailOperations_getCalendarEvent,
+);
+const updateEvent = withEvent(
+	CalendarEventDetailOperations.CalendarEventDetailOperations_updateCalendarEvent,
+);
+const deleteEvent = withEvent(
+	CalendarEventDetailOperations.CalendarEventDetailOperations_deleteCalendarEvent,
+);
+const listFreeBusy = withEvent(
+	CalendarFreeBusyOperations.CalendarFreeBusyOperations_listCalendarFreeBusy,
+);
 
 interface Instance {
 	calendarId: string;
@@ -120,13 +122,10 @@ const seedEvent = async (
 };
 
 before(async () => {
-	_resetForTest();
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
 });
 
 after(() => {
-	_resetForTest();
 	cleanup();
 });
 

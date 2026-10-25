@@ -33,12 +33,10 @@ import {
 	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import { deleteAccount } from "../service/account-deletion.js";
-import { getClient } from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { unwrap } from "../service/refusal.js";
 import { sqsClient } from "../service/sqs.js";
@@ -46,6 +44,7 @@ import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
 	AccountDetailOperationIds,
 	AccountOperationIds,
+	HandlerContext,
 	OperationHandler,
 } from "../types.js";
 import {
@@ -201,11 +200,10 @@ export const AccountOperations: Record<
 > = {
 	AccountOperations_createAccount: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<AccountResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const input = JSON.parse(event.body ?? "{}") as CreateAccountInput;
+		const accountConfigId = ctx.identity.accountConfigId;
+		const input = JSON.parse(ctx.request.body ?? "{}") as CreateAccountInput;
 
 		// OAuth accounts must be created via the dedicated connect flow
 		assertNotOAuthCreate(input.authType);
@@ -219,7 +217,7 @@ export const AccountOperations: Record<
 		);
 
 		const { account, accountConfig, accountSetting, mailbox, secrets } =
-			await getClient();
+			ctx.client;
 
 		await ensureAccountConfig(accountConfig, accountConfigId);
 
@@ -301,13 +299,12 @@ export const AccountOperations: Record<
 
 	AccountOperations_testConnection: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<TestConnectionResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const input = JSON.parse(event.body ?? "{}") as TestConnectionInput;
+		const accountConfigId = ctx.identity.accountConfigId;
+		const input = JSON.parse(ctx.request.body ?? "{}") as TestConnectionInput;
 
-		const { account, secrets } = await getClient();
+		const { account, secrets } = ctx.client;
 
 		// Resolve password - use provided password or decrypt stored password
 		let imapPassword = input.password;
@@ -390,7 +387,7 @@ export const AccountOperations: Record<
 };
 
 const encryptedSecret = async (
-	secrets: Awaited<ReturnType<typeof getClient>>["secrets"],
+	secrets: RemitClient["secrets"],
 	plaintext: string | undefined,
 ): Promise<string | undefined> =>
 	plaintext
@@ -417,14 +414,13 @@ export const AccountDetailOperations: Record<
 > = {
 	AccountDetailOperations_updateAccount: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<AccountResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
-		const input = JSON.parse(event.body ?? "{}") as UpdateAccountInput;
+		const input = JSON.parse(ctx.request.body ?? "{}") as UpdateAccountInput;
 
-		const { account, accountSetting, mailbox, secrets } = await getClient();
+		const { account, accountSetting, mailbox, secrets } = ctx.client;
 
 		const existing = await account.get(accountId);
 		unwrap(ownedAccount(existing, accountConfigId, "act"));
@@ -518,13 +514,12 @@ export const AccountDetailOperations: Record<
 
 	AccountDetailOperations_deleteAccount: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<DeleteAccountResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
-		const { account } = await getClient();
+		const { account } = ctx.client;
 
 		const existing = await account.get(accountId);
 		unwrap(ownedAccount(existing, accountConfigId, "act"));

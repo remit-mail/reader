@@ -42,13 +42,11 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
-import {
-	_resetForTest,
-	getClient,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import { bindHandlers } from "./handler-context-fixture.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
+
+let client: RemitClient;
 
 const CONTENT_DOMAIN = "https://content.test";
 process.env.CONTENT_DELIVERY_DOMAIN = CONTENT_DOMAIN;
@@ -251,7 +249,7 @@ const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 		storage,
 	});
 	installedStorage = storage;
-	setClient({
+	client = {
 		outboxMessage,
 		storage,
 		account: accountRepository,
@@ -263,7 +261,7 @@ const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 			sqsSmtpQueueUrl: "http://localhost:9324/queue/outbox-test",
 			sqsClient,
 		}),
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 };
 
 const authorizedEvent = (body?: unknown): APIGatewayProxyEvent =>
@@ -277,21 +275,23 @@ const requestContext = (request: {
 	requestBody?: unknown;
 }): Context => ({ request }) as unknown as Context;
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
+const withEvent = bindHandlers(() => client);
 
-const createDraft =
-	OutboxOperations.OutboxOperations_createOutboxMessage as Handler;
-const sendMessage =
-	OutboxDetailOperations.OutboxDetailOperations_sendOutboxMessage as Handler;
-const updateDraft =
-	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage as Handler;
-const deleteDraft =
-	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage as Handler;
-const getMessage =
-	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage as Handler;
+const createDraft = withEvent(
+	OutboxOperations.OutboxOperations_createOutboxMessage,
+);
+const sendMessage = withEvent(
+	OutboxDetailOperations.OutboxDetailOperations_sendOutboxMessage,
+);
+const updateDraft = withEvent(
+	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage,
+);
+const deleteDraft = withEvent(
+	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage,
+);
+const getMessage = withEvent(
+	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage,
+);
 
 type Outcome =
 	| { readonly ok: true; readonly body: Record<string, unknown> }
@@ -332,7 +332,6 @@ const sentOutboxMessageId = async (): Promise<string> => {
 };
 
 afterEach(() => {
-	_resetForTest();
 	accountSyncedServices = ["Mail"];
 });
 
@@ -387,7 +386,6 @@ describe("an outbox entry that has left draft (#604)", () => {
 	it("still discards a message that was sent but never filed", async () => {
 		installClient();
 		const outboxMessageId = await sentOutboxMessageId();
-		const client = await getClient();
 		await client.outboxMessage.update(ACCOUNT_CONFIG_ID, outboxMessageId, {
 			status: OutboxMessageStatus.unfiled,
 		});
@@ -532,7 +530,6 @@ describe("discarding a draft that carries files (#679)", () => {
 		);
 		const outboxMessageId = String(draft.outboxMessageId);
 
-		const client = await getClient();
 		const minted = await client.outboxAttachment.mint({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			outboxMessageId,
@@ -582,7 +579,6 @@ describe("attachmentIds on a draft update (#679)", () => {
 			}),
 		);
 		const outboxMessageId = String(draft.outboxMessageId);
-		const client = await getClient();
 		const ids: string[] = [];
 		for (const filename of ["one.txt", "two.txt"]) {
 			const minted = await client.outboxAttachment.mint({

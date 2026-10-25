@@ -11,15 +11,13 @@ import type {
 	OutboxAttachmentRejectionReasonValue,
 } from "@remit/mailbox-service";
 import { outboxAttachmentContentId } from "@remit/mailbox-service/outbox-attachment-content";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import { getContentSigner } from "../derive/contentSignature.js";
 import {
 	buildStorageContentUrl,
 	getContentDeliveryDomain,
 } from "../derive/contentUrl.js";
-import { getClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 
 // Every error body the API emits carries a `code` (issue #371). A refusal here
 // is one kind, so the code is one value and `reason` says which refusal it was.
@@ -74,16 +72,15 @@ const refuse = (
  */
 export const mintOutboxAttachment = async (
 	context: Context,
-	...args: unknown[]
+	ctx: HandlerContext,
 ): Promise<MintOutboxAttachmentResponse | RejectionResponse> => {
-	const event = args[0] as APIGatewayProxyEvent;
-	const accountConfigId = getAccountConfigIdFromEvent(event);
+	const accountConfigId = ctx.identity.accountConfigId;
 	const { outboxMessageId } = context.request.params as {
 		outboxMessageId: string;
 	};
 	const input = context.request.requestBody as MintOutboxAttachmentInput;
 
-	const client = await getClient();
+	const client = ctx.client;
 	const result = await client.outboxAttachment.mint({
 		accountConfigId,
 		outboxMessageId,
@@ -105,15 +102,14 @@ export const mintOutboxAttachment = async (
  */
 export const completeOutboxAttachment = async (
 	context: Context,
-	...args: unknown[]
+	ctx: HandlerContext,
 ): Promise<OutboxAttachmentResponse | RejectionResponse> => {
-	const event = args[0] as APIGatewayProxyEvent;
-	const accountConfigId = getAccountConfigIdFromEvent(event);
+	const accountConfigId = ctx.identity.accountConfigId;
 	const { outboxMessageId, outboxAttachmentId } = context.request.params as {
 		outboxMessageId: string;
 		outboxAttachmentId: string;
 	};
-	const client = await getClient();
+	const client = ctx.client;
 	const result = await client.outboxAttachment.complete({
 		accountConfigId,
 		outboxMessageId,

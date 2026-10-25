@@ -9,18 +9,19 @@ import {
 } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { handlerContextFromEvent } from "../handler-context.js";
+import type { RemitClient } from "../service/data-client.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import { MeOperations } from "./me.js";
 
-const listQuarantine = MeOperations.MeOperations_listQuarantine as unknown as (
+const listQuarantine = (
 	context: Context,
 	event: APIGatewayProxyEvent,
-) => Promise<QuarantineListResponse>;
+): Promise<QuarantineListResponse> =>
+	MeOperations.MeOperations_listQuarantine(
+		context,
+		handlerContextFromEvent(client, event),
+	) as Promise<QuarantineListResponse>;
 
 const eventFor = (sub: string): APIGatewayProxyEvent =>
 	({
@@ -69,13 +70,10 @@ const failRounds = async (
 };
 
 before(async () => {
-	_resetForTest();
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
 });
 
 after(() => {
-	_resetForTest();
 	cleanup();
 });
 

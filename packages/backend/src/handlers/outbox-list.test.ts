@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type {
 	AccountItem,
 	IAccountRepository,
@@ -23,11 +23,8 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { handlerContextFromEvent } from "../handler-context.js";
+import type { RemitClient } from "../service/data-client.js";
 import { OutboxOperations } from "./outbox.js";
 
 const SUB = "cognito-sub-1013";
@@ -112,12 +109,14 @@ const accountRepository = {
 		),
 } as unknown as IAccountRepository;
 
+let client: RemitClient;
+
 const installClient = (): void => {
 	askedFor.length = 0;
-	setClient({
+	client = {
 		account: accountRepository,
 		outboxMessage: outboxRepository,
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 };
 
 const authorizedEvent = (): APIGatewayProxyEvent =>
@@ -135,16 +134,10 @@ type ListResult = {
 };
 
 const listOutbox = async (query?: Record<string, string>) =>
-	(await (
-		OutboxOperations.OutboxOperations_listOutboxMessages as unknown as (
-			context: Context,
-			event: APIGatewayProxyEvent,
-		) => Promise<ListResult>
-	)(queryContext(query), authorizedEvent())) as ListResult;
-
-afterEach(() => {
-	_resetForTest();
-});
+	(await OutboxOperations.OutboxOperations_listOutboxMessages(
+		queryContext(query),
+		handlerContextFromEvent(client, authorizedEvent()),
+	)) as ListResult;
 
 describe("the outbox of an instance with two accounts (#1013)", () => {
 	it("lists rows from every account, not just the first", async () => {

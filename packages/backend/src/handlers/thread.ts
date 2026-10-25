@@ -6,9 +6,7 @@ import type {
 import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { isValidMessageId } from "@remit/data-ports/id";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
 	type EnrichClient,
 	enrichThreadRows,
@@ -17,8 +15,8 @@ import {
 	filterByOffRowCriteria,
 	hasOffRowCriteria,
 } from "../derive/filterThreadCriteria.js";
-import { getClient } from "../service/data-client.js";
 import type {
+	HandlerContext,
 	OperationHandler,
 	ThreadDetailOperationIds,
 	ThreadOperationIds,
@@ -325,17 +323,16 @@ export const ThreadOperations: Record<
 > = {
 	ThreadOperations_listThreads: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { mailboxId } = context.request.params as { mailboxId: string };
 		const { continuationToken, order } = context.request.query as {
 			continuationToken?: string;
 			order?: "asc" | "desc";
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const result = await client.threadMessage.listByMailbox(
 			accountConfigId,
 			mailboxId,
@@ -352,10 +349,9 @@ export const ThreadOperations: Record<
 
 	ThreadOperations_searchThreads: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { mailboxId } = context.request.params as { mailboxId: string };
 		const raw = context.request.query as {
 			continuationToken?: string;
@@ -374,7 +370,7 @@ export const ThreadOperations: Record<
 			limit?: number;
 		};
 
-		return executeThreadSearch(await getClient(), accountConfigId, mailboxId, {
+		return executeThreadSearch(ctx.client, accountConfigId, mailboxId, {
 			...raw,
 			senderTrust: toArray(raw.senderTrust),
 			category: toArray(raw.category),
@@ -388,16 +384,15 @@ export const ThreadDetailOperations: Record<
 > = {
 	ThreadDetailOperations_listThreadMessages: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { threadId } = context.request.params as { threadId: string };
 		const { order } = context.request.query as {
 			order?: "asc" | "desc";
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const result = await client.threadMessage.listByThread(
 			threadId,
 			accountConfigId,

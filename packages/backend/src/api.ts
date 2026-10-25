@@ -15,11 +15,14 @@ import {
 import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
 import { defaultErrorCode, handleError } from "./error.js";
+import { handlerContextFromEvent } from "./handler-context.js";
 import { handlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
+import { getClient } from "./service/data-client.js";
+import type { OperationHandler } from "./types.js";
 
 // Boot-time refusal: the local auth-bypass overrides must never be set in a
 // deployed environment. Runs on module load so a leaked env var fails the
@@ -107,7 +110,19 @@ api.register("notImplemented", async (c: OpenAPIContext) => {
 	return formatResponse(mock as Record<string, unknown>, status);
 });
 
-api.register(handlers);
+const fromLambdaEvent =
+	(handler: OperationHandler) =>
+	async (c: OpenAPIContext, event: APIGatewayProxyEvent) =>
+		handler(c, handlerContextFromEvent(await getClient(), event));
+
+api.register(
+	Object.fromEntries(
+		Object.entries(handlers).map(([operationId, handler]) => [
+			operationId,
+			fromLambdaEvent(handler),
+		]),
+	),
+);
 
 api.init();
 
