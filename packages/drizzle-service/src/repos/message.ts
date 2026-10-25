@@ -156,7 +156,7 @@ export function deleteMessageSubtree(
 			),
 		db
 			.delete(messageSearchTextTable)
-			.where(and(inArray(messageSearchTextTable.messageId, messageIds), guard)),
+			.where(and(inList(messageSearchTextTable.messageId, messageIds), guard)),
 		db
 			.delete(envelopeTable)
 			.where(and(inList(envelopeTable.messageId, messageIds), guard)),
@@ -457,6 +457,27 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				target: messageSearchTextTable.messageId,
 				set: { text, updatedAt: now },
 			});
+	}
+
+	async copySearchText(
+		sourceMessageId: string,
+		targetMessageId: string,
+	): Promise<void> {
+		const [source] = await this.db
+			.select({ text: messageSearchTextTable.text })
+			.from(messageSearchTextTable)
+			.where(eq(messageSearchTextTable.messageId, sourceMessageId));
+		if (!source) return;
+		await this.setSearchText(targetMessageId, source.text);
+	}
+
+	async syncSearch(messageIds: string[]): Promise<void> {
+		if (messageIds.length === 0) return;
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(inList(threadMessageTable.messageId, messageIds));
+		await this.search.sync(listings.map((row) => row.threadMessageId));
 	}
 
 	async listMissingSearchText(

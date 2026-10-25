@@ -91,15 +91,20 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 					}),
 				);
 			}
-			await repo.create(
-				makeInput({
-					subject: "unrelated note",
-					fromEmail: "noise@example.com",
-					fromName: "Noise",
-					snippet: "Your parcel was left with the concierge",
-					sentDate: BASE_DATE,
-				}),
-			);
+			const parcel = makeInput({
+				subject: "unrelated note",
+				fromEmail: "noise@example.com",
+				fromName: "Noise",
+				snippet: "Your parcel was left with the concierge",
+				sentDate: BASE_DATE,
+			});
+			await db.insert(messageSearchTextTable).values({
+				messageId: parcel.messageId,
+				text: "Your parcel was left with the concierge",
+				createdAt: 0,
+				updatedAt: 0,
+			});
+			await repo.create(parcel);
 		});
 
 		test("the term reaches the body text, not just subject and From", async () => {

@@ -1,10 +1,10 @@
 import type { ResultCount } from "@remit/ui";
 
 /**
- * Shortest free text a count is asked for. The search migration set
- * documents that a query under three characters falls out of the trigram index
- * onto a folded `LIKE` scan, so counting one is a mailbox scan per typed
- * character. The list itself still pages — only the count waits.
+ * Shortest free text a count is asked for. A one- or two-character prefix
+ * matches most words in the search index, so counting one walks most of the
+ * mailbox per typed character. The list itself still pages — only the count
+ * waits.
  */
 export const MIN_COUNTED_QUERY_LENGTH = 3;
 

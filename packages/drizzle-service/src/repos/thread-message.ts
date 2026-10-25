@@ -187,8 +187,9 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
-// The columns the search index is built from; an update that sets none of them
-// leaves the index as it is.
+// The columns the search index is built from, and the snippet, which body sync
+// writes after the body's search text; an update that sets none of them leaves
+// the index as it is.
 const touchesSearchIndex = (input: UpdateThreadMessageInput): boolean =>
 	input.mailboxId !== undefined ||
 	input.sentDate !== undefined ||

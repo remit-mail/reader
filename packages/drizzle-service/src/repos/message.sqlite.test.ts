@@ -312,4 +312,25 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			},
 		);
 	});
+
+	test("copySearchText gives a copy the source's search text", async () => {
+		const source = "00000000-0000-0000-4444-000000000001";
+		const copy = "00000000-0000-0000-4444-000000000002";
+		for (const [messageId, uid] of [
+			[source, 201],
+			[copy, 202],
+		] as const) {
+			await repo.create({ ...BASE_INPUT, messageId, uid });
+			await repo.update(messageId, { bodyStorageKey: "file:///bodies/shared" });
+		}
+		await repo.setSearchText(source, "the shared body");
+
+		await repo.copySearchText(source, copy);
+
+		const missing = await repo.listMissingSearchText("", 100);
+		assert.equal(
+			missing.some((row) => row.messageId === copy),
+			false,
+		);
+	});
 });

@@ -4,6 +4,7 @@ import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
+import { backfillSearchText } from "@remit/mailbox-service";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 
@@ -85,7 +86,13 @@ const runLoop = async (): Promise<void> => {
 		accountFanoutQueueUrl,
 		log,
 	});
-	await runSchedulerLoop({
+	const searchTextBackfill = backfillSearchText(
+		{ messageService: client.message, storageService: client.storage },
+		log,
+	).then((result) => {
+		log.debug({ ...result }, "Search text backfill finished");
+	});
+	const schedulerLoop = runSchedulerLoop({
 		tick: runSchedulerTick,
 		tickDeps: {
 			accountService: account,
@@ -110,6 +117,7 @@ const runLoop = async (): Promise<void> => {
 		onHeartbeatError: onBeatError,
 		tickIntervalMs,
 	});
+	await Promise.all([searchTextBackfill, schedulerLoop]);
 };
 
 runLoop()

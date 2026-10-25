@@ -69,7 +69,6 @@ const indexedColumns = {
 	subject: threadMessageTable.subject,
 	fromName: threadMessageTable.fromName,
 	fromEmail: threadMessageTable.fromEmail,
-	snippet: threadMessageTable.snippet,
 	searchText: messageSearchTextTable.text,
 };
 
@@ -82,7 +81,6 @@ interface IndexedRow {
 	subject: string | null;
 	fromName: string | null;
 	fromEmail: string | null;
-	snippet: string | null;
 	searchText: string | null;
 }
 
@@ -95,7 +93,7 @@ const toDocument = (row: IndexedRow): SearchDocument => ({
 	listId: row.listId ?? "",
 	subject: row.subject ?? "",
 	sender: `${row.fromName ?? ""} ${row.fromEmail ?? ""}`,
-	body: row.searchText ?? row.snippet ?? "",
+	body: row.searchText ?? "",
 });
 
 const chunk = <T>(items: readonly T[], size: number): T[][] => {

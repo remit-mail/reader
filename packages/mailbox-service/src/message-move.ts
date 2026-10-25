@@ -929,6 +929,7 @@ export class MessageMoveService {
 			classificationState: sourceMessage.classificationState,
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
+		await this.messageService.copySearchText(messageId, newMessageId);
 
 		// Copy ThreadMessage entry
 		const sourceThreadMessage = await this.threadMessageService.getByMessageId(

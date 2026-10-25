@@ -164,10 +164,10 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 		]);
 	});
 
-	// Below the trigram floor the predicate is the folded LIKE, and sqlite's
-	// lower() folds ASCII only — `é` never matches a stored `CAFÉ`. Applying it
-	// anyway would drop a row the caller's own matcher accepts, which is #459
-	// again for that clause shape, so a short non-ASCII term narrows nothing.
+	// A field term is the folded LIKE, and sqlite's lower() folds ASCII only —
+	// `é` never matches a stored `CAFÉ`. Applying it anyway would drop a row
+	// the caller's own matcher accepts, which is #459 again for that clause
+	// shape, so a non-ASCII term narrows nothing.
 	test("drops a short accented term rather than missing the row it should match", async () => {
 		const result = await repo.listByFieldTerms(
 			ACCOUNT,

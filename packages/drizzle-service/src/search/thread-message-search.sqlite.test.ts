@@ -89,14 +89,18 @@ describe("the thread-message search index in its own database", () => {
 	});
 
 	test("finds a message by subject, sender and body once it is written", async () => {
-		const created = await repo.create(
-			input({
-				subject: "Quarterly invoice",
-				fromName: "Ada Lovelace",
-				fromEmail: "ada@example.test",
-				snippet: "the analytical engine",
-			}),
-		);
+		const message = input({
+			subject: "Quarterly invoice",
+			fromName: "Ada Lovelace",
+			fromEmail: "ada@example.test",
+		});
+		await mail.db.insert(messageSearchTextTable).values({
+			messageId: message.messageId,
+			text: "the analytical engine",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		const created = await repo.create(message);
 
 		assert.deepEqual(await found("invoice"), [created.threadMessageId]);
 		assert.deepEqual(await found("lovelace"), [created.threadMessageId]);

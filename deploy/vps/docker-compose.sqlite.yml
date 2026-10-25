@@ -96,8 +96,6 @@ services:
     command: ["node", "migrate.mjs"]
     volumes:
       - sqlite_data:/data/sqlite
-      # Read-only: the search text backfill reads stored bodies (#1444).
-      - message_storage:/data/storage:ro
       # Read-only, and for one alternate entrypoint: `remit config save` runs
       # through this service and stamps the running version into the file it
       # writes, which the updater records in state.json and nowhere else. A

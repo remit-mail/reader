@@ -737,7 +737,13 @@ export class BodySyncService {
 		// labels, read state, and no second engagement-counter increment.
 		// Skipping the decisions here is what lets the write-once fields stay
 		// safe without per-derivation re-entrancy guards.
+		await this.messageService.setSearchText(
+			messageId,
+			extractSearchText(parsed),
+		);
+
 		if (isReStore) {
+			await this.messageService.syncSearch([messageId]);
 			// Same ordering rule as the first-store path below: the parsed-body
 			// cache must be durable before `bodyStorageKey` — the skip-guard
 			// signal — is written, so a failure here requeues the message and
@@ -950,11 +956,6 @@ export class BodySyncService {
 		const finalCategory = hasDecidedCategory(existingMessage.category)
 			? existingMessage.category
 			: classification.category;
-
-		await this.messageService.setSearchText(
-			messageId,
-			extractSearchText(parsed),
-		);
 
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
