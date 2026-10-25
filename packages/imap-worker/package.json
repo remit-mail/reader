@@ -53,11 +53,11 @@
     "@remit/domain-enums": "*",
     "@remit/mail-oauth-service": "*",
     "@remit/secrets-service": "*",
-    "@aws-sdk/client-sqs": "*",
-    "@aws-sdk/client-ssm": "*",
-    "expect-env": "*",
-    "p-map": "*",
-    "@types/aws-lambda": "*"
+    "@aws-sdk/client-sqs": "^3.1090.0",
+    "@aws-sdk/client-ssm": "^3.1090.0",
+    "expect-env": "^1.0.1",
+    "p-map": "^2.1.0",
+    "@types/aws-lambda": "^8.10.162"
   },
   "license": "MIT",
   "publishConfig": {

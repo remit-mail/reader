@@ -24,7 +24,7 @@
 	"dependencies": {
 		"nodemailer": "^10.0.6",
 		"@remit/data-ports": "*",
-		"@types/nodemailer": "*"
+		"@types/nodemailer": "^8.0.1"
 	},
 	"license": "MIT",
 	"publishConfig": {

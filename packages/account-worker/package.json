@@ -41,12 +41,12 @@
 		"@remit/sqs-client": "*",
 		"@remit/storage-service": "*",
 		"@remit/electrodb-entities": "*",
-		"@aws-sdk/client-sqs": "*",
-		"archiver": "*",
-		"electrodb": "*",
-		"expect-env": "*",
-		"@types/archiver": "*",
-		"@types/aws-lambda": "*"
+		"@aws-sdk/client-sqs": "^3.1090.0",
+		"archiver": "^8.0.0",
+		"electrodb": "^3.9.1",
+		"expect-env": "^1.0.1",
+		"@types/archiver": "^8.0.0",
+		"@types/aws-lambda": "^8.10.162"
 	},
 	"devDependencies": {
 		"@aws-sdk/core": "*",

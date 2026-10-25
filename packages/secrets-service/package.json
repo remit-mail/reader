@@ -25,7 +25,7 @@
 		"directory": "packages/secrets-service"
 	},
 	"dependencies": {
-		"@aws-sdk/client-kms": "*",
+		"@aws-sdk/client-kms": "^3.1090.0",
 		"@remit/logger": "*"
 	}
 }

@@ -32,9 +32,9 @@
 		"@remit/domain-enums": "*",
 		"@remit/mail-oauth-service": "*",
 		"@remit/mailbox-service": "*",
-		"@aws-sdk/client-sqs": "*",
-		"expect-env": "*",
-		"@types/aws-lambda": "*"
+		"@aws-sdk/client-sqs": "^3.1090.0",
+		"expect-env": "^1.0.1",
+		"@types/aws-lambda": "^8.10.162"
 	},
 	"devDependencies": {
 		"esbuild": "^0.28.1"
