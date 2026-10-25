@@ -52,6 +52,7 @@ const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 const generatedPeerDependencies = {
 	"@remit/electrodb-entities": { electrodb: ">=3.0.0" },
 	"@remit/api-http-client": { "@tanstack/react-query": "^5.0.0" },
+	"@remit/api-openapi-spec": { ajv: "^8.0.0" },
 };
 const generated = [
 	...GENERATED_PACKAGES.map(({ dir, name }) => ({
