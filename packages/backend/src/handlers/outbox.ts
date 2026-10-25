@@ -10,6 +10,7 @@ import type {
 import { ForbiddenError } from "@remit/data-ports/errors";
 import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
+import type { QueueName } from "../service/queues.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -22,8 +23,6 @@ import {
 	mintOutboxAttachment,
 	toOutboxAttachmentResponse,
 } from "./outbox-attachment.js";
-
-type OutboxContext = HandlerContext<"smtp">;
 
 const toOutboxMessageResponse = (
 	config: ApiConfig,
@@ -50,13 +49,10 @@ const toOutboxMessageResponse = (
 	updatedAt: item.updatedAt,
 });
 
-export const OutboxOperations: Record<
-	OutboxOperationIds,
-	OperationHandler<OutboxOperationIds, "smtp">
-> = {
+export const OutboxOperations = {
 	OutboxOperations_createOutboxMessage: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext<"smtp">,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateOutboxMessageInput;
@@ -109,7 +105,7 @@ export const OutboxOperations: Record<
 
 	OutboxOperations_listOutboxMessages: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { continuationToken } = context.request.query as {
@@ -136,15 +132,15 @@ export const OutboxOperations: Record<
 			continuationToken: result.continuationToken,
 		};
 	},
-};
+} satisfies Record<
+	OutboxOperationIds,
+	OperationHandler<OutboxOperationIds, QueueName>
+>;
 
-export const OutboxDetailOperations: Record<
-	OutboxDetailOperationIds,
-	OperationHandler<OutboxDetailOperationIds, "smtp">
-> = {
+export const OutboxDetailOperations = {
 	OutboxDetailOperations_getOutboxMessage: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -167,7 +163,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_updateOutboxMessage: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext<"smtp">,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -214,7 +210,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_deleteOutboxMessage: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext<"smtp">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -230,7 +226,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_sendOutboxMessage: async (
 		context: Context,
-		ctx: OutboxContext,
+		ctx: HandlerContext<"smtp">,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -248,11 +244,14 @@ export const OutboxDetailOperations: Record<
 	},
 
 	OutboxDetailOperations_mintOutboxAttachment: mintOutboxAttachment,
-};
+} satisfies Record<
+	OutboxDetailOperationIds,
+	OperationHandler<OutboxDetailOperationIds, QueueName>
+>;
 
-export const OutboxAttachmentOperations: Record<
-	OutboxAttachmentOperationIds,
-	OperationHandler<OutboxAttachmentOperationIds, "smtp">
-> = {
+export const OutboxAttachmentOperations = {
 	OutboxAttachmentOperations_completeOutboxAttachment: completeOutboxAttachment,
-};
+} satisfies Record<
+	OutboxAttachmentOperationIds,
+	OperationHandler<OutboxAttachmentOperationIds, QueueName>
+>;

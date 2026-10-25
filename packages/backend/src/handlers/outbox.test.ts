@@ -50,7 +50,11 @@ import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 
-import type { HandlerContext } from "../types.js";
+import type {
+	HandlerContext,
+	OperationHandler,
+	OperationIds,
+} from "../types.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 
 let client: RemitClient;
@@ -281,14 +285,17 @@ const requestContext = (
 		request: requestBody === undefined ? request : { ...request, requestBody },
 	}) as unknown as Context;
 
-const createDraft = OutboxOperations.OutboxOperations_createOutboxMessage;
-const sendMessage =
+type OutboxHandler = OperationHandler<OperationIds, "smtp">;
+
+const createDraft: OutboxHandler =
+	OutboxOperations.OutboxOperations_createOutboxMessage;
+const sendMessage: OutboxHandler =
 	OutboxDetailOperations.OutboxDetailOperations_sendOutboxMessage;
-const updateDraft =
+const updateDraft: OutboxHandler =
 	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage;
-const deleteDraft =
+const deleteDraft: OutboxHandler =
 	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage;
-const getMessage =
+const getMessage: OutboxHandler =
 	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage;
 
 type Outcome =

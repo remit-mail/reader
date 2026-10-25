@@ -19,6 +19,10 @@
       "types": "./src/serve.ts",
       "default": "./src/serve.ts"
     },
+    "./handlers": {
+      "types": "./src/handlers/index.ts",
+      "default": "./src/handlers/index.ts"
+    },
     "./client": {
       "types": "./src/service/data-client.ts",
       "default": "./src/service/data-client.ts"
@@ -79,6 +83,10 @@
       "./serve": {
         "types": "./dist/src/serve.d.ts",
         "default": "./dist/src/serve.js"
+      },
+      "./handlers": {
+        "types": "./dist/src/handlers/index.d.ts",
+        "default": "./dist/src/handlers/index.js"
       },
       "./client": {
         "types": "./dist/src/service/data-client.d.ts",

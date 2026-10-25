@@ -20,6 +20,7 @@ import {
 	type PendingUnseenFlagPush,
 } from "../derive/pendingMoveCounts.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -35,8 +36,6 @@ import {
 	type MailboxOverrides,
 } from "./account-overrides.js";
 import { assertNoBindings, loadMailboxBindings } from "./mailbox-bindings.js";
-
-type MailboxContext = HandlerContext<"sync">;
 
 /**
  * The mute flag and the display-name override are user preferences that live
@@ -170,11 +169,8 @@ const toMailboxResponse = (
 	updatedAt: mailbox.updatedAt,
 });
 
-export const MailboxOperations: Record<
-	MailboxOperationIds,
-	OperationHandler<MailboxOperationIds, "sync">
-> = {
-	MailboxOperations_listMailboxes: async (context, ctx: MailboxContext) => {
+export const MailboxOperations = {
+	MailboxOperations_listMailboxes: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
@@ -225,7 +221,10 @@ export const MailboxOperations: Record<
 		};
 	},
 
-	MailboxOperations_createMailbox: async (context, ctx: MailboxContext) => {
+	MailboxOperations_createMailbox: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { namespaceType, fullPath } = context.request
@@ -244,13 +243,13 @@ export const MailboxOperations: Record<
 		}
 		return toMailboxResponse(mailbox);
 	},
-};
+} satisfies Record<
+	MailboxOperationIds,
+	OperationHandler<MailboxOperationIds, QueueName>
+>;
 
-export const MailboxDetailOperations: Record<
-	MailboxDetailOperationIds,
-	OperationHandler<MailboxDetailOperationIds, "sync">
-> = {
-	MailboxDetailOperations_getMailbox: async (context, ctx: MailboxContext) => {
+export const MailboxDetailOperations = {
+	MailboxDetailOperations_getMailbox: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
 			accountId: string;
@@ -289,7 +288,7 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_renameMailbox: async (
 		context,
-		ctx: MailboxContext,
+		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
@@ -316,7 +315,7 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_deleteMailbox: async (
 		context,
-		ctx: MailboxContext,
+		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
@@ -359,13 +358,13 @@ export const MailboxDetailOperations: Record<
 		await client.mailboxQueue.deleteMailbox(mailboxId, accountId);
 		return { statusCode: 204 };
 	},
-};
+} satisfies Record<
+	MailboxDetailOperationIds,
+	OperationHandler<MailboxDetailOperationIds, QueueName>
+>;
 
-export const TrashOperations: Record<
-	TrashOperationIds,
-	OperationHandler<TrashOperationIds, "sync">
-> = {
-	TrashOperations_emptyTrash: async (context, ctx: MailboxContext) => {
+export const TrashOperations = {
+	TrashOperations_emptyTrash: async (context, ctx: HandlerContext<"sync">) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
@@ -380,4 +379,7 @@ export const TrashOperations: Record<
 		// acts, and "0 deleted" reads as success to a user whose Trash is untouched.
 		return client.messageMove.emptyTrash(accountConfigId, accountId);
 	},
-};
+} satisfies Record<
+	TrashOperationIds,
+	OperationHandler<TrashOperationIds, QueueName>
+>;

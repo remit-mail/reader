@@ -42,6 +42,7 @@ import {
 } from "../derive/contentSignature.js";
 import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -49,8 +50,6 @@ import type {
 	MessageOperationIds,
 	OperationHandler,
 } from "../types.js";
-
-type MessageContext = HandlerContext<"sync" | "messageManagement" | "body">;
 
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
@@ -278,13 +277,10 @@ export const settleSpamReportBulk = async (
 	};
 };
 
-export const MessageOperations: Record<
-	MessageOperationIds,
-	OperationHandler<MessageOperationIds, "sync" | "messageManagement" | "body">
-> = {
+export const MessageOperations = {
 	MessageOperations_describeMessage: async (
 		context: Context,
-		ctx: MessageContext,
+		ctx: HandlerContext<"sync" | "messageManagement" | "body">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -556,7 +552,7 @@ export const MessageOperations: Record<
 
 	MessageOperations_getRawMessage: async (
 		context: Context,
-		ctx: MessageContext,
+		ctx: HandlerContext<"sync" | "messageManagement">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -653,7 +649,7 @@ export const MessageOperations: Record<
 
 	MessageOperations_updateMessageFlags: async (
 		context,
-		ctx: MessageContext,
+		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -686,16 +682,16 @@ export const MessageOperations: Record<
 			isStarred: result.isStarred,
 		};
 	},
-};
+} satisfies Record<
+	MessageOperationIds,
+	OperationHandler<MessageOperationIds, QueueName>
+>;
 
-export const MessageBulkOperations: Record<
-	MessageBulkOperationIds,
-	OperationHandler<
-		MessageBulkOperationIds,
-		"sync" | "messageManagement" | "body"
-	>
-> = {
-	MessageBulkOperations_updateFlags: async (context, ctx: MessageContext) => {
+export const MessageBulkOperations = {
+	MessageBulkOperations_updateFlags: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, isRead, isStarred, starColor } = context.request
 			.requestBody as {
@@ -737,7 +733,7 @@ export const MessageBulkOperations: Record<
 
 	MessageBulkOperations_deleteMessages: async (
 		context,
-		ctx: MessageContext,
+		ctx: HandlerContext<"sync">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, permanent } = context.request.requestBody as {
@@ -775,7 +771,10 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_moveMessages: async (context, ctx: MessageContext) => {
+	MessageBulkOperations_moveMessages: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
@@ -821,7 +820,10 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_copyMessages: async (context, ctx: MessageContext) => {
+	MessageBulkOperations_copyMessages: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
@@ -869,7 +871,7 @@ export const MessageBulkOperations: Record<
 
 	MessageBulkOperations_updateMessageLabels: async (
 		context,
-		ctx: MessageContext,
+		ctx: HandlerContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, labelId, action } = context.request.requestBody as {
@@ -911,7 +913,10 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_reportSpam: async (context, ctx: MessageContext) => {
+	MessageBulkOperations_reportSpam: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
@@ -938,7 +943,10 @@ export const MessageBulkOperations: Record<
 		);
 	},
 
-	MessageBulkOperations_notSpam: async (context, ctx: MessageContext) => {
+	MessageBulkOperations_notSpam: async (
+		context,
+		ctx: HandlerContext<"sync">,
+	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
@@ -958,4 +966,7 @@ export const MessageBulkOperations: Record<
 			client.spamReport.notSpam({ accountConfigId, accountId, messageId }),
 		);
 	},
-};
+} satisfies Record<
+	MessageBulkOperationIds,
+	OperationHandler<MessageBulkOperationIds, QueueName>
+>;

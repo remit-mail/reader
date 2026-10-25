@@ -5,6 +5,7 @@ import {
 	type FireAndForgetLogger,
 	fireAndForget,
 } from "../service/fire-and-forget.js";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import {
 	type SyncMailboxesEvent,
@@ -16,8 +17,6 @@ import type {
 	SyncOperationIds,
 } from "../types.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
-
-type SyncContext = HandlerContext<"sync">;
 
 interface SyncTriggerDeps {
 	queue: FifoQueueProducer<SyncMailboxesEvent>;
@@ -71,11 +70,8 @@ export const triggerSyncSafe = async (
 	);
 };
 
-export const SyncOperations: Record<
-	SyncOperationIds,
-	OperationHandler<SyncOperationIds, "sync">
-> = {
-	SyncOperations_triggerSync: async (context, ctx: SyncContext) => {
+export const SyncOperations = {
+	SyncOperations_triggerSync: async (context, ctx: HandlerContext<"sync">) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
@@ -93,7 +89,7 @@ export const SyncOperations: Record<
 		};
 	},
 
-	SyncOperations_getSyncStatus: async (context, ctx: SyncContext) => {
+	SyncOperations_getSyncStatus: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
@@ -113,4 +109,7 @@ export const SyncOperations: Record<
 			mailboxes: mailboxes.map(toMailboxSyncProgress),
 		};
 	},
-};
+} satisfies Record<
+	SyncOperationIds,
+	OperationHandler<SyncOperationIds, QueueName>
+>;

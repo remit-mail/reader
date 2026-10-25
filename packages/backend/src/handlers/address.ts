@@ -10,14 +10,13 @@ import type {
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import type { QueueName } from "../service/queues.js";
 import type {
 	AddressDetailOperationIds,
 	AddressOperationIds,
 	HandlerContext,
 	OperationHandler,
 } from "../types.js";
-
-type AddressContext = HandlerContext<"accountFanout">;
 
 export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	addressId: item.addressId,
@@ -100,13 +99,10 @@ export const backApplyCategoryFlag = (
 	return flag;
 };
 
-export const AddressOperations: Record<
-	AddressOperationIds,
-	OperationHandler<AddressOperationIds, "accountFanout">
-> = {
+export const AddressOperations = {
 	AddressOperations_searchAddresses: async (
 		context: Context,
-		ctx: AddressContext,
+		ctx: HandlerContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { q, limit } = context.request.query as {
@@ -127,15 +123,15 @@ export const AddressOperations: Record<
 			continuationToken: result.continuationToken,
 		};
 	},
-};
+} satisfies Record<
+	AddressOperationIds,
+	OperationHandler<AddressOperationIds, QueueName>
+>;
 
-export const AddressDetailOperations: Record<
-	AddressDetailOperationIds,
-	OperationHandler<AddressDetailOperationIds, "accountFanout">
-> = {
+export const AddressDetailOperations = {
 	AddressDetailOperations_updateAddress: async (
 		context: Context,
-		ctx: AddressContext,
+		ctx: HandlerContext<"accountFanout">,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { addressId } = context.request.params as { addressId: string };
@@ -189,4 +185,7 @@ export const AddressDetailOperations: Record<
 
 		return toAddressResponse(updated);
 	},
-};
+} satisfies Record<
+	AddressDetailOperationIds,
+	OperationHandler<AddressDetailOperationIds, QueueName>
+>;

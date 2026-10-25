@@ -20,6 +20,7 @@ import {
 	type OrganizePredicate,
 	organizePredicateRejection,
 } from "../service/organize.js";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	HandlerContext,
@@ -27,8 +28,6 @@ import type {
 	OrganizeJobDetailOperationIds,
 	OrganizeOperationIds,
 } from "../types.js";
-
-type OrganizeContext = HandlerContext<"accountFanout">;
 
 /**
  * Normalize the request body into the flattened predicate the job row and the
@@ -94,13 +93,10 @@ const requestedJob = async (
 	return { ...owner, predicate };
 };
 
-export const OrganizeOperations: Record<
-	OrganizeOperationIds,
-	OperationHandler<OrganizeOperationIds, "accountFanout">
-> = {
+export const OrganizeOperations = {
 	OrganizeOperations_createOrganizeJob: async (
 		context: Context,
-		ctx: OrganizeContext,
+		ctx: HandlerContext<"accountFanout">,
 	): Promise<CreateOrganizeJobResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -129,7 +125,7 @@ export const OrganizeOperations: Record<
 
 	OrganizeOperations_previewOrganize: async (
 		context: Context,
-		ctx: OrganizeContext,
+		ctx: HandlerContext,
 	): Promise<OrganizePreviewResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -156,15 +152,15 @@ export const OrganizeOperations: Record<
 			messageIds: result.messageIds,
 		};
 	},
-};
+} satisfies Record<
+	OrganizeOperationIds,
+	OperationHandler<OrganizeOperationIds, QueueName>
+>;
 
-export const OrganizeJobDetailOperations: Record<
-	OrganizeJobDetailOperationIds,
-	OperationHandler<OrganizeJobDetailOperationIds, "accountFanout">
-> = {
+export const OrganizeJobDetailOperations = {
 	OrganizeJobDetailOperations_getOrganizeJob: async (
 		context: Context,
-		ctx: OrganizeContext,
+		ctx: HandlerContext,
 	): Promise<OrganizeJobResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, organizeJobId } = context.request.params as {
@@ -182,4 +178,7 @@ export const OrganizeJobDetailOperations: Record<
 
 		return toOrganizeJobResponse(job);
 	},
-};
+} satisfies Record<
+	OrganizeJobDetailOperationIds,
+	OperationHandler<OrganizeJobDetailOperationIds, QueueName>
+>;
