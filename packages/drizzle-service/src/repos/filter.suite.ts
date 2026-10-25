@@ -1,0 +1,476 @@
+import assert from "node:assert";
+import { after, before, describe, test } from "node:test";
+import {
+	FilterClauseField,
+	FilterDisabledReason,
+	FilterScope,
+	FilterState,
+} from "@remit/domain-enums";
+import { NotFoundError } from "../error.js";
+import { randomId } from "../id.js";
+import type { OpenTestStores } from "../test-stores.js";
+import { FilterRepo } from "./filter.js";
+
+const CLAUSES = [{ field: FilterClauseField.Subject, value: "booking" }];
+
+export const filterRepoSuite = (open: OpenTestStores): void => {
+	describe("FilterRepo", () => {
+		let close: () => Promise<void>;
+		let repo: FilterRepo;
+
+		before(async () => {
+			const opened = await open();
+			close = opened.close;
+			repo = new FilterRepo(opened.stores.app.db);
+		});
+
+		after(async () => {
+			await close();
+		});
+
+		test("create fills in every defaulted field, never leaving it absent", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Booking confirmations",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			assert.equal(filter.state, FilterState.Active);
+			assert.equal(filter.disabledReason, FilterDisabledReason.None);
+			assert.deepEqual(filter.literalClauses, CLAUSES);
+			assert.equal(filter.actionLabelId, "None");
+			assert.equal(filter.actionMailboxId, "None");
+			assert.ok(
+				filter.ruleChangedAt > 0,
+				"ruleChangedAt should be set on create",
+			);
+			assert.ok(
+				filter.actionChangedAt > 0,
+				"actionChangedAt should be set on create",
+			);
+			assert.equal(filter.expiresAt, undefined);
+			assert.equal(filter.ttl, undefined);
+		});
+
+		test("a disabled filter keeps its reason and drops out of the Active listing (#1103)", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Invoices",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+				state: FilterState.Disabled,
+				disabledReason: FilterDisabledReason.AwaitingFolder,
+			});
+
+			assert.equal(filter.state, FilterState.Disabled);
+			assert.equal(filter.disabledReason, FilterDisabledReason.AwaitingFolder);
+			assert.deepEqual(
+				await repo.listByAccountAndState(accountConfigId, FilterState.Active),
+				[],
+			);
+
+			const enabled = await repo.update(accountConfigId, filter.filterId, {
+				state: FilterState.Active,
+				disabledReason: FilterDisabledReason.None,
+			});
+			assert.equal(enabled.disabledReason, FilterDisabledReason.None);
+			assert.deepEqual(
+				(
+					await repo.listByAccountAndState(accountConfigId, FilterState.Active)
+				).map((item) => item.filterId),
+				[filter.filterId],
+			);
+		});
+
+		test("a Temporary filter round-trips expiresAt and ttl", async () => {
+			const accountConfigId = randomId();
+			const expiresAt = "2026-08-01T00:00:00+02:00";
+			const ttl = Math.floor(new Date(expiresAt).getTime() / 1000);
+
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until my trip",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt,
+				ttl,
+			});
+
+			assert.equal(filter.scope, FilterScope.Temporary);
+			assert.equal(filter.expiresAt, expiresAt);
+			assert.equal(filter.ttl, ttl);
+		});
+
+		test("create round-trips literal clauses", async () => {
+			const accountConfigId = randomId();
+			const literalClauses = [
+				{ field: "From", value: "billing@example.com" },
+				{ field: "Subject", value: "invoice" },
+			] as const;
+
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Invoices",
+				scope: FilterScope.Standing,
+				literalClauses: [...literalClauses],
+			});
+
+			assert.deepEqual(filter.literalClauses, literalClauses);
+		});
+
+		test("get throws NotFoundError for a missing filter", async () => {
+			await assert.rejects(repo.get(randomId(), randomId()), NotFoundError);
+		});
+
+		test("update does not bump ruleChangedAt on a cosmetic rename", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Newsletter admin",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			const renamed = await repo.update(accountConfigId, filter.filterId, {
+				name: "Newsletter admin (renamed)",
+			});
+
+			assert.equal(renamed.name, "Newsletter admin (renamed)");
+			assert.equal(
+				renamed.ruleChangedAt,
+				filter.ruleChangedAt,
+				"a name-only edit must not move ruleChangedAt (RFC 034 Decision 3.2)",
+			);
+			assert.equal(
+				renamed.actionChangedAt,
+				filter.actionChangedAt,
+				"a name-only edit must not move actionChangedAt either",
+			);
+		});
+
+		test("update bumps both ruleChangedAt and actionChangedAt when the action changes", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Move to archive",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			await new Promise((resolve) => setTimeout(resolve, 1100));
+
+			const updated = await repo.update(accountConfigId, filter.filterId, {
+				actionMailboxId: randomId(),
+			});
+
+			assert.ok(
+				updated.ruleChangedAt > filter.ruleChangedAt,
+				"an action edit must move ruleChangedAt forward",
+			);
+			assert.ok(
+				updated.actionChangedAt > filter.actionChangedAt,
+				"an action edit must move actionChangedAt forward too — it is what a matching message's exclusive move goes by",
+			);
+		});
+
+		test("update bumps ruleChangedAt but NOT actionChangedAt when scope changes (reader #266, #384)", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Trip out-of-office",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			await new Promise((resolve) => setTimeout(resolve, 1100));
+
+			const expiresAt = "2027-01-01T00:00:00+00:00";
+			const updated = await repo.update(accountConfigId, filter.filterId, {
+				scope: FilterScope.Temporary,
+				expiresAt,
+				ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
+				state: FilterState.Active,
+			});
+
+			assert.equal(updated.scope, FilterScope.Temporary);
+			assert.equal(updated.expiresAt, expiresAt);
+			assert.ok(
+				updated.ruleChangedAt > filter.ruleChangedAt,
+				"a scope edit must move ruleChangedAt forward, so a lapsed filter's back-application can be offered again",
+			);
+			assert.equal(
+				updated.actionChangedAt,
+				filter.actionChangedAt,
+				"a scope edit changes the filter's lifecycle, not what it matches or does — it must not move actionChangedAt, or it would wrongly promote the filter to move-winner",
+			);
+		});
+
+		test("update bumps ruleChangedAt but NOT actionChangedAt when only expiresAt changes (reader #266, #384)", async () => {
+			const accountConfigId = randomId();
+			const initialExpiresAt = "2026-08-01T00:00:00+00:00";
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until my trip",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt: initialExpiresAt,
+				ttl: Math.floor(new Date(initialExpiresAt).getTime() / 1000),
+			});
+
+			await new Promise((resolve) => setTimeout(resolve, 1100));
+
+			const extendedExpiresAt = "2026-09-01T00:00:00+00:00";
+			const updated = await repo.update(accountConfigId, filter.filterId, {
+				expiresAt: extendedExpiresAt,
+				ttl: Math.floor(new Date(extendedExpiresAt).getTime() / 1000),
+			});
+
+			assert.equal(updated.expiresAt, extendedExpiresAt);
+			assert.ok(
+				updated.ruleChangedAt > filter.ruleChangedAt,
+				"an expiresAt edit must move ruleChangedAt forward",
+			);
+			assert.equal(
+				updated.actionChangedAt,
+				filter.actionChangedAt,
+				"extending a filter's expiry alone must not promote it to move-winner (reader #384) — actionChangedAt must not move",
+			);
+		});
+
+		test("update to Standing clears expiresAt and ttl at the storage layer, even if the caller didn't null them (reader #266)", async () => {
+			const accountConfigId = randomId();
+			const expiresAt = "2026-08-01T00:00:00+00:00";
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until my trip",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt,
+				ttl: Math.floor(new Date(expiresAt).getTime() / 1000),
+			});
+
+			const updated = await repo.update(accountConfigId, filter.filterId, {
+				scope: FilterScope.Standing,
+			});
+
+			assert.equal(updated.scope, FilterScope.Standing);
+			assert.equal(updated.expiresAt, undefined);
+			assert.equal(updated.ttl, undefined);
+
+			const reread = await repo.get(accountConfigId, filter.filterId);
+			assert.equal(reread.expiresAt, undefined);
+			assert.equal(reread.ttl, undefined);
+		});
+
+		test("update throws NotFoundError for a missing filter", async () => {
+			await assert.rejects(
+				repo.update(randomId(), randomId(), { name: "x" }),
+				NotFoundError,
+			);
+		});
+
+		test("listByAccountConfig and listByAccountAndState scope to the account", async () => {
+			const accountConfigId = randomId();
+			const other = randomId();
+
+			const standing = await repo.create({
+				accountConfigId,
+				name: "Standing",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+			await repo.create({
+				accountConfigId: other,
+				name: "Foreign",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			const all = await repo.listByAccountConfig(accountConfigId);
+			assert.equal(all.length, 1);
+			assert.equal(all[0]?.filterId, standing.filterId);
+
+			const active = await repo.listByAccountAndState(
+				accountConfigId,
+				FilterState.Active,
+			);
+			assert.equal(active.length, 1);
+			assert.equal(active[0]?.filterId, standing.filterId);
+
+			const expired = await repo.listByAccountAndState(
+				accountConfigId,
+				FilterState.Expired,
+			);
+			assert.equal(expired.length, 0);
+		});
+
+		test("refreshExpiry leaves a Standing filter untouched", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Standing",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			const result = await repo.refreshExpiry(filter);
+			assert.equal(result.state, FilterState.Active);
+		});
+
+		test("refreshExpiry leaves a not-yet-expired Temporary filter Active", async () => {
+			const accountConfigId = randomId();
+			const future = new Date(Date.now() + 86_400_000).toISOString();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until tomorrow",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt: future,
+				ttl: Math.floor(new Date(future).getTime() / 1000),
+			});
+
+			const result = await repo.refreshExpiry(filter);
+			assert.equal(result.state, FilterState.Active);
+		});
+
+		test("refreshExpiry leaves a disabled filter and its reason alone (#1103)", async () => {
+			const accountConfigId = randomId();
+			const past = new Date(Date.now() - 86_400_000).toISOString();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until yesterday, awaiting its folder",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt: past,
+				ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
+				state: FilterState.Disabled,
+				disabledReason: FilterDisabledReason.AwaitingFolder,
+			});
+
+			const result = await repo.refreshExpiry(filter);
+			assert.equal(result.state, FilterState.Disabled);
+			assert.equal(result.disabledReason, FilterDisabledReason.AwaitingFolder);
+		});
+
+		test("refreshExpiry lazily patches a past-expiresAt Temporary filter to Expired", async () => {
+			const accountConfigId = randomId();
+			const past = new Date(Date.now() - 86_400_000).toISOString();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "Until yesterday",
+				scope: FilterScope.Temporary,
+				literalClauses: CLAUSES,
+				expiresAt: past,
+				ttl: Math.floor(new Date(past).getTime() / 1000) + 172_800,
+			});
+
+			assert.equal(filter.state, FilterState.Active, "starts Active on create");
+
+			const result = await repo.refreshExpiry(filter);
+			assert.equal(result.state, FilterState.Expired);
+
+			const reread = await repo.get(accountConfigId, filter.filterId);
+			assert.equal(
+				reread.state,
+				FilterState.Expired,
+				"the patch is persisted, not just returned",
+			);
+		});
+
+		test("delete removes the row", async () => {
+			const accountConfigId = randomId();
+			const filter = await repo.create({
+				accountConfigId,
+				name: "To delete",
+				scope: FilterScope.Standing,
+				literalClauses: CLAUSES,
+			});
+
+			await repo.delete(accountConfigId, filter.filterId);
+
+			await assert.rejects(
+				repo.get(accountConfigId, filter.filterId),
+				NotFoundError,
+			);
+		});
+
+		test("listPageByAccountConfig round-trips a continuationToken across pages", async () => {
+			const accountConfigId = randomId();
+			const created = await Promise.all([
+				repo.create({
+					accountConfigId,
+					name: "One",
+					scope: FilterScope.Standing,
+					literalClauses: CLAUSES,
+				}),
+				repo.create({
+					accountConfigId,
+					name: "Two",
+					scope: FilterScope.Standing,
+					literalClauses: CLAUSES,
+				}),
+				repo.create({
+					accountConfigId,
+					name: "Three",
+					scope: FilterScope.Standing,
+					literalClauses: CLAUSES,
+				}),
+			]);
+
+			const first = await repo.listPageByAccountConfig(accountConfigId, {
+				limit: 2,
+			});
+			assert.equal(first.items.length, 2);
+			assert.ok(
+				first.continuationToken,
+				"a full page returns a continuationToken",
+			);
+
+			const second = await repo.listPageByAccountConfig(accountConfigId, {
+				limit: 2,
+				continuationToken: first.continuationToken,
+			});
+			assert.equal(second.items.length, 1);
+			assert.equal(
+				second.continuationToken,
+				undefined,
+				"the last page carries no continuationToken",
+			);
+
+			const seen = new Set([
+				...first.items.map((f) => f.filterId),
+				...second.items.map((f) => f.filterId),
+			]);
+			assert.equal(
+				seen.size,
+				created.length,
+				"every filter is paged exactly once",
+			);
+		});
+
+		describe("continuation token rejection (#172)", () => {
+			for (const [label, token] of [
+				["an unparseable", "not-a-cursor"],
+				["a bare number", Buffer.from("123").toString("base64url")],
+				["a JSON array", Buffer.from("[1,2]").toString("base64url")],
+			] as const) {
+				test(`${label} token is rejected as a 400`, async () => {
+					await assert.rejects(
+						() =>
+							repo.listPageByAccountConfig(randomId(), {
+								continuationToken: token,
+							}),
+						(error: unknown) => {
+							assert.equal((error as { statusCode?: number }).statusCode, 400);
+							assert.equal((error as Error).name, "BadRequestError");
+							return true;
+						},
+					);
+				});
+			}
+		});
+	});
+};

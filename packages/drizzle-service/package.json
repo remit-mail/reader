@@ -25,6 +25,7 @@
     "@remit/calendar-service": "*",
     "@remit/config-transfer": "*",
     "drizzle-kit": "^0.31.1",
+    "miniflare": "^4.20260730.0",
     "tsx": "*"
   },
   "dependencies": {
