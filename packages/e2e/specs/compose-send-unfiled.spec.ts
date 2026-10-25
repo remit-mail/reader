@@ -25,15 +25,18 @@
  * `/config` triggers a mailbox sync for every account the user has. So the app
  * is loaded first and its boot sync watched all the way in — a folder made
  * behind its back is what that is read off — and the folder is taken away after
- * it. Nothing else syncs inside the window that follows: the scheduler takes
- * accounts a quarter of an hour past their last sync, and the client's own poll
- * is minutes out. A sync that did land would file the copy and drop the row,
- * which fails this spec rather than quietly passing it.
+ * it. The app reads `/config` more than once while it boots, and on a cold dev
+ * server those reads land seconds apart, so a late one synced the deleted folder
+ * back. Only the first read reaches the server; every later one is answered with
+ * that read's own response. Nothing else syncs inside the window that follows:
+ * the scheduler takes accounts a quarter of an hour past their last sync. A
+ * sync that did land would file the copy and drop the row, which fails this
+ * spec rather than quietly passing it.
  *
  * Its own throwaway user, which is also what makes the folder expendable.
  */
 
-import type { BrowserContext } from "@playwright/test";
+import type { APIResponse, BrowserContext } from "@playwright/test";
 import { ApiClient, type Mailbox, waitFor } from "../src/api.js";
 import { baseUrl } from "../src/env.js";
 import { expect, test } from "../src/fixtures.js";
@@ -56,6 +59,9 @@ const DESKTOP = { width: 1512, height: 864 };
 const OUTBOX_DETAIL = /\/api\/outbox\/[^/?]+(?:\?|$)/;
 
 const SEND_REQUEST = /\/api\/outbox\/([^/?]+)\/send(?:\?|$)/;
+
+/** Every read of it enqueues a sync of each account (handlers/config.ts). */
+const API_CONFIG = /\/api\/config(?:\?|$)/;
 
 /** Three poll intervals, so a watch that had not stopped would have shown it. */
 const QUIET_WINDOW_MS = 6_000;
@@ -158,6 +164,12 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 				.then((body: { status?: string }) => body)
 				.catch(() => ({ status: undefined }));
 			if (row.status === "unfiled") watchReadUnfiledAt ??= Date.now();
+		});
+
+		let bootConfigRead: Promise<APIResponse> | undefined;
+		await page.route(API_CONFIG, async (route) => {
+			bootConfigRead ??= route.fetch();
+			await route.fulfill({ response: await bootConfigRead });
 		});
 
 		await page.goto("/mail");
