@@ -9,6 +9,7 @@ import type {
 } from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
 import type { Context } from "openapi-backend";
+import type { ApiConfig } from "../config/api-config.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -25,10 +26,11 @@ import {
 type OutboxContext = HandlerContext<"smtp">;
 
 const toOutboxMessageResponse = (
+	config: ApiConfig,
 	item: OutboxMessageItem,
 	attachments: OutboxAttachmentItem[] = [],
 ): OutboxMessageResponse => ({
-	attachments: attachments.map(toOutboxAttachmentResponse),
+	attachments: attachments.map(toOutboxAttachmentResponse(config)),
 	outboxMessageId: item.outboxMessageId,
 	accountId: item.accountId,
 	fromAddress: item.fromAddress,
@@ -85,7 +87,7 @@ export const OutboxOperations: Record<
 				inReplyTo: input.inReplyTo,
 				references: input.references,
 			});
-			return toOutboxMessageResponse(outbox);
+			return toOutboxMessageResponse(ctx.config, outbox);
 		}
 
 		const outbox = await client.outboxQueue.createDraft({
@@ -102,7 +104,7 @@ export const OutboxOperations: Record<
 			inReplyTo: input.inReplyTo,
 			references: input.references,
 		});
-		return toOutboxMessageResponse(outbox);
+		return toOutboxMessageResponse(ctx.config, outbox);
 	},
 
 	OutboxOperations_listOutboxMessages: async (
@@ -128,7 +130,9 @@ export const OutboxOperations: Record<
 		);
 
 		return {
-			items: result.items.map((item) => toOutboxMessageResponse(item)),
+			items: result.items.map((item) =>
+				toOutboxMessageResponse(ctx.config, item),
+			),
 			continuationToken: result.continuationToken,
 		};
 	},
@@ -155,6 +159,7 @@ export const OutboxDetailOperations: Record<
 			outboxMessageId,
 		);
 		return toOutboxMessageResponse(
+			ctx.config,
 			outbox,
 			await client.outboxAttachment.listFor(accountConfigId, outboxMessageId),
 		);
@@ -201,6 +206,7 @@ export const OutboxDetailOperations: Record<
 		}
 
 		return toOutboxMessageResponse(
+			ctx.config,
 			updated,
 			await client.outboxAttachment.listFor(accountConfigId, outboxMessageId),
 		);
@@ -238,7 +244,7 @@ export const OutboxDetailOperations: Record<
 			accountConfigId,
 			outboxMessageId,
 		);
-		return toOutboxMessageResponse(sent);
+		return toOutboxMessageResponse(ctx.config, sent);
 	},
 
 	OutboxDetailOperations_mintOutboxAttachment: mintOutboxAttachment,

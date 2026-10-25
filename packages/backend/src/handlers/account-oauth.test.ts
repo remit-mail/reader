@@ -338,39 +338,28 @@ describe("callback redirect decision", () => {
 // ─── getWebOrigin helper ──────────────────────────────────────────────────────
 
 describe("web origin selection", () => {
-	let savedOrigins: string | undefined;
-
 	it("prefers HTTPS origin over HTTP", () => {
-		savedOrigins = process.env.CORS_ALLOWED_ORIGINS;
-		process.env.CORS_ALLOWED_ORIGINS =
-			"http://localhost:3000,https://app.example.com";
-		const origin = getWebOrigin();
-		process.env.CORS_ALLOWED_ORIGINS = savedOrigins;
-		assert.equal(origin, "https://app.example.com");
+		assert.equal(
+			getWebOrigin(["http://localhost:3000", "https://app.example.com"]),
+			"https://app.example.com",
+		);
 	});
 
 	it("returns first origin when no HTTPS available", () => {
-		savedOrigins = process.env.CORS_ALLOWED_ORIGINS;
-		process.env.CORS_ALLOWED_ORIGINS = "http://localhost:3000";
-		const origin = getWebOrigin();
-		process.env.CORS_ALLOWED_ORIGINS = savedOrigins;
-		assert.equal(origin, "http://localhost:3000");
+		assert.equal(
+			getWebOrigin(["http://localhost:3000"]),
+			"http://localhost:3000",
+		);
 	});
 
-	it("returns fallback when env var is empty", () => {
-		savedOrigins = process.env.CORS_ALLOWED_ORIGINS;
-		process.env.CORS_ALLOWED_ORIGINS = "";
-		const origin = getWebOrigin();
-		process.env.CORS_ALLOWED_ORIGINS = savedOrigins;
-		assert.equal(origin, "https://localhost:3000");
+	it("returns fallback when no origin is configured", () => {
+		assert.equal(getWebOrigin([]), "https://localhost:3000");
 	});
 
 	it("handles multiple HTTPS origins by returning the first", () => {
-		savedOrigins = process.env.CORS_ALLOWED_ORIGINS;
-		process.env.CORS_ALLOWED_ORIGINS =
-			"https://staging.example.com,https://app.example.com";
-		const origin = getWebOrigin();
-		process.env.CORS_ALLOWED_ORIGINS = savedOrigins;
-		assert.equal(origin, "https://staging.example.com");
+		assert.equal(
+			getWebOrigin(["https://staging.example.com", "https://app.example.com"]),
+			"https://staging.example.com",
+		);
 	});
 });

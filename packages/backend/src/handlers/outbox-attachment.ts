@@ -12,11 +12,9 @@ import type {
 } from "@remit/mailbox-service";
 import { outboxAttachmentContentId } from "@remit/mailbox-service/outbox-attachment-content";
 import type { Context } from "openapi-backend";
+import type { ApiConfig } from "../config/api-config.js";
 import { getContentSigner } from "../derive/contentSignature.js";
-import {
-	buildStorageContentUrl,
-	getContentDeliveryDomain,
-} from "../derive/contentUrl.js";
+import { buildStorageContentUrl } from "../derive/contentUrl.js";
 import type { HandlerContext } from "../types.js";
 
 // Every error body the API emits carries a `code` (issue #371). A refusal here
@@ -29,22 +27,22 @@ const TOO_LARGE: ReadonlySet<OutboxAttachmentRejectionReasonValue> = new Set([
 	OutboxAttachmentRejectionReason.TooManyAttachments,
 ]);
 
-export const toOutboxAttachmentResponse = (
-	item: OutboxAttachmentItem,
-): OutboxAttachmentResponse => ({
-	outboxAttachmentId: item.outboxAttachmentId,
-	outboxMessageId: item.outboxMessageId,
-	filename: item.filename,
-	contentType: item.contentType,
-	sizeBytes: item.sizeBytes,
-	state: item.state,
-	contentId: outboxAttachmentContentId(item.outboxAttachmentId),
-	contentUrl: buildStorageContentUrl({
-		domain: getContentDeliveryDomain(),
-		storageKey: item.storageKey,
-		sign: getContentSigner(),
-	}),
-});
+export const toOutboxAttachmentResponse =
+	(config: ApiConfig) =>
+	(item: OutboxAttachmentItem): OutboxAttachmentResponse => ({
+		outboxAttachmentId: item.outboxAttachmentId,
+		outboxMessageId: item.outboxMessageId,
+		filename: item.filename,
+		contentType: item.contentType,
+		sizeBytes: item.sizeBytes,
+		state: item.state,
+		contentId: outboxAttachmentContentId(item.outboxAttachmentId),
+		contentUrl: buildStorageContentUrl({
+			domain: config.contentDeliveryDomain,
+			storageKey: item.storageKey,
+			sign: getContentSigner(config),
+		}),
+	});
 
 interface RejectionResponse {
 	statusCode: number;
@@ -118,5 +116,5 @@ export const completeOutboxAttachment = async (
 
 	if (result.outcome === "Rejected") return refuse(result.rejection);
 
-	return toOutboxAttachmentResponse(result.attachment);
+	return toOutboxAttachmentResponse(ctx.config)(result.attachment);
 };

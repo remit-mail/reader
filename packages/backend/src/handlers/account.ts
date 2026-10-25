@@ -34,6 +34,7 @@ import {
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
 import type { Context } from "openapi-backend";
+import { loadMsOAuth, type MsOAuthConfig } from "../config/msoauth.js";
 import { deleteAccount } from "../service/account-deletion.js";
 import type { RemitClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
@@ -105,21 +106,19 @@ export const triggerAccountSyncSafe = async (
  * A revoked / expired refresh token surfaces as RefreshTokenError; the
  * reauth-required case is mapped to the distinct `reauth_required` error code
  * so the UI can route the user into the OAuth re-auth flow.
- *
- * MSOAUTH_* env vars are only present in deployed Lambdas; fall back to "".
  */
 const testOAuthConnection = async (
+	msOAuth: MsOAuthConfig,
 	existingAccount: AccountItem,
 	account: IAccountRepository,
 	secrets: SecretsService,
 ): Promise<TestConnectionResponse> => {
+	const { config, credentials: app } = await loadMsOAuth(msOAuth);
 	const tokenService = createMailOAuthService(
 		microsoftProviderConfig({
-			clientId: process.env.MSOAUTH_CLIENT_ID ?? "",
-			clientSecret: process.env.MSOAUTH_CLIENT_SECRET ?? "",
-			overrides: process.env.MSOAUTH_TOKEN_ENDPOINT
-				? { tokenEndpoint: process.env.MSOAUTH_TOKEN_ENDPOINT }
-				: undefined,
+			clientId: app.clientId,
+			clientSecret: app.clientSecret,
+			overrides: config.overrides,
 		}),
 	);
 
@@ -315,7 +314,12 @@ export const AccountOperations: Record<
 
 			const authType = existingAccount.authType ?? "password";
 			if (authType === "oauthMicrosoft") {
-				return testOAuthConnection(existingAccount, account, secrets);
+				return testOAuthConnection(
+					ctx.config.msOAuth,
+					existingAccount,
+					account,
+					secrets,
+				);
 			}
 
 			if (existingAccount.passwordHash) {

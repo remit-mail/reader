@@ -6,6 +6,7 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
@@ -22,6 +23,7 @@ const ACCOUNT_ID = "acc-887";
 
 const caller = (): HandlerContext<QueueName> => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(SUB),

@@ -8,12 +8,18 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
+import { after, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { APIGatewayProxyResult } from "aws-lambda";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context as LambdaContext,
+} from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { normalizeRequest } from "../request.js";
+import { lambdaHandler } from "../api-fixture.js";
+import type { ApiConfig } from "../config/api-config.js";
+import { testApiConfig } from "../config/test-config.js";
 import { formatResponse } from "../response.js";
 import {
 	_resetForTest,
@@ -33,7 +39,6 @@ const tmpRoot = join(
 );
 
 const USER = "any-signed-in-user";
-const MANIFEST_URL = "https://updates.example.com/stable.json";
 
 let controlDir: string;
 
@@ -57,6 +62,7 @@ const writeState = (state: unknown): void => {
 
 let client: RemitClient;
 let cleanup: () => void;
+let config: ApiConfig;
 
 before(async () => {
 	mkdirSync(tmpRoot, { recursive: true });
@@ -72,19 +78,15 @@ after(() => {
 
 beforeEach(() => {
 	controlDir = mkdtempSync(join(tmpRoot, "control-"));
-	process.env.REMIT_UPDATE_CONTROL_DIR = controlDir;
-	process.env.REMIT_UPDATE_MANIFEST_URL = MANIFEST_URL;
-	process.env.REMIT_TAG = "v1.4.1";
-});
-
-afterEach(() => {
-	delete process.env.REMIT_UPDATE_MANIFEST_URL;
-	delete process.env.REMIT_UPDATE_CONTROL_DIR;
-	delete process.env.REMIT_TAG;
+	config = testApiConfig({
+		updateControlDir: controlDir,
+		selfUpdate: "Enabled",
+	});
 });
 
 const callerOf = (sub: string): HandlerContext => ({
 	client,
+	config,
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -93,12 +95,9 @@ const callerOf = (sub: string): HandlerContext => ({
 	},
 });
 
-type LambdaEvent = Parameters<typeof normalizeRequest>[0];
-
 const throughPipeline = async (
 	event: Record<string, unknown> & { httpMethod: string },
 ): Promise<APIGatewayProxyResult> => {
-	const { api } = (await import("../api-fixture.js")).servedApi(client);
 	const full = {
 		path: "/system/update",
 		queryStringParameters: null,
@@ -106,11 +105,11 @@ const throughPipeline = async (
 		body: null,
 		requestContext: {},
 		...event,
-	} as unknown as LambdaEvent;
-	return (await api.handleRequest(
-		normalizeRequest(full),
-		full,
-	)) as APIGatewayProxyResult;
+	} as unknown as APIGatewayProxyEvent;
+	const handleApiEvent = lambdaHandler(async () => client, config);
+	return handleApiEvent(full, {
+		awsRequestId: "system-update-test",
+	} as LambdaContext);
 };
 
 const getAnonymously = (query: Record<string, string> | null = null) =>
@@ -153,7 +152,7 @@ const hasStatus = (value: unknown, code: number): boolean =>
 
 describe("GET /system/update", () => {
 	it("returns 404 when no manifest URL is configured", async () => {
-		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+		config = { ...config, selfUpdate: "Disabled" };
 
 		const result = await getUpdate(callerOf(USER));
 
@@ -227,10 +226,9 @@ describe("GET /system/update", () => {
 		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
 
-	it("reports an unknown version, not its own process env, when no state file exists", async () => {
+	it("reports an unknown version when no state file exists", async () => {
 		// The updater owns the running version and writes it into state.json; with
-		// no state file the backend has nothing authoritative, so it says unknown
-		// rather than surfacing REMIT_TAG, which drifts from the real running tag.
+		// no state file the backend has nothing authoritative, so it says unknown.
 		const result = await getUpdate(callerOf(USER));
 
 		assert.deepEqual(result, {
@@ -336,7 +334,7 @@ describe("GET /system/update", () => {
 
 describe("POST /system/update", () => {
 	it("returns 404 when no manifest URL is configured", async () => {
-		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+		config = { ...config, selfUpdate: "Disabled" };
 
 		const result = await applyUpdate("v1.5.0", callerOf(USER));
 
@@ -494,7 +492,7 @@ describe("GET /system/update through the whole request pipeline", () => {
 // the shape went unguarded (issue #371).
 describe("the wire body of a self-update refusal", () => {
 	it("answers an unconfigured seam with a flat not_found", async () => {
-		delete process.env.REMIT_UPDATE_MANIFEST_URL;
+		config = { ...config, selfUpdate: "Disabled" };
 
 		const result = await getUpdate(callerOf(USER));
 		const wire = formatResponse(result as Record<string, unknown>);

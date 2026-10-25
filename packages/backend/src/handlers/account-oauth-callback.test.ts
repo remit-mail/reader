@@ -16,6 +16,8 @@ import type { AddressInfo } from "node:net";
 import { after, before, describe, it } from "node:test";
 import { AccountService } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { telemetryHandler } from "../api-fixture.js";
+import { testApiConfig } from "../config/test-config.js";
 import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import { signState } from "./account-oauth.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
@@ -86,12 +88,7 @@ const headerOf = (
 
 before(async () => {
 	_resetForTest();
-	process.env.DATA_BACKEND = "sqlite";
-	process.env.CORS_ALLOWED_ORIGINS = WEB_ORIGIN;
-	process.env.MSOAUTH_REDIRECT_URI = `${WEB_ORIGIN}${CALLBACK_PATH}`;
-	process.env.MSOAUTH_CLIENT_ID = "callback-test-client-id";
-	process.env.MSOAUTH_CLIENT_SECRET = CLIENT_SECRET;
-	process.env.MSOAUTH_TOKEN_ENDPOINT = await startTokenEndpoint();
+	const tokenEndpointUrl = await startTokenEndpoint();
 	// The self-host key that encrypts the stored refresh token.
 	process.env.FAKE_KMS_DATAKEY = "0".repeat(64);
 	// Static credentials so the best-effort sync enqueue fails against the local
@@ -100,7 +97,25 @@ before(async () => {
 	process.env.AWS_ACCESS_KEY_ID = "test";
 	process.env.AWS_SECRET_ACCESS_KEY = "test";
 	({ client, cleanup } = await createCalendarSqliteClient());
-	({ handler } = (await import("../api-fixture.js")).servedApi(client));
+	handler = telemetryHandler(
+		client,
+		testApiConfig({
+			auth: {
+				mode: "BetterAuthJwt",
+				contentSigningSecret: "a-signing-secret-of-at-least-32-characters",
+			},
+			corsAllowedOrigins: [WEB_ORIGIN],
+			msOAuth: {
+				mode: "Enabled",
+				redirectUri: `${WEB_ORIGIN}${CALLBACK_PATH}`,
+				overrides: { tokenEndpoint: tokenEndpointUrl },
+				credentials: async () => ({
+					clientId: "callback-test-client-id",
+					clientSecret: CLIENT_SECRET,
+				}),
+			},
+		}),
+	);
 });
 
 after(async () => {

@@ -43,10 +43,19 @@ const send = (
 
 before(async () => {
 	_resetForTest();
-	process.env.DATA_BACKEND = "sqlite";
 	const fixture = await createCalendarSqliteClient();
 	cleanup = fixture.cleanup;
-	({ handler } = (await import("./api-fixture.js")).servedApi(fixture.client));
+	const { telemetryHandler } = await import("./api-fixture.js");
+	const { testApiConfig } = await import("./config/test-config.js");
+	handler = telemetryHandler(
+		fixture.client,
+		testApiConfig({
+			auth: {
+				mode: "BetterAuthJwt",
+				contentSigningSecret: "a-signing-secret-of-at-least-32-characters",
+			},
+		}),
+	);
 });
 
 after(() => {

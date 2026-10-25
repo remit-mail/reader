@@ -22,6 +22,7 @@ import {
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
 import type { Context } from "openapi-backend";
+import type { ApiConfig } from "../config/api-config.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import {
@@ -124,9 +125,6 @@ const toAccountConfigResponse = (
 	updatedAt: config.updatedAt,
 });
 
-const buildCommit = (): string =>
-	process.env.REMIT_WORKER_SHA || process.env.GITHUB_SHA || "dev";
-
 /**
  * Returned by GET /config when no AccountConfig row exists yet for this user.
  * GET must never mutate state, so instead of creating a row we synthesize a
@@ -137,6 +135,7 @@ const buildCommit = (): string =>
 const emptyConfigResponse = (
 	accountConfigId: string,
 	userId: string,
+	commit: string,
 ): ConfigDescriptionResponse => {
 	const now = Date.now();
 	return {
@@ -148,7 +147,7 @@ const emptyConfigResponse = (
 			updatedAt: now,
 		},
 		accounts: [],
-		buildCommit: buildCommit(),
+		buildCommit: commit,
 	};
 };
 
@@ -170,12 +169,20 @@ export const ConfigOperations: Record<
 			});
 
 		if (!description || description.accountConfig.length === 0) {
-			return emptyConfigResponse(accountConfigId, ctx.identity.sub);
+			return emptyConfigResponse(
+				accountConfigId,
+				ctx.identity.sub,
+				ctx.config.commit,
+			);
 		}
 
 		const accountConfig = description.accountConfig[0];
 		if (!accountConfig) {
-			return emptyConfigResponse(accountConfigId, ctx.identity.sub);
+			return emptyConfigResponse(
+				accountConfigId,
+				ctx.identity.sub,
+				ctx.config.commit,
+			);
 		}
 
 		// Filter out deleted accounts (tombstone pattern)
@@ -231,7 +238,7 @@ export const ConfigOperations: Record<
 		return {
 			accountConfig: toAccountConfigResponse(accountConfig),
 			...(pendingImport ? { pendingImport } : {}),
-			buildCommit: buildCommit(),
+			buildCommit: ctx.config.commit,
 			accounts: activeAccounts.map((acc) =>
 				toAccountResponse(
 					acc,
@@ -255,7 +262,7 @@ export const ConfigOperations: Record<
 		const document = await readConfigForExport(
 			client,
 			accountConfigId,
-			exportIdentity(),
+			exportIdentity(ctx.config),
 		);
 		return { schemaVersion: document.schemaVersion, document };
 	},

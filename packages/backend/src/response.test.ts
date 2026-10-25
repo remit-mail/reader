@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type { Context as OpenAPIContext } from "openapi-backend";
-import { runWithRequestContext } from "./request-context.js";
-import { formatResponse, postResponseHandler } from "./response.js";
+import { testApiConfig } from "./config/test-config.js";
+import {
+	envelopeHeaders,
+	postResponseHandler,
+	resolveAllowedOrigin,
+} from "./response.js";
 
 type ValidateResponseFn = (
 	response: unknown,
@@ -21,67 +25,38 @@ const makeContext = (
 };
 
 describe("postResponseHandler validation gating", () => {
-	const originalStage = process.env.STAGE_NAME;
+	const logging = { config: testApiConfig({ responseValidation: "Log" }) };
+	const skipping = { config: testApiConfig({ responseValidation: "Skip" }) };
 
-	beforeEach(() => {
-		delete process.env.STAGE_NAME;
-	});
-
-	afterEach(() => {
-		if (originalStage === undefined) {
-			delete process.env.STAGE_NAME;
-		} else {
-			process.env.STAGE_NAME = originalStage;
-		}
-	});
-
-	it("runs validateResponse when STAGE_NAME is 'dev'", () => {
-		process.env.STAGE_NAME = "dev";
+	it("runs validateResponse when response validation logs", () => {
 		let called = false;
 		const validate: ValidateResponseFn = () => {
 			called = true;
 			return { valid: true };
 		};
-		const result = postResponseHandler(makeContext({ items: [] }, validate));
+		const result = postResponseHandler(
+			makeContext({ items: [] }, validate),
+			logging,
+		);
 		assert.equal(called, true);
 		assert.equal(result.statusCode, 200);
 	});
 
-	it("skips validateResponse when STAGE_NAME is 'prod'", () => {
-		process.env.STAGE_NAME = "prod";
+	it("skips validateResponse when response validation is skipped", () => {
 		let called = false;
 		const validate: ValidateResponseFn = () => {
 			called = true;
 			return { valid: true };
 		};
-		const result = postResponseHandler(makeContext({ items: [] }, validate));
+		const result = postResponseHandler(
+			makeContext({ items: [] }, validate),
+			skipping,
+		);
 		assert.equal(called, false);
 		assert.equal(result.statusCode, 200);
 	});
 
-	it("skips validateResponse when STAGE_NAME is 'beta'", () => {
-		process.env.STAGE_NAME = "beta";
-		let called = false;
-		const validate: ValidateResponseFn = () => {
-			called = true;
-			return { valid: true };
-		};
-		postResponseHandler(makeContext({ items: [] }, validate));
-		assert.equal(called, false);
-	});
-
-	it("skips validateResponse when STAGE_NAME is unset", () => {
-		let called = false;
-		const validate: ValidateResponseFn = () => {
-			called = true;
-			return { valid: true };
-		};
-		postResponseHandler(makeContext({ items: [] }, validate));
-		assert.equal(called, false);
-	});
-
-	it("returns the formatted error response when statusCode is set, regardless of stage", () => {
-		process.env.STAGE_NAME = "dev";
+	it("returns the formatted error response when statusCode is set, regardless of mode", () => {
 		let called = false;
 		const validate: ValidateResponseFn = () => {
 			called = true;
@@ -89,19 +64,20 @@ describe("postResponseHandler validation gating", () => {
 		};
 		const result = postResponseHandler(
 			makeContext({ statusCode: 404, message: "Not Found" }, validate),
+			logging,
 		);
 		assert.equal(called, false);
 		assert.equal(result.statusCode, 404);
 	});
 
-	it("returns 200 with the response body when validation fails in dev", () => {
-		process.env.STAGE_NAME = "dev";
+	it("returns 200 with the response body when validation fails while logging", () => {
 		const validate: ValidateResponseFn = () => ({
 			valid: false,
 			errors: [{ instancePath: "/items/0/id", message: "must be string" }],
 		});
 		const result = postResponseHandler(
 			makeContext({ items: [{ id: 42 }] }, validate),
+			logging,
 		);
 		assert.equal(result.statusCode, 200);
 	});
@@ -109,22 +85,42 @@ describe("postResponseHandler validation gating", () => {
 
 // A bug report quotes the correlation id off the failing response. Without the
 // header it reads "(none)" and there is nothing to grep the server logs for.
-describe("the correlation id travels back on the response", () => {
-	it("carries the request's id, and exposes the header to the browser", () => {
-		const result = runWithRequestContext({ correlationId: "req-604" }, () =>
-			formatResponse({ message: "Conflict" }, 409),
-		);
+describe("the envelope every response carries", () => {
+	const allowed = ["https://app.example.com", "http://localhost:5173"];
 
-		assert.equal(result.headers?.["x-correlation-id"], "req-604");
+	it("carries the request's id, and exposes the header to the browser", () => {
+		const headers = envelopeHeaders({
+			origin: undefined,
+			allowedOrigins: [],
+			correlationId: "req-604",
+		});
+
+		assert.equal(headers["x-correlation-id"], "req-604");
 		assert.match(
-			String(result.headers?.["Access-Control-Expose-Headers"]),
+			String(headers["Access-Control-Expose-Headers"]),
 			/x-correlation-id/,
 		);
 	});
 
-	it("omits the header when the request carried no id", () => {
-		const result = formatResponse({ message: "Conflict" }, 409);
+	it("grants any origin when no allow-list is configured", () => {
+		assert.equal(resolveAllowedOrigin("https://any.com", []), "*");
+	});
 
-		assert.equal(result.headers?.["x-correlation-id"], undefined);
+	it("reflects the request origin when it is allow-listed", () => {
+		assert.equal(
+			resolveAllowedOrigin("http://localhost:5173", allowed),
+			"http://localhost:5173",
+		);
+	});
+
+	it("falls back to the first allowed origin otherwise", () => {
+		assert.equal(
+			resolveAllowedOrigin("https://evil.example.com", allowed),
+			"https://app.example.com",
+		);
+		assert.equal(
+			resolveAllowedOrigin(undefined, allowed),
+			"https://app.example.com",
+		);
 	});
 });

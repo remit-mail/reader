@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
@@ -18,6 +19,7 @@ const SUB = "sub-610";
 
 const callerWith = (client: RemitClient): HandlerContext<QueueName> => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(SUB),

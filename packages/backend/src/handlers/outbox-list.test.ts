@@ -22,6 +22,7 @@ import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import { OutboxOperations } from "./outbox.js";
 
@@ -130,6 +131,7 @@ const listOutbox = async (query?: Record<string, string>) =>
 		queryContext(query),
 		{
 			client,
+			config: testApiConfig(),
 			identity: {
 				kind: "user",
 				accountConfigId: ACCOUNT_CONFIG_ID,

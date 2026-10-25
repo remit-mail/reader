@@ -26,7 +26,38 @@
 			"default": "./src/producer.ts"
 		}
 	},
+	"packManifest": {
+		"main": "dist/index.js",
+		"types": "dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"./attempt-budget": {
+				"types": "./dist/attempt-budget.d.ts",
+				"default": "./dist/attempt-budget.js"
+			},
+			"./heartbeat": {
+				"types": "./dist/heartbeat.d.ts",
+				"default": "./dist/heartbeat.js"
+			},
+			"./poller": {
+				"types": "./dist/poller.d.ts",
+				"default": "./dist/poller.js"
+			},
+			"./producer": {
+				"types": "./dist/producer.d.ts",
+				"default": "./dist/producer.js"
+			}
+		},
+		"files": [
+			"dist"
+		]
+	},
 	"scripts": {
+		"prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+		"postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=98 --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run"

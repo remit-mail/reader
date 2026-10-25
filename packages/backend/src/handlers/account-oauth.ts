@@ -1,9 +1,4 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { inspect } from "node:util";
-import {
-	GetSecretValueCommand,
-	SecretsManagerClient,
-} from "@aws-sdk/client-secrets-manager";
 import type {
 	AccountService as AccountServiceName,
 	MicrosoftOAuthStartRequest,
@@ -25,7 +20,7 @@ import {
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getMsOAuthConfig } from "../config/msoauth.js";
+import { loadMsOAuth } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
 import { rawApiResponse } from "../response.js";
 import type {
@@ -147,95 +142,9 @@ export async function parseJwtClaims(
 	).catch(() => null);
 }
 
-// ─── Secrets Manager / config helpers ───────────────────────────────────────
-
-interface MsOAuthCredentials {
-	clientId: string;
-	clientSecret: string;
-}
-
-let smClient: SecretsManagerClient | null = null;
-
-function getSecretsManagerClient(): SecretsManagerClient {
-	if (!smClient) smClient = new SecretsManagerClient({});
-	return smClient;
-}
-
-type MsOAuthCredentialFailure =
-	| "MicrosoftOAuthNotConfigured"
-	| "MicrosoftOAuthSecretEmpty"
-	| "MicrosoftOAuthSecretIncomplete"
-	| "MicrosoftOAuthSecretUnparseable";
-
-function credentialFailure(
-	name: MsOAuthCredentialFailure,
-	message: string,
-): Error {
-	const error = new Error(message);
-	error.name = name;
-	return error;
-}
-
-async function getMsOAuthCredentials(): Promise<MsOAuthCredentials> {
-	const config = getMsOAuthConfig();
-
-	// Local dev: use env vars directly
-	if (config.clientId && config.clientSecret) {
-		return { clientId: config.clientId, clientSecret: config.clientSecret };
-	}
-
-	// Production: fetch from Secrets Manager
-	if (!config.secretArn) {
-		throw credentialFailure(
-			"MicrosoftOAuthNotConfigured",
-			"No Microsoft OAuth credentials are configured on this instance: set MSOAUTH_CLIENT_ID and MSOAUTH_CLIENT_SECRET, or MSOAUTH_SECRET_ARN",
-		);
-	}
-
-	const sm = getSecretsManagerClient();
-	const result = await sm.send(
-		new GetSecretValueCommand({ SecretId: config.secretArn }),
-	);
-
-	if (!result.SecretString) {
-		throw credentialFailure(
-			"MicrosoftOAuthSecretEmpty",
-			"The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN holds no SecretString",
-		);
-	}
-
-	const parsed = await safeJsonParse<MsOAuthCredentials>(
-		result.SecretString,
-	).catch(() => null);
-	if (!parsed) {
-		throw credentialFailure(
-			"MicrosoftOAuthSecretUnparseable",
-			"The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN does not hold a JSON object",
-		);
-	}
-
-	const absent = (["clientId", "clientSecret"] as const).filter(
-		(field) => !parsed[field],
-	);
-	if (absent.length > 0) {
-		throw credentialFailure(
-			"MicrosoftOAuthSecretIncomplete",
-			`The Microsoft OAuth secret named by MSOAUTH_SECRET_ARN is missing ${absent.join(" and ")}`,
-		);
-	}
-
-	return parsed;
-}
-
 // ─── Web origin helper ───────────────────────────────────────────────────────
 
-export function getWebOrigin(): string {
-	const raw = process.env.CORS_ALLOWED_ORIGINS ?? "";
-	const origins = raw
-		.split(",")
-		.map((o) => o.trim())
-		.filter(Boolean);
-
+export function getWebOrigin(origins: readonly string[]): string {
 	// Prefer the first HTTPS origin (production frontend)
 	const httpsOrigin = origins.find((o) => o.startsWith("https://"));
 	return httpsOrigin ?? origins[0] ?? "https://localhost:3000";
@@ -280,7 +189,7 @@ const redeemEachService = async (
 						reason: "scope_redemption_failed",
 						accountConfigId,
 						service,
-						error: inspect(err),
+						error: err,
 					},
 					"MS OAuth callback: the consent did not cover a requested service",
 				);
@@ -305,7 +214,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	context: Context,
 	ctx: PublicHandlerContext<"sync">,
 ): Promise<APIGatewayProxyResult> => {
-	const webOrigin = getWebOrigin();
+	const webOrigin = getWebOrigin(ctx.config.corsAllowedOrigins);
 	const qs = context.request.query as Record<string, string | undefined>;
 
 	// Marked raw so the response formatter forwards the Location header
@@ -331,7 +240,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 		return redirect(`${webOrigin}/settings/accounts?oauthError=missing_params`);
 	}
 
-	const credentials = await getMsOAuthCredentials().catch((err: unknown) => {
+	const loaded = await loadMsOAuth(ctx.config.msOAuth).catch((err: unknown) => {
 		logger.error(
 			{
 				alert: "oauth_callback_failed",
@@ -339,14 +248,15 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 				errorName: (err as { name?: string })?.name,
 				errorCode:
 					(err as { Code?: string })?.Code ?? (err as { code?: string })?.code,
-				error: inspect(err),
+				error: err,
 			},
 			"MS OAuth callback: failed to load OAuth config",
 		);
 		return null;
 	});
-	if (credentials === null)
+	if (loaded === null)
 		return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
+	const { config, credentials } = loaded;
 
 	// Verify the HMAC-signed state
 	// A bad/expired/forged state is a security-relevant signal (CSRF
@@ -359,7 +269,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 					alert: "oauth_callback_failed",
 					reason: "invalid_state",
 					errorName: (err as { name?: string })?.name,
-					error: inspect(err),
+					error: err,
 				},
 				"MS OAuth callback: state verification failed",
 			);
@@ -372,16 +282,13 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	const { accountConfigId } = statePayload;
 	const [firstService] = orderServices(statePayload.services);
 
-	const config = getMsOAuthConfig();
 	const serviceFor = (service: AccountServiceName): MailOAuthService =>
 		createMailOAuthService(
 			microsoftProviderConfig({
 				clientId: credentials.clientId,
 				clientSecret: credentials.clientSecret,
 				services: [service],
-				overrides: config.tokenEndpoint
-					? { tokenEndpoint: config.tokenEndpoint }
-					: undefined,
+				overrides: config.overrides,
 			}),
 		);
 
@@ -390,7 +297,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 		.exchangeCode(code, config.redirectUri)
 		.catch((err: unknown) => {
 			logger.error(
-				{ accountConfigId, error: inspect(err) },
+				{ accountConfigId, error: err },
 				"MS OAuth code exchange failed",
 			);
 			return null;
@@ -591,17 +498,14 @@ export const MicrosoftOAuthOperations: Record<
 		const email = typeof input.email === "string" ? input.email : undefined;
 		const services = orderServices(input.services ?? [AccountService.Mail]);
 
-		const config = getMsOAuthConfig();
-		const credentials = await getMsOAuthCredentials();
+		const { config, credentials } = await loadMsOAuth(ctx.config.msOAuth);
 
 		const oauthService = createMailOAuthService(
 			microsoftProviderConfig({
 				clientId: credentials.clientId,
 				clientSecret: credentials.clientSecret,
 				services,
-				overrides: config.tokenEndpoint
-					? { tokenEndpoint: config.tokenEndpoint }
-					: undefined,
+				overrides: config.overrides,
 			}),
 		);
 

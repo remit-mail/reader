@@ -1,6 +1,5 @@
 import { access, constants } from "node:fs/promises";
 import { SQLITE_DATABASE_ENV } from "@remit/drizzle-service";
-import { isSelfHostSqlBackend } from "../src/data-backend.js";
 
 // The SELECT ping opens a read-only connection, so it keeps succeeding on a
 // file that can still be read but no longer written — permissions revoked to
@@ -28,7 +27,7 @@ const pingSqlite = async (path: string): Promise<void> => {
  * AWS/DynamoDB path has no relational store and is never checked.
  */
 export const checkRelationalStore = async (): Promise<boolean> => {
-	if (!isSelfHostSqlBackend()) return true;
+	if (process.env.DATA_BACKEND !== "sqlite") return true;
 
 	try {
 		for (const name of Object.values(SQLITE_DATABASE_ENV)) {

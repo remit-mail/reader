@@ -1,13 +1,35 @@
 import { inspect } from "node:util";
 import { logger } from "@remit/logger";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
+import {
+	assertLocalBypassNotInDeployedEnv,
+	localIdentityFromEnv,
+} from "./auth.js";
+import { configFromEnv } from "./config/from-env.js";
 import { handlers, publicHandlers } from "./handlers/index.js";
+import { createApiEventHandler } from "./lambda.js";
 import { serveApi } from "./serve.js";
 import { getClient } from "./service/data-client.js";
 
 installNodeLogger();
 
+// Boot-time refusal: the local auth-bypass overrides must never be set in a
+// deployed environment, so a leaked env var fails the process at startup
+// rather than silently opening authentication at runtime.
+assertLocalBypassNotInDeployedEnv(process.env);
+
 export { OpenAPISpec } from "./api.js";
+export { configFromEnv } from "./config/from-env.js";
+export { createApiEventHandler } from "./lambda.js";
+
+export const handleApiEvent = createApiEventHandler(
+	serveApi({ handlers, publicHandlers }),
+	{
+		config: configFromEnv(process.env),
+		localIdentity: localIdentityFromEnv(process.env),
+		client: getClient,
+	},
+);
 
 /**
  * Last-resort net for a leaked background rejection.
@@ -46,6 +68,4 @@ if (!globalProcess[unhandledRejectionRegistered]) {
 // The Lambda and Node entry point. `withTelemetry` installs the Node logger and
 // its process metrics; a host without Node's process APIs imports
 // `@remit/backend/api` instead and plugs in its own logger with `setLogger`.
-export const handler = withTelemetry(
-	serveApi({ handlers, publicHandlers }, getClient),
-);
+export const handler = withTelemetry(handleApiEvent);

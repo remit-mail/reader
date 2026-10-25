@@ -11,6 +11,8 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { telemetryHandler } from "../api-fixture.js";
+import { testApiConfig } from "../config/test-config.js";
 import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
@@ -136,12 +138,18 @@ const fetchFeed = (
 
 before(async () => {
 	_resetForTest();
-	// The self-host gate, so the feed's exemption from it is exercised rather
-	// than assumed. Set before the module loads: it reads the flag per request,
-	// but the boot-time bypass assertion reads NODE_ENV at import.
-	process.env.DATA_BACKEND = "sqlite";
+	// The self-host mode, so the feed's exemption from its JWT check is
+	// exercised rather than assumed.
 	({ client, cleanup } = await createCalendarSqliteClient());
-	({ handler } = (await import("../api-fixture.js")).servedApi(client));
+	handler = telemetryHandler(
+		client,
+		testApiConfig({
+			auth: {
+				mode: "BetterAuthJwt",
+				contentSigningSecret: "a-signing-secret-of-at-least-32-characters",
+			},
+		}),
+	);
 });
 
 after(() => {
@@ -220,11 +228,10 @@ describe("the feed a subscriber polls", () => {
 	it("does not serve the feed at an address the token only starts", async () => {
 		// The route is built by substituting the token into the literal path, which
 		// leaves the dot of ".ics" matching any character, so /feeds/calendar/
-		// <token>Xics reaches the feed operation with the token intact. Asserted at
-		// both layers that refuse it: the public-route gate does not recognise the
-		// address, and the handler re-derives the token from the raw path rather
-		// than trusting what the router captured — so a caller who does hold a
-		// session gets the same 404 rather than somebody's calendar.
+		// <token>Xics reaches the feed operation with the token intact. The handler
+		// re-derives the token from the raw path rather than trusting what the
+		// router captured, so a caller with or without a session gets a 404 rather
+		// than somebody's calendar.
 		const owner = new Subscriber();
 		const calendarId = await owner.calendar();
 		await owner.event(calendarId, "Stand-up");
@@ -240,7 +247,7 @@ describe("the feed a subscriber polls", () => {
 		});
 
 		assert.equal(served.statusCode, 200, served.body);
-		assert.equal(unauthenticated.statusCode, 401);
+		assert.equal(unauthenticated.statusCode, 404);
 		assert.equal(authenticated.statusCode, 404);
 		for (const response of [unauthenticated, authenticated]) {
 			assert.equal(

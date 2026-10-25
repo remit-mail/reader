@@ -9,6 +9,7 @@ import type {
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CalendarSource, RecurrenceScope } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import {
@@ -66,6 +67,7 @@ class CalendarAccount {
 	caller(): HandlerContext {
 		return {
 			client,
+			config: testApiConfig(),
 			identity: {
 				kind: "user",
 				accountConfigId: this.accountConfigId,

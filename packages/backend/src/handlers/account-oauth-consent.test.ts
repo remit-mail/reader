@@ -11,6 +11,8 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { AccountService } from "@remit/domain-enums";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { telemetryHandler } from "../api-fixture.js";
+import { testApiConfig } from "../config/test-config.js";
 import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
@@ -165,18 +167,31 @@ const patchServices = (
 
 before(async () => {
 	_resetForTest();
-	process.env.DATA_BACKEND = "sqlite";
-	process.env.CORS_ALLOWED_ORIGINS = WEB_ORIGIN;
-	process.env.MSOAUTH_REDIRECT_URI = `${WEB_ORIGIN}/accounts/oauth/microsoft/callback`;
-	process.env.MSOAUTH_CLIENT_ID = "consent-test-client-id";
-	process.env.MSOAUTH_CLIENT_SECRET = CLIENT_SECRET;
-	process.env.MSOAUTH_TOKEN_ENDPOINT = await startTokenEndpoint();
+	const tokenEndpointUrl = await startTokenEndpoint();
 	process.env.FAKE_KMS_DATAKEY = "0".repeat(64);
 	process.env.AWS_REGION = "eu-west-1";
 	process.env.AWS_ACCESS_KEY_ID = "test";
 	process.env.AWS_SECRET_ACCESS_KEY = "test";
 	({ client, cleanup } = await createCalendarSqliteClient());
-	({ handler } = (await import("../api-fixture.js")).servedApi(client));
+	handler = telemetryHandler(
+		client,
+		testApiConfig({
+			auth: {
+				mode: "BetterAuthJwt",
+				contentSigningSecret: "a-signing-secret-of-at-least-32-characters",
+			},
+			corsAllowedOrigins: [WEB_ORIGIN],
+			msOAuth: {
+				mode: "Enabled",
+				redirectUri: `${WEB_ORIGIN}/accounts/oauth/microsoft/callback`,
+				overrides: { tokenEndpoint: tokenEndpointUrl },
+				credentials: async () => ({
+					clientId: "consent-test-client-id",
+					clientSecret: CLIENT_SECRET,
+				}),
+			},
+		}),
+	);
 });
 
 beforeEach(() => {

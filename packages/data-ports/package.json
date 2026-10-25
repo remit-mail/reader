@@ -101,8 +101,10 @@
 		"@remit/domain-enums": "*",
 		"short-uuid": "^6.0.3",
 		"uuid": "^13.0.2",
-		"zod": "^3.25.0",
 		"@remit/api-zod-schemas": "*"
+	},
+	"peerDependencies": {
+		"zod": "^3.25.0"
 	},
 	"license": "MIT",
 	"publishConfig": {

@@ -28,7 +28,11 @@ A process that is not handed one falls back to the single composition its own bu
 
 That check is a precondition, not a selection. Nothing picks between adapters at runtime.
 
-A handler reaches the client only through its per-request context: `(c, ctx: HandlerContext)`, where `ctx` carries the `client` and the caller's `identity`; the request itself is openapi-backend's `c.request`. The host builds the context once per request and passes it in; no handler module imports `getClient`, reads the raw event or derives identity itself. The Lambda and self-host adapter in `api.ts` builds it from `getClient()`, the authorizer claims and the local overrides, and answers 401 before a non-public operation runs without a signed-in user.
+A handler reaches the client only through its per-request context: `(c, ctx: HandlerContext)`, where `ctx` carries the `client`, the caller's `identity` and the `config`; the request itself is openapi-backend's `c.request`. The host builds the context once per request and passes it in; no handler module imports `getClient`, reads the raw event, reads `process.env` or derives identity itself.
+
+`config` is a typed `ApiConfig`: the auth mode with its signing secret, CORS origins, the public origin and content domain, Microsoft OAuth, the self-update seam and the build commit, each a mode where a flag would otherwise be. The host supplies it. `configFromEnv(process.env)` builds it in the Node and Lambda entry (`index.ts`), refuses to start without a required key, and defaults every optional key there and nowhere else.
+
+Two adapters share one path. `serveApi` in `@remit/backend/serve` registers a host's operations and returns `dispatch` and `handleFetch`; the Lambda adapter in `lambda.ts` maps an API Gateway event onto the same request a Fetch `Request` becomes, so both reach one `dispatch` that runs the operation table, the error mapping, the CORS and correlation headers and the access line. Routing and validation run first, so an unknown path answers 404 and a malformed request 400 before an anonymous caller gets 401. Identity is resolved only for an operation that needs a caller: the Lambda adapter reads the authorizer claims and the local overrides, and on the self-host backend verifies the JWT; a Worker passes its own `client` and `identity` to `handleFetch`. `@remit/backend/serve` imports neither `aws-lambda` nor the Lambda adapter, so a Worker imports `serveApi` and `RequestHost` from it.
 
 ## A4. The contract's guarantees
 
