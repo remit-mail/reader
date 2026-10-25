@@ -44,6 +44,7 @@ import { messageTable } from "../schema/message-data.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import type { SearchIndex } from "../search/thread-message-search.js";
+import { inList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
@@ -207,7 +208,7 @@ export class MailboxRepo implements IMailboxRepository {
 				.where(
 					and(
 						eq(mailboxTable.accountId, accountId),
-						inArray(mailboxTable.mailboxId, mailboxId),
+						inList(mailboxTable.mailboxId, mailboxId),
 					),
 				);
 			return rows.map(rowToMailbox);
@@ -384,7 +385,7 @@ export class MailboxRepo implements IMailboxRepository {
 				.where(
 					and(
 						eq(syncWarningTable.accountId, accountId),
-						inArray(syncWarningTable.mailboxId, mailboxIds),
+						inList(syncWarningTable.mailboxId, mailboxIds),
 					),
 				),
 			this.db
@@ -392,7 +393,7 @@ export class MailboxRepo implements IMailboxRepository {
 				.where(
 					and(
 						eq(mailboxTable.accountId, accountId),
-						inArray(mailboxTable.mailboxId, mailboxIds),
+						inList(mailboxTable.mailboxId, mailboxIds),
 					),
 				),
 		]);
@@ -551,7 +552,7 @@ export class MailboxRepo implements IMailboxRepository {
 			const listings = await this.db
 				.select({ threadMessageId: threadMessageTable.threadMessageId })
 				.from(threadMessageTable)
-				.where(inArray(threadMessageTable.messageId, messageIds));
+				.where(inList(threadMessageTable.messageId, messageIds));
 
 			// The primitive the rest of the codebase deletes mail with: nine
 			// per-message child tables. A bespoke table list would orphan them.
@@ -559,7 +560,7 @@ export class MailboxRepo implements IMailboxRepository {
 				...deleteMessageSubtree(this.db, messageIds),
 				this.db
 					.delete(threadMessageTable)
-					.where(inArray(threadMessageTable.messageId, messageIds)),
+					.where(inList(threadMessageTable.messageId, messageIds)),
 			]);
 			await this.search.sync(listings.map((row) => row.threadMessageId));
 		}

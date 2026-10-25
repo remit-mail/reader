@@ -6,11 +6,12 @@ import type {
 	ReserveOutboxAttachmentResult,
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
-import { and, eq, gt, gte, inArray, lt, or, sum } from "drizzle-orm";
+import { and, eq, gt, gte, lt, or, sum } from "drizzle-orm";
 import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { outboxAttachmentTable } from "../schema/i4-outbox-attachment.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -218,10 +219,7 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 			.where(
 				and(
 					eq(outboxAttachmentTable.accountConfigId, accountConfigId),
-					inArray(
-						outboxAttachmentTable.outboxAttachmentId,
-						outboxAttachmentIds,
-					),
+					inList(outboxAttachmentTable.outboxAttachmentId, outboxAttachmentIds),
 				),
 			);
 	}

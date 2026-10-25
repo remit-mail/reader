@@ -1,4 +1,3 @@
-import { and, eq, inArray, or, type SQL } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import {
 	openSqliteDatabases,
@@ -17,6 +16,7 @@ import { quarantineTable } from "../schema/quarantine.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { SearchIndex } from "../search/thread-message-search.js";
+import { inList, pairInList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
 
 export interface CascadeEntity {
@@ -107,7 +107,7 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(threadMessageTable)
-				.where(inArray(threadMessageTable.threadMessageId, threadMessageIds)),
+				.where(inList(threadMessageTable.threadMessageId, threadMessageIds)),
 		);
 	}
 
@@ -116,12 +116,12 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.mailboxId, mailboxIds)),
+				.where(inList(syncWarningTable.mailboxId, mailboxIds)),
 		);
 		items.push(
 			mail
 				.delete(mailboxTable)
-				.where(inArray(mailboxTable.mailboxId, mailboxIds)),
+				.where(inList(mailboxTable.mailboxId, mailboxIds)),
 		);
 	}
 
@@ -132,19 +132,21 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(outboxMessageTable)
-				.where(inArray(outboxMessageTable.outboxMessageId, outboxMessageIds)),
+				.where(inList(outboxMessageTable.outboxMessageId, outboxMessageIds)),
 		);
 	}
 
 	const lockKeys = grouped.get("MailboxLock") ?? [];
 	if (lockKeys.length > 0) {
-		const conditions: SQL[] = lockKeys.map((k) =>
-			and(
-				eq(mailboxLockTable.mailboxId, k.mailboxId),
-				eq(mailboxLockTable.eventName, k.eventName),
+		items.push(
+			mail.delete(mailboxLockTable).where(
+				pairInList(
+					mailboxLockTable.mailboxId,
+					mailboxLockTable.eventName,
+					lockKeys.map((k) => [k.mailboxId, k.eventName]),
+				),
 			),
-		) as SQL[];
-		items.push(mail.delete(mailboxLockTable).where(or(...conditions)));
+		);
 	}
 
 	const accountSettingIds = (grouped.get("AccountSetting") ?? []).map(
@@ -154,9 +156,7 @@ export const runDrizzleCascadeDelete = async (
 		appItems.push(
 			app
 				.delete(accountSettingTable)
-				.where(
-					inArray(accountSettingTable.accountSettingId, accountSettingIds),
-				),
+				.where(inList(accountSettingTable.accountSettingId, accountSettingIds)),
 		);
 	}
 
@@ -165,7 +165,7 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(addressTable)
-				.where(inArray(addressTable.addressId, addressIds)),
+				.where(inList(addressTable.addressId, addressIds)),
 		);
 	}
 
@@ -178,17 +178,17 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(quarantineTable)
-				.where(inArray(quarantineTable.accountId, accountIds)),
+				.where(inList(quarantineTable.accountId, accountIds)),
 		);
 		items.push(
 			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.accountId, accountIds)),
+				.where(inList(syncWarningTable.accountId, accountIds)),
 		);
 		appItems.push(
 			app
 				.delete(accountTable)
-				.where(inArray(accountTable.accountId, accountIds)),
+				.where(inList(accountTable.accountId, accountIds)),
 		);
 	}
 
@@ -200,23 +200,22 @@ export const runDrizzleCascadeDelete = async (
 			mail
 				.delete(messagePlacementMoveTable)
 				.where(
-					inArray(messagePlacementMoveTable.messageId, placementMoveMessageIds),
+					inList(messagePlacementMoveTable.messageId, placementMoveMessageIds),
 				),
 		);
 	}
 
-	// Composite key (messageId, flagName) — a message can carry an
-	// independent pending read-state marker and pending star marker at once
-	// (issue #1273), so a single-column inArray cannot target one row.
 	const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
 	if (flagPushKeys.length > 0) {
-		const conditions: SQL[] = flagPushKeys.map((k) =>
-			and(
-				eq(messageFlagPushTable.messageId, k.messageId),
-				eq(messageFlagPushTable.flagName, k.flagName),
+		items.push(
+			mail.delete(messageFlagPushTable).where(
+				pairInList(
+					messageFlagPushTable.messageId,
+					messageFlagPushTable.flagName,
+					flagPushKeys.map((k) => [k.messageId, k.flagName]),
+				),
 			),
-		) as SQL[];
-		items.push(mail.delete(messageFlagPushTable).where(or(...conditions)));
+		);
 	}
 	await runBatch(mail, items);
 	await runBatch(app, appItems);

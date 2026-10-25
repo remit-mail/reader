@@ -5,9 +5,10 @@ import type {
 	SyncWarningKey,
 } from "@remit/data-ports";
 import { deriveSyncWarningId } from "@remit/data-ports/id";
-import { and, count, desc, eq, gte, inArray, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -71,6 +72,6 @@ export class SyncWarningRepo implements ISyncWarningRepository {
 		if (syncWarningIds.length === 0) return;
 		await this.db
 			.delete(syncWarningTable)
-			.where(inArray(syncWarningTable.syncWarningId, syncWarningIds));
+			.where(inList(syncWarningTable.syncWarningId, syncWarningIds));
 	};
 }

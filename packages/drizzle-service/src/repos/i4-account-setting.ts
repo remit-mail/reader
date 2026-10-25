@@ -5,9 +5,10 @@ import type {
 	IAccountSettingRepository,
 	UpsertAccountSettingInput,
 } from "@remit/data-ports";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -63,8 +64,8 @@ export class AccountSettingRepo implements IAccountSettingRepository {
 			.from(accountSettingTable)
 			.where(
 				and(
-					inArray(accountSettingTable.accountConfigId, [...accountConfigIds]),
-					inArray(accountSettingTable.name, [...names]),
+					inList(accountSettingTable.accountConfigId, accountConfigIds),
+					inList(accountSettingTable.name, names),
 				),
 			);
 		return rows.map(rowToAccountSetting);

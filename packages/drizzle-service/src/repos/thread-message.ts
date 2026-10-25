@@ -34,6 +34,7 @@ import type {
 	SearchIndex,
 	SearchPosition,
 } from "../search/thread-message-search.js";
+import { inList } from "./in-list.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -579,7 +580,7 @@ export class DrizzleThreadMessageRepository
 				.where(
 					and(
 						eq(threadMessageTable.accountConfigId, accountConfigId),
-						inArray(threadMessageTable.threadMessageId, threadMessageId),
+						inList(threadMessageTable.threadMessageId, threadMessageId),
 					),
 				);
 			return rows.map(toItem);
@@ -678,7 +679,7 @@ export class DrizzleThreadMessageRepository
 			.where(
 				and(
 					eq(threadMessageTable.accountConfigId, accountConfigId),
-					inArray(threadMessageTable.threadMessageId, ids),
+					inList(threadMessageTable.threadMessageId, ids),
 				),
 			);
 		await this.search.sync(ids);

@@ -8,7 +8,7 @@ import type {
 	MessageReferenceInput,
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { runBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import {
@@ -34,6 +34,7 @@ import {
 	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
+import { inList } from "./in-list.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -235,7 +236,7 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 
 		await this.db
 			.delete(envelopeTable)
-			.where(inArray(envelopeTable.envelopeId, envelopeIds));
+			.where(inList(envelopeTable.envelopeId, envelopeIds));
 	}
 
 	async createEnvelope(input: CreateEnvelopeInput): Promise<EnvelopeItem> {
@@ -293,7 +294,7 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			const rows = await this.db
 				.select()
 				.from(envelopeTable)
-				.where(inArray(envelopeTable.envelopeId, envelopeId));
+				.where(inList(envelopeTable.envelopeId, envelopeId));
 			return rows.map(toEnvelopeItem);
 		}
 
@@ -353,6 +354,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 		if (messageIds.length === 0) return;
 		await this.db
 			.delete(bodyStructureRefetchTable)
-			.where(inArray(bodyStructureRefetchTable.messageId, messageIds));
+			.where(inList(bodyStructureRefetchTable.messageId, messageIds));
 	}
 }

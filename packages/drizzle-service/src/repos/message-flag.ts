@@ -4,13 +4,14 @@ import type {
 	IMessageFlagRepository,
 	MessageFlagItem,
 } from "@remit/data-ports";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import {
 	type MessageDataSchema,
 	messageFlagTable,
 } from "../schema/message-data.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<MessageDataSchema>;
 
@@ -58,7 +59,7 @@ export class DrizzleMessageFlagRepository implements IMessageFlagRepository {
 			const rows = await this.db
 				.select()
 				.from(messageFlagTable)
-				.where(inArray(messageFlagTable.messageFlagId, idOrIds));
+				.where(inList(messageFlagTable.messageFlagId, idOrIds));
 			return rows.map(rowToMessageFlag);
 		}
 		const [row] = await this.db
@@ -79,7 +80,7 @@ export class DrizzleMessageFlagRepository implements IMessageFlagRepository {
 		if (messageFlagIds.length === 0) return;
 		await this.db
 			.delete(messageFlagTable)
-			.where(inArray(messageFlagTable.messageFlagId, messageFlagIds));
+			.where(inList(messageFlagTable.messageFlagId, messageFlagIds));
 	}
 
 	async getFlags(messageId: string): Promise<MessageFlagItem[]> {
@@ -155,7 +156,7 @@ export class DrizzleMessageFlagRepository implements IMessageFlagRepository {
 			.where(
 				and(
 					eq(messageFlagTable.messageId, messageId),
-					inArray(messageFlagTable.flagName, flagNames),
+					inList(messageFlagTable.flagName, flagNames),
 				),
 			);
 	}
