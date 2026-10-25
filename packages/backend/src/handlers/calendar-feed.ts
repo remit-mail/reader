@@ -13,15 +13,13 @@ import {
 } from "@remit/calendar-service";
 import type { CalendarFeedTokenItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import { type RawApiResponse, rawApiResponse } from "../response.js";
-import { getClient } from "../service/data-client.js";
 import type {
 	CalendarDetailOperationIds,
 	CalendarFeedDetailOperationIds,
-	CalendarFeedOperationIds,
+	HandlerContext,
 	OperationHandler,
+	PublicOperationHandler,
 } from "../types.js";
 import {
 	type CalendarDeps,
@@ -217,12 +215,11 @@ export const CalendarFeedDetailOperations: Record<
 > = {
 	CalendarDetailOperations_getCalendarFeed: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const found = await findCalendarFeedFor(deps, accountConfigId, calendarId);
 		if (!found.ok) return notFound(found.error.message);
@@ -231,12 +228,11 @@ export const CalendarFeedDetailOperations: Record<
 
 	CalendarDetailOperations_putCalendarFeed: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const minted = await putCalendarFeedFor(deps, accountConfigId, calendarId);
 		if (!minted.ok) return notFound(minted.error.message);
@@ -245,12 +241,11 @@ export const CalendarFeedDetailOperations: Record<
 
 	CalendarDetailOperations_revokeCalendarFeed: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const revoked = await revokeCalendarFeedFor(
 			deps,
@@ -262,30 +257,24 @@ export const CalendarFeedDetailOperations: Record<
 	},
 };
 
-export const CalendarFeedOperations: Record<
-	CalendarFeedOperationIds,
-	OperationHandler<CalendarFeedOperationIds>
-> = {
-	CalendarFeedOperations_getCalendarFeedIcal: async (
-		context,
-		...args: unknown[]
-	) => {
-		// From the raw path, not from the router's captured parameter: the matcher
-		// substitutes the parameter into the literal path and leaves the dot of
-		// ".ics" as a regex dot, so /feeds/calendar/<token>Xics routes here too —
-		// and answering it would serve the feed at an address nobody was handed.
-		const event = args[0] as APIGatewayProxyEvent;
-		const feedToken = readCalendarFeedToken(event.path);
-		if (feedToken === null) return feedNotFound();
+export const getCalendarFeedIcal: PublicOperationHandler = async (
+	context,
+	ctx,
+) => {
+	// From the raw path, not from the router's captured parameter: the matcher
+	// substitutes the parameter into the literal path and leaves the dot of
+	// ".ics" as a regex dot, so /feeds/calendar/<token>Xics routes here too —
+	// and answering it would serve the feed at an address nobody was handed.
+	const feedToken = readCalendarFeedToken(context.request.path);
+	if (feedToken === null) return feedNotFound();
 
-		const ifNoneMatch = context.request.headers["if-none-match"];
-		const ifModifiedSince = context.request.headers["if-modified-since"];
-		const deps = calendarDepsOf(await getClient());
+	const ifNoneMatch = context.request.headers["if-none-match"];
+	const ifModifiedSince = context.request.headers["if-modified-since"];
+	const deps = calendarDepsOf(ctx.client);
 
-		return serveCalendarFeed(deps, feedToken, {
-			ifNoneMatch: typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
-			ifModifiedSince:
-				typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
-		});
-	},
+	return serveCalendarFeed(deps, feedToken, {
+		ifNoneMatch: typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+		ifModifiedSince:
+			typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
+	});
 };

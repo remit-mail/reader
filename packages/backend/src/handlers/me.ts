@@ -10,13 +10,14 @@ import type {
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
-import type { MeOperationIds, OperationHandler } from "../types.js";
+import type {
+	HandlerContext,
+	MeOperationIds,
+	OperationHandler,
+} from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
@@ -29,24 +30,22 @@ export const MeOperations: Record<
 > = {
 	MeOperations_listVipSuggestions: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<VipSuggestionsResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 
-		const { address } = await getClient();
+		const { address } = ctx.client;
 		const items = await address.listSuggestedVips({ accountConfigId });
 
 		return { suggestions: items.map(toVipSuggestionEntry) };
 	},
 	MeOperations_listQuarantine: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<QuarantineListResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 
-		const { quarantine, syncWarning } = await getClient();
+		const { quarantine, syncWarning } = ctx.client;
 		const [entries, warnings] = await Promise.all([
 			quarantine.listByAccountConfigId(accountConfigId),
 			syncWarning.listSurfacedByAccountConfigId(
@@ -63,25 +62,17 @@ export const MeOperations: Record<
 		};
 	},
 	MeOperations_deleteMe: async (
-		_context: Context,
-		...args: unknown[]
+		context: Context,
+		ctx: HandlerContext,
 	): Promise<DeleteAccountConfigResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 
-		const { confirmEmail } = JSON.parse(
-			event.body ?? "{}",
-		) as Partial<DeleteMeInput>;
-		const callerEmail = event.requestContext?.authorizer?.claims?.email as
-			| string
-			| undefined;
+		const { confirmEmail } = context.request
+			.requestBody as Partial<DeleteMeInput>;
+		const callerEmail = ctx.identity.email;
 
 		if (typeof confirmEmail !== "string" || confirmEmail.trim() === "") {
 			throw new BadRequestError("confirmEmail is required");
-		}
-
-		if (!callerEmail) {
-			throw new BadRequestError("Account email claim missing from token");
 		}
 
 		if (confirmEmail.toLowerCase() !== callerEmail.toLowerCase()) {
@@ -90,7 +81,7 @@ export const MeOperations: Record<
 			);
 		}
 
-		const { accountConfig } = await getClient();
+		const { accountConfig } = ctx.client;
 
 		try {
 			await accountConfig.update(accountConfigId, {
@@ -134,19 +125,12 @@ export const MeOperations: Record<
 	},
 	MeOperations_createExport: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<CreateExportResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const userId = getSubFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
+		const userId = ctx.identity.sub;
 
-		if (!userId) {
-			throw new Error(
-				"Missing Cognito `sub`: cannot attribute an export request to a user",
-			);
-		}
-
-		const { accountExportRequest } = await getClient();
+		const { accountExportRequest } = ctx.client;
 		const exportRequest = await accountExportRequest.create({
 			accountConfigId,
 			userId,
@@ -180,13 +164,12 @@ export const MeOperations: Record<
 	},
 	MeOperations_getExport: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<AccountExportRequestResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const exportId = context.request.params.exportId as string;
 
-		const { accountExportRequest, storage } = await getClient();
+		const { accountExportRequest, storage } = ctx.client;
 		const exportRequest = await accountExportRequest.get(exportId);
 
 		if (exportRequest.accountConfigId !== accountConfigId) {

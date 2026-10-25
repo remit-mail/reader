@@ -12,16 +12,17 @@ import type {
 } from "@remit/data-ports";
 import { isVirtualCopyMailbox } from "@remit/data-ports/virtual-copy";
 import { MailboxSpecialUse } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import pMap from "p-map";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import {
 	type EnrichClient,
 	enrichThreadRows,
 } from "../derive/enrichThreadRows.js";
-import { getClient } from "../service/data-client.js";
-import type { OperationHandler, UnifiedThreadOperationIds } from "../types.js";
+import type {
+	HandlerContext,
+	OperationHandler,
+	UnifiedThreadOperationIds,
+} from "../types.js";
 import {
 	groupAccountOverrides,
 	groupMailboxOverrides,
@@ -599,10 +600,9 @@ export const UnifiedThreadOperations: Record<
 > = {
 	UnifiedThreadOperations_listAllThreads: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const {
 			continuationToken,
 			order,
@@ -644,7 +644,7 @@ export const UnifiedThreadOperations: Record<
 		const fromText = from?.trim();
 		const subjectText = subject?.trim();
 
-		return executeUnifiedThreadListing(await getClient(), accountConfigId, {
+		return executeUnifiedThreadListing(ctx.client, accountConfigId, {
 			continuationToken,
 			order,
 			limit,

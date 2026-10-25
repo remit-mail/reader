@@ -1,6 +1,14 @@
-import type { OperationHandler, OperationIds } from "../types.js";
+import type {
+	OperationHandler,
+	OperationIds,
+	PublicOperationHandler,
+	PublicOperationIds,
+} from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
-import { MicrosoftOAuthOperations } from "./account-oauth.js";
+import {
+	MicrosoftOAuthOperations,
+	microsoftOAuthCallback,
+} from "./account-oauth.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { CalendarDetailOperations, CalendarOperations } from "./calendar.js";
 import {
@@ -10,7 +18,7 @@ import {
 } from "./calendar-event.js";
 import {
 	CalendarFeedDetailOperations,
-	CalendarFeedOperations,
+	getCalendarFeedIcal,
 } from "./calendar-feed.js";
 import {
 	CalendarSuggestionActionOperations,
@@ -39,8 +47,10 @@ import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: Types are narrowed downstream
-export const handlers: Record<OperationIds, OperationHandler<any>> = {
+export const handlers: Record<
+	Exclude<OperationIds, PublicOperationIds>,
+	OperationHandler
+> = {
 	...MeOperations,
 	...ConfigOperations,
 	...SystemOperations,
@@ -59,7 +69,6 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...CalendarOperations,
 	...CalendarDetailOperations,
 	...CalendarFeedDetailOperations,
-	...CalendarFeedOperations,
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,
@@ -78,4 +87,12 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...CalendarSuggestionOperations,
 	...MessageCalendarSuggestionOperations,
 	...CalendarSuggestionActionOperations,
+};
+
+export const publicHandlers: Record<
+	PublicOperationIds,
+	PublicOperationHandler
+> = {
+	MicrosoftOAuthOperations_microsoftOAuthCallback: microsoftOAuthCallback,
+	CalendarFeedOperations_getCalendarFeedIcal: getCalendarFeedIcal,
 };

@@ -49,7 +49,9 @@ const request = async ({
 		headers: headers ?? {},
 		queryStringParameters: query ?? null,
 		body: body === undefined ? null : JSON.stringify(body),
-		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
+		requestContext: sub
+			? { authorizer: { claims: { sub, email: `${sub}@example.com` } } }
+			: {},
 	} as unknown as APIGatewayProxyEvent;
 
 	return handler(event, { awsRequestId: `req-${path}`, functionName: "test" });

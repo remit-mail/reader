@@ -33,13 +33,11 @@ import type {
 } from "@remit/data-ports";
 import { base36uuid } from "@remit/data-ports/id";
 import { RecurrenceScope } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import type {
 	CalendarEventDetailOperationIds,
 	CalendarEventOperationIds,
 	CalendarFreeBusyOperationIds,
+	HandlerContext,
 	OperationHandler,
 } from "../types.js";
 import {
@@ -551,10 +549,9 @@ export const CalendarEventOperations: Record<
 > = {
 	CalendarEventOperations_listCalendarEvents: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const query = context.request.query as {
 			from?: string;
 			to?: string;
@@ -564,7 +561,7 @@ export const CalendarEventOperations: Record<
 		const window = readWindow(query.from, query.to);
 		if (!window.ok) return badRequest(window.error);
 
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 		const collections = await collectionsForListing(
 			deps,
 			accountConfigId,
@@ -598,12 +595,11 @@ export const CalendarEventOperations: Record<
 
 	CalendarEventOperations_createCalendarEvent: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateCalendarEventInput;
-		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
+		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
 
 		const created = await createCalendarEventFor(deps, accountConfigId, input);
 		if (!created.ok) return answerRefusal(created.error);
@@ -617,13 +613,12 @@ export const CalendarEventDetailOperations: Record<
 > = {
 	CalendarEventDetailOperations_getCalendarEvent: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
+		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
 
 		if (request.value.calendarId === "") {
 			const located = await locateResource(
@@ -651,15 +646,14 @@ export const CalendarEventDetailOperations: Record<
 
 	CalendarEventDetailOperations_updateCalendarEvent: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const body = context.request
 			.requestBody as Partial<UpdateCalendarEventInput>;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
+		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
 
 		const updated = await updateCalendarEventFor(
 			deps,
@@ -676,13 +670,12 @@ export const CalendarEventDetailOperations: Record<
 
 	CalendarEventDetailOperations_deleteCalendarEvent: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const request = scopedRequestOf(context);
 		if (!request.ok) return badRequest(request.error);
-		const deps = calendarEventDepsOf(calendarDepsOf(await getClient()));
+		const deps = calendarEventDepsOf(calendarDepsOf(ctx.client));
 
 		const removed = await deleteCalendarEventFor(
 			deps,
@@ -700,15 +693,14 @@ export const CalendarFreeBusyOperations: Record<
 > = {
 	CalendarFreeBusyOperations_listCalendarFreeBusy: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const query = context.request.query as { from?: string; to?: string };
 		const window = readWindow(query.from, query.to);
 		if (!window.ok) return badRequest(window.error);
 
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 		const collections = await listCalendarsFor(deps, accountConfigId);
 		const spans = await listBusySpans(deps, collections, window.value);
 		const items: CalendarFreeBusySpan[] = spans.map((span) => ({

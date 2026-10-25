@@ -38,7 +38,7 @@ import {
 	UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
 import { handleError } from "../error.js";
@@ -48,10 +48,13 @@ import {
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import {
 	completeOutboxAttachment,
 	mintOutboxAttachment,
 } from "./outbox-attachment.js";
+
+let client: RemitClient;
 
 process.env.CONTENT_DELIVERY_DOMAIN = "https://content.test";
 
@@ -213,7 +216,7 @@ const install = async (
 	});
 
 	const attachmentRows = new Map<string, OutboxAttachmentItem>();
-	setClient({
+	client = {
 		outboxMessage,
 		storage,
 		outboxAttachment: new OutboxAttachmentService({
@@ -221,15 +224,20 @@ const install = async (
 			outboxAttachmentService: createAttachmentRepository(attachmentRows),
 			storage,
 		}),
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 
 	return { storage, basePath, rows: attachmentRows };
 };
 
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
+const caller = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
 const mintContext = (
 	body: Record<string, unknown>,
@@ -267,7 +275,7 @@ const mint = (
 	outboxMessageId = DRAFT_ID,
 ): Promise<APIGatewayProxyResult> =>
 	respond(() =>
-		mintOutboxAttachment(mintContext(body, outboxMessageId), authorizedEvent()),
+		mintOutboxAttachment(mintContext(body, outboxMessageId), caller()),
 	);
 
 const complete = (
@@ -277,7 +285,7 @@ const complete = (
 	respond(() =>
 		completeOutboxAttachment(
 			completeContext(outboxAttachmentId, outboxMessageId),
-			authorizedEvent(),
+			caller(),
 		),
 	);
 
@@ -732,6 +740,7 @@ describe("completing an attachment (#679)", () => {
 describe("the mint route through the whole request pipeline", () => {
 	it("reaches its handler with the real built spec in front of it", async () => {
 		await install();
+		setClient(client);
 		const { api } = await import("../index.js");
 
 		const body = JSON.stringify({
@@ -744,8 +753,10 @@ describe("the mint route through the whole request pipeline", () => {
 			path: `/outbox/${DRAFT_ID}/attachments`,
 			body,
 			headers: { "content-type": "application/json" },
-			requestContext: { authorizer: { claims: { sub: SUB } } },
-		} as unknown as APIGatewayProxyEvent;
+			requestContext: {
+				authorizer: { claims: { sub: SUB, email: "caller@example.com" } },
+			},
+		};
 
 		const result = (await api.handleRequest(
 			{

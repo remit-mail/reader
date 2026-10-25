@@ -18,16 +18,17 @@ import {
 	hasStoredCredential,
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
-import type { ConfigOperationIds, OperationHandler } from "../types.js";
+import type {
+	ConfigOperationIds,
+	HandlerContext,
+	OperationHandler,
+} from "../types.js";
 import { toAccountResponse } from "./account-guards.js";
 import {
 	type AccountOverrides,
@@ -137,10 +138,9 @@ const buildCommit = (): string =>
  */
 const emptyConfigResponse = (
 	accountConfigId: string,
-	event: APIGatewayProxyEvent,
+	userId: string,
 ): ConfigDescriptionResponse => {
 	const now = Date.now();
-	const userId = getSubFromEvent(event) ?? accountConfigId;
 	return {
 		accountConfig: {
 			accountConfigId,
@@ -160,11 +160,10 @@ export const ConfigOperations: Record<
 > = {
 	ConfigOperations_getConfig: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<ConfigDescriptionResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const client = await getClient();
+		const accountConfigId = ctx.identity.accountConfigId;
+		const client = ctx.client;
 		const description = await client.accountConfig
 			.describe(accountConfigId)
 			.catch((err: unknown) => {
@@ -173,12 +172,12 @@ export const ConfigOperations: Record<
 			});
 
 		if (!description || description.accountConfig.length === 0) {
-			return emptyConfigResponse(accountConfigId, event);
+			return emptyConfigResponse(accountConfigId, ctx.identity.sub);
 		}
 
 		const accountConfig = description.accountConfig[0];
 		if (!accountConfig) {
-			return emptyConfigResponse(accountConfigId, event);
+			return emptyConfigResponse(accountConfigId, ctx.identity.sub);
 		}
 
 		// Filter out deleted accounts (tombstone pattern)
@@ -248,11 +247,10 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_exportConfig: async (
 		_context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const client = await getClient();
+		const accountConfigId = ctx.identity.accountConfigId;
+		const client = ctx.client;
 		const document = await readConfigForExport(
 			client,
 			accountConfigId,
@@ -263,16 +261,15 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_importConfig: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<ConfigImportReport> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const body = (context.request.requestBody ?? {}) as {
 			mode?: "validate" | "apply";
 			onExisting?: "abort" | "merge";
 			document?: unknown;
 		};
-		const client = await getClient();
+		const client = ctx.client;
 
 		const outcome = await importConfig(
 			{
@@ -295,7 +292,7 @@ export const ConfigOperations: Record<
 			},
 			{
 				accountConfigId,
-				userId: getSubFromEvent(event) ?? accountConfigId,
+				userId: ctx.identity.sub,
 				document: body.document,
 				mode: body.mode ?? "validate",
 				onExisting: body.onExisting ?? "abort",

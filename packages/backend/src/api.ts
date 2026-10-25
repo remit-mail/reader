@@ -12,14 +12,19 @@ import {
 	type Context as OpenAPIContext,
 	type Request,
 } from "openapi-backend";
-import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
+import {
+	assertLocalBypassNotInDeployedEnv,
+	getIdentityFromEvent,
+} from "./auth.js";
 import { usesBetterAuthJwt } from "./data-backend.js";
 import { defaultErrorCode, handleError } from "./error.js";
-import { handlers } from "./handlers/index.js";
+import { handlers, publicHandlers } from "./handlers/index.js";
 import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
 import { runWithRequestContext } from "./request-context.js";
 import { formatResponse, postResponseHandler } from "./response.js";
+import { getClient } from "./service/data-client.js";
+import type { OperationHandler, PublicOperationHandler } from "./types.js";
 
 // Boot-time refusal: the local auth-bypass overrides must never be set in a
 // deployed environment. Runs on module load so a leaked env var fails the
@@ -107,7 +112,37 @@ api.register("notImplemented", async (c: OpenAPIContext) => {
 	return formatResponse(mock as Record<string, unknown>, status);
 });
 
-api.register(handlers);
+const unauthenticated = () => ({
+	statusCode: 401,
+	body: { code: defaultErrorCode(401), message: "Unauthorized" },
+});
+
+const fromLambdaEvent =
+	(handler: OperationHandler) =>
+	async (c: OpenAPIContext, event: APIGatewayProxyEvent) => {
+		const identity = getIdentityFromEvent(event);
+		if (identity.kind === "anonymous") return unauthenticated();
+		return handler(c, { client: await getClient(), identity });
+	};
+
+const publicFromLambdaEvent =
+	(handler: PublicOperationHandler) => async (c: OpenAPIContext) =>
+		handler(c, { client: await getClient() });
+
+api.register({
+	...Object.fromEntries(
+		Object.entries(handlers).map(([operationId, handler]) => [
+			operationId,
+			fromLambdaEvent(handler),
+		]),
+	),
+	...Object.fromEntries(
+		Object.entries(publicHandlers).map(([operationId, handler]) => [
+			operationId,
+			publicFromLambdaEvent(handler),
+		]),
+	),
+});
 
 api.init();
 

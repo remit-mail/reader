@@ -96,7 +96,12 @@ describe("what a request leaves in the log", () => {
 					subscriptionUrl: `http://127.0.0.1:9/calendar/ical/${secret}/basic.ics`,
 				}),
 				requestContext: {
-					authorizer: { claims: { sub: "log-redaction-subscriber" } },
+					authorizer: {
+						claims: {
+							sub: "log-redaction-subscriber",
+							email: "subscriber@example.com",
+						},
+					},
 				} as unknown as APIGatewayProxyEvent["requestContext"],
 			}),
 		);

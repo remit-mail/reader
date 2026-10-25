@@ -10,15 +10,13 @@ import type {
 } from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import type {
 	AddressDetailOperationIds,
 	AddressOperationIds,
+	HandlerContext,
 	OperationHandler,
 } from "../types.js";
 
@@ -109,16 +107,15 @@ export const AddressOperations: Record<
 > = {
 	AddressOperations_searchAddresses: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { q, limit } = context.request.query as {
 			q: string;
 			limit?: number;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 
 		const result = await client.address.listByAccountConfig({
 			accountConfigId,
@@ -139,14 +136,13 @@ export const AddressDetailOperations: Record<
 > = {
 	AddressDetailOperations_updateAddress: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { addressId } = context.request.params as { addressId: string };
 		const body = (context.request.requestBody ?? {}) as UpdateAddressInput;
 
-		const client = await getClient();
+		const client = ctx.client;
 
 		// Authorize: address must belong to the caller's accountConfig
 		const existing = await client.address.getAddress(

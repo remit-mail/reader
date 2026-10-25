@@ -10,7 +10,7 @@
  */
 
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type {
 	AccountItem,
 	IAccountRepository,
@@ -21,13 +21,8 @@ import type {
 import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { OutboxOperations } from "./outbox.js";
 
 const SUB = "cognito-sub-1013";
@@ -112,19 +107,15 @@ const accountRepository = {
 		),
 } as unknown as IAccountRepository;
 
+let client: RemitClient;
+
 const installClient = (): void => {
 	askedFor.length = 0;
-	setClient({
+	client = {
 		account: accountRepository,
 		outboxMessage: outboxRepository,
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 };
-
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		body: null,
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
 
 const queryContext = (query: Record<string, string> = {}): Context =>
 	({ request: { query } }) as unknown as Context;
@@ -135,16 +126,18 @@ type ListResult = {
 };
 
 const listOutbox = async (query?: Record<string, string>) =>
-	(await (
-		OutboxOperations.OutboxOperations_listOutboxMessages as unknown as (
-			context: Context,
-			event: APIGatewayProxyEvent,
-		) => Promise<ListResult>
-	)(queryContext(query), authorizedEvent())) as ListResult;
-
-afterEach(() => {
-	_resetForTest();
-});
+	(await OutboxOperations.OutboxOperations_listOutboxMessages(
+		queryContext(query),
+		{
+			client,
+			identity: {
+				kind: "user",
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				sub: SUB,
+				email: "caller@example.com",
+			},
+		},
+	)) as ListResult;
 
 describe("the outbox of an instance with two accounts (#1013)", () => {
 	it("lists rows from every account, not just the first", async () => {

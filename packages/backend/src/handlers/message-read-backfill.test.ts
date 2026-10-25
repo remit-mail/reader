@@ -1,31 +1,29 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
-import type { APIGatewayProxyEvent } from "aws-lambda";
+import { describe, it } from "node:test";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { MessageOperations } from "./message.js";
 
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<unknown>;
-
-const describeMessage =
-	MessageOperations.MessageOperations_describeMessage as unknown as Handler;
-const getRawMessage =
-	MessageOperations.MessageOperations_getRawMessage as unknown as Handler;
+const describeMessage = MessageOperations.MessageOperations_describeMessage;
+const getRawMessage = MessageOperations.MessageOperations_getRawMessage;
 
 const MESSAGE_ID = "msg-1";
 const MAILBOX_ID = "mb-1";
 const ACCOUNT_ID = "acc-1";
 
-const event = {
-	requestContext: { authorizer: { claims: { sub: "sub-610" } } },
-} as unknown as APIGatewayProxyEvent;
+const SUB = "sub-610";
+
+const callerWith = (client: RemitClient): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(SUB),
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
 const context = {
 	request: { params: { messageId: MESSAGE_ID } },
@@ -86,17 +84,15 @@ const clientWithFailingFolderLookup = (opened: string[]): RemitClient =>
 	}) as unknown as RemitClient;
 
 describe("reading an unstored message when the folder lookup fails", () => {
-	afterEach(() => _resetForTest());
-
 	for (const [name, handler] of [
 		["describeMessage", describeMessage],
 		["getRawMessage", getRawMessage],
 	] as const) {
 		it(`${name} opens no IMAP connection`, async () => {
 			const opened: string[] = [];
-			setClient(clientWithFailingFolderLookup(opened));
+			const caller = callerWith(clientWithFailingFolderLookup(opened));
 
-			await assert.rejects(handler(context, event), /special-use lookup/);
+			await assert.rejects(handler(context, caller), /special-use lookup/);
 
 			assert.deepEqual(opened, []);
 		});

@@ -15,15 +15,12 @@ import {
 	captureQueue,
 	type QueuedEvent,
 } from "@remit/mailbox-service/test-helpers/test-queue";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
@@ -88,10 +85,11 @@ const ACCOUNT_ID = "acc-995";
 
 const createdRows: CreateOrganizeJobRequestInput[] = [];
 let enqueued: QueuedEvent[] = [];
+let client: RemitClient;
 
 const installClient = (): void => {
 	createdRows.length = 0;
-	setClient({
+	client = {
 		account: {
 			get: async () => ({
 				accountId: ACCOUNT_ID,
@@ -108,19 +106,20 @@ const installClient = (): void => {
 				} as unknown as OrganizeJobRequestItem;
 			},
 		} as unknown as IOrganizeJobRequestRepository,
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 };
 
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		body: null,
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
+const authorized = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
-const createJob = OrganizeOperations.OrganizeOperations_createOrganizeJob as (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
+const createJob = OrganizeOperations.OrganizeOperations_createOrganizeJob;
 
 /** The response the browser receives, error funnel included. */
 const postOrganize = async (
@@ -129,7 +128,7 @@ const postOrganize = async (
 	const context = {
 		request: { params: { accountId: ACCOUNT_ID }, requestBody: body },
 	} as unknown as Context;
-	return createJob(context, authorizedEvent()).then(
+	return createJob(context, authorized()).then(
 		(response) => formatResponse(response),
 		(error: unknown) => handleError(error),
 	);
@@ -142,7 +141,6 @@ const postOrganize = async (
 describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 	afterEach(() => {
 		mock.restoreAll();
-		_resetForTest();
 	});
 
 	const withStubbedQueue = (): void => {
@@ -169,7 +167,6 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 	afterEach(() => {
 		mock.restoreAll();
-		_resetForTest();
 	});
 
 	const standing = (state: FilterItem["state"]): FilterItem => ({
@@ -194,7 +191,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 			"http://localhost:9324/queue/account-fanout-test";
 		createdRows.length = 0;
 		enqueued = captureQueue().sent;
-		setClient({
+		client = {
 			account: {
 				get: async () => ({
 					accountId: ACCOUNT_ID,
@@ -210,7 +207,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 					return { ...row, organizeJobId: "job-run", state: "Pending" };
 				},
 			},
-		} as unknown as RemitClient);
+		} as unknown as RemitClient;
 	};
 
 	it("queues a job that names only the filter", async () => {
@@ -227,7 +224,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 
 	it("answers an unknown filter with a 404 and queues nothing", async () => {
 		withFilter(standing("Active"));
-		setClient({
+		client = {
 			account: {
 				get: async () => ({
 					accountId: ACCOUNT_ID,
@@ -239,7 +236,7 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 					throw new NotFoundError("Filter not found: flt-gone");
 				},
 			},
-		} as unknown as RemitClient);
+		} as unknown as RemitClient;
 
 		const response = await postOrganize(input({ filterId: "flt-gone" }));
 

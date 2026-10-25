@@ -14,16 +14,14 @@ import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import type { OperationHandler } from "../types.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import { MessageBulkOperations } from "./message.js";
+
+let client: RemitClient;
 
 const SUB = "cognito-sub-365";
 const ACCOUNT_ID = "acc-365";
@@ -60,7 +58,7 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 		"http://localhost:9324/queue/account-fanout-test";
 	captureQueue();
 
-	setClient({
+	client = {
 		account: {
 			get: async () => ({ accountId: ACCOUNT_ID, accountConfigId: CONFIG_ID }),
 			listAllByAccountConfig: async () => [{ accountId: ACCOUNT_ID }],
@@ -110,23 +108,24 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 				writes.copies.push(args);
 			},
 		},
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 
 	return writes;
 };
 
-const event = {
-	requestContext: { authorizer: { claims: { sub: SUB } } },
-} as unknown as APIGatewayProxyEvent;
-
-const call = <T>(
-	handler: unknown,
+const call = (
+	handler: OperationHandler,
 	request: Record<string, unknown>,
-): Promise<T> =>
-	(handler as (context: Context, event: APIGatewayProxyEvent) => Promise<T>)(
-		{ request } as unknown as Context,
-		event,
-	);
+): Promise<Record<string, unknown>> =>
+	handler({ request } as unknown as Context, {
+		client,
+		identity: {
+			kind: "user",
+			accountConfigId: CONFIG_ID,
+			sub: SUB,
+			email: "caller@example.com",
+		},
+	});
 
 const appoint = () =>
 	call(FolderRoleOperations.FolderRoleOperations_appointFolderRole, {
@@ -178,7 +177,6 @@ const SITES = [
 describe("a write that binds to a folder requires a settled folder", () => {
 	afterEach(() => {
 		mock.restoreAll();
-		_resetForTest();
 	});
 
 	for (const [what, run, written] of SITES) {

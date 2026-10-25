@@ -1,4 +1,5 @@
 import type { Context } from "openapi-backend";
+import type { RemitClient } from "./service/create-remit-client.js";
 
 type MatchPrefix<
 	Prefix extends string,
@@ -260,6 +261,35 @@ export type CalendarSuggestionActionOperationIds = MatchPrefix<
 
 // biome-ignore lint/suspicious/noExplicitAny: handler responses vary by operation
 type HandlerResponse = Record<string, any>;
+
+export interface UserIdentity {
+	kind: "user";
+	accountConfigId: string;
+	sub: string;
+	email: string;
+}
+
+export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
+
+export interface HandlerContext {
+	client: RemitClient;
+	identity: UserIdentity;
+}
+
+export interface PublicHandlerContext {
+	client: RemitClient;
+}
+
+export type PublicOperationIds =
+	| "MicrosoftOAuthOperations_microsoftOAuthCallback"
+	| "CalendarFeedOperations_getCalendarFeedIcal";
+
 export type OperationHandler<_T extends OperationIds = OperationIds> = (
 	context: Context,
+	ctx: HandlerContext,
+) => Promise<HandlerResponse>;
+
+export type PublicOperationHandler = (
+	context: Context,
+	ctx: PublicHandlerContext,
 ) => Promise<HandlerResponse>;

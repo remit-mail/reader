@@ -14,13 +14,8 @@ import {
 	type MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import { ThreadOperations } from "./thread.js";
 import {
 	buildInboxMailboxMap,
@@ -53,11 +48,9 @@ beforeEach(() => {
 		label: repos.label,
 		messageLabel: repos.messageLabel,
 	} as unknown as UnifiedThreadClient & RemitClient;
-	setClient(client);
 });
 
 afterEach(() => {
-	_resetForTest();
 	close();
 });
 
@@ -165,17 +158,20 @@ describe("a mail-off account in the unified surfaces (#1181)", () => {
 		const scope = await buildInboxMailboxMap(ACCOUNT_CONFIG_ID, client);
 		assert.equal(scope.starredMailboxIds.has(calendarOnly.mailboxId), false);
 
-		const listThreads = ThreadOperations.ThreadOperations_listThreads as (
-			context: Context,
-			event: APIGatewayProxyEvent,
-		) => Promise<unknown>;
+		const listThreads = ThreadOperations.ThreadOperations_listThreads;
 		const opened = (await listThreads(
 			{
 				request: { params: { mailboxId: calendarOnly.mailboxId }, query: {} },
 			} as unknown as Context,
 			{
-				requestContext: { authorizer: { claims: { sub: SUB } } },
-			} as unknown as APIGatewayProxyEvent,
+				client,
+				identity: {
+					kind: "user",
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					sub: SUB,
+					email: "caller@example.com",
+				},
+			},
 		)) as { items: { threadId: string }[] };
 		assert.deepEqual(
 			opened.items.map((item) => item.threadId),

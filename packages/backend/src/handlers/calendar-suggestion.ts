@@ -28,12 +28,11 @@ import {
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient, type RemitClient } from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
 import type {
 	CalendarSuggestionActionOperationIds,
 	CalendarSuggestionOperationIds,
+	HandlerContext,
 	MessageCalendarSuggestionOperationIds,
 	OperationHandler,
 } from "../types.js";
@@ -206,16 +205,15 @@ export const CalendarSuggestionOperations: Record<
 > = {
 	CalendarSuggestionOperations_listCalendarSuggestions: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { state, continuationToken } = context.request.query as {
 			state: CalendarSuggestionItem["state"];
 			continuationToken?: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const page = await client.calendarSuggestion.listByState(
 			accountConfigId,
 			state,
@@ -245,13 +243,12 @@ export const MessageCalendarSuggestionOperations: Record<
 > = {
 	MessageCalendarSuggestionOperations_listMessageCalendarSuggestions: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
 
-		const client = await getClient();
+		const client = ctx.client;
 		const items = await client.calendarSuggestion.listByMessage(
 			accountConfigId,
 			messageId,
@@ -274,10 +271,9 @@ export const CalendarSuggestionActionOperations: Record<
 > = {
 	CalendarSuggestionActionOperations_acceptCalendarSuggestion: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { suggestionId } = context.request.params as {
 			suggestionId: string;
 		};
@@ -287,7 +283,7 @@ export const CalendarSuggestionActionOperations: Record<
 			answer?: CalendarInviteAnswerValue;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const suggestion = await client.calendarSuggestion.get(
 			accountConfigId,
 			suggestionId,
@@ -351,15 +347,14 @@ export const CalendarSuggestionActionOperations: Record<
 
 	CalendarSuggestionActionOperations_declineCalendarSuggestion: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { suggestionId } = context.request.params as {
 			suggestionId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const declined = await settleSuggestion(
 			client.calendarSuggestion,
 			accountConfigId,
@@ -372,10 +367,9 @@ export const CalendarSuggestionActionOperations: Record<
 
 	CalendarSuggestionActionOperations_dismissCalendarSuggestion: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { suggestionId } = context.request.params as {
 			suggestionId: string;
 		};
@@ -383,7 +377,7 @@ export const CalendarSuggestionActionOperations: Record<
 			muteSender?: boolean;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const dismissed = await settleSuggestion(
 			client.calendarSuggestion,
 			accountConfigId,
@@ -399,15 +393,14 @@ export const CalendarSuggestionActionOperations: Record<
 
 	CalendarSuggestionActionOperations_reopenCalendarSuggestion: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { suggestionId } = context.request.params as {
 			suggestionId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const suggestion = await client.calendarSuggestion.get(
 			accountConfigId,
 			suggestionId,

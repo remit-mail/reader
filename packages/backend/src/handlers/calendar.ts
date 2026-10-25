@@ -25,15 +25,13 @@ import type {
 } from "@remit/data-ports";
 import { normalizeCalendarUrlSegment } from "@remit/data-ports/id";
 import { CalendarSource } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { getAccountConfigIdFromEvent } from "../auth.js";
 import { defaultErrorCode } from "../error.js";
 import type { RemitClient } from "../service/data-client.js";
-import { getClient } from "../service/data-client.js";
 import type {
 	CalendarCollectionDetailOperationIds,
 	CalendarDetailOperationIds,
 	CalendarOperationIds,
+	HandlerContext,
 	OperationHandler,
 } from "../types.js";
 
@@ -440,19 +438,17 @@ export const CalendarOperations: Record<
 	CalendarOperationIds,
 	OperationHandler<CalendarOperationIds>
 > = {
-	CalendarOperations_listCalendars: async (_context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const deps = calendarDepsOf(await getClient());
+	CalendarOperations_listCalendars: async (_context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
+		const deps = calendarDepsOf(ctx.client);
 		const items = await listCalendarsFor(deps, accountConfigId);
 		return { items: items.map(toCalendarResponse) };
 	},
 
-	CalendarOperations_createCalendar: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	CalendarOperations_createCalendar: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateCalendarInput;
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const created = await createCalendarFor(deps, accountConfigId, input);
 		if (!created.ok) return badRequest(created.error);
@@ -464,11 +460,13 @@ export const CalendarDetailOperations: Record<
 	CalendarCollectionDetailOperationIds,
 	OperationHandler<CalendarDetailOperationIds>
 > = {
-	CalendarDetailOperations_getCalendar: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	CalendarDetailOperations_getCalendar: async (
+		context,
+		ctx: HandlerContext,
+	) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const found = await findCalendarFor(deps, accountConfigId, calendarId);
 		if (!found.ok) return notFound(found.error.message);
@@ -477,13 +475,12 @@ export const CalendarDetailOperations: Record<
 
 	CalendarDetailOperations_updateCalendar: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
 		const body = context.request.requestBody as Partial<UpdateCalendarInput>;
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const updated = await updateCalendarFor(
 			deps,
@@ -501,12 +498,11 @@ export const CalendarDetailOperations: Record<
 
 	CalendarDetailOperations_deleteCalendar: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { calendarId } = context.request.params as { calendarId: string };
-		const deps = calendarDepsOf(await getClient());
+		const deps = calendarDepsOf(ctx.client);
 
 		const removed = await deleteCalendarFor(deps, accountConfigId, calendarId);
 		if (!removed.ok) {

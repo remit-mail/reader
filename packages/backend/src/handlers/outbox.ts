@@ -8,11 +8,9 @@ import type {
 	OutboxMessageItem,
 } from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import type {
+	HandlerContext,
 	OperationHandler,
 	OutboxAttachmentOperationIds,
 	OutboxDetailOperationIds,
@@ -53,14 +51,13 @@ export const OutboxOperations: Record<
 	OperationHandler<OutboxOperationIds>
 > = {
 	OutboxOperations_createOutboxMessage: async (
-		_context: Context,
-		...args: unknown[]
+		context: Context,
+		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
-		const input = JSON.parse(event.body ?? "{}") as CreateOutboxMessageInput;
+		const accountConfigId = ctx.identity.accountConfigId;
+		const input = context.request.requestBody as CreateOutboxMessageInput;
 
-		const client = await getClient();
+		const client = ctx.client;
 
 		const account = await client.account.get(input.accountId);
 		if (account.accountConfigId !== accountConfigId) {
@@ -108,15 +105,14 @@ export const OutboxOperations: Record<
 
 	OutboxOperations_listOutboxMessages: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 
 		const accounts =
 			await client.account.listAllByAccountConfig(accountConfigId);
@@ -142,15 +138,14 @@ export const OutboxDetailOperations: Record<
 > = {
 	OutboxDetailOperations_getOutboxMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		// Default mode "read": the scoped get refuses a foreign message with
 		// NotFound (404, no existence leak) — no separate check needed.
 		const outbox = await client.outboxMessage.get(
@@ -165,16 +160,15 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_updateOutboxMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 		const input = context.request.requestBody as UpdateOutboxMessageInput;
 
-		const client = await getClient();
+		const client = ctx.client;
 		// updateDraft's own scoped get uses mode "act": a foreign message is
 		// denied with Forbidden (403), not feigned as NotFound.
 		const updated = await client.outboxQueue.updateDraft(
@@ -212,15 +206,14 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_deleteOutboxMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		// deleteDraft's own scoped get uses mode "act": a foreign message is
 		// denied with Forbidden (403), not feigned as NotFound.
 		await client.outboxQueue.deleteDraft(accountConfigId, outboxMessageId);
@@ -229,15 +222,14 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_sendOutboxMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
 			outboxMessageId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		// send's own scoped get uses mode "act": a foreign message is denied
 		// with Forbidden (403), not feigned as NotFound.
 		const sent = await client.outboxQueue.send(

@@ -38,17 +38,15 @@ import {
 	createMockStorageService,
 	type StorageService,
 } from "@remit/storage-service";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
-import {
-	_resetForTest,
-	getClient,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
+
+let client: RemitClient;
 
 const CONTENT_DOMAIN = "https://content.test";
 process.env.CONTENT_DELIVERY_DOMAIN = CONTENT_DOMAIN;
@@ -251,7 +249,7 @@ const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 		storage,
 	});
 	installedStorage = storage;
-	setClient({
+	client = {
 		outboxMessage,
 		storage,
 		account: accountRepository,
@@ -263,35 +261,39 @@ const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 			sqsSmtpQueueUrl: "http://localhost:9324/queue/outbox-test",
 			sqsClient,
 		}),
-	} as unknown as RemitClient);
+	} as unknown as RemitClient;
 };
 
-const authorizedEvent = (body?: unknown): APIGatewayProxyEvent =>
+const caller = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
+
+const requestContext = (
+	request: {
+		params?: Record<string, string>;
+		requestBody?: unknown;
+	},
+	requestBody?: unknown,
+): Context =>
 	({
-		body: body === undefined ? null : JSON.stringify(body),
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
+		request: requestBody === undefined ? request : { ...request, requestBody },
+	}) as unknown as Context;
 
-const requestContext = (request: {
-	params?: Record<string, string>;
-	requestBody?: unknown;
-}): Context => ({ request }) as unknown as Context;
-
-type Handler = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-) => Promise<Record<string, unknown>>;
-
-const createDraft =
-	OutboxOperations.OutboxOperations_createOutboxMessage as Handler;
+const createDraft = OutboxOperations.OutboxOperations_createOutboxMessage;
 const sendMessage =
-	OutboxDetailOperations.OutboxDetailOperations_sendOutboxMessage as Handler;
+	OutboxDetailOperations.OutboxDetailOperations_sendOutboxMessage;
 const updateDraft =
-	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage as Handler;
+	OutboxDetailOperations.OutboxDetailOperations_updateOutboxMessage;
 const deleteDraft =
-	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage as Handler;
+	OutboxDetailOperations.OutboxDetailOperations_deleteOutboxMessage;
 const getMessage =
-	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage as Handler;
+	OutboxDetailOperations.OutboxDetailOperations_getOutboxMessage;
 
 type Outcome =
 	| { readonly ok: true; readonly body: Record<string, unknown> }
@@ -311,20 +313,23 @@ const respond = async (
 
 const sentOutboxMessageId = async (): Promise<string> => {
 	const draft = await createDraft(
-		requestContext({}),
-		authorizedEvent({
-			accountId: ACCOUNT_ID,
-			toAddresses: ["recipient@example.com"],
-			subject: "Re: the thing",
-			textBody: "on it",
-		}),
+		requestContext(
+			{},
+			{
+				accountId: ACCOUNT_ID,
+				toAddresses: ["recipient@example.com"],
+				subject: "Re: the thing",
+				textBody: "on it",
+			},
+		),
+		caller(),
 	);
 	const outboxMessageId = draft.outboxMessageId;
 	assert.equal(typeof outboxMessageId, "string");
 
 	const sent = await sendMessage(
 		requestContext({ params: { outboxMessageId: String(outboxMessageId) } }),
-		authorizedEvent(),
+		caller(),
 	);
 	assert.notEqual(sent.status, "draft");
 
@@ -332,7 +337,6 @@ const sentOutboxMessageId = async (): Promise<string> => {
 };
 
 afterEach(() => {
-	_resetForTest();
 	accountSyncedServices = ["Mail"];
 });
 
@@ -347,7 +351,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 					params: { outboxMessageId },
 					requestBody: { subject: "Re: the thing", textBody: "on it!" },
 				}),
-				authorizedEvent(),
+				caller(),
 			),
 		);
 
@@ -361,10 +365,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 		const outboxMessageId = await sentOutboxMessageId();
 
 		const response = await respond(() =>
-			sendMessage(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			sendMessage(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 409);
@@ -375,10 +376,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 		const outboxMessageId = await sentOutboxMessageId();
 
 		const response = await respond(() =>
-			deleteDraft(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 409);
@@ -387,16 +385,12 @@ describe("an outbox entry that has left draft (#604)", () => {
 	it("still discards a message that was sent but never filed", async () => {
 		installClient();
 		const outboxMessageId = await sentOutboxMessageId();
-		const client = await getClient();
 		await client.outboxMessage.update(ACCOUNT_CONFIG_ID, outboxMessageId, {
 			status: OutboxMessageStatus.unfiled,
 		});
 
 		const response = await respond(() =>
-			deleteDraft(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 204);
@@ -405,11 +399,14 @@ describe("an outbox entry that has left draft (#604)", () => {
 	it("still accepts an autosave PATCH while the entry is a draft", async () => {
 		installClient();
 		const draft = await createDraft(
-			requestContext({}),
-			authorizedEvent({
-				accountId: ACCOUNT_ID,
-				toAddresses: ["recipient@example.com"],
-			}),
+			requestContext(
+				{},
+				{
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+				},
+			),
+			caller(),
 		);
 
 		const response = await respond(() =>
@@ -418,7 +415,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 					params: { outboxMessageId: String(draft.outboxMessageId) },
 					requestBody: { subject: "still editing" },
 				}),
-				authorizedEvent(),
+				caller(),
 			),
 		);
 
@@ -434,30 +431,27 @@ describe("a send whose enqueue fails (#845.8)", () => {
 	): Promise<{ outboxMessageId: string; response: APIGatewayProxyResult }> => {
 		installClient(queue);
 		const draft = await createDraft(
-			requestContext({}),
-			authorizedEvent({
-				accountId: ACCOUNT_ID,
-				toAddresses: ["recipient@example.com"],
-				subject: "the one that got stuck",
-				textBody: "sending",
-			}),
+			requestContext(
+				{},
+				{
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+					subject: "the one that got stuck",
+					textBody: "sending",
+				},
+			),
+			caller(),
 		);
 		const outboxMessageId = String(draft.outboxMessageId);
 		const response = await respond(() =>
-			sendMessage(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			sendMessage(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 		return { outboxMessageId, response };
 	};
 
 	const statusOf = async (outboxMessageId: string): Promise<unknown> => {
 		const response = await respond(() =>
-			getMessage(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			getMessage(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 		assert.equal(response.statusCode, 200);
 		return (JSON.parse(response.body) as { status?: string }).status;
@@ -488,10 +482,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 		);
 
 		const response = await respond(() =>
-			deleteDraft(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 204);
@@ -503,10 +494,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 		queue.accept();
 
 		const response = await respond(() =>
-			sendMessage(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			sendMessage(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 200);
@@ -524,15 +512,17 @@ describe("discarding a draft that carries files (#679)", () => {
 		assert.ok(storage);
 
 		const draft = await createDraft(
-			requestContext({}),
-			authorizedEvent({
-				accountId: ACCOUNT_ID,
-				toAddresses: ["recipient@example.com"],
-			}),
+			requestContext(
+				{},
+				{
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+				},
+			),
+			caller(),
 		);
 		const outboxMessageId = String(draft.outboxMessageId);
 
-		const client = await getClient();
 		const minted = await client.outboxAttachment.mint({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			outboxMessageId,
@@ -548,10 +538,7 @@ describe("discarding a draft that carries files (#679)", () => {
 		assert.equal(attachmentRows.size, 1);
 
 		const response = await respond(() =>
-			deleteDraft(
-				requestContext({ params: { outboxMessageId } }),
-				authorizedEvent(),
-			),
+			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
 		);
 
 		assert.equal(response.statusCode, 204);
@@ -575,14 +562,16 @@ describe("attachmentIds on a draft update (#679)", () => {
 		ids: string[];
 	}> => {
 		const draft = await createDraft(
-			requestContext({}),
-			authorizedEvent({
-				accountId: ACCOUNT_ID,
-				toAddresses: ["recipient@example.com"],
-			}),
+			requestContext(
+				{},
+				{
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+				},
+			),
+			caller(),
 		);
 		const outboxMessageId = String(draft.outboxMessageId);
-		const client = await getClient();
 		const ids: string[] = [];
 		for (const filename of ["one.txt", "two.txt"]) {
 			const minted = await client.outboxAttachment.mint({
@@ -603,7 +592,7 @@ describe("attachmentIds on a draft update (#679)", () => {
 		respond(() =>
 			updateDraft(
 				requestContext({ params: { outboxMessageId }, requestBody }),
-				authorizedEvent(),
+				caller(),
 			),
 		);
 
@@ -723,12 +712,15 @@ describe("sending from an account with mail off (#1181)", () => {
 	it("answers a send of a saved draft with a 400 naming the fix", async () => {
 		installClient();
 		const draft = await createDraft(
-			requestContext({}),
-			authorizedEvent({
-				accountId: ACCOUNT_ID,
-				toAddresses: ["recipient@example.com"],
-				subject: "hello",
-			}),
+			requestContext(
+				{},
+				{
+					accountId: ACCOUNT_ID,
+					toAddresses: ["recipient@example.com"],
+					subject: "hello",
+				},
+			),
+			caller(),
 		);
 		accountSyncedServices = ["Calendar"];
 
@@ -737,7 +729,7 @@ describe("sending from an account with mail off (#1181)", () => {
 				requestContext({
 					params: { outboxMessageId: String(draft.outboxMessageId) },
 				}),
-				authorizedEvent(),
+				caller(),
 			),
 		);
 
@@ -746,7 +738,7 @@ describe("sending from an account with mail off (#1181)", () => {
 			requestContext({
 				params: { outboxMessageId: String(draft.outboxMessageId) },
 			}),
-			authorizedEvent(),
+			caller(),
 		);
 		assert.equal(kept.status, "draft");
 	});
@@ -757,13 +749,16 @@ describe("sending from an account with mail off (#1181)", () => {
 
 		const response = await respond(() =>
 			createDraft(
-				requestContext({}),
-				authorizedEvent({
-					accountId: ACCOUNT_ID,
-					toAddresses: ["recipient@example.com"],
-					subject: "hello",
-					sendImmediately: true,
-				}),
+				requestContext(
+					{},
+					{
+						accountId: ACCOUNT_ID,
+						toAddresses: ["recipient@example.com"],
+						subject: "hello",
+						sendImmediately: true,
+					},
+				),
+				caller(),
 			),
 		);
 

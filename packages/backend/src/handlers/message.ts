@@ -34,9 +34,7 @@ import {
 	isStorageNotFoundError as isStorageNotFoundErrorFromService,
 	parseStorageUri,
 } from "@remit/storage-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
 import { deriveAutoMoved } from "../derive/autoMoved.js";
 import {
 	type ContentSigner,
@@ -47,9 +45,9 @@ import {
 	getContentDeliveryDomain,
 } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
-import { getClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
 import type {
+	HandlerContext,
 	MessageBulkOperationIds,
 	MessageOperationIds,
 	OperationHandler,
@@ -289,12 +287,11 @@ export const MessageOperations: Record<
 > = {
 	MessageOperations_describeMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
-		const client = await getClient();
+		const client = ctx.client;
 		const ownedAccountId = unwrap(
 			await ownedMessages(client, [messageId], accountConfigId, "read"),
 		);
@@ -562,12 +559,11 @@ export const MessageOperations: Record<
 
 	MessageOperations_getRawMessage: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
-		const client = await getClient();
+		const client = ctx.client;
 
 		// Cross-tenant ownership guard. Returning raw RFC822 bytes is sensitive,
 		// so resolve the owning account and prove the caller owns it BEFORE any
@@ -658,9 +654,11 @@ export const MessageOperations: Record<
 		return { raw: decodeRawEml(body) };
 	},
 
-	MessageOperations_updateMessageFlags: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageOperations_updateMessageFlags: async (
+		context,
+		ctx: HandlerContext,
+	) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
 		const { isRead, isStarred, starColor } = context.request.requestBody as {
 			isRead?: boolean;
@@ -668,7 +666,7 @@ export const MessageOperations: Record<
 			starColor?: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, [messageId], accountConfigId, "act"),
 		);
@@ -697,9 +695,8 @@ export const MessageBulkOperations: Record<
 	MessageBulkOperationIds,
 	OperationHandler<MessageBulkOperationIds>
 > = {
-	MessageBulkOperations_updateFlags: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_updateFlags: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, isRead, isStarred, starColor } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -712,7 +709,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
@@ -738,9 +735,11 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_deleteMessages: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_deleteMessages: async (
+		context,
+		ctx: HandlerContext,
+	) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, permanent } = context.request.requestBody as {
 			messageIds: string[];
 			permanent?: boolean;
@@ -750,7 +749,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
@@ -776,9 +775,8 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_moveMessages: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_moveMessages: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -789,7 +787,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
@@ -823,9 +821,8 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_copyMessages: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_copyMessages: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
 			messageIds: string[];
@@ -836,7 +833,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
@@ -872,10 +869,9 @@ export const MessageBulkOperations: Record<
 
 	MessageBulkOperations_updateMessageLabels: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, labelId, action } = context.request.requestBody as {
 			messageIds: string[];
 			labelId: string;
@@ -886,7 +882,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		unwrap(await ownedMessages(client, messageIds, accountConfigId, "act"));
 
 		// Scoped by accountConfigId (RFC 030) — a foreign labelId 404s here rather
@@ -915,9 +911,8 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_reportSpam: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_reportSpam: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
 		};
@@ -927,11 +922,11 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
-		const setBy = getSubFromEvent(event) ?? accountConfigId;
+		const setBy = ctx.identity.sub;
 
 		return settleSpamReportBulk(messageIds, (messageId) =>
 			client.spamReport.reportSpam({
@@ -943,9 +938,8 @@ export const MessageBulkOperations: Record<
 		);
 	},
 
-	MessageBulkOperations_notSpam: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	MessageBulkOperations_notSpam: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
 		};
@@ -955,7 +949,7 @@ export const MessageBulkOperations: Record<
 			return { successCount: 0, failureCount: 0 };
 		}
 
-		const client = await getClient();
+		const client = ctx.client;
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);

@@ -6,11 +6,14 @@ import type {
 	SystemUpdateRun,
 } from "@remit/api-openapi-types";
 import { ConflictError, HTTPError } from "@remit/data-ports/errors";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { getSubFromEvent } from "../auth.js";
 import { defaultErrorCode } from "../error.js";
-import type { OperationHandler, SystemOperationIds } from "../types.js";
+import type {
+	HandlerContext,
+	OperationHandler,
+	SystemOperationIds,
+} from "../types.js";
 
 class TargetVersionMismatchError extends HTTPError {
 	name = "TargetVersionMismatchError";
@@ -50,8 +53,6 @@ const refuse = (statusCode: number, message: string): APIGatewayProxyResult =>
 	}) as unknown as APIGatewayProxyResult;
 
 const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
-
-const unauthorized = (): APIGatewayProxyResult => refuse(401, "Unauthorized");
 
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
@@ -168,13 +169,9 @@ export const SystemOperations: Record<
 > = {
 	SystemOperations_getSystemUpdate: async (
 		context: Context,
-		...args: unknown[]
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
-
-		const event = args[0] as APIGatewayProxyEvent;
-		if (!getSubFromEvent(event)) return unauthorized();
 
 		// A refresh asks for a fresh answer, and only the updater can fetch one, so
 		// the request goes on the control seam for its watch loop to pick up (#599).
@@ -189,14 +186,11 @@ export const SystemOperations: Record<
 
 	SystemOperations_applySystemUpdate: async (
 		context: Context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
-
-		const event = args[0] as APIGatewayProxyEvent;
-		const sub = getSubFromEvent(event);
-		if (!sub) return unauthorized();
+		const sub = ctx.identity.sub;
 
 		const { targetVersion } = context.request.requestBody as {
 			targetVersion: string;

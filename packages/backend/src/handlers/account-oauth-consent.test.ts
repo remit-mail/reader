@@ -105,7 +105,9 @@ const request = (
 			headers: { "content-type": "application/json" },
 			queryStringParameters,
 			body: body === null ? null : JSON.stringify(body),
-			requestContext: { authorizer: { claims: { sub } } },
+			requestContext: {
+				authorizer: { claims: { sub, email: `${sub}@example.com` } },
+			},
 		} as unknown as APIGatewayProxyEvent,
 		{ awsRequestId: `req-${randomUUID()}`, functionName: "test" },
 	);

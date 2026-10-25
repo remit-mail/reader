@@ -12,14 +12,12 @@ import {
 	ownedAccount,
 	updateFilter,
 } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";
-import { getAccountConfigIdFromEvent, getSubFromEvent } from "../auth.js";
-import { getClient } from "../service/data-client.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	FilterDetailOperationIds,
 	FilterOperationIds,
+	HandlerContext,
 	OperationHandler,
 } from "../types.js";
 
@@ -41,30 +39,19 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	updatedAt: item.updatedAt,
 });
 
-const requireUserId = (event: APIGatewayProxyEvent): string => {
-	const userId = getSubFromEvent(event);
-	if (!userId) {
-		throw new Error(
-			"Missing Cognito `sub`: cannot attribute an organize job to a user",
-		);
-	}
-	return userId;
-};
-
 export const FilterOperations: Record<
 	FilterOperationIds,
 	OperationHandler<FilterOperationIds>
 > = {
-	FilterOperations_listFilters: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	FilterOperations_listFilters: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
 			continuationToken?: string;
 		};
 
 		const page = unwrap(
-			await listFilters(await getClient(), accountConfigId, {
+			await listFilters(ctx.client, accountConfigId, {
 				accountId,
 				continuationToken,
 			}),
@@ -77,15 +64,14 @@ export const FilterOperations: Record<
 
 	FilterOperations_createFilter: async (
 		context,
-		...args: unknown[]
+		ctx: HandlerContext,
 	): Promise<CreateFilterResponse> => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const filter = context.request.requestBody as CreateFilterInput;
-		const userId = requireUserId(event);
+		const userId = ctx.identity.sub;
 
-		const client = await getClient();
+		const client = ctx.client;
 		const created = unwrap(
 			await createFilter(
 				{
@@ -111,15 +97,14 @@ export const FilterDetailOperations: Record<
 	FilterDetailOperationIds,
 	OperationHandler<FilterDetailOperationIds>
 > = {
-	FilterDetailOperations_getFilter: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	FilterDetailOperations_getFilter: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
 			filterId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "read"));
 
@@ -129,16 +114,15 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(refreshed);
 	},
 
-	FilterDetailOperations_updateFilter: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	FilterDetailOperations_updateFilter: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
 			filterId: string;
 		};
 		const patch = context.request.requestBody as Partial<UpdateFilterInput>;
 
-		const updated = await updateFilter(await getClient(), accountConfigId, {
+		const updated = await updateFilter(ctx.client, accountConfigId, {
 			accountId,
 			filterId,
 			patch,
@@ -146,15 +130,14 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(unwrap(updated));
 	},
 
-	FilterDetailOperations_deleteFilter: async (context, ...args: unknown[]) => {
-		const event = args[0] as APIGatewayProxyEvent;
-		const accountConfigId = getAccountConfigIdFromEvent(event);
+	FilterDetailOperations_deleteFilter: async (context, ctx: HandlerContext) => {
+		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
 			filterId: string;
 		};
 
-		const client = await getClient();
+		const client = ctx.client;
 		const account = await client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
