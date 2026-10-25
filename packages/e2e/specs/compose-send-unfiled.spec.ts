@@ -25,10 +25,13 @@
  * `/config` triggers a mailbox sync for every account the user has. So the app
  * is loaded first and its boot sync watched all the way in — a folder made
  * behind its back is what that is read off — and the folder is taken away after
- * it. Nothing else syncs inside the window that follows: the scheduler takes
- * accounts a quarter of an hour past their last sync, and the client's own poll
- * is minutes out. A sync that did land would file the copy and drop the row,
- * which fails this spec rather than quietly passing it.
+ * it. The app reads `/config` more than once while it boots, and on a cold dev
+ * server those reads land seconds apart, so the spec waits for the app to have
+ * rendered and for the account to report no sync round running, both before
+ * the folder is deleted and after. Nothing else syncs inside the window that
+ * follows: the scheduler takes accounts a quarter of an hour past their last
+ * sync. A sync that did land would file the copy and drop the row, which fails
+ * this spec rather than quietly passing it.
  *
  * Its own throwaway user, which is also what makes the folder expendable.
  */
@@ -161,6 +164,9 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 		});
 
 		await page.goto("/mail");
+		await expect(
+			page.getByRole("button", { name: "Compose", exact: true }),
+		).toBeVisible({ timeout: 60_000 });
 		await waitFor(
 			() => api.listMailboxes(run.accountId),
 			(list) => list.some((box) => box.fullPath === syncMarker),
@@ -168,6 +174,10 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 				timeoutMs: 120_000,
 				what: "the folder list the app re-derives when it boots",
 			},
+		);
+		await api.waitForSyncIdle(
+			run.accountId,
+			"every boot sync round to settle before the folder goes",
 		);
 
 		const mailboxes = await api.listMailboxes(run.accountId);
@@ -180,6 +190,10 @@ test.describe("A send with no Sent folder to file into (#824)", () => {
 			() => mailboxRowStatus(api, run.accountId, sent.mailboxId),
 			(status) => status === 404,
 			{ timeoutMs: 90_000, what: "the Sent folder to leave the account" },
+		);
+		await api.waitForSyncIdle(
+			run.accountId,
+			"any sync round to settle after the folder went",
 		);
 
 		// The role falls back to the server's flag and then to a conventional

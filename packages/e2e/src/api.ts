@@ -53,6 +53,13 @@ export interface AccountSyncStatus {
 	mailboxes: MailboxSyncProgress[];
 }
 
+/** The phases the worker writes while a sync round is actually running. */
+const SYNC_IN_PROGRESS = new Set([
+	"discovering_mailboxes",
+	"syncing_inbox",
+	"syncing_others",
+]);
+
 /**
  * One canonical role and the folder the deployment resolves it to. `mailboxId`
  * is absent when the account holds no folder for the role at all.
@@ -610,6 +617,19 @@ export class ApiClient {
 	 */
 	getSyncStatus(accountId: string): Promise<AccountSyncStatus> {
 		return this.json("GET", `/accounts/${accountId}/sync/status`);
+	}
+
+	/** Until the account's sync status reports no round running. */
+	async waitForSyncIdle(
+		accountId: string,
+		what: string,
+		{ timeoutMs = 45_000 }: { timeoutMs?: number } = {},
+	): Promise<AccountSyncStatus> {
+		return waitFor(
+			() => this.getSyncStatus(accountId),
+			(status) => !SYNC_IN_PROGRESS.has(status.syncPhase ?? "idle"),
+			{ timeoutMs, what },
+		);
 	}
 
 	/**
