@@ -128,16 +128,16 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			assert.equal(result.items.length, 1);
 		});
 
-		test("a term under the trigram floor reads the body too", async () => {
+		test("a short word prefix reads the body too", async () => {
 			const result = await repo.searchByDate(
 				ACCOUNT,
-				{ query: "ge" },
+				{ query: "co" },
 				{ mailboxIds: SCOPE, limit: 50 },
 			);
 
 			assert.ok(
 				result.items.some((item) => item.snippet?.includes("concierge")),
-				"the folded scan matched the body preview",
+				"the prefix matched the body preview",
 			);
 		});
 

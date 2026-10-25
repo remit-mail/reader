@@ -104,6 +104,19 @@ describe("the thread-message search index in its own database", () => {
 		assert.deepEqual(await found("nowhere"), []);
 	});
 
+	test("matches words by prefix, folding case and diacritics", async () => {
+		const created = await repo.create(
+			input({
+				subject: "Crème brûlée recipe",
+				fromName: "Matthijs van Henten",
+			}),
+		);
+
+		assert.deepEqual(await found("matt"), [created.threadMessageId]);
+		assert.deepEqual(await found("CREME brul"), [created.threadMessageId]);
+		assert.deepEqual(await found("thijs"), []);
+	});
+
 	test("follows a rewritten subject and drops the old one", async () => {
 		const created = await repo.create(input({ subject: "Draft agenda" }));
 		await repo.update(ACCOUNT, created.threadMessageId, {

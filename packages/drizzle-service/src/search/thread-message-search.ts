@@ -17,7 +17,7 @@ import type { RepositoryDb, SqliteStore } from "../db.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 
-// The FTS5 trigram table the search migration set creates
+// The FTS5 table the search migration set creates
 // (deploy/vps/migrations-sqlite/search). drizzle-kit cannot express a virtual
 // table, so its DDL is that committed migration and this declaration only lets
 // drizzle build statements against it; no drizzle-kit config reads it.

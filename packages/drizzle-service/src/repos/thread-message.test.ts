@@ -1057,7 +1057,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 		assert.deepEqual(subjectsOf(res), ["shared token here"]);
 	});
 
-	test("LIKE metacharacters in the query match literally", async () => {
+	test("LIKE metacharacters in a query with no word match literally", async () => {
 		const acct = uuid();
 		const mbx = uuid();
 		await seed(acct, mbx, [
@@ -1065,7 +1065,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 			{ subject: "50 percent off" },
 		]);
 
-		const res = await repo.searchByMailboxWindow(acct, mbx, { query: "50%" });
+		const res = await repo.searchByMailboxWindow(acct, mbx, { query: "%" });
 		assert.deepEqual(subjectsOf(res), ["50% off today"]);
 	});
 

@@ -8,6 +8,13 @@
       "when": 1792855345023,
       "tag": "0000_search_index",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1792936749240,
+      "tag": "0001_unicode61_tokenizer",
+      "breakpoints": true
     }
   ]
 }

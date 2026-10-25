@@ -1,55 +1,39 @@
 import { type SQL, type SQLWrapper, sql } from "drizzle-orm";
 import { threadMessageSearchTable as fts } from "../search/thread-message-search.js";
 
-// Accent- and case-insensitive substring match over the whole mailbox, isolated
-// here as the one text-search seam whose behaviour is engine-specific. The
-// subject and sender predicates match the `contains()` substring contract:
-// LIKE metacharacters (`\`, `%`, `_`) are escaped in JS so the needle arrives as
-// bind-parameter text, and the escaped form is treated literally.
+// Every predicate here is a condition over `thread_message_fts`, the FTS5 index
+// in the tenant search database (#1420), tokenized `unicode61
+// remove_diacritics 2`: it indexes words, folding case and diacritics. A
+// search term matches words that start with it, so "matt" finds "Matthijs",
+// and a term the tokenizer splits ("ada@example") matches those words in a
+// row. The predicate is a `rowid IN (subquery)` over the same table, so terms
+// combine with AND and OR like any other condition.
+//
+// A term with no letter or digit has no word to match and falls back to a
+// folded LIKE scan of the index's own copy of the text, as do the field-term
+// narrowings, whose contract is substring: lower() both sides,
+// substring-match, `escape '\'` making the JS-escaped metacharacters literal.
+// The scan folds ASCII case only (contract C10).
 
 const escapeLike = (term: string): string => term.replace(/[\\%_]/g, "\\$&");
 
-// Every predicate here is a condition over `thread_message_fts`, the FTS5
-// trigram index in the tenant search database (#1420). It indexes the folded
-// subject, the sender and the body preview the row carries, and MATCH is an
-// accent- and case-insensitive substring search (the tokenizer folds both
-// sides, so the needle is passed through untransformed). The predicate is a
-// `rowid IN (subquery)` over the same table, so terms combine with AND and OR
-// like any other condition.
-//
-// Trigram indexing needs three characters, so a one- or two-character term
-// falls back to a folded LIKE scan of the index's own copy of the text —
-// lower() both sides, substring-match, `escape '\'` making the JS-escaped
-// metacharacters literal. It is case-insensitive for ASCII and does not fold
-// diacritics; the accepted difference between a short term and an indexed one
-// (contract C10).
+// Quoted, so the term is tokenized as a phrase rather than read as FTS5 query
+// grammar; the trailing `*` makes its last word a prefix.
+const ftsPrefixPhrase = (term: string): string =>
+	`"${term.replace(/"/g, '""')}" *`;
 
-// FTS5 treats bare query text as its match grammar (AND/OR/NEAR/`*`/`-`/`:`), so
-// wrap the term as a double-quoted string literal — doubling embedded quotes —
-// to match it verbatim as a trigram substring.
-const ftsPhrase = (term: string): string => `"${term.replace(/"/g, '""')}"`;
-
-// Trigram tokenization is by character, so measure the term in code points, not
-// UTF-16 units — a two-astral-character term is still under the three-char
-// index floor.
-const isTrigramIndexable = (term: string): boolean => [...term].length >= 3;
+const hasWord = (term: string): boolean => /[\p{L}\p{N}]/u.test(term);
 
 const isAscii = (term: string): boolean =>
 	[...term].every((char) => (char.codePointAt(0) ?? 0) < 128);
 
 /**
- * Whether a term can be pushed into the query without dropping a row the
- * caller's own matcher would accept.
- *
- * Below the trigram floor the predicate is the folded LIKE, and SQLite's
- * `lower()` folds ASCII only: `é` never matches a stored `CAFÉ`. For a search
- * box that is the accepted C10 difference between a short term and an indexed
- * one. For a NARROWING it is not — a narrowing that misses is the #459 defect
- * again, one clause shape at a time — so such a term is not narrowable at all
- * and the caller widens instead.
+ * Whether a field term can be pushed into the query without dropping a row the
+ * caller's own matcher would accept. The narrowing is a substring LIKE, and
+ * SQLite's `lower()` folds ASCII only: `é` never matches a stored `CAFÉ`, so a
+ * non-ASCII term is not narrowable and the caller widens instead (#459).
  */
-export const isNarrowableTerm = (term: string): boolean =>
-	isTrigramIndexable(term) || isAscii(term);
+export const isNarrowableTerm = (term: string): boolean => isAscii(term);
 
 const ftsRowidMatch = (matchExpr: string): SQL =>
 	sql`${fts}.rowid in (select rowid from ${fts} where ${fts} match ${matchExpr})`;
@@ -60,31 +44,20 @@ const likePattern = (term: string): SQL =>
 const folded = (column: SQLWrapper, term: string): SQL =>
 	sql`lower(${column}) like ${likePattern(term)} escape '\\'`;
 
-export const subjectMatch = (term: string): SQL =>
-	isTrigramIndexable(term)
-		? ftsRowidMatch(`subject : ${ftsPhrase(term)}`)
-		: folded(fts.subject, term);
+const wordMatch = (column: "subject" | "sender" | "body", term: string): SQL =>
+	hasWord(term)
+		? ftsRowidMatch(`${column} : ${ftsPrefixPhrase(term)}`)
+		: folded(fts[column], term);
 
-export const fromMatch = (term: string): SQL =>
-	isTrigramIndexable(term)
-		? ftsRowidMatch(`sender : ${ftsPhrase(term)}`)
-		: folded(fts.sender, term);
+export const subjectMatch = (term: string): SQL => wordMatch("subject", term);
 
-/**
- * Match the body text the row carries: the stored preview, quoted replies
- * already removed, which is the same text the list renders under the subject.
- *
- * The brief used to reach this text with a pass over the rows a page had
- * loaded, so what a search found depended on how far the reader had scrolled
- * (#1135). It is a column like the other two, so it belongs in the index and in
- * the predicate. A term further into a long message is still out of reach —
- * the preview is what is stored — but a term the reader can see on the row is
- * now found wherever that row sits in the collection.
- */
-export const bodyMatch = (term: string): SQL =>
-	isTrigramIndexable(term)
-		? ftsRowidMatch(`body : ${ftsPhrase(term)}`)
-		: folded(fts.body, term);
+export const fromMatch = (term: string): SQL => wordMatch("sender", term);
+
+export const bodyMatch = (term: string): SQL => wordMatch("body", term);
+
+export const subjectContains = (term: string): SQL => folded(fts.subject, term);
+
+export const fromContains = (term: string): SQL => folded(fts.sender, term);
 
 // The List-Id is carried unindexed, so a List-Id term is always the folded LIKE
 // scan. It is the narrowing half of a rule back-apply (#459).
