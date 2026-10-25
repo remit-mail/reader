@@ -20,6 +20,16 @@ export interface IMessageRepository {
 	update(messageId: string, input: UpdateMessageInput): Promise<MessageItem>;
 	clearBodyStorageKey(messageId: string): Promise<MessageItem>;
 	clearSpamReport(messageId: string): Promise<MessageItem>;
+	setSearchText(messageId: string, text: string): Promise<void>;
+	copySearchText(
+		sourceMessageId: string,
+		targetMessageId: string,
+	): Promise<void>;
+	syncSearch(messageIds: string[]): Promise<void>;
+	listMissingSearchText(
+		after: string,
+		limit: number,
+	): Promise<Array<{ messageId: string; bodyStorageKey: string }>>;
 	delete(messageId: string): Promise<void>;
 	deleteMany(messageIds: string[]): Promise<void>;
 	/**

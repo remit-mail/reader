@@ -356,7 +356,9 @@ export {
 	type RestoreSourcePlacementOutcome,
 	restoreSourcePlacement,
 } from "./restore-source-placement.js";
+export { backfillSearchText } from "./search-text-backfill.js";
 export {
+	extractSearchText,
 	extractSnippetFromEmail,
 	generateSnippet,
 	normalizeSubject,

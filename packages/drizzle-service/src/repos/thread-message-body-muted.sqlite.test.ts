@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { addressTable } from "../schema/i4-address.js";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -57,7 +58,11 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 
 	before(async () => {
 		({ db, sqlite, close } = await createSqliteTestDb(
-			{ threadMessage: threadMessageTable, address: addressTable },
+			{
+				threadMessage: threadMessageTable,
+				address: addressTable,
+				messageSearchText: messageSearchTextTable,
+			},
 			{ searchIndex: true },
 		));
 		sqlite.exec(mutedIndexDdl);
@@ -86,15 +91,20 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 					}),
 				);
 			}
-			await repo.create(
-				makeInput({
-					subject: "unrelated note",
-					fromEmail: "noise@example.com",
-					fromName: "Noise",
-					snippet: "Your parcel was left with the concierge",
-					sentDate: BASE_DATE,
-				}),
-			);
+			const parcel = makeInput({
+				subject: "unrelated note",
+				fromEmail: "noise@example.com",
+				fromName: "Noise",
+				snippet: "Your parcel was left with the concierge",
+				sentDate: BASE_DATE,
+			});
+			await db.insert(messageSearchTextTable).values({
+				messageId: parcel.messageId,
+				text: "Your parcel was left with the concierge",
+				createdAt: 0,
+				updatedAt: 0,
+			});
+			await repo.create(parcel);
 		});
 
 		test("the term reaches the body text, not just subject and From", async () => {
@@ -123,16 +133,16 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			assert.equal(result.items.length, 1);
 		});
 
-		test("a term under the trigram floor reads the body too", async () => {
+		test("a short word prefix reads the body too", async () => {
 			const result = await repo.searchByDate(
 				ACCOUNT,
-				{ query: "ge" },
+				{ query: "co" },
 				{ mailboxIds: SCOPE, limit: 50 },
 			);
 
 			assert.ok(
 				result.items.some((item) => item.snippet?.includes("concierge")),
-				"the folded scan matched the body preview",
+				"the prefix matched the body preview",
 			);
 		});
 

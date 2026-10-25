@@ -77,7 +77,7 @@ import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
-import { extractSnippetFromEmail } from "./snippet.js";
+import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -730,6 +730,11 @@ export class BodySyncService {
 		// write-once category is decided.
 		const parsed = await parseMessageBody(body);
 
+		await this.messageService.setSearchText(
+			messageId,
+			extractSearchText(parsed),
+		);
+
 		// Body-only re-fetch (issue #1011): the decision pass already ran when
 		// this message's body first landed, so a re-store re-materializes only
 		// the body-derived artifacts — parsed cache, body parts, the storage
@@ -738,6 +743,7 @@ export class BodySyncService {
 		// Skipping the decisions here is what lets the write-once fields stay
 		// safe without per-derivation re-entrancy guards.
 		if (isReStore) {
+			await this.messageService.syncSearch([messageId]);
 			// Same ordering rule as the first-store path below: the parsed-body
 			// cache must be durable before `bodyStorageKey` — the skip-guard
 			// signal — is written, so a failure here requeues the message and

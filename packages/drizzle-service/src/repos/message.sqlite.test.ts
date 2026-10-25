@@ -279,4 +279,58 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		await repo.delete(MESSAGE_ID);
 		await assert.rejects(() => repo.get(MESSAGE_ID));
 	});
+
+	test("listMissingSearchText names stored bodies without search text, after the cursor", async () => {
+		const id = (n: number): string => `00000000-0000-0000-3333-00000000000${n}`;
+		for (const n of [1, 2, 3, 4]) {
+			await repo.create({ ...BASE_INPUT, messageId: id(n), uid: 100 + n });
+		}
+		for (const n of [1, 2, 4]) {
+			await repo.update(id(n), { bodyStorageKey: `file:///bodies/${n}` });
+		}
+		await repo.setSearchText(id(2), "already indexed");
+
+		const ours = (rows: Array<{ messageId: string }>): string[] =>
+			rows
+				.map((row) => row.messageId)
+				.filter((messageId) => messageId.includes("-3333-"));
+
+		assert.deepEqual(ours(await repo.listMissingSearchText("", 100)), [
+			id(1),
+			id(4),
+		]);
+		assert.deepEqual(ours(await repo.listMissingSearchText(id(1), 100)), [
+			id(4),
+		]);
+		assert.deepEqual(
+			await repo
+				.listMissingSearchText(id(1), 100)
+				.then((rows) => rows.find((row) => row.messageId === id(4))),
+			{
+				messageId: id(4),
+				bodyStorageKey: "file:///bodies/4",
+			},
+		);
+	});
+
+	test("copySearchText gives a copy the source's search text", async () => {
+		const source = "00000000-0000-0000-4444-000000000001";
+		const copy = "00000000-0000-0000-4444-000000000002";
+		for (const [messageId, uid] of [
+			[source, 201],
+			[copy, 202],
+		] as const) {
+			await repo.create({ ...BASE_INPUT, messageId, uid });
+			await repo.update(messageId, { bodyStorageKey: "file:///bodies/shared" });
+		}
+		await repo.setSearchText(source, "the shared body");
+
+		await repo.copySearchText(source, copy);
+
+		const missing = await repo.listMissingSearchText("", 100);
+		assert.equal(
+			missing.some((row) => row.messageId === copy),
+			false,
+		);
+	});
 });

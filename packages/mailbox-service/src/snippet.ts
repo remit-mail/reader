@@ -5,6 +5,7 @@
  * and normalizing whitespace.
  */
 
+import type { ParsedMail } from "mailparser";
 import {
 	createTextNormalizer,
 	type SupportedLanguage,
@@ -81,6 +82,9 @@ export const normalizeSubject = (
 	});
 };
 
+const flattenBody = (text: string): string =>
+	removeQuotedContent(text).replace(/\s+/g, " ").trim();
+
 /**
  * Generate a snippet from email text content.
  *
@@ -89,11 +93,7 @@ export const normalizeSubject = (
  * @returns Truncated snippet with ellipsis if needed
  */
 export const generateSnippet = (text: string, maxLength = 256): string => {
-	// Remove quoted content
-	const unquoted = removeQuotedContent(text);
-
-	// Normalize whitespace: collapse multiple spaces/newlines to single space
-	const normalized = unquoted.replace(/\s+/g, " ").trim();
+	const normalized = flattenBody(text);
 
 	if (normalized.length <= maxLength) {
 		return normalized;
@@ -112,11 +112,29 @@ export const generateSnippet = (text: string, maxLength = 256): string => {
 	return `${truncated.slice(0, lastSpace)}...`;
 };
 
+const emailPlainText = (
+	textContent: string | undefined,
+	htmlContent: string | undefined,
+): string => {
+	if (textContent) return textContent;
+	if (!htmlContent) return "";
+	// Basic HTML tag stripping - for more robust handling, use html-to-text
+	return htmlContent
+		.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+		.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+		.replace(/<[^>]+>/g, " ")
+		.replace(/&nbsp;/g, " ")
+		.replace(/&amp;/g, "&")
+		.replace(/&lt;/g, "<")
+		.replace(/&gt;/g, ">")
+		.replace(/&quot;/g, '"');
+};
+
 /**
  * Extract text content from parsed email for snippet generation.
  *
- * Prefers plain text over HTML. If only HTML is available,
- * the caller should strip HTML tags before calling generateSnippet.
+ * Prefers plain text over HTML, stripping the HTML's tags when it is the only
+ * part.
  *
  * @param textContent - Plain text content (may be undefined)
  * @param htmlContent - HTML content (may be undefined)
@@ -127,26 +145,21 @@ export const extractSnippetFromEmail = (
 	textContent: string | undefined,
 	htmlContent: string | undefined,
 	maxLength = 256,
+): string =>
+	generateSnippet(emailPlainText(textContent, htmlContent), maxLength);
+
+const SEARCH_TEXT_LENGTH = 524288;
+
+export const extractSearchText = (
+	parsed: Pick<ParsedMail, "text" | "html">,
 ): string => {
-	// Prefer plain text
-	if (textContent) {
-		return generateSnippet(textContent, maxLength);
-	}
-
-	// Fall back to HTML (caller should strip tags)
-	if (htmlContent) {
-		// Basic HTML tag stripping - for more robust handling, use html-to-text
-		const stripped = htmlContent
-			.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-			.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-			.replace(/<[^>]+>/g, " ")
-			.replace(/&nbsp;/g, " ")
-			.replace(/&amp;/g, "&")
-			.replace(/&lt;/g, "<")
-			.replace(/&gt;/g, ">")
-			.replace(/&quot;/g, '"');
-		return generateSnippet(stripped, maxLength);
-	}
-
-	return "";
+	const text = flattenBody(
+		emailPlainText(
+			parsed.text,
+			typeof parsed.html === "string" ? parsed.html : undefined,
+		),
+	);
+	if (text.length <= SEARCH_TEXT_LENGTH) return text;
+	const boundary = text.lastIndexOf(" ", SEARCH_TEXT_LENGTH);
+	return text.slice(0, boundary > 0 ? boundary : SEARCH_TEXT_LENGTH);
 };

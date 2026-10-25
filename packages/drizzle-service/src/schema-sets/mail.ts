@@ -21,6 +21,7 @@ export {
 	messagePlacementMoves,
 	messageRecords,
 	messageReferences,
+	messageSearchTexts,
 	organizeJobRequests,
 	outboxAttachments,
 	outboxMessages,

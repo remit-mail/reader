@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -51,7 +52,10 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 
 	before(async () => {
 		const created = await createSqliteTestDb(
-			{ threadMessage: threadMessageTable },
+			{
+				threadMessage: threadMessageTable,
+				messageSearchText: messageSearchTextTable,
+			},
 			{ searchIndex: true },
 		);
 		close = created.close;
@@ -160,10 +164,10 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 		]);
 	});
 
-	// Below the trigram floor the predicate is the folded LIKE, and sqlite's
-	// lower() folds ASCII only — `é` never matches a stored `CAFÉ`. Applying it
-	// anyway would drop a row the caller's own matcher accepts, which is #459
-	// again for that clause shape, so a short non-ASCII term narrows nothing.
+	// A field term is the folded LIKE, and sqlite's lower() folds ASCII only —
+	// `é` never matches a stored `CAFÉ`. Applying it anyway would drop a row
+	// the caller's own matcher accepts, which is #459 again for that clause
+	// shape, so a non-ASCII term narrows nothing.
 	test("drops a short accented term rather than missing the row it should match", async () => {
 		const result = await repo.listByFieldTerms(
 			ACCOUNT,

@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
+	extractSearchText,
 	extractSnippetFromEmail,
 	generateSnippet,
 	normalizeSubject,
@@ -164,6 +165,50 @@ describe("generateSnippet", () => {
 		// When no word boundary found, truncates at maxLength-1 + "..."
 		// so result is at most maxLength + 2 (for the extra chars in "...")
 		assert.ok(result.length <= 22);
+	});
+});
+
+describe("extractSearchText", () => {
+	const CAP = 524288;
+
+	it("cuts back to the last word boundary without an ellipsis", () => {
+		const head = `${"a".repeat(CAP - 3)} bb`;
+		assert.strictEqual(
+			extractSearchText({ text: `${head}cc dd`, html: false }),
+			"a".repeat(CAP - 3),
+		);
+	});
+
+	it("keeps a word that ends exactly at the cap", () => {
+		const head = `${"a".repeat(CAP - 3)} bb`;
+		assert.strictEqual(
+			extractSearchText({ text: `${head} cc`, html: false }),
+			head,
+		);
+	});
+
+	it("cuts a first word longer than the cap at the cap", () => {
+		assert.strictEqual(
+			extractSearchText({ text: "a".repeat(CAP + 10), html: false }).length,
+			CAP,
+		);
+	});
+
+	it("drops quoted replies and collapses whitespace", () => {
+		assert.strictEqual(
+			extractSearchText({
+				text: "New  text\n\nhere\n> old reply",
+				html: false,
+			}),
+			"New text here",
+		);
+	});
+
+	it("reads the HTML part when there is no text part", () => {
+		assert.strictEqual(
+			extractSearchText({ text: undefined, html: "<p>Hello <b>there</b></p>" }),
+			"Hello there",
+		);
 	});
 });
 

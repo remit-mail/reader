@@ -77,7 +77,7 @@ const groupByType = (
  * first, then the app rows, then the search documents of the deleted thread
  * messages. Every statement is keyed, so a rerun after a failure between two
  * batches deletes what is left. Message subtrees
- * (message + nine child tables) are deleted set-wise by message id; the remaining
+ * (message + ten child tables) are deleted set-wise by message id; the remaining
  * entity types are deleted by their enumerated primary keys. AccountConfig is
  * never deleted here — the caller removes it last through its repository, the
  * cascade-in-progress marker.

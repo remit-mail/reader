@@ -645,6 +645,31 @@ describe("copying a message", () => {
 	});
 });
 
+describe("a copied message's body", () => {
+	it("stays findable by a word in it in the destination", async () => {
+		await world();
+		const original = await rowIn(inbox, 5);
+		await store.message.setSearchText(original, "the zygomorphic flower");
+
+		await service().copyMessage(
+			account.accountConfigId,
+			original,
+			archive.mailboxId,
+			account.accountId,
+		);
+
+		const found = await store.threadMessage.searchByDate(
+			account.accountConfigId,
+			{ query: "zygomorphic" },
+			{ mailboxIds: new Set([archive.mailboxId]) },
+		);
+		assert.deepEqual(
+			found.items.map((item) => item.messageId),
+			[deriveCopyMessageId(original, archive.mailboxId)],
+		);
+	});
+});
+
 describe("emptying the Trash", () => {
 	const empty = () =>
 		service().emptyTrash(account.accountConfigId, account.accountId);

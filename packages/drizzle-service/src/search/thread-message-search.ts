@@ -14,9 +14,10 @@ import {
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 
-// The FTS5 trigram table the search migration set creates
+// The FTS5 table the search migration set creates
 // (deploy/vps/migrations-sqlite/search). drizzle-kit cannot express a virtual
 // table, so its DDL is that committed migration and this declaration only lets
 // drizzle build statements against it; no drizzle-kit config reads it.
@@ -68,7 +69,7 @@ const indexedColumns = {
 	subject: threadMessageTable.subject,
 	fromName: threadMessageTable.fromName,
 	fromEmail: threadMessageTable.fromEmail,
-	snippet: threadMessageTable.snippet,
+	searchText: messageSearchTextTable.text,
 };
 
 interface IndexedRow {
@@ -80,7 +81,7 @@ interface IndexedRow {
 	subject: string | null;
 	fromName: string | null;
 	fromEmail: string | null;
-	snippet: string | null;
+	searchText: string | null;
 }
 
 const toDocument = (row: IndexedRow): SearchDocument => ({
@@ -92,7 +93,7 @@ const toDocument = (row: IndexedRow): SearchDocument => ({
 	listId: row.listId ?? "",
 	subject: row.subject ?? "",
 	sender: `${row.fromName ?? ""} ${row.fromEmail ?? ""}`,
-	body: row.snippet ?? "",
+	body: row.searchText ?? "",
 });
 
 const chunk = <T>(items: readonly T[], size: number): T[][] => {
@@ -156,6 +157,10 @@ export class SearchIndex {
 			const rows = await this.mail
 				.select(indexedColumns)
 				.from(threadMessageTable)
+				.leftJoin(
+					messageSearchTextTable,
+					eq(messageSearchTextTable.messageId, threadMessageTable.messageId),
+				)
 				.where(inArray(threadMessageTable.threadMessageId, slice));
 			const items: SqliteBatchItem[] = [
 				this.search
@@ -257,6 +262,10 @@ export class SearchIndex {
 			const rows = await this.mail
 				.select(indexedColumns)
 				.from(threadMessageTable)
+				.leftJoin(
+					messageSearchTextTable,
+					eq(messageSearchTextTable.messageId, threadMessageTable.messageId),
+				)
 				.where(gt(threadMessageTable.threadMessageId, after))
 				.orderBy(asc(threadMessageTable.threadMessageId))
 				.limit(DOCUMENTS_PER_REBUILD_PAGE);

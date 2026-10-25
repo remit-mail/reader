@@ -46,7 +46,7 @@ export async function createSqliteTestDb<
 	}
 
 	// Install the committed search set beside the pushed schema so the
-	// thread-message search predicates run their real trigram path. The one
+	// thread-message search predicates run their real FTS5 path. The one
 	// handle then plays both the mail and the search database.
 	if (options?.searchIndex) {
 		applyMigrationSet(sqlite, "search");

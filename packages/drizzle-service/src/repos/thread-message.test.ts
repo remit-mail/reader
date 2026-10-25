@@ -1,7 +1,11 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import type { CreateThreadMessageInput } from "@remit/data-ports";
+import type {
+	CreateThreadMessageInput,
+	IMessageRepository,
+} from "@remit/data-ports";
 import shortUuid from "short-uuid";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -40,11 +44,14 @@ function makeInput(
 	};
 }
 
-// A real better-sqlite3 database with the FTS5 trigram objects the migrator
+// A real better-sqlite3 database with the FTS5 objects the migrator
 // installs, so the search predicates run their shipped path.
 const setupDb = () =>
 	createSqliteTestDb(
-		{ threadMessage: threadMessageTable },
+		{
+			threadMessage: threadMessageTable,
+			messageSearchText: messageSearchTextTable,
+		},
 		{ searchIndex: true },
 	);
 
@@ -194,7 +201,7 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 	});
 
 	// ── Scenario 4 ────────────────────────────────────────────────────────────
-	// Matching runs over the WHOLE mailbox via the trigram index, so an old
+	// Matching runs over the WHOLE mailbox via the full-text index, so an old
 	// match well behind the recent rows is still found and paged (the DynamoDB
 	// recent-window bound does not apply here — the improvement over #443 on the
 	// DDB path).
@@ -386,17 +393,20 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 
 describe("DrizzleThreadMessageRepository.searchByDate", () => {
 	let repo: DrizzleThreadMessageRepository;
+	let messages: IMessageRepository;
 	let close: () => Promise<void>;
 	const cleanup: Array<() => Promise<void>> = [];
 
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = createSqliteRepositories({
+		const repositories = createSqliteRepositories({
 			app: harness.db,
 			mail: harness.db,
 			search: harness.db,
-		}).threadMessage;
+		});
+		repo = repositories.threadMessage;
+		messages = repositories.message;
 	});
 
 	after(async () => {
@@ -412,9 +422,11 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 		rows: Array<Partial<CreateThreadMessageInput>>,
 	): Promise<void> {
 		for (const overrides of rows) {
-			const created = await repo.create(
-				makeInput(accountConfigId, mailboxId, overrides),
-			);
+			const input = makeInput(accountConfigId, mailboxId, overrides);
+			if (overrides.snippet) {
+				await messages.setSearchText(input.messageId, overrides.snippet);
+			}
+			const created = await repo.create(input);
 			cleanup.push(() => repo.delete(accountConfigId, created.threadMessageId));
 		}
 	}
@@ -1053,7 +1065,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 		assert.deepEqual(subjectsOf(res), ["shared token here"]);
 	});
 
-	test("LIKE metacharacters in the query match literally", async () => {
+	test("LIKE metacharacters in a query with no word match literally", async () => {
 		const acct = uuid();
 		const mbx = uuid();
 		await seed(acct, mbx, [
@@ -1061,7 +1073,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 			{ subject: "50 percent off" },
 		]);
 
-		const res = await repo.searchByMailboxWindow(acct, mbx, { query: "50%" });
+		const res = await repo.searchByMailboxWindow(acct, mbx, { query: "%" });
 		assert.deepEqual(subjectsOf(res), ["50% off today"]);
 	});
 

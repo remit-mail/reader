@@ -39,6 +39,7 @@ import {
 	envelopeTable,
 	messageFlagTable,
 	messageReferenceTable,
+	messageSearchTextTable,
 	messageTable,
 	rawMessageStorageTable,
 } from "../schema/message-data.js";
@@ -153,6 +154,9 @@ export function deleteMessageSubtree(
 			.where(
 				and(inList(bodyStructureRefetchTable.messageId, messageIds), guard),
 			),
+		db
+			.delete(messageSearchTextTable)
+			.where(and(inList(messageSearchTextTable.messageId, messageIds), guard)),
 		db
 			.delete(envelopeTable)
 			.where(and(inList(envelopeTable.messageId, messageIds), guard)),
@@ -442,6 +446,68 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.set({ spamReport: null, updatedAt: now })
 			.where(eq(messageTable.messageId, messageId));
 		return this.get(messageId);
+	}
+
+	async setSearchText(messageId: string, text: string): Promise<void> {
+		const now = Date.now();
+		await this.db
+			.insert(messageSearchTextTable)
+			.values({ messageId, text, createdAt: now, updatedAt: now })
+			.onConflictDoUpdate({
+				target: messageSearchTextTable.messageId,
+				set: { text, updatedAt: now },
+			});
+	}
+
+	async copySearchText(
+		sourceMessageId: string,
+		targetMessageId: string,
+	): Promise<void> {
+		const [source] = await this.db
+			.select({ text: messageSearchTextTable.text })
+			.from(messageSearchTextTable)
+			.where(eq(messageSearchTextTable.messageId, sourceMessageId));
+		if (!source) return;
+		await this.setSearchText(targetMessageId, source.text);
+	}
+
+	async syncSearch(messageIds: string[]): Promise<void> {
+		if (messageIds.length === 0) return;
+		const listings = await this.db
+			.select({ threadMessageId: threadMessageTable.threadMessageId })
+			.from(threadMessageTable)
+			.where(inList(threadMessageTable.messageId, messageIds));
+		await this.search.sync(listings.map((row) => row.threadMessageId));
+	}
+
+	async listMissingSearchText(
+		after: string,
+		limit: number,
+	): ReturnType<IMessageRepository["listMissingSearchText"]> {
+		const rows = await this.db
+			.select({
+				messageId: messageTable.messageId,
+				bodyStorageKey: messageTable.bodyStorageKey,
+			})
+			.from(messageTable)
+			.leftJoin(
+				messageSearchTextTable,
+				eq(messageSearchTextTable.messageId, messageTable.messageId),
+			)
+			.where(
+				and(
+					gt(messageTable.messageId, after),
+					isNotNull(messageTable.bodyStorageKey),
+					isNull(messageSearchTextTable.messageId),
+				),
+			)
+			.orderBy(asc(messageTable.messageId))
+			.limit(limit);
+		return rows.flatMap((row) =>
+			row.bodyStorageKey
+				? [{ messageId: row.messageId, bodyStorageKey: row.bodyStorageKey }]
+				: [],
+		);
 	}
 
 	async delete(messageId: string): Promise<void> {

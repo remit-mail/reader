@@ -473,6 +473,22 @@ describe("a re-store re-fetches bytes and re-decides nothing", () => {
 			assert.equal(row.mailboxId, world.travel.mailboxId);
 			assert.equal(row.filterMove, undefined);
 		});
+
+		it(`makes the re-stored body findable by a word in it through ${path}`, async () => {
+			const messageId = await arrive(PERSONAL, world.inbox, decidedRow());
+
+			await restore(bodySync(), messageId);
+
+			const found = await world.store.threadMessage.searchByDate(
+				world.account.accountConfigId,
+				{ query: "night" },
+				{ mailboxIds: new Set([world.inbox.mailboxId]) },
+			);
+			assert.deepEqual(
+				found.items.map((item) => item.messageId),
+				[messageId],
+			);
+		});
 	}
 
 	it("first-stores the never-stored message of a forced batch with the full pass", async () => {

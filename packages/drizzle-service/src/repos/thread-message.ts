@@ -37,10 +37,12 @@ import type {
 import { inList } from "./in-list.js";
 import {
 	bodyMatch,
+	fromContains,
 	fromMatch,
 	isNarrowableTerm,
 	listIdMatch,
 	senderMatchRank,
+	subjectContains,
 	subjectMatch,
 } from "./thread-search-predicates.js";
 
@@ -165,9 +167,10 @@ function toItem(row: Row): ThreadMessageItem {
 
 // ─── Search predicates ────────────────────────────────────────────────────────
 
-// The accent-/case-insensitive substring predicates are the one engine-specific
-// text-search seam; they live in ./thread-search-predicates.ts (the FTS5 trigram
-// index, with a folded LIKE fallback below three characters, RFC 036 D4).
+// The accent-/case-insensitive word-prefix predicates are the one
+// engine-specific text-search seam; they live in ./thread-search-predicates.ts
+// (the FTS5 unicode61 index, with a folded LIKE scan for substring field terms,
+// RFC 036 D4).
 
 /**
  * Whether the row's From address is muted, as a correlated subquery over the
@@ -184,8 +187,9 @@ function toItem(row: Row): ThreadMessageItem {
 const mutedSender = (): SQL =>
 	sql`exists (select 1 from ${addressTable} where ${addressTable.accountConfigId} = ${threadMessageTable.accountConfigId} and ${addressTable.normalizedEmail} = lower(coalesce(${threadMessageTable.fromEmail}, '')) and json_extract(coalesce(nullif(${addressTable.flags}, ''), '{}'), '$.muted.value') = 1)`;
 
-// The columns the search index is built from; an update that sets none of them
-// leaves the index as it is.
+// The columns the search index is built from, and the snippet, which body sync
+// writes after the body's search text; an update that sets none of them leaves
+// the index as it is.
 const touchesSearchIndex = (input: UpdateThreadMessageInput): boolean =>
 	input.mailboxId !== undefined ||
 	input.sentDate !== undefined ||
@@ -245,9 +249,9 @@ function buildSearchConditions(search: SearchOptions): SearchConditions {
 }
 
 const fieldTermCondition = (term: ThreadMessageFieldTerm): SQL => {
-	if (term.field === "subject") return subjectMatch(term.contains);
+	if (term.field === "subject") return subjectContains(term.contains);
 	if (term.field === "listId") return listIdMatch(term.contains);
-	return fromMatch(term.contains);
+	return fromContains(term.contains);
 };
 
 // Combine the caller's terms into one condition, or `undefined` when there are
@@ -1261,8 +1265,8 @@ export class DrizzleThreadMessageRepository
 
 	/**
 	 * Mailbox search for `searchThreads`. Matching (subject / from / query and
-	 * the boolean filters) runs in SQL over the whole mailbox via the trigram
-	 * indexes, ordered by sent_date with an id tiebreak. `limit` is a page size
+	 * the boolean filters) runs in SQL over the whole mailbox via the full-text
+	 * index, ordered by sent_date with an id tiebreak. `limit` is a page size
 	 * over MATCHES (clamped to THREAD_SEARCH_MAX_LIMIT); the DynamoDB name is
 	 * kept for interface parity, but there is no recent-window read bound — the
 	 * text is indexed, so a match anywhere in the mailbox is reachable.

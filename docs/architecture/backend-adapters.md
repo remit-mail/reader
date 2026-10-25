@@ -50,8 +50,8 @@ These are what every adapter must satisfy and what a caller may rely on. Everyth
 
 **Text matching.**
 
-- **C9.** The floor is verbatim substring: a term appearing exactly in the subject or the From line matches. Postgres, SQLite on both its indexed and unindexed paths, and DynamoDB `contains()` all satisfy this. The conformance suite asserts this and nothing more.
-- **C10.** Case folding and diacritic folding are **not** in the contract. Postgres folds both, through `unaccent` over a trigram index. SQLite folds both above three code points, where the FTS5 trigram tokenizer applies `remove_diacritics`, and neither below it, where a short term falls back to an unindexed `LIKE`. DynamoDB `contains()` folds neither. These are not three settings of one behaviour: `unaccent` and `remove_diacritics` are different functions, and one adapter's answer varies by term length. A caller that needs folding as a guarantee has chosen a backend, not a contract.
+- **C9.** The floor is word prefix: a term appearing exactly at the start of a word in the subject or the From line matches. Postgres and DynamoDB `contains()` match any substring, which covers it; SQLite's FTS5 `unicode61` index matches word prefixes. The conformance suite asserts this and nothing more.
+- **C10.** Case folding and diacritic folding are **not** in the contract. Postgres folds both, through `unaccent` over a trigram index. SQLite folds both through the `unicode61` tokenizer with `remove_diacritics 2`, and folds only ASCII case where a term with no letter or digit, or a field-term narrowing, falls back to an unindexed `LIKE`. DynamoDB `contains()` folds neither. These are not three settings of one behaviour: `unaccent` and `remove_diacritics` are different functions, and one adapter's answer varies by query path. A caller that needs folding as a guarantee has chosen a backend, not a contract.
 
 C9 is deliberately weaker than what any single adapter does. A floor that asserted case-insensitivity would fail an adapter the contract is meant to admit, on the first term that differs only in case.
 

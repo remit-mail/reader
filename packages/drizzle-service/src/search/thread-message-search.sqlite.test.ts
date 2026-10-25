@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { syncStore } from "../databases.js";
 import type { Db } from "../db.js";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
@@ -88,19 +89,36 @@ describe("the thread-message search index in its own database", () => {
 	});
 
 	test("finds a message by subject, sender and body once it is written", async () => {
-		const created = await repo.create(
-			input({
-				subject: "Quarterly invoice",
-				fromName: "Ada Lovelace",
-				fromEmail: "ada@example.test",
-				snippet: "the analytical engine",
-			}),
-		);
+		const message = input({
+			subject: "Quarterly invoice",
+			fromName: "Ada Lovelace",
+			fromEmail: "ada@example.test",
+		});
+		await mail.db.insert(messageSearchTextTable).values({
+			messageId: message.messageId,
+			text: "the analytical engine",
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		const created = await repo.create(message);
 
 		assert.deepEqual(await found("invoice"), [created.threadMessageId]);
 		assert.deepEqual(await found("lovelace"), [created.threadMessageId]);
 		assert.deepEqual(await found("analytical"), [created.threadMessageId]);
 		assert.deepEqual(await found("nowhere"), []);
+	});
+
+	test("matches words by prefix, folding case and diacritics", async () => {
+		const created = await repo.create(
+			input({
+				subject: "Crème brûlée recipe",
+				fromName: "Matthijs van Henten",
+			}),
+		);
+
+		assert.deepEqual(await found("matt"), [created.threadMessageId]);
+		assert.deepEqual(await found("CREME brul"), [created.threadMessageId]);
+		assert.deepEqual(await found("thijs"), []);
 	});
 
 	test("follows a rewritten subject and drops the old one", async () => {
@@ -132,5 +150,28 @@ describe("the thread-message search index in its own database", () => {
 
 		assert.equal(await index.needsRebuild(), false);
 		assert.deepEqual(await found("receipt"), [created.threadMessageId]);
+	});
+
+	test("matches the body text past the snippet, through a rewrite and a rebuild", async () => {
+		const created = await repo.create(
+			input({ subject: "Long letter", snippet: "Dear reader, a preview" }),
+		);
+		const text = `Dear reader, a preview ${"filler words ".repeat(200)}zygomorphic`;
+		await mail.db.insert(messageSearchTextTable).values({
+			messageId: created.messageId,
+			text,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		await index.sync([created.threadMessageId]);
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
+
+		await repo.update(ACCOUNT, created.threadMessageId, {
+			subject: "Longer letter",
+		});
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
+
+		await index.rebuild();
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
 	});
 });

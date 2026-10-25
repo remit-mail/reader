@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -17,9 +18,9 @@ import {
 } from "./thread-message.js";
 
 // The thread-message repo on sqlite (RFC 036 D1): CRUD, keyset pagination, and
-// text search — the FTS5 trigram index for terms of three characters or more
-// (D4), the folded-LIKE scan for shorter terms. The search contract is accent-
-// and case-insensitive substring match over subject and sender.
+// text search — the FTS5 unicode61 index (D4), matching words by prefix, and
+// the folded-LIKE scan for terms with no word. The search contract is accent-
+// and case-insensitive word-prefix match over subject and sender.
 
 const ACCOUNT = "acct-thread";
 const MAILBOX = "mbx-thread";
@@ -55,6 +56,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		({ db, sqlite, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
+				messageSearchText: messageSearchTextTable,
 			},
 			{ searchIndex: true },
 		));
@@ -115,7 +117,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		assert.ok(byName.items.some((i) => i.fromName === "Alice Kramer"));
 	});
 
-	test("FTS trigram search folds diacritics both ways", async () => {
+	test("FTS search folds diacritics both ways", async () => {
 		await repo.create(makeInput({ subject: "Réunion budget" }));
 		const folded = await repo.searchByMailbox(
 			ACCOUNT,

@@ -8,6 +8,7 @@ const envelopeAddressTable = entities.envelopeAddresses;
 const envelopeTable = entities.envelopes;
 const messageFlagTable = entities.messageFlags;
 const messageReferenceTable = entities.messageReferences;
+const messageSearchTextTable = entities.messageSearchTexts;
 const messageTable = entities.messageRecords;
 const rawMessageStorageTable = entities.rawMessageStorages;
 
@@ -20,6 +21,7 @@ export {
 	envelopeTable,
 	messageFlagTable,
 	messageReferenceTable,
+	messageSearchTextTable,
 	messageTable,
 	rawMessageStorageTable,
 };
@@ -35,6 +37,7 @@ export const messageDataSchema = {
 	bodyStructureRefetch: bodyStructureRefetchTable,
 	message: messageTable,
 	messageFlag: messageFlagTable,
+	messageSearchText: messageSearchTextTable,
 };
 
 export type MessageDataSchema = typeof messageDataSchema;
