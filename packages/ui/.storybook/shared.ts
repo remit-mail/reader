@@ -1,6 +1,6 @@
 import { fileURLToPath, URL } from "node:url";
 import type { StoriesEntry } from "storybook/internal/types";
-import type { InlineConfig } from "vite";
+import type { AliasOptions, InlineConfig, PluginOption } from "vite";
 
 const fromUi = (path: string): string =>
 	fileURLToPath(new URL(path, import.meta.url));
@@ -15,18 +15,21 @@ export const uiFramework = {
 	options: {},
 } as const;
 
+type UiViteConfig = InlineConfig & {
+	plugins: PluginOption[];
+	resolve: NonNullable<InlineConfig["resolve"]> & { alias: AliasOptions };
+};
+
 export const withUiVite = async (
 	config: InlineConfig,
-): Promise<InlineConfig> => {
+): Promise<UiViteConfig> => {
 	const { default: tailwindcss } = await import("@tailwindcss/vite");
-	config.plugins = config.plugins ?? [];
-	config.plugins.push(tailwindcss());
+	const plugins = [...(config.plugins ?? []), tailwindcss()];
 	// In a git worktree the shared node_modules symlinks resolve @remit/*
 	// packages back to the main checkout. Override here so Storybook picks
 	// up the worktree's own source (needed for design-token / component changes).
-	config.resolve = config.resolve ?? {};
-	config.resolve.alias = {
-		...(config.resolve.alias ?? {}),
+	const alias = {
+		...(config.resolve?.alias ?? {}),
 		"@remit/ui/tokens.css": fromUi("../src/tokens.css"),
 		// Ordered before the bare package alias: Vite matches string aliases by
 		// prefix, so "@remit/ui" alone would rewrite this subpath into
@@ -37,5 +40,5 @@ export const withUiVite = async (
 		),
 		"@remit/ui": fromUi("../src/index.ts"),
 	};
-	return config;
+	return { ...config, plugins, resolve: { ...config.resolve, alias } };
 };

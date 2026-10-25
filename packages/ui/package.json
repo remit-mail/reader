@@ -14,7 +14,7 @@
 	},
 	"scripts": {
 		"storybook": "storybook dev -p 6008 --no-open",
-		"storybook:build": "storybook build",
+		"build-storybook": "storybook build",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --import @remit/test-dom/css --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=90 --test 'src/**/*.test.ts'"

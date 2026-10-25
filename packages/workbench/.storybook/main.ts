@@ -23,13 +23,11 @@ const config: StorybookConfig = {
 		);
 		const { fileURLToPath, URL } = await import("node:url");
 		const withUi = await withUiVite(config);
-		withUi.plugins = withUi.plugins ?? [];
 		// The spellcheck stories drive the real worker, which fetches the engine
 		// and the dictionaries the same way the app does.
 		withUi.plugins.push(spellcheckPlugin());
-		withUi.resolve = withUi.resolve ?? {};
 		withUi.resolve.alias = {
-			...(withUi.resolve.alias ?? {}),
+			...withUi.resolve.alias,
 			// web-client stories (e.g. ConfirmDialog) use its own "@/" alias for
 			// in-package imports — mirrors `webClientAlias()` in
 			// packages/web-client/vite.base.ts, which Storybook doesn't load.
