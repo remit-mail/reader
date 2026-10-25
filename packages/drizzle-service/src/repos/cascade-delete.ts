@@ -139,15 +139,13 @@ export const runDrizzleCascadeDelete = async (
 	const lockKeys = grouped.get("MailboxLock") ?? [];
 	if (lockKeys.length > 0) {
 		items.push(
-			mail
-				.delete(mailboxLockTable)
-				.where(
-					pairInList(
-						mailboxLockTable.mailboxId,
-						mailboxLockTable.eventName,
-						lockKeys.map((k) => [k.mailboxId, k.eventName]),
-					),
+			mail.delete(mailboxLockTable).where(
+				pairInList(
+					mailboxLockTable.mailboxId,
+					mailboxLockTable.eventName,
+					lockKeys.map((k) => [k.mailboxId, k.eventName]),
 				),
+			),
 		);
 	}
 
@@ -210,15 +208,13 @@ export const runDrizzleCascadeDelete = async (
 	const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
 	if (flagPushKeys.length > 0) {
 		items.push(
-			mail
-				.delete(messageFlagPushTable)
-				.where(
-					pairInList(
-						messageFlagPushTable.messageId,
-						messageFlagPushTable.flagName,
-						flagPushKeys.map((k) => [k.messageId, k.flagName]),
-					),
+			mail.delete(messageFlagPushTable).where(
+				pairInList(
+					messageFlagPushTable.messageId,
+					messageFlagPushTable.flagName,
+					flagPushKeys.map((k) => [k.messageId, k.flagName]),
 				),
+			),
 		);
 	}
 	await runBatch(mail, items);
