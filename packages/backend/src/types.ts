@@ -1,4 +1,5 @@
 import type { Context } from "openapi-backend";
+import type { ApiConfig } from "./config/api-config.js";
 import type { RemitClient } from "./service/create-remit-client.js";
 import type { QueueName } from "./service/queues.js";
 
@@ -275,10 +276,12 @@ export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
 export interface HandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
 	identity: UserIdentity;
+	config: ApiConfig;
 }
 
 export interface PublicHandlerContext<K extends QueueName = never> {
 	client: RemitClient<K>;
+	config: ApiConfig;
 }
 
 export type PublicOperationIds =

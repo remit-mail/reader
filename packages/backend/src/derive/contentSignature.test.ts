@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
+import { testApiConfig } from "../config/test-config.js";
 import {
 	CONTENT_URL_TTL_SECONDS,
 	createContentSigner,
@@ -101,37 +102,22 @@ describe("content signature: sign + verify round trip", () => {
 });
 
 describe("getContentSigner", () => {
-	const ORIGINAL_BACKEND = process.env.DATA_BACKEND;
-	const ORIGINAL_SECRET = process.env.BETTER_AUTH_SECRET;
-
-	afterEach(() => {
-		if (ORIGINAL_BACKEND === undefined) delete process.env.DATA_BACKEND;
-		else process.env.DATA_BACKEND = ORIGINAL_BACKEND;
-		if (ORIGINAL_SECRET === undefined) delete process.env.BETTER_AUTH_SECRET;
-		else process.env.BETTER_AUTH_SECRET = ORIGINAL_SECRET;
-	});
-
 	it("returns undefined on the AWS path (unsigned URLs)", () => {
-		delete process.env.DATA_BACKEND;
-		assert.equal(getContentSigner(), undefined);
+		assert.equal(getContentSigner(testApiConfig()), undefined);
 	});
 
 	it("returns a working signer in SQLite mode", () => {
-		process.env.DATA_BACKEND = "sqlite";
-		process.env.BETTER_AUTH_SECRET = SECRET;
-		const signer = getContentSigner();
+		const signer = getContentSigner(
+			testApiConfig({
+				auth: { mode: "BetterAuthJwt", contentSigningSecret: SECRET },
+			}),
+		);
 		assert.ok(signer);
 		const { exp, sig } = signer(PATH_A);
 		assert.deepEqual(
 			verifyContentSignature(PATH_A, String(exp), sig, SECRET, nowSeconds()),
 			{ valid: true },
 		);
-	});
-
-	it("throws in SQLite mode when the master secret is missing (fail loud)", () => {
-		process.env.DATA_BACKEND = "sqlite";
-		delete process.env.BETTER_AUTH_SECRET;
-		assert.throws(() => getContentSigner(), /BETTER_AUTH_SECRET/);
 	});
 });
 

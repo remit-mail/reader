@@ -16,6 +16,7 @@ import {
 	recordingQueue,
 } from "@remit/data-ports/recording-queue";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
@@ -46,6 +47,7 @@ const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 
 const callerOf = (sub: string): HandlerContext<QueueName> => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),

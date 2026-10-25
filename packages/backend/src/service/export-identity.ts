@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ConfigExportIdentity } from "@remit/config-transfer";
-
-const DEFAULT_CONTROL_DIR = "/data/control";
+import type { ApiConfig } from "../config/api-config.js";
 
 /**
  * The version a file says it was written by. The updater owns this fact: it
@@ -12,8 +11,7 @@ const DEFAULT_CONTROL_DIR = "/data/control";
  * stamp, and an export says so rather than inventing a version an importing
  * reader would then trust.
  */
-const runningVersion = (): string => {
-	const dir = process.env.REMIT_UPDATE_CONTROL_DIR ?? DEFAULT_CONTROL_DIR;
+const runningVersion = (dir: string): string => {
 	let raw: string;
 	try {
 		raw = readFileSync(join(dir, "state.json"), "utf8");
@@ -30,10 +28,11 @@ const runningVersion = (): string => {
 
 /** Who wrote a configuration file, and from where. Provenance only. */
 export const exportIdentity = (
+	config: Pick<ApiConfig, "updateControlDir" | "publicOrigin">,
 	now: Date = new Date(),
 ): ConfigExportIdentity => ({
 	app: "reader",
-	version: runningVersion(),
+	version: runningVersion(config.updateControlDir),
 	exportedAt: now.toISOString(),
-	instance: process.env.PUBLIC_ORIGIN ?? "",
+	instance: config.publicOrigin,
 });

@@ -3,7 +3,7 @@ import {
 	signStoragePath,
 	verifyStoragePath,
 } from "@remit/storage-service/signed-path";
-import { usesBetterAuthJwt } from "../data-backend.js";
+import type { ApiConfig } from "../config/api-config.js";
 
 /**
  * Signed-URL scheme for `/content/*` on the self-host stack.
@@ -71,20 +71,14 @@ export const createContentSigner = (
  * signing does not apply. Signing is enforced on the self-host SQL backend,
  * which serves `/content/*` straight from the backend container; on AWS the
  * Lambda@Edge JWT verifier guards `/content/*` and the URL stays unsigned so
- * CloudFront/S3 behaviour is unchanged. Throws on the self-host backend when the
- * master secret is missing, so a misconfigured deploy fails loud rather than
- * shipping unsigned (unauthenticated) content URLs.
+ * CloudFront/S3 behaviour is unchanged.
  */
-export const getContentSigner = (): ContentSigner | undefined => {
-	if (!usesBetterAuthJwt()) return undefined;
-	const secret = process.env.BETTER_AUTH_SECRET;
-	if (!secret || secret.length === 0) {
-		throw new Error(
-			"the self-host SQL backend requires BETTER_AUTH_SECRET to sign content URLs",
-		);
-	}
-	return createContentSigner(secret);
-};
+export const getContentSigner = (
+	config: ApiConfig,
+): ContentSigner | undefined =>
+	config.auth.mode === "BetterAuthJwt"
+		? createContentSigner(config.auth.contentSigningSecret)
+		: undefined;
 
 export type ContentSignatureFailure = SignedPathFailure;
 

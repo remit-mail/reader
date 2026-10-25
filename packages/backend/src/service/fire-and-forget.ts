@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import { logger } from "@remit/logger";
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
@@ -71,7 +70,7 @@ export const fireAndForget = async (
 				errorCode:
 					(error as { Code?: string })?.Code ??
 					(error as { code?: string })?.code,
-				error: inspect(error),
+				error,
 			},
 			context.message,
 		);

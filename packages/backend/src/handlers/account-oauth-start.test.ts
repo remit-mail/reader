@@ -2,18 +2,27 @@
  * What an operator can tell from the log when the Microsoft OAuth start fails.
  *
  * Every credential failure answers the same 500 with the same body, so the
- * backend log for that request is the only place the four are told apart: an
- * instance with no Microsoft app registered must not read like a live outage.
- * Driven through the real handler so what is asserted is the line a deployment
- * actually writes, correlation id and all.
+ * backend log for that request is the only place an instance with no Microsoft
+ * app registered is told apart from a secret that cannot be read: the first
+ * must not read like a live outage. Driven through the real handler so what is
+ * asserted is the line a deployment actually writes, correlation id and all.
  */
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { _resetForTest } from "../service/data-client.js";
+import { withTelemetry } from "@remit/logger-lambda/node";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context,
+} from "aws-lambda";
+import { lambdaHandler } from "../api-fixture.js";
+import type { MsOAuthConfig } from "../config/msoauth.js";
+import { msOAuthCredentialsFromSecret } from "../config/msoauth-secrets-manager.js";
+import { testApiConfig } from "../config/test-config.js";
+import type { RemitClient } from "../service/data-client.js";
 import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
@@ -22,13 +31,16 @@ const START_PATH = "/accounts/oauth/microsoft/start";
 const SECRET_ARN =
 	"arn:aws:secretsmanager:eu-west-1:000000000000:secret:msoauth-AbCdEf";
 
-let handler: (
-	event: APIGatewayProxyEvent,
-	context: unknown,
-) => Promise<APIGatewayProxyResult>;
+const FROM_SECRET: MsOAuthConfig = {
+	mode: "Enabled",
+	redirectUri: `${WEB_ORIGIN}/accounts/oauth/microsoft/callback`,
+	overrides: {},
+	credentials: msOAuthCredentialsFromSecret(SECRET_ARN),
+};
 
 const originalSend = SecretsManagerClient.prototype.send;
 let secretString: string | undefined;
+let client: RemitClient;
 let cleanup: () => void;
 
 interface Outcome {
@@ -47,8 +59,14 @@ const headerOf = (
 	return undefined;
 };
 
-const start = async (): Promise<Outcome> => {
+const start = async (msOAuth: MsOAuthConfig): Promise<Outcome> => {
 	const awsRequestId = `req-${randomUUID()}`;
+	const handler = withTelemetry(
+		lambdaHandler(
+			async () => client,
+			testApiConfig({ corsAllowedOrigins: [WEB_ORIGIN], msOAuth }),
+		),
+	);
 	const { result: response, logged } = await captureStdout(() =>
 		handler(
 			{
@@ -63,7 +81,7 @@ const start = async (): Promise<Outcome> => {
 					},
 				},
 			} as unknown as APIGatewayProxyEvent,
-			{ awsRequestId, functionName: "test" },
+			{ awsRequestId, functionName: "test" } as Context,
 		),
 	);
 
@@ -87,31 +105,22 @@ const start = async (): Promise<Outcome> => {
 	return { response, log: JSON.stringify(forThisRequest), logged };
 };
 
-/** The name each condition, and only that condition, puts in the log. */
-const NO_APP_REGISTERED = "MicrosoftOAuthNotConfigured";
-const SECRET_HAS_NO_STRING = "MicrosoftOAuthSecretEmpty";
-const SECRET_MISSING_FIELDS = "MicrosoftOAuthSecretIncomplete";
-const SECRET_IS_NOT_JSON = "MicrosoftOAuthSecretUnparseable";
-
-const CONDITIONS = [
-	NO_APP_REGISTERED,
-	SECRET_HAS_NO_STRING,
-	SECRET_MISSING_FIELDS,
-	SECRET_IS_NOT_JSON,
-];
+const NO_APP_REGISTERED =
+	"No Microsoft OAuth credentials are configured on this instance";
+const SECRET_UNREADABLE =
+	"does not hold a JSON object with a non-empty clientId and clientSecret";
 
 const assertNamesOnly = (log: string, condition: string): void => {
 	assert.ok(
 		log.includes(condition),
-		`the log for this request never names the condition ${condition}: ${log}`,
+		`the log for this request never says ${condition}: ${log}`,
 	);
-	for (const other of CONDITIONS) {
-		if (other === condition) continue;
-		assert.ok(
-			!log.includes(other),
-			`the log also names ${other}, so the two conditions are indistinguishable`,
-		);
-	}
+	const other =
+		condition === NO_APP_REGISTERED ? SECRET_UNREADABLE : NO_APP_REGISTERED;
+	assert.ok(
+		!log.includes(other),
+		"the log also says the other condition, so the two are indistinguishable",
+	);
 };
 
 const assertGenericFiveHundred = (response: APIGatewayProxyResult): void => {
@@ -124,73 +133,50 @@ const assertGenericFiveHundred = (response: APIGatewayProxyResult): void => {
 
 before(async () => {
 	process.env.LOG_LEVEL = "error";
-	process.env.DATA_BACKEND = "sqlite";
-	process.env.CORS_ALLOWED_ORIGINS = WEB_ORIGIN;
-	process.env.MSOAUTH_REDIRECT_URI = `${WEB_ORIGIN}/accounts/oauth/microsoft/callback`;
 
 	SecretsManagerClient.prototype.send = (async () => ({
 		SecretString: secretString,
 	})) as typeof SecretsManagerClient.prototype.send;
 
-	const fixture = await createCalendarSqliteClient();
-	cleanup = fixture.cleanup;
-	({ handler } = (await import("../api-fixture.js")).servedApi(fixture.client));
+	({ client, cleanup } = await createCalendarSqliteClient());
 });
 
 after(() => {
-	_resetForTest();
 	cleanup();
 	SecretsManagerClient.prototype.send = originalSend;
 	restoreStdout();
 });
 
 describe("a Microsoft OAuth start that cannot load its credentials", () => {
-	it("names an instance with no Microsoft app registered", async () => {
-		delete process.env.MSOAUTH_CLIENT_ID;
-		delete process.env.MSOAUTH_CLIENT_SECRET;
-		delete process.env.MSOAUTH_SECRET_ARN;
-
-		const { response, log } = await start();
+	it("says an instance has no Microsoft app registered", async () => {
+		const { response, log } = await start({ mode: "Disabled" });
 
 		assertGenericFiveHundred(response);
 		assertNamesOnly(log, NO_APP_REGISTERED);
 	});
 
-	it("names a secret that carries no string value", async () => {
-		delete process.env.MSOAUTH_CLIENT_ID;
-		delete process.env.MSOAUTH_CLIENT_SECRET;
-		process.env.MSOAUTH_SECRET_ARN = SECRET_ARN;
-		secretString = undefined;
+	for (const [condition, value] of [
+		["carries no string value", undefined],
+		["lacks a credential field", JSON.stringify({ clientId: "an-app-id" })],
+	] as const) {
+		it(`says the secret is unreadable when it ${condition}`, async () => {
+			secretString = value;
 
-		const { response, log } = await start();
+			const { response, log } = await start(FROM_SECRET);
 
-		assertGenericFiveHundred(response);
-		assertNamesOnly(log, SECRET_HAS_NO_STRING);
-	});
+			assertGenericFiveHundred(response);
+			assertNamesOnly(log, SECRET_UNREADABLE);
+		});
+	}
 
-	it("names a secret whose credential fields are absent", async () => {
-		delete process.env.MSOAUTH_CLIENT_ID;
-		delete process.env.MSOAUTH_CLIENT_SECRET;
-		process.env.MSOAUTH_SECRET_ARN = SECRET_ARN;
-		secretString = JSON.stringify({ clientId: "an-app-id" });
-
-		const { response, log } = await start();
-
-		assertGenericFiveHundred(response);
-		assertNamesOnly(log, SECRET_MISSING_FIELDS);
-	});
-
-	it("names a secret that is not JSON without quoting what it holds", async () => {
+	it("says a secret that is not JSON is unreadable without quoting what it holds", async () => {
 		const secretMaterial = "s3cr3t-not-json-9d41c0b7";
-		delete process.env.MSOAUTH_CLIENT_ID;
-		delete process.env.MSOAUTH_CLIENT_SECRET;
-		process.env.MSOAUTH_SECRET_ARN = SECRET_ARN;
 		secretString = secretMaterial;
 
-		const { response, log, logged } = await start();
+		const { response, log, logged } = await start(FROM_SECRET);
 
 		assertGenericFiveHundred(response);
-		assertNamesOnly(log, SECRET_IS_NOT_JSON);
+		assertNamesOnly(log, SECRET_UNREADABLE);
 		assert.equal(
 			logged.includes(secretMaterial),
 			false,

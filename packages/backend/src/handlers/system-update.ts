@@ -8,6 +8,7 @@ import type {
 import { ConflictError, HTTPError } from "@remit/data-ports/errors";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import type { ApiConfig } from "../config/api-config.js";
 import { defaultErrorCode } from "../error.js";
 import type {
 	HandlerContext,
@@ -19,14 +20,6 @@ class TargetVersionMismatchError extends HTTPError {
 	name = "TargetVersionMismatchError";
 	statusCode = 422;
 }
-
-const DEFAULT_CONTROL_DIR = "/data/control";
-
-const controlDir = (): string =>
-	process.env.REMIT_UPDATE_CONTROL_DIR ?? DEFAULT_CONTROL_DIR;
-
-const manifestUrl = (): string | undefined =>
-	process.env.REMIT_UPDATE_MANIFEST_URL;
 
 /**
  * The running version is a fact the updater owns: it reads the tag from `.env`
@@ -60,8 +53,10 @@ const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
  * case. Where it is on, any authenticated caller may use it — the account list
  * is the trust boundary of a self-hosted instance.
  */
-const guardManifestConfigured = (): APIGatewayProxyResult | null =>
-	manifestUrl() ? null : notFound();
+const guardManifestConfigured = (
+	config: ApiConfig,
+): APIGatewayProxyResult | null =>
+	config.selfUpdate === "Enabled" ? null : notFound();
 
 /**
  * Read `state.json` off the control volume. A missing file is an instance that
@@ -69,10 +64,10 @@ const guardManifestConfigured = (): APIGatewayProxyResult | null =>
  * `null`; the caller renders the disabled/empty resource. Any other read or
  * parse failure propagates.
  */
-const readState = (): SystemUpdateResponse | null => {
+const readState = (controlDir: string): SystemUpdateResponse | null => {
 	let raw: string;
 	try {
-		raw = readFileSync(join(controlDir(), "state.json"), "utf8");
+		raw = readFileSync(join(controlDir, "state.json"), "utf8");
 	} catch (error) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
 		throw error;
@@ -106,13 +101,15 @@ const checkedVersion = (
  * so the backend never writes one. The temp file sits in the same directory as
  * the target for the rename to be atomic on one filesystem.
  */
-const writeRequest = (request: {
-	runId: string;
-	targetVersion: string;
-	requestedAt: string;
-	requestedBy: string;
-}): void => {
-	const dir = controlDir();
+const writeRequest = (
+	dir: string,
+	request: {
+		runId: string;
+		targetVersion: string;
+		requestedAt: string;
+		requestedBy: string;
+	},
+): void => {
 	const tmp = join(dir, `.request.json.${request.runId}.tmp`);
 	writeFileSync(tmp, JSON.stringify(request), { mode: 0o644 });
 	renameSync(tmp, join(dir, "request.json"));
@@ -125,8 +122,7 @@ const writeRequest = (request: {
  * request.json it is written atomically and carries no authority: its presence
  * is the whole message, so it is empty.
  */
-const writeCheckRequest = (): void => {
-	const dir = controlDir();
+const writeCheckRequest = (dir: string): void => {
 	const tmp = join(dir, `.check-request.json.tmp`);
 	writeFileSync(tmp, JSON.stringify({}), { mode: 0o644 });
 	renameSync(tmp, join(dir, "check-request.json"));
@@ -169,8 +165,9 @@ export const SystemOperations: Record<
 > = {
 	SystemOperations_getSystemUpdate: async (
 		context: Context,
+		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
-		const offSurface = guardManifestConfigured();
+		const offSurface = guardManifestConfigured(ctx.config);
 		if (offSurface) return offSurface;
 
 		// A refresh asks for a fresh answer, and only the updater can fetch one, so
@@ -179,23 +176,23 @@ export const SystemOperations: Record<
 		// caller holds its own press and watches that timestamp move, so the
 		// response never has to claim a verdict the updater has not reached.
 		const { refresh } = context.request.query as { refresh?: boolean };
-		if (refresh === true) writeCheckRequest();
+		if (refresh === true) writeCheckRequest(ctx.config.updateControlDir);
 
-		return readState() ?? emptyResource();
+		return readState(ctx.config.updateControlDir) ?? emptyResource();
 	},
 
 	SystemOperations_applySystemUpdate: async (
 		context: Context,
 		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
-		const offSurface = guardManifestConfigured();
+		const offSurface = guardManifestConfigured(ctx.config);
 		if (offSurface) return offSurface;
 		const sub = ctx.identity.sub;
 
 		const { targetVersion } = context.request.requestBody as {
 			targetVersion: string;
 		};
-		const state = readState();
+		const state = readState(ctx.config.updateControlDir);
 
 		if (isRunInFlight(state?.run)) {
 			throw new ConflictError("An update is already in progress.");
@@ -209,7 +206,7 @@ export const SystemOperations: Record<
 
 		const runId = randomUUID();
 		const requestedAt = new Date().toISOString();
-		writeRequest({
+		writeRequest(ctx.config.updateControlDir, {
 			runId,
 			targetVersion,
 			requestedAt,

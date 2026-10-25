@@ -7,9 +7,12 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { api } from "./api.js";
-import { normalizeRequest } from "./request.js";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context,
+} from "aws-lambda";
+import { handleApiEvent } from "./index.js";
 
 const SUB = "cognito-sub-pipeline";
 
@@ -27,11 +30,9 @@ const send = async (
 		requestContext: { authorizer: { claims: { sub: SUB } } },
 	} as unknown as APIGatewayProxyEvent;
 
-	return (await api.handleRequest(
-		normalizeRequest(event),
-		event,
-		{} as never,
-	)) as APIGatewayProxyResult;
+	return handleApiEvent(event, {
+		awsRequestId: "request-pipeline-test",
+	} as Context);
 };
 
 describe("a path the spec does not route", () => {

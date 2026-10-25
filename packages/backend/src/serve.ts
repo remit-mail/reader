@@ -1,25 +1,31 @@
 import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger, withLogContext } from "@remit/logger";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type {
-	APIGatewayProxyEvent,
-	APIGatewayProxyResult,
-	Context,
-} from "aws-lambda";
-import type { Context as OpenAPIContext } from "openapi-backend";
+	Context as OpenAPIContext,
+	Request as OpenAPIRequest,
+} from "openapi-backend";
 import { api } from "./api.js";
-import { getIdentityFromEvent } from "./auth.js";
-import { usesBetterAuthJwt } from "./data-backend.js";
+import type { ApiConfig } from "./config/api-config.js";
 import { defaultErrorCode, handleError } from "./error.js";
-import { authenticateSelfHostRequest } from "./jwt-auth.js";
 import { normalizeRequest } from "./request.js";
-import { runWithRequestContext } from "./request-context.js";
+import { envelopeHeaders } from "./response.js";
 import type { RemitClient } from "./service/data-client.js";
 import type { QueueName } from "./service/queues.js";
 import type {
+	HandlerIdentity,
 	OperationHandler,
 	OperationIds,
 	PublicOperationHandler,
 	PublicOperationIds,
+} from "./types.js";
+
+export type { ApiConfig } from "./config/api-config.js";
+export type {
+	HandlerContext,
+	HandlerIdentity,
+	PublicHandlerContext,
+	UserIdentity,
 } from "./types.js";
 
 const unauthenticated = () => ({
@@ -27,6 +33,16 @@ const unauthenticated = () => ({
 	body: { code: defaultErrorCode(401), message: "Unauthorized" },
 });
 
+export interface RequestHost<K extends QueueName> {
+	config: ApiConfig;
+	client: () => Promise<RemitClient<K>>;
+	identity: () => Promise<HandlerIdentity>;
+}
+
+/**
+ * The operations a host serves, each typed by the queues it sends to. An
+ * operation the host leaves out answers 501.
+ */
 export interface ApiRegistry<K extends QueueName> {
 	handlers: Partial<
 		Record<
@@ -39,117 +55,162 @@ export interface ApiRegistry<K extends QueueName> {
 	>;
 }
 
-export type ApiEventHandler = (
-	event: APIGatewayProxyEvent,
-	context: Context,
-) => Promise<APIGatewayProxyResult>;
+const isDefined = <T>(value: T | undefined): value is T => value !== undefined;
 
 const entriesOf = <T>(record: Partial<Record<string, T>>): Array<[string, T]> =>
 	Object.entries(record).flatMap(([key, value]) =>
-		value === undefined ? [] : [[key, value]],
+		isDefined(value) ? [[key, value]] : [],
 	);
 
+export interface ServedApi<K extends QueueName> {
+	dispatch: (
+		request: OpenAPIRequest,
+		host: RequestHost<K>,
+		correlationId: string,
+	) => Promise<APIGatewayProxyResult>;
+	handleFetch: (
+		request: Request,
+		host: RequestHost<K>,
+		correlationId: string,
+	) => Promise<Response>;
+}
+
+/**
+ * Register a host's operations and return the two ways in: a normalised
+ * request, or a Fetch `Request`. Each request's host supplies the client, and
+ * the client's queues must cover every operation in the registry.
+ */
 export const serveApi = <K extends QueueName>(
 	registry: ApiRegistry<NoInfer<K>>,
-	client: () => Promise<RemitClient<K>>,
-): ApiEventHandler => {
+): ServedApi<K> => {
 	api.register({
 		...Object.fromEntries(
 			entriesOf(registry.handlers).map(([operationId, handler]) => [
 				operationId,
-				async (c: OpenAPIContext, event: APIGatewayProxyEvent) => {
-					const identity = getIdentityFromEvent(event);
+				async (c: OpenAPIContext, host: RequestHost<K>) => {
+					const identity = await host.identity();
 					if (identity.kind === "anonymous") return unauthenticated();
-					return handler(c, { client: await client(), identity });
+					return handler(c, {
+						client: await host.client(),
+						identity,
+						config: host.config,
+					});
 				},
 			]),
 		),
 		...Object.fromEntries(
 			entriesOf(registry.publicHandlers).map(([operationId, handler]) => [
 				operationId,
-				async (c: OpenAPIContext) => handler(c, { client: await client() }),
+				async (c: OpenAPIContext, host: RequestHost<K>) =>
+					handler(c, { client: await host.client(), config: host.config }),
 			]),
 		),
 	});
-	return handleApiEvent;
+	return { dispatch, handleFetch };
 };
 
-const readOriginHeader = (
-	headers: APIGatewayProxyEvent["headers"],
+const readHeader = (
+	headers: OpenAPIRequest["headers"],
+	name: string,
 ): string | undefined => {
-	if (!headers) return undefined;
-	for (const [key, value] of Object.entries(headers)) {
-		if (key.toLowerCase() === "origin" && typeof value === "string") {
-			return value;
-		}
+	for (const [key, value] of Object.entries(headers ?? {})) {
+		if (key.toLowerCase() === name && typeof value === "string") return value;
 	}
 	return undefined;
 };
 
-// A scope, not `logger.setBindings`: this process serves requests concurrently,
-// and bindings on the shared logger belong to whichever request wrote them last,
-// so a line gets attributed to the wrong request. The scope follows the request
-// through its own async continuations and nothing else. It nests inside the one
-// `withTelemetry` opens, which is where `requestId` comes from.
-const handleApiEvent = async (
-	event: APIGatewayProxyEvent,
-	context: Context,
+const dispatch = async (
+	request: OpenAPIRequest,
+	host: { config: ApiConfig },
+	correlationId: string,
 ): Promise<APIGatewayProxyResult> => {
 	// A calendar feed carries its credential in the path, so the raw path is a
 	// secret and cannot be a log field (issue #1065). Redacted once, here, where
 	// every line inside the request picks it up from the scope.
-	const path = redactCalendarFeedPath(event.path);
+	const path = redactCalendarFeedPath(request.path);
+	const { method } = request;
 
-	return withLogContext(
-		{
-			path,
-			method: event.httpMethod,
-		},
-		async () => {
-			logger.debug({ method: event.httpMethod, path }, "Request received");
+	return withLogContext({ path, method }, async () => {
+		logger.debug({ method, path }, "Request received");
 
-			const origin = readOriginHeader(event.headers);
-			const startedAt = Date.now();
-			// Capture the correlation id here: it is seeded by
-			// runWithRequestContext below (from context.awsRequestId), but that
-			// AsyncLocalStorage scope does not reliably survive the
-			// openapi-backend handleRequest call chain, so we read it from
-			// `context.awsRequestId` directly rather than via
-			// getRequestCorrelationId at log time.
-			const correlationId = context.awsRequestId;
-
-			const result = await runWithRequestContext(
-				{ origin, correlationId },
-				async () => {
-					if (usesBetterAuthJwt()) {
-						const denied = await authenticateSelfHostRequest(event);
-						if (denied) return denied;
-					}
-
-					return api
-						.handleRequest(normalizeRequest(event), event, context)
-						.catch(handleError);
-				},
-			);
-
-			// One structured access line per request: method, path, status, and
-			// duration. The correlation id is inlined as a top-level field so a bug
-			// report quoting the id can grep logs by it directly, and emitted at
-			// info so it is on by default in production (the debug "Request
-			// received" above already filters out under normal log levels).
-			// biome-ignore lint/plugin/no-logger-info: one access line per request is an audit-grade signal (issue #1054)
-			logger.info(
-				{
-					method: event.httpMethod,
-					path,
-					statusCode: result.statusCode,
-					durationMs: Date.now() - startedAt,
+		const startedAt = Date.now();
+		const answered: APIGatewayProxyResult = await api
+			.handleRequest(request, host)
+			.catch(handleError);
+		const result: APIGatewayProxyResult = {
+			...answered,
+			headers: {
+				...envelopeHeaders({
+					origin: readHeader(request.headers, "origin"),
+					allowedOrigins: host.config.corsAllowedOrigins,
 					correlationId,
-				},
-				"Request completed",
-			);
+				}),
+				...answered.headers,
+			},
+		};
 
-			return result;
-		},
+		// One structured access line per request: method, path, status, and
+		// duration. The correlation id is inlined as a top-level field so a bug
+		// report quoting the id can grep logs by it directly, and emitted at
+		// info so it is on by default in production (the debug "Request
+		// received" above already filters out under normal log levels).
+		// biome-ignore lint/plugin/no-logger-info: one access line per request is an audit-grade signal (issue #1054)
+		logger.info(
+			{
+				method,
+				path,
+				statusCode: result.statusCode,
+				durationMs: Date.now() - startedAt,
+				correlationId,
+			},
+			"Request completed",
+		);
+
+		return result;
+	});
+};
+
+const queryOf = (
+	params: URLSearchParams,
+): Record<string, readonly string[]> => {
+	const query: Record<string, string[]> = {};
+	for (const [key, value] of params) {
+		query[key] = [...(query[key] ?? []), value];
+	}
+	return query;
+};
+
+const NULL_BODY_STATUSES = new Set([101, 103, 204, 205, 304]);
+
+const toFetchResponse = (result: APIGatewayProxyResult): Response => {
+	const headers = new Headers();
+	for (const [name, value] of Object.entries(result.headers ?? {})) {
+		headers.set(name, String(value));
+	}
+	for (const [name, values] of Object.entries(result.multiValueHeaders ?? {})) {
+		for (const value of values) headers.append(name, String(value));
+	}
+	const body = NULL_BODY_STATUSES.has(result.statusCode) ? null : result.body;
+	return new Response(body, { status: result.statusCode, headers });
+};
+
+const handleFetch = async (
+	request: Request,
+	host: { config: ApiConfig },
+	correlationId: string,
+): Promise<Response> => {
+	const url = new URL(request.url);
+	const body = request.body === null ? null : await request.text();
+	const result = await dispatch(
+		normalizeRequest({
+			method: request.method,
+			path: url.pathname,
+			query: queryOf(url.searchParams),
+			headers: Object.fromEntries(request.headers),
+			body,
+		}),
+		host,
+		correlationId,
 	);
+	return toFetchResponse(result);
 };

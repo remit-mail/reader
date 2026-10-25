@@ -21,10 +21,10 @@ const isLocalEnv = (env: NodeJS.ProcessEnv): boolean =>
  * once, so a bypass set without LOCAL_EMAIL also fails at boot.
  */
 export const assertLocalBypassNotInDeployedEnv = (
-	env: NodeJS.ProcessEnv = process.env,
+	env: NodeJS.ProcessEnv,
 ): void => {
 	if (isLocalEnv(env)) {
-		localIdentity(env);
+		localIdentityFromEnv(env);
 		return;
 	}
 	const leaked = LOCAL_BYPASS_VARS.filter((name) => {
@@ -48,6 +48,19 @@ const readClaim = (
 
 const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
+export const userFromClaims = (
+	sub: string,
+	email: string | undefined,
+): HandlerIdentity => {
+	if (!email) return ANONYMOUS;
+	return {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email,
+	};
+};
+
 const pinnedLocalUser = (
 	env: NodeJS.ProcessEnv,
 ): { accountConfigId: string; sub: string } | undefined => {
@@ -62,7 +75,9 @@ const pinnedLocalUser = (
 	return undefined;
 };
 
-const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
+export const localIdentityFromEnv = (
+	env: NodeJS.ProcessEnv,
+): HandlerIdentity => {
 	const pinned = pinnedLocalUser(env);
 	if (!pinned) return ANONYMOUS;
 
@@ -81,22 +96,15 @@ const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
  * `email` claims (verified by the authorizer, or by `jwt-auth.ts` on
  * self-host) and derives the accountConfigId via UUIDv5. Local development
  * honours `LOCAL_ACCOUNT_CONFIG_ID` (a pinned seeded config) and
- * `LOCAL_COGNITO_SUB` (a pinned sub, derived like production).
+ * `LOCAL_COGNITO_SUB` (a pinned sub, derived like production), read once at
+ * boot into `localIdentity`.
  */
 export const getIdentityFromEvent = (
 	event: APIGatewayProxyEvent,
-	env: NodeJS.ProcessEnv = process.env,
+	localIdentity: HandlerIdentity,
 ): HandlerIdentity => {
 	const sub = readClaim(event, "sub");
-	if (!sub) return localIdentity(env);
+	if (!sub) return localIdentity;
 
-	const email = readClaim(event, "email");
-	if (!email) return ANONYMOUS;
-
-	return {
-		kind: "user",
-		accountConfigId: deriveAccountConfigId(sub),
-		sub,
-		email,
-	};
+	return userFromClaims(sub, readClaim(event, "email"));
 };

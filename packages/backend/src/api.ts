@@ -5,16 +5,9 @@ import {
 	type Document,
 	OpenAPIBackend,
 	type Context as OpenAPIContext,
-	type Request,
 } from "openapi-backend";
-import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
 import { defaultErrorCode } from "./error.js";
 import { postResponseHandler } from "./response.js";
-
-// Boot-time refusal: the local auth-bypass overrides must never be set in a
-// deployed environment. Runs on module load so a leaked env var fails the
-// process at startup rather than silently opening authentication at runtime.
-assertLocalBypassNotInDeployedEnv();
 
 const isDocument = (value: unknown): value is Document =>
 	typeof value === "object" &&
@@ -66,11 +59,11 @@ const validationDetails = (
 // holds the caller's headers and cookies — an Authorization bearer among them,
 // and for a calendar feed the token in the path is itself the credential
 // (issue #1065). The path is redacted the same way the request scope redacts it.
-api.register("validationFail", (c: OpenAPIContext, req: Request) => {
+api.register("validationFail", (c: OpenAPIContext) => {
 	logger.error(
 		{
 			errors: c.validation.errors,
-			path: redactCalendarFeedPath(req.path),
+			path: redactCalendarFeedPath(c.request.path),
 			operation: c.operation?.operationId,
 		},
 		"Validation failed",

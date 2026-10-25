@@ -2,11 +2,7 @@ import { logger } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
 
 import type { Context as OpenAPIContext } from "openapi-backend";
-import {
-	getRequestCorrelationId,
-	getRequestOrigin,
-	resolveAllowedOrigin,
-} from "./request-context.js";
+import type { ApiConfig } from "./config/api-config.js";
 
 const RAW_API_RESPONSE: unique symbol = Symbol("remit.rawApiResponse");
 
@@ -19,8 +15,8 @@ const RAW_API_RESPONSE: unique symbol = Symbol("remit.rawApiResponse");
  * stays the default; a handler that has to own its own media type or headers
  * says so with `rawApiResponse` rather than by returning a shape this one has
  * to guess at.
- * The CORS and correlation headers are still added here, so a raw response is
- * not a way around them.
+ * `dispatch` still adds the envelope headers, so a raw response is not a way
+ * around them.
  */
 export interface RawApiResponse {
 	statusCode: number;
@@ -49,8 +45,27 @@ const isRawApiResponse = (
  * server-side line; the browser can only read a non-safelisted header when it
  * is exposed.
  */
-const envelopeHeaders = (): Record<string, string> => {
-	const allowOrigin = resolveAllowedOrigin(getRequestOrigin());
+export interface EnvelopeInput {
+	origin: string | undefined;
+	allowedOrigins: readonly string[];
+	correlationId: string;
+}
+
+export const resolveAllowedOrigin = (
+	origin: string | undefined,
+	allowed: readonly string[],
+): string => {
+	if (allowed.length === 0) return "*";
+	if (origin && allowed.includes(origin)) return origin;
+	return allowed[0];
+};
+
+export const envelopeHeaders = ({
+	origin,
+	allowedOrigins,
+	correlationId,
+}: EnvelopeInput): Record<string, string> => {
+	const allowOrigin = resolveAllowedOrigin(origin, allowedOrigins);
 
 	const headers: Record<string, string> = {
 		"Access-Control-Allow-Origin": allowOrigin,
@@ -63,11 +78,8 @@ const envelopeHeaders = (): Record<string, string> => {
 		headers["Access-Control-Allow-Credentials"] = "true";
 	}
 
-	const correlationId = getRequestCorrelationId();
-	if (correlationId) {
-		headers["x-correlation-id"] = correlationId;
-		headers["Access-Control-Expose-Headers"] = "x-correlation-id";
-	}
+	headers["x-correlation-id"] = correlationId;
+	headers["Access-Control-Expose-Headers"] = "x-correlation-id";
 
 	return headers;
 };
@@ -84,7 +96,7 @@ export const formatResponse = (
 		logger.debug({ statusCode: body.statusCode }, "response");
 		return {
 			statusCode: body.statusCode,
-			headers: { ...envelopeHeaders(), ...body.headers },
+			headers: body.headers,
 			body: body.body,
 		};
 	}
@@ -97,20 +109,21 @@ export const formatResponse = (
 
 	return {
 		statusCode: statusCode,
-		headers: {
-			"Content-Type": "application/json",
-			...envelopeHeaders(),
-		},
+		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify(body),
 	};
 };
 
-export const postResponseHandler = (context: OpenAPIContext) => {
+export const postResponseHandler = (
+	context: OpenAPIContext,
+	scope: { config: ApiConfig },
+) => {
 	const { api, response, operation } = context;
 
 	if (response.statusCode) return formatResponse(response, response.statusCode);
 
-	if (process.env.STAGE_NAME !== "dev") return formatResponse(response, 200);
+	if (scope.config.responseValidation === "Skip")
+		return formatResponse(response, 200);
 
 	const { valid, errors } = api.validateResponse(response, operation);
 

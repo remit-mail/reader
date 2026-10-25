@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { APIGatewayProxyResult } from "aws-lambda";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context as LambdaContext,
+} from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { authenticateSelfHostRequest } from "../jwt-auth.js";
-import { normalizeRequest } from "../request.js";
+import { lambdaHandler } from "../api-fixture.js";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import { CalendarOperations } from "./calendar.js";
@@ -63,10 +67,11 @@ const contextOf = (request: {
 	requestBody?: unknown;
 }): Context => ({ request }) as unknown as Context;
 
-type LambdaEvent = Parameters<typeof normalizeRequest>[0];
+type LambdaEvent = APIGatewayProxyEvent;
 
 const callerOf = (sub: string): HandlerContext => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: deriveAccountConfigId(sub),
@@ -122,29 +127,66 @@ after(() => {
 
 describe("an unauthenticated calendar request", () => {
 	const routes = [
-		{ httpMethod: "GET", path: "/calendars" },
-		{ httpMethod: "GET", path: "/calendar-events" },
-		{ httpMethod: "POST", path: "/calendar-events" },
-		{ httpMethod: "GET", path: "/calendar-free-busy" },
-		{ httpMethod: "GET", path: "/calendar-suggestions" },
+		{ httpMethod: "GET", path: "/calendars", query: null, body: undefined },
+		{
+			httpMethod: "GET",
+			path: "/calendar-events",
+			query: WINDOW,
+			body: undefined,
+		},
+		{
+			httpMethod: "POST",
+			path: "/calendar-events",
+			query: null,
+			body: {
+				calendarId: "0".repeat(25),
+				summary: "Standup",
+				start: "2026-09-01T09:00:00Z",
+				end: "2026-09-01T09:15:00Z",
+			},
+		},
+		{
+			httpMethod: "GET",
+			path: "/calendar-free-busy",
+			query: WINDOW,
+			body: undefined,
+		},
+		{
+			httpMethod: "GET",
+			path: "/calendar-suggestions",
+			query: { state: "Pending" },
+			body: undefined,
+		},
 	];
+	const selfHost = lambdaHandler(
+		async () => client,
+		testApiConfig({
+			auth: { mode: "BetterAuthJwt", contentSigningSecret: "s".repeat(32) },
+		}),
+	);
 
 	for (const route of routes) {
 		it(`is answered 401 before ${route.httpMethod} ${route.path} runs`, async () => {
-			const refusal = await authenticateSelfHostRequest({
-				...route,
-				headers: {},
-			} as unknown as LambdaEvent);
+			const refusal = await selfHost(
+				{
+					httpMethod: route.httpMethod,
+					path: route.path,
+					queryStringParameters: route.query,
+					headers: { "content-type": "application/json" },
+					body: route.body === undefined ? null : JSON.stringify(route.body),
+					requestContext: {},
+				} as unknown as LambdaEvent,
+				{ awsRequestId: "calendar-event-anonymous" } as LambdaContext,
+			);
 
-			assert.equal(refusal?.statusCode, 401);
+			assert.equal(refusal.statusCode, 401, refusal.body);
 		});
 	}
 
 	it("never serves a calendar to a request carrying no claims", async () => {
-		// The gate above is what a browser meets. This is the second lock: a
-		// listing reached with no identity is refused before the handler runs,
+		// A listing reached with no identity is refused before the handler runs,
 		// rather than falling back to somebody's account.
-		const { api } = (await import("../api-fixture.js")).servedApi(client);
+		const handleApiEvent = lambdaHandler(async () => client, testApiConfig());
 		const event = {
 			httpMethod: "GET",
 			path: "/calendar-events",
@@ -154,10 +196,9 @@ describe("an unauthenticated calendar request", () => {
 			requestContext: {},
 		} as unknown as LambdaEvent;
 
-		const response = (await api.handleRequest(
-			normalizeRequest(event),
-			event,
-		)) as APIGatewayProxyResult;
+		const response: APIGatewayProxyResult = await handleApiEvent(event, {
+			awsRequestId: "calendar-event-test",
+		} as LambdaContext);
 
 		assert.equal(response.statusCode, 401);
 	});

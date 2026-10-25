@@ -17,6 +17,7 @@ import {
 import { FilterMatchOperator } from "@remit/domain-enums";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
@@ -113,6 +114,7 @@ const installClient = (): void => {
 
 const authorized = (): HandlerContext<QueueName> => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: ACCOUNT_CONFIG_ID,

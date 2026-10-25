@@ -15,7 +15,26 @@
 			"default": "./src/memory-store.ts"
 		}
 	},
+	"packManifest": {
+		"main": "dist/index.js",
+		"types": "dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"./memory-store": {
+				"types": "./dist/memory-store.d.ts",
+				"default": "./dist/memory-store.js"
+			}
+		},
+		"files": [
+			"dist"
+		]
+	},
 	"scripts": {
+		"prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+		"postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/memory-store.ts' --test-coverage-lines=90 --test 'src/**/*.test.ts'"
 	},

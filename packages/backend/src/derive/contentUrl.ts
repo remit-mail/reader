@@ -62,25 +62,3 @@ export const buildContentUrl = (input: BuildContentUrlInput): string => {
 		sign,
 	});
 };
-
-/**
- * Read the CloudFront distribution domain from the environment. The CDK
- * wires `CONTENT_DELIVERY_DOMAIN` onto the API Lambda from the
- * ContentDelivery stack's published SSM parameter (`/{stage}/Remit/frontendUrl`).
- *
- * Throws when the env var is missing or empty. `BodyPartResponse.contentUrl`
- * is required + URL-formatted in the API contract, so silently emitting a
- * placeholder string would ship a contract lie to clients. Failing loud here
- * surfaces the missing wire-up as a 500 the deploy team can act on (#299).
- * Production synth hard-codes a syntactically-valid placeholder URL via
- * `infra/bin/infra.ts` so this only fires when the env is actually unset.
- */
-export const getContentDeliveryDomain = (): string => {
-	const value = process.env.CONTENT_DELIVERY_DOMAIN;
-	if (!value || value.length === 0) {
-		throw new Error(
-			"CONTENT_DELIVERY_DOMAIN is not set; BodyPartResponse.contentUrl cannot be built. Wire the CloudFront distribution domain via the API Lambda env (see infra/bin/infra.ts).",
-		);
-	}
-	return value;
-};

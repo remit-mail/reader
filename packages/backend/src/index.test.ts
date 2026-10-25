@@ -1,14 +1,12 @@
 /**
  * Issue #1054: the backend must log one structured access line per request
  * (method, path, status, duration, correlation id) at a level that is on in
- * production. The access log lives in `rawHandler` in `src/index.ts`, wrapping
- * the authenticated request path — so a 401 denial from edge-auth also gets an
- * access line (once it flows through `formatResponse` with the correlation id).
+ * production. The access log lives in `dispatch` in `src/api.ts`, so a 401
+ * gets an access line too.
  *
  * The 401 response shape (correlation id header + CORS on the denial) is tested
- * directly in `jwt-auth.test.ts` via `runWithRequestContext`; this file tests
- * that the handler emits the access log line on every request by spying on the
- * logger's info method.
+ * in `jwt-auth.test.ts`; this file tests that the handler emits the access log
+ * line on every request by spying on the logger's info method.
  */
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";

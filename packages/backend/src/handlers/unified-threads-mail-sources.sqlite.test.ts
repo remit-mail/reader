@@ -15,6 +15,7 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import { ThreadOperations } from "./thread.js";
 import {
@@ -165,6 +166,7 @@ describe("a mail-off account in the unified surfaces (#1181)", () => {
 			} as unknown as Context,
 			{
 				client,
+				config: testApiConfig(),
 				identity: {
 					kind: "user",
 					accountConfigId: ACCOUNT_CONFIG_ID,

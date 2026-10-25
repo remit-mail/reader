@@ -40,10 +40,7 @@ import {
 	type ContentSigner,
 	getContentSigner,
 } from "../derive/contentSignature.js";
-import {
-	buildContentUrl,
-	getContentDeliveryDomain,
-} from "../derive/contentUrl.js";
+import { buildContentUrl } from "../derive/contentUrl.js";
 import { deriveSenderTrust } from "../derive/senderTrust.js";
 import { unwrap } from "../service/refusal.js";
 import type {
@@ -92,9 +89,7 @@ export const extractAccountIdsFromBodyKey = (
  * populating `contentUrl` from the CloudFront distribution domain. Pure
  * function so the URL-construction contract can be pinned in tests without
  * standing up the full handler. The contract requires every `contentUrl`
- * to be a real URL (#299) — `getContentDeliveryDomain` throws when the
- * Lambda env is missing the domain, and this function expects a non-empty
- * string from the caller.
+ * to be a real URL (#299), so the API refuses to start without the domain.
  */
 export interface BodyPartLike {
 	bodyPartId: string;
@@ -537,11 +532,11 @@ export const MessageOperations: Record<
 		});
 
 		const bodyParts = buildBodyPartResponses(bodyPartRows, {
-			contentDeliveryDomain: getContentDeliveryDomain(),
+			contentDeliveryDomain: ctx.config.contentDeliveryDomain,
 			accountConfigId,
 			accountId,
 			messageId,
-			sign: getContentSigner(),
+			sign: getContentSigner(ctx.config),
 		});
 
 		const references = description.messageReference.map((ref) => ({

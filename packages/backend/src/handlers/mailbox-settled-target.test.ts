@@ -15,6 +15,7 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { QueueName } from "../service/queues.js";
 import type { OperationHandler, OperationIds } from "../types.js";
@@ -117,6 +118,7 @@ const call = (
 ): Promise<Record<string, unknown>> =>
 	handler({ request } as unknown as Context, {
 		client,
+		config: testApiConfig(),
 		identity: {
 			kind: "user",
 			accountConfigId: CONFIG_ID,

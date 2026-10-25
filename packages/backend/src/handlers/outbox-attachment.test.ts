@@ -38,9 +38,14 @@ import {
 	UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import type { APIGatewayProxyResult } from "aws-lambda";
+import type {
+	APIGatewayProxyEvent,
+	APIGatewayProxyResult,
+	Context as LambdaContext,
+} from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
+import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import { _resetForTest, type RemitClient } from "../service/data-client.js";
@@ -51,8 +56,6 @@ import {
 } from "./outbox-attachment.js";
 
 let client: RemitClient;
-
-process.env.CONTENT_DELIVERY_DOMAIN = "https://content.test";
 
 const SUB = "cognito-sub-679";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -227,6 +230,7 @@ const install = async (
 
 const caller = (): HandlerContext => ({
 	client,
+	config: testApiConfig(),
 	identity: {
 		kind: "user",
 		accountConfigId: ACCOUNT_CONFIG_ID,
@@ -736,7 +740,10 @@ describe("completing an attachment (#679)", () => {
 describe("the mint route through the whole request pipeline", () => {
 	it("reaches its handler with the real built spec in front of it", async () => {
 		await install();
-		const { api } = (await import("../api-fixture.js")).servedApi(client);
+		const handleApiEvent = (await import("../api-fixture.js")).lambdaHandler(
+			async () => client,
+			testApiConfig(),
+		);
 
 		const body = JSON.stringify({
 			filename: "routed.txt",
@@ -753,17 +760,10 @@ describe("the mint route through the whole request pipeline", () => {
 			},
 		};
 
-		const result = (await api.handleRequest(
-			{
-				method: "POST",
-				path: event.path,
-				query: {},
-				body,
-				headers: { "content-type": "application/json" },
-			},
-			event,
-			{} as never,
-		)) as APIGatewayProxyResult;
+		const result = await handleApiEvent(
+			event as unknown as APIGatewayProxyEvent,
+			{ awsRequestId: "mint-route-test" } as LambdaContext,
+		);
 
 		assert.equal(result.statusCode, 200);
 		assert.equal(parse(result).filename, "routed.txt");

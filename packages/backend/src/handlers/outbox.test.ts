@@ -44,6 +44,7 @@ import {
 } from "@remit/storage-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
+import { testApiConfig } from "../config/test-config.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
@@ -55,7 +56,6 @@ import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 let client: RemitClient;
 
 const CONTENT_DOMAIN = "https://content.test";
-process.env.CONTENT_DELIVERY_DOMAIN = CONTENT_DOMAIN;
 
 const SUB = "cognito-sub-604";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
@@ -261,6 +261,7 @@ const installClient = (queue: RecordingQueue = recordingQueue()): void => {
 
 const caller = (): HandlerContext<QueueName> => ({
 	client,
+	config: testApiConfig({ contentDeliveryDomain: CONTENT_DOMAIN }),
 	identity: {
 		kind: "user",
 		accountConfigId: ACCOUNT_CONFIG_ID,
