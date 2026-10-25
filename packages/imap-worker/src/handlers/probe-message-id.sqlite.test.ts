@@ -177,7 +177,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 			mailboxSpecialUseService: repos.mailboxSpecialUse,
 			threadMessageService: threadMessages,
 			addressService: repos.address,
-			queue: recordingQueue(),
+			queue: recordingQueue().fifo,
 		}).copyMessage(ACCOUNT_CONFIG_ID, sourceId, archive.mailboxId, accountId);
 
 		assert.notEqual(copyId, sourceId);

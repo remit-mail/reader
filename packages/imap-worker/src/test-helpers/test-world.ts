@@ -8,7 +8,7 @@ import {
 	type RemitClient,
 	setClient,
 } from "@remit/backend/client";
-import { composeSqliteClient } from "@remit/backend/compose-sqlite";
+import { createRemitClient } from "@remit/backend/create-remit-client";
 import { buildSharedDeps } from "@remit/backend/shared-deps";
 import type {
 	AccountItem,
@@ -16,7 +16,6 @@ import type {
 	MailboxSpecialUseValue,
 	MessageItem,
 	OutboxMessageItem,
-	QueueProducer,
 } from "@remit/data-ports";
 import {
 	type RecordingQueue,
@@ -27,6 +26,11 @@ import {
 	ConnectionState,
 	MailboxCursorState,
 } from "@remit/domain-enums";
+import {
+	createSqliteRepositories,
+	openSqliteDatabases,
+	sqliteDatabasePathsFromEnv,
+} from "@remit/drizzle-service";
 import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
 import type { ManagedConnectionFactory } from "@remit/mailbox-service";
@@ -37,7 +41,8 @@ import {
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { syncMessages } from "../handlers/sync-messages.js";
-import { setWorkerQueues } from "../queues.js";
+import type { WorkerQueues } from "../queues.js";
+import { workerQueuesOn } from "./worker-queues.js";
 
 export interface LogLine {
 	level: string;
@@ -87,8 +92,8 @@ export interface SeededMessage {
 }
 
 /**
- * One SQLite store per test file, over the shipped migrations, composed by the
- * backend's own SQLite composition root over filesystem storage — every
+ * One SQLite store per test file, over the shipped migrations, composed from
+ * the backend's SQLite repositories over filesystem storage — every
  * repository and service a handler reaches is the one a self-host process
  * runs. Each `world()` is a fresh account on it, with its own in-memory mail
  * server at the IMAP port, and a message reaches the store the way mail does:
@@ -96,7 +101,6 @@ export interface SeededMessage {
  */
 export const openStore = async (): Promise<{
 	client: RemitClient;
-	bindWorkerQueues: () => void;
 	world: (accountConfigId?: string) => Promise<World>;
 	close: () => void;
 }> => {
@@ -107,37 +111,28 @@ export const openStore = async (): Promise<{
 	process.env.BETTER_AUTH_URL = "https://mail.example.com";
 	process.env.BETTER_AUTH_SECRET = "a-signing-secret-of-at-least-32-characters";
 	_resetForTest();
-	let current = recordingQueue();
-	const queue: QueueProducer<unknown> = {
-		send: (message) => current.send(message),
-		sendBatch: (messages) => current.sendBatch(messages),
-	};
-	const client = await composeSqliteClient(
-		buildSharedDeps({
-			sync: queue,
-			accountFanout: queue,
-			smtp: queue,
-			messageManagement: queue,
-			body: queue,
-		}),
+	const repositories = createSqliteRepositories(
+		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
 	);
+	const queuesOn = (queue: RecordingQueue) => ({
+		sync: queue.fifo,
+		accountFanout: queue,
+		smtp: queue,
+		messageManagement: queue,
+		body: queue,
+	});
+	const shared = buildSharedDeps(queuesOn(recordingQueue()));
+	const clientOn = (queue: RecordingQueue): RemitClient =>
+		createRemitClient({ repositories, ...shared, queues: queuesOn(queue) });
+	const client = clientOn(recordingQueue());
 	setClient(client);
-	const bindWorkerQueues = (): void =>
-		setWorkerQueues({
-			mailboxes: queue,
-			messages: queue,
-			flags: queue,
-			body: queue,
-			mailboxManagement: queue,
-			messageManagement: queue,
-		});
-	bindWorkerQueues();
 	return {
 		client,
-		bindWorkerQueues,
 		world: (accountConfigId = `cfg-${randomUUID()}`) => {
-			current = recordingQueue();
-			return createWorld(client, current, accountConfigId);
+			const queue = recordingQueue();
+			const worldClient = clientOn(queue);
+			setClient(worldClient);
+			return createWorld(worldClient, queue, accountConfigId);
 		},
 		close: () => {
 			_resetForTest();
@@ -166,6 +161,7 @@ export interface World {
 	queued: () => Array<Record<string, unknown>>;
 	refuseSends: (error: Error | undefined) => void;
 	queue: RecordingQueue;
+	queues: WorkerQueues;
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
@@ -297,6 +293,7 @@ const createWorld = async (
 				mailboxId: mailbox.mailboxId,
 			},
 			capturingLogger([]),
+			workerQueuesOn(queue),
 			connectionFactory,
 		);
 		imap.connections = baseline.connections;
@@ -420,6 +417,7 @@ const createWorld = async (
 		queued,
 		refuseSends,
 		queue,
+		queues: workerQueuesOn(queue),
 		draft,
 		scope,
 		connectionFactory,

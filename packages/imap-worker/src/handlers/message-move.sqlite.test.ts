@@ -68,7 +68,7 @@ const arrange = async (
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	handleMessageMove(a.event, a.w.log, receiveCount, a.w.scope);
+	handleMessageMove(a.event, a.w.log, a.w.queues, receiveCount, a.w.scope);
 
 const resyncs = (w: World): unknown[] =>
 	w

@@ -7,7 +7,7 @@ import {
 	createFolder,
 	type FolderPathOutcome,
 } from "./folder-operations.js";
-import { MailboxQueueService } from "./mailbox-queue.js";
+import { fifoMailboxManagement, MailboxQueueService } from "./mailbox-queue.js";
 import { folderInAccount } from "./ownership.js";
 import type { Refusable } from "./refusal.js";
 import {
@@ -30,7 +30,7 @@ beforeEach(async () => {
 	account = await seedAccount(store);
 	mailboxQueue = new MailboxQueueService({
 		mailboxService: store.mailbox,
-		queue: capture,
+		enqueue: fifoMailboxManagement(capture.fifo),
 	});
 });
 

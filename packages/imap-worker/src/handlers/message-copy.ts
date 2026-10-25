@@ -14,9 +14,10 @@ import {
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent } from "../emit.js";
 import type { MessageCopyEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -68,9 +69,11 @@ export type CopyProbe =
 export const handleMessageCopy = async (
 	event: MessageCopyEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	receiveCount = 1,
 	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
+	const emit = createEmitEvent(queues);
 	const {
 		account: accountService,
 		message: messageService,
@@ -383,7 +386,7 @@ export const handleMessageCopy = async (
 					}
 				}
 
-				await emitMoveResync(emitEvent, {
+				await emitMoveResync(emit, {
 					accountId,
 					sourceMailboxId,
 					destinationMailboxId,

@@ -35,12 +35,17 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { emitEvent, SYNC_MESSAGES_PENDING } from "../emit.js";
+import {
+	createEmitEvent,
+	type EmitEvent,
+	SYNC_MESSAGES_PENDING,
+} from "../emit.js";
 import type {
 	FlagPushEvent,
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -77,6 +82,7 @@ export const managedConnectionFor = (
 export const syncMessages = async (
 	event: SyncMessagesEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	createConnectionFactory = managedConnectionFor,
 ): Promise<void> => {
 	log.info(
@@ -212,6 +218,7 @@ export const syncMessages = async (
 								syncWarningRepository,
 								flagPushMarkerService,
 								messageFlagService,
+								emit: createEmitEvent(queues),
 							},
 							log,
 						);
@@ -290,6 +297,7 @@ interface SyncDeps {
 	syncWarningRepository: ISyncWarningRepository;
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
+	emit: EmitEvent;
 }
 
 // Bounds concurrent SQS sends while re-arming stuck flag-push markers —
@@ -314,16 +322,13 @@ const FLAG_PUSH_DRAIN_CONCURRENCY = 5;
  * loudly — it must never fail the surrounding SYNC_MESSAGES batch, which is
  * unrelated message-header sync work. The marker stays durable regardless;
  * the next periodic tick tries again.
- *
- * `emit` defaults to the real `emitEvent` (imap-worker's shared SQS
- * producer) and is only ever overridden in tests.
  */
 export const drainPendingFlagPushes = async (
 	flagPushMarkerService: IMessageFlagPushRepository,
 	account: AccountItem,
 	mailboxId: string,
 	log: Logger,
-	emit: typeof emitEvent = emitEvent,
+	emit: EmitEvent,
 ): Promise<void> => {
 	const markers = await flagPushMarkerService.listByMailboxId(mailboxId);
 	const stuck = markers.filter((marker) => marker.state === "pending");
@@ -383,6 +388,7 @@ const syncMailboxMessages = async (
 		syncWarningRepository,
 		flagPushMarkerService,
 		messageFlagService,
+		emit,
 	} = deps;
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
@@ -392,7 +398,13 @@ const syncMailboxMessages = async (
 	// Periodic drain (issue #1273): independent of the IMAP sync below — no
 	// connection needed, just an SQS re-arm — so it runs regardless of this
 	// round's sync outcome.
-	await drainPendingFlagPushes(flagPushMarkerService, account, mailboxId, log);
+	await drainPendingFlagPushes(
+		flagPushMarkerService,
+		account,
+		mailboxId,
+		log,
+		emit,
+	);
 	const isInbox = mailbox.fullPath.toUpperCase() === "INBOX";
 
 	const syncService = new MessageSyncService(
@@ -466,7 +478,7 @@ const syncMailboxMessages = async (
 					messageIds: batch.map((m) => m.messageId),
 					messages: batch.map((m) => ({ messageId: m.messageId, uid: m.uid })),
 				};
-				return emitEvent(bodyEvent);
+				return emit(bodyEvent);
 			},
 			{ concurrency: EVENT_EMIT_CONCURRENCY },
 		);
@@ -484,7 +496,7 @@ const syncMailboxMessages = async (
 			accountId: event.accountId,
 			mailboxId,
 		};
-		await emitEvent(nextSyncEvent);
+		await emit(nextSyncEvent);
 		return;
 	}
 

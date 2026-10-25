@@ -62,7 +62,7 @@ const userMoves = () =>
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		threadMessageService: store.threadMessage,
 		addressService: store.address,
-		queue: capture,
+		queue: capture.fifo,
 	});
 
 const spam = () =>
@@ -77,13 +77,13 @@ const spam = () =>
 			mailboxSpecialUseService: store.mailboxSpecialUse,
 			threadMessageService: store.threadMessage,
 			addressService: store.address,
-			queue: capture,
+			queue: capture.fifo,
 			moveSettleTimeoutMs: 30,
 			moveSettlePollMs: 5,
 		}),
 		flagPushService: new FlagPushService({
 			markerService: store.flagPush,
-			queue: capture,
+			queue: capture.fifo,
 		}),
 		moveSettleTimeoutMs: 30,
 		moveSettlePollMs: 5,

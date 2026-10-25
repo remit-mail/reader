@@ -22,7 +22,7 @@ export type SyncQueueEvent =
 export interface RemitClientQueues {
 	sync: FifoQueueProducer<SyncQueueEvent>;
 	accountFanout: QueueProducer<AccountFanoutEvent>;
-	smtp: FifoQueueProducer<SendMessageEvent>;
+	smtp: QueueProducer<SendMessageEvent>;
 	messageManagement: QueueProducer<PlacementMovePushEvent>;
 	body: QueueProducer<SyncMessageBodyEvent>;
 }

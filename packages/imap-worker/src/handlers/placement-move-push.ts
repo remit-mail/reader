@@ -14,9 +14,10 @@ import {
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -152,9 +153,11 @@ export const attemptMove = async (
 export const handlePlacementMovePush = async (
 	event: PlacementMovePushEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	receiveCount = 1,
 	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
+	const emit = createEmitEvent(queues);
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -238,7 +241,7 @@ export const handlePlacementMovePush = async (
 				"Placement move not pushed: its source folder is gone; the stale row was reconciled",
 			);
 			if (destination.kind === "present") {
-				await emitMailboxResync(emitEvent, {
+				await emitMailboxResync(emit, {
 					accountId,
 					mailboxId: marker.destinationMailboxId,
 				});
@@ -261,7 +264,7 @@ export const handlePlacementMovePush = async (
 			context,
 			"Placement move not pushed: its destination folder is gone; the row was handed back to its source",
 		);
-		await emitMailboxResync(emitEvent, {
+		await emitMailboxResync(emit, {
 			accountId,
 			mailboxId: marker.sourceMailboxId,
 		});
@@ -354,7 +357,7 @@ export const handlePlacementMovePush = async (
 							},
 							"Message no longer at its pending-move source (external delete or moved away); marker dropped, stale row reconciled",
 						);
-						await emitMoveResync(emitEvent, {
+						await emitMoveResync(emit, {
 							accountId,
 							sourceMailboxId: marker.sourceMailboxId,
 							destinationMailboxId: marker.destinationMailboxId,
@@ -404,7 +407,7 @@ export const handlePlacementMovePush = async (
 						"Placement move confirmed on IMAP; marker cleared",
 					);
 
-					await emitMoveResync(emitEvent, {
+					await emitMoveResync(emit, {
 						accountId,
 						sourceMailboxId: marker.sourceMailboxId,
 						destinationMailboxId: marker.destinationMailboxId,
@@ -452,7 +455,7 @@ export const handlePlacementMovePush = async (
 					);
 
 					if (outcome === "reconciled") {
-						await emitMoveResync(emitEvent, {
+						await emitMoveResync(emit, {
 							accountId,
 							sourceMailboxId: marker.sourceMailboxId,
 							destinationMailboxId: marker.destinationMailboxId,

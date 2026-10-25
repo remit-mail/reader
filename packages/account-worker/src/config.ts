@@ -1,6 +1,9 @@
 import { getClient } from "@remit/backend/client";
 import type { GroupedQueueProducer, QueueProducer } from "@remit/data-ports";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	createGroupedQueueProducer,
+	createStandardQueueProducer,
+} from "@remit/sqs-client/producer";
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
@@ -26,10 +29,10 @@ export interface FanoutQueues {
 }
 
 export const sqsFanoutQueues = (): FanoutQueues => ({
-	accountFinalize: createQueueProducer({
+	accountFinalize: createStandardQueueProducer({
 		queueUrl: getAccountFinalizeQueueUrl(),
 	}),
-	accountPurgeDelete: createQueueProducer({
+	accountPurgeDelete: createGroupedQueueProducer({
 		queueUrl: getAccountPurgeDeleteQueueUrl(),
 	}),
 });

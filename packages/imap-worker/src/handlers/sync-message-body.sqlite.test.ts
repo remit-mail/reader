@@ -73,7 +73,7 @@ const arrange = async (): Promise<Arranged> => {
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	syncMessageBody(a.event, a.w.log, receiveCount, a.w.scope);
+	syncMessageBody(a.event, a.w.log, a.w.queues, receiveCount, a.w.scope);
 
 const bodyFetches = (a: Arranged): string[] => a.w.imap.commands("BODY");
 
@@ -160,7 +160,7 @@ const batchOf = (
 });
 
 const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
-	syncMessageBody(event, w.log, receiveCount, w.scope);
+	syncMessageBody(event, w.log, w.queues, receiveCount, w.scope);
 
 const arrangeFiling = async () => {
 	const w = await store.world();

@@ -48,7 +48,7 @@ describe("triggerSyncSafe", () => {
 		const { logger, info, error } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			queue: queue,
+			queue: queue.fifo,
 			logger,
 		});
 
@@ -68,7 +68,7 @@ describe("triggerSyncSafe", () => {
 		const { logger } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			queue: queue,
+			queue: queue.fifo,
 			logger,
 		});
 
@@ -84,7 +84,7 @@ describe("triggerSyncSafe", () => {
 
 		await assert.doesNotReject(
 			triggerSyncSafe("acc-a", "config-1", {
-				queue: deferredFailingQueue(econnrefused),
+				queue: deferredFailingQueue(econnrefused).fifo,
 				logger,
 			}),
 		);
@@ -98,7 +98,7 @@ describe("triggerSyncSafe", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			queue: deferredFailingQueue(econnrefused),
+			queue: deferredFailingQueue(econnrefused).fifo,
 			logger,
 		});
 
@@ -135,7 +135,7 @@ describe("triggerSyncSafe", () => {
 		try {
 			// Fire-and-forget exactly as SyncOperations_triggerSync does.
 			void triggerSyncSafe("acc-a", "config-1", {
-				queue: deferredFailingQueue(econnrefused),
+				queue: deferredFailingQueue(econnrefused).fifo,
 				logger,
 			});
 

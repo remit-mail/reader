@@ -182,7 +182,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		threadMessageService: store.threadMessage,
 		flagPushService: new FlagPushService({
 			markerService: store.flagPush,
-			queue: world.queue,
+			queue: world.queue.fifo,
 		}),
 	});
 	return new BodySyncService(

@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import type {
-	FifoQueueProducer,
 	IAccountRepository,
 	IOutboxMessageRepository,
 	OutboxMessageItem,
+	QueueProducer,
 } from "@remit/data-ports";
 import {
 	BadRequestError,
@@ -37,7 +37,7 @@ export interface OutboxQueueConfig {
 	outboxMessageService: IOutboxMessageRepository;
 	outboxAttachmentService: OutboxAttachmentService;
 	accountService: IAccountRepository;
-	queue: FifoQueueProducer<SendMessageEvent>;
+	queue: QueueProducer<SendMessageEvent>;
 	logger?: OutboxQueueLogger;
 }
 
@@ -162,7 +162,7 @@ export class OutboxQueueService {
 	private outboxMessageService: IOutboxMessageRepository;
 	private outboxAttachmentService: OutboxAttachmentService;
 	private accountService: IAccountRepository;
-	private queue: FifoQueueProducer<SendMessageEvent>;
+	private queue: QueueProducer<SendMessageEvent>;
 	private log: OutboxQueueLogger;
 
 	constructor(config: OutboxQueueConfig) {
@@ -487,11 +487,7 @@ export class OutboxQueueService {
 			outboxMessageId,
 		};
 
-		await this.queue.send({
-			body: event,
-			groupId: accountId,
-			deduplicationId: event.eventId,
-		});
+		await this.queue.send({ body: event });
 
 		this.log.info(
 			{ eventId: event.eventId, accountId, outboxMessageId },

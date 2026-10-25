@@ -42,7 +42,7 @@ const baseDeps = (queue: RecordingQueue): ProcessPurgeFanoutDeps => ({
 		{ threadMessageId: "tm-1", messageId: "msg-1", mailboxId: "mbx-1" },
 		{ threadMessageId: "tm-2", messageId: "msg-2", mailboxId: "mbx-1" },
 	]),
-	queue,
+	queue: queue.grouped,
 });
 
 describe("processAccountDataPurge", () => {

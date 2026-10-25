@@ -1,15 +1,20 @@
 import {
 	SendMessageBatchCommand,
 	SendMessageCommand,
+	type SendMessageRequest,
 	SQSClient,
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
 import type {
 	FifoQueueMessage,
+	FifoQueueProducer,
 	GroupedQueueMessage,
+	GroupedQueueProducer,
 	QueueBatchResult,
+	QueueKind,
 	QueueMessage,
 	QueueProducer,
+	QueueProducerOf,
 } from "@remit/data-ports";
 import { resolveSqsCredentials, type SqsStaticCredentials } from "./index.js";
 
@@ -82,48 +87,20 @@ export const createSqsClient = (options: CreateSqsClientOptions): SQSClient => {
 	});
 };
 
-const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
+type MessageAttributes = Pick<
+	SendMessageRequest,
+	"MessageGroupId" | "MessageDeduplicationId"
+>;
 
-const isGrouped = <T>(
-	message: QueueMessage<T>,
-): message is GroupedQueueMessage<T> =>
-	"groupId" in message && typeof message.groupId === "string";
-
-const isDeduplicated = <T>(
-	message: QueueMessage<T>,
-): message is FifoQueueMessage<T> =>
-	isGrouped(message) &&
-	"deduplicationId" in message &&
-	typeof message.deduplicationId === "string";
-
-/**
- * The SQS adapter for the `QueueProducer` port. A FIFO queue (`.fifo`) gets
- * the message group, and the deduplication id when the message carries one
- * (otherwise the queue deduplicates by content); a standard queue rejects
- * both, so they are left off. A local queue server (ElasticMQ) does not honour
- * a per-message delay on its FIFO queues, so the delay is dropped there.
- */
-export const createQueueProducer = <
-	T,
-	M extends QueueMessage<T> = QueueMessage<T>,
->(
+const createProducer = <K extends QueueKind, M extends QueueMessage<unknown>>(
+	kind: K,
 	options: CreateSqsClientOptions,
-): QueueProducer<T, M> => {
+	attributes: (message: M) => MessageAttributes,
+): QueueProducerOf<K, M> => {
 	const { queueUrl } = options;
 	const client = createSqsClient(options);
-	const fifo = isFifoQueue(queueUrl);
-	const local = isLocalEndpoint(queueUrl);
-	const attributes = (message: M) => ({
-		...(fifo && isGrouped(message) && { MessageGroupId: message.groupId }),
-		...(fifo &&
-			isDeduplicated(message) && {
-				MessageDeduplicationId: message.deduplicationId,
-			}),
-		...(message.delaySeconds &&
-			!local && { DelaySeconds: message.delaySeconds }),
-	});
-
 	return {
+		kind,
 		send: async (message) => {
 			await client.send(
 				new SendMessageCommand({
@@ -152,3 +129,25 @@ export const createQueueProducer = <
 		},
 	};
 };
+
+export const createStandardQueueProducer = <T>(
+	options: CreateSqsClientOptions,
+): QueueProducer<T> =>
+	createProducer<"Standard", QueueMessage<T>>("Standard", options, () => ({}));
+
+export const createGroupedQueueProducer = <T>(
+	options: CreateSqsClientOptions,
+): GroupedQueueProducer<T> =>
+	createProducer<"Grouped", GroupedQueueMessage<T>>(
+		"Grouped",
+		options,
+		(message) => ({ MessageGroupId: message.groupId }),
+	);
+
+export const createFifoQueueProducer = <T>(
+	options: CreateSqsClientOptions,
+): FifoQueueProducer<T> =>
+	createProducer<"Fifo", FifoQueueMessage<T>>("Fifo", options, (message) => ({
+		MessageGroupId: message.groupId,
+		MessageDeduplicationId: message.deduplicationId,
+	}));

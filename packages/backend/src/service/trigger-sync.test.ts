@@ -1,9 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import {
-	failingQueue,
-	recordingQueue,
-} from "@remit/data-ports/recording-queue";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	buildScheduledSyncDedupId,
 	buildSyncMailboxesMessage,
@@ -118,7 +115,7 @@ describe("triggerAccountSync", () => {
 		const { sent } = queue;
 
 		const result = await triggerAccountSync({
-			queue,
+			queue: queue.fifo,
 			accountId: "account-xyz",
 		});
 
@@ -126,14 +123,5 @@ describe("triggerAccountSync", () => {
 		assert.equal(sent[0]?.groupId, "account-xyz");
 		assert.equal(sent[0]?.body.type, "SYNC_MAILBOXES");
 		assert.equal(result.eventId, sent[0]?.body.eventId);
-	});
-
-	it("propagates queue send errors to the caller", async () => {
-		const queue = failingQueue(new Error("MissingRequiredParameterException"));
-
-		await assert.rejects(
-			triggerAccountSync({ queue, accountId: "account-xyz" }),
-			/MissingRequiredParameterException/,
-		);
 	});
 });

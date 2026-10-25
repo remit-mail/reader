@@ -1,5 +1,8 @@
 import type { RecordingQueue } from "@remit/data-ports/recording-queue";
-import { MailboxQueueService } from "@remit/mailbox-service";
+import {
+	fifoMailboxManagement,
+	MailboxQueueService,
+} from "@remit/mailbox-service";
 import {
 	type Store,
 	silentLog,
@@ -13,7 +16,7 @@ export const ruleDeps = (
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: store.mailbox,
-			queue,
+			enqueue: fifoMailboxManagement(queue.fifo),
 		}),
 		settleTimeoutMs: 100,
 		pollIntervalMs: 10,

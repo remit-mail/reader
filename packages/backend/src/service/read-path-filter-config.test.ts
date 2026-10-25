@@ -130,7 +130,7 @@ const readBodyThroughClient = async (
 		storage,
 		secrets: {} as unknown as SecretsService,
 		queues: {
-			sync: recordingQueue(),
+			sync: recordingQueue().fifo,
 			accountFanout: recordingQueue(),
 			smtp: recordingQueue(),
 			messageManagement: recordingQueue(),

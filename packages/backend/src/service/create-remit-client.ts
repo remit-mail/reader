@@ -38,6 +38,7 @@ import {
 	type FilterConfig,
 	FlagPushService,
 	FlagQueueService,
+	fifoMailboxManagement,
 	type IImapConnection,
 	MailboxQueueService,
 	MessageMoveService,
@@ -388,7 +389,7 @@ export const composeSyncServices = (
 		}),
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: core.mailbox,
-			queue: queues.sync,
+			enqueue: fifoMailboxManagement(queues.sync),
 			logger,
 		}),
 		messageMove,

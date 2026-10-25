@@ -65,7 +65,7 @@ const tick = async (
 	const logs: LogLine[] = [];
 	const result = await runSchedulerTick({
 		accountService: accounts,
-		queue,
+		queue: queue.fifo,
 		log: capturingLogger(logs),
 		tickIntervalMs: TICK_INTERVAL_MS,
 		offlineIntervalMs: OFFLINE_INTERVAL_MS,

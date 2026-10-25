@@ -25,8 +25,8 @@ import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessages } from "./handlers/sync-messages.js";
-import { setWorkerQueues } from "./queues.js";
 import { runSchedulerTick } from "./scheduler/run-tick.js";
+import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 const NOW = 1_700_000_000_000;
 
@@ -70,15 +70,6 @@ beforeEach(() => {
 		mailboxLock: locks,
 	} as unknown as RemitClient;
 	setClient(client);
-	const queue = recordingQueue();
-	setWorkerQueues({
-		mailboxes: queue,
-		messages: queue,
-		flags: queue,
-		body: queue,
-		mailboxManagement: queue,
-		messageManagement: queue,
-	});
 });
 
 afterEach(() => {
@@ -144,7 +135,7 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 	const result = await runSchedulerTick({
 		redriveStrandedPlacements: async () => 0,
 		accountService: accounts,
-		queue,
+		queue: queue.fifo,
 		log: silentLogger,
 		tickIntervalMs: 60_000,
 		offlineIntervalMs: 0,
@@ -179,6 +170,7 @@ describe("turning mail sync off and on again", () => {
 				accountId: account.accountId,
 			},
 			silentLogger,
+			workerQueuesOn(recordingQueue()),
 		);
 
 		let connections = 0;
@@ -191,6 +183,7 @@ describe("turning mail sync off and on again", () => {
 				mailboxId,
 			},
 			silentLogger,
+			workerQueuesOn(recordingQueue()),
 			() => {
 				connections += 1;
 				throw new Error("a sync that is off must not connect");

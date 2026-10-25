@@ -71,7 +71,7 @@ beforeEach(async () => {
 		return {};
 	});
 
-	const { client } = store;
+	const { client } = mine;
 	deps = {
 		account: client.account,
 		mailbox: client.mailbox,

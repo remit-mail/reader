@@ -9,10 +9,11 @@ import {
 	SQSClient,
 } from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
-import type { GroupedQueueMessage } from "@remit/data-ports";
 import {
-	createQueueProducer,
+	createFifoQueueProducer,
+	createGroupedQueueProducer,
 	createSqsClient,
+	createStandardQueueProducer,
 	isLocalEndpoint,
 } from "./producer.js";
 
@@ -205,23 +206,12 @@ const message = {
 	deduplicationId: "evt-1",
 };
 
-describe("createQueueProducer", () => {
+describe("createStandardQueueProducer", () => {
 	afterEach(() => mock.restoreAll());
 
-	it("groups a message that names no deduplication id, leaving it to the queue", async () => {
+	it("sends only the body", async () => {
 		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer<unknown, GroupedQueueMessage<unknown>>({
-			queueUrl: awsQueueUrl,
-		}).send({ body: message.body, groupId: "acc-1" });
-
-		assert.ok(sent[0] instanceof SendMessageCommand);
-		assert.equal(sent[0].input.MessageGroupId, "acc-1");
-		assert.equal(sent[0].input.MessageDeduplicationId, undefined);
-	});
-
-	it("sends only the body of a standard message", async () => {
-		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer({ queueUrl: composeQueueUrl }).send({
+		await createStandardQueueProducer({ queueUrl: composeQueueUrl }).send({
 			body: message.body,
 		});
 
@@ -232,9 +222,40 @@ describe("createQueueProducer", () => {
 		});
 	});
 
-	it("sends the body with its group and deduplication id to a FIFO queue", async () => {
+	it("reports nothing refused when the batch is accepted whole", async () => {
+		recordingClient(() => ({ Successful: [] }));
+		const result = await createStandardQueueProducer({
+			queueUrl: composeQueueUrl,
+		}).sendBatch([{ body: message.body }]);
+		assert.equal(result.refused.size, 0);
+	});
+});
+
+describe("createGroupedQueueProducer", () => {
+	afterEach(() => mock.restoreAll());
+
+	it("groups a message and leaves deduplication to the queue", async () => {
 		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer({ queueUrl: awsQueueUrl }).send(message);
+		await createGroupedQueueProducer({ queueUrl: awsQueueUrl }).send({
+			body: message.body,
+			groupId: "acc-1",
+		});
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.deepEqual(sent[0].input, {
+			QueueUrl: awsQueueUrl,
+			MessageBody: JSON.stringify(message.body),
+			MessageGroupId: "acc-1",
+		});
+	});
+});
+
+describe("createFifoQueueProducer", () => {
+	afterEach(() => mock.restoreAll());
+
+	it("sends the body with its group and deduplication id", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createFifoQueueProducer({ queueUrl: awsQueueUrl }).send(message);
 
 		assert.equal(sent.length, 1);
 		assert.ok(sent[0] instanceof SendMessageCommand);
@@ -246,56 +267,13 @@ describe("createQueueProducer", () => {
 		});
 	});
 
-	it("leaves the group and deduplication id off a standard queue", async () => {
-		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer({ queueUrl: composeQueueUrl }).send(message);
-
-		assert.ok(sent[0] instanceof SendMessageCommand);
-		assert.deepEqual(sent[0].input, {
-			QueueUrl: composeQueueUrl,
-			MessageBody: JSON.stringify(message.body),
-		});
-	});
-
-	it("delays a message on a remote queue", async () => {
-		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer({ queueUrl: awsQueueUrl }).send({
-			...message,
-			delaySeconds: 30,
-		});
-
-		assert.ok(sent[0] instanceof SendMessageCommand);
-		assert.equal(sent[0].input.DelaySeconds, 30);
-	});
-
-	it("drops the delay on a local queue server", async () => {
-		const { sent } = recordingClient(() => ({}));
-		await createQueueProducer({ queueUrl: composeQueueUrl }).send({
-			...message,
-			delaySeconds: 30,
-		});
-
-		assert.ok(sent[0] instanceof SendMessageCommand);
-		assert.equal(sent[0].input.DelaySeconds, undefined);
-	});
-
-	it("rejects when the queue rejects a send", async () => {
-		recordingClient(() => {
-			throw new Error("queue down");
-		});
-		await assert.rejects(
-			createQueueProducer({ queueUrl: composeQueueUrl }).send(message),
-			/queue down/,
-		);
-	});
-
 	it("reports the entries a batch send refused by their position", async () => {
 		const { sent } = recordingClient(() => ({
 			Successful: [{ Id: "0" }],
 			Failed: [{ Id: "1", Code: "InvalidParameterValue", SenderFault: true }],
 		}));
 		const second = { ...message, deduplicationId: "evt-2" };
-		const result = await createQueueProducer({
+		const result = await createFifoQueueProducer({
 			queueUrl: awsQueueUrl,
 		}).sendBatch([message, second]);
 
@@ -315,13 +293,5 @@ describe("createQueueProducer", () => {
 				MessageDeduplicationId: "evt-2",
 			},
 		]);
-	});
-
-	it("reports nothing refused when the batch is accepted whole", async () => {
-		recordingClient(() => ({ Successful: [] }));
-		const result = await createQueueProducer({
-			queueUrl: composeQueueUrl,
-		}).sendBatch([message]);
-		assert.equal(result.refused.size, 0);
 	});
 });

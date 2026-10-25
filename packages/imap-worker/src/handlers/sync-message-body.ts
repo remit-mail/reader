@@ -25,6 +25,7 @@ import {
 	createConnectionScopeWithCredentials,
 } from "../connection-scope.js";
 import type { SyncMessageBodyEvent } from "../events.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { workerVersion } from "../worker-version.js";
@@ -87,6 +88,7 @@ export const buildRetryableFailureError = (
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	receiveCount = 1,
 	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
@@ -142,7 +144,6 @@ export const syncMessageBody = async (
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarStore,
-		queues,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);

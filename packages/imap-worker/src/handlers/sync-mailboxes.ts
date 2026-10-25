@@ -21,6 +21,7 @@ import {
 	MailboxSyncService,
 	MailConnectionError,
 	type MailCredentials,
+	standardMailboxManagement,
 } from "@remit/mailbox-service";
 import pMap from "p-map";
 import {
@@ -28,9 +29,9 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent, type EmitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
-import { workerQueues } from "../queues.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { createImportedFolder } from "./imported-folder.js";
@@ -95,6 +96,7 @@ export const mailboxNeedsSync = (
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
 	log: Logger,
+	queues: WorkerQueues,
 ): Promise<void> => {
 	const client = await getClient();
 	const {
@@ -118,7 +120,7 @@ export const syncMailboxes = async (
 			mailboxService,
 			new MailboxQueueService({
 				mailboxService,
-				queue: workerQueues().mailboxManagement,
+				enqueue: standardMailboxManagement(queues.mailboxManagement),
 				logger: log,
 			}),
 		),
@@ -166,6 +168,7 @@ export const syncMailboxes = async (
 					accountService,
 					binder,
 					log,
+					createEmitEvent(queues),
 				);
 			} catch (err) {
 				// Auth failures are handled by the wrapper — rethrow untouched so it
@@ -199,6 +202,7 @@ const syncMailboxesForAccount = async (
 	accountService: IAccountRepository,
 	binder: ConfigBinderDeps,
 	log: Logger,
+	emit: EmitEvent,
 ): Promise<void> => {
 	const { accountId } = account;
 
@@ -330,7 +334,7 @@ const syncMailboxesForAccount = async (
 		mailboxCountSynced: skipped,
 	});
 
-	await emitSyncMessagesEvents(accountId, mailboxes, emitEvent);
+	await emitSyncMessagesEvents(accountId, mailboxes, emit);
 };
 
 type SyncMessagesInput = Omit<SyncMessagesEvent, "eventId" | "timestamp">;

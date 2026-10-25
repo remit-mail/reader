@@ -17,9 +17,10 @@ import {
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent } from "../emit.js";
 import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
@@ -244,9 +245,11 @@ export const buildThreadMessageMoveUpdate = (
 export const handleMessageMove = async (
 	event: MessageMoveEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	receiveCount = 1,
 	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
+	const emit = createEmitEvent(queues);
 	const {
 		account: accountService,
 		message: messageService,
@@ -343,7 +346,7 @@ export const handleMessageMove = async (
 					},
 					"MESSAGE_MOVE not pushed: source mailbox no longer exists (deleted); stale row reconciled",
 				);
-				await emitMailboxResync(emitEvent, {
+				await emitMailboxResync(emit, {
 					accountId,
 					mailboxId: destinationMailboxId,
 				});
@@ -449,7 +452,7 @@ export const handleMessageMove = async (
 					{ metric: "message_move_destination_gone" },
 					"destination mailbox no longer exists (deleted)",
 				);
-				await emitMailboxResync(emitEvent, {
+				await emitMailboxResync(emit, {
 					accountId,
 					mailboxId: sourceMailboxId,
 				});
@@ -543,7 +546,7 @@ export const handleMessageMove = async (
 					);
 				}
 
-				await emitMoveResync(emitEvent, {
+				await emitMoveResync(emit, {
 					accountId,
 					sourceMailboxId,
 					destinationMailboxId,
@@ -624,7 +627,7 @@ export const handleMessageMove = async (
 							await settleMoved(newUid);
 						},
 						() =>
-							emitMoveResync(emitEvent, {
+							emitMoveResync(emit, {
 								accountId,
 								sourceMailboxId,
 								destinationMailboxId,
@@ -739,7 +742,7 @@ export const handleMessageMove = async (
 					// re-projects it with the server's own UID. BROKEN, the row has just
 					// been put back at the source the server confirmed, and the resync
 					// is what carries any drift either folder has picked up since.
-					await emitMoveResync(emitEvent, {
+					await emitMoveResync(emit, {
 						accountId,
 						sourceMailboxId,
 						destinationMailboxId,

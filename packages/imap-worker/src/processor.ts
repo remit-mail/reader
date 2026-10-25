@@ -12,10 +12,12 @@ import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
 import { syncMessages } from "./handlers/sync-messages.js";
+import type { WorkerQueues } from "./queues.js";
 
 export const processEvent = async (
 	event: WorkerEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	/**
 	 * SQS's own delivery count for the record carrying this event (1 on first
 	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH, FLAG_PUSH,
@@ -29,31 +31,31 @@ export const processEvent = async (
 ): Promise<void> => {
 	switch (event.type) {
 		case "SYNC_MAILBOXES":
-			return syncMailboxes(event, log);
+			return syncMailboxes(event, log, queues);
 		case "SYNC_MESSAGES":
-			return syncMessages(event, log);
+			return syncMessages(event, log, queues);
 		case "SYNC_MESSAGE_BODY":
-			return syncMessageBody(event, log, receiveCount);
+			return syncMessageBody(event, log, queues, receiveCount);
 		case "MAILBOX_CREATE":
 		case "MAILBOX_RENAME":
 		case "MAILBOX_DELETE":
 			return processMailboxManagement(event, log);
 		case "MESSAGE_DELETE":
-			return handleMessageDelete(event, log, receiveCount);
+			return handleMessageDelete(event, log, queues, receiveCount);
 		case "MESSAGE_MOVE":
-			return handleMessageMove(event, log, receiveCount);
+			return handleMessageMove(event, log, queues, receiveCount);
 		case "PLACEMENT_MOVE_PUSH":
-			return handlePlacementMovePush(event, log, receiveCount);
+			return handlePlacementMovePush(event, log, queues, receiveCount);
 		case "FLAG_PUSH":
 			return handleFlagPush(event, log, receiveCount);
 		case "MESSAGE_COPY":
-			return handleMessageCopy(event, log, receiveCount);
+			return handleMessageCopy(event, log, queues, receiveCount);
 		case "EMPTY_TRASH":
 			return handleEmptyTrash(event, log);
 		case "APPEND_SENT_MESSAGE":
 			return handleAppendSentMessage(event, log, receiveCount);
 		case "DELETE_ACCOUNT_OBJECTS":
-			return handleDeleteAccountObjects(event, log);
+			return handleDeleteAccountObjects(event, log, queues);
 		default:
 			throw new Error(`Unknown event type: ${(event as WorkerEvent).type}`);
 	}
