@@ -1,10 +1,14 @@
-import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
 
 /**
- * The drizzle handle a repository runs on.
+ * The drizzle handle a repository runs on: any synchronous SQLite driver.
  *
- * Internal to this adapter: it names better-sqlite3, so it is not exported from
- * the package index and never appears on a shared surface.
+ * better-sqlite3 is the one this package opens; a Cloudflare Durable Object's
+ * `durable-sqlite` handle satisfies it too, so its adapter constructs the same
+ * repositories over its own storage.
  */
-export type Db<TSchema extends Record<string, unknown>> =
-	BetterSQLite3Database<TSchema>;
+export type Db<TSchema extends Record<string, unknown>> = BaseSQLiteDatabase<
+	"sync",
+	unknown,
+	TSchema
+>;
