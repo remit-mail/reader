@@ -15,12 +15,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
-import { shippedIndexDdl } from "../test-shipped-sqlite-schema.js";
 import type { DrizzleThreadMessageRepository } from "./thread-message.js";
-
-// The index the mail baseline creates for this predicate, read from the one
-// committed source so the plan assertion below is about the real object.
-const mutedIndexDdl = shippedIndexDdl("address_by_normalized_email");
 
 const ACCOUNT = "acct-seam";
 const MAILBOX = "mbx-seam";
@@ -65,7 +60,6 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			},
 			{ searchIndex: true },
 		));
-		sqlite.exec(mutedIndexDdl);
 		repo = createSqliteRepositories({
 			app: db,
 			mail: db,
