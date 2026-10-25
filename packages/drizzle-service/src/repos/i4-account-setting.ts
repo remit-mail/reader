@@ -64,8 +64,8 @@ export class AccountSettingRepo implements IAccountSettingRepository {
 			.from(accountSettingTable)
 			.where(
 				and(
-					inList(accountSettingTable.accountConfigId, [...accountConfigIds]),
-					inList(accountSettingTable.name, [...names]),
+					inList(accountSettingTable.accountConfigId, accountConfigIds),
+					inList(accountSettingTable.name, names),
 				),
 			);
 		return rows.map(rowToAccountSetting);

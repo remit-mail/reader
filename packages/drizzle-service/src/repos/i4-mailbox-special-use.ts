@@ -270,7 +270,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 				accountConfigId: accountTable.accountConfigId,
 			})
 			.from(accountTable)
-			.where(inList(accountTable.accountId, [...accountIds]));
+			.where(inList(accountTable.accountId, accountIds));
 		if (accounts.length === 0) return new Map();
 
 		const wanted = new Map<string, string>();
@@ -304,7 +304,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		const rows = await this.db
 			.select()
 			.from(mailboxTable)
-			.where(inList(mailboxTable.accountId, [...accountIds]));
+			.where(inList(mailboxTable.accountId, accountIds));
 		if (rows.length === 0) return new Map();
 
 		const entries = await this.db

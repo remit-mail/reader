@@ -1,4 +1,3 @@
-import { and, eq, or, type SQL } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import {
 	openSqliteDatabases,
@@ -17,7 +16,7 @@ import { quarantineTable } from "../schema/quarantine.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { SearchIndex } from "../search/thread-message-search.js";
-import { inList } from "./in-list.js";
+import { inList, pairInList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
 
 export interface CascadeEntity {
@@ -139,13 +138,17 @@ export const runDrizzleCascadeDelete = async (
 
 	const lockKeys = grouped.get("MailboxLock") ?? [];
 	if (lockKeys.length > 0) {
-		const conditions: SQL[] = lockKeys.map((k) =>
-			and(
-				eq(mailboxLockTable.mailboxId, k.mailboxId),
-				eq(mailboxLockTable.eventName, k.eventName),
-			),
-		) as SQL[];
-		items.push(mail.delete(mailboxLockTable).where(or(...conditions)));
+		items.push(
+			mail
+				.delete(mailboxLockTable)
+				.where(
+					pairInList(
+						mailboxLockTable.mailboxId,
+						mailboxLockTable.eventName,
+						lockKeys.map((k) => [k.mailboxId, k.eventName]),
+					),
+				),
+		);
 	}
 
 	const accountSettingIds = (grouped.get("AccountSetting") ?? []).map(
@@ -204,18 +207,19 @@ export const runDrizzleCascadeDelete = async (
 		);
 	}
 
-	// Composite key (messageId, flagName) — a message can carry an
-	// independent pending read-state marker and pending star marker at once
-	// (issue #1273), so a single-column inArray cannot target one row.
 	const flagPushKeys = grouped.get("MessageFlagPush") ?? [];
 	if (flagPushKeys.length > 0) {
-		const conditions: SQL[] = flagPushKeys.map((k) =>
-			and(
-				eq(messageFlagPushTable.messageId, k.messageId),
-				eq(messageFlagPushTable.flagName, k.flagName),
-			),
-		) as SQL[];
-		items.push(mail.delete(messageFlagPushTable).where(or(...conditions)));
+		items.push(
+			mail
+				.delete(messageFlagPushTable)
+				.where(
+					pairInList(
+						messageFlagPushTable.messageId,
+						messageFlagPushTable.flagName,
+						flagPushKeys.map((k) => [k.messageId, k.flagName]),
+					),
+				),
+		);
 	}
 	await runBatch(mail, items);
 	await runBatch(app, appItems);

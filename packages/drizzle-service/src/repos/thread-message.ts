@@ -347,7 +347,7 @@ export class DrizzleThreadMessageRepository
 					and(
 						eq(threadMessageTable.accountConfigId, query.accountConfigId),
 						query.mailboxIds
-							? inList(threadMessageTable.mailboxId, [...query.mailboxIds])
+							? inList(threadMessageTable.mailboxId, query.mailboxIds)
 							: undefined,
 						...query.row,
 						sentDateCursorCond(
@@ -463,7 +463,7 @@ export class DrizzleThreadMessageRepository
 					and(
 						eq(threadMessageTable.accountConfigId, query.accountConfigId),
 						query.mailboxIds
-							? inList(threadMessageTable.mailboxId, [...query.mailboxIds])
+							? inList(threadMessageTable.mailboxId, query.mailboxIds)
 							: undefined,
 						...query.row,
 					),

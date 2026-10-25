@@ -34,12 +34,13 @@ describe("inList on better-sqlite3", () => {
 
 	after(() => close());
 
-	test("matches 150 ids with a single bound parameter", async () => {
-		const rows = await db
+	test("binds a single parameter for 150 ids", () => {
+		const query = db
 			.select({ calendarId: calendarTable.calendarId })
 			.from(calendarTable)
-			.where(inList(calendarTable.calendarId, allIds));
-		assert.equal(rows.length, 150);
+			.where(inList(calendarTable.calendarId, allIds))
+			.toSQL();
+		assert.equal(query.params.length, 1);
 	});
 
 	test("matches only the listed ids", async () => {
