@@ -9,6 +9,7 @@ import {
 } from "@remit/domain-enums";
 import {
 	AccountRepo,
+	AccountSettingRepo,
 	AddressRepo,
 	DrizzleEnvelopeRepository,
 	DrizzleMessageRepository,
@@ -17,6 +18,7 @@ import {
 	MailboxSpecialUseRepo,
 	SearchIndex,
 	SyncWarningRepo,
+	syncBatch,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import {
@@ -119,9 +121,20 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		await new MessageSyncService(
 			factory,
 			mailboxes,
-			new MailboxSpecialUseRepo(db, db),
+			new MailboxSpecialUseRepo(
+				db,
+				new AccountRepo(
+					db,
+					new MailboxRepo(
+						db,
+						syncBatch(db),
+						new SearchIndex(db, db, syncBatch(db)),
+					),
+				),
+				new AccountSettingRepo(db),
+			),
 			messages,
-			new DrizzleEnvelopeRepository(db),
+			new DrizzleEnvelopeRepository(db, syncBatch(db)),
 			new AddressRepo(db),
 			threadMessages,
 			new SyncWarningService(new SyncWarningRepo(db)),
@@ -138,13 +151,29 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		const store = createShippedSqliteDb();
 		close = store.close;
 		db = store.db as never;
-		mailboxes = new MailboxRepo(db, new SearchIndex(db, db));
-		messages = new DrizzleMessageRepository(db, new SearchIndex(db, db));
+		mailboxes = new MailboxRepo(
+			db,
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
+		);
+		messages = new DrizzleMessageRepository(
+			db,
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
+		);
 		threadMessages = new DrizzleThreadMessageRepository(
 			db,
-			new SearchIndex(db, db),
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
 		);
-		const account = await new AccountRepo(db, db).create({
+		const account = await new AccountRepo(
+			db,
+			new MailboxRepo(
+				db,
+				syncBatch(db),
+				new SearchIndex(db, db, syncBatch(db)),
+			),
+		).create({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			username: "person@example.com",
 			email: "person@example.com",
@@ -179,7 +208,18 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		const copyId = await new MessageMoveService({
 			messageService: messages,
 			mailboxService: mailboxes,
-			mailboxSpecialUseService: new MailboxSpecialUseRepo(db, db),
+			mailboxSpecialUseService: new MailboxSpecialUseRepo(
+				db,
+				new AccountRepo(
+					db,
+					new MailboxRepo(
+						db,
+						syncBatch(db),
+						new SearchIndex(db, db, syncBatch(db)),
+					),
+				),
+				new AccountSettingRepo(db),
+			),
 			threadMessageService: threadMessages,
 			addressService: new AddressRepo(db),
 			sqsQueueUrl: "https://queue.test/messages",

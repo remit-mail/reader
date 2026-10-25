@@ -1,4 +1,5 @@
-import type { Db } from "./db.js";
+import { syncBatch, type WriteBatch } from "./batch.js";
+import type { Db, RepositoryDb } from "./db.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
@@ -15,6 +16,36 @@ export interface SqliteDatabases {
 	mail: Db<MessageDataSchema>;
 	search: Db<Record<string, unknown>>;
 }
+
+/** One database a repository runs on, with the write port bound to it. */
+export interface SqliteStore<TSchema extends Record<string, unknown>> {
+	db: RepositoryDb<TSchema>;
+	batch: WriteBatch;
+}
+
+/**
+ * The same three databases on any SQLite driver: each carries its own write
+ * port, so the app database can sit on D1 while mail runs in a Durable Object.
+ */
+export interface SqliteStores {
+	app: SqliteStore<Record<string, unknown>>;
+	mail: SqliteStore<MessageDataSchema>;
+	search: SqliteStore<Record<string, unknown>>;
+}
+
+export const syncStore = <TSchema extends Record<string, unknown>>(
+	db: Db<TSchema>,
+): SqliteStore<TSchema> => ({ db, batch: syncBatch(db) });
+
+export const syncStores = ({
+	app,
+	mail,
+	search,
+}: SqliteDatabases): SqliteStores => ({
+	app: syncStore(app),
+	mail: syncStore(mail),
+	search: syncStore(search),
+});
 
 export interface SqliteDatabasePaths {
 	app: string;

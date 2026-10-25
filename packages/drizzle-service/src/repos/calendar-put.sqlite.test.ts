@@ -10,6 +10,7 @@ import type {
 	CalendarWrite,
 	ICalendarStore,
 } from "@remit/data-ports";
+import { syncBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import {
 	calendarEventIndexTable,
@@ -18,6 +19,7 @@ import {
 } from "../schema.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { DrizzleCalendarStore } from "./calendar-store.js";
+import { CalendarSuggestionRepo } from "./calendar-suggestion.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-1";
 
@@ -77,7 +79,11 @@ describe("the calendar write path against sqlite", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		store = new DrizzleCalendarStore(db, db);
+		store = new DrizzleCalendarStore(
+			db,
+			syncBatch(db),
+			new CalendarSuggestionRepo(db),
+		);
 		const collection = await provisionDefaultCalendar(store, ACCOUNT_CONFIG_ID);
 		calendarId = collection.calendarId;
 	});

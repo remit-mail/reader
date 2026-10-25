@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
-import { runBatch } from "../batch.js";
+import { syncBatch } from "../batch.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -57,7 +57,8 @@ describe("MailboxRepo", () => {
 		({ db, close } = await createTestDb());
 		repo = new MailboxRepo(
 			db as never,
-			new SearchIndex(db as never, db as never),
+			syncBatch(db as never),
+			new SearchIndex(db as never, db as never, syncBatch(db as never)),
 		);
 	});
 
@@ -545,7 +546,8 @@ describe("MailboxRepo", () => {
 			const messageId = randomId();
 			await new DrizzleMessageRepository(
 				db as never,
-				new SearchIndex(db as never, db as never),
+				syncBatch(db as never),
+				new SearchIndex(db as never, db as never, syncBatch(db as never)),
 			).create({
 				messageId,
 				mailboxId,
@@ -674,7 +676,7 @@ describe("MailboxRepo", () => {
 
 			// The shape an interruption leaves: one message's rows already gone,
 			// the mailbox row still there and still `deleting`.
-			await runBatch(db, deleteMessageSubtree(db, [first]));
+			await syncBatch(db)(deleteMessageSubtree(db, [first]));
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: EVERY_STATE,
 				to: MailboxSyncStatus.deleting,

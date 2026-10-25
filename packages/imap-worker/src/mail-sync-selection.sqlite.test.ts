@@ -53,11 +53,23 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db, store.db);
-	mailboxes = new MailboxRepo(store.db, new SearchIndex(store.db, store.db));
+	accounts = new AccountRepo(
+		store.db,
+		new MailboxRepo(
+			store.db,
+			store.batch,
+			new SearchIndex(store.db, store.db, store.batch),
+		),
+	);
+	mailboxes = new MailboxRepo(
+		store.db,
+		store.batch,
+		new SearchIndex(store.db, store.db, store.batch),
+	);
 	messages = new DrizzleMessageRepository(
 		store.db as never,
-		new SearchIndex(store.db as never, store.db as never),
+		store.batch,
+		new SearchIndex(store.db as never, store.db as never, store.batch),
 	);
 	locks = new MailboxLockRepo(store.db);
 	client = {

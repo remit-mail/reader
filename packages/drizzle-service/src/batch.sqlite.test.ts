@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { eq } from "drizzle-orm";
-import { runBatch } from "./batch.js";
+import { syncBatch } from "./batch.js";
 import { calendarTable } from "./schema.js";
 import { createSqliteTestDb, type SqliteTestDb } from "./test-db-sqlite.js";
 
@@ -36,7 +36,7 @@ describe("a batch on better-sqlite3", () => {
 	const stored = () => db.select().from(calendarTable);
 
 	test("answers each statement in order, reads seeing the writes before them", async () => {
-		const [inserted, read] = await runBatch(db, [
+		const [inserted, read] = await syncBatch(db)([
 			db.insert(calendarTable).values(collection("first")).returning(),
 			db
 				.select()
@@ -58,7 +58,7 @@ describe("a batch on better-sqlite3", () => {
 		const before = await stored();
 
 		await assert.rejects(
-			runBatch(db, [
+			syncBatch(db)([
 				db.insert(calendarTable).values(collection("second")),
 				db
 					.update(calendarTable)
@@ -73,6 +73,6 @@ describe("a batch on better-sqlite3", () => {
 	});
 
 	test("an empty batch writes nothing and answers nothing", async () => {
-		assert.deepEqual(await runBatch(db, []), []);
+		assert.deepEqual(await syncBatch(db)([]), []);
 	});
 });

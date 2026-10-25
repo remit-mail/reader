@@ -6,6 +6,7 @@ import {
 	meetsTrashAssurance,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
+import { syncBatch } from "../batch.js";
 import {
 	accountSettingTable,
 	accountTable,
@@ -14,6 +15,7 @@ import {
 } from "../schema.js";
 import { SearchIndex } from "../search/thread-message-search.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { AccountRepo } from "./i4-account.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
 import { MailboxRepo } from "./i4-mailbox.js";
 import { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
@@ -57,10 +59,30 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		});
 		close = testDb.close;
 		db = testDb.db;
-		repo = new MailboxSpecialUseRepo(testDb.db as never, testDb.db as never);
+		repo = new MailboxSpecialUseRepo(
+			testDb.db as never,
+			new AccountRepo(
+				testDb.db as never,
+				new MailboxRepo(
+					testDb.db as never,
+					syncBatch(testDb.db as never),
+					new SearchIndex(
+						testDb.db as never,
+						testDb.db as never,
+						syncBatch(testDb.db as never),
+					),
+				),
+			),
+			new AccountSettingRepo(testDb.db as never),
+		);
 		mailboxes = new MailboxRepo(
 			testDb.db as never,
-			new SearchIndex(testDb.db as never, testDb.db as never),
+			syncBatch(testDb.db as never),
+			new SearchIndex(
+				testDb.db as never,
+				testDb.db as never,
+				syncBatch(testDb.db as never),
+			),
 		);
 		accountSettings = new AccountSettingRepo(testDb.db as never);
 	});

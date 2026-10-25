@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { syncBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import { DrizzleThreadMessageRepository } from "../repos/thread-message.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
@@ -48,8 +49,12 @@ const open = (set: "mail" | "search") => {
 describe("the thread-message search index in its own database", () => {
 	const mail = open("mail");
 	const search = open("search");
-	const index = new SearchIndex(mail.db, search.db);
-	const repo = new DrizzleThreadMessageRepository(mail.db, index);
+	const index = new SearchIndex(mail.db, search.db, syncBatch(search.db));
+	const repo = new DrizzleThreadMessageRepository(
+		mail.db,
+		syncBatch(mail.db),
+		index,
+	);
 
 	const found = async (query: string): Promise<string[]> =>
 		(await repo.searchByMailboxWindow(ACCOUNT, MAILBOX, { query })).items.map(

@@ -19,6 +19,7 @@ import {
 	MailboxRepo,
 	MessageLabelRepo,
 	SearchIndex,
+	syncBatch,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -47,14 +48,30 @@ beforeEach(() => {
 	close = store.close;
 	const db = store.db as never;
 	client = {
-		account: new AccountRepo(store.db, store.db),
+		account: new AccountRepo(
+			store.db,
+			new MailboxRepo(
+				store.db,
+				store.batch,
+				new SearchIndex(store.db, store.db, store.batch),
+			),
+		),
 		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(store.db, new SearchIndex(store.db, store.db)),
+		mailbox: new MailboxRepo(
+			store.db,
+			store.batch,
+			new SearchIndex(store.db, store.db, store.batch),
+		),
 		address: new AddressRepo(store.db),
-		message: new DrizzleMessageRepository(db, new SearchIndex(db, db)),
+		message: new DrizzleMessageRepository(
+			db,
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
+		),
 		threadMessage: new DrizzleThreadMessageRepository(
 			db,
-			new SearchIndex(db, db),
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
 		),
 		label: new LabelRepo(store.db),
 		messageLabel: new MessageLabelRepo(store.db),

@@ -5,10 +5,10 @@ import type {
 } from "@remit/data-ports";
 import { deriveCalendarFeedTokenId } from "@remit/data-ports/id";
 import { and, eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { calendarFeedTokenTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToFeedToken(
 	row: typeof calendarFeedTokenTable.$inferSelect,

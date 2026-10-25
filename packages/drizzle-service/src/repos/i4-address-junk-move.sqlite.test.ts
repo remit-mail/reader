@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type Database from "better-sqlite3";
+import { syncBatch } from "../batch.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createTestDb, type TestDb } from "../test-db.js";
+import { AccountRepo } from "./i4-account.js";
+import { AccountSettingRepo } from "./i4-account-setting.js";
 import { AddressRepo } from "./i4-address.js";
+import { MailboxRepo } from "./i4-mailbox.js";
 import { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
 
 const CONFIG = "cfg-1";
@@ -124,7 +129,18 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 	before(async () => {
 		({ db, sqlite, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
-		specialUse = new MailboxSpecialUseRepo(db as never, db as never);
+		specialUse = new MailboxSpecialUseRepo(
+			db as never,
+			new AccountRepo(
+				db as never,
+				new MailboxRepo(
+					db as never,
+					syncBatch(db as never),
+					new SearchIndex(db as never, db as never, syncBatch(db as never)),
+				),
+			),
+			new AccountSettingRepo(db as never),
+		);
 	});
 
 	/**

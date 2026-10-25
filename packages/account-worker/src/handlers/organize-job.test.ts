@@ -185,7 +185,8 @@ const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
 	const threadMessage = new DrizzleThreadMessageRepository(
 		store.db as never,
-		new SearchIndex(store.db as never, store.db as never),
+		store.batch,
+		new SearchIndex(store.db as never, store.db as never, store.batch),
 	);
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];

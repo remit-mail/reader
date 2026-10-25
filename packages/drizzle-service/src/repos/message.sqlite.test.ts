@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -43,7 +44,11 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(SCHEMA));
-		repo = new DrizzleMessageRepository(db, new SearchIndex(db, db));
+		repo = new DrizzleMessageRepository(
+			db,
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
+		);
 	});
 
 	after(async () => {

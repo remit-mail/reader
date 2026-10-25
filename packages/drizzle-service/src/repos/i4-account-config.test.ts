@@ -1,9 +1,12 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
+import { SearchIndex } from "../search/thread-message-search.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import { AccountRepo } from "./i4-account.js";
 import { AccountConfigRepo } from "./i4-account-config.js";
 import { AddressRepo } from "./i4-address.js";
+import { MailboxRepo } from "./i4-mailbox.js";
 
 describe("AccountConfigRepo", () => {
 	let db: TestDb;
@@ -12,7 +15,7 @@ describe("AccountConfigRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AccountConfigRepo(db as never, db as never);
+		repo = new AccountConfigRepo(db as never, new AddressRepo(db as never));
 	});
 
 	after(async () => {
@@ -58,7 +61,14 @@ describe("AccountConfigRepo", () => {
 		const userId = randomId();
 		const cfg = await repo.create({ userId });
 
-		const accountRepo = new AccountRepo(db as never, db as never);
+		const accountRepo = new AccountRepo(
+			db as never,
+			new MailboxRepo(
+				db as never,
+				syncBatch(db as never),
+				new SearchIndex(db as never, db as never, syncBatch(db as never)),
+			),
+		);
 		const addrRepo = new AddressRepo(db as never);
 
 		await accountRepo.create({

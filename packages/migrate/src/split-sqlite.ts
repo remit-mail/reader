@@ -2,7 +2,7 @@ import { and, count, eq, getTableColumns, getTableName, is } from "drizzle-orm";
 import type { BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
 import { SQLiteTable, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import * as authTables from "../../auth-service/src/schema/auth-schema-sqlite.js";
-import { runBatch } from "../../drizzle-service/src/batch.js";
+import { syncBatch } from "../../drizzle-service/src/batch.js";
 import * as appTables from "../../drizzle-service/src/schema-sets/app.js";
 import * as mailTables from "../../drizzle-service/src/schema-sets/mail.js";
 import * as mcpTables from "../../mcp-server/src/auth/schema.js";
@@ -118,7 +118,7 @@ const copyTable = async (
 			target.insert(table).values(rows.slice(start, start + perStatement)),
 		);
 	}
-	await runBatch(target, statements);
+	await syncBatch(target)(statements);
 	return rows.length;
 };
 

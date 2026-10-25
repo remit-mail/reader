@@ -7,12 +7,12 @@ import {
 	type UpdateConfigImportInput,
 } from "@remit/data-ports";
 import { desc, eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { configImportTable } from "../schema/i4-config-import.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 type StoredRef = Omit<ConfigImportUnresolvedRefItem, "mailboxId"> & {
 	mailboxId?: string;

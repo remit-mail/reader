@@ -12,13 +12,13 @@ import {
 	FilterState,
 } from "@remit/domain-enums";
 import { and, asc, eq, gt, or } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { filterTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 const RULE_ASSERTION_FIELDS = [
 	"matchOperator",

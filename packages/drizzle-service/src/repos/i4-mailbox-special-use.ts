@@ -1,4 +1,7 @@
 import type {
+	AccountItem,
+	IAccountRepository,
+	IAccountSettingRepository,
 	IMailboxSpecialUseRepository,
 	MailboxSpecialUseItem,
 	MailboxSpecialUseValue,
@@ -15,14 +18,23 @@ import {
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { randomId } from "../id.js";
-import { accountTable } from "../schema/i4-account-config.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
-import { AccountSettingRepo } from "./i4-account-setting.js";
+import type { AccountSettingRepo } from "./i4-account-setting.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
+
+type AccountReader = Pick<
+	IAccountRepository,
+	"get" | "listAllByAccountConfig" | "listAll"
+>;
+
+type AppointmentReader = Pick<IAccountSettingRepository, "get"> &
+	Pick<AccountSettingRepo, "getMany">;
+
+type AppointedAccount = Pick<AccountItem, "accountId" | "accountConfigId">;
 
 const JUNK_ROLES: readonly CanonicalMailboxRoleValue[] = [
 	CanonicalMailboxRole.Junk,
@@ -89,14 +101,11 @@ function rowToSpecialUse(
 }
 
 export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
-	private readonly accountSetting: AccountSettingRepo;
-
 	constructor(
-		private app: DB,
 		private db: DB,
-	) {
-		this.accountSetting = new AccountSettingRepo(app);
-	}
+		private accounts: AccountReader,
+		private accountSetting: AppointmentReader,
+	) {}
 
 	async create(
 		mailboxId: string,
@@ -203,11 +212,9 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	async resolveJunkRolesForConfig(
 		accountConfigId: string,
 	): Promise<JunkRoleMailboxes> {
-		const accounts = await this.app
-			.select({ accountId: accountTable.accountId })
-			.from(accountTable)
-			.where(eq(accountTable.accountConfigId, accountConfigId));
-		return this.resolveJunkRoles(accounts.map((row) => row.accountId));
+		return this.resolveJunkRoles(
+			await this.accounts.listAllByAccountConfig(accountConfigId),
+		);
 	}
 
 	/**
@@ -217,21 +224,19 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	 * run one pass over the address table instead of one per config.
 	 */
 	async resolveJunkRolesForInstance(): Promise<JunkRoleMailboxes> {
-		const accounts = await this.app
-			.select({ accountId: accountTable.accountId })
-			.from(accountTable);
-		return this.resolveJunkRoles(accounts.map((row) => row.accountId));
+		return this.resolveJunkRoles(await this.accounts.listAll());
 	}
 
 	private async resolveJunkRoles(
-		accountIds: readonly string[],
+		accounts: readonly AppointedAccount[],
 	): Promise<JunkRoleMailboxes> {
-		if (accountIds.length === 0) {
+		if (accounts.length === 0) {
 			return { junkMailboxIds: [], trashMailboxIds: [] };
 		}
+		const accountIds = accounts.map((account) => account.accountId);
 		const [candidates, appointments] = await Promise.all([
 			this.roleCandidatesFor(accountIds),
-			this.appointedMailboxIds(accountIds, JUNK_ROLES),
+			this.appointedMailboxIds(accounts, JUNK_ROLES),
 		]);
 
 		const junkMailboxIds: string[] = [];
@@ -255,24 +260,13 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 	}
 
 	/**
-	 * Each account's appointment for each role, in two reads. Same precedence
-	 * input as `appointedMailboxId`, batched: an account row missing is a caller
-	 * racing a delete, and leaves the account with no appointment rather than
-	 * failing the lookup.
+	 * Each account's appointment for each role, in one read. Same precedence
+	 * input as `appointedMailboxId`, batched.
 	 */
 	private async appointedMailboxIds(
-		accountIds: readonly string[],
+		accounts: readonly AppointedAccount[],
 		roles: readonly CanonicalMailboxRoleValue[],
 	): Promise<Map<string, string>> {
-		const accounts = await this.app
-			.select({
-				accountId: accountTable.accountId,
-				accountConfigId: accountTable.accountConfigId,
-			})
-			.from(accountTable)
-			.where(inList(accountTable.accountId, accountIds));
-		if (accounts.length === 0) return new Map();
-
 		const wanted = new Map<string, string>();
 		for (const account of accounts) {
 			for (const role of roles) {
@@ -367,10 +361,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		accountId: string,
 		role: CanonicalMailboxRoleValue,
 	): Promise<string | undefined> {
-		const [account] = await this.app
-			.select({ accountConfigId: accountTable.accountConfigId })
-			.from(accountTable)
-			.where(eq(accountTable.accountId, accountId));
+		const [account] = await this.accounts.get([accountId]);
 		if (!account) return undefined;
 
 		const setting = await this.accountSetting.get(

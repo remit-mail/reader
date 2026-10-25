@@ -4,22 +4,21 @@ import type {
 	AccountSchedulerPage,
 	CreateAccountInput,
 	IAccountRepository,
+	IMailboxRepository,
 	RemovableAccountField,
 	ResultList,
 	UpdateAccountInput,
 } from "@remit/data-ports";
 import { AccountService, SyncPhase } from "@remit/domain-enums";
 import { and, asc, eq, gt, like, or, sql } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, encodeToken, resultList } from "../pagination.js";
 import { accountTable } from "../schema/i4-account-config.js";
-import { mailboxTable } from "../schema/i4-mailbox.js";
-import { rowToMailbox } from "./i4-mailbox.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 /**
  * A stored failure is a sentence the account card shows, not a transcript.
@@ -74,7 +73,7 @@ export function rowToAccount(
 export class AccountRepo implements IAccountRepository {
 	constructor(
 		private db: DB,
-		private mail: DB,
+		private mailboxes: Pick<IMailboxRepository, "listAllByAccount">,
 	) {}
 
 	async create(input: CreateAccountInput): Promise<AccountItem> {
@@ -269,17 +268,14 @@ export class AccountRepo implements IAccountRepository {
 				.select()
 				.from(accountTable)
 				.where(eq(accountTable.accountId, accountId)),
-			this.mail
-				.select()
-				.from(mailboxTable)
-				.where(eq(mailboxTable.accountId, accountId)),
+			this.mailboxes.listAllByAccount(accountId),
 		]);
 		if (accounts.length === 0) {
 			throw new NotFoundError(`Account not found: ${accountId}`);
 		}
 		return {
 			account: accounts.map(rowToAccount),
-			mailbox: mailboxes.map(rowToMailbox),
+			mailbox: mailboxes,
 		};
 	}
 

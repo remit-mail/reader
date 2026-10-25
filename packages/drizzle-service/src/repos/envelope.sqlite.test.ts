@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
@@ -19,7 +20,7 @@ describe("DrizzleEnvelopeRepository (sqlite)", () => {
 
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(messageDataSchema));
-		repo = new DrizzleEnvelopeRepository(db);
+		repo = new DrizzleEnvelopeRepository(db, syncBatch(db));
 	});
 
 	after(async () => {

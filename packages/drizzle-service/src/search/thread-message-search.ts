@@ -12,8 +12,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
-import { runBatch, type SqliteBatchItem } from "../batch.js";
-import type { Db } from "../db.js";
+import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import type { RepositoryDb } from "../db.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 
 // The FTS5 trigram table the search migration set creates
@@ -32,7 +32,7 @@ export const threadMessageSearchTable = sqliteTable("thread_message_fts", {
 	body: text("body").notNull(),
 });
 
-type AnyDb = Db<Record<string, unknown>>;
+type AnyDb = RepositoryDb<Record<string, unknown>>;
 
 type SearchDocument = typeof threadMessageSearchTable.$inferInsert;
 
@@ -141,6 +141,7 @@ export class SearchIndex {
 	constructor(
 		private readonly mail: AnyDb,
 		private readonly search: AnyDb,
+		private readonly batch: WriteBatch,
 	) {}
 
 	/** Make the index match the mail database for these thread messages. */
@@ -165,7 +166,7 @@ export class SearchIndex {
 						.values(rows.map(toDocument)),
 				);
 			}
-			await runBatch(this.search, items);
+			await this.batch(items);
 		}
 	}
 
@@ -256,8 +257,7 @@ export class SearchIndex {
 				.limit(DOCUMENTS_PER_REBUILD_PAGE);
 			const last = rows.at(-1);
 			if (!last) return indexed;
-			await runBatch(
-				this.search,
+			await this.batch(
 				chunk(rows, DOCUMENTS_PER_STATEMENT).map((slice) =>
 					this.search
 						.insert(threadMessageSearchTable)

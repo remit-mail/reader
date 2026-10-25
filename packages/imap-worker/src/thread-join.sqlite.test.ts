@@ -62,7 +62,7 @@ const REPLY = message(2, "<r@example.com>", "<p@example.com>");
 const syncInOrder = async (
 	messages: ImapMessage[],
 ): Promise<{ threadIds: (messageId: string) => string[] }> => {
-	const { db, sqlite } = createShippedSqliteDb();
+	const { db, batch, sqlite } = createShippedSqliteDb();
 	const typed = db as unknown as ConstructorParameters<
 		typeof DrizzleMessageRepository
 	>[0];
@@ -70,10 +70,18 @@ const syncInOrder = async (
 		{} as never,
 		{} as IMailboxRepository,
 		{} as IMailboxSpecialUseRepository,
-		new DrizzleMessageRepository(typed, new SearchIndex(typed, typed)),
-		new DrizzleEnvelopeRepository(typed),
+		new DrizzleMessageRepository(
+			typed,
+			batch,
+			new SearchIndex(typed, typed, batch),
+		),
+		new DrizzleEnvelopeRepository(typed, batch),
 		new AddressRepo(db as never),
-		new DrizzleThreadMessageRepository(db, new SearchIndex(db, db)),
+		new DrizzleThreadMessageRepository(
+			db,
+			batch,
+			new SearchIndex(db, db, batch),
+		),
 		new SyncWarningService(new SyncWarningRepo(db as never)),
 	);
 	const save = (

@@ -1,4 +1,8 @@
-import type { SqliteDatabases } from "./databases.js";
+import {
+	type SqliteDatabases,
+	type SqliteStores,
+	syncStores,
+} from "./databases.js";
 import { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 import { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 import { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";
@@ -31,45 +35,69 @@ import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 import { SearchIndex } from "./search/thread-message-search.js";
 
-// Every repo over the database that holds its tables (#1420).
-export const createSqliteRepositories = ({
+// Every repo over the database that holds its tables (#1420), each writing its
+// sets through that database's own batch port, so any SQLite driver serves.
+export const composeSqliteRepositories = ({
 	app,
 	mail,
 	search,
-}: SqliteDatabases) => {
-	const searchIndex = new SearchIndex(mail, search);
+}: SqliteStores) => {
+	const searchIndex = new SearchIndex(mail.db, search.db, search.batch);
+	const accountSetting = new AccountSettingRepo(app.db);
+	const address = new AddressRepo(mail.db);
+	const mailbox = new MailboxRepo(mail.db, mail.batch, searchIndex);
+	const account = new AccountRepo(app.db, mailbox);
+	const calendarSuggestion = new CalendarSuggestionRepo(mail.db);
 	return {
-		accountConfig: new AccountConfigRepo(app, mail),
-		account: new AccountRepo(app, mail),
-		accountSetting: new AccountSettingRepo(app),
-		address: new AddressRepo(mail),
-		mailbox: new MailboxRepo(mail, searchIndex),
-		mailboxSpecialUse: new MailboxSpecialUseRepo(app, mail),
-		mailboxLock: new MailboxLockRepo(mail),
-		message: new DrizzleMessageRepository(mail, searchIndex),
-		messageFlag: new DrizzleMessageFlagRepository(mail),
-		outboxMessage: new OutboxMessageRepo(mail),
-		outboxAttachment: new OutboxAttachmentRepo(mail),
-		threadMessage: new DrizzleThreadMessageRepository(mail, searchIndex),
-		envelope: new DrizzleEnvelopeRepository(mail),
-		accountExportRequest: new AccountExportRequestRepo(app),
-		configImport: new ConfigImportRepo(app),
-		quarantine: new QuarantineRepo(mail),
-		syncWarning: new SyncWarningRepo(mail),
-		organizeJobRequest: new OrganizeJobRequestRepo(mail),
-		placementMove: new MessagePlacementMoveRepo(mail),
-		flagPush: new MessageFlagPushRepo(mail),
-		filter: new FilterRepo(app),
-		label: new LabelRepo(app),
-		messageLabel: new MessageLabelRepo(mail),
-		senderSignerStanding: new SenderSignerStandingRepo(mail),
-		calendarCollection: new CalendarCollectionRepo(app),
-		calendarObject: new CalendarObjectRepo(app),
-		calendarEventIndex: new CalendarEventIndexRepo(app),
-		calendarFeedToken: new CalendarFeedTokenRepo(app),
-		calendarSuggestion: new CalendarSuggestionRepo(mail),
-		calendarStore: new DrizzleCalendarStore(app, mail),
+		accountConfig: new AccountConfigRepo(app.db, address),
+		account,
+		accountSetting,
+		address,
+		mailbox,
+		mailboxSpecialUse: new MailboxSpecialUseRepo(
+			mail.db,
+			account,
+			accountSetting,
+		),
+		mailboxLock: new MailboxLockRepo(mail.db),
+		message: new DrizzleMessageRepository(mail.db, mail.batch, searchIndex),
+		messageFlag: new DrizzleMessageFlagRepository(mail.db),
+		outboxMessage: new OutboxMessageRepo(mail.db),
+		outboxAttachment: new OutboxAttachmentRepo(mail.db, mail.batch),
+		threadMessage: new DrizzleThreadMessageRepository(
+			mail.db,
+			mail.batch,
+			searchIndex,
+		),
+		envelope: new DrizzleEnvelopeRepository(mail.db, mail.batch),
+		accountExportRequest: new AccountExportRequestRepo(app.db),
+		configImport: new ConfigImportRepo(app.db),
+		quarantine: new QuarantineRepo(mail.db),
+		syncWarning: new SyncWarningRepo(mail.db),
+		organizeJobRequest: new OrganizeJobRequestRepo(mail.db),
+		placementMove: new MessagePlacementMoveRepo(mail.db),
+		flagPush: new MessageFlagPushRepo(mail.db),
+		filter: new FilterRepo(app.db),
+		label: new LabelRepo(app.db),
+		messageLabel: new MessageLabelRepo(mail.db),
+		senderSignerStanding: new SenderSignerStandingRepo(mail.db),
+		calendarCollection: new CalendarCollectionRepo(app.db),
+		calendarObject: new CalendarObjectRepo(app.db),
+		calendarEventIndex: new CalendarEventIndexRepo(app.db),
+		calendarFeedToken: new CalendarFeedTokenRepo(app.db),
+		calendarSuggestion,
+		calendarStore: new DrizzleCalendarStore(
+			app.db,
+			app.batch,
+			calendarSuggestion,
+		),
 	};
 };
 
-export type SqliteRepositories = ReturnType<typeof createSqliteRepositories>;
+export type SqliteRepositories = ReturnType<typeof composeSqliteRepositories>;
+
+// The self-host composition: the three better-sqlite3 databases, each writing
+// its sets as one synchronous IMMEDIATE transaction.
+export const createSqliteRepositories = (
+	databases: SqliteDatabases,
+): SqliteRepositories => composeSqliteRepositories(syncStores(databases));

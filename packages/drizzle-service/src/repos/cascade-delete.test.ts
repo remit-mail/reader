@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { MailboxCursorState } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
+import { syncStores } from "../databases.js";
 import {
 	accountSettingTable,
 	accountTable,
@@ -299,7 +300,7 @@ describe("runDrizzleCascadeDelete", () => {
 
 	test("deletes every enumerated row across all tables", async () => {
 		await runDrizzleCascadeDelete(
-			{ app: db, mail: db, search: db } as never,
+			syncStores({ app: db, mail: db, search: db } as never),
 			entities,
 			log,
 		);
@@ -438,7 +439,7 @@ describe("runDrizzleCascadeDelete", () => {
 		await assert.rejects(
 			() =>
 				runDrizzleCascadeDelete(
-					{ app: db, mail: db, search: db } as never,
+					syncStores({ app: db, mail: db, search: db } as never),
 					[{ entityType: "Nonsense", key: { id: "x" } }],
 					log,
 				),

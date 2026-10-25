@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -37,8 +38,12 @@ describe("DrizzleMessageRepository", () => {
 
 	before(async () => {
 		({ db, stop } = await createTestDb());
-		messageRepo = new DrizzleMessageRepository(db, new SearchIndex(db, db));
-		envelopeRepo = new DrizzleEnvelopeRepository(db);
+		messageRepo = new DrizzleMessageRepository(
+			db,
+			syncBatch(db),
+			new SearchIndex(db, db, syncBatch(db)),
+		);
+		envelopeRepo = new DrizzleEnvelopeRepository(db, syncBatch(db));
 	});
 
 	after(async () => {

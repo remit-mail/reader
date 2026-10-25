@@ -23,8 +23,8 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
-import { runBatch } from "../batch.js";
-import type { Db } from "../db.js";
+import type { WriteBatch } from "../batch.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
@@ -327,7 +327,8 @@ export class DrizzleThreadMessageRepository
 	implements IThreadMessageRepository
 {
 	constructor(
-		private readonly db: Db<Record<string, unknown>>,
+		private readonly db: RepositoryDb<Record<string, unknown>>,
+		private readonly batch: WriteBatch,
 		private readonly search: SearchIndex,
 	) {}
 
@@ -1082,7 +1083,7 @@ export class DrizzleThreadMessageRepository
 					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
 			];
 		});
-		const results = await runBatch(this.db, items);
+		const results = await this.batch(items);
 		await this.search.sync(
 			rows.flatMap((row) => [
 				row.threadMessageId,

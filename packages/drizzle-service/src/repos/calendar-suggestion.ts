@@ -8,13 +8,13 @@ import type {
 import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import { CalendarSuggestionState } from "@remit/domain-enums";
 import { and, asc, desc, eq, gte, lt, or } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { calendarSuggestionTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToCalendarSuggestion(
 	row: typeof calendarSuggestionTable.$inferSelect,

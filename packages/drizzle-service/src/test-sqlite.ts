@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { syncBatch, type WriteBatch } from "./batch.js";
 import { SQLITE_DATABASE_ENV, type SqliteDatabasePaths } from "./databases.js";
 import type { Db } from "./db.js";
 import {
@@ -23,18 +24,21 @@ export const applyShippedMigrations = (sqlite: Database.Database): void => {
 };
 
 /**
- * A migrated in-memory database and a drizzle handle over it, for a test that
- * wants one repo and no file to clean up.
+ * A migrated in-memory database, a drizzle handle over it and the write port
+ * bound to it, for a test that wants one repo and no file to clean up.
  */
 export const createShippedSqliteDb = (): {
 	db: Db<Record<string, unknown>>;
+	batch: WriteBatch;
 	sqlite: Database.Database;
 	close: () => void;
 } => {
 	const sqlite = new Database(":memory:");
 	applyShippedMigrations(sqlite);
+	const db = drizzle(sqlite) as unknown as Db<Record<string, unknown>>;
 	return {
-		db: drizzle(sqlite) as unknown as Db<Record<string, unknown>>,
+		db,
+		batch: syncBatch(db),
 		sqlite,
 		close: () => sqlite.close(),
 	};

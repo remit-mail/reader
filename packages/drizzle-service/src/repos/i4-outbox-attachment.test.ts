@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { syncBatch } from "../batch.js";
 import { createTestDb, randomId } from "../test-db.js";
 import { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
 
@@ -27,7 +28,7 @@ const input = (
 
 before(async () => {
 	harness = await createTestDb();
-	repo = new OutboxAttachmentRepo(harness.db);
+	repo = new OutboxAttachmentRepo(harness.db, syncBatch(harness.db));
 });
 
 after(async () => {

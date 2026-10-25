@@ -17,6 +17,7 @@ import {
 	AccountConfigRepo,
 	AccountRepo,
 	AccountSettingRepo,
+	AddressRepo,
 	ConfigImportRepo,
 	MailboxRepo,
 	SearchIndex,
@@ -134,8 +135,18 @@ beforeEach(async () => {
 	});
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db, store.db);
-	const accountConfig = new AccountConfigRepo(store.db, store.db);
+	accounts = new AccountRepo(
+		store.db,
+		new MailboxRepo(
+			store.db,
+			store.batch,
+			new SearchIndex(store.db, store.db, store.batch),
+		),
+	);
+	const accountConfig = new AccountConfigRepo(
+		store.db,
+		new AddressRepo(store.db),
+	);
 	await accountConfig.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		userId: SUB,
@@ -144,7 +155,11 @@ beforeEach(async () => {
 		accountConfig,
 		account: accounts,
 		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(store.db, new SearchIndex(store.db, store.db)),
+		mailbox: new MailboxRepo(
+			store.db,
+			store.batch,
+			new SearchIndex(store.db, store.db, store.batch),
+		),
 		configImport: new ConfigImportRepo(store.db),
 		secrets,
 	} as unknown as RemitClient);

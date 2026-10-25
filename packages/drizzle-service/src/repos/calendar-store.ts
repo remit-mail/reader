@@ -2,56 +2,63 @@ import type {
 	CalendarRepositories,
 	CalendarWrite,
 	ICalendarStore,
+	ICalendarSuggestionRepository,
+	SettleCalendarSuggestionWrite,
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { and, eq, exists, sql } from "drizzle-orm";
-import { runBatch, type SqliteBatchItem } from "../batch.js";
-import type { Db } from "../db.js";
+import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import type { RepositoryDb } from "../db.js";
 import {
 	calendarEventIndexTable,
 	calendarFeedTokenTable,
 	calendarObjectTable,
-	calendarSuggestionTable,
 	calendarTable,
 } from "../schema.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
 import { CalendarEventIndexRepo } from "./calendar-event-index.js";
 import { CalendarFeedTokenRepo } from "./calendar-feed-token.js";
 import { CalendarObjectRepo } from "./calendar-object.js";
-import { CalendarSuggestionRepo } from "./calendar-suggestion.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
+
+type CalendarBatchWrite = Exclude<CalendarWrite, SettleCalendarSuggestionWrite>;
+
+const isSettlement = (
+	write: CalendarWrite,
+): write is SettleCalendarSuggestionWrite => write.kind === "SettleSuggestion";
+
+const isBatchWrite = (write: CalendarWrite): write is CalendarBatchWrite =>
+	!isSettlement(write);
 
 export class DrizzleCalendarStore implements ICalendarStore {
 	readonly repos: CalendarRepositories;
 
 	constructor(
 		private db: DB,
-		private mail: DB,
+		private batch: WriteBatch,
+		calendarSuggestion: ICalendarSuggestionRepository,
 	) {
 		this.repos = {
 			calendarCollection: new CalendarCollectionRepo(db),
 			calendarObject: new CalendarObjectRepo(db),
 			calendarEventIndex: new CalendarEventIndexRepo(db),
-			calendarSuggestion: new CalendarSuggestionRepo(mail),
+			calendarSuggestion,
 			calendarFeedToken: new CalendarFeedTokenRepo(db),
 		};
 	}
 
 	async commit(writes: readonly CalendarWrite[]): Promise<void> {
-		const settlements = writes.filter(
-			(write) => write.kind === "SettleSuggestion",
+		await this.batch(
+			writes.filter(isBatchWrite).flatMap((write) => this.statements(write)),
 		);
-		await runBatch(
-			this.db,
-			writes
-				.filter((write) => write.kind !== "SettleSuggestion")
-				.flatMap((write) => this.statements(write)),
-		);
-		await runBatch(
-			this.mail,
-			settlements.flatMap((write) => this.statements(write)),
-		);
+		for (const write of writes.filter(isSettlement)) {
+			await this.repos.calendarSuggestion.settle(
+				write.accountConfigId,
+				write.suggestionId,
+				write.settle,
+			);
+		}
 	}
 
 	private collection(accountConfigId: string, calendarId: string) {
@@ -97,7 +104,7 @@ export class DrizzleCalendarStore implements ICalendarStore {
 			);
 	}
 
-	private statements(write: CalendarWrite): SqliteBatchItem[] {
+	private statements(write: CalendarBatchWrite): SqliteBatchItem[] {
 		const now = Date.now();
 		switch (write.kind) {
 			case "PutObject": {
@@ -222,21 +229,6 @@ export class DrizzleCalendarStore implements ICalendarStore {
 							),
 						),
 					this.bump(write.accountConfigId, write.calendarId),
-				];
-			case "SettleSuggestion":
-				return [
-					this.mail
-						.update(calendarSuggestionTable)
-						.set({ ...write.settle, updatedAt: now })
-						.where(
-							and(
-								eq(
-									calendarSuggestionTable.accountConfigId,
-									write.accountConfigId,
-								),
-								eq(calendarSuggestionTable.suggestionId, write.suggestionId),
-							),
-						),
 				];
 			case "UpdateCollection":
 				return [

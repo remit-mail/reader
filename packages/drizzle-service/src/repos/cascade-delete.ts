@@ -1,8 +1,9 @@
-import { runBatch, type SqliteBatchItem } from "../batch.js";
+import type { SqliteBatchItem } from "../batch.js";
 import {
 	openSqliteDatabases,
 	type SqliteDatabasePaths,
-	type SqliteDatabases,
+	type SqliteStores,
+	syncStores,
 } from "../databases.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { accountSettingTable } from "../schema/i4-account-setting.js";
@@ -82,10 +83,12 @@ const groupByType = (
  * cascade-in-progress marker.
  */
 export const runDrizzleCascadeDelete = async (
-	{ app, mail, search }: SqliteDatabases,
+	stores: SqliteStores,
 	entities: CascadeEntity[],
 	log: CascadeDeleteLogger,
 ): Promise<void> => {
+	const app = stores.app.db;
+	const mail = stores.mail.db;
 	const grouped = groupByType(entities);
 
 	for (const entityType of grouped.keys()) {
@@ -217,9 +220,11 @@ export const runDrizzleCascadeDelete = async (
 			),
 		);
 	}
-	await runBatch(mail, items);
-	await runBatch(app, appItems);
-	await new SearchIndex(mail, search).sync(threadMessageIds);
+	await stores.mail.batch(items);
+	await stores.app.batch(appItems);
+	await new SearchIndex(mail, stores.search.db, stores.search.batch).sync(
+		threadMessageIds,
+	);
 
 	log.info({ entityCount: entities.length }, "Drizzle cascade delete complete");
 };
@@ -238,5 +243,6 @@ export const createSqliteCascadeDeleter = async (
 	paths: SqliteDatabasePaths,
 ): Promise<CascadeDeleter> => {
 	const databases = await openSqliteDatabases(paths);
-	return (entities, log) => runDrizzleCascadeDelete(databases, entities, log);
+	const stores = syncStores(databases);
+	return (entities, log) => runDrizzleCascadeDelete(stores, entities, log);
 };

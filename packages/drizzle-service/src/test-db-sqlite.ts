@@ -1,6 +1,7 @@
 import Database from "better-sqlite3";
 import { pushSQLiteSchema } from "drizzle-kit/api";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { syncBatch, type WriteBatch } from "./batch.js";
 import type { Db } from "./db.js";
 import { applyMigrationSet } from "./test-shipped-sqlite-schema.js";
 
@@ -17,6 +18,7 @@ export async function createSqliteTestDb<
 	options?: { filename?: string; searchIndex?: boolean },
 ): Promise<{
 	db: SqliteTestDb<TSchema>;
+	batch: WriteBatch;
 	sqlite: Database.Database;
 	close: () => Promise<void>;
 }> {
@@ -54,6 +56,7 @@ export async function createSqliteTestDb<
 
 	return {
 		db,
+		batch: syncBatch(db),
 		sqlite,
 		close: async () => {
 			sqlite.close();
