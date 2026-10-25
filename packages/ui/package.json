@@ -13,6 +13,8 @@
 		"./tokens.css": "./src/tokens.css"
 	},
 	"scripts": {
+		"storybook": "storybook dev -p 6008 --no-open",
+		"build-storybook": "storybook build",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --import @remit/test-dom/css --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=90 --test 'src/**/*.test.ts'"
@@ -57,12 +59,17 @@
 	"devDependencies": {
 		"@remit/test-dom": "*",
 		"@storybook/react": "^9",
+		"@storybook/react-vite": "^9",
+		"@tailwindcss/vite": "^4",
 		"dictionary-en": "4.0.0",
 		"dictionary-en-gb": "3.0.0",
 		"dictionary-nl": "2.0.0",
 		"react": "^19",
 		"react-dom": "^19",
-		"typescript": "*"
+		"storybook": "^9",
+		"tailwindcss": "^4",
+		"typescript": "*",
+		"vite": "^7.3.7"
 	},
 	"license": "MIT",
 	"publishConfig": {

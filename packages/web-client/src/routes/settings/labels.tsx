@@ -8,6 +8,7 @@ import {
 	Banner,
 	Button,
 	ConfirmDialog,
+	ErrorState,
 	Input,
 	labelColorOptions,
 	Select,
@@ -17,7 +18,6 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { LabelsList } from "@/components/settings/LabelsList";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useCreateLabel,
 	useDeleteLabel,

@@ -13,6 +13,7 @@ import type {
 import {
 	Banner,
 	type CandidateFolder,
+	ErrorState,
 	FolderManager,
 	FolderRenameDialog,
 	type FolderRole,
@@ -26,7 +27,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMemo, useState } from "react";
 import { DeleteFolderDialog } from "@/components/settings/DeleteFolderDialog";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { isMailboxNotSettledRefusal } from "@/components/ui/folder-role-refusal";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";

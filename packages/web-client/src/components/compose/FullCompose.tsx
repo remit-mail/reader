@@ -1,7 +1,7 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { ErrorState } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { X } from "lucide-react";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import {

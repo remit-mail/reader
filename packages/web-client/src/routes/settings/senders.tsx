@@ -20,6 +20,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
+	ErrorState,
 	Input,
 	Kbd,
 	SenderFlagRow,
@@ -30,7 +31,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { Search, Star, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { formatDate } from "@/lib/format";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";

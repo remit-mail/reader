@@ -1,5 +1,4 @@
-import { ErrorBanner } from "./ErrorBanner.js";
-import type { ErrorBannerEntry } from "./error-banners.js";
+import { ErrorBanner, type ErrorBannerEntry } from "./ErrorBanner.js";
 
 interface ErrorBannerStackProps {
 	errors: ErrorBannerEntry[];

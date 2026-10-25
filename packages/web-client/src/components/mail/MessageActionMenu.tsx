@@ -2,6 +2,12 @@ import {
 	messageBulkOperationsUpdateFlagsMutation,
 	threadDetailOperationsListThreadMessagesQueryKey,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+	ErrorState,
+} from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
 	BadgeCheck,
@@ -12,13 +18,7 @@ import {
 	Trash2,
 } from "lucide-react";
 import { useCallback } from "react";
-import {
-	DropdownMenu,
-	DropdownMenuItem,
-	DropdownMenuSeparator,
-} from "@/components/ui/DropdownMenu";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { formatErrorDetail } from "@/components/ui/error-banners";
 import { useDeleteMessages } from "@/hooks/useDeleteMessages";
 import { setReadOnItems } from "@/hooks/useMarkAsRead";

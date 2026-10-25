@@ -6,9 +6,8 @@
  * The address itself is not drawn. For a Google feed it is the whole
  * credential, so only its host is named.
  */
-import { Badge, Banner, Button } from "@remit/ui";
+import { Badge, Banner, Button, formatErrorMessage } from "@remit/ui";
 import { Pause, Play } from "lucide-react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { subscriptionHostOf } from "@/lib/calendar-subscription";
 import { formatDatePreset } from "@/lib/format";
 

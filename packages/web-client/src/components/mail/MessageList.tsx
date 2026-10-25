@@ -4,6 +4,7 @@ import {
 	cn,
 	type Density,
 	deriveIsMultiSelectMode,
+	formatErrorMessage,
 	ListResultHeader,
 	type MessageListFilter,
 	MessageListLoadingMore,
@@ -20,7 +21,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { RefObject } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useErrorBanners } from "@/components/ui/ErrorBannerProvider";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useJunkMailbox } from "@/hooks/useArchiveMailbox";
 import { useDeleteOutcome } from "@/hooks/useDeleteOutcome";
 import {

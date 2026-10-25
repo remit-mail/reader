@@ -11,12 +11,16 @@
 import "@remit/test-dom";
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import { ConfirmDialog, useTriageKeyboard } from "@remit/ui";
+import {
+	ConfirmDialog,
+	DropdownMenu,
+	DropdownMenuItem,
+	KeyboardShortcutsModal,
+	useTriageKeyboard,
+} from "@remit/ui";
 import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Drawer } from "./layout/Drawer";
-import { DropdownMenu, DropdownMenuItem } from "./ui/DropdownMenu";
-import { KeyboardShortcutsModal } from "./ui/KeyboardShortcutsModal";
 
 let root: Root;
 let container: HTMLElement;

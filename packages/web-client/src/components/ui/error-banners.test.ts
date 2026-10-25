@@ -1,10 +1,10 @@
 import assert from "node:assert";
 import { describe, test } from "node:test";
+import type { ErrorBannerEntry } from "@remit/ui";
 import {
 	appendBanner,
 	buildMutationErrorBanner,
 	dismissBanner,
-	type ErrorBannerEntry,
 	formatErrorDetail,
 	isMessageNotFoundError,
 } from "./error-banners.js";

@@ -7,6 +7,7 @@ import {
 	type CalendarViewId,
 	CalendarViewSwitch,
 	type Density,
+	ErrorState,
 	Segmented,
 	type SegmentOption,
 } from "@remit/ui";
@@ -14,7 +15,6 @@ import { Loader2 } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { CalendarViewPlaceholder } from "@/components/calendar/CalendarViewPlaceholder";
 import { NavMenuButton } from "@/components/mail/NavMenuButton";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	calendarViewMountsAgenda,
 	calendarViewMountsGrid,

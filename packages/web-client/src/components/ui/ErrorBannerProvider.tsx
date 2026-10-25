@@ -1,4 +1,9 @@
 import {
+	type ErrorBannerAction,
+	type ErrorBannerEntry,
+	ErrorBannerStack,
+} from "@remit/ui";
+import {
 	createContext,
 	type ReactNode,
 	useCallback,
@@ -9,13 +14,10 @@ import {
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";
 import { isAlwaysFatal } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
-import { ErrorBannerStack } from "./ErrorBannerStack.js";
 import {
 	appendBanner,
 	buildEntry,
 	dismissBanner,
-	type ErrorBannerAction,
-	type ErrorBannerEntry,
 	type PushErrorInput,
 } from "./error-banners.js";
 

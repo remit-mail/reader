@@ -1,6 +1,6 @@
 import { messageOperationsGetRawMessageOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { ErrorState } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
-import { ErrorState } from "@/components/ui/ErrorState";
 
 interface RawMessageViewProps {
 	/** The message whose raw RFC822/MIME source to fetch and display. */

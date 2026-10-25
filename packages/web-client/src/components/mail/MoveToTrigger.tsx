@@ -2,6 +2,7 @@ import { mailboxOperationsListMailboxesOptions } from "@remit/api-http-client/@t
 import {
 	Button,
 	cn,
+	ErrorState,
 	type FolderTreeNode,
 	FolderTreePicker,
 	PopoverMenuPortal,
@@ -18,7 +19,6 @@ import {
 	useState,
 } from "react";
 import { Drawer } from "vaul";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { useFolderAppointments } from "@/hooks/useArchiveMailbox";
 import { useCreateMailbox } from "@/hooks/useCreateMailbox";
 import { useFolderLabelTranslator } from "@/hooks/useFolderLabelTranslator";

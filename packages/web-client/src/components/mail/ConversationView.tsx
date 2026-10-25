@@ -1,11 +1,9 @@
 import { threadDetailOperationsListThreadMessagesOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapMessageAuthenticity } from "@remit/api-http-client/types.gen.ts";
-import { MobileReadingPane } from "@remit/ui";
+import { EmptyState, ErrorState, MobileReadingPane } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConversationCompose } from "@/components/compose/ConversationCompose";
-import { EmptyState } from "@/components/ui/EmptyState";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { useMailboxAccount } from "@/hooks/useMailboxAccount";
 import { useMarkAsRead } from "@/hooks/useMarkAsRead";

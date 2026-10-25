@@ -12,6 +12,7 @@ import {
 	Banner,
 	Button,
 	Dialog,
+	ErrorState,
 	type RowAction,
 	RowActions,
 	SettingsShell,
@@ -28,7 +29,6 @@ import {
 import { AccountFormPanel } from "@/components/settings/AccountFormPanel";
 import { AccountServices } from "@/components/settings/AccountServices";
 import { DangerZone } from "@/components/settings/DangerZone";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	REDIRECT_STALL_MESSAGE,
 	useRedirectEnded,

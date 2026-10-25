@@ -1,12 +1,12 @@
 import type { RemitImapCalendarSuggestionResponse } from "@remit/api-http-client/types.gen.ts";
 import {
 	CalendarFailureNote,
+	EmptyState,
 	type EventDraft,
 	EventEditorPane,
 } from "@remit/ui";
 import { useEffect, useState } from "react";
 import { CalendarComposePane } from "@/components/calendar/CalendarComposePane";
-import { EmptyState } from "@/components/ui/EmptyState";
 import {
 	acceptEditedInputFromDrafts,
 	anchorZoneFor,

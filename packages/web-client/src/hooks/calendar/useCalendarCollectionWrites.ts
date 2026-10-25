@@ -10,6 +10,7 @@
  * editor's picker and the address filter all read. A delete or a rezone also
  * moves or removes occurrences, so the event reads are invalidated with it.
  */
+
 import {
 	calendarDetailOperationsDeleteCalendarMutation,
 	calendarDetailOperationsUpdateCalendarMutation,
@@ -20,9 +21,9 @@ import type {
 	RemitImapCreateCalendarInput,
 	RemitImapUpdateCalendarInput,
 } from "@remit/api-http-client/types.gen.ts";
+import { formatErrorMessage } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { softErrorStatuses } from "@/lib/error-classifier";
 import { useInvalidateCalendarReads } from "./useCalendarWrites";
 

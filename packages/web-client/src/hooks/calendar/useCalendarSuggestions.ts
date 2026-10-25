@@ -11,6 +11,7 @@
  * must state from a fault it must not swallow. A lapsed session is neither, and
  * escalates the way it does everywhere else.
  */
+
 import {
 	calendarSuggestionActionOperationsAcceptCalendarSuggestionMutation,
 	calendarSuggestionActionOperationsDeclineCalendarSuggestionMutation,
@@ -24,6 +25,7 @@ import type {
 	RemitImapAcceptCalendarSuggestionInput,
 	RemitImapCalendarSuggestionResponse,
 } from "@remit/api-http-client/types.gen.ts";
+import { formatErrorMessage } from "@remit/ui";
 import {
 	type QueryClient,
 	useMutation,
@@ -31,7 +33,6 @@ import {
 	useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { softErrorStatuses } from "@/lib/error-classifier";
 
 const SUGGESTION_META = softErrorStatuses(400, 404);

@@ -3,14 +3,13 @@ import {
 	mailboxOperationsListMailboxesOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
 import type { RemitImapAccountResponse } from "@remit/api-http-client/types.gen.ts";
-import { type LabelOption, SettingsShell } from "@remit/ui";
+import { ErrorState, type LabelOption, SettingsShell } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo, useState } from "react";
 import { FilterActionError } from "@/components/settings/FilterActionError";
 import { FilterEditorSurface } from "@/components/settings/FilterEditorSurface";
 import { FiltersList } from "@/components/settings/FiltersList";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useDeleteFilter,
 	useFilterList,
