@@ -242,7 +242,13 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 const publish = (pkgDir) => {
 	const { error, status, signal } = spawnSync(
 		"npm",
-		["publish", "--access", "public", "--provenance", "--loglevel=verbose"],
+		[
+			"publish",
+			"--access",
+			"public",
+			...(process.env.GITHUB_ACTIONS === "true" ? ["--provenance"] : []),
+			"--loglevel=verbose",
+		],
 		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
 	);
 	if (error) return { ok: false, error: error.message };
