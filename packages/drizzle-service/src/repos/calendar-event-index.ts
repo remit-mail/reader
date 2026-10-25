@@ -4,10 +4,10 @@ import type {
 	ICalendarEventIndexRepository,
 } from "@remit/data-ports";
 import { and, asc, eq, gte, lt } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { calendarEventIndexTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToOccurrence(
 	row: typeof calendarEventIndexTable.$inferSelect,

@@ -22,7 +22,7 @@ import {
 	type SQL,
 	sql,
 } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { envelopeAddressId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -44,7 +44,7 @@ import {
 } from "./address-search-predicates.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 type AddressUpdate = Partial<{
 	[K in keyof typeof addressTable.$inferInsert]:
@@ -784,6 +784,16 @@ export class AddressRepo implements IAddressRepository {
 			limit,
 			hasMore && lastItem ? { addressId: lastItem.addressId } : undefined,
 		);
+	}
+
+	async listAllByAccountConfig(
+		accountConfigId: string,
+	): Promise<AddressItem[]> {
+		const rows = await this.db
+			.select()
+			.from(addressTable)
+			.where(eq(addressTable.accountConfigId, accountConfigId));
+		return rows.map(rowToAddress);
 	}
 
 	async createEnvelopeAddress(

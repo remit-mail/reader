@@ -27,8 +27,8 @@ import {
 	sql,
 } from "drizzle-orm";
 import shortUuid from "short-uuid";
-import { runBatch } from "../batch.js";
-import type { Db } from "../db.js";
+import type { WriteBatch } from "../batch.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
@@ -52,7 +52,7 @@ const base36Translator = shortUuid.createTranslator(
 );
 const generateMailboxId = () => base36Translator.fromUUID(randomUUID());
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 /**
  * Message subtrees removed per batch by {@link MailboxRepo.deleteMailboxWithMail},
@@ -149,10 +149,16 @@ export function rowToMailbox(
 }
 
 export class MailboxRepo implements IMailboxRepository {
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private db: DB,
+		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
-	) {}
+	) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	async create(input: CreateMailboxInput): Promise<CreateMailboxResult> {
 		const now = Date.now();
@@ -379,7 +385,7 @@ export class MailboxRepo implements IMailboxRepository {
 
 	async deleteMany(accountId: string, mailboxIds: string[]): Promise<void> {
 		if (mailboxIds.length === 0) return;
-		await runBatch(this.db, [
+		await this.batch([
 			this.db
 				.delete(syncWarningTable)
 				.where(
@@ -556,7 +562,7 @@ export class MailboxRepo implements IMailboxRepository {
 
 			// The primitive the rest of the codebase deletes mail with: nine
 			// per-message child tables. A bespoke table list would orphan them.
-			await runBatch(this.db, [
+			await this.batch([
 				...deleteMessageSubtree(this.db, messageIds),
 				this.db
 					.delete(threadMessageTable)

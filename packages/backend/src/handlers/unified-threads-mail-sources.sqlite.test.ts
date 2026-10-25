@@ -10,15 +10,8 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
-	AccountRepo,
-	AccountSettingRepo,
-	AddressRepo,
-	DrizzleMessageRepository,
-	DrizzleThreadMessageRepository,
-	LabelRepo,
-	MailboxRepo,
-	MessageLabelRepo,
-	SearchIndex,
+	createSqliteRepositories,
+	type MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { APIGatewayProxyEvent } from "aws-lambda";
@@ -45,19 +38,20 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	const db = store.db as never;
+	const repos = createSqliteRepositories({
+		app: store.db,
+		mail: store.db,
+		search: store.db,
+	});
 	client = {
-		account: new AccountRepo(store.db, store.db),
-		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(store.db, new SearchIndex(store.db, store.db)),
-		address: new AddressRepo(store.db),
-		message: new DrizzleMessageRepository(db, new SearchIndex(db, db)),
-		threadMessage: new DrizzleThreadMessageRepository(
-			db,
-			new SearchIndex(db, db),
-		),
-		label: new LabelRepo(store.db),
-		messageLabel: new MessageLabelRepo(store.db),
+		account: repos.account,
+		accountSetting: repos.accountSetting,
+		mailbox: repos.mailbox,
+		address: repos.address,
+		message: repos.message,
+		threadMessage: repos.threadMessage,
+		label: repos.label,
+		messageLabel: repos.messageLabel,
 	} as unknown as UnifiedThreadClient & RemitClient;
 	setClient(client);
 });

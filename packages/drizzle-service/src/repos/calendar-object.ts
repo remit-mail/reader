@@ -5,11 +5,11 @@ import type {
 } from "@remit/data-ports";
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { and, asc, eq, gt, gte, lt, ne } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { calendarObjectTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToCalendarObject(
 	row: typeof calendarObjectTable.$inferSelect,

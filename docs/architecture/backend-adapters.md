@@ -12,7 +12,9 @@ Nothing on a shared surface names one adapter's handle type. `RemitClientReposit
 
 ## A2. Each adapter owns its tables and its handle
 
-An adapter imports the entity package for its own engine and types its repositories against its own handle. `@remit/drizzle-service` imports `@remit/drizzle-sqlite-schema` and types its repositories against `BetterSQLite3Database`; that type is internal and is not exported from the package index. A Postgres adapter imports `@remit/drizzle-pg-schema` and types its own.
+An adapter imports the entity package for its own engine and types its repositories against its own handle. `@remit/drizzle-service` imports `@remit/drizzle-sqlite-schema` and types its repositories against `RepositoryDb`: drizzle's `BaseSQLiteDatabase` over a synchronous or an asynchronous driver, with `transaction` and `batch` removed. better-sqlite3, a Durable Object's storage, D1 and libsql all satisfy it, so one body serves every SQLite engine. A Postgres adapter imports `@remit/drizzle-pg-schema` and types its own.
+
+A repository writes a set through a `WriteBatch` port bound to its database: `syncBatch` (one synchronous transaction, for better-sqlite3 and Durable Objects) or `asyncBatch` (the driver's `batch()`, for D1 and libsql). The two travel together as a `SqliteStore` (`{ db, batch }`), which is what a writing repository takes. `composeSqliteRepositories` takes one store per schema set; `createSqliteRepositories` is that call over better-sqlite3 with `syncBatch`. A repository holds one database and reaches another database's rows through that repository's port.
 
 No cast bridges two engines' types. There is no runtime table selection, and no module-global that fixes a dialect for the process — a repository's tables are decided by what its package imports, which is decided at build time.
 
@@ -41,8 +43,8 @@ These are what every adapter must satisfy and what a caller may rely on. Everyth
 
 - **C5.** No transaction stays open across an `await`. A write set is an atomic batch, the shape of D1's `batch()`: its statements commit together or not at all, and none of them reads another's result. Decisions are made against reads taken before the batch.
 - **C6.** A write that is not one batch is an idempotent step: keyed on derived ids, upserts and conditional `WHERE` clauses, so a queue redelivery or a second tab repeating it converges on the same rows.
-- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. How an adapter runs a batch — one synchronous `IMMEDIATE` transaction on better-sqlite3 — is below this line and stays private to it.
-- **C8.** The calendar store is the one cross-repository write port: `commit` takes a list of writes and applies them as one batch.
+- **C7.** The port carries no isolation level, no explicit savepoint, and no read-consistency guarantee. How an adapter runs a batch — one synchronous `IMMEDIATE` transaction on better-sqlite3, `transactionSync` in a Durable Object, `batch()` on D1 — is below this line and stays private to it.
+- **C8.** The calendar store is the one cross-repository write port: `commit` takes a list of writes, applies the calendar writes as one batch, then settles each suggestion through the suggestion repository.
 
 **Text matching.**
 
@@ -67,7 +69,7 @@ Two limits are inherent rather than incidental. `@remit/data-ports` publishes ra
 
 ## FAQ
 
-**Why not one repository implementation parameterized by dialect?** Because it cannot be typed. `PgDatabase` and `BetterSQLite3Database` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. One body serving two engines needs a cast, and a cast means the types stop describing what executes.
+**Why not one repository implementation parameterized by dialect?** Because it cannot be typed. `PgDatabase` and `BaseSQLiteDatabase` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. One body serving two engines needs a cast, and a cast means the types stop describing what executes.
 
 **Does reader support Postgres?** Reader does not ship a Postgres adapter. `@remit/drizzle-pg-schema` and `@remit/data-ports` are published, so a Postgres adapter is a first-class implementation of the same contract, built and deployed where it runs.
 

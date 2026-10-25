@@ -9,8 +9,8 @@ import {
 import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import {
-	DrizzleThreadMessageRepository,
-	SearchIndex,
+	createSqliteRepositories,
+	type DrizzleThreadMessageRepository,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
@@ -183,10 +183,11 @@ interface World {
 
 const world = async (filters: FilterItem[]): Promise<World> => {
 	const store = createShippedSqliteDb();
-	const threadMessage = new DrizzleThreadMessageRepository(
-		store.db as never,
-		new SearchIndex(store.db as never, store.db as never),
-	);
+	const threadMessage = createSqliteRepositories({
+		app: store.db,
+		mail: store.db,
+		search: store.db,
+	}).threadMessage;
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];
 	const filterUpdates: World["filterUpdates"] = [];

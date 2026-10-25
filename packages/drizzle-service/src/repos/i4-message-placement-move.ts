@@ -3,10 +3,10 @@ import type {
 	PutMessagePlacementMoveInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 export type { MessagePlacementMoveItem, PutMessagePlacementMoveInput };
 export type MessagePlacementMoveState = MessagePlacementMoveItem["state"];

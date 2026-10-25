@@ -6,11 +6,11 @@ import type {
 } from "@remit/data-ports";
 import { deriveSyncWarningId } from "@remit/data-ports/id";
 import { and, count, desc, eq, gte, sql } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 export class SyncWarningRepo implements ISyncWarningRepository {
 	constructor(private db: DB) {}

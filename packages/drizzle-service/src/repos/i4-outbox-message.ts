@@ -6,13 +6,13 @@ import type {
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
 import { and, desc, eq, lt, or } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToOutboxMessage(
 	row: typeof outboxMessageTable.$inferSelect,

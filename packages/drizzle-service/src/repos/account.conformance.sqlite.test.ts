@@ -2,8 +2,8 @@ import { accountRepositoryConformance } from "@remit/data-ports/conformance";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { accountTable } from "../schema.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
-import { AccountRepo } from "./i4-account.js";
 
 let close: (() => Promise<void>) | undefined;
 
@@ -13,7 +13,11 @@ accountRepositoryConformance({
 			accounts: accountTable,
 		});
 		close = closeDb;
-		return new AccountRepo(db as never, db as never);
+		return createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).account;
 	},
 	teardown: async () => {
 		await close?.();

@@ -5,15 +5,12 @@ import type {
 	MessageFlagItem,
 } from "@remit/data-ports";
 import { and, eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
-import {
-	type MessageDataSchema,
-	messageFlagTable,
-} from "../schema/message-data.js";
+import { messageFlagTable } from "../schema/message-data.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<MessageDataSchema>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToMessageFlag(
 	row: typeof messageFlagTable.$inferSelect,

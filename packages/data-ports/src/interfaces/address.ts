@@ -107,6 +107,7 @@ export interface IAddressRepository {
 		cursor?: string;
 		limit?: number;
 	}): Promise<ResultList<AddressItem>>;
+	listAllByAccountConfig(accountConfigId: string): Promise<AddressItem[]>;
 	createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem>;

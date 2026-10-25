@@ -1,9 +1,8 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { AccountRepo } from "./i4-account.js";
-import { AccountConfigRepo } from "./i4-account-config.js";
-import { AddressRepo } from "./i4-address.js";
+import type { AccountConfigRepo } from "./i4-account-config.js";
 
 describe("AccountConfigRepo", () => {
 	let db: TestDb;
@@ -12,7 +11,11 @@ describe("AccountConfigRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AccountConfigRepo(db as never, db as never);
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).accountConfig;
 	});
 
 	after(async () => {
@@ -58,8 +61,9 @@ describe("AccountConfigRepo", () => {
 		const userId = randomId();
 		const cfg = await repo.create({ userId });
 
-		const accountRepo = new AccountRepo(db as never, db as never);
-		const addrRepo = new AddressRepo(db as never);
+		const repos = createSqliteRepositories({ app: db, mail: db, search: db });
+		const accountRepo = repos.account;
+		const addrRepo = repos.address;
 
 		await accountRepo.create({
 			accountConfigId: cfg.accountConfigId,

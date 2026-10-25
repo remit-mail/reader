@@ -3,10 +3,10 @@ import type {
 	PutMessageFlagPushInput,
 } from "@remit/data-ports";
 import { and, eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 export type { MessageFlagPushItem, PutMessageFlagPushInput };
 export type FlagPushOperation = MessageFlagPushItem["operation"];

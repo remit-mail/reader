@@ -12,10 +12,10 @@ import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { addressTable } from "../schema/i4-address.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { shippedIndexDdl } from "../test-shipped-sqlite-schema.js";
-import { DrizzleThreadMessageRepository } from "./thread-message.js";
+import type { DrizzleThreadMessageRepository } from "./thread-message.js";
 
 // The index the mail baseline creates for this predicate, read from the one
 // committed source so the plan assertion below is about the real object.
@@ -61,7 +61,11 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			{ searchIndex: true },
 		));
 		sqlite.exec(mutedIndexDdl);
-		repo = new DrizzleThreadMessageRepository(db, new SearchIndex(db, db));
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).threadMessage;
 	});
 
 	after(async () => {

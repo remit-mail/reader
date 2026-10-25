@@ -3,11 +3,12 @@ import type {
 	AccountConfigItem,
 	CreateAccountConfigInput,
 	IAccountConfigRepository,
+	IAddressRepository,
 	ResultList,
 	UpdateAccountConfigInput,
 } from "@remit/data-ports";
 import { and, asc, eq, gt, or } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
@@ -15,12 +16,12 @@ import {
 	accountConfigTable,
 	accountTable,
 } from "../schema/i4-account-config.js";
-import { addressTable } from "../schema/i4-address.js";
 import { rowToAccount } from "./i4-account.js";
-import { rowToAddress } from "./i4-address.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
+
+type AddressReader = Pick<IAddressRepository, "listAllByAccountConfig">;
 
 function rowToAccountConfig(
 	row: typeof accountConfigTable.$inferSelect,
@@ -40,7 +41,7 @@ function rowToAccountConfig(
 export class AccountConfigRepo implements IAccountConfigRepository {
 	constructor(
 		private db: DB,
-		private mail: DB,
+		private addresses: AddressReader,
 	) {}
 
 	async create(input: CreateAccountConfigInput): Promise<AccountConfigItem> {
@@ -183,10 +184,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 				.select()
 				.from(accountTable)
 				.where(eq(accountTable.accountConfigId, accountConfigId)),
-			this.mail
-				.select()
-				.from(addressTable)
-				.where(eq(addressTable.accountConfigId, accountConfigId)),
+			this.addresses.listAllByAccountConfig(accountConfigId),
 		]);
 		if (configs.length === 0) {
 			throw new NotFoundError(`AccountConfig not found: ${accountConfigId}`);
@@ -194,7 +192,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 		return {
 			accountConfig: configs.map(rowToAccountConfig),
 			account: accounts.map(rowToAccount),
-			address: addresses.map(rowToAddress),
+			address: addresses,
 		};
 	}
 

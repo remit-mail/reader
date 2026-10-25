@@ -4,12 +4,12 @@ import type {
 	MessageLabelItem,
 } from "@remit/data-ports";
 import { and, desc, eq } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { deterministicBase36Id } from "../id.js";
 import { messageLabelTable } from "../schema.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToMessageLabel(
 	row: typeof messageLabelTable.$inferSelect,

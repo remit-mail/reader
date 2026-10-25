@@ -1,11 +1,22 @@
 export {
+	asyncBatch,
+	type BatchingDatabase,
+	type SqliteBatchItem,
+	syncBatch,
+	type WriteBatch,
+} from "./batch.js";
+export {
 	hasSqliteDatabaseEnv,
 	openSqliteDatabases,
 	SQLITE_DATABASE_ENV,
 	type SqliteDatabasePaths,
 	type SqliteDatabases,
+	type SqliteStores,
 	sqliteDatabasePathsFromEnv,
+	syncStore,
+	syncStores,
 } from "./databases.js";
+export type { RepositoryDb, SqliteStore } from "./db.js";
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
@@ -79,6 +90,7 @@ export {
 	type SqliteClientOptions,
 } from "./sqlite-client.js";
 export {
+	composeSqliteRepositories,
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "./sqlite-repositories.js";

@@ -6,13 +6,13 @@ import type {
 	UpdateLabelInput,
 } from "@remit/data-ports";
 import { and, asc, eq, gt, or } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { labelTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 const normalize = (name: string): string => name.trim().toLowerCase();
 

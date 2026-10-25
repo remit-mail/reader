@@ -15,11 +15,11 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
-	AccountRepo,
-	DrizzleMessageRepository,
+	type AccountRepo,
+	createSqliteRepositories,
+	type DrizzleMessageRepository,
 	MailboxLockRepo,
-	MailboxRepo,
-	SearchIndex,
+	type MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
@@ -53,12 +53,14 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db, store.db);
-	mailboxes = new MailboxRepo(store.db, new SearchIndex(store.db, store.db));
-	messages = new DrizzleMessageRepository(
-		store.db as never,
-		new SearchIndex(store.db as never, store.db as never),
-	);
+	const repos = createSqliteRepositories({
+		app: store.db,
+		mail: store.db,
+		search: store.db,
+	});
+	accounts = repos.account;
+	mailboxes = repos.mailbox;
+	messages = repos.message;
 	locks = new MailboxLockRepo(store.db);
 	client = {
 		account: accounts,

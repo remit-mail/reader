@@ -4,8 +4,9 @@ import {
 	type MessageDataSchema,
 	messageDataSchema,
 } from "../schema/message-data.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
-import { DrizzleEnvelopeRepository } from "./envelope.js";
+import type { DrizzleEnvelopeRepository } from "./envelope.js";
 
 // Envelope repo on sqlite (RFC 036 D1): the onConflictDoUpdate upsert path and
 // the transactional body-part upsert both run on better-sqlite3 unchanged.
@@ -19,7 +20,7 @@ describe("DrizzleEnvelopeRepository (sqlite)", () => {
 
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(messageDataSchema));
-		repo = new DrizzleEnvelopeRepository(db);
+		repo = createSqliteRepositories({ app: db, mail: db, search: db }).envelope;
 	});
 
 	after(async () => {

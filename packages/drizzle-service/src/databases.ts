@@ -1,8 +1,6 @@
-import type { Db } from "./db.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "./schema/message-data.js";
+import { syncBatch } from "./batch.js";
+import type { Db, SqliteStore } from "./db.js";
+import { messageDataSchema } from "./schema/message-data.js";
 import { createSqliteDatabase } from "./sqlite-client.js";
 
 // The three databases a self-host instance runs on (#1420). The app database
@@ -12,9 +10,29 @@ import { createSqliteDatabase } from "./sqlite-client.js";
 // rebuilt from the mail database, so it never commits together with it.
 export interface SqliteDatabases {
 	app: Db<Record<string, unknown>>;
-	mail: Db<MessageDataSchema>;
+	mail: Db<Record<string, unknown>>;
 	search: Db<Record<string, unknown>>;
 }
+
+export interface SqliteStores {
+	app: SqliteStore<Record<string, unknown>>;
+	mail: SqliteStore<Record<string, unknown>>;
+	search: SqliteStore<Record<string, unknown>>;
+}
+
+export const syncStore = <TSchema extends Record<string, unknown>>(
+	db: Db<TSchema>,
+): SqliteStore<TSchema> => ({ db, batch: syncBatch(db) });
+
+export const syncStores = ({
+	app,
+	mail,
+	search,
+}: SqliteDatabases): SqliteStores => ({
+	app: syncStore(app),
+	mail: syncStore(mail),
+	search: syncStore(search),
+});
 
 export interface SqliteDatabasePaths {
 	app: string;

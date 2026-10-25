@@ -7,13 +7,13 @@ import type {
 } from "@remit/data-ports";
 import { holdsRoom } from "@remit/data-ports";
 import { and, eq, gt, gte, lt, or, sum } from "drizzle-orm";
-import { runBatch } from "../batch.js";
-import type { Db } from "../db.js";
+import type { WriteBatch } from "../batch.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { outboxAttachmentTable } from "../schema/i4-outbox-attachment.js";
 import { inList } from "./in-list.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToOutboxAttachment(
 	row: typeof outboxAttachmentTable.$inferSelect,
@@ -35,7 +35,13 @@ function rowToOutboxAttachment(
 }
 
 export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
-	constructor(private db: DB) {}
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
+	constructor(store: SqliteStore<Record<string, unknown>>) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	/**
 	 * The per-message cap. The insert, the read of the draft's live rows and a
@@ -60,7 +66,7 @@ export class OutboxAttachmentRepo implements IOutboxAttachmentRepository {
 				gte(outboxAttachmentTable.reservationExpiresAt, cap.nowSeconds),
 			),
 		);
-		const [inserted, rows, removed] = await runBatch(this.db, [
+		const [inserted, rows, removed] = await this.batch([
 			this.db
 				.insert(outboxAttachmentTable)
 				.values({

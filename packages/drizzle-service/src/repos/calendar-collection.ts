@@ -9,11 +9,11 @@ import {
 	normalizeCalendarUrlSegment,
 } from "@remit/data-ports/id";
 import { and, asc, eq, sql } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { calendarTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToCalendar(
 	row: typeof calendarTable.$inferSelect,

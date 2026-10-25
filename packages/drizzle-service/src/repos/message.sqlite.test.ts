@@ -6,9 +6,9 @@ import {
 } from "../id.js";
 import { messageDataSchema } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
-import { DrizzleMessageRepository } from "./message.js";
+import type { DrizzleMessageRepository } from "./message.js";
 
 const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
 
@@ -43,7 +43,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(SCHEMA));
-		repo = new DrizzleMessageRepository(db, new SearchIndex(db, db));
+		repo = createSqliteRepositories({ app: db, mail: db, search: db }).message;
 	});
 
 	after(async () => {

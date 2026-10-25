@@ -18,8 +18,8 @@ import {
 	or,
 	type SQL,
 } from "drizzle-orm";
-import { runBatch, type SqliteBatchItem } from "../batch.js";
-import type { Db } from "../db.js";
+import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
 	isUniqueViolation,
@@ -37,7 +37,6 @@ import {
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
-	type MessageDataSchema,
 	messageFlagTable,
 	messageReferenceTable,
 	messageTable,
@@ -56,7 +55,7 @@ import {
 	toRawMessageStorageItem,
 } from "./mappers.js";
 
-type DB = Db<MessageDataSchema>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
@@ -112,7 +111,7 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	};
 }
 
-export type SubtreeDb = Pick<Db<Record<string, unknown>>, "delete">;
+export type SubtreeDb = Pick<RepositoryDb<Record<string, unknown>>, "delete">;
 
 /**
  * The statements that delete a message and its whole per-message subtree by
@@ -193,10 +192,16 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 };
 
 export class DrizzleMessageRepository implements IMessageRepository {
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private db: DB,
+		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
-	) {}
+	) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	private rowOf(input: CreateMessageInput) {
 		const now = Date.now();
@@ -462,7 +467,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.select({ threadMessageId: threadMessageTable.threadMessageId })
 			.from(threadMessageTable)
 			.where(eq(threadMessageTable.messageId, messageId));
-		const results = await runBatch(this.db, [
+		const results = await this.batch([
 			this.db
 				.delete(threadMessageTable)
 				.where(and(eq(threadMessageTable.messageId, messageId), placed)),
@@ -475,7 +480,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 
 	async deleteMany(messageIds: string[]): Promise<void> {
 		if (messageIds.length === 0) return;
-		await runBatch(this.db, deleteMessageSubtree(this.db, messageIds));
+		await this.batch(deleteMessageSubtree(this.db, messageIds));
 	}
 
 	async listByMailbox(
@@ -623,7 +628,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.select({ threadMessageId: threadMessageTable.threadMessageId })
 			.from(threadMessageTable)
 			.where(eq(threadMessageTable.messageId, messageId));
-		const [moved] = await runBatch(this.db, [
+		const [moved] = await this.batch([
 			this.db
 				.update(messageTable)
 				.set({

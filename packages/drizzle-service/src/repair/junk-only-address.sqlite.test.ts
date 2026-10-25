@@ -5,7 +5,8 @@ import { CanonicalMailboxRole } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
-import { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
+import type { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
 	type JunkOnlyRepairClient,
@@ -181,7 +182,11 @@ describe("addresses standing only on mail in Junk", () => {
 	before(() => {
 		sqlite = new Database(":memory:");
 		const db = drizzle(sqlite);
-		specialUse = new MailboxSpecialUseRepo(db as never, db as never);
+		specialUse = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).mailboxSpecialUse;
 		accountSetting = new AccountSettingRepo(db as never);
 		applyMigrationSet(sqlite, "app");
 		applyMigrationSet(sqlite, "mail");

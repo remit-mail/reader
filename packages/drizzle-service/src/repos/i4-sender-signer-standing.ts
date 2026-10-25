@@ -4,11 +4,11 @@ import type {
 	SenderSignerStandingItem,
 } from "@remit/data-ports";
 import { and, eq, sql } from "drizzle-orm";
-import type { Db } from "../db.js";
+import type { RepositoryDb } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { senderSignerStandingTable } from "../schema.js";
 
-type DB = Db<Record<string, unknown>>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function rowToStanding(
 	row: typeof senderSignerStandingTable.$inferSelect,

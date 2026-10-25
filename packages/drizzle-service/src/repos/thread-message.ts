@@ -23,8 +23,8 @@ import {
 	type SQLWrapper,
 	sql,
 } from "drizzle-orm";
-import { runBatch } from "../batch.js";
-import type { Db } from "../db.js";
+import type { WriteBatch } from "../batch.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { deterministicBase36Id } from "../id.js";
 import { decodeToken } from "../pagination.js";
@@ -43,6 +43,8 @@ import {
 	senderMatchRank,
 	subjectMatch,
 } from "./thread-search-predicates.js";
+
+type DB = RepositoryDb<Record<string, unknown>>;
 
 export const deriveThreadMessageId = (
 	threadId: string,
@@ -326,10 +328,16 @@ function sentDateCursorCond(
 export class DrizzleThreadMessageRepository
 	implements IThreadMessageRepository
 {
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private readonly db: Db<Record<string, unknown>>,
+		store: SqliteStore<Record<string, unknown>>,
 		private readonly search: SearchIndex,
-	) {}
+	) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	/**
 	 * One page of rows in date order (ranked first when asked). Without a text
@@ -1082,7 +1090,7 @@ export class DrizzleThreadMessageRepository
 					.returning({ threadMessageId: threadMessageTable.threadMessageId }),
 			];
 		});
-		const results = await runBatch(this.db, items);
+		const results = await this.batch(items);
 		await this.search.sync(
 			rows.flatMap((row) => [
 				row.threadMessageId,

@@ -9,8 +9,8 @@ import type {
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import { runBatch } from "../batch.js";
-import type { Db } from "../db.js";
+import type { WriteBatch } from "../batch.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
 	isUniqueViolation,
@@ -29,7 +29,6 @@ import {
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
-	type MessageDataSchema,
 	messageReferenceTable,
 	messageTable,
 	rawMessageStorageTable,
@@ -45,7 +44,7 @@ import {
 	toRawMessageStorageItem,
 } from "./mappers.js";
 
-type DB = Db<MessageDataSchema>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 	const byId = new Map<string, T>();
@@ -56,7 +55,13 @@ function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 }
 
 export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
-	constructor(private db: DB) {}
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
+	constructor(store: SqliteStore<Record<string, unknown>>) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	async getMessageData(messageId: string): Promise<MessageData> {
 		const [
@@ -183,10 +188,10 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 				set: { updatedAt: now },
 			});
 		if (dedupedParameterRows.length === 0) {
-			await runBatch(this.db, [insertParts]);
+			await this.batch([insertParts]);
 			return;
 		}
-		await runBatch(this.db, [
+		await this.batch([
 			insertParts,
 			this.db
 				.insert(bodyPartParameterTable)
@@ -211,10 +216,10 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			.delete(messageReferenceTable)
 			.where(eq(messageReferenceTable.messageId, messageId));
 		if (references.length === 0) {
-			await runBatch(this.db, [clear]);
+			await this.batch([clear]);
 			return;
 		}
-		await runBatch(this.db, [
+		await this.batch([
 			clear,
 			this.db.insert(messageReferenceTable).values(
 				references.map((reference) => ({

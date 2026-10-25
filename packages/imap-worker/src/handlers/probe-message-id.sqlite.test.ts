@@ -8,15 +8,11 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
-	AccountRepo,
-	AddressRepo,
-	DrizzleEnvelopeRepository,
-	DrizzleMessageRepository,
-	DrizzleThreadMessageRepository,
-	MailboxRepo,
-	MailboxSpecialUseRepo,
-	SearchIndex,
-	SyncWarningRepo,
+	createSqliteRepositories,
+	type DrizzleMessageRepository,
+	type DrizzleThreadMessageRepository,
+	type MailboxRepo,
+	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import {
@@ -81,7 +77,7 @@ const serverWithInbox = (message: ImapMessage): IImapConnection =>
 
 describe("the Message-ID the move, delete and copy probes ask with", () => {
 	let close: () => void;
-	let db: never;
+	let repos: SqliteRepositories;
 	let accountId: string;
 	let mailboxes: MailboxRepo;
 	let messages: DrizzleMessageRepository;
@@ -119,12 +115,12 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		await new MessageSyncService(
 			factory,
 			mailboxes,
-			new MailboxSpecialUseRepo(db, db),
+			repos.mailboxSpecialUse,
 			messages,
-			new DrizzleEnvelopeRepository(db),
-			new AddressRepo(db),
+			repos.envelope,
+			repos.address,
 			threadMessages,
-			new SyncWarningService(new SyncWarningRepo(db)),
+			new SyncWarningService(repos.syncWarning),
 		).syncMessages(inbox.mailboxId, accountId, ACCOUNT_CONFIG_ID);
 		const [synced] = await messages.listAllByMailbox(inbox.mailboxId);
 		if (!synced) throw new Error("sync stored no message");
@@ -137,14 +133,15 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 	beforeEach(async () => {
 		const store = createShippedSqliteDb();
 		close = store.close;
-		db = store.db as never;
-		mailboxes = new MailboxRepo(db, new SearchIndex(db, db));
-		messages = new DrizzleMessageRepository(db, new SearchIndex(db, db));
-		threadMessages = new DrizzleThreadMessageRepository(
-			db,
-			new SearchIndex(db, db),
-		);
-		const account = await new AccountRepo(db, db).create({
+		repos = createSqliteRepositories({
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		});
+		mailboxes = repos.mailbox;
+		messages = repos.message;
+		threadMessages = repos.threadMessage;
+		const account = await repos.account.create({
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			username: "person@example.com",
 			email: "person@example.com",
@@ -179,9 +176,9 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 		const copyId = await new MessageMoveService({
 			messageService: messages,
 			mailboxService: mailboxes,
-			mailboxSpecialUseService: new MailboxSpecialUseRepo(db, db),
+			mailboxSpecialUseService: repos.mailboxSpecialUse,
 			threadMessageService: threadMessages,
-			addressService: new AddressRepo(db),
+			addressService: repos.address,
 			sqsQueueUrl: "https://queue.test/messages",
 		}).copyMessage(ACCOUNT_CONFIG_ID, sourceId, archive.mailboxId, accountId);
 

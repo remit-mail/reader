@@ -7,7 +7,10 @@ import {
 	AccountService,
 	ConnectionState,
 } from "@remit/domain-enums";
-import { AccountRepo } from "@remit/drizzle-service";
+import {
+	type AccountRepo,
+	createSqliteRepositories,
+} from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { capturingLogger, type LogLine } from "../test-helpers/test-world.js";
 import { runSchedulerTick } from "./run-tick.js";
@@ -22,7 +25,11 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(store.db, store.db);
+	accounts = createSqliteRepositories({
+		app: store.db,
+		mail: store.db,
+		search: store.db,
+	}).account;
 });
 
 afterEach(() => close());

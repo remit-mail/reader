@@ -4,9 +4,9 @@ import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
-import { SearchIndex } from "../search/thread-message-search.js";
-import { DrizzleEnvelopeRepository } from "./envelope.js";
-import { DrizzleMessageRepository } from "./message.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
+import type { DrizzleEnvelopeRepository } from "./envelope.js";
+import type { DrizzleMessageRepository } from "./message.js";
 import { createTestDb, type TestDb } from "./test-helpers.js";
 
 describe("DrizzleMessageRepository", () => {
@@ -37,8 +37,9 @@ describe("DrizzleMessageRepository", () => {
 
 	before(async () => {
 		({ db, stop } = await createTestDb());
-		messageRepo = new DrizzleMessageRepository(db, new SearchIndex(db, db));
-		envelopeRepo = new DrizzleEnvelopeRepository(db);
+		const repos = createSqliteRepositories({ app: db, mail: db, search: db });
+		messageRepo = repos.message;
+		envelopeRepo = repos.envelope;
 	});
 
 	after(async () => {

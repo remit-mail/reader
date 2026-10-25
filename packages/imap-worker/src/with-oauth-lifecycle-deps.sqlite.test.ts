@@ -12,7 +12,10 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import { AccountRepo } from "@remit/drizzle-service";
+import {
+	type AccountRepo,
+	createSqliteRepositories,
+} from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -67,7 +70,11 @@ const account = async (): Promise<AccountItem> =>
 before(() => {
 	const db = createShippedSqliteDb();
 	close = db.close;
-	repo = new AccountRepo(db.db, db.db);
+	repo = createSqliteRepositories({
+		app: db.db,
+		mail: db.db,
+		search: db.db,
+	}).account;
 });
 
 after(() => {

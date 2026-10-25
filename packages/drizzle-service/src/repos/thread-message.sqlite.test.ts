@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	BASE_DATE,
@@ -12,7 +12,7 @@ import {
 	totalRows,
 } from "./category-fixture.js";
 import {
-	DrizzleThreadMessageRepository,
+	type DrizzleThreadMessageRepository,
 	THREAD_SEARCH_MAX_LIMIT,
 } from "./thread-message.js";
 
@@ -58,7 +58,11 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 			},
 			{ searchIndex: true },
 		));
-		repo = new DrizzleThreadMessageRepository(db, new SearchIndex(db, db));
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).threadMessage;
 	});
 
 	after(async () => {
