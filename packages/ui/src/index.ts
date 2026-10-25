@@ -311,6 +311,11 @@ export {
 	type ConfirmDialogProps,
 } from "./components/confirm-dialog.js";
 export {
+	DropdownMenu,
+	DropdownMenuItem,
+	DropdownMenuSeparator,
+} from "./components/DropdownMenu.js";
+export {
 	DangerZoneSection,
 	type DangerZoneSectionProps,
 } from "./components/danger-zone-section.js";
@@ -319,6 +324,15 @@ export {
 	DialogBackdrop,
 	type DialogBackdropProps,
 } from "./components/dialog-backdrop.js";
+export { EmptyState } from "./components/EmptyState.js";
+export {
+	ErrorBanner,
+	type ErrorBannerAction,
+	type ErrorBannerEntry,
+	type ErrorBannerSeverity,
+} from "./components/ErrorBanner.js";
+export { ErrorBannerStack } from "./components/ErrorBannerStack.js";
+export { ErrorState, formatErrorMessage } from "./components/ErrorState.js";
 export type {
 	AuthorDeclarations,
 	EmailFrameVariant,
@@ -499,6 +513,7 @@ export {
 	type IsolatedEmailFrameProps,
 	measureContentAxis,
 } from "./components/isolated-email-frame.js";
+export { KeyboardShortcutsModal } from "./components/KeyboardShortcutsModal.js";
 export { Kbd, type KbdProps } from "./components/kbd.js";
 export {
 	KeyboardHintBar,

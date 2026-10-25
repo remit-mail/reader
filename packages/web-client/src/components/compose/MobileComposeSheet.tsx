@@ -1,9 +1,8 @@
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { ConfirmDialog, useOverlayScope } from "@remit/ui";
+import { ConfirmDialog, ErrorState, useOverlayScope } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { Drawer } from "vaul";
-import { ErrorState } from "@/components/ui/ErrorState";
 import {
 	useAdoptComposeDraft,
 	useCloseCompose,

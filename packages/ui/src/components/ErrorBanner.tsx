@@ -1,9 +1,25 @@
-import { cn } from "@remit/ui";
 import { AlertCircle, AlertTriangle, Info, X } from "lucide-react";
-import type {
-	ErrorBannerAction,
-	ErrorBannerSeverity,
-} from "./error-banners.js";
+import { cn } from "../lib/cn.js";
+
+export type ErrorBannerSeverity = "error" | "warning" | "info";
+
+/**
+ * A way out of the banner. A failure the user cannot act on is still theirs to
+ * report, and a link they have to assemble themselves is one nobody follows.
+ */
+export interface ErrorBannerAction {
+	label: string;
+	href: string;
+}
+
+export interface ErrorBannerEntry {
+	id: string;
+	severity: ErrorBannerSeverity;
+	title: string;
+	detail?: string;
+	action?: ErrorBannerAction;
+	createdAt: number;
+}
 
 interface ErrorBannerProps {
 	id: string;

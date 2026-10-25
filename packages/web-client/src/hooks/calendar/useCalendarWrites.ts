@@ -13,6 +13,7 @@
  * statuses this surface owns, so a lapsed session takes the screen the way it
  * does everywhere else.
  */
+
 import {
 	calendarEventDetailOperationsDeleteCalendarEventMutation,
 	calendarEventDetailOperationsUpdateCalendarEventMutation,
@@ -24,9 +25,9 @@ import type {
 	RemitImapUpdateCalendarEventInput,
 } from "@remit/api-http-client/types.gen.ts";
 import type { RecurrenceScope } from "@remit/ui";
+import { formatErrorMessage } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { getErrorStatus, softErrorStatuses } from "@/lib/error-classifier";
 
 /** The refusals a calendar surface renders itself. A 401 is not among them. */

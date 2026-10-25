@@ -28,6 +28,7 @@
  */
 import {
 	flaggedFilterConfig,
+	formatErrorMessage,
 	type MessageListFilter,
 	MessageListPane,
 	type SearchResult,
@@ -35,7 +36,6 @@ import {
 	type Verb,
 } from "@remit/ui";
 import { type RefObject, useCallback, useMemo, useState } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useIsDesktop } from "@/hooks/useMediaQuery";
 import { useSearchTokenContext } from "@/hooks/useSearchTokenContext";
 import {

@@ -10,10 +10,10 @@ import {
 	type AccountServiceChange,
 	AccountServiceChangeDialog,
 	type AccountServiceIntent,
+	formatErrorMessage,
 } from "@remit/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import {
 	REDIRECT_STALL_MESSAGE,
 	useRedirectEnded,

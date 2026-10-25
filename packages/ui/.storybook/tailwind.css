@@ -1,0 +1,5 @@
+@import "../src/tokens.css";
+
+/* Tailwind v4 content scanning: point at the source it must inspect for
+   utility class usage (auto-detection misses linked workspace packages). */
+@source "../src/**/*.{ts,tsx}";

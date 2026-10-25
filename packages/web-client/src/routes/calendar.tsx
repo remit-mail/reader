@@ -10,13 +10,14 @@
  * through and takes it back to their mail — nothing calendar-specific joins the
  * union, because none of the calendar's own chrome is a panel.
  */
+
 import { configOperationsGetConfigOptions } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
+import { ErrorState } from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute, Outlet, useNavigate } from "@tanstack/react-router";
 import { useCallback, useEffect } from "react";
 import { CalendarShellProvider } from "@/components/calendar/CalendarShell";
 import { MailNav } from "@/components/mail/MailNav";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { panelsWithOverlay, useOpenPanels, useSetOpenPanels } from "@/routing";
 import "@/lib/client";

@@ -1,13 +1,11 @@
-import {
-	cn,
-	DialogBackdrop,
-	Kbd,
-	KEY_HINT_GROUPS,
-	useModalFocus,
-	useOverlayScope,
-} from "@remit/ui";
 import { X } from "lucide-react";
 import { Fragment, useRef } from "react";
+import { cn } from "../lib/cn.js";
+import { KEY_HINT_GROUPS } from "../lib/keymap.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
+import { useModalFocus } from "../lib/use-modal-focus.js";
+import { DialogBackdrop } from "./dialog-backdrop.js";
+import { Kbd } from "./kbd.js";
 
 interface KeyboardShortcutsModalProps {
 	isOpen: boolean;

@@ -5,9 +5,9 @@
  * as segments beside it.
  */
 
+import { EmptyState } from "@remit/ui";
 import { createFileRoute } from "@tanstack/react-router";
 import { CalendarDays } from "lucide-react";
-import { EmptyState } from "@/components/ui/EmptyState";
 
 function CalendarReadingPane() {
 	return (

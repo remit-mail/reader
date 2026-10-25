@@ -2,7 +2,11 @@ import {
 	configOperationsGetConfigOptions,
 	unifiedThreadOperationsListAllThreadsOptions,
 } from "@remit/api-http-client/@tanstack/react-query.gen.ts";
-import { useTriageKeyboard } from "@remit/ui";
+import {
+	ErrorState,
+	KeyboardShortcutsModal,
+	useTriageKeyboard,
+} from "@remit/ui";
 import { useQuery } from "@tanstack/react-query";
 import {
 	createFileRoute,
@@ -16,8 +20,6 @@ import { ComposeFab } from "@/components/layout/ComposeFab";
 import { MailShellProvider } from "@/components/layout/MailShell";
 import { MailTopBar } from "@/components/layout/MailTopBar";
 import { MailNav } from "@/components/mail/MailNav";
-import { ErrorState } from "@/components/ui/ErrorState";
-import { KeyboardShortcutsModal } from "@/components/ui/KeyboardShortcutsModal";
 import { useKeyboardNavigation } from "@/hooks/useKeyboardNavigation";
 import { isSinglePaneTier, useLayoutTier } from "@/hooks/useLayoutTier";
 import { useMailboxNameIndex } from "@/hooks/useMailboxNameIndex";

@@ -7,6 +7,7 @@
  * message inside it are the segments below, which is why nothing here reads a
  * selection out of the query.
  */
+import { ErrorState } from "@remit/ui";
 import {
 	createFileRoute,
 	type ErrorComponentProps,
@@ -14,7 +15,6 @@ import {
 } from "@tanstack/react-router";
 import { MailShell } from "@/components/layout/MailShell";
 import { BriefPane } from "@/components/mail/BriefPane";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { briefSearchSchema } from "@/lib/mail-search";
 import { useOpenThreadPath, useSearchMirror } from "@/routing";
 

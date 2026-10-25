@@ -8,9 +8,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
-import { ErrorBanner } from "./ErrorBanner";
+import {
+	ErrorBanner,
+	type ErrorBannerEntry,
+	type ErrorBannerSeverity,
+} from "./ErrorBanner";
 import { ErrorBannerStack } from "./ErrorBannerStack";
-import type { ErrorBannerEntry, ErrorBannerSeverity } from "./error-banners.js";
 
 (globalThis as { React?: typeof React }).React = React;
 

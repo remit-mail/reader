@@ -6,6 +6,7 @@
  * route matched below this one, and the open thread and the message inside it
  * are the segments there rather than a selection read out of the query.
  */
+import { ErrorState } from "@remit/ui";
 import {
 	createFileRoute,
 	type ErrorComponentProps,
@@ -13,7 +14,6 @@ import {
 } from "@tanstack/react-router";
 import { MailShell } from "@/components/layout/MailShell";
 import { FlaggedPane } from "@/components/mail/FlaggedPane";
-import { ErrorState } from "@/components/ui/ErrorState";
 import { flaggedSearchSchema } from "@/lib/mail-search";
 import { useOpenThreadPath, useSearchMirror } from "@/routing";
 

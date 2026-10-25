@@ -1,5 +1,6 @@
-import { cn, useOverlayScope } from "@remit/ui";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { cn } from "../lib/cn.js";
+import { useOverlayScope } from "../lib/overlay-scope.js";
 
 interface DropdownMenuProps {
 	trigger: React.ReactNode;

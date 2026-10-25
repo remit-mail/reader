@@ -12,11 +12,11 @@ import {
 	CardBody,
 	CardHeader,
 	CardTitle,
+	formatErrorMessage,
 	Input,
 } from "@remit/ui";
 import { CalendarPlus } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 
 export interface CalendarSubscribeCardProps {
 	isBusy: boolean;

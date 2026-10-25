@@ -5,11 +5,11 @@ import {
 	type CalendarDescriptor,
 	type CalendarSlotPick,
 	type Density,
+	ErrorState,
 	NextUpCard,
 	readNextUp,
 } from "@remit/ui";
 import { useMemo } from "react";
-import { ErrorState } from "@/components/ui/ErrorState";
 import type { FreeLookup } from "@/hooks/calendar";
 import { agendaDensityOf } from "@/lib/calendar-density";
 

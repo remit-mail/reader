@@ -1,4 +1,4 @@
-import { ErrorState, formatErrorMessage } from "@/components/ui/ErrorState";
+import { ErrorState, formatErrorMessage } from "@remit/ui";
 import { getErrorStatus } from "@/lib/error-classifier";
 
 interface FilterActionErrorProps {

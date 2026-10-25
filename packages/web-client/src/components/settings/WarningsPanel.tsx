@@ -5,6 +5,7 @@ import type {
 } from "@remit/api-http-client/types.gen.ts";
 import {
 	Button,
+	formatErrorMessage,
 	formatQuarantineReport,
 	formatSyncWarningReport,
 	MessageReportDialog,
@@ -20,7 +21,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Bug } from "lucide-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { SignInAgain } from "@/auth/SignInAgain";
-import { formatErrorMessage } from "@/components/ui/ErrorState";
 import { useResultFolderIndex } from "@/hooks/useResultFolderIndex";
 import { useWarningsList } from "@/hooks/useWarningsAttention";
 import { buildBugReportContext, buildGitHubIssueUrl } from "@/lib/bug-report";

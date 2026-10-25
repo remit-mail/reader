@@ -1,4 +1,4 @@
-import type { ErrorBannerSeverity } from "@/components/ui/error-banners";
+import type { ErrorBannerSeverity } from "@remit/ui";
 import type { BulkRunOutcome } from "@/lib/bulk-actions";
 import { type DeleteOutcome, deleteExpunges, formatNumber } from "@/lib/format";
 
