@@ -1,3 +1,4 @@
+import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/AddressFlagKey.tsp";
@@ -111,6 +112,10 @@ model AddressFlags {
     pk: [Address.accountConfigId],
     sk: [Address.normalizedCompound],
   }
+)
+@Drizzle.indexDef(
+  "address_by_normalized_email",
+  [Address.accountConfigId, Address.normalizedEmail]
 )
 model Address {
   @doc("Primary identifier")

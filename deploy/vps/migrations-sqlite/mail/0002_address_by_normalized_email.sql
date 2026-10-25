@@ -1,0 +1,1 @@
+CREATE INDEX IF NOT EXISTS `address_by_normalized_email` ON `address` (`account_config_id`,`normalized_email`);
