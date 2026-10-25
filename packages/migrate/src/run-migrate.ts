@@ -1,5 +1,6 @@
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
+import { createStorageService } from "@remit/storage-service/s3";
 import {
 	sqliteDatabasePathsFromEnv,
 	syncStore,
@@ -25,6 +26,7 @@ import {
 import type { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
 import { createSqliteRepositories } from "../../drizzle-service/src/sqlite-repositories.js";
+import { backfillSearchText } from "../../mailbox-service/src/search-text-backfill.js";
 import {
 	type LegacySplitOutcome,
 	legacyDatabasePath,
@@ -270,11 +272,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const db = sqliteDrizzle(mailSqlite);
 	const searchDb = sqliteDrizzle(searchSqlite);
 	const search = new SearchIndex(db, syncStore(searchDb));
-	const specialUse = createSqliteRepositories({
+	const repositories = createSqliteRepositories({
 		app,
 		mail: db,
 		search: searchDb,
-	}).mailboxSpecialUse;
+	});
+	const specialUse = repositories.mailboxSpecialUse;
 	try {
 		if (mode.kind === "check") {
 			await displayNameStep(paramRepairClient, "check");
@@ -296,12 +299,28 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 
 		await junkOnlyAddressStep(paramRepairClient, specialUse, "repair");
 
+		const searchText = await backfillSearchText(
+			{
+				messageService: repositories.message,
+				storageService: createStorageService(),
+			},
+			logger,
+		);
+		logStep(
+			{ step: "search-text-backfill", ...searchText },
+			"search text backfilled",
+		);
+
 		// The search index is written after each mail write and never with it,
 		// so it only needs building here when it cannot have followed: a count
 		// that disagrees with the mail database's (a new or deleted search
 		// database, a write that died between the two), or an operator asking
 		// for it.
-		if (mode.kind === "rebuild-search" || (await search.needsRebuild())) {
+		if (
+			mode.kind === "rebuild-search" ||
+			searchText.indexed > 0 ||
+			(await search.needsRebuild())
+		) {
 			logStep({}, "rebuilding the search index from the mail database");
 			const indexed = await search.rebuild();
 			logStep({ indexed }, "search index rebuilt");

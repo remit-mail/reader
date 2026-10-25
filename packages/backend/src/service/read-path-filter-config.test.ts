@@ -89,6 +89,7 @@ const repositoriesWithFilter = (
 				uid: 1,
 			}),
 			update: async (_messageId: string, _input: UpdateMessageInput) => {},
+			setSearchText: async () => {},
 		},
 		threadMessage: {
 			findAllByMessageId: async () => [

@@ -20,13 +20,7 @@ export interface IMessageRepository {
 	update(messageId: string, input: UpdateMessageInput): Promise<MessageItem>;
 	clearBodyStorageKey(messageId: string): Promise<MessageItem>;
 	clearSpamReport(messageId: string): Promise<MessageItem>;
-	/** Record the body text search matches the message by, and index it. */
 	setSearchText(messageId: string, text: string): Promise<void>;
-	/**
-	 * Messages with a stored body and no search text, in message id order
-	 * after `after`: the rows whose body was stored before search text was
-	 * recorded.
-	 */
 	listMissingSearchText(
 		after: string,
 		limit: number,

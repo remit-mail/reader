@@ -77,10 +77,7 @@ import { isMessageGoneFromOpenMailbox } from "./message-presence.js";
 import type { PlacementMoveService } from "./placement-move.js";
 import { isPlacementUnsettled, uidMailboxIdOf } from "./placement-settled.js";
 import { type QuarantineService, shapeFromMessageData } from "./quarantine.js";
-import {
-	extractSearchTextFromEmail,
-	extractSnippetFromEmail,
-} from "./snippet.js";
+import { extractSearchText, extractSnippetFromEmail } from "./snippet.js";
 import type { SyncWarningService } from "./sync-warning.js";
 import { type IImapConnection, MailConnectionError } from "./types.js";
 
@@ -182,16 +179,6 @@ export const extractSnippet = (parsed: ParsedMail): string =>
 		parsed.text,
 		typeof parsed.html === "string" ? parsed.html : undefined,
 		SNIPPET_LENGTH,
-	);
-
-const SEARCH_TEXT_LENGTH = 512 * 1024;
-
-/** The body text the search index matches, from the part the snippet reads. */
-export const extractSearchText = (parsed: ParsedMail): string =>
-	extractSearchTextFromEmail(
-		parsed.text,
-		typeof parsed.html === "string" ? parsed.html : undefined,
-		SEARCH_TEXT_LENGTH,
 	);
 
 /**
@@ -964,6 +951,11 @@ export class BodySyncService {
 			? existingMessage.category
 			: classification.category;
 
+		await this.messageService.setSearchText(
+			messageId,
+			extractSearchText(parsed),
+		);
+
 		// Thread-list denormalization, using the same write-once category as the
 		// Message update below — the two rows must never disagree on category.
 		await denormalizeMessageCategory(
@@ -971,10 +963,6 @@ export class BodySyncService {
 			accountConfigId,
 			messageId,
 			{ category: finalCategory, snippet, listId },
-		);
-		await this.messageService.setSearchText(
-			messageId,
-			extractSearchText(parsed),
 		);
 
 		// `classificationState` records that the classifier ran, in the same

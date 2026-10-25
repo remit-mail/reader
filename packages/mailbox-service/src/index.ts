@@ -30,7 +30,6 @@ export {
 	type BodySyncRoundFolder,
 	BodySyncService,
 	type ConnectionGetter,
-	extractSearchText,
 	extractSnippet,
 	type FetchBodyResult,
 	type PlacementConfig,
@@ -357,16 +356,10 @@ export {
 	type RestoreSourcePlacementOutcome,
 	restoreSourcePlacement,
 } from "./restore-source-placement.js";
+export { backfillSearchText } from "./search-text-backfill.js";
 export {
-	backfillSearchText,
-	type SearchTextBackfillDeps,
-	type SearchTextBackfillLogger,
-	type SearchTextBackfillResult,
-} from "./search-text-backfill.js";
-export {
-	extractSearchTextFromEmail,
+	extractSearchText,
 	extractSnippetFromEmail,
-	generateSearchText,
 	generateSnippet,
 	normalizeSubject,
 	removeQuotedContent,

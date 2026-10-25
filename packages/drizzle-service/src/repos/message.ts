@@ -457,11 +457,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				target: messageSearchTextTable.messageId,
 				set: { text, updatedAt: now },
 			});
-		const listings = await this.db
-			.select({ threadMessageId: threadMessageTable.threadMessageId })
-			.from(threadMessageTable)
-			.where(eq(threadMessageTable.messageId, messageId));
-		await this.search.sync(listings.map((row) => row.threadMessageId));
 	}
 
 	async listMissingSearchText(

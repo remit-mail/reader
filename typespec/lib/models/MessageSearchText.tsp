@@ -8,8 +8,8 @@ namespace RemitImap;
 @doc("""
   The body text the search index matches a message by: the plain text with
   quoted replies removed and whitespace collapsed, cut at a word boundary to
-  at most 512 KB. Written when the body is stored; the message's snippet
-  stays the display preview.
+  at most 512K characters (524288 UTF-16 code units). Written when the body
+  is stored; the message's snippet stays the display preview.
   """)
 @entity("messageSearchText", "remit")
 @index(

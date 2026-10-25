@@ -1,11 +1,11 @@
 import type { IMessageRepository } from "@remit/data-ports";
 import type { StorageService } from "@remit/storage-service";
 import { parseMessageBody } from "./body-parse.js";
-import { extractSearchText } from "./body-sync.js";
+import { extractSearchText } from "./snippet.js";
 
 const PAGE_SIZE = 200;
 
-export interface SearchTextBackfillDeps {
+interface SearchTextBackfillDeps {
 	messageService: Pick<
 		IMessageRepository,
 		"listMissingSearchText" | "setSearchText"
@@ -13,11 +13,11 @@ export interface SearchTextBackfillDeps {
 	storageService: Pick<StorageService, "retrieve">;
 }
 
-export interface SearchTextBackfillLogger {
+interface SearchTextBackfillLogger {
 	error(obj: Record<string, unknown>, msg: string): void;
 }
 
-export interface SearchTextBackfillResult {
+interface SearchTextBackfillResult {
 	indexed: number;
 	failed: number;
 }
@@ -33,13 +33,6 @@ const indexStoredBody = async (
 	await deps.messageService.setSearchText(messageId, extractSearchText(parsed));
 };
 
-/**
- * Record the search text of every message whose body was stored before search
- * text was (#1444), from the stored raw source, and index it. A message whose
- * body cannot be read or parsed is logged and passed over, so one bad object
- * does not hold back the rest; it stays in the cohort and the next run tries
- * it again.
- */
 export const backfillSearchText = async (
 	deps: SearchTextBackfillDeps,
 	log: SearchTextBackfillLogger,
@@ -54,6 +47,7 @@ export const backfillSearchText = async (
 		const last = page.at(-1);
 		if (!last) return result;
 		for (const { messageId, bodyStorageKey } of page) {
+			// A body that cannot be read stays without search text, so the next migrate run tries it again.
 			await indexStoredBody(deps, messageId, bodyStorageKey).then(
 				() => {
 					result.indexed++;

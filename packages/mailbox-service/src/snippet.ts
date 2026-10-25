@@ -5,6 +5,7 @@
  * and normalizing whitespace.
  */
 
+import type { ParsedMail } from "mailparser";
 import {
 	createTextNormalizer,
 	type SupportedLanguage,
@@ -111,23 +112,6 @@ export const generateSnippet = (text: string, maxLength = 256): string => {
 	return `${truncated.slice(0, lastSpace)}...`;
 };
 
-/**
- * The body text the search index matches: the snippet's quote-stripped,
- * whitespace-collapsed text, cut back to the last word boundary at or under
- * `maxLength`, with no ellipsis. A first word longer than `maxLength` is cut
- * at `maxLength`.
- */
-export const generateSearchText = (text: string, maxLength: number): string => {
-	const normalized = flattenBody(text);
-	if (normalized.length <= maxLength) return normalized;
-	const boundary = normalized.lastIndexOf(" ", maxLength);
-	return normalized.slice(0, boundary > 0 ? boundary : maxLength);
-};
-
-/**
- * The plain text of a parsed email: the text part when there is one, else the
- * HTML part with its tags stripped, else empty.
- */
 const emailPlainText = (
 	textContent: string | undefined,
 	htmlContent: string | undefined,
@@ -164,10 +148,18 @@ export const extractSnippetFromEmail = (
 ): string =>
 	generateSnippet(emailPlainText(textContent, htmlContent), maxLength);
 
-/** The search text of a parsed email, from the same part the snippet reads. */
-export const extractSearchTextFromEmail = (
-	textContent: string | undefined,
-	htmlContent: string | undefined,
-	maxLength: number,
-): string =>
-	generateSearchText(emailPlainText(textContent, htmlContent), maxLength);
+const SEARCH_TEXT_LENGTH = 524288;
+
+export const extractSearchText = (
+	parsed: Pick<ParsedMail, "text" | "html">,
+): string => {
+	const text = flattenBody(
+		emailPlainText(
+			parsed.text,
+			typeof parsed.html === "string" ? parsed.html : undefined,
+		),
+	);
+	if (text.length <= SEARCH_TEXT_LENGTH) return text;
+	const boundary = text.lastIndexOf(" ", SEARCH_TEXT_LENGTH);
+	return text.slice(0, boundary > 0 ? boundary : SEARCH_TEXT_LENGTH);
+};
