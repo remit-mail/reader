@@ -54,7 +54,6 @@ export const backfillSearchText = async (
 		if (!last) return result;
 		const recorded: string[] = [];
 		for (const { messageId, bodyStorageKey } of page) {
-			// A body that is gone or unparseable stays without search text, so the next pass tries it again.
 			await recordSearchText(deps, messageId, bodyStorageKey).then(
 				() => {
 					recorded.push(messageId);

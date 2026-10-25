@@ -730,6 +730,11 @@ export class BodySyncService {
 		// write-once category is decided.
 		const parsed = await parseMessageBody(body);
 
+		await this.messageService.setSearchText(
+			messageId,
+			extractSearchText(parsed),
+		);
+
 		// Body-only re-fetch (issue #1011): the decision pass already ran when
 		// this message's body first landed, so a re-store re-materializes only
 		// the body-derived artifacts — parsed cache, body parts, the storage
@@ -737,11 +742,6 @@ export class BodySyncService {
 		// labels, read state, and no second engagement-counter increment.
 		// Skipping the decisions here is what lets the write-once fields stay
 		// safe without per-derivation re-entrancy guards.
-		await this.messageService.setSearchText(
-			messageId,
-			extractSearchText(parsed),
-		);
-
 		if (isReStore) {
 			await this.messageService.syncSearch([messageId]);
 			// Same ordering rule as the first-store path below: the parsed-body
