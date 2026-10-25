@@ -1,16 +1,18 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
 import { after, before, beforeEach, describe, it } from "node:test";
-import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
 import type { RemitClient } from "@remit/backend/client";
 import { importConfig } from "@remit/config-transfer";
 import type { AccountItem } from "@remit/data-ports";
+import {
+	failingQueue,
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import { noopLogger } from "@remit/logger";
 import { openStore } from "../test-helpers/test-world.js";
-
-const FANOUT_URL = "http://queue:9324/000000000000/remit-account-fanout";
 
 let store: Awaited<ReturnType<typeof openStore>>;
 let client: RemitClient;
@@ -105,21 +107,11 @@ const importAccount = async (email: string): Promise<AccountItem> => {
 	return client.account.get(accountId);
 };
 
-const recordingSqs = (sent: SendMessageCommand[], fail = false): SQSClient =>
-	({
-		send: async (command: SendMessageCommand) => {
-			if (fail) throw new Error("queue unreachable");
-			sent.push(command);
-			return {};
-		},
-	}) as unknown as SQSClient;
-
-const heal = (sqsClient: SQSClient) =>
+const heal = (queue: RecordingQueue) =>
 	finishHalfDeletedAccounts({
 		account: client.account,
 		configImport: client.configImport,
-		sqsClient,
-		accountFanoutQueueUrl: FANOUT_URL,
+		queue,
 		log: noopLogger,
 	});
 
@@ -150,13 +142,11 @@ describe("finishing an account deleted before #1384 on scheduler start", () => {
 		]);
 
 	it("tombstones it and asks for the same purge a delete asks for", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 
-		await heal(recordingSqs(sent));
+		await heal(queue);
 
-		const purges = sent
-			.filter((command) => command.input.QueueUrl === FANOUT_URL)
-			.map((command) => JSON.parse(command.input.MessageBody ?? "{}"));
+		const purges = queue.sent.map((message) => message.body);
 		assert.ok(
 			purges.some(
 				(body) =>
@@ -175,27 +165,30 @@ describe("finishing an account deleted before #1384 on scheduler start", () => {
 		assert.ok(
 			!purges.some((body) =>
 				[live.accountId, imported.accountId, deleted.accountId].includes(
-					body.accountId,
+					String(body.accountId),
 				),
 			),
 		);
 	});
 
 	it("does nothing for it on the next start", async () => {
-		await heal(recordingSqs([]));
-		const sent: SendMessageCommand[] = [];
+		await heal(recordingQueue());
+		const queue = recordingQueue();
 
-		await heal(recordingSqs(sent));
+		await heal(queue);
 
 		assert.ok(
-			!sent.some((command) =>
-				(command.input.MessageBody ?? "").includes(halfDeleted.accountId),
+			!queue.sent.some(
+				(message) => message.body.accountId === halfDeleted.accountId,
 			),
 		);
 	});
 
 	it("fails the start and leaves it to be found again when the purge cannot be asked for", async () => {
-		await assert.rejects(heal(recordingSqs([], true)), /queue unreachable/);
+		await assert.rejects(
+			heal(failingQueue(new Error("queue unreachable"))),
+			/queue unreachable/,
+		);
 
 		const after = await client.account.get(halfDeleted.accountId);
 		assert.equal(after.deletedAt, undefined);

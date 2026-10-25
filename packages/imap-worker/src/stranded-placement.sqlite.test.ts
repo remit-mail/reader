@@ -84,7 +84,7 @@ const placementMover = (w: World): PlacementMoveService =>
 		addressService: w.client.address,
 		mailboxSpecialUseService: w.client.mailboxSpecialUse,
 		mailboxService: w.client.mailbox,
-		sqsQueueUrl: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? "",
+		queue: w.client.queues.messageManagement,
 	});
 
 const placementOf = async (a: Arranged) => {
@@ -131,7 +131,8 @@ const queueRefuses = (w: World): void => {
 };
 
 const queueTakes = (w: World): void => {
-	w.queue.answer(async () => ({ Failed: [] }));
+	w.queue.answer(async () => ({}));
+	w.queue.refuse([]);
 };
 
 const redriveLater = async (
@@ -255,9 +256,7 @@ describe("a move whose event dies leaves no row moving", () => {
 
 	it("hands back a move to Trash whose batch entry the queue refused", async () => {
 		const a = await arrange();
-		a.w.queue.answer(async () => ({
-			Failed: [{ Id: "0", Code: "InvalidParameterValue", SenderFault: true }],
-		}));
+		a.w.queue.refuse([0]);
 
 		await assert.rejects(
 			a.w.client.messageMove.deleteMessages(

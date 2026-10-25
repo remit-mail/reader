@@ -19,6 +19,10 @@ import type {
 	OutboxMessageItem,
 } from "@remit/data-ports";
 import { BadRequestError, MailSyncOffError } from "@remit/data-ports/errors";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
 import { OutboxQueueService } from "./outbox-queue.js";
@@ -46,7 +50,7 @@ const draft = (overrides: Partial<OutboxMessageItem>): OutboxMessageItem =>
 
 interface Harness {
 	service: OutboxQueueService;
-	enqueued: string[];
+	queue: RecordingQueue;
 	created: number;
 	statusWrites: string[];
 }
@@ -60,7 +64,7 @@ const createHarness = (
 	let unfinishedChecks = 0;
 	const harness: Harness = {
 		service: undefined as unknown as OutboxQueueService,
-		enqueued: [],
+		queue: recordingQueue(),
 		created: 0,
 		statusWrites: [],
 	};
@@ -102,13 +106,7 @@ const createHarness = (
 		accountService: {
 			get: async () => ({ syncedServices }),
 		} as unknown as IAccountRepository,
-		sqsSmtpQueueUrl: "http://localhost/queue",
-		sqsClient: {
-			send: async (command: { input: { MessageBody: string } }) => {
-				harness.enqueued.push(command.input.MessageBody);
-				return {};
-			},
-		} as never,
+		queue: harness.queue,
 	});
 
 	return harness;
@@ -153,7 +151,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.deepEqual(harness.statusWrites, [], "it stayed a draft");
-		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+		assert.deepEqual(harness.queue.sent, [], "nothing reached the SMTP queue");
 	});
 
 	it("puts the draft back when a reservation lands between the check and the queue", async () => {
@@ -172,7 +170,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 			OutboxMessageStatus.queued,
 			OutboxMessageStatus.draft,
 		]);
-		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+		assert.deepEqual(harness.queue.sent, [], "nothing reached the SMTP queue");
 	});
 
 	it("refuses to queue a draft with a file still uploading, and names the file", async () => {
@@ -203,7 +201,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.deepEqual(harness.statusWrites, [], "it stayed a draft");
-		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+		assert.deepEqual(harness.queue.sent, [], "nothing reached the SMTP queue");
 	});
 
 	it("queues a draft addressed only in Bcc — that envelope is real", async () => {
@@ -214,7 +212,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		await harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID);
 
 		assert.deepEqual(harness.statusWrites, [OutboxMessageStatus.queued]);
-		assert.equal(harness.enqueued.length, 1);
+		assert.equal(harness.queue.sent.length, 1);
 	});
 
 	it("refuses a send-immediately create with no addresses, before writing a row", async () => {
@@ -230,7 +228,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.equal(harness.created, 0, "no queued row was left behind");
-		assert.deepEqual(harness.enqueued, [], "nothing reached the SMTP queue");
+		assert.deepEqual(harness.queue.sent, [], "nothing reached the SMTP queue");
 	});
 
 	it("still creates and queues a send-immediately message that has a recipient", async () => {
@@ -241,7 +239,7 @@ describe("OutboxQueueService and a message with nowhere to go", () => {
 		);
 
 		assert.equal(harness.created, 1);
-		assert.equal(harness.enqueued.length, 1);
+		assert.equal(harness.queue.sent.length, 1);
 	});
 });
 
@@ -263,7 +261,7 @@ describe("OutboxQueueService and an account with mail off", () => {
 		);
 
 		assert.deepEqual(harness.statusWrites, []);
-		assert.deepEqual(harness.enqueued, []);
+		assert.deepEqual(harness.queue.sent, []);
 	});
 
 	it("refuses a send-immediately create before writing a row", async () => {
@@ -278,7 +276,7 @@ describe("OutboxQueueService and an account with mail off", () => {
 		);
 
 		assert.equal(harness.created, 0);
-		assert.deepEqual(harness.enqueued, []);
+		assert.deepEqual(harness.queue.sent, []);
 	});
 
 	it("sends from an account syncing mail and calendar", async () => {
@@ -286,7 +284,7 @@ describe("OutboxQueueService and an account with mail off", () => {
 
 		await harness.service.send(ACCOUNT_CONFIG_ID, OUTBOX_MESSAGE_ID);
 
-		assert.equal(harness.enqueued.length, 1);
+		assert.equal(harness.queue.sent.length, 1);
 	});
 });
 

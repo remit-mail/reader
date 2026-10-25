@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { SQSClient } from "@aws-sdk/client-sqs";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { noopLogger } from "@remit/logger";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountDataPurgeEvent } from "../events.js";
@@ -8,26 +11,6 @@ import {
 	type ProcessPurgeFanoutDeps,
 	processAccountDataPurge,
 } from "./account-purge.js";
-
-interface Sent {
-	queueUrl: string | undefined;
-	body: Record<string, unknown>;
-}
-
-const recordingSqs = (sent: Sent[]): SQSClient =>
-	({
-		send: async (command: {
-			input: { QueueUrl?: string; MessageBody?: string };
-		}) => {
-			sent.push({
-				queueUrl: command.input.QueueUrl,
-				body: command.input.MessageBody
-					? JSON.parse(command.input.MessageBody)
-					: {},
-			});
-			return {};
-		},
-	}) as unknown as SQSClient;
 
 const buildServices = (
 	manifest: Array<{
@@ -54,25 +37,21 @@ const event: AccountDataPurgeEvent = {
 	accountConfigId: "cfg-1",
 };
 
-const baseDeps = (
-	sent: Sent[],
-	overrides: Partial<ProcessPurgeFanoutDeps> = {},
-): ProcessPurgeFanoutDeps => ({
+const baseDeps = (queue: RecordingQueue): ProcessPurgeFanoutDeps => ({
 	services: buildServices([
 		{ threadMessageId: "tm-1", messageId: "msg-1", mailboxId: "mbx-1" },
 		{ threadMessageId: "tm-2", messageId: "msg-2", mailboxId: "mbx-1" },
 	]),
-	sqs: recordingSqs(sent),
-	accountPurgeDeleteQueueUrl: "http://queue/purge",
-	...overrides,
+	queue,
 });
 
 describe("processAccountDataPurge", () => {
 	it("enqueues a subtrees batch and one container leftover", async () => {
-		const sent: Sent[] = [];
-		await processAccountDataPurge(event, noopLogger, baseDeps(sent));
+		const queue = recordingQueue();
+		await processAccountDataPurge(event, noopLogger, baseDeps(queue));
 
-		const finalize = sent.filter((m) => m.queueUrl === "http://queue/purge");
+		const finalize = queue.sent;
+		assert.ok(finalize.every((m) => m.groupId === "cfg-1"));
 		const kinds = finalize.map((m) => m.body.kind);
 		assert.deepEqual(kinds, ["subtrees", "container"]);
 		assert.equal(
@@ -83,23 +62,23 @@ describe("processAccountDataPurge", () => {
 	});
 
 	it("drops manifest rows outside the account's mailbox set", async () => {
-		const sent: Sent[] = [];
+		const queue = recordingQueue();
 		await processAccountDataPurge(event, noopLogger, {
-			...baseDeps(sent),
+			...baseDeps(queue),
 			services: buildServices([
 				{ threadMessageId: "tm-1", messageId: "msg-1", mailboxId: "mbx-1" },
 				{ threadMessageId: "tm-9", messageId: "msg-9", mailboxId: "other" },
 			]),
 		});
 
-		const subtrees = sent.find((m) => m.body.kind === "subtrees");
+		const subtrees = queue.sent.find((m) => m.body.kind === "subtrees");
 		assert.equal((subtrees?.body.items as unknown[])?.length, 1);
 	});
 
 	it("no-ops when the account is already gone", async () => {
-		const sent: Sent[] = [];
+		const queue = recordingQueue();
 		await processAccountDataPurge(event, noopLogger, {
-			...baseDeps(sent),
+			...baseDeps(queue),
 			services: {
 				accountService: {
 					describe: async () => {
@@ -112,14 +91,18 @@ describe("processAccountDataPurge", () => {
 			} as unknown as CascadeServices,
 		});
 
-		assert.equal(sent.length, 0, "nothing enqueued for a missing account");
+		assert.equal(
+			queue.sent.length,
+			0,
+			"nothing enqueued for a missing account",
+		);
 	});
 
 	it("rethrows a non-NotFound describe error", async () => {
-		const sent: Sent[] = [];
+		const queue = recordingQueue();
 		await assert.rejects(
 			processAccountDataPurge(event, noopLogger, {
-				...baseDeps(sent),
+				...baseDeps(queue),
 				services: {
 					accountService: {
 						describe: async () => {

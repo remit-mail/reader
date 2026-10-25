@@ -31,10 +31,10 @@ import { QuarantineService } from "./quarantine.js";
 import { SyncWarningService } from "./sync-warning.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
-	captureQueue,
 	messageAtUid,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -122,7 +122,7 @@ const MISSING_BODY = "file:///nonexistent/remit/body.eml";
 interface World {
 	store: Store;
 	imap: FakeImapServer;
-	queue: QueueCapture;
+	queue: RecordingQueue;
 	account: AccountItem;
 	inbox: MailboxItem;
 	junk: MailboxItem;
@@ -141,7 +141,7 @@ beforeEach(async () => {
 	world = {
 		store,
 		imap,
-		queue: captureQueue(),
+		queue: recordingQueue(),
 		account,
 		inbox: await seedMailbox(store, account, "INBOX"),
 		junk: await seedMailbox(store, account, "Junk", { specialUse: "Junk" }),
@@ -153,7 +153,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	world.queue.restore();
 	await world.store.close();
 });
 
@@ -175,7 +174,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		addressService: store.address,
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		mailboxService: store.mailbox,
-		sqsQueueUrl: "https://sqs.test/message-mgmt",
+		queue: world.queue,
 	});
 	const flagQueueService = new FlagQueueService({
 		messageFlagService: store.messageFlag,
@@ -183,7 +182,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		threadMessageService: store.threadMessage,
 		flagPushService: new FlagPushService({
 			markerService: store.flagPush,
-			sqsQueueUrl: "https://sqs.test/flags",
+			queue: world.queue,
 		}),
 	});
 	return new BodySyncService(

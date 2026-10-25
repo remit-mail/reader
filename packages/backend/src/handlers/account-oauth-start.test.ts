@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { _resetForTest, setClient } from "../service/data-client.js";
+import { _resetForTest } from "../service/data-client.js";
 import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
@@ -134,11 +134,7 @@ before(async () => {
 
 	const fixture = await createCalendarSqliteClient();
 	cleanup = fixture.cleanup;
-	setClient(fixture.client);
-
-	({ handler } = (await import("../index.js")) as unknown as {
-		handler: typeof handler;
-	});
+	({ handler } = (await import("../api-fixture.js")).servedApi(fixture.client));
 });
 
 after(() => {

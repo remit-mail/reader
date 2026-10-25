@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
 import type { AccountItem, CreateFilterInput } from "@remit/data-ports";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	ConnectionState,
@@ -79,7 +80,7 @@ const pipeline = () =>
 				addressService: store.address,
 				mailboxSpecialUseService: store.mailboxSpecialUse,
 				mailboxService: store.mailbox,
-				sqsQueueUrl: "https://sqs.test/message-mgmt",
+				queue: recordingQueue(),
 			}),
 		},
 		{ info: () => {}, error: () => {} },

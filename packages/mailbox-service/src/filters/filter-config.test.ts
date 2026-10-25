@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	FilterClauseField,
 	FilterMatchOperator,
@@ -51,7 +52,7 @@ const repos = (): FilterConfigDeps => ({
 		addressService: store.address,
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		mailboxService: store.mailbox,
-		sqsQueueUrl: "https://sqs.test/message-mgmt",
+		queue: recordingQueue(),
 	}),
 });
 
@@ -64,16 +65,8 @@ const message: FilterMessage = {
 };
 
 describe("buildFilterConfig", () => {
-	it("returns undefined without a placement mover — no move path, filters stay off", () => {
-		const deps = repos();
-		deps.placementMoveService = undefined;
-
-		assert.equal(buildFilterConfig(deps), undefined);
-	});
-
 	it("runs a literal filter on the body-sync pass", async () => {
 		const config = buildFilterConfig(repos());
-		assert.ok(config);
 
 		const decision = await new FilterPipeline(config, {
 			info: () => {},

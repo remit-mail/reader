@@ -1,14 +1,13 @@
 import assert from "node:assert";
 import { randomBytes } from "node:crypto";
 import { after, before, describe, test } from "node:test";
+import { createKmsDataKeyProvider, FAKE_KMS_KEY_ID } from "./kms.js";
 import {
 	createCachedDataKeyProvider,
-	createKmsDataKeyProvider,
 	createSecretsService,
 	type DataKeyProvider,
 	decryptWithKey,
 	encryptWithKey,
-	FAKE_KMS_KEY_ID,
 } from "./service.js";
 
 test("encryptWithKey/decryptWithKey round-trips correctly", () => {

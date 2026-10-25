@@ -22,6 +22,8 @@ import {
 	toOutboxAttachmentResponse,
 } from "./outbox-attachment.js";
 
+type OutboxContext = HandlerContext<"smtp">;
+
 const toOutboxMessageResponse = (
 	item: OutboxMessageItem,
 	attachments: OutboxAttachmentItem[] = [],
@@ -48,11 +50,11 @@ const toOutboxMessageResponse = (
 
 export const OutboxOperations: Record<
 	OutboxOperationIds,
-	OperationHandler<OutboxOperationIds>
+	OperationHandler<OutboxOperationIds, "smtp">
 > = {
 	OutboxOperations_createOutboxMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateOutboxMessageInput;
@@ -105,7 +107,7 @@ export const OutboxOperations: Record<
 
 	OutboxOperations_listOutboxMessages: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { continuationToken } = context.request.query as {
@@ -134,11 +136,11 @@ export const OutboxOperations: Record<
 
 export const OutboxDetailOperations: Record<
 	OutboxDetailOperationIds,
-	OperationHandler<OutboxDetailOperationIds>
+	OperationHandler<OutboxDetailOperationIds, "smtp">
 > = {
 	OutboxDetailOperations_getOutboxMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -160,7 +162,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_updateOutboxMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -206,7 +208,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_deleteOutboxMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -222,7 +224,7 @@ export const OutboxDetailOperations: Record<
 
 	OutboxDetailOperations_sendOutboxMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OutboxContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { outboxMessageId } = context.request.params as {
@@ -244,7 +246,7 @@ export const OutboxDetailOperations: Record<
 
 export const OutboxAttachmentOperations: Record<
 	OutboxAttachmentOperationIds,
-	OperationHandler<OutboxAttachmentOperationIds>
+	OperationHandler<OutboxAttachmentOperationIds, "smtp">
 > = {
 	OutboxAttachmentOperations_completeOutboxAttachment: completeOutboxAttachment,
 };

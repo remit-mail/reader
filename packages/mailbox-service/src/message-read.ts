@@ -59,7 +59,7 @@ export const materializeBodyParts = async (
 		messageId: string;
 		uid?: number;
 		bodyStorageKey: string | undefined;
-		cue: BodySyncCue | undefined;
+		cue: BodySyncCue;
 		logger: MaterializeLogger;
 	},
 ): Promise<MaterializeResult> => {
@@ -81,7 +81,7 @@ export const materializeBodyParts = async (
 			{ messageId, accountId, mailboxId },
 			"Body object missing on read; re-arming body-sync cue and signalling retry",
 		);
-		await args.cue?.requestBodySync({ accountId, mailboxId, messageId, uid });
+		await args.cue.requestBodySync({ accountId, mailboxId, messageId, uid });
 		return { ready: false };
 	}
 };

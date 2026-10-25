@@ -10,16 +10,17 @@ import type {
 } from "@remit/data-ports";
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import { FilterMatchOperator } from "@remit/domain-enums";
 import {
-	captureQueue,
-	type QueuedEvent,
-} from "@remit/mailbox-service/test-helpers/test-queue";
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
+import { FilterMatchOperator } from "@remit/domain-enums";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
 
@@ -84,12 +85,13 @@ const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const ACCOUNT_ID = "acc-995";
 
 const createdRows: CreateOrganizeJobRequestInput[] = [];
-let enqueued: QueuedEvent[] = [];
+let fanout: RecordingQueue = recordingQueue();
 let client: RemitClient;
 
 const installClient = (): void => {
 	createdRows.length = 0;
 	client = {
+		queues: { accountFanout: fanout },
 		account: {
 			get: async () => ({
 				accountId: ACCOUNT_ID,
@@ -109,7 +111,7 @@ const installClient = (): void => {
 	} as unknown as RemitClient;
 };
 
-const authorized = (): HandlerContext => ({
+const authorized = (): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",
@@ -144,9 +146,7 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 	});
 
 	const withStubbedQueue = (): void => {
-		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-			"http://localhost:9324/queue/account-fanout-test";
-		enqueued = captureQueue().sent;
+		fanout = recordingQueue();
 		installClient();
 	};
 
@@ -160,7 +160,7 @@ describe("createOrganizeJob rejected-rule refusal (reader #995)", () => {
 		assert.equal(response.statusCode, 400);
 		assert.match(JSON.parse(response.body).message, /HasWords/);
 		assert.deepEqual(createdRows, []);
-		assert.deepEqual(enqueued, []);
+		assert.deepEqual(fanout.sent, []);
 	});
 });
 
@@ -187,11 +187,10 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 	});
 
 	const withFilter = (filter: FilterItem): void => {
-		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-			"http://localhost:9324/queue/account-fanout-test";
 		createdRows.length = 0;
-		enqueued = captureQueue().sent;
+		fanout = recordingQueue();
 		client = {
+			queues: { accountFanout: fanout },
 			account: {
 				get: async () => ({
 					accountId: ACCOUNT_ID,
@@ -219,12 +218,13 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 		assert.equal(createdRows[0]?.filterId, "flt-1");
 		assert.equal(createdRows[0]?.actionMailboxId, "None");
 		assert.deepEqual(createdRows[0]?.literalClauses, []);
-		assert.equal(enqueued.length, 1);
+		assert.equal(fanout.sent.length, 1);
 	});
 
 	it("answers an unknown filter with a 404 and queues nothing", async () => {
 		withFilter(standing("Active"));
 		client = {
+			queues: { accountFanout: fanout },
 			account: {
 				get: async () => ({
 					accountId: ACCOUNT_ID,
@@ -242,6 +242,6 @@ describe("createOrganizeJob by filterId — Run now (#1354)", () => {
 
 		assert.equal(response.statusCode, 404);
 		assert.deepEqual(createdRows, []);
-		assert.deepEqual(enqueued, []);
+		assert.deepEqual(fanout.sent, []);
 	});
 });

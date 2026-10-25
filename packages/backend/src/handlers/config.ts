@@ -1,4 +1,3 @@
-import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	AccountConfigResponse,
 	ConfigDescriptionResponse,
@@ -10,7 +9,11 @@ import {
 	pendingImportOf,
 	readConfigForExport,
 } from "@remit/config-transfer";
-import type { AccountConfigItem, MailboxItem } from "@remit/data-ports";
+import type {
+	AccountConfigItem,
+	FifoQueueProducer,
+	MailboxItem,
+} from "@remit/data-ports";
 import { ConfigNotEmptyError, NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { logger } from "@remit/logger";
@@ -18,12 +21,13 @@ import {
 	hasStoredCredential,
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
-import { sqsClient } from "../service/sqs.js";
-import { triggerAccountSync } from "../service/trigger-sync.js";
+import {
+	type SyncMailboxesEvent,
+	triggerAccountSync,
+} from "../service/trigger-sync.js";
 import type {
 	ConfigOperationIds,
 	HandlerContext,
@@ -44,19 +48,14 @@ import {
 	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
 
+type ConfigContext = HandlerContext<"sync">;
+
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 
 interface ConfigSyncTriggerDeps {
-	sqsClient: SQSClient;
-	queueUrl: string;
+	queue: FifoQueueProducer<SyncMailboxesEvent>;
 	logger: { info: StructuredLog; error: StructuredLog };
 }
-
-const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
-	sqsClient,
-	queueUrl: env.SQS_QUEUE_URL,
-	logger,
-});
 
 /**
  * Fire-and-forget sync trigger for the accounts surfaced by GET /config.
@@ -87,15 +86,14 @@ const defaultConfigSyncTriggerDeps = (): ConfigSyncTriggerDeps => ({
 export const triggerConfigLoadSyncs = async (
 	accountConfigId: string,
 	accounts: ReadonlyArray<{ accountId: string } & StoredCredentialFields>,
-	deps: ConfigSyncTriggerDeps = defaultConfigSyncTriggerDeps(),
+	deps: ConfigSyncTriggerDeps,
 ): Promise<void> => {
 	await Promise.all(
 		accounts.filter(hasStoredCredential).map(({ accountId }) =>
 			fireAndForget(
 				async () => {
 					const { eventId } = await triggerAccountSync({
-						sqsClient: deps.sqsClient,
-						queueUrl: deps.queueUrl,
+						queue: deps.queue,
 						accountId,
 					});
 					deps.logger.info(
@@ -156,11 +154,11 @@ const emptyConfigResponse = (
 
 export const ConfigOperations: Record<
 	ConfigOperationIds,
-	OperationHandler<ConfigOperationIds>
+	OperationHandler<ConfigOperationIds, "sync">
 > = {
 	ConfigOperations_getConfig: async (
 		_context: Context,
-		ctx: HandlerContext,
+		ctx: ConfigContext,
 	): Promise<ConfigDescriptionResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const client = ctx.client;
@@ -219,7 +217,10 @@ export const ConfigOperations: Record<
 		// triggerConfigLoadSyncs swallows nothing — it logs each failure loudly
 		// with an alertable structured field — but it also never rejects, so the
 		// `void` here cannot leak an unhandled rejection into a later request.
-		void triggerConfigLoadSyncs(accountConfigId, activeAccounts);
+		void triggerConfigLoadSyncs(accountConfigId, activeAccounts, {
+			queue: ctx.client.queues.sync,
+			logger,
+		});
 
 		// An import that named folders IMAP had not produced yet rides the config
 		// read rather than a route of its own, so nothing has to poll for it.
@@ -247,7 +248,7 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_exportConfig: async (
 		_context: Context,
-		ctx: HandlerContext,
+		ctx: ConfigContext,
 	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const client = ctx.client;
@@ -261,7 +262,7 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_importConfig: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: ConfigContext,
 	): Promise<ConfigImportReport> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const body = (context.request.requestBody ?? {}) as {

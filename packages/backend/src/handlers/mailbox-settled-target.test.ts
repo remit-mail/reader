@@ -12,11 +12,12 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
-import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import type { OperationHandler } from "../types.js";
+import type { QueueName } from "../service/queues.js";
+import type { OperationHandler, OperationIds } from "../types.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
 import { MessageBulkOperations } from "./message.js";
@@ -54,11 +55,8 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 		copies: [],
 	};
 	const row = target(syncStatus);
-	process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-		"http://localhost:9324/queue/account-fanout-test";
-	captureQueue();
-
 	client = {
+		queues: { accountFanout: recordingQueue() },
 		account: {
 			get: async () => ({ accountId: ACCOUNT_ID, accountConfigId: CONFIG_ID }),
 			listAllByAccountConfig: async () => [{ accountId: ACCOUNT_ID }],
@@ -114,7 +112,7 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 };
 
 const call = (
-	handler: OperationHandler,
+	handler: OperationHandler<OperationIds, QueueName>,
 	request: Record<string, unknown>,
 ): Promise<Record<string, unknown>> =>
 	handler({ request } as unknown as Context, {

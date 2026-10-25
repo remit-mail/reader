@@ -9,8 +9,14 @@ import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { WorkerEvent } from "./events.js";
 import { imapFailureKind } from "./failure-kind.js";
 import { processEvent } from "./processor.js";
+import {
+	setWorkerQueues,
+	sqsWorkerQueues,
+	workerQueueUrlsFromEnv,
+} from "./queues.js";
 
 installNodeLogger();
+setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
 
 const log = createLogger();
 

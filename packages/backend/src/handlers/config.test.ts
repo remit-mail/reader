@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+	failingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { AccountAuthType } from "@remit/domain-enums";
 import { triggerConfigLoadSyncs } from "./config.js";
 
@@ -12,8 +15,6 @@ const withPassword = (accountId: string) => ({
 	accountId,
 	passwordHash: '{"ciphertext":"x"}',
 });
-
-const QUEUE_URL = "http://localhost:9324/000000000000/remit-dev-mailboxes";
 
 interface LogCall {
 	fields: Record<string, unknown>;
@@ -34,43 +35,27 @@ const createLoggerSpy = () => {
 	return { info, error, logger };
 };
 
-const okSqsClient = (sent: SendMessageCommand[]): SQSClient =>
-	({
-		send: async (cmd: SendMessageCommand) => {
-			sent.push(cmd);
-			return {};
-		},
-	}) as unknown as SQSClient;
-
-const failingSqsClient = (error: Error): SQSClient =>
-	({
-		send: async () => {
-			throw error;
-		},
-	}) as unknown as SQSClient;
-
 describe("triggerConfigLoadSyncs", () => {
 	it("enqueues a sync for each account and logs success", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		const { logger, info, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs(
 			"config-1",
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
-				sqsClient: okSqsClient(sent),
-				queueUrl: QUEUE_URL,
+				queue: queue,
 				logger,
 			},
 		);
 
-		assert.equal(sent.length, 2);
+		assert.equal(queue.sent.length, 2);
 		assert.equal(info.length, 2);
 		assert.equal(error.length, 0);
 	});
 
 	it("skips an account that stores no credential (issue #1120)", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		const { logger, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs(
@@ -79,19 +64,16 @@ describe("triggerConfigLoadSyncs", () => {
 				{ accountId: "imported-no-password" },
 				withPassword("acc-with-password"),
 			],
-			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
+			{ queue: queue, logger },
 		);
 
-		assert.equal(sent.length, 1);
+		assert.equal(queue.sent.length, 1);
 		assert.equal(error.length, 0);
-		const body = JSON.parse(String(sent[0]?.input.MessageBody)) as {
-			accountId: string;
-		};
-		assert.equal(body.accountId, "acc-with-password");
+		assert.equal(queue.sent[0]?.body.accountId, "acc-with-password");
 	});
 
 	it("skips an OAuth account that stores no refresh token", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		const { logger } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs(
@@ -102,10 +84,10 @@ describe("triggerConfigLoadSyncs", () => {
 					authType: AccountAuthType.OauthMicrosoft,
 				},
 			],
-			{ sqsClient: okSqsClient(sent), queueUrl: QUEUE_URL, logger },
+			{ queue: queue, logger },
 		);
 
-		assert.equal(sent.length, 0);
+		assert.equal(queue.sent.length, 0);
 	});
 
 	it("does NOT reject when the SQS enqueue fails (read stays resilient)", async () => {
@@ -117,8 +99,7 @@ describe("triggerConfigLoadSyncs", () => {
 
 		await assert.doesNotReject(
 			triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-				sqsClient: failingSqsClient(econnrefused),
-				queueUrl: QUEUE_URL,
+				queue: failingQueue(econnrefused),
 				logger,
 			}),
 		);
@@ -132,8 +113,7 @@ describe("triggerConfigLoadSyncs", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-			sqsClient: failingSqsClient(econnrefused),
-			queueUrl: QUEUE_URL,
+			queue: failingQueue(econnrefused),
 			logger,
 		});
 
@@ -149,32 +129,27 @@ describe("triggerConfigLoadSyncs", () => {
 	});
 
 	it("isolates failures per account — one bad enqueue does not block the others", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		let calls = 0;
-		const sqsClient = {
-			send: async (cmd: SendMessageCommand) => {
-				calls += 1;
-				if (calls === 1)
-					throw Object.assign(new Error(""), { code: "ECONNREFUSED" });
-				sent.push(cmd);
-				return {};
-			},
-		} as unknown as SQSClient;
+		queue.answer(async () => {
+			calls += 1;
+			if (calls === 1)
+				throw Object.assign(new Error(""), { code: "ECONNREFUSED" });
+		});
 		const { logger, info, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs(
 			"config-1",
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
-				sqsClient,
-				queueUrl: QUEUE_URL,
+				queue,
 				logger,
 			},
 		);
 
 		assert.equal(error.length, 1);
 		assert.equal(info.length, 1);
-		assert.equal(sent.length, 1);
+		assert.equal(queue.sent.length, 2);
 	});
 
 	it("reads SDK error name from the .Code field when present", async () => {
@@ -185,8 +160,7 @@ describe("triggerConfigLoadSyncs", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-			sqsClient: failingSqsClient(sdkError),
-			queueUrl: QUEUE_URL,
+			queue: failingQueue(sdkError),
 			logger,
 		});
 
@@ -222,8 +196,7 @@ describe("triggerConfigLoadSyncs", () => {
 				"config-1",
 				[withPassword("acc-a"), withPassword("acc-b")],
 				{
-					sqsClient: failingSqsClient(econnrefused),
-					queueUrl: QUEUE_URL,
+					queue: failingQueue(econnrefused),
 					logger,
 				},
 			);

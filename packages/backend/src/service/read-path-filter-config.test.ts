@@ -8,13 +8,14 @@
  */
 
 import assert from "node:assert/strict";
-import { afterEach, beforeEach, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import type {
 	CreateMessageLabelInput,
 	FilterItem,
 	UpdateMessageInput,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { FilterMatchOperator, FilterState } from "@remit/domain-enums";
 import {
 	type FilterMessage,
@@ -24,7 +25,6 @@ import {
 import type { SecretsService } from "@remit/secrets-service";
 import type { StorageService } from "@remit/storage-service";
 import {
-	buildReadPathFilterConfig,
 	createRemitClient,
 	type RemitClientRepositories,
 } from "./create-remit-client.js";
@@ -51,8 +51,7 @@ const eml = (message: FilterMessage): Buffer =>
 
 /**
  * A sender filter. Its action is a label, which the fake MessageLabel
- * repository below records — a move would run the real PlacementMoveService
- * against SQS.
+ * repository below records.
  */
 const senderFilter: FilterItem = {
 	filterId: "flt-stripe",
@@ -130,8 +129,13 @@ const readBodyThroughClient = async (
 		repositories,
 		storage,
 		secrets: {} as unknown as SecretsService,
-		sqsQueueUrl: "https://sqs.eu-west-1.amazonaws.com/0/test",
-		sqsSmtpQueueUrl: "https://sqs.eu-west-1.amazonaws.com/0/test-smtp",
+		queues: {
+			sync: recordingQueue(),
+			accountFanout: recordingQueue(),
+			smtp: recordingQueue(),
+			messageManagement: recordingQueue(),
+			body: recordingQueue(),
+		},
 	});
 	const connection = {
 		openBox: async () => {},
@@ -148,22 +152,6 @@ const readBodyThroughClient = async (
 };
 
 describe("createRemitClient read-path filter config", () => {
-	let previousQueueUrl: string | undefined;
-
-	beforeEach(() => {
-		previousQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-		process.env.SQS_QUEUE_URL_MESSAGE_MGMT =
-			"https://sqs.eu-west-1.amazonaws.com/0/test-message-mgmt";
-	});
-
-	afterEach(() => {
-		if (previousQueueUrl === undefined) {
-			delete process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-			return;
-		}
-		process.env.SQS_QUEUE_URL_MESSAGE_MGMT = previousQueueUrl;
-	});
-
 	it("labels a message a standing filter matches on a read-path backfill", async () => {
 		const applied: CreateMessageLabelInput[] = [];
 
@@ -188,22 +176,5 @@ describe("createRemitClient read-path filter config", () => {
 		});
 
 		assert.deepEqual(applied, []);
-	});
-});
-
-describe("buildReadPathFilterConfig", () => {
-	it("keeps filters off when the message-management queue is unset", async () => {
-		const previous = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-		delete process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-		try {
-			assert.equal(
-				buildReadPathFilterConfig(repositoriesWithFilter()),
-				undefined,
-			);
-		} finally {
-			if (previous !== undefined) {
-				process.env.SQS_QUEUE_URL_MESSAGE_MGMT = previous;
-			}
-		}
 	});
 });

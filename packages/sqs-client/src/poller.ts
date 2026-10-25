@@ -16,7 +16,7 @@ import {
 	createHeartbeat,
 	type Heartbeat,
 } from "./heartbeat.js";
-import { createQueueProducer } from "./producer.js";
+import { createSqsClient } from "./producer.js";
 
 /**
  * Production queue poller — the non-e2e counterpart of the per-worker
@@ -78,7 +78,7 @@ const pollTarget = async (
 ): Promise<void> => {
 	const queueName = new URL(target.queueUrl).pathname.split("/").pop();
 	const heartbeat = buildHeartbeat(queueName ?? target.functionName);
-	const sqs = createQueueProducer({ queueUrl: target.queueUrl });
+	const sqs = createSqsClient({ queueUrl: target.queueUrl });
 	const maxMessages = target.maxMessages ?? DEFAULT_MAX_MESSAGES;
 	const visibilityTimeout =
 		target.visibilityTimeoutSeconds ?? DEFAULT_VISIBILITY_TIMEOUT_SECONDS;

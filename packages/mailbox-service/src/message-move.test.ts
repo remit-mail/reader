@@ -24,10 +24,10 @@ import { SyncWarningService } from "./sync-warning.js";
 import { eml, FakeImapServer } from "./test-helpers/fake-imap.js";
 import {
 	arriveAt,
-	captureQueue,
 	openStore,
-	type QueueCapture,
-	type QueuedEvent,
+	type RecordedMessage,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -39,8 +39,8 @@ import {
 type TrashSetup = "flagged" | "named" | "none" | "appointed" | "stale";
 
 let store: Store;
-let capture: QueueCapture;
-let queue: QueuedEvent[];
+let capture: RecordingQueue;
+let queue: RecordedMessage[];
 let imap: FakeImapServer;
 let account: AccountItem;
 let inbox: MailboxItem;
@@ -49,14 +49,13 @@ let junk: MailboxItem;
 let trash: MailboxItem | undefined;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	queue = capture.sent;
 	store = await openStore();
 	imap = new FakeImapServer();
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -106,7 +105,7 @@ const service = () =>
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		threadMessageService: store.threadMessage,
 		addressService: store.address,
-		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
+		queue: capture,
 		moveSettleTimeoutMs: 200,
 		moveSettlePollMs: 10,
 	});

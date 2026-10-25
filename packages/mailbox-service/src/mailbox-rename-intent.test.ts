@@ -5,29 +5,28 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { MailboxQueueService } from "./mailbox-queue.js";
 import {
 	beforeNext,
-	captureQueue,
 	openStore,
-	type QueueCapture,
-	type QueuedEvent,
+	type RecordedMessage,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
 } from "./test-helpers/test-store.js";
 
 let store: Store;
-let capture: QueueCapture;
-let queue: QueuedEvent[];
+let capture: RecordingQueue;
+let queue: RecordedMessage[];
 let account: AccountItem;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	queue = capture.sent;
 	store = await openStore();
 	account = await seedAccount(store);
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -53,7 +52,7 @@ const folder = async (
 const queueService = () =>
 	new MailboxQueueService({
 		mailboxService: store.mailbox,
-		sqsQueueUrl: "http://localhost:4566/000000000000/mailbox",
+		queue: capture,
 	});
 
 const rename = (mailbox: MailboxItem, newPath: string) =>

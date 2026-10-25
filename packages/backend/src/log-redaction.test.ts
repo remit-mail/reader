@@ -16,7 +16,7 @@ import { captureStdout, restoreStdout } from "./stdout-capture-fixture.js";
 process.env.LOG_LEVEL = "trace";
 
 const { mintCalendarFeedToken } = await import("@remit/calendar-service");
-const { _resetForTest, setClient } = await import("./service/data-client.js");
+const { _resetForTest } = await import("./service/data-client.js");
 const { createCalendarSqliteClient } = await import(
 	"./handlers/calendar-sqlite-fixture.js"
 );
@@ -46,10 +46,7 @@ before(async () => {
 	process.env.DATA_BACKEND = "sqlite";
 	const fixture = await createCalendarSqliteClient();
 	cleanup = fixture.cleanup;
-	setClient(fixture.client);
-	({ handler } = (await import("./index.js")) as unknown as {
-		handler: typeof handler;
-	});
+	({ handler } = (await import("./api-fixture.js")).servedApi(fixture.client));
 });
 
 after(() => {

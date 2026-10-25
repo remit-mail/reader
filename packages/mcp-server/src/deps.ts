@@ -5,6 +5,8 @@ import type {
 	IMessageRepository,
 	IOrganizeJobRequestRepository,
 	IThreadMessageRepository,
+	OrganizeJobEvent,
+	QueueProducer,
 } from "@remit/data-ports";
 import type {
 	BodyPartMaterializer,
@@ -25,7 +27,7 @@ export interface FolderToolDeps {
 }
 
 export interface FilterToolDeps {
-	organizeQueueUrl: string;
+	organizeQueue: QueueProducer<OrganizeJobEvent>;
 	logger: OrganizeJobLogger;
 }
 
@@ -47,7 +49,7 @@ export interface McpDeps {
 	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create">;
 	storage: Pick<StorageService, "retrieveBodyPart">;
 	bodySync: BodyPartMaterializer;
-	bodySyncQueue: BodySyncCue | undefined;
+	bodySyncQueue: BodySyncCue;
 	logger: MaterializeLogger;
 	folders: FolderToolDeps;
 	filters: FilterToolDeps;

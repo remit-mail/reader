@@ -42,6 +42,7 @@ export {
 	type BodySyncQueueLogger,
 	BodySyncQueueService,
 	type RequestBodySyncInput,
+	type SyncMessageBodyEvent,
 } from "./body-sync-queue.js";
 export {
 	isMessageBodySyncBroken,
@@ -220,6 +221,7 @@ export {
 } from "./mailbox-presence.js";
 export {
 	type CreateMailboxQueueInput,
+	type MailboxManagementEvent,
 	type MailboxQueueConfig,
 	type MailboxQueueLogger,
 	MailboxQueueService,
@@ -247,6 +249,7 @@ export {
 	type DeleteOptions,
 	type MessageMoveConfig,
 	type MessageMoveLogger,
+	type MessageMoveQueueEvent,
 	MessageMoveService,
 	NoTrashMailboxError,
 	requireTrashMailbox,
@@ -302,6 +305,7 @@ export {
 	type OutboxQueueConfig,
 	type OutboxQueueLogger,
 	OutboxQueueService,
+	type SendMessageEvent,
 	type UpdateDraftInput,
 } from "./outbox-queue.js";
 export {

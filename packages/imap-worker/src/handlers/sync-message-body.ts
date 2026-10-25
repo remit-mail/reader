@@ -142,6 +142,7 @@ export const syncMessageBody = async (
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarStore,
+		queues,
 	} = await getClient();
 
 	const account = await accountService.get(accountId);
@@ -156,18 +157,15 @@ export const syncMessageBody = async (
 	// PLACEMENT_MOVE_PUSH rides messageMgmtQueue (issue #1271) — same queue
 	// the general MessageMoveService move/delete/copy machinery uses, not a
 	// dedicated one.
-	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-	const placementMoveService = placementMoveQueueUrl
-		? new PlacementMoveService({
-				messageService,
-				threadMessageService,
-				markerService,
-				addressService,
-				mailboxSpecialUseService,
-				mailboxService,
-				sqsQueueUrl: placementMoveQueueUrl,
-			})
-		: undefined;
+	const placementMoveService = new PlacementMoveService({
+		messageService,
+		threadMessageService,
+		markerService,
+		addressService,
+		mailboxSpecialUseService,
+		mailboxService,
+		queue: queues.messageManagement,
+	});
 
 	await withOAuthLifecycle(
 		buildLifecycleDeps(secrets, accountService),
@@ -220,12 +218,10 @@ export const syncMessageBody = async (
 			// A confident, actionable placement verdict moves mail directly on
 			// body-sync. Safety lives in the verdict itself (only confident,
 			// INBOX/Junk-only) and the movedByRemit loop guard.
-			const placementConfig = placementMoveService
-				? {
-						mailboxSpecialUseService,
-						placementMoveService,
-					}
-				: undefined;
+			const placementConfig = {
+				mailboxSpecialUseService,
+				placementMoveService,
+			};
 
 			// A matched filter's actions (label upsert, exclusive move) apply on
 			// the same body-sync pass, reusing the placement mover for the move

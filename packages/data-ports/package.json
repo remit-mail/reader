@@ -17,6 +17,10 @@
 			"types": "./src/errors.ts",
 			"default": "./src/errors.ts"
 		},
+		"./recording-queue": {
+			"types": "./src/recording-queue.ts",
+			"default": "./src/recording-queue.ts"
+		},
 		"./id": {
 			"types": "./src/id.ts",
 			"default": "./src/id.ts"

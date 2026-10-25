@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { api } from "./index.js";
+import { api } from "./api.js";
 import { normalizeRequest } from "./request.js";
 
 const SUB = "cognito-sub-pipeline";

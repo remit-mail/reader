@@ -12,7 +12,6 @@ import {
 	ownedAccount,
 	updateFilter,
 } from "@remit/mailbox-service";
-import { env } from "expect-env";
 import { unwrap } from "../service/refusal.js";
 import type {
 	FilterDetailOperationIds,
@@ -20,6 +19,8 @@ import type {
 	HandlerContext,
 	OperationHandler,
 } from "../types.js";
+
+type FilterContext = HandlerContext<"accountFanout">;
 
 const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	filterId: item.filterId,
@@ -41,9 +42,9 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 
 export const FilterOperations: Record<
 	FilterOperationIds,
-	OperationHandler<FilterOperationIds>
+	OperationHandler<FilterOperationIds, "accountFanout">
 > = {
-	FilterOperations_listFilters: async (context, ctx: HandlerContext) => {
+	FilterOperations_listFilters: async (context, ctx: FilterContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
@@ -64,7 +65,7 @@ export const FilterOperations: Record<
 
 	FilterOperations_createFilter: async (
 		context,
-		ctx: HandlerContext,
+		ctx: FilterContext,
 	): Promise<CreateFilterResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -79,7 +80,7 @@ export const FilterOperations: Record<
 					mailbox: client.mailbox,
 					filter: client.filter,
 					organizeJobRequest: client.organizeJobRequest,
-					sqsQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+					queue: client.queues.accountFanout,
 					logger,
 				},
 				{ accountConfigId, userId },
@@ -95,9 +96,9 @@ export const FilterOperations: Record<
 
 export const FilterDetailOperations: Record<
 	FilterDetailOperationIds,
-	OperationHandler<FilterDetailOperationIds>
+	OperationHandler<FilterDetailOperationIds, "accountFanout">
 > = {
-	FilterDetailOperations_getFilter: async (context, ctx: HandlerContext) => {
+	FilterDetailOperations_getFilter: async (context, ctx: FilterContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
@@ -114,7 +115,7 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(refreshed);
 	},
 
-	FilterDetailOperations_updateFilter: async (context, ctx: HandlerContext) => {
+	FilterDetailOperations_updateFilter: async (context, ctx: FilterContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
@@ -130,7 +131,7 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(unwrap(updated));
 	},
 
-	FilterDetailOperations_deleteFilter: async (context, ctx: HandlerContext) => {
+	FilterDetailOperations_deleteFilter: async (context, ctx: FilterContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;

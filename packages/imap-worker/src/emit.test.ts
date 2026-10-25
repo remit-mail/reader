@@ -1,53 +1,42 @@
 import assert from "node:assert/strict";
-import { afterEach, before, beforeEach, describe, it } from "node:test";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
 } from "@remit/backend/client";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { mockClient } from "aws-sdk-client-mock";
-import type * as Emit from "./emit.js";
+import { emitEvent, SYNC_MESSAGES_PENDING } from "./emit.js";
 import type {
 	FlagPushEvent,
 	SyncMailboxesEvent,
-	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "./events.js";
+import { setWorkerQueues } from "./queues.js";
 
 type Emitted<T> = Omit<T, "eventId" | "timestamp">;
 
-// The queue urls are read once, at import. Point them at FIFO queues first —
-// this suite is about what emitEvent puts on a FIFO queue, which is what both
-// the self-host stack and the deployed stack run (deploy/vps/queues.json).
-const fifo = (name: string) =>
-	`https://sqs.eu-west-1.amazonaws.com/0/test-${name}.fifo`;
-
-const sqsMock = mockClient(SQSClient);
-
-let emitEvent: typeof Emit.emitEvent;
-let SYNC_MESSAGES_PENDING: typeof Emit.SYNC_MESSAGES_PENDING;
 let locks: MailboxLockRepo;
 let closeStore: () => void;
+let queue: RecordingQueue;
 
-const sentCommands = (): SendMessageCommand["input"][] =>
-	sqsMock.commandCalls(SendMessageCommand).map((call) => call.args[0].input);
-
-const bodyOf = (input: SendMessageCommand["input"]): Record<string, unknown> =>
-	JSON.parse(input.MessageBody ?? "{}") as Record<string, unknown>;
-
-before(async () => {
-	process.env.SQS_QUEUE_URL_MAILBOXES = fifo("mailboxes");
-	process.env.SQS_QUEUE_URL_MESSAGES = fifo("messages");
-	process.env.SQS_QUEUE_URL_FLAGS = fifo("flags");
-	({ emitEvent, SYNC_MESSAGES_PENDING } = await import("./emit.js"));
-});
+const sentCommands = () => queue.sent;
 
 beforeEach(() => {
-	sqsMock.reset();
-	sqsMock.on(SendMessageCommand).resolves({});
+	queue = recordingQueue();
+	setWorkerQueues({
+		mailboxes: queue,
+		messages: queue,
+		flags: queue,
+		body: queue,
+		mailboxManagement: queue,
+		messageManagement: queue,
+	});
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);
@@ -71,8 +60,8 @@ describe("emitEvent on a FIFO queue", () => {
 
 		const [sent] = sentCommands();
 		if (!sent) throw new Error("expected a send");
-		assert.equal(sent.MessageGroupId, "acc-1");
-		assert.equal(sent.MessageDeduplicationId, bodyOf(sent).eventId);
+		assert.equal(sent.groupId, "acc-1");
+		assert.equal(sent.deduplicationId, sent.body.eventId);
 	});
 
 	// Issue #37: every SYNC_MESSAGES for a mailbox carried one dedup id, so
@@ -94,16 +83,13 @@ describe("emitEvent on a FIFO queue", () => {
 			"acc-1",
 			"mbx-1",
 			SYNC_MESSAGES_PENDING,
-			String(bodyOf(first).eventId),
+			String(first.body.eventId),
 		);
 		await emitEvent(event);
 
 		const sent = sentCommands();
 		assert.equal(sent.length, 2);
-		assert.notEqual(
-			sent[0]?.MessageDeduplicationId,
-			sent[1]?.MessageDeduplicationId,
-		);
+		assert.notEqual(sent[0]?.deduplicationId, sent[1]?.deduplicationId);
 	});
 
 	it("lets a second sync of the same account's mailbox list through", async () => {
@@ -117,10 +103,7 @@ describe("emitEvent on a FIFO queue", () => {
 
 		const sent = sentCommands();
 		assert.equal(sent.length, 2);
-		assert.notEqual(
-			sent[0]?.MessageDeduplicationId,
-			sent[1]?.MessageDeduplicationId,
-		);
+		assert.notEqual(sent[0]?.deduplicationId, sent[1]?.deduplicationId);
 	});
 
 	// A FIFO queue without content-based deduplication rejects a send carrying
@@ -139,24 +122,6 @@ describe("emitEvent on a FIFO queue", () => {
 
 		const [sent] = sentCommands();
 		if (!sent) throw new Error("expected a send");
-		assert.equal(sent.MessageDeduplicationId, bodyOf(sent).eventId);
-	});
-});
-
-describe("emitEvent on a standard queue", () => {
-	it("carries no FIFO parameters", async () => {
-		const event: Emitted<SyncMessageBodyEvent> = {
-			type: "SYNC_MESSAGE_BODY",
-			accountId: "acc-1",
-			mailboxId: "mbx-1",
-			messageIds: ["msg-1"],
-		};
-
-		await emitEvent(event);
-
-		const [sent] = sentCommands();
-		if (!sent) throw new Error("expected a send");
-		assert.equal(sent.MessageGroupId, undefined);
-		assert.equal(sent.MessageDeduplicationId, undefined);
+		assert.equal(sent.deduplicationId, sent.body.eventId);
 	});
 });

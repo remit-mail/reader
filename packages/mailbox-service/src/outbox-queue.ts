@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
+	FifoQueueProducer,
 	IAccountRepository,
 	IOutboxMessageRepository,
 	OutboxMessageItem,
@@ -12,11 +12,10 @@ import {
 } from "@remit/data-ports/errors";
 import { bareMessageId } from "@remit/data-ports/id";
 import { AccountService, OutboxMessageStatus } from "@remit/domain-enums";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { OutboxAttachmentService } from "./outbox-attachment.js";
 import { isOpenForWork } from "./outbox-status.js";
 
-interface SendMessageEvent {
+export interface SendMessageEvent {
 	type: "SEND_MESSAGE";
 	eventId: string;
 	timestamp: number;
@@ -38,9 +37,7 @@ export interface OutboxQueueConfig {
 	outboxMessageService: IOutboxMessageRepository;
 	outboxAttachmentService: OutboxAttachmentService;
 	accountService: IAccountRepository;
-	sqsSmtpQueueUrl: string;
-	sqsEndpoint?: string;
-	sqsClient?: SQSClient;
+	queue: FifoQueueProducer<SendMessageEvent>;
 	logger?: OutboxQueueLogger;
 }
 
@@ -165,30 +162,15 @@ export class OutboxQueueService {
 	private outboxMessageService: IOutboxMessageRepository;
 	private outboxAttachmentService: OutboxAttachmentService;
 	private accountService: IAccountRepository;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: FifoQueueProducer<SendMessageEvent>;
 	private log: OutboxQueueLogger;
 
 	constructor(config: OutboxQueueConfig) {
-		const {
-			outboxMessageService,
-			outboxAttachmentService,
-			accountService,
-			sqsSmtpQueueUrl,
-			sqsEndpoint,
-		} = config;
-		this.outboxMessageService = outboxMessageService;
-		this.outboxAttachmentService = outboxAttachmentService;
-		this.accountService = accountService;
-		this.queueUrl = sqsSmtpQueueUrl;
+		this.outboxMessageService = config.outboxMessageService;
+		this.outboxAttachmentService = config.outboxAttachmentService;
+		this.accountService = config.accountService;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
-
-		this.sqs =
-			config.sqsClient ??
-			createQueueProducer({
-				queueUrl: sqsSmtpQueueUrl,
-				endpoint: sqsEndpoint,
-			});
 	}
 
 	createDraft = async (input: CreateDraftInput): Promise<OutboxMessageItem> => {
@@ -505,17 +487,11 @@ export class OutboxQueueService {
 			outboxMessageId,
 		};
 
-		const useFifo = this.queueUrl.endsWith(".fifo");
-		await this.sqs.send(
-			new SendMessageCommand({
-				QueueUrl: this.queueUrl,
-				MessageBody: JSON.stringify(event),
-				...(useFifo && {
-					MessageGroupId: accountId,
-					MessageDeduplicationId: event.eventId,
-				}),
-			}),
-		);
+		await this.queue.send({
+			body: event,
+			groupId: accountId,
+			deduplicationId: event.eventId,
+		});
 
 		this.log.info(
 			{ eventId: event.eventId, accountId, outboxMessageId },

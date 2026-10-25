@@ -15,6 +15,10 @@
       "types": "./src/api.ts",
       "default": "./src/api.ts"
     },
+    "./serve": {
+      "types": "./src/serve.ts",
+      "default": "./src/serve.ts"
+    },
     "./client": {
       "types": "./src/service/data-client.ts",
       "default": "./src/service/data-client.ts"
@@ -22,6 +26,14 @@
     "./create-remit-client": {
       "types": "./src/service/create-remit-client.ts",
       "default": "./src/service/create-remit-client.ts"
+    },
+    "./shared-deps": {
+      "types": "./src/service/shared-deps.ts",
+      "default": "./src/service/shared-deps.ts"
+    },
+    "./compose-sqlite": {
+      "types": "./src/service/compose-sqlite.ts",
+      "default": "./src/service/compose-sqlite.ts"
     },
     "./folder-role-appointments": {
       "types": "./src/handlers/folder-role-appointments.ts",
@@ -64,6 +76,10 @@
         "types": "./dist/src/api.d.ts",
         "default": "./dist/src/api.js"
       },
+      "./serve": {
+        "types": "./dist/src/serve.d.ts",
+        "default": "./dist/src/serve.js"
+      },
       "./client": {
         "types": "./dist/src/service/data-client.d.ts",
         "default": "./dist/src/service/data-client.js"
@@ -71,6 +87,14 @@
       "./create-remit-client": {
         "types": "./dist/src/service/create-remit-client.d.ts",
         "default": "./dist/src/service/create-remit-client.js"
+      },
+      "./shared-deps": {
+        "types": "./dist/src/service/shared-deps.d.ts",
+        "default": "./dist/src/service/shared-deps.js"
+      },
+      "./compose-sqlite": {
+        "types": "./dist/src/service/compose-sqlite.d.ts",
+        "default": "./dist/src/service/compose-sqlite.js"
       },
       "./folder-role-appointments": {
         "types": "./dist/src/handlers/folder-role-appointments.d.ts",
@@ -143,7 +167,6 @@
     "@remit/drizzle-service": "*",
     "@remit/sqs-client": "*",
     "@aws-sdk/client-secrets-manager": "^3.1090.0",
-    "@aws-sdk/client-sqs": "^3.1090.0",
     "better-sqlite3": "^12.11.1",
     "expect-env": "^1.0.1",
     "openapi-backend": "^5.18.0",

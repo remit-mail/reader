@@ -3,16 +3,12 @@ import {
 	ListObjectsV2Command,
 	S3Client,
 } from "@aws-sdk/client-s3";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type { Logger } from "@remit/logger";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import type { DeleteAccountObjectsEvent } from "../events.js";
+import { workerQueues } from "../queues.js";
 
 const s3 = new S3Client({});
-
-const sqsQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
-const sqs = createQueueProducer({ queueUrl: sqsQueueUrl });
 
 const BATCH_SIZE = 1_000;
 const MIN_REMAINING_MS = 30_000;
@@ -94,10 +90,5 @@ const reenqueue = async (
 		continuationToken,
 	};
 
-	await sqs.send(
-		new SendMessageCommand({
-			QueueUrl: sqsQueueUrl,
-			MessageBody: JSON.stringify(event),
-		}),
-	);
+	await workerQueues().messageManagement.send({ body: event });
 };

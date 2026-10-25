@@ -1,4 +1,3 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AccountExportRequestResponse,
 	CreateExportResponse,
@@ -10,9 +9,7 @@ import type {
 import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { sqsClient } from "../service/sqs.js";
 import type {
 	HandlerContext,
 	MeOperationIds,
@@ -20,17 +17,19 @@ import type {
 } from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
+type MeContext = HandlerContext<"accountFanout">;
+
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
 
 const SURFACED_WARNING_CAP = 200;
 
 export const MeOperations: Record<
 	MeOperationIds,
-	OperationHandler<MeOperationIds>
+	OperationHandler<MeOperationIds, "accountFanout">
 > = {
 	MeOperations_listVipSuggestions: async (
 		_context: Context,
-		ctx: HandlerContext,
+		ctx: MeContext,
 	): Promise<VipSuggestionsResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -41,7 +40,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_listQuarantine: async (
 		_context: Context,
-		ctx: HandlerContext,
+		ctx: MeContext,
 	): Promise<QuarantineListResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -63,7 +62,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_deleteMe: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: MeContext,
 	): Promise<DeleteAccountConfigResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -103,17 +102,9 @@ export const MeOperations: Record<
 			throw err;
 		}
 
-		const queueUrl = env.SQS_QUEUE_URL_ACCOUNT_FANOUT;
-
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: queueUrl,
-				MessageBody: JSON.stringify({
-					type: "AccountDelete",
-					accountConfigId,
-				}),
-			}),
-		);
+		await ctx.client.queues.accountFanout.send({
+			body: { type: "AccountDelete", accountConfigId },
+		});
 
 		// biome-ignore lint/plugin/no-logger-info: account deletion is an audit-grade signal
 		logger.info({ accountConfigId }, "Account deletion initiated");
@@ -125,7 +116,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_createExport: async (
 		_context: Context,
-		ctx: HandlerContext,
+		ctx: MeContext,
 	): Promise<CreateExportResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const userId = ctx.identity.sub;
@@ -137,16 +128,13 @@ export const MeOperations: Record<
 			state: "Pending",
 		});
 
-		await sqsClient.send(
-			new SendMessageCommand({
-				QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-				MessageBody: JSON.stringify({
-					type: "AccountExport",
-					accountConfigId,
-					accountExportRequestId: exportRequest.accountExportRequestId,
-				}),
-			}),
-		);
+		await ctx.client.queues.accountFanout.send({
+			body: {
+				type: "AccountExport",
+				accountConfigId,
+				accountExportRequestId: exportRequest.accountExportRequestId,
+			},
+		});
 
 		// biome-ignore lint/plugin/no-logger-info: account export is an audit-grade signal
 		logger.info(
@@ -164,7 +152,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_getExport: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: MeContext,
 	): Promise<AccountExportRequestResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const exportId = context.request.params.exportId as string;

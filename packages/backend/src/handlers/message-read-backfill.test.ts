@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { MessageOperations } from "./message.js";
 
@@ -15,7 +16,7 @@ const ACCOUNT_ID = "acc-1";
 
 const SUB = "sub-610";
 
-const callerWith = (client: RemitClient): HandlerContext => ({
+const callerWith = (client: RemitClient): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",

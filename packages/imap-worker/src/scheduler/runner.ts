@@ -6,10 +6,14 @@ import { createLogger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { backfillSearchText } from "@remit/mailbox-service";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 
-import { env } from "expect-env";
 import { emitEvent } from "../emit.js";
+import {
+	setWorkerQueues,
+	sqsWorkerQueues,
+	workerQueues,
+	workerQueueUrlsFromEnv,
+} from "../queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
@@ -41,9 +45,7 @@ installNodeLogger();
 
 const log = createLogger();
 
-const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
-const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
-const accountFanoutQueueUrl = env.SQS_QUEUE_URL_ACCOUNT_FANOUT;
+setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
 
 const tickIntervalMs = getTickIntervalMs();
 const offlineIntervalMs = getOfflineIntervalMs();
@@ -82,8 +84,7 @@ const runLoop = async (): Promise<void> => {
 	await finishHalfDeletedAccounts({
 		account,
 		configImport: client.configImport,
-		sqsClient: createQueueProducer({ queueUrl: accountFanoutQueueUrl }),
-		accountFanoutQueueUrl,
+		queue: client.queues.accountFanout,
 		log,
 	});
 	const searchTextBackfill = backfillSearchText(
@@ -96,8 +97,7 @@ const runLoop = async (): Promise<void> => {
 		tick: runSchedulerTick,
 		tickDeps: {
 			accountService: account,
-			sqsClient,
-			queueUrl: mailboxesQueueUrl,
+			queue: workerQueues().mailboxes,
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,

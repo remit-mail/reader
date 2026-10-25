@@ -1,11 +1,13 @@
 import { inspect } from "node:util";
 import { logger } from "@remit/logger";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
-import { handleApiEvent } from "./api.js";
+import { handlers, publicHandlers } from "./handlers/index.js";
+import { serveApi } from "./serve.js";
+import { getClient } from "./service/data-client.js";
 
 installNodeLogger();
 
-export { api, handleApiEvent, OpenAPISpec } from "./api.js";
+export { OpenAPISpec } from "./api.js";
 
 /**
  * Last-resort net for a leaked background rejection.
@@ -44,4 +46,6 @@ if (!globalProcess[unhandledRejectionRegistered]) {
 // The Lambda and Node entry point. `withTelemetry` installs the Node logger and
 // its process metrics; a host without Node's process APIs imports
 // `@remit/backend/api` instead and plugs in its own logger with `setLogger`.
-export const handler = withTelemetry(handleApiEvent);
+export const handler = withTelemetry(
+	serveApi({ handlers, publicHandlers }, getClient),
+);

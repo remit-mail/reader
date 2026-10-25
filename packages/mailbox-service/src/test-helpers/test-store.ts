@@ -25,10 +25,11 @@ import { SyncWarningService } from "../sync-warning.js";
 import type { FakeImapServer } from "./fake-imap.js";
 
 export {
-	captureQueue,
-	type QueueCapture,
-	type QueuedEvent,
-} from "./test-queue.js";
+	failingQueue,
+	type RecordedMessage,
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 
 const UPLOAD_URLS = {
 	origin: "https://reader.test",

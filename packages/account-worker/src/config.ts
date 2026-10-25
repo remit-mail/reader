@@ -1,43 +1,38 @@
-import type { SQSClient } from "@aws-sdk/client-sqs";
 import { getClient } from "@remit/backend/client";
+import type { GroupedQueueProducer, QueueProducer } from "@remit/data-ports";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import type { CascadeServices } from "./cascade.js";
-
-// A client per queue URL, resolved at send time rather than at import. The
-// endpoint and wire protocol are derived from the URL, so a self-hosted stack
-// (http://queue:9324/...) gets the query protocol its queue server speaks while
-// real SQS keeps the default. Building at import is not an option: the queue
-// URLs are read lazily for the reason given below.
-const sqsClients = new Map<string, SQSClient>();
-
-export const getSqsClient = (queueUrl: string): SQSClient => {
-	const existing = sqsClients.get(queueUrl);
-	if (existing) return existing;
-	const client = createQueueProducer({ queueUrl });
-	sqsClients.set(queueUrl, client);
-	return client;
-};
+import type {
+	AccountDataPurgeFinalizeEvent,
+	AccountFinalizeEvent,
+} from "./events.js";
 
 // SQS env vars are lazy-evaluated. The fanout worker needs them at handler time;
 // the finalize worker imports `getCascadeServices` from this module but talks to
 // no queue, so its Lambda doesn't carry the env vars. Eager evaluation here would
 // crash finalize at module load — getters defer the read to the fanout-only call
 // sites.
-// Optional, and read through `process.env` rather than expect-env so an unset
-// var yields undefined instead of throwing. IMAP_WORKER_STOP is a no-op
-// acknowledgement in the cascade contract — the account tombstone fence is what
-// actually halts the worker — so a deployment that never provisions a dedicated
-// imap-worker stop queue (the self-host compose stacks) skips the signal rather
-// than failing the whole fanout. AWS sets the var and keeps sending it.
-export const getImapWorkerQueueUrl = (): string | undefined =>
-	process.env.SQS_QUEUE_URL_IMAP_WORKER;
 export const getAccountFinalizeQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_ACCOUNT_FINALIZE;
 export const getAccountPurgeDeleteQueueUrl = (): string =>
 	env.SQS_QUEUE_URL_ACCOUNT_PURGE_DELETE;
+
+export interface FanoutQueues {
+	accountFinalize: QueueProducer<AccountFinalizeEvent>;
+	accountPurgeDelete: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>;
+}
+
+export const sqsFanoutQueues = (): FanoutQueues => ({
+	accountFinalize: createQueueProducer({
+		queueUrl: getAccountFinalizeQueueUrl(),
+	}),
+	accountPurgeDelete: createQueueProducer({
+		queueUrl: getAccountPurgeDeleteQueueUrl(),
+	}),
+});
 
 // The RemitClient is resolved lazily and cached, not at module load: the
 // DynamoDB backend is injected by the composition root before the first cascade

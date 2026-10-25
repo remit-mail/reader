@@ -1,16 +1,14 @@
 import { randomUUID } from "node:crypto";
 import {
-	SendMessageBatchCommand,
-	SendMessageCommand,
-	type SQSClient,
-} from "@aws-sdk/client-sqs";
-import type {
-	IAddressRepository,
-	IMailboxRepository,
-	IMailboxSpecialUseRepository,
-	IMessageRepository,
-	IThreadMessageRepository,
-	MessageItem,
+	type FifoQueueMessage,
+	type FifoQueueProducer,
+	type IAddressRepository,
+	type IMailboxRepository,
+	type IMailboxSpecialUseRepository,
+	type IMessageRepository,
+	type IThreadMessageRepository,
+	type MessageItem,
+	QUEUE_BATCH_LIMIT,
 } from "@remit/data-ports";
 import {
 	FolderRoleUnresolvedError,
@@ -33,7 +31,6 @@ import {
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	carriesForeignUid,
 	placementBindingOf,
@@ -56,7 +53,7 @@ export interface DeleteMessagesOutcome {
  * Event types for message move/delete operations.
  * These match the worker event types in remit-imap-worker/events.ts.
  */
-interface MessageDeleteEvent {
+export interface MessageDeleteEvent {
 	type: "MESSAGE_DELETE";
 	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	eventId: string;
@@ -71,7 +68,7 @@ interface MessageDeleteEvent {
 	destinationMailboxPath?: string;
 }
 
-interface MessageMoveEvent {
+export interface MessageMoveEvent {
 	type: "MESSAGE_MOVE";
 	eventId: string;
 	timestamp: number;
@@ -84,7 +81,7 @@ interface MessageMoveEvent {
 	uid: number;
 }
 
-interface EmptyTrashEvent {
+export interface EmptyTrashEvent {
 	type: "EMPTY_TRASH";
 	schemaVersion: typeof MUTATION_EVENT_SCHEMA_VERSION;
 	eventId: string;
@@ -96,7 +93,7 @@ interface EmptyTrashEvent {
 	trashUidValidity: number;
 }
 
-interface MessageCopyEvent {
+export interface MessageCopyEvent {
 	type: "MESSAGE_COPY";
 	eventId: string;
 	timestamp: number;
@@ -144,11 +141,19 @@ const handBackThenThrow = async (
 	throw fault;
 };
 
-type MessageMoveQueueEvent =
+export type MessageMoveQueueEvent =
 	| MessageDeleteEvent
 	| MessageMoveEvent
 	| EmptyTrashEvent
 	| MessageCopyEvent;
+
+const queueMessage = (
+	event: MessageMoveQueueEvent,
+): FifoQueueMessage<MessageMoveQueueEvent> => ({
+	body: event,
+	groupId: event.accountId,
+	deduplicationId: event.eventId,
+});
 
 /**
  * Logger interface
@@ -173,8 +178,7 @@ export interface MessageMoveConfig {
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	threadMessageService: IThreadMessageRepository;
 	addressService: IAddressRepository;
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	queue: FifoQueueProducer<MessageMoveQueueEvent>;
 	logger?: MessageMoveLogger;
 	moveSettleTimeoutMs?: number;
 	moveSettlePollMs?: number;
@@ -297,8 +301,7 @@ export class MessageMoveService {
 	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	private threadMessageService: IThreadMessageRepository;
 	private addressService: IAddressRepository;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: FifoQueueProducer<MessageMoveQueueEvent>;
 	private log: MessageMoveLogger;
 	private moveSettleTimeoutMs: number;
 	private moveSettlePollMs: number;
@@ -309,17 +312,12 @@ export class MessageMoveService {
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
 		this.threadMessageService = config.threadMessageService;
 		this.addressService = config.addressService;
-		this.queueUrl = config.sqsQueueUrl;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
 		this.moveSettleTimeoutMs =
 			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
 		this.moveSettlePollMs =
 			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
-
-		this.sqs = createQueueProducer({
-			queueUrl: config.sqsQueueUrl,
-			endpoint: config.sqsEndpoint,
-		});
 	}
 
 	/**
@@ -1385,28 +1383,15 @@ export class MessageMoveService {
 	};
 
 	/**
-	 * Enqueue a message move/delete event to SQS.
-	 *
-	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
-	 * FIFO queues by the `.fifo` suffix and group by accountId so events for
+	 * Enqueue a message move/delete event, grouped by accountId so events for
 	 * different accounts can be processed in parallel.
 	 */
 	private enqueueEvent = async (
 		event: MessageMoveQueueEvent,
 		handBack: () => Promise<void>,
 	): Promise<void> => {
-		const useFifo = this.queueUrl.endsWith(".fifo");
-		await this.sqs
-			.send(
-				new SendMessageCommand({
-					QueueUrl: this.queueUrl,
-					MessageBody: JSON.stringify(event),
-					...(useFifo && {
-						MessageGroupId: event.accountId,
-						MessageDeduplicationId: event.eventId,
-					}),
-				}),
-			)
+		await this.queue
+			.send(queueMessage(event))
 			.catch((fault: unknown) => handBackThenThrow(fault, [handBack]));
 
 		this.log.info(
@@ -1416,11 +1401,7 @@ export class MessageMoveService {
 	};
 
 	/**
-	 * Enqueue multiple events to SQS using batch send.
-	 * SQS batch limit is 10 messages, so we chunk if needed.
-	 *
-	 * FIFO queues require MessageGroupId on each batch entry; standard queues
-	 * reject it. We detect FIFO queues by the `.fifo` suffix.
+	 * Enqueue multiple events in batches of at most {@link QUEUE_BATCH_LIMIT}.
 	 */
 	private enqueueEventsBatch = async (
 		events: UndoableEvent<MessageDeleteEvent>[],
@@ -1433,33 +1414,16 @@ export class MessageMoveService {
 		);
 	};
 
-	// A batch send answers 200 with per-entry refusals in `Failed`.
+	// A batch send can succeed while refusing some of its entries.
 	private sendEventsBatch = async (
 		events: UndoableEvent<MessageDeleteEvent>[],
 	): Promise<BatchEnqueueOutcome> => {
-		const SQS_BATCH_SIZE = 10;
-		const useFifo = this.queueUrl.endsWith(".fifo");
-
-		for (let i = 0; i < events.length; i += SQS_BATCH_SIZE) {
-			const batch = events.slice(i, i + SQS_BATCH_SIZE);
-			const sent = await this.sqs
-				.send(
-					new SendMessageBatchCommand({
-						QueueUrl: this.queueUrl,
-						Entries: batch.map(({ event }, idx) => ({
-							Id: `${i + idx}`,
-							MessageBody: JSON.stringify(event),
-							...(useFifo && {
-								MessageGroupId: event.accountId,
-								MessageDeduplicationId: event.eventId,
-							}),
-						})),
-					}),
-				)
+		for (let i = 0; i < events.length; i += QUEUE_BATCH_LIMIT) {
+			const batch = events.slice(i, i + QUEUE_BATCH_LIMIT);
+			const sent = await this.queue
+				.sendBatch(batch.map(({ event }) => queueMessage(event)))
 				.then(
-					(result) => ({
-						refusedIds: new Set((result.Failed ?? []).map((entry) => entry.Id)),
-					}),
+					(result) => ({ refused: result.refused }),
 					(fault: unknown) => ({ fault }),
 				);
 			if ("fault" in sent) {
@@ -1469,13 +1433,11 @@ export class MessageMoveService {
 					fault: sent.fault,
 				};
 			}
-			if (sent.refusedIds.size > 0) {
-				const refused = batch.filter((_, idx) =>
-					sent.refusedIds.has(`${i + idx}`),
-				);
+			if (sent.refused.size > 0) {
+				const refused = batch.filter((_, idx) => sent.refused.has(idx));
 				return {
 					outcome: "unsent",
-					unsent: [...refused, ...events.slice(i + SQS_BATCH_SIZE)],
+					unsent: [...refused, ...events.slice(i + QUEUE_BATCH_LIMIT)],
 					fault: new Error(
 						`The queue refused ${refused.length} of ${events.length} delete event(s)`,
 					),

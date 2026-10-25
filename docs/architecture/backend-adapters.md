@@ -69,6 +69,18 @@ A harness supplies what the suite cannot express portably: how to build the repo
 
 Two limits are inherent rather than incidental. `@remit/data-ports` publishes raw TypeScript and its suites are written against `node:test`, so an adapter needs a TypeScript loader and that runner. And a suite is only ever validated by the adapters that have run it — a rule that is really one engine's behaviour can enter the contract unchallenged until a second engine runs the suite. The first out-of-tree adapter to run it is the real acceptance event.
 
+## A7. Queues, storage and secrets are ports too
+
+A shared package names no cloud SDK for the I/O it does beyond the database. Three ports carry it:
+
+- **Queue.** `QueueProducer<T, M>` in `@remit/data-ports`: `send` and `sendBatch` over a typed body. A standard queue takes `{ body }`; a FIFO queue takes a `GroupedQueueMessage` (group, content-based deduplication) or a `FifoQueueMessage` (group and deduplication id). The mailbox-service classes, the API handlers and the workers produce through it; SQS is its adapter, `createQueueProducer` in `@remit/sqs-client`.
+- **Storage.** `StorageService` in `@remit/storage-service`. S3 and the filesystem are its adapters.
+- **Secrets.** `DataKeyProvider` in `@remit/secrets-service`, under the envelope encryption `createSecretsService` does. KMS is its adapter, in `@remit/secrets-service/kms`.
+
+The client is keyed by the queues a host composes: `RemitClient<K extends QueueName>` carries `queues: Pick<RemitClientQueues, K>` and only the services those queues feed. Each handler group declares the queues it sends to, as `HandlerContext<"sync" | "accountFanout">`, and a host entry registers its operations with `serveApi(registry, client)` from `@remit/backend/serve`, which checks the client's queues against every operation in the registry. A host that registers an operation without composing a queue it sends to does not compile, and an operation it leaves out answers 501.
+
+A host composes at build time, in its entry. A host with every queue calls `createRemitClient`; a host with a subset builds its client from `createRemitCore` and the `compose…Services` pieces for the queues it has, and registers only the operations those queues serve. Reader's own entries compose all five from SQS URLs read once into typed config. The workers compose their own queues the same way: imap-worker registers its producers with `setWorkerQueues` from each entry, and account-worker's fan-out entry passes its producers to the handler. Tests produce through `recordingQueue` and `failingQueue` from `@remit/data-ports/recording-queue`.
+
 ## FAQ
 
 **Why not one repository implementation parameterized by dialect?** Because it cannot be typed. `PgDatabase` and `BaseSQLiteDatabase` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. One body serving two engines needs a cast, and a cast means the types stop describing what executes.

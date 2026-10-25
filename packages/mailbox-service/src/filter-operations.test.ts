@@ -17,9 +17,9 @@ import {
 } from "./filter-operations.js";
 import type { Refusable } from "./refusal.js";
 import {
-	captureQueue,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -27,18 +27,15 @@ import {
 
 let store: Store;
 let account: AccountItem;
-let capture: QueueCapture;
-
-const FANOUT_QUEUE = "http://localhost:4566/000000000000/account-fanout";
+let capture: RecordingQueue;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	store = await openStore();
 	account = await seedAccount(store);
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -47,7 +44,7 @@ const deps = () => ({
 	mailbox: store.mailbox,
 	filter: store.filter,
 	organizeJobRequest: store.organizeJobRequest,
-	sqsQueueUrl: FANOUT_QUEUE,
+	queue: capture,
 	logger: { info: () => {} },
 });
 
@@ -116,12 +113,13 @@ describe("createFilter", () => {
 		assert.equal(job.actionMailboxId, "None");
 		assert.deepEqual(capture.sent, [
 			{
-				queueUrl: FANOUT_QUEUE,
 				body: {
 					type: "OrganizeJob",
 					accountConfigId: account.accountConfigId,
 					organizeJobId: job.organizeJobId,
 				},
+				groupId: undefined,
+				deduplicationId: undefined,
 			},
 		]);
 	});

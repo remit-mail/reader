@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import type { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
@@ -11,9 +10,14 @@ import type {
 	ResultList,
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import {
+	failingQueue,
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import { sqsClient } from "../service/sqs.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 
@@ -21,7 +25,7 @@ let client: RemitClient;
 
 const searchAddresses = (
 	context: Context,
-	caller: HandlerContext,
+	caller: HandlerContext<QueueName>,
 ): Promise<ResultList<AddressItem>> =>
 	AddressOperations.AddressOperations_searchAddresses(
 		context,
@@ -30,7 +34,7 @@ const searchAddresses = (
 
 const updateAddress = (
 	context: Context,
-	caller: HandlerContext,
+	caller: HandlerContext<QueueName>,
 ): Promise<AddressResponse> =>
 	AddressDetailOperations.AddressDetailOperations_updateAddress(
 		context,
@@ -40,7 +44,7 @@ const updateAddress = (
 const SUB = "cognito-sub-704";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 
-const callerOf = (sub: string): HandlerContext => ({
+const callerOf = (sub: string): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",
@@ -166,8 +170,10 @@ const updateContextFor = (body: UpdateAddressInput): Context =>
 const clientHolding = (
 	stored: AddressItem,
 	seen: FlagsMergePatch[],
+	accountFanout: RecordingQueue = recordingQueue(),
 ): RemitClient =>
 	({
+		queues: { accountFanout },
 		address: {
 			getAddress: async (): Promise<AddressItem> => stored,
 			mergeFlags: async (
@@ -290,19 +296,9 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
  * answer for mail already filed cannot be re-derived without every body.
  */
 describe("AddressDetailOperations_updateAddress category back-apply (#415)", () => {
-	const withStubbedQueue = (enqueued: SendMessageCommand[]): void => {
-		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-			"http://localhost:9324/queue/account-fanout-test";
-		mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
-			enqueued.push(command);
-			return {};
-		});
-	};
-
 	it("enqueues a back-apply naming the sender and the set it was fired for", async () => {
-		const enqueued: SendMessageCommand[] = [];
-		withStubbedQueue(enqueued);
-		client = clientHolding(address({ flags: {} }), []);
+		const fanout = recordingQueue();
+		client = clientHolding(address({ flags: {} }), [], fanout);
 
 		await updateAddress(
 			updateContextFor({
@@ -311,8 +307,8 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 			callerOf(SUB),
 		);
 
-		assert.equal(enqueued.length, 1);
-		assert.deepEqual(JSON.parse(String(enqueued[0]?.input.MessageBody)), {
+		assert.equal(fanout.sent.length, 1);
+		assert.deepEqual(fanout.sent[0]?.body, {
 			type: "SenderCategoryBackApply",
 			accountConfigId: ACCOUNT_CONFIG_ID,
 			addressId: "addr-1",
@@ -323,12 +319,11 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 	});
 
 	it("says the override is saved and names the retry when the queue refuses", async () => {
-		process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-			"http://localhost:9324/queue/account-fanout-test";
-		mock.method(sqsClient, "send", async () => {
-			throw new Error("AWS.SimpleQueueService.NonExistentQueue");
-		});
-		client = clientHolding(address({ flags: {} }), []);
+		client = clientHolding(
+			address({ flags: {} }),
+			[],
+			failingQueue(new Error("AWS.SimpleQueueService.NonExistentQueue")),
+		);
 
 		await assert.rejects(
 			updateAddress(
@@ -346,11 +341,11 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 	});
 
 	it("enqueues nothing when the override is cleared back to auto", async () => {
-		const enqueued: SendMessageCommand[] = [];
-		withStubbedQueue(enqueued);
+		const fanout = recordingQueue();
 		client = clientHolding(
 			address({ flags: { category: { value: "newsletter", setAt: 10 } } }),
 			[],
+			fanout,
 		);
 
 		const response = await updateAddress(
@@ -359,19 +354,18 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 		);
 
 		assert.equal(response.flags.category, undefined);
-		assert.deepEqual(enqueued, []);
+		assert.deepEqual(fanout.sent, []);
 	});
 
 	it("enqueues nothing for a flag that has no bearing on classification", async () => {
-		const enqueued: SendMessageCommand[] = [];
-		withStubbedQueue(enqueued);
-		client = clientHolding(address({ flags: {} }), []);
+		const fanout = recordingQueue();
+		client = clientHolding(address({ flags: {} }), [], fanout);
 
 		await updateAddress(
 			updateContextFor({ flags: { muted: { value: true, setAt: 20 } } }),
 			callerOf(SUB),
 		);
 
-		assert.deepEqual(enqueued, []);
+		assert.deepEqual(fanout.sent, []);
 	});
 });

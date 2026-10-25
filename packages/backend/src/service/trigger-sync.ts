@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import type { FifoQueueMessage, FifoQueueProducer } from "@remit/data-ports";
 
-interface SyncMailboxesEvent {
+export interface SyncMailboxesEvent {
 	type: "SYNC_MAILBOXES";
 	eventId: string;
 	timestamp: number;
@@ -10,8 +10,7 @@ interface SyncMailboxesEvent {
 }
 
 interface TriggerAccountSyncInput {
-	sqsClient: SQSClient;
-	queueUrl: string;
+	queue: FifoQueueProducer<SyncMailboxesEvent>;
 	accountId: string;
 	/**
 	 * Set by POST /sync, whose callers ask for a sync of one named account: the
@@ -31,7 +30,7 @@ interface TriggerAccountSyncInput {
 	 */
 	explicitRequest?: boolean;
 	/**
-	 * Override the FIFO `MessageDeduplicationId`. Defaults to the event's own
+	 * Override the queue deduplication id. Defaults to the event's own
 	 * id, so the queue suppresses a re-send of one event and nothing else —
 	 * every manual call site (POST /sync, OAuth connect, config load,
 	 * pull-to-refresh, the client's online-poll) always enqueues. A shared,
@@ -48,8 +47,6 @@ interface TriggerAccountSyncInput {
 	dedupId?: string;
 }
 
-const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
-
 /**
  * Build the scheduler's own dedup namespace, bucketed by tick interval so
  * consecutive ticks each get a fresh id (never colliding with each other)
@@ -65,10 +62,10 @@ export const buildScheduledSyncDedupId = (
 	return `SYNC_MAILBOXES:scheduled:${accountId}:${bucket}`;
 };
 
-export const buildSyncMailboxesCommand = (
-	input: Omit<TriggerAccountSyncInput, "sqsClient">,
-): SendMessageCommand => {
-	const { queueUrl, accountId, dedupId, explicitRequest } = input;
+export const buildSyncMailboxesMessage = (
+	input: Omit<TriggerAccountSyncInput, "queue">,
+): FifoQueueMessage<SyncMailboxesEvent> => {
+	const { accountId, dedupId, explicitRequest } = input;
 	const event: SyncMailboxesEvent = {
 		type: "SYNC_MAILBOXES",
 		eventId: randomUUID(),
@@ -77,24 +74,17 @@ export const buildSyncMailboxesCommand = (
 		...(explicitRequest && { explicitRequest }),
 	};
 
-	const useFifo = isFifoQueue(queueUrl);
-
-	return new SendMessageCommand({
-		QueueUrl: queueUrl,
-		MessageBody: JSON.stringify(event),
-		...(useFifo && {
-			MessageGroupId: accountId,
-			MessageDeduplicationId: dedupId ?? event.eventId,
-		}),
-	});
+	return {
+		body: event,
+		groupId: accountId,
+		deduplicationId: dedupId ?? event.eventId,
+	};
 };
 
 export const triggerAccountSync = async (
 	input: TriggerAccountSyncInput,
 ): Promise<{ eventId: string }> => {
-	const command = buildSyncMailboxesCommand(input);
-	await input.sqsClient.send(command);
-	const body = command.input.MessageBody ?? "{}";
-	const parsed = JSON.parse(body) as SyncMailboxesEvent;
-	return { eventId: parsed.eventId };
+	const message = buildSyncMailboxesMessage(input);
+	await input.queue.send(message);
+	return { eventId: message.body.eventId };
 };

@@ -1,10 +1,20 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { describe, it } from "node:test";
-import { ReceiveMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { afterEach, describe, it, mock } from "node:test";
+import {
+	ReceiveMessageCommand,
+	SendMessageBatchCommand,
+	SendMessageCommand,
+	SQSClient,
+} from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
-import { createQueueProducer, isLocalEndpoint } from "./producer.js";
+import type { GroupedQueueMessage } from "@remit/data-ports";
+import {
+	createQueueProducer,
+	createSqsClient,
+	isLocalEndpoint,
+} from "./producer.js";
 
 // The queue URL a self-hosted compose stack hands its workers: a plain
 // http:// URL addressing the queue container by name, never "localhost".
@@ -96,37 +106,37 @@ describe("isLocalEndpoint", () => {
 	});
 });
 
-describe("createQueueProducer", () => {
+describe("createSqsClient", () => {
 	// Regression (self-host stack): a queue URL of http://queue:9324/... used to
 	// fall through to the AWS JSON protocol, so every send hit the local queue
 	// server with a body it cannot parse and mail never synced.
 	it("selects the query protocol for a non-localhost http:// queue URL", async () => {
-		const client = createQueueProducer({ queueUrl: composeQueueUrl });
+		const client = createSqsClient({ queueUrl: composeQueueUrl });
 		assert.equal(usesQueryProtocol(client), true);
 		assert.equal(await resolvedEndpoint(client), "http://queue:9324");
 	});
 
 	it("selects the query protocol for a localhost queue URL", () => {
-		const client = createQueueProducer({
+		const client = createSqsClient({
 			queueUrl: "http://localhost:9324/000000000000/mailboxes",
 		});
 		assert.equal(usesQueryProtocol(client), true);
 	});
 
 	it("leaves the default protocol and endpoint for a real AWS queue URL", async () => {
-		const client = createQueueProducer({ queueUrl: awsQueueUrl });
+		const client = createSqsClient({ queueUrl: awsQueueUrl });
 		assert.equal(usesQueryProtocol(client), false);
 		assert.equal(await resolvedEndpoint(client), undefined);
 	});
 
 	it("does not throw when the queue URL is unparseable", async () => {
-		const client = createQueueProducer({ queueUrl: "not a url" });
+		const client = createSqsClient({ queueUrl: "not a url" });
 		assert.equal(usesQueryProtocol(client), false);
 		assert.equal(await resolvedEndpoint(client), undefined);
 	});
 
 	it("accepts an explicit endpoint override", async () => {
-		const client = createQueueProducer({
+		const client = createSqsClient({
 			queueUrl: composeQueueUrl,
 			endpoint: "http://custom-endpoint:1234",
 		});
@@ -135,14 +145,14 @@ describe("createQueueProducer", () => {
 	});
 
 	it("uses localCredentials only for a local endpoint", async () => {
-		const local = createQueueProducer({
+		const local = createSqsClient({
 			queueUrl: composeQueueUrl,
 			localCredentials: { accessKeyId: "local", secretAccessKey: "local" },
 			env: {},
 		});
 		assert.equal((await local.config.credentials()).accessKeyId, "local");
 
-		const remote = createQueueProducer({
+		const remote = createSqsClient({
 			queueUrl: awsQueueUrl,
 			localCredentials: { accessKeyId: "local", secretAccessKey: "local" },
 			env: { SQS_ACCESS_KEY_ID: "real", SQS_SECRET_ACCESS_KEY: "real" },
@@ -151,7 +161,7 @@ describe("createQueueProducer", () => {
 	});
 });
 
-describe("createQueueProducer request timeout", () => {
+describe("createSqsClient request timeout", () => {
 	it("fails a receive the queue server never answers", async () => {
 		const server = createServer(() => {});
 		await new Promise<void>((resolve) => {
@@ -159,7 +169,7 @@ describe("createQueueProducer request timeout", () => {
 		});
 		const { port } = server.address() as AddressInfo;
 		const queueUrl = `http://127.0.0.1:${port}/000000000000/hung`;
-		const client = createQueueProducer({
+		const client = createSqsClient({
 			queueUrl,
 			requestTimeoutMs: 100,
 			localCredentials: { accessKeyId: "test", secretAccessKey: "test" },
@@ -175,5 +185,143 @@ describe("createQueueProducer request timeout", () => {
 			server.closeAllConnections();
 			await new Promise<void>((resolve) => server.close(() => resolve()));
 		}
+	});
+});
+
+const recordingClient = (
+	answer: (command: object) => object,
+): { sent: object[] } => {
+	const sent: object[] = [];
+	mock.method(SQSClient.prototype, "send", async (command: object) => {
+		sent.push(command);
+		return answer(command);
+	});
+	return { sent };
+};
+
+const message = {
+	body: { type: "PING", accountId: "acc-1" },
+	groupId: "acc-1",
+	deduplicationId: "evt-1",
+};
+
+describe("createQueueProducer", () => {
+	afterEach(() => mock.restoreAll());
+
+	it("groups a message that names no deduplication id, leaving it to the queue", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer<unknown, GroupedQueueMessage<unknown>>({
+			queueUrl: awsQueueUrl,
+		}).send({ body: message.body, groupId: "acc-1" });
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.equal(sent[0].input.MessageGroupId, "acc-1");
+		assert.equal(sent[0].input.MessageDeduplicationId, undefined);
+	});
+
+	it("sends only the body of a standard message", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer({ queueUrl: composeQueueUrl }).send({
+			body: message.body,
+		});
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.deepEqual(sent[0].input, {
+			QueueUrl: composeQueueUrl,
+			MessageBody: JSON.stringify(message.body),
+		});
+	});
+
+	it("sends the body with its group and deduplication id to a FIFO queue", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer({ queueUrl: awsQueueUrl }).send(message);
+
+		assert.equal(sent.length, 1);
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.deepEqual(sent[0].input, {
+			QueueUrl: awsQueueUrl,
+			MessageBody: JSON.stringify(message.body),
+			MessageGroupId: "acc-1",
+			MessageDeduplicationId: "evt-1",
+		});
+	});
+
+	it("leaves the group and deduplication id off a standard queue", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer({ queueUrl: composeQueueUrl }).send(message);
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.deepEqual(sent[0].input, {
+			QueueUrl: composeQueueUrl,
+			MessageBody: JSON.stringify(message.body),
+		});
+	});
+
+	it("delays a message on a remote queue", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer({ queueUrl: awsQueueUrl }).send({
+			...message,
+			delaySeconds: 30,
+		});
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.equal(sent[0].input.DelaySeconds, 30);
+	});
+
+	it("drops the delay on a local queue server", async () => {
+		const { sent } = recordingClient(() => ({}));
+		await createQueueProducer({ queueUrl: composeQueueUrl }).send({
+			...message,
+			delaySeconds: 30,
+		});
+
+		assert.ok(sent[0] instanceof SendMessageCommand);
+		assert.equal(sent[0].input.DelaySeconds, undefined);
+	});
+
+	it("rejects when the queue rejects a send", async () => {
+		recordingClient(() => {
+			throw new Error("queue down");
+		});
+		await assert.rejects(
+			createQueueProducer({ queueUrl: composeQueueUrl }).send(message),
+			/queue down/,
+		);
+	});
+
+	it("reports the entries a batch send refused by their position", async () => {
+		const { sent } = recordingClient(() => ({
+			Successful: [{ Id: "0" }],
+			Failed: [{ Id: "1", Code: "InvalidParameterValue", SenderFault: true }],
+		}));
+		const second = { ...message, deduplicationId: "evt-2" };
+		const result = await createQueueProducer({
+			queueUrl: awsQueueUrl,
+		}).sendBatch([message, second]);
+
+		assert.deepEqual([...result.refused], [1]);
+		assert.ok(sent[0] instanceof SendMessageBatchCommand);
+		assert.deepEqual(sent[0].input.Entries, [
+			{
+				Id: "0",
+				MessageBody: JSON.stringify(message.body),
+				MessageGroupId: "acc-1",
+				MessageDeduplicationId: "evt-1",
+			},
+			{
+				Id: "1",
+				MessageBody: JSON.stringify(second.body),
+				MessageGroupId: "acc-1",
+				MessageDeduplicationId: "evt-2",
+			},
+		]);
+	});
+
+	it("reports nothing refused when the batch is accepted whole", async () => {
+		recordingClient(() => ({ Successful: [] }));
+		const result = await createQueueProducer({
+			queueUrl: composeQueueUrl,
+		}).sendBatch([message]);
+		assert.equal(result.refused.size, 0);
 	});
 });

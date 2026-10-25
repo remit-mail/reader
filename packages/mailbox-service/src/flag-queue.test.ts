@@ -11,9 +11,9 @@ import {
 	FakeImapServer,
 } from "./test-helpers/fake-imap.js";
 import {
-	captureQueue,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -22,13 +22,13 @@ import {
 } from "./test-helpers/test-store.js";
 
 let store: Store;
-let capture: QueueCapture;
+let capture: RecordingQueue;
 let account: AccountItem;
 let inbox: MailboxItem;
 let messageId: string;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	store = await openStore();
 	account = await seedAccount(store);
 	inbox = await seedMailbox(store, account, "INBOX");
@@ -36,7 +36,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -47,7 +46,7 @@ const flags = () =>
 		threadMessageService: store.threadMessage,
 		flagPushService: new FlagPushService({
 			markerService: store.flagPush,
-			sqsQueueUrl: "https://sqs.test/flags",
+			queue: capture,
 		}),
 	});
 

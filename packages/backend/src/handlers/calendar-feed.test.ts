@@ -11,11 +11,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 let handler: (
@@ -145,10 +141,7 @@ before(async () => {
 	// but the boot-time bypass assertion reads NODE_ENV at import.
 	process.env.DATA_BACKEND = "sqlite";
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
-	({ handler } = (await import("../index.js")) as unknown as {
-		handler: typeof handler;
-	});
+	({ handler } = (await import("../api-fixture.js")).servedApi(client));
 });
 
 after(() => {

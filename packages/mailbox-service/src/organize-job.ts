@@ -1,11 +1,11 @@
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateOrganizeJobRequestInput,
 	IOrganizeJobRequestRepository,
+	OrganizeJobEvent,
 	OrganizeJobRequestItem,
+	QueueProducer,
 } from "@remit/data-ports";
 import { FilterMatchOperator } from "@remit/domain-enums";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import { NO_ACTION } from "./filters/match.js";
 
 const ORGANIZE_JOB_TTL_SECONDS = 7 * 24 * 60 * 60;
@@ -29,19 +29,9 @@ export interface OrganizeJobLogger {
 
 export interface OrganizeJobDeps {
 	organizeJobRequest: Pick<IOrganizeJobRequestRepository, "create">;
-	sqsQueueUrl: string;
+	queue: QueueProducer<OrganizeJobEvent>;
 	logger: OrganizeJobLogger;
 }
-
-const producers = new Map<string, SQSClient>();
-
-const producerFor = (queueUrl: string): SQSClient => {
-	const existing = producers.get(queueUrl);
-	if (existing) return existing;
-	const producer = createQueueProducer({ queueUrl });
-	producers.set(queueUrl, producer);
-	return producer;
-};
 
 const jobColumns = (
 	request: OrganizeJobRequest,
@@ -70,16 +60,13 @@ export const queueOrganizeJob = async (
 		ttl: Math.floor(Date.now() / 1000) + ORGANIZE_JOB_TTL_SECONDS,
 	});
 
-	await producerFor(deps.sqsQueueUrl).send(
-		new SendMessageCommand({
-			QueueUrl: deps.sqsQueueUrl,
-			MessageBody: JSON.stringify({
-				type: "OrganizeJob",
-				accountConfigId: job.accountConfigId,
-				organizeJobId: job.organizeJobId,
-			}),
-		}),
-	);
+	await deps.queue.send({
+		body: {
+			type: "OrganizeJob",
+			accountConfigId: job.accountConfigId,
+			organizeJobId: job.organizeJobId,
+		},
+	});
 
 	deps.logger.info(
 		{

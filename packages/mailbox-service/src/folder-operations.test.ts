@@ -11,31 +11,30 @@ import { MailboxQueueService } from "./mailbox-queue.js";
 import { folderInAccount } from "./ownership.js";
 import type { Refusable } from "./refusal.js";
 import {
-	captureQueue,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
 } from "./test-helpers/test-store.js";
 
 let store: Store;
-let capture: QueueCapture;
+let capture: RecordingQueue;
 let account: AccountItem;
 let mailboxQueue: MailboxQueueService;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	store = await openStore();
 	account = await seedAccount(store);
 	mailboxQueue = new MailboxQueueService({
 		mailboxService: store.mailbox,
-		sqsQueueUrl: "http://localhost:4566/000000000000/mailbox",
+		queue: capture,
 	});
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 

@@ -1,4 +1,3 @@
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { createLogger, type Logger } from "@remit/logger";
 import {
 	queueNameFromEventSource,
@@ -7,13 +6,10 @@ import {
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
-import { enumerateCascadeEntities } from "../cascade.js";
 import {
-	getAccountFinalizeQueueUrl,
-	getAccountPurgeDeleteQueueUrl,
+	type FanoutQueues,
 	getCascadeServices,
-	getImapWorkerQueueUrl,
-	getSqsClient,
+	sqsFanoutQueues,
 } from "../config.js";
 import {
 	type DeletionCapabilities,
@@ -32,36 +28,27 @@ import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
 installNodeLogger();
 
 export interface ProcessAccountFanoutDeps {
+	queues: FanoutQueues;
 	services?: CascadeServices;
-	sqs?: SQSClient;
 	signOut?: DeletionCapabilities["signOut"];
-	imapWorkerQueueUrl?: string;
-	accountFinalizeQueueUrl?: string;
-	accountPurgeDeleteQueueUrl?: string;
 }
 
 /**
- * Fanout step of the account-deletion cascade. Read-only: enumerates the
- * AccountConfig's data and dispatches downstream work — per-account
- * imap-worker stops, a sign-out, and the finalize
- * enqueue. Throws on any non-swallowable error so SQS partial batch-failure
+ * Fanout step of the account-deletion cascade. Signs the user out and
+ * enqueues the finalize step. Throws on any non-swallowable error so SQS partial batch-failure
  * retries the whole record.
  */
 export const processAccountFanout = async (
 	event: AccountFanoutEvent,
 	log: Logger,
-	deps: ProcessAccountFanoutDeps = {},
+	deps: ProcessAccountFanoutDeps,
 ): Promise<void> => {
 	const services = deps.services ?? (await getCascadeServices());
-	const sqsFor = (queueUrl: string): SQSClient =>
-		deps.sqs ?? getSqsClient(queueUrl);
 
 	if (event.type === "AccountDataPurge") {
 		await processAccountDataPurge(event, log, {
 			services,
-			sqs: deps.sqs,
-			accountPurgeDeleteQueueUrl:
-				deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl(),
+			queue: deps.queues.accountPurgeDelete,
 		});
 		return;
 	}
@@ -81,63 +68,22 @@ export const processAccountFanout = async (
 		return;
 	}
 
-	await processAccountDelete(event, log, services, sqsFor, deps);
+	await processAccountDelete(event, log, services, deps);
 };
 
 const processAccountDelete = async (
 	event: AccountDeleteEvent,
 	log: Logger,
 	services: CascadeServices,
-	sqsFor: (queueUrl: string) => SQSClient,
 	deps: ProcessAccountFanoutDeps,
 ): Promise<void> => {
 	const { accountConfigId } = event;
 	const signOut = deps.signOut ?? (await getDeletionCapabilities()).signOut;
-	const imapWorkerQueueUrl = deps.imapWorkerQueueUrl ?? getImapWorkerQueueUrl();
-	const accountFinalizeQueueUrl =
-		deps.accountFinalizeQueueUrl ?? getAccountFinalizeQueueUrl();
+	const { accountFinalize } = deps.queues;
 
 	const accountConfig =
 		await services.accountConfigService.get(accountConfigId);
 	const userId = accountConfig.userId;
-
-	const { entities, messageIds: _messageIds } = await enumerateCascadeEntities(
-		accountConfigId,
-		services,
-		log,
-	);
-
-	const accountIds = entities
-		.filter((e) => e.entityType === "Account")
-		.map((e) => e.key.accountId);
-
-	// IMAP_WORKER_STOP is a no-op acknowledgement — the account tombstone fence
-	// (isActive=false + deletedAt) is what actually halts the worker. Deployments
-	// that provision a dedicated imap-worker stop queue get the signal; the
-	// self-host stacks, which do not, skip it and let the fence do the work.
-	if (imapWorkerQueueUrl) {
-		for (const accountId of accountIds) {
-			await sqsFor(imapWorkerQueueUrl).send(
-				new SendMessageCommand({
-					QueueUrl: imapWorkerQueueUrl,
-					MessageBody: JSON.stringify({
-						type: "IMAP_WORKER_STOP",
-						accountConfigId,
-						accountId,
-					}),
-				}),
-			);
-		}
-		log.info(
-			{ accountConfigId, count: accountIds.length },
-			"Enqueued imap-worker stop signals",
-		);
-	} else {
-		log.info(
-			{ accountConfigId, count: accountIds.length },
-			"No imap-worker stop queue configured; skipping stop signals (tombstone fence halts the worker)",
-		);
-	}
 
 	await signOut(userId, log);
 
@@ -145,16 +91,18 @@ const processAccountDelete = async (
 		type: "FinalizeAccountDelete",
 		accountConfigId,
 	};
-	await sqsFor(accountFinalizeQueueUrl).send(
-		new SendMessageCommand({
-			QueueUrl: accountFinalizeQueueUrl,
-			MessageBody: JSON.stringify(finalizeEvent),
-		}),
-	);
+	await accountFinalize.send({ body: finalizeEvent });
 	log.info({ accountConfigId }, "Enqueued finalize event");
 };
 
 const log = createLogger();
+
+let fanoutQueues: FanoutQueues | null = null;
+
+const composedQueues = (): FanoutQueues => {
+	fanoutQueues ??= sqsFanoutQueues();
+	return fanoutQueues;
+};
 
 export const handler: SQSHandler = withTelemetry(
 	async (event: SQSEvent): Promise<SQSBatchResponse> => {
@@ -171,7 +119,9 @@ export const handler: SQSHandler = withTelemetry(
 			);
 
 			const start = Date.now();
-			const failed = await processAccountFanout(fanoutEvent, log)
+			const failed = await processAccountFanout(fanoutEvent, log, {
+				queues: composedQueues(),
+			})
 				.then(() => false)
 				.catch((error) => {
 					log.error(

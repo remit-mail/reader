@@ -97,7 +97,7 @@ export const preconditionFailed = (message: string) => ({
 });
 
 /** The calendar half of the client, named so a handler takes only what it uses. */
-export const calendarDepsOf = (client: RemitClient): CalendarDeps => ({
+export const calendarDepsOf = (client: RemitClient<never>): CalendarDeps => ({
 	calendarCollection: client.calendarCollection,
 	calendarObject: client.calendarObject,
 	calendarEventIndex: client.calendarEventIndex,

@@ -42,12 +42,9 @@ const buildRelationalClient = async (): Promise<RemitClient> => {
 };
 
 export const getClient = (): Promise<RemitClient> => {
-	if (!clientPromise) {
-		clientPromise = injected
-			? Promise.resolve(injected)
-			: buildRelationalClient();
-	}
-
+	clientPromise ??= injected
+		? Promise.resolve(injected)
+		: buildRelationalClient();
 	return clientPromise;
 };
 

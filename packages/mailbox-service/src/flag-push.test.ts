@@ -3,9 +3,9 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { MessageSystemFlag } from "@remit/domain-enums";
 import { FlagPushService } from "./flag-push.js";
 import {
-	captureQueue,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 } from "./test-helpers/test-store.js";
 
@@ -19,26 +19,25 @@ const target = {
 };
 
 let store: Store;
-let capture: QueueCapture;
+let capture: RecordingQueue;
 let errors: Array<Record<string, unknown>>;
 
 beforeEach(async () => {
 	store = await openStore();
-	capture = captureQueue();
+	capture = recordingQueue();
 	errors = [];
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
 const queueAnswers = (answer: () => Promise<unknown>) => capture.answer(answer);
 
-const flips = (queueUrl = "http://localhost:9324/000/remit-flags") =>
+const flips = () =>
 	new FlagPushService({
 		markerService: store.flagPush,
-		sqsQueueUrl: queueUrl,
+		queue: capture,
 		logger: {
 			info: () => {},
 			error: (fields: Record<string, unknown>) => errors.push(fields),
@@ -64,7 +63,7 @@ describe("FlagPushService.flip", () => {
 
 		await flips().flip(target);
 
-		const event = JSON.parse(capture.inputs()[0].MessageBody ?? "{}");
+		const event = capture.sent[0].body;
 		assert.equal(event.type, "FLAG_PUSH");
 		assert.equal(event.messageId, target.messageId);
 		assert.equal(event.flagName, target.flagName);
@@ -72,14 +71,14 @@ describe("FlagPushService.flip", () => {
 		assert.equal("uid" in event, false);
 	});
 
-	it("groups a FIFO hint by account and leaves a standard queue ungrouped", async () => {
+	it("groups the hint by account and deduplicates it by its own event id", async () => {
 		queueAnswers(async () => ({}));
 
-		await flips("http://localhost:9324/000/remit-flags.fifo").flip(target);
-		await flips("http://localhost:9324/000/remit-flags").flip(target);
+		await flips().flip(target);
 
-		assert.equal(capture.inputs()[0].MessageGroupId, target.accountId);
-		assert.equal(capture.inputs()[1].MessageGroupId, undefined);
+		const [sent] = capture.sent;
+		assert.equal(sent.groupId, target.accountId);
+		assert.equal(sent.deduplicationId, capture.sent[0].body.eventId);
 	});
 
 	it("keeps the push owed and alarms, without rejecting, when the queue is down", async () => {
