@@ -11,32 +11,44 @@ import type {
 	ResultList,
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
+import type { HandlerContext } from "../types.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
-import { bindHandlers } from "./handler-context-fixture.js";
-
-const withEvent = bindHandlers(() => client);
 
 let client: RemitClient;
 
-const searchAddresses = withEvent<ResultList<AddressItem>>(
-	AddressOperations.AddressOperations_searchAddresses,
-);
+const searchAddresses = (
+	context: Context,
+	caller: HandlerContext,
+): Promise<ResultList<AddressItem>> =>
+	AddressOperations.AddressOperations_searchAddresses(
+		context,
+		caller,
+	) as Promise<ResultList<AddressItem>>;
 
-const updateAddress = withEvent<AddressResponse>(
-	AddressDetailOperations.AddressDetailOperations_updateAddress,
-);
+const updateAddress = (
+	context: Context,
+	caller: HandlerContext,
+): Promise<AddressResponse> =>
+	AddressDetailOperations.AddressDetailOperations_updateAddress(
+		context,
+		caller,
+	) as Promise<AddressResponse>;
 
 const SUB = "cognito-sub-704";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 
-const eventFor = (sub: string): APIGatewayProxyEvent =>
-	({
-		requestContext: { authorizer: { claims: { sub } } },
-	}) as unknown as APIGatewayProxyEvent;
+const callerOf = (sub: string): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email: `${sub}@example.com`,
+	},
+});
 
 const contextFor = (query: { q: string; limit?: number }): Context =>
 	({ request: { query } }) as unknown as Context;
@@ -90,7 +102,7 @@ describe("AddressOperations_searchAddresses", () => {
 
 		const response = await searchAddresses(
 			contextFor({ q: "Po", limit: 8 }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(seen, [
@@ -123,7 +135,7 @@ describe("AddressOperations_searchAddresses", () => {
 
 		const response = await searchAddresses(
 			contextFor({ q: "po" }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(
@@ -136,7 +148,7 @@ describe("AddressOperations_searchAddresses", () => {
 		const seen: Listing[] = [];
 		client = clientReturning([], seen);
 
-		await searchAddresses(contextFor({ q: "po" }), eventFor(SUB));
+		await searchAddresses(contextFor({ q: "po" }), callerOf(SUB));
 
 		assert.equal(seen[0].limit, 10);
 	});
@@ -187,7 +199,7 @@ describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 
 		const response = await updateAddress(
 			updateContextFor({ flags: { neverSpam: { value: true, setAt: 20 } } }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(seen, [{ neverSpam: { value: true, setAt: 20 } }]);
@@ -203,7 +215,7 @@ describe("AddressDetailOperations_updateAddress never-spam (#605)", () => {
 
 		const response = await updateAddress(
 			updateContextFor({ clearFlags: ["neverSpam"] }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(seen, [{ neverSpam: null }]);
@@ -223,7 +235,7 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 
 		const response = await updateAddress(
 			updateContextFor({ clearFlags: ["category"] }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(seen, [{ category: null }]);
@@ -244,7 +256,7 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 
 		const response = await updateAddress(
 			updateContextFor({ clearFlags: ["muted"] }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.equal(response.flags.muted, undefined);
@@ -263,7 +275,7 @@ describe("AddressDetailOperations_updateAddress removing a flag (#615)", () => {
 				flags: { muted: { value: true, setAt: 20 } },
 				clearFlags: ["muted"],
 			}),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(seen, [{ muted: null }]);
@@ -296,7 +308,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 			updateContextFor({
 				flags: { category: { value: "newsletter", setAt: 20 } },
 			}),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.equal(enqueued.length, 1);
@@ -323,7 +335,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 				updateContextFor({
 					flags: { category: { value: "newsletter", setAt: 20 } },
 				}),
-				eventFor(SUB),
+				callerOf(SUB),
 			),
 			(error: Error) => {
 				assert.match(error.message, /saved/);
@@ -343,7 +355,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 
 		const response = await updateAddress(
 			updateContextFor({ clearFlags: ["category"] }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.equal(response.flags.category, undefined);
@@ -357,7 +369,7 @@ describe("AddressDetailOperations_updateAddress category back-apply (#415)", () 
 
 		await updateAddress(
 			updateContextFor({ flags: { muted: { value: true, setAt: 20 } } }),
-			eventFor(SUB),
+			callerOf(SUB),
 		);
 
 		assert.deepEqual(enqueued, []);

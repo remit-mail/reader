@@ -15,12 +15,11 @@ import {
 	captureQueue,
 	type QueuedEvent,
 } from "@remit/mailbox-service/test-helpers/test-queue";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
-import { handlerContextFromEvent } from "../handler-context.js";
-import { formatResponse } from "../response.js";
+import { type FormattedResponse, formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
 
 const input = (over: Partial<OrganizeInput> = {}): OrganizeInput => ({
@@ -109,29 +108,26 @@ const installClient = (): void => {
 	} as unknown as RemitClient;
 };
 
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		body: null,
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
+const authorized = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
-const createJob = (
-	context: Context,
-	event: APIGatewayProxyEvent,
-): Promise<Record<string, unknown>> =>
-	OrganizeOperations.OrganizeOperations_createOrganizeJob(
-		context,
-		handlerContextFromEvent(client, event),
-	);
+const createJob = OrganizeOperations.OrganizeOperations_createOrganizeJob;
 
 /** The response the browser receives, error funnel included. */
 const postOrganize = async (
 	body: OrganizeInput,
-): Promise<APIGatewayProxyResult> => {
+): Promise<FormattedResponse> => {
 	const context = {
 		request: { params: { accountId: ACCOUNT_ID }, requestBody: body },
 	} as unknown as Context;
-	return createJob(context, authorizedEvent()).then(
+	return createJob(context, authorized()).then(
 		(response) => formatResponse(response),
 		(error: unknown) => handleError(error),
 	);

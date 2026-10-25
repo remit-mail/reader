@@ -106,11 +106,6 @@ export const OrganizeOperations: Record<
 		const input = context.request.requestBody as OrganizeInput;
 
 		const userId = ctx.identity.sub;
-		if (!userId) {
-			throw new Error(
-				"Missing Cognito `sub`: cannot attribute an organize job to a user",
-			);
-		}
 
 		const client = ctx.client;
 		await assertAccount(client, accountId, accountConfigId, "act");

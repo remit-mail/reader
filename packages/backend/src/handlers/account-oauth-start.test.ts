@@ -13,12 +13,9 @@ import { randomUUID } from "node:crypto";
 import { after, before, describe, it } from "node:test";
 import { SecretsManagerClient } from "@aws-sdk/client-secrets-manager";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { _resetForTest, setClient } from "../service/data-client.js";
 import { captureStdout, restoreStdout } from "../stdout-capture-fixture.js";
+import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 const WEB_ORIGIN = "https://mail.example.com";
 const START_PATH = "/accounts/oauth/microsoft/start";
@@ -32,6 +29,7 @@ let handler: (
 
 const originalSend = SecretsManagerClient.prototype.send;
 let secretString: string | undefined;
+let cleanup: () => void;
 
 interface Outcome {
 	response: APIGatewayProxyResult;
@@ -59,7 +57,11 @@ const start = async (): Promise<Outcome> => {
 				headers: {},
 				queryStringParameters: null,
 				body: JSON.stringify({ email: "matthijs@example.com" }),
-				requestContext: { authorizer: { claims: { sub: "cognito-sub" } } },
+				requestContext: {
+					authorizer: {
+						claims: { sub: "cognito-sub", email: "person@example.com" },
+					},
+				},
 			} as unknown as APIGatewayProxyEvent,
 			{ awsRequestId, functionName: "test" },
 		),
@@ -130,7 +132,9 @@ before(async () => {
 		SecretString: secretString,
 	})) as typeof SecretsManagerClient.prototype.send;
 
-	setClient({} as unknown as RemitClient);
+	const fixture = await createCalendarSqliteClient();
+	cleanup = fixture.cleanup;
+	setClient(fixture.client);
 
 	({ handler } = (await import("../index.js")) as unknown as {
 		handler: typeof handler;
@@ -139,6 +143,7 @@ before(async () => {
 
 after(() => {
 	_resetForTest();
+	cleanup();
 	SecretsManagerClient.prototype.send = originalSend;
 	restoreStdout();
 });

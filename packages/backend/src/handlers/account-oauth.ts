@@ -32,6 +32,8 @@ import type {
 	HandlerContext,
 	MicrosoftOAuthOperationIds,
 	OperationHandler,
+	PublicHandlerContext,
+	PublicOperationHandler,
 } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
@@ -296,19 +298,293 @@ const redeemEachService = async (
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
+export const microsoftOAuthCallback: PublicOperationHandler = async (
+	context: Context,
+	ctx: PublicHandlerContext,
+): Promise<APIGatewayProxyResult> => {
+	const webOrigin = getWebOrigin();
+	const qs = context.request.query as Record<string, string | undefined>;
+
+	// Marked raw so the response formatter forwards the Location header
+	// instead of serializing this object as a JSON body. Microsoft's browser
+	// redirect lands here, so a dropped Location is a blank page.
+	const redirect = (url: string): APIGatewayProxyResult =>
+		rawApiResponse({
+			statusCode: 302,
+			headers: { Location: url },
+			body: "",
+		});
+
+	// If Microsoft returned an error, pass it through to the frontend
+	if (qs.error) {
+		const errorCode = encodeURIComponent(qs.error);
+		return redirect(`${webOrigin}/settings/accounts?oauthError=${errorCode}`);
+	}
+
+	const code = qs.code;
+	const state = qs.state;
+
+	if (!code || !state) {
+		return redirect(`${webOrigin}/settings/accounts?oauthError=missing_params`);
+	}
+
+	const credentials = await getMsOAuthCredentials().catch((err: unknown) => {
+		logger.error(
+			{
+				alert: "oauth_callback_failed",
+				reason: "config_error",
+				errorName: (err as { name?: string })?.name,
+				errorCode:
+					(err as { Code?: string })?.Code ?? (err as { code?: string })?.code,
+				error: inspect(err),
+			},
+			"MS OAuth callback: failed to load OAuth config",
+		);
+		return null;
+	});
+	if (credentials === null)
+		return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
+
+	// Verify the HMAC-signed state
+	// A bad/expired/forged state is a security-relevant signal (CSRF
+	// attempt, clock skew, or a stale callback) — must not be swallowed
+	// silently. Warn so it's observable; still redirect the user cleanly.
+	const statePayload = await verifyState(state, credentials.clientSecret).catch(
+		(err: unknown) => {
+			logger.warn(
+				{
+					alert: "oauth_callback_failed",
+					reason: "invalid_state",
+					errorName: (err as { name?: string })?.name,
+					error: inspect(err),
+				},
+				"MS OAuth callback: state verification failed",
+			);
+			return null;
+		},
+	);
+	if (statePayload === null)
+		return redirect(`${webOrigin}/settings/accounts?oauthError=invalid_state`);
+
+	const { accountConfigId } = statePayload;
+	const [firstService] = orderServices(statePayload.services);
+
+	const config = getMsOAuthConfig();
+	const serviceFor = (service: AccountServiceName): MailOAuthService =>
+		createMailOAuthService(
+			microsoftProviderConfig({
+				clientId: credentials.clientId,
+				clientSecret: credentials.clientSecret,
+				services: [service],
+				overrides: config.tokenEndpoint
+					? { tokenEndpoint: config.tokenEndpoint }
+					: undefined,
+			}),
+		);
+
+	// Exchange the authorization code for tokens
+	const tokenSet = await serviceFor(firstService)
+		.exchangeCode(code, config.redirectUri)
+		.catch((err: unknown) => {
+			logger.error(
+				{ accountConfigId, error: inspect(err) },
+				"MS OAuth code exchange failed",
+			);
+			return null;
+		});
+	if (tokenSet === null)
+		return redirect(
+			`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
+		);
+
+	if (!tokenSet.refreshToken) {
+		logger.error(
+			{ accountConfigId },
+			"MS OAuth token exchange returned no refresh_token",
+		);
+		return redirect(
+			`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
+		);
+	}
+
+	// Extract the user's email from the ID token returned alongside the access
+	// token when openid+email scopes are requested.
+	//
+	// We prefer the ID token (idToken) because Outlook resource access tokens
+	// (IMAP.AccessAsUser.All, SMTP.Send) are opaque/non-JWT and cannot be
+	// decoded. The ID token is a standard OIDC token that always contains
+	// identity claims (preferred_username / email).
+	//
+	// Falls back to parsing the access token only in test/dev environments where
+	// idToken may not be present (e.g. custom token endpoints that don't issue
+	// OIDC tokens).
+	const tokenToParse = tokenSet.idToken ?? tokenSet.accessToken;
+	const claims = await parseJwtClaims(tokenToParse);
+	if (!claims) {
+		// A non-JWT or unparseable token. The empty-email guard below turns
+		// this into a user-facing missing_email redirect; log here so the parse
+		// failure itself is observable (e.g. an unexpected token shape).
+		logger.warn(
+			{
+				alert: "oauth_callback_failed",
+				reason: "jwt_parse_failed",
+				accountConfigId,
+			},
+			"MS OAuth callback: failed to parse identity token claims",
+		);
+	}
+	const email = claims
+		? ((claims.preferred_username as string | undefined) ??
+			(claims.email as string | undefined) ??
+			(claims.upn as string | undefined))
+		: undefined;
+
+	if (!email) {
+		logger.error(
+			{ accountConfigId },
+			"MS OAuth: could not extract email from token claims",
+		);
+		return redirect(`${webOrigin}/settings/accounts?oauthError=missing_email`);
+	}
+
+	const { account, accountConfig, secrets } = ctx.client;
+
+	// Reconnect when an active OAuth account already onboards this mailbox.
+	// Same natural key as the IMAP create guard (#635); the OAuth flow returns
+	// the existing account (token refresh) rather than rejecting, because a
+	// re-auth is the expected, idempotent path for OAuth.
+	const existingAccounts = (
+		await account.listAllByAccountConfig(accountConfigId)
+	).filter((a) => a.authType === AccountAuthType.OauthMicrosoft);
+	const existing = findActiveDuplicateMailbox(existingAccounts, {
+		imapHost: OUTLOOK_IMAP_HOST,
+		username: email,
+	});
+
+	const services = orderServices([
+		...statePayload.services,
+		...(existing?.syncedServices ?? []),
+	]);
+
+	const redemption = await redeemEachService(
+		serviceFor,
+		tokenSet.refreshToken,
+		services.filter((service) => service !== firstService),
+		accountConfigId,
+	);
+	if (
+		redemption.kind === "refused" &&
+		redemption.reason === "scope_not_granted"
+	)
+		return redirect(scopeRefusalUrl(webOrigin, email, [redemption.service]));
+	if (redemption.kind === "refused")
+		return redirect(
+			`${webOrigin}/settings/accounts?oauthError=${redemption.reason}`,
+		);
+
+	const grantedScopes = [
+		...new Set([...tokenSet.grantedScopes, ...redemption.grantedScopes]),
+	];
+	const grantedServices = microsoftServicesGranted(grantedScopes);
+	const missingServices = services.filter(
+		(service) => !grantedServices.includes(service),
+	);
+	if (missingServices.length > 0) {
+		logger.warn(
+			{
+				alert: "oauth_callback_failed",
+				reason: "scope_not_granted",
+				accountConfigId,
+				missingServices,
+				grantedScopes,
+			},
+			"MS OAuth callback: granted scopes lack a requested service",
+		);
+		return redirect(scopeRefusalUrl(webOrigin, email, missingServices));
+	}
+
+	// Ensure the account config row exists for this user
+	await ensureAccountConfig(accountConfig, accountConfigId);
+
+	// Encrypt the refresh token
+	const tokenPayload = await secrets.encrypt(redemption.refreshToken);
+	const oauthRefreshTokenHash = JSON.stringify(
+		serializeEncryptedPayload(tokenPayload),
+	);
+	const oauthTokenUpdatedAt = Date.now();
+
+	let accountId: string;
+
+	if (existing) {
+		// Reconnect: update the stored token and clear any reauth_required state
+		const updated = await account.update(
+			existing.accountId,
+			{
+				oauthRefreshTokenHash,
+				oauthTokenUpdatedAt,
+				syncedServices: services,
+				grantedScopes,
+				connectionState: ConnectionState.NotAuthenticated,
+			},
+			["lastError"] as never,
+		);
+		accountId = updated.accountId;
+		// biome-ignore lint/plugin/no-logger-info: OAuth reconnect is an audit-grade signal
+		logger.info(
+			{ accountConfigId, accountId },
+			"MS OAuth reconnect: refresh token updated",
+		);
+	} else {
+		// First connect: create a new account
+		const newAccount = await account.create({
+			accountConfigId,
+			email,
+			username: email,
+			authType: AccountAuthType.OauthMicrosoft,
+			syncedServices: services,
+			grantedScopes,
+			oauthRefreshTokenHash,
+			oauthTokenUpdatedAt,
+			imapHost: OUTLOOK_IMAP_HOST,
+			imapPort: 993,
+			imapTls: true,
+			imapStartTls: false,
+			smtpEnabled: true,
+			smtpHost: "smtp.office365.com",
+			smtpPort: 587,
+			smtpTls: false,
+			smtpStartTls: true,
+			isActive: true,
+			connectionState: ConnectionState.NotAuthenticated,
+		});
+		accountId = newAccount.accountId;
+		// biome-ignore lint/plugin/no-logger-info: OAuth account creation is an audit-grade signal
+		logger.info(
+			{ accountConfigId, accountId },
+			"MS OAuth: new account created",
+		);
+	}
+
+	if (services.includes(AccountService.Mail)) {
+		await triggerAccountSyncSafe(accountId);
+	}
+
+	return redirect(
+		`${webOrigin}/settings/accounts?connected=${encodeURIComponent(accountId)}`,
+	);
+};
+
 export const MicrosoftOAuthOperations: Record<
 	MicrosoftOAuthOperationIds,
 	OperationHandler<MicrosoftOAuthOperationIds>
 > = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
-		_context: Context,
+		context: Context,
 		ctx: HandlerContext,
 	): Promise<{ authorizationUrl: string }> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
-		const input = JSON.parse(
-			ctx.request.body ?? "{}",
-		) as MicrosoftOAuthStartRequest;
+		const input = context.request.requestBody as MicrosoftOAuthStartRequest;
 		const email = typeof input.email === "string" ? input.email : undefined;
 		const services = orderServices(input.services ?? [AccountService.Mail]);
 
@@ -351,287 +627,5 @@ export const MicrosoftOAuthOperations: Record<
 		return { authorizationUrl };
 	},
 
-	MicrosoftOAuthOperations_microsoftOAuthCallback: async (
-		_context: Context,
-		ctx: HandlerContext,
-	): Promise<APIGatewayProxyResult> => {
-		const webOrigin = getWebOrigin();
-		const qs = ctx.request.query;
-
-		// Marked raw so the response formatter forwards the Location header
-		// instead of serializing this object as a JSON body. Microsoft's browser
-		// redirect lands here, so a dropped Location is a blank page.
-		const redirect = (url: string): APIGatewayProxyResult =>
-			rawApiResponse({
-				statusCode: 302,
-				headers: { Location: url },
-				body: "",
-			});
-
-		// If Microsoft returned an error, pass it through to the frontend
-		if (qs.error) {
-			const errorCode = encodeURIComponent(qs.error);
-			return redirect(`${webOrigin}/settings/accounts?oauthError=${errorCode}`);
-		}
-
-		const code = qs.code;
-		const state = qs.state;
-
-		if (!code || !state) {
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=missing_params`,
-			);
-		}
-
-		const credentials = await getMsOAuthCredentials().catch((err: unknown) => {
-			logger.error(
-				{
-					alert: "oauth_callback_failed",
-					reason: "config_error",
-					errorName: (err as { name?: string })?.name,
-					errorCode:
-						(err as { Code?: string })?.Code ??
-						(err as { code?: string })?.code,
-					error: inspect(err),
-				},
-				"MS OAuth callback: failed to load OAuth config",
-			);
-			return null;
-		});
-		if (credentials === null)
-			return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
-
-		// Verify the HMAC-signed state
-		// A bad/expired/forged state is a security-relevant signal (CSRF
-		// attempt, clock skew, or a stale callback) — must not be swallowed
-		// silently. Warn so it's observable; still redirect the user cleanly.
-		const statePayload = await verifyState(
-			state,
-			credentials.clientSecret,
-		).catch((err: unknown) => {
-			logger.warn(
-				{
-					alert: "oauth_callback_failed",
-					reason: "invalid_state",
-					errorName: (err as { name?: string })?.name,
-					error: inspect(err),
-				},
-				"MS OAuth callback: state verification failed",
-			);
-			return null;
-		});
-		if (statePayload === null)
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=invalid_state`,
-			);
-
-		const { accountConfigId } = statePayload;
-		const [firstService] = orderServices(statePayload.services);
-
-		const config = getMsOAuthConfig();
-		const serviceFor = (service: AccountServiceName): MailOAuthService =>
-			createMailOAuthService(
-				microsoftProviderConfig({
-					clientId: credentials.clientId,
-					clientSecret: credentials.clientSecret,
-					services: [service],
-					overrides: config.tokenEndpoint
-						? { tokenEndpoint: config.tokenEndpoint }
-						: undefined,
-				}),
-			);
-
-		// Exchange the authorization code for tokens
-		const tokenSet = await serviceFor(firstService)
-			.exchangeCode(code, config.redirectUri)
-			.catch((err: unknown) => {
-				logger.error(
-					{ accountConfigId, error: inspect(err) },
-					"MS OAuth code exchange failed",
-				);
-				return null;
-			});
-		if (tokenSet === null)
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
-			);
-
-		if (!tokenSet.refreshToken) {
-			logger.error(
-				{ accountConfigId },
-				"MS OAuth token exchange returned no refresh_token",
-			);
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
-			);
-		}
-
-		// Extract the user's email from the ID token returned alongside the access
-		// token when openid+email scopes are requested.
-		//
-		// We prefer the ID token (idToken) because Outlook resource access tokens
-		// (IMAP.AccessAsUser.All, SMTP.Send) are opaque/non-JWT and cannot be
-		// decoded. The ID token is a standard OIDC token that always contains
-		// identity claims (preferred_username / email).
-		//
-		// Falls back to parsing the access token only in test/dev environments where
-		// idToken may not be present (e.g. custom token endpoints that don't issue
-		// OIDC tokens).
-		const tokenToParse = tokenSet.idToken ?? tokenSet.accessToken;
-		const claims = await parseJwtClaims(tokenToParse);
-		if (!claims) {
-			// A non-JWT or unparseable token. The empty-email guard below turns
-			// this into a user-facing missing_email redirect; log here so the parse
-			// failure itself is observable (e.g. an unexpected token shape).
-			logger.warn(
-				{
-					alert: "oauth_callback_failed",
-					reason: "jwt_parse_failed",
-					accountConfigId,
-				},
-				"MS OAuth callback: failed to parse identity token claims",
-			);
-		}
-		const email = claims
-			? ((claims.preferred_username as string | undefined) ??
-				(claims.email as string | undefined) ??
-				(claims.upn as string | undefined))
-			: undefined;
-
-		if (!email) {
-			logger.error(
-				{ accountConfigId },
-				"MS OAuth: could not extract email from token claims",
-			);
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=missing_email`,
-			);
-		}
-
-		const { account, accountConfig, secrets } = ctx.client;
-
-		// Reconnect when an active OAuth account already onboards this mailbox.
-		// Same natural key as the IMAP create guard (#635); the OAuth flow returns
-		// the existing account (token refresh) rather than rejecting, because a
-		// re-auth is the expected, idempotent path for OAuth.
-		const existingAccounts = (
-			await account.listAllByAccountConfig(accountConfigId)
-		).filter((a) => a.authType === AccountAuthType.OauthMicrosoft);
-		const existing = findActiveDuplicateMailbox(existingAccounts, {
-			imapHost: OUTLOOK_IMAP_HOST,
-			username: email,
-		});
-
-		const services = orderServices([
-			...statePayload.services,
-			...(existing?.syncedServices ?? []),
-		]);
-
-		const redemption = await redeemEachService(
-			serviceFor,
-			tokenSet.refreshToken,
-			services.filter((service) => service !== firstService),
-			accountConfigId,
-		);
-		if (
-			redemption.kind === "refused" &&
-			redemption.reason === "scope_not_granted"
-		)
-			return redirect(scopeRefusalUrl(webOrigin, email, [redemption.service]));
-		if (redemption.kind === "refused")
-			return redirect(
-				`${webOrigin}/settings/accounts?oauthError=${redemption.reason}`,
-			);
-
-		const grantedScopes = [
-			...new Set([...tokenSet.grantedScopes, ...redemption.grantedScopes]),
-		];
-		const grantedServices = microsoftServicesGranted(grantedScopes);
-		const missingServices = services.filter(
-			(service) => !grantedServices.includes(service),
-		);
-		if (missingServices.length > 0) {
-			logger.warn(
-				{
-					alert: "oauth_callback_failed",
-					reason: "scope_not_granted",
-					accountConfigId,
-					missingServices,
-					grantedScopes,
-				},
-				"MS OAuth callback: granted scopes lack a requested service",
-			);
-			return redirect(scopeRefusalUrl(webOrigin, email, missingServices));
-		}
-
-		// Ensure the account config row exists for this user
-		await ensureAccountConfig(accountConfig, accountConfigId);
-
-		// Encrypt the refresh token
-		const tokenPayload = await secrets.encrypt(redemption.refreshToken);
-		const oauthRefreshTokenHash = JSON.stringify(
-			serializeEncryptedPayload(tokenPayload),
-		);
-		const oauthTokenUpdatedAt = Date.now();
-
-		let accountId: string;
-
-		if (existing) {
-			// Reconnect: update the stored token and clear any reauth_required state
-			const updated = await account.update(
-				existing.accountId,
-				{
-					oauthRefreshTokenHash,
-					oauthTokenUpdatedAt,
-					syncedServices: services,
-					grantedScopes,
-					connectionState: ConnectionState.NotAuthenticated,
-				},
-				["lastError"] as never,
-			);
-			accountId = updated.accountId;
-			// biome-ignore lint/plugin/no-logger-info: OAuth reconnect is an audit-grade signal
-			logger.info(
-				{ accountConfigId, accountId },
-				"MS OAuth reconnect: refresh token updated",
-			);
-		} else {
-			// First connect: create a new account
-			const newAccount = await account.create({
-				accountConfigId,
-				email,
-				username: email,
-				authType: AccountAuthType.OauthMicrosoft,
-				syncedServices: services,
-				grantedScopes,
-				oauthRefreshTokenHash,
-				oauthTokenUpdatedAt,
-				imapHost: OUTLOOK_IMAP_HOST,
-				imapPort: 993,
-				imapTls: true,
-				imapStartTls: false,
-				smtpEnabled: true,
-				smtpHost: "smtp.office365.com",
-				smtpPort: 587,
-				smtpTls: false,
-				smtpStartTls: true,
-				isActive: true,
-				connectionState: ConnectionState.NotAuthenticated,
-			});
-			accountId = newAccount.accountId;
-			// biome-ignore lint/plugin/no-logger-info: OAuth account creation is an audit-grade signal
-			logger.info(
-				{ accountConfigId, accountId },
-				"MS OAuth: new account created",
-			);
-		}
-
-		if (services.includes(AccountService.Mail)) {
-			await triggerAccountSyncSafe(accountId);
-		}
-
-		return redirect(
-			`${webOrigin}/settings/accounts?connected=${encodeURIComponent(accountId)}`,
-		);
-	},
+	MicrosoftOAuthOperations_microsoftOAuthCallback: microsoftOAuthCallback,
 };

@@ -28,7 +28,7 @@ A process that is not handed one falls back to the single composition its own bu
 
 That check is a precondition, not a selection. Nothing picks between adapters at runtime.
 
-A handler reaches the client only through its per-request context: `(c, ctx: HandlerContext)`, where `ctx` carries the `client`, the caller's `identity` and the normalized `request`. The host builds that context once per request and passes it in; no handler module imports `getClient`, reads the raw event or derives identity itself. The Lambda and self-host adapter in `api.ts` builds it from `getClient()`, the authorizer claims and the local overrides.
+A handler reaches the client only through its per-request context: `(c, ctx: HandlerContext)`, where `ctx` carries the `client` and the caller's `identity`; the request itself is openapi-backend's `c.request`. The host builds the context once per request and passes it in; no handler module imports `getClient`, reads the raw event or derives identity itself. The Lambda and self-host adapter in `api.ts` builds it from `getClient()`, the authorizer claims and the local overrides, and answers 401 before a non-public operation runs without a signed-in user.
 
 ## A4. The contract's guarantees
 

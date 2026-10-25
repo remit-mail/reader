@@ -14,10 +14,8 @@ import {
 	type MailboxRepo,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 import { ThreadOperations } from "./thread.js";
 import {
 	buildInboxMailboxMap,
@@ -28,8 +26,6 @@ import {
 const SUB = "cognito-sub-1181";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 const NOW = 1_700_000_000_000;
-
-const withEvent = bindHandlers(() => client);
 
 let client: UnifiedThreadClient & RemitClient;
 let close: () => void;
@@ -162,16 +158,20 @@ describe("a mail-off account in the unified surfaces (#1181)", () => {
 		const scope = await buildInboxMailboxMap(ACCOUNT_CONFIG_ID, client);
 		assert.equal(scope.starredMailboxIds.has(calendarOnly.mailboxId), false);
 
-		const listThreads = withEvent<unknown>(
-			ThreadOperations.ThreadOperations_listThreads,
-		);
+		const listThreads = ThreadOperations.ThreadOperations_listThreads;
 		const opened = (await listThreads(
 			{
 				request: { params: { mailboxId: calendarOnly.mailboxId }, query: {} },
 			} as unknown as Context,
 			{
-				requestContext: { authorizer: { claims: { sub: SUB } } },
-			} as unknown as APIGatewayProxyEvent,
+				client,
+				identity: {
+					kind: "user",
+					accountConfigId: ACCOUNT_CONFIG_ID,
+					sub: SUB,
+					email: "caller@example.com",
+				},
+			},
 		)) as { items: { threadId: string }[] };
 		assert.deepEqual(
 			opened.items.map((item) => item.threadId),

@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { authenticateSelfHostRequest } from "../jwt-auth.js";
+import { normalizeRequest } from "../request.js";
+import type { FormattedResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { CalendarOperations } from "./calendar.js";
 import {
 	CalendarEventDetailOperations,
@@ -12,7 +14,6 @@ import {
 	CalendarFreeBusyOperations,
 } from "./calendar-event.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 
 /**
  * The event, free/busy and window wrappers driven the way an HTTP request
@@ -20,32 +21,20 @@ import { bindHandlers } from "./handler-context-fixture.js";
  * self-host build ships (issue #1033).
  */
 
-const withEvent = bindHandlers(() => client);
-
-const listCalendars = withEvent(
-	CalendarOperations.CalendarOperations_listCalendars,
-);
-const createCalendar = withEvent(
-	CalendarOperations.CalendarOperations_createCalendar,
-);
-const listEvents = withEvent(
-	CalendarEventOperations.CalendarEventOperations_listCalendarEvents,
-);
-const createEvent = withEvent(
-	CalendarEventOperations.CalendarEventOperations_createCalendarEvent,
-);
-const getEvent = withEvent(
-	CalendarEventDetailOperations.CalendarEventDetailOperations_getCalendarEvent,
-);
-const updateEvent = withEvent(
-	CalendarEventDetailOperations.CalendarEventDetailOperations_updateCalendarEvent,
-);
-const deleteEvent = withEvent(
-	CalendarEventDetailOperations.CalendarEventDetailOperations_deleteCalendarEvent,
-);
-const listFreeBusy = withEvent(
-	CalendarFreeBusyOperations.CalendarFreeBusyOperations_listCalendarFreeBusy,
-);
+const listCalendars = CalendarOperations.CalendarOperations_listCalendars;
+const createCalendar = CalendarOperations.CalendarOperations_createCalendar;
+const listEvents =
+	CalendarEventOperations.CalendarEventOperations_listCalendarEvents;
+const createEvent =
+	CalendarEventOperations.CalendarEventOperations_createCalendarEvent;
+const getEvent =
+	CalendarEventDetailOperations.CalendarEventDetailOperations_getCalendarEvent;
+const updateEvent =
+	CalendarEventDetailOperations.CalendarEventDetailOperations_updateCalendarEvent;
+const deleteEvent =
+	CalendarEventDetailOperations.CalendarEventDetailOperations_deleteCalendarEvent;
+const listFreeBusy =
+	CalendarFreeBusyOperations.CalendarFreeBusyOperations_listCalendarFreeBusy;
 
 interface Instance {
 	calendarId: string;
@@ -74,41 +63,43 @@ const contextOf = (request: {
 	requestBody?: unknown;
 }): Context => ({ request }) as unknown as Context;
 
-const eventOf = (sub: string): APIGatewayProxyEvent =>
-	({
-		requestContext: { authorizer: { claims: { sub } } },
-	}) as unknown as APIGatewayProxyEvent;
+type LambdaEvent = Parameters<typeof normalizeRequest>[0];
+
+const callerOf = (sub: string): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email: `${sub}@example.com`,
+	},
+});
 
 /** A caller nobody else in this file shares a calendar with. */
-const anAccount = (): { sub: string; event: APIGatewayProxyEvent } => {
+const anAccount = (): { sub: string; caller: HandlerContext } => {
 	minted += 1;
 	const sub = `calendar-event-sub-${minted}`;
-	return { sub, event: eventOf(sub) };
+	return { sub, caller: callerOf(sub) };
 };
 
-const defaultCalendarId = async (
-	event: APIGatewayProxyEvent,
-): Promise<string> => {
+const defaultCalendarId = async (caller: HandlerContext): Promise<string> => {
 	const listed = (await listEvents(
 		contextOf({ query: WINDOW }),
-		event,
+		caller,
 	)) as unknown as { items: Instance[] };
 	assert.ok(Array.isArray(listed.items));
 	const [collection] = await client.calendarCollection.listByAccountConfig(
-		deriveAccountConfigId(
-			(event.requestContext.authorizer as { claims: { sub: string } }).claims
-				.sub,
-		),
+		caller.identity.accountConfigId,
 	);
 	assert.ok(collection);
 	return collection.calendarId;
 };
 
 const seedEvent = async (
-	event: APIGatewayProxyEvent,
+	caller: HandlerContext,
 	input: Record<string, unknown>,
 ): Promise<{ calendarObjectId: string; etag: string; icalData: string }> => {
-	const created = await createEvent(contextOf({ requestBody: input }), event);
+	const created = await createEvent(contextOf({ requestBody: input }), caller);
 	assert.equal(
 		created.statusCode,
 		undefined,
@@ -143,7 +134,7 @@ describe("an unauthenticated calendar request", () => {
 			const refusal = await authenticateSelfHostRequest({
 				...route,
 				headers: {},
-			} as unknown as APIGatewayProxyEvent);
+			} as unknown as LambdaEvent);
 
 			assert.equal(refusal?.statusCode, 401);
 		});
@@ -151,34 +142,42 @@ describe("an unauthenticated calendar request", () => {
 
 	it("never serves a calendar to a request carrying no claims", async () => {
 		// The gate above is what a browser meets. This is the second lock: a
-		// listing reached with no identity refuses rather than falling back to
-		// somebody's account.
-		await assert.rejects(
-			() =>
-				listEvents(
-					contextOf({ query: WINDOW }),
-					{} as unknown as APIGatewayProxyEvent,
-				),
-			/Missing accountConfigId/,
-		);
+		// listing reached with no identity is refused before the handler runs,
+		// rather than falling back to somebody's account.
+		const { api } = await import("../index.js");
+		const event = {
+			httpMethod: "GET",
+			path: "/calendar-events",
+			queryStringParameters: WINDOW,
+			headers: {},
+			body: null,
+			requestContext: {},
+		} as unknown as LambdaEvent;
+
+		const response = (await api.handleRequest(
+			normalizeRequest(event),
+			event,
+		)) as FormattedResponse;
+
+		assert.equal(response.statusCode, 401);
 	});
 });
 
 describe("GET /calendar-events", () => {
 	it("covers every collection the caller holds when it names none", async () => {
-		const { event } = anAccount();
-		const defaultId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const defaultId = await defaultCalendarId(caller);
 		const work = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: defaultId,
 			summary: "Dentist",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 		});
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: work.calendarId,
 			summary: "Stand-up",
 			start: "2026-09-08T09:00:00Z",
@@ -187,7 +186,7 @@ describe("GET /calendar-events", () => {
 
 		const listed = (await listEvents(
 			contextOf({ query: WINDOW }),
-			event,
+			caller,
 		)) as unknown as { items: Instance[] };
 
 		assert.deepEqual(
@@ -197,19 +196,19 @@ describe("GET /calendar-events", () => {
 	});
 
 	it("covers only the subset it names", async () => {
-		const { event } = anAccount();
-		const defaultId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const defaultId = await defaultCalendarId(caller);
 		const work = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: defaultId,
 			summary: "Dentist",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 		});
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: work.calendarId,
 			summary: "Stand-up",
 			start: "2026-09-08T09:00:00Z",
@@ -218,7 +217,7 @@ describe("GET /calendar-events", () => {
 
 		const listed = (await listEvents(
 			contextOf({ query: { ...WINDOW, calendarId: [work.calendarId] } }),
-			event,
+			caller,
 		)) as unknown as { items: Instance[] };
 
 		assert.deepEqual(
@@ -231,12 +230,12 @@ describe("GET /calendar-events", () => {
 		// An empty list here would read as "you have nothing on", which is the one
 		// answer a clash check must never get wrong.
 		const stranger = anAccount();
-		const strangersCalendarId = await defaultCalendarId(stranger.event);
-		const { event } = anAccount();
+		const strangersCalendarId = await defaultCalendarId(stranger.caller);
+		const { caller } = anAccount();
 
 		const listed = await listEvents(
 			contextOf({ query: { ...WINDOW, calendarId: [strangersCalendarId] } }),
-			event,
+			caller,
 		);
 
 		assert.equal(listed.statusCode, 404);
@@ -244,19 +243,19 @@ describe("GET /calendar-events", () => {
 	});
 
 	it("refuses a window that runs backwards or covers more than a year", async () => {
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
 		const backwards = await listEvents(
 			contextOf({
 				query: { from: "2026-09-08T00:00:00Z", to: "2026-09-07T00:00:00Z" },
 			}),
-			event,
+			caller,
 		);
 		const tooWide = await listEvents(
 			contextOf({
 				query: { from: "2026-01-01T00:00:00Z", to: "2027-06-01T00:00:00Z" },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(backwards.statusCode, 400);
@@ -267,20 +266,20 @@ describe("GET /calendar-events", () => {
 
 describe("GET /calendar-events?calendarObjectId", () => {
 	it("lists the occurrences of that one resource, across the caller's calendars", async () => {
-		const { event } = anAccount();
-		const defaultId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const defaultId = await defaultCalendarId(caller);
 		const work = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
-		const series = await seedEvent(event, {
+		const series = await seedEvent(caller, {
 			calendarId: work.calendarId,
 			summary: "Stand-up",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T09:15:00Z",
 			recurrenceRule: "FREQ=WEEKLY;COUNT=3",
 		});
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: defaultId,
 			summary: "Dentist",
 			start: "2026-09-08T09:00:00Z",
@@ -291,7 +290,7 @@ describe("GET /calendar-events?calendarObjectId", () => {
 			contextOf({
 				query: { ...WINDOW, calendarObjectId: series.calendarObjectId },
 			}),
-			event,
+			caller,
 		)) as unknown as { items: Instance[] };
 
 		assert.deepEqual(
@@ -309,19 +308,19 @@ describe("GET /calendar-events?calendarObjectId", () => {
 
 	it("lists nothing for a resource on another account", async () => {
 		const stranger = anAccount();
-		const theirs = await seedEvent(stranger.event, {
-			calendarId: await defaultCalendarId(stranger.event),
+		const theirs = await seedEvent(stranger.caller, {
+			calendarId: await defaultCalendarId(stranger.caller),
 			summary: "Private",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 		});
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
 		const listed = (await listEvents(
 			contextOf({
 				query: { ...WINDOW, calendarObjectId: theirs.calendarObjectId },
 			}),
-			event,
+			caller,
 		)) as unknown as { items: Instance[] };
 
 		assert.deepEqual(listed.items, []);
@@ -330,13 +329,13 @@ describe("GET /calendar-events?calendarObjectId", () => {
 
 describe("GET /calendar-events/{calendarObjectId} without a calendar", () => {
 	it("finds the resource among the caller's calendars", async () => {
-		const { event } = anAccount();
-		await defaultCalendarId(event);
+		const { caller } = anAccount();
+		await defaultCalendarId(caller);
 		const work = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
-		const seeded = await seedEvent(event, {
+		const seeded = await seedEvent(caller, {
 			calendarId: work.calendarId,
 			summary: "Stand-up",
 			start: "2026-09-07T09:00:00Z",
@@ -348,7 +347,7 @@ describe("GET /calendar-events/{calendarObjectId} without a calendar", () => {
 				params: { calendarObjectId: seeded.calendarObjectId },
 				query: {},
 			}),
-			event,
+			caller,
 		)) as unknown as { calendarId: string; dtStart: string };
 
 		assert.equal(found.calendarId, work.calendarId);
@@ -357,20 +356,20 @@ describe("GET /calendar-events/{calendarObjectId} without a calendar", () => {
 
 	it("answers not-found for a resource on another account", async () => {
 		const stranger = anAccount();
-		const theirs = await seedEvent(stranger.event, {
-			calendarId: await defaultCalendarId(stranger.event),
+		const theirs = await seedEvent(stranger.caller, {
+			calendarId: await defaultCalendarId(stranger.caller),
 			summary: "Private",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 		});
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
 		const found = await getEvent(
 			contextOf({
 				params: { calendarObjectId: theirs.calendarObjectId },
 				query: {},
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(found.statusCode, 404);
@@ -379,8 +378,8 @@ describe("GET /calendar-events/{calendarObjectId} without a calendar", () => {
 
 describe("POST /calendar-events", () => {
 	it("refuses a recurrence rule it cannot read and writes nothing", async () => {
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
 
 		const created = await createEvent(
 			contextOf({
@@ -392,7 +391,7 @@ describe("POST /calendar-events", () => {
 					recurrenceRule: "every other tuesday",
 				},
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(created.statusCode, 400);
@@ -410,8 +409,8 @@ describe("POST /calendar-events", () => {
 	it("refuses a time zone this server cannot resolve", async () => {
 		// A Windows zone name is what a client that has not normalised its input
 		// sends. Storing it would draw the event hours from where it belongs.
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
 
 		const created = await createEvent(
 			contextOf({
@@ -423,7 +422,7 @@ describe("POST /calendar-events", () => {
 					timeZone: "Pacific Standard Time",
 				},
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(created.statusCode, 400);
@@ -437,9 +436,9 @@ describe("POST /calendar-events", () => {
 
 describe("PATCH /calendar-events/{calendarObjectId}?scope=This", () => {
 	it("writes a RECURRENCE-ID override and leaves the rest of the series alone", async () => {
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
-		const created = await seedEvent(event, {
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
+		const created = await seedEvent(caller, {
 			calendarId,
 			summary: "Stand-up",
 			start: "2026-09-07T09:00:00Z",
@@ -457,7 +456,7 @@ describe("PATCH /calendar-events/{calendarObjectId}?scope=This", () => {
 				},
 				requestBody: { summary: "Stand-up (in the big room)" },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(
@@ -473,7 +472,7 @@ describe("PATCH /calendar-events/{calendarObjectId}?scope=This", () => {
 
 		const listed = (await listEvents(
 			contextOf({ query: WINDOW }),
-			event,
+			caller,
 		)) as unknown as { items: Instance[] };
 		const renamed = listed.items.filter(
 			(instance) => instance.summary === "Stand-up (in the big room)",
@@ -489,9 +488,9 @@ describe("PATCH /calendar-events/{calendarObjectId}?scope=This", () => {
 
 describe("DELETE /calendar-events/{calendarObjectId}", () => {
 	it("refuses a delete built on an etag the resource no longer carries", async () => {
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
-		const created = await seedEvent(event, {
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
+		const created = await seedEvent(caller, {
 			calendarId,
 			summary: "Stand-up",
 			start: "2026-09-07T09:00:00Z",
@@ -503,7 +502,7 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 				query: { calendarId },
 				requestBody: { summary: "Stand-up (renamed)" },
 			}),
-			event,
+			caller,
 		);
 
 		const removed = await deleteEvent(
@@ -512,7 +511,7 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 				query: { calendarId },
 				headers: { "If-Match": `"${created.etag}"` },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(removed.statusCode, 412);
@@ -532,9 +531,9 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 	});
 
 	it("lets the delete through once the caller has read the current etag", async () => {
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
-		const created = await seedEvent(event, {
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
+		const created = await seedEvent(caller, {
 			calendarId,
 			summary: "Stand-up",
 			start: "2026-09-07T09:00:00Z",
@@ -547,7 +546,7 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 				query: { calendarId },
 				headers: { "if-match": `W/"${created.etag}"` },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(removed.statusCode, 204);
@@ -560,19 +559,19 @@ describe("DELETE /calendar-events/{calendarObjectId}", () => {
 
 describe("GET /calendar-free-busy", () => {
 	it("merges overlapping meetings across two collections into one busy stretch", async () => {
-		const { event } = anAccount();
-		const defaultId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const defaultId = await defaultCalendarId(caller);
 		const work = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: defaultId,
 			summary: "Dentist",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 		});
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId: work.calendarId,
 			summary: "Review",
 			start: "2026-09-07T09:30:00Z",
@@ -581,7 +580,7 @@ describe("GET /calendar-free-busy", () => {
 
 		const busy = (await listFreeBusy(
 			contextOf({ query: WINDOW }),
-			event,
+			caller,
 		)) as unknown as { items: Span[] };
 
 		assert.deepEqual(busy.items, [
@@ -593,17 +592,14 @@ describe("GET /calendar-free-busy", () => {
 		// A busy span is an interval on the clock, not a civil date, so it never
 		// carries a calendar's local zone — a caller renders it in whichever zone
 		// it is drawing.
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
 		await client.calendarCollection.update(
-			deriveAccountConfigId(
-				(event.requestContext.authorizer as { claims: { sub: string } }).claims
-					.sub,
-			),
+			caller.identity.accountConfigId,
 			calendarId,
 			{ timezone: "America/New_York" },
 		);
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId,
 			summary: "Dentist",
 			start: "2026-09-07T09:00:00Z",
@@ -612,7 +608,7 @@ describe("GET /calendar-free-busy", () => {
 
 		const busy = (await listFreeBusy(
 			contextOf({ query: WINDOW }),
-			event,
+			caller,
 		)) as unknown as { items: Span[] };
 
 		assert.deepEqual(busy.items, [
@@ -621,16 +617,16 @@ describe("GET /calendar-free-busy", () => {
 	});
 
 	it("leaves out an event that was never busy time", async () => {
-		const { event } = anAccount();
-		const calendarId = await defaultCalendarId(event);
-		await seedEvent(event, {
+		const { caller } = anAccount();
+		const calendarId = await defaultCalendarId(caller);
+		await seedEvent(caller, {
 			calendarId,
 			summary: "Focus block",
 			start: "2026-09-07T09:00:00Z",
 			end: "2026-09-07T10:00:00Z",
 			transparency: "Transparent",
 		});
-		await seedEvent(event, {
+		await seedEvent(caller, {
 			calendarId,
 			summary: "Cancelled review",
 			start: "2026-09-07T11:00:00Z",
@@ -640,24 +636,24 @@ describe("GET /calendar-free-busy", () => {
 
 		const busy = (await listFreeBusy(
 			contextOf({ query: WINDOW }),
-			event,
+			caller,
 		)) as unknown as { items: Span[] };
 
 		assert.deepEqual(busy.items, []);
 	});
 
 	it("refuses the same windows the event listing refuses", async () => {
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
 		const missing = await listFreeBusy(
 			contextOf({ query: { from: "2026-09-07T00:00:00Z" } }),
-			event,
+			caller,
 		);
 		const tooWide = await listFreeBusy(
 			contextOf({
 				query: { from: "2026-01-01T00:00:00Z", to: "2027-06-01T00:00:00Z" },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(missing.statusCode, 400);
@@ -669,9 +665,9 @@ describe("GET /calendar-free-busy", () => {
 
 describe("GET /calendars", () => {
 	it("provisions the account's default collection on a first read", async () => {
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
-		const listed = (await listCalendars(contextOf({}), event)) as unknown as {
+		const listed = (await listCalendars(contextOf({}), caller)) as unknown as {
 			items: Array<{ urlSegment: string; source: string }>;
 		};
 

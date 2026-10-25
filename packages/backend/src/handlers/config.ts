@@ -138,10 +138,9 @@ const buildCommit = (): string =>
  */
 const emptyConfigResponse = (
 	accountConfigId: string,
-	sub: string | undefined,
+	userId: string,
 ): ConfigDescriptionResponse => {
 	const now = Date.now();
-	const userId = sub ?? accountConfigId;
 	return {
 		accountConfig: {
 			accountConfigId,
@@ -293,7 +292,7 @@ export const ConfigOperations: Record<
 			},
 			{
 				accountConfigId,
-				userId: ctx.identity.sub ?? accountConfigId,
+				userId: ctx.identity.sub,
 				document: body.document,
 				mode: body.mode ?? "validate",
 				onExisting: body.onExisting ?? "abort",

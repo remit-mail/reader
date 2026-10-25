@@ -21,9 +21,7 @@ import type {
 import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { handlerContextFromEvent } from "../handler-context.js";
 import type { RemitClient } from "../service/data-client.js";
 import { OutboxOperations } from "./outbox.js";
 
@@ -119,12 +117,6 @@ const installClient = (): void => {
 	} as unknown as RemitClient;
 };
 
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		body: null,
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
-
 const queryContext = (query: Record<string, string> = {}): Context =>
 	({ request: { query } }) as unknown as Context;
 
@@ -136,7 +128,15 @@ type ListResult = {
 const listOutbox = async (query?: Record<string, string>) =>
 	(await OutboxOperations.OutboxOperations_listOutboxMessages(
 		queryContext(query),
-		handlerContextFromEvent(client, authorizedEvent()),
+		{
+			client,
+			identity: {
+				kind: "user",
+				accountConfigId: ACCOUNT_CONFIG_ID,
+				sub: SUB,
+				email: "caller@example.com",
+			},
+		},
 	)) as ListResult;
 
 describe("the outbox of an instance with two accounts (#1013)", () => {

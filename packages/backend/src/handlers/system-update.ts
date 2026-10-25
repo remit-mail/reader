@@ -54,8 +54,6 @@ const refuse = (statusCode: number, message: string): APIGatewayProxyResult =>
 
 const notFound = (): APIGatewayProxyResult => refuse(404, "Not found");
 
-const unauthorized = (): APIGatewayProxyResult => refuse(401, "Unauthorized");
-
 /**
  * The self-update seam is off unless a manifest URL is configured (RFC 037 D8),
  * which the hosted deployment leaves unset. Both endpoints answer 404 in that
@@ -171,11 +169,9 @@ export const SystemOperations: Record<
 > = {
 	SystemOperations_getSystemUpdate: async (
 		context: Context,
-		ctx: HandlerContext,
 	): Promise<SystemUpdateResponse | APIGatewayProxyResult> => {
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
-		if (!ctx.identity.sub) return unauthorized();
 
 		// A refresh asks for a fresh answer, and only the updater can fetch one, so
 		// the request goes on the control seam for its watch loop to pick up (#599).
@@ -195,7 +191,6 @@ export const SystemOperations: Record<
 		const offSurface = guardManifestConfigured();
 		if (offSurface) return offSurface;
 		const sub = ctx.identity.sub;
-		if (!sub) return unauthorized();
 
 		const { targetVersion } = context.request.requestBody as {
 			targetVersion: string;

@@ -24,52 +24,51 @@ import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
-import { formatResponse } from "../response.js";
+import { type FormattedResponse, formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
+import type { HandlerContext } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { ConfigOperations } from "./config.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 
 let client: RemitClient;
 
 const SUB = "cognito-sub-1180";
 const ACCOUNT_CONFIG_ID = deriveAccountConfigId(SUB);
 
-const withEvent = bindHandlers(() => client);
+const getConfig = ConfigOperations.ConfigOperations_getConfig;
+const createAccount = AccountOperations.AccountOperations_createAccount;
+const updateAccount =
+	AccountDetailOperations.AccountDetailOperations_updateAccount;
+const deleteAccount =
+	AccountDetailOperations.AccountDetailOperations_deleteAccount;
 
-const getConfig = withEvent(ConfigOperations.ConfigOperations_getConfig);
-const createAccount = withEvent(
-	AccountOperations.AccountOperations_createAccount,
-);
-const updateAccount = withEvent(
-	AccountDetailOperations.AccountDetailOperations_updateAccount,
-);
-const deleteAccount = withEvent(
-	AccountDetailOperations.AccountDetailOperations_deleteAccount,
-);
+const caller = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
-const event = (body?: unknown): APIGatewayProxyEvent =>
-	({
-		body: body === undefined ? null : JSON.stringify(body),
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
-
-const context = (params: Record<string, string> = {}): Context =>
-	({ request: { params } }) as unknown as Context;
+const context = (
+	params: Record<string, string> = {},
+	requestBody?: unknown,
+): Context => ({ request: { params, requestBody } }) as unknown as Context;
 
 const respond = async (
 	run: () => Promise<unknown>,
-): Promise<APIGatewayProxyResult> =>
+): Promise<FormattedResponse> =>
 	run().then(
 		(body) => formatResponse(body as Record<string, unknown>),
 		(error: unknown) => handleError(error),
 	);
 
-const bodyOf = <T>(response: APIGatewayProxyResult): T =>
+const bodyOf = <T>(response: FormattedResponse): T =>
 	JSON.parse(response.body) as T;
 
 const dataKey = randomBytes(32);
@@ -107,7 +106,7 @@ const seedAccount = (
 
 const readServices = async (accountId: string): Promise<string[]> => {
 	const config = bodyOf<{ accounts: AccountResponse[] }>(
-		await respond(() => getConfig(context(), event())),
+		await respond(() => getConfig(context(), caller())),
 	);
 	const account = config.accounts.find((item) => item.accountId === accountId);
 	assert.ok(account, `GET /config lists ${accountId}`);
@@ -116,7 +115,7 @@ const readServices = async (accountId: string): Promise<string[]> => {
 
 const patchServices = (accountId: string, syncedServices: string[]) =>
 	respond(() =>
-		updateAccount(context({ accountId }), event({ syncedServices })),
+		updateAccount(context({ accountId }, { syncedServices }), caller()),
 	);
 
 beforeEach(async () => {
@@ -248,16 +247,19 @@ describe("the services an account syncs", () => {
 	it("refuses to create a password account that syncs calendar", async () => {
 		const response = await respond(() =>
 			createAccount(
-				context(),
-				event({
-					email: "person@example.com",
-					password: "hunter2",
-					imapHost: "imap.example.com",
-					imapPort: 993,
-					imapTls: true,
-					imapStartTls: false,
-					syncedServices: [AccountService.Calendar],
-				}),
+				context(
+					{},
+					{
+						email: "person@example.com",
+						password: "hunter2",
+						imapHost: "imap.example.com",
+						imapPort: 993,
+						imapTls: true,
+						imapStartTls: false,
+						syncedServices: [AccountService.Calendar],
+					},
+				),
+				caller(),
 			),
 		);
 
@@ -271,7 +273,7 @@ describe("the services an account syncs", () => {
 
 const listedAccountIds = async (): Promise<string[]> =>
 	bodyOf<{ accounts: AccountResponse[] }>(
-		await respond(() => getConfig(context(), event())),
+		await respond(() => getConfig(context(), caller())),
 	).accounts.map((account) => account.accountId);
 
 describe("DELETE /accounts/{accountId}", () => {
@@ -280,7 +282,7 @@ describe("DELETE /accounts/{accountId}", () => {
 		assert.deepEqual(await listedAccountIds(), [account.accountId]);
 
 		const response = await respond(() =>
-			deleteAccount(context({ accountId: account.accountId }), event()),
+			deleteAccount(context({ accountId: account.accountId }), caller()),
 		);
 
 		assert.equal(response.statusCode, 200);
@@ -299,8 +301,11 @@ describe("PATCH /accounts/{accountId}", () => {
 
 		const response = await respond(() =>
 			updateAccount(
-				context({ accountId: account.accountId }),
-				event({ smtpPassword: "smtp-secret" }),
+				context(
+					{ accountId: account.accountId },
+					{ smtpPassword: "smtp-secret" },
+				),
+				caller(),
 			),
 		);
 

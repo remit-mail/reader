@@ -1,6 +1,14 @@
-import type { OperationHandler, OperationIds } from "../types.js";
+import type {
+	OperationHandler,
+	OperationIds,
+	PublicOperationHandler,
+	PublicOperationIds,
+} from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
-import { MicrosoftOAuthOperations } from "./account-oauth.js";
+import {
+	MicrosoftOAuthOperations,
+	microsoftOAuthCallback,
+} from "./account-oauth.js";
 import { AddressDetailOperations, AddressOperations } from "./address.js";
 import { CalendarDetailOperations, CalendarOperations } from "./calendar.js";
 import {
@@ -11,6 +19,7 @@ import {
 import {
 	CalendarFeedDetailOperations,
 	CalendarFeedOperations,
+	getCalendarFeedIcal,
 } from "./calendar-feed.js";
 import {
 	CalendarSuggestionActionOperations,
@@ -78,4 +87,12 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...CalendarSuggestionOperations,
 	...MessageCalendarSuggestionOperations,
 	...CalendarSuggestionActionOperations,
+};
+
+export const publicHandlers: Record<
+	PublicOperationIds,
+	PublicOperationHandler
+> = {
+	MicrosoftOAuthOperations_microsoftOAuthCallback: microsoftOAuthCallback,
+	CalendarFeedOperations_getCalendarFeedIcal: getCalendarFeedIcal,
 };

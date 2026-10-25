@@ -1,29 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { APIGatewayProxyEvent } from "aws-lambda";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import { bindHandlers } from "./handler-context-fixture.js";
+import type { HandlerContext } from "../types.js";
 import { MessageOperations } from "./message.js";
 
-let client: RemitClient;
-
-const withEvent = bindHandlers(() => client);
-
-const describeMessage = withEvent(
-	MessageOperations.MessageOperations_describeMessage,
-);
-const getRawMessage = withEvent(
-	MessageOperations.MessageOperations_getRawMessage,
-);
+const describeMessage = MessageOperations.MessageOperations_describeMessage;
+const getRawMessage = MessageOperations.MessageOperations_getRawMessage;
 
 const MESSAGE_ID = "msg-1";
 const MAILBOX_ID = "mb-1";
 const ACCOUNT_ID = "acc-1";
 
-const event = {
-	requestContext: { authorizer: { claims: { sub: "sub-610" } } },
-} as unknown as APIGatewayProxyEvent;
+const SUB = "sub-610";
+
+const callerWith = (client: RemitClient): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(SUB),
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
 const context = {
 	request: { params: { messageId: MESSAGE_ID } },
@@ -90,9 +90,9 @@ describe("reading an unstored message when the folder lookup fails", () => {
 	] as const) {
 		it(`${name} opens no IMAP connection`, async () => {
 			const opened: string[] = [];
-			client = clientWithFailingFolderLookup(opened);
+			const caller = callerWith(clientWithFailingFolderLookup(opened));
 
-			await assert.rejects(handler(context, event), /special-use lookup/);
+			await assert.rejects(handler(context, caller), /special-use lookup/);
 
 			assert.deepEqual(opened, []);
 		});

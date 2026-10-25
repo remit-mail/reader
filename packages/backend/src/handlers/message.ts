@@ -926,7 +926,7 @@ export const MessageBulkOperations: Record<
 		const accountId = unwrap(
 			await ownedMessages(client, messageIds, accountConfigId, "act"),
 		);
-		const setBy = ctx.identity.sub ?? accountConfigId;
+		const setBy = ctx.identity.sub;
 
 		return settleSpamReportBulk(messageIds, (messageId) =>
 			client.spamReport.reportSpam({

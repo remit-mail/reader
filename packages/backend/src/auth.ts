@@ -33,71 +33,62 @@ export const assertLocalBypassNotInDeployedEnv = (
 	);
 };
 
-const getSubFromClaims = (event: APIGatewayProxyEvent): string | undefined => {
-	const claims = event.requestContext?.authorizer?.claims;
-	if (!claims) return undefined;
-	const sub = claims.sub;
-	if (typeof sub === "string" && sub.length > 0) return sub;
-	return undefined;
-};
-
-/**
- * Return the Cognito `sub` for the current request, preferring the JWT claim
- * and falling back to `LOCAL_COGNITO_SUB` for local development. Returns
- * `undefined` when neither is available (e.g. seeded fixtures that only set
- * `LOCAL_ACCOUNT_CONFIG_ID`).
- */
-export const getSubFromEvent = (
+const readClaim = (
 	event: APIGatewayProxyEvent,
+	name: "sub" | "email",
 ): string | undefined => {
-	const sub = getSubFromClaims(event);
-	if (sub) return sub;
-	const localSub = process.env.LOCAL_COGNITO_SUB;
-	if (localSub && localSub.length > 0) return localSub;
+	const value = event.requestContext?.authorizer?.claims?.[name];
+	if (typeof value === "string" && value.length > 0) return value;
 	return undefined;
 };
 
+const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
+
+const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
+	const localAccountConfigId = env.LOCAL_ACCOUNT_CONFIG_ID;
+	if (localAccountConfigId) {
+		return {
+			kind: "user",
+			accountConfigId: localAccountConfigId,
+			sub: localAccountConfigId,
+			email: "",
+		};
+	}
+
+	const localSub = env.LOCAL_COGNITO_SUB;
+	if (localSub) {
+		return {
+			kind: "user",
+			accountConfigId: deriveAccountConfigId(localSub),
+			sub: localSub,
+			email: "",
+		};
+	}
+
+	return ANONYMOUS;
+};
+
 /**
- * Extract the caller's accountConfigId from an API Gateway event.
- *
- * Production: reads the Cognito `sub` claim (verified by the API Gateway
- * Cognito authorizer) and derives the accountConfigId via UUIDv5.
- *
- * Local development: honours two environment overrides so the dev server and
- * playwright fixtures can run without a real Cognito token:
- *   - `LOCAL_ACCOUNT_CONFIG_ID` — pin a specific seeded accountConfigId
- *   - `LOCAL_COGNITO_SUB` — pin a Cognito `sub` value; derived like production
+ * The caller of an API Gateway event. Production reads the Cognito `sub` and
+ * `email` claims (verified by the authorizer, or by `jwt-auth.ts` on
+ * self-host) and derives the accountConfigId via UUIDv5. Local development
+ * honours `LOCAL_ACCOUNT_CONFIG_ID` (a pinned seeded config) and
+ * `LOCAL_COGNITO_SUB` (a pinned sub, derived like production).
  */
-export const getAccountConfigIdFromEvent = (
-	event: APIGatewayProxyEvent,
-): string => {
-	const sub = getSubFromClaims(event);
-	if (sub) return deriveAccountConfigId(sub);
-
-	const localAccountConfigId = process.env.LOCAL_ACCOUNT_CONFIG_ID;
-	if (localAccountConfigId) return localAccountConfigId;
-
-	const localSub = process.env.LOCAL_COGNITO_SUB;
-	if (localSub) return deriveAccountConfigId(localSub);
-
-	throw new Error(
-		"Missing accountConfigId: no Cognito `sub` claim on the request, and neither LOCAL_ACCOUNT_CONFIG_ID nor LOCAL_COGNITO_SUB env var is set",
-	);
-};
-
-const getEmailFromClaims = (event: APIGatewayProxyEvent): string => {
-	const email = event.requestContext?.authorizer?.claims?.email;
-	return typeof email === "string" ? email : "";
-};
-
-// A public route (the OAuth callback, a calendar feed) carries no identity, so
-// the missing-accountConfigId error waits for a handler that reads it.
 export const getIdentityFromEvent = (
 	event: APIGatewayProxyEvent,
-): HandlerIdentity => ({
-	get accountConfigId() {
-		return getAccountConfigIdFromEvent(event);
-	},
-	email: getEmailFromClaims(event),
-	sub: getSubFromEvent(event),
-});
+	env: NodeJS.ProcessEnv = process.env,
+): HandlerIdentity => {
+	const sub = readClaim(event, "sub");
+	if (!sub) return localIdentity(env);
+
+	const email = readClaim(event, "email");
+	if (!email) return ANONYMOUS;
+
+	return {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email,
+	};
+};

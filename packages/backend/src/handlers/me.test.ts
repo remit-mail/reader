@@ -7,26 +7,30 @@ import {
 	QuarantineFailureStage,
 	SyncWarningStage,
 } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { handlerContextFromEvent } from "../handler-context.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import { MeOperations } from "./me.js";
 
 const listQuarantine = (
 	context: Context,
-	event: APIGatewayProxyEvent,
+	ctx: HandlerContext,
 ): Promise<QuarantineListResponse> =>
 	MeOperations.MeOperations_listQuarantine(
 		context,
-		handlerContextFromEvent(client, event),
+		ctx,
 	) as Promise<QuarantineListResponse>;
 
-const eventFor = (sub: string): APIGatewayProxyEvent =>
-	({
-		requestContext: { authorizer: { claims: { sub } } },
-	}) as unknown as APIGatewayProxyEvent;
+const callerOf = (sub: string): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email: `${sub}@example.com`,
+	},
+});
 
 let client: RemitClient;
 let cleanup: () => void;
@@ -82,7 +86,7 @@ describe("MeOperations_listQuarantine", () => {
 		await quarantine("me-caller", 40217);
 		await quarantine("me-stranger", 99);
 
-		const response = await listQuarantine({} as Context, eventFor("me-caller"));
+		const response = await listQuarantine({} as Context, callerOf("me-caller"));
 
 		assert.deepEqual(
 			response.entries.map((entry) => [entry.accountId, entry.uid]),
@@ -100,7 +104,7 @@ describe("MeOperations_listQuarantine warnings", () => {
 
 		const response = await listQuarantine(
 			{} as Context,
-			eventFor("warn-caller"),
+			callerOf("warn-caller"),
 		);
 
 		assert.deepEqual(
@@ -119,7 +123,7 @@ describe("MeOperations_listQuarantine warnings", () => {
 
 		const response = await listQuarantine(
 			{} as Context,
-			eventFor("warn-flood"),
+			callerOf("warn-flood"),
 		);
 
 		assert.equal(response.warnings.length, 200);

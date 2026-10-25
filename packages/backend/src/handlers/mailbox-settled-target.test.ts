@@ -14,18 +14,14 @@ import type { MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CanonicalMailboxRole, MailboxSyncStatus } from "@remit/domain-enums";
 import { captureQueue } from "@remit/mailbox-service/test-helpers/test-queue";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import type { OperationHandler } from "../types.js";
 import { FilterDetailOperations, FilterOperations } from "./filter.js";
 import { FolderRoleOperations } from "./folder-role.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 import { MessageBulkOperations } from "./message.js";
 
 let client: RemitClient;
-
-const withEvent = bindHandlers(() => client);
 
 const SUB = "cognito-sub-365";
 const ACCOUNT_ID = "acc-365";
@@ -117,15 +113,19 @@ const world = (syncStatus: MailboxItem["syncStatus"]): Writes => {
 	return writes;
 };
 
-const event = {
-	requestContext: { authorizer: { claims: { sub: SUB } } },
-} as unknown as APIGatewayProxyEvent;
-
-const call = <T>(
+const call = (
 	handler: OperationHandler,
 	request: Record<string, unknown>,
-): Promise<T> =>
-	withEvent<T>(handler)({ request } as unknown as Context, event);
+): Promise<Record<string, unknown>> =>
+	handler({ request } as unknown as Context, {
+		client,
+		identity: {
+			kind: "user",
+			accountConfigId: CONFIG_ID,
+			sub: SUB,
+			email: "caller@example.com",
+		},
+	});
 
 const appoint = () =>
 	call(FolderRoleOperations.FolderRoleOperations_appointFolderRole, {

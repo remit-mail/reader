@@ -38,25 +38,22 @@ import {
 	UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
 import { handleError } from "../error.js";
-import { formatResponse } from "../response.js";
+import { type FormattedResponse, formatResponse } from "../response.js";
 import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
-import { bindHandlers } from "./handler-context-fixture.js";
+import type { HandlerContext } from "../types.js";
 import {
 	completeOutboxAttachment,
 	mintOutboxAttachment,
 } from "./outbox-attachment.js";
 
 let client: RemitClient;
-
-const withEvent = bindHandlers(() => client);
 
 process.env.CONTENT_DELIVERY_DOMAIN = "https://content.test";
 
@@ -231,10 +228,15 @@ const install = async (
 	return { storage, basePath, rows: attachmentRows };
 };
 
-const authorizedEvent = (): APIGatewayProxyEvent =>
-	({
-		requestContext: { authorizer: { claims: { sub: SUB } } },
-	}) as unknown as APIGatewayProxyEvent;
+const caller = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: ACCOUNT_CONFIG_ID,
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
 
 const mintContext = (
 	body: Record<string, unknown>,
@@ -255,7 +257,7 @@ const completeContext = (
 /** The response the browser would receive, error funnel included. */
 const respond = async (
 	run: () => Promise<unknown>,
-): Promise<APIGatewayProxyResult> => {
+): Promise<FormattedResponse> => {
 	const outcome = await run().then(
 		(body) => ({ ok: true as const, body }),
 		(error: unknown) => ({ ok: false as const, error }),
@@ -264,28 +266,25 @@ const respond = async (
 	return formatResponse(outcome.body as Record<string, unknown>);
 };
 
-const parse = (response: APIGatewayProxyResult): Record<string, unknown> =>
+const parse = (response: FormattedResponse): Record<string, unknown> =>
 	JSON.parse(response.body) as Record<string, unknown>;
 
 const mint = (
 	body: Record<string, unknown>,
 	outboxMessageId = DRAFT_ID,
-): Promise<APIGatewayProxyResult> =>
+): Promise<FormattedResponse> =>
 	respond(() =>
-		withEvent(mintOutboxAttachment)(
-			mintContext(body, outboxMessageId),
-			authorizedEvent(),
-		),
+		mintOutboxAttachment(mintContext(body, outboxMessageId), caller()),
 	);
 
 const complete = (
 	outboxAttachmentId: string,
 	outboxMessageId = DRAFT_ID,
-): Promise<APIGatewayProxyResult> =>
+): Promise<FormattedResponse> =>
 	respond(() =>
-		withEvent(completeOutboxAttachment)(
+		completeOutboxAttachment(
 			completeContext(outboxAttachmentId, outboxMessageId),
-			authorizedEvent(),
+			caller(),
 		),
 	);
 
@@ -310,7 +309,7 @@ const putTo = (
 };
 
 const mintedBody = (
-	response: APIGatewayProxyResult,
+	response: FormattedResponse,
 ): { outboxAttachmentId: string; uploadUrl: string } => {
 	assert.equal(response.statusCode, 200);
 	const body = parse(response);
@@ -753,8 +752,10 @@ describe("the mint route through the whole request pipeline", () => {
 			path: `/outbox/${DRAFT_ID}/attachments`,
 			body,
 			headers: { "content-type": "application/json" },
-			requestContext: { authorizer: { claims: { sub: SUB } } },
-		} as unknown as APIGatewayProxyEvent;
+			requestContext: {
+				authorizer: { claims: { sub: SUB, email: "caller@example.com" } },
+			},
+		};
 
 		const result = (await api.handleRequest(
 			{
@@ -766,7 +767,7 @@ describe("the mint route through the whole request pipeline", () => {
 			},
 			event,
 			{} as never,
-		)) as APIGatewayProxyResult;
+		)) as FormattedResponse;
 
 		assert.equal(result.statusCode, 200);
 		assert.equal(parse(result).filename, "routed.txt");

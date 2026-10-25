@@ -39,15 +39,6 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	updatedAt: item.updatedAt,
 });
 
-const requireUserId = (userId: string | undefined): string => {
-	if (!userId) {
-		throw new Error(
-			"Missing Cognito `sub`: cannot attribute an organize job to a user",
-		);
-	}
-	return userId;
-};
-
 export const FilterOperations: Record<
 	FilterOperationIds,
 	OperationHandler<FilterOperationIds>
@@ -78,7 +69,7 @@ export const FilterOperations: Record<
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const filter = context.request.requestBody as CreateFilterInput;
-		const userId = requireUserId(ctx.identity.sub);
+		const userId = ctx.identity.sub;
 
 		const client = ctx.client;
 		const created = unwrap(

@@ -5,26 +5,37 @@ import { BadRequestError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
-import { bindHandlers } from "./handler-context-fixture.js";
+import type { HandlerContext } from "../types.js";
 import {
 	MailboxDetailOperations,
 	MailboxOperations,
 	TrashOperations,
 } from "./mailbox.js";
 
-const withEvent = bindHandlers(() => client);
-
 let client: RemitClient;
 
 const SUB = "cognito-sub-887";
 const ACCOUNT_ID = "acc-887";
 
-const emptyTrash = withEvent<{ deletedCount: number }>(
-	TrashOperations.TrashOperations_emptyTrash,
-);
+const caller = (): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(SUB),
+		sub: SUB,
+		email: "caller@example.com",
+	},
+});
+
+const emptyTrash = (
+	context: Context,
+	caller: HandlerContext,
+): Promise<{ deletedCount: number }> =>
+	TrashOperations.TrashOperations_emptyTrash(context, caller) as Promise<{
+		deletedCount: number;
+	}>;
 
 const callEmptyTrash = (
 	serviceEmptyTrash: () => Promise<{ deletedCount: number }>,
@@ -41,9 +52,7 @@ const callEmptyTrash = (
 
 	return emptyTrash(
 		{ request: { params: { accountId: ACCOUNT_ID } } } as unknown as Context,
-		{
-			requestContext: { authorizer: { claims: { sub: SUB } } },
-		} as unknown as APIGatewayProxyEvent,
+		caller(),
 	);
 };
 
@@ -69,9 +78,14 @@ describe("TrashOperations_emptyTrash", () => {
 	});
 });
 
-const deleteMailbox = withEvent<{ statusCode: number }>(
-	MailboxDetailOperations.MailboxDetailOperations_deleteMailbox,
-);
+const deleteMailbox = (
+	context: Context,
+	caller: HandlerContext,
+): Promise<{ statusCode: number }> =>
+	MailboxDetailOperations.MailboxDetailOperations_deleteMailbox(
+		context,
+		caller,
+	) as Promise<{ statusCode: number }>;
 
 const folder = (over: Partial<MailboxItem> = {}): MailboxItem =>
 	({
@@ -134,9 +148,7 @@ const callDelete = (
 				{
 					request: { params: { accountId: ACCOUNT_ID, mailboxId: "mbx-1" } },
 				} as unknown as Context,
-				{
-					requestContext: { authorizer: { claims: { sub: SUB } } },
-				} as unknown as APIGatewayProxyEvent,
+				caller(),
 			),
 	};
 };
@@ -226,9 +238,7 @@ describe("MailboxDetailOperations_deleteMailbox — what it refuses (D4, D16)", 
 	});
 });
 
-const createMailbox = withEvent<unknown>(
-	MailboxOperations.MailboxOperations_createMailbox,
-);
+const createMailbox = MailboxOperations.MailboxOperations_createMailbox;
 
 describe("MailboxOperations_createMailbox", () => {
 	it("refuses a path the account already has a folder at", async () => {
@@ -259,9 +269,7 @@ describe("MailboxOperations_createMailbox", () => {
 						requestBody: { namespaceType: "personal", fullPath: "Receipts" },
 					},
 				} as unknown as Context,
-				{
-					requestContext: { authorizer: { claims: { sub: SUB } } },
-				} as unknown as APIGatewayProxyEvent,
+				caller(),
 			),
 			(error: unknown) =>
 				error instanceof BadRequestError &&

@@ -262,27 +262,35 @@ export type CalendarSuggestionActionOperationIds = MatchPrefix<
 // biome-ignore lint/suspicious/noExplicitAny: handler responses vary by operation
 type HandlerResponse = Record<string, any>;
 
-export interface HandlerRequest {
-	method: string;
-	path: string;
-	headers: Record<string, string>;
-	query: Record<string, string>;
-	body: string | null;
+export interface UserIdentity {
+	kind: "user";
+	accountConfigId: string;
+	sub: string;
+	email: string;
 }
 
-export interface HandlerIdentity {
-	readonly accountConfigId: string;
-	email: string;
-	sub: string | undefined;
-}
+export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
 
 export interface HandlerContext {
 	client: RemitClient;
-	identity: HandlerIdentity;
-	request: HandlerRequest;
+	identity: UserIdentity;
 }
+
+export interface PublicHandlerContext {
+	client: RemitClient;
+	identity: HandlerIdentity;
+}
+
+export type PublicOperationIds =
+	| "MicrosoftOAuthOperations_microsoftOAuthCallback"
+	| "CalendarFeedOperations_getCalendarFeedIcal";
 
 export type OperationHandler<_T extends OperationIds = OperationIds> = (
 	context: Context,
 	ctx: HandlerContext,
+) => Promise<HandlerResponse>;
+
+export type PublicOperationHandler = (
+	context: Context,
+	ctx: PublicHandlerContext,
 ) => Promise<HandlerResponse>;

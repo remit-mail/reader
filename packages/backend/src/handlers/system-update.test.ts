@@ -10,16 +10,17 @@ import {
 import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { deriveAccountConfigId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
-import { handlerContextFromEvent } from "../handler-context.js";
 import { normalizeRequest } from "../request.js";
-import { formatResponse } from "../response.js";
+import { type FormattedResponse, formatResponse } from "../response.js";
 import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
 } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
+import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import { SystemOperations } from "./system-update.js";
 
 const tmpRoot = join(
@@ -53,13 +54,19 @@ const writeState = (state: unknown): void => {
 	writeFileSync(join(controlDir, "state.json"), JSON.stringify(state));
 };
 
-before(() => {
+let client: RemitClient;
+let cleanup: () => void;
+
+before(async () => {
 	mkdirSync(tmpRoot, { recursive: true });
+	({ client, cleanup } = await createCalendarSqliteClient());
+	setClient(client);
 });
 
 after(() => {
 	rmSync(tmpRoot, { recursive: true, force: true });
 	_resetForTest();
+	cleanup();
 });
 
 beforeEach(() => {
@@ -75,11 +82,45 @@ afterEach(() => {
 	delete process.env.REMIT_TAG;
 });
 
-const buildEvent = (sub?: string): APIGatewayProxyEvent =>
-	({
+const callerOf = (sub: string): HandlerContext => ({
+	client,
+	identity: {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(sub),
+		sub,
+		email: `${sub}@example.com`,
+	},
+});
+
+type LambdaEvent = Parameters<typeof normalizeRequest>[0];
+
+const throughPipeline = async (
+	event: Record<string, unknown> & { httpMethod: string },
+): Promise<FormattedResponse> => {
+	const { api } = await import("../index.js");
+	const full = {
+		path: "/system/update",
+		queryStringParameters: null,
 		headers: {},
-		requestContext: sub ? { authorizer: { claims: { sub } } } : {},
-	}) as unknown as APIGatewayProxyEvent;
+		body: null,
+		requestContext: {},
+		...event,
+	} as unknown as LambdaEvent;
+	return (await api.handleRequest(
+		normalizeRequest(full),
+		full,
+	)) as FormattedResponse;
+};
+
+const getAnonymously = (query: Record<string, string> | null = null) =>
+	throughPipeline({ httpMethod: "GET", queryStringParameters: query });
+
+const applyAnonymously = (targetVersion: string) =>
+	throughPipeline({
+		httpMethod: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify({ targetVersion }),
+	});
 
 // The query as openapi-backend hands it over: validated and coerced against the
 // spec, so `refresh` reaches the handler as a boolean or not at all.
@@ -89,33 +130,20 @@ const getContext = (query: Record<string, unknown> = {}): Context =>
 const postContext = (targetVersion: string): Context =>
 	({ request: { requestBody: { targetVersion } } }) as unknown as Context;
 
-const noStore = {} as unknown as RemitClient;
-
-const getSystemUpdate = (
-	context: Context,
-	event: APIGatewayProxyEvent,
+const getUpdate = (
+	caller: HandlerContext,
+	query: Record<string, unknown> = {},
 ): Promise<unknown> =>
-	SystemOperations.SystemOperations_getSystemUpdate(
-		context,
-		handlerContextFromEvent(noStore, event),
-	);
+	SystemOperations.SystemOperations_getSystemUpdate(getContext(query), caller);
 
-const applySystemUpdate = (
-	context: Context,
-	event: APIGatewayProxyEvent,
+const applyUpdate = (
+	targetVersion: string,
+	caller: HandlerContext,
 ): Promise<unknown> =>
 	SystemOperations.SystemOperations_applySystemUpdate(
-		context,
-		handlerContextFromEvent(noStore, event),
+		postContext(targetVersion),
+		caller,
 	);
-
-const getUpdate = (
-	event: APIGatewayProxyEvent,
-	query: Record<string, unknown> = {},
-) => getSystemUpdate(getContext(query), event);
-
-const applyUpdate = (targetVersion: string, event: APIGatewayProxyEvent) =>
-	applySystemUpdate(postContext(targetVersion), event);
 
 const hasStatus = (value: unknown, code: number): boolean =>
 	typeof value === "object" &&
@@ -126,7 +154,7 @@ describe("GET /system/update", () => {
 	it("returns 404 when no manifest URL is configured", async () => {
 		delete process.env.REMIT_UPDATE_MANIFEST_URL;
 
-		const result = await getUpdate(buildEvent(USER));
+		const result = await getUpdate(callerOf(USER));
 
 		assert.ok(hasStatus(result, 404));
 	});
@@ -134,15 +162,15 @@ describe("GET /system/update", () => {
 	it("returns 401 when the caller is not authenticated", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent());
+		const result = await getAnonymously();
 
-		assert.ok(hasStatus(result, 401));
+		assert.equal(result.statusCode, 401);
 	});
 
 	it("returns 200 for any authenticated caller", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent("another-signed-in-user"));
+		const result = await getUpdate(callerOf("another-signed-in-user"));
 
 		assert.deepEqual(result, okState);
 	});
@@ -150,7 +178,7 @@ describe("GET /system/update", () => {
 	it("returns 200 with the state file verbatim", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent(USER));
+		const result = await getUpdate(callerOf(USER));
 
 		assert.deepEqual(result, okState);
 	});
@@ -158,7 +186,7 @@ describe("GET /system/update", () => {
 	it("records a check request on the control volume when refresh is set (#599)", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent(USER), { refresh: true });
+		const result = await getUpdate(callerOf(USER), { refresh: true });
 
 		// The press reaches the updater through the seam, and the answer is the
 		// stored state — lastCheckedAt included, so the panel can say how old the
@@ -169,7 +197,7 @@ describe("GET /system/update", () => {
 	});
 
 	it("records a check request over an unknown version when no state exists yet", async () => {
-		const result = await getUpdate(buildEvent(USER), { refresh: true });
+		const result = await getUpdate(callerOf(USER), { refresh: true });
 
 		assert.equal(existsSync(join(controlDir, "check-request.json")), true);
 		assert.deepEqual(result, {
@@ -184,7 +212,7 @@ describe("GET /system/update", () => {
 		// value that records a request is the boolean the validator produced.
 		writeState(okState);
 
-		await getUpdate(buildEvent(USER));
+		await getUpdate(callerOf(USER));
 
 		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
@@ -192,9 +220,9 @@ describe("GET /system/update", () => {
 	it("returns 401 and records nothing when a refresh is not authenticated", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent(), { refresh: true });
+		const result = await getAnonymously({ refresh: "true" });
 
-		assert.ok(hasStatus(result, 401));
+		assert.equal(result.statusCode, 401);
 		assert.equal(existsSync(join(controlDir, "check-request.json")), false);
 	});
 
@@ -202,7 +230,7 @@ describe("GET /system/update", () => {
 		// The updater owns the running version and writes it into state.json; with
 		// no state file the backend has nothing authoritative, so it says unknown
 		// rather than surfacing REMIT_TAG, which drifts from the real running tag.
-		const result = await getUpdate(buildEvent(USER));
+		const result = await getUpdate(callerOf(USER));
 
 		assert.deepEqual(result, {
 			currentVersion: "unknown",
@@ -233,7 +261,7 @@ describe("GET /system/update", () => {
 			run,
 		});
 
-		const result = (await getUpdate(buildEvent(USER))) as {
+		const result = (await getUpdate(callerOf(USER))) as {
 			check: { status: string };
 			run: unknown;
 		};
@@ -250,7 +278,7 @@ describe("GET /system/update", () => {
 			run: null,
 		});
 
-		const result = (await getUpdate(buildEvent(USER))) as {
+		const result = (await getUpdate(callerOf(USER))) as {
 			currentSchemaVersion?: number;
 			check: { schemaVersion?: number };
 		};
@@ -262,7 +290,7 @@ describe("GET /system/update", () => {
 	it("omits both schema-version fields when the state file predates them", async () => {
 		writeState(okState);
 
-		const result = (await getUpdate(buildEvent(USER))) as {
+		const result = (await getUpdate(callerOf(USER))) as {
 			currentSchemaVersion?: number;
 			check: { schemaVersion?: number };
 		};
@@ -279,7 +307,7 @@ describe("GET /system/update", () => {
 			run: null,
 		});
 
-		const result = (await getUpdate(buildEvent(USER))) as {
+		const result = (await getUpdate(callerOf(USER))) as {
 			currentSchemaVersion?: number;
 			check: { schemaVersion?: number };
 		};
@@ -295,7 +323,7 @@ describe("GET /system/update", () => {
 			run: null,
 		});
 
-		const result = (await getUpdate(buildEvent(USER))) as {
+		const result = (await getUpdate(callerOf(USER))) as {
 			currentSchemaVersion?: number;
 			check: { schemaVersion?: number };
 		};
@@ -309,7 +337,7 @@ describe("POST /system/update", () => {
 	it("returns 404 when no manifest URL is configured", async () => {
 		delete process.env.REMIT_UPDATE_MANIFEST_URL;
 
-		const result = await applyUpdate("v1.5.0", buildEvent(USER));
+		const result = await applyUpdate("v1.5.0", callerOf(USER));
 
 		assert.ok(hasStatus(result, 404));
 	});
@@ -317,9 +345,9 @@ describe("POST /system/update", () => {
 	it("returns 401 without writing request.json when the caller is not authenticated", async () => {
 		writeState(okState);
 
-		const result = await applyUpdate("v1.5.0", buildEvent());
+		const result = await applyAnonymously("v1.5.0");
 
-		assert.ok(hasStatus(result, 401));
+		assert.equal(result.statusCode, 401);
 		assert.throws(() => readFileSync(join(controlDir, "request.json"), "utf8"));
 	});
 
@@ -328,7 +356,7 @@ describe("POST /system/update", () => {
 
 		const result = (await applyUpdate(
 			"v1.5.0",
-			buildEvent("another-signed-in-user"),
+			callerOf("another-signed-in-user"),
 		)) as { statusCode: number };
 
 		assert.equal(result.statusCode, 202);
@@ -355,7 +383,7 @@ describe("POST /system/update", () => {
 			},
 		});
 
-		await assert.rejects(applyUpdate("v1.5.0", buildEvent(USER)), {
+		await assert.rejects(applyUpdate("v1.5.0", callerOf(USER)), {
 			statusCode: 409,
 		});
 	});
@@ -363,13 +391,13 @@ describe("POST /system/update", () => {
 	it("returns 422 when the target is not the checked version", async () => {
 		writeState(okState);
 
-		await assert.rejects(applyUpdate("v9.9.9", buildEvent(USER)), {
+		await assert.rejects(applyUpdate("v9.9.9", callerOf(USER)), {
 			statusCode: 422,
 		});
 	});
 
 	it("returns 422 when no check has ever succeeded", async () => {
-		await assert.rejects(applyUpdate("v1.5.0", buildEvent(USER)), {
+		await assert.rejects(applyUpdate("v1.5.0", callerOf(USER)), {
 			statusCode: 422,
 		});
 	});
@@ -377,7 +405,7 @@ describe("POST /system/update", () => {
 	it("returns 202 with a run block carrying a fresh runId", async () => {
 		writeState(okState);
 
-		const result = (await applyUpdate("v1.5.0", buildEvent(USER))) as {
+		const result = (await applyUpdate("v1.5.0", callerOf(USER))) as {
 			statusCode: number;
 			body: { run: { runId: string; targetVersion: string; outcome: null } };
 		};
@@ -391,7 +419,7 @@ describe("POST /system/update", () => {
 	it("writes request.json with exactly the four seam fields and nothing else", async () => {
 		writeState(okState);
 
-		await applyUpdate("v1.5.0", buildEvent(USER));
+		await applyUpdate("v1.5.0", callerOf(USER));
 
 		const request = JSON.parse(
 			readFileSync(join(controlDir, "request.json"), "utf8"),
@@ -417,7 +445,7 @@ describe("POST /system/update", () => {
 		writeState(okState);
 		const before = Date.now();
 
-		await applyUpdate("v1.5.0", buildEvent(USER));
+		await applyUpdate("v1.5.0", callerOf(USER));
 
 		const after = Date.now();
 		const request = JSON.parse(
@@ -440,22 +468,14 @@ describe("GET /system/update through the whole request pipeline", () => {
 		// string — and goes through the real built spec, which is where the press
 		// was being answered with 400 instead of reaching the handler at all.
 		writeState(okState);
-		setClient(noStore);
-		const { api } = await import("../index.js");
 
-		const event = {
+		const result = await throughPipeline({
 			httpMethod: "GET",
-			path: "/system/update",
 			queryStringParameters: { refresh: "true" },
-			headers: {},
-			requestContext: { authorizer: { claims: { sub: USER } } },
-		} as unknown as APIGatewayProxyEvent;
-
-		const result = (await api.handleRequest(
-			normalizeRequest(event),
-			event,
-			{} as never,
-		)) as APIGatewayProxyResult;
+			requestContext: {
+				authorizer: { claims: { sub: USER, email: "user@example.com" } },
+			},
+		});
 
 		assert.equal(result.statusCode, 200);
 		assert.deepEqual(
@@ -475,7 +495,7 @@ describe("the wire body of a self-update refusal", () => {
 	it("answers an unconfigured seam with a flat not_found", async () => {
 		delete process.env.REMIT_UPDATE_MANIFEST_URL;
 
-		const result = await getUpdate(buildEvent(USER));
+		const result = await getUpdate(callerOf(USER));
 		const wire = formatResponse(result as Record<string, unknown>);
 
 		assert.equal(wire.statusCode, 404);
@@ -488,8 +508,7 @@ describe("the wire body of a self-update refusal", () => {
 	it("answers an unauthenticated caller with a flat unauthorized", async () => {
 		writeState(okState);
 
-		const result = await getUpdate(buildEvent());
-		const wire = formatResponse(result as Record<string, unknown>);
+		const wire = await getAnonymously();
 
 		assert.equal(wire.statusCode, 401);
 		assert.deepEqual(JSON.parse(wire.body), {
@@ -501,8 +520,7 @@ describe("the wire body of a self-update refusal", () => {
 	it("answers an unauthenticated install request the same way", async () => {
 		writeState(okState);
 
-		const result = await applyUpdate("v1.5.0", buildEvent());
-		const wire = formatResponse(result as Record<string, unknown>);
+		const wire = await applyAnonymously("v1.5.0");
 
 		assert.equal(wire.statusCode, 401);
 		assert.deepEqual(JSON.parse(wire.body), {

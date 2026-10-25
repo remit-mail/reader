@@ -20,6 +20,7 @@ import type {
 	CalendarFeedOperationIds,
 	HandlerContext,
 	OperationHandler,
+	PublicOperationHandler,
 } from "../types.js";
 import {
 	type CalendarDeps,
@@ -257,29 +258,31 @@ export const CalendarFeedDetailOperations: Record<
 	},
 };
 
+export const getCalendarFeedIcal: PublicOperationHandler = async (
+	context,
+	ctx,
+) => {
+	// From the raw path, not from the router's captured parameter: the matcher
+	// substitutes the parameter into the literal path and leaves the dot of
+	// ".ics" as a regex dot, so /feeds/calendar/<token>Xics routes here too —
+	// and answering it would serve the feed at an address nobody was handed.
+	const feedToken = readCalendarFeedToken(context.request.path);
+	if (feedToken === null) return feedNotFound();
+
+	const ifNoneMatch = context.request.headers["if-none-match"];
+	const ifModifiedSince = context.request.headers["if-modified-since"];
+	const deps = calendarDepsOf(ctx.client);
+
+	return serveCalendarFeed(deps, feedToken, {
+		ifNoneMatch: typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
+		ifModifiedSince:
+			typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
+	});
+};
+
 export const CalendarFeedOperations: Record<
 	CalendarFeedOperationIds,
-	OperationHandler<CalendarFeedOperationIds>
+	PublicOperationHandler
 > = {
-	CalendarFeedOperations_getCalendarFeedIcal: async (
-		context,
-		ctx: HandlerContext,
-	) => {
-		// From the raw path, not from the router's captured parameter: the matcher
-		// substitutes the parameter into the literal path and leaves the dot of
-		// ".ics" as a regex dot, so /feeds/calendar/<token>Xics routes here too —
-		// and answering it would serve the feed at an address nobody was handed.
-		const feedToken = readCalendarFeedToken(ctx.request.path);
-		if (feedToken === null) return feedNotFound();
-
-		const ifNoneMatch = context.request.headers["if-none-match"];
-		const ifModifiedSince = context.request.headers["if-modified-since"];
-		const deps = calendarDepsOf(ctx.client);
-
-		return serveCalendarFeed(deps, feedToken, {
-			ifNoneMatch: typeof ifNoneMatch === "string" ? ifNoneMatch : undefined,
-			ifModifiedSince:
-				typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
-		});
-	},
+	CalendarFeedOperations_getCalendarFeedIcal: getCalendarFeedIcal,
 };

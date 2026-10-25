@@ -62,22 +62,17 @@ export const MeOperations: Record<
 		};
 	},
 	MeOperations_deleteMe: async (
-		_context: Context,
+		context: Context,
 		ctx: HandlerContext,
 	): Promise<DeleteAccountConfigResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
-		const { confirmEmail } = JSON.parse(
-			ctx.request.body ?? "{}",
-		) as Partial<DeleteMeInput>;
+		const { confirmEmail } = context.request
+			.requestBody as Partial<DeleteMeInput>;
 		const callerEmail = ctx.identity.email;
 
 		if (typeof confirmEmail !== "string" || confirmEmail.trim() === "") {
 			throw new BadRequestError("confirmEmail is required");
-		}
-
-		if (!callerEmail) {
-			throw new BadRequestError("Account email claim missing from token");
 		}
 
 		if (confirmEmail.toLowerCase() !== callerEmail.toLowerCase()) {
@@ -134,12 +129,6 @@ export const MeOperations: Record<
 	): Promise<CreateExportResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const userId = ctx.identity.sub;
-
-		if (!userId) {
-			throw new Error(
-				"Missing Cognito `sub`: cannot attribute an export request to a user",
-			);
-		}
 
 		const { accountExportRequest } = ctx.client;
 		const exportRequest = await accountExportRequest.create({

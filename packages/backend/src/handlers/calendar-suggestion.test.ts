@@ -25,9 +25,9 @@ import {
 	RecurrenceScope,
 	ZoneCertainty,
 } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import { calendarDepsOf } from "./calendar.js";
 import {
 	calendarEventDepsOf,
@@ -44,7 +44,6 @@ import {
 	settleSuggestion,
 	toCalendarSuggestionResponse,
 } from "./calendar-suggestion.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-1";
 
@@ -313,23 +312,16 @@ describe("muteSender", () => {
  * The unit tests above pin each half; these pin what one request does.
  */
 
-const withEvent = bindHandlers(() => client);
-
-const listSuggestions = withEvent(
-	CalendarSuggestionOperations.CalendarSuggestionOperations_listCalendarSuggestions,
-);
-const acceptSuggestion = withEvent(
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion,
-);
-const dismissSuggestion = withEvent(
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion,
-);
-const listMessageSuggestions = withEvent(
-	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions,
-);
-const reopenSuggestion = withEvent(
-	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_reopenCalendarSuggestion,
-);
+const listSuggestions =
+	CalendarSuggestionOperations.CalendarSuggestionOperations_listCalendarSuggestions;
+const acceptSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_acceptCalendarSuggestion;
+const dismissSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_dismissCalendarSuggestion;
+const listMessageSuggestions =
+	MessageCalendarSuggestionOperations.MessageCalendarSuggestionOperations_listMessageCalendarSuggestions;
+const reopenSuggestion =
+	CalendarSuggestionActionOperations.CalendarSuggestionActionOperations_reopenCalendarSuggestion;
 
 interface Card {
 	suggestionId: string;
@@ -373,15 +365,22 @@ const contextOf = (request: {
 
 const anAccount = (): {
 	accountConfigId: string;
-	event: APIGatewayProxyEvent;
+	caller: HandlerContext;
 } => {
 	mintedSubs += 1;
 	const sub = `calendar-suggestion-sub-${mintedSubs}`;
+	const accountConfigId = deriveAccountConfigId(sub);
 	return {
-		accountConfigId: deriveAccountConfigId(sub),
-		event: {
-			requestContext: { authorizer: { claims: { sub } } },
-		} as unknown as APIGatewayProxyEvent,
+		accountConfigId,
+		caller: {
+			client,
+			identity: {
+				kind: "user",
+				accountConfigId,
+				sub,
+				email: `${sub}@example.com`,
+			},
+		},
 	};
 };
 
@@ -465,7 +464,7 @@ after(() => {
 
 describe("GET /calendar-suggestions", () => {
 	test("hands the pending set back one page at a time", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const seeded = await Promise.all(
 			Array.from({ length: 101 }, (_unused, index) =>
 				putSuggestion(accountConfigId, `msg-page-${index}`),
@@ -474,7 +473,7 @@ describe("GET /calendar-suggestions", () => {
 
 		const first = (await listSuggestions(
 			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
-			event,
+			caller,
 		)) as unknown as { items: Card[]; continuationToken?: string };
 		assert.equal(first.items.length, 100);
 		assert.ok(first.continuationToken, "a full page names where to continue");
@@ -486,7 +485,7 @@ describe("GET /calendar-suggestions", () => {
 					continuationToken: first.continuationToken,
 				},
 			}),
-			event,
+			caller,
 		)) as unknown as { items: Card[]; continuationToken?: string };
 
 		assert.equal(second.items.length, 1);
@@ -502,7 +501,7 @@ describe("GET /calendar-suggestions", () => {
 	});
 
 	test("answers only the state that was asked for, and keeps the raw bytes back", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		await putSuggestion(accountConfigId, "msg-pending");
 		const dismissed = await putSuggestion(accountConfigId, "msg-dismissed");
 		await client.calendarSuggestion.settle(
@@ -516,7 +515,7 @@ describe("GET /calendar-suggestions", () => {
 
 		const pending = (await listSuggestions(
 			contextOf({ query: { state: CalendarSuggestionState.Pending } }),
-			event,
+			caller,
 		)) as unknown as { items: Card[] };
 
 		assert.deepEqual(
@@ -529,7 +528,7 @@ describe("GET /calendar-suggestions", () => {
 
 describe("GET /messages/{messageId}/calendar-suggestions", () => {
 	test("names the conversation of the revision that retired a card", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const older = await putSuggestion(accountConfigId, "msg-revision-0");
 		await client.calendarSuggestion.supersedeIfPending(
 			accountConfigId,
@@ -540,7 +539,7 @@ describe("GET /messages/{messageId}/calendar-suggestions", () => {
 
 		const listed = (await listMessageSuggestions(
 			contextOf({ params: { messageId: "msg-revision-0" } }),
-			event,
+			caller,
 		)) as unknown as { items: Card[] };
 
 		assert.deepEqual(
@@ -560,7 +559,7 @@ describe("GET /messages/{messageId}/calendar-suggestions", () => {
 	});
 
 	test("names no conversation when the newer message sits in none", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const older = await putSuggestion(accountConfigId, "msg-orphan-0");
 		await client.calendarSuggestion.supersedeIfPending(
 			accountConfigId,
@@ -570,19 +569,19 @@ describe("GET /messages/{messageId}/calendar-suggestions", () => {
 
 		const listed = (await listMessageSuggestions(
 			contextOf({ params: { messageId: "msg-orphan-0" } }),
-			event,
+			caller,
 		)) as unknown as { items: Card[] };
 
 		assert.equal(listed.items[0]?.supersededByThreadId, "");
 	});
 
 	test("names no conversation for a card nothing retired", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		await putSuggestion(accountConfigId, "msg-current");
 
 		const listed = (await listMessageSuggestions(
 			contextOf({ params: { messageId: "msg-current" } }),
-			event,
+			caller,
 		)) as unknown as { items: Card[] };
 
 		assert.deepEqual(
@@ -603,7 +602,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 			urlSegment: "default",
 			displayName: "Calendar",
 		});
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-cross-account");
 
 		await assert.rejects(
@@ -613,7 +612,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 						params: { suggestionId: card.suggestionId },
 						requestBody: { calendarId: strangersCalendar.calendarId },
 					}),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
 		);
@@ -632,7 +631,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 	});
 
 	test("refuses a maybe to a cancellation, before writing anything", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const calendar = await client.calendarCollection.create({
 			accountConfigId,
 			urlSegment: "default",
@@ -654,7 +653,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 							answer: CalendarInviteAnswer.Tentative,
 						},
 					}),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
 		);
@@ -673,7 +672,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept", () => {
 
 describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 	test("settles the card and writes the sender's mute rule in one request", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-mute");
 		await seedMessageFrom("msg-mute", "organizer@example.test");
 
@@ -682,7 +681,7 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 				params: { suggestionId: card.suggestionId },
 				requestBody: { muteSender: true },
 			}),
-			event,
+			caller,
 		)) as unknown as Card;
 
 		assert.equal(dismissed.state, CalendarSuggestionState.Dismissed);
@@ -697,7 +696,7 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 	});
 
 	test("writes no rule when the request does not ask to mute", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-quiet");
 		await seedMessageFrom("msg-quiet", "organizer@example.test");
 
@@ -706,7 +705,7 @@ describe("POST /calendar-suggestions/{suggestionId}/dismiss", () => {
 				params: { suggestionId: card.suggestionId },
 				requestBody: {},
 			}),
-			event,
+			caller,
 		)) as unknown as Card;
 
 		assert.equal(dismissed.state, CalendarSuggestionState.Dismissed);
@@ -728,7 +727,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", ()
 			urlSegment: "default",
 			displayName: "Calendar",
 		});
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-edited-cross");
 
 		await assert.rejects(
@@ -741,7 +740,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", ()
 							event: { summary: "Quarterly review, moved" },
 						},
 					}),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
 		);
@@ -758,7 +757,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", ()
 	});
 
 	test("refuses a card the reader already declined", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const calendar = await client.calendarCollection.create({
 			accountConfigId,
 			urlSegment: "default",
@@ -780,7 +779,7 @@ describe("POST /calendar-suggestions/{suggestionId}/accept with corrections", ()
 							event: { summary: "Quarterly review, moved" },
 						},
 					}),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
 		);
@@ -818,7 +817,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 		CalendarInviteAnswer.Tentative,
 	]) {
 		test(`takes a ${answer} answer back and removes the event it wrote`, async () => {
-			const { accountConfigId, event } = anAccount();
+			const { accountConfigId, caller } = anAccount();
 			const { calendarId, card } = await answeredInto(
 				accountConfigId,
 				`msg-reopen-${answer}`,
@@ -831,7 +830,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 
 			const reopened = (await reopenSuggestion(
 				contextOf({ params: { suggestionId: card.suggestionId } }),
-				event,
+				caller,
 			)) as unknown as CalendarSuggestionItem;
 
 			assert.equal(reopened.state, CalendarSuggestionState.Pending);
@@ -853,7 +852,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 		CalendarSuggestionState.Dismissed,
 	]) {
 		test(`returns a ${state} card to Pending`, async () => {
-			const { accountConfigId, event } = anAccount();
+			const { accountConfigId, caller } = anAccount();
 			const card = await putSuggestion(accountConfigId, `msg-reopen-${state}`);
 			await client.calendarSuggestion.settle(
 				accountConfigId,
@@ -863,7 +862,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 
 			const reopened = (await reopenSuggestion(
 				contextOf({ params: { suggestionId: card.suggestionId } }),
-				event,
+				caller,
 			)) as unknown as Card;
 
 			assert.equal(reopened.state, CalendarSuggestionState.Pending);
@@ -871,7 +870,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 	}
 
 	test("refuses a superseded card and leaves it as it is", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-reopen-superseded");
 		await client.calendarSuggestion.supersedeIfPending(
 			accountConfigId,
@@ -883,7 +882,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 			() =>
 				reopenSuggestion(
 					contextOf({ params: { suggestionId: card.suggestionId } }),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
 		);
@@ -896,7 +895,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 	});
 
 	test("refuses a cancellation, whose answer it cannot undo", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(
 			accountConfigId,
 			"msg-reopen-cancel",
@@ -911,7 +910,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 			() =>
 				reopenSuggestion(
 					contextOf({ params: { suggestionId: card.suggestionId } }),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
 		);
@@ -924,13 +923,13 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen", () => {
 			"msg-reopen-stranger",
 			CalendarInviteAnswer.Accepted,
 		);
-		const { event } = anAccount();
+		const { caller } = anAccount();
 
 		await assert.rejects(
 			() =>
 				reopenSuggestion(
 					contextOf({ params: { suggestionId: card.suggestionId } }),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 404,
 		);
@@ -997,7 +996,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 		});
 
 	test("refuses a request's answer once its cancellation was answered into the event, and says so on the card", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const calendar = await calendarOf(accountConfigId);
 		const first = await acceptInto(
 			accountConfigId,
@@ -1018,7 +1017,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 			() =>
 				reopenSuggestion(
 					contextOf({ params: { suggestionId: first.suggestionId } }),
-					event,
+					caller,
 				),
 			(error: unknown) => (error as { statusCode?: number }).statusCode === 400,
 		);
@@ -1029,7 +1028,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 		);
 		const listed = (await listMessageSuggestions(
 			contextOf({ params: { messageId: "msg-overtaken-0" } }),
-			event,
+			caller,
 		)) as unknown as { items: { answerOvertakenBy: string }[] };
 		assert.deepEqual(
 			listed.items.map((item) => item.answerOvertakenBy),
@@ -1038,7 +1037,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 	});
 
 	test("takes back both halves of a this-and-following split, and a re-add writes one event", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const calendar = await calendarOf(accountConfigId);
 		const card = await acceptInto(
 			accountConfigId,
@@ -1065,7 +1064,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 
 		const reopened = (await reopenSuggestion(
 			contextOf({ params: { suggestionId: card.suggestionId } }),
-			event,
+			caller,
 		)) as unknown as CalendarSuggestionItem;
 
 		assert.equal(reopened.state, CalendarSuggestionState.Pending);
@@ -1084,7 +1083,7 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 	});
 
 	test("keeps the sender rule a mute wrote", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const card = await putSuggestion(accountConfigId, "msg-mute-reopen");
 		await seedMessageFrom("msg-mute-reopen", "organizer@example.test");
 		await dismissSuggestion(
@@ -1092,12 +1091,12 @@ describe("POST /calendar-suggestions/{suggestionId}/reopen, against what else ho
 				params: { suggestionId: card.suggestionId },
 				requestBody: { muteSender: true },
 			}),
-			event,
+			caller,
 		);
 
 		const reopened = (await reopenSuggestion(
 			contextOf({ params: { suggestionId: card.suggestionId } }),
-			event,
+			caller,
 		)) as unknown as Card;
 
 		assert.equal(reopened.state, CalendarSuggestionState.Pending);
@@ -1191,18 +1190,18 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 	};
 
 	const listState = async (
-		event: APIGatewayProxyEvent,
+		caller: HandlerContext,
 		state: CalendarSuggestionItem["state"],
 	): Promise<Card[]> =>
 		(
 			(await listSuggestions(
 				contextOf({ query: { state } }),
-				event,
+				caller,
 			)) as unknown as { items: Card[] }
 		).items;
 
 	test("omits a Pending suggestion that ended and keeps one still ahead", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		await putSuggestion(
 			accountConfigId,
 			"msg-past",
@@ -1211,7 +1210,7 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 		);
 		const ahead = await putSuggestion(accountConfigId, "msg-ahead");
 
-		const pending = await listState(event, CalendarSuggestionState.Pending);
+		const pending = await listState(caller, CalendarSuggestionState.Pending);
 
 		assert.deepEqual(
 			pending.map((card) => card.suggestionId),
@@ -1220,7 +1219,7 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 	});
 
 	test("keeps a weekly series that began two years ago and has no end", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const twoYearsAgo = hoursFromNow(-2 * 365 * 24);
 		const stamp = twoYearsAgo.replace(/[-:]/g, "").slice(0, 15).concat("Z");
 		const series = await putSuggestion(
@@ -1238,7 +1237,7 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 			},
 		);
 
-		const pending = await listState(event, CalendarSuggestionState.Pending);
+		const pending = await listState(caller, CalendarSuggestionState.Pending);
 
 		assert.deepEqual(
 			pending.map((card) => card.suggestionId),
@@ -1247,7 +1246,7 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 	});
 
 	test("still returns an Accepted suggestion whose event is over", async () => {
-		const { accountConfigId, event } = anAccount();
+		const { accountConfigId, caller } = anAccount();
 		const stored = await putSuggestion(
 			accountConfigId,
 			"msg-accepted",
@@ -1263,7 +1262,7 @@ describe("GET /calendar-suggestions leaves out events that are over", () => {
 			},
 		);
 
-		const accepted = await listState(event, CalendarSuggestionState.Accepted);
+		const accepted = await listState(caller, CalendarSuggestionState.Accepted);
 
 		assert.deepEqual(
 			accepted.map((card) => card.suggestionId),

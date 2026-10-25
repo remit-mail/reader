@@ -199,11 +199,11 @@ export const AccountOperations: Record<
 	OperationHandler<AccountOperationIds>
 > = {
 	AccountOperations_createAccount: async (
-		_context: Context,
+		context: Context,
 		ctx: HandlerContext,
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const input = JSON.parse(ctx.request.body ?? "{}") as CreateAccountInput;
+		const input = context.request.requestBody as CreateAccountInput;
 
 		// OAuth accounts must be created via the dedicated connect flow
 		assertNotOAuthCreate(input.authType);
@@ -298,11 +298,11 @@ export const AccountOperations: Record<
 	},
 
 	AccountOperations_testConnection: async (
-		_context: Context,
+		context: Context,
 		ctx: HandlerContext,
 	): Promise<TestConnectionResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const input = JSON.parse(ctx.request.body ?? "{}") as TestConnectionInput;
+		const input = context.request.requestBody as TestConnectionInput;
 
 		const { account, secrets } = ctx.client;
 
@@ -418,7 +418,7 @@ export const AccountDetailOperations: Record<
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
-		const input = JSON.parse(ctx.request.body ?? "{}") as UpdateAccountInput;
+		const input = context.request.requestBody as UpdateAccountInput;
 
 		const { account, accountSetting, mailbox, secrets } = ctx.client;
 

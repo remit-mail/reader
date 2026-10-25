@@ -51,13 +51,11 @@ export const OutboxOperations: Record<
 	OperationHandler<OutboxOperationIds>
 > = {
 	OutboxOperations_createOutboxMessage: async (
-		_context: Context,
+		context: Context,
 		ctx: HandlerContext,
 	): Promise<OutboxMessageResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
-		const input = JSON.parse(
-			ctx.request.body ?? "{}",
-		) as CreateOutboxMessageInput;
+		const input = context.request.requestBody as CreateOutboxMessageInput;
 
 		const client = ctx.client;
 

@@ -8,9 +8,9 @@ import type {
 } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { CalendarSource, RecurrenceScope } from "@remit/domain-enums";
-import type { APIGatewayProxyEvent } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
+import type { HandlerContext } from "../types.js";
 import {
 	type CalendarDeps,
 	CalendarDetailOperations,
@@ -33,7 +33,6 @@ import {
 	updateCalendarEventFor,
 } from "./calendar-event.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
-import { bindHandlers } from "./handler-context-fixture.js";
 
 /**
  * The calendar handlers against the store the self-host build ships.
@@ -63,11 +62,17 @@ class CalendarAccount {
 		this.accountConfigId = deriveAccountConfigId(sub);
 	}
 
-	/** The request an authenticated caller of this account arrives on. */
-	request(): APIGatewayProxyEvent {
+	/** The context an authenticated caller of this account arrives with. */
+	caller(): HandlerContext {
 		return {
-			requestContext: { authorizer: { claims: { sub: this.sub } } },
-		} as unknown as APIGatewayProxyEvent;
+			client,
+			identity: {
+				kind: "user",
+				accountConfigId: this.accountConfigId,
+				sub: this.sub,
+				email: `${this.sub}@example.com`,
+			},
+		};
 	}
 
 	deps(): CalendarDeps {
@@ -747,20 +752,13 @@ describe("updateCalendarFor", () => {
  * suites above hold the inner functions; these hold what the API answers with.
  */
 
-const withEvent = bindHandlers(() => client);
-
-const createCalendar = withEvent(
-	CalendarOperations.CalendarOperations_createCalendar,
-);
-const getCalendar = withEvent(
-	CalendarDetailOperations.CalendarDetailOperations_getCalendar,
-);
-const updateCalendar = withEvent(
-	CalendarDetailOperations.CalendarDetailOperations_updateCalendar,
-);
-const deleteCalendar = withEvent(
-	CalendarDetailOperations.CalendarDetailOperations_deleteCalendar,
-);
+const createCalendar = CalendarOperations.CalendarOperations_createCalendar;
+const getCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_getCalendar;
+const updateCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_updateCalendar;
+const deleteCalendar =
+	CalendarDetailOperations.CalendarDetailOperations_deleteCalendar;
 
 const contextOf = (request: {
 	params?: Record<string, string>;
@@ -775,11 +773,11 @@ describe("the calendar collection wrappers", () => {
 			stranger.accountConfigId,
 		);
 		assert.ok(theirs);
-		const event = anAccount().request();
+		const caller = anAccount().caller();
 
 		const read = await getCalendar(
 			contextOf({ params: { calendarId: theirs.calendarId } }),
-			event,
+			caller,
 		);
 
 		assert.equal(read.statusCode, 404);
@@ -787,17 +785,17 @@ describe("the calendar collection wrappers", () => {
 	});
 
 	it("refuses a second calendar under a segment the account already uses", async () => {
-		const event = anAccount().request();
+		const caller = anAccount().caller();
 		await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		);
 
 		const second = await createCalendar(
 			contextOf({
 				requestBody: { urlSegment: "Work", displayName: "Work again" },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(second.statusCode, 400);
@@ -806,7 +804,7 @@ describe("the calendar collection wrappers", () => {
 
 	it("refuses a rename that names a zone this server cannot resolve", async () => {
 		const account = anAccount();
-		const event = account.request();
+		const caller = account.caller();
 		const [calendar] = await listCalendarsFor(
 			account.deps(),
 			account.accountConfigId,
@@ -818,7 +816,7 @@ describe("the calendar collection wrappers", () => {
 				params: { calendarId: calendar.calendarId },
 				requestBody: { timezone: "Pacific Standard Time" },
 			}),
-			event,
+			caller,
 		);
 
 		assert.equal(updated.statusCode, 400);
@@ -827,7 +825,7 @@ describe("the calendar collection wrappers", () => {
 
 	it("answers 204 for a calendar it removed and 400 for the default one", async () => {
 		const account = anAccount();
-		const event = account.request();
+		const caller = account.caller();
 		const held = await listCalendarsFor(
 			account.deps(),
 			account.accountConfigId,
@@ -838,16 +836,16 @@ describe("the calendar collection wrappers", () => {
 		assert.ok(fallback);
 		const created = (await createCalendar(
 			contextOf({ requestBody: { urlSegment: "work", displayName: "Work" } }),
-			event,
+			caller,
 		)) as unknown as { calendarId: string };
 
 		const removed = await deleteCalendar(
 			contextOf({ params: { calendarId: created.calendarId } }),
-			event,
+			caller,
 		);
 		const refused = await deleteCalendar(
 			contextOf({ params: { calendarId: fallback.calendarId } }),
-			event,
+			caller,
 		);
 
 		assert.equal(removed.statusCode, 204);
