@@ -14,8 +14,9 @@
 # `publish-dry-run`, because only a job in that workflow can be a dependency of
 # the `gate` job branch protection requires.
 #
-# Auth is npm Trusted Publishing: the job mints a GitHub OIDC token (needs npm
-# >= 11.5.1, which Node 24 bundles), so no npm token lives in the environment.
+# Auth is the NPM_TOKEN secret, a stopgap until npm accepts GitHub's immutable OIDC
+# subjects (https://github.com/npm/cli/issues/9969) and the trusted publishers
+# already configured take over. Provenance still uses the OIDC token.
 name: Publish
 
 on:
@@ -41,6 +42,7 @@ jobs:
         with:
           node-version-file: .nvmrc
           cache: npm
+          registry-url: https://registry.npmjs.org
       - run: npm ci --no-audit --no-fund --loglevel=error
       - run: make
       # @remit/web-client-dist is the built web client, and the build stages the
@@ -51,3 +53,5 @@ jobs:
       # generated (build/) before the workspace set that depends on them. Safe on
       # every run.
       - run: npm run release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
