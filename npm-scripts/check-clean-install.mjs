@@ -46,6 +46,7 @@ const RESOLVES = [
 	"@remit/logger-lambda/node",
 	"@remit/logger-lambda/metrics",
 	"@remit/api-openapi-spec/openapi.json",
+	"@remit/api-openapi-spec/request-validators",
 	"@remit/backend/api",
 	"@remit/backend/serve",
 	"@remit/backend/handlers",

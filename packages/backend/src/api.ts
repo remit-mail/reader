@@ -1,4 +1,5 @@
 import spec from "@remit/api-openapi-spec/openapi.json" with { type: "json" };
+import { requestValidators } from "@remit/api-openapi-spec/request-validators";
 import { redactCalendarFeedPath } from "@remit/calendar-service";
 import { logger } from "@remit/logger";
 import {
@@ -24,7 +25,27 @@ if (!isDocument(spec)) {
 // Typed as a Document so importers do not see the JSON literal type.
 export const OpenAPISpec: Document = spec;
 
-const api: OpenAPIBackend = new OpenAPIBackend({
+// ajv compiles a validator with `new Function`, which a Cloudflare Worker
+// refuses, so every init hands the router the validators codegen compiled ahead
+// of time. A host may call init again; in quick mode it builds the validator
+// before its first await, so the validators land before any request does.
+class PrecompiledOpenAPIBackend extends OpenAPIBackend {
+	override init(): Promise<this> {
+		const initialized = super.init();
+		for (const { operationId } of this.router.getOperations()) {
+			if (!operationId || !Object.hasOwn(requestValidators, operationId)) {
+				throw new Error(
+					`No precompiled request validator for ${operationId}; run npm run codegen`,
+				);
+			}
+			this.validator.requestValidators[operationId] =
+				requestValidators[operationId];
+		}
+		return initialized;
+	}
+}
+
+const api: OpenAPIBackend = new PrecompiledOpenAPIBackend({
 	definition: OpenAPISpec,
 	quick: true,
 	// Coerce query/path params to their schema types. API Gateway delivers every
