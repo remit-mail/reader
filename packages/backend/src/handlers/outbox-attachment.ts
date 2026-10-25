@@ -44,7 +44,7 @@ export const toOutboxAttachmentResponse =
 		}),
 	});
 
-interface RejectionResponse {
+export interface RejectionResponse {
 	statusCode: number;
 	body: OutboxAttachmentRejection;
 }

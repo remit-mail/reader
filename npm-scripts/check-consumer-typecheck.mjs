@@ -41,6 +41,7 @@ const STRICT_IMPORTS = [
 	"@remit/data-ports",
 	"@remit/backend/api",
 	"@remit/backend/serve",
+	"@remit/backend/handlers",
 ];
 
 const withTempDir = (fn) => {

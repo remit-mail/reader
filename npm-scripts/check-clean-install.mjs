@@ -48,6 +48,7 @@ const RESOLVES = [
 	"@remit/api-openapi-spec/openapi.json",
 	"@remit/backend/api",
 	"@remit/backend/serve",
+	"@remit/backend/handlers",
 	"@remit/data-ports/errors",
 	"@remit/data-ports/conformance",
 	"@remit/api-zod-schemas",

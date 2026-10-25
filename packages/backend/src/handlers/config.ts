@@ -25,6 +25,7 @@ import type { Context } from "openapi-backend";
 import type { ApiConfig } from "../config/api-config.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
+import type { QueueName } from "../service/queues.js";
 import {
 	type SyncMailboxesEvent,
 	triggerAccountSync,
@@ -48,8 +49,6 @@ import {
 	resolveFolderAppointments,
 	writeFolderRoleAppointment,
 } from "./folder-role-appointments.js";
-
-type ConfigContext = HandlerContext<"sync">;
 
 type StructuredLog = (fields: Record<string, unknown>, message: string) => void;
 
@@ -151,13 +150,10 @@ const emptyConfigResponse = (
 	};
 };
 
-export const ConfigOperations: Record<
-	ConfigOperationIds,
-	OperationHandler<ConfigOperationIds, "sync">
-> = {
+export const ConfigOperations = {
 	ConfigOperations_getConfig: async (
 		_context: Context,
-		ctx: ConfigContext,
+		ctx: HandlerContext<"sync">,
 	): Promise<ConfigDescriptionResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const client = ctx.client;
@@ -255,7 +251,7 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_exportConfig: async (
 		_context: Context,
-		ctx: ConfigContext,
+		ctx: HandlerContext,
 	): Promise<{ schemaVersion: number; document: ReaderConfigDocument }> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const client = ctx.client;
@@ -269,7 +265,7 @@ export const ConfigOperations: Record<
 
 	ConfigOperations_importConfig: async (
 		context: Context,
-		ctx: ConfigContext,
+		ctx: HandlerContext,
 	): Promise<ConfigImportReport> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const body = (context.request.requestBody ?? {}) as {
@@ -315,4 +311,7 @@ export const ConfigOperations: Record<
 		}
 		return outcome.report;
 	},
-};
+} satisfies Record<
+	ConfigOperationIds,
+	OperationHandler<ConfigOperationIds, QueueName>
+>;

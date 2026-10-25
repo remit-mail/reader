@@ -12,6 +12,7 @@ import {
 	ownedAccount,
 	updateFilter,
 } from "@remit/mailbox-service";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import type {
 	FilterDetailOperationIds,
@@ -19,8 +20,6 @@ import type {
 	HandlerContext,
 	OperationHandler,
 } from "../types.js";
-
-type FilterContext = HandlerContext<"accountFanout">;
 
 const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	filterId: item.filterId,
@@ -40,11 +39,8 @@ const toFilterResponse = (item: FilterItem): FilterResponse => ({
 	updatedAt: item.updatedAt,
 });
 
-export const FilterOperations: Record<
-	FilterOperationIds,
-	OperationHandler<FilterOperationIds, "accountFanout">
-> = {
-	FilterOperations_listFilters: async (context, ctx: FilterContext) => {
+export const FilterOperations = {
+	FilterOperations_listFilters: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
@@ -65,7 +61,7 @@ export const FilterOperations: Record<
 
 	FilterOperations_createFilter: async (
 		context,
-		ctx: FilterContext,
+		ctx: HandlerContext<"accountFanout">,
 	): Promise<CreateFilterResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -92,13 +88,13 @@ export const FilterOperations: Record<
 			organizeJobId: created.organizeJob.organizeJobId,
 		};
 	},
-};
+} satisfies Record<
+	FilterOperationIds,
+	OperationHandler<FilterOperationIds, QueueName>
+>;
 
-export const FilterDetailOperations: Record<
-	FilterDetailOperationIds,
-	OperationHandler<FilterDetailOperationIds, "accountFanout">
-> = {
-	FilterDetailOperations_getFilter: async (context, ctx: FilterContext) => {
+export const FilterDetailOperations = {
+	FilterDetailOperations_getFilter: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
@@ -115,7 +111,7 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(refreshed);
 	},
 
-	FilterDetailOperations_updateFilter: async (context, ctx: FilterContext) => {
+	FilterDetailOperations_updateFilter: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
@@ -131,7 +127,7 @@ export const FilterDetailOperations: Record<
 		return toFilterResponse(unwrap(updated));
 	},
 
-	FilterDetailOperations_deleteFilter: async (context, ctx: FilterContext) => {
+	FilterDetailOperations_deleteFilter: async (context, ctx: HandlerContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, filterId } = context.request.params as {
 			accountId: string;
@@ -146,4 +142,7 @@ export const FilterDetailOperations: Record<
 		await filter.delete(accountConfigId, filterId);
 		return { statusCode: 204 };
 	},
-};
+} satisfies Record<
+	FilterDetailOperationIds,
+	OperationHandler<FilterDetailOperationIds, QueueName>
+>;

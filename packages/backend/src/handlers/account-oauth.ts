@@ -23,6 +23,7 @@ import type { Context } from "openapi-backend";
 import { loadMsOAuth } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
 import { rawApiResponse } from "../response.js";
+import type { QueueName } from "../service/queues.js";
 import type {
 	HandlerContext,
 	MicrosoftOAuthOperationIds,
@@ -34,8 +35,6 @@ import type {
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
-
-type OAuthContext = HandlerContext<"sync">;
 
 const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 
@@ -484,13 +483,10 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	);
 };
 
-export const MicrosoftOAuthOperations: Record<
-	Exclude<MicrosoftOAuthOperationIds, PublicOperationIds>,
-	OperationHandler<MicrosoftOAuthOperationIds, "sync">
-> = {
+export const MicrosoftOAuthOperations = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
 		context: Context,
-		ctx: OAuthContext,
+		ctx: HandlerContext,
 	): Promise<{ authorizationUrl: string }> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -533,4 +529,7 @@ export const MicrosoftOAuthOperations: Record<
 
 		return { authorizationUrl };
 	},
-};
+} satisfies Record<
+	Exclude<MicrosoftOAuthOperationIds, PublicOperationIds>,
+	OperationHandler<MicrosoftOAuthOperationIds, QueueName>
+>;

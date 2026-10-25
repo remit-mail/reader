@@ -10,6 +10,7 @@ import { BadRequestError, NotFoundError } from "@remit/data-ports/errors";
 import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
 import { logger } from "@remit/logger";
 import type { Context } from "openapi-backend";
+import type { QueueName } from "../service/queues.js";
 import type {
 	HandlerContext,
 	MeOperationIds,
@@ -17,19 +18,14 @@ import type {
 } from "../types.js";
 import { toVipSuggestionEntry } from "./vip-suggestions.js";
 
-type MeContext = HandlerContext<"accountFanout">;
-
 const DOWNLOAD_URL_TTL_SECONDS = 60 * 60;
 
 const SURFACED_WARNING_CAP = 200;
 
-export const MeOperations: Record<
-	MeOperationIds,
-	OperationHandler<MeOperationIds, "accountFanout">
-> = {
+export const MeOperations = {
 	MeOperations_listVipSuggestions: async (
 		_context: Context,
-		ctx: MeContext,
+		ctx: HandlerContext,
 	): Promise<VipSuggestionsResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -40,7 +36,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_listQuarantine: async (
 		_context: Context,
-		ctx: MeContext,
+		ctx: HandlerContext,
 	): Promise<QuarantineListResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -62,7 +58,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_deleteMe: async (
 		context: Context,
-		ctx: MeContext,
+		ctx: HandlerContext<"accountFanout">,
 	): Promise<DeleteAccountConfigResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 
@@ -116,7 +112,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_createExport: async (
 		_context: Context,
-		ctx: MeContext,
+		ctx: HandlerContext<"accountFanout">,
 	): Promise<CreateExportResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const userId = ctx.identity.sub;
@@ -152,7 +148,7 @@ export const MeOperations: Record<
 	},
 	MeOperations_getExport: async (
 		context: Context,
-		ctx: MeContext,
+		ctx: HandlerContext,
 	): Promise<AccountExportRequestResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const exportId = context.request.params.exportId as string;
@@ -185,4 +181,4 @@ export const MeOperations: Record<
 			errorMessage: exportRequest.errorMessage,
 		};
 	},
-};
+} satisfies Record<MeOperationIds, OperationHandler<MeOperationIds, QueueName>>;

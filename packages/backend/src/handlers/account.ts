@@ -38,6 +38,7 @@ import { loadMsOAuth, type MsOAuthConfig } from "../config/msoauth.js";
 import { deleteAccount } from "../service/account-deletion.js";
 import type { RemitClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
+import type { QueueName } from "../service/queues.js";
 import { unwrap } from "../service/refusal.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
@@ -65,8 +66,6 @@ import {
 } from "./account-signature.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 import { resolveAccountFolderAppointments } from "./folder-role-appointments.js";
-
-type AccountContext = HandlerContext<"sync" | "accountFanout">;
 
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
@@ -192,13 +191,10 @@ const testOAuthConnection = async (
 	return result;
 };
 
-export const AccountOperations: Record<
-	AccountOperationIds,
-	OperationHandler<AccountOperationIds, "sync" | "accountFanout">
-> = {
+export const AccountOperations = {
 	AccountOperations_createAccount: async (
 		context: Context,
-		ctx: AccountContext,
+		ctx: HandlerContext<"sync">,
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateAccountInput;
@@ -297,7 +293,7 @@ export const AccountOperations: Record<
 
 	AccountOperations_testConnection: async (
 		context: Context,
-		ctx: AccountContext,
+		ctx: HandlerContext,
 	): Promise<TestConnectionResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as TestConnectionInput;
@@ -387,7 +383,10 @@ export const AccountOperations: Record<
 
 		return result;
 	},
-};
+} satisfies Record<
+	AccountOperationIds,
+	OperationHandler<AccountOperationIds, QueueName>
+>;
 
 const encryptedSecret = async (
 	secrets: RemitClient["secrets"],
@@ -411,13 +410,10 @@ type AccountEntityField = Exclude<
 	AccountSettingField | "password" | "smtpPassword"
 >;
 
-export const AccountDetailOperations: Record<
-	AccountDetailOperationIds,
-	OperationHandler<AccountDetailOperationIds, "sync" | "accountFanout">
-> = {
+export const AccountDetailOperations = {
 	AccountDetailOperations_updateAccount: async (
 		context: Context,
-		ctx: AccountContext,
+		ctx: HandlerContext,
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -517,7 +513,7 @@ export const AccountDetailOperations: Record<
 
 	AccountDetailOperations_deleteAccount: async (
 		context: Context,
-		ctx: AccountContext,
+		ctx: HandlerContext<"accountFanout">,
 	): Promise<DeleteAccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -545,4 +541,7 @@ export const AccountDetailOperations: Record<
 				"Account marked for deletion. Data cleanup will complete shortly.",
 		};
 	},
-};
+} satisfies Record<
+	AccountDetailOperationIds,
+	OperationHandler<AccountDetailOperationIds, QueueName>
+>;
