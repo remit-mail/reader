@@ -3,7 +3,7 @@ import {
 	type ErrorComponentProps,
 	Outlet,
 } from "@tanstack/react-router";
-import { Suspense } from "react";
+import { type ReactNode, Suspense } from "react";
 import { useTranslation } from "react-i18next";
 import { ComposeProvider } from "@/components/compose/ComposeProvider";
 import { AppShellSkeleton } from "@/components/layout/AppShellSkeleton";
@@ -19,6 +19,7 @@ import { SelfUpdateProvider } from "@/hooks/use-system-update";
 import { isServerError } from "@/lib/error-classifier";
 import { reportFatalError } from "@/lib/fatal-error";
 import type { RouterContext } from "@/router";
+import { getRuntimeConfig } from "@/runtime-config";
 
 const RootErrorComponent = ({ error, reset, info }: ErrorComponentProps) => {
 	// Everything that bubbles to the route boundary escalates to the loud
@@ -56,6 +57,16 @@ const SkipLink = () => {
 	);
 };
 
+const SelfUpdates = ({ children }: { children: ReactNode }) => {
+	if (getRuntimeConfig().updateMode === "managed") return children;
+	return (
+		<SelfUpdateProvider>
+			{children}
+			<SelfUpdateOverlay />
+		</SelfUpdateProvider>
+	);
+};
+
 function RootLayout() {
 	return (
 		<ErrorBannerProvider>
@@ -63,7 +74,7 @@ function RootLayout() {
 				{/* A bulk run outlives the route that started it, so its owner sits
 				    above the router rather than inside the list (#112). */}
 				<BulkRunProvider>
-					<SelfUpdateProvider>
+					<SelfUpdates>
 						<ComposeProvider>
 							<SkipLink />
 							<main id="main-content" className="h-dvh overflow-hidden">
@@ -72,8 +83,7 @@ function RootLayout() {
 								</Suspense>
 							</main>
 						</ComposeProvider>
-						<SelfUpdateOverlay />
-					</SelfUpdateProvider>
+					</SelfUpdates>
 				</BulkRunProvider>
 			</RoleAppointmentPromptProvider>
 			<FatalErrorOverlay />

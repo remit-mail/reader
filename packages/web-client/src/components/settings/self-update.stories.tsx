@@ -9,6 +9,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test";
 import { AppStory } from "@/mocks/story-frame/AppStory";
 import { mailHandlers } from "@/mocks/story-frame/mail-handlers";
 import { mailWorld } from "@/mocks/story-frame/mail-world";
+import { withRuntimeConfig } from "@/mocks/story-frame/session";
 
 const CURRENT = "0.9.3";
 const NEXT = "1.0.0";
@@ -104,6 +105,23 @@ export const AdvancedUpdateAvailable: Story = {
 			await canvas.findByRole("button", { name: `Install ${NEXT}` }),
 		).toBeVisible();
 		await expect(canvas.getByText("update available")).toBeVisible();
+	},
+};
+
+export const AdvancedManagedByHost: Story = {
+	beforeEach: withRuntimeConfig({ updateMode: "managed" }),
+	parameters: answering(update({ check: released })),
+	play: async ({ canvasElement }) => {
+		const canvas = within(canvasElement);
+		await expect(
+			await canvas.findByText(
+				"Notification rules are coming in a future release.",
+			),
+		).toBeVisible();
+		await expect(
+			canvas.queryByRole("button", { name: `Install ${NEXT}` }),
+		).toBeNull();
+		await expect(canvas.queryByText("update available")).toBeNull();
 	},
 };
 

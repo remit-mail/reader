@@ -24,3 +24,20 @@ describe("getRuntimeConfig tlsMode", () => {
 		assert.equal(getRuntimeConfig().tlsMode, "off");
 	});
 });
+
+describe("getRuntimeConfig updateMode", () => {
+	it("defaults to self when config.js sets nothing", () => {
+		globalThis.__REMIT_CONFIG__ = {};
+		assert.equal(getRuntimeConfig().updateMode, "self");
+	});
+
+	it("passes through managed", () => {
+		globalThis.__REMIT_CONFIG__ = { updateMode: "managed" };
+		assert.equal(getRuntimeConfig().updateMode, "managed");
+	});
+
+	it("falls back to self for a value config.js never declares", () => {
+		globalThis.__REMIT_CONFIG__ = { updateMode: "auto" };
+		assert.equal(getRuntimeConfig().updateMode, "self");
+	});
+});

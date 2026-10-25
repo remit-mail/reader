@@ -26,12 +26,19 @@ export interface RumConfig {
  */
 export type TlsMode = "internal" | "acme" | "tailscale" | "off";
 
+export type UpdateMode = "self" | "managed";
+
 const DEFAULT_ISSUES_URL = "https://github.com/remit-mail/reader/issues/new";
 
 const TLS_MODES: readonly TlsMode[] = ["internal", "acme", "tailscale", "off"];
 
-const isTlsMode = (value: unknown): value is TlsMode =>
-	typeof value === "string" && (TLS_MODES as readonly string[]).includes(value);
+const UPDATE_MODES: readonly UpdateMode[] = ["self", "managed"];
+
+const oneOf = <T extends string>(
+	values: readonly T[],
+	raw: unknown,
+	fallback: T,
+): T => values.find((value) => value === raw) ?? fallback;
 
 export interface RemitRuntimeConfig {
 	apiUrl: string;
@@ -43,6 +50,7 @@ export interface RemitRuntimeConfig {
 	disableDevtools: boolean;
 	tlsMode: TlsMode;
 	issuesUrl: string;
+	updateMode: UpdateMode;
 }
 
 interface RawRuntimeConfig {
@@ -55,6 +63,7 @@ interface RawRuntimeConfig {
 	disableDevtools?: boolean;
 	tlsMode?: string;
 	issuesUrl?: string;
+	updateMode?: string;
 }
 
 declare global {
@@ -88,7 +97,8 @@ export const getRuntimeConfig = (): RemitRuntimeConfig => {
 				? String(raw.mailboxPollIntervalSeconds)
 				: undefined,
 		disableDevtools: raw.disableDevtools ?? false,
-		tlsMode: isTlsMode(raw.tlsMode) ? raw.tlsMode : "off",
+		tlsMode: oneOf(TLS_MODES, raw.tlsMode, "off"),
 		issuesUrl: raw.issuesUrl ?? DEFAULT_ISSUES_URL,
+		updateMode: oneOf(UPDATE_MODES, raw.updateMode, "self"),
 	};
 };

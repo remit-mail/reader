@@ -1,5 +1,6 @@
 import { createAuthClient } from "better-auth/react";
 import { NetworkError, taggedFetch } from "../lib/network-error";
+import { sessionStore } from "../lib/session-storage";
 import { getRuntimeConfig } from "../runtime-config";
 
 /**
@@ -46,16 +47,8 @@ interface CachedToken {
 	expiresAt: number;
 }
 
-const tokenStore = (): Storage | null => {
-	try {
-		return globalThis.sessionStorage ?? null;
-	} catch {
-		return null;
-	}
-};
-
 const readStore = (): CachedToken | null => {
-	const raw = tokenStore()?.getItem(STORAGE_KEY);
+	const raw = sessionStore()?.getItem(STORAGE_KEY);
 	if (!raw) return null;
 	try {
 		const parsed: unknown = JSON.parse(raw);
@@ -77,7 +70,7 @@ const readStore = (): CachedToken | null => {
 };
 
 const writeStore = (token: CachedToken | null): void => {
-	const store = tokenStore();
+	const store = sessionStore();
 	if (!store) return;
 	try {
 		if (!token) {

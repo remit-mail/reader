@@ -10,6 +10,7 @@ import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
 import { AppVersion } from "@/components/ui/AppVersion";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { getRuntimeConfig } from "@/runtime-config";
 import { advancedHelp } from "./-shared/help-copy";
 
 export const Route = createFileRoute("/settings/advanced")({
@@ -37,7 +38,7 @@ function AdvancedSettings() {
 			onSelect={handleSelectNav}
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
-			<SelfUpdatePanel />
+			{getRuntimeConfig().updateMode === "self" && <SelfUpdatePanel />}
 			<div className="mt-6 border-t border-line pt-4">
 				<ConfigTransferPanel />
 			</div>

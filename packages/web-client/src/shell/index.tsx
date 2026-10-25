@@ -17,6 +17,7 @@ import {
 	handleQueryCacheError,
 } from "@/lib/query-error-handler";
 import { initRum } from "@/lib/rum-adapter";
+import { installStaleBuildReload } from "@/lib/stale-build";
 import { TelemetryContext } from "@/lib/telemetry-context";
 import { installThemeSync } from "@/lib/theme";
 import { createAppRouter } from "@/router";
@@ -68,6 +69,8 @@ export const mountApp = ({
 			},
 		},
 	});
+
+	installStaleBuildReload();
 
 	const router = createAppRouter(queryClient, telemetry);
 	telemetry.recordPageView(window.location.pathname);
