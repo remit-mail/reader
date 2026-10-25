@@ -297,11 +297,27 @@ jobs:
   # Pull requests only. On main this would re-test from source what images.yml is
   # already testing as shipped. The gate below knows this skip is legitimate and
   # accepts it on push events alone.
+  #
+  # Six shards, each on its own runner with its own stack. The suite was the
+  # whole critical path at about 29 minutes on one worker. Every shard's global
+  # setup signs up a fresh user against a fresh mailbox, and the specs already
+  # restore what they change for the specs that follow, so a shard starts from
+  # the same state a single run does. Playwright splits the spec files in order
+  # by test count, so a file never spans two shards.
+  #
+  # SHARD_TOTAL must equal the matrix length; a mismatch would drop or duplicate
+  # specs. The two are kept in step here by hand.
   e2e-dev:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     needs: [docs-only]
     if: github.event_name == 'pull_request' && needs['docs-only'].outputs.result != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      SHARD_TOTAL: 6
     steps:
       # Every host-wide name the stack claims — the compose project and its port
       # block — is derived from this. A runner runs one job at a time and reuses
@@ -320,8 +336,8 @@ jobs:
       - name: Start the source-built stack
         run: npm run e2e:dev:up
 
-      - name: Black-box suite
-        run: npm run e2e:test
+      - name: Black-box suite — shard ${{ matrix.shard }}/6
+        run: npm run e2e:test -- --shard="${{ matrix.shard }}/$SHARD_TOTAL"
 
       - name: Collect stack logs
         if: failure()
@@ -333,7 +349,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: e2e-dev-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          name: e2e-dev-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ matrix.shard }}
           path: |
             e2e-dev-stack.log
             packages/e2e/playwright-report/
@@ -450,6 +466,7 @@ jobs:
           TEST_WEB_CLIENT: ${{ needs['test-web-client'].result }}
           COVERAGE_WEB_CLIENT: ${{ needs['coverage-web-client'].result }}
           TEST_STORIES: ${{ needs['test-stories'].result }}
+          # A matrix job: success only when every shard succeeded.
           E2E_DEV: ${{ needs['e2e-dev'].result }}
           PUBLISH_DRY_RUN: ${{ needs['publish-dry-run'].result }}
           PR_ONLY_MAY_SKIP: ${{ github.event_name != 'pull_request' }}

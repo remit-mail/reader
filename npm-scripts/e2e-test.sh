@@ -9,6 +9,8 @@ set -euo pipefail
 source "$(dirname "${BASH_SOURCE[0]}")/e2e-compose.sh"
 # shellcheck source=./e2e-suite.sh
 source "$(dirname "${BASH_SOURCE[0]}")/e2e-suite.sh"
+# shellcheck source=./lib/playwright-browser.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/playwright-browser.sh"
 
 # The running stack's own configuration is the suite's configuration, so the two
 # cannot point at different ports. Each lane's `up` writes a generated env and
@@ -31,19 +33,7 @@ done < <(grep -E '^E2E_[A-Z_]+=' "$env_source")
 
 e2e_install
 
-# `--with-deps` installs chromium's system libraries through sudo, which stalls
-# on a password prompt where sudo is not passwordless. Such a host has to carry
-# the libraries already; E2E_PLAYWRIGHT_DEPS=0 opts out explicitly.
-install_flags=(--only-shell chromium)
-if [ "${E2E_PLAYWRIGHT_DEPS:-1}" = "0" ]; then
-	echo "e2e: skipping playwright install --with-deps: E2E_PLAYWRIGHT_DEPS=0"
-elif [ "$(id -u)" -eq 0 ] || { command -v sudo >/dev/null && sudo -n true 2>/dev/null; }; then
-	install_flags=(--with-deps "${install_flags[@]}")
-else
-	echo "e2e: skipping playwright install --with-deps: no passwordless sudo; chromium's system libraries must already be present"
-fi
-
 # `--only-shell` fetches the headless shell and not the full Chrome build. The
 # suite never runs headed, and the shell is a fraction of the download.
-./node_modules/.bin/playwright install "${install_flags[@]}"
+playwright_install ./node_modules/.bin/playwright chromium --only-shell
 exec ./node_modules/.bin/playwright test "$@"

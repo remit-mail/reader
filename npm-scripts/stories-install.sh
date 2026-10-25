@@ -7,4 +7,7 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-./node_modules/.bin/playwright install --with-deps chromium
+# shellcheck source=./lib/playwright-browser.sh
+source npm-scripts/lib/playwright-browser.sh
+
+playwright_install ./node_modules/.bin/playwright chromium
