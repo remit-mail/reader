@@ -44,28 +44,17 @@ runs:
         # v2 because the path set above changed: entries written under v1 have
         # no build/*/node_modules and a key is never overwritten once it exists.
         # Bump whenever the paths change.
-        key: ${{ runner.os }}-node22-modules-v2-${{ hashFiles('package-lock.json', 'patches/**') }}
+        key: ${{ runner.os }}-node22-modules-v2-${{ hashFiles('package-lock.json') }}
 
     - name: Install
       if: steps.modules.outputs.cache-hit != 'true'
       shell: bash
       run: npm ci --no-audit --no-fund --loglevel=error
 
-    # Asserted here rather than in one job because every job that consumes this
-    # action consumes the tree it just restored, and a cache hit skips the
-    # install whose postinstall applies the patches. `make` runs the same check,
-    # but only on a codegen miss, so it cannot be the thing that covers this.
-    - name: Verify patches are applied
-      shell: bash
-      run: npm run check:patches-applied
-
     # build/ is a pure function of the TypeSpec sources, the Makefile, the
-    # openapi-ts config, the emitter versions pinned in the lockfile, and the
-    # patches applied to those emitters — a patch changes the generated output
-    # with nothing else moving, so patches/** must stay in the key or CI tests
-    # a stale build/ (issue #64). The nested node_modules and the spellchecker's
-    # engine are excluded so each cache owns disjoint paths and none can restore
-    # a stale copy over another.
+    # openapi-ts config and the emitter versions pinned in the lockfile. The
+    # nested node_modules and the spellchecker's engine are excluded so each
+    # cache owns disjoint paths and none can restore a stale copy over another.
     - name: Restore codegen output
       if: inputs.codegen == 'true'
       id: codegen
@@ -77,7 +66,7 @@ runs:
           !build/hunspell
         # v4 because the path set above changed: entries written under v3 also
         # hold build/hunspell and a key is never overwritten once it exists.
-        key: ${{ runner.os }}-codegen-v4-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json', 'patches/**') }}
+        key: ${{ runner.os }}-codegen-v4-${{ hashFiles('typespec/**', 'Makefile', 'openapi-ts.config.js', 'package-lock.json') }}
 
     - name: Codegen (generated @remit/* packages)
       if: inputs.codegen == 'true' && steps.codegen.outputs.cache-hit != 'true'

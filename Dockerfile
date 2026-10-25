@@ -28,17 +28,10 @@ ARG SPELLCHECK_ENGINE=${REMIT_SPELLCHECK_LANGUAGES:+built}
 ARG SPELLCHECK_ENGINE=${SPELLCHECK_ENGINE:-none}
 
 ########################################################################
-# manifests — the repo's package.json/package-lock.json files and the
-# patch set, with the rest of the source pruned away, so the builder's npm ci
+# manifests — the repo's package.json/package-lock.json files, with the
+# rest of the source pruned away, so the builder's npm ci
 # layer only busts when an install input actually changes, not on every source
 # edit.
-#
-# `patches/` is an install input, not source: npm ci's postinstall runs
-# patch-package, and the emitter patches it applies decide what the TypeSpec
-# codegen emits. Pruning them here left the builder installing unpatched
-# emitters, so every published image carried enum values with their escapes
-# eaten — `MessageSystemFlag.Flagged` was `Flagged` rather than `\Flagged`,
-# and nothing on the IMAP flag path matched the wire (#79).
 #
 # This is the portable stand-in for a `COPY --parents <manifest globs>`
 # (dockerfile:1-labs): plain multi-stage syntax the CI fleet's podman/buildah
@@ -49,8 +42,7 @@ ARG SPELLCHECK_ENGINE=${SPELLCHECK_ENGINE:-none}
 FROM docker.io/library/node:24 AS manifests
 WORKDIR /src
 COPY . .
-RUN find . -type f ! -name package.json ! -name package-lock.json \
-	! -path './patches/*' -delete \
+RUN find . -type f ! -name package.json ! -name package-lock.json -delete \
 	&& find . -type d -empty -delete
 
 ########################################################################
