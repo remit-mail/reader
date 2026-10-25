@@ -23,6 +23,9 @@ import "./SenderSignerStanding.tsp";
 import "./BodyPart.tsp";
 import "./BodyStructureRefetch.tsp";
 
+// Search
+import "./MessageSearchText.tsp";
+
 // Storage Layer
 import "./Storage.tsp";
 

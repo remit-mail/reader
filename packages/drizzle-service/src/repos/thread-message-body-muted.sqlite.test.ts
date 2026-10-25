@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import { addressTable } from "../schema/i4-address.js";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -57,7 +58,11 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 
 	before(async () => {
 		({ db, sqlite, close } = await createSqliteTestDb(
-			{ threadMessage: threadMessageTable, address: addressTable },
+			{
+				threadMessage: threadMessageTable,
+				address: addressTable,
+				messageSearchText: messageSearchTextTable,
+			},
 			{ searchIndex: true },
 		));
 		sqlite.exec(mutedIndexDdl);

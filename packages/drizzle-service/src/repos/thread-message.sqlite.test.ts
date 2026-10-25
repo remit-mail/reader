@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -55,6 +56,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 		({ db, sqlite, close } = await createSqliteTestDb(
 			{
 				threadMessage: threadMessageTable,
+				messageSearchText: messageSearchTextTable,
 			},
 			{ searchIndex: true },
 		));

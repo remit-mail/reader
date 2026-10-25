@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { describe, it } from "node:test";
 import {
 	extractSnippetFromEmail,
+	generateSearchText,
 	generateSnippet,
 	normalizeSubject,
 	removeQuotedContent,
@@ -164,6 +165,33 @@ describe("generateSnippet", () => {
 		// When no word boundary found, truncates at maxLength-1 + "..."
 		// so result is at most maxLength + 2 (for the extra chars in "...")
 		assert.ok(result.length <= 22);
+	});
+});
+
+describe("generateSearchText", () => {
+	it("cuts back to the last word boundary without an ellipsis", () => {
+		assert.strictEqual(
+			generateSearchText("alpha beta gamma delta", 13),
+			"alpha beta",
+		);
+	});
+
+	it("keeps a word that ends exactly at the limit", () => {
+		assert.strictEqual(
+			generateSearchText("alpha beta gamma", 10),
+			"alpha beta",
+		);
+	});
+
+	it("cuts a first word longer than the limit at the limit", () => {
+		assert.strictEqual(generateSearchText("abcdefghij klm", 4), "abcd");
+	});
+
+	it("drops quoted replies and collapses whitespace", () => {
+		assert.strictEqual(
+			generateSearchText("New  text\n\nhere\n> old reply", 100),
+			"New text here",
+		);
 	});
 });
 

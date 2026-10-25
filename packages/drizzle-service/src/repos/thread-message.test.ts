@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
 import shortUuid from "short-uuid";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -44,7 +45,10 @@ function makeInput(
 // installs, so the search predicates run their shipped path.
 const setupDb = () =>
 	createSqliteTestDb(
-		{ threadMessage: threadMessageTable },
+		{
+			threadMessage: threadMessageTable,
+			messageSearchText: messageSearchTextTable,
+		},
 		{ searchIndex: true },
 	);
 

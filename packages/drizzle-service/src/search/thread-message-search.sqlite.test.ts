@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import { syncStore } from "../databases.js";
 import type { Db } from "../db.js";
+import { messageSearchTextTable } from "../schema/message-data.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
@@ -132,5 +133,28 @@ describe("the thread-message search index in its own database", () => {
 
 		assert.equal(await index.needsRebuild(), false);
 		assert.deepEqual(await found("receipt"), [created.threadMessageId]);
+	});
+
+	test("matches the body text past the snippet, through a rewrite and a rebuild", async () => {
+		const created = await repo.create(
+			input({ subject: "Long letter", snippet: "Dear reader, a preview" }),
+		);
+		const text = `Dear reader, a preview ${"filler words ".repeat(200)}zygomorphic`;
+		await mail.db.insert(messageSearchTextTable).values({
+			messageId: created.messageId,
+			text,
+			createdAt: 0,
+			updatedAt: 0,
+		});
+		await index.sync([created.threadMessageId]);
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
+
+		await repo.update(ACCOUNT, created.threadMessageId, {
+			subject: "Longer letter",
+		});
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
+
+		await index.rebuild();
+		assert.deepEqual(await found("zygomorphic"), [created.threadMessageId]);
 	});
 });
