@@ -7,7 +7,7 @@
 		"msw:init": "msw init public --no-save",
 		"storybook": "storybook dev -p 6007 --no-open",
 		"storybook:host": "storybook dev -p 6007 --no-open --host 0.0.0.0",
-		"build-storybook": "storybook build",
+		"build-storybook": "npm run generate:routes -w @remit/web-client && storybook build",
 		"test": "npm run test:typecheck && npm run test:run",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "TZ=Europe/Amsterdam node $NODE_TEST_FLAGS --import tsx --import @remit/test-dom/css --test 'src/**/*.test.ts'",
