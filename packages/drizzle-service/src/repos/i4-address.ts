@@ -19,7 +19,6 @@ import {
 	eq,
 	getTableColumns,
 	gt,
-	inArray,
 	type SQL,
 	sql,
 } from "drizzle-orm";
@@ -43,6 +42,7 @@ import {
 	addressRecency,
 	addressSearchMatch,
 } from "./address-search-predicates.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -400,7 +400,7 @@ export class AddressRepo implements IAddressRepository {
 				.where(
 					and(
 						eq(addressTable.accountConfigId, accountConfigId),
-						inArray(addressTable.addressId, addressId),
+						inList(addressTable.addressId, addressId),
 					),
 				);
 			return rows.map(rowToAddress);
@@ -666,7 +666,7 @@ export class AddressRepo implements IAddressRepository {
 			.where(
 				and(
 					eq(addressTable.accountConfigId, accountConfigId),
-					inArray(addressTable.addressId, addressIds),
+					inList(addressTable.addressId, addressIds),
 				),
 			);
 	}
@@ -856,7 +856,7 @@ export class AddressRepo implements IAddressRepository {
 				.select()
 				.from(envelopeAddressTable)
 				.where(
-					inArray(envelopeAddressTable.envelopeAddressId, envelopeAddressId),
+					inList(envelopeAddressTable.envelopeAddressId, envelopeAddressId),
 				);
 			return rows.map(rowToEnvelopeAddress);
 		}
@@ -884,7 +884,7 @@ export class AddressRepo implements IAddressRepository {
 		await this.db
 			.delete(envelopeAddressTable)
 			.where(
-				inArray(envelopeAddressTable.envelopeAddressId, envelopeAddressIds),
+				inList(envelopeAddressTable.envelopeAddressId, envelopeAddressIds),
 			);
 	}
 }

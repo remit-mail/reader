@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, type SQL } from "drizzle-orm";
+import { and, eq, or, type SQL } from "drizzle-orm";
 import { runBatch, type SqliteBatchItem } from "../batch.js";
 import {
 	openSqliteDatabases,
@@ -17,6 +17,7 @@ import { quarantineTable } from "../schema/quarantine.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { SearchIndex } from "../search/thread-message-search.js";
+import { inList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
 
 export interface CascadeEntity {
@@ -107,7 +108,7 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(threadMessageTable)
-				.where(inArray(threadMessageTable.threadMessageId, threadMessageIds)),
+				.where(inList(threadMessageTable.threadMessageId, threadMessageIds)),
 		);
 	}
 
@@ -116,12 +117,12 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.mailboxId, mailboxIds)),
+				.where(inList(syncWarningTable.mailboxId, mailboxIds)),
 		);
 		items.push(
 			mail
 				.delete(mailboxTable)
-				.where(inArray(mailboxTable.mailboxId, mailboxIds)),
+				.where(inList(mailboxTable.mailboxId, mailboxIds)),
 		);
 	}
 
@@ -132,7 +133,7 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(outboxMessageTable)
-				.where(inArray(outboxMessageTable.outboxMessageId, outboxMessageIds)),
+				.where(inList(outboxMessageTable.outboxMessageId, outboxMessageIds)),
 		);
 	}
 
@@ -154,9 +155,7 @@ export const runDrizzleCascadeDelete = async (
 		appItems.push(
 			app
 				.delete(accountSettingTable)
-				.where(
-					inArray(accountSettingTable.accountSettingId, accountSettingIds),
-				),
+				.where(inList(accountSettingTable.accountSettingId, accountSettingIds)),
 		);
 	}
 
@@ -165,7 +164,7 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(addressTable)
-				.where(inArray(addressTable.addressId, addressIds)),
+				.where(inList(addressTable.addressId, addressIds)),
 		);
 	}
 
@@ -178,17 +177,17 @@ export const runDrizzleCascadeDelete = async (
 		items.push(
 			mail
 				.delete(quarantineTable)
-				.where(inArray(quarantineTable.accountId, accountIds)),
+				.where(inList(quarantineTable.accountId, accountIds)),
 		);
 		items.push(
 			mail
 				.delete(syncWarningTable)
-				.where(inArray(syncWarningTable.accountId, accountIds)),
+				.where(inList(syncWarningTable.accountId, accountIds)),
 		);
 		appItems.push(
 			app
 				.delete(accountTable)
-				.where(inArray(accountTable.accountId, accountIds)),
+				.where(inList(accountTable.accountId, accountIds)),
 		);
 	}
 
@@ -200,7 +199,7 @@ export const runDrizzleCascadeDelete = async (
 			mail
 				.delete(messagePlacementMoveTable)
 				.where(
-					inArray(messagePlacementMoveTable.messageId, placementMoveMessageIds),
+					inList(messagePlacementMoveTable.messageId, placementMoveMessageIds),
 				),
 		);
 	}

@@ -7,11 +7,12 @@ import type {
 } from "@remit/data-ports";
 import { deriveCalendarSuggestionId } from "@remit/data-ports/id";
 import { CalendarSuggestionState } from "@remit/domain-enums";
-import { and, asc, desc, eq, gte, inArray, lt, or } from "drizzle-orm";
+import { and, asc, desc, eq, gte, lt, or } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { calendarSuggestionTable } from "../schema.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -111,7 +112,7 @@ export class CalendarSuggestionRepo implements ICalendarSuggestionRepository {
 			.where(
 				and(
 					eq(calendarSuggestionTable.accountConfigId, accountConfigId),
-					inArray(
+					inList(
 						calendarSuggestionTable.acceptedCalendarObjectId,
 						calendarObjectIds,
 					),

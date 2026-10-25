@@ -5,11 +5,12 @@ import type {
 	ResultList,
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
-import { and, desc, eq, inArray, lt, or } from "drizzle-orm";
+import { and, desc, eq, lt, or } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { ForbiddenError, NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import { outboxMessageTable } from "../schema/i4-outbox-message.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -99,7 +100,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 				.where(
 					and(
 						eq(outboxMessageTable.accountConfigId, accountConfigId),
-						inArray(outboxMessageTable.outboxMessageId, outboxMessageId),
+						inList(outboxMessageTable.outboxMessageId, outboxMessageId),
 					),
 				);
 			return rows.map(rowToOutboxMessage);
@@ -264,7 +265,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 			.where(
 				and(
 					eq(outboxMessageTable.accountConfigId, accountConfigId),
-					inArray(outboxMessageTable.outboxMessageId, outboxMessageIds),
+					inList(outboxMessageTable.outboxMessageId, outboxMessageIds),
 				),
 			);
 	}
@@ -298,7 +299,7 @@ export class OutboxMessageRepo implements IOutboxMessageRepository {
 			.from(outboxMessageTable)
 			.where(
 				and(
-					inArray(outboxMessageTable.accountId, accountIds),
+					inList(outboxMessageTable.accountId, accountIds),
 					after
 						? or(
 								lt(outboxMessageTable.createdAt, after.createdAt),

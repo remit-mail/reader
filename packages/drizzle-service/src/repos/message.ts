@@ -45,6 +45,7 @@ import {
 } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import type { SearchIndex } from "../search/thread-message-search.js";
+import { inList } from "./in-list.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -129,36 +130,36 @@ export function deleteMessageSubtree(
 	return [
 		db
 			.delete(messageFlagTable)
-			.where(and(inArray(messageFlagTable.messageId, messageIds), guard)),
+			.where(and(inList(messageFlagTable.messageId, messageIds), guard)),
 		db
 			.delete(messageReferenceTable)
-			.where(and(inArray(messageReferenceTable.messageId, messageIds), guard)),
+			.where(and(inList(messageReferenceTable.messageId, messageIds), guard)),
 		db
 			.delete(envelopeAddressTable)
-			.where(and(inArray(envelopeAddressTable.messageId, messageIds), guard)),
+			.where(and(inList(envelopeAddressTable.messageId, messageIds), guard)),
 		db
 			.delete(bodyPartParameterTable)
-			.where(and(inArray(bodyPartParameterTable.messageId, messageIds), guard)),
+			.where(and(inList(bodyPartParameterTable.messageId, messageIds), guard)),
 		db
 			.delete(bodyPartStorageTable)
-			.where(and(inArray(bodyPartStorageTable.messageId, messageIds), guard)),
+			.where(and(inList(bodyPartStorageTable.messageId, messageIds), guard)),
 		db
 			.delete(rawMessageStorageTable)
-			.where(and(inArray(rawMessageStorageTable.messageId, messageIds), guard)),
+			.where(and(inList(rawMessageStorageTable.messageId, messageIds), guard)),
 		db
 			.delete(bodyPartTable)
-			.where(and(inArray(bodyPartTable.messageId, messageIds), guard)),
+			.where(and(inList(bodyPartTable.messageId, messageIds), guard)),
 		db
 			.delete(bodyStructureRefetchTable)
 			.where(
-				and(inArray(bodyStructureRefetchTable.messageId, messageIds), guard),
+				and(inList(bodyStructureRefetchTable.messageId, messageIds), guard),
 			),
 		db
 			.delete(envelopeTable)
-			.where(and(inArray(envelopeTable.messageId, messageIds), guard)),
+			.where(and(inList(envelopeTable.messageId, messageIds), guard)),
 		db
 			.delete(messageTable)
-			.where(and(inArray(messageTable.messageId, messageIds), guard))
+			.where(and(inList(messageTable.messageId, messageIds), guard))
 			.returning({ messageId: messageTable.messageId }),
 	];
 }
@@ -275,7 +276,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			const rows = await this.db
 				.select()
 				.from(messageTable)
-				.where(inArray(messageTable.messageId, messageId));
+				.where(inList(messageTable.messageId, messageId));
 			return rows.map(toMessageItem);
 		}
 
@@ -547,18 +548,18 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					or(
 						and(
 							eq(messageTable.status, "moving"),
-							inArray(messageTable.originalMailboxId, ids),
+							inList(messageTable.originalMailboxId, ids),
 							isNotNull(messageTable.originalUid),
 						),
 						and(
 							eq(messageTable.status, "deleting"),
-							inArray(messageTable.mailboxId, ids),
+							inList(messageTable.mailboxId, ids),
 						),
 						and(
 							eq(messageTable.status, "moving"),
 							eq(messageTable.uid, 0),
 							isNull(messageTable.originalUid),
-							inArray(messageTable.mailboxId, ids),
+							inList(messageTable.mailboxId, ids),
 						),
 					),
 				),

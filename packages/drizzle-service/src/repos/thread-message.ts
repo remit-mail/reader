@@ -34,6 +34,7 @@ import type {
 	SearchIndex,
 	SearchPosition,
 } from "../search/thread-message-search.js";
+import { inList } from "./in-list.js";
 import {
 	bodyMatch,
 	fromMatch,
@@ -346,7 +347,7 @@ export class DrizzleThreadMessageRepository
 					and(
 						eq(threadMessageTable.accountConfigId, query.accountConfigId),
 						query.mailboxIds
-							? inArray(threadMessageTable.mailboxId, [...query.mailboxIds])
+							? inList(threadMessageTable.mailboxId, [...query.mailboxIds])
 							: undefined,
 						...query.row,
 						sentDateCursorCond(
@@ -462,7 +463,7 @@ export class DrizzleThreadMessageRepository
 					and(
 						eq(threadMessageTable.accountConfigId, query.accountConfigId),
 						query.mailboxIds
-							? inArray(threadMessageTable.mailboxId, [...query.mailboxIds])
+							? inList(threadMessageTable.mailboxId, [...query.mailboxIds])
 							: undefined,
 						...query.row,
 					),
@@ -579,7 +580,7 @@ export class DrizzleThreadMessageRepository
 				.where(
 					and(
 						eq(threadMessageTable.accountConfigId, accountConfigId),
-						inArray(threadMessageTable.threadMessageId, threadMessageId),
+						inList(threadMessageTable.threadMessageId, threadMessageId),
 					),
 				);
 			return rows.map(toItem);
@@ -678,7 +679,7 @@ export class DrizzleThreadMessageRepository
 			.where(
 				and(
 					eq(threadMessageTable.accountConfigId, accountConfigId),
-					inArray(threadMessageTable.threadMessageId, ids),
+					inList(threadMessageTable.threadMessageId, ids),
 				),
 			);
 		await this.search.sync(ids);

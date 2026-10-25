@@ -14,12 +14,13 @@ import {
 	type UnappointedRoleResolution,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
-import { eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { randomId } from "../id.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
 import { AccountSettingRepo } from "./i4-account-setting.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -269,7 +270,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 				accountConfigId: accountTable.accountConfigId,
 			})
 			.from(accountTable)
-			.where(inArray(accountTable.accountId, [...accountIds]));
+			.where(inList(accountTable.accountId, [...accountIds]));
 		if (accounts.length === 0) return new Map();
 
 		const wanted = new Map<string, string>();
@@ -303,14 +304,14 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 		const rows = await this.db
 			.select()
 			.from(mailboxTable)
-			.where(inArray(mailboxTable.accountId, [...accountIds]));
+			.where(inList(mailboxTable.accountId, [...accountIds]));
 		if (rows.length === 0) return new Map();
 
 		const entries = await this.db
 			.select()
 			.from(mailboxSpecialUseTable)
 			.where(
-				inArray(
+				inList(
 					mailboxSpecialUseTable.mailboxId,
 					rows.map((row) => row.mailboxId),
 				),
@@ -397,7 +398,7 @@ export class MailboxSpecialUseRepo implements IMailboxSpecialUseRepository {
 			.select()
 			.from(mailboxSpecialUseTable)
 			.where(
-				inArray(
+				inList(
 					mailboxSpecialUseTable.mailboxId,
 					rows.map((row) => row.mailboxId),
 				),

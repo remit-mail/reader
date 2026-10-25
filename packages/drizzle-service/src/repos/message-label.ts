@@ -3,10 +3,11 @@ import type {
 	IMessageLabelRepository,
 	MessageLabelItem,
 } from "@remit/data-ports";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { deterministicBase36Id } from "../id.js";
 import { messageLabelTable } from "../schema.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -82,7 +83,7 @@ export class MessageLabelRepo implements IMessageLabelRepository {
 		const rows = await this.db
 			.select()
 			.from(messageLabelTable)
-			.where(inArray(messageLabelTable.messageId, messageIds));
+			.where(inList(messageLabelTable.messageId, messageIds));
 		return rows.map(rowToMessageLabel);
 	}
 

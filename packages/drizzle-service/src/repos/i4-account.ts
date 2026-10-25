@@ -9,7 +9,7 @@ import type {
 	UpdateAccountInput,
 } from "@remit/data-ports";
 import { AccountService, SyncPhase } from "@remit/domain-enums";
-import { and, asc, eq, gt, inArray, like, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, like, or, sql } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
@@ -17,6 +17,7 @@ import { decodeToken, encodeToken, resultList } from "../pagination.js";
 import { accountTable } from "../schema/i4-account-config.js";
 import { mailboxTable } from "../schema/i4-mailbox.js";
 import { rowToMailbox } from "./i4-mailbox.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -129,7 +130,7 @@ export class AccountRepo implements IAccountRepository {
 			const rows = await this.db
 				.select()
 				.from(accountTable)
-				.where(inArray(accountTable.accountId, accountId));
+				.where(inList(accountTable.accountId, accountId));
 			return rows.map(rowToAccount);
 		}
 		const [row] = await this.db
@@ -187,7 +188,7 @@ export class AccountRepo implements IAccountRepository {
 		if (accountIds.length === 0) return;
 		await this.db
 			.delete(accountTable)
-			.where(inArray(accountTable.accountId, accountIds));
+			.where(inList(accountTable.accountId, accountIds));
 	}
 
 	async list(

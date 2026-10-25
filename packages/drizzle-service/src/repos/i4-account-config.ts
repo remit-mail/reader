@@ -6,7 +6,7 @@ import type {
 	ResultList,
 	UpdateAccountConfigInput,
 } from "@remit/data-ports";
-import { and, asc, eq, gt, inArray, or } from "drizzle-orm";
+import { and, asc, eq, gt, or } from "drizzle-orm";
 import type { Db } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
@@ -18,6 +18,7 @@ import {
 import { addressTable } from "../schema/i4-address.js";
 import { rowToAccount } from "./i4-account.js";
 import { rowToAddress } from "./i4-address.js";
+import { inList } from "./in-list.js";
 
 type DB = Db<Record<string, unknown>>;
 
@@ -71,7 +72,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 			const rows = await this.db
 				.select()
 				.from(accountConfigTable)
-				.where(inArray(accountConfigTable.accountConfigId, accountConfigId));
+				.where(inList(accountConfigTable.accountConfigId, accountConfigId));
 			return rows.map(rowToAccountConfig);
 		}
 		const [row] = await this.db
@@ -116,7 +117,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 		if (accountConfigIds.length === 0) return;
 		await this.db
 			.delete(accountConfigTable)
-			.where(inArray(accountConfigTable.accountConfigId, accountConfigIds));
+			.where(inList(accountConfigTable.accountConfigId, accountConfigIds));
 	}
 
 	async listByUser(
