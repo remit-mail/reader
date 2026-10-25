@@ -70,7 +70,7 @@ export const mountApp = ({
 		},
 	});
 
-	installStaleBuildReload(queryClient);
+	installStaleBuildReload();
 
 	const router = createAppRouter(queryClient, telemetry);
 	telemetry.recordPageView(window.location.pathname);

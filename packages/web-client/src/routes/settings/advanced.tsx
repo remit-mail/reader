@@ -1,7 +1,6 @@
 /**
  * Advanced settings. Updates live here — and only here — with a full pane in
- * Settings › Advanced, unless the host manages them (`updateMode: "managed"`).
- * Notification rules and export are future scope.
+ * Settings › Advanced. Notification rules and export are future scope.
  */
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
