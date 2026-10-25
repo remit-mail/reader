@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	isMissingPackage,
 	isMissingVersion,
+	isVersionTaken,
 	withVersionPropagation,
 } from "./registry-fetch.mjs";
 
@@ -27,6 +28,28 @@ const OFFLINE = execFailure("npm error code EAI_AGAIN\nnpm error network\n");
 const OFFLINE_LOGGED = execFailure(
 	"npm error code EAI_AGAIN\nnpm error network request to https://registry.npmjs.org/@remit%2fui failed\nnpm error A complete log of this run can be found in: /home/runner/.npm/_logs/2026-08-26T09_12_31_404Z-debug-0.log\n",
 );
+
+const VERSION_STAGED = execFailure(
+	"npm error code E403\nnpm error 403 403 Forbidden - PUT https://registry.npmjs.org/-/stage/@remit%2fui - You cannot publish over the previously published versions: 0.0.146.\n",
+);
+
+const TRUST_REFUSED = execFailure(
+	"npm error code E403\nnpm error 403 403 Forbidden - PUT https://registry.npmjs.org/-/stage/@remit%2fui - Trusted publishing is not allowed to stage this package.\n",
+);
+
+describe("isVersionTaken", () => {
+	it("reads a version already staged or released", () => {
+		assert.equal(isVersionTaken(VERSION_STAGED), true);
+	});
+
+	it("does not read a refused trusted publisher as one", () => {
+		assert.equal(isVersionTaken(TRUST_REFUSED), false);
+	});
+
+	it("does not read a network failure as one", () => {
+		assert.equal(isVersionTaken(OFFLINE_LOGGED), false);
+	});
+});
 
 describe("isMissingVersion", () => {
 	it("reads the version a publish has not propagated yet", () => {

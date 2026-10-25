@@ -6,11 +6,18 @@
 //
 // Per package each run: build a deterministic content hash of the freshly packed
 // output and compare it against the version currently on the registry. Identical
-// -> skip. Different -> publish a patch bump over the registry's latest. Absent
+// -> skip. Different -> stage a patch bump over the registry's latest. Absent
 // -> seed 0.0.1. The hash normalizes the version field and hashes file contents,
 // so tarball timestamps and the version string never trigger a spurious
 // republish; `*` inter-package ranges keep an upstream bump from cascading into a
 // dependent's content. Idempotent and safe on every run.
+//
+// CI only stages (`npm stage publish`); a maintainer releases each staged
+// version with 2FA through `npm run release:approve`. A staged version is
+// invisible to `npm view` and the CI token cannot list stages, so a run that
+// finds its patch bump already staged skips the package: that version is still
+// awaiting approval, and the first run after it is released stages any newer
+// content as the next patch.
 //
 // Generated packages publish before the workspace set that depends on them.
 // Version bumps are written into the working-tree manifest only when actually
@@ -18,7 +25,7 @@
 // checkout.
 //
 // Usage: publish-packages.mjs [--dry-run]
-//   --dry-run  compute and print each decision, pack-check, never publish.
+//   --dry-run  compute and print each decision, pack-check, never stage.
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
@@ -32,9 +39,10 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
-import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
+import { publishablePackages } from "./lib/publishable-packages.mjs";
 import {
 	isMissingPackage,
+	isVersionTaken,
 	withVersionPropagation,
 } from "./lib/registry-fetch.mjs";
 
@@ -43,66 +51,8 @@ const dryRun = process.argv.includes("--dry-run");
 
 const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 
-// The TypeSpec-generated packages (dir/name mapping shared with
-// check-consumer-typecheck.mjs via lib/generated-packages.mjs), in dependency
-// order (all are leaves), plus the built web client as a data package.
-// `peerDependencies` names the runtime libraries the built output imports but
-// expects the consumer to supply — merged onto whatever the emitter declared so
-// a standalone install resolves them.
-const generatedPeerDependencies = {
-	"@remit/api-zod-schemas": { zod: "^3.0.0" },
-	"@remit/electrodb-entities": { electrodb: ">=3.0.0" },
-	"@remit/api-http-client": { "@tanstack/react-query": "^5.0.0" },
-};
-const generated = [
-	...GENERATED_PACKAGES.map(({ dir, name }) => ({
-		dir,
-		name,
-		peerDependencies: generatedPeerDependencies[name] ?? {},
-	})),
-	// The built web client as a static-asset data package: index.html, the
-	// hashed asset bundle, locales, and the default runtime config.js
-	// (better-auth self-host). A deployment installs it and replaces config.js
-	// with its own values instead of building the client from source. `build`
-	// runs the vite build (which empties dist/) before the manifest is
-	// synthesized into it, so packing sees a fresh tree.
-	{
-		dir: "packages/web-client/dist",
-		name: "@remit/web-client-dist",
-		peerDependencies: {},
-		build: ["npm", ["run", "build", "-w", "@remit/web-client"]],
-		manifest: {
-			name: "@remit/web-client-dist",
-			version: "0.0.0",
-			description:
-				"Built Remit web client — static assets and the default runtime config.",
-			files: ["**/*"],
-		},
-	},
-];
-
 const run = (cmd, args, opts = {}) =>
 	execFileSync(cmd, args, { encoding: "utf8", ...opts });
-
-const readManifest = (dir) =>
-	JSON.parse(readFileSync(join(repoRoot, dir, "package.json"), "utf8"));
-
-// Publishable workspace packages: everything under packages/ not marked private.
-const workspacePackages = () => {
-	const out = [];
-	for (const name of readdirSync(join(repoRoot, "packages"))) {
-		const dir = join("packages", name);
-		let manifest;
-		try {
-			manifest = readManifest(dir);
-		} catch {
-			continue;
-		}
-		if (manifest.private) continue;
-		out.push({ dir, name: manifest.name, kind: "workspace" });
-	}
-	return out;
-};
 
 const walkFiles = (root) => {
 	const out = [];
@@ -240,16 +190,34 @@ const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
 // outcome instead of throwing; the caller collects failures and exits non-zero.
 // Verbose, because npm logs a refused trusted-publishing token exchange only at
 // that level and otherwise reports it as a bare ENEEDAUTH.
-const publish = (pkgDir) => {
-	const { error, status, signal } = spawnSync(
+const stage = (pkgDir) => {
+	const { error, status, signal, stderr } = spawnSync(
 		"npm",
-		["publish", "--access", "public", "--provenance", "--loglevel=verbose"],
-		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
+		[
+			"stage",
+			"publish",
+			"--access",
+			"public",
+			"--provenance",
+			"--loglevel=verbose",
+		],
+		{
+			cwd: join(repoRoot, pkgDir),
+			stdio: ["ignore", "inherit", "pipe"],
+			encoding: "utf8",
+			maxBuffer: 64 * 1024 * 1024,
+		},
 	);
-	if (error) return { ok: false, error: error.message };
-	if (signal) return { ok: false, error: `npm publish killed by ${signal}` };
-	if (status !== 0) return { ok: false, error: `npm publish exited ${status}` };
-	return { ok: true };
+	if (stderr) process.stderr.write(stderr);
+	if (error) return { outcome: "failed", error: error.message };
+	if (signal)
+		return {
+			outcome: "failed",
+			error: `npm stage publish killed by ${signal}`,
+		};
+	if (status === 0) return { outcome: "staged" };
+	if (isVersionTaken({ stderr })) return { outcome: "taken" };
+	return { outcome: "failed", error: `npm stage publish exited ${status}` };
 };
 
 const packCheck = (pkgDir) =>
@@ -282,9 +250,9 @@ if (dryRun) {
 }
 
 if (!dryRun)
-	console.log(`\nPublishing with npm ${run("npm", ["--version"]).trim()}\n`);
+	console.log(`\nStaging with npm ${run("npm", ["--version"]).trim()}\n`);
 
-const packages = [...generated, ...workspacePackages()];
+const packages = publishablePackages(repoRoot);
 const summary = [];
 const failures = [];
 
@@ -298,39 +266,39 @@ for (const pkg of packages) {
 	const fresh = freshContentHash(pkg.dir);
 	const latest = registryLatest(pkg.name);
 
-	let target;
-	if (latest === null) {
-		target = "0.0.1";
-		summary.push({
-			name: pkg.name,
-			decision: `seed ${target} (not on registry)`,
-		});
-	} else if (publishedContentHash(pkg.name, latest) === fresh) {
+	const unreleased = latest === null || latest.startsWith("0.0.0-");
+	if (!unreleased && publishedContentHash(pkg.name, latest) === fresh) {
 		summary.push({ name: pkg.name, decision: `skip (identical to ${latest})` });
 		continue;
-	} else {
-		target = patchBump(latest);
-		summary.push({
-			name: pkg.name,
-			decision: `publish ${latest} -> ${target}`,
-		});
 	}
+	const target = unreleased ? "0.0.1" : patchBump(latest);
+	const plan = unreleased
+		? `seed ${target} (not on registry)`
+		: `stage ${latest} -> ${target}`;
 
 	if (dryRun) {
+		summary.push({ name: pkg.name, decision: plan });
 		packCheck(pkg.dir);
 		continue;
 	}
 	setVersion(pkg.dir, target);
-	const { ok, error } = publish(pkg.dir);
-	if (ok) console.log(`published ${pkg.name}@${target}`);
-	else failures.push({ name: pkg.name, version: target, error });
+	const { outcome, error } = stage(pkg.dir);
+	if (outcome === "failed")
+		failures.push({ name: pkg.name, version: target, error });
+	summary.push({
+		name: pkg.name,
+		decision:
+			outcome === "taken"
+				? `skip (${target} already staged, awaiting approval)`
+				: `${plan}${outcome === "failed" ? " failed" : ""}`,
+	});
 }
 
-console.log(`\n${dryRun ? "Dry run" : "Publish"} decisions:`);
+console.log(`\n${dryRun ? "Dry run" : "Stage"} decisions:`);
 for (const { name, decision } of summary) console.log(`  ${name}: ${decision}`);
 
 if (failures.length > 0) {
-	console.error("\nPublish failures:");
+	console.error("\nStage failures:");
 	for (const f of failures)
 		console.error(`  ${f.name}@${f.version}: ${f.error}`);
 	process.exit(1);

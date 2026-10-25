@@ -17,6 +17,15 @@ const MISSING_PACKAGE = /\bE404\b|npm error 404\b/;
 export const isMissingPackage = (error) =>
 	MISSING_PACKAGE.test(errorText(error));
 
+// A staged version holds its number like a published one, and the registry
+// refuses a second stage of it the way it refuses publishing over a release.
+const VERSION_TAKEN = /cannot publish over|\bEPUBLISHCONFLICT\b|\bE409\b/;
+
+export const isVersionTaken = (error) => VERSION_TAKEN.test(errorText(error));
+
+export const isOtpRejected = (error) =>
+	/\bEOTP\b|one-time pass/.test(errorText(error));
+
 export const isMissingVersion = (error) => errorText(error).includes("ETARGET");
 
 export const PROPAGATION_DELAYS_MS = [500, 1000, 2000, 4000, 8000];

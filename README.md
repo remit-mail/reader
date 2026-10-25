@@ -68,6 +68,15 @@ npm run build --workspaces --if-present
 npm test --workspaces --if-present
 ```
 
+Every push to `main` stages each changed `@remit/*` package on npm with
+`npm stage publish`; nothing goes live from CI. A maintainer releases the
+staged versions with 2FA:
+
+```
+npm run release:approve -- --dry-run   # list what is staged
+npm run release:approve                # release it, asks for the OTP once
+```
+
 A local development stack runs the whole app from the worktree — SQLite, the
 queue, the migrator, the backend, the mail workers, the search indexer and the
 web client:
