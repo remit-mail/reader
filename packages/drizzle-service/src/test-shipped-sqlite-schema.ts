@@ -61,16 +61,18 @@ export const shippedIndexDdl = (index: string): string => {
 	return statement;
 };
 
+/** Every statement of a set's committed migrations, in the order the migrator runs them. */
+export const migrationStatements = (set: MigrationSet): string[] =>
+	migrationJournal(set).flatMap((entry) =>
+		migrationSql(set, entry.tag).split("--> statement-breakpoint"),
+	);
+
 /** Run every committed migration of a set against an open database. */
 export const applyMigrationSet = (
 	sqlite: Database.Database,
 	set: MigrationSet,
 ): void => {
-	for (const entry of migrationJournal(set)) {
-		for (const statement of migrationSql(set, entry.tag).split(
-			"--> statement-breakpoint",
-		)) {
-			sqlite.exec(statement);
-		}
+	for (const statement of migrationStatements(set)) {
+		sqlite.exec(statement);
 	}
 };
