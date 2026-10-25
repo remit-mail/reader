@@ -17,12 +17,16 @@ const isLocalEnv = (env: NodeJS.ProcessEnv): boolean =>
  * start (throw at module load) if either is present outside a local NODE_ENV — the
  * same `development`/`test` signal the data layer already uses to decide local vs
  * deployed. Fail loud rather than silently ignore, so a leaked env var is caught at
- * boot, not exploited at runtime.
+ * boot, not exploited at runtime. In a local NODE_ENV the bypass is read here
+ * once, so a bypass set without LOCAL_EMAIL also fails at boot.
  */
 export const assertLocalBypassNotInDeployedEnv = (
 	env: NodeJS.ProcessEnv = process.env,
 ): void => {
-	if (isLocalEnv(env)) return;
+	if (isLocalEnv(env)) {
+		localIdentity(env);
+		return;
+	}
 	const leaked = LOCAL_BYPASS_VARS.filter((name) => {
 		const value = env[name];
 		return typeof value === "string" && value.length > 0;
@@ -46,26 +50,32 @@ const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
 const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
 	const localAccountConfigId = env.LOCAL_ACCOUNT_CONFIG_ID;
+	const localSub = env.LOCAL_COGNITO_SUB;
+	if (!localAccountConfigId && !localSub) return ANONYMOUS;
+
+	const email = env.LOCAL_EMAIL;
+	if (!email) {
+		throw new Error(
+			"Refusing to start: the local auth bypass (LOCAL_ACCOUNT_CONFIG_ID or LOCAL_COGNITO_SUB) is set without LOCAL_EMAIL. The bypass serves a signed-in user, and every user carries an email; set LOCAL_EMAIL to the address that user signs in with.",
+		);
+	}
+
 	if (localAccountConfigId) {
 		return {
 			kind: "user",
 			accountConfigId: localAccountConfigId,
 			sub: localAccountConfigId,
-			email: "",
+			email,
 		};
 	}
 
-	const localSub = env.LOCAL_COGNITO_SUB;
-	if (localSub) {
-		return {
-			kind: "user",
-			accountConfigId: deriveAccountConfigId(localSub),
-			sub: localSub,
-			email: "",
-		};
-	}
-
-	return ANONYMOUS;
+	if (!localSub) return ANONYMOUS;
+	return {
+		kind: "user",
+		accountConfigId: deriveAccountConfigId(localSub),
+		sub: localSub,
+		email,
+	};
 };
 
 /**
