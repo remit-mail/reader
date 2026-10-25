@@ -65,8 +65,10 @@ export {
 	type GroupedQueueProducer,
 	QUEUE_BATCH_LIMIT,
 	type QueueBatchResult,
+	type QueueKind,
 	type QueueMessage,
 	type QueueProducer,
+	type QueueProducerOf,
 } from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {

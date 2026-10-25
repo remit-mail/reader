@@ -44,7 +44,7 @@ describe("triggerConfigLoadSyncs", () => {
 			"config-1",
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
-				queue: queue,
+				queue: queue.fifo,
 				logger,
 			},
 		);
@@ -64,7 +64,7 @@ describe("triggerConfigLoadSyncs", () => {
 				{ accountId: "imported-no-password" },
 				withPassword("acc-with-password"),
 			],
-			{ queue: queue, logger },
+			{ queue: queue.fifo, logger },
 		);
 
 		assert.equal(queue.sent.length, 1);
@@ -84,7 +84,7 @@ describe("triggerConfigLoadSyncs", () => {
 					authType: AccountAuthType.OauthMicrosoft,
 				},
 			],
-			{ queue: queue, logger },
+			{ queue: queue.fifo, logger },
 		);
 
 		assert.equal(queue.sent.length, 0);
@@ -99,7 +99,7 @@ describe("triggerConfigLoadSyncs", () => {
 
 		await assert.doesNotReject(
 			triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-				queue: failingQueue(econnrefused),
+				queue: failingQueue(econnrefused).fifo,
 				logger,
 			}),
 		);
@@ -113,7 +113,7 @@ describe("triggerConfigLoadSyncs", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-			queue: failingQueue(econnrefused),
+			queue: failingQueue(econnrefused).fifo,
 			logger,
 		});
 
@@ -142,7 +142,7 @@ describe("triggerConfigLoadSyncs", () => {
 			"config-1",
 			[withPassword("acc-a"), withPassword("acc-b")],
 			{
-				queue,
+				queue: queue.fifo,
 				logger,
 			},
 		);
@@ -160,7 +160,7 @@ describe("triggerConfigLoadSyncs", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerConfigLoadSyncs("config-1", [withPassword("acc-a")], {
-			queue: failingQueue(sdkError),
+			queue: failingQueue(sdkError).fifo,
 			logger,
 		});
 
@@ -196,7 +196,7 @@ describe("triggerConfigLoadSyncs", () => {
 				"config-1",
 				[withPassword("acc-a"), withPassword("acc-b")],
 				{
-					queue: failingQueue(econnrefused),
+					queue: failingQueue(econnrefused).fifo,
 					logger,
 				},
 			);

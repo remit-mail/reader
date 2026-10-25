@@ -1,5 +1,8 @@
 import type { FifoQueueProducer, QueueProducer } from "@remit/data-ports";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	createFifoQueueProducer,
+	createStandardQueueProducer,
+} from "@remit/sqs-client/producer";
 import { env } from "expect-env";
 import type { ImapEvent, WorkerEvent } from "./events.js";
 
@@ -24,26 +27,14 @@ export const workerQueueUrlsFromEnv = (): WorkerQueueUrls => ({
 });
 
 export const sqsWorkerQueues = (urls: WorkerQueueUrls): WorkerQueues => ({
-	mailboxes: createQueueProducer({ queueUrl: urls.mailboxes }),
-	messages: createQueueProducer({ queueUrl: urls.messages }),
-	flags: createQueueProducer({ queueUrl: urls.flags }),
-	body: createQueueProducer({ queueUrl: urls.body }),
-	mailboxManagement: createQueueProducer({ queueUrl: urls.mailboxManagement }),
-	messageManagement: createQueueProducer({ queueUrl: urls.messageManagement }),
+	mailboxes: createFifoQueueProducer({ queueUrl: urls.mailboxes }),
+	messages: createFifoQueueProducer({ queueUrl: urls.messages }),
+	flags: createFifoQueueProducer({ queueUrl: urls.flags }),
+	body: createStandardQueueProducer({ queueUrl: urls.body }),
+	mailboxManagement: createStandardQueueProducer({
+		queueUrl: urls.mailboxManagement,
+	}),
+	messageManagement: createStandardQueueProducer({
+		queueUrl: urls.messageManagement,
+	}),
 });
-
-let composed: WorkerQueues | null = null;
-
-/** Register the worker's queues from its entry, before the first event. */
-export const setWorkerQueues = (queues: WorkerQueues): void => {
-	composed = queues;
-};
-
-export const workerQueues = (): WorkerQueues => {
-	if (!composed) {
-		throw new Error(
-			"no worker queues registered — register them with setWorkerQueues() from the entry",
-		);
-	}
-	return composed;
-};

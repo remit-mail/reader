@@ -9,14 +9,10 @@ import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { WorkerEvent } from "./events.js";
 import { imapFailureKind } from "./failure-kind.js";
 import { processEvent } from "./processor.js";
-import {
-	setWorkerQueues,
-	sqsWorkerQueues,
-	workerQueueUrlsFromEnv,
-} from "./queues.js";
+import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./queues.js";
 
 installNodeLogger();
-setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
+const queues = sqsWorkerQueues(workerQueueUrlsFromEnv());
 
 const log = createLogger();
 
@@ -51,7 +47,7 @@ export const handler: SQSHandler = withTelemetry(
 
 			const queue = queueNameFromEventSource(record.eventSourceARN);
 			const opStart = Date.now();
-			const failed = await processEvent(imapEvent, log, receiveCount)
+			const failed = await processEvent(imapEvent, log, queues, receiveCount)
 				.then(() => {
 					recordQueueEvent({
 						queue,

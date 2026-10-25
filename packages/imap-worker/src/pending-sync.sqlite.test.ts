@@ -11,11 +11,15 @@ import {
 } from "@remit/data-ports/recording-queue";
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { emitEvent, SYNC_MESSAGES_PENDING } from "./emit.js";
+import {
+	createEmitEvent,
+	type EmitEvent,
+	SYNC_MESSAGES_PENDING,
+} from "./emit.js";
 import type { SyncMessagesEvent } from "./events.js";
 import { emitMailboxResync, emitMoveResync } from "./handlers/message-move.js";
 import { emitSyncMessagesEvents } from "./handlers/sync-mailboxes.js";
-import { setWorkerQueues } from "./queues.js";
+import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 const ACCOUNT = "account-1366";
 const FOLDERS = [
@@ -42,19 +46,14 @@ const inboxSync = (): Omit<SyncMessagesEvent, "eventId" | "timestamp"> => ({
 	mailboxId: "mbx-inbox",
 });
 
+const emitEvent: EmitEvent = (event) =>
+	createEmitEvent(workerQueuesOn(queue))(event);
+
 const fanOut = (): Promise<void> =>
 	emitSyncMessagesEvents(ACCOUNT, FOLDERS, emitEvent);
 
 beforeEach(() => {
 	queue = recordingQueue();
-	setWorkerQueues({
-		mailboxes: queue,
-		messages: queue,
-		flags: queue,
-		body: queue,
-		mailboxManagement: queue,
-		messageManagement: queue,
-	});
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);

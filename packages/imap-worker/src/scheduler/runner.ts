@@ -7,13 +7,8 @@ import { installNodeLogger } from "@remit/logger-lambda/node";
 import { backfillSearchText } from "@remit/mailbox-service";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 
-import { emitEvent } from "../emit.js";
-import {
-	setWorkerQueues,
-	sqsWorkerQueues,
-	workerQueues,
-	workerQueueUrlsFromEnv,
-} from "../queues.js";
+import { createEmitEvent } from "../emit.js";
+import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
@@ -45,7 +40,7 @@ installNodeLogger();
 
 const log = createLogger();
 
-setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
+const queues = sqsWorkerQueues(workerQueueUrlsFromEnv());
 
 const tickIntervalMs = getTickIntervalMs();
 const offlineIntervalMs = getOfflineIntervalMs();
@@ -97,7 +92,7 @@ const runLoop = async (): Promise<void> => {
 		tick: runSchedulerTick,
 		tickDeps: {
 			accountService: account,
-			queue: workerQueues().mailboxes,
+			queue: queues.mailboxes,
 			log,
 			tickIntervalMs,
 			offlineIntervalMs,
@@ -108,7 +103,7 @@ const runLoop = async (): Promise<void> => {
 			),
 			redriveStrandedPlacements: (stranded, now) =>
 				redriveStrandedPlacements(
-					{ client, emit: emitEvent, log },
+					{ client, emit: createEmitEvent(queues), log },
 					stranded,
 					now,
 				),

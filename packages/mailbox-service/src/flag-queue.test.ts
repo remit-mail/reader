@@ -46,7 +46,7 @@ const flags = () =>
 		threadMessageService: store.threadMessage,
 		flagPushService: new FlagPushService({
 			markerService: store.flagPush,
-			queue: capture,
+			queue: capture.fifo,
 		}),
 	});
 

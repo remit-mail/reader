@@ -77,7 +77,7 @@ const userMoves = () =>
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		threadMessageService: store.threadMessage,
 		addressService: store.address,
-		queue: capture,
+		queue: capture.fifo,
 		moveSettleTimeoutMs: 200,
 		moveSettlePollMs: 10,
 	});

@@ -11,13 +11,18 @@ import {
 } from "@remit/data-ports/recording-queue";
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { emitEvent, SYNC_MESSAGES_PENDING } from "./emit.js";
+import {
+	createEmitEvent,
+	type EmitEvent,
+	SYNC_MESSAGES_PENDING,
+} from "./emit.js";
 import type {
 	FlagPushEvent,
 	SyncMailboxesEvent,
+	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "./events.js";
-import { setWorkerQueues } from "./queues.js";
+import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 type Emitted<T> = Omit<T, "eventId" | "timestamp">;
 
@@ -27,16 +32,11 @@ let queue: RecordingQueue;
 
 const sentCommands = () => queue.sent;
 
+const emitEvent: EmitEvent = (event) =>
+	createEmitEvent(workerQueuesOn(queue))(event);
+
 beforeEach(() => {
 	queue = recordingQueue();
-	setWorkerQueues({
-		mailboxes: queue,
-		messages: queue,
-		flags: queue,
-		body: queue,
-		mailboxManagement: queue,
-		messageManagement: queue,
-	});
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);
@@ -123,5 +123,23 @@ describe("emitEvent on a FIFO queue", () => {
 		const [sent] = sentCommands();
 		if (!sent) throw new Error("expected a send");
 		assert.equal(sent.deduplicationId, sent.body.eventId);
+	});
+});
+
+describe("emitEvent on a standard queue", () => {
+	it("sends a body sync with no group or deduplication id", async () => {
+		const event: Emitted<SyncMessageBodyEvent> = {
+			type: "SYNC_MESSAGE_BODY",
+			accountId: "acc-1",
+			mailboxId: "mbx-1",
+			messageIds: ["msg-1"],
+		};
+
+		await emitEvent(event);
+
+		const [sent] = sentCommands();
+		if (!sent) throw new Error("expected a send");
+		assert.equal(sent.groupId, undefined);
+		assert.equal(sent.deduplicationId, undefined);
 	});
 });

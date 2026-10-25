@@ -2,11 +2,10 @@ import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { ScheduledHandler } from "aws-lambda";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent } from "../emit.js";
 import {
-	setWorkerQueues,
 	sqsWorkerQueues,
-	workerQueues,
+	type WorkerQueues,
 	workerQueueUrlsFromEnv,
 } from "../queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
@@ -18,8 +17,6 @@ import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
 installNodeLogger();
 
 const log = createLogger();
-
-setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
 
 /**
  * EventBridge-scheduled entry point for the periodic mailbox-sync tick
@@ -38,27 +35,35 @@ setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
  * while a genuine retry of the same invocation carries the same `time` and
  * correctly dedupes.
  */
-export const handler: ScheduledHandler = withTelemetry(async (event) => {
-	const client = await getClient();
-	const now = Date.parse(event.time);
+export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
+	withTelemetry(async (event) => {
+		const client = await getClient();
+		const now = Date.parse(event.time);
 
-	await runSchedulerTick({
-		accountService: client.account,
-		queue: workerQueues().mailboxes,
-		log,
-		tickIntervalMs: getTickIntervalMs(),
-		offlineIntervalMs: getOfflineIntervalMs(),
-		now,
-		// The hosted side is the one that needs this: a browser PUTs straight
-		// to block storage, so nothing refuses an upload against a draft that is
-		// already gone and this sweep is the only thing that collects it.
-		sweepAttachments: buildAttachmentSweep(client, log),
-		refreshCalendarSubscriptions: buildCalendarSubscriptionRefresh(client, log),
-		redriveStrandedPlacements: (account, tickNow) =>
-			redriveStrandedPlacements(
-				{ client, emit: emitEvent, log },
-				account,
-				tickNow,
+		await runSchedulerTick({
+			accountService: client.account,
+			queue: queues.mailboxes,
+			log,
+			tickIntervalMs: getTickIntervalMs(),
+			offlineIntervalMs: getOfflineIntervalMs(),
+			now,
+			// The hosted side is the one that needs this: a browser PUTs straight
+			// to block storage, so nothing refuses an upload against a draft that is
+			// already gone and this sweep is the only thing that collects it.
+			sweepAttachments: buildAttachmentSweep(client, log),
+			refreshCalendarSubscriptions: buildCalendarSubscriptionRefresh(
+				client,
+				log,
 			),
+			redriveStrandedPlacements: (account, tickNow) =>
+				redriveStrandedPlacements(
+					{ client, emit: createEmitEvent(queues), log },
+					account,
+					tickNow,
+				),
+		});
 	});
-});
+
+export const handler: ScheduledHandler = buildScheduledHandler(
+	sqsWorkerQueues(workerQueueUrlsFromEnv()),
+);

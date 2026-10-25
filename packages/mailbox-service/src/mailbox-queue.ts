@@ -5,6 +5,7 @@ import type {
 	FifoQueueProducer,
 	IMailboxRepository,
 	MailboxItem,
+	QueueProducer,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
@@ -70,6 +71,26 @@ const noopLogger: MailboxQueueLogger = {
 	error: () => {},
 };
 
+export type EnqueueMailboxManagement = (
+	event: MailboxManagementEvent,
+) => Promise<void>;
+
+export const fifoMailboxManagement =
+	(
+		queue: FifoQueueProducer<MailboxManagementEvent>,
+	): EnqueueMailboxManagement =>
+	(event) =>
+		queue.send({
+			body: event,
+			groupId: event.accountId,
+			deduplicationId: `${event.type}:${event.mailboxId}:${event.eventId}`,
+		});
+
+export const standardMailboxManagement =
+	(queue: QueueProducer<MailboxManagementEvent>): EnqueueMailboxManagement =>
+	(event) =>
+		queue.send({ body: event });
+
 /**
  * Input for creating a mailbox via the queue service
  */
@@ -80,7 +101,7 @@ export type CreateMailboxQueueInput = Omit<CreateMailboxInput, "syncStatus">;
  */
 export interface MailboxQueueConfig {
 	mailboxService: IMailboxRepository;
-	queue: FifoQueueProducer<MailboxManagementEvent>;
+	enqueue: EnqueueMailboxManagement;
 	logger?: MailboxQueueLogger;
 }
 
@@ -95,12 +116,12 @@ export interface MailboxQueueConfig {
  */
 export class MailboxQueueService {
 	private mailboxService: IMailboxRepository;
-	private queue: FifoQueueProducer<MailboxManagementEvent>;
+	private enqueue: EnqueueMailboxManagement;
 	private log: MailboxQueueLogger;
 
 	constructor(config: MailboxQueueConfig) {
 		this.mailboxService = config.mailboxService;
-		this.queue = config.queue;
+		this.enqueue = config.enqueue;
 		this.log = config.logger ?? noopLogger;
 	}
 
@@ -365,11 +386,7 @@ export class MailboxQueueService {
 	private enqueueEvent = async (
 		event: MailboxManagementEvent,
 	): Promise<void> => {
-		await this.queue.send({
-			body: event,
-			groupId: event.accountId,
-			deduplicationId: `${event.type}:${event.mailboxId}:${event.eventId}`,
-		});
+		await this.enqueue(event);
 
 		this.log.info(
 			{ eventId: event.eventId, type: event.type, mailboxId: event.mailboxId },

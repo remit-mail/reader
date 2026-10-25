@@ -75,7 +75,7 @@ afterEach(async () => {
 const flagPushService = () =>
 	new FlagPushService({
 		markerService: store.flagPush,
-		queue: capture,
+		queue: capture.fifo,
 	});
 
 const syncService = () =>
@@ -106,7 +106,7 @@ const userMoves = () =>
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		threadMessageService: store.threadMessage,
 		addressService: store.address,
-		queue: capture,
+		queue: capture.fifo,
 	});
 
 const flagQueue = () =>

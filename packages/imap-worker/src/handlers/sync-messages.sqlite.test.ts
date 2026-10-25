@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
+import { createEmitEvent } from "../emit.js";
 import type { SyncMessagesEvent } from "../events.js";
 import { openStore, type World } from "../test-helpers/test-world.js";
 import { drainPendingFlagPushes, syncMessages } from "./sync-messages.js";
@@ -21,7 +22,12 @@ const syncEvent = (w: World, mailboxId: string): SyncMessagesEvent => ({
 });
 
 const sync = async (w: World, mailboxId: string): Promise<number> => {
-	await syncMessages(syncEvent(w, mailboxId), w.log, w.connectionFactory);
+	await syncMessages(
+		syncEvent(w, mailboxId),
+		w.log,
+		w.queues,
+		w.connectionFactory,
+	);
 	return w.imap.connections;
 };
 
@@ -106,7 +112,12 @@ describe("a folder deleted while its sync is in flight", () => {
 			return { getConnection: () => connection, close: factory.close };
 		};
 
-		await syncMessages(syncEvent(w, old.mailboxId), w.log, connectionFactory);
+		await syncMessages(
+			syncEvent(w, old.mailboxId),
+			w.log,
+			w.queues,
+			connectionFactory,
+		);
 
 		const account = await w.client.account.get(w.account.accountId);
 		assert.notEqual(account.syncPhase, "error");
@@ -142,6 +153,7 @@ describe("drainPendingFlagPushes (issue #1273)", () => {
 			w.account,
 			inbox.mailboxId,
 			w.log,
+			createEmitEvent(w.queues),
 		);
 
 		assert.deepEqual(

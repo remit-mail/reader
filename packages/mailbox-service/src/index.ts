@@ -221,10 +221,13 @@ export {
 } from "./mailbox-presence.js";
 export {
 	type CreateMailboxQueueInput,
+	type EnqueueMailboxManagement,
+	fifoMailboxManagement,
 	type MailboxManagementEvent,
 	type MailboxQueueConfig,
 	type MailboxQueueLogger,
 	MailboxQueueService,
+	standardMailboxManagement,
 } from "./mailbox-queue.js";
 export {
 	MailboxSyncService,

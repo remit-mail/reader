@@ -6,7 +6,10 @@ import {
 	createKmsDataKeyProvider,
 	FAKE_KMS_KEY_ID,
 } from "@remit/secrets-service/kms";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	createFifoQueueProducer,
+	createStandardQueueProducer,
+} from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import type { RemitClientSharedDeps } from "./create-remit-client.js";
@@ -23,11 +26,13 @@ export const sqsQueueUrlsFromEnv = (): SqsQueueUrls => ({
 });
 
 export const sqsQueues = (urls: SqsQueueUrls): RemitClientQueues => ({
-	sync: createQueueProducer({ queueUrl: urls.sync }),
-	accountFanout: createQueueProducer({ queueUrl: urls.accountFanout }),
-	smtp: createQueueProducer({ queueUrl: urls.smtp }),
-	messageManagement: createQueueProducer({ queueUrl: urls.messageManagement }),
-	body: createQueueProducer({ queueUrl: urls.body }),
+	sync: createFifoQueueProducer({ queueUrl: urls.sync }),
+	accountFanout: createStandardQueueProducer({ queueUrl: urls.accountFanout }),
+	smtp: createStandardQueueProducer({ queueUrl: urls.smtp }),
+	messageManagement: createStandardQueueProducer({
+		queueUrl: urls.messageManagement,
+	}),
+	body: createStandardQueueProducer({ queueUrl: urls.body }),
 });
 
 export const buildSharedDeps = (

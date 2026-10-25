@@ -37,7 +37,7 @@ const queueAnswers = (answer: () => Promise<unknown>) => capture.answer(answer);
 const flips = () =>
 	new FlagPushService({
 		markerService: store.flagPush,
-		queue: capture,
+		queue: capture.fifo,
 		logger: {
 			info: () => {},
 			error: (fields: Record<string, unknown>) => errors.push(fields),

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { MailboxManagementService } from "./mailbox-management.js";
-import { MailboxQueueService } from "./mailbox-queue.js";
+import { fifoMailboxManagement, MailboxQueueService } from "./mailbox-queue.js";
 import {
 	openStore,
 	type RecordedMessage,
@@ -42,7 +42,7 @@ const markAs = (syncStatus: MailboxItem["syncStatus"], pendingPath?: string) =>
 const requestDelete = () =>
 	new MailboxQueueService({
 		mailboxService: store.mailbox,
-		queue: capture,
+		enqueue: fifoMailboxManagement(capture.fifo),
 	}).deleteMailbox(receipts.mailboxId, account.accountId);
 
 const current = () => store.mailbox.get(account.accountId, receipts.mailboxId);

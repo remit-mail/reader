@@ -6,7 +6,7 @@ import {
 import type { Logger } from "@remit/logger";
 import { env } from "expect-env";
 import type { DeleteAccountObjectsEvent } from "../events.js";
-import { workerQueues } from "../queues.js";
+import type { WorkerQueues } from "../queues.js";
 
 const s3 = new S3Client({});
 
@@ -16,6 +16,7 @@ const MIN_REMAINING_MS = 30_000;
 export const handleDeleteAccountObjects = async (
 	event: DeleteAccountObjectsEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	getRemainingTimeMs?: () => number,
 ): Promise<void> => {
 	const BUCKET_NAME = env.S3_BUCKET_NAME;
@@ -37,7 +38,7 @@ export const handleDeleteAccountObjects = async (
 				{ accountConfigId, totalDeleted, continuationToken: currentToken },
 				"Near timeout, re-enqueuing with continuation token",
 			);
-			await reenqueue(accountConfigId, currentToken);
+			await reenqueue(queues, accountConfigId, currentToken);
 			return;
 		}
 
@@ -81,6 +82,7 @@ export const handleDeleteAccountObjects = async (
 };
 
 const reenqueue = async (
+	queues: WorkerQueues,
 	accountConfigId: string,
 	continuationToken: string | undefined,
 ): Promise<void> => {
@@ -90,5 +92,5 @@ const reenqueue = async (
 		continuationToken,
 	};
 
-	await workerQueues().messageManagement.send({ body: event });
+	await queues.messageManagement.send({ body: event });
 };

@@ -92,7 +92,8 @@ const pushMove = (
 	a: Arranged,
 	event: PlacementMovePushEvent,
 	receiveCount = 1,
-) => handlePlacementMovePush(event, a.w.log, receiveCount, a.w.scope);
+) =>
+	handlePlacementMovePush(event, a.w.log, a.w.queues, receiveCount, a.w.scope);
 
 const seenOnServer = (a: Arranged, path: string): boolean[] =>
 	a.w.imap

@@ -17,7 +17,7 @@ import {
 import { createSecretsService } from "@remit/secrets-service";
 import { createKmsDataKeyProvider } from "@remit/secrets-service/kms";
 import { sendMail } from "@remit/smtp-service";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import { createStandardQueueProducer } from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import { buildDataPortsFromEnv, type SmtpDataPorts } from "../data-ports.js";
@@ -72,7 +72,7 @@ interface AppendSentMessageEvent {
 	timestamp: number;
 }
 
-const messageMgmtQueue = createQueueProducer<AppendSentMessageEvent>({
+const messageMgmtQueue = createStandardQueueProducer<AppendSentMessageEvent>({
 	queueUrl: env.SQS_QUEUE_URL_MESSAGE_MGMT,
 });
 

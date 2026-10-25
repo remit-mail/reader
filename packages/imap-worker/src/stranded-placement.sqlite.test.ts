@@ -447,6 +447,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 		await handleMessageMove(
 			stamped<MessageMoveEvent>(move),
 			a.w.log,
+			a.w.queues,
 			1,
 			a.w.scope,
 		);
@@ -469,6 +470,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 		await handlePlacementMovePush(
 			stamped<PlacementMovePushEvent>(push),
 			a.w.log,
+			a.w.queues,
 			1,
 			a.w.scope,
 		);
@@ -500,6 +502,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 		await handleMessageMove(
 			stamped<MessageMoveEvent>(emitted[0]),
 			a.w.log,
+			a.w.queues,
 			1,
 			a.w.scope,
 		);
@@ -520,6 +523,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 				messageId: a.message.messageId,
 			}),
 			a.w.log,
+			a.w.queues,
 			1,
 			a.w.scope,
 		);
@@ -645,6 +649,7 @@ describe("a uid-0 copy whose event is gone", () => {
 		await handleMessageCopy(
 			stamped<MessageCopyEvent>(copy),
 			a.w.log,
+			a.w.queues,
 			1,
 			a.w.scope,
 		);

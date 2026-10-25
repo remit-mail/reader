@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { MailboxQueueService } from "./mailbox-queue.js";
+import { fifoMailboxManagement, MailboxQueueService } from "./mailbox-queue.js";
 import {
 	beforeNext,
 	openStore,
@@ -52,7 +52,7 @@ const folder = async (
 const queueService = () =>
 	new MailboxQueueService({
 		mailboxService: store.mailbox,
-		queue: capture,
+		enqueue: fifoMailboxManagement(capture.fifo),
 	});
 
 const rename = (mailbox: MailboxItem, newPath: string) =>

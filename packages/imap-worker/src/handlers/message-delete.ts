@@ -24,9 +24,10 @@ import {
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
 import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { emitEvent } from "../emit.js";
+import { createEmitEvent } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
+import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
@@ -153,9 +154,11 @@ const confirmTrashMoveUid = async (
 export const handleMessageDelete = async (
 	event: MessageDeleteEvent,
 	log: Logger,
+	queues: WorkerQueues,
 	receiveCount = 1,
 	createConnectionScope = createConnectionScopeWithCredentials,
 ): Promise<void> => {
+	const emit = createEmitEvent(queues);
 	const {
 		account: accountService,
 		message: messageService,
@@ -246,14 +249,14 @@ export const handleMessageDelete = async (
 	 */
 	const emitSettleResync = async (): Promise<void> => {
 		if (destinationMailboxId) {
-			await emitMoveResync(emitEvent, {
+			await emitMoveResync(emit, {
 				accountId,
 				sourceMailboxId: mailboxId,
 				destinationMailboxId,
 			});
 			return;
 		}
-		await emitMailboxResync(emitEvent, { accountId, mailboxId });
+		await emitMailboxResync(emit, { accountId, mailboxId });
 	};
 
 	/**
@@ -623,7 +626,7 @@ export const handleMessageDelete = async (
 					"Refused to delete: the destination mailbox no longer exists (deleted)",
 					"message_delete_destination_gone",
 				);
-				await emitMailboxResync(emitEvent, { accountId, mailboxId });
+				await emitMailboxResync(emit, { accountId, mailboxId });
 				return;
 			}
 

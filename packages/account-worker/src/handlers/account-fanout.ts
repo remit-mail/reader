@@ -33,11 +33,6 @@ export interface ProcessAccountFanoutDeps {
 	signOut?: DeletionCapabilities["signOut"];
 }
 
-/**
- * Fanout step of the account-deletion cascade. Signs the user out and
- * enqueues the finalize step. Throws on any non-swallowable error so SQS partial batch-failure
- * retries the whole record.
- */
 export const processAccountFanout = async (
 	event: AccountFanoutEvent,
 	log: Logger,

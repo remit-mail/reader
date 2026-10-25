@@ -1,6 +1,5 @@
 export interface QueueMessage<T> {
 	readonly body: T;
-	readonly delaySeconds?: number;
 }
 
 export interface GroupedQueueMessage<T> extends QueueMessage<T> {
@@ -18,11 +17,19 @@ export interface QueueBatchResult {
 // The smallest batch every queue backend accepts (SQS caps a batch at ten).
 export const QUEUE_BATCH_LIMIT = 10;
 
-export interface QueueProducer<T, M extends QueueMessage<T> = QueueMessage<T>> {
+export type QueueKind = "Standard" | "Grouped" | "Fifo";
+
+export interface QueueProducerOf<K extends QueueKind, M> {
+	readonly kind: K;
 	readonly send: (message: M) => Promise<void>;
 	readonly sendBatch: (messages: readonly M[]) => Promise<QueueBatchResult>;
 }
 
-export type FifoQueueProducer<T> = QueueProducer<T, FifoQueueMessage<T>>;
+export type QueueProducer<T> = QueueProducerOf<"Standard", QueueMessage<T>>;
 
-export type GroupedQueueProducer<T> = QueueProducer<T, GroupedQueueMessage<T>>;
+export type GroupedQueueProducer<T> = QueueProducerOf<
+	"Grouped",
+	GroupedQueueMessage<T>
+>;
+
+export type FifoQueueProducer<T> = QueueProducerOf<"Fifo", FifoQueueMessage<T>>;

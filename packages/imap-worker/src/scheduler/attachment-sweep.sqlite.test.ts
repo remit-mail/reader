@@ -57,9 +57,8 @@ describe("the outbox attachment sweep", () => {
 		const second = await store.world();
 		const secondDraft = await arrange(second);
 
-		const { handler } = await import("./handler.js");
-		store.bindWorkerQueues();
-		await handler(
+		const { buildScheduledHandler } = await import("./handler.js");
+		await buildScheduledHandler(second.queues)(
 			{ time: new Date().toISOString() } as never,
 			{} as never,
 			() => {},

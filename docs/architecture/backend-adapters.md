@@ -77,7 +77,7 @@ Two limits are inherent rather than incidental. `@remit/data-ports` publishes ra
 
 A shared package names no cloud SDK for the I/O it does beyond the database. Three ports carry it:
 
-- **Queue.** `QueueProducer<T, M>` in `@remit/data-ports`: `send` and `sendBatch` over a typed body. A standard queue takes `{ body }`; a FIFO queue takes a `GroupedQueueMessage` (group, content-based deduplication) or a `FifoQueueMessage` (group and deduplication id). The mailbox-service classes, the API handlers and the workers produce through it; SQS is its adapter, `createQueueProducer` in `@remit/sqs-client`.
+- **Queue.** `QueueProducer<T>`, `GroupedQueueProducer<T>` and `FifoQueueProducer<T>` in `@remit/data-ports`: `send` and `sendBatch` over a typed body, each tagged with its `kind`. A standard queue takes `{ body }`; a FIFO queue takes a `GroupedQueueMessage` (group, content-based deduplication) or a `FifoQueueMessage` (group and deduplication id). The mailbox-service classes, the API handlers and the workers produce through it; SQS is its adapter, `createStandardQueueProducer`, `createGroupedQueueProducer` and `createFifoQueueProducer` in `@remit/sqs-client`, chosen where each queue is composed.
 - **Storage.** `StorageService` in `@remit/storage-service`. S3 and the filesystem are its adapters.
 - **Secrets.** `DataKeyProvider` in `@remit/secrets-service`, under the envelope encryption `createSecretsService` does. KMS is its adapter, in `@remit/secrets-service/kms`.
 

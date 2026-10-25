@@ -8,10 +8,14 @@ import { installNodeLogger } from "@remit/logger-lambda/node";
 import {
 	BodySyncQueueService,
 	BodySyncService,
+	fifoMailboxManagement,
 	MailboxQueueService,
 	SyncWarningService,
 } from "@remit/mailbox-service";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import {
+	createFifoQueueProducer,
+	createStandardQueueProducer,
+} from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { createMcpApp } from "./app.js";
 import {
@@ -54,21 +58,27 @@ const deps: McpDeps = {
 		logger,
 	),
 	bodySyncQueue: new BodySyncQueueService({
-		queue: createQueueProducer({ queueUrl: config.bodySyncQueueUrl }),
+		queue: createStandardQueueProducer({
+			queueUrl: config.bodySyncQueueUrl,
+		}),
 		logger,
 	}),
 	logger,
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: repositories.mailbox,
-			queue: createQueueProducer({ queueUrl: config.mailboxQueueUrl }),
+			enqueue: fifoMailboxManagement(
+				createFifoQueueProducer({ queueUrl: config.mailboxQueueUrl }),
+			),
 			logger,
 		}),
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
 	},
 	filters: {
-		organizeQueue: createQueueProducer({ queueUrl: config.organizeQueueUrl }),
+		organizeQueue: createStandardQueueProducer({
+			queueUrl: config.organizeQueueUrl,
+		}),
 		logger,
 	},
 };

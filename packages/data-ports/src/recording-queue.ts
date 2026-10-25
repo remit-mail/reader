@@ -1,4 +1,10 @@
-import type { QueueMessage, QueueProducer } from "./interfaces/queue.js";
+import type {
+	FifoQueueProducer,
+	GroupedQueueProducer,
+	QueueBatchResult,
+	QueueMessage,
+	QueueProducer,
+} from "./interfaces/queue.js";
 
 export interface RecordedMessage {
 	body: Record<string, unknown>;
@@ -7,6 +13,8 @@ export interface RecordedMessage {
 }
 
 export interface RecordingQueue extends QueueProducer<unknown> {
+	readonly fifo: FifoQueueProducer<unknown>;
+	readonly grouped: GroupedQueueProducer<unknown>;
 	readonly sent: RecordedMessage[];
 	readonly answer: (next: () => Promise<unknown>) => void;
 	readonly refuse: (positions: readonly number[]) => void;
@@ -34,7 +42,21 @@ export const recordingQueue = (): RecordingQueue => {
 	const sent: RecordedMessage[] = [];
 	let answer: () => Promise<unknown> = async () => ({});
 	let refused: ReadonlySet<number> = new Set();
+	const send = async (message: QueueMessage<unknown>): Promise<void> => {
+		sent.push(recorded(message));
+		await answer();
+	};
+	const sendBatch = async (
+		messages: readonly QueueMessage<unknown>[],
+	): Promise<QueueBatchResult> => {
+		sent.push(...messages.map(recorded));
+		await answer();
+		return { refused };
+	};
 	return {
+		kind: "Standard",
+		fifo: { kind: "Fifo", send, sendBatch },
+		grouped: { kind: "Grouped", send, sendBatch },
 		sent,
 		answer: (next) => {
 			answer = next;
@@ -42,15 +64,8 @@ export const recordingQueue = (): RecordingQueue => {
 		refuse: (positions) => {
 			refused = new Set(positions);
 		},
-		send: async (message) => {
-			sent.push(recorded(message));
-			await answer();
-		},
-		sendBatch: async (messages) => {
-			sent.push(...messages.map(recorded));
-			await answer();
-			return { refused };
-		},
+		send,
+		sendBatch,
 	};
 };
 
