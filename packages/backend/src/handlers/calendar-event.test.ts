@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { authenticateSelfHostRequest } from "../jwt-auth.js";
 import { normalizeRequest } from "../request.js";
-import type { FormattedResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import { CalendarOperations } from "./calendar.js";
@@ -157,7 +157,7 @@ describe("an unauthenticated calendar request", () => {
 		const response = (await api.handleRequest(
 			normalizeRequest(event),
 			event,
-		)) as FormattedResponse;
+		)) as APIGatewayProxyResult;
 
 		assert.equal(response.statusCode, 401);
 	});

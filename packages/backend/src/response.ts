@@ -1,8 +1,6 @@
 import { logger } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
 
-export type FormattedResponse = APIGatewayProxyResult;
-
 import type { Context as OpenAPIContext } from "openapi-backend";
 import {
 	getRequestCorrelationId,

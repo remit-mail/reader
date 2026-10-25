@@ -18,7 +18,6 @@ import {
 } from "./calendar-event.js";
 import {
 	CalendarFeedDetailOperations,
-	CalendarFeedOperations,
 	getCalendarFeedIcal,
 } from "./calendar-feed.js";
 import {
@@ -48,8 +47,10 @@ import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: Types are narrowed downstream
-export const handlers: Record<OperationIds, OperationHandler<any>> = {
+export const handlers: Record<
+	Exclude<OperationIds, PublicOperationIds>,
+	OperationHandler
+> = {
 	...MeOperations,
 	...ConfigOperations,
 	...SystemOperations,
@@ -68,7 +69,6 @@ export const handlers: Record<OperationIds, OperationHandler<any>> = {
 	...CalendarOperations,
 	...CalendarDetailOperations,
 	...CalendarFeedDetailOperations,
-	...CalendarFeedOperations,
 	...CalendarEventOperations,
 	...CalendarEventDetailOperations,
 	...CalendarFreeBusyOperations,

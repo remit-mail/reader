@@ -17,7 +17,6 @@ import { type RawApiResponse, rawApiResponse } from "../response.js";
 import type {
 	CalendarDetailOperationIds,
 	CalendarFeedDetailOperationIds,
-	CalendarFeedOperationIds,
 	HandlerContext,
 	OperationHandler,
 	PublicOperationHandler,
@@ -278,11 +277,4 @@ export const getCalendarFeedIcal: PublicOperationHandler = async (
 		ifModifiedSince:
 			typeof ifModifiedSince === "string" ? ifModifiedSince : undefined,
 	});
-};
-
-export const CalendarFeedOperations: Record<
-	CalendarFeedOperationIds,
-	PublicOperationHandler
-> = {
-	CalendarFeedOperations_getCalendarFeedIcal: getCalendarFeedIcal,
 };

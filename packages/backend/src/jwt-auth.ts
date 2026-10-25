@@ -44,10 +44,7 @@ const injectClaims = (
 		...event.requestContext,
 		authorizer: {
 			...event.requestContext?.authorizer,
-			claims: {
-				sub,
-				email: email ?? "",
-			},
+			claims: email === undefined ? { sub } : { sub, email },
 		},
 	};
 };

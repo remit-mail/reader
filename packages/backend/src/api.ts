@@ -126,12 +126,8 @@ const fromLambdaEvent =
 	};
 
 const publicFromLambdaEvent =
-	(handler: PublicOperationHandler) =>
-	async (c: OpenAPIContext, event: APIGatewayProxyEvent) =>
-		handler(c, {
-			client: await getClient(),
-			identity: getIdentityFromEvent(event),
-		});
+	(handler: PublicOperationHandler) => async (c: OpenAPIContext) =>
+		handler(c, { client: await getClient() });
 
 api.register({
 	...Object.fromEntries(

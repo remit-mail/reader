@@ -38,10 +38,11 @@ import {
 	UPLOAD_ROUTE_PREFIX,
 } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
 import { handleError } from "../error.js";
-import { type FormattedResponse, formatResponse } from "../response.js";
+import { formatResponse } from "../response.js";
 import {
 	_resetForTest,
 	type RemitClient,
@@ -257,7 +258,7 @@ const completeContext = (
 /** The response the browser would receive, error funnel included. */
 const respond = async (
 	run: () => Promise<unknown>,
-): Promise<FormattedResponse> => {
+): Promise<APIGatewayProxyResult> => {
 	const outcome = await run().then(
 		(body) => ({ ok: true as const, body }),
 		(error: unknown) => ({ ok: false as const, error }),
@@ -266,13 +267,13 @@ const respond = async (
 	return formatResponse(outcome.body as Record<string, unknown>);
 };
 
-const parse = (response: FormattedResponse): Record<string, unknown> =>
+const parse = (response: APIGatewayProxyResult): Record<string, unknown> =>
 	JSON.parse(response.body) as Record<string, unknown>;
 
 const mint = (
 	body: Record<string, unknown>,
 	outboxMessageId = DRAFT_ID,
-): Promise<FormattedResponse> =>
+): Promise<APIGatewayProxyResult> =>
 	respond(() =>
 		mintOutboxAttachment(mintContext(body, outboxMessageId), caller()),
 	);
@@ -280,7 +281,7 @@ const mint = (
 const complete = (
 	outboxAttachmentId: string,
 	outboxMessageId = DRAFT_ID,
-): Promise<FormattedResponse> =>
+): Promise<APIGatewayProxyResult> =>
 	respond(() =>
 		completeOutboxAttachment(
 			completeContext(outboxAttachmentId, outboxMessageId),
@@ -309,7 +310,7 @@ const putTo = (
 };
 
 const mintedBody = (
-	response: FormattedResponse,
+	response: APIGatewayProxyResult,
 ): { outboxAttachmentId: string; uploadUrl: string } => {
 	assert.equal(response.statusCode, 200);
 	const body = parse(response);
@@ -767,7 +768,7 @@ describe("the mint route through the whole request pipeline", () => {
 			},
 			event,
 			{} as never,
-		)) as FormattedResponse;
+		)) as APIGatewayProxyResult;
 
 		assert.equal(result.statusCode, 200);
 		assert.equal(parse(result).filename, "routed.txt");

@@ -15,9 +15,10 @@ import {
 	captureQueue,
 	type QueuedEvent,
 } from "@remit/mailbox-service/test-helpers/test-queue";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
-import { type FormattedResponse, formatResponse } from "../response.js";
+import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import { OrganizeOperations, predicateFromInput } from "./organize.js";
@@ -123,7 +124,7 @@ const createJob = OrganizeOperations.OrganizeOperations_createOrganizeJob;
 /** The response the browser receives, error funnel included. */
 const postOrganize = async (
 	body: OrganizeInput,
-): Promise<FormattedResponse> => {
+): Promise<APIGatewayProxyResult> => {
 	const context = {
 		request: { params: { accountId: ACCOUNT_ID }, requestBody: body },
 	} as unknown as Context;

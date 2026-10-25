@@ -34,6 +34,7 @@ import type {
 	OperationHandler,
 	PublicHandlerContext,
 	PublicOperationHandler,
+	PublicOperationIds,
 } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
@@ -575,8 +576,8 @@ export const microsoftOAuthCallback: PublicOperationHandler = async (
 };
 
 export const MicrosoftOAuthOperations: Record<
-	MicrosoftOAuthOperationIds,
-	OperationHandler<MicrosoftOAuthOperationIds>
+	Exclude<MicrosoftOAuthOperationIds, PublicOperationIds>,
+	OperationHandler
 > = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
 		context: Context,
@@ -626,6 +627,4 @@ export const MicrosoftOAuthOperations: Record<
 
 		return { authorizationUrl };
 	},
-
-	MicrosoftOAuthOperations_microsoftOAuthCallback: microsoftOAuthCallback,
 };

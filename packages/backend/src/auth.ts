@@ -48,10 +48,23 @@ const readClaim = (
 
 const ANONYMOUS: HandlerIdentity = { kind: "anonymous" };
 
-const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
+const pinnedLocalUser = (
+	env: NodeJS.ProcessEnv,
+): { accountConfigId: string; sub: string } | undefined => {
 	const localAccountConfigId = env.LOCAL_ACCOUNT_CONFIG_ID;
+	if (localAccountConfigId) {
+		return { accountConfigId: localAccountConfigId, sub: localAccountConfigId };
+	}
 	const localSub = env.LOCAL_COGNITO_SUB;
-	if (!localAccountConfigId && !localSub) return ANONYMOUS;
+	if (localSub) {
+		return { accountConfigId: deriveAccountConfigId(localSub), sub: localSub };
+	}
+	return undefined;
+};
+
+const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
+	const pinned = pinnedLocalUser(env);
+	if (!pinned) return ANONYMOUS;
 
 	const email = env.LOCAL_EMAIL;
 	if (!email) {
@@ -60,22 +73,7 @@ const localIdentity = (env: NodeJS.ProcessEnv): HandlerIdentity => {
 		);
 	}
 
-	if (localAccountConfigId) {
-		return {
-			kind: "user",
-			accountConfigId: localAccountConfigId,
-			sub: localAccountConfigId,
-			email,
-		};
-	}
-
-	if (!localSub) return ANONYMOUS;
-	return {
-		kind: "user",
-		accountConfigId: deriveAccountConfigId(localSub),
-		sub: localSub,
-		email,
-	};
+	return { kind: "user", ...pinned, email };
 };
 
 /**

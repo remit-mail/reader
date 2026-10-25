@@ -11,9 +11,10 @@ import { join } from "node:path";
 import { after, afterEach, before, beforeEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { normalizeRequest } from "../request.js";
-import { type FormattedResponse, formatResponse } from "../response.js";
+import { formatResponse } from "../response.js";
 import {
 	_resetForTest,
 	type RemitClient,
@@ -96,7 +97,7 @@ type LambdaEvent = Parameters<typeof normalizeRequest>[0];
 
 const throughPipeline = async (
 	event: Record<string, unknown> & { httpMethod: string },
-): Promise<FormattedResponse> => {
+): Promise<APIGatewayProxyResult> => {
 	const { api } = await import("../index.js");
 	const full = {
 		path: "/system/update",
@@ -109,7 +110,7 @@ const throughPipeline = async (
 	return (await api.handleRequest(
 		normalizeRequest(full),
 		full,
-	)) as FormattedResponse;
+	)) as APIGatewayProxyResult;
 };
 
 const getAnonymously = (query: Record<string, string> | null = null) =>

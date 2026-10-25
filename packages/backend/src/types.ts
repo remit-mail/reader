@@ -278,7 +278,6 @@ export interface HandlerContext {
 
 export interface PublicHandlerContext {
 	client: RemitClient;
-	identity: HandlerIdentity;
 }
 
 export type PublicOperationIds =

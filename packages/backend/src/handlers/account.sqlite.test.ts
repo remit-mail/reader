@@ -24,9 +24,10 @@ import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
-import { type FormattedResponse, formatResponse } from "../response.js";
+import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import { sqsClient } from "../service/sqs.js";
 import type { HandlerContext } from "../types.js";
@@ -62,13 +63,13 @@ const context = (
 
 const respond = async (
 	run: () => Promise<unknown>,
-): Promise<FormattedResponse> =>
+): Promise<APIGatewayProxyResult> =>
 	run().then(
 		(body) => formatResponse(body as Record<string, unknown>),
 		(error: unknown) => handleError(error),
 	);
 
-const bodyOf = <T>(response: FormattedResponse): T =>
+const bodyOf = <T>(response: APIGatewayProxyResult): T =>
 	JSON.parse(response.body) as T;
 
 const dataKey = randomBytes(32);

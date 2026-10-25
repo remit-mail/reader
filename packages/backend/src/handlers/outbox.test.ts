@@ -38,9 +38,10 @@ import {
 	createMockStorageService,
 	type StorageService,
 } from "@remit/storage-service";
+import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
-import { type FormattedResponse, formatResponse } from "../response.js";
+import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
@@ -301,7 +302,7 @@ type Outcome =
 /** The response the browser would receive, error funnel included. */
 const respond = async (
 	run: () => Promise<Record<string, unknown>>,
-): Promise<FormattedResponse> => {
+): Promise<APIGatewayProxyResult> => {
 	const outcome: Outcome = await run().then(
 		(body) => ({ ok: true, body }) as const,
 		(error: unknown) => ({ ok: false, error }) as const,
@@ -427,7 +428,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 describe("a send whose enqueue fails (#845.8)", () => {
 	const draftAgainstQueue = async (
 		queue: SQSClient,
-	): Promise<{ outboxMessageId: string; response: FormattedResponse }> => {
+	): Promise<{ outboxMessageId: string; response: APIGatewayProxyResult }> => {
 		installClient(queue);
 		const draft = await createDraft(
 			requestContext(
@@ -696,7 +697,7 @@ describe("attachmentIds on a draft update (#679)", () => {
 });
 
 describe("sending from an account with mail off (#1181)", () => {
-	const assertRefusal = (response: FormattedResponse): void => {
+	const assertRefusal = (response: APIGatewayProxyResult): void => {
 		assert.equal(response.statusCode, 400);
 		const body = JSON.parse(response.body) as {
 			code?: string;
