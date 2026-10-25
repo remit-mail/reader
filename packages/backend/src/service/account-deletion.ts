@@ -1,16 +1,16 @@
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import { readConfigDocument } from "@remit/config-format";
 import type {
+	AccountDataPurgeEvent,
 	AccountItem,
 	IAccountRepository,
 	IConfigImportRepository,
+	QueueProducer,
 } from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 
 export interface AccountDeletionDeps {
 	account: Pick<IAccountRepository, "update">;
-	sqsClient: SQSClient;
-	accountFanoutQueueUrl: string;
+	queue: QueueProducer<AccountDataPurgeEvent>;
 	log: Logger;
 }
 
@@ -21,16 +21,9 @@ export const deleteAccount = async (
 ): Promise<void> => {
 	const { accountId, accountConfigId } = account;
 	// Purge first: an account whose request never left still reads as not deleted, so it is found and asked for again.
-	await deps.sqsClient.send(
-		new SendMessageCommand({
-			QueueUrl: deps.accountFanoutQueueUrl,
-			MessageBody: JSON.stringify({
-				type: "AccountDataPurge",
-				accountId,
-				accountConfigId,
-			}),
-		}),
-	);
+	await deps.queue.send({
+		body: { type: "AccountDataPurge", accountId, accountConfigId },
+	});
 	await deps.account.update(accountId, { deletedAt, isActive: false });
 	deps.log.info({ accountId, accountConfigId }, "Account data purge initiated");
 };

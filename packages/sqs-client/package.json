@@ -43,6 +43,7 @@
 	"dependencies": {
 		"@aws-sdk/client-sqs": "^3.1090.0",
 		"@aws-sdk/core": "^3.975.3",
-		"@types/aws-lambda": "^8.10.162"
+		"@types/aws-lambda": "^8.10.162",
+		"@remit/data-ports": "*"
 	}
 }

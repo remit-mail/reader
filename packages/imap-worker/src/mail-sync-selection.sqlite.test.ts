@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
 } from "@remit/backend/client";
 import type { AccountItem } from "@remit/data-ports";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	AccountService,
@@ -25,6 +25,7 @@ import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessages } from "./handlers/sync-messages.js";
+import { setWorkerQueues } from "./queues.js";
 import { runSchedulerTick } from "./scheduler/run-tick.js";
 
 const NOW = 1_700_000_000_000;
@@ -69,6 +70,15 @@ beforeEach(() => {
 		mailboxLock: locks,
 	} as unknown as RemitClient;
 	setClient(client);
+	const queue = recordingQueue();
+	setWorkerQueues({
+		mailboxes: queue,
+		messages: queue,
+		flags: queue,
+		body: queue,
+		mailboxManagement: queue,
+		messageManagement: queue,
+	});
 });
 
 afterEach(() => {
@@ -130,18 +140,11 @@ const seedSyncedAccount = async (): Promise<{
 };
 
 const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
-	const sent: SendMessageCommand[] = [];
-	const sqsClient = {
-		send: async (command: SendMessageCommand) => {
-			sent.push(command);
-			return {};
-		},
-	} as unknown as SQSClient;
+	const queue = recordingQueue();
 	const result = await runSchedulerTick({
 		redriveStrandedPlacements: async () => 0,
 		accountService: accounts,
-		sqsClient,
-		queueUrl: "https://queue.test/mailboxes",
+		queue,
 		log: silentLogger,
 		tickIntervalMs: 60_000,
 		offlineIntervalMs: 0,
@@ -149,9 +152,7 @@ const tick = async (): Promise<{ enqueued: number; accountIds: string[] }> => {
 	});
 	return {
 		enqueued: result.enqueued,
-		accountIds: sent.map(
-			(command) => JSON.parse(command.input.MessageBody ?? "{}").accountId,
-		),
+		accountIds: queue.sent.map((message) => String(message.body.accountId)),
 	};
 };
 

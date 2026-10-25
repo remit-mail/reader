@@ -1,5 +1,6 @@
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "./service/create-remit-client.js";
+import type { QueueName } from "./service/queues.js";
 
 type MatchPrefix<
 	Prefix extends string,
@@ -271,25 +272,25 @@ export interface UserIdentity {
 
 export type HandlerIdentity = { kind: "anonymous" } | UserIdentity;
 
-export interface HandlerContext {
-	client: RemitClient;
+export interface HandlerContext<K extends QueueName = never> {
+	client: RemitClient<K>;
 	identity: UserIdentity;
 }
 
-export interface PublicHandlerContext {
-	client: RemitClient;
+export interface PublicHandlerContext<K extends QueueName = never> {
+	client: RemitClient<K>;
 }
 
 export type PublicOperationIds =
 	| "MicrosoftOAuthOperations_microsoftOAuthCallback"
 	| "CalendarFeedOperations_getCalendarFeedIcal";
 
-export type OperationHandler<_T extends OperationIds = OperationIds> = (
-	context: Context,
-	ctx: HandlerContext,
-) => Promise<HandlerResponse>;
+export type OperationHandler<
+	_T extends OperationIds = OperationIds,
+	K extends QueueName = never,
+> = (context: Context, ctx: HandlerContext<K>) => Promise<HandlerResponse>;
 
-export type PublicOperationHandler = (
+export type PublicOperationHandler<K extends QueueName = never> = (
 	context: Context,
-	ctx: PublicHandlerContext,
+	ctx: PublicHandlerContext<K>,
 ) => Promise<HandlerResponse>;

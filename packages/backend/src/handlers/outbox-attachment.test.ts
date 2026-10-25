@@ -43,11 +43,7 @@ import type { Context } from "openapi-backend";
 import { receiveUpload } from "../../dev-server/upload-handler.js";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import type { HandlerContext } from "../types.js";
 import {
 	completeOutboxAttachment,
@@ -740,8 +736,7 @@ describe("completing an attachment (#679)", () => {
 describe("the mint route through the whole request pipeline", () => {
 	it("reaches its handler with the real built spec in front of it", async () => {
 		await install();
-		setClient(client);
-		const { api } = await import("../index.js");
+		const { api } = (await import("../api-fixture.js")).servedApi(client);
 
 		const body = JSON.stringify({
 			filename: "routed.txt",

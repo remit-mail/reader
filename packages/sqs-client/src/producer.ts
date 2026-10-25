@@ -1,8 +1,19 @@
-import { SQSClient } from "@aws-sdk/client-sqs";
+import {
+	SendMessageBatchCommand,
+	SendMessageCommand,
+	SQSClient,
+} from "@aws-sdk/client-sqs";
 import { AwsQueryProtocol } from "@aws-sdk/core/protocols";
+import type {
+	FifoQueueMessage,
+	GroupedQueueMessage,
+	QueueBatchResult,
+	QueueMessage,
+	QueueProducer,
+} from "@remit/data-ports";
 import { resolveSqsCredentials, type SqsStaticCredentials } from "./index.js";
 
-export interface CreateQueueProducerOptions {
+export interface CreateSqsClientOptions {
 	readonly queueUrl: string;
 	readonly endpoint?: string;
 	readonly env?: NodeJS.ProcessEnv;
@@ -58,9 +69,7 @@ export const isLocalEndpoint = (queueUrl: string): boolean => {
  * endpoint and ride the default credential chain unless
  * `SQS_ACCESS_KEY_ID`/`SQS_SECRET_ACCESS_KEY` are present.
  */
-export const createQueueProducer = (
-	options: CreateQueueProducerOptions,
-): SQSClient => {
+export const createSqsClient = (options: CreateSqsClientOptions): SQSClient => {
 	const { queueUrl, endpoint, env, localCredentials } = options;
 	const requestTimeout = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
 	const local = isLocalEndpoint(queueUrl);
@@ -71,4 +80,75 @@ export const createQueueProducer = (
 		credentials:
 			(local ? localCredentials : undefined) ?? resolveSqsCredentials(env),
 	});
+};
+
+const isFifoQueue = (queueUrl: string): boolean => queueUrl.endsWith(".fifo");
+
+const isGrouped = <T>(
+	message: QueueMessage<T>,
+): message is GroupedQueueMessage<T> =>
+	"groupId" in message && typeof message.groupId === "string";
+
+const isDeduplicated = <T>(
+	message: QueueMessage<T>,
+): message is FifoQueueMessage<T> =>
+	isGrouped(message) &&
+	"deduplicationId" in message &&
+	typeof message.deduplicationId === "string";
+
+/**
+ * The SQS adapter for the `QueueProducer` port. A FIFO queue (`.fifo`) gets
+ * the message group, and the deduplication id when the message carries one
+ * (otherwise the queue deduplicates by content); a standard queue rejects
+ * both, so they are left off. A local queue server (ElasticMQ) does not honour
+ * a per-message delay on its FIFO queues, so the delay is dropped there.
+ */
+export const createQueueProducer = <
+	T,
+	M extends QueueMessage<T> = QueueMessage<T>,
+>(
+	options: CreateSqsClientOptions,
+): QueueProducer<T, M> => {
+	const { queueUrl } = options;
+	const client = createSqsClient(options);
+	const fifo = isFifoQueue(queueUrl);
+	const local = isLocalEndpoint(queueUrl);
+	const attributes = (message: M) => ({
+		...(fifo && isGrouped(message) && { MessageGroupId: message.groupId }),
+		...(fifo &&
+			isDeduplicated(message) && {
+				MessageDeduplicationId: message.deduplicationId,
+			}),
+		...(message.delaySeconds &&
+			!local && { DelaySeconds: message.delaySeconds }),
+	});
+
+	return {
+		send: async (message) => {
+			await client.send(
+				new SendMessageCommand({
+					QueueUrl: queueUrl,
+					MessageBody: JSON.stringify(message.body),
+					...attributes(message),
+				}),
+			);
+		},
+		sendBatch: async (messages): Promise<QueueBatchResult> => {
+			const result = await client.send(
+				new SendMessageBatchCommand({
+					QueueUrl: queueUrl,
+					Entries: messages.map((message, index) => ({
+						Id: `${index}`,
+						MessageBody: JSON.stringify(message.body),
+						...attributes(message),
+					})),
+				}),
+			);
+			return {
+				refused: new Set(
+					(result.Failed ?? []).map((entry) => Number(entry.Id)),
+				),
+			};
+		},
+	};
 };

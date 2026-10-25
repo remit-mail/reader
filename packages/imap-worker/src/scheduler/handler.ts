@@ -1,10 +1,14 @@
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { ScheduledHandler } from "aws-lambda";
-import { env } from "expect-env";
 import { emitEvent } from "../emit.js";
+import {
+	setWorkerQueues,
+	sqsWorkerQueues,
+	workerQueues,
+	workerQueueUrlsFromEnv,
+} from "../queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
@@ -15,8 +19,7 @@ installNodeLogger();
 
 const log = createLogger();
 
-const mailboxesQueueUrl = env.SQS_QUEUE_URL_MAILBOXES;
-const sqsClient = createQueueProducer({ queueUrl: mailboxesQueueUrl });
+setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
 
 /**
  * EventBridge-scheduled entry point for the periodic mailbox-sync tick
@@ -41,8 +44,7 @@ export const handler: ScheduledHandler = withTelemetry(async (event) => {
 
 	await runSchedulerTick({
 		accountService: client.account,
-		sqsClient,
-		queueUrl: mailboxesQueueUrl,
+		queue: workerQueues().mailboxes,
 		log,
 		tickIntervalMs: getTickIntervalMs(),
 		offlineIntervalMs: getOfflineIntervalMs(),

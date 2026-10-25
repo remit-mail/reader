@@ -11,7 +11,6 @@ import {
 	ownedAccount,
 	queueOrganizeJob,
 } from "@remit/mailbox-service";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
 import {
@@ -29,6 +28,8 @@ import type {
 	OrganizeOperationIds,
 } from "../types.js";
 
+type OrganizeContext = HandlerContext<"accountFanout">;
+
 /**
  * Normalize the request body into the flattened predicate the job row and the
  * matcher share.
@@ -43,7 +44,7 @@ export const predicateFromInput = (
 });
 
 const assertAccount = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	accountId: string,
 	accountConfigId: string,
 	mode: "read" | "act",
@@ -79,7 +80,7 @@ const toOrganizeJobResponse = (
  * not with a 202 the worker has to fail later (reader #463).
  */
 const requestedJob = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	owner: { accountConfigId: string; userId: string },
 	input: OrganizeInput,
 ): Promise<OrganizeJobRequest> => {
@@ -95,11 +96,11 @@ const requestedJob = async (
 
 export const OrganizeOperations: Record<
 	OrganizeOperationIds,
-	OperationHandler<OrganizeOperationIds>
+	OperationHandler<OrganizeOperationIds, "accountFanout">
 > = {
 	OrganizeOperations_createOrganizeJob: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OrganizeContext,
 	): Promise<CreateOrganizeJobResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -113,7 +114,7 @@ export const OrganizeOperations: Record<
 		const job = await queueOrganizeJob(
 			{
 				organizeJobRequest: client.organizeJobRequest,
-				sqsQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+				queue: client.queues.accountFanout,
 				logger,
 			},
 			await requestedJob(client, { accountConfigId, userId }, input),
@@ -128,7 +129,7 @@ export const OrganizeOperations: Record<
 
 	OrganizeOperations_previewOrganize: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OrganizeContext,
 	): Promise<OrganizePreviewResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -159,11 +160,11 @@ export const OrganizeOperations: Record<
 
 export const OrganizeJobDetailOperations: Record<
 	OrganizeJobDetailOperationIds,
-	OperationHandler<OrganizeJobDetailOperationIds>
+	OperationHandler<OrganizeJobDetailOperationIds, "accountFanout">
 > = {
 	OrganizeJobDetailOperations_getOrganizeJob: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OrganizeContext,
 	): Promise<OrganizeJobResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, organizeJobId } = context.request.params as {

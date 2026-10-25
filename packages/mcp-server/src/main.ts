@@ -11,6 +11,7 @@ import {
 	MailboxQueueService,
 	SyncWarningService,
 } from "@remit/mailbox-service";
+import { createQueueProducer } from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { createMcpApp } from "./app.js";
 import {
@@ -52,20 +53,24 @@ const deps: McpDeps = {
 		new SyncWarningService(repositories.syncWarning),
 		logger,
 	),
-	bodySyncQueue: config.bodySyncQueueUrl
-		? new BodySyncQueueService({ sqsQueueUrl: config.bodySyncQueueUrl, logger })
-		: undefined,
+	bodySyncQueue: new BodySyncQueueService({
+		queue: createQueueProducer({ queueUrl: config.bodySyncQueueUrl }),
+		logger,
+	}),
 	logger,
 	folders: {
 		mailboxQueue: new MailboxQueueService({
 			mailboxService: repositories.mailbox,
-			sqsQueueUrl: config.mailboxQueueUrl,
+			queue: createQueueProducer({ queueUrl: config.mailboxQueueUrl }),
 			logger,
 		}),
 		settleTimeoutMs: FOLDER_SETTLE_TIMEOUT_MS,
 		pollIntervalMs: FOLDER_POLL_INTERVAL_MS,
 	},
-	filters: { organizeQueueUrl: config.organizeQueueUrl, logger },
+	filters: {
+		organizeQueue: createQueueProducer({ queueUrl: config.organizeQueueUrl }),
+		logger,
+	},
 };
 
 const auth = createMcpAuth({

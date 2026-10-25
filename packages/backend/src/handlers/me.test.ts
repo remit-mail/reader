@@ -9,20 +9,21 @@ import {
 } from "@remit/domain-enums";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 import { MeOperations } from "./me.js";
 
 const listQuarantine = (
 	context: Context,
-	ctx: HandlerContext,
+	ctx: HandlerContext<QueueName>,
 ): Promise<QuarantineListResponse> =>
 	MeOperations.MeOperations_listQuarantine(
 		context,
 		ctx,
 	) as Promise<QuarantineListResponse>;
 
-const callerOf = (sub: string): HandlerContext => ({
+const callerOf = (sub: string): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",

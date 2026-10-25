@@ -1,17 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import type { QueueProducer } from "@remit/data-ports";
 
 /**
  * SYNC_MESSAGE_BODY event structure (matches remit-imap-worker/events.ts). The
  * consumer falls back to `messageIds` when `messages` (id+uid pairs) is absent.
  */
-interface SyncMessageBodyTarget {
+export interface SyncMessageBodyTarget {
 	messageId: string;
 	uid: number;
 }
 
-interface SyncMessageBodyEvent {
+export interface SyncMessageBodyEvent {
 	type: "SYNC_MESSAGE_BODY";
 	eventId: string;
 	timestamp: number;
@@ -39,8 +38,7 @@ const noopLogger: BodySyncQueueLogger = {
 };
 
 export interface BodySyncQueueConfig {
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	queue: QueueProducer<SyncMessageBodyEvent>;
 	logger?: BodySyncQueueLogger;
 }
 
@@ -66,17 +64,12 @@ export interface RequestBodySyncInput {
  * alertable field instead.
  */
 export class BodySyncQueueService {
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: QueueProducer<SyncMessageBodyEvent>;
 	private log: BodySyncQueueLogger;
 
 	constructor(config: BodySyncQueueConfig) {
-		this.queueUrl = config.sqsQueueUrl;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
-		this.sqs = createQueueProducer({
-			queueUrl: config.sqsQueueUrl,
-			endpoint: config.sqsEndpoint,
-		});
 	}
 
 	requestBodySync = async (input: RequestBodySyncInput): Promise<void> => {
@@ -92,19 +85,8 @@ export class BodySyncQueueService {
 			force: true,
 		};
 
-		const useFifo = this.queueUrl.endsWith(".fifo");
-
-		await this.sqs
-			.send(
-				new SendMessageCommand({
-					QueueUrl: this.queueUrl,
-					MessageBody: JSON.stringify(event),
-					...(useFifo && {
-						MessageGroupId: accountId,
-						MessageDeduplicationId: event.eventId,
-					}),
-				}),
-			)
+		await this.queue
+			.send({ body: event })
 			.then(() => {
 				this.log.info(
 					{ eventId: event.eventId, accountId, mailboxId, messageId },

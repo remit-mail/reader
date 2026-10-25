@@ -292,7 +292,10 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client },
+			{
+				client: tracked.client,
+				moveService: trackingMoveService().moveService,
+			},
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,
@@ -309,26 +312,6 @@ describe("back-apply pipeline (matchOrganize -> applyOrganize)", () => {
 			"every matching message gets the requested label",
 		);
 		assert.equal(tracked.filterWrites(), 0, "no Filter row is ever created");
-	});
-
-	it("counts a requested move as failed when no move service is wired", async () => {
-		const p = reservations({ actionMailboxId: "mbox-target" });
-
-		const { messageIds: matched } = await matchAccepted(
-			corpusDeps([reservation("msg-1")]),
-			ACCOUNT_CONFIG_ID,
-			p,
-		);
-		const tracked = trackingClient();
-		const result = await applyOrganize(
-			{ client: tracked.client },
-			ACCOUNT_CONFIG_ID,
-			matched,
-			p,
-		);
-
-		assert.equal(result.applied, 0);
-		assert.equal(result.failed, 1);
 	});
 
 	it("moves every match through the wired move service and writes zero Filter rows", async () => {
@@ -551,7 +534,10 @@ describe("matchOrganize with ListId and FromDomain clauses", () => {
 
 		const tracked = trackingClient();
 		const result = await applyOrganize(
-			{ client: tracked.client },
+			{
+				client: tracked.client,
+				moveService: trackingMoveService().moveService,
+			},
 			ACCOUNT_CONFIG_ID,
 			applied.messageIds,
 			p,

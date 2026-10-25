@@ -10,7 +10,12 @@ import {
 	createJwtVerifier,
 	resolveVerifierConfig,
 } from "@remit/auth-service/verifier";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
+import {
+	BodySyncQueueService,
+	BodySyncService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	openStore,
 	type Store,
@@ -146,9 +151,9 @@ before(async () => {
 			new SyncWarningService(store.syncWarning),
 			silentLog,
 		),
-		bodySyncQueue: undefined,
+		bodySyncQueue: new BodySyncQueueService({ queue: recordingQueue() }),
 		logger: silentLog,
-		...ruleDeps(store),
+		...ruleDeps(store, recordingQueue()),
 	};
 	({ auth, handler } = buildApp());
 });

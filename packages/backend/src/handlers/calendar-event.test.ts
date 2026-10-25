@@ -144,7 +144,7 @@ describe("an unauthenticated calendar request", () => {
 		// The gate above is what a browser meets. This is the second lock: a
 		// listing reached with no identity is refused before the handler runs,
 		// rather than falling back to somebody's account.
-		const { api } = await import("../index.js");
+		const { api } = (await import("../api-fixture.js")).servedApi(client);
 		const event = {
 			httpMethod: "GET",
 			path: "/calendar-events",

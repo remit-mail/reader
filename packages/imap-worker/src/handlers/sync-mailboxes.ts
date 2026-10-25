@@ -22,7 +22,6 @@ import {
 	MailConnectionError,
 	type MailCredentials,
 } from "@remit/mailbox-service";
-import { env } from "expect-env";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
@@ -31,6 +30,7 @@ import {
 } from "../account-check.js";
 import { emitEvent } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
+import { workerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { createImportedFolder } from "./imported-folder.js";
@@ -118,7 +118,7 @@ export const syncMailboxes = async (
 			mailboxService,
 			new MailboxQueueService({
 				mailboxService,
-				sqsQueueUrl: env.SQS_QUEUE_URL_MAILBOX_MGMT,
+				queue: workerQueues().mailboxManagement,
 				logger: log,
 			}),
 		),

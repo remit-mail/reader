@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { AccountItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
 	eml,
@@ -112,7 +113,7 @@ before(async () => {
 			},
 		},
 		logger: silentLog,
-		...ruleDeps(store),
+		...ruleDeps(store, recordingQueue()),
 	};
 	mine = await seedUser(USER_ID, "mine");
 	theirs = await seedUser(OTHER_USER_ID, "theirs");

@@ -13,7 +13,6 @@ import { silentLog } from "@remit/mailbox-service/test-helpers/test-store";
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
-import { ORGANIZE_QUEUE } from "./test-rule-deps.js";
 
 const USER_ID = "folder-user";
 const OTHER_USER_ID = "folder-other-user";
@@ -90,14 +89,17 @@ beforeEach(async () => {
 			new SyncWarningService(client.syncWarning),
 			silentLog,
 		),
-		bodySyncQueue: undefined,
+		bodySyncQueue: client.bodySyncQueue,
 		logger: silentLog,
 		folders: {
 			mailboxQueue: client.mailboxQueue,
 			settleTimeoutMs: 100,
 			pollIntervalMs: 10,
 		},
-		filters: { organizeQueueUrl: ORGANIZE_QUEUE, logger: silentLog },
+		filters: {
+			organizeQueue: client.queues.accountFanout,
+			logger: silentLog,
+		},
 	};
 });
 

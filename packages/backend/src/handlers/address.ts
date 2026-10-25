@@ -1,4 +1,3 @@
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import type {
 	AddressResponse,
 	UpdateAddressInput,
@@ -10,15 +9,15 @@ import type {
 } from "@remit/data-ports";
 import { ForbiddenError } from "@remit/data-ports/errors";
 import { AddressFlagKey } from "@remit/domain-enums";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
-import { sqsClient } from "../service/sqs.js";
 import type {
 	AddressDetailOperationIds,
 	AddressOperationIds,
 	HandlerContext,
 	OperationHandler,
 } from "../types.js";
+
+type AddressContext = HandlerContext<"accountFanout">;
 
 export const toAddressResponse = (item: AddressItem): AddressResponse => ({
 	addressId: item.addressId,
@@ -103,11 +102,11 @@ export const backApplyCategoryFlag = (
 
 export const AddressOperations: Record<
 	AddressOperationIds,
-	OperationHandler<AddressOperationIds>
+	OperationHandler<AddressOperationIds, "accountFanout">
 > = {
 	AddressOperations_searchAddresses: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AddressContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { q, limit } = context.request.query as {
@@ -132,11 +131,11 @@ export const AddressOperations: Record<
 
 export const AddressDetailOperations: Record<
 	AddressDetailOperationIds,
-	OperationHandler<AddressDetailOperationIds>
+	OperationHandler<AddressDetailOperationIds, "accountFanout">
 > = {
 	AddressDetailOperations_updateAddress: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AddressContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { addressId } = context.request.params as { addressId: string };
@@ -169,20 +168,17 @@ export const AddressDetailOperations: Record<
 			// The flag itself is already durable. A queue failure here costs the
 			// user the retroactive pass and nothing else, so the 500 says so and
 			// names the retry — re-sending the same category enqueues a fresh job.
-			await sqsClient
-				.send(
-					new SendMessageCommand({
-						QueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
-						MessageBody: JSON.stringify({
-							type: "SenderCategoryBackApply",
-							accountConfigId,
-							addressId,
-							normalizedEmail: updated.normalizedEmail,
-							category: flag.value,
-							categorySetAt: flag.setAt,
-						}),
-					}),
-				)
+			await client.queues.accountFanout
+				.send({
+					body: {
+						type: "SenderCategoryBackApply",
+						accountConfigId,
+						addressId,
+						normalizedEmail: updated.normalizedEmail,
+						category: flag.value,
+						categorySetAt: flag.setAt,
+					},
+				})
 				.catch((cause: unknown) => {
 					throw new Error(
 						`The ${flag.value} override is saved and applies to this sender's next message, but the pass over their existing mail could not be started. Setting the same category again retries it.`,

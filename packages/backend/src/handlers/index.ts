@@ -1,3 +1,4 @@
+import type { QueueName } from "../service/queues.js";
 import type {
 	OperationHandler,
 	OperationIds,
@@ -47,10 +48,7 @@ import { SystemOperations } from "./system-update.js";
 import { ThreadDetailOperations, ThreadOperations } from "./thread.js";
 import { UnifiedThreadOperations } from "./unified-threads.js";
 
-export const handlers: Record<
-	Exclude<OperationIds, PublicOperationIds>,
-	OperationHandler
-> = {
+export const handlers = {
 	...MeOperations,
 	...ConfigOperations,
 	...SystemOperations,
@@ -87,12 +85,12 @@ export const handlers: Record<
 	...CalendarSuggestionOperations,
 	...MessageCalendarSuggestionOperations,
 	...CalendarSuggestionActionOperations,
-};
+} satisfies Record<
+	Exclude<OperationIds, PublicOperationIds>,
+	OperationHandler<OperationIds, QueueName>
+>;
 
-export const publicHandlers: Record<
-	PublicOperationIds,
-	PublicOperationHandler
-> = {
+export const publicHandlers = {
 	MicrosoftOAuthOperations_microsoftOAuthCallback: microsoftOAuthCallback,
 	CalendarFeedOperations_getCalendarFeedIcal: getCalendarFeedIcal,
-};
+} satisfies Record<PublicOperationIds, PublicOperationHandler<QueueName>>;

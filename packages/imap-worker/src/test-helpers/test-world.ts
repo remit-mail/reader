@@ -5,17 +5,23 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	_resetForTest,
-	getClient,
 	type RemitClient,
 	setClient,
 } from "@remit/backend/client";
+import { composeSqliteClient } from "@remit/backend/compose-sqlite";
+import { buildSharedDeps } from "@remit/backend/shared-deps";
 import type {
 	AccountItem,
 	MailboxItem,
 	MailboxSpecialUseValue,
 	MessageItem,
 	OutboxMessageItem,
+	QueueProducer,
 } from "@remit/data-ports";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	ConnectionState,
@@ -28,13 +34,10 @@ import {
 	eml,
 	FakeImapServer,
 } from "@remit/mailbox-service/test-helpers/fake-imap";
-import {
-	captureQueue,
-	type QueueCapture,
-} from "@remit/mailbox-service/test-helpers/test-queue";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
 import { syncMessages } from "../handlers/sync-messages.js";
+import { setWorkerQueues } from "../queues.js";
 
 export interface LogLine {
 	level: string;
@@ -93,6 +96,7 @@ export interface SeededMessage {
  */
 export const openStore = async (): Promise<{
 	client: RemitClient;
+	bindWorkerQueues: () => void;
 	world: (accountConfigId?: string) => Promise<World>;
 	close: () => void;
 }> => {
@@ -103,12 +107,38 @@ export const openStore = async (): Promise<{
 	process.env.BETTER_AUTH_URL = "https://mail.example.com";
 	process.env.BETTER_AUTH_SECRET = "a-signing-secret-of-at-least-32-characters";
 	_resetForTest();
-	const client = await getClient();
+	let current = recordingQueue();
+	const queue: QueueProducer<unknown> = {
+		send: (message) => current.send(message),
+		sendBatch: (messages) => current.sendBatch(messages),
+	};
+	const client = await composeSqliteClient(
+		buildSharedDeps({
+			sync: queue,
+			accountFanout: queue,
+			smtp: queue,
+			messageManagement: queue,
+			body: queue,
+		}),
+	);
 	setClient(client);
+	const bindWorkerQueues = (): void =>
+		setWorkerQueues({
+			mailboxes: queue,
+			messages: queue,
+			flags: queue,
+			body: queue,
+			mailboxManagement: queue,
+			messageManagement: queue,
+		});
+	bindWorkerQueues();
 	return {
 		client,
-		world: (accountConfigId = `cfg-${randomUUID()}`) =>
-			createWorld(client, accountConfigId),
+		bindWorkerQueues,
+		world: (accountConfigId = `cfg-${randomUUID()}`) => {
+			current = recordingQueue();
+			return createWorld(client, current, accountConfigId);
+		},
 		close: () => {
 			_resetForTest();
 			rmSync(directory, { recursive: true, force: true });
@@ -135,7 +165,7 @@ export interface World {
 	) => Promise<Array<{ mailboxId: string; uid?: number; isDeleted: boolean }>>;
 	queued: () => Array<Record<string, unknown>>;
 	refuseSends: (error: Error | undefined) => void;
-	queue: QueueCapture;
+	queue: RecordingQueue;
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
@@ -145,10 +175,9 @@ export interface World {
 
 const createWorld = async (
 	client: RemitClient,
+	queue: RecordingQueue,
 	accountConfigId: string,
 ): Promise<World> => {
-	const queue = captureQueue();
-
 	const imap = new FakeImapServer();
 	const logs: LogLine[] = [];
 	const password = await client.secrets.encrypt("app-password");

@@ -1,14 +1,15 @@
-import type { SQSClient } from "@aws-sdk/client-sqs";
+import type { FifoQueueProducer } from "@remit/data-ports";
 import { logger } from "@remit/logger";
 import { ownedAccount } from "@remit/mailbox-service";
-import { env } from "expect-env";
 import {
 	type FireAndForgetLogger,
 	fireAndForget,
 } from "../service/fire-and-forget.js";
 import { unwrap } from "../service/refusal.js";
-import { sqsClient } from "../service/sqs.js";
-import { triggerAccountSync } from "../service/trigger-sync.js";
+import {
+	type SyncMailboxesEvent,
+	triggerAccountSync,
+} from "../service/trigger-sync.js";
 import type {
 	HandlerContext,
 	OperationHandler,
@@ -16,19 +17,14 @@ import type {
 } from "../types.js";
 import { toMailboxSyncProgress } from "./sync-progress.js";
 
+type SyncContext = HandlerContext<"sync">;
+
 interface SyncTriggerDeps {
-	sqsClient: SQSClient;
-	queueUrl: string;
+	queue: FifoQueueProducer<SyncMailboxesEvent>;
 	logger: FireAndForgetLogger & {
 		info: (fields: Record<string, unknown>, message: string) => void;
 	};
 }
-
-const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
-	sqsClient,
-	queueUrl: env.SQS_QUEUE_URL,
-	logger,
-});
 
 /**
  * Fire-and-forget enqueue for the POST /sync kick.
@@ -48,13 +44,12 @@ const defaultSyncTriggerDeps = (): SyncTriggerDeps => ({
 export const triggerSyncSafe = async (
 	accountId: string,
 	accountConfigId: string,
-	deps: SyncTriggerDeps = defaultSyncTriggerDeps(),
+	deps: SyncTriggerDeps,
 ): Promise<void> => {
 	await fireAndForget(
 		async () => {
 			const { eventId } = await triggerAccountSync({
-				sqsClient: deps.sqsClient,
-				queueUrl: deps.queueUrl,
+				queue: deps.queue,
 				accountId,
 				// POST /sync asks for a sync of this account by name — the refresh
 				// control, pull-to-refresh, and the client's automatic poll all land
@@ -78,16 +73,19 @@ export const triggerSyncSafe = async (
 
 export const SyncOperations: Record<
 	SyncOperationIds,
-	OperationHandler<SyncOperationIds>
+	OperationHandler<SyncOperationIds, "sync">
 > = {
-	SyncOperations_triggerSync: async (context, ctx: HandlerContext) => {
+	SyncOperations_triggerSync: async (context, ctx: SyncContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 
 		const account = await ctx.client.account.get(accountId);
 		unwrap(ownedAccount(account, accountConfigId, "act"));
 
-		void triggerSyncSafe(account.accountId, accountConfigId);
+		void triggerSyncSafe(account.accountId, accountConfigId, {
+			queue: ctx.client.queues.sync,
+			logger,
+		});
 
 		return {
 			triggered: true,
@@ -95,7 +93,7 @@ export const SyncOperations: Record<
 		};
 	},
 
-	SyncOperations_getSyncStatus: async (context, ctx: HandlerContext) => {
+	SyncOperations_getSyncStatus: async (context, ctx: SyncContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 

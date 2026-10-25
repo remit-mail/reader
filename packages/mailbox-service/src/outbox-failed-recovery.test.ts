@@ -7,18 +7,18 @@ import { OutboxAttachmentService } from "./outbox-attachment.js";
 import { OutboxQueueService } from "./outbox-queue.js";
 import {
 	beforeNext,
-	captureQueue,
 	openStore,
-	type QueueCapture,
-	type QueuedEvent,
+	type RecordedMessage,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 } from "./test-helpers/test-store.js";
 
 let store: Store;
 let account: AccountItem;
-let capture: QueueCapture;
-let enqueued: QueuedEvent[];
+let capture: RecordingQueue;
+let enqueued: RecordedMessage[];
 let enqueueFails: Error | undefined;
 let whileEnqueueing: () => Promise<unknown>;
 
@@ -27,7 +27,7 @@ beforeEach(async () => {
 	account = await seedAccount(store);
 	enqueueFails = undefined;
 	whileEnqueueing = async () => {};
-	capture = captureQueue();
+	capture = recordingQueue();
 	capture.answer(async () => {
 		await whileEnqueueing();
 		if (enqueueFails) throw enqueueFails;
@@ -37,7 +37,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -50,7 +49,7 @@ const queue = () =>
 			storage: store.storage(),
 		}),
 		accountService: store.account,
-		sqsSmtpQueueUrl: "http://localhost/queue",
+		queue: capture,
 	});
 
 const message = (status: OutboxMessageItem["status"]) =>

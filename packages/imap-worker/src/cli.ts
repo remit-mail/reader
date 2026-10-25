@@ -7,6 +7,11 @@
 // text and argument errors are for the person who typed the command.
 import { parseArgs } from "node:util";
 import { emitEvent } from "./emit.js";
+import {
+	setWorkerQueues,
+	sqsWorkerQueues,
+	workerQueueUrlsFromEnv,
+} from "./queues.js";
 
 const HELP = `
 remit-imap-worker - Process IMAP sync events
@@ -203,6 +208,8 @@ const buildEvent = () => {
 };
 
 const event = buildEvent();
+
+setWorkerQueues(sqsWorkerQueues(workerQueueUrlsFromEnv()));
 
 console.log(`Enqueueing ${event.type} event for account ${event.accountId}...`);
 

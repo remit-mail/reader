@@ -33,13 +33,11 @@ import {
 	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
-import { env } from "expect-env";
 import type { Context } from "openapi-backend";
 import { deleteAccount } from "../service/account-deletion.js";
 import type { RemitClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import { unwrap } from "../service/refusal.js";
-import { sqsClient } from "../service/sqs.js";
 import { triggerAccountSync } from "../service/trigger-sync.js";
 import type {
 	AccountDetailOperationIds,
@@ -67,12 +65,14 @@ import {
 import { ensureAccountConfig } from "./ensure-account-config.js";
 import { resolveAccountFolderAppointments } from "./folder-role-appointments.js";
 
+type AccountContext = HandlerContext<"sync" | "accountFanout">;
+
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };
 
 export const triggerAccountSyncSafe = async (
+	client: RemitClient<"sync">,
 	accountId: string,
 ): Promise<void> => {
-	const queueUrl = env.SQS_QUEUE_URL;
 	// Best-effort: account creation must still return 200 even if the sync
 	// enqueue fails. fireAndForget catches and logs every rejection loudly with
 	// the alertable structured fields and never rejects, so a failure here (SQS
@@ -81,8 +81,7 @@ export const triggerAccountSyncSafe = async (
 	await fireAndForget(
 		async () => {
 			const { eventId } = await triggerAccountSync({
-				sqsClient,
-				queueUrl,
+				queue: client.queues.sync,
 				accountId,
 			});
 			// biome-ignore lint/plugin/no-logger-info: sync-triggered-for-new-account is an audit-grade signal
@@ -196,11 +195,11 @@ const testOAuthConnection = async (
 
 export const AccountOperations: Record<
 	AccountOperationIds,
-	OperationHandler<AccountOperationIds>
+	OperationHandler<AccountOperationIds, "sync" | "accountFanout">
 > = {
 	AccountOperations_createAccount: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AccountContext,
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as CreateAccountInput;
@@ -280,7 +279,7 @@ export const AccountOperations: Record<
 			);
 		}
 
-		await triggerAccountSyncSafe(newAccount.accountId);
+		await triggerAccountSyncSafe(ctx.client, newAccount.accountId);
 
 		const [overrides, folderAppointments] = await Promise.all([
 			loadAccountOverrides(
@@ -299,7 +298,7 @@ export const AccountOperations: Record<
 
 	AccountOperations_testConnection: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AccountContext,
 	): Promise<TestConnectionResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as TestConnectionInput;
@@ -410,11 +409,11 @@ type AccountEntityField = Exclude<
 
 export const AccountDetailOperations: Record<
 	AccountDetailOperationIds,
-	OperationHandler<AccountDetailOperationIds>
+	OperationHandler<AccountDetailOperationIds, "sync" | "accountFanout">
 > = {
 	AccountDetailOperations_updateAccount: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AccountContext,
 	): Promise<AccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -514,7 +513,7 @@ export const AccountDetailOperations: Record<
 
 	AccountDetailOperations_deleteAccount: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: AccountContext,
 	): Promise<DeleteAccountResponse> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
@@ -528,8 +527,7 @@ export const AccountDetailOperations: Record<
 		await deleteAccount(
 			{
 				account,
-				sqsClient,
-				accountFanoutQueueUrl: env.SQS_QUEUE_URL_ACCOUNT_FANOUT,
+				queue: ctx.client.queues.accountFanout,
 				log: logger,
 			},
 			existing,

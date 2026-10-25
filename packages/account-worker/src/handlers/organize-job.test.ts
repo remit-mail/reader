@@ -8,6 +8,7 @@ import {
 } from "@remit/backend/organize";
 import type { FilterItem } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	createSqliteRepositories,
 	type DrizzleThreadMessageRepository,
@@ -39,6 +40,7 @@ const jobClient = (
 	literalClauses: Array<{ field: string; value: string }>,
 ): RemitClient =>
 	({
+		queues: { messageManagement: recordingQueue() },
 		organizeJobRequest: {
 			get: async () => ({
 				organizeJobId: "job-1",

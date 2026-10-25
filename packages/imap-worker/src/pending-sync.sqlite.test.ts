@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
-import { afterEach, before, beforeEach, describe, it } from "node:test";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	_resetForTest,
 	type RemitClient,
 	setClient,
 } from "@remit/backend/client";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { MailboxLockRepo } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
-import { mockClient } from "aws-sdk-client-mock";
-import type * as Emit from "./emit.js";
+import { emitEvent, SYNC_MESSAGES_PENDING } from "./emit.js";
 import type { SyncMessagesEvent } from "./events.js";
 import { emitMailboxResync, emitMoveResync } from "./handlers/message-move.js";
 import { emitSyncMessagesEvents } from "./handlers/sync-mailboxes.js";
+import { setWorkerQueues } from "./queues.js";
 
 const ACCOUNT = "account-1366";
 const FOLDERS = [
@@ -21,20 +24,17 @@ const FOLDERS = [
 	{ mailboxId: "mbx-archive", fullPath: "Archive" },
 ];
 
-const sqsMock = mockClient(SQSClient);
-
-let emitEvent: typeof Emit.emitEvent;
-let SYNC_MESSAGES_PENDING: typeof Emit.SYNC_MESSAGES_PENDING;
+let queue: RecordingQueue;
 let locks: MailboxLockRepo;
 let closeStore: () => void;
 
 type Queued = { mailboxId: string; eventId: string };
 
 const queued = (): Queued[] =>
-	sqsMock.commandCalls(SendMessageCommand).map((call) => {
-		const body = JSON.parse(call.args[0].input.MessageBody ?? "{}") as Queued;
-		return { mailboxId: body.mailboxId, eventId: body.eventId };
-	});
+	queue.sent.map(({ body }) => ({
+		mailboxId: String(body.mailboxId),
+		eventId: String(body.eventId),
+	}));
 
 const inboxSync = (): Omit<SyncMessagesEvent, "eventId" | "timestamp"> => ({
 	type: "SYNC_MESSAGES",
@@ -45,18 +45,16 @@ const inboxSync = (): Omit<SyncMessagesEvent, "eventId" | "timestamp"> => ({
 const fanOut = (): Promise<void> =>
 	emitSyncMessagesEvents(ACCOUNT, FOLDERS, emitEvent);
 
-before(async () => {
-	const fifo = (name: string) =>
-		`https://sqs.eu-west-1.amazonaws.com/0/test-${name}.fifo`;
-	process.env.SQS_QUEUE_URL_MAILBOXES = fifo("mailboxes");
-	process.env.SQS_QUEUE_URL_MESSAGES = fifo("messages");
-	process.env.SQS_QUEUE_URL_FLAGS = fifo("flags");
-	({ emitEvent, SYNC_MESSAGES_PENDING } = await import("./emit.js"));
-});
-
 beforeEach(() => {
-	sqsMock.reset();
-	sqsMock.on(SendMessageCommand).resolves({});
+	queue = recordingQueue();
+	setWorkerQueues({
+		mailboxes: queue,
+		messages: queue,
+		flags: queue,
+		body: queue,
+		mailboxManagement: queue,
+		messageManagement: queue,
+	});
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);
@@ -140,10 +138,11 @@ describe("SYNC_MESSAGES under explicit refreshes (#1366)", () => {
 	});
 
 	it("releases the marker when the send fails, so the next round is not swallowed", async () => {
-		sqsMock
-			.on(SendMessageCommand)
-			.rejectsOnce(new Error("queue unreachable"))
-			.resolves({});
+		let sends = 0;
+		queue.answer(async () => {
+			sends += 1;
+			if (sends === 1) throw new Error("queue unreachable");
+		});
 
 		await assert.rejects(emitEvent(inboxSync()), /queue unreachable/);
 		await emitEvent(inboxSync());
@@ -162,6 +161,6 @@ describe("SYNC_MESSAGES under explicit refreshes (#1366)", () => {
 		} as unknown as RemitClient);
 
 		await assert.rejects(emitEvent(inboxSync()), /marker store down/);
-		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);
+		assert.equal(queue.sent.length, 0);
 	});
 });

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { triggerSyncSafe } from "./sync.js";
-
-const QUEUE_URL = "http://localhost:9324/000000000000/remit-dev-mailboxes";
 
 interface LogCall {
 	fields: Record<string, unknown>;
@@ -24,40 +25,34 @@ const createLoggerSpy = () => {
 	return { info, error, logger };
 };
 
-const okSqsClient = (sent: SendMessageCommand[]): SQSClient =>
-	({
-		send: async (cmd: SendMessageCommand) => {
-			sent.push(cmd);
-			return {};
-		},
-	}) as unknown as SQSClient;
-
 /**
  * Reproduces the real smoke failure shape: the SQS send does NOT reject inline —
  * it rejects on a later microtask/timer, the way a socket ECONNREFUSED settles
  * after the AWS SDK's connect + retries. A try/catch that only guards the
  * synchronous call would miss it; only awaiting the actual promise contains it.
  */
-const deferredFailingSqsClient = (error: Error): SQSClient =>
-	({
-		send: () =>
+const deferredFailingQueue = (error: Error): RecordingQueue => {
+	const queue = recordingQueue();
+	queue.answer(
+		() =>
 			new Promise((_resolve, reject) => {
 				setImmediate(() => reject(error));
 			}),
-	}) as unknown as SQSClient;
+	);
+	return queue;
+};
 
 describe("triggerSyncSafe", () => {
 	it("enqueues a SYNC_MAILBOXES event and logs success", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		const { logger, info, error } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			sqsClient: okSqsClient(sent),
-			queueUrl: QUEUE_URL,
+			queue: queue,
 			logger,
 		});
 
-		assert.equal(sent.length, 1);
+		assert.equal(queue.sent.length, 1);
 		assert.equal(info.length, 1);
 		assert.equal(error.length, 0);
 	});
@@ -69,19 +64,15 @@ describe("triggerSyncSafe", () => {
 	// client's automatic poll — the poll is kept from abusing this by the
 	// interval floor in useStaleAccountSync, not by the server.
 	it("marks the event as an explicit request", async () => {
-		const sent: SendMessageCommand[] = [];
+		const queue = recordingQueue();
 		const { logger } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			sqsClient: okSqsClient(sent),
-			queueUrl: QUEUE_URL,
+			queue: queue,
 			logger,
 		});
 
-		const body = JSON.parse(sent[0]?.input.MessageBody ?? "{}") as {
-			explicitRequest?: boolean;
-		};
-		assert.equal(body.explicitRequest, true);
+		assert.equal(queue.sent[0]?.body.explicitRequest, true);
 	});
 
 	it("does NOT reject when the SQS enqueue fails (POST /sync stays resilient)", async () => {
@@ -93,8 +84,7 @@ describe("triggerSyncSafe", () => {
 
 		await assert.doesNotReject(
 			triggerSyncSafe("acc-a", "config-1", {
-				sqsClient: deferredFailingSqsClient(econnrefused),
-				queueUrl: QUEUE_URL,
+				queue: deferredFailingQueue(econnrefused),
 				logger,
 			}),
 		);
@@ -108,8 +98,7 @@ describe("triggerSyncSafe", () => {
 		const { logger, error } = createLoggerSpy();
 
 		await triggerSyncSafe("acc-a", "config-1", {
-			sqsClient: deferredFailingSqsClient(econnrefused),
-			queueUrl: QUEUE_URL,
+			queue: deferredFailingQueue(econnrefused),
 			logger,
 		});
 
@@ -146,8 +135,7 @@ describe("triggerSyncSafe", () => {
 		try {
 			// Fire-and-forget exactly as SyncOperations_triggerSync does.
 			void triggerSyncSafe("acc-a", "config-1", {
-				sqsClient: deferredFailingSqsClient(econnrefused),
-				queueUrl: QUEUE_URL,
+				queue: deferredFailingQueue(econnrefused),
 				logger,
 			});
 

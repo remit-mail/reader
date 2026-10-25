@@ -19,10 +19,10 @@ import {
 	FakeImapServer,
 } from "./test-helpers/fake-imap.js";
 import {
-	captureQueue,
 	messageAtUid,
 	openStore,
-	type QueueCapture,
+	type RecordingQueue,
+	recordingQueue,
 	type Store,
 	seedAccount,
 	seedMailbox,
@@ -36,7 +36,7 @@ const SPAMMER = eml({
 });
 
 let store: Store;
-let capture: QueueCapture;
+let capture: RecordingQueue;
 let imap: FakeImapServer;
 let connection: FakeImapConnection;
 let account: AccountItem;
@@ -48,7 +48,7 @@ let allMail: MailboxItem;
 let logMark: number;
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	store = await openStore();
 	imap = new FakeImapServer();
 	account = await seedAccount(store);
@@ -69,14 +69,13 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
 const flagPushService = () =>
 	new FlagPushService({
 		markerService: store.flagPush,
-		sqsQueueUrl: "https://sqs.test/flags",
+		queue: capture,
 	});
 
 const syncService = () =>
@@ -107,7 +106,7 @@ const userMoves = () =>
 		mailboxSpecialUseService: store.mailboxSpecialUse,
 		threadMessageService: store.threadMessage,
 		addressService: store.address,
-		sqsQueueUrl: "http://localhost:9324/000000000000/remit-messages.fifo",
+		queue: capture,
 	});
 
 const flagQueue = () =>

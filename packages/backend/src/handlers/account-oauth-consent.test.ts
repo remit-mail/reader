@@ -11,11 +11,7 @@ import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { AccountService } from "@remit/domain-enums";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "../service/data-client.js";
+import { _resetForTest, type RemitClient } from "../service/data-client.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 const CLIENT_SECRET = "consent-test-client-secret";
@@ -180,10 +176,7 @@ before(async () => {
 	process.env.AWS_ACCESS_KEY_ID = "test";
 	process.env.AWS_SECRET_ACCESS_KEY = "test";
 	({ client, cleanup } = await createCalendarSqliteClient());
-	setClient(client);
-	({ handler } = (await import("../index.js")) as unknown as {
-		handler: typeof handler;
-	});
+	({ handler } = (await import("../api-fixture.js")).servedApi(client));
 });
 
 beforeEach(() => {

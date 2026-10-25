@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import type { IMessageFlagPushRepository } from "@remit/data-ports";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import type {
+	FifoQueueProducer,
+	IMessageFlagPushRepository,
+} from "@remit/data-ports";
 
 /**
  * Event the reconciler (imap-worker `handleFlagPush`) drains. Carries ONLY
@@ -33,8 +34,7 @@ const noopLogger: FlagPushLogger = {
 
 export interface FlagPushConfig {
 	markerService: IMessageFlagPushRepository;
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	queue: FifoQueueProducer<FlagPushEvent>;
 	logger?: FlagPushLogger;
 }
 
@@ -68,18 +68,13 @@ export type FlagPushOperationValue = "add" | "remove";
  */
 export class FlagPushService {
 	private markerService: IMessageFlagPushRepository;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: FifoQueueProducer<FlagPushEvent>;
 	private log: FlagPushLogger;
 
 	constructor(config: FlagPushConfig) {
 		this.markerService = config.markerService;
-		this.queueUrl = config.sqsQueueUrl;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
-		this.sqs = createQueueProducer({
-			queueUrl: config.sqsQueueUrl,
-			endpoint: config.sqsEndpoint,
-		});
 	}
 
 	flip = async (params: {
@@ -124,25 +119,18 @@ export class FlagPushService {
 			...params,
 		};
 
-		const useFifo = this.queueUrl.endsWith(".fifo");
-
 		// The marker persisted in `flip` is the durable record — the queue,
 		// per the issue's own words. This send is only a wake-up hint: a
 		// queue-down failure must NOT fail the caller's flip (intent is
 		// already durable) and must NOT be silent either (standing rule: our
 		// infra failing is never a quiet blip). The periodic per-mailbox
 		// drain (issue #1273) still finds and pushes the marker regardless.
-		await this.sqs
-			.send(
-				new SendMessageCommand({
-					QueueUrl: this.queueUrl,
-					MessageBody: JSON.stringify(event),
-					...(useFifo && {
-						MessageGroupId: params.accountId,
-						MessageDeduplicationId: event.eventId,
-					}),
-				}),
-			)
+		await this.queue
+			.send({
+				body: event,
+				groupId: params.accountId,
+				deduplicationId: event.eventId,
+			})
 			.then(async () => {
 				// Only advance past `pending` once the hint is CONFIRMED sent — a
 				// marker still `pending` is exactly the periodic drain's query

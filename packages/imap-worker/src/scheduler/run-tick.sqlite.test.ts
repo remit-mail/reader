@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import type { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
 import type { AccountItem } from "@remit/data-ports";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	AccountService,
@@ -60,18 +60,12 @@ const account = async (
 const tick = async (
 	options: Partial<Parameters<typeof runSchedulerTick>[0]> = {},
 ) => {
-	const sent: SendMessageCommand[] = [];
+	const queue = recordingQueue();
+	const { sent } = queue;
 	const logs: LogLine[] = [];
 	const result = await runSchedulerTick({
 		accountService: accounts,
-		sqsClient: {
-			send: async (command: SendMessageCommand) => {
-				sent.push(command);
-				return {};
-			},
-		} as unknown as SQSClient,
-		queueUrl:
-			"https://sqs.eu-west-1.amazonaws.com/123/remit-dev-mailboxes.fifo",
+		queue,
 		log: capturingLogger(logs),
 		tickIntervalMs: TICK_INTERVAL_MS,
 		offlineIntervalMs: OFFLINE_INTERVAL_MS,
@@ -79,9 +73,7 @@ const tick = async (
 		redriveStrandedPlacements: async () => 0,
 		...options,
 	});
-	const enqueued = sent.map(
-		(command) => JSON.parse(command.input.MessageBody ?? "{}").accountId,
-	);
+	const enqueued = sent.map((message) => String(message.body.accountId));
 	return { result, sent, enqueued, logs };
 };
 
@@ -129,7 +121,7 @@ describe("a scheduler tick", () => {
 
 		const { sent } = await tick();
 
-		const dedupId = sent[0]?.input.MessageDeduplicationId;
+		const dedupId = sent[0]?.deduplicationId;
 		assert.ok(
 			dedupId?.startsWith(`SYNC_MAILBOXES:scheduled:${live.accountId}:`),
 		);

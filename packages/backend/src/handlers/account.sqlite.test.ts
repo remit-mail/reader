@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 import { randomBytes } from "node:crypto";
-import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import type { SendMessageCommand } from "@aws-sdk/client-sqs";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import type {
 	AccountResponse,
 	AccountService as AccountServiceName,
 } from "@remit/api-openapi-types";
 import type { AccountItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	AccountService,
@@ -29,7 +32,7 @@ import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
-import { sqsClient } from "../service/sqs.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import { AccountDetailOperations, AccountOperations } from "./account.js";
 import { ConfigOperations } from "./config.js";
@@ -46,7 +49,7 @@ const updateAccount =
 const deleteAccount =
 	AccountDetailOperations.AccountDetailOperations_deleteAccount;
 
-const caller = (): HandlerContext => ({
+const caller = (): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",
@@ -80,7 +83,7 @@ const secrets: SecretsService = createSecretsService({
 
 let accounts: AccountRepo;
 let close: () => void;
-let enqueued: SendMessageCommand[];
+let fanout: RecordingQueue;
 
 const seedAccount = (
 	authType: AccountItem["authType"],
@@ -120,13 +123,7 @@ const patchServices = (accountId: string, syncedServices: string[]) =>
 	);
 
 beforeEach(async () => {
-	process.env.SQS_QUEUE_URL_ACCOUNT_FANOUT =
-		"http://localhost:9324/queue/account-fanout-test";
-	enqueued = [];
-	mock.method(sqsClient, "send", async (command: SendMessageCommand) => {
-		enqueued.push(command);
-		return {};
-	});
+	fanout = recordingQueue();
 	const store = createShippedSqliteDb();
 	close = store.close;
 	const repos = createSqliteRepositories({
@@ -146,11 +143,11 @@ beforeEach(async () => {
 		mailbox: repos.mailbox,
 		configImport: repos.configImport,
 		secrets,
+		queues: { accountFanout: fanout },
 	} as unknown as RemitClient;
 });
 
 afterEach(() => {
-	mock.restoreAll();
 	close();
 });
 
@@ -291,7 +288,7 @@ describe("DELETE /accounts/{accountId}", () => {
 		const stored = await accounts.get(account.accountId);
 		assert.equal(stored.deletedAt, deletedAt);
 		assert.equal(stored.isActive, false);
-		assert.equal(enqueued.length, 1);
+		assert.equal(fanout.sent.length, 1);
 		assert.deepEqual(await listedAccountIds(), []);
 	});
 });

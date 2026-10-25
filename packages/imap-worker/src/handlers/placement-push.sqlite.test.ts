@@ -52,7 +52,7 @@ const arrange = async (): Promise<Arranged> => {
 		addressService: w.client.address,
 		mailboxSpecialUseService: w.client.mailboxSpecialUse,
 		mailboxService: w.client.mailbox,
-		sqsQueueUrl: process.env.SQS_QUEUE_URL_MESSAGE_MGMT ?? "",
+		queue: w.client.queues.messageManagement,
 	});
 	return { w, inbox, junk, message, placement };
 };

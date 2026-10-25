@@ -1,30 +1,15 @@
 import spec from "@remit/api-openapi-spec/openapi.json" with { type: "json" };
 import { redactCalendarFeedPath } from "@remit/calendar-service";
-import { logger, withLogContext } from "@remit/logger";
-import type {
-	APIGatewayProxyEvent,
-	APIGatewayProxyResult,
-	Context,
-} from "aws-lambda";
+import { logger } from "@remit/logger";
 import {
 	type Document,
 	OpenAPIBackend,
 	type Context as OpenAPIContext,
 	type Request,
 } from "openapi-backend";
-import {
-	assertLocalBypassNotInDeployedEnv,
-	getIdentityFromEvent,
-} from "./auth.js";
-import { usesBetterAuthJwt } from "./data-backend.js";
-import { defaultErrorCode, handleError } from "./error.js";
-import { handlers, publicHandlers } from "./handlers/index.js";
-import { authenticateSelfHostRequest } from "./jwt-auth.js";
-import { normalizeRequest } from "./request.js";
-import { runWithRequestContext } from "./request-context.js";
-import { formatResponse, postResponseHandler } from "./response.js";
-import { getClient } from "./service/data-client.js";
-import type { OperationHandler, PublicOperationHandler } from "./types.js";
+import { assertLocalBypassNotInDeployedEnv } from "./auth.js";
+import { defaultErrorCode } from "./error.js";
+import { postResponseHandler } from "./response.js";
 
 // Boot-time refusal: the local auth-bypass overrides must never be set in a
 // deployed environment. Runs on module load so a leaked env var fails the
@@ -105,126 +90,12 @@ api.register("notFound", () => ({
 	body: { code: defaultErrorCode(404), message: "Not found" },
 }));
 
-api.register("notImplemented", async (c: OpenAPIContext) => {
-	const { status, mock } = api.mockResponseForOperation(
-		c.operation.operationId as string,
-	);
-	return formatResponse(mock as Record<string, unknown>, status);
-});
-
-const unauthenticated = () => ({
-	statusCode: 401,
-	body: { code: defaultErrorCode(401), message: "Unauthorized" },
-});
-
-const fromLambdaEvent =
-	(handler: OperationHandler) =>
-	async (c: OpenAPIContext, event: APIGatewayProxyEvent) => {
-		const identity = getIdentityFromEvent(event);
-		if (identity.kind === "anonymous") return unauthenticated();
-		return handler(c, { client: await getClient(), identity });
-	};
-
-const publicFromLambdaEvent =
-	(handler: PublicOperationHandler) => async (c: OpenAPIContext) =>
-		handler(c, { client: await getClient() });
-
-api.register({
-	...Object.fromEntries(
-		Object.entries(handlers).map(([operationId, handler]) => [
-			operationId,
-			fromLambdaEvent(handler),
-		]),
-	),
-	...Object.fromEntries(
-		Object.entries(publicHandlers).map(([operationId, handler]) => [
-			operationId,
-			publicFromLambdaEvent(handler),
-		]),
-	),
-});
+api.register("notImplemented", () => ({
+	statusCode: 501,
+	body: { code: defaultErrorCode(501), message: "Not implemented" },
+}));
 
 api.init();
 
 export { setLogger } from "@remit/logger";
 export { api };
-
-const readOriginHeader = (
-	headers: APIGatewayProxyEvent["headers"],
-): string | undefined => {
-	if (!headers) return undefined;
-	for (const [key, value] of Object.entries(headers)) {
-		if (key.toLowerCase() === "origin" && typeof value === "string") {
-			return value;
-		}
-	}
-	return undefined;
-};
-
-// A scope, not `logger.setBindings`: this process serves requests concurrently,
-// and bindings on the shared logger belong to whichever request wrote them last,
-// so a line gets attributed to the wrong request. The scope follows the request
-// through its own async continuations and nothing else. It nests inside the one
-// `withTelemetry` opens, which is where `requestId` comes from.
-export const handleApiEvent = async (
-	event: APIGatewayProxyEvent,
-	context: Context,
-): Promise<APIGatewayProxyResult> => {
-	// A calendar feed carries its credential in the path, so the raw path is a
-	// secret and cannot be a log field (issue #1065). Redacted once, here, where
-	// every line inside the request picks it up from the scope.
-	const path = redactCalendarFeedPath(event.path);
-
-	return withLogContext(
-		{
-			path,
-			method: event.httpMethod,
-		},
-		async () => {
-			logger.debug({ method: event.httpMethod, path }, "Request received");
-
-			const origin = readOriginHeader(event.headers);
-			const startedAt = Date.now();
-			// Capture the correlation id here: it is seeded by
-			// runWithRequestContext below (from context.awsRequestId), but that
-			// AsyncLocalStorage scope does not reliably survive the
-			// openapi-backend handleRequest call chain, so we read it from
-			// `context.awsRequestId` directly rather than via
-			// getRequestCorrelationId at log time.
-			const correlationId = context.awsRequestId;
-
-			const result = await runWithRequestContext(
-				{ origin, correlationId },
-				async () => {
-					if (usesBetterAuthJwt()) {
-						const denied = await authenticateSelfHostRequest(event);
-						if (denied) return denied;
-					}
-
-					return api
-						.handleRequest(normalizeRequest(event), event, context)
-						.catch(handleError);
-				},
-			);
-
-			// One structured access line per request: method, path, status, and
-			// duration. The correlation id is inlined as a top-level field so a bug
-			// report quoting the id can grep logs by it directly, and emitted at
-			// info so it is on by default in production (the debug "Request
-			// received" above already filters out under normal log levels).
-			// biome-ignore lint/plugin/no-logger-info: one access line per request is an audit-grade signal (issue #1054)
-			logger.info(
-				{
-					method: event.httpMethod,
-					path,
-					statusCode: result.statusCode,
-					durationMs: Date.now() - startedAt,
-					correlationId,
-				},
-				"Request completed",
-			);
-
-			return result;
-		},
-	);
-};

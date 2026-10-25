@@ -40,6 +40,8 @@ import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
 import { ensureAccountConfig } from "./ensure-account-config.js";
 
+type OAuthContext = HandlerContext<"sync">;
+
 const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 
 // ─── HMAC state signing ──────────────────────────────────────────────────────
@@ -299,9 +301,9 @@ const redeemEachService = async (
 
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
-export const microsoftOAuthCallback: PublicOperationHandler = async (
+export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	context: Context,
-	ctx: PublicHandlerContext,
+	ctx: PublicHandlerContext<"sync">,
 ): Promise<APIGatewayProxyResult> => {
 	const webOrigin = getWebOrigin();
 	const qs = context.request.query as Record<string, string | undefined>;
@@ -567,7 +569,7 @@ export const microsoftOAuthCallback: PublicOperationHandler = async (
 	}
 
 	if (services.includes(AccountService.Mail)) {
-		await triggerAccountSyncSafe(accountId);
+		await triggerAccountSyncSafe(ctx.client, accountId);
 	}
 
 	return redirect(
@@ -577,11 +579,11 @@ export const microsoftOAuthCallback: PublicOperationHandler = async (
 
 export const MicrosoftOAuthOperations: Record<
 	Exclude<MicrosoftOAuthOperationIds, PublicOperationIds>,
-	OperationHandler
+	OperationHandler<MicrosoftOAuthOperationIds, "sync">
 > = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: OAuthContext,
 	): Promise<{ authorizationUrl: string }> => {
 		const accountConfigId = ctx.identity.accountConfigId;
 

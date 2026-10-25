@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it, mock } from "node:test";
-import { SQSClient } from "@aws-sdk/client-sqs";
 import type { MailboxItem } from "@remit/data-ports";
+import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	AccountAuthType,
 	ConnectionState,
@@ -171,15 +171,13 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 	it("reads the source's Message-ID for a copy", async () => {
 		const sourceId = await syncInbox("<report@example.com>");
 		const archive = await createMailbox("Archive");
-		mock.method(SQSClient.prototype, "send", async () => ({}));
-
 		const copyId = await new MessageMoveService({
 			messageService: messages,
 			mailboxService: mailboxes,
 			mailboxSpecialUseService: repos.mailboxSpecialUse,
 			threadMessageService: threadMessages,
 			addressService: repos.address,
-			sqsQueueUrl: "https://queue.test/messages",
+			queue: recordingQueue(),
 		}).copyMessage(ACCOUNT_CONFIG_ID, sourceId, archive.mailboxId, accountId);
 
 		assert.notEqual(copyId, sourceId);

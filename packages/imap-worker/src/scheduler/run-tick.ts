@@ -1,9 +1,13 @@
-import type { SQSClient } from "@aws-sdk/client-sqs";
 import {
 	buildScheduledSyncDedupId,
+	type SyncMailboxesEvent,
 	triggerAccountSync,
 } from "@remit/backend/trigger-sync";
-import type { AccountItem, IAccountRepository } from "@remit/data-ports";
+import type {
+	AccountItem,
+	FifoQueueProducer,
+	IAccountRepository,
+} from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 import { hasStoredCredential } from "@remit/mailbox-service/account-credentials";
 import pMap from "p-map";
@@ -22,8 +26,7 @@ import { isSyncDue } from "./decide-due.js";
 
 export interface RunSchedulerTickDeps {
 	accountService: Pick<IAccountRepository, "listAllAccountsPage">;
-	sqsClient: SQSClient;
-	queueUrl: string;
+	queue: FifoQueueProducer<SyncMailboxesEvent>;
 	log: Logger;
 	offlineIntervalMs: number;
 	/**
@@ -125,14 +128,8 @@ const isEligible = (account: AccountItem): boolean => {
 export const runSchedulerTick = async (
 	deps: RunSchedulerTickDeps,
 ): Promise<SchedulerTickResult> => {
-	const {
-		accountService,
-		sqsClient,
-		queueUrl,
-		log,
-		offlineIntervalMs,
-		tickIntervalMs,
-	} = deps;
+	const { accountService, queue, log, offlineIntervalMs, tickIntervalMs } =
+		deps;
 	const now = deps.now ?? Date.now();
 
 	let cursor: string | undefined;
@@ -161,8 +158,7 @@ export const runSchedulerTick = async (
 			due,
 			(account) =>
 				triggerAccountSync({
-					sqsClient,
-					queueUrl,
+					queue,
 					accountId: account.accountId,
 					dedupId: buildScheduledSyncDedupId(
 						account.accountId,

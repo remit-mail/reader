@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	IAddressRepository,
 	IMailboxRepository,
@@ -7,13 +6,13 @@ import type {
 	IMessagePlacementMoveRepository,
 	IMessageRepository,
 	IThreadMessageRepository,
+	QueueProducer,
 } from "@remit/data-ports";
 import {
 	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	isPlacementUnsettled,
 	waitForPlacementToSettle,
@@ -60,8 +59,7 @@ export interface PlacementMoveConfig {
 	 */
 	mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	queue: QueueProducer<PlacementMovePushEvent>;
 	logger?: PlacementMoveLogger;
 	moveSettleTimeoutMs?: number;
 	moveSettlePollMs?: number;
@@ -105,8 +103,7 @@ export class PlacementMoveService {
 	private addressService: IAddressRepository;
 	private mailboxSpecialUseService: IMailboxSpecialUseRepository;
 	private mailboxService: Pick<IMailboxRepository, "resolveAccountId">;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: QueueProducer<PlacementMovePushEvent>;
 	private log: PlacementMoveLogger;
 	private moveSettleTimeoutMs: number;
 	private moveSettlePollMs: number;
@@ -118,16 +115,12 @@ export class PlacementMoveService {
 		this.addressService = config.addressService;
 		this.mailboxSpecialUseService = config.mailboxSpecialUseService;
 		this.mailboxService = config.mailboxService;
-		this.queueUrl = config.sqsQueueUrl;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
 		this.moveSettleTimeoutMs =
 			config.moveSettleTimeoutMs ?? DEFAULT_MOVE_SETTLE_TIMEOUT_MS;
 		this.moveSettlePollMs =
 			config.moveSettlePollMs ?? DEFAULT_MOVE_SETTLE_POLL_MS;
-		this.sqs = createQueueProducer({
-			queueUrl: config.sqsQueueUrl,
-			endpoint: config.sqsEndpoint,
-		});
 	}
 
 	moveMessage = async (
@@ -353,11 +346,6 @@ export class PlacementMoveService {
 			timestamp: Date.now(),
 			...params,
 		};
-		await this.sqs.send(
-			new SendMessageCommand({
-				QueueUrl: this.queueUrl,
-				MessageBody: JSON.stringify(event),
-			}),
-		);
+		await this.queue.send({ body: event });
 	};
 }

@@ -1,39 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import {
+	failingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import {
 	buildScheduledSyncDedupId,
-	buildSyncMailboxesCommand,
+	buildSyncMailboxesMessage,
 	triggerAccountSync,
 } from "./trigger-sync.js";
 
-const FIFO_QUEUE_URL =
-	"https://sqs.eu-west-1.amazonaws.com/123456789012/remit-dev-mailboxes.fifo";
-const STANDARD_QUEUE_URL =
-	"http://localhost:9324/000000000000/remit-dev-mailboxes";
+describe("buildSyncMailboxesMessage", () => {
+	it("groups the message by accountId", () => {
+		const message = buildSyncMailboxesMessage({ accountId: "account-abc" });
 
-const parseBody = (cmd: SendMessageCommand): Record<string, unknown> => {
-	const body = cmd.input.MessageBody ?? "{}";
-	return JSON.parse(body) as Record<string, unknown>;
-};
-
-describe("buildSyncMailboxesCommand", () => {
-	it("sets MessageGroupId to accountId for FIFO queues", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
-
-		assert.equal(cmd.input.MessageGroupId, "account-abc");
+		assert.equal(message.groupId, "account-abc");
 	});
 
-	it("defaults MessageDeduplicationId to the event's own id for FIFO queues", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
+	it("defaults the deduplication id to the event's own id", () => {
+		const message = buildSyncMailboxesMessage({ accountId: "account-abc" });
 
-		assert.equal(cmd.input.MessageDeduplicationId, parseBody(cmd).eventId);
+		assert.equal(message.deduplicationId, message.body.eventId);
 	});
 
 	// Issue #37: a shared, time-bucketed dedup id let SQS FIFO's 5-minute
@@ -41,84 +28,47 @@ describe("buildSyncMailboxesCommand", () => {
 	// a sync stayed invisible until the window elapsed. Back-to-back triggers
 	// must each reach the queue.
 	it("gives two triggers for one account distinct dedup ids", () => {
-		const first = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
-		const second = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
+		const first = buildSyncMailboxesMessage({ accountId: "account-abc" });
+		const second = buildSyncMailboxesMessage({ accountId: "account-abc" });
 
-		assert.notEqual(
-			first.input.MessageDeduplicationId,
-			second.input.MessageDeduplicationId,
-		);
+		assert.notEqual(first.deduplicationId, second.deduplicationId);
 	});
 
 	// The worker's fan-out gate reads this off the event: it is what lets a
 	// sync asked for by name cover every folder while a side-effect trigger
 	// skips the ones that were just enumerated.
 	it("marks an explicitly-requested trigger on the event", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
+		const message = buildSyncMailboxesMessage({
 			accountId: "account-abc",
 			explicitRequest: true,
 		});
 
-		assert.equal(parseBody(cmd).explicitRequest, true);
+		assert.equal(message.body.explicitRequest, true);
 	});
 
 	it("leaves a side-effect trigger unmarked", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
+		const message = buildSyncMailboxesMessage({ accountId: "account-abc" });
 
-		assert.equal(parseBody(cmd).explicitRequest, undefined);
-	});
-
-	it("does not set FIFO params for standard queues", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: STANDARD_QUEUE_URL,
-			accountId: "account-abc",
-		});
-
-		assert.equal(cmd.input.MessageGroupId, undefined);
-		assert.equal(cmd.input.MessageDeduplicationId, undefined);
+		assert.equal(message.body.explicitRequest, undefined);
 	});
 
 	it("builds a SYNC_MAILBOXES event body with accountId and eventId", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
+		const { body } = buildSyncMailboxesMessage({ accountId: "account-abc" });
 
-		const event = parseBody(cmd);
-		assert.equal(event.type, "SYNC_MAILBOXES");
-		assert.equal(event.accountId, "account-abc");
-		assert.equal(typeof event.eventId, "string");
-		assert.equal(typeof event.timestamp, "number");
-	});
-
-	it("targets the configured queue url", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
-			accountId: "account-abc",
-		});
-
-		assert.equal(cmd.input.QueueUrl, FIFO_QUEUE_URL);
+		assert.equal(body.type, "SYNC_MAILBOXES");
+		assert.equal(body.accountId, "account-abc");
+		assert.equal(typeof body.eventId, "string");
+		assert.equal(typeof body.timestamp, "number");
 	});
 
 	it("uses the caller-supplied dedupId instead of the manual default", () => {
-		const cmd = buildSyncMailboxesCommand({
-			queueUrl: FIFO_QUEUE_URL,
+		const message = buildSyncMailboxesMessage({
 			accountId: "account-abc",
 			dedupId: "SYNC_MAILBOXES:scheduled:account-abc:12345",
 		});
 
 		assert.equal(
-			cmd.input.MessageDeduplicationId,
+			message.deduplicationId,
 			"SYNC_MAILBOXES:scheduled:account-abc:12345",
 		);
 	});
@@ -163,42 +113,26 @@ describe("buildScheduledSyncDedupId", () => {
 });
 
 describe("triggerAccountSync", () => {
-	it("sends a SendMessageCommand to the client", async () => {
-		const sent: SendMessageCommand[] = [];
-		const sqsClient = {
-			send: async (cmd: SendMessageCommand) => {
-				sent.push(cmd);
-				return {};
-			},
-		} as unknown as SQSClient;
+	it("sends one SYNC_MAILBOXES message and returns its event id", async () => {
+		const queue = recordingQueue();
+		const { sent } = queue;
 
 		const result = await triggerAccountSync({
-			sqsClient,
-			queueUrl: FIFO_QUEUE_URL,
+			queue,
 			accountId: "account-xyz",
 		});
 
 		assert.equal(sent.length, 1);
-		const cmd = sent[0];
-		if (!cmd) throw new Error("expected command");
-		assert.ok(cmd instanceof SendMessageCommand);
-		assert.equal(cmd.input.MessageGroupId, "account-xyz");
-		assert.equal(typeof result.eventId, "string");
+		assert.equal(sent[0]?.groupId, "account-xyz");
+		assert.equal(sent[0]?.body.type, "SYNC_MAILBOXES");
+		assert.equal(result.eventId, sent[0]?.body.eventId);
 	});
 
-	it("propagates SQS send errors to the caller", async () => {
-		const sqsClient = {
-			send: async () => {
-				throw new Error("MissingRequiredParameterException");
-			},
-		} as unknown as SQSClient;
+	it("propagates queue send errors to the caller", async () => {
+		const queue = failingQueue(new Error("MissingRequiredParameterException"));
 
 		await assert.rejects(
-			triggerAccountSync({
-				sqsClient,
-				queueUrl: FIFO_QUEUE_URL,
-				accountId: "account-xyz",
-			}),
+			triggerAccountSync({ queue, accountId: "account-xyz" }),
 			/MissingRequiredParameterException/,
 		);
 	});

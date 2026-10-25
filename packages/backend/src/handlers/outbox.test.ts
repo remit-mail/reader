@@ -15,7 +15,6 @@
 
 import assert from "node:assert/strict";
 import { afterEach, describe, it } from "node:test";
-import type { SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateOutboxAttachmentInput,
 	CreateOutboxMessageInput,
@@ -29,6 +28,11 @@ import type {
 import { APPENDED_UID_NONE } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
+import {
+	failingQueue,
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { OutboxMessageStatus } from "@remit/domain-enums";
 import {
 	OutboxAttachmentService,
@@ -43,6 +47,8 @@ import type { Context } from "openapi-backend";
 import { handleError } from "../error.js";
 import { formatResponse } from "../response.js";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
+
 import type { HandlerContext } from "../types.js";
 import { OutboxDetailOperations, OutboxOperations } from "./outbox.js";
 
@@ -150,22 +156,12 @@ const createInMemoryOutboxRepository = (): IOutboxMessageRepository => {
 	return repository;
 };
 
-const acceptingSqsClient = (): SQSClient =>
-	({ send: async () => ({}) }) as unknown as SQSClient;
-
 /** A queue that refuses every send until `accept()` is called. */
-const refusingSqsClient = (): { client: SQSClient; accept: () => void } => {
-	let accepting = false;
+const refusingQueue = (): { client: RecordingQueue; accept: () => void } => {
+	const client = failingQueue(new Error("SQS unavailable"));
 	return {
-		client: {
-			send: async () => {
-				if (!accepting) throw new Error("SQS unavailable");
-				return {};
-			},
-		} as unknown as SQSClient,
-		accept: () => {
-			accepting = true;
-		},
+		client,
+		accept: () => client.answer(async () => ({})),
 	};
 };
 
@@ -239,7 +235,7 @@ const createAttachmentRepository = (
 		},
 	}) as unknown as IOutboxAttachmentRepository;
 
-const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
+const installClient = (queue: RecordingQueue = recordingQueue()): void => {
 	const outboxMessage = createInMemoryOutboxRepository();
 	const storage = createMockStorageService();
 	attachmentRows = new Map<string, OutboxAttachmentItem>();
@@ -258,13 +254,12 @@ const installClient = (sqsClient: SQSClient = acceptingSqsClient()): void => {
 			outboxMessageService: outboxMessage,
 			outboxAttachmentService,
 			accountService: accountRepository,
-			sqsSmtpQueueUrl: "http://localhost:9324/queue/outbox-test",
-			sqsClient,
+			queue,
 		}),
 	} as unknown as RemitClient;
 };
 
-const caller = (): HandlerContext => ({
+const caller = (): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",
@@ -427,7 +422,7 @@ describe("an outbox entry that has left draft (#604)", () => {
 
 describe("a send whose enqueue fails (#845.8)", () => {
 	const draftAgainstQueue = async (
-		queue: SQSClient,
+		queue: RecordingQueue,
 	): Promise<{ outboxMessageId: string; response: APIGatewayProxyResult }> => {
 		installClient(queue);
 		const draft = await createDraft(
@@ -458,15 +453,13 @@ describe("a send whose enqueue fails (#845.8)", () => {
 	};
 
 	it("answers 500, never a success the send never had", async () => {
-		const { response } = await draftAgainstQueue(refusingSqsClient().client);
+		const { response } = await draftAgainstQueue(refusingQueue().client);
 
 		assert.equal(response.statusCode, 500);
 	});
 
 	it("settles the row at failed, not stranded at queued and not back at draft", async () => {
-		const { outboxMessageId } = await draftAgainstQueue(
-			refusingSqsClient().client,
-		);
+		const { outboxMessageId } = await draftAgainstQueue(refusingQueue().client);
 
 		// `queued` is the dead end this suite exists for. `draft` is the other
 		// wrong answer: it is inside the SMTP worker's send fence, and an error
@@ -477,9 +470,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 	});
 
 	it("still lets the user discard what could not be queued", async () => {
-		const { outboxMessageId } = await draftAgainstQueue(
-			refusingSqsClient().client,
-		);
+		const { outboxMessageId } = await draftAgainstQueue(refusingQueue().client);
 
 		const response = await respond(() =>
 			deleteDraft(requestContext({ params: { outboxMessageId } }), caller()),
@@ -489,7 +480,7 @@ describe("a send whose enqueue fails (#845.8)", () => {
 	});
 
 	it("sends once the queue comes back", async () => {
-		const queue = refusingSqsClient();
+		const queue = refusingQueue();
 		const { outboxMessageId } = await draftAgainstQueue(queue.client);
 		queue.accept();
 

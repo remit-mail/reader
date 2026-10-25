@@ -37,16 +37,14 @@
       "types": "./src/test-helpers/fake-imap.ts",
       "default": "./src/test-helpers/fake-imap.ts"
     },
-    "./test-helpers/test-queue": {
-      "types": "./src/test-helpers/test-queue.ts",
-      "default": "./src/test-helpers/test-queue.ts"
-    },
     "./test-helpers/test-store": {
       "types": "./src/test-helpers/test-store.ts",
       "default": "./src/test-helpers/test-store.ts"
     }
   },
   "scripts": {
+    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+    "postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
     "test:typecheck": "tsgo --noEmit",
     "test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=86 --test 'src/**/*.test.ts'",
     "test": "npm run test:typecheck && npm run test:run"
@@ -54,7 +52,6 @@
   "devDependencies": {
     "@remit/drizzle-service": "*",
     "@types/better-sqlite3": "^7.6.13",
-    "aws-sdk-client-mock": "*",
     "better-sqlite3": "^12.11.1"
   },
   "dependencies": {
@@ -67,9 +64,7 @@
     "@remit/domain-enums": "*",
     "@remit/mail-oauth-service": "*",
     "@remit/secrets-service": "*",
-    "@remit/sqs-client": "*",
     "@remit/storage-service": "*",
-    "@aws-sdk/client-sqs": "^3.1090.0",
     "franc": "^6.2.0",
     "natural": "^8.1.1",
     "stopword": "^3.1.5",
@@ -86,5 +81,50 @@
     "type": "git",
     "url": "git+https://github.com/remit-mail/reader.git",
     "directory": "packages/mailbox-service"
+  },
+  "packManifest": {
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./filter-config": {
+        "types": "./dist/filters/filter-config.d.ts",
+        "default": "./dist/filters/filter-config.js"
+      },
+      "./body-sync-queue": {
+        "types": "./dist/body-sync-queue.d.ts",
+        "default": "./dist/body-sync-queue.js"
+      },
+      "./imapflow-connection": {
+        "types": "./dist/imapflow-connection.d.ts",
+        "default": "./dist/imapflow-connection.js"
+      },
+      "./account-credentials": {
+        "types": "./dist/account-credentials.d.ts",
+        "default": "./dist/account-credentials.js"
+      },
+      "./outbox-attachment-content": {
+        "types": "./dist/outbox-attachment-content.d.ts",
+        "default": "./dist/outbox-attachment-content.js"
+      },
+      "./types": {
+        "types": "./dist/types.d.ts",
+        "default": "./dist/types.js"
+      },
+      "./test-helpers/fake-imap": {
+        "types": "./dist/test-helpers/fake-imap.d.ts",
+        "default": "./dist/test-helpers/fake-imap.js"
+      },
+      "./test-helpers/test-store": {
+        "types": "./dist/test-helpers/test-store.d.ts",
+        "default": "./dist/test-helpers/test-store.js"
+      }
+    },
+    "files": [
+      "dist"
+    ]
   }
 }

@@ -53,6 +53,8 @@ import type {
 	OperationHandler,
 } from "../types.js";
 
+type MessageContext = HandlerContext<"sync" | "messageManagement" | "body">;
+
 type StarColorValue = (typeof StarColor)[keyof typeof StarColor];
 
 export const isStorageNotFoundError = (error: unknown): boolean =>
@@ -283,11 +285,11 @@ export const settleSpamReportBulk = async (
 
 export const MessageOperations: Record<
 	MessageOperationIds,
-	OperationHandler<MessageOperationIds>
+	OperationHandler<MessageOperationIds, "sync" | "messageManagement" | "body">
 > = {
 	MessageOperations_describeMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: MessageContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -559,7 +561,7 @@ export const MessageOperations: Record<
 
 	MessageOperations_getRawMessage: async (
 		context: Context,
-		ctx: HandlerContext,
+		ctx: MessageContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -656,7 +658,7 @@ export const MessageOperations: Record<
 
 	MessageOperations_updateMessageFlags: async (
 		context,
-		ctx: HandlerContext,
+		ctx: MessageContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageId } = context.request.params as { messageId: string };
@@ -693,9 +695,12 @@ export const MessageOperations: Record<
 
 export const MessageBulkOperations: Record<
 	MessageBulkOperationIds,
-	OperationHandler<MessageBulkOperationIds>
+	OperationHandler<
+		MessageBulkOperationIds,
+		"sync" | "messageManagement" | "body"
+	>
 > = {
-	MessageBulkOperations_updateFlags: async (context, ctx: HandlerContext) => {
+	MessageBulkOperations_updateFlags: async (context, ctx: MessageContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, isRead, isStarred, starColor } = context.request
 			.requestBody as {
@@ -737,7 +742,7 @@ export const MessageBulkOperations: Record<
 
 	MessageBulkOperations_deleteMessages: async (
 		context,
-		ctx: HandlerContext,
+		ctx: MessageContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, permanent } = context.request.requestBody as {
@@ -775,7 +780,7 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_moveMessages: async (context, ctx: HandlerContext) => {
+	MessageBulkOperations_moveMessages: async (context, ctx: MessageContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
@@ -821,7 +826,7 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_copyMessages: async (context, ctx: HandlerContext) => {
+	MessageBulkOperations_copyMessages: async (context, ctx: MessageContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, destinationMailboxId } = context.request
 			.requestBody as {
@@ -869,7 +874,7 @@ export const MessageBulkOperations: Record<
 
 	MessageBulkOperations_updateMessageLabels: async (
 		context,
-		ctx: HandlerContext,
+		ctx: MessageContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds, labelId, action } = context.request.requestBody as {
@@ -911,7 +916,7 @@ export const MessageBulkOperations: Record<
 		};
 	},
 
-	MessageBulkOperations_reportSpam: async (context, ctx: HandlerContext) => {
+	MessageBulkOperations_reportSpam: async (context, ctx: MessageContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];
@@ -938,7 +943,7 @@ export const MessageBulkOperations: Record<
 		);
 	},
 
-	MessageBulkOperations_notSpam: async (context, ctx: HandlerContext) => {
+	MessageBulkOperations_notSpam: async (context, ctx: MessageContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { messageIds: requestedIds } = context.request.requestBody as {
 			messageIds: string[];

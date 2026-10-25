@@ -7,6 +7,7 @@ import { MailboxSyncStatus } from "@remit/domain-enums";
 import { UnconfirmedTrashMailboxError } from "@remit/mailbox-service";
 import type { Context } from "openapi-backend";
 import type { RemitClient } from "../service/data-client.js";
+import type { QueueName } from "../service/queues.js";
 import type { HandlerContext } from "../types.js";
 import {
 	MailboxDetailOperations,
@@ -19,7 +20,7 @@ let client: RemitClient;
 const SUB = "cognito-sub-887";
 const ACCOUNT_ID = "acc-887";
 
-const caller = (): HandlerContext => ({
+const caller = (): HandlerContext<QueueName> => ({
 	client,
 	identity: {
 		kind: "user",
@@ -31,7 +32,7 @@ const caller = (): HandlerContext => ({
 
 const emptyTrash = (
 	context: Context,
-	caller: HandlerContext,
+	caller: HandlerContext<QueueName>,
 ): Promise<{ deletedCount: number }> =>
 	TrashOperations.TrashOperations_emptyTrash(context, caller) as Promise<{
 		deletedCount: number;
@@ -80,7 +81,7 @@ describe("TrashOperations_emptyTrash", () => {
 
 const deleteMailbox = (
 	context: Context,
-	caller: HandlerContext,
+	caller: HandlerContext<QueueName>,
 ): Promise<{ statusCode: number }> =>
 	MailboxDetailOperations.MailboxDetailOperations_deleteMailbox(
 		context,

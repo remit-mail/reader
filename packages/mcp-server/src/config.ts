@@ -7,7 +7,7 @@ export interface McpServerConfig {
 	secret: string;
 	databases: SqliteDatabasePaths;
 	port: number;
-	bodySyncQueueUrl: string | undefined;
+	bodySyncQueueUrl: string;
 	mailboxQueueUrl: string;
 	organizeQueueUrl: string;
 	pageAssetsDir: string;
@@ -56,7 +56,7 @@ export const resolveMcpServerConfig = (): McpServerConfig => {
 		secret,
 		databases: sqliteDatabasePathsFromEnv(),
 		port: parsePort(process.env.MCP_PORT),
-		bodySyncQueueUrl: process.env.SQS_QUEUE_URL_BODY,
+		bodySyncQueueUrl: required("SQS_QUEUE_URL_BODY"),
 		mailboxQueueUrl: required("SQS_QUEUE_URL"),
 		organizeQueueUrl: required("SQS_QUEUE_URL_ACCOUNT_FANOUT"),
 		pageAssetsDir: required("MCP_PAGE_ASSETS_DIR"),

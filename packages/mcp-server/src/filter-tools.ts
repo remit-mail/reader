@@ -99,7 +99,7 @@ export const registerFilterTools = (
 	const accountConfigId = deriveAccountConfigId(userId);
 	const organizeDeps = {
 		organizeJobRequest: deps.organizeJobRequest,
-		sqsQueueUrl: deps.filters.organizeQueueUrl,
+		queue: deps.filters.organizeQueue,
 		logger: deps.filters.logger,
 	};
 

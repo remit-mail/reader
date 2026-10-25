@@ -2,6 +2,14 @@ export { deriveFilterTtl } from "./filter-ttl.js";
 export type { IAccountRepository } from "./interfaces/account.js";
 export type { IAccountConfigRepository } from "./interfaces/account-config.js";
 export type { IAccountExportRequestRepository } from "./interfaces/account-export-request.js";
+export type {
+	AccountDataPurgeEvent,
+	AccountDeleteEvent,
+	AccountExportEvent,
+	AccountFanoutEvent,
+	OrganizeJobEvent,
+	SenderCategoryBackApplyEvent,
+} from "./interfaces/account-fanout-events.js";
 export type { IAccountSettingRepository } from "./interfaces/account-setting.js";
 export type { IAddressRepository } from "./interfaces/address.js";
 export type { ICalendarCollectionRepository } from "./interfaces/calendar-collection.js";
@@ -50,6 +58,16 @@ export {
 	isSentCopyFiled,
 } from "./interfaces/outbox-message.js";
 export type { IQuarantineRepository } from "./interfaces/quarantine.js";
+export {
+	type FifoQueueMessage,
+	type FifoQueueProducer,
+	type GroupedQueueMessage,
+	type GroupedQueueProducer,
+	QUEUE_BATCH_LIMIT,
+	type QueueBatchResult,
+	type QueueMessage,
+	type QueueProducer,
+} from "./interfaces/queue.js";
 export type { ISenderSignerStandingRepository } from "./interfaces/sender-signer-standing.js";
 export type {
 	ISyncWarningRepository,

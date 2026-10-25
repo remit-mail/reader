@@ -1,18 +1,22 @@
 import assert from "node:assert/strict";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import {
 	DeleteObjectsCommand,
 	ListObjectsV2Command,
 	S3Client,
 } from "@aws-sdk/client-s3";
-import { SendMessageCommand, SQSClient } from "@aws-sdk/client-sqs";
+import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
 import { noopLogger } from "@remit/logger";
 import { mockClient } from "aws-sdk-client-mock";
 import type { DeleteAccountObjectsEvent } from "../events.js";
+import { setWorkerQueues } from "../queues.js";
 import { handleDeleteAccountObjects } from "./delete-account-objects.js";
 
 const s3Mock = mockClient(S3Client);
-const sqsMock = mockClient(SQSClient);
+let queue: RecordingQueue;
 
 const event: DeleteAccountObjectsEvent = {
 	type: "DELETE_ACCOUNT_OBJECTS",
@@ -20,9 +24,20 @@ const event: DeleteAccountObjectsEvent = {
 };
 
 describe("handleDeleteAccountObjects", () => {
+	beforeEach(() => {
+		queue = recordingQueue();
+		setWorkerQueues({
+			mailboxes: queue,
+			messages: queue,
+			flags: queue,
+			body: queue,
+			mailboxManagement: queue,
+			messageManagement: queue,
+		});
+	});
+
 	afterEach(() => {
 		s3Mock.reset();
-		sqsMock.reset();
 	});
 
 	it("lists and deletes every object under the account prefix in one page", async () => {
@@ -45,7 +60,7 @@ describe("handleDeleteAccountObjects", () => {
 			{ Key: "accounts/cfg-1/a.eml" },
 			{ Key: "accounts/cfg-1/b.eml" },
 		]);
-		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);
+		assert.equal(queue.sent.length, 0);
 	});
 
 	it("follows the continuation token across truncated pages", async () => {
@@ -80,7 +95,6 @@ describe("handleDeleteAccountObjects", () => {
 
 	it("re-enqueues with the continuation token when time is nearly up", async () => {
 		s3Mock.on(ListObjectsV2Command).resolves({ IsTruncated: false });
-		sqsMock.on(SendMessageCommand).resolves({});
 
 		await handleDeleteAccountObjects(
 			{ ...event, continuationToken: "tok-mid" },
@@ -93,13 +107,10 @@ describe("handleDeleteAccountObjects", () => {
 			0,
 			"bails before starting a new page",
 		);
-		const send = sqsMock.commandCalls(SendMessageCommand)[0];
-		const body = JSON.parse(
-			send?.args[0].input.MessageBody ?? "{}",
-		) as DeleteAccountObjectsEvent;
-		assert.equal(body.type, "DELETE_ACCOUNT_OBJECTS");
-		assert.equal(body.accountConfigId, "cfg-1");
-		assert.equal(body.continuationToken, "tok-mid");
+		const body = queue.sent[0]?.body;
+		assert.equal(body?.type, "DELETE_ACCOUNT_OBJECTS");
+		assert.equal(body?.accountConfigId, "cfg-1");
+		assert.equal(body?.continuationToken, "tok-mid");
 	});
 
 	it("keeps paging while time remains", async () => {
@@ -112,6 +123,6 @@ describe("handleDeleteAccountObjects", () => {
 		await handleDeleteAccountObjects(event, noopLogger, () => 120_000);
 
 		assert.equal(s3Mock.commandCalls(ListObjectsV2Command).length, 1);
-		assert.equal(sqsMock.commandCalls(SendMessageCommand).length, 0);
+		assert.equal(queue.sent.length, 0);
 	});
 });

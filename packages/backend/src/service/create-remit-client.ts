@@ -49,23 +49,18 @@ import {
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
-	createCachedDataKeyProvider,
-	createKmsDataKeyProvider,
-	createSecretsService,
 	deserializeEncryptedPayload,
-	FAKE_KMS_KEY_ID,
 	type SecretsService,
 } from "@remit/secrets-service";
 import type { StorageService } from "@remit/storage-service";
-import { createStorageService } from "@remit/storage-service/s3";
-import { env } from "expect-env";
+import type { QueueName, RemitClientQueues } from "./queues.js";
 
 export interface ConnectionScope {
 	getConnection: () => Promise<IImapConnection>;
 	disconnect: () => Promise<void>;
 }
 
-export interface RemitClient {
+export interface RemitClientCore {
 	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
 	accountConfig: IAccountConfigRepository;
 	account: IAccountRepository;
@@ -133,14 +128,6 @@ export interface RemitClient {
 	// Secrets service (KMS encryption)
 	secrets: SecretsService;
 
-	// Body sync service (on-demand IMAP body fetch)
-	bodySync: BodySyncService;
-
-	// Re-arms the SYNC_MESSAGE_BODY cue when a read-path body fetch finds the
-	// storage object missing. Absent when SQS_QUEUE_URL_BODY is not configured
-	// (the deployed API Lambda does not carry the body queue today).
-	bodySyncQueue?: BodySyncQueueService;
-
 	// Pending placement-move markers (issue #1271). Present on both backends
 	// (`MessagePlacementMoveService` on DynamoDB, `MessagePlacementMoveRepo` on
 	// relationally) so a caller never needs to guess which backend is active. Used
@@ -159,21 +146,42 @@ export interface RemitClient {
 	// below writes through it regardless of `DATA_BACKEND`.
 	flagPush: IMessageFlagPushRepository;
 
-	// Queue services (writes with IMAP sync)
-	flagQueue: FlagQueueService;
-	mailboxQueue: MailboxQueueService;
-	messageMove: MessageMoveService;
 	outboxAttachment: OutboxAttachmentService;
-	outboxQueue: OutboxQueueService;
-
-	// Report-spam / not-spam (block-and-move, unified from the old separate
-	// Block + Mark spam actions). Composed over `messageMove` and the same
-	// `flagPushService` instance `flagQueue` shares below.
-	spamReport: SpamReportService;
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
 }
+
+export interface SyncQueueServices {
+	flagQueue: FlagQueueService;
+	mailboxQueue: MailboxQueueService;
+	messageMove: MessageMoveService;
+	// Report-spam / not-spam (block-and-move, unified from the old separate
+	// Block + Mark spam actions). Composed over `messageMove` and the same
+	// `FlagPushService` instance `flagQueue` writes through.
+	spamReport: SpamReportService;
+}
+
+export interface SmtpQueueServices {
+	outboxQueue: OutboxQueueService;
+}
+
+export interface BodyQueueServices {
+	// Re-arms the SYNC_MESSAGE_BODY cue when a read-path body fetch finds the
+	// storage object missing.
+	bodySyncQueue: BodySyncQueueService;
+}
+
+export interface ReadPathServices {
+	bodySync: BodySyncService;
+}
+
+export type RemitClient<K extends QueueName = QueueName> = RemitClientCore & {
+	queues: Pick<RemitClientQueues, K>;
+} & ("sync" extends K ? SyncQueueServices : unknown) &
+	("smtp" extends K ? SmtpQueueServices : unknown) &
+	("body" extends K ? BodyQueueServices : unknown) &
+	("sync" | "messageManagement" extends K ? ReadPathServices : unknown);
 
 export interface RemitClientRepositories {
 	accountConfig: IAccountConfigRepository;
@@ -211,9 +219,7 @@ export interface RemitClientRepositories {
 export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
-	sqsQueueUrl: string;
-	sqsSmtpQueueUrl: string;
-	bodySyncQueue?: BodySyncQueueService;
+	queues: RemitClientQueues;
 }
 
 export interface RemitClientDeps extends RemitClientSharedDeps {
@@ -265,37 +271,6 @@ const buildConnectionScope =
 		return { getConnection, disconnect };
 	};
 
-// The body queue lives on the worker infra; the API only knows it locally
-// (dev / e2e set SQS_QUEUE_URL_BODY). When unset the read path still returns a
-// retryable 202 — it just cannot re-arm the cue itself.
-const buildBodySyncQueue = (): BodySyncQueueService | undefined => {
-	const bodyQueueUrl = process.env.SQS_QUEUE_URL_BODY;
-	if (!bodyQueueUrl) return undefined;
-	return new BodySyncQueueService({ sqsQueueUrl: bodyQueueUrl, logger });
-};
-
-// Everything a RemitClient needs that is chosen from the environment and does
-// not vary by data backend: storage, secrets, the SQS queue URLs, and
-// the optional body-sync queue. Each composition root builds its backend's
-// repositories and merges them with this.
-export const buildSharedDeps = (): RemitClientSharedDeps => {
-	const storage = createStorageService();
-	const kmsKeyId = process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID;
-	const dataKeyProvider = createCachedDataKeyProvider(
-		createKmsDataKeyProvider(kmsKeyId),
-	);
-	const secrets = createSecretsService(dataKeyProvider);
-	const sqsQueueUrl = env.SQS_QUEUE_URL;
-	const sqsSmtpQueueUrl = process.env.SQS_QUEUE_URL_SMTP ?? sqsQueueUrl;
-	return {
-		storage,
-		secrets,
-		sqsQueueUrl,
-		sqsSmtpQueueUrl,
-		bodySyncQueue: buildBodySyncQueue(),
-	};
-};
-
 // The read-path body backfill (describeMessage / getRawMessage →
 // fetchAndGetBody) materializes a body that was never sync-synced, and must run
 // the account's standing filters the same way the imap-worker's sync path does.
@@ -305,106 +280,42 @@ export const buildSharedDeps = (): RemitClientSharedDeps => {
 // #223). Only the explicit user-rule half is wired here; heuristic classifier
 // placement stays on the sync path. It shares `buildFilterConfig` with
 // `sync-message-body.ts`, so a filter fires on either (issue #298). Over the
-// message-management queue's
-// local-first PlacementMoveService; filters stay off when that queue is unset.
+// message-management queue's local-first PlacementMoveService.
 export const buildReadPathFilterConfig = (
-	repositories: RemitClientRepositories,
-): FilterConfig | undefined => {
-	const placementMoveQueueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
+	repositories: Pick<
+		RemitClientRepositories,
+		| "filter"
+		| "messageLabel"
+		| "mailbox"
+		| "message"
+		| "threadMessage"
+		| "placementMove"
+		| "address"
+		| "mailboxSpecialUse"
+	>,
+	queues: Pick<RemitClientQueues, "messageManagement">,
+): FilterConfig => {
+	const { messageManagement } = queues;
 	return buildFilterConfig({
 		filterService: repositories.filter,
 		messageLabelService: repositories.messageLabel,
 		mailboxService: repositories.mailbox,
-		placementMoveService: placementMoveQueueUrl
-			? new PlacementMoveService({
-					messageService: repositories.message,
-					threadMessageService: repositories.threadMessage,
-					markerService: repositories.placementMove,
-					addressService: repositories.address,
-					mailboxSpecialUseService: repositories.mailboxSpecialUse,
-					mailboxService: repositories.mailbox,
-					sqsQueueUrl: placementMoveQueueUrl,
-				})
-			: undefined,
+		placementMoveService: new PlacementMoveService({
+			messageService: repositories.message,
+			threadMessageService: repositories.threadMessage,
+			markerService: repositories.placementMove,
+			addressService: repositories.address,
+			mailboxSpecialUseService: repositories.mailboxSpecialUse,
+			mailboxService: repositories.mailbox,
+			queue: messageManagement,
+		}),
 	});
 };
 
-// Backend-neutral composition root: given repositories (from any data-ports
-// implementation) and the shared services, wire the domain and queue services
-// and assemble a RemitClient. Imports neither ElectroDB nor Drizzle — the
-// caller chooses the backend.
-export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
-	const {
-		repositories,
-		storage,
-		secrets,
-		sqsQueueUrl,
-		sqsSmtpQueueUrl,
-		bodySyncQueue,
-	} = deps;
-
-	const filterConfig = buildReadPathFilterConfig(repositories);
-
-	const flagPushService = new FlagPushService({
-		markerService: repositories.flagPush,
-		sqsQueueUrl,
-		logger,
-	});
-
-	// Shared with the returned `flagQueue` below (issue #302): body sync
-	// auto-marks-read a message from an unsubscribed sender through the exact
-	// same `FlagQueueService.markAsRead` a manual mark-as-read goes through, not
-	// a second instance or a second primitive.
-	const flagQueueService = new FlagQueueService({
-		messageFlagService: repositories.messageFlag,
-		messageService: repositories.message,
-		threadMessageService: repositories.threadMessage,
-		flagPushService,
-		logger,
-	});
-
-	const messageMoveService = new MessageMoveService({
-		messageService: repositories.message,
-		mailboxService: repositories.mailbox,
-		mailboxSpecialUseService: repositories.mailboxSpecialUse,
-		threadMessageService: repositories.threadMessage,
-		addressService: repositories.address,
-		sqsQueueUrl,
-		logger,
-	});
-
-	// One instance, shared with the queue service below: the per-draft chain that
-	// makes the attachment cap safe under concurrency lives on it, and a discard
-	// racing an upload has to take the same lock the upload does.
-	const outboxAttachmentService = new OutboxAttachmentService({
-		outboxMessageService: repositories.outboxMessage,
-		outboxAttachmentService: repositories.outboxAttachment,
-		storage,
-	});
-
-	const bodySync = new BodySyncService(
-		repositories.message,
-		storage,
-		repositories.threadMessage,
-		repositories.address,
-		repositories.envelope,
-		new SyncWarningService(repositories.syncWarning),
-		logger,
-		undefined,
-		filterConfig,
-		undefined,
-		{ flagQueueService },
-		// The read-path backfill materializes a body the sync path never got to,
-		// so it is a message's first sight as much as the sync pass is — and an
-		// invitation the user opens before background sync must still get its
-		// card (issue #1033, the same argument as the filter wiring above).
-		{
-			calendarSuggestionService: repositories.calendarSuggestion,
-			calendarStore: repositories.calendarStore,
-			filterService: repositories.filter,
-		},
-	);
-
+export const createRemitCore = (
+	deps: Omit<RemitClientDeps, "queues">,
+): RemitClientCore => {
+	const { repositories, storage, secrets } = deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -433,40 +344,127 @@ export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
 		calendarFeedToken: repositories.calendarFeedToken,
 		calendarSuggestion: repositories.calendarSuggestion,
 		calendarStore: repositories.calendarStore,
-
 		storage,
 		secrets,
-
-		bodySync,
-		bodySyncQueue,
 		placementMove: repositories.placementMove,
 		flagPush: repositories.flagPush,
-
-		flagQueue: flagQueueService,
-		mailboxQueue: new MailboxQueueService({
-			mailboxService: repositories.mailbox,
-			sqsQueueUrl,
-			logger,
-		}),
-		messageMove: messageMoveService,
-		outboxAttachment: outboxAttachmentService,
-		outboxQueue: new OutboxQueueService({
+		// One instance, shared with the outbox queue service: the per-draft chain
+		// that makes the attachment cap safe under concurrency lives on it, and a
+		// discard racing an upload has to take the same lock the upload does.
+		outboxAttachment: new OutboxAttachmentService({
 			outboxMessageService: repositories.outboxMessage,
-			outboxAttachmentService,
-			accountService: repositories.account,
-			sqsSmtpQueueUrl,
-			logger,
+			outboxAttachmentService: repositories.outboxAttachment,
+			storage,
 		}),
-		spamReport: new SpamReportService({
-			messageService: repositories.message,
-			addressService: repositories.address,
-			accountService: repositories.account,
-			mailboxSpecialUseService: repositories.mailboxSpecialUse,
-			messageMoveService,
+		createConnectionScope: buildConnectionScope(repositories.account, secrets),
+	};
+};
+
+export const composeSyncServices = (
+	core: RemitClientCore,
+	queues: Pick<RemitClientQueues, "sync">,
+): SyncQueueServices => {
+	const flagPushService = new FlagPushService({
+		markerService: core.flagPush,
+		queue: queues.sync,
+		logger,
+	});
+	const messageMove = new MessageMoveService({
+		messageService: core.message,
+		mailboxService: core.mailbox,
+		mailboxSpecialUseService: core.mailboxSpecialUse,
+		threadMessageService: core.threadMessage,
+		addressService: core.address,
+		queue: queues.sync,
+		logger,
+	});
+	return {
+		flagQueue: new FlagQueueService({
+			messageFlagService: core.messageFlag,
+			messageService: core.message,
+			threadMessageService: core.threadMessage,
 			flagPushService,
 			logger,
 		}),
+		mailboxQueue: new MailboxQueueService({
+			mailboxService: core.mailbox,
+			queue: queues.sync,
+			logger,
+		}),
+		messageMove,
+		spamReport: new SpamReportService({
+			messageService: core.message,
+			addressService: core.address,
+			accountService: core.account,
+			mailboxSpecialUseService: core.mailboxSpecialUse,
+			messageMoveService: messageMove,
+			flagPushService,
+			logger,
+		}),
+	};
+};
 
-		createConnectionScope: buildConnectionScope(repositories.account, secrets),
+export const composeSmtpServices = (
+	core: RemitClientCore,
+	queues: Pick<RemitClientQueues, "smtp">,
+): SmtpQueueServices => ({
+	outboxQueue: new OutboxQueueService({
+		outboxMessageService: core.outboxMessage,
+		outboxAttachmentService: core.outboxAttachment,
+		accountService: core.account,
+		queue: queues.smtp,
+		logger,
+	}),
+});
+
+export const composeBodyServices = (
+	queues: Pick<RemitClientQueues, "body">,
+): BodyQueueServices => ({
+	bodySyncQueue: new BodySyncQueueService({ queue: queues.body, logger }),
+});
+
+export const composeReadPathServices = (
+	core: RemitClientCore,
+	queues: Pick<RemitClientQueues, "messageManagement">,
+	sync: Pick<SyncQueueServices, "flagQueue">,
+): ReadPathServices => ({
+	// The flag service is the one `flagQueue` is (issue #302): body sync
+	// auto-marks-read a message from an unsubscribed sender through the exact
+	// same `FlagQueueService.markAsRead` a manual mark-as-read goes through.
+	bodySync: new BodySyncService(
+		core.message,
+		core.storage,
+		core.threadMessage,
+		core.address,
+		core.envelope,
+		new SyncWarningService(core.syncWarning),
+		logger,
+		undefined,
+		buildReadPathFilterConfig(core, queues),
+		undefined,
+		{ flagQueueService: sync.flagQueue },
+		// The read-path backfill materializes a body the sync path never got to,
+		// so it is a message's first sight as much as the sync pass is — and an
+		// invitation the user opens before background sync must still get its
+		// card (issue #1033, the same argument as the filter wiring above).
+		{
+			calendarSuggestionService: core.calendarSuggestion,
+			calendarStore: core.calendarStore,
+			filterService: core.filter,
+		},
+	),
+});
+
+export const createRemitClient = (deps: RemitClientDeps): RemitClient => {
+	const { queues } = deps;
+	const core = createRemitCore(deps);
+	const sync = composeSyncServices(core, queues);
+	return {
+		...core,
+		queues,
+		...sync,
+		...composeSmtpServices(core, queues),
+		...composeBodyServices(queues),
+		...composeReadPathServices(core, queues, sync),
 	};
 };

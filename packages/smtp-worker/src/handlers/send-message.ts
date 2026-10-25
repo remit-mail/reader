@@ -1,5 +1,4 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand } from "@aws-sdk/client-sqs";
 import { deriveAddressId, deriveMessageId } from "@remit/data-ports/id";
 import type { ConnectionState } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
@@ -15,10 +14,8 @@ import {
 	type AccountCredentialsDeps,
 	resolveConnectionCredentials,
 } from "@remit/mailbox-service/account-credentials";
-import {
-	createKmsDataKeyProvider,
-	createSecretsService,
-} from "@remit/secrets-service";
+import { createSecretsService } from "@remit/secrets-service";
+import { createKmsDataKeyProvider } from "@remit/secrets-service/kms";
 import { sendMail } from "@remit/smtp-service";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
@@ -67,29 +64,31 @@ const getTokenService = () => {
 
 // APPEND_SENT_MESSAGE is processed by the IMAP worker via the
 // message-management queue (see remit-imap-worker/src/emit.ts).
-const messageMgmtQueueUrl = env.SQS_QUEUE_URL_MESSAGE_MGMT;
-const messageMgmtSqs = createQueueProducer({
-	queueUrl: messageMgmtQueueUrl,
+interface AppendSentMessageEvent {
+	type: "APPEND_SENT_MESSAGE";
+	accountId: string;
+	outboxMessageId: string;
+	eventId: string;
+	timestamp: number;
+}
+
+const messageMgmtQueue = createQueueProducer<AppendSentMessageEvent>({
+	queueUrl: env.SQS_QUEUE_URL_MESSAGE_MGMT,
 });
 
 const emitAppendSentMessage = async (
 	accountId: string,
 	outboxMessageId: string,
 ): Promise<void> => {
-	const event = {
-		type: "APPEND_SENT_MESSAGE" as const,
+	const event: AppendSentMessageEvent = {
+		type: "APPEND_SENT_MESSAGE",
 		accountId,
 		outboxMessageId,
 		eventId: randomUUID(),
 		timestamp: Date.now(),
 	};
 
-	await messageMgmtSqs.send(
-		new SendMessageCommand({
-			QueueUrl: messageMgmtQueueUrl,
-			MessageBody: JSON.stringify(event),
-		}),
-	);
+	await messageMgmtQueue.send({ body: event });
 };
 
 const findMessageByHeader = async (

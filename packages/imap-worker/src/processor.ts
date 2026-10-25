@@ -54,14 +54,6 @@ export const processEvent = async (
 			return handleAppendSentMessage(event, log, receiveCount);
 		case "DELETE_ACCOUNT_OBJECTS":
 			return handleDeleteAccountObjects(event, log);
-		case "IMAP_WORKER_STOP":
-			// Tombstone fence on the account row already stops processing;
-			// this event acks the cascade contract and is a no-op today.
-			log.info(
-				{ accountConfigId: event.accountConfigId, accountId: event.accountId },
-				"Imap worker stop signal received",
-			);
-			return;
 		default:
 			throw new Error(`Unknown event type: ${(event as WorkerEvent).type}`);
 	}

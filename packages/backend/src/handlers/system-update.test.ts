@@ -98,7 +98,7 @@ type LambdaEvent = Parameters<typeof normalizeRequest>[0];
 const throughPipeline = async (
 	event: Record<string, unknown> & { httpMethod: string },
 ): Promise<APIGatewayProxyResult> => {
-	const { api } = await import("../index.js");
+	const { api } = (await import("../api-fixture.js")).servedApi(client);
 	const full = {
 		path: "/system/update",
 		queryStringParameters: null,

@@ -1,11 +1,7 @@
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import type { GroupedQueueProducer } from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 import type { CascadeServices } from "../cascade.js";
-import {
-	getAccountPurgeDeleteQueueUrl,
-	getCascadeServices,
-	getSqsClient,
-} from "../config.js";
+import { getCascadeServices } from "../config.js";
 import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
@@ -13,9 +9,8 @@ import type {
 } from "../events.js";
 
 export interface ProcessPurgeFanoutDeps {
+	queue: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>;
 	services?: CascadeServices;
-	sqs?: SQSClient;
-	accountPurgeDeleteQueueUrl?: string;
 }
 
 /**
@@ -36,20 +31,13 @@ const SUBTREE_BATCH_SIZE = 100;
  * window; beyond it, the worker's deletes are no-ops on already-gone rows.
  */
 const enqueuePurgeFinalize = async (
-	sqs: SQSClient,
-	queueUrl: string,
+	queue: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>,
 	accountId: string,
 	accountConfigId: string,
 	items: AccountDataPurgeSubtreeItem[],
 ): Promise<void> => {
-	const send = (event: AccountDataPurgeFinalizeEvent): Promise<unknown> =>
-		sqs.send(
-			new SendMessageCommand({
-				QueueUrl: queueUrl,
-				MessageBody: JSON.stringify(event),
-				MessageGroupId: accountConfigId,
-			}),
-		);
+	const send = (event: AccountDataPurgeFinalizeEvent): Promise<void> =>
+		queue.send({ body: event, groupId: accountConfigId });
 
 	for (let i = 0; i < items.length; i += SUBTREE_BATCH_SIZE) {
 		await send({
@@ -90,12 +78,10 @@ const enqueuePurgeFinalize = async (
 export const processAccountDataPurge = async (
 	event: AccountDataPurgeEvent,
 	log: Logger,
-	deps: ProcessPurgeFanoutDeps = {},
+	deps: ProcessPurgeFanoutDeps,
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
 	const services = deps.services ?? (await getCascadeServices());
-	const accountPurgeDeleteQueueUrl =
-		deps.accountPurgeDeleteQueueUrl ?? getAccountPurgeDeleteQueueUrl();
 
 	let mailboxIds: Set<string>;
 	try {
@@ -121,13 +107,7 @@ export const processAccountDataPurge = async (
 			messageId: tm.messageId,
 		}));
 
-	await enqueuePurgeFinalize(
-		deps.sqs ?? getSqsClient(accountPurgeDeleteQueueUrl),
-		accountPurgeDeleteQueueUrl,
-		accountId,
-		accountConfigId,
-		items,
-	);
+	await enqueuePurgeFinalize(deps.queue, accountId, accountConfigId, items);
 	log.info(
 		{
 			accountConfigId,

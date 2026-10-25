@@ -80,7 +80,7 @@ export const toCalendarSuggestionResponses = async (
 	);
 
 const respondOne = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	accountConfigId: string,
 	item: CalendarSuggestionItem,
 ): Promise<CalendarSuggestionResponse> => {
@@ -116,7 +116,7 @@ export const assertSettleable = (
  * does not own.
  */
 const accountEmailForMessage = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	messageId: string,
 ): Promise<string> => {
 	const message = await client.message.get(messageId);

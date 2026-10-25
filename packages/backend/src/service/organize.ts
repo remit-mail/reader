@@ -258,7 +258,9 @@ export const matchOrganize = async (
  * preview, the mail search showed the user when the rule was made (#1354).
  */
 const listAccountFilterMessagesFromClient =
-	(client: RemitClient): OrganizeMatchDeps["listAccountFilterMessages"] =>
+	(
+		client: RemitClient<never>,
+	): OrganizeMatchDeps["listAccountFilterMessages"] =>
 	async (accountConfigId, query) => {
 		const page = await client.threadMessage.listByFieldTerms(
 			accountConfigId,
@@ -288,7 +290,7 @@ const listAccountFilterMessagesFromClient =
 
 /** The matcher deps for the running backend/worker. */
 export const buildOrganizeMatchDeps = (
-	client: RemitClient,
+	client: RemitClient<never>,
 ): OrganizeMatchDeps => ({
 	listAccountFilterMessages: listAccountFilterMessagesFromClient(client),
 });
@@ -299,30 +301,24 @@ export const buildOrganizeMatchDeps = (
  * {@link PlacementMoveService} over the shared message-management queue. A move
  * commits locally (marker + ThreadMessage + Message row) and enqueues a
  * `PLACEMENT_MOVE_PUSH` for the reconciler; its marker state engine makes a
- * redelivered job idempotent (mirrors #1297). Returns `undefined` when no
- * message-management queue is wired — the same gate body sync uses to keep the
- * move path off — so a move requested in that environment is counted as failed
- * rather than silently dropped (see {@link applyOrganize}).
+ * redelivered job idempotent (mirrors #1297).
  */
 export const buildOrganizeMoveService = (
-	client: RemitClient,
-): PlacementMoveService | undefined => {
-	const queueUrl = process.env.SQS_QUEUE_URL_MESSAGE_MGMT;
-	if (!queueUrl) return undefined;
-	return new PlacementMoveService({
+	client: RemitClient<"messageManagement">,
+): PlacementMoveService =>
+	new PlacementMoveService({
 		messageService: client.message,
 		threadMessageService: client.threadMessage,
 		markerService: client.placementMove,
 		addressService: client.address,
 		mailboxSpecialUseService: client.mailboxSpecialUse,
 		mailboxService: client.mailbox,
-		sqsQueueUrl: queueUrl,
+		queue: client.queues.messageManagement,
 	});
-};
 
 export interface ApplyOrganizeDeps {
-	client: RemitClient;
-	moveService?: PlacementMoveService;
+	client: RemitClient<never>;
+	moveService: PlacementMoveService;
 }
 
 export interface ApplyOrganizeResult {
@@ -366,14 +362,6 @@ export const applyOrganize = async (
 
 	const applyToMessage = async (messageId: string): Promise<MessageOutcome> => {
 		if (applyMove) {
-			if (!moveService) {
-				// An exclusive move was requested but this caller wired no move
-				// service. Never silently pretend it applied — surface it as a
-				// failed message so the job's failedCount reflects reality.
-				throw new Error(
-					"Organize move action requested but no move service is wired",
-				);
-			}
 			const message = await client.message.get(messageId);
 			const accountId = await client.mailbox.resolveAccountId(
 				message.mailboxId,
@@ -529,9 +517,9 @@ export interface FilterBackApplyResult {
 }
 
 export interface FilterBackApplyDeps {
-	client: RemitClient;
+	client: RemitClient<never>;
 	matchDeps: OrganizeMatchDeps;
-	moveService?: PlacementMoveService;
+	moveService: PlacementMoveService;
 }
 
 /**
@@ -558,11 +546,6 @@ export const backApplyFilter = async (
 		mailboxService: client.mailbox,
 		placementMoveService: moveService,
 	});
-	if (!config) {
-		throw new Error(
-			"Filter back-apply needs the message-management queue to move mail",
-		);
-	}
 	const pipeline = new FilterPipeline(config, logger);
 
 	const mailboxIds = await inboxMailboxIds(client, accountConfigId);

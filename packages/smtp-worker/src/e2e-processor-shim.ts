@@ -6,7 +6,7 @@ import {
 } from "@aws-sdk/client-sqs";
 import { createLogger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
-import { createQueueProducer } from "@remit/sqs-client/producer";
+import { createSqsClient } from "@remit/sqs-client/producer";
 import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { handler } from "./index.js";
@@ -34,7 +34,7 @@ const queueUrl = env.SQS_QUEUE_URL_SMTP;
 const queueName = new URL(queueUrl).pathname.split("/").pop();
 const log = createLogger().child({ queue: queueName });
 
-const sqs = createQueueProducer({ queueUrl });
+const sqs = createSqsClient({ queueUrl });
 
 const maxMessages = 10;
 

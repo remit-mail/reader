@@ -18,7 +18,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { after, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { buildSyncMailboxesCommand } from "@remit/backend/trigger-sync";
+import { buildSyncMailboxesMessage } from "@remit/backend/trigger-sync";
 import type { AccountItem } from "@remit/data-ports";
 import { ConnectionState } from "@remit/domain-enums";
 import {
@@ -33,7 +33,6 @@ import {
 } from "./with-oauth-lifecycle.js";
 
 const QUEUE_NAME = "remit-mailboxes.fifo";
-const QUEUE_URL = `http://localhost:9324/000000000000/${QUEUE_NAME}`;
 const ACCOUNT_ID = "acct_imported";
 const T0 = 1_700_000_000_000;
 
@@ -69,15 +68,12 @@ const importedAccount = {
 } as unknown as AccountItem;
 
 const enqueueSync = (store: QueueStore, now: number): void => {
-	const command = buildSyncMailboxesCommand({
-		queueUrl: QUEUE_URL,
-		accountId: ACCOUNT_ID,
-	});
+	const message = buildSyncMailboxesMessage({ accountId: ACCOUNT_ID });
 	store.sendMessage({
 		queueName: QUEUE_NAME,
-		body: command.input.MessageBody ?? "",
-		groupId: command.input.MessageGroupId,
-		deduplicationId: command.input.MessageDeduplicationId,
+		body: JSON.stringify(message.body),
+		groupId: message.groupId,
+		deduplicationId: message.deduplicationId,
 		now,
 	});
 };

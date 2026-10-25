@@ -36,6 +36,8 @@ import {
 } from "./account-overrides.js";
 import { assertNoBindings, loadMailboxBindings } from "./mailbox-bindings.js";
 
+type MailboxContext = HandlerContext<"sync">;
+
 /**
  * The mute flag and the display-name override are user preferences that live
  * in per-mailbox AccountSetting rows (RFC 032), not on the Mailbox entity.
@@ -119,7 +121,7 @@ export const applyMailboxPatch = async (
  * imap-worker bulk sync path through `RemitClient.placementMove` on every
  * backend, so this is a real signal on the self-host stack too.
  */
-const loadPendingMoves = (client: RemitClient, accountId: string) =>
+const loadPendingMoves = (client: RemitClient<never>, accountId: string) =>
 	client.placementMove.listByAccountId(accountId);
 
 /**
@@ -129,7 +131,7 @@ const loadPendingMoves = (client: RemitClient, accountId: string) =>
  * on both backends, so this is a real signal on the self-host stack too.
  */
 const loadPendingUnseenFlagPushes = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	accountId: string,
 ): Promise<PendingUnseenFlagPush[]> => {
 	const pushes = await client.flagPush.listByAccountId(accountId);
@@ -170,9 +172,9 @@ const toMailboxResponse = (
 
 export const MailboxOperations: Record<
 	MailboxOperationIds,
-	OperationHandler<MailboxOperationIds>
+	OperationHandler<MailboxOperationIds, "sync">
 > = {
-	MailboxOperations_listMailboxes: async (context, ctx: HandlerContext) => {
+	MailboxOperations_listMailboxes: async (context, ctx: MailboxContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { continuationToken } = context.request.query as {
@@ -223,7 +225,7 @@ export const MailboxOperations: Record<
 		};
 	},
 
-	MailboxOperations_createMailbox: async (context, ctx: HandlerContext) => {
+	MailboxOperations_createMailbox: async (context, ctx: MailboxContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 		const { namespaceType, fullPath } = context.request
@@ -246,9 +248,9 @@ export const MailboxOperations: Record<
 
 export const MailboxDetailOperations: Record<
 	MailboxDetailOperationIds,
-	OperationHandler<MailboxDetailOperationIds>
+	OperationHandler<MailboxDetailOperationIds, "sync">
 > = {
-	MailboxDetailOperations_getMailbox: async (context, ctx: HandlerContext) => {
+	MailboxDetailOperations_getMailbox: async (context, ctx: MailboxContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
 			accountId: string;
@@ -287,7 +289,7 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_renameMailbox: async (
 		context,
-		ctx: HandlerContext,
+		ctx: MailboxContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
@@ -314,7 +316,7 @@ export const MailboxDetailOperations: Record<
 
 	MailboxDetailOperations_deleteMailbox: async (
 		context,
-		ctx: HandlerContext,
+		ctx: MailboxContext,
 	) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId, mailboxId } = context.request.params as {
@@ -361,9 +363,9 @@ export const MailboxDetailOperations: Record<
 
 export const TrashOperations: Record<
 	TrashOperationIds,
-	OperationHandler<TrashOperationIds>
+	OperationHandler<TrashOperationIds, "sync">
 > = {
-	TrashOperations_emptyTrash: async (context, ctx: HandlerContext) => {
+	TrashOperations_emptyTrash: async (context, ctx: MailboxContext) => {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const { accountId } = context.request.params as { accountId: string };
 

@@ -1,14 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
 import type {
 	CreateMailboxInput,
 	CreateMailboxResult,
+	FifoQueueProducer,
 	IMailboxRepository,
 	MailboxItem,
 } from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import { createQueueProducer } from "@remit/sqs-client/producer";
 import {
 	INTENT_RECORDABLE_FROM,
 	recordedByRename,
@@ -18,7 +17,7 @@ import {
 /**
  * MAILBOX_CREATE event structure (matches remit-imap-worker/events.ts)
  */
-interface MailboxCreateEvent {
+export interface MailboxCreateEvent {
 	type: "MAILBOX_CREATE";
 	eventId: string;
 	timestamp: number;
@@ -31,7 +30,7 @@ interface MailboxCreateEvent {
 /**
  * MAILBOX_RENAME event structure (matches remit-imap-worker/events.ts)
  */
-interface MailboxRenameEvent {
+export interface MailboxRenameEvent {
 	type: "MAILBOX_RENAME";
 	eventId: string;
 	timestamp: number;
@@ -44,7 +43,7 @@ interface MailboxRenameEvent {
 /**
  * MAILBOX_DELETE event structure (matches remit-imap-worker/events.ts)
  */
-interface MailboxDeleteEvent {
+export interface MailboxDeleteEvent {
 	type: "MAILBOX_DELETE";
 	eventId: string;
 	timestamp: number;
@@ -53,7 +52,7 @@ interface MailboxDeleteEvent {
 	path: string;
 }
 
-type MailboxManagementEvent =
+export type MailboxManagementEvent =
 	| MailboxCreateEvent
 	| MailboxRenameEvent
 	| MailboxDeleteEvent;
@@ -81,8 +80,7 @@ export type CreateMailboxQueueInput = Omit<CreateMailboxInput, "syncStatus">;
  */
 export interface MailboxQueueConfig {
 	mailboxService: IMailboxRepository;
-	sqsQueueUrl: string;
-	sqsEndpoint?: string;
+	queue: FifoQueueProducer<MailboxManagementEvent>;
 	logger?: MailboxQueueLogger;
 }
 
@@ -97,20 +95,13 @@ export interface MailboxQueueConfig {
  */
 export class MailboxQueueService {
 	private mailboxService: IMailboxRepository;
-	private sqs: SQSClient;
-	private queueUrl: string;
+	private queue: FifoQueueProducer<MailboxManagementEvent>;
 	private log: MailboxQueueLogger;
 
 	constructor(config: MailboxQueueConfig) {
-		const { mailboxService, sqsQueueUrl, sqsEndpoint } = config;
-		this.mailboxService = mailboxService;
-		this.queueUrl = sqsQueueUrl;
+		this.mailboxService = config.mailboxService;
+		this.queue = config.queue;
 		this.log = config.logger ?? noopLogger;
-
-		this.sqs = createQueueProducer({
-			queueUrl: sqsQueueUrl,
-			endpoint: sqsEndpoint,
-		});
 	}
 
 	/**
@@ -368,26 +359,17 @@ export class MailboxQueueService {
 	};
 
 	/**
-	 * Enqueue a mailbox management event to SQS.
-	 *
-	 * FIFO queues require MessageGroupId; standard queues reject it. We detect
-	 * FIFO queues by the `.fifo` suffix on the queue URL and scope ordering to
-	 * the account so events for different accounts can be processed in parallel.
+	 * Enqueue a mailbox management event, ordered per account so events for
+	 * different accounts can be processed in parallel.
 	 */
 	private enqueueEvent = async (
 		event: MailboxManagementEvent,
 	): Promise<void> => {
-		const useFifo = this.queueUrl.endsWith(".fifo");
-		await this.sqs.send(
-			new SendMessageCommand({
-				QueueUrl: this.queueUrl,
-				MessageBody: JSON.stringify(event),
-				...(useFifo && {
-					MessageGroupId: event.accountId,
-					MessageDeduplicationId: `${event.type}:${event.mailboxId}:${event.eventId}`,
-				}),
-			}),
-		);
+		await this.queue.send({
+			body: event,
+			groupId: event.accountId,
+			deduplicationId: `${event.type}:${event.mailboxId}:${event.eventId}`,
+		});
 
 		this.log.info(
 			{ eventId: event.eventId, type: event.type, mailboxId: event.mailboxId },

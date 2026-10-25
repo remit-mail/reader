@@ -3,15 +3,19 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import type { AccountItem, FilterItem, MailboxItem } from "@remit/data-ports";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import {
+	type RecordingQueue,
+	recordingQueue,
+} from "@remit/data-ports/recording-queue";
+import {
 	FilterMatchOperator,
 	FilterScope,
 	FilterState,
 } from "@remit/domain-enums";
-import { BodySyncService, SyncWarningService } from "@remit/mailbox-service";
 import {
-	captureQueue,
-	type QueueCapture,
-} from "@remit/mailbox-service/test-helpers/test-queue";
+	BodySyncQueueService,
+	BodySyncService,
+	SyncWarningService,
+} from "@remit/mailbox-service";
 import {
 	openStore,
 	type Store,
@@ -22,13 +26,13 @@ import {
 import { MCP_READ_SCOPE, MCP_RULES_SCOPE } from "./auth/scopes.js";
 import type { McpDeps } from "./deps.js";
 import { createMcpHandler, type McpRequestHandler } from "./server.js";
-import { ORGANIZE_QUEUE, ruleDeps } from "./test-rule-deps.js";
+import { ruleDeps } from "./test-rule-deps.js";
 
 const USER_ID = "filter-user";
 const OTHER_USER_ID = "filter-other-user";
 
 let store: Store;
-let capture: QueueCapture;
+let capture: RecordingQueue;
 let deps: McpDeps;
 let account: AccountItem;
 let receipts: MailboxItem;
@@ -38,7 +42,7 @@ let theirFilter: FilterItem;
 const clauses = [{ field: "From", value: "billing@example.com" }];
 
 beforeEach(async () => {
-	capture = captureQueue();
+	capture = recordingQueue();
 	store = await openStore();
 	const storage = store.storage();
 	deps = {
@@ -53,9 +57,9 @@ beforeEach(async () => {
 			new SyncWarningService(store.syncWarning),
 			silentLog,
 		),
-		bodySyncQueue: undefined,
+		bodySyncQueue: new BodySyncQueueService({ queue: capture }),
 		logger: silentLog,
-		...ruleDeps(store),
+		...ruleDeps(store, capture),
 	};
 	account = await seedAccount(store, {
 		accountConfigId: deriveAccountConfigId(USER_ID),
@@ -80,7 +84,6 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-	capture.restore();
 	await store.close();
 });
 
@@ -170,7 +173,7 @@ const receiptsRule = (actionMailboxId: string) => ({
 });
 
 const organizeSends = () =>
-	capture.sent.filter(({ queueUrl }) => queueUrl === ORGANIZE_QUEUE);
+	capture.sent.filter(({ body }) => body.type === "OrganizeJob");
 
 describe("the filter tools behind mail:rules", () => {
 	it("are absent from a token without mail:rules", async () => {
