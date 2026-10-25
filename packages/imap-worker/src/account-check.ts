@@ -1,6 +1,6 @@
 import type { AccountItem } from "@remit/data-ports";
 import { AccountService } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 
 /**
  * RFC 2606 reserved placeholder namespaces that are guaranteed never to resolve

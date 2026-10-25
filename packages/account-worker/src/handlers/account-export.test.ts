@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 import { describe, it } from "node:test";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import type { StorageService } from "@remit/storage-service";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountExportEvent } from "../events.js";

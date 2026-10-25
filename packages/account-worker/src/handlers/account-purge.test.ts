@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import { noopLogger } from "@remit/logger-lambda/noop-logger";
+import { noopLogger } from "@remit/logger";
 import type { CascadeServices } from "../cascade.js";
 import type { AccountDataPurgeEvent } from "../events.js";
 import {

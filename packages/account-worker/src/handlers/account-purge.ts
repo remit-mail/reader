@@ -1,5 +1,5 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { CascadeServices } from "../cascade.js";
 import {
 	getAccountPurgeDeleteQueueUrl,

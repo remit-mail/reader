@@ -4,11 +4,14 @@ import {
 	DeleteMessageCommand,
 	ReceiveMessageCommand,
 } from "@aws-sdk/client-sqs";
-import { createLogger } from "@remit/logger-lambda";
+import { createLogger } from "@remit/logger";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import { createQueueProducer } from "@remit/sqs-client/producer";
 import type { Context, SQSBatchResponse, SQSEvent } from "aws-lambda";
 import { env } from "expect-env";
 import { handler } from "./index.js";
+
+installNodeLogger();
 
 /**
  * E2E-only queue drainer.

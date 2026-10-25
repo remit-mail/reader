@@ -66,7 +66,30 @@
 			"default": "./src/sync-warning-state.ts"
 		}
 	},
+	"packManifest": {
+		"main": "dist/index.js",
+		"types": "dist/index.d.ts",
+		"exports": {
+			".": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"./conformance": {
+				"types": "./dist/conformance/index.d.ts",
+				"default": "./dist/conformance/index.js"
+			},
+			"./*": {
+				"types": "./dist/*.d.ts",
+				"default": "./dist/*.js"
+			}
+		},
+		"files": [
+			"dist"
+		]
+	},
 	"scripts": {
+		"prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+		"postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
 		"test:typecheck": "tsgo --noEmit",
 		"test:run": "node $NODE_TEST_FLAGS --import tsx --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-lines=85 --test 'src/**/*.test.ts'"
 	},

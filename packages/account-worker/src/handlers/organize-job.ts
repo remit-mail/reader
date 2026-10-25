@@ -12,7 +12,7 @@ import {
 	type OrganizeRejection,
 	predicateFromJob,
 } from "@remit/backend/organize";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { OrganizeJobEvent } from "../events.js";
 
 export interface ProcessOrganizeJobDeps {

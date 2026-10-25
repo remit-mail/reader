@@ -1,11 +1,10 @@
 import { SendMessageCommand, type SQSClient } from "@aws-sdk/client-sqs";
+import { createLogger, type Logger } from "@remit/logger";
 import {
-	createLogger,
-	type Logger,
 	queueNameFromEventSource,
 	recordQueueEvent,
-	withTelemetry,
-} from "@remit/logger-lambda";
+} from "@remit/logger-lambda/metrics";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { CascadeServices } from "../cascade.js";
 import { enumerateCascadeEntities } from "../cascade.js";
@@ -29,6 +28,8 @@ import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
 import { processOrganizeJob } from "./organize-job.js";
 import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
+
+installNodeLogger();
 
 export interface ProcessAccountFanoutDeps {
 	services?: CascadeServices;

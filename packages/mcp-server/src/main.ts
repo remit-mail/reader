@@ -3,7 +3,8 @@ import {
 	createSqliteRepositories,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
+import { installNodeLogger } from "@remit/logger-lambda/node";
 import {
 	BodySyncQueueService,
 	BodySyncService,
@@ -21,6 +22,8 @@ import { openMcpAuthDatabase } from "./auth/database.js";
 import { resolveMcpServerConfig } from "./config.js";
 import type { McpDeps } from "./deps.js";
 import { loadPageAssets } from "./pages/assets.js";
+
+installNodeLogger();
 
 const FOLDER_SETTLE_TIMEOUT_MS = 20_000;
 const FOLDER_POLL_INTERVAL_MS = 500;

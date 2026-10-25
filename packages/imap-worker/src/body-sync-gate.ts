@@ -1,5 +1,5 @@
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 
 const CACHE_TTL_MS = 30_000;
 

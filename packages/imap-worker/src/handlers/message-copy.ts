@@ -4,7 +4,7 @@ import {
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import {
 	guardConnectionCursor,
 	type IImapConnection,

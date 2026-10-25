@@ -1,11 +1,10 @@
 import { inspect } from "node:util";
+import { createLogger, type Logger } from "@remit/logger";
 import {
-	createLogger,
-	type Logger,
 	queueNameFromEventSource,
 	recordQueueEvent,
-	withTelemetry,
-} from "@remit/logger-lambda";
+} from "@remit/logger-lambda/metrics";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSEvent, SQSHandler } from "aws-lambda";
 import {
 	type CascadeEntity,
@@ -23,6 +22,8 @@ import type {
 	AccountDeleteFinalizeEvent,
 	AccountFinalizeEvent,
 } from "../events.js";
+
+installNodeLogger();
 
 export interface ProcessFinalizeDeps {
 	capabilities?: DeletionCapabilities;

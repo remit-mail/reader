@@ -1,5 +1,5 @@
 import type { SQSClient } from "@aws-sdk/client-sqs";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import { ownedAccount } from "@remit/mailbox-service";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { env } from "expect-env";

@@ -5,7 +5,8 @@ import type {
 	UpdateOutboxMessageInput,
 } from "@remit/data-ports";
 import { AccountAuthType, OutboxMessageStatus } from "@remit/domain-enums";
-import { type Logger, recordSmtpFailure } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
+import { recordSmtpFailure } from "@remit/logger-lambda/metrics";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { CredentialResolution } from "@remit/mailbox-service/account-credentials";
 import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";

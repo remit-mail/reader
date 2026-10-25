@@ -4,7 +4,7 @@ import {
 	triggerAccountSync,
 } from "@remit/backend/trigger-sync";
 import type { AccountItem, IAccountRepository } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { hasStoredCredential } from "@remit/mailbox-service/account-credentials";
 import pMap from "p-map";
 import {

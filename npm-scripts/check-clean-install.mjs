@@ -28,8 +28,8 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const INSTALLED = "@remit/backend";
 
-// The names a consumer of @remit/backend must be able to resolve after
-// installing it alone.
+// The entries a consumer of @remit/backend must be able to resolve after
+// installing it alone, subpath exports included.
 const RESOLVES = [
 	"@remit/backend",
 	"@remit/data-ports",
@@ -42,7 +42,13 @@ const RESOLVES = [
 	"@remit/secrets-service",
 	"@remit/sqs-client",
 	"@remit/mail-oauth-service",
-	"@remit/logger-lambda",
+	"@remit/logger",
+	"@remit/logger-lambda/node",
+	"@remit/logger-lambda/metrics",
+	"@remit/api-openapi-spec/openapi.json",
+	"@remit/backend/api",
+	"@remit/data-ports/errors",
+	"@remit/data-ports/conformance",
 	"@remit/api-zod-schemas",
 	"@remit/drizzle-sqlite-schema",
 ];
@@ -89,7 +95,7 @@ try {
 
 	console.log(
 		`Clean-install acceptance OK: installing ${INSTALLED} from this tree resolves ` +
-			`${RESOLVES.length} @remit packages.`,
+			`${RESOLVES.length} @remit entries.`,
 	);
 } finally {
 	rmSync(tmp, { recursive: true, force: true });

@@ -3,7 +3,7 @@ import { refreshFolderAppointmentLabels } from "@remit/backend/folder-role-label
 import type { IMailboxRepository } from "@remit/data-ports";
 import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import {
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,

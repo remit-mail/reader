@@ -8,7 +8,7 @@ import type {
 	ICalendarCollectionRepository,
 	ICalendarStore,
 } from "@remit/data-ports";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import pMap from "p-map";
 
 const REFRESH_CONCURRENCY = 4;

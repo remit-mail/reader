@@ -1,14 +1,16 @@
+import { createLogger } from "@remit/logger";
 import {
-	createLogger,
 	queueNameFromEventSource,
 	recordImapFailure,
 	recordQueueEvent,
-	withTelemetry,
-} from "@remit/logger-lambda";
+} from "@remit/logger-lambda/metrics";
+import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { WorkerEvent } from "./events.js";
 import { imapFailureKind } from "./failure-kind.js";
 import { processEvent } from "./processor.js";
+
+installNodeLogger();
 
 const log = createLogger();
 

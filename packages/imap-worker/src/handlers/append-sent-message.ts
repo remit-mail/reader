@@ -6,7 +6,7 @@ import {
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	buildMailMessage,

@@ -1,5 +1,5 @@
 import { isPublicApiError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger-lambda";
+import { logger } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { formatResponse } from "./response.js";
 

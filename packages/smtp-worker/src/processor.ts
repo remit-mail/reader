@@ -1,4 +1,4 @@
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { SmtpEvent } from "./events.js";
 import { handleSendMessage } from "./handlers/send-message.js";
 

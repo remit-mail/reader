@@ -1,4 +1,4 @@
-import type { Logger } from "@remit/logger-lambda";
+import type { Logger } from "@remit/logger";
 import type { WorkerEvent } from "./events.js";
 import { handleAppendSentMessage } from "./handlers/append-sent-message.js";
 import { handleDeleteAccountObjects } from "./handlers/delete-account-objects.js";

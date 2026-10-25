@@ -141,7 +141,7 @@ namespace RemitApi {
       @continuationToken
       continuationToken?: string,
     ):
-      | ResultList<MailboxResponse>
+      | MailboxListResponse
       | ValidationError
       | NotFoundError
       | UnauthorizedError;
@@ -812,7 +812,7 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
-    ): ResultList<ThreadMessageResponse> | NotFoundError | UnauthorizedError;
+    ): ThreadMessageListResponse | NotFoundError | UnauthorizedError;
   }
 
   @route("/threads")
@@ -930,7 +930,7 @@ namespace RemitApi {
 
       @query(#{ explode: true })
       order?: SortOrder,
-    ): ResultList<ThreadMessageResponse> | ValidationError | UnauthorizedError;
+    ): ThreadMessageListResponse | ValidationError | UnauthorizedError;
 
     @extension("x-amazon-apigateway-integration", APIGatewayIntegration)
     @get
@@ -1015,7 +1015,7 @@ namespace RemitApi {
       @query(#{ explode: true })
       @continuationToken
       continuationToken?: string,
-    ): ResultList<OutboxMessageResponse> | ValidationError | UnauthorizedError;
+    ): OutboxMessageListResponse | ValidationError | UnauthorizedError;
   }
 
   @route("/outbox/{outboxMessageId}")
