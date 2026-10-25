@@ -20,7 +20,7 @@
 	},
 	"dependencies": {
 		"@remit/logger": "*",
-		"@types/aws-lambda": "*",
+		"@types/aws-lambda": "^8.10.162",
 		"prom-client": "^15.1.3"
 	},
 	"license": "MIT",
