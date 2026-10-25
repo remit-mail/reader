@@ -12,11 +12,7 @@ import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
 import type { AccountItem } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
-import {
-	AccountRepo,
-	MailboxRepo,
-	SearchIndex,
-} from "@remit/drizzle-service";
+import { AccountRepo, MailboxRepo, SearchIndex } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";

@@ -7,11 +7,7 @@ import {
 	AccountService,
 	ConnectionState,
 } from "@remit/domain-enums";
-import {
-	AccountRepo,
-	MailboxRepo,
-	SearchIndex,
-} from "@remit/drizzle-service";
+import { AccountRepo, MailboxRepo, SearchIndex } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { capturingLogger, type LogLine } from "../test-helpers/test-world.js";
 import { runSchedulerTick } from "./run-tick.js";
