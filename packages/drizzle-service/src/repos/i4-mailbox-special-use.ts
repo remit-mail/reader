@@ -21,7 +21,6 @@ import { eq } from "drizzle-orm";
 import type { RepositoryDb } from "../db.js";
 import { randomId } from "../id.js";
 import { mailboxSpecialUseTable, mailboxTable } from "../schema/i4-mailbox.js";
-import type { AccountSettingRepo } from "./i4-account-setting.js";
 import { inList } from "./in-list.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
@@ -31,8 +30,7 @@ type AccountReader = Pick<
 	"get" | "listAllByAccountConfig" | "listAll"
 >;
 
-type AppointmentReader = Pick<IAccountSettingRepository, "get"> &
-	Pick<AccountSettingRepo, "getMany">;
+type AppointmentReader = Pick<IAccountSettingRepository, "get" | "getMany">;
 
 type AppointedAccount = Pick<AccountItem, "accountId" | "accountConfigId">;
 

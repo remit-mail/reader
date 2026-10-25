@@ -6,14 +6,7 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { deriveThreadId } from "@remit/data-ports/id";
-import {
-	AddressRepo,
-	DrizzleEnvelopeRepository,
-	DrizzleMessageRepository,
-	DrizzleThreadMessageRepository,
-	SearchIndex,
-	SyncWarningRepo,
-} from "@remit/drizzle-service";
+import { createSqliteRepositories } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MessageSyncService, SyncWarningService } from "@remit/mailbox-service";
 import type { ImapMessage } from "@remit/mailbox-service/types";
@@ -62,27 +55,17 @@ const REPLY = message(2, "<r@example.com>", "<p@example.com>");
 const syncInOrder = async (
 	messages: ImapMessage[],
 ): Promise<{ threadIds: (messageId: string) => string[] }> => {
-	const { db, batch, sqlite } = createShippedSqliteDb();
-	const typed = db as unknown as ConstructorParameters<
-		typeof DrizzleMessageRepository
-	>[0];
+	const { db, sqlite } = createShippedSqliteDb();
+	const repos = createSqliteRepositories({ app: db, mail: db, search: db });
 	const service = new MessageSyncService(
 		{} as never,
 		{} as IMailboxRepository,
 		{} as IMailboxSpecialUseRepository,
-		new DrizzleMessageRepository(
-			typed,
-			batch,
-			new SearchIndex(typed, typed, batch),
-		),
-		new DrizzleEnvelopeRepository(typed, batch),
-		new AddressRepo(db as never),
-		new DrizzleThreadMessageRepository(
-			db,
-			batch,
-			new SearchIndex(db, db, batch),
-		),
-		new SyncWarningService(new SyncWarningRepo(db as never)),
+		repos.message,
+		repos.envelope,
+		repos.address,
+		repos.threadMessage,
+		new SyncWarningService(repos.syncWarning),
 	);
 	const save = (
 		service as unknown as {

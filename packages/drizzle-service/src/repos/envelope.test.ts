@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { BodyPartUpsertInput } from "@remit/data-ports";
-import { syncBatch } from "../batch.js";
 import { envelopeId as deriveEnvelopeId } from "../id.js";
-import { DrizzleEnvelopeRepository } from "./envelope.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
+import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import { createTestDb, type TestDb } from "./test-helpers.js";
 
 describe("DrizzleEnvelopeRepository", () => {
@@ -19,7 +19,7 @@ describe("DrizzleEnvelopeRepository", () => {
 
 	before(async () => {
 		({ db, stop } = await createTestDb());
-		repo = new DrizzleEnvelopeRepository(db, syncBatch(db));
+		repo = createSqliteRepositories({ app: db, mail: db, search: db }).envelope;
 
 		await repo.upsertEnvelope({
 			envelopeId: ENVELOPE_ID,

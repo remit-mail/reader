@@ -13,7 +13,7 @@ import {
 } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
-import type { RepositoryDb } from "../db.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 
 // The FTS5 trigram table the search migration set creates
@@ -138,11 +138,16 @@ export interface CandidateQuery {
  * only, so no statement carries more ids than a page holds.
  */
 export class SearchIndex {
+	private readonly search: AnyDb;
+	private readonly batch: WriteBatch;
+
 	constructor(
 		private readonly mail: AnyDb,
-		private readonly search: AnyDb,
-		private readonly batch: WriteBatch,
-	) {}
+		store: SqliteStore<Record<string, unknown>>,
+	) {
+		this.search = store.db;
+		this.batch = store.batch;
+	}
 
 	/** Make the index match the mail database for these thread messages. */
 	async sync(threadMessageIds: readonly string[]): Promise<void> {

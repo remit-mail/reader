@@ -1,10 +1,8 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { syncBatch } from "../batch.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { AccountRepo } from "./i4-account.js";
-import { MailboxRepo } from "./i4-mailbox.js";
+import type { AccountRepo } from "./i4-account.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 function makeAccountInput(accountConfigId: string) {
@@ -28,14 +26,11 @@ describe("AccountRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new AccountRepo(
-			db as never,
-			new MailboxRepo(
-				db as never,
-				syncBatch(db as never),
-				new SearchIndex(db as never, db as never, syncBatch(db as never)),
-			),
-		);
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).account;
 	});
 
 	after(async () => {
@@ -169,11 +164,11 @@ describe("AccountRepo", () => {
 		const accountConfigId = randomId();
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
-		const mailboxRepo = new MailboxRepo(
-			db as never,
-			syncBatch(db as never),
-			new SearchIndex(db as never, db as never, syncBatch(db as never)),
-		);
+		const mailboxRepo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).mailbox;
 		mailboxCreated(
 			await mailboxRepo.create({
 				accountId: account.accountId,

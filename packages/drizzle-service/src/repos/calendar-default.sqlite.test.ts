@@ -2,17 +2,15 @@ import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import { provisionDefaultCalendar } from "@remit/calendar-service";
 import type { ICalendarStore } from "@remit/data-ports";
-import { syncBatch } from "../batch.js";
 import type { Db } from "../db.js";
 import {
 	calendarEventIndexTable,
 	calendarObjectTable,
 	calendarTable,
 } from "../schema.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
-import { DrizzleCalendarStore } from "./calendar-store.js";
-import { CalendarSuggestionRepo } from "./calendar-suggestion.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-default";
 
@@ -29,11 +27,11 @@ describe("provisioning the default calendar", () => {
 		});
 		db = created.db as unknown as Db<Record<string, unknown>>;
 		close = created.close;
-		store = new DrizzleCalendarStore(
-			db,
-			syncBatch(db),
-			new CalendarSuggestionRepo(db),
-		);
+		store = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).calendarStore;
 	});
 
 	after(() => close());

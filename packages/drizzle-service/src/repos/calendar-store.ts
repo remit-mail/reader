@@ -8,7 +8,7 @@ import type {
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { and, eq, exists, sql } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
-import type { RepositoryDb } from "../db.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	calendarEventIndexTable,
 	calendarFeedTokenTable,
@@ -34,17 +34,21 @@ const isBatchWrite = (write: CalendarWrite): write is CalendarBatchWrite =>
 export class DrizzleCalendarStore implements ICalendarStore {
 	readonly repos: CalendarRepositories;
 
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private db: DB,
-		private batch: WriteBatch,
+		store: SqliteStore<Record<string, unknown>>,
 		calendarSuggestion: ICalendarSuggestionRepository,
 	) {
+		this.db = store.db;
+		this.batch = store.batch;
 		this.repos = {
-			calendarCollection: new CalendarCollectionRepo(db),
-			calendarObject: new CalendarObjectRepo(db),
-			calendarEventIndex: new CalendarEventIndexRepo(db),
+			calendarCollection: new CalendarCollectionRepo(store.db),
+			calendarObject: new CalendarObjectRepo(store.db),
+			calendarEventIndex: new CalendarEventIndexRepo(store.db),
 			calendarSuggestion,
-			calendarFeedToken: new CalendarFeedTokenRepo(db),
+			calendarFeedToken: new CalendarFeedTokenRepo(store.db),
 		};
 	}
 

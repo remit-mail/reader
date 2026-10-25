@@ -1,4 +1,5 @@
 import type { BaseSQLiteDatabase } from "drizzle-orm/sqlite-core";
+import type { WriteBatch } from "./batch.js";
 
 /**
  * A synchronous SQLite handle: better-sqlite3, or a Cloudflare Durable
@@ -21,3 +22,8 @@ export type RepositoryDb<TSchema extends Record<string, unknown>> = Omit<
 	BaseSQLiteDatabase<"sync" | "async", unknown, TSchema>,
 	"transaction" | "batch"
 >;
+
+export interface SqliteStore<TSchema extends Record<string, unknown>> {
+	db: RepositoryDb<TSchema>;
+	batch: WriteBatch;
+}

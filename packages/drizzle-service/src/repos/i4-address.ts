@@ -786,6 +786,16 @@ export class AddressRepo implements IAddressRepository {
 		);
 	}
 
+	async listAllByAccountConfig(
+		accountConfigId: string,
+	): Promise<AddressItem[]> {
+		const rows = await this.db
+			.select()
+			.from(addressTable)
+			.where(eq(addressTable.accountConfigId, accountConfigId));
+		return rows.map(rowToAddress);
+	}
+
 	async createEnvelopeAddress(
 		input: CreateEnvelopeAddressInput,
 	): Promise<EnvelopeAddressItem> {

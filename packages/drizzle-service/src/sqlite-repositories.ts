@@ -35,17 +35,15 @@ import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 import { SearchIndex } from "./search/thread-message-search.js";
 
-// Every repo over the database that holds its tables (#1420), each writing its
-// sets through that database's own batch port, so any SQLite driver serves.
 export const composeSqliteRepositories = ({
 	app,
 	mail,
 	search,
 }: SqliteStores) => {
-	const searchIndex = new SearchIndex(mail.db, search.db, search.batch);
+	const searchIndex = new SearchIndex(mail.db, search);
 	const accountSetting = new AccountSettingRepo(app.db);
 	const address = new AddressRepo(mail.db);
-	const mailbox = new MailboxRepo(mail.db, mail.batch, searchIndex);
+	const mailbox = new MailboxRepo(mail, searchIndex);
 	const account = new AccountRepo(app.db, mailbox);
 	const calendarSuggestion = new CalendarSuggestionRepo(mail.db);
 	return {
@@ -60,16 +58,12 @@ export const composeSqliteRepositories = ({
 			accountSetting,
 		),
 		mailboxLock: new MailboxLockRepo(mail.db),
-		message: new DrizzleMessageRepository(mail.db, mail.batch, searchIndex),
+		message: new DrizzleMessageRepository(mail, searchIndex),
 		messageFlag: new DrizzleMessageFlagRepository(mail.db),
 		outboxMessage: new OutboxMessageRepo(mail.db),
-		outboxAttachment: new OutboxAttachmentRepo(mail.db, mail.batch),
-		threadMessage: new DrizzleThreadMessageRepository(
-			mail.db,
-			mail.batch,
-			searchIndex,
-		),
-		envelope: new DrizzleEnvelopeRepository(mail.db, mail.batch),
+		outboxAttachment: new OutboxAttachmentRepo(mail),
+		threadMessage: new DrizzleThreadMessageRepository(mail, searchIndex),
+		envelope: new DrizzleEnvelopeRepository(mail),
 		accountExportRequest: new AccountExportRequestRepo(app.db),
 		configImport: new ConfigImportRepo(app.db),
 		quarantine: new QuarantineRepo(mail.db),
@@ -86,18 +80,12 @@ export const composeSqliteRepositories = ({
 		calendarEventIndex: new CalendarEventIndexRepo(app.db),
 		calendarFeedToken: new CalendarFeedTokenRepo(app.db),
 		calendarSuggestion,
-		calendarStore: new DrizzleCalendarStore(
-			app.db,
-			app.batch,
-			calendarSuggestion,
-		),
+		calendarStore: new DrizzleCalendarStore(app, calendarSuggestion),
 	};
 };
 
 export type SqliteRepositories = ReturnType<typeof composeSqliteRepositories>;
 
-// The self-host composition: the three better-sqlite3 databases, each writing
-// its sets as one synchronous IMMEDIATE transaction.
 export const createSqliteRepositories = (
 	databases: SqliteDatabases,
 ): SqliteRepositories => composeSqliteRepositories(syncStores(databases));

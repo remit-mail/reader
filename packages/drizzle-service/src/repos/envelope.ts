@@ -10,7 +10,7 @@ import type {
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
 import type { WriteBatch } from "../batch.js";
-import type { RepositoryDb } from "../db.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
 	isUniqueViolation,
@@ -29,7 +29,6 @@ import {
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
-	type MessageDataSchema,
 	messageReferenceTable,
 	messageTable,
 	rawMessageStorageTable,
@@ -45,7 +44,7 @@ import {
 	toRawMessageStorageItem,
 } from "./mappers.js";
 
-type DB = RepositoryDb<MessageDataSchema>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 	const byId = new Map<string, T>();
@@ -56,10 +55,13 @@ function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 }
 
 export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
-	constructor(
-		private db: DB,
-		private batch: WriteBatch,
-	) {}
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
+	constructor(store: SqliteStore<Record<string, unknown>>) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	async getMessageData(messageId: string): Promise<MessageData> {
 		const [

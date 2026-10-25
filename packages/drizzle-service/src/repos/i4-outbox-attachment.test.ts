@@ -1,8 +1,8 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
-import { syncBatch } from "../batch.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
-import { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
+import type { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
 
 const CAP = { maxTotalBytes: 1000, maxCount: 3, nowSeconds: 1_000_000 };
 
@@ -28,7 +28,11 @@ const input = (
 
 before(async () => {
 	harness = await createTestDb();
-	repo = new OutboxAttachmentRepo(harness.db, syncBatch(harness.db));
+	repo = createSqliteRepositories({
+		app: harness.db,
+		mail: harness.db,
+		search: harness.db,
+	}).outboxAttachment;
 });
 
 after(async () => {

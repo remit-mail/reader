@@ -17,7 +17,6 @@ export type WriteBatch = <T extends readonly SqliteBatchItem[]>(
 
 type NonEmptyBatch = readonly [SqliteBatchItem, ...SqliteBatchItem[]];
 
-/** A driver with drizzle's native `batch()`: D1 and libsql. */
 export interface BatchingDatabase {
 	batch<U extends SqliteBatchItem, T extends Readonly<[U, ...U[]]>>(
 		batch: T,
@@ -65,7 +64,6 @@ export const syncBatch =
 		return results as unknown as BatchResponse<typeof items>;
 	};
 
-/** A batch as the driver's own `batch()`, for D1 and libsql. */
 export const asyncBatch =
 	(db: BatchingDatabase): WriteBatch =>
 	async (items) => {

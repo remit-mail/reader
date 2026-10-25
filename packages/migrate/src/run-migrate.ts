@@ -1,7 +1,9 @@
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
-import { syncBatch } from "../../drizzle-service/src/batch.js";
-import { sqliteDatabasePathsFromEnv } from "../../drizzle-service/src/databases.js";
+import {
+	sqliteDatabasePathsFromEnv,
+	syncStore,
+} from "../../drizzle-service/src/databases.js";
 import {
 	type DisplayNameRepairClient,
 	type DisplayNameRepairMode,
@@ -20,11 +22,9 @@ import {
 	type StrandedSentRepairMode,
 	sweepStrandedSentOutbox,
 } from "../../drizzle-service/src/repair/stranded-sent-outbox.js";
-import { AccountRepo } from "../../drizzle-service/src/repos/i4-account.js";
-import { AccountSettingRepo } from "../../drizzle-service/src/repos/i4-account-setting.js";
-import { MailboxRepo } from "../../drizzle-service/src/repos/i4-mailbox.js";
-import { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
+import type { MailboxSpecialUseRepo } from "../../drizzle-service/src/repos/i4-mailbox-special-use.js";
 import { SearchIndex } from "../../drizzle-service/src/search/thread-message-search.js";
+import { createSqliteRepositories } from "../../drizzle-service/src/sqlite-repositories.js";
 import {
 	type LegacySplitOutcome,
 	legacyDatabasePath,
@@ -269,12 +269,12 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const app = sqliteDrizzle(appSqlite);
 	const db = sqliteDrizzle(mailSqlite);
 	const searchDb = sqliteDrizzle(searchSqlite);
-	const search = new SearchIndex(db, searchDb, syncBatch(searchDb));
-	const specialUse = new MailboxSpecialUseRepo(
-		db,
-		new AccountRepo(app, new MailboxRepo(db, syncBatch(db), search)),
-		new AccountSettingRepo(app),
-	);
+	const search = new SearchIndex(db, syncStore(searchDb));
+	const specialUse = createSqliteRepositories({
+		app,
+		mail: db,
+		search: searchDb,
+	}).mailboxSpecialUse;
 	try {
 		if (mode.kind === "check") {
 			await displayNameStep(paramRepairClient, "check");

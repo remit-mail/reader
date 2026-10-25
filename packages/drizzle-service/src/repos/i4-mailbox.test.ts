@@ -10,14 +10,13 @@ import {
 import {
 	filterTable,
 	mailboxSpecialUseTable,
-	mailboxTable,
 	messageTable,
 	threadMessageTable,
 } from "../schema.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
-import { MailboxRepo } from "./i4-mailbox.js";
-import { DrizzleMessageRepository, deleteMessageSubtree } from "./message.js";
+import type { MailboxRepo } from "./i4-mailbox.js";
+import { deleteMessageSubtree } from "./message.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 /** Every state a row can carry, for a transition that decides against none. */
@@ -55,11 +54,11 @@ describe("MailboxRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = new MailboxRepo(
-			db as never,
-			syncBatch(db as never),
-			new SearchIndex(db as never, db as never, syncBatch(db as never)),
-		);
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).mailbox;
 	});
 
 	after(async () => {
@@ -544,11 +543,11 @@ describe("MailboxRepo", () => {
 	describe("deleteMailboxWithMail — the folder's mail goes with it (D8)", () => {
 		const seedMessage = async (mailboxId: string, uid: number) => {
 			const messageId = randomId();
-			await new DrizzleMessageRepository(
-				db as never,
-				syncBatch(db as never),
-				new SearchIndex(db as never, db as never, syncBatch(db as never)),
-			).create({
+			await createSqliteRepositories({
+				app: db,
+				mail: db,
+				search: db,
+			}).message.create({
 				messageId,
 				mailboxId,
 				uid,

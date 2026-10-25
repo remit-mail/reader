@@ -1,9 +1,6 @@
-import { syncBatch, type WriteBatch } from "./batch.js";
-import type { Db, RepositoryDb } from "./db.js";
-import {
-	type MessageDataSchema,
-	messageDataSchema,
-} from "./schema/message-data.js";
+import { syncBatch } from "./batch.js";
+import type { Db, SqliteStore } from "./db.js";
+import { messageDataSchema } from "./schema/message-data.js";
 import { createSqliteDatabase } from "./sqlite-client.js";
 
 // The three databases a self-host instance runs on (#1420). The app database
@@ -13,23 +10,13 @@ import { createSqliteDatabase } from "./sqlite-client.js";
 // rebuilt from the mail database, so it never commits together with it.
 export interface SqliteDatabases {
 	app: Db<Record<string, unknown>>;
-	mail: Db<MessageDataSchema>;
+	mail: Db<Record<string, unknown>>;
 	search: Db<Record<string, unknown>>;
 }
 
-/** One database a repository runs on, with the write port bound to it. */
-export interface SqliteStore<TSchema extends Record<string, unknown>> {
-	db: RepositoryDb<TSchema>;
-	batch: WriteBatch;
-}
-
-/**
- * The same three databases on any SQLite driver: each carries its own write
- * port, so the app database can sit on D1 while mail runs in a Durable Object.
- */
 export interface SqliteStores {
 	app: SqliteStore<Record<string, unknown>>;
-	mail: SqliteStore<MessageDataSchema>;
+	mail: SqliteStore<Record<string, unknown>>;
 	search: SqliteStore<Record<string, unknown>>;
 }
 

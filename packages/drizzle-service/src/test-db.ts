@@ -1,5 +1,4 @@
 import type Database from "better-sqlite3";
-import type { WriteBatch } from "./batch.js";
 import type { Db } from "./db.js";
 import * as schema from "./schema.js";
 import { createSqliteTestDb } from "./test-db-sqlite.js";
@@ -13,7 +12,6 @@ export type TestDb = Db<typeof schema>;
  */
 export async function createTestDb(): Promise<{
 	db: TestDb;
-	batch: WriteBatch;
 	sqlite: Database.Database;
 	close: () => Promise<void>;
 }> {

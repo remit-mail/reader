@@ -14,13 +14,8 @@ import {
 	ConnectionState,
 } from "@remit/domain-enums";
 import {
-	AccountConfigRepo,
-	AccountRepo,
-	AccountSettingRepo,
-	AddressRepo,
-	ConfigImportRepo,
-	MailboxRepo,
-	SearchIndex,
+	type AccountRepo,
+	createSqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
@@ -135,32 +130,22 @@ beforeEach(async () => {
 	});
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = new AccountRepo(
-		store.db,
-		new MailboxRepo(
-			store.db,
-			store.batch,
-			new SearchIndex(store.db, store.db, store.batch),
-		),
-	);
-	const accountConfig = new AccountConfigRepo(
-		store.db,
-		new AddressRepo(store.db),
-	);
-	await accountConfig.create({
+	const repos = createSqliteRepositories({
+		app: store.db,
+		mail: store.db,
+		search: store.db,
+	});
+	accounts = repos.account;
+	await repos.accountConfig.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,
 		userId: SUB,
 	});
 	setClient({
-		accountConfig,
+		accountConfig: repos.accountConfig,
 		account: accounts,
-		accountSetting: new AccountSettingRepo(store.db),
-		mailbox: new MailboxRepo(
-			store.db,
-			store.batch,
-			new SearchIndex(store.db, store.db, store.batch),
-		),
-		configImport: new ConfigImportRepo(store.db),
+		accountSetting: repos.accountSetting,
+		mailbox: repos.mailbox,
+		configImport: repos.configImport,
 		secrets,
 	} as unknown as RemitClient);
 });

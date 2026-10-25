@@ -1,7 +1,6 @@
 import type {
 	AccountConfigDescription,
 	AccountConfigItem,
-	AddressItem,
 	CreateAccountConfigInput,
 	IAccountConfigRepository,
 	IAddressRepository,
@@ -22,7 +21,7 @@ import { inList } from "./in-list.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
 
-type AddressReader = Pick<IAddressRepository, "listAllByAccountConfigPage">;
+type AddressReader = Pick<IAddressRepository, "listAllByAccountConfig">;
 
 function rowToAccountConfig(
 	row: typeof accountConfigTable.$inferSelect,
@@ -185,7 +184,7 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 				.select()
 				.from(accountTable)
 				.where(eq(accountTable.accountConfigId, accountConfigId)),
-			this.allAddresses(accountConfigId),
+			this.addresses.listAllByAccountConfig(accountConfigId),
 		]);
 		if (configs.length === 0) {
 			throw new NotFoundError(`AccountConfig not found: ${accountConfigId}`);
@@ -195,20 +194,6 @@ export class AccountConfigRepo implements IAccountConfigRepository {
 			account: accounts.map(rowToAccount),
 			address: addresses,
 		};
-	}
-
-	private async allAddresses(accountConfigId: string): Promise<AddressItem[]> {
-		const addresses: AddressItem[] = [];
-		let cursor: string | undefined;
-		do {
-			const page = await this.addresses.listAllByAccountConfigPage({
-				accountConfigId,
-				cursor,
-			});
-			addresses.push(...page.items);
-			cursor = page.continuationToken;
-		} while (cursor);
-		return addresses;
 	}
 
 	async listAll(): Promise<AccountConfigItem[]> {

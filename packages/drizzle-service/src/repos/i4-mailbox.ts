@@ -28,7 +28,7 @@ import {
 } from "drizzle-orm";
 import shortUuid from "short-uuid";
 import type { WriteBatch } from "../batch.js";
-import type { RepositoryDb } from "../db.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { NotFoundError } from "../error.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
@@ -149,11 +149,16 @@ export function rowToMailbox(
 }
 
 export class MailboxRepo implements IMailboxRepository {
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private db: DB,
-		private batch: WriteBatch,
+		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
-	) {}
+	) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	async create(input: CreateMailboxInput): Promise<CreateMailboxResult> {
 		const now = Date.now();

@@ -4,15 +4,14 @@ import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
-import { syncBatch } from "../batch.js";
 import { mailboxTable } from "../schema.js";
-import { SearchIndex } from "../search/thread-message-search.js";
+import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
 import {
 	applyMigrationSet,
 	shippedTableDdl,
 } from "../test-shipped-sqlite-schema.js";
-import { MailboxRepo } from "./i4-mailbox.js";
+import type { MailboxRepo } from "./i4-mailbox.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 function makeMailboxInput(accountId: string, fullPath = "INBOX") {
@@ -42,15 +41,11 @@ describe("MailboxRepo (sqlite)", () => {
 	before(async () => {
 		const testDb = await createSqliteTestDb({ mailbox: mailboxTable });
 		close = testDb.close;
-		repo = new MailboxRepo(
-			testDb.db as never,
-			syncBatch(testDb.db as never),
-			new SearchIndex(
-				testDb.db as never,
-				testDb.db as never,
-				syncBatch(testDb.db as never),
-			),
-		);
+		repo = createSqliteRepositories({
+			app: testDb.db,
+			mail: testDb.db,
+			search: testDb.db,
+		}).mailbox;
 	});
 
 	after(async () => {
@@ -216,11 +211,11 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		const sqlite = new Database(":memory:");
 		applyMigrationSet(sqlite, "mail");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
-		repo = new MailboxRepo(
-			db as never,
-			syncBatch(db as never),
-			new SearchIndex(db as never, db as never, syncBatch(db as never)),
-		);
+		repo = createSqliteRepositories({
+			app: db,
+			mail: db,
+			search: db,
+		}).mailbox;
 		close = async () => {
 			sqlite.close();
 		};

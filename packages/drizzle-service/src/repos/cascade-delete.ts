@@ -222,9 +222,7 @@ export const runDrizzleCascadeDelete = async (
 	}
 	await stores.mail.batch(items);
 	await stores.app.batch(appItems);
-	await new SearchIndex(mail, stores.search.db, stores.search.batch).sync(
-		threadMessageIds,
-	);
+	await new SearchIndex(mail, stores.search).sync(threadMessageIds);
 
 	log.info({ entityCount: entities.length }, "Drizzle cascade delete complete");
 };

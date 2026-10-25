@@ -11,13 +11,12 @@ export {
 	SQLITE_DATABASE_ENV,
 	type SqliteDatabasePaths,
 	type SqliteDatabases,
-	type SqliteStore,
 	type SqliteStores,
 	sqliteDatabasePathsFromEnv,
 	syncStore,
 	syncStores,
 } from "./databases.js";
-export type { RepositoryDb } from "./db.js";
+export type { RepositoryDb, SqliteStore } from "./db.js";
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";

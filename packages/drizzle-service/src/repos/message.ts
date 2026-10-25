@@ -19,7 +19,7 @@ import {
 	type SQL,
 } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
-import type { RepositoryDb } from "../db.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
 	isUniqueViolation,
@@ -37,7 +37,6 @@ import {
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
 	envelopeTable,
-	type MessageDataSchema,
 	messageFlagTable,
 	messageReferenceTable,
 	messageTable,
@@ -56,7 +55,7 @@ import {
 	toRawMessageStorageItem,
 } from "./mappers.js";
 
-type DB = RepositoryDb<MessageDataSchema>;
+type DB = RepositoryDb<Record<string, unknown>>;
 
 function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	return {
@@ -193,11 +192,16 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 };
 
 export class DrizzleMessageRepository implements IMessageRepository {
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+
 	constructor(
-		private db: DB,
-		private batch: WriteBatch,
+		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
-	) {}
+	) {
+		this.db = store.db;
+		this.batch = store.batch;
+	}
 
 	private rowOf(input: CreateMessageInput) {
 		const now = Date.now();
