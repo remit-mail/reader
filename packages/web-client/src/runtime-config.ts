@@ -26,6 +26,19 @@ export interface RumConfig {
  */
 export type TlsMode = "internal" | "acme" | "tailscale" | "off";
 
+/**
+ * Who updates this deployment. "self" runs the in-app updater behind
+ * `/api/system/update`; "managed" is a platform that deploys the shell itself,
+ * so the shell neither polls the updater nor offers to update.
+ */
+export type UpdateMode = "self" | "managed";
+
+const UPDATE_MODES: readonly UpdateMode[] = ["self", "managed"];
+
+const isUpdateMode = (value: unknown): value is UpdateMode =>
+	typeof value === "string" &&
+	(UPDATE_MODES as readonly string[]).includes(value);
+
 const DEFAULT_ISSUES_URL = "https://github.com/remit-mail/reader/issues/new";
 
 const TLS_MODES: readonly TlsMode[] = ["internal", "acme", "tailscale", "off"];
@@ -43,6 +56,7 @@ export interface RemitRuntimeConfig {
 	disableDevtools: boolean;
 	tlsMode: TlsMode;
 	issuesUrl: string;
+	updateMode: UpdateMode;
 }
 
 interface RawRuntimeConfig {
@@ -55,6 +69,7 @@ interface RawRuntimeConfig {
 	disableDevtools?: boolean;
 	tlsMode?: string;
 	issuesUrl?: string;
+	updateMode?: string;
 }
 
 declare global {
@@ -90,5 +105,6 @@ export const getRuntimeConfig = (): RemitRuntimeConfig => {
 		disableDevtools: raw.disableDevtools ?? false,
 		tlsMode: isTlsMode(raw.tlsMode) ? raw.tlsMode : "off",
 		issuesUrl: raw.issuesUrl ?? DEFAULT_ISSUES_URL,
+		updateMode: isUpdateMode(raw.updateMode) ? raw.updateMode : "self",
 	};
 };

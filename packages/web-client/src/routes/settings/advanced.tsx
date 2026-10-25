@@ -1,6 +1,7 @@
 /**
  * Advanced settings. Updates live here — and only here — with a full pane in
- * Settings › Advanced. Notification rules and export are future scope.
+ * Settings › Advanced, unless the host manages them (`updateMode: "managed"`).
+ * Notification rules and export are future scope.
  */
 import { SettingsShell } from "@remit/ui";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
@@ -10,6 +11,7 @@ import { SelfUpdatePanel } from "@/components/settings/SelfUpdatePanel";
 import { TlsRootCaDownload } from "@/components/settings/TlsRootCaDownload";
 import { AppVersion } from "@/components/ui/AppVersion";
 import { SETTINGS_ID_TO_PATH, SETTINGS_NAV_ITEMS } from "@/routes/settings";
+import { getRuntimeConfig } from "@/runtime-config";
 import { advancedHelp } from "./-shared/help-copy";
 
 export const Route = createFileRoute("/settings/advanced")({
@@ -37,7 +39,7 @@ function AdvancedSettings() {
 			onSelect={handleSelectNav}
 			onBackToMail={() => void navigate({ to: "/mail" })}
 		>
-			<SelfUpdatePanel />
+			{getRuntimeConfig().updateMode === "self" && <SelfUpdatePanel />}
 			<div className="mt-6 border-t border-line pt-4">
 				<ConfigTransferPanel />
 			</div>
