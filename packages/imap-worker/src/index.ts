@@ -6,16 +6,22 @@ import {
 } from "@remit/logger-lambda/metrics";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
+import { env } from "expect-env";
+import { isBodySyncEnabled } from "./body-sync-gate.js";
 import type { WorkerEvent } from "./events.js";
 import { imapFailureKind } from "./failure-kind.js";
-import { lambdaContextParts, withClient } from "./lambda-context.js";
+import { lambdaProcessContext } from "./lambda-context.js";
 import { processEvent } from "./processor.js";
 
 installNodeLogger();
 
 const log = createLogger();
 
-const processContext = withClient(lambdaContextParts(log));
+const bodySyncParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
+
+const isPausedBodySync = async (event: WorkerEvent): Promise<boolean> =>
+	event.type === "SYNC_MESSAGE_BODY" &&
+	!(await isBodySyncEnabled(bodySyncParameterName, log));
 
 /**
  * Parse SQS's `ApproximateReceiveCount` record attribute (1 on first
@@ -31,7 +37,7 @@ export const parseReceiveCount = (value: string | undefined): number => {
 export const handler: SQSHandler = withTelemetry(
 	async (event: SQSEvent): Promise<SQSBatchResponse> => {
 		const batchItemFailures: { itemIdentifier: string }[] = [];
-		const ctx = await processContext();
+		const ctx = await lambdaProcessContext(log);
 
 		for (const record of event.Records) {
 			const imapEvent: WorkerEvent = JSON.parse(record.body);
@@ -46,6 +52,14 @@ export const handler: SQSHandler = withTelemetry(
 				},
 				"Processing event",
 			);
+
+			if (await isPausedBodySync(imapEvent)) {
+				log.info(
+					{ eventType: imapEvent.type, messageId: record.messageId },
+					"Body sync paused via SSM toggle, acking and skipping",
+				);
+				continue;
+			}
 
 			const queue = queueNameFromEventSource(record.eventSourceARN);
 			const opStart = Date.now();

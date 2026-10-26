@@ -214,7 +214,7 @@ export const syncFolder = async (
 ): Promise<string[]> => {
 	const connection = imap.connection();
 	const service = new MessageSyncService(
-		{ getConnection: () => connection, close: async () => {} },
+		connection,
 		store.mailbox,
 		store.mailboxSpecialUse,
 		store.message,

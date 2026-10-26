@@ -396,7 +396,7 @@ const syncMailboxMessages = async (
 	const result = await (async () => {
 		const connection = await borrowed.getConnection();
 		const syncService = new MessageSyncService(
-			{ getConnection: () => connection, close: async () => undefined },
+			connection,
 			mailboxService,
 			mailboxSpecialUseService,
 			messageService,

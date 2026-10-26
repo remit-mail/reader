@@ -19,10 +19,6 @@ export interface WorkerMetrics {
 	) => void;
 }
 
-export interface BodySyncGate {
-	isEnabled: (log: Logger) => Promise<boolean>;
-}
-
 export interface AccountObjectPage {
 	keys: string[];
 	nextContinuationToken: string | undefined;
@@ -61,27 +57,22 @@ export interface ProcessContext {
 	readonly config: ImapWorkerConfig;
 	readonly log: Logger;
 	readonly oauth: TokenService;
-	readonly bodySync: BodySyncGate;
 	readonly accountObjects: AccountObjectStore;
 }
 
-export const alwaysEnabledBodySync: BodySyncGate = {
-	isEnabled: async () => true,
-};
-
 export const DEFAULT_MAILBOX_FRESHNESS_MS = 60_000;
 
-export const defaultImapWorkerConfig: ImapWorkerConfig = {
-	attempts: {
-		body: SYNC_WARNING_SURFACE_ATTEMPTS,
-		placementMove: 3,
-		flagPush: 3,
-		appendSent: 3,
-		messageMove: 3,
-		messageDelete: 3,
-		messageCopy: 3,
-	},
-	bodyBatchSize: 200,
-	mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
-	workerVersion: "dev",
-};
+export const defaultImapWorkerConfig: Omit<ImapWorkerConfig, "workerVersion"> =
+	{
+		attempts: {
+			body: SYNC_WARNING_SURFACE_ATTEMPTS,
+			placementMove: 3,
+			flagPush: 3,
+			appendSent: 3,
+			messageMove: 3,
+			messageDelete: 3,
+			messageCopy: 3,
+		},
+		bodyBatchSize: 200,
+		mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
+	};

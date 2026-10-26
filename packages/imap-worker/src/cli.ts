@@ -7,8 +7,7 @@
 // text and argument errors are for the person who typed the command.
 import { parseArgs } from "node:util";
 import { getClient } from "@remit/backend/client";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
-import { createEmitEvent } from "./emit.js";
+import { lambdaEmitEvent } from "./lambda-context.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./sqs-queues.js";
 
 const HELP = `
@@ -209,11 +208,10 @@ const event = buildEvent();
 
 console.log(`Enqueueing ${event.type} event for account ${event.accountId}...`);
 
-createEmitEvent({
-	queues: sqsWorkerQueues(workerQueueUrlsFromEnv()),
-	mailboxLock: (await getClient()).mailboxLock,
-	metrics: { imapFailure: recordImapFailure },
-})(event)
+lambdaEmitEvent(
+	sqsWorkerQueues(workerQueueUrlsFromEnv()),
+	(await getClient()).mailboxLock,
+)(event)
 	.then(() => {
 		console.log("Event enqueued successfully");
 		process.exit(0);

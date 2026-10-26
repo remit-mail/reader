@@ -3,12 +3,11 @@ import { setTimeout as delay } from "node:timers/promises";
 import { finishHalfDeletedAccounts } from "@remit/backend/account-deletion";
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { installNodeLogger } from "@remit/logger-lambda/node";
 import { backfillSearchText } from "@remit/mailbox-service";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 
-import { createEmitEvent } from "../emit.js";
+import { lambdaEmitEvent } from "../lambda-context.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
@@ -106,11 +105,7 @@ const runLoop = async (): Promise<void> => {
 				redriveStrandedPlacements(
 					{
 						client,
-						emit: createEmitEvent({
-							queues,
-							mailboxLock: client.mailboxLock,
-							metrics: { imapFailure: recordImapFailure },
-						}),
+						emit: lambdaEmitEvent(queues, client.mailboxLock),
 						log,
 					},
 					stranded,

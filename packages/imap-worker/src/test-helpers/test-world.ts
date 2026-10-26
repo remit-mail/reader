@@ -33,7 +33,6 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
-import type { ManagedConnectionFactory } from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
@@ -169,7 +168,6 @@ export interface World {
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
 	scope: () => ConnectionScope;
-	connectionFactory: () => ManagedConnectionFactory;
 	ctx: (overrides?: Partial<ProcessContext>) => ProcessContext;
 	connectVia: (scope: () => ConnectionScope) => ProcessContext["pool"];
 }
@@ -393,19 +391,6 @@ const createWorld = async (
 		};
 	};
 
-	const connectionFactory = (): ManagedConnectionFactory => {
-		let open: ReturnType<FakeImapServer["connection"]> | undefined;
-		return {
-			getConnection: () => {
-				open ??= imap.connection();
-				return open;
-			},
-			close: async () => {
-				open = undefined;
-			},
-		};
-	};
-
 	const connectVia = (connect: () => ConnectionScope) =>
 		createConnectionPool({ size: 2, overflow: "Open" }, connect);
 
@@ -436,7 +421,6 @@ const createWorld = async (
 		queues: workerQueuesOn(queue),
 		draft,
 		scope,
-		connectionFactory,
 		ctx,
 		connectVia,
 	};

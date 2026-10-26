@@ -50,7 +50,7 @@ const failingFirstCreate = (
 const syncOnce = (threadMessage: IThreadMessageRepository) => {
 	const connection = imap.connection();
 	return new MessageSyncService(
-		{ getConnection: () => connection, close: async () => {} },
+		connection,
 		store.mailbox,
 		store.mailboxSpecialUse,
 		store.message,

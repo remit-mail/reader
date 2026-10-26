@@ -86,20 +86,6 @@ export const syncMessageBody = async (
 		"Handling event",
 	);
 
-	// Pause gate stays first: ack-and-skip before touching any account/IMAP state.
-	if (!(await ctx.bodySync.isEnabled(log))) {
-		log.info(
-			{
-				event: event.type,
-				accountId,
-				mailboxId,
-				messageCount: messageIds.length,
-			},
-			"Body sync paused via SSM toggle, acking and skipping",
-		);
-		return;
-	}
-
 	const {
 		account: accountService,
 		mailbox: mailboxService,

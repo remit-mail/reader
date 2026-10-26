@@ -1,4 +1,5 @@
 import { getClient } from "@remit/backend/client";
+import type { IMailboxLockRepository } from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
@@ -6,23 +7,31 @@ import {
 	microsoftProviderConfig,
 } from "@remit/mail-oauth-service";
 import { env } from "expect-env";
-import { ssmBodySyncGate } from "./body-sync-gate.js";
 import { imapWorkerConfigFromEnv, poolOptionsFromEnv } from "./config-env.js";
 import { createConnectionPool } from "./connection-pool.js";
 import { createConnectionScopeWithCredentials } from "./connection-scope.js";
-import type { ProcessContext } from "./context.js";
+import type { ProcessContext, WorkerMetrics } from "./context.js";
+import { createEmitEvent, type EmitEvent } from "./emit.js";
+import type { WorkerQueues } from "./queues.js";
 import { s3AccountObjects } from "./s3-account-objects.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./sqs-queues.js";
 
-export type LambdaContextParts = Omit<ProcessContext, "client">;
+export const lambdaMetrics: WorkerMetrics = { imapFailure: recordImapFailure };
 
-export const lambdaContextParts = (log: Logger): LambdaContextParts => ({
+export const lambdaEmitEvent = (
+	queues: WorkerQueues,
+	mailboxLock: IMailboxLockRepository,
+): EmitEvent =>
+	createEmitEvent({ queues, mailboxLock, metrics: lambdaMetrics });
+
+const buildContext = async (log: Logger): Promise<ProcessContext> => ({
+	client: await getClient(),
 	queues: sqsWorkerQueues(workerQueueUrlsFromEnv()),
 	pool: createConnectionPool(
 		poolOptionsFromEnv(process.env),
 		createConnectionScopeWithCredentials,
 	),
-	metrics: { imapFailure: recordImapFailure },
+	metrics: lambdaMetrics,
 	config: imapWorkerConfigFromEnv(process.env),
 	log,
 	oauth: createMailOAuthService(
@@ -34,16 +43,12 @@ export const lambdaContextParts = (log: Logger): LambdaContextParts => ({
 				: undefined,
 		}),
 	),
-	bodySync: ssmBodySyncGate(env.BODY_SYNC_ENABLED_PARAMETER_NAME),
 	accountObjects: s3AccountObjects(() => env.S3_BUCKET_NAME),
 });
 
-export const withClient = (
-	parts: LambdaContextParts,
-): (() => Promise<ProcessContext>) => {
-	let context: Promise<ProcessContext> | undefined;
-	return () => {
-		context ??= getClient().then((client) => ({ ...parts, client }));
-		return context;
-	};
+let context: Promise<ProcessContext> | undefined;
+
+export const lambdaProcessContext = (log: Logger): Promise<ProcessContext> => {
+	context ??= buildContext(log);
+	return context;
 };

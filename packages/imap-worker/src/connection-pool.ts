@@ -1,5 +1,8 @@
-import type { IImapConnection, MailCredentials } from "@remit/mailbox-service";
-import type { ConnectionScope } from "./connection-scope.js";
+import type {
+	ConnectionScope,
+	IImapConnection,
+	MailCredentials,
+} from "@remit/mailbox-service";
 
 export type PoolOverflow = "Wait" | "Open";
 
@@ -31,8 +34,6 @@ export interface ConnectionPool {
 		account: PoolAccount,
 		credentials: MailCredentials,
 	) => BorrowedConnection;
-	pooled: (accountId: string) => number;
-	drain: () => Promise<void>;
 }
 
 interface Slot {
@@ -89,6 +90,15 @@ export const createConnectionPool = (
 		return undefined;
 	};
 
+	const giveBack = (pool: AccountSlots, slot: Slot): void => {
+		const next = pool.waiters.shift();
+		if (next) {
+			next(slot);
+			return;
+		}
+		slot.busy = false;
+	};
+
 	const acquire = async (
 		pool: AccountSlots,
 		createScope: () => ConnectionScope,
@@ -119,8 +129,13 @@ export const createConnectionPool = (
 			leased ??= acquire(pool, createScope).then(async (lease) => {
 				if (lease.kind === "Pooled" && lease.state === "Stale") {
 					await disconnectQuietly(lease.slot);
-					lease.slot.scope = createScope();
 					lease.slot.connection = null;
+					try {
+						lease.slot.scope = createScope();
+					} catch (error) {
+						giveBack(pool, lease.slot);
+						throw error;
+					}
 				}
 				return lease;
 			});
@@ -132,31 +147,19 @@ export const createConnectionPool = (
 
 		const release = async (): Promise<void> => {
 			if (!leased) return;
-			const lease = await leased;
+			const pending = leased;
 			leased = undefined;
+			const lease = await pending.catch(() => undefined);
+			if (!lease) return;
 			if (lease.kind === "Overflow") {
 				await disconnectQuietly(lease.slot);
 				return;
 			}
-			const next = pool.waiters.shift();
-			if (next) {
-				next(lease.slot);
-				return;
-			}
-			lease.slot.busy = false;
+			giveBack(pool, lease.slot);
 		};
 
 		return { getConnection, release };
 	};
 
-	const pooled = (accountId: string): number =>
-		accounts.get(accountId)?.slots.length ?? 0;
-
-	const drain = async (): Promise<void> => {
-		const slots = [...accounts.values()].flatMap((pool) => pool.slots);
-		accounts.clear();
-		await Promise.all(slots.map(disconnectQuietly));
-	};
-
-	return { borrow, pooled, drain };
+	return { borrow };
 };

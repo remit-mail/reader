@@ -80,7 +80,7 @@ const flagPushService = () =>
 
 const syncService = () =>
 	new MessageSyncService(
-		{ getConnection: () => connection, close: async () => {} },
+		connection,
 		store.mailbox,
 		store.mailboxSpecialUse,
 		store.message,
@@ -157,7 +157,7 @@ const sent = (verb: "SEARCH" | "FETCH", marker = "") =>
 
 const serverMove = async (from: MailboxItem, uid: number, to: MailboxItem) => {
 	const otherClient = imap.connection();
-	await otherClient.openBox(from.fullPath);
+	await otherClient.openBox(from.fullPath, false);
 	const { uidMap } = await otherClient.moveMessages([uid], to.fullPath);
 	const moved = uidMap.get(uid);
 	if (moved === undefined) throw new Error(`no uid ${uid} in ${from.fullPath}`);

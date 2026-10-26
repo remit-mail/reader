@@ -72,12 +72,11 @@ const poolOver = (
 	options: ConnectionPoolOptions = LAMBDA,
 ) => {
 	const pool = createConnectionPool(options, () => createScope());
-	return {
-		borrow: () => pool.borrow(account, credentials),
-		pooled: () => pool.pooled(accountId),
-		drain: pool.drain,
-	};
+	return { borrow: () => pool.borrow(account, credentials) };
 };
+
+const openScopes = (scopes: FakeScope[]): number =>
+	scopes.filter((scope) => scope.disconnectCount === 0).length;
 
 describe("a connection pool of two that opens on overflow", () => {
 	test("warm invocation reuses the live connection without reconnecting", async () => {
@@ -132,7 +131,7 @@ describe("a connection pool of two that opens on overflow", () => {
 		assert.strictEqual(scopes[1].connectCount, 1, "replacement connected once");
 		assert.ok(connB.isConnected, "replacement connection is live");
 		assert.strictEqual(
-			pool.pooled(),
+			openScopes(scopes),
 			1,
 			"pool did not grow when replacing a dead entry",
 		);
@@ -154,11 +153,6 @@ describe("a connection pool of two that opens on overflow", () => {
 		}
 
 		assert.strictEqual(scopes.length, 1, "serial reuse never re-dials");
-		assert.strictEqual(
-			pool.pooled(),
-			1,
-			"pool stays at one for serial same-account work",
-		);
 	});
 
 	test("concurrent same-account borrows get distinct pooled connections", async () => {
@@ -184,8 +178,6 @@ describe("a connection pool of two that opens on overflow", () => {
 		await a.release();
 		await b.release();
 
-		// Both stay pooled, none leaked.
-		assert.strictEqual(pool.pooled(), 2);
 		assert.ok(scopes.every((s) => s.disconnectCount === 0));
 	});
 
@@ -211,7 +203,7 @@ describe("a connection pool of two that opens on overflow", () => {
 
 		assert.strictEqual(scopes.length, 3, "overflow created a third scope");
 		assert.strictEqual(scopes[2].disconnectCount, 1, "overflow torn down");
-		assert.strictEqual(pool.pooled(), 2, "overflow did not grow the pool");
+		assert.strictEqual(openScopes(scopes), 2, "overflow did not grow the pool");
 
 		await a.release();
 		await b.release();
@@ -255,30 +247,7 @@ describe("a connection pool of two that opens on overflow", () => {
 		await b.release();
 
 		// One slot recycled in place + one grown = pool of 2 , no leak.
-		assert.strictEqual(pool.pooled(), 2);
-	});
-
-	test("drain disconnects and clears the pool", async () => {
-		const scopes: FakeScope[] = [];
-		const createScope = (): ConnectionScope => {
-			const s = makeFakeScope();
-			scopes.push(s);
-			return s;
-		};
-		const pool = poolOver(createScope);
-
-		const borrowed = pool.borrow();
-		await borrowed.getConnection();
-		await borrowed.release();
-
-		await pool.drain();
-
-		assert.strictEqual(pool.pooled(), 0);
-		assert.strictEqual(
-			scopes[0].disconnectCount,
-			1,
-			"drained conn disconnected",
-		);
+		assert.strictEqual(openScopes(scopes), 2);
 	});
 });
 
@@ -308,7 +277,7 @@ describe("a connection pool of one that waits on overflow", () => {
 		assert.deepStrictEqual(steps, ["a start", "a end", "b start", "b end"]);
 		assert.strictEqual(first, second, "the second borrow reuses the first");
 		assert.strictEqual(scopes.length, 1, "no second connection is opened");
-		assert.strictEqual(pool.pooled(), 1);
+		assert.strictEqual(openScopes(scopes), 1);
 	});
 
 	test("hands a released connection to waiters in arrival order", async () => {
@@ -354,6 +323,38 @@ describe("a connection pool of one that waits on overflow", () => {
 		assert.strictEqual(scopes.length, 2, "a replacement scope was created");
 		assert.strictEqual(scopes[0].disconnectCount, 1, "dead conn cleaned up");
 		assert.ok(connection.isConnected, "the waiter got a live connection");
-		assert.strictEqual(pool.pooled(), 1);
+		assert.strictEqual(openScopes(scopes), 1);
+	});
+
+	test("serves a waiter after a borrower whose replacement could not be created", async () => {
+		const scopes: FakeScope[] = [];
+		let refuse = false;
+		const pool = poolOver(() => {
+			if (refuse) {
+				refuse = false;
+				throw new Error("no socket for this account right now");
+			}
+			const s = makeFakeScope();
+			scopes.push(s);
+			return s;
+		}, WORKER);
+		const holder = pool.borrow();
+		await holder.getConnection();
+		const unlucky = pool.borrow();
+		const unluckyConnection = unlucky.getConnection();
+		const patient = pool.borrow();
+		const patientConnection = patient.getConnection();
+
+		scopes[0].kill();
+		refuse = true;
+		await holder.release();
+
+		await assert.rejects(unluckyConnection, /no socket/);
+		await unlucky.release();
+		const connection = await patientConnection;
+		await patient.release();
+
+		assert.ok(connection.isConnected, "the next waiter still got a connection");
+		assert.strictEqual(scopes.length, 2);
 	});
 });

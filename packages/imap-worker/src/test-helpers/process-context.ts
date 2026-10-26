@@ -1,6 +1,5 @@
 import { noopLogger } from "@remit/logger";
 import {
-	alwaysEnabledBodySync,
 	defaultImapWorkerConfig,
 	type ImapFailureKind,
 	type ProcessContext,
@@ -39,10 +38,9 @@ export const processContext = (
 	queues: unusedPort("queues"),
 	pool: unusedPort("pool"),
 	metrics: recordingMetrics(),
-	config: defaultImapWorkerConfig,
+	config: { ...defaultImapWorkerConfig, workerVersion: "test" },
 	log: noopLogger,
 	oauth: unusedPort("oauth"),
-	bodySync: alwaysEnabledBodySync,
 	accountObjects: unusedPort("accountObjects"),
 	...overrides,
 });

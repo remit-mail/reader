@@ -1,3 +1,4 @@
+export type { ConnectionScope } from "@remit/mailbox-service";
 export {
 	type BorrowedConnection,
 	type ConnectImap,
@@ -7,13 +8,10 @@ export {
 	type PoolAccount,
 	type PoolOverflow,
 } from "./connection-pool.js";
-export type { ConnectionScope } from "./connection-scope.js";
 export {
 	type AccountObjectPage,
 	type AccountObjectStore,
 	type AttemptBudgets,
-	alwaysEnabledBodySync,
-	type BodySyncGate,
 	DEFAULT_MAILBOX_FRESHNESS_MS,
 	defaultImapWorkerConfig,
 	type ImapFailureKind,

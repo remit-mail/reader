@@ -44,10 +44,6 @@
       "./mailbox-management": {
         "types": "./dist/handlers/mailbox-management.d.ts",
         "default": "./dist/handlers/mailbox-management.js"
-      },
-      "./test-helpers/test-world": {
-        "types": "./dist/test-helpers/test-world.d.ts",
-        "default": "./dist/test-helpers/test-world.js"
       }
     },
     "files": [

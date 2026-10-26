@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { after, before, beforeEach, describe, it } from "node:test";
+import { after, before, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	FilterClauseField,
@@ -17,8 +17,6 @@ import {
 } from "../test-helpers/test-world.js";
 import { syncMessageBody } from "./sync-message-body.js";
 
-let bodySyncEnabled = true;
-
 let store: Awaited<ReturnType<typeof openStore>>;
 
 before(async () => {
@@ -26,15 +24,6 @@ before(async () => {
 });
 
 after(() => store.close());
-
-const bodySync = (enabled: boolean) => {
-	bodySyncEnabled = enabled;
-};
-
-beforeEach(() => bodySync(true));
-
-const ctxOf = (w: World) =>
-	w.ctx({ bodySync: { isEnabled: async () => bodySyncEnabled } });
 
 interface Arranged {
 	w: World;
@@ -64,7 +53,7 @@ const arrange = async (): Promise<Arranged> => {
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	syncMessageBody(a.event, ctxOf(a.w), receiveCount);
+	syncMessageBody(a.event, a.w.ctx(), receiveCount);
 
 const bodyFetches = (a: Arranged): string[] => a.w.imap.commands("BODY");
 
@@ -90,15 +79,6 @@ describe("a body sync", () => {
 			(await a.w.row(a.message.messageId))?.bodyStorageKey,
 			undefined,
 		);
-	});
-
-	it("fetches nothing while body sync is paused", async () => {
-		const a = await arrange();
-		bodySync(false);
-
-		await run(a);
-
-		assert.equal(a.w.imap.connections, 0);
 	});
 
 	it("acks without connecting when the mailbox was deleted", async () => {
@@ -150,7 +130,7 @@ const batchOf = (
 });
 
 const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
-	syncMessageBody(event, ctxOf(w), receiveCount);
+	syncMessageBody(event, w.ctx(), receiveCount);
 
 const arrangeFiling = async () => {
 	const w = await store.world();

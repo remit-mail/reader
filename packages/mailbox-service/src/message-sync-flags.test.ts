@@ -11,11 +11,10 @@ import type {
 	ThreadMessageItem,
 } from "@remit/data-ports";
 import { MessageCategory, MessageSystemFlag } from "@remit/domain-enums";
-import type { ManagedConnectionFactory } from "./connection-factory.js";
 import { MessageSyncService } from "./message-sync.js";
 import { SyncWarningService } from "./sync-warning.js";
 import { noFolderRoles } from "./test-helpers/folder-roles.js";
-import type { ImapEnvelope } from "./types.js";
+import type { IImapConnection, ImapEnvelope } from "./types.js";
 
 // #44: initial sync hardcoded `hasStars: false` on row create, so mail flagged
 // in another client arrived unstarred and never appeared in Flagged. The
@@ -85,7 +84,7 @@ const createThreadWithFlags = async (
 	flags: string[],
 ): Promise<CreateThreadMessageInput> => {
 	const service = new MessageSyncService(
-		stub<ManagedConnectionFactory>(),
+		stub<IImapConnection>(),
 		stub<IMailboxRepository>(),
 		noFolderRoles,
 		stub<IMessageRepository>(),

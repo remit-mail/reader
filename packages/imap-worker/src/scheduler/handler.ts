@@ -1,9 +1,8 @@
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { ScheduledHandler } from "aws-lambda";
-import { createEmitEvent } from "../emit.js";
+import { lambdaEmitEvent } from "../lambda-context.js";
 import type { WorkerQueues } from "../queues.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
@@ -57,11 +56,7 @@ export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
 				redriveStrandedPlacements(
 					{
 						client,
-						emit: createEmitEvent({
-							queues,
-							mailboxLock: client.mailboxLock,
-							metrics: { imapFailure: recordImapFailure },
-						}),
+						emit: lambdaEmitEvent(queues, client.mailboxLock),
 						log,
 					},
 					account,
