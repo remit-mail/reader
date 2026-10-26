@@ -40,6 +40,7 @@ import {
 	FlagPushService,
 	FlagQueueService,
 	fifoMailboxManagement,
+	type ImapTestConfig,
 	type ImapTransport,
 	MailboxQueueService,
 	MessageMoveService,
@@ -48,12 +49,19 @@ import {
 	PlacementMoveService,
 	SpamReportService,
 	SyncWarningService,
+	type TestResult,
+	testImapConnection,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
+import {
+	type SmtpGetSocket,
+	type SmtpServerConfig,
+	verifySmtpConnection,
+} from "@remit/smtp-service";
 import type { StorageService } from "@remit/storage-service";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
@@ -63,6 +71,20 @@ export type ConnectionScopeFactory = (
 	accountService: IAccountRepository,
 	secretsService: SecretsService,
 ) => (accountId: string) => Promise<ConnectionScope>;
+
+export interface ConnectionTest {
+	imap: (config: ImapTestConfig) => Promise<TestResult>;
+	smtp: (config: SmtpServerConfig) => Promise<TestResult>;
+}
+
+export const connectionTest = (transports: {
+	imap: ImapTransport;
+	smtp: SmtpGetSocket;
+}): ConnectionTest => ({
+	imap: (config) => testImapConnection(config, transports.imap),
+	smtp: (config) =>
+		verifySmtpConnection({ ...config, getSocket: transports.smtp }),
+});
 
 export interface RemitClientCore {
 	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
@@ -154,6 +176,8 @@ export interface RemitClientCore {
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
+
+	connectionTest: ConnectionTest;
 }
 
 export interface SyncQueueServices {
@@ -224,6 +248,7 @@ export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
 	connectionScope: ConnectionScopeFactory;
+	connectionTest: ConnectionTest;
 	queues: RemitClientQueues;
 }
 
@@ -299,7 +324,8 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets, connectionScope } = deps;
+	const { repositories, storage, secrets, connectionScope, connectionTest } =
+		deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -341,6 +367,7 @@ export const createRemitCore = (
 			storage,
 		}),
 		createConnectionScope: connectionScope(repositories.account, secrets),
+		connectionTest,
 	};
 };
 

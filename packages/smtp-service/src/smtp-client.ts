@@ -176,3 +176,35 @@ export const sendMail = async (
 		)
 		.finally(() => transporter.close());
 };
+
+export type SmtpVerifyResult =
+	| { success: true }
+	| { success: false; error: string };
+
+export const verifySmtpConnection = async (
+	config: SmtpConfig,
+): Promise<SmtpVerifyResult> => {
+	const timeout = config.connectionTimeout ?? 12_000;
+	const transporter = nodemailer.createTransport({
+		host: config.host,
+		port: config.port,
+		secure: config.secure,
+		auth: buildSmtpAuth(config.user, config.credentials),
+		tls: config.tls,
+		connectionTimeout: timeout,
+		greetingTimeout: timeout,
+		socketTimeout: timeout,
+		getSocket: config.getSocket,
+	});
+
+	return transporter
+		.verify()
+		.then((): SmtpVerifyResult => ({ success: true }))
+		.catch(
+			(error: unknown): SmtpVerifyResult => ({
+				success: false,
+				error: error instanceof Error ? error.message : "Connection failed",
+			}),
+		)
+		.finally(() => transporter.close());
+};

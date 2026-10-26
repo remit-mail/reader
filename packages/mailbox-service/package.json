@@ -61,7 +61,6 @@
   "dependencies": {
     "imapflow": "^2.9.1",
     "mailparser": "3.12.2",
-    "nodemailer": "^10.0.6",
     "p-map": "^7.0.4",
     "tldts": "^7.4.9",
     "@remit/data-ports": "*",
@@ -73,7 +72,6 @@
     "natural": "^8.1.1",
     "stopword": "^3.1.5",
     "@types/mailparser": "^3.4.6",
-    "@types/nodemailer": "^8.0.1",
     "@types/stopword": "^2.0.3",
     "@remit/calendar-service": "*"
   },

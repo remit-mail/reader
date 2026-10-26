@@ -7,6 +7,7 @@ import {
 	createKmsDataKeyProvider,
 	FAKE_KMS_KEY_ID,
 } from "@remit/secrets-service/kms";
+import { directSmtpSocket } from "@remit/smtp-service";
 import {
 	createFifoQueueProducer,
 	createStandardQueueProducer,
@@ -14,6 +15,7 @@ import {
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import {
+	connectionTest,
 	passwordConnectionScope,
 	type RemitClientSharedDeps,
 } from "./create-remit-client.js";
@@ -41,13 +43,20 @@ export const sqsQueues = (urls: SqsQueueUrls): RemitClientQueues => ({
 
 export const buildSharedDeps = (
 	queues: RemitClientQueues,
-): RemitClientSharedDeps => ({
-	storage: createStorageService(),
-	secrets: createSecretsService(
-		createCachedDataKeyProvider(
-			createKmsDataKeyProvider(process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID),
+): RemitClientSharedDeps => {
+	const imapTransport = nodeTransport();
+	return {
+		storage: createStorageService(),
+		secrets: createSecretsService(
+			createCachedDataKeyProvider(
+				createKmsDataKeyProvider(process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID),
+			),
 		),
-	),
-	connectionScope: passwordConnectionScope(nodeTransport()),
-	queues,
-});
+		connectionScope: passwordConnectionScope(imapTransport),
+		connectionTest: connectionTest({
+			imap: imapTransport,
+			smtp: directSmtpSocket,
+		}),
+		queues,
+	};
+};
