@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, describe, test } from "node:test";
 import type Database from "better-sqlite3";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, type TestDb } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
@@ -125,11 +126,14 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 	before(async () => {
 		({ db, sqlite, close } = await createTestDb());
 		repo = new AddressRepo(db as never);
-		specialUse = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).mailboxSpecialUse;
+		specialUse = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailboxSpecialUse;
 	});
 
 	/**

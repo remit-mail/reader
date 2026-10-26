@@ -10,6 +10,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { addressTable } from "../schema/i4-address.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
@@ -60,11 +61,14 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 			},
 			{ searchIndex: true },
 		));
-		repo = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).threadMessage;
+		repo = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).threadMessage;
 	});
 
 	after(async () => {

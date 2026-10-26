@@ -15,7 +15,10 @@ import {
 	ConnectionState,
 	OutboxMessageStatus,
 } from "@remit/domain-enums";
-import { createSqliteRepositories } from "@remit/drizzle-service";
+import {
+	BETTER_SQLITE3_LIMITS,
+	createSqliteRepositories,
+} from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { MailFailureKind } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
@@ -61,11 +64,14 @@ interface World {
 
 const openWorld = async (smtpOptions: FakeSmtpOptions = {}): Promise<World> => {
 	const store = createShippedSqliteDb();
-	const repos = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	});
+	const repos = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	);
 	const smtp = await startFakeSmtp(smtpOptions);
 	const queue = recordingQueue();
 	const storage = createMockStorageService();

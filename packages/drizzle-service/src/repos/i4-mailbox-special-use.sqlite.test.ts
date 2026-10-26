@@ -6,6 +6,7 @@ import {
 	meetsTrashAssurance,
 } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import {
 	accountSettingTable,
 	accountTable,
@@ -57,11 +58,14 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 		});
 		close = testDb.close;
 		db = testDb.db;
-		const repos = createSqliteRepositories({
-			app: testDb.db,
-			mail: testDb.db,
-			search: testDb.db,
-		});
+		const repos = createSqliteRepositories(
+			{
+				app: testDb.db,
+				mail: testDb.db,
+				search: testDb.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		);
 		repo = repos.mailboxSpecialUse;
 		mailboxes = repos.mailbox;
 		accountSettings = repos.accountSetting;

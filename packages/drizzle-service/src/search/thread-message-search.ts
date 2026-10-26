@@ -13,6 +13,7 @@ import {
 } from "drizzle-orm";
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import { chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
@@ -37,10 +38,7 @@ type AnyDb = RepositoryDb<Record<string, unknown>>;
 
 type SearchDocument = typeof threadMessageSearchTable.$inferInsert;
 
-// D1 refuses a statement with more than 100 bound parameters. A document is
-// nine parameters, so ten documents per insert stay under it.
-const DOCUMENTS_PER_STATEMENT = 10;
-const DOCUMENTS_PER_REBUILD_PAGE = DOCUMENTS_PER_STATEMENT * 30;
+const DOCUMENTS_PER_REBUILD_PAGE = 300;
 
 // The document's rowid, derived from its thread message id so a write or a
 // removal finds the document without a lookup. 53 bits, the integers a number
@@ -96,14 +94,6 @@ const toDocument = (row: IndexedRow): SearchDocument => ({
 	body: row.searchText ?? "",
 });
 
-const chunk = <T>(items: readonly T[], size: number): T[][] => {
-	const chunks: T[][] = [];
-	for (let start = 0; start < items.length; start += size) {
-		chunks.push(items.slice(start, start + size));
-	}
-	return chunks;
-};
-
 /** Where a page of candidates resumes: the last one the previous page held. */
 export interface SearchPosition {
 	rank: number;
@@ -141,6 +131,7 @@ export interface CandidateQuery {
 export class SearchIndex {
 	private readonly search: AnyDb;
 	private readonly batch: WriteBatch;
+	private readonly maxBoundParameters: number;
 
 	constructor(
 		private readonly mail: AnyDb,
@@ -148,12 +139,17 @@ export class SearchIndex {
 	) {
 		this.search = store.db;
 		this.batch = store.batch;
+		this.maxBoundParameters = store.maxBoundParameters;
 	}
 
 	/** Make the index match the mail database for these thread messages. */
 	async sync(threadMessageIds: readonly string[]): Promise<void> {
 		const ids = [...new Set(threadMessageIds)];
-		for (const slice of chunk(ids, DOCUMENTS_PER_STATEMENT)) {
+		for (const slice of chunkRows(
+			threadMessageSearchTable,
+			ids,
+			this.maxBoundParameters,
+		)) {
 			const rows = await this.mail
 				.select(indexedColumns)
 				.from(threadMessageTable)
@@ -272,10 +268,11 @@ export class SearchIndex {
 			const last = rows.at(-1);
 			if (!last) return indexed;
 			await this.batch(
-				chunk(rows, DOCUMENTS_PER_STATEMENT).map((slice) =>
-					this.search
-						.insert(threadMessageSearchTable)
-						.values(slice.map(toDocument)),
+				chunkRows(threadMessageSearchTable, rows, this.maxBoundParameters).map(
+					(slice) =>
+						this.search
+							.insert(threadMessageSearchTable)
+							.values(slice.map(toDocument)),
 				),
 			);
 			indexed += rows.length;

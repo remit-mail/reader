@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import {
 	type MessageDataSchema,
 	messageDataSchema,
@@ -20,7 +21,10 @@ describe("DrizzleEnvelopeRepository (sqlite)", () => {
 
 	before(async () => {
 		({ db, close } = await createSqliteTestDb(messageDataSchema));
-		repo = createSqliteRepositories({ app: db, mail: db, search: db }).envelope;
+		repo = createSqliteRepositories(
+			{ app: db, mail: db, search: db },
+			BETTER_SQLITE3_LIMITS,
+		).envelope;
 	});
 
 	after(async () => {

@@ -11,6 +11,7 @@ export type { SmtpDataPorts } from "./ports.js";
 // installed.
 const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 	const {
+		BETTER_SQLITE3_LIMITS,
 		createSqliteRepositories,
 		openSqliteDatabases,
 		sqliteDatabasePathsFromEnv,
@@ -18,6 +19,7 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 
 	const repositories = createSqliteRepositories(
 		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
+		BETTER_SQLITE3_LIMITS,
 	);
 
 	return {

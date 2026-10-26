@@ -9,7 +9,8 @@ import type {
 	UpdateEnvelopeInput,
 } from "@remit/data-ports";
 import { eq } from "drizzle-orm";
-import type { WriteBatch } from "../batch.js";
+import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import { chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -57,10 +58,12 @@ function dedupeById<T>(rows: T[], getId: (row: T) => string): T[] {
 export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 	private readonly db: DB;
 	private readonly batch: WriteBatch;
+	private readonly maxBoundParameters: number;
 
 	constructor(store: SqliteStore<Record<string, unknown>>) {
 		this.db = store.db;
 		this.batch = store.batch;
+		this.maxBoundParameters = store.maxBoundParameters;
 	}
 
 	async getMessageData(messageId: string): Promise<MessageData> {
@@ -180,22 +183,30 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			(r) => r.bodyPartParameterId,
 		);
 
-		const insertParts = this.db
-			.insert(bodyPartTable)
-			.values(dedupedBodyPartRows)
-			.onConflictDoUpdate({
-				target: bodyPartTable.bodyPartId,
-				set: { updatedAt: now },
-			});
-		if (dedupedParameterRows.length === 0) {
-			await this.batch([insertParts]);
-			return;
-		}
-		await this.batch([
-			insertParts,
+		const upsertUpdatedAt = 1;
+		const insertParts: SqliteBatchItem[] = chunkRows(
+			bodyPartTable,
+			dedupedBodyPartRows,
+			this.maxBoundParameters,
+			upsertUpdatedAt,
+		).map((slice) =>
+			this.db
+				.insert(bodyPartTable)
+				.values(slice)
+				.onConflictDoUpdate({
+					target: bodyPartTable.bodyPartId,
+					set: { updatedAt: now },
+				}),
+		);
+		const insertParameters: SqliteBatchItem[] = chunkRows(
+			bodyPartParameterTable,
+			dedupedParameterRows,
+			this.maxBoundParameters,
+			upsertUpdatedAt,
+		).map((slice) =>
 			this.db
 				.insert(bodyPartParameterTable)
-				.values(dedupedParameterRows)
+				.values(slice)
 				.onConflictDoUpdate({
 					target: bodyPartParameterTable.bodyPartParameterId,
 					set: {
@@ -203,7 +214,8 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 						updatedAt: now,
 					},
 				}),
-		]);
+		);
+		await this.batch([...insertParts, ...insertParameters]);
 	}
 
 	async replaceMessageReferences(
@@ -215,23 +227,20 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 		const clear = this.db
 			.delete(messageReferenceTable)
 			.where(eq(messageReferenceTable.messageId, messageId));
-		if (references.length === 0) {
-			await this.batch([clear]);
-			return;
-		}
+		const rows = references.map((reference) => ({
+			...reference,
+			messageReferenceId: deterministicBase36Id(
+				`msgref:${messageId}:${reference.referenceType}:${reference.referenceOrder}`,
+			),
+			messageId,
+			envelopeId,
+			createdAt: now,
+			updatedAt: now,
+		}));
 		await this.batch([
 			clear,
-			this.db.insert(messageReferenceTable).values(
-				references.map((reference) => ({
-					...reference,
-					messageReferenceId: deterministicBase36Id(
-						`msgref:${messageId}:${reference.referenceType}:${reference.referenceOrder}`,
-					),
-					messageId,
-					envelopeId,
-					createdAt: now,
-					updatedAt: now,
-				})),
+			...chunkRows(messageReferenceTable, rows, this.maxBoundParameters).map(
+				(slice) => this.db.insert(messageReferenceTable).values(slice),
 			),
 		]);
 	}

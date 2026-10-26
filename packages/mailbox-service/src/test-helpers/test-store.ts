@@ -13,6 +13,7 @@ import type {
 } from "@remit/data-ports";
 import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
@@ -68,7 +69,7 @@ export const openStore = async () => {
 	});
 	let storages = 0;
 	return {
-		...createSqliteRepositories(databases),
+		...createSqliteRepositories(databases, BETTER_SQLITE3_LIMITS),
 		storage: (): StorageService =>
 			createFilesystemStorageService(
 				join(dir, `storage-${++storages}`),

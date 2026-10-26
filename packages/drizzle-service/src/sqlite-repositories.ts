@@ -1,3 +1,4 @@
+import type { SqliteLimits } from "./bound-parameters.js";
 import {
 	type SqliteDatabases,
 	type SqliteStores,
@@ -67,7 +68,7 @@ export const composeSqliteRepositories = ({
 		accountExportRequest: new AccountExportRequestRepo(app.db),
 		configImport: new ConfigImportRepo(app.db),
 		quarantine: new QuarantineRepo(mail.db),
-		syncWarning: new SyncWarningRepo(mail.db),
+		syncWarning: new SyncWarningRepo(mail),
 		organizeJobRequest: new OrganizeJobRequestRepo(mail.db),
 		placementMove: new MessagePlacementMoveRepo(mail.db),
 		flagPush: new MessageFlagPushRepo(mail.db),
@@ -77,7 +78,7 @@ export const composeSqliteRepositories = ({
 		senderSignerStanding: new SenderSignerStandingRepo(mail.db),
 		calendarCollection: new CalendarCollectionRepo(app.db),
 		calendarObject: new CalendarObjectRepo(app.db),
-		calendarEventIndex: new CalendarEventIndexRepo(app.db),
+		calendarEventIndex: new CalendarEventIndexRepo(app),
 		calendarFeedToken: new CalendarFeedTokenRepo(app.db),
 		calendarSuggestion,
 		calendarStore: new DrizzleCalendarStore(app, calendarSuggestion),
@@ -88,4 +89,6 @@ export type SqliteRepositories = ReturnType<typeof composeSqliteRepositories>;
 
 export const createSqliteRepositories = (
 	databases: SqliteDatabases,
-): SqliteRepositories => composeSqliteRepositories(syncStores(databases));
+	limits: SqliteLimits,
+): SqliteRepositories =>
+	composeSqliteRepositories(syncStores(databases, limits));

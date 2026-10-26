@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
 import { MailboxCursorState } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { syncStores } from "../databases.js";
 import {
 	accountSettingTable,
@@ -300,7 +301,10 @@ describe("runDrizzleCascadeDelete", () => {
 
 	test("deletes every enumerated row across all tables", async () => {
 		await runDrizzleCascadeDelete(
-			syncStores({ app: db, mail: db, search: db } as never),
+			syncStores(
+				{ app: db, mail: db, search: db } as never,
+				BETTER_SQLITE3_LIMITS,
+			),
 			entities,
 			log,
 		);
@@ -439,7 +443,10 @@ describe("runDrizzleCascadeDelete", () => {
 		await assert.rejects(
 			() =>
 				runDrizzleCascadeDelete(
-					syncStores({ app: db, mail: db, search: db } as never),
+					syncStores(
+						{ app: db, mail: db, search: db } as never,
+						BETTER_SQLITE3_LIMITS,
+					),
 					[{ entityType: "Nonsense", key: { id: "x" } }],
 					log,
 				),

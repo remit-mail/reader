@@ -5,6 +5,7 @@ import type {
 	IMessageRepository,
 } from "@remit/data-ports";
 import shortUuid from "short-uuid";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -94,11 +95,14 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = createSqliteRepositories({
-			app: harness.db,
-			mail: harness.db,
-			search: harness.db,
-		}).threadMessage;
+		repo = createSqliteRepositories(
+			{
+				app: harness.db,
+				mail: harness.db,
+				search: harness.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).threadMessage;
 	});
 
 	after(async () => {
@@ -400,11 +404,14 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		const repositories = createSqliteRepositories({
-			app: harness.db,
-			mail: harness.db,
-			search: harness.db,
-		});
+		const repositories = createSqliteRepositories(
+			{
+				app: harness.db,
+				mail: harness.db,
+				search: harness.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		);
 		repo = repositories.threadMessage;
 		messages = repositories.message;
 	});
@@ -935,11 +942,14 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = createSqliteRepositories({
-			app: harness.db,
-			mail: harness.db,
-			search: harness.db,
-		}).threadMessage;
+		repo = createSqliteRepositories(
+			{
+				app: harness.db,
+				mail: harness.db,
+				search: harness.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).threadMessage;
 	});
 
 	after(async () => {
@@ -1111,11 +1121,14 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 	before(async () => {
 		const harness = await setupDb();
 		close = harness.close;
-		repo = createSqliteRepositories({
-			app: harness.db,
-			mail: harness.db,
-			search: harness.db,
-		}).threadMessage;
+		repo = createSqliteRepositories(
+			{
+				app: harness.db,
+				mail: harness.db,
+				search: harness.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).threadMessage;
 	});
 
 	after(async () => {

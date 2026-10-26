@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { CreateThreadMessageInput } from "@remit/data-ports";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -59,11 +60,14 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 			{ searchIndex: true },
 		);
 		close = created.close;
-		repo = createSqliteRepositories({
-			app: created.db,
-			mail: created.db,
-			search: created.db,
-		}).threadMessage;
+		repo = createSqliteRepositories(
+			{
+				app: created.db,
+				mail: created.db,
+				search: created.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).threadMessage;
 
 		await repo.create(
 			makeInput({

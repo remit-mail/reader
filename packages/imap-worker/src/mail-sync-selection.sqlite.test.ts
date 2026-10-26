@@ -12,6 +12,7 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountRepo,
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleMessageRepository,
 	MailboxLockRepo,
@@ -53,11 +54,14 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	const repos = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	});
+	const repos = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	);
 	accounts = repos.account;
 	mailboxes = repos.mailbox;
 	messages = repos.message;

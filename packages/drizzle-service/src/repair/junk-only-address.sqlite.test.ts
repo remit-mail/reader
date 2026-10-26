@@ -4,6 +4,7 @@ import { composeFolderRoleAppointmentName } from "@remit/data-ports/folder-role"
 import { CanonicalMailboxRole } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import type { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
@@ -182,11 +183,14 @@ describe("addresses standing only on mail in Junk", () => {
 	before(() => {
 		sqlite = new Database(":memory:");
 		const db = drizzle(sqlite);
-		specialUse = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).mailboxSpecialUse;
+		specialUse = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailboxSpecialUse;
 		accountSetting = new AccountSettingRepo(db as never);
 		applyMigrationSet(sqlite, "app");
 		applyMigrationSet(sqlite, "mail");

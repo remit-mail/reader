@@ -4,7 +4,9 @@ import type {
 	ICalendarEventIndexRepository,
 } from "@remit/data-ports";
 import { and, asc, eq, gte, lt } from "drizzle-orm";
-import type { RepositoryDb } from "../db.js";
+import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import { chunkRows } from "../bound-parameters.js";
+import type { RepositoryDb, SqliteStore } from "../db.js";
 import { calendarEventIndexTable } from "../schema.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
@@ -28,39 +30,52 @@ function rowToOccurrence(
 }
 
 export class CalendarEventIndexRepo implements ICalendarEventIndexRepository {
-	constructor(private db: DB) {}
+	private readonly db: DB;
+	private readonly batch: WriteBatch;
+	private readonly maxBoundParameters: number;
+
+	constructor(store: SqliteStore<Record<string, unknown>>) {
+		this.db = store.db;
+		this.batch = store.batch;
+		this.maxBoundParameters = store.maxBoundParameters;
+	}
 
 	async replaceForObject(
 		calendarId: string,
 		calendarObjectId: string,
 		occurrences: CalendarOccurrenceInput[],
 	): Promise<void> {
-		await this.deleteForObject(calendarId, calendarObjectId);
-		if (occurrences.length === 0) return;
-
 		const now = Date.now();
-		await this.db.insert(calendarEventIndexTable).values(
-			occurrences.map((occurrence) => ({
-				calendarId,
-				calendarObjectId,
-				recurrenceId: occurrence.recurrenceId,
-				startAt: occurrence.startAt,
-				endAt: occurrence.endAt,
-				allDay: occurrence.allDay,
-				summary: occurrence.summary,
-				status: occurrence.status,
-				transparency: occurrence.transparency,
-				createdAt: now,
-				updatedAt: now,
-			})),
-		);
+		const rows = occurrences.map((occurrence) => ({
+			calendarId,
+			calendarObjectId,
+			recurrenceId: occurrence.recurrenceId,
+			startAt: occurrence.startAt,
+			endAt: occurrence.endAt,
+			allDay: occurrence.allDay,
+			summary: occurrence.summary,
+			status: occurrence.status,
+			transparency: occurrence.transparency,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const inserts: SqliteBatchItem[] = chunkRows(
+			calendarEventIndexTable,
+			rows,
+			this.maxBoundParameters,
+		).map((slice) => this.db.insert(calendarEventIndexTable).values(slice));
+		await this.batch([this.clear(calendarId, calendarObjectId), ...inserts]);
 	}
 
 	async deleteForObject(
 		calendarId: string,
 		calendarObjectId: string,
 	): Promise<void> {
-		await this.db
+		await this.clear(calendarId, calendarObjectId);
+	}
+
+	private clear(calendarId: string, calendarObjectId: string) {
+		return this.db
 			.delete(calendarEventIndexTable)
 			.where(
 				and(

@@ -6,6 +6,7 @@ import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import { deriveAccountConfigId } from "@remit/data-ports/id";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
@@ -65,11 +66,14 @@ const getConfig = (): Promise<ConfigDescriptionResponse> =>
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	repos = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	});
+	repos = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	);
 });
 
 afterEach(() => {

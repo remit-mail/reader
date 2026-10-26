@@ -1,4 +1,5 @@
 import type { SqliteBatchItem } from "../batch.js";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import {
 	openSqliteDatabases,
 	type SqliteDatabasePaths,
@@ -241,6 +242,6 @@ export const createSqliteCascadeDeleter = async (
 	paths: SqliteDatabasePaths,
 ): Promise<CascadeDeleter> => {
 	const databases = await openSqliteDatabases(paths);
-	const stores = syncStores(databases);
+	const stores = syncStores(databases, BETTER_SQLITE3_LIMITS);
 	return (entities, log) => runDrizzleCascadeDelete(stores, entities, log);
 };

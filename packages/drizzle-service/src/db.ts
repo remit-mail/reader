@@ -26,4 +26,5 @@ export type RepositoryDb<TSchema extends Record<string, unknown>> = Omit<
 export interface SqliteStore<TSchema extends Record<string, unknown>> {
 	db: RepositoryDb<TSchema>;
 	batch: WriteBatch;
+	maxBoundParameters: number;
 }

@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
 import type { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
@@ -28,11 +29,14 @@ const input = (
 
 before(async () => {
 	harness = await createTestDb();
-	repo = createSqliteRepositories({
-		app: harness.db,
-		mail: harness.db,
-		search: harness.db,
-	}).outboxAttachment;
+	repo = createSqliteRepositories(
+		{
+			app: harness.db,
+			mail: harness.db,
+			search: harness.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	).outboxAttachment;
 });
 
 after(async () => {

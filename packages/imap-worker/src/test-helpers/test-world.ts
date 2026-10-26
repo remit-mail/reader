@@ -27,6 +27,7 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	openSqliteDatabases,
 	sqliteDatabasePathsFromEnv,
@@ -115,6 +116,7 @@ export const openStore = async (): Promise<{
 	_resetForTest();
 	const repositories = createSqliteRepositories(
 		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
+		BETTER_SQLITE3_LIMITS,
 	);
 	const queuesOn = (queue: RecordingQueue) => ({
 		sync: queue.fifo,
