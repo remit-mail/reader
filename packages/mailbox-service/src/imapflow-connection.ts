@@ -208,43 +208,43 @@ export class ImapFlowConnection {
 	 * Authentication errors are not retried.
 	 */
 	connect = async (): Promise<void> => {
-		if (this.client) {
-			throw new Error("Already connected");
-		}
-
 		const maxRetries = 3;
 		const baseDelayMs = 1000;
 
 		for (let attempt = 1; attempt <= maxRetries; attempt++) {
-			try {
-				await this.attemptConnect();
+			const failure = await this.connectOnce().then(
+				() => null,
+				(error: unknown) => error,
+			);
+			if (failure === null) {
 				return;
-			} catch (error) {
-				const classified = classifyImapError(
-					error,
-					`${this.config.host}:${this.config.port}`,
-				);
-
-				// Auth errors won't fix themselves on retry — throw immediately.
-				if (classified?.kind === "auth") {
-					throw classified;
-				}
-
-				// Final attempt exhausted: throw the classified error if we have
-				// one (network failures), otherwise let the raw error bubble.
-				if (attempt === maxRetries) {
-					throw classified ?? error;
-				}
-
-				// Network and unknown errors fall through to retry-with-backoff.
-				// Exponential backoff: 1s, 2s, 4s
-				const delay = baseDelayMs * 2 ** (attempt - 1);
-				await this.sleep(delay);
-
-				// Reset state for retry
-				this.cleanup();
 			}
+			if (failure instanceof MailConnectionError && failure.kind === "auth") {
+				throw failure;
+			}
+			if (attempt === maxRetries) {
+				throw failure;
+			}
+			await this.sleep(baseDelayMs * 2 ** (attempt - 1));
 		}
+	};
+
+	/**
+	 * Connect once, without retrying. A failure is classified into a
+	 * MailConnectionError where possible and leaves the connection closed.
+	 */
+	connectOnce = async (): Promise<void> => {
+		if (this.client) {
+			throw new Error("Already connected");
+		}
+
+		await this.attemptConnect().catch((error: unknown) => {
+			this.cleanup();
+			throw (
+				classifyImapError(error, `${this.config.host}:${this.config.port}`) ??
+				error
+			);
+		});
 	};
 
 	/**
@@ -273,6 +273,8 @@ export class ImapFlowConnection {
 			port: this.config.port,
 			secure: this.config.tls,
 			transport: this.config.transport,
+			connectionTimeout: this.config.connTimeout,
+			greetingTimeout: this.config.connTimeout,
 			servername: this.config.tlsOptions?.servername,
 			auth,
 			tls: tlsOptions,

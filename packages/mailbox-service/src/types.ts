@@ -54,10 +54,8 @@ export interface ImapConnectionConfig {
 		rejectUnauthorized?: boolean;
 		servername?: string;
 	};
-	/** Connection timeout in milliseconds */
+	/** Connection and greeting timeout in milliseconds */
 	connTimeout?: number;
-	/** Authentication timeout in milliseconds */
-	authTimeout?: number;
 }
 
 /**

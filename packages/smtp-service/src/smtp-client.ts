@@ -1,3 +1,4 @@
+import type { TestResult } from "@remit/data-ports";
 import nodemailer from "nodemailer";
 import type { SMTPTransportGetSocket } from "nodemailer/lib/smtp-transport";
 import { type MailMessage, toNodemailerOptions } from "./message-builder.js";
@@ -89,15 +90,26 @@ const buildSmtpAuth = (
 	throw new Error(`Unknown credential kind: ${JSON.stringify(_exhaustive)}`);
 };
 
-/**
- * Send email via SMTP using Nodemailer
- */
-export const sendMail = async (
-	config: SmtpConfig,
-	message: MailMessage,
-): Promise<SendResult> => {
+type SmtpFailure = Error & {
+	responseCode?: number;
+	code?: string;
+	command?: string;
+	response?: string;
+};
+
+const NETWORK_ERROR_CODES = new Set([
+	"ECONNREFUSED",
+	"ETIMEDOUT",
+	"ENOTFOUND",
+	"ECONNRESET",
+	"EHOSTUNREACH",
+]);
+
+const VERIFY_TIMEOUT_MS = 12_000;
+
+const transporterFor = (config: SmtpConfig, socketTimeout: number) => {
 	const timeout = config.connectionTimeout ?? 30_000;
-	const transporter = nodemailer.createTransport({
+	return nodemailer.createTransport({
 		host: config.host,
 		port: config.port,
 		secure: config.secure,
@@ -105,9 +117,50 @@ export const sendMail = async (
 		tls: config.tls,
 		connectionTimeout: timeout,
 		greetingTimeout: timeout,
-		socketTimeout: 300_000,
+		socketTimeout,
 		getSocket: config.getSocket,
 	});
+};
+
+const classifySmtpError = (error: SmtpFailure): SmtpConnectionError | null => {
+	const smtpCode = error.responseCode;
+
+	if (
+		error.code === "EAUTH" ||
+		(smtpCode !== undefined && smtpCode >= 500 && error.command === "AUTH")
+	) {
+		// The server's own words, when it gave any: a 535 reading
+		// "SmtpClientAuthentication is disabled for the Tenant" is not a
+		// failure signing in again clears, and the account card can only
+		// say so if the text survives the classification.
+		return new SmtpConnectionError(
+			"auth",
+			error.response
+				? `SMTP authentication failed: ${error.response.trim()}`
+				: "SMTP authentication failed",
+			error,
+		);
+	}
+
+	if (error.code !== undefined && NETWORK_ERROR_CODES.has(error.code)) {
+		return new SmtpConnectionError(
+			"network",
+			`SMTP connection failed: ${error.code}`,
+			error,
+		);
+	}
+
+	return null;
+};
+
+/**
+ * Send email via SMTP using Nodemailer
+ */
+export const sendMail = async (
+	config: SmtpConfig,
+	message: MailMessage,
+): Promise<SendResult> => {
+	const transporter = transporterFor(config, 300_000);
 
 	return transporter
 		.sendMail(toNodemailerOptions(message))
@@ -117,62 +170,45 @@ export const sendMail = async (
 			response: info.response,
 			isTransient: false,
 		}))
+		.catch((error: SmtpFailure) => {
+			const classified = classifySmtpError(error);
+			if (classified) {
+				throw classified;
+			}
+
+			// 4xx = transient (retry), 5xx = permanent (no retry)
+			const smtpCode = error.responseCode;
+			const isTransient =
+				smtpCode !== undefined && smtpCode >= 400 && smtpCode < 500;
+			return {
+				success: false,
+				error,
+				smtpCode,
+				isTransient,
+			};
+		})
+		.finally(() => transporter.close());
+};
+
+export const verifySmtpConnection = async (
+	config: SmtpConfig,
+): Promise<TestResult> => {
+	const transporter = transporterFor(
+		{
+			...config,
+			connectionTimeout: config.connectionTimeout ?? VERIFY_TIMEOUT_MS,
+		},
+		VERIFY_TIMEOUT_MS,
+	);
+
+	return transporter
+		.verify()
+		.then((): TestResult => ({ success: true }))
 		.catch(
-			(
-				error: Error & {
-					responseCode?: number;
-					code?: string;
-					command?: string;
-					response?: string;
-				},
-			) => {
-				const smtpCode = error.responseCode;
-
-				// Classify auth errors — EAUTH or 5xx on AUTH command
-				if (
-					error.code === "EAUTH" ||
-					(smtpCode !== undefined &&
-						smtpCode >= 500 &&
-						error.command === "AUTH")
-				) {
-					// The server's own words, when it gave any: a 535 reading
-					// "SmtpClientAuthentication is disabled for the Tenant" is not a
-					// failure signing in again clears, and the account card can only
-					// say so if the text survives the classification.
-					throw new SmtpConnectionError(
-						"auth",
-						error.response
-							? `SMTP authentication failed: ${error.response.trim()}`
-							: "SMTP authentication failed",
-						error,
-					);
-				}
-
-				// Classify network errors
-				if (
-					error.code === "ECONNREFUSED" ||
-					error.code === "ETIMEDOUT" ||
-					error.code === "ENOTFOUND" ||
-					error.code === "ECONNRESET" ||
-					error.code === "EHOSTUNREACH"
-				) {
-					throw new SmtpConnectionError(
-						"network",
-						`SMTP connection failed: ${error.code}`,
-						error,
-					);
-				}
-
-				// 4xx = transient (retry), 5xx = permanent (no retry)
-				const isTransient =
-					smtpCode !== undefined && smtpCode >= 400 && smtpCode < 500;
-				return {
-					success: false,
-					error,
-					smtpCode,
-					isTransient,
-				};
-			},
+			(error: SmtpFailure): TestResult => ({
+				success: false,
+				error: (classifySmtpError(error) ?? error).message,
+			}),
 		)
 		.finally(() => transporter.close());
 };

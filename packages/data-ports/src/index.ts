@@ -1,3 +1,4 @@
+export type { TestResult } from "./connection-test.js";
 export { deriveFilterTtl } from "./filter-ttl.js";
 export type { IAccountRepository } from "./interfaces/account.js";
 export type { IAccountConfigRepository } from "./interfaces/account-config.js";

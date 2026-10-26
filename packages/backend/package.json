@@ -170,6 +170,7 @@
     "@remit/mail-oauth-service": "*",
     "@remit/secrets-service": "*",
     "@remit/mailbox-service": "*",
+    "@remit/smtp-service": "*",
     "@remit/storage-service": "*",
     "@remit/auth-service": "*",
     "@remit/drizzle-service": "*",

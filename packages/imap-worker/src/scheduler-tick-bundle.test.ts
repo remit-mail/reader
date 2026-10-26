@@ -6,7 +6,7 @@ import { build, type Metafile } from "esbuild";
 const NODE_HOST_ONLY =
 	/node_modules\/(@aws-sdk|@smithy|aws-lambda|expect-env|prom-client|better-sqlite3|drizzle-orm)\/|(^|\/)(sqs-client|logger-lambda|drizzle-service)\/src\/|\/src\/(lambda-context|sqs-queues)\.ts$/;
 
-// imapflow, nodemailer and pino still reach these through nodejs_compat; the
+// imapflow and pino still reach these through nodejs_compat; the
 // set is pinned so a new one is a deliberate change.
 const ALLOWED_BUILTINS = [
 	"assert",
@@ -21,8 +21,6 @@ const ALLOWED_BUILTINS = [
 	"node:dns",
 	"node:events",
 	"node:fs",
-	"node:http",
-	"node:https",
 	"node:net",
 	"node:os",
 	"node:path",

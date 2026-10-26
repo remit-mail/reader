@@ -54,6 +54,7 @@ import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
+import type { SmtpGetSocket } from "@remit/smtp-service";
 import type { StorageService } from "@remit/storage-service";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
@@ -63,6 +64,11 @@ export type ConnectionScopeFactory = (
 	accountService: IAccountRepository,
 	secretsService: SecretsService,
 ) => (accountId: string) => Promise<ConnectionScope>;
+
+export interface MailTransports {
+	imap: (host: string, secure: boolean) => ImapTransport;
+	smtp: SmtpGetSocket;
+}
 
 export interface RemitClientCore {
 	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
@@ -154,6 +160,8 @@ export interface RemitClientCore {
 
 	// Helper to create IMAP connection scope from accountId
 	createConnectionScope: (accountId: string) => Promise<ConnectionScope>;
+
+	mailTransports: MailTransports;
 }
 
 export interface SyncQueueServices {
@@ -224,6 +232,7 @@ export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
 	connectionScope: ConnectionScopeFactory;
+	mailTransports: MailTransports;
 	queues: RemitClientQueues;
 }
 
@@ -299,7 +308,8 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets, connectionScope } = deps;
+	const { repositories, storage, secrets, connectionScope, mailTransports } =
+		deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -341,6 +351,7 @@ export const createRemitCore = (
 			storage,
 		}),
 		createConnectionScope: connectionScope(repositories.account, secrets),
+		mailTransports,
 	};
 };
 

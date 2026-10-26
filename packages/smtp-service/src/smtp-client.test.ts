@@ -8,6 +8,7 @@ import {
 	SmtpConnectionError,
 	type SmtpCredentials,
 	sendMail,
+	verifySmtpConnection,
 } from "./smtp-client.js";
 import {
 	type FakeSmtp,
@@ -174,5 +175,42 @@ describe("sendMail", () => {
 		assert.equal(result.isTransient, false);
 		assert.equal(result.smtpCode, undefined);
 		assert.ok(result.error);
+	});
+});
+
+describe("verifySmtpConnection", () => {
+	const servers: FakeSmtp[] = [];
+	const spawn = async (opts?: FakeSmtpOptions): Promise<FakeSmtp> => {
+		const server = await startFakeSmtp(opts);
+		servers.push(server);
+		return server;
+	};
+
+	after(() => {
+		for (const server of servers) {
+			server.close();
+		}
+	});
+
+	it("succeeds when the server accepts the login", async () => {
+		const server = await spawn();
+
+		const result = await verifySmtpConnection(configFor(server.port));
+
+		assert.deepEqual(result, { success: true });
+	});
+
+	it("reports a rejected login as an authentication failure", async () => {
+		const server = await spawn({
+			authResponse: "535 5.7.8 Authentication credentials invalid\r\n",
+		});
+
+		const result = await verifySmtpConnection(configFor(server.port));
+
+		assert.deepEqual(result, {
+			success: false,
+			error:
+				"SMTP authentication failed: 535 5.7.8 Authentication credentials invalid",
+		});
 	});
 });

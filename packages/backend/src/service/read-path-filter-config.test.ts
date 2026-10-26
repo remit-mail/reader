@@ -132,6 +132,14 @@ const readBodyThroughClient = async (
 		connectionScope: () => async () => {
 			throw new Error("the read path under test opens no IMAP connection");
 		},
+		mailTransports: {
+			imap: () => {
+				throw new Error("the read path under test opens no IMAP transport");
+			},
+			smtp: () => {
+				throw new Error("the read path under test opens no SMTP socket");
+			},
+		},
 		queues: {
 			sync: recordingQueue().fifo,
 			accountFanout: recordingQueue(),
