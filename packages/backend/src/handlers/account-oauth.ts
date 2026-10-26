@@ -3,6 +3,7 @@ import type {
 	AccountService as AccountServiceName,
 	MicrosoftOAuthStartRequest,
 } from "@remit/api-openapi-types";
+import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import {
 	AccountAuthType,
 	AccountService,
@@ -34,7 +35,6 @@ import type {
 } from "../types.js";
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
-import { ensureAccountConfig } from "./ensure-account-config.js";
 
 const OUTLOOK_IMAP_HOST = "outlook.office365.com";
 

@@ -97,7 +97,6 @@ const importAccount = async (email: string): Promise<AccountItem> => {
 		},
 		{
 			accountConfigId,
-			userId: accountConfigId,
 			document: configDocument(accountId, email),
 			mode: "apply",
 			onExisting: "abort",

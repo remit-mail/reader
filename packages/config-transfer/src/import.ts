@@ -14,11 +14,11 @@ import {
 	type FilterItem,
 	type LabelItem,
 } from "@remit/data-ports";
+import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import {
 	type AccountSettingNameValue,
 	composeSettingName,
 } from "@remit/data-ports/account-settings";
-import { NotFoundError } from "@remit/data-ports/errors";
 import type { CanonicalMailboxRoleValue } from "@remit/data-ports/folder-role";
 import { deriveAddressId } from "@remit/data-ports/id";
 import {
@@ -44,8 +44,6 @@ const NO_ACTION = "None";
 
 export interface ImportConfigInput {
 	accountConfigId: string;
-	/** Owner of a configuration this import may have to create the row for. */
-	userId: string;
 	document: unknown;
 	mode: "validate" | "apply";
 	onExisting: "abort" | "merge";
@@ -367,7 +365,7 @@ const applyDocument = async (
 	// First: everything below hangs off it, and on a fresh instance there is no
 	// row for an account to reference until this has run.
 	await write(ConfigImportSection.Settings, "accountConfig", () =>
-		ensureAccountConfig(deps, input, document),
+		nameAccountConfig(deps, input, document),
 	);
 
 	// ---- accounts -------------------------------------------------------
@@ -687,32 +685,17 @@ const writeAddressFlags = async (
 /**
  * The configuration row itself. A fresh instance holds none — `GET /config`
  * synthesizes an empty answer rather than writing one — so an import into a
- * dropped database has to materialize it before anything can hang off it.
+ * dropped database has to materialize it, the same way every other first write
+ * does, before anything can hang off it.
  */
-const ensureAccountConfig = async (
+const nameAccountConfig = async (
 	deps: ConfigImportDeps,
 	input: ImportConfigInput,
 	document: ReaderConfigDocument,
 ): Promise<void> => {
 	const { accountConfig } = deps.repositories;
-	// Absence is the expected answer on a fresh instance and the only one that
-	// means "create it"; anything else is a store fault and belongs to the caller.
-	const held = await accountConfig
-		.get(input.accountConfigId)
-		.catch((error: unknown) => {
-			if (error instanceof NotFoundError) return undefined;
-			throw error;
-		});
+	const held = await ensureAccountConfig(accountConfig, input.accountConfigId);
 	const name = document.accountConfig.name;
-
-	if (!held) {
-		await accountConfig.create({
-			accountConfigId: input.accountConfigId,
-			userId: input.userId,
-			name,
-		});
-		return;
-	}
 	if (name !== "" && name !== held.name) {
 		await accountConfig.update(input.accountConfigId, { name });
 	}

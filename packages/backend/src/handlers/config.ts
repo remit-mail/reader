@@ -22,7 +22,6 @@ import {
 	type StoredCredentialFields,
 } from "@remit/mailbox-service/account-credentials";
 import type { Context } from "openapi-backend";
-import type { ApiConfig } from "../config/api-config.js";
 import { exportIdentity } from "../service/export-identity.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import type { QueueName } from "../service/queues.js";
@@ -133,14 +132,13 @@ const toAccountConfigResponse = (
  */
 const emptyConfigResponse = (
 	accountConfigId: string,
-	userId: string,
 	commit: string,
 ): ConfigDescriptionResponse => {
 	const now = Date.now();
 	return {
 		accountConfig: {
 			accountConfigId,
-			userId,
+			userId: accountConfigId,
 			state: "active",
 			createdAt: now,
 			updatedAt: now,
@@ -165,20 +163,12 @@ export const ConfigOperations = {
 			});
 
 		if (!description || description.accountConfig.length === 0) {
-			return emptyConfigResponse(
-				accountConfigId,
-				ctx.identity.sub,
-				ctx.config.commit,
-			);
+			return emptyConfigResponse(accountConfigId, ctx.config.commit);
 		}
 
 		const accountConfig = description.accountConfig[0];
 		if (!accountConfig) {
-			return emptyConfigResponse(
-				accountConfigId,
-				ctx.identity.sub,
-				ctx.config.commit,
-			);
+			return emptyConfigResponse(accountConfigId, ctx.config.commit);
 		}
 
 		// Filter out deleted accounts (tombstone pattern)
@@ -296,7 +286,6 @@ export const ConfigOperations = {
 			},
 			{
 				accountConfigId,
-				userId: ctx.identity.sub,
 				document: body.document,
 				mode: body.mode ?? "validate",
 				onExisting: body.onExisting ?? "abort",

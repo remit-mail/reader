@@ -7,6 +7,7 @@ import {
 	ConflictError,
 	FolderRoleUnresolvedError,
 	ForbiddenError,
+	HostRefusedError,
 	NotFoundError,
 	UnhandledError,
 	UnrecoverableBodyError,
@@ -15,6 +16,7 @@ import { NO_TRASH_FOLDER_REASON } from "@remit/data-ports/folder-role";
 import { CanonicalMailboxRole } from "@remit/domain-enums";
 import { NoTrashMailboxError } from "@remit/mailbox-service";
 import { handleError } from "./error.js";
+import { captureStdout } from "./stdout-capture-fixture.js";
 
 const parseBody = (body: string): Record<string, unknown> =>
 	JSON.parse(body) as Record<string, unknown>;
@@ -197,5 +199,29 @@ describe("handleError coded refusals", () => {
 		assert.equal(response.statusCode, 409);
 		assert.deepEqual(Object.keys(body).sort(), [...declaredFields].sort());
 		assert.equal(body.code, "folder_role_unresolved");
+	});
+});
+
+describe("a refusal the host raises", () => {
+	it("answers 429 request_refused with the host's message, logged as a quota error", async () => {
+		const { result: response, logged } = await captureStdout(() =>
+			handleError(
+				new HostRefusedError(
+					"This mailbox has reached its storage limit.",
+					new Error("D1_ERROR: database size limit exceeded"),
+				),
+			),
+		);
+
+		assert.equal(response.statusCode, 429);
+		assert.deepEqual(parseBody(response.body), {
+			code: "request_refused",
+			message: "This mailbox has reached its storage limit.",
+		});
+		const line = logged
+			.split("\n")
+			.filter((entry) => entry.includes("errorKind"))
+			.map((entry) => JSON.parse(entry) as Record<string, unknown>);
+		assert.equal(line[0]?.errorKind, "quota");
 	});
 });

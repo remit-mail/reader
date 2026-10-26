@@ -13,6 +13,10 @@
 			"types": "./src/conformance/index.ts",
 			"default": "./src/conformance/index.ts"
 		},
+		"./account-config": {
+			"types": "./src/account-config.ts",
+			"default": "./src/account-config.ts"
+		},
 		"./errors": {
 			"types": "./src/errors.ts",
 			"default": "./src/errors.ts"
