@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
@@ -37,6 +38,7 @@ const config = resolveMcpServerConfig();
 
 const repositories = createSqliteRepositories(
 	await openSqliteDatabases(config.databases),
+	BETTER_SQLITE3_LIMITS,
 );
 const storage = createStorageService();
 

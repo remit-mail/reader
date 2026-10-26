@@ -1,4 +1,5 @@
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	openSqliteDatabases,
 	sqliteDatabasePathsFromEnv,
@@ -21,7 +22,7 @@ export const composeSqliteClient = async (
 ): Promise<RemitClient> => {
 	const databases = await openSqliteDatabases(sqliteDatabasePathsFromEnv());
 	return createRemitClient({
-		repositories: createSqliteRepositories(databases),
+		repositories: createSqliteRepositories(databases, BETTER_SQLITE3_LIMITS),
 		...shared,
 	});
 };

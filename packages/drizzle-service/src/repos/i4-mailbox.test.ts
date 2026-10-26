@@ -3,6 +3,7 @@ import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import { eq } from "drizzle-orm";
 import { syncBatch } from "../batch.js";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import {
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
@@ -54,11 +55,14 @@ describe("MailboxRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).mailbox;
+		repo = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailbox;
 	});
 
 	after(async () => {
@@ -543,11 +547,14 @@ describe("MailboxRepo", () => {
 	describe("deleteMailboxWithMail — the folder's mail goes with it (D8)", () => {
 		const seedMessage = async (mailboxId: string, uid: number) => {
 			const messageId = randomId();
-			await createSqliteRepositories({
-				app: db,
-				mail: db,
-				search: db,
-			}).message.create({
+			await createSqliteRepositories(
+				{
+					app: db,
+					mail: db,
+					search: db,
+				},
+				BETTER_SQLITE3_LIMITS,
+			).message.create({
 				messageId,
 				mailboxId,
 				uid,

@@ -8,6 +8,7 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleMessageRepository,
 	type DrizzleThreadMessageRepository,
@@ -128,11 +129,14 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 	beforeEach(async () => {
 		const store = createShippedSqliteDb();
 		close = store.close;
-		repos = createSqliteRepositories({
-			app: store.db,
-			mail: store.db,
-			search: store.db,
-		});
+		repos = createSqliteRepositories(
+			{
+				app: store.db,
+				mail: store.db,
+				search: store.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		);
 		mailboxes = repos.mailbox;
 		messages = repos.message;
 		threadMessages = repos.threadMessage;

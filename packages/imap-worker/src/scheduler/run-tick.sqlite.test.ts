@@ -9,6 +9,7 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountRepo,
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -25,11 +26,14 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	accounts = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	}).account;
+	accounts = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	).account;
 });
 
 afterEach(() => close());

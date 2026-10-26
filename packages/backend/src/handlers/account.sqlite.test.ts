@@ -18,6 +18,7 @@ import {
 } from "@remit/domain-enums";
 import {
 	type AccountRepo,
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -128,11 +129,14 @@ beforeEach(async () => {
 	fanout = recordingQueue();
 	const store = createShippedSqliteDb();
 	close = store.close;
-	const repos = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	});
+	const repos = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	);
 	accounts = repos.account;
 	await repos.accountConfig.create({
 		accountConfigId: ACCOUNT_CONFIG_ID,

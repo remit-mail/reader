@@ -4,6 +4,7 @@ import { after, before, describe, test } from "node:test";
 import { MailboxSyncStatus } from "@remit/domain-enums";
 import Database from "better-sqlite3";
 import { drizzle } from "drizzle-orm/better-sqlite3";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { mailboxTable } from "../schema.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
@@ -41,11 +42,14 @@ describe("MailboxRepo (sqlite)", () => {
 	before(async () => {
 		const testDb = await createSqliteTestDb({ mailbox: mailboxTable });
 		close = testDb.close;
-		repo = createSqliteRepositories({
-			app: testDb.db,
-			mail: testDb.db,
-			search: testDb.db,
-		}).mailbox;
+		repo = createSqliteRepositories(
+			{
+				app: testDb.db,
+				mail: testDb.db,
+				search: testDb.db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailbox;
 	});
 
 	after(async () => {
@@ -211,11 +215,14 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 		const sqlite = new Database(":memory:");
 		applyMigrationSet(sqlite, "mail");
 		const db = drizzle(sqlite, { schema: { mailbox: mailboxTable } });
-		repo = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).mailbox;
+		repo = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailbox;
 		close = async () => {
 			sqlite.close();
 		};

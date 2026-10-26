@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { after, before, describe, test } from "node:test";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import type { AccountRepo } from "./i4-account.js";
@@ -26,11 +27,14 @@ describe("AccountRepo", () => {
 
 	before(async () => {
 		({ db, close } = await createTestDb());
-		repo = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).account;
+		repo = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).account;
 	});
 
 	after(async () => {
@@ -164,11 +168,14 @@ describe("AccountRepo", () => {
 		const accountConfigId = randomId();
 		const account = await repo.create(makeAccountInput(accountConfigId));
 
-		const mailboxRepo = createSqliteRepositories({
-			app: db,
-			mail: db,
-			search: db,
-		}).mailbox;
+		const mailboxRepo = createSqliteRepositories(
+			{
+				app: db,
+				mail: db,
+				search: db,
+			},
+			BETTER_SQLITE3_LIMITS,
+		).mailbox;
 		mailboxCreated(
 			await mailboxRepo.create({
 				accountId: account.accountId,

@@ -6,6 +6,10 @@ export {
 	type WriteBatch,
 } from "./batch.js";
 export {
+	BETTER_SQLITE3_LIMITS,
+	type SqliteLimits,
+} from "./bound-parameters.js";
+export {
 	hasSqliteDatabaseEnv,
 	openSqliteDatabases,
 	SQLITE_DATABASE_ENV,

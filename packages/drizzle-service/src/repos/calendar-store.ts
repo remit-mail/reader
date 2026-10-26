@@ -8,6 +8,7 @@ import type {
 import { deriveCalendarObjectId } from "@remit/data-ports/id";
 import { and, eq, exists, sql } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import { chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	calendarEventIndexTable,
@@ -36,6 +37,7 @@ export class DrizzleCalendarStore implements ICalendarStore {
 
 	private readonly db: DB;
 	private readonly batch: WriteBatch;
+	private readonly maxBoundParameters: number;
 
 	constructor(
 		store: SqliteStore<Record<string, unknown>>,
@@ -43,10 +45,11 @@ export class DrizzleCalendarStore implements ICalendarStore {
 	) {
 		this.db = store.db;
 		this.batch = store.batch;
+		this.maxBoundParameters = store.maxBoundParameters;
 		this.repos = {
 			calendarCollection: new CalendarCollectionRepo(store.db),
 			calendarObject: new CalendarObjectRepo(store.db),
-			calendarEventIndex: new CalendarEventIndexRepo(store.db),
+			calendarEventIndex: new CalendarEventIndexRepo(store),
 			calendarSuggestion,
 			calendarFeedToken: new CalendarFeedTokenRepo(store.db),
 		};
@@ -138,17 +141,21 @@ export class DrizzleCalendarStore implements ICalendarStore {
 						}),
 					this.clearOccurrences(calendarId, calendarObjectId),
 				];
-				if (write.occurrences.length === 0) return items;
+				const occurrences = write.occurrences.map((occurrence) => ({
+					...occurrence,
+					calendarId,
+					calendarObjectId,
+					createdAt: now,
+					updatedAt: now,
+				}));
 				return [
 					...items,
-					this.db.insert(calendarEventIndexTable).values(
-						write.occurrences.map((occurrence) => ({
-							...occurrence,
-							calendarId,
-							calendarObjectId,
-							createdAt: now,
-							updatedAt: now,
-						})),
+					...chunkRows(
+						calendarEventIndexTable,
+						occurrences,
+						this.maxBoundParameters,
+					).map((slice) =>
+						this.db.insert(calendarEventIndexTable).values(slice),
 					),
 				];
 			}

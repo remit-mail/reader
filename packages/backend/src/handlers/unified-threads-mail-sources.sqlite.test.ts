@@ -10,6 +10,7 @@ import {
 	MailboxCursorState,
 } from "@remit/domain-enums";
 import {
+	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type MailboxRepo,
 } from "@remit/drizzle-service";
@@ -34,11 +35,14 @@ let close: () => void;
 beforeEach(() => {
 	const store = createShippedSqliteDb();
 	close = store.close;
-	const repos = createSqliteRepositories({
-		app: store.db,
-		mail: store.db,
-		search: store.db,
-	});
+	const repos = createSqliteRepositories(
+		{
+			app: store.db,
+			mail: store.db,
+			search: store.db,
+		},
+		BETTER_SQLITE3_LIMITS,
+	);
 	client = {
 		account: repos.account,
 		accountSetting: repos.accountSetting,

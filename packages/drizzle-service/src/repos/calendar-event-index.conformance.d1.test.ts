@@ -10,7 +10,7 @@ calendarEventIndexRepositoryConformance({
 	async createRepository() {
 		const opened = await openD1TestStores();
 		close = opened.close;
-		return new CalendarEventIndexRepo(opened.stores.app.db);
+		return new CalendarEventIndexRepo(opened.stores.app);
 	},
 	teardown: async () => {
 		await close?.();

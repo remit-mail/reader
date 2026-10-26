@@ -1,5 +1,6 @@
 import { logger } from "@remit/logger";
 import { installNodeLogger } from "@remit/logger-lambda/node";
+import { BETTER_SQLITE3_LIMITS } from "../../drizzle-service/src/bound-parameters.js";
 import {
 	sqliteDatabasePathsFromEnv,
 	syncStore,
@@ -269,12 +270,18 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 	const app = sqliteDrizzle(appSqlite);
 	const db = sqliteDrizzle(mailSqlite);
 	const searchDb = sqliteDrizzle(searchSqlite);
-	const search = new SearchIndex(db, syncStore(searchDb));
-	const specialUse = createSqliteRepositories({
-		app,
-		mail: db,
-		search: searchDb,
-	}).mailboxSpecialUse;
+	const search = new SearchIndex(
+		db,
+		syncStore(searchDb, BETTER_SQLITE3_LIMITS),
+	);
+	const specialUse = createSqliteRepositories(
+		{
+			app,
+			mail: db,
+			search: searchDb,
+		},
+		BETTER_SQLITE3_LIMITS,
+	).mailboxSpecialUse;
 	try {
 		if (mode.kind === "check") {
 			await displayNameStep(paramRepairClient, "check");

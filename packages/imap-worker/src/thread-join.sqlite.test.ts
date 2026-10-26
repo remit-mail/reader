@@ -6,7 +6,10 @@ import type {
 	MailboxItem,
 } from "@remit/data-ports";
 import { deriveThreadId } from "@remit/data-ports/id";
-import { createSqliteRepositories } from "@remit/drizzle-service";
+import {
+	BETTER_SQLITE3_LIMITS,
+	createSqliteRepositories,
+} from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MessageSyncService, SyncWarningService } from "@remit/mailbox-service";
 import type { ImapMessage } from "@remit/mailbox-service/types";
@@ -56,7 +59,10 @@ const syncInOrder = async (
 	messages: ImapMessage[],
 ): Promise<{ threadIds: (messageId: string) => string[] }> => {
 	const { db, sqlite } = createShippedSqliteDb();
-	const repos = createSqliteRepositories({ app: db, mail: db, search: db });
+	const repos = createSqliteRepositories(
+		{ app: db, mail: db, search: db },
+		BETTER_SQLITE3_LIMITS,
+	);
 	const service = new MessageSyncService(
 		{} as never,
 		{} as IMailboxRepository,

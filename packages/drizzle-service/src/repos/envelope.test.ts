@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { after, before, describe, test } from "node:test";
 import type { BodyPartUpsertInput } from "@remit/data-ports";
+import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { envelopeId as deriveEnvelopeId } from "../id.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
@@ -19,7 +20,10 @@ describe("DrizzleEnvelopeRepository", () => {
 
 	before(async () => {
 		({ db, stop } = await createTestDb());
-		repo = createSqliteRepositories({ app: db, mail: db, search: db }).envelope;
+		repo = createSqliteRepositories(
+			{ app: db, mail: db, search: db },
+			BETTER_SQLITE3_LIMITS,
+		).envelope;
 
 		await repo.upsertEnvelope({
 			envelopeId: ENVELOPE_ID,

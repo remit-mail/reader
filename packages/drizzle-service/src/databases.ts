@@ -1,4 +1,5 @@
 import { syncBatch } from "./batch.js";
+import type { SqliteLimits } from "./bound-parameters.js";
 import type { Db, SqliteStore } from "./db.js";
 import { messageDataSchema } from "./schema/message-data.js";
 import { createSqliteDatabase } from "./sqlite-client.js";
@@ -22,16 +23,16 @@ export interface SqliteStores {
 
 export const syncStore = <TSchema extends Record<string, unknown>>(
 	db: Db<TSchema>,
-): SqliteStore<TSchema> => ({ db, batch: syncBatch(db) });
+	{ maxBoundParameters }: SqliteLimits,
+): SqliteStore<TSchema> => ({ db, batch: syncBatch(db), maxBoundParameters });
 
-export const syncStores = ({
-	app,
-	mail,
-	search,
-}: SqliteDatabases): SqliteStores => ({
-	app: syncStore(app),
-	mail: syncStore(mail),
-	search: syncStore(search),
+export const syncStores = (
+	{ app, mail, search }: SqliteDatabases,
+	limits: SqliteLimits,
+): SqliteStores => ({
+	app: syncStore(app, limits),
+	mail: syncStore(mail, limits),
+	search: syncStore(search, limits),
 });
 
 export interface SqliteDatabasePaths {
