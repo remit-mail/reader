@@ -46,7 +46,7 @@ const syncHeaders = (
 	syncWarnings: ISyncWarningRepository = store.syncWarning,
 ) =>
 	new MessageSyncService(
-		{ getConnection: () => connection, close: async () => {} },
+		connection,
 		store.mailbox,
 		store.mailboxSpecialUse,
 		store.message,

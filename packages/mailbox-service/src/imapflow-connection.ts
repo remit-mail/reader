@@ -181,6 +181,7 @@ export class ImapFlowConnection {
 	private _state: ImapConnectionState = "disconnected";
 	private config: ImapConnectionConfig;
 	private currentMailbox: string | null = null;
+	private currentMailboxReadOnly = true;
 
 	constructor(config: ImapConnectionConfig) {
 		this.config = config;
@@ -427,8 +428,14 @@ export class ImapFlowConnection {
 		// Idempotency guard: re-selecting the currently-open mailbox is a no-op
 		// SELECT on the wire. `mailbox` exposes the live, already-selected box, so
 		// we can return its status without paying for another round-trip — this is
-		// what lets a batch issue one SELECT and many fetches on the same box.
-		if (this.currentMailbox === mailboxPath && this.client?.mailbox) {
+		// what lets a batch issue one SELECT and many fetches on the same box. A
+		// read-only open does not cover a read-write request: a pooled connection
+		// a sync left EXAMINEd must SELECT before a STORE, MOVE or EXPUNGE.
+		if (
+			this.currentMailbox === mailboxPath &&
+			this.client?.mailbox &&
+			(readOnly || !this.currentMailboxReadOnly)
+		) {
 			return this.toBoxStatus(this.client.mailbox, readOnly);
 		}
 
@@ -441,6 +448,7 @@ export class ImapFlowConnection {
 		}
 
 		this.currentMailbox = mailboxPath;
+		this.currentMailboxReadOnly = readOnly;
 
 		return this.toBoxStatus(mailbox, readOnly);
 	};

@@ -1,4 +1,4 @@
-import type { Logger } from "@remit/logger";
+import type { ProcessContext } from "./context.js";
 import type { WorkerEvent } from "./events.js";
 import { handleAppendSentMessage } from "./handlers/append-sent-message.js";
 import { handleDeleteAccountObjects } from "./handlers/delete-account-objects.js";
@@ -12,50 +12,39 @@ import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
 import { syncMessages } from "./handlers/sync-messages.js";
-import type { WorkerQueues } from "./queues.js";
 
 export const processEvent = async (
 	event: WorkerEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	/**
-	 * SQS's own delivery count for the record carrying this event (1 on first
-	 * delivery). Read by SYNC_MESSAGE_BODY, PLACEMENT_MOVE_PUSH, FLAG_PUSH,
-	 * APPEND_SENT_MESSAGE, MESSAGE_MOVE, MESSAGE_DELETE and MESSAGE_COPY — each
-	 * knows from it when this is
-	 * the last attempt before the queue's own redrive policy would DLQ the
-	 * record, so it can resolve retry exhaustion into a terminal outcome
-	 * (issue #1270) instead of dead-lettering blindly.
-	 */
-	receiveCount = 1,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
 	switch (event.type) {
 		case "SYNC_MAILBOXES":
-			return syncMailboxes(event, log, queues);
+			return syncMailboxes(event, ctx);
 		case "SYNC_MESSAGES":
-			return syncMessages(event, log, queues);
+			return syncMessages(event, ctx);
 		case "SYNC_MESSAGE_BODY":
-			return syncMessageBody(event, log, queues, receiveCount);
+			return syncMessageBody(event, ctx, receiveCount);
 		case "MAILBOX_CREATE":
 		case "MAILBOX_RENAME":
 		case "MAILBOX_DELETE":
-			return processMailboxManagement(event, log);
+			return processMailboxManagement(event, ctx);
 		case "MESSAGE_DELETE":
-			return handleMessageDelete(event, log, queues, receiveCount);
+			return handleMessageDelete(event, ctx, receiveCount);
 		case "MESSAGE_MOVE":
-			return handleMessageMove(event, log, queues, receiveCount);
+			return handleMessageMove(event, ctx, receiveCount);
 		case "PLACEMENT_MOVE_PUSH":
-			return handlePlacementMovePush(event, log, queues, receiveCount);
+			return handlePlacementMovePush(event, ctx, receiveCount);
 		case "FLAG_PUSH":
-			return handleFlagPush(event, log, receiveCount);
+			return handleFlagPush(event, ctx, receiveCount);
 		case "MESSAGE_COPY":
-			return handleMessageCopy(event, log, queues, receiveCount);
+			return handleMessageCopy(event, ctx, receiveCount);
 		case "EMPTY_TRASH":
-			return handleEmptyTrash(event, log);
+			return handleEmptyTrash(event, ctx);
 		case "APPEND_SENT_MESSAGE":
-			return handleAppendSentMessage(event, log, receiveCount);
+			return handleAppendSentMessage(event, ctx, receiveCount);
 		case "DELETE_ACCOUNT_OBJECTS":
-			return handleDeleteAccountObjects(event, log, queues);
+			return handleDeleteAccountObjects(event, ctx);
 		default:
 			throw new Error(`Unknown event type: ${(event as WorkerEvent).type}`);
 	}

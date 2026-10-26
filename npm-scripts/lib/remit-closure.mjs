@@ -15,11 +15,11 @@ const generatedByName = new Map(
 	GENERATED_PACKAGES.map((pkg) => [pkg.name, pkg]),
 );
 
-// The @remit packages `root` needs, transitively, split by where they live. A
+// The @remit packages `roots` need, transitively, split by where they live. A
 // @remit/* dependency that is neither a workspace member nor a generated
 // package cannot be resolved locally, and fails loudly rather than silently
 // falling back to the registry.
-export const remitClosure = (repoRoot, root) => {
+export const remitClosure = (repoRoot, roots) => {
 	const { workspaceNames, manifests } = loadWorkspace(repoRoot);
 	const seen = new Set();
 	const workspace = new Set();
@@ -39,13 +39,13 @@ export const remitClosure = (repoRoot, root) => {
 			return;
 		}
 		throw new Error(
-			`${root} depends on ${name}, which is neither a packages/* workspace ` +
+			`${roots.join(", ")} depend on ${name}, which is neither a packages/* workspace ` +
 				"member nor a generated package listed in " +
 				"npm-scripts/lib/generated-packages.mjs — this check cannot resolve " +
 				"it locally and refuses to silently fall back to the registry.",
 		);
 	};
-	visit(root);
+	for (const root of roots) visit(root);
 	return {
 		workspace: [...workspace].map((name) => ({
 			name,

@@ -17,7 +17,6 @@ import {
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import {
 	type IImapConnection,
-	type ManagedConnectionFactory,
 	MessageMoveService,
 	MessageSyncService,
 	SyncWarningService,
@@ -108,12 +107,8 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 	const syncInbox = async (messageIdHeader: string): Promise<string> => {
 		const inbox = await createMailbox("INBOX");
 		const connection = serverWithInbox(inboxHolding(messageIdHeader));
-		const factory: ManagedConnectionFactory = {
-			getConnection: () => connection,
-			close: async () => {},
-		};
 		await new MessageSyncService(
-			factory,
+			connection,
 			mailboxes,
 			repos.mailboxSpecialUse,
 			messages,

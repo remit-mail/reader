@@ -1,7 +1,9 @@
-import { randomUUID } from "node:crypto";
-import { getClient } from "@remit/backend/client";
-import type { FifoQueueProducer, QueueProducer } from "@remit/data-ports";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
+import type {
+	FifoQueueProducer,
+	IMailboxLockRepository,
+	QueueProducer,
+} from "@remit/data-ports";
+import type { ProcessContext, WorkerMetrics } from "./context.js";
 import type { ImapEvent } from "./events.js";
 import type { WorkerQueues } from "./queues.js";
 
@@ -69,12 +71,18 @@ const senderFor = (type: ImapEvent["type"], queues: WorkerQueues): Send => {
 	}
 };
 
+export interface EmitDeps {
+	queues: WorkerQueues;
+	mailboxLock: IMailboxLockRepository;
+	metrics: WorkerMetrics;
+}
+
 export const createEmitEvent =
-	(queues: WorkerQueues): EmitEvent =>
+	({ queues, mailboxLock, metrics }: EmitDeps): EmitEvent =>
 	async (event) => {
 		const fullEvent: ImapEvent = {
 			...event,
-			eventId: randomUUID(),
+			eventId: crypto.randomUUID(),
 			timestamp: Date.now(),
 		} as ImapEvent;
 
@@ -84,7 +92,6 @@ export const createEmitEvent =
 			return;
 		}
 
-		const { mailboxLock } = await getClient();
 		const { accountId, mailboxId, eventId } = fullEvent;
 		const previous = await mailboxLock.get(
 			accountId,
@@ -100,7 +107,7 @@ export const createEmitEvent =
 		);
 		if (!acquired) return;
 		if (previous && previous.ttl < Math.floor(Date.now() / 1000)) {
-			recordImapFailure("SYNC_PENDING_EXPIRED", "other");
+			metrics.imapFailure("SYNC_PENDING_EXPIRED", "other", 1);
 		}
 
 		await send().catch(async (error: unknown) => {
@@ -113,3 +120,12 @@ export const createEmitEvent =
 			throw error;
 		});
 	};
+
+export const emitFrom = (
+	ctx: Pick<ProcessContext, "queues" | "client" | "metrics">,
+): EmitEvent =>
+	createEmitEvent({
+		queues: ctx.queues,
+		mailboxLock: ctx.client.mailboxLock,
+		metrics: ctx.metrics,
+	});

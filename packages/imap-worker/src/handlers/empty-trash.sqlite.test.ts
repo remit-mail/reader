@@ -54,7 +54,7 @@ const emptyTrash = async (a: Arranged): Promise<EmptyTrashEvent> => {
 };
 
 const run = (a: Arranged, event: EmptyTrashEvent) =>
-	handleEmptyTrash(event, a.w.log, a.w.scope);
+	handleEmptyTrash(event, a.w.ctx());
 
 const visible = async (a: Arranged): Promise<boolean[]> =>
 	Promise.all(

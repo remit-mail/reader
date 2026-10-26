@@ -1,7 +1,4 @@
-import { getClient } from "@remit/backend/client";
 import { MessageMutation, MessageSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -11,13 +8,11 @@ import {
 	resolveExhaustedPlacementMoveFailure,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { createEmitEvent } from "../emit.js";
+import type { ProcessContext } from "../context.js";
+import { emitFrom } from "../emit.js";
 import type { PlacementMovePushEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -27,12 +22,6 @@ import {
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 import { probeableMessageIdHeader } from "./probe-message-id.js";
-
-export const getPlacementMoveMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("PLACEMENT_MOVE_MAX_ATTEMPTS", 3, processEnv);
-
-export const PLACEMENT_MOVE_MAX_ATTEMPTS = getPlacementMoveMaxAttempts();
 
 interface MoveOutcome {
 	kind: "moved" | "not-found" | "trycreate";
@@ -152,12 +141,11 @@ export const attemptMove = async (
  */
 export const handlePlacementMovePush = async (
 	event: PlacementMovePushEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
-	const emit = createEmitEvent(queues);
+	const { log, pool, metrics, config } = ctx;
+	const emit = emitFrom(ctx);
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -165,7 +153,7 @@ export const handlePlacementMovePush = async (
 		threadMessage: threadMessageService,
 		placementMove: markerService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, accountConfigId, messageId } = event;
 
@@ -293,11 +281,11 @@ export const handlePlacementMovePush = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			await scope
 				.getConnection()
@@ -427,7 +415,7 @@ export const handlePlacementMovePush = async (
 						return;
 					}
 
-					if (receiveCount < PLACEMENT_MOVE_MAX_ATTEMPTS) {
+					if (receiveCount < config.attempts.placementMove) {
 						// Transient push failure — expected (connections drop). No alarm;
 						// SQS redelivery retries from the still-durable marker.
 						throw error;
@@ -465,14 +453,14 @@ export const handlePlacementMovePush = async (
 
 					// Terminal and never re-thrown, so the handler-outcome series
 					// records this record as a success. Counted here or it is invisible.
-					recordImapFailure("PLACEMENT_MOVE_EXHAUSTED", "other");
+					metrics.imapFailure("PLACEMENT_MOVE_EXHAUSTED", "other", 1);
 					log.error(
 						{ error: error instanceof Error ? error.message : String(error) },
 						"Placement move retry exhausted; message still exists at its source",
 					);
 					// Terminal — never re-thrown, so the caller acks either way.
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };

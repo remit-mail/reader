@@ -33,15 +33,17 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteFiles } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
-import type { ManagedConnectionFactory } from "@remit/mailbox-service";
 import {
 	eml,
 	FakeImapServer,
 } from "@remit/mailbox-service/test-helpers/fake-imap";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
-import type { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import { createConnectionPool } from "../connection-pool.js";
+import type { ConnectionScope } from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import { syncMessages } from "../handlers/sync-messages.js";
 import type { WorkerQueues } from "../queues.js";
+import { processContext, recordingMetrics } from "./process-context.js";
 import { workerQueuesOn } from "./worker-queues.js";
 
 export interface LogLine {
@@ -165,8 +167,9 @@ export interface World {
 	draft: (
 		attachment?: Buffer,
 	) => Promise<{ outbox: OutboxMessageItem; attachmentId?: string }>;
-	scope: typeof createConnectionScopeWithCredentials;
-	connectionFactory: () => ManagedConnectionFactory;
+	scope: () => ConnectionScope;
+	ctx: (overrides?: Partial<ProcessContext>) => ProcessContext;
+	connectVia: (scope: () => ConnectionScope) => ProcessContext["pool"];
 }
 
 const createWorld = async (
@@ -292,9 +295,7 @@ const createWorld = async (
 				accountId: account.accountId,
 				mailboxId: mailbox.mailboxId,
 			},
-			capturingLogger([]),
-			workerQueuesOn(queue),
-			connectionFactory,
+			ctx({ log: capturingLogger([]) }),
 		);
 		imap.connections = baseline.connections;
 		imap.log.length = baseline.commands;
@@ -377,7 +378,7 @@ const createWorld = async (
 		return { outbox, attachmentId };
 	};
 
-	const scope = () => {
+	const scope = (): ConnectionScope => {
 		let open: ReturnType<FakeImapServer["connection"]> | undefined;
 		return {
 			getConnection: async () => {
@@ -390,18 +391,18 @@ const createWorld = async (
 		};
 	};
 
-	const connectionFactory = (): ManagedConnectionFactory => {
-		let open: ReturnType<FakeImapServer["connection"]> | undefined;
-		return {
-			getConnection: () => {
-				open ??= imap.connection();
-				return open;
-			},
-			close: async () => {
-				open = undefined;
-			},
-		};
-	};
+	const connectVia = (connect: () => ConnectionScope) =>
+		createConnectionPool({ size: 2, overflow: "Open" }, connect);
+
+	const ctx = (overrides: Partial<ProcessContext> = {}): ProcessContext =>
+		processContext({
+			client,
+			queues: workerQueuesOn(queue),
+			pool: connectVia(scope),
+			metrics: recordingMetrics(),
+			log: capturingLogger(logs),
+			...overrides,
+		});
 
 	return {
 		client,
@@ -420,6 +421,7 @@ const createWorld = async (
 		queues: workerQueuesOn(queue),
 		draft,
 		scope,
-		connectionFactory,
+		ctx,
+		connectVia,
 	};
 };

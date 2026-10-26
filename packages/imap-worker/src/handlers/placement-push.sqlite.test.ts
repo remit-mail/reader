@@ -86,14 +86,13 @@ const moveToJunk = async (a: Arranged): Promise<PlacementMovePushEvent> => {
 };
 
 const pushFlag = (a: Arranged, event: FlagPushEvent, receiveCount = 1) =>
-	handleFlagPush(event, a.w.log, receiveCount, a.w.scope);
+	handleFlagPush(event, a.w.ctx(), receiveCount);
 
 const pushMove = (
 	a: Arranged,
 	event: PlacementMovePushEvent,
 	receiveCount = 1,
-) =>
-	handlePlacementMovePush(event, a.w.log, a.w.queues, receiveCount, a.w.scope);
+) => handlePlacementMovePush(event, a.w.ctx(), receiveCount);
 
 const seenOnServer = (a: Arranged, path: string): boolean[] =>
 	a.w.imap

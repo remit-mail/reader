@@ -7,8 +7,8 @@ import { installNodeLogger } from "@remit/logger-lambda/node";
 import { backfillSearchText } from "@remit/mailbox-service";
 import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 
-import { createEmitEvent } from "../emit.js";
-import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../queues.js";
+import { lambdaEmitEvent } from "../lambda-context.js";
+import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
@@ -103,7 +103,11 @@ const runLoop = async (): Promise<void> => {
 			),
 			redriveStrandedPlacements: (stranded, now) =>
 				redriveStrandedPlacements(
-					{ client, emit: createEmitEvent(queues), log },
+					{
+						client,
+						emit: lambdaEmitEvent(queues, client.mailboxLock),
+						log,
+					},
 					stranded,
 					now,
 				),

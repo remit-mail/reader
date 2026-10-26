@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "@remit/backend/client";
+import type { IMailboxLockRepository } from "@remit/data-ports";
 import {
 	type RecordingQueue,
 	recordingQueue,
@@ -22,29 +18,34 @@ import type {
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "./events.js";
+import { recordingMetrics } from "./test-helpers/process-context.js";
 import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 type Emitted<T> = Omit<T, "eventId" | "timestamp">;
 
 let locks: MailboxLockRepo;
 let closeStore: () => void;
+let mailboxLock: IMailboxLockRepository;
 let queue: RecordingQueue;
 
 const sentCommands = () => queue.sent;
 
 const emitEvent: EmitEvent = (event) =>
-	createEmitEvent(workerQueuesOn(queue))(event);
+	createEmitEvent({
+		queues: workerQueuesOn(queue),
+		mailboxLock,
+		metrics: recordingMetrics(),
+	})(event);
 
 beforeEach(() => {
 	queue = recordingQueue();
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);
-	setClient({ mailboxLock: locks } as unknown as RemitClient);
+	mailboxLock = locks;
 });
 
 afterEach(() => {
-	_resetForTest();
 	closeStore();
 });
 

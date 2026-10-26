@@ -522,3 +522,48 @@ describe("ImapFlowConnection.getMailboxStatus", () => {
 		assert.equal(searched, false);
 	});
 });
+
+describe("ImapFlowConnection.openBox on a connection reused across operations", () => {
+	const recordingClient = () => {
+		const opens: Array<{ path: string; readOnly: boolean }> = [];
+		const client: {
+			mailbox: ReturnType<typeof fakeMailbox> | false;
+			mailboxOpen: (
+				path: string,
+				options: { readOnly: boolean },
+			) => Promise<ReturnType<typeof fakeMailbox>>;
+		} = {
+			mailbox: false,
+			mailboxOpen: async (path, { readOnly }) => {
+				opens.push({ path, readOnly });
+				client.mailbox = { ...fakeMailbox(path, 1), readOnly };
+				return client.mailbox;
+			},
+		};
+		return { client, opens };
+	};
+
+	it("selects read-write a mailbox it last examined read-only", async () => {
+		const { client, opens } = recordingClient();
+		const connection = buildConnectionWithClient(client);
+
+		await connection.openBox("INBOX", true);
+		const status = await connection.openBox("INBOX", false);
+
+		assert.deepStrictEqual(opens, [
+			{ path: "INBOX", readOnly: true },
+			{ path: "INBOX", readOnly: false },
+		]);
+		assert.strictEqual(status.readOnly, false);
+	});
+
+	it("reuses a read-write selection for a later read-only open", async () => {
+		const { client, opens } = recordingClient();
+		const connection = buildConnectionWithClient(client);
+
+		await connection.openBox("INBOX", false);
+		await connection.openBox("INBOX", true);
+
+		assert.deepStrictEqual(opens, [{ path: "INBOX", readOnly: false }]);
+	});
+});

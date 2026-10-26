@@ -104,7 +104,7 @@ describe("buildRetryableFailureError — the DLQ-propagation signal", () => {
 	// the body-dlq (alarmed in infra/stacks/dev/stacks/remit-worker-monitoring-stack.ts).
 
 	test("names every failed message id and the current attempt", () => {
-		const error = buildRetryableFailureError(["msg-1", "msg-2"], 1);
+		const error = buildRetryableFailureError(["msg-1", "msg-2"], 1, 3);
 
 		assert.match(error.message, /msg-1/);
 		assert.match(error.message, /msg-2/);
@@ -120,14 +120,14 @@ describe("batchSyncedMessages — one batch == one ranged fetch", () => {
 		}));
 
 	test("packs up to 200 messages into a single batch", () => {
-		const batches = batchSyncedMessages(makeSynced(200));
+		const batches = batchSyncedMessages(makeSynced(200), 200);
 
 		assert.equal(batches.length, 1);
 		assert.equal(batches[0].length, 200);
 	});
 
 	test("splits 201 messages into 200 + 1", () => {
-		const batches = batchSyncedMessages(makeSynced(201));
+		const batches = batchSyncedMessages(makeSynced(201), 200);
 
 		assert.equal(batches.length, 2);
 		assert.equal(batches[0].length, 200);
@@ -135,7 +135,7 @@ describe("batchSyncedMessages — one batch == one ranged fetch", () => {
 	});
 
 	test("keeps messageId+uid pairs intact per batch", () => {
-		const batches = batchSyncedMessages(makeSynced(3));
+		const batches = batchSyncedMessages(makeSynced(3), 200);
 
 		assert.deepEqual(batches[0], [
 			{ messageId: "msg-0", uid: 1 },
@@ -145,6 +145,6 @@ describe("batchSyncedMessages — one batch == one ranged fetch", () => {
 	});
 
 	test("empty input yields no batches", () => {
-		assert.deepEqual(batchSyncedMessages([]), []);
+		assert.deepEqual(batchSyncedMessages([], 200), []);
 	});
 });

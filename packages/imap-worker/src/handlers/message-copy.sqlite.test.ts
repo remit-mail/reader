@@ -73,7 +73,7 @@ const arrange = async (
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	handleMessageCopy(a.event, a.w.log, a.w.queues, receiveCount, a.w.scope);
+	handleMessageCopy(a.event, a.w.ctx(), receiveCount);
 
 describe("a message copy", () => {
 	it("lands at the destination, leaves the source alone and settles the copy row", async () => {
@@ -264,7 +264,7 @@ describe("a fresh copy acted on before the server confirms it", () => {
 		assert.ok(event, "the move enqueued a MESSAGE_MOVE");
 		assert.equal(event.uid, copyUid);
 
-		await handleMessageMove(event, a.w.log, a.w.queues, 1, a.w.scope);
+		await handleMessageMove(event, a.w.ctx(), 1);
 
 		assert.deepEqual(a.w.imap.uids("Projects", a.messageIdHeader), []);
 		assert.equal(a.w.imap.uids("INBOX", a.messageIdHeader).length, 2);
@@ -288,7 +288,7 @@ describe("a fresh copy acted on before the server confirms it", () => {
 		const event = a.w.queued().find(isDelete);
 		assert.ok(event, "the delete enqueued a MESSAGE_DELETE");
 
-		await handleMessageDelete(event, a.w.log, a.w.queues, 1, a.w.scope);
+		await handleMessageDelete(event, a.w.ctx(), 1);
 
 		assert.deepEqual(a.w.imap.uids("Projects", a.messageIdHeader), []);
 		assert.deepEqual(a.w.imap.uids("INBOX"), [a.uid]);

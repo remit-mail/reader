@@ -72,7 +72,7 @@ const arrange = async (
 };
 
 const run = (a: Arranged, receiveCount = 1, event = a.event) =>
-	handleMessageDelete(event, a.w.log, a.w.queues, receiveCount, a.w.scope);
+	handleMessageDelete(event, a.w.ctx(), receiveCount);
 
 const resyncs = (w: World): unknown[] =>
 	w

@@ -1,10 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "@remit/backend/client";
+import type { IMailboxLockRepository } from "@remit/data-ports";
 import {
 	type RecordingQueue,
 	recordingQueue,
@@ -19,6 +15,7 @@ import {
 import type { SyncMessagesEvent } from "./events.js";
 import { emitMailboxResync, emitMoveResync } from "./handlers/message-move.js";
 import { emitSyncMessagesEvents } from "./handlers/sync-mailboxes.js";
+import { recordingMetrics } from "./test-helpers/process-context.js";
 import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 const ACCOUNT = "account-1366";
@@ -31,6 +28,7 @@ const FOLDERS = [
 let queue: RecordingQueue;
 let locks: MailboxLockRepo;
 let closeStore: () => void;
+let mailboxLock: IMailboxLockRepository;
 
 type Queued = { mailboxId: string; eventId: string };
 
@@ -47,7 +45,11 @@ const inboxSync = (): Omit<SyncMessagesEvent, "eventId" | "timestamp"> => ({
 });
 
 const emitEvent: EmitEvent = (event) =>
-	createEmitEvent(workerQueuesOn(queue))(event);
+	createEmitEvent({
+		queues: workerQueuesOn(queue),
+		mailboxLock,
+		metrics: recordingMetrics(),
+	})(event);
 
 const fanOut = (): Promise<void> =>
 	emitSyncMessagesEvents(ACCOUNT, FOLDERS, emitEvent);
@@ -57,11 +59,10 @@ beforeEach(() => {
 	const store = createShippedSqliteDb();
 	closeStore = store.close;
 	locks = new MailboxLockRepo(store.db);
-	setClient({ mailboxLock: locks } as unknown as RemitClient);
+	mailboxLock = locks;
 });
 
 afterEach(() => {
-	_resetForTest();
 	closeStore();
 });
 
@@ -150,14 +151,12 @@ describe("SYNC_MESSAGES under explicit refreshes (#1366)", () => {
 	});
 
 	it("fails the operation when the marker store fails", async () => {
-		setClient({
-			mailboxLock: {
-				get: async () => null,
-				tryAcquireLock: async () => {
-					throw new Error("marker store down");
-				},
+		mailboxLock = {
+			get: async () => null,
+			tryAcquireLock: async () => {
+				throw new Error("marker store down");
 			},
-		} as unknown as RemitClient);
+		} as unknown as IMailboxLockRepository;
 
 		await assert.rejects(emitEvent(inboxSync()), /marker store down/);
 		assert.equal(queue.sent.length, 0);

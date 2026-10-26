@@ -33,7 +33,6 @@ import {
 	SyncWarningStage,
 } from "@remit/domain-enums";
 import pMap from "p-map";
-import type { ManagedConnectionFactory } from "./connection-factory.js";
 import {
 	confirmDepartures,
 	type DepartureVerdicts,
@@ -62,6 +61,7 @@ import {
 } from "./sync-watermarks.js";
 import { messageReferencesOf, parentOf, threadRootOf } from "./thread-root.js";
 import type {
+	IImapConnection,
 	ImapAddress,
 	ImapBodyStructure,
 	ImapEnvelope,
@@ -177,7 +177,7 @@ export const parseHeaderDate = (
 };
 
 /**
- * @deprecated Use ManagedConnectionFactory instead
+ * @deprecated Pass the IImapConnection to MessageSyncService instead
  */
 export type ImapConnectionFactory = () => {
 	connect(): Promise<void>;
@@ -340,7 +340,7 @@ export class MessageSyncService {
 	private log: SyncLogger;
 
 	constructor(
-		private connectionFactory: ManagedConnectionFactory,
+		private connection: IImapConnection,
 		private mailboxService: IMailboxRepository,
 		/**
 		 * The account’s folder-role map. Required, not optional: which folder
@@ -414,7 +414,7 @@ export class MessageSyncService {
 		const lastSyncUid = mailbox.lastSyncUid || 0;
 		const highWaterMarkUid = mailbox.highWaterMarkUid || 0;
 
-		const connection = this.connectionFactory.getConnection();
+		const connection = this.connection;
 		const box = await connection.openBox(mailboxPath);
 		const status = await connection.getMailboxStatus(mailboxPath);
 
@@ -742,7 +742,7 @@ export class MessageSyncService {
 			cursorState: MailboxCursorState.rebuilding,
 		});
 
-		const connection = this.connectionFactory.getConnection();
+		const connection = this.connection;
 		const box = await connection.openBox(mailboxPath);
 		// Read before the pass, never after: a message arriving while the
 		// rebuild runs is absent from the snapshot below, and a HIGHESTMODSEQ
@@ -1026,7 +1026,7 @@ export class MessageSyncService {
 		const mailboxId = mailbox.mailboxId;
 		const mailboxPath = mailbox.fullPath;
 
-		const connection = this.connectionFactory.getConnection();
+		const connection = this.connection;
 		// Ask from the last COMPLETE mod-sequence, so a group left part-applied
 		// by an earlier round is served again in full; its applied members are
 		// then dropped by position, without a lookup.
@@ -1536,7 +1536,7 @@ export class MessageSyncService {
 	 * Assumes mailbox is already open from fetchUidsToSync.
 	 */
 	private async fetchMessageBatch(uids: number[]): Promise<ImapMessage[]> {
-		const connection = this.connectionFactory.getConnection();
+		const connection = this.connection;
 		return await connection.fetchMessages(uids);
 	}
 
@@ -1587,7 +1587,7 @@ export class MessageSyncService {
 	): Promise<DepartureVerdicts> {
 		return confirmDepartures(
 			{
-				connection: this.connectionFactory.getConnection(),
+				connection: this.connection,
 				mailboxService: this.mailboxService,
 				messageService: this.messageService,
 				log: this.log,

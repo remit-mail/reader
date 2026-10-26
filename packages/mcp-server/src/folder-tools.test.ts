@@ -39,7 +39,7 @@ const mailboxEvents = (): MailboxEvent[] =>
 		.map((body) => body as unknown as MailboxEvent);
 
 const runWorker = (event: MailboxEvent): Promise<void> =>
-	processMailboxManagement(event, mine.log, mine.scope);
+	processMailboxManagement(event, mine.ctx());
 
 const drainQueue = async (): Promise<void> => {
 	for (const event of mailboxEvents()) await runWorker(event);

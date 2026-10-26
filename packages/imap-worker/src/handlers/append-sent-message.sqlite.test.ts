@@ -56,7 +56,7 @@ const arrange = async (
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	handleAppendSentMessage(a.event, a.w.log, receiveCount, a.w.scope);
+	handleAppendSentMessage(a.event, a.w.ctx(), receiveCount);
 
 const outboxRow = (a: Arranged) =>
 	a.w.client.outboxMessage

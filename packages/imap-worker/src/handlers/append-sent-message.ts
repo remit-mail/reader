@@ -1,4 +1,3 @@
-import { getClient } from "@remit/backend/client";
 import {
 	APPENDED_UID_NONE,
 	APPENDED_UID_UNREPORTED,
@@ -6,15 +5,13 @@ import {
 } from "@remit/data-ports";
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { OutboxMessageStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
 import { OutboxAttachmentUnavailableError } from "@remit/mailbox-service/outbox-attachment-content";
 import {
 	buildMailMessage,
 	renderRawMessage,
 } from "@remit/smtp-service/message-builder";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import type { AppendSentMessageEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
@@ -33,31 +30,19 @@ const unfiledAppendRefused = (fullPath: string, error: unknown): string =>
 		? `Sent, but not filed: the copy for ${fullPath} could not be built because ${error.message}.`
 		: `Sent, but not filed: the mail server refused to store a copy in ${fullPath} (${error instanceof Error ? error.message : String(error)}).`;
 
-export const getAppendSentMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("APPEND_SENT_MAX_ATTEMPTS", 3, processEnv);
-
-export const APPEND_SENT_MAX_ATTEMPTS = getAppendSentMaxAttempts();
-
 export const handleAppendSentMessage = async (
 	event: AppendSentMessageEvent,
-	log: Logger,
-	/**
-	 * SQS's own delivery count for this record. The APPEND is the last step of a
-	 * message the user has already had delivered, so exhausting the redrive
-	 * budget must settle the row rather than dead-letter it: a DLQ'd record
-	 * leaves the row at `sent`, which no view shows.
-	 */
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
+	const { log, pool, config } = ctx;
 	const {
 		account: accountService,
 		outboxMessage: outboxMessageService,
 		outboxAttachment: outboxAttachmentService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, outboxMessageId } = event;
 
@@ -138,7 +123,7 @@ export const handleAppendSentMessage = async (
 	// retry. Below the redrive budget that retry is worth having; at it the
 	// record would dead-letter, so the row is left at `sent` for the repair.
 	const retryDropWithinBudget = (error: unknown): void => {
-		if (receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
+		if (receiveCount < config.attempts.appendSent) throw error;
 		log.error({ accountId, outboxMessageId, error }, ROW_SURVIVED_ITS_DELETE);
 	};
 
@@ -166,7 +151,7 @@ export const handleAppendSentMessage = async (
 	let appendedUid = APPENDED_UID_NONE;
 
 	const failure = await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -178,7 +163,7 @@ export const handleAppendSentMessage = async (
 				accountId,
 				outboxMessageId,
 			);
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			await scope
 				.getConnection()
@@ -207,7 +192,7 @@ export const handleAppendSentMessage = async (
 					// it, which is still a filed copy and has to read as one.
 					appendedUid = result.uid > 0 ? result.uid : APPENDED_UID_UNREPORTED;
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 
 			// The idempotency key, and the only reason a redelivery is safe. It is
 			// written before the delete and never after it: from here on every step
@@ -234,7 +219,7 @@ export const handleAppendSentMessage = async (
 			// The budget still binds after a landed APPEND, though no longer to
 			// hold off a duplicate: the recorded uid does that, and the retries
 			// the budget allows re-drive the delete alone.
-			if (receiveCount < APPEND_SENT_MAX_ATTEMPTS) throw error;
+			if (receiveCount < config.attempts.appendSent) throw error;
 			return error;
 		},
 	);

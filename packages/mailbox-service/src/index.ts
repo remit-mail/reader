@@ -72,8 +72,6 @@ export {
 	connectionScope,
 	createConnection,
 	createConnectionWithCredentials,
-	createManagedConnectionFactory,
-	type ManagedConnectionFactory,
 } from "./connection-factory.js";
 // Connection testing
 export {

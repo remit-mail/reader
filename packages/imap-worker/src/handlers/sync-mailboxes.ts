@@ -1,4 +1,3 @@
-import { getClient } from "@remit/backend/client";
 import { writeFolderRoleAppointment } from "@remit/backend/folder-role-appointments";
 import {
 	bindImportedFolders,
@@ -16,23 +15,22 @@ import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
-	createConnectionWithCredentials,
 	MailboxQueueService,
 	MailboxSyncService,
 	MailConnectionError,
 	type MailCredentials,
 	standardMailboxManagement,
 } from "@remit/mailbox-service";
-import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import { createEmitEvent, type EmitEvent } from "../emit.js";
+import type { ConnectionPool } from "../connection-pool.js";
+import type { ProcessContext } from "../context.js";
+import { type EmitEvent, emitFrom } from "../emit.js";
 import type { SyncMailboxesEvent, SyncMessagesEvent } from "../events.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { createImportedFolder } from "./imported-folder.js";
@@ -41,44 +39,13 @@ import { orderMailboxesForSync } from "./mailbox-sync-order.js";
 const EVENT_EMIT_CONCURRENCY = 20;
 
 /**
- * How recently a mailbox must have been synced for a side-effect trigger to
- * leave it alone. Short enough that a folder is never more than a minute
- * staler than the trigger that arrived, long enough to collapse the burst a
- * client produces when it loads (`GET /config` triggers a sync per account)
- * into one round of IMAP work.
- *
- * This gates side-effect triggers only. The web client's automatic poll asks
- * by name and so skips it; what bounds that one is its own floor
- * (`MIN_POLL_INTERVAL_MS` in useStaleAccountSync, 30s).
- */
-export const DEFAULT_MAILBOX_FRESHNESS_MS = 60_000;
-
-/**
- * Resolve the freshness window from the environment, defaulting to production's
- * {@link DEFAULT_MAILBOX_FRESHNESS_MS}. Deployments that drive sync from a test
- * harness rather than a real client set `MAILBOX_FRESHNESS_MS` low so their
- * explicit nudges are never no-oped by the gate; nothing else touches it, so
- * production keeps the default.
- */
-export const resolveMailboxFreshnessMs = (
-	env: NodeJS.ProcessEnv = process.env,
-): number => {
-	const value = env.MAILBOX_FRESHNESS_MS?.trim();
-	if (!value) return DEFAULT_MAILBOX_FRESHNESS_MS;
-	const raw = Number(value);
-	return Number.isInteger(raw) && raw >= 0 ? raw : DEFAULT_MAILBOX_FRESHNESS_MS;
-};
-
-export const MAILBOX_FRESHNESS_MS = resolveMailboxFreshnessMs();
-
-/**
  * Whether this fan-out should enqueue a mailbox.
  *
  * A sync asked for by name — POST /sync, which is the refresh control,
  * pull-to-refresh, and the client's automatic poll — always syncs every
  * mailbox, whatever ran a moment ago. A sync that happens as a side effect of
  * something else (config load, OAuth connect, account create, the scheduled
- * tick) skips mailboxes synced inside {@link MAILBOX_FRESHNESS_MS}, which is
+ * tick) skips mailboxes synced inside the freshness window, which is
  * what stops those triggers from re-enumerating an account's folders on every
  * page load.
  *
@@ -88,18 +55,18 @@ export const mailboxNeedsSync = (
 	mailbox: { lastMessageSyncAt?: number },
 	event: Pick<SyncMailboxesEvent, "explicitRequest">,
 	now: number,
+	freshnessMs: number,
 ): boolean => {
 	if (event.explicitRequest) return true;
 	if (!mailbox.lastMessageSyncAt) return true;
-	return now - mailbox.lastMessageSyncAt >= MAILBOX_FRESHNESS_MS;
+	return now - mailbox.lastMessageSyncAt >= freshnessMs;
 };
 
 export const syncMailboxes = async (
 	event: SyncMailboxesEvent,
-	log: Logger,
-	queues: WorkerQueues,
+	ctx: ProcessContext,
 ): Promise<void> => {
-	const client = await getClient();
+	const { client, log, queues } = ctx;
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -155,7 +122,7 @@ export const syncMailboxes = async (
 	// records the terminal non-auth error phase before letting the wrapper
 	// rethrow for SQS retry/DLQ.
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -169,7 +136,9 @@ export const syncMailboxes = async (
 					accountService,
 					binder,
 					log,
-					createEmitEvent(queues),
+					emitFrom(ctx),
+					ctx.pool,
+					ctx.config.mailboxFreshnessMs,
 				);
 			} catch (err) {
 				// Auth failures are handled by the wrapper — rethrow untouched so it
@@ -204,38 +173,29 @@ const syncMailboxesForAccount = async (
 	binder: ConfigBinderDeps,
 	log: Logger,
 	emit: EmitEvent,
+	pool: ConnectionPool,
+	freshnessMs: number,
 ): Promise<void> => {
 	const { accountId } = account;
 
-	const connection = createConnectionWithCredentials(
-		{
-			username: account.username,
-			imapHost: account.imapHost,
-			imapPort: account.imapPort,
-			imapTls: account.imapTls,
-		},
-		credentials,
-		nodeTransport(),
-	);
+	const borrowed = pool.borrow(account, credentials);
+	const result = await (async () => {
+		const connection = await borrowed.getConnection();
 
-	await connection.connect();
+		await accountService.markAuthenticated(accountId);
 
-	await accountService.markAuthenticated(accountId);
+		await accountService.update(accountId, {
+			syncPhase: SyncPhase.discovering_mailboxes,
+		});
 
-	// Phase transition: discovering mailboxes
-	await accountService.update(accountId, {
-		syncPhase: SyncPhase.discovering_mailboxes,
-	});
+		const mailboxSyncService = new MailboxSyncService(
+			mailboxService,
+			mailboxSpecialUseService,
+			log,
+		);
 
-	const mailboxSyncService = new MailboxSyncService(
-		mailboxService,
-		mailboxSpecialUseService,
-		log,
-	);
-
-	const result = await mailboxSyncService
-		.syncMailboxes({ accountId }, connection)
-		.finally(() => connection.disconnect());
+		return mailboxSyncService.syncMailboxes({ accountId }, connection);
+	})().finally(() => borrowed.release());
 
 	await accountService.update(accountId, { lastSyncAt: Date.now() });
 
@@ -279,7 +239,7 @@ const syncMailboxesForAccount = async (
 	// trigger had just run (issue #37).
 	const now = Date.now();
 	const mailboxes = allMailboxes.filter((mailbox) =>
-		mailboxNeedsSync(mailbox, event, now),
+		mailboxNeedsSync(mailbox, event, now, freshnessMs),
 	);
 
 	const skipped = allMailboxes.length - mailboxes.length;

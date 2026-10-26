@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, describe, it } from "node:test";
-import { createEmitEvent } from "../emit.js";
+import { emitFrom } from "../emit.js";
 import type { SyncMessagesEvent } from "../events.js";
 import { openStore, type World } from "../test-helpers/test-world.js";
 import { drainPendingFlagPushes, syncMessages } from "./sync-messages.js";
@@ -22,12 +22,7 @@ const syncEvent = (w: World, mailboxId: string): SyncMessagesEvent => ({
 });
 
 const sync = async (w: World, mailboxId: string): Promise<number> => {
-	await syncMessages(
-		syncEvent(w, mailboxId),
-		w.log,
-		w.queues,
-		w.connectionFactory,
-	);
+	await syncMessages(syncEvent(w, mailboxId), w.ctx());
 	return w.imap.connections;
 };
 
@@ -93,9 +88,9 @@ describe("a folder deleted while its sync is in flight", () => {
 	it("resolves the event and records no error phase on the account", async () => {
 		const w = await store.world();
 		const old = await w.folder("Old");
-		const connectionFactory = () => {
-			const factory = w.connectionFactory();
-			const connection = factory.getConnection();
+		const scope = () => {
+			const inner = w.scope();
+			const connection = w.imap.connection();
 			const openBox = connection.openBox;
 			let first = true;
 			connection.openBox = async (path, readOnly) => {
@@ -109,14 +104,15 @@ describe("a folder deleted while its sync is in flight", () => {
 				}
 				return openBox(path, readOnly);
 			};
-			return { getConnection: () => connection, close: factory.close };
+			return {
+				getConnection: async () => connection,
+				disconnect: inner.disconnect,
+			};
 		};
 
 		await syncMessages(
 			syncEvent(w, old.mailboxId),
-			w.log,
-			w.queues,
-			connectionFactory,
+			w.ctx({ pool: w.connectVia(scope) }),
 		);
 
 		const account = await w.client.account.get(w.account.accountId);
@@ -153,7 +149,7 @@ describe("drainPendingFlagPushes (issue #1273)", () => {
 			w.account,
 			inbox.mailboxId,
 			w.log,
-			createEmitEvent(w.queues),
+			emitFrom(w.ctx()),
 		);
 
 		assert.deepEqual(

@@ -1,11 +1,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, it } from "node:test";
-import {
-	_resetForTest,
-	type RemitClient,
-	setClient,
-} from "@remit/backend/client";
+import type { RemitClient } from "@remit/backend/client";
 import type { AccountItem } from "@remit/data-ports";
 import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
@@ -23,9 +19,12 @@ import {
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
+import { createConnectionPool } from "./connection-pool.js";
+import type { ProcessContext } from "./context.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessages } from "./handlers/sync-messages.js";
 import { runSchedulerTick } from "./scheduler/run-tick.js";
+import { processContext } from "./test-helpers/process-context.js";
 import { workerQueuesOn } from "./test-helpers/worker-queues.js";
 
 const NOW = 1_700_000_000_000;
@@ -69,13 +68,19 @@ beforeEach(() => {
 		message: messages,
 		mailboxLock: locks,
 	} as unknown as RemitClient;
-	setClient(client);
 });
 
 afterEach(() => {
-	_resetForTest();
 	close();
 });
+
+const ctxWith = (pool: ProcessContext["pool"]): ProcessContext =>
+	processContext({
+		client,
+		queues: workerQueuesOn(recordingQueue()),
+		log: silentLogger,
+		pool,
+	});
 
 const seedSyncedAccount = async (): Promise<{
 	account: AccountItem;
@@ -169,8 +174,11 @@ describe("turning mail sync off and on again", () => {
 				timestamp: NOW,
 				accountId: account.accountId,
 			},
-			silentLogger,
-			workerQueuesOn(recordingQueue()),
+			ctxWith(
+				createConnectionPool({ size: 1, overflow: "Open" }, () => {
+					throw new Error("a sync that is off must not connect");
+				}),
+			),
 		);
 
 		let connections = 0;
@@ -182,12 +190,12 @@ describe("turning mail sync off and on again", () => {
 				accountId: account.accountId,
 				mailboxId,
 			},
-			silentLogger,
-			workerQueuesOn(recordingQueue()),
-			() => {
-				connections += 1;
-				throw new Error("a sync that is off must not connect");
-			},
+			ctxWith(
+				createConnectionPool({ size: 1, overflow: "Open" }, () => {
+					connections += 1;
+					throw new Error("a sync that is off must not connect");
+				}),
+			),
 		);
 		assert.equal(connections, 0);
 

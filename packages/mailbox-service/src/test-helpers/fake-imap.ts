@@ -324,12 +324,21 @@ export class FakeImapConnection implements IImapConnection {
 	readonly state: ImapConnectionState = "authenticated";
 	readonly isConnected = true;
 	private selected: string | null = null;
+	private selectedReadOnly = true;
 
 	constructor(private readonly server: FakeImapServer) {}
 
 	private open(): Folder {
 		if (this.selected === null) throw new Error("No mailbox selected");
 		return this.server.folder(this.selected);
+	}
+
+	private writable(): Folder {
+		const folder = this.open();
+		if (this.selectedReadOnly) {
+			throw imapError("READ-ONLY", `Mailbox is read-only: ${this.selected}`);
+		}
+		return folder;
 	}
 
 	private uidList = (uids: number[]): string => uids.join(",");
@@ -360,10 +369,11 @@ export class FakeImapConnection implements IImapConnection {
 		});
 	};
 
-	openBox = async (path: string, readOnly = false): Promise<ImapBoxStatus> => {
+	openBox = async (path: string, readOnly = true): Promise<ImapBoxStatus> => {
 		this.server.run(readOnly ? "EXAMINE" : "SELECT", path);
 		const folder = this.server.folder(path);
 		this.selected = path;
+		this.selectedReadOnly = readOnly;
 		return {
 			name: path,
 			readOnly,
@@ -540,7 +550,7 @@ export class FakeImapConnection implements IImapConnection {
 			"STORE",
 			`${this.selected} ${this.uidList(uids)} ${detail}`,
 		);
-		const folder = this.open();
+		const folder = this.writable();
 		const modseq = this.server.bumpModseq();
 		for (const uid of uids) {
 			const stored = folder.messages.get(uid);
@@ -617,7 +627,7 @@ export class FakeImapConnection implements IImapConnection {
 		if (this.server.ignoreNext.delete(verb)) {
 			return { destination, uidValidity: target.uidValidity, uidMap };
 		}
-		const source = this.open();
+		const source = verb === "MOVE" ? this.writable() : this.open();
 		for (const uid of uids) {
 			const stored = source.messages.get(uid);
 			if (!stored) continue;
@@ -641,7 +651,7 @@ export class FakeImapConnection implements IImapConnection {
 
 	deleteMessages = async (uids: number[]): Promise<number> => {
 		this.server.run("EXPUNGE", `${this.selected} ${this.uidList(uids)}`);
-		const folder = this.open();
+		const folder = this.writable();
 		let deleted = 0;
 		for (const uid of uids) {
 			if (folder.messages.delete(uid)) deleted++;
