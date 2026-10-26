@@ -15,7 +15,6 @@ import {
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
 import {
-	connectionTest,
 	passwordConnectionScope,
 	type RemitClientSharedDeps,
 } from "./create-remit-client.js";
@@ -53,10 +52,7 @@ export const buildSharedDeps = (
 			),
 		),
 		connectionScope: passwordConnectionScope(imapTransport),
-		connectionTest: connectionTest({
-			imap: imapTransport,
-			smtp: directSmtpSocket,
-		}),
+		mailTransports: { imap: () => imapTransport, smtp: directSmtpSocket },
 		queues,
 	};
 };

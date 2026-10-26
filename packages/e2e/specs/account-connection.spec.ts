@@ -32,7 +32,7 @@ test.describe("Account connection", () => {
 			password: "definitely-not-the-password",
 		});
 		expect(result.imapSuccess).toBe(false);
-		expect(result.imapError).toBeTruthy();
+		expect(result.imapError).toMatch(/authentication failed/i);
 	});
 
 	test("the created account is the one the run syncs from", async ({

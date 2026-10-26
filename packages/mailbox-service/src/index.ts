@@ -76,7 +76,6 @@ export {
 // Connection testing
 export {
 	type ImapTestConfig,
-	type TestResult,
 	testImapConnection,
 } from "./connection-test.js";
 export {

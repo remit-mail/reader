@@ -26,16 +26,18 @@ import {
 import {
 	ownedAccount,
 	resolveConnectionCredentials,
+	testImapConnection,
 } from "@remit/mailbox-service";
 import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
+import { verifySmtpConnection } from "@remit/smtp-service";
 import type { Context } from "openapi-backend";
 import { loadMsOAuth, type MsOAuthConfig } from "../config/msoauth.js";
 import { deleteAccount } from "../service/account-deletion.js";
-import type { ConnectionTest } from "../service/create-remit-client.js";
+import type { MailTransports } from "../service/create-remit-client.js";
 import type { RemitClient } from "../service/data-client.js";
 import { fireAndForget } from "../service/fire-and-forget.js";
 import type { QueueName } from "../service/queues.js";
@@ -110,7 +112,7 @@ const testOAuthConnection = async (
 	existingAccount: AccountItem,
 	account: IAccountRepository,
 	secrets: SecretsService,
-	connectionTest: ConnectionTest,
+	mailTransports: MailTransports,
 ): Promise<TestConnectionResponse> => {
 	const { config, credentials: app } = await loadMsOAuth(msOAuth);
 	const tokenService = createMailOAuthService(
@@ -161,13 +163,16 @@ const testOAuthConnection = async (
 		smtpSuccess: undefined,
 	};
 
-	const imapResult = await connectionTest.imap({
-		host: existingAccount.imapHost,
-		port: existingAccount.imapPort,
-		secure: existingAccount.imapTls,
-		user: existingAccount.username,
-		credentials,
-	});
+	const imapResult = await testImapConnection(
+		{
+			host: existingAccount.imapHost,
+			port: existingAccount.imapPort,
+			secure: existingAccount.imapTls,
+			user: existingAccount.username,
+			credentials,
+		},
+		mailTransports.imap(existingAccount.imapHost, existingAccount.imapTls),
+	);
 	result.imapSuccess = imapResult.success;
 	if (!imapResult.success) {
 		result.imapError = imapResult.error;
@@ -175,12 +180,13 @@ const testOAuthConnection = async (
 
 	// OAuth accounts share the same access token for IMAP and SMTP.
 	if (existingAccount.smtpEnabled) {
-		const smtpResult = await connectionTest.smtp({
+		const smtpResult = await verifySmtpConnection({
 			host: existingAccount.smtpHost ?? "",
 			port: existingAccount.smtpPort ?? 587,
 			secure: existingAccount.smtpTls ?? false,
 			user: existingAccount.smtpUsername || existingAccount.username,
 			credentials,
+			getSocket: mailTransports.smtp,
 		});
 		result.smtpSuccess = smtpResult.success;
 		if (!smtpResult.success) {
@@ -298,7 +304,7 @@ export const AccountOperations = {
 		const accountConfigId = ctx.identity.accountConfigId;
 		const input = context.request.requestBody as TestConnectionInput;
 
-		const { account, secrets, connectionTest } = ctx.client;
+		const { account, secrets, mailTransports } = ctx.client;
 
 		// Resolve password - use provided password or decrypt stored password
 		let imapPassword = input.password;
@@ -315,7 +321,7 @@ export const AccountOperations = {
 					existingAccount,
 					account,
 					secrets,
-					connectionTest,
+					mailTransports,
 				);
 			}
 
@@ -349,13 +355,16 @@ export const AccountOperations = {
 		};
 
 		// Test IMAP connection
-		const imapResult = await connectionTest.imap({
-			host: input.imapHost,
-			port: input.imapPort,
-			secure: input.imapTls,
-			user: input.username,
-			credentials: { kind: "password", password: imapPassword },
-		});
+		const imapResult = await testImapConnection(
+			{
+				host: input.imapHost,
+				port: input.imapPort,
+				secure: input.imapTls,
+				user: input.username,
+				credentials: { kind: "password", password: imapPassword },
+			},
+			mailTransports.imap(input.imapHost, input.imapTls),
+		);
 
 		result.imapSuccess = imapResult.success;
 		if (!imapResult.success) {
@@ -364,7 +373,7 @@ export const AccountOperations = {
 
 		// Test SMTP connection if configured
 		if (input.smtpHost) {
-			const smtpResult = await connectionTest.smtp({
+			const smtpResult = await verifySmtpConnection({
 				host: input.smtpHost,
 				port: input.smtpPort ?? 587,
 				secure: input.smtpTls ?? false,
@@ -373,6 +382,7 @@ export const AccountOperations = {
 					kind: "password",
 					password: smtpPassword ?? imapPassword,
 				},
+				getSocket: mailTransports.smtp,
 			});
 
 			result.smtpSuccess = smtpResult.success;
