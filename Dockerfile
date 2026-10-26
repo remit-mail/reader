@@ -39,7 +39,7 @@ ARG SPELLCHECK_ENGINE=${SPELLCHECK_ENGINE:-none}
 # checksum, so the npm ci layer still only busts when an install input
 # changes — the same cache property, without the labs frontend.
 ########################################################################
-FROM docker.io/library/node:24 AS manifests
+FROM docker.io/library/node:26 AS manifests
 WORKDIR /src
 COPY . .
 RUN find . -type f ! -name package.json ! -name package-lock.json -delete \
@@ -62,10 +62,10 @@ RUN find . -type f ! -name package.json ! -name package-lock.json -delete \
 # stays unconditional while the 3.4 GB toolchain is never fetched. The web
 # client stages nothing from build/hunspell when the language list is empty.
 ########################################################################
-FROM docker.io/library/node:24 AS hunspell-wasm-none
+FROM docker.io/library/node:26 AS hunspell-wasm-none
 RUN mkdir -p /out
 
-FROM docker.io/emscripten/emsdk:6.0.6 AS hunspell-wasm-built
+FROM docker.io/emscripten/emsdk:6.0.13 AS hunspell-wasm-built
 WORKDIR /src
 COPY docker/hunspell/ ./docker/hunspell/
 ENV OUT_DIR=/out
@@ -78,7 +78,7 @@ FROM hunspell-wasm-${SPELLCHECK_ENGINE} AS hunspell-wasm
 # apisix route table, and one esbuild bundle per node-service entrypoint.
 # Shared by every target below so the expensive steps run once.
 ########################################################################
-FROM docker.io/library/node:24 AS builder
+FROM docker.io/library/node:26 AS builder
 WORKDIR /app
 
 # Manifests only, first — so an npm ci is only re-run when a package.json or
@@ -166,7 +166,7 @@ RUN mkdir -p dist-docker/backend-migrations \
 # ownership of an already-large tree (node_modules) copies
 # every file into a new union-fs layer instead of mutating in place.
 ########################################################################
-FROM docker.io/library/alpine:3.23 AS node-service-base
+FROM docker.io/library/alpine:3.24 AS node-service-base
 RUN apk add --no-cache nodejs \
 	&& addgroup -g 1000 node \
 	&& adduser -D -u 1000 -G node node
@@ -336,7 +336,7 @@ CMD ["node", "server.mjs"]
 ########################################################################
 # apisix — stock image, generated route table baked in (RFC 035 D5 parity).
 ########################################################################
-FROM docker.io/apache/apisix:3.13.0-debian AS apisix
+FROM docker.io/apache/apisix:3.19.0-debian AS apisix
 COPY --from=builder /app/packages/apisix/config.yaml /usr/local/apisix/conf/config.yaml
 COPY --from=builder /app/packages/apisix/apisix.yaml /usr/local/apisix/conf/apisix.yaml
 # The upstream image's docker-entrypoint.sh only trusts config.yaml's
@@ -350,7 +350,7 @@ ENV APISIX_STAND_ALONE=true
 ########################################################################
 # web — static server for the vite dist/, no framework dependency.
 ########################################################################
-FROM docker.io/library/alpine:3.23 AS web
+FROM docker.io/library/alpine:3.24 AS web
 RUN apk add --no-cache nodejs \
 	&& addgroup -g 1000 node \
 	&& adduser -D -u 1000 -G node node
@@ -385,7 +385,7 @@ CMD ["node", "server.mjs"]
 # baked in rather than bind-mounted: a container path would not resolve against
 # the host daemon those helpers talk to.
 ########################################################################
-FROM docker.io/library/alpine:3.23 AS updater
+FROM docker.io/library/alpine:3.24 AS updater
 RUN apk add --no-cache docker-cli docker-cli-compose sqlite su-exec flock
 # The same wrapper file the host installs, and the same VACUUM INTO primitive
 # the backup sidecar and the host wrapper already share.
