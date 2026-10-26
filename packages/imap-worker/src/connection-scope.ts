@@ -17,6 +17,7 @@ import {
 	type ImapConnectionConfig,
 	type MailCredentials,
 } from "@remit/mailbox-service";
+import { nodeTransport } from "@remit/mailbox-service/node-transport";
 
 export interface ConnectionScope {
 	/**
@@ -96,7 +97,11 @@ export const createConnectionScopeWithCredentials = (
 			return connectPromise;
 		}
 
-		const conn = createConnectionWithCredentials(account, credentials);
+		const conn = createConnectionWithCredentials(
+			account,
+			credentials,
+			nodeTransport(),
+		);
 		connection = conn;
 		connectPromise = conn.connect().then(() => conn);
 

@@ -16,6 +16,7 @@ import {
 	type MailAttachment,
 	type SendResult,
 	SmtpConnectionError,
+	type SmtpGetSocket,
 	type sendMail,
 } from "@remit/smtp-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
@@ -103,6 +104,7 @@ export interface SendMessageDeps {
 		lastError?: string,
 	) => Promise<void>;
 	send: typeof sendMail;
+	getSocket: SmtpGetSocket;
 	loadAttachments: (
 		tenant: SendTenant,
 		outboxMessageId: string,
@@ -305,7 +307,12 @@ export const sendMessage = async (
 		}
 		throw err;
 	}
-	const resolved = await resolveSmtpConfig(account, deps.secrets, credentials);
+	const resolved = await resolveSmtpConfig(
+		account,
+		deps.secrets,
+		deps.getSocket,
+		credentials,
+	);
 	if (!resolved.ok) {
 		// `blocked` is distinct from `failed`: no auto-retry — the user has to
 		// reconfigure the account first (issue #192).

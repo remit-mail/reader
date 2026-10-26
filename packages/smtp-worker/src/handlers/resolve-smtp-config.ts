@@ -3,7 +3,7 @@ import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
-import type { SmtpConfig } from "@remit/smtp-service";
+import type { SmtpConfig, SmtpGetSocket } from "@remit/smtp-service";
 
 export interface SmtpConfigMissing {
 	ok: false;
@@ -54,6 +54,7 @@ export type SmtpCredentials =
 export const resolveSmtpConfig = async (
 	account: AccountItem,
 	secrets: Pick<SecretsService, "decrypt">,
+	getSocket: SmtpGetSocket,
 	credentials?: SmtpCredentials,
 ): Promise<ResolvedSmtpConfig> => {
 	if (!account.smtpEnabled) {
@@ -73,6 +74,7 @@ export const resolveSmtpConfig = async (
 				port: smtpPort,
 				secure: account.smtpTls ?? false,
 				user: smtpUser,
+				getSocket,
 				credentials: {
 					kind: "accessToken",
 					accessToken: credentials.accessToken,
@@ -99,6 +101,7 @@ export const resolveSmtpConfig = async (
 			port: smtpPort,
 			secure: account.smtpTls ?? false,
 			user: smtpUser,
+			getSocket,
 			credentials: { kind: "password", password: smtpPassword },
 		},
 	};

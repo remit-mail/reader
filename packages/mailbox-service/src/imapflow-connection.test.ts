@@ -6,6 +6,7 @@ import {
 	toInternalDate,
 	toIsoDateString,
 } from "./imapflow-connection.js";
+import { nodeTransport } from "./node-transport.js";
 import type { ImapMessage } from "./types.js";
 
 describe("toIsoDateString", () => {
@@ -94,6 +95,7 @@ const buildConnectionWithClient = (client: unknown): ImapFlowConnection => {
 		user: "alice@example.com",
 		credentials: { kind: "password", password: "x" },
 		tls: false,
+		transport: nodeTransport(),
 	});
 	Object.assign(connection as unknown as Record<string, unknown>, {
 		client,

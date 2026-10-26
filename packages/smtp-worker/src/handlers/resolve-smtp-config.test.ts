@@ -5,7 +5,10 @@ import {
 	type EncryptedPayload,
 	serializeEncryptedPayload,
 } from "@remit/secrets-service";
+import { nodeSocket } from "@remit/smtp-service/node-socket";
 import { resolveSmtpConfig } from "./resolve-smtp-config.js";
+
+const getSocket = nodeSocket();
 
 const buildAccount = (overrides: Partial<AccountItem> = {}): AccountItem =>
 	({
@@ -50,6 +53,7 @@ describe("resolveSmtpConfig", () => {
 		const result = await resolveSmtpConfig(
 			buildAccount({ smtpEnabled: false, smtpHost: "smtp.example.com" }),
 			stubSecrets([]),
+			getSocket,
 		);
 		assert.equal(result.ok, false);
 		if (!result.ok) assert.match(result.reason, /SMTP not configured/);
@@ -59,6 +63,7 @@ describe("resolveSmtpConfig", () => {
 		const result = await resolveSmtpConfig(
 			buildAccount({ smtpEnabled: undefined, smtpHost: "smtp.example.com" }),
 			stubSecrets([]),
+			getSocket,
 		);
 		assert.equal(result.ok, false);
 	});
@@ -75,7 +80,11 @@ describe("resolveSmtpConfig", () => {
 			smtpPort: 587,
 			smtpPasswordHash: undefined,
 		});
-		const result = await resolveSmtpConfig(account, stubSecrets(calls));
+		const result = await resolveSmtpConfig(
+			account,
+			stubSecrets(calls),
+			getSocket,
+		);
 
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
@@ -110,7 +119,11 @@ describe("resolveSmtpConfig", () => {
 			smtpUsername: "alice-smtp@example.com",
 			smtpPasswordHash,
 		});
-		const result = await resolveSmtpConfig(account, stubSecrets(calls));
+		const result = await resolveSmtpConfig(
+			account,
+			stubSecrets(calls),
+			getSocket,
+		);
 
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
@@ -131,6 +144,7 @@ describe("resolveSmtpConfig", () => {
 				smtpTls: true,
 			}),
 			stubSecrets([]),
+			getSocket,
 		);
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
@@ -145,6 +159,7 @@ describe("resolveSmtpConfig", () => {
 				smtpTls: undefined,
 			}),
 			stubSecrets([]),
+			getSocket,
 		);
 		assert.equal(result.ok, true);
 		if (!result.ok) return;
@@ -163,10 +178,15 @@ describe("resolveSmtpConfig", () => {
 				smtpPort: 587,
 			});
 
-			const result = await resolveSmtpConfig(account, stubSecrets([]), {
-				kind: "accessToken",
-				accessToken: "my-access-token",
-			});
+			const result = await resolveSmtpConfig(
+				account,
+				stubSecrets([]),
+				getSocket,
+				{
+					kind: "accessToken",
+					accessToken: "my-access-token",
+				},
+			);
 
 			assert.equal(result.ok, true);
 			if (!result.ok) return;
@@ -199,10 +219,15 @@ describe("resolveSmtpConfig", () => {
 				smtpPasswordHash,
 			});
 
-			const result = await resolveSmtpConfig(account, stubSecrets(calls), {
-				kind: "password",
-				password: "imap-password-should-be-ignored",
-			});
+			const result = await resolveSmtpConfig(
+				account,
+				stubSecrets(calls),
+				getSocket,
+				{
+					kind: "password",
+					password: "imap-password-should-be-ignored",
+				},
+			);
 
 			assert.equal(result.ok, true);
 			if (!result.ok) return;

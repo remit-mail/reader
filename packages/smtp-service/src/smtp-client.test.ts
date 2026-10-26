@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import net from "node:net";
 import { after, describe, it } from "node:test";
 import type { MailMessage } from "./message-builder.js";
+import { nodeSocket } from "./node-socket.js";
 import {
 	type SmtpConfig,
 	SmtpConnectionError,
 	type SmtpCredentials,
+	type SmtpGetSocket,
 	sendMail,
 } from "./smtp-client.js";
 
@@ -87,8 +89,18 @@ const configFor = (
 	secure: false,
 	user: "user@example.com",
 	credentials,
+	getSocket: nodeSocket(),
 	connectionTimeout: 2000,
 });
+
+const socketTo =
+	(port: number, requested: string[]): SmtpGetSocket =>
+	(options, callback) => {
+		requested.push(`${options.host}:${options.port}`);
+		const connection = net.connect(port, "127.0.0.1", () =>
+			callback(null, { connection }),
+		);
+	};
 
 const testMessage: MailMessage = {
 	from: "user@example.com",
@@ -199,6 +211,23 @@ describe("sendMail", () => {
 		assert.equal(result.success, false);
 		assert.equal(result.smtpCode, 451);
 		assert.equal(result.isTransient, true);
+	});
+
+	it("sends over the socket the host hands it", async () => {
+		const server = await spawn();
+		const requested: string[] = [];
+		const result = await sendMail(
+			{
+				...configFor(25),
+				host: "smtp.example.invalid",
+				getSocket: socketTo(server.port, requested),
+			},
+			testMessage,
+		);
+
+		assert.equal(result.success, true);
+		assert.deepEqual(requested, ["smtp.example.invalid:25"]);
+		assert.equal(server.authCommands.length, 1);
 	});
 
 	it("returns a non-transient failure when the socket errors without an SMTP code", async () => {

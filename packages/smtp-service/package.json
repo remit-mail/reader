@@ -11,6 +11,10 @@
 		"./message-builder": {
 			"types": "./src/message-builder.ts",
 			"default": "./src/message-builder.ts"
+		},
+		"./node-socket": {
+			"types": "./src/node-socket.ts",
+			"default": "./src/node-socket.ts"
 		}
 	},
 	"scripts": {

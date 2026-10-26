@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type { SMTPTransportGetSocket } from "nodemailer/lib/smtp-transport";
 import { type MailMessage, toNodemailerOptions } from "./message-builder.js";
 
 /**
@@ -31,12 +32,15 @@ export class SmtpConnectionError extends Error {
 	}
 }
 
+export type SmtpGetSocket = SMTPTransportGetSocket;
+
 export interface SmtpConfig {
 	host: string;
 	port: number;
 	secure: boolean; // true for TLS (465), false for STARTTLS (587)
 	credentials: SmtpCredentials;
 	user: string;
+	getSocket: SmtpGetSocket;
 	tls?: {
 		rejectUnauthorized?: boolean; // false to accept self-signed certs (testing only)
 	};
@@ -91,6 +95,7 @@ export const sendMail = async (
 		port: config.port,
 		secure: config.secure,
 		auth: buildSmtpAuth(config.user, config.credentials),
+		getSocket: config.getSocket,
 		tls: config.tls,
 		connectionTimeout: timeout,
 		greetingTimeout: timeout,

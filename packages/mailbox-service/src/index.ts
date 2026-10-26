@@ -399,6 +399,7 @@ export type {
 	ImapConnectionState,
 	ImapNamespace,
 	ImapNamespaces,
+	ImapTransport,
 	MailboxSyncResult,
 	MailConnectionErrorKind,
 	MailCredentials,

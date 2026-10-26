@@ -585,6 +585,9 @@ const downloadShape = async (
 		const download = await client.download(String(message.uid), leaf.part, {
 			uid: true,
 		});
+		if (!download.content) {
+			throw new Error(`Part ${leaf.part} of UID ${message.uid} not found`);
+		}
 		parts.push({
 			contentType: leaf.type,
 			filename: leaf.filename,

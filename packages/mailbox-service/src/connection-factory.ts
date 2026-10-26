@@ -12,6 +12,7 @@ import {
 import type {
 	IImapConnection,
 	ImapConnectionConfig,
+	ImapTransport,
 	MailCredentials,
 } from "./types.js";
 
@@ -35,8 +36,9 @@ export const createConnectionFromAccount = (
 		username: string;
 	},
 	password: string,
+	transport: ImapTransport,
 ): IImapConnection => {
-	return createImapFlowConnectionFromAccount(account, password);
+	return createImapFlowConnectionFromAccount(account, password, transport);
 };
 
 /**
@@ -51,8 +53,13 @@ export const createConnectionWithCredentials = (
 		username: string;
 	},
 	credentials: MailCredentials,
+	transport: ImapTransport,
 ): IImapConnection => {
-	return createImapFlowConnectionWithCredentials(account, credentials);
+	return createImapFlowConnectionWithCredentials(
+		account,
+		credentials,
+		transport,
+	);
 };
 
 /**

@@ -18,6 +18,7 @@ import {
 	type SendResult,
 	SmtpConnectionError,
 } from "@remit/smtp-service";
+import { nodeSocket } from "@remit/smtp-service/node-socket";
 import type { SendMessageEvent } from "../events.js";
 import {
 	getSendMessageMaxAttempts,
@@ -190,6 +191,7 @@ const buildDeps = (
 			recorded.writeOrder.push("connectionState");
 			recorded.connectionStateUpdates.push({ accountId, state });
 		},
+		getSocket: nodeSocket(),
 		send:
 			options.send ??
 			(async () => {

@@ -18,6 +18,7 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
+	ImapTransport,
 	MailCredentials,
 } from "./types.js";
 import { MailConnectionError } from "./types.js";
@@ -271,6 +272,7 @@ export class ImapFlowConnection {
 			host: this.config.host,
 			port: this.config.port,
 			secure: this.config.tls,
+			transport: this.config.transport,
 			servername: this.config.tlsOptions?.servername,
 			auth,
 			tls: tlsOptions,
@@ -860,7 +862,7 @@ export class ImapFlowConnection {
 	private convertEnvelope = (
 		envelope:
 			| {
-					date?: Date;
+					date?: Date | string;
 					subject?: string;
 					from?: Array<{ name?: string; address?: string }>;
 					sender?: Array<{ name?: string; address?: string }>;
@@ -1266,6 +1268,9 @@ export class ImapFlowConnection {
 			uidValidity: true,
 			highestModseq: true,
 		});
+		if (status === false) {
+			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
+		}
 
 		const deletedCount = await this.countDeleted(mailboxPath);
 
@@ -1352,11 +1357,13 @@ export const createImapFlowConnectionFromAccount = (
 		username: string;
 	},
 	password: string,
+	transport: ImapTransport,
 ): ImapFlowConnection => {
 	return new ImapFlowConnection({
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,
+		transport,
 		user: account.username,
 		credentials: { kind: "password", password },
 	});
@@ -1372,12 +1379,14 @@ export const createImapFlowConnectionWithCredentials = (
 		imapTls: boolean;
 		username: string;
 	},
-	credentials: import("./types.js").MailCredentials,
+	credentials: MailCredentials,
+	transport: ImapTransport,
 ): ImapFlowConnection => {
 	return new ImapFlowConnection({
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,
+		transport,
 		user: account.username,
 		credentials,
 	});

@@ -40,6 +40,7 @@ import {
 	FlagQueueService,
 	fifoMailboxManagement,
 	type IImapConnection,
+	type ImapTransport,
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxAttachmentService,
@@ -60,6 +61,11 @@ export interface ConnectionScope {
 	getConnection: () => Promise<IImapConnection>;
 	disconnect: () => Promise<void>;
 }
+
+export type ConnectionScopeFactory = (
+	accountService: IAccountRepository,
+	secretsService: SecretsService,
+) => (accountId: string) => Promise<ConnectionScope>;
 
 export interface RemitClientCore {
 	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
@@ -220,6 +226,7 @@ export interface RemitClientRepositories {
 export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
+	connectionScope: ConnectionScopeFactory;
 	queues: RemitClientQueues;
 }
 
@@ -227,9 +234,10 @@ export interface RemitClientDeps extends RemitClientSharedDeps {
 	repositories: RemitClientRepositories;
 }
 
-const buildConnectionScope =
-	(accountService: IAccountRepository, secretsService: SecretsService) =>
-	async (accountId: string): Promise<ConnectionScope> => {
+export const passwordConnectionScope =
+	(transport: ImapTransport): ConnectionScopeFactory =>
+	(accountService, secretsService) =>
+	async (accountId) => {
 		const account = await accountService.get(accountId);
 		if (!account.passwordHash) {
 			throw new Error(
@@ -254,6 +262,7 @@ const buildConnectionScope =
 				host: account.imapHost,
 				port: account.imapPort,
 				tls: account.imapTls,
+				transport,
 			});
 			connection = conn;
 			connectPromise = conn.connect().then(() => conn);
@@ -316,7 +325,7 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets } = deps;
+	const { repositories, storage, secrets, connectionScope } = deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -357,7 +366,7 @@ export const createRemitCore = (
 			outboxAttachmentService: repositories.outboxAttachment,
 			storage,
 		}),
-		createConnectionScope: buildConnectionScope(repositories.account, secrets),
+		createConnectionScope: connectionScope(repositories.account, secrets),
 	};
 };
 
