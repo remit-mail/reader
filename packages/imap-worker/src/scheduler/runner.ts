@@ -44,8 +44,8 @@ const log = createLogger();
 
 const queues = sqsWorkerQueues(workerQueueUrlsFromEnv());
 
-const tickIntervalMs = getTickIntervalMs();
-const offlineIntervalMs = getOfflineIntervalMs();
+const tickIntervalMs = getTickIntervalMs(process.env);
+const offlineIntervalMs = getOfflineIntervalMs(process.env);
 
 // A persistent failure (e.g. Postgres not up yet at container boot) throws
 // before the loop ever reaches its own `delay`, so `restart: unless-stopped`

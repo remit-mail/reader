@@ -3,7 +3,7 @@ export { buildAttachmentSweep } from "./attachment-sweep.js";
 export {
 	DEFAULT_OFFLINE_INTERVAL_MS,
 	DEFAULT_TICK_INTERVAL_MS,
-} from "./defaults.js";
+} from "./config.js";
 export {
 	type CalendarSubscriptionTally,
 	type RunSchedulerTickDeps,

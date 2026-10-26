@@ -21,7 +21,7 @@ import { isSyncDue } from "./decide-due.js";
 import {
 	SCHEDULER_ENQUEUE_CONCURRENCY,
 	SCHEDULER_PAGE_SIZE,
-} from "./defaults.js";
+} from "./config.js";
 
 export interface CalendarSubscriptionTally {
 	refreshed: number;

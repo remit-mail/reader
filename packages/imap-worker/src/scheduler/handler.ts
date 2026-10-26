@@ -43,8 +43,8 @@ export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
 			accountService: client.account,
 			queue: queues.mailboxes,
 			log,
-			tickIntervalMs: getTickIntervalMs(),
-			offlineIntervalMs: getOfflineIntervalMs(),
+			tickIntervalMs: getTickIntervalMs(process.env),
+			offlineIntervalMs: getOfflineIntervalMs(process.env),
 			now,
 			// The hosted side is the one that needs this: a browser PUTs straight
 			// to block storage, so nothing refuses an upload against a draft that is
