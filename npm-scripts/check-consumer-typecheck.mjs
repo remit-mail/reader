@@ -51,6 +51,7 @@ const STRICT_IMPORTS = [
 	"@remit/backend/serve",
 	"@remit/backend/handlers",
 	"@remit/imap-worker/process",
+	"@remit/imap-worker/scheduler-tick",
 	"@remit/smtp-worker/process",
 	"@remit/account-worker/process",
 ];

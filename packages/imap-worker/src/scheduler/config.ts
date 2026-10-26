@@ -16,42 +16,38 @@
  * "online" tier — client-side polling (useStaleAccountSync) covers an
  * account while its mail is actively open in the web client.
  *
- * The defaults below are a floor for a deployment that sets neither. The
+ * The defaults in defaults.ts are a floor for a deployment that sets neither. The
  * standalone stack sets both, at a cadence sized for one box and a handful of
  * accounts, and the checker's stall threshold is derived from those values —
  * see deploy/vps/docker-compose.sqlite.yml's `scheduler` service.
  */
 
-const DEFAULT_TICK_INTERVAL_SECONDS = 60 * 60; // 1 hour
-const DEFAULT_OFFLINE_INTERVAL_SECONDS = 12 * 60 * 60; // 12 hours
+import {
+	DEFAULT_OFFLINE_INTERVAL_MS,
+	DEFAULT_TICK_INTERVAL_MS,
+} from "./defaults.js";
 
-const parsePositiveIntSeconds = (
+const parsePositiveSecondsAsMs = (
 	raw: string | undefined,
-	fallback: number,
+	fallbackMs: number,
 ): number => {
-	if (!raw) return fallback;
+	if (!raw) return fallbackMs;
 	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+	return Number.isFinite(parsed) && parsed > 0 ? parsed * 1000 : fallbackMs;
 };
 
 export const getTickIntervalMs = (
 	env: NodeJS.ProcessEnv = process.env,
 ): number =>
-	parsePositiveIntSeconds(
+	parsePositiveSecondsAsMs(
 		env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS,
-		DEFAULT_TICK_INTERVAL_SECONDS,
-	) * 1000;
+		DEFAULT_TICK_INTERVAL_MS,
+	);
 
 export const getOfflineIntervalMs = (
 	env: NodeJS.ProcessEnv = process.env,
 ): number =>
-	parsePositiveIntSeconds(
+	parsePositiveSecondsAsMs(
 		env.MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS,
-		DEFAULT_OFFLINE_INTERVAL_SECONDS,
-	) * 1000;
-
-// Page size + enqueue concurrency are implementation details of the tick
-// itself, not stage config — unlike the two intervals above, nothing outside
-// this worker needs to agree with them.
-export const SCHEDULER_PAGE_SIZE = 100;
-export const SCHEDULER_ENQUEUE_CONCURRENCY = 10;
+		DEFAULT_OFFLINE_INTERVAL_MS,
+	);

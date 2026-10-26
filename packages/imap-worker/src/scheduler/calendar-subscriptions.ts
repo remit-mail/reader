@@ -10,14 +10,9 @@ import type {
 } from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 import pMap from "p-map";
+import type { CalendarSubscriptionTally } from "./run-tick.js";
 
 const REFRESH_CONCURRENCY = 4;
-
-export interface CalendarSubscriptionTally {
-	refreshed: number;
-	failed: number;
-	notDue: number;
-}
 
 export interface CalendarSubscriptionRefreshDeps {
 	calendarCollection: Pick<

@@ -17,12 +17,17 @@ import {
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import type { CalendarSubscriptionTally } from "./calendar-subscriptions.js";
+import { isSyncDue } from "./decide-due.js";
 import {
 	SCHEDULER_ENQUEUE_CONCURRENCY,
 	SCHEDULER_PAGE_SIZE,
-} from "./config.js";
-import { isSyncDue } from "./decide-due.js";
+} from "./defaults.js";
+
+export interface CalendarSubscriptionTally {
+	refreshed: number;
+	failed: number;
+	notDue: number;
+}
 
 export interface RunSchedulerTickDeps {
 	accountService: Pick<IAccountRepository, "listAllAccountsPage">;
