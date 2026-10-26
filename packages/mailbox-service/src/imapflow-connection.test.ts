@@ -503,3 +503,22 @@ describe("ImapFlowConnection.fetchMessageBodies — a body the server no longer 
 		);
 	});
 });
+
+describe("ImapFlowConnection.getMailboxStatus", () => {
+	it("throws when STATUS gives no result instead of reporting an empty mailbox", async () => {
+		let searched = false;
+		const connection = buildConnectionWithClient({
+			status: async () => false,
+			search: async () => {
+				searched = true;
+				return [];
+			},
+		});
+
+		await assert.rejects(
+			connection.getMailboxStatus("Shared/Team"),
+			/STATUS returned no result for Shared\/Team/,
+		);
+		assert.equal(searched, false);
+	});
+});

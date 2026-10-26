@@ -4,11 +4,7 @@
  * Uses ImapFlow for all IMAP connections.
  */
 
-import {
-	createImapFlowConnectionFromAccount,
-	createImapFlowConnectionWithCredentials,
-	ImapFlowConnection,
-} from "./imapflow-connection.js";
+import { ImapFlowConnection } from "./imapflow-connection.js";
 import type {
 	IImapConnection,
 	ImapConnectionConfig,
@@ -26,24 +22,7 @@ export const createConnection = (
 };
 
 /**
- * Create an IMAP connection from account data using password credentials.
- */
-export const createConnectionFromAccount = (
-	account: {
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-		username: string;
-	},
-	password: string,
-	transport: ImapTransport,
-): IImapConnection => {
-	return createImapFlowConnectionFromAccount(account, password, transport);
-};
-
-/**
  * Create an IMAP connection from account data using a MailCredentials union.
- * Use this instead of createConnectionFromAccount for OAuth accounts.
  */
 export const createConnectionWithCredentials = (
 	account: {
@@ -54,12 +33,52 @@ export const createConnectionWithCredentials = (
 	},
 	credentials: MailCredentials,
 	transport: ImapTransport,
-): IImapConnection => {
-	return createImapFlowConnectionWithCredentials(
-		account,
-		credentials,
+): IImapConnection =>
+	new ImapFlowConnection({
+		host: account.imapHost,
+		port: account.imapPort,
+		tls: account.imapTls,
 		transport,
-	);
+		user: account.username,
+		credentials,
+	});
+
+export interface ConnectionScope {
+	getConnection: () => Promise<IImapConnection>;
+	disconnect: () => Promise<void>;
+}
+
+/**
+ * A lazily-connected, cached connection shared across the operations of one
+ * unit of work. Call disconnect() when done.
+ */
+export const connectionScope = (
+	config: ImapConnectionConfig,
+): ConnectionScope => {
+	let connection: IImapConnection | null = null;
+	let connectPromise: Promise<IImapConnection> | null = null;
+
+	const getConnection = async (): Promise<IImapConnection> => {
+		if (connectPromise) {
+			return connectPromise;
+		}
+
+		const conn = createConnection(config);
+		connection = conn;
+		connectPromise = conn.connect().then(() => conn);
+
+		return connectPromise;
+	};
+
+	const disconnect = async (): Promise<void> => {
+		if (connection) {
+			await connection.disconnect();
+			connection = null;
+			connectPromise = null;
+		}
+	};
+
+	return { getConnection, disconnect };
 };
 
 /**

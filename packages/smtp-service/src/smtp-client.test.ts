@@ -89,9 +89,11 @@ const configFor = (
 	secure: false,
 	user: "user@example.com",
 	credentials,
-	getSocket: nodeSocket(),
 	connectionTimeout: 2000,
 });
+
+const send = (config: SmtpConfig, message: MailMessage) =>
+	sendMail(config, message, nodeSocket());
 
 const socketTo =
 	(port: number, requested: string[]): SmtpGetSocket =>
@@ -126,7 +128,7 @@ describe("sendMail", () => {
 
 	it("returns success with the SMTP response on delivery", async () => {
 		const server = await spawn();
-		const result = await sendMail(configFor(server.port), testMessage);
+		const result = await send(configFor(server.port), testMessage);
 
 		assert.equal(result.success, true);
 		assert.equal(result.isTransient, false);
@@ -135,7 +137,7 @@ describe("sendMail", () => {
 
 	it("sends attachments through the transport", async () => {
 		const server = await spawn();
-		const result = await sendMail(configFor(server.port), {
+		const result = await send(configFor(server.port), {
 			...testMessage,
 			html: "<p>hi</p>",
 			cc: ["cc@example.com"],
@@ -158,7 +160,7 @@ describe("sendMail", () => {
 
 	it("uses XOAUTH2 for access-token credentials", async () => {
 		const server = await spawn();
-		const result = await sendMail(
+		const result = await send(
 			configFor(server.port, { kind: "accessToken", accessToken: "token-abc" }),
 			testMessage,
 		);
@@ -180,7 +182,7 @@ describe("sendMail", () => {
 		});
 
 		await assert.rejects(
-			sendMail(configFor(server.port), testMessage),
+			send(configFor(server.port), testMessage),
 			(error: unknown) => {
 				assert.ok(error instanceof SmtpConnectionError);
 				assert.equal(error.kind, "auth");
@@ -194,7 +196,7 @@ describe("sendMail", () => {
 		const server = await spawn({
 			dataFinalResponse: "550 5.0.0 Rejected\r\n",
 		});
-		const result = await sendMail(configFor(server.port), testMessage);
+		const result = await send(configFor(server.port), testMessage);
 
 		assert.equal(result.success, false);
 		assert.equal(result.smtpCode, 550);
@@ -206,7 +208,7 @@ describe("sendMail", () => {
 		const server = await spawn({
 			dataFinalResponse: "451 4.3.0 Try again later\r\n",
 		});
-		const result = await sendMail(configFor(server.port), testMessage);
+		const result = await send(configFor(server.port), testMessage);
 
 		assert.equal(result.success, false);
 		assert.equal(result.smtpCode, 451);
@@ -217,12 +219,9 @@ describe("sendMail", () => {
 		const server = await spawn();
 		const requested: string[] = [];
 		const result = await sendMail(
-			{
-				...configFor(25),
-				host: "smtp.example.invalid",
-				getSocket: socketTo(server.port, requested),
-			},
+			{ ...configFor(25), host: "smtp.example.invalid" },
 			testMessage,
+			socketTo(server.port, requested),
 		);
 
 		assert.equal(result.success, true);
@@ -232,7 +231,7 @@ describe("sendMail", () => {
 
 	it("returns a non-transient failure when the socket errors without an SMTP code", async () => {
 		const server = await spawn({ dropAfterGreeting: true });
-		const result = await sendMail(configFor(server.port), testMessage);
+		const result = await send(configFor(server.port), testMessage);
 
 		assert.equal(result.success, false);
 		assert.equal(result.isTransient, false);

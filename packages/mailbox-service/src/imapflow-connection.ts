@@ -18,7 +18,6 @@ import type {
 	ImapMailboxStatus,
 	ImapMessage,
 	ImapNamespaces,
-	ImapTransport,
 	MailCredentials,
 } from "./types.js";
 import { MailConnectionError } from "./types.js";
@@ -1345,52 +1344,6 @@ export class ImapFlowConnection {
 		}
 	};
 }
-
-/**
- * Create an ImapFlow connection from account data using password credentials.
- */
-export const createImapFlowConnectionFromAccount = (
-	account: {
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-		username: string;
-	},
-	password: string,
-	transport: ImapTransport,
-): ImapFlowConnection => {
-	return new ImapFlowConnection({
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-		transport,
-		user: account.username,
-		credentials: { kind: "password", password },
-	});
-};
-
-/**
- * Create an ImapFlow connection using a credentials union (password or OAuth access token).
- */
-export const createImapFlowConnectionWithCredentials = (
-	account: {
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-		username: string;
-	},
-	credentials: MailCredentials,
-	transport: ImapTransport,
-): ImapFlowConnection => {
-	return new ImapFlowConnection({
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-		transport,
-		user: account.username,
-		credentials,
-	});
-};
 
 /**
  * Build the imapflow auth object from mail credentials.

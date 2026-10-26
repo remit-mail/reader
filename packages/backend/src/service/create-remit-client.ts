@@ -34,12 +34,12 @@ import { logger } from "@remit/logger";
 import {
 	BodySyncQueueService,
 	BodySyncService,
-	createConnection,
+	type ConnectionScope,
+	connectionScope,
 	type FilterConfig,
 	FlagPushService,
 	FlagQueueService,
 	fifoMailboxManagement,
-	type IImapConnection,
 	type ImapTransport,
 	MailboxQueueService,
 	MessageMoveService,
@@ -57,10 +57,7 @@ import {
 import type { StorageService } from "@remit/storage-service";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
-export interface ConnectionScope {
-	getConnection: () => Promise<IImapConnection>;
-	disconnect: () => Promise<void>;
-}
+export type { ConnectionScope };
 
 export type ConnectionScopeFactory = (
 	accountService: IAccountRepository,
@@ -248,37 +245,14 @@ export const passwordConnectionScope =
 			deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 		);
 
-		let connection: IImapConnection | null = null;
-		let connectPromise: Promise<IImapConnection> | null = null;
-
-		const getConnection = async (): Promise<IImapConnection> => {
-			if (connectPromise) {
-				return connectPromise;
-			}
-
-			const conn = createConnection({
-				user: account.username,
-				credentials: { kind: "password", password },
-				host: account.imapHost,
-				port: account.imapPort,
-				tls: account.imapTls,
-				transport,
-			});
-			connection = conn;
-			connectPromise = conn.connect().then(() => conn);
-
-			return connectPromise;
-		};
-
-		const disconnect = async (): Promise<void> => {
-			if (connection) {
-				await connection.disconnect();
-				connection = null;
-				connectPromise = null;
-			}
-		};
-
-		return { getConnection, disconnect };
+		return connectionScope({
+			user: account.username,
+			credentials: { kind: "password", password },
+			host: account.imapHost,
+			port: account.imapPort,
+			tls: account.imapTls,
+			transport,
+		});
 	};
 
 // The read-path body backfill (describeMessage / getRawMessage →

@@ -40,7 +40,6 @@ export interface SmtpConfig {
 	secure: boolean; // true for TLS (465), false for STARTTLS (587)
 	credentials: SmtpCredentials;
 	user: string;
-	getSocket: SmtpGetSocket;
 	tls?: {
 		rejectUnauthorized?: boolean; // false to accept self-signed certs (testing only)
 	};
@@ -88,6 +87,7 @@ const buildSmtpAuth = (
 export const sendMail = async (
 	config: SmtpConfig,
 	message: MailMessage,
+	getSocket: SmtpGetSocket,
 ): Promise<SendResult> => {
 	const timeout = config.connectionTimeout ?? 30_000;
 	const transporter = nodemailer.createTransport({
@@ -95,7 +95,7 @@ export const sendMail = async (
 		port: config.port,
 		secure: config.secure,
 		auth: buildSmtpAuth(config.user, config.credentials),
-		getSocket: config.getSocket,
+		getSocket,
 		tls: config.tls,
 		connectionTimeout: timeout,
 		greetingTimeout: timeout,

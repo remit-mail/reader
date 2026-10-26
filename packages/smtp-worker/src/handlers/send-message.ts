@@ -186,8 +186,7 @@ export const handleSendMessage = (
 					lastError === undefined ? ["lastError"] : undefined,
 				);
 			},
-			send: sendMail,
-			getSocket: nodeSocket(),
+			send: (config, message) => sendMail(config, message, nodeSocket()),
 			loadAttachments,
 			emitAppendSentMessage,
 			engagement: {
