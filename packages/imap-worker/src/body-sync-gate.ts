@@ -1,5 +1,6 @@
 import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { Logger } from "@remit/logger";
+import type { BodySyncGate } from "./context.js";
 
 const CACHE_TTL_MS = 30_000;
 
@@ -84,3 +85,7 @@ export const isBodySyncEnabled = async (
 
 	return inFlight;
 };
+
+export const ssmBodySyncGate = (parameterName: string): BodySyncGate => ({
+	isEnabled: (log) => isBodySyncEnabled(parameterName, log),
+});

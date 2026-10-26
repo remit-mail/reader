@@ -21,6 +21,7 @@ import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { MailConnectionError } from "@remit/mailbox-service/types";
 import type { SecretsService } from "@remit/secrets-service";
+import type { TokenService } from "./context.js";
 import {
 	type OAuthLifecycleDeps,
 	withOAuthLifecycle,
@@ -32,13 +33,19 @@ const secrets = {
 	encrypt: async () => ({}) as never,
 } as unknown as SecretsService;
 
+const tokenService: TokenService = {
+	getAccessToken: async () => {
+		throw new Error("no token is minted in these tests");
+	},
+};
+
 /**
  * The real deps, with only credential resolution stubbed — minting a token is
  * a call to Microsoft and not what these tests are about. `updateConnectionState`
  * is the one under test and stays exactly as the handlers build it.
  */
 const deps = (): OAuthLifecycleDeps => ({
-	...buildLifecycleDeps(secrets, repo),
+	...buildLifecycleDeps(secrets, repo, tokenService),
 	resolveCredentials: async () => ({
 		status: "resolved",
 		credentials: { kind: "accessToken", accessToken: "access-token" },
@@ -177,7 +184,7 @@ describe("which failures stop the work, and what the account row says after", ()
 		let worked = false;
 
 		await withOAuthLifecycle(
-			buildLifecycleDeps(secrets, repo),
+			buildLifecycleDeps(secrets, repo, tokenService),
 			created,
 			noopLogger,
 			async () => {
@@ -207,7 +214,7 @@ describe("which failures stop the work, and what the account row says after", ()
 		});
 
 		await withOAuthLifecycle(
-			buildLifecycleDeps(secrets, repo),
+			buildLifecycleDeps(secrets, repo, tokenService),
 			created,
 			noopLogger,
 			async () => {},

@@ -1,6 +1,6 @@
-import type { MailFailureKind } from "@remit/logger-lambda/metrics";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { MailConnectionError } from "@remit/mailbox-service";
+import type { ImapFailureKind } from "./context.js";
 
 /**
  * Which class of failure ended an IMAP operation, for the exported failure
@@ -10,7 +10,7 @@ import { MailConnectionError } from "@remit/mailbox-service";
  * self-hosted mailbox goes quiet. A refresh that cannot mint a token is the
  * same condition arriving one layer earlier.
  */
-export const imapFailureKind = (error: unknown): MailFailureKind => {
+export const imapFailureKind = (error: unknown): ImapFailureKind => {
 	if (error instanceof RefreshTokenError) return "auth";
 	if (error instanceof MailConnectionError) return error.kind;
 	return "other";

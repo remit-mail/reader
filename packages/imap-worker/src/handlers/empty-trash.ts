@@ -1,9 +1,7 @@
-import { getClient } from "@remit/backend/client";
 import type { MessageItem } from "@remit/data-ports";
 import { trashMailboxAt } from "@remit/data-ports/folder-role";
 import { isAcceptedSchemaVersion } from "@remit/data-ports/mutation-events";
 import { MessageStatus, MessageSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
 import {
 	buildThreadMessageUndelete,
 	carriesForeignUid,
@@ -12,7 +10,7 @@ import {
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import type { EmptyTrashEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
@@ -31,9 +29,9 @@ import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
  */
 export const handleEmptyTrash = async (
 	event: EmptyTrashEvent,
-	log: Logger,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
 ): Promise<void> => {
+	const { log, pool } = ctx;
 	const {
 		account: accountService,
 		message: messageService,
@@ -41,7 +39,7 @@ export const handleEmptyTrash = async (
 		mailbox: mailboxService,
 		mailboxSpecialUse: mailboxSpecialUseService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, trashMailboxId } = event;
 
@@ -163,7 +161,7 @@ export const handleEmptyTrash = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -198,7 +196,7 @@ export const handleEmptyTrash = async (
 				return;
 			}
 
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			await scope
 				.getConnection()
@@ -346,7 +344,7 @@ export const handleEmptyTrash = async (
 					}
 					throw error;
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };

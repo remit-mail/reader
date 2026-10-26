@@ -8,6 +8,10 @@
       "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./process": {
+      "types": "./src/process.ts",
+      "default": "./src/process.ts"
+    },
     "./scheduler": {
       "types": "./src/scheduler/handler.ts",
       "default": "./src/scheduler/handler.ts"
@@ -21,10 +25,41 @@
       "default": "./src/test-helpers/test-world.ts"
     }
   },
+  "packManifest": {
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./process": {
+        "types": "./dist/process.d.ts",
+        "default": "./dist/process.js"
+      },
+      "./scheduler": {
+        "types": "./dist/scheduler/handler.d.ts",
+        "default": "./dist/scheduler/handler.js"
+      },
+      "./mailbox-management": {
+        "types": "./dist/handlers/mailbox-management.d.ts",
+        "default": "./dist/handlers/mailbox-management.js"
+      },
+      "./test-helpers/test-world": {
+        "types": "./dist/test-helpers/test-world.d.ts",
+        "default": "./dist/test-helpers/test-world.js"
+      }
+    },
+    "files": [
+      "dist"
+    ]
+  },
   "bin": {
     "remit-worker": "./dist/cli.js"
   },
   "scripts": {
+    "prepack": "node ../../npm-scripts/pack-dist.mjs prepack",
+    "postpack": "node ../../npm-scripts/pack-dist.mjs postpack",
     "bundle": "esbuild src/index.ts --sourcemap --bundle --platform=node --format=esm --outfile=dist/index.js",
     "cli": "node --env-file=../../localhost-dev-aws.env src/cli.ts",
     "test:typecheck": "tsgo --noEmit",

@@ -1,11 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
+import { resolveMailboxFreshnessMs } from "../config-env.js";
+import { DEFAULT_MAILBOX_FRESHNESS_MS } from "../context.js";
 import {
-	DEFAULT_MAILBOX_FRESHNESS_MS,
 	emitSyncMessagesEvents,
-	MAILBOX_FRESHNESS_MS,
 	mailboxNeedsSync,
-	resolveMailboxFreshnessMs,
 	splitInboxFirst,
 } from "./sync-mailboxes.js";
 
@@ -21,7 +20,15 @@ describe("mailboxNeedsSync", () => {
 	it("syncs a mailbox synced a moment ago when the sync was asked for by name", () => {
 		const mailbox = { lastMessageSyncAt: NOW - 1_000 };
 
-		assert.equal(mailboxNeedsSync(mailbox, askedForByName, NOW), true);
+		assert.equal(
+			mailboxNeedsSync(
+				mailbox,
+				askedForByName,
+				NOW,
+				DEFAULT_MAILBOX_FRESHNESS_MS,
+			),
+			true,
+		);
 	});
 
 	// Without this, `GET /config` — which fires a trigger per account on every
@@ -29,25 +36,44 @@ describe("mailboxNeedsSync", () => {
 	it("skips a freshly-synced mailbox for a side-effect trigger", () => {
 		const mailbox = { lastMessageSyncAt: NOW - 1_000 };
 
-		assert.equal(mailboxNeedsSync(mailbox, sideEffect, NOW), false);
+		assert.equal(
+			mailboxNeedsSync(mailbox, sideEffect, NOW, DEFAULT_MAILBOX_FRESHNESS_MS),
+			false,
+		);
 	});
 
 	it("syncs a stale mailbox for a side-effect trigger", () => {
-		const mailbox = { lastMessageSyncAt: NOW - MAILBOX_FRESHNESS_MS - 1 };
+		const mailbox = {
+			lastMessageSyncAt: NOW - DEFAULT_MAILBOX_FRESHNESS_MS - 1,
+		};
 
-		assert.equal(mailboxNeedsSync(mailbox, sideEffect, NOW), true);
+		assert.equal(
+			mailboxNeedsSync(mailbox, sideEffect, NOW, DEFAULT_MAILBOX_FRESHNESS_MS),
+			true,
+		);
 	});
 
 	it("syncs exactly at the freshness threshold", () => {
-		const mailbox = { lastMessageSyncAt: NOW - MAILBOX_FRESHNESS_MS };
+		const mailbox = { lastMessageSyncAt: NOW - DEFAULT_MAILBOX_FRESHNESS_MS };
 
-		assert.equal(mailboxNeedsSync(mailbox, sideEffect, NOW), true);
+		assert.equal(
+			mailboxNeedsSync(mailbox, sideEffect, NOW, DEFAULT_MAILBOX_FRESHNESS_MS),
+			true,
+		);
 	});
 
 	it("always syncs a mailbox that has never synced", () => {
-		assert.equal(mailboxNeedsSync({}, sideEffect, NOW), true);
 		assert.equal(
-			mailboxNeedsSync({ lastMessageSyncAt: 0 }, sideEffect, NOW),
+			mailboxNeedsSync({}, sideEffect, NOW, DEFAULT_MAILBOX_FRESHNESS_MS),
+			true,
+		);
+		assert.equal(
+			mailboxNeedsSync(
+				{ lastMessageSyncAt: 0 },
+				sideEffect,
+				NOW,
+				DEFAULT_MAILBOX_FRESHNESS_MS,
+			),
 			true,
 		);
 	});

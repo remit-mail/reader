@@ -1,23 +1,19 @@
-import { getClient } from "@remit/backend/client";
 import {
 	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
 	isCursorRebuildNeeded,
 	MailboxCursorPausedError,
 } from "@remit/mailbox-service";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { createEmitEvent } from "../emit.js";
+import type { ProcessContext } from "../context.js";
+import { emitFrom } from "../emit.js";
 import type { MessageCopyEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import {
@@ -25,12 +21,6 @@ import {
 	searchMailboxForHighestMessageIdUid,
 } from "./message-move.js";
 import { probeableMessageIdHeader } from "./probe-message-id.js";
-
-export const getMessageCopyMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("MESSAGE_COPY_MAX_ATTEMPTS", 3, processEnv);
-
-export const MESSAGE_COPY_MAX_ATTEMPTS = getMessageCopyMaxAttempts();
 
 /**
  * Where the destination says this copy is. `unprobeable` is the row that
@@ -54,7 +44,7 @@ export type CopyProbe =
  * #290). Ambiguity is resolved in place, by asking the destination.
  *
  * A fault the server threw is still retried up to
- * {@link MESSAGE_COPY_MAX_ATTEMPTS}, because it may be a dropped connection.
+ * the `config.attempts.messageCopy` budget, because it may be a dropped connection.
  * Two guards make that safe: a redelivery asks the destination BEFORE issuing
  * COPY again, and the last attempt settles the row instead of dead-lettering
  * it. The copy row is a reconcile-model dependent (`copySettledMessage` writes
@@ -68,19 +58,18 @@ export type CopyProbe =
  */
 export const handleMessageCopy = async (
 	event: MessageCopyEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
-	const emit = createEmitEvent(queues);
+	const { log, pool, config } = ctx;
+	const emit = emitFrom(ctx);
 	const {
 		account: accountService,
 		message: messageService,
 		threadMessage: threadMessageService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const {
 		accountId,
@@ -151,7 +140,7 @@ export const handleMessageCopy = async (
 		receiveCount > 1 || copyRow.syncStatus === MessageSyncStatus.failed;
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -337,7 +326,7 @@ export const handleMessageCopy = async (
 				);
 			};
 
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			// A paused cursor settles rather than acks: acking leaves the optimistic
 			// row at `uid: 0`/`moving` with nothing to re-enqueue it and no folder
@@ -402,7 +391,7 @@ export const handleMessageCopy = async (
 					{ accountId, sourceMessageId, mailboxId: sourceMailboxId },
 					"Mailbox cursor not normal; pausing outbound copy this round",
 				);
-				await settlePausedCopy(false).finally(() => scope.disconnect());
+				await settlePausedCopy(false).finally(() => scope.release());
 				return;
 			}
 
@@ -533,7 +522,7 @@ export const handleMessageCopy = async (
 						return;
 					}
 
-					if (receiveCount < MESSAGE_COPY_MAX_ATTEMPTS) {
+					if (receiveCount < config.attempts.messageCopy) {
 						// Transient copy failure — expected (connections drop). Queue
 						// redelivery retries, and the probe above keeps the retry from
 						// copying the message twice.
@@ -563,7 +552,7 @@ export const handleMessageCopy = async (
 					}
 					await settleBroken(`retry exhausted: ${errorMessage}`);
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };

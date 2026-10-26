@@ -1,12 +1,9 @@
-import { getClient } from "@remit/backend/client";
 import type { MessageItem, ThreadMessageItem } from "@remit/data-ports";
 import {
 	MessageMutation,
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	guardConnectionCursor,
 	type IImapConnection,
@@ -14,23 +11,15 @@ import {
 	MailboxCursorPausedError,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { createEmitEvent } from "../emit.js";
+import type { ProcessContext } from "../context.js";
+import { emitFrom } from "../emit.js";
 import type { MessageMoveEvent, SyncMessagesEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageMoveFailure } from "./message-move-terminal.js";
 import { probeableMessageIdHeader } from "./probe-message-id.js";
-
-export const getMessageMoveMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("MESSAGE_MOVE_MAX_ATTEMPTS", 3, processEnv);
-
-export const MESSAGE_MOVE_MAX_ATTEMPTS = getMessageMoveMaxAttempts();
 
 type EmitSyncMessages = (
 	event: Omit<SyncMessagesEvent, "eventId" | "timestamp">,
@@ -236,7 +225,7 @@ export const buildThreadMessageMoveUpdate = (
  * Executes IMAP MOVE command and updates local state with new UID.
  *
  * A failing move retries on SQS redelivery until `receiveCount` reaches
- * {@link MESSAGE_MOVE_MAX_ATTEMPTS}, at which point
+ * the `config.attempts.messageMove` budget, at which point
  * {@link resolveExhaustedMessageMoveFailure} asks IMAP where the message
  * actually is and settles the row into one terminal outcome (issue #655).
  * Before that, `syncStatus: failed` marked every attempt and nothing ever
@@ -244,19 +233,18 @@ export const buildThreadMessageMoveUpdate = (
  */
 export const handleMessageMove = async (
 	event: MessageMoveEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
-	const emit = createEmitEvent(queues);
+	const { log, pool, metrics, config } = ctx;
+	const emit = emitFrom(ctx);
 	const {
 		account: accountService,
 		message: messageService,
 		threadMessage: threadMessageService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, messageId, sourceMailboxId, destinationMailboxId, uid } =
 		event;
@@ -313,7 +301,7 @@ export const handleMessageMove = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -460,7 +448,7 @@ export const handleMessageMove = async (
 			}
 			const destinationMailboxPath = destination.mailbox.fullPath;
 
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			// The terminal resolver opens the source itself, and its answer now
 			// WRITES a placement, so it has to reach IMAP through the same
@@ -562,7 +550,7 @@ export const handleMessageMove = async (
 					{ accountId, messageId, mailboxId: sourceMailboxId },
 					"Mailbox cursor not normal; pausing outbound move this round and settling the row against the server",
 				);
-				await settlePausedMove(false).finally(() => scope.disconnect());
+				await settlePausedMove(false).finally(() => scope.release());
 				return;
 			}
 
@@ -668,7 +656,7 @@ export const handleMessageMove = async (
 						throw error;
 					}
 
-					if (receiveCount < MESSAGE_MOVE_MAX_ATTEMPTS) {
+					if (receiveCount < config.attempts.messageMove) {
 						// Transient move failure — expected (connections drop). No
 						// alarm; queue redelivery retries, and `failed` marks the row
 						// as unsettled meanwhile. It is not a terminal signal: only the
@@ -729,7 +717,7 @@ export const handleMessageMove = async (
 						// Terminal and never re-thrown, so the handler-outcome series
 						// records this record as a success. Counted here or it is
 						// invisible.
-						recordImapFailure("MESSAGE_MOVE_EXHAUSTED", "other");
+						metrics.imapFailure("MESSAGE_MOVE_EXHAUSTED", "other", 1);
 						log.error(
 							{ error: errorMessage },
 							"Message move retry exhausted; message still exists at its source",
@@ -749,7 +737,7 @@ export const handleMessageMove = async (
 					});
 					// Terminal — never re-thrown, so the caller acks either way.
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };

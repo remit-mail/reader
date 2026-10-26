@@ -25,7 +25,7 @@ const lastEvent = (w: World, type: string): MailboxManagementEvent => {
 };
 
 const run = (w: World, event: MailboxManagementEvent) =>
-	processMailboxManagement(event, w.log, w.scope);
+	processMailboxManagement(event, w.ctx());
 
 const mailbox = (
 	w: World,

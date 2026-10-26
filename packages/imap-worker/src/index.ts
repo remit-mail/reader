@@ -8,13 +8,14 @@ import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent, SQSHandler } from "aws-lambda";
 import type { WorkerEvent } from "./events.js";
 import { imapFailureKind } from "./failure-kind.js";
+import { lambdaContextParts, withClient } from "./lambda-context.js";
 import { processEvent } from "./processor.js";
-import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./queues.js";
 
 installNodeLogger();
-const queues = sqsWorkerQueues(workerQueueUrlsFromEnv());
 
 const log = createLogger();
+
+const processContext = withClient(lambdaContextParts(log));
 
 /**
  * Parse SQS's `ApproximateReceiveCount` record attribute (1 on first
@@ -30,6 +31,7 @@ export const parseReceiveCount = (value: string | undefined): number => {
 export const handler: SQSHandler = withTelemetry(
 	async (event: SQSEvent): Promise<SQSBatchResponse> => {
 		const batchItemFailures: { itemIdentifier: string }[] = [];
+		const ctx = await processContext();
 
 		for (const record of event.Records) {
 			const imapEvent: WorkerEvent = JSON.parse(record.body);
@@ -47,7 +49,7 @@ export const handler: SQSHandler = withTelemetry(
 
 			const queue = queueNameFromEventSource(record.eventSourceARN);
 			const opStart = Date.now();
-			const failed = await processEvent(imapEvent, log, queues, receiveCount)
+			const failed = await processEvent(imapEvent, ctx, receiveCount)
 				.then(() => {
 					recordQueueEvent({
 						queue,

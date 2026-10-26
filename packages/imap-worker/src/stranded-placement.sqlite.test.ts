@@ -444,13 +444,7 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 
 		const [move] = await redriveLater(a);
 		assert.equal(move?.type, "MESSAGE_MOVE");
-		await handleMessageMove(
-			stamped<MessageMoveEvent>(move),
-			a.w.log,
-			a.w.queues,
-			1,
-			a.w.scope,
-		);
+		await handleMessageMove(stamped<MessageMoveEvent>(move), a.w.ctx(), 1);
 
 		const settled = await a.w.row(a.message.messageId);
 		assert.equal(settled?.status, MessageStatus.active);
@@ -469,10 +463,8 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 		assert.equal(push?.type, "PLACEMENT_MOVE_PUSH");
 		await handlePlacementMovePush(
 			stamped<PlacementMovePushEvent>(push),
-			a.w.log,
-			a.w.queues,
+			a.w.ctx(),
 			1,
-			a.w.scope,
 		);
 
 		assert.deepEqual(await placementOf(a), backIn(a, a.inbox));
@@ -501,10 +493,8 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 
 		await handleMessageMove(
 			stamped<MessageMoveEvent>(emitted[0]),
-			a.w.log,
-			a.w.queues,
+			a.w.ctx(),
 			1,
-			a.w.scope,
 		);
 
 		assert.deepEqual(await placementOf(a), backIn(a, a.inbox));
@@ -522,10 +512,8 @@ describe("the reconcile re-drives a move or delete already stranded", () => {
 				accountConfigId: a.w.account.accountConfigId,
 				messageId: a.message.messageId,
 			}),
-			a.w.log,
-			a.w.queues,
+			a.w.ctx(),
 			1,
-			a.w.scope,
 		);
 
 		assert.deepEqual(await placementOf(a), gone);
@@ -646,13 +634,7 @@ describe("a uid-0 copy whose event is gone", () => {
 	const redriveCopy = async (a: Arranged): Promise<void> => {
 		const [copy] = await redriveLater(a);
 		assert.equal(copy?.type, "MESSAGE_COPY");
-		await handleMessageCopy(
-			stamped<MessageCopyEvent>(copy),
-			a.w.log,
-			a.w.queues,
-			1,
-			a.w.scope,
-		);
+		await handleMessageCopy(stamped<MessageCopyEvent>(copy), a.w.ctx(), 1);
 	};
 
 	it("binds a copy that did land to the destination's uid, as its one row", async () => {

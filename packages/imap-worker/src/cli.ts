@@ -6,8 +6,10 @@
 // in npm-scripts/docker-bundle.mjs). Do not route it through the logger — usage
 // text and argument errors are for the person who typed the command.
 import { parseArgs } from "node:util";
+import { getClient } from "@remit/backend/client";
+import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { createEmitEvent } from "./emit.js";
-import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./queues.js";
+import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./sqs-queues.js";
 
 const HELP = `
 remit-imap-worker - Process IMAP sync events
@@ -207,7 +209,11 @@ const event = buildEvent();
 
 console.log(`Enqueueing ${event.type} event for account ${event.accountId}...`);
 
-createEmitEvent(sqsWorkerQueues(workerQueueUrlsFromEnv()))(event)
+createEmitEvent({
+	queues: sqsWorkerQueues(workerQueueUrlsFromEnv()),
+	mailboxLock: (await getClient()).mailboxLock,
+	metrics: { imapFailure: recordImapFailure },
+})(event)
 	.then(() => {
 		console.log("Event enqueued successfully");
 		process.exit(0);

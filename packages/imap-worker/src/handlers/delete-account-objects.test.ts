@@ -9,14 +9,21 @@ import {
 	type RecordingQueue,
 	recordingQueue,
 } from "@remit/data-ports/recording-queue";
-import { noopLogger } from "@remit/logger";
 import { mockClient } from "aws-sdk-client-mock";
 import type { DeleteAccountObjectsEvent } from "../events.js";
+import { s3AccountObjects } from "../s3-account-objects.js";
+import { processContext } from "../test-helpers/process-context.js";
 import { workerQueuesOn } from "../test-helpers/worker-queues.js";
 import { handleDeleteAccountObjects } from "./delete-account-objects.js";
 
 const s3Mock = mockClient(S3Client);
 let queue: RecordingQueue;
+
+const ctx = () =>
+	processContext({
+		queues: workerQueuesOn(queue),
+		accountObjects: s3AccountObjects(() => "account-bucket", new S3Client({})),
+	});
 
 const event: DeleteAccountObjectsEvent = {
 	type: "DELETE_ACCOUNT_OBJECTS",
@@ -42,7 +49,7 @@ describe("handleDeleteAccountObjects", () => {
 		});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(event, noopLogger, workerQueuesOn(queue));
+		await handleDeleteAccountObjects(event, ctx());
 
 		const listCall = s3Mock.commandCalls(ListObjectsV2Command)[0];
 		assert.equal(listCall.args[0].input.Prefix, "accounts/cfg-1/");
@@ -69,7 +76,7 @@ describe("handleDeleteAccountObjects", () => {
 			});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(event, noopLogger, workerQueuesOn(queue));
+		await handleDeleteAccountObjects(event, ctx());
 
 		const listCalls = s3Mock.commandCalls(ListObjectsV2Command);
 		assert.equal(listCalls.length, 2);
@@ -80,7 +87,7 @@ describe("handleDeleteAccountObjects", () => {
 	it("skips the delete call when a page holds no keys", async () => {
 		s3Mock.on(ListObjectsV2Command).resolves({ IsTruncated: false });
 
-		await handleDeleteAccountObjects(event, noopLogger, workerQueuesOn(queue));
+		await handleDeleteAccountObjects(event, ctx());
 
 		assert.equal(s3Mock.commandCalls(DeleteObjectsCommand).length, 0);
 	});
@@ -90,8 +97,7 @@ describe("handleDeleteAccountObjects", () => {
 
 		await handleDeleteAccountObjects(
 			{ ...event, continuationToken: "tok-mid" },
-			noopLogger,
-			workerQueuesOn(queue),
+			ctx(),
 			() => 5_000,
 		);
 
@@ -113,12 +119,7 @@ describe("handleDeleteAccountObjects", () => {
 		});
 		s3Mock.on(DeleteObjectsCommand).resolves({});
 
-		await handleDeleteAccountObjects(
-			event,
-			noopLogger,
-			workerQueuesOn(queue),
-			() => 120_000,
-		);
+		await handleDeleteAccountObjects(event, ctx(), () => 120_000);
 
 		assert.equal(s3Mock.commandCalls(ListObjectsV2Command).length, 1);
 		assert.equal(queue.sent.length, 0);

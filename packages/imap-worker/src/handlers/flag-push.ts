@@ -1,7 +1,4 @@
-import { getClient } from "@remit/backend/client";
 import { isNotFoundError } from "@remit/data-ports/errors";
-import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	guardConnectionCursor,
 	isCursorRebuildNeeded,
@@ -9,18 +6,11 @@ import {
 	MailboxCursorPausedError,
 	resolveExhaustedFlagPushFailure,
 } from "@remit/mailbox-service";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import type { FlagPushEvent } from "../events.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-
-export const getFlagPushMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("FLAG_PUSH_MAX_ATTEMPTS", 3, processEnv);
-
-export const FLAG_PUSH_MAX_ATTEMPTS = getFlagPushMaxAttempts();
 
 /**
  * How long a marker may sit deferred behind a move before it is dropped
@@ -60,10 +50,10 @@ export const FLAG_PUSH_DEFER_MAX_MS = 10 * 60 * 1000;
  */
 export const handleFlagPush = async (
 	event: FlagPushEvent,
-	log: Logger,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
+	const { log, pool, metrics, config } = ctx;
 	const {
 		account: accountService,
 		mailbox: mailboxService,
@@ -71,7 +61,7 @@ export const handleFlagPush = async (
 		threadMessage: threadMessageService,
 		flagPush: markerService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, accountConfigId, messageId, flagName } = event;
 
@@ -122,7 +112,7 @@ export const handleFlagPush = async (
 			// trip per sync tick forever. Drop the stale marker loudly rather
 			// than push against state nobody has confirmed.
 			await markerService.delete(messageId, flagName);
-			recordImapFailure("FLAG_PUSH_MOVE_NEVER_SETTLED", "other");
+			metrics.imapFailure("FLAG_PUSH_MOVE_NEVER_SETTLED", "other", 1);
 			log.error(
 				{
 					alert: "flag_push_move_never_settled",
@@ -186,11 +176,11 @@ export const handleFlagPush = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			await scope
 				.getConnection()
@@ -239,7 +229,7 @@ export const handleFlagPush = async (
 						return;
 					}
 
-					if (receiveCount < FLAG_PUSH_MAX_ATTEMPTS) {
+					if (receiveCount < config.attempts.flagPush) {
 						// Transient push failure — expected (connections drop). No
 						// alarm; queue redelivery retries from the still-durable marker.
 						throw error;
@@ -272,14 +262,14 @@ export const handleFlagPush = async (
 
 					// Terminal and never re-thrown, so the handler-outcome series
 					// records this record as a success. Counted here or it is invisible.
-					recordImapFailure("FLAG_PUSH_EXHAUSTED", "other");
+					metrics.imapFailure("FLAG_PUSH_EXHAUSTED", "other", 1);
 					log.error(
 						{ error: error instanceof Error ? error.message : String(error) },
 						"Flag push retry exhausted; message still exists at its mailbox",
 					);
 					// Terminal — never re-thrown, so the caller acks either way.
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };

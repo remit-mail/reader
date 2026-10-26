@@ -1,13 +1,12 @@
 import assert from "node:assert";
-import { afterEach, beforeEach, describe, test } from "node:test";
-import type { IImapConnection } from "@remit/mailbox-service";
+import { describe, test } from "node:test";
+import type { IImapConnection, MailCredentials } from "@remit/mailbox-service";
 import {
-	__evictWarmConnectionsForTest,
-	__resetWarmPoolsForTest,
-	__warmPoolSizeForTest,
-	borrowWarmConnection,
-	type ConnectionScope,
-} from "./connection-scope.js";
+	type ConnectionPoolOptions,
+	createConnectionPool,
+	type PoolAccount,
+} from "./connection-pool.js";
+import type { ConnectionScope } from "./connection-scope.js";
 
 /**
  * A fake connection whose liveness can be toggled, recording connect/disconnect
@@ -54,18 +53,33 @@ const makeFakeScope = (): FakeScope => {
 	return scope;
 };
 
-describe("borrowWarmConnection — cross-invocation warm reuse", () => {
-	const accountId = "acct-warm-1";
+const accountId = "acct-warm-1";
 
-	beforeEach(() => {
-		__resetWarmPoolsForTest();
-	});
+const account: PoolAccount = {
+	accountId,
+	username: "person@example.com",
+	imapHost: "imap.example.com",
+	imapPort: 993,
+	imapTls: true,
+};
 
-	afterEach(async () => {
-		await __evictWarmConnectionsForTest(accountId);
-		__resetWarmPoolsForTest();
-	});
+const credentials: MailCredentials = { kind: "password", password: "secret" };
 
+const LAMBDA: ConnectionPoolOptions = { size: 2, overflow: "Open" };
+
+const poolOver = (
+	createScope: () => ConnectionScope,
+	options: ConnectionPoolOptions = LAMBDA,
+) => {
+	const pool = createConnectionPool(options, () => createScope());
+	return {
+		borrow: () => pool.borrow(account, credentials),
+		pooled: () => pool.pooled(accountId),
+		drain: pool.drain,
+	};
+};
+
+describe("a connection pool of two that opens on overflow", () => {
 	test("warm invocation reuses the live connection without reconnecting", async () => {
 		const scopes: FakeScope[] = [];
 		const createScope = (): ConnectionScope => {
@@ -73,12 +87,13 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
-		const first = borrowWarmConnection(accountId, createScope);
+		const first = pool.borrow();
 		const connA = await first.getConnection();
 		await first.release();
 
-		const second = borrowWarmConnection(accountId, createScope);
+		const second = pool.borrow();
 		const connB = await second.getConnection();
 		await second.release();
 
@@ -99,15 +114,16 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
-		const first = borrowWarmConnection(accountId, createScope);
+		const first = pool.borrow();
 		await first.getConnection();
 		await first.release();
 
 		// Provider drops the idle socket: imapflow flips isConnected to false.
 		scopes[0].kill();
 
-		const second = borrowWarmConnection(accountId, createScope);
+		const second = pool.borrow();
 		const connB = await second.getConnection();
 		await second.release();
 
@@ -116,7 +132,7 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 		assert.strictEqual(scopes[1].connectCount, 1, "replacement connected once");
 		assert.ok(connB.isConnected, "replacement connection is live");
 		assert.strictEqual(
-			__warmPoolSizeForTest(accountId),
+			pool.pooled(),
 			1,
 			"pool did not grow when replacing a dead entry",
 		);
@@ -129,16 +145,17 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
 		for (let i = 0; i < 20; i++) {
-			const borrowed = borrowWarmConnection(accountId, createScope);
+			const borrowed = pool.borrow();
 			await borrowed.getConnection();
 			await borrowed.release();
 		}
 
 		assert.strictEqual(scopes.length, 1, "serial reuse never re-dials");
 		assert.strictEqual(
-			__warmPoolSizeForTest(accountId),
+			pool.pooled(),
 			1,
 			"pool stays at one for serial same-account work",
 		);
@@ -151,9 +168,10 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
-		const a = borrowWarmConnection(accountId, createScope);
-		const b = borrowWarmConnection(accountId, createScope);
+		const a = pool.borrow();
+		const b = pool.borrow();
 		const connA = await a.getConnection();
 		const connB = await b.getConnection();
 
@@ -166,8 +184,8 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 		await a.release();
 		await b.release();
 
-		// default connectionsPerAccount is 2 — both stay pooled, none leaked.
-		assert.strictEqual(__warmPoolSizeForTest(accountId), 2);
+		// Both stay pooled, none leaked.
+		assert.strictEqual(pool.pooled(), 2);
 		assert.ok(scopes.every((s) => s.disconnectCount === 0));
 	});
 
@@ -178,25 +196,22 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
-		// Saturate the pool (default size 2) with two held borrows.
-		const a = borrowWarmConnection(accountId, createScope);
-		const b = borrowWarmConnection(accountId, createScope);
+		// Saturate the pool with two held borrows.
+		const a = pool.borrow();
+		const b = pool.borrow();
 		await a.getConnection();
 		await b.getConnection();
 
 		// Third concurrent borrow overflows the pool.
-		const c = borrowWarmConnection(accountId, createScope);
+		const c = pool.borrow();
 		await c.getConnection();
 		await c.release();
 
 		assert.strictEqual(scopes.length, 3, "overflow created a third scope");
 		assert.strictEqual(scopes[2].disconnectCount, 1, "overflow torn down");
-		assert.strictEqual(
-			__warmPoolSizeForTest(accountId),
-			2,
-			"overflow did not grow the pool",
-		);
+		assert.strictEqual(pool.pooled(), 2, "overflow did not grow the pool");
 
 		await a.release();
 		await b.release();
@@ -209,11 +224,12 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
 		// Seed the pool with a single connection, then kill it so it is a dead
 		// FREE entry — the recycle path that recreates a scope across an awaited
 		// disconnect (the race window).
-		const seed = borrowWarmConnection(accountId, createScope);
+		const seed = pool.borrow();
 		await seed.getConnection();
 		await seed.release();
 		scopes[0].kill();
@@ -221,8 +237,8 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 		// Two borrows started before either resolves: both run their synchronous
 		// claim phase, then A awaits disconnectQuietly while B's claim runs. The
 		// dead entry must be claimed atomically so they never adopt the same slot.
-		const a = borrowWarmConnection(accountId, createScope);
-		const b = borrowWarmConnection(accountId, createScope);
+		const a = pool.borrow();
+		const b = pool.borrow();
 		const [connA, connB] = await Promise.all([
 			a.getConnection(),
 			b.getConnection(),
@@ -238,29 +254,106 @@ describe("borrowWarmConnection — cross-invocation warm reuse", () => {
 		await a.release();
 		await b.release();
 
-		// One slot recycled in place + one grown = pool of 2 (default cap), no leak.
-		assert.strictEqual(__warmPoolSizeForTest(accountId), 2);
+		// One slot recycled in place + one grown = pool of 2 , no leak.
+		assert.strictEqual(pool.pooled(), 2);
 	});
 
-	test("__evictWarmConnectionsForTest disconnects and clears the pool", async () => {
+	test("drain disconnects and clears the pool", async () => {
 		const scopes: FakeScope[] = [];
 		const createScope = (): ConnectionScope => {
 			const s = makeFakeScope();
 			scopes.push(s);
 			return s;
 		};
+		const pool = poolOver(createScope);
 
-		const borrowed = borrowWarmConnection(accountId, createScope);
+		const borrowed = pool.borrow();
 		await borrowed.getConnection();
 		await borrowed.release();
 
-		await __evictWarmConnectionsForTest(accountId);
+		await pool.drain();
 
-		assert.strictEqual(__warmPoolSizeForTest(accountId), 0);
+		assert.strictEqual(pool.pooled(), 0);
 		assert.strictEqual(
 			scopes[0].disconnectCount,
 			1,
-			"evicted conn disconnected",
+			"drained conn disconnected",
 		);
+	});
+});
+
+describe("a connection pool of one that waits on overflow", () => {
+	const WORKER: ConnectionPoolOptions = { size: 1, overflow: "Wait" };
+
+	test("serialises two borrows of one account on one connection", async () => {
+		const scopes: FakeScope[] = [];
+		const pool = poolOver(() => {
+			const s = makeFakeScope();
+			scopes.push(s);
+			return s;
+		}, WORKER);
+		const steps: string[] = [];
+		const work = async (name: string) => {
+			const borrowed = pool.borrow();
+			const connection = await borrowed.getConnection();
+			steps.push(`${name} start`);
+			await new Promise((resolve) => setTimeout(resolve, 5));
+			steps.push(`${name} end`);
+			await borrowed.release();
+			return connection;
+		};
+
+		const [first, second] = await Promise.all([work("a"), work("b")]);
+
+		assert.deepStrictEqual(steps, ["a start", "a end", "b start", "b end"]);
+		assert.strictEqual(first, second, "the second borrow reuses the first");
+		assert.strictEqual(scopes.length, 1, "no second connection is opened");
+		assert.strictEqual(pool.pooled(), 1);
+	});
+
+	test("hands a released connection to waiters in arrival order", async () => {
+		const pool = poolOver(makeFakeScope, WORKER);
+		const holder = pool.borrow();
+		await holder.getConnection();
+		const order: string[] = [];
+		const waitFor = (name: string) => {
+			const borrowed = pool.borrow();
+			return borrowed.getConnection().then(async () => {
+				order.push(name);
+				await borrowed.release();
+			});
+		};
+
+		const waiting = Promise.all([waitFor("b"), waitFor("c")]);
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.deepStrictEqual(order, [], "nobody runs while the slot is held");
+
+		await holder.release();
+		await waiting;
+
+		assert.deepStrictEqual(order, ["b", "c"]);
+	});
+
+	test("replaces a connection that died while a borrower waited for it", async () => {
+		const scopes: FakeScope[] = [];
+		const pool = poolOver(() => {
+			const s = makeFakeScope();
+			scopes.push(s);
+			return s;
+		}, WORKER);
+		const holder = pool.borrow();
+		await holder.getConnection();
+		const waiter = pool.borrow();
+		const handedOver = waiter.getConnection();
+
+		scopes[0].kill();
+		await holder.release();
+		const connection = await handedOver;
+		await waiter.release();
+
+		assert.strictEqual(scopes.length, 2, "a replacement scope was created");
+		assert.strictEqual(scopes[0].disconnectCount, 1, "dead conn cleaned up");
+		assert.ok(connection.isConnected, "the waiter got a live connection");
+		assert.strictEqual(pool.pooled(), 1);
 	});
 });

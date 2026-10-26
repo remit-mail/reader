@@ -1,9 +1,7 @@
-import { getClient } from "@remit/backend/client";
 import { refreshFolderAppointmentLabels } from "@remit/backend/folder-role-labels";
 import type { IMailboxRepository } from "@remit/data-ports";
 import { isNotFoundError, NotFoundError } from "@remit/data-ports/errors";
 import { MailboxSyncStatus } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
 import {
 	FolderGoneUpstreamError,
 	FolderRenameSettleError,
@@ -14,7 +12,7 @@ import {
 	upstreamFailureReason,
 } from "@remit/mailbox-service";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import type {
 	MailboxCreateEvent,
 	MailboxDeleteEvent,
@@ -70,14 +68,14 @@ const recordCreateOutcome = async (
  */
 const handleCreate = async (
 	event: MailboxCreateEvent,
-	log: Logger,
-	createConnectionScope: typeof createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
 ): Promise<void> => {
+	const { log, pool } = ctx;
 	const {
 		account: accountService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, mailboxId, path, subscribe } = event;
 
@@ -93,11 +91,11 @@ const handleCreate = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -161,7 +159,7 @@ const handleCreate = async (
 							throw error;
 						}
 					})
-					.finally(() => scope.disconnect());
+					.finally(() => scope.release());
 			} catch (error) {
 				// The mailbox row was deleted between enqueue and this sync — the
 				// create-then-status-write throws NotFoundError, which can never
@@ -187,15 +185,15 @@ const handleCreate = async (
  */
 const handleRename = async (
 	event: MailboxRenameEvent,
-	log: Logger,
-	createConnectionScope: typeof createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
 ): Promise<void> => {
+	const { log, pool } = ctx;
 	const {
 		account: accountService,
 		accountSetting: accountSettingService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, mailboxId, oldPath, newPath } = event;
 
@@ -214,11 +212,11 @@ const handleRename = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -333,7 +331,7 @@ const handleRename = async (
 						}
 						throw error;
 					})
-					.finally(() => scope.disconnect());
+					.finally(() => scope.release());
 			} catch (error) {
 				// The mailbox row was deleted between enqueue and this sync — the
 				// status write-back throws NotFoundError, unretryable and would poison
@@ -357,14 +355,14 @@ const handleRename = async (
  */
 const handleDelete = async (
 	event: MailboxDeleteEvent,
-	log: Logger,
-	createConnectionScope: typeof createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
 ): Promise<void> => {
+	const { log, pool } = ctx;
 	const {
 		account: accountService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const { accountId, mailboxId, path } = event;
 
@@ -380,11 +378,11 @@ const handleDelete = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 			const managementService = new MailboxManagementService(
 				mailboxService,
 				log,
@@ -447,7 +445,7 @@ const handleDelete = async (
 							throw error;
 						}
 					})
-					.finally(() => scope.disconnect());
+					.finally(() => scope.release());
 			} catch (error) {
 				// The mailbox row was already deleted (a duplicate/racing delete) — the
 				// error-recovery status write throws NotFoundError, unretryable and
@@ -472,15 +470,14 @@ const handleDelete = async (
  */
 export const processMailboxManagement = async (
 	event: MailboxManagementEvent,
-	log: Logger,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
 ): Promise<void> => {
 	switch (event.type) {
 		case "MAILBOX_CREATE":
-			return handleCreate(event, log, createConnectionScope);
+			return handleCreate(event, ctx);
 		case "MAILBOX_RENAME":
-			return handleRename(event, log, createConnectionScope);
+			return handleRename(event, ctx);
 		case "MAILBOX_DELETE":
-			return handleDelete(event, log, createConnectionScope);
+			return handleDelete(event, ctx);
 	}
 };

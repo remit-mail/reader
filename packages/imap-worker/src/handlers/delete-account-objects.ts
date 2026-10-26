@@ -1,25 +1,15 @@
-import {
-	DeleteObjectsCommand,
-	ListObjectsV2Command,
-	S3Client,
-} from "@aws-sdk/client-s3";
-import type { Logger } from "@remit/logger";
-import { env } from "expect-env";
+import type { ProcessContext } from "../context.js";
 import type { DeleteAccountObjectsEvent } from "../events.js";
 import type { WorkerQueues } from "../queues.js";
 
-const s3 = new S3Client({});
-
-const BATCH_SIZE = 1_000;
 const MIN_REMAINING_MS = 30_000;
 
 export const handleDeleteAccountObjects = async (
 	event: DeleteAccountObjectsEvent,
-	log: Logger,
-	queues: WorkerQueues,
+	ctx: ProcessContext,
 	getRemainingTimeMs?: () => number,
 ): Promise<void> => {
-	const BUCKET_NAME = env.S3_BUCKET_NAME;
+	const { log, queues, accountObjects } = ctx;
 	const { accountConfigId, continuationToken } = event;
 	const prefix = `accounts/${accountConfigId}/`;
 
@@ -42,37 +32,18 @@ export const handleDeleteAccountObjects = async (
 			return;
 		}
 
-		const listResult = await s3.send(
-			new ListObjectsV2Command({
-				Bucket: BUCKET_NAME,
-				Prefix: prefix,
-				MaxKeys: BATCH_SIZE,
-				ContinuationToken: currentToken,
-			}),
-		);
+		const page = await accountObjects.list(prefix, currentToken);
 
-		const keys = (listResult.Contents ?? [])
-			.map((obj) => obj.Key)
-			.filter((k): k is string => k !== undefined);
-
-		if (keys.length > 0) {
-			await s3.send(
-				new DeleteObjectsCommand({
-					Bucket: BUCKET_NAME,
-					Delete: {
-						Objects: keys.map((Key) => ({ Key })),
-						Quiet: true,
-					},
-				}),
-			);
-			totalDeleted += keys.length;
+		if (page.keys.length > 0) {
+			await accountObjects.delete(page.keys);
+			totalDeleted += page.keys.length;
 		}
 
-		if (!listResult.IsTruncated) {
+		if (page.nextContinuationToken === undefined) {
 			break;
 		}
 
-		currentToken = listResult.NextContinuationToken;
+		currentToken = page.nextContinuationToken;
 	}
 
 	log.info(

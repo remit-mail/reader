@@ -1,8 +1,4 @@
-import { getClient } from "@remit/backend/client";
 import { isNotFoundError } from "@remit/data-ports/errors";
-import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
-import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	BodySyncService,
 	guardConnectionCursor,
@@ -16,32 +12,11 @@ import {
 	SyncWarningService,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
-import { env } from "expect-env";
 import { isAccountDeleted } from "../account-check.js";
-import { isBodySyncEnabled } from "../body-sync-gate.js";
-import {
-	borrowWarmConnection,
-	createConnectionScopeWithCredentials,
-} from "../connection-scope.js";
+import type { ProcessContext } from "../context.js";
 import type { SyncMessageBodyEvent } from "../events.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { workerVersion } from "../worker-version.js";
-
-const bodySyncEnabledParameterName = env.BODY_SYNC_ENABLED_PARAMETER_NAME;
-
-export const getBodySyncMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number =>
-	attemptBudget(
-		"BODY_SYNC_MAX_ATTEMPTS",
-		SYNC_WARNING_SURFACE_ATTEMPTS,
-		processEnv,
-	);
-
-export const BODY_SYNC_MAX_ATTEMPTS = getBodySyncMaxAttempts();
 
 /**
  * The ordered message ids to sync, plus a uid lookup when the event carried the
@@ -79,19 +54,19 @@ export const resolveBatch = (event: SyncMessageBodyEvent): ResolvedBatch => {
 export const buildRetryableFailureError = (
 	failedMessageIds: string[],
 	receiveCount: number,
+	maxAttempts: number,
 ): Error =>
 	new Error(
 		`Body sync failed for ${failedMessageIds.length} message(s) ` +
-			`(attempt ${receiveCount}/${BODY_SYNC_MAX_ATTEMPTS}): ${failedMessageIds.join(", ")}`,
+			`(attempt ${receiveCount}/${maxAttempts}): ${failedMessageIds.join(", ")}`,
 	);
 
 export const syncMessageBody = async (
 	event: SyncMessageBodyEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
+	const { log, queues, pool, metrics, config } = ctx;
 	const { accountId, mailboxId } = event;
 
 	// Prefer the messageId+uid pairs when present (one ranged FETCH, no
@@ -112,7 +87,7 @@ export const syncMessageBody = async (
 	);
 
 	// Pause gate stays first: ack-and-skip before touching any account/IMAP state.
-	if (!(await isBodySyncEnabled(bodySyncEnabledParameterName, log))) {
+	if (!(await ctx.bodySync.isEnabled(log))) {
 		log.info(
 			{
 				event: event.type,
@@ -144,7 +119,7 @@ export const syncMessageBody = async (
 		flagQueue: flagQueueService,
 		calendarSuggestion: calendarSuggestionService,
 		calendarStore,
-	} = await getClient();
+	} = ctx.client;
 
 	const account = await accountService.get(accountId);
 	if (!account) {
@@ -169,7 +144,7 @@ export const syncMessageBody = async (
 	});
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -208,13 +183,7 @@ export const syncMessageBody = async (
 				return;
 			}
 
-			// Warm reuse: borrow a live IMAP connection from the module-scoped pool
-			// (keyed by accountId) instead of dialing a fresh one per invocation. A
-			// warm container skips TCP+TLS+LOGIN+SELECT; a dead pooled connection is
-			// liveness-checked and replaced inside borrowWarmConnection.
-			const borrowed = borrowWarmConnection(accountId, () =>
-				createConnectionScope(account, credentials),
-			);
+			const borrowed = pool.borrow(account, credentials);
 
 			// A confident, actionable placement verdict moves mail directly on
 			// body-sync. Safety lives in the verdict itself (only confident,
@@ -248,7 +217,7 @@ export const syncMessageBody = async (
 					quarantineService: new QuarantineService(
 						quarantineRepository,
 						mailboxSpecialUseRepository,
-						workerVersion(),
+						config.workerVersion,
 						log,
 					),
 					mailboxId,
@@ -304,7 +273,7 @@ export const syncMessageBody = async (
 					return;
 				}
 
-				if (receiveCount < BODY_SYNC_MAX_ATTEMPTS) {
+				if (receiveCount < config.attempts.body) {
 					// Redelivery budget remains: let SQS retry the whole record
 					// naturally. Messages that already synced skip via the
 					// already-stored guard on the next attempt, so only the failed
@@ -313,6 +282,7 @@ export const syncMessageBody = async (
 					throw buildRetryableFailureError(
 						result.failedMessageIds,
 						receiveCount,
+						config.attempts.body,
 					);
 				}
 
@@ -339,7 +309,7 @@ export const syncMessageBody = async (
 				// A broken body is terminal on a record the handler acks, so the
 				// handler-outcome series never sees it.
 				if (brokenMessageIds.length > 0) {
-					recordImapFailure(
+					metrics.imapFailure(
 						"SYNC_MESSAGE_BODY_BROKEN",
 						"other",
 						brokenMessageIds.length,

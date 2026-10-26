@@ -1,13 +1,11 @@
 import { getClient } from "@remit/backend/client";
 import { createLogger } from "@remit/logger";
+import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { ScheduledHandler } from "aws-lambda";
 import { createEmitEvent } from "../emit.js";
-import {
-	sqsWorkerQueues,
-	type WorkerQueues,
-	workerQueueUrlsFromEnv,
-} from "../queues.js";
+import type { WorkerQueues } from "../queues.js";
+import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
 import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
@@ -57,7 +55,15 @@ export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
 			),
 			redriveStrandedPlacements: (account, tickNow) =>
 				redriveStrandedPlacements(
-					{ client, emit: createEmitEvent(queues), log },
+					{
+						client,
+						emit: createEmitEvent({
+							queues,
+							mailboxLock: client.mailboxLock,
+							metrics: { imapFailure: recordImapFailure },
+						}),
+						log,
+					},
 					account,
 					tickNow,
 				),

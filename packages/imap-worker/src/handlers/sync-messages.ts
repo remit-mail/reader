@@ -1,4 +1,3 @@
-import { getClient } from "@remit/backend/client";
 import type {
 	AccountItem,
 	IAccountRepository,
@@ -16,50 +15,43 @@ import type {
 import { isNotFoundError } from "@remit/data-ports/errors";
 import { SyncPhase } from "@remit/domain-enums";
 import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import {
-	createManagedConnectionFactory,
 	isMailboxMutationInFlight,
 	MailConnectionError,
-	type MailCredentials,
-	type ManagedConnectionFactory,
 	MessageSyncService,
 	QuarantineService,
 	type SyncedMessage,
 	SyncWarningService,
 } from "@remit/mailbox-service";
-import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
 	isMailSyncDisabled,
 	isUnsyncableHost,
 } from "../account-check.js";
-import {
-	createEmitEvent,
-	type EmitEvent,
-	SYNC_MESSAGES_PENDING,
-} from "../emit.js";
+import type { BorrowedConnection } from "../connection-pool.js";
+import type {
+	ImapWorkerConfig,
+	ProcessContext,
+	WorkerMetrics,
+} from "../context.js";
+import { type EmitEvent, emitFrom, SYNC_MESSAGES_PENDING } from "../emit.js";
 import type {
 	FlagPushEvent,
 	SyncMessageBodyEvent,
 	SyncMessagesEvent,
 } from "../events.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
-import { workerVersion } from "../worker-version.js";
 
-// One SYNC_MESSAGE_BODY event maps to one ranged UID FETCH on the consumer.
-export const BODY_BATCH_SIZE = 200;
 const EVENT_EMIT_CONCURRENCY = 10;
 const MESSAGE_BATCH_SIZE = 200;
 
 /** Slice synced messages into body-sync batches, each one ranged FETCH. */
 export const batchSyncedMessages = (
 	syncedMessages: SyncedMessage[],
-	batchSize: number = BODY_BATCH_SIZE,
+	batchSize: number,
 ): SyncedMessage[][] => {
 	const batches: SyncedMessage[][] = [];
 	for (let i = 0; i < syncedMessages.length; i += batchSize) {
@@ -68,25 +60,11 @@ export const batchSyncedMessages = (
 	return batches;
 };
 
-export const managedConnectionFor = (
-	account: Pick<AccountItem, "username" | "imapHost" | "imapPort" | "imapTls">,
-	credentials: MailCredentials,
-): ManagedConnectionFactory =>
-	createManagedConnectionFactory({
-		user: account.username,
-		credentials,
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-		transport: nodeTransport(),
-	});
-
 export const syncMessages = async (
 	event: SyncMessagesEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	createConnectionFactory = managedConnectionFor,
+	ctx: ProcessContext,
 ): Promise<void> => {
+	const { log, pool, metrics, config } = ctx;
 	log.info(
 		{
 			event: event.type,
@@ -110,7 +88,7 @@ export const syncMessages = async (
 		flagPush: flagPushMarkerService,
 		messageFlag: messageFlagService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	await mailboxLockService.releaseLock(
 		event.accountId,
@@ -193,7 +171,7 @@ export const syncMessages = async (
 	// credentials, flip on terminal auth failure, rethrow transient). The
 	// mailbox lock and the actual sync run inside the wrapper callback.
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -207,7 +185,7 @@ export const syncMessages = async (
 						await syncMailboxMessages(
 							event,
 							account,
-							createConnectionFactory(account, credentials),
+							pool.borrow(account, credentials),
 							{
 								accountService,
 								mailboxService,
@@ -220,7 +198,9 @@ export const syncMessages = async (
 								syncWarningRepository,
 								flagPushMarkerService,
 								messageFlagService,
-								emit: createEmitEvent(queues),
+								emit: emitFrom(ctx),
+								metrics,
+								config,
 							},
 							log,
 						);
@@ -300,6 +280,8 @@ interface SyncDeps {
 	flagPushMarkerService: IMessageFlagPushRepository;
 	messageFlagService: IMessageFlagRepository;
 	emit: EmitEvent;
+	metrics: WorkerMetrics;
+	config: ImapWorkerConfig;
 }
 
 // Bounds concurrent SQS sends while re-arming stuck flag-push markers —
@@ -374,7 +356,7 @@ export const drainPendingFlagPushes = async (
 const syncMailboxMessages = async (
 	event: SyncMessagesEvent,
 	account: AccountItem,
-	connectionFactory: ManagedConnectionFactory,
+	borrowed: BorrowedConnection,
 	deps: SyncDeps,
 	log: Logger,
 ): Promise<void> => {
@@ -391,6 +373,8 @@ const syncMailboxMessages = async (
 		flagPushMarkerService,
 		messageFlagService,
 		emit,
+		metrics,
+		config,
 	} = deps;
 
 	// Get the mailbox - it must exist (should have been created by mailbox sync)
@@ -409,38 +393,34 @@ const syncMailboxMessages = async (
 	);
 	const isInbox = mailbox.fullPath.toUpperCase() === "INBOX";
 
-	const syncService = new MessageSyncService(
-		connectionFactory,
-		mailboxService,
-		mailboxSpecialUseService,
-		messageService,
-		envelopeService,
-		addressService,
-		threadMessageService,
-		new SyncWarningService(syncWarningRepository),
-		log,
-		flagPushMarkerService,
-		messageFlagService,
-		new QuarantineService(
-			quarantineService,
+	const result = await (async () => {
+		const connection = await borrowed.getConnection();
+		const syncService = new MessageSyncService(
+			{ getConnection: () => connection, close: async () => undefined },
+			mailboxService,
 			mailboxSpecialUseService,
-			workerVersion(),
+			messageService,
+			envelopeService,
+			addressService,
+			threadMessageService,
+			new SyncWarningService(syncWarningRepository),
 			log,
-		),
-	);
-
-	// Connect once, reuse for the entire sync operation
-	const connection = connectionFactory.getConnection();
-	await connection.connect();
-
-	const result = await syncService
-		.syncMessages(
+			flagPushMarkerService,
+			messageFlagService,
+			new QuarantineService(
+				quarantineService,
+				mailboxSpecialUseService,
+				config.workerVersion,
+				log,
+			),
+		);
+		return syncService.syncMessages(
 			mailboxId,
 			account.accountId,
 			account.accountConfigId,
 			MESSAGE_BATCH_SIZE,
-		)
-		.finally(() => connectionFactory.close());
+		);
+	})().finally(() => borrowed.release());
 	log.info(
 		{
 			syncedCount: result.syncedCount,
@@ -456,14 +436,17 @@ const syncMailboxMessages = async (
 	// engages. Without this counter the mailbox stops syncing behind a worker
 	// that looks healthy. Per-mailbox detail is in the accompanying ERROR log.
 	if (result.cursorStalled) {
-		recordImapFailure("SYNC_MESSAGES_CURSOR_STALLED", "other");
+		metrics.imapFailure("SYNC_MESSAGES_CURSOR_STALLED", "other", 1);
 	}
 
 	// Emit body sync events for the messages we just synced. Each event carries
 	// messageId+uid pairs so the consumer issues one ranged FETCH per batch
 	// without re-resolving UIDs. messageIds stays populated for backward compat.
 	if (result.syncedMessages.length > 0) {
-		const batches = batchSyncedMessages(result.syncedMessages);
+		const batches = batchSyncedMessages(
+			result.syncedMessages,
+			config.bodyBatchSize,
+		);
 
 		log.info(
 			{ count: result.syncedMessages.length, batches: batches.length },

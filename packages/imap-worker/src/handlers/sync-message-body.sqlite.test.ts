@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
-import { after, afterEach, before, beforeEach, describe, it } from "node:test";
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { after, before, beforeEach, describe, it } from "node:test";
 import type { MailboxItem } from "@remit/data-ports";
 import {
 	FilterClauseField,
@@ -9,20 +8,16 @@ import {
 	MessageStatus,
 } from "@remit/domain-enums";
 import { isMessageBodySyncBroken } from "@remit/mailbox-service";
-import { mockClient } from "aws-sdk-client-mock";
-import { resetBodySyncGateCache } from "../body-sync-gate.js";
+import { defaultImapWorkerConfig } from "../context.js";
 import type { SyncMessageBodyEvent } from "../events.js";
 import {
 	openStore,
 	type SeededMessage,
 	type World,
 } from "../test-helpers/test-world.js";
-import {
-	BODY_SYNC_MAX_ATTEMPTS,
-	syncMessageBody,
-} from "./sync-message-body.js";
+import { syncMessageBody } from "./sync-message-body.js";
 
-const ssm = mockClient(SSMClient);
+let bodySyncEnabled = true;
 
 let store: Awaited<ReturnType<typeof openStore>>;
 
@@ -32,18 +27,14 @@ before(async () => {
 
 after(() => store.close());
 
-const bodySync = (enabled: boolean) =>
-	ssm
-		.on(GetParameterCommand)
-		.resolves({ Parameter: { Value: enabled ? "true" : "false" } });
+const bodySync = (enabled: boolean) => {
+	bodySyncEnabled = enabled;
+};
 
-beforeEach(() => {
-	ssm.reset();
-	resetBodySyncGateCache();
-	bodySync(true);
-});
+beforeEach(() => bodySync(true));
 
-afterEach(() => resetBodySyncGateCache());
+const ctxOf = (w: World) =>
+	w.ctx({ bodySync: { isEnabled: async () => bodySyncEnabled } });
 
 interface Arranged {
 	w: World;
@@ -73,7 +64,7 @@ const arrange = async (): Promise<Arranged> => {
 };
 
 const run = (a: Arranged, receiveCount = 1) =>
-	syncMessageBody(a.event, a.w.log, a.w.queues, receiveCount, a.w.scope);
+	syncMessageBody(a.event, ctxOf(a.w), receiveCount);
 
 const bodyFetches = (a: Arranged): string[] => a.w.imap.commands("BODY");
 
@@ -103,7 +94,6 @@ describe("a body sync", () => {
 
 	it("fetches nothing while body sync is paused", async () => {
 		const a = await arrange();
-		ssm.reset();
 		bodySync(false);
 
 		await run(a);
@@ -160,7 +150,7 @@ const batchOf = (
 });
 
 const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
-	syncMessageBody(event, w.log, w.queues, receiveCount, w.scope);
+	syncMessageBody(event, ctxOf(w), receiveCount);
 
 const arrangeFiling = async () => {
 	const w = await store.world();
@@ -231,7 +221,7 @@ describe("a body batch on its last attempt while the queue is refusing", () => {
 		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
 
 		await assert.rejects(
-			runBatch(w, event, BODY_SYNC_MAX_ATTEMPTS),
+			runBatch(w, event, defaultImapWorkerConfig.attempts.body),
 			/ECONNREFUSED/,
 		);
 

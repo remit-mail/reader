@@ -1,4 +1,3 @@
-import { getClient } from "@remit/backend/client";
 import type {
 	IMessageRepository,
 	IThreadMessageRepository,
@@ -10,8 +9,6 @@ import {
 	MessageStatus,
 	MessageSyncStatus,
 } from "@remit/domain-enums";
-import type { Logger } from "@remit/logger";
-import { recordImapFailure } from "@remit/logger-lambda/metrics";
 import {
 	buildThreadMessageTrashUpdate,
 	guardConnectionCursor,
@@ -21,13 +18,11 @@ import {
 	MailboxCursorPausedError,
 	restoreSourcePlacement,
 } from "@remit/mailbox-service";
-import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import { isAccountDeleted } from "../account-check.js";
-import { createConnectionScopeWithCredentials } from "../connection-scope.js";
-import { createEmitEvent } from "../emit.js";
+import type { ProcessContext } from "../context.js";
+import { emitFrom } from "../emit.js";
 import type { MessageDeleteEvent } from "../events.js";
 import { findMailboxRow } from "../mailbox-row.js";
-import type { WorkerQueues } from "../queues.js";
 import { withOAuthLifecycle } from "../with-oauth-lifecycle.js";
 import { buildLifecycleDeps } from "../with-oauth-lifecycle-deps.js";
 import { resolveExhaustedMessageDeleteFailure } from "./message-delete-terminal.js";
@@ -44,12 +39,6 @@ interface FolderPaths {
 	source: string;
 	destination: string | undefined;
 }
-
-export const getMessageDeleteMaxAttempts = (
-	processEnv: NodeJS.ProcessEnv = process.env,
-): number => attemptBudget("MESSAGE_DELETE_MAX_ATTEMPTS", 3, processEnv);
-
-export const MESSAGE_DELETE_MAX_ATTEMPTS = getMessageDeleteMaxAttempts();
 
 /**
  * Delete every ThreadMessage row that points at this messageId.
@@ -147,25 +136,24 @@ const confirmTrashMoveUid = async (
  * Either moves to Trash (IMAP MOVE) or permanently deletes (IMAP DELETE).
  *
  * A failing delete retries on redelivery until `receiveCount` reaches
- * {@link MESSAGE_DELETE_MAX_ATTEMPTS}, at which point
+ * the `config.attempts.messageDelete` budget, at which point
  * {@link resolveExhaustedMessageDeleteFailure} asks IMAP where the message
  * actually is and settles the row into one terminal outcome (issue #980).
  */
 export const handleMessageDelete = async (
 	event: MessageDeleteEvent,
-	log: Logger,
-	queues: WorkerQueues,
-	receiveCount = 1,
-	createConnectionScope = createConnectionScopeWithCredentials,
+	ctx: ProcessContext,
+	receiveCount: number,
 ): Promise<void> => {
-	const emit = createEmitEvent(queues);
+	const { log, pool, metrics, config } = ctx;
+	const emit = emitFrom(ctx);
 	const {
 		account: accountService,
 		message: messageService,
 		threadMessage: threadMessageService,
 		mailbox: mailboxService,
 		secrets,
-	} = await getClient();
+	} = ctx.client;
 
 	const {
 		accountId,
@@ -522,7 +510,7 @@ export const handleMessageDelete = async (
 		if (!settled) return;
 
 		if (settled.outcome === "broken") {
-			recordImapFailure("MESSAGE_DELETE_EXHAUSTED", "other");
+			metrics.imapFailure("MESSAGE_DELETE_EXHAUSTED", "other", 1);
 		}
 
 		// Both verdicts end in a row the server has contradicted, so this delete
@@ -566,7 +554,7 @@ export const handleMessageDelete = async (
 		}
 
 		if (confirmation.outcome === "unprobeable") {
-			recordImapFailure("MESSAGE_DELETE_TRASH_MOVE_UNCONFIRMED", "other");
+			metrics.imapFailure("MESSAGE_DELETE_TRASH_MOVE_UNCONFIRMED", "other", 1);
 			log.info(
 				context,
 				"Move to trash carries no Message-ID header to probe the destination with; settling on the source's answer alone",
@@ -581,7 +569,7 @@ export const handleMessageDelete = async (
 		}
 
 		throw new Error(
-			`Move to trash unconfirmed for message ${messageId} (attempt ${receiveCount}/${MESSAGE_DELETE_MAX_ATTEMPTS})`,
+			`Move to trash unconfirmed for message ${messageId} (attempt ${receiveCount}/${config.attempts.messageDelete})`,
 		);
 	};
 
@@ -594,7 +582,7 @@ export const handleMessageDelete = async (
 	}
 
 	await withOAuthLifecycle(
-		buildLifecycleDeps(secrets, accountService),
+		buildLifecycleDeps(secrets, accountService, ctx.oauth),
 		account,
 		log,
 		async (credentials) => {
@@ -637,7 +625,7 @@ export const handleMessageDelete = async (
 				destination: destinationMailboxPath,
 			};
 
-			const scope = createConnectionScope(account, credentials);
+			const scope = pool.borrow(account, credentials);
 
 			// The terminal resolver opens the source itself, and its answer now
 			// WRITES a placement, so it has to reach IMAP through the same
@@ -670,7 +658,7 @@ export const handleMessageDelete = async (
 					{ accountId, messageId, mailboxId },
 					"Mailbox cursor not normal; pausing outbound delete this round and settling the row against the server",
 				);
-				await settlePaused(false).finally(() => scope.disconnect());
+				await settlePaused(false).finally(() => scope.release());
 				return;
 			}
 
@@ -855,7 +843,7 @@ export const handleMessageDelete = async (
 						return;
 					}
 
-					if (receiveCount < MESSAGE_DELETE_MAX_ATTEMPTS) {
+					if (receiveCount < config.attempts.messageDelete) {
 						// Transient failure — connections drop. No alarm; redelivery
 						// retries, and `failed` marks the row unsettled meanwhile. It is
 						// not a terminal signal: only the resolver below settles anything.
@@ -882,7 +870,7 @@ export const handleMessageDelete = async (
 						"Delete retry exhausted; settled into a terminal outcome",
 					);
 				})
-				.finally(() => scope.disconnect());
+				.finally(() => scope.release());
 		},
 	);
 };
