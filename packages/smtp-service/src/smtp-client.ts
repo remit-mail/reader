@@ -87,7 +87,6 @@ const buildSmtpAuth = (
 export const sendMail = async (
 	config: SmtpConfig,
 	message: MailMessage,
-	getSocket: SmtpGetSocket,
 ): Promise<SendResult> => {
 	const timeout = config.connectionTimeout ?? 30_000;
 	const transporter = nodemailer.createTransport({
@@ -95,7 +94,6 @@ export const sendMail = async (
 		port: config.port,
 		secure: config.secure,
 		auth: buildSmtpAuth(config.user, config.credentials),
-		getSocket,
 		tls: config.tls,
 		connectionTimeout: timeout,
 		greetingTimeout: timeout,

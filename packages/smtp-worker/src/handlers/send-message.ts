@@ -17,7 +17,6 @@ import {
 import { createSecretsService } from "@remit/secrets-service";
 import { createKmsDataKeyProvider } from "@remit/secrets-service/kms";
 import { sendMail } from "@remit/smtp-service";
-import { nodeSocket } from "@remit/smtp-service/node-socket";
 import { createStandardQueueProducer } from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
@@ -186,7 +185,7 @@ export const handleSendMessage = (
 					lastError === undefined ? ["lastError"] : undefined,
 				);
 			},
-			send: (config, message) => sendMail(config, message, nodeSocket()),
+			send: sendMail,
 			loadAttachments,
 			emitAppendSentMessage,
 			engagement: {

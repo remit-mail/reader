@@ -14,10 +14,9 @@ import type { SecretsService } from "@remit/secrets-service";
 import {
 	buildMailMessage,
 	type MailAttachment,
-	type MailMessage,
 	type SendResult,
-	type SmtpConfig,
 	SmtpConnectionError,
+	type sendMail,
 } from "@remit/smtp-service";
 import { attemptBudget } from "@remit/sqs-client/attempt-budget";
 import type { SendMessageEvent } from "../events.js";
@@ -103,7 +102,7 @@ export interface SendMessageDeps {
 		state: string,
 		lastError?: string,
 	) => Promise<void>;
-	send: (config: SmtpConfig, message: MailMessage) => Promise<SendResult>;
+	send: typeof sendMail;
 	loadAttachments: (
 		tenant: SendTenant,
 		outboxMessageId: string,
