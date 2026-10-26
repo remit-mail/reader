@@ -15,7 +15,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
           cache: npm
@@ -29,7 +29,7 @@ jobs:
         uses: ./.github/actions/hunspell
       - name: Build Storybook
         run: npm run build-storybook
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: storybook-main
           path: packages/workbench/storybook-static
@@ -59,7 +59,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 1
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
       - uses: actions/download-artifact@v8

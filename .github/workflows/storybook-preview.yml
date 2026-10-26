@@ -41,7 +41,7 @@ jobs:
             .nvmrc
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -93,7 +93,7 @@ jobs:
             .github/actions
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
@@ -136,7 +136,7 @@ jobs:
           path: pr-source
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         if: steps.guard.outputs.eligible == 'true'
         with:
           node-version-file: .nvmrc
@@ -172,7 +172,7 @@ jobs:
 
       - name: Upload the preview build
         if: steps.guard.outputs.eligible == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: storybook-preview-${{ env.PR_NUMBER }}
           path: pr-source/packages/workbench/storybook-static
@@ -221,7 +221,7 @@ jobs:
             .nvmrc
           sparse-checkout-cone-mode: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .nvmrc
 
