@@ -1,4 +1,4 @@
-import { isPublicApiError } from "@remit/data-ports/errors";
+import { HostRefusedError, isPublicApiError } from "@remit/data-ports/errors";
 import { logger } from "@remit/logger";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import { formatResponse } from "./response.js";
@@ -42,6 +42,22 @@ export const defaultErrorCode = (statusCode: number): string => {
 export const handleError = async (
 	error: unknown,
 ): Promise<APIGatewayProxyResult> => {
+	if (error instanceof HostRefusedError) {
+		logger.error(
+			{
+				error: error.message,
+				errorKind: "quota",
+				statusCode: error.statusCode,
+				stack: error.stack,
+			},
+			"Host refused the request",
+		);
+		return formatResponse(
+			{ code: "request_refused", message: error.message },
+			error.statusCode,
+		);
+	}
+
 	if (error instanceof Error) {
 		if ("statusCode" in error) {
 			logger.error(

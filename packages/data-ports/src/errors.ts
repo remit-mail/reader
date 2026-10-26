@@ -178,6 +178,22 @@ export class UnrecoverableBodyError extends HTTPError {
 	public override statusCode = 422;
 }
 
+/**
+ * The host refused the work because a quota or platform limit was reached. The
+ * host decides what counts: its port adapters translate their platform's limit
+ * errors into this one, so the shared mapping answers 429 without reading a
+ * message. The message is the host's, written for the person who hit the limit.
+ */
+export class HostRefusedError extends HTTPError {
+	override name = "HostRefusedError";
+	public override statusCode = 429;
+
+	constructor(message: string, cause: unknown) {
+		super(message, { cause });
+		this.publicApiError = { code: "request_refused" };
+	}
+}
+
 export class CreateFailedConflictError extends ConflictError {
 	public override statusCode = 409;
 	override name = "CreateFailedConflictError";

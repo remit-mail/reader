@@ -11,6 +11,7 @@ import type {
 	UpdateAccountInput as AccountUpdate,
 	IAccountRepository,
 } from "@remit/data-ports";
+import { ensureAccountConfig } from "@remit/data-ports/account-config";
 import {
 	AccountAuthType,
 	AccountService,
@@ -64,7 +65,6 @@ import {
 	loadSignatureForAccount,
 	upsertAccountSignature,
 } from "./account-signature.js";
-import { ensureAccountConfig } from "./ensure-account-config.js";
 import { resolveAccountFolderAppointments } from "./folder-role-appointments.js";
 
 export { assertNotOAuthCreate, assertPasswordProvided, toAccountResponse };

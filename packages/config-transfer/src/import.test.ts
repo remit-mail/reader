@@ -50,7 +50,6 @@ const IDENTITY = {
 };
 
 const TARGET_CONFIG_ID = "1a2b3c4d5e6f7a8b9c0d1e2f3";
-const TARGET_USER_ID = "9f8e7d6c-5b4a-4938-8271-605f4e3d2c1b";
 
 const INBOX_ID = "mbx-inbox";
 const SENT_ID = "mbx-sent";
@@ -541,7 +540,6 @@ const apply = (
 ) =>
 	importConfig(depsOf(store, TARGET_CONFIG_ID), {
 		accountConfigId: TARGET_CONFIG_ID,
-		userId: TARGET_USER_ID,
 		document,
 		mode: "apply",
 		onExisting,
@@ -647,7 +645,6 @@ test("validate writes nothing and still says what an apply would do", async () =
 
 	const outcome = await importConfig(depsOf(store, TARGET_CONFIG_ID), {
 		accountConfigId: TARGET_CONFIG_ID,
-		userId: TARGET_USER_ID,
 		document,
 		mode: "validate",
 		onExisting: "abort",
@@ -675,7 +672,6 @@ test("a configuration that already holds something refuses the default import", 
 
 	const outcome = await importConfig(depsOf(store, ACCOUNT_CONFIG_ID), {
 		accountConfigId: ACCOUNT_CONFIG_ID,
-		userId: TARGET_USER_ID,
 		document,
 		mode: "apply",
 		onExisting: "abort",
@@ -702,7 +698,6 @@ test("a junk-only sender the user decided about still holds the configuration", 
 
 	const outcome = await importConfig(depsOf(store, ACCOUNT_CONFIG_ID), {
 		accountConfigId: ACCOUNT_CONFIG_ID,
-		userId: TARGET_USER_ID,
 		document,
 		mode: "apply",
 		onExisting: "abort",
@@ -918,7 +913,6 @@ test("the dry run names the filters an apply would leave off", async () => {
 
 	const outcome = await importConfig(depsOf(store, TARGET_CONFIG_ID), {
 		accountConfigId: TARGET_CONFIG_ID,
-		userId: TARGET_USER_ID,
 		document,
 		mode: "validate",
 		onExisting: "abort",
@@ -1521,7 +1515,6 @@ test("the dry run names the same folders and credentials the apply does", async 
 	const planned = reportOf(
 		await importConfig(depsOf(planStore, TARGET_CONFIG_ID), {
 			accountConfigId: TARGET_CONFIG_ID,
-			userId: TARGET_USER_ID,
 			document,
 			mode: "validate",
 			onExisting: "abort",
@@ -1595,7 +1588,7 @@ test("the configuration row is created when the database holds none, and named f
 	assert.equal(store.accountConfigs.get(TARGET_CONFIG_ID)?.name, "Matthijs");
 	assert.equal(
 		store.accountConfigs.get(TARGET_CONFIG_ID)?.userId,
-		TARGET_USER_ID,
+		TARGET_CONFIG_ID,
 	);
 	assert.equal(
 		store.settings.get("DefaultComposerFormat")?.value.value,
