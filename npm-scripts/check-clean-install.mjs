@@ -63,6 +63,7 @@ const RESOLVES = [
 	"@remit/api-zod-schemas",
 	"@remit/drizzle-sqlite-schema",
 	"@remit/imap-worker/process",
+	"@remit/imap-worker/scheduler-tick",
 	"@remit/smtp-worker/process",
 	"@remit/account-worker/process",
 ];

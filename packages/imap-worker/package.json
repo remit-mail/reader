@@ -16,6 +16,10 @@
       "types": "./src/scheduler/handler.ts",
       "default": "./src/scheduler/handler.ts"
     },
+    "./scheduler-tick": {
+      "types": "./src/scheduler/tick.ts",
+      "default": "./src/scheduler/tick.ts"
+    },
     "./mailbox-management": {
       "types": "./src/handlers/mailbox-management.ts",
       "default": "./src/handlers/mailbox-management.ts"
@@ -40,6 +44,10 @@
       "./scheduler": {
         "types": "./dist/scheduler/handler.d.ts",
         "default": "./dist/scheduler/handler.js"
+      },
+      "./scheduler-tick": {
+        "types": "./dist/scheduler/tick.d.ts",
+        "default": "./dist/scheduler/tick.js"
       },
       "./mailbox-management": {
         "types": "./dist/handlers/mailbox-management.d.ts",

@@ -5,11 +5,13 @@ import type { ScheduledHandler } from "aws-lambda";
 import { lambdaEmitEvent } from "../lambda-context.js";
 import type { WorkerQueues } from "../queues.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
-import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
-import { runSchedulerTick } from "./run-tick.js";
-import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
+import {
+	buildAttachmentSweep,
+	redriveStrandedPlacements,
+	runSchedulerTick,
+} from "./tick.js";
 
 installNodeLogger();
 
@@ -41,8 +43,8 @@ export const buildScheduledHandler = (queues: WorkerQueues): ScheduledHandler =>
 			accountService: client.account,
 			queue: queues.mailboxes,
 			log,
-			tickIntervalMs: getTickIntervalMs(),
-			offlineIntervalMs: getOfflineIntervalMs(),
+			tickIntervalMs: getTickIntervalMs(process.env),
+			offlineIntervalMs: getOfflineIntervalMs(process.env),
 			now,
 			// The hosted side is the one that needs this: a browser PUTs straight
 			// to block storage, so nothing refuses an upload against a draft that is

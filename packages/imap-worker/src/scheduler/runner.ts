@@ -9,12 +9,14 @@ import { clearHeartbeats, createHeartbeat } from "@remit/sqs-client/heartbeat";
 
 import { lambdaEmitEvent } from "../lambda-context.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "../sqs-queues.js";
-import { buildAttachmentSweep } from "./attachment-sweep.js";
 import { buildCalendarSubscriptionRefresh } from "./calendar-subscriptions.js";
 import { getOfflineIntervalMs, getTickIntervalMs } from "./config.js";
 import { runSchedulerLoop } from "./loop.js";
-import { runSchedulerTick } from "./run-tick.js";
-import { redriveStrandedPlacements } from "./stranded-placement-redrive.js";
+import {
+	buildAttachmentSweep,
+	redriveStrandedPlacements,
+	runSchedulerTick,
+} from "./tick.js";
 
 installNodeLogger();
 
@@ -42,8 +44,8 @@ const log = createLogger();
 
 const queues = sqsWorkerQueues(workerQueueUrlsFromEnv());
 
-const tickIntervalMs = getTickIntervalMs();
-const offlineIntervalMs = getOfflineIntervalMs();
+const tickIntervalMs = getTickIntervalMs(process.env);
+const offlineIntervalMs = getOfflineIntervalMs(process.env);
 
 // A persistent failure (e.g. Postgres not up yet at container boot) throws
 // before the loop ever reaches its own `delay`, so `restart: unless-stopped`

@@ -22,33 +22,33 @@
  * see deploy/vps/docker-compose.sqlite.yml's `scheduler` service.
  */
 
-const DEFAULT_TICK_INTERVAL_SECONDS = 60 * 60; // 1 hour
-const DEFAULT_OFFLINE_INTERVAL_SECONDS = 12 * 60 * 60; // 12 hours
+export const DEFAULT_TICK_INTERVAL_MS = 60 * 60 * 1000;
+export const DEFAULT_OFFLINE_INTERVAL_MS = 12 * 60 * 60 * 1000;
 
-const parsePositiveIntSeconds = (
+const parsePositiveSecondsAsMs = (
 	raw: string | undefined,
-	fallback: number,
+	fallbackMs: number,
 ): number => {
-	if (!raw) return fallback;
+	if (!raw) return fallbackMs;
 	const parsed = Number.parseInt(raw, 10);
-	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+	return Number.isFinite(parsed) && parsed > 0 ? parsed * 1000 : fallbackMs;
 };
 
 export const getTickIntervalMs = (
-	env: NodeJS.ProcessEnv = process.env,
+	env: Readonly<Record<string, string | undefined>>,
 ): number =>
-	parsePositiveIntSeconds(
+	parsePositiveSecondsAsMs(
 		env.MAILBOX_SYNC_TICK_INTERVAL_SECONDS,
-		DEFAULT_TICK_INTERVAL_SECONDS,
-	) * 1000;
+		DEFAULT_TICK_INTERVAL_MS,
+	);
 
 export const getOfflineIntervalMs = (
-	env: NodeJS.ProcessEnv = process.env,
+	env: Readonly<Record<string, string | undefined>>,
 ): number =>
-	parsePositiveIntSeconds(
+	parsePositiveSecondsAsMs(
 		env.MAILBOX_SYNC_OFFLINE_INTERVAL_SECONDS,
-		DEFAULT_OFFLINE_INTERVAL_SECONDS,
-	) * 1000;
+		DEFAULT_OFFLINE_INTERVAL_MS,
+	);
 
 // Page size + enqueue concurrency are implementation details of the tick
 // itself, not stage config — unlike the two intervals above, nothing outside
