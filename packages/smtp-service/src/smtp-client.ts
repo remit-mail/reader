@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import type { SMTPTransportGetSocket } from "nodemailer/lib/smtp-transport";
 import { type MailMessage, toNodemailerOptions } from "./message-builder.js";
 
 /**
@@ -30,6 +31,8 @@ export class SmtpConnectionError extends Error {
 		this.kind = kind;
 	}
 }
+
+export type SmtpGetSocket = SMTPTransportGetSocket;
 
 export interface SmtpConfig {
 	host: string;

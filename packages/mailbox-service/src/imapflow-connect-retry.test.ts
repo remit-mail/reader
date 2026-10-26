@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { createServer, type Server, type Socket } from "node:net";
 import { after, describe, it } from "node:test";
+import type { ImapTransport } from "imapflow";
 import { ImapFlowConnection } from "./imapflow-connection.js";
+import { nodeTransport } from "./node-transport.js";
 import { MailConnectionError } from "./types.js";
 
 const servers: Server[] = [];
@@ -60,14 +62,32 @@ const closedPort = async (): Promise<number> => {
 	return port;
 };
 
-const connectTo = (port: number) =>
+const connectTo = (port: number, transport: ImapTransport = nodeTransport()) =>
 	new ImapFlowConnection({
 		host: "127.0.0.1",
 		port,
 		user: "alice@example.com",
 		credentials: { kind: "password", password: "s3cr3t" },
 		tls: false,
+		transport,
 	}).connect();
+
+const recordingTransport = (
+	opened: { host: string; port: number; secure: boolean }[],
+): ImapTransport => {
+	const node = nodeTransport();
+	return {
+		...node,
+		connect: (options, onConnect) => {
+			opened.push({
+				host: options.host,
+				port: options.port,
+				secure: options.secure,
+			});
+			return node.connect(options, onConnect);
+		},
+	};
+};
 
 describe("ImapFlowConnection.connect() retry policy", () => {
 	it("retries a refused connection, then names the endpoint in a network error", async () => {
@@ -92,6 +112,19 @@ describe("ImapFlowConnection.connect() retry policy", () => {
 			assert.match(error.message, /SmtpClientAuthentication is disabled/);
 			return true;
 		});
+		assert.equal(state.connections, 1);
+	});
+
+	it("opens the session through the transport the host configured", async () => {
+		const { port, state } = await refusingLogin("LOGIN failed.");
+		const opened: { host: string; port: number; secure: boolean }[] = [];
+
+		await assert.rejects(
+			connectTo(port, recordingTransport(opened)),
+			MailConnectionError,
+		);
+
+		assert.deepEqual(opened, [{ host: "127.0.0.1", port, secure: false }]);
 		assert.equal(state.connections, 1);
 	});
 });

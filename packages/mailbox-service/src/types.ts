@@ -3,6 +3,9 @@
  */
 
 import type { Readable } from "node:stream";
+import type { ImapTransport } from "imapflow";
+
+export type { ImapTransport };
 
 /**
  * Discriminated union of mail authentication credentials.
@@ -46,6 +49,7 @@ export interface ImapConnectionConfig {
 	user: string;
 	credentials: MailCredentials;
 	tls: boolean;
+	transport: ImapTransport;
 	tlsOptions?: {
 		rejectUnauthorized?: boolean;
 		servername?: string;

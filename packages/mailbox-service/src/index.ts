@@ -68,8 +68,9 @@ export {
 } from "./classify-message.js";
 // Connection factory
 export {
+	type ConnectionScope,
+	connectionScope,
 	createConnection,
-	createConnectionFromAccount,
 	createConnectionWithCredentials,
 	createManagedConnectionFactory,
 	type ManagedConnectionFactory,
@@ -171,11 +172,7 @@ export {
 export { SOCIAL_DOMAINS } from "./heuristics/socialDomains.js";
 export { TRANSACTIONAL_DOMAINS } from "./heuristics/transactionalDomains.js";
 // IMAP connection (ImapFlow-based)
-export {
-	createImapFlowConnectionFromAccount,
-	createImapFlowConnectionWithCredentials,
-	ImapFlowConnection,
-} from "./imapflow-connection.js";
+export { ImapFlowConnection } from "./imapflow-connection.js";
 export {
 	backfillListIds,
 	type ListIdBackfillCheckpoint,
@@ -399,6 +396,7 @@ export type {
 	ImapConnectionState,
 	ImapNamespace,
 	ImapNamespaces,
+	ImapTransport,
 	MailboxSyncResult,
 	MailConnectionErrorKind,
 	MailCredentials,

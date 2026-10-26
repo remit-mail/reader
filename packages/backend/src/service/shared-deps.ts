@@ -1,3 +1,4 @@
+import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import {
 	createCachedDataKeyProvider,
 	createSecretsService,
@@ -12,7 +13,10 @@ import {
 } from "@remit/sqs-client/producer";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
-import type { RemitClientSharedDeps } from "./create-remit-client.js";
+import {
+	passwordConnectionScope,
+	type RemitClientSharedDeps,
+} from "./create-remit-client.js";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
 export type SqsQueueUrls = Record<QueueName, string>;
@@ -44,5 +48,6 @@ export const buildSharedDeps = (
 			createKmsDataKeyProvider(process.env.KMS_KEY_ID ?? FAKE_KMS_KEY_ID),
 		),
 	),
+	connectionScope: passwordConnectionScope(nodeTransport()),
 	queues,
 });

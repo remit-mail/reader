@@ -23,6 +23,7 @@ import {
 	type MailCredentials,
 	standardMailboxManagement,
 } from "@remit/mailbox-service";
+import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
@@ -214,6 +215,7 @@ const syncMailboxesForAccount = async (
 			imapTls: account.imapTls,
 		},
 		credentials,
+		nodeTransport(),
 	);
 
 	await connection.connect();

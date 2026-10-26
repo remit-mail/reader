@@ -34,12 +34,13 @@ import { logger } from "@remit/logger";
 import {
 	BodySyncQueueService,
 	BodySyncService,
-	createConnection,
+	type ConnectionScope,
+	connectionScope,
 	type FilterConfig,
 	FlagPushService,
 	FlagQueueService,
 	fifoMailboxManagement,
-	type IImapConnection,
+	type ImapTransport,
 	MailboxQueueService,
 	MessageMoveService,
 	OutboxAttachmentService,
@@ -56,10 +57,12 @@ import {
 import type { StorageService } from "@remit/storage-service";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
-export interface ConnectionScope {
-	getConnection: () => Promise<IImapConnection>;
-	disconnect: () => Promise<void>;
-}
+export type { ConnectionScope };
+
+export type ConnectionScopeFactory = (
+	accountService: IAccountRepository,
+	secretsService: SecretsService,
+) => (accountId: string) => Promise<ConnectionScope>;
 
 export interface RemitClientCore {
 	// Data repositories (satisfied by ElectroDB services or Drizzle repos)
@@ -220,6 +223,7 @@ export interface RemitClientRepositories {
 export interface RemitClientSharedDeps {
 	storage: StorageService;
 	secrets: SecretsService;
+	connectionScope: ConnectionScopeFactory;
 	queues: RemitClientQueues;
 }
 
@@ -227,9 +231,10 @@ export interface RemitClientDeps extends RemitClientSharedDeps {
 	repositories: RemitClientRepositories;
 }
 
-const buildConnectionScope =
-	(accountService: IAccountRepository, secretsService: SecretsService) =>
-	async (accountId: string): Promise<ConnectionScope> => {
+export const passwordConnectionScope =
+	(transport: ImapTransport): ConnectionScopeFactory =>
+	(accountService, secretsService) =>
+	async (accountId) => {
 		const account = await accountService.get(accountId);
 		if (!account.passwordHash) {
 			throw new Error(
@@ -240,36 +245,14 @@ const buildConnectionScope =
 			deserializeEncryptedPayload(JSON.parse(account.passwordHash)),
 		);
 
-		let connection: IImapConnection | null = null;
-		let connectPromise: Promise<IImapConnection> | null = null;
-
-		const getConnection = async (): Promise<IImapConnection> => {
-			if (connectPromise) {
-				return connectPromise;
-			}
-
-			const conn = createConnection({
-				user: account.username,
-				credentials: { kind: "password", password },
-				host: account.imapHost,
-				port: account.imapPort,
-				tls: account.imapTls,
-			});
-			connection = conn;
-			connectPromise = conn.connect().then(() => conn);
-
-			return connectPromise;
-		};
-
-		const disconnect = async (): Promise<void> => {
-			if (connection) {
-				await connection.disconnect();
-				connection = null;
-				connectPromise = null;
-			}
-		};
-
-		return { getConnection, disconnect };
+		return connectionScope({
+			user: account.username,
+			credentials: { kind: "password", password },
+			host: account.imapHost,
+			port: account.imapPort,
+			tls: account.imapTls,
+			transport,
+		});
 	};
 
 // The read-path body backfill (describeMessage / getRawMessage →
@@ -316,7 +299,7 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets } = deps;
+	const { repositories, storage, secrets, connectionScope } = deps;
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
@@ -357,7 +340,7 @@ export const createRemitCore = (
 			outboxAttachmentService: repositories.outboxAttachment,
 			storage,
 		}),
-		createConnectionScope: buildConnectionScope(repositories.account, secrets),
+		createConnectionScope: connectionScope(repositories.account, secrets),
 	};
 };
 

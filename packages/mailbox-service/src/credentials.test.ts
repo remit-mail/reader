@@ -5,7 +5,6 @@
  * 1. Auth object construction — imapflow auth shape for each credential kind
  * 2. Exhaustiveness — TypeScript catches missing cases via `never`
  * 3. Token-leak assertion — accessToken never in serialized error
- * 4. Error classification — createImapFlowConnectionFromAccount wires password
  */
 
 import assert from "node:assert/strict";

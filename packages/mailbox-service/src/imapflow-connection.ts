@@ -271,6 +271,7 @@ export class ImapFlowConnection {
 			host: this.config.host,
 			port: this.config.port,
 			secure: this.config.tls,
+			transport: this.config.transport,
 			servername: this.config.tlsOptions?.servername,
 			auth,
 			tls: tlsOptions,
@@ -860,7 +861,7 @@ export class ImapFlowConnection {
 	private convertEnvelope = (
 		envelope:
 			| {
-					date?: Date;
+					date?: Date | string;
 					subject?: string;
 					from?: Array<{ name?: string; address?: string }>;
 					sender?: Array<{ name?: string; address?: string }>;
@@ -1266,6 +1267,9 @@ export class ImapFlowConnection {
 			uidValidity: true,
 			highestModseq: true,
 		});
+		if (status === false) {
+			throw new Error(`IMAP STATUS returned no result for ${mailboxPath}`);
+		}
 
 		const deletedCount = await this.countDeleted(mailboxPath);
 
@@ -1340,48 +1344,6 @@ export class ImapFlowConnection {
 		}
 	};
 }
-
-/**
- * Create an ImapFlow connection from account data using password credentials.
- */
-export const createImapFlowConnectionFromAccount = (
-	account: {
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-		username: string;
-	},
-	password: string,
-): ImapFlowConnection => {
-	return new ImapFlowConnection({
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-		user: account.username,
-		credentials: { kind: "password", password },
-	});
-};
-
-/**
- * Create an ImapFlow connection using a credentials union (password or OAuth access token).
- */
-export const createImapFlowConnectionWithCredentials = (
-	account: {
-		imapHost: string;
-		imapPort: number;
-		imapTls: boolean;
-		username: string;
-	},
-	credentials: import("./types.js").MailCredentials,
-): ImapFlowConnection => {
-	return new ImapFlowConnection({
-		host: account.imapHost,
-		port: account.imapPort,
-		tls: account.imapTls,
-		user: account.username,
-		credentials,
-	});
-};
 
 /**
  * Build the imapflow auth object from mail credentials.

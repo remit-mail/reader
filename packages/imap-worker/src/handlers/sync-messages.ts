@@ -29,6 +29,7 @@ import {
 	type SyncedMessage,
 	SyncWarningService,
 } from "@remit/mailbox-service";
+import { nodeTransport } from "@remit/mailbox-service/node-transport";
 import pMap from "p-map";
 import {
 	isAccountDeleted,
@@ -77,6 +78,7 @@ export const managedConnectionFor = (
 		host: account.imapHost,
 		port: account.imapPort,
 		tls: account.imapTls,
+		transport: nodeTransport(),
 	});
 
 export const syncMessages = async (
