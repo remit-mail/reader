@@ -11,6 +11,10 @@
 		"./message-builder": {
 			"types": "./src/message-builder.ts",
 			"default": "./src/message-builder.ts"
+		},
+		"./test-fake-smtp": {
+			"types": "./src/test-fake-smtp.ts",
+			"default": "./src/test-fake-smtp.ts"
 		}
 	},
 	"scripts": {

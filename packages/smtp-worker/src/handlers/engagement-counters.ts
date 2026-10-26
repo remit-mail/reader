@@ -1,7 +1,31 @@
-import type { OutboxMessageItem } from "@remit/data-ports";
+import type { MessageItem, OutboxMessageItem } from "@remit/data-ports";
 import { bareMessageId, wireMessageId } from "@remit/data-ports/id";
 import type { Logger } from "@remit/logger";
-import type { EngagementCounterDeps, SendTenant } from "./send-message-core.js";
+
+/** Tenant scope carried from the loaded account, never read off a looked-up row. */
+export interface SendTenant {
+	accountConfigId: string;
+	accountId: string;
+}
+
+export interface EngagementCounterDeps {
+	resolveAddressId: (accountConfigId: string, email: string) => string;
+	incrementOutboundCount: (
+		accountConfigId: string,
+		addressId: string,
+		now: number,
+	) => Promise<void>;
+	incrementReplyCount: (
+		accountConfigId: string,
+		addressId: string,
+		now: number,
+	) => Promise<void>;
+	findMessageByHeader: (
+		accountId: string,
+		messageIdHeader: string,
+	) => Promise<MessageItem | null>;
+	getEnvelopeFromEmail: (messageId: string) => Promise<string | null>;
+}
 
 /**
  * Engagement counters for an outbound send.
@@ -65,7 +89,7 @@ const normalizeEmail = (raw: string): string | null => {
 	const trimmed = raw.trim();
 	if (trimmed === "") return null;
 	const angle = trimmed.match(/<([^>]+)>/);
-	const candidate = angle ? angle[1] : trimmed;
+	const candidate = angle?.[1] ?? trimmed;
 	if (!candidate.includes("@")) return null;
 	return candidate.toLowerCase();
 };

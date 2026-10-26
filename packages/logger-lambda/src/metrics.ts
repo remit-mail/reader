@@ -4,6 +4,7 @@ import {
 	type Server,
 	type ServerResponse,
 } from "node:http";
+import type { MailFailureKind } from "@remit/logger";
 import {
 	Counter,
 	collectDefaultMetrics,
@@ -50,12 +51,7 @@ const DURATION_BUCKETS_SECONDS = [0.05, 0.25, 1, 5, 15, 60, 300];
 
 export type HandlerOutcome = "success" | "failure";
 
-/**
- * Authentication is its own kind because it is the one class that never
- * resolves itself: an expired grant or a changed password fails identically
- * forever, and it is the most common way a self-hosted mailbox goes quiet.
- */
-export type MailFailureKind = "auth" | "network" | "other";
+export type { MailFailureKind };
 
 const handlerDurationSeconds = new Histogram({
 	name: "remit_handler_duration_seconds",
@@ -194,7 +190,7 @@ export const resetMetrics = (): void => {
 export const queueNameFromEventSource = (
 	eventSourceArn: string | undefined,
 ): string => {
-	const withoutQuery = (eventSourceArn ?? "").split("?")[0];
+	const [withoutQuery = ""] = (eventSourceArn ?? "").split("?");
 	const segments = withoutQuery.split(/[/:]/).filter(Boolean);
 	return segments.at(-1) ?? "unknown";
 };

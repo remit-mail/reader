@@ -1,4 +1,4 @@
-import { getClient, type RemitClient } from "@remit/backend/client";
+import type { RemitClient } from "@remit/backend/client";
 import {
 	type ApplyOrganizeDeps,
 	applyOrganize,
@@ -16,7 +16,7 @@ import type { Logger } from "@remit/logger";
 import type { OrganizeJobEvent } from "../events.js";
 
 export interface ProcessOrganizeJobDeps {
-	client?: RemitClient;
+	client: RemitClient<"messageManagement">;
 	matchDeps?: OrganizeMatchDeps;
 	moveService?: ApplyOrganizeDeps["moveService"];
 }
@@ -42,7 +42,7 @@ const rejectedOutcome = (rejected: OrganizeRejection): OrganizeOutcome => ({
  * folder, every requested move applied (reader #497).
  */
 const runSnapshot = async (
-	client: RemitClient,
+	client: RemitClient<"messageManagement">,
 	matchDeps: OrganizeMatchDeps,
 	moveService: ApplyOrganizeDeps["moveService"],
 	job: Awaited<ReturnType<RemitClient["organizeJobRequest"]["get"]>>,
@@ -95,10 +95,10 @@ const runSnapshot = async (
 export const processOrganizeJob = async (
 	event: OrganizeJobEvent,
 	log: Logger,
-	deps: ProcessOrganizeJobDeps = {},
+	deps: ProcessOrganizeJobDeps,
 ): Promise<void> => {
 	const { accountConfigId, organizeJobId } = event;
-	const client = deps.client ?? (await getClient());
+	const { client } = deps;
 
 	const job = await client.organizeJobRequest.get(organizeJobId);
 	await client.organizeJobRequest.update(organizeJobId, { state: "Running" });

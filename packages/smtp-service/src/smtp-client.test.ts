@@ -3,80 +3,22 @@ import net from "node:net";
 import { after, describe, it } from "node:test";
 import type { MailMessage } from "./message-builder.js";
 import {
+	directSmtpSocket,
 	type SmtpConfig,
 	SmtpConnectionError,
 	type SmtpCredentials,
 	sendMail,
 } from "./smtp-client.js";
+import {
+	type FakeSmtp,
+	type FakeSmtpOptions,
+	startFakeSmtp,
+} from "./test-fake-smtp.js";
 
-interface FakeSmtpOptions {
-	authResponse?: string;
-	dataFinalResponse?: string;
-	dropAfterGreeting?: boolean;
+interface SocketRequest {
+	host: string | undefined;
+	port: string | number | undefined;
 }
-
-interface FakeSmtp {
-	port: number;
-	authCommands: string[];
-	close: () => void;
-}
-
-const startFakeSmtp = (opts: FakeSmtpOptions = {}): Promise<FakeSmtp> =>
-	new Promise((resolve) => {
-		const authCommands: string[] = [];
-		const server = net.createServer((socket) => {
-			if (opts.dropAfterGreeting) {
-				socket.destroy();
-				return;
-			}
-			socket.write("220 fake ESMTP\r\n");
-			let inData = false;
-			socket.on("data", (buffer) => {
-				const line = buffer.toString();
-				if (inData) {
-					if (line.includes("\r\n.\r\n")) {
-						inData = false;
-						socket.write(opts.dataFinalResponse ?? "250 2.0.0 Ok\r\n");
-					}
-					return;
-				}
-				const command = line.slice(0, 4).toUpperCase();
-				if (command.startsWith("EHLO") || command.startsWith("HELO")) {
-					socket.write("250-fake\r\n250 AUTH PLAIN LOGIN XOAUTH2\r\n");
-					return;
-				}
-				if (command.startsWith("AUTH")) {
-					authCommands.push(line.trim());
-					socket.write(opts.authResponse ?? "235 2.7.0 Accepted\r\n");
-					return;
-				}
-				if (command.startsWith("MAIL") || command.startsWith("RCPT")) {
-					socket.write("250 2.1.0 Ok\r\n");
-					return;
-				}
-				if (command.startsWith("DATA")) {
-					socket.write("354 End data\r\n");
-					inData = true;
-					return;
-				}
-				if (command.startsWith("QUIT")) {
-					socket.write("221 Bye\r\n");
-					socket.end();
-					return;
-				}
-				socket.write("250 Ok\r\n");
-			});
-		});
-		server.listen(0, "127.0.0.1", () => {
-			const address = server.address();
-			const port = typeof address === "object" && address ? address.port : 0;
-			resolve({
-				port,
-				authCommands,
-				close: () => server.close(),
-			});
-		});
-	});
 
 const configFor = (
 	port: number,
@@ -88,6 +30,7 @@ const configFor = (
 	user: "user@example.com",
 	credentials,
 	connectionTimeout: 2000,
+	getSocket: directSmtpSocket,
 });
 
 const testMessage: MailMessage = {
@@ -119,6 +62,28 @@ describe("sendMail", () => {
 		assert.equal(result.success, true);
 		assert.equal(result.isTransient, false);
 		assert.ok(result.response);
+	});
+
+	it("talks to the server over the socket the host's factory opens", async () => {
+		const server = await spawn();
+		const requests: SocketRequest[] = [];
+		const result = await sendMail(
+			{
+				...configFor(server.port),
+				host: "smtp.invalid",
+				port: 2525,
+				getSocket: (request, callback) => {
+					requests.push({ host: request.host, port: request.port });
+					const connection = net.connect(server.port, "127.0.0.1", () =>
+						callback(null, { connection }),
+					);
+				},
+			},
+			testMessage,
+		);
+
+		assert.equal(result.success, true);
+		assert.deepEqual(requests, [{ host: "smtp.invalid", port: 2525 }]);
 	});
 
 	it("sends attachments through the transport", async () => {

@@ -1,3 +1,4 @@
+import { getClient } from "@remit/backend/client";
 import { createLogger, type Logger } from "@remit/logger";
 import {
 	queueNameFromEventSource,
@@ -20,10 +21,9 @@ import type {
 	AccountFanoutEvent,
 	AccountFinalizeEvent,
 } from "../events.js";
+import { processAccountFanoutEvent } from "../process.js";
 import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
-import { processOrganizeJob } from "./organize-job.js";
-import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
 
 installNodeLogger();
 
@@ -53,13 +53,11 @@ export const processAccountFanout = async (
 		return;
 	}
 
-	if (event.type === "OrganizeJob") {
-		await processOrganizeJob(event, log);
-		return;
-	}
-
-	if (event.type === "SenderCategoryBackApply") {
-		await processSenderCategoryBackApply(event, log);
+	if (
+		event.type === "OrganizeJob" ||
+		event.type === "SenderCategoryBackApply"
+	) {
+		await processAccountFanoutEvent(event, { client: await getClient() });
 		return;
 	}
 

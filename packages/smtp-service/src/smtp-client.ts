@@ -34,7 +34,7 @@ export class SmtpConnectionError extends Error {
 
 export type SmtpGetSocket = SMTPTransportGetSocket;
 
-export interface SmtpConfig {
+export interface SmtpServerConfig {
 	host: string;
 	port: number;
 	secure: boolean; // true for TLS (465), false for STARTTLS (587)
@@ -46,12 +46,20 @@ export interface SmtpConfig {
 	connectionTimeout?: number; // milliseconds, default 30000
 }
 
+export const directSmtpSocket: SmtpGetSocket = (_request, callback) => {
+	queueMicrotask(() => callback(null, false));
+};
+
+export interface SmtpConfig extends SmtpServerConfig {
+	getSocket: SmtpGetSocket;
+}
+
 export interface SendResult {
 	success: boolean;
-	messageId?: string;
-	response?: string;
-	error?: Error;
-	smtpCode?: number;
+	messageId?: string | undefined;
+	response?: string | undefined;
+	error?: Error | undefined;
+	smtpCode?: number | undefined;
 	isTransient: boolean;
 }
 
@@ -98,6 +106,7 @@ export const sendMail = async (
 		connectionTimeout: timeout,
 		greetingTimeout: timeout,
 		socketTimeout: 300_000,
+		getSocket: config.getSocket,
 	});
 
 	return transporter

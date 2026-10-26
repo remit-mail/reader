@@ -3,7 +3,7 @@ import {
 	deserializeEncryptedPayload,
 	type SecretsService,
 } from "@remit/secrets-service";
-import type { SmtpConfig } from "@remit/smtp-service";
+import type { SmtpServerConfig } from "@remit/smtp-service";
 
 export interface SmtpConfigMissing {
 	ok: false;
@@ -12,7 +12,7 @@ export interface SmtpConfigMissing {
 
 export interface SmtpConfigResolved {
 	ok: true;
-	config: SmtpConfig;
+	config: SmtpServerConfig;
 }
 
 export type ResolvedSmtpConfig = SmtpConfigResolved | SmtpConfigMissing;

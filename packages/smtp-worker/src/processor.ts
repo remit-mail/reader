@@ -1,10 +1,14 @@
 import type { Logger } from "@remit/logger";
 import type { SmtpEvent } from "./events.js";
-import { handleSendMessage } from "./handlers/send-message.js";
+import {
+	handleSendMessage,
+	type SendMessageContext,
+} from "./handlers/send-message.js";
 
 export const processEvent = async (
 	event: SmtpEvent,
 	log: Logger,
+	ctx: SendMessageContext,
 	/**
 	 * SQS's own delivery count for the record carrying this event (1 on first
 	 * delivery). Read by SEND_MESSAGE so it knows from it when this is the
@@ -12,11 +16,11 @@ export const processEvent = async (
 	 * record, so it can resolve retry exhaustion into a terminal outcome
 	 * (issue #951) instead of dead-lettering blindly.
 	 */
-	receiveCount = 1,
+	receiveCount: number,
 ): Promise<void> => {
 	switch (event.type) {
 		case "SEND_MESSAGE":
-			return handleSendMessage(event, log, receiveCount);
+			return handleSendMessage(event, ctx, receiveCount);
 		case "PROCESS_OUTBOX":
 			// Future: batch process all queued messages
 			log.info(

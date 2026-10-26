@@ -15,3 +15,8 @@ export interface ProcessOutboxEvent extends BaseEvent {
 }
 
 export type SmtpEvent = SendMessageEvent | ProcessOutboxEvent;
+
+export interface AppendSentMessageEvent extends BaseEvent {
+	type: "APPEND_SENT_MESSAGE";
+	outboxMessageId: string;
+}

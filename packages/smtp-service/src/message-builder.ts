@@ -5,17 +5,17 @@ import nodemailer, { type SendMailOptions } from "nodemailer";
 export interface MailMessage {
 	from: string;
 	to: string[];
-	cc?: string[];
-	bcc?: string[];
-	replyTo?: string;
-	subject?: string;
-	text?: string;
-	html?: string;
+	cc?: string[] | undefined;
+	bcc?: string[] | undefined;
+	replyTo?: string | undefined;
+	subject?: string | undefined;
+	text?: string | undefined;
+	html?: string | undefined;
 	messageId: string;
-	inReplyTo?: string;
-	references?: string;
-	date?: Date;
-	attachments?: MailAttachment[];
+	inReplyTo?: string | undefined;
+	references?: string | undefined;
+	date?: Date | undefined;
+	attachments?: MailAttachment[] | undefined;
 }
 
 export interface MailAttachment {

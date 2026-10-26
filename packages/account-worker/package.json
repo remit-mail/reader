@@ -23,6 +23,10 @@
 		"./finalize": {
 			"types": "./src/handlers/account-finalize.ts",
 			"default": "./src/handlers/account-finalize.ts"
+		},
+		"./process": {
+			"types": "./src/process.ts",
+			"default": "./src/process.ts"
 		}
 	},
 	"scripts": {

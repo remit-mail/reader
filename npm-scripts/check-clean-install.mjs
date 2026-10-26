@@ -1,14 +1,14 @@
 #!/usr/bin/env node
 // Clean-install acceptance for the publish surface: a directory outside the
-// repo, holding @remit/backend and @remit/imap-worker as its declared
-// dependencies, must install and resolve their full transitive @remit
-// closure. Each manifest declares its @remit imports, so one package drags in
-// the rest; a name that fails to resolve is a manifest that would ship broken.
+// repo, declaring @remit/backend and the worker packages beside it, must
+// install and resolve their full transitive @remit closure. Each manifest declares its
+// @remit imports, so one package drags in the rest; a name that fails to
+// resolve is a manifest that would ship broken.
 //
 // The closure resolves to tarballs packed from this tree, not to the registry.
 // Installing the published packages instead would assert registry state: every
 // branch gets the same verdict, and a branch that fixes a broken publish can
-// never pass. Only those two are declared; the rest arrive because they
+// never pass. Only those roots are declared; the rest arrive because the roots
 // declare them, and `overrides` redirects each @remit name to its local
 // tarball whatever range the manifest asked for. Third-party dependencies still
 // resolve off the public registry, so a bad range in a manifest — an
@@ -28,8 +28,13 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 const INSTALLED = "@remit/backend";
 
-// Worker entries a host installs beside backend.
-const ALSO_INSTALLED = ["@remit/imap-worker"];
+// The worker packages a host installs beside backend for their `./process`
+// entries.
+const WORKERS = [
+	"@remit/imap-worker",
+	"@remit/smtp-worker",
+	"@remit/account-worker",
+];
 
 // The entries a consumer of @remit/backend must be able to resolve after
 // installing it alone, subpath exports included.
@@ -58,11 +63,13 @@ const RESOLVES = [
 	"@remit/api-zod-schemas",
 	"@remit/drizzle-sqlite-schema",
 	"@remit/imap-worker/process",
+	"@remit/smtp-worker/process",
+	"@remit/account-worker/process",
 ];
 
 const { workspace, generated } = remitClosure(repoRoot, [
 	INSTALLED,
-	...ALSO_INSTALLED,
+	...WORKERS,
 ]);
 assertCodegenRan(repoRoot, generated);
 
@@ -82,7 +89,7 @@ try {
 				version: "0.0.0",
 				private: true,
 				dependencies: Object.fromEntries(
-					[INSTALLED, ...ALSO_INSTALLED].map((name) => [
+					[INSTALLED, ...WORKERS].map((name) => [
 						name,
 						`file:${tarballs.get(name)}`,
 					]),
@@ -109,7 +116,7 @@ try {
 	);
 
 	console.log(
-		`Clean-install acceptance OK: installing ${[INSTALLED, ...ALSO_INSTALLED].join(" and ")} from this tree resolves ` +
+		`Clean-install acceptance OK: installing ${[INSTALLED, ...WORKERS].join(", ")} from this tree resolves ` +
 			`${RESOLVES.length} @remit entries.`,
 	);
 } finally {

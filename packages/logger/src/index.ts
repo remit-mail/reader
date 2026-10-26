@@ -1,3 +1,4 @@
+export type { MailFailureKind } from "./failure-kind.js";
 export { createLogger, logger, setLogger } from "./handle.js";
 export {
 	createJsonLogger,

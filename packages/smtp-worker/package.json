@@ -11,12 +11,16 @@
 		"./data-ports": {
 			"types": "./src/data-ports.ts",
 			"default": "./src/data-ports.ts"
+		},
+		"./process": {
+			"types": "./src/process.ts",
+			"default": "./src/process.ts"
 		}
 	},
 	"scripts": {
 		"bundle": "node build.mjs",
 		"test:typecheck": "tsgo --noEmit",
-		"test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --experimental-test-module-mocks --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-exclude='src/handlers/send-message.ts' --test-coverage-lines=83 --test 'src/**/*.test.ts'",
+		"test:run": "node $NODE_TEST_FLAGS --env-file=../../localhost-test-unit.env --experimental-test-module-mocks --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-exclude='src/**/*.test.ts' --test-coverage-exclude='src/**/*.test.tsx' --test-coverage-exclude='src/lambda-context.ts' --test-coverage-lines=83 --test 'src/**/*.test.ts'",
 		"test": "npm run test:typecheck && npm run test:run",
 		"dev": "node --import tsx src/e2e-processor-shim.ts"
 	},

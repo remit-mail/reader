@@ -1,4 +1,4 @@
-import type { MailFailureKind } from "@remit/logger-lambda/metrics";
+import type { MailFailureKind } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import { SmtpConnectionError } from "@remit/smtp-service";
 

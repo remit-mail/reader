@@ -81,7 +81,7 @@ export interface IOutboxMessageRepository {
 	markSent(
 		accountConfigId: string,
 		outboxMessageId: string,
-		fields: { sentAt: number; smtpMessageId?: string },
+		fields: { sentAt: number; smtpMessageId?: string | undefined },
 	): Promise<OutboxMessageItem>;
 	delete(accountConfigId: string, outboxMessageId: string): Promise<void>;
 	deleteMany(
