@@ -1,24 +1,6 @@
-import type {
-	IAccountRepository,
-	IAddressRepository,
-	IEnvelopeRepository,
-	IMessageRepository,
-	IOutboxAttachmentRepository,
-	IOutboxMessageRepository,
-} from "@remit/data-ports";
+import type { SmtpDataPorts } from "./ports.js";
 
-/**
- * The repositories the SMTP send path reads and writes. One neutral seam so the
- * same handler serves every stack.
- */
-export interface SmtpDataPorts {
-	account: IAccountRepository;
-	outboxMessage: IOutboxMessageRepository;
-	outboxAttachment: IOutboxAttachmentRepository;
-	address: IAddressRepository;
-	message: IMessageRepository;
-	envelope: IEnvelopeRepository;
-}
+export type { SmtpDataPorts } from "./ports.js";
 
 // `@remit/drizzle-service` is loaded lazily, inside this function, instead of as
 // a static top-level import. A static import is bundled (and evaluated at module

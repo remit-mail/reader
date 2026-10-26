@@ -33,9 +33,13 @@ const run = (cmd, args, opts = {}) =>
 // the registry.
 const IMPORTED = "@remit/backend";
 
-// Packed alongside IMPORTED so its compiled entries can be held to the strict
-// flags below.
-const ALSO_PACKED = ["@remit/imap-worker"];
+// The worker entries a host composes its own queue consumers from. They are
+// packed with backend so their `./process` subpaths compile in the consumer.
+const WORKERS = [
+	"@remit/imap-worker",
+	"@remit/smtp-worker",
+	"@remit/account-worker",
+];
 
 // Entries that publish compiled output, typechecked by a consumer with strict
 // flags on. The consumer keeps skipLibCheck, as the reader-cloudflare Worker
@@ -47,6 +51,8 @@ const STRICT_IMPORTS = [
 	"@remit/backend/serve",
 	"@remit/backend/handlers",
 	"@remit/imap-worker/process",
+	"@remit/smtp-worker/process",
+	"@remit/account-worker/process",
 ];
 
 const withTempDir = (fn) => {
@@ -58,10 +64,7 @@ const withTempDir = (fn) => {
 	}
 };
 
-const { workspace, generated } = remitClosure(repoRoot, [
-	IMPORTED,
-	...ALSO_PACKED,
-]);
+const { workspace, generated } = remitClosure(repoRoot, [IMPORTED, ...WORKERS]);
 assertCodegenRan(repoRoot, generated);
 
 withTempDir((tmp) => {

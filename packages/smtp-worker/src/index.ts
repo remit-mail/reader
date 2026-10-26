@@ -9,11 +9,19 @@ import { installNodeLogger, withTelemetry } from "@remit/logger-lambda/node";
 import type { SQSBatchResponse, SQSEvent } from "aws-lambda";
 import type { SmtpEvent } from "./events.js";
 import { smtpFailureKind } from "./failure-kind.js";
+import type { SendMessageContext } from "./handlers/send-message.js";
+import { buildLambdaSendContext } from "./lambda-context.js";
 import { processEvent } from "./processor.js";
 
 installNodeLogger();
 
 const log = createLogger();
+
+let sendContext: Promise<SendMessageContext> | null = null;
+const lambdaSendContext = (): Promise<SendMessageContext> => {
+	sendContext ??= buildLambdaSendContext();
+	return sendContext;
+};
 
 /**
  * Parse SQS's `ApproximateReceiveCount` record attribute (1 on first
@@ -44,7 +52,8 @@ export const handler = withTelemetry(
 
 			const queue = queueNameFromEventSource(record.eventSourceARN);
 			const sendStart = Date.now();
-			const failed = await processEvent(smtpEvent, log, receiveCount)
+			const failed = await lambdaSendContext()
+				.then((ctx) => processEvent(smtpEvent, log, ctx, receiveCount))
 				.then(() => {
 					recordQueueEvent({
 						queue,

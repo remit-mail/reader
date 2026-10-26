@@ -2,9 +2,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import type { RemitClient } from "@remit/backend/client";
 import { NotFoundError } from "@remit/data-ports/errors";
-import { noopLogger } from "@remit/logger";
 import type { SenderCategoryBackApplyEvent } from "../events.js";
-import { processSenderCategoryBackApply } from "./sender-category-backapply.js";
+import { processAccountFanoutEvent } from "../process.js";
 
 const SET_AT = 1_700;
 
@@ -71,11 +70,11 @@ const clientOver = ({
 		},
 	}) as unknown as RemitClient;
 
-describe("processSenderCategoryBackApply (#415)", () => {
+describe("processAccountFanoutEvent on a sender category back-apply (#415)", () => {
 	it("re-labels the sender's stored mail to the category the event carries", async () => {
 		const relabelled: Array<{ messageId: string; category: unknown }> = [];
 
-		await processSenderCategoryBackApply(event, noopLogger, {
+		await processAccountFanoutEvent(event, {
 			client: clientOver({ relabelled }),
 		});
 
@@ -87,7 +86,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 	it("applies nothing when the user has since corrected the category", async () => {
 		const relabelled: Array<{ messageId: string; category: unknown }> = [];
 
-		await processSenderCategoryBackApply(event, noopLogger, {
+		await processAccountFanoutEvent(event, {
 			client: clientOver({
 				relabelled,
 				storedFlag: { value: "promotions", setAt: SET_AT + 60 },
@@ -104,7 +103,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 	it("applies nothing when the same category was cleared and set again", async () => {
 		const relabelled: Array<{ messageId: string; category: unknown }> = [];
 
-		await processSenderCategoryBackApply(event, noopLogger, {
+		await processAccountFanoutEvent(event, {
 			client: clientOver({
 				relabelled,
 				storedFlag: { value: "newsletter", setAt: SET_AT + 60 },
@@ -117,7 +116,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 	it("applies nothing when the override was cleared outright", async () => {
 		const relabelled: Array<{ messageId: string; category: unknown }> = [];
 
-		await processSenderCategoryBackApply(event, noopLogger, {
+		await processAccountFanoutEvent(event, {
 			client: clientOver({ relabelled, storedFlag: "cleared" }),
 		});
 
@@ -127,7 +126,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 	it("declines quietly when the address is gone", async () => {
 		const relabelled: Array<{ messageId: string; category: unknown }> = [];
 
-		await processSenderCategoryBackApply(event, noopLogger, {
+		await processAccountFanoutEvent(event, {
 			client: clientOver({ relabelled, storedFlag: "address-gone" }),
 		});
 
@@ -136,7 +135,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 
 	it("leaves a pass with a failed message unacknowledged so it redelivers", async () => {
 		await assert.rejects(
-			processSenderCategoryBackApply(event, noopLogger, {
+			processAccountFanoutEvent(event, {
 				client: clientOver({
 					relabelled: [],
 					updateMessage: async () => {
@@ -151,7 +150,7 @@ describe("processSenderCategoryBackApply (#415)", () => {
 
 	it("propagates a store failure so partial batch failure redelivers the record", async () => {
 		await assert.rejects(
-			processSenderCategoryBackApply(event, noopLogger, {
+			processAccountFanoutEvent(event, {
 				client: clientOver({
 					relabelled: [],
 					listByFieldTerms: async () => {

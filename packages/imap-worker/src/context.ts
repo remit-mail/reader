@@ -1,6 +1,6 @@
 import type { RemitClient } from "@remit/backend/client";
 import { SYNC_WARNING_SURFACE_ATTEMPTS } from "@remit/data-ports/sync-warning-state";
-import type { Logger } from "@remit/logger";
+import type { Logger, MailFailureKind } from "@remit/logger";
 import type { MailOAuthService } from "@remit/mail-oauth-service";
 import type { ConnectionPool } from "./connection-pool.js";
 import type { WorkerQueues } from "./queues.js";
@@ -9,7 +9,7 @@ export type ImapWorkerQueueName = "sync";
 
 export type TokenService = Pick<MailOAuthService, "getAccessToken">;
 
-export type ImapFailureKind = "auth" | "network" | "other";
+export type ImapFailureKind = MailFailureKind;
 
 export interface WorkerMetrics {
 	imapFailure: (

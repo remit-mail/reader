@@ -4,7 +4,7 @@
  * that always sees 1 never reaches the settle at all, and the row dead-letters
  * at `sending` exactly as it did before #951.
  *
- * The send handler is replaced here, so this file is about the wiring and not
+ * The processor is replaced here, so this file is about the wiring and not
  * about what the handler does with it — and replacing it is also what keeps
  * the real one's data ports and queue producers out of a unit test.
  */
@@ -14,16 +14,21 @@ import type { Context, SQSEvent } from "aws-lambda";
 
 const receiveCounts: number[] = [];
 
-mock.module("./handlers/send-message.js", {
+mock.module("./processor.js", {
 	namedExports: {
-		handleSendMessage: async (
+		processEvent: async (
 			_event: unknown,
 			_log: unknown,
+			_ctx: unknown,
 			receiveCount: number,
 		): Promise<void> => {
 			receiveCounts.push(receiveCount);
 		},
 	},
+});
+
+mock.module("./lambda-context.js", {
+	namedExports: { buildLambdaSendContext: async () => ({}) },
 });
 
 const { handler, parseReceiveCount } = await import("./index.js");
@@ -74,7 +79,7 @@ describe("parseReceiveCount — SQS ApproximateReceiveCount parsing", () => {
 });
 
 describe("the record's delivery count reaches the send handler", () => {
-	it("threads ApproximateReceiveCount through the processor into handleSendMessage", async () => {
+	it("threads ApproximateReceiveCount into the processor", async () => {
 		receiveCounts.length = 0;
 
 		const response = await handler(sendMessageEvent("3"), context);

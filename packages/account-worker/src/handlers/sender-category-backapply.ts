@@ -1,4 +1,4 @@
-import { getClient, type RemitClient } from "@remit/backend/client";
+import type { RemitClient } from "@remit/backend/client";
 import {
 	backApplySenderCategory,
 	SENDER_CATEGORY_BACKAPPLY_LIMIT,
@@ -8,7 +8,7 @@ import type { Logger } from "@remit/logger";
 import type { SenderCategoryBackApplyEvent } from "../events.js";
 
 export interface ProcessSenderCategoryBackApplyDeps {
-	client?: RemitClient;
+	client: RemitClient<never>;
 }
 
 /**
@@ -23,7 +23,7 @@ export interface ProcessSenderCategoryBackApplyDeps {
  * must not guess.
  */
 const overrideStillStands = async (
-	client: RemitClient,
+	client: RemitClient<never>,
 	event: SenderCategoryBackApplyEvent,
 ): Promise<boolean> => {
 	const address = await client.address
@@ -58,10 +58,10 @@ const overrideStillStands = async (
 export const processSenderCategoryBackApply = async (
 	event: SenderCategoryBackApplyEvent,
 	log: Logger,
-	deps: ProcessSenderCategoryBackApplyDeps = {},
+	deps: ProcessSenderCategoryBackApplyDeps,
 ): Promise<void> => {
 	const { accountConfigId, addressId, normalizedEmail, category } = event;
-	const client = deps.client ?? (await getClient());
+	const { client } = deps;
 
 	if (!(await overrideStillStands(client, event))) {
 		log.warn(
