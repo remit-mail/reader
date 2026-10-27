@@ -47,7 +47,7 @@ const run = (root) => {
 	console.log(`spellcheck: ${kb(before)} raw → ${kb(after)} brotli in ${root}`);
 };
 
-const root = process.argv[2] ?? "packages/web-client/dist/spellcheck";
+const root = process.argv[2] ?? "packages/web/dist/spellcheck";
 if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
 	console.log(`spellcheck: nothing staged at ${root}`);
 	process.exit(0);

@@ -1,8 +1,6 @@
-// The engine's pins and the shipped language set each exist in two files that
-// cannot import one another — a shell-sourced env file and a Dockerfile, a
-// TypeScript module and a Dockerfile ARG. Nothing at build time notices when
-// they disagree: the image would simply be compiled by a different toolchain,
-// or carry different dictionaries than its NOTICE.txt claims.
+// The engine's pins exist in two files that cannot import one another — a
+// shell-sourced env file and a Dockerfile. Nothing at build time notices when
+// they disagree: the image would simply be compiled by a different toolchain.
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -46,18 +44,6 @@ describe("the spellchecker's build pins", () => {
 	it("pins an upstream release by checksum", () => {
 		assert.match(pins.HUNSPELL_VERSION, /^\d+\.\d+\.\d+$/);
 		assert.match(pins.HUNSPELL_SHA256, /^[0-9a-f]{64}$/);
-	});
-
-	it("ships the languages the table calls the default", () => {
-		const arg = /^ARG REMIT_SPELLCHECK_LANGUAGES=(.*)$/m.exec(dockerfile);
-		assert.ok(arg, "the Dockerfile fixes no language set");
-		const table = readFileSync(
-			join(root, "packages", "web-client", "spellcheck", "languages.ts"),
-			"utf8",
-		);
-		const declared = /DEFAULT_SPELLCHECK_LANGUAGES = "([^"]*)"/.exec(table);
-		assert.ok(declared, "languages.ts declares no default set");
-		assert.equal(arg[1], declared[1]);
 	});
 });
 

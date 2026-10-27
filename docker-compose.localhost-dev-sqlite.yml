@@ -194,7 +194,7 @@ services:
       - run
       - dev
       - -w
-      - "@remit/web-client"
+      - "@remit/web"
       - --
       - --port
       - "4123"

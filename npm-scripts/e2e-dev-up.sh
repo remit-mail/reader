@@ -45,7 +45,7 @@ e2e_dev_wait_for backend "http://127.0.0.1:${SERVER_PORT}/health" 90
 e2e_dev_require_running imap-worker smtp-worker account-worker
 
 echo "e2e-dev: starting the web client"
-e2e_dev_start web npm --prefix "$REPO_ROOT" run dev -w @remit/web-client -- \
+e2e_dev_start web npm --prefix "$REPO_ROOT" run dev -w @remit/web -- \
 	--port "$E2E_HTTP_PORT" --host 127.0.0.1 --strictPort
 e2e_dev_wait_for web "http://localhost:${E2E_HTTP_PORT}/config.js" 120
 

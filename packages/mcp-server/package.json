@@ -23,7 +23,7 @@
     "@remit/logger-lambda": "*",
     "@remit/mailbox-service": "*",
     "@remit/storage-service": "*",
-    "@remit/ui": "*",
+    "@remit/ui": "0.0.223",
     "@types/better-sqlite3": "^7.6.13",
     "better-auth": "^1.7.12",
     "better-sqlite3": "^12.11.1",

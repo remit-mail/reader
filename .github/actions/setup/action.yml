@@ -79,11 +79,3 @@ runs:
     - name: Spellchecker engine
       if: inputs.codegen == 'true'
       uses: ./.github/actions/hunspell
-
-    # Gitignored, derived from the web-client route files rather than from
-    # TypeSpec, and needed by both typecheck and the unit tests. Cheap enough
-    # (~1s) to regenerate every time instead of keying another cache on it.
-    - name: Codegen (web-client route tree)
-      if: inputs.codegen == 'true'
-      shell: bash
-      run: npm run generate:routes -w @remit/web-client

@@ -1,0 +1,32 @@
+{
+  "name": "@remit/web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The self-host web client: the published @remit/web-client shell composed with the better-auth provider.",
+  "scripts": {
+    "dev": "vite --configLoader runner",
+    "build": "vite build --configLoader runner",
+    "test:typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@remit/ui": "0.0.223",
+    "@remit/web-client": "0.0.325",
+    "react": "19.2.7",
+    "react-dom": "19.2.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@tanstack/router-plugin": "1.168.22",
+    "@types/node": "26.1.1",
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "4.7.0",
+    "dictionary-en": "4.0.0",
+    "dictionary-en-gb": "3.0.0",
+    "dictionary-nl": "2.0.0",
+    "tailwindcss": "4.3.3",
+    "vite": "7.3.7"
+  },
+  "license": "MIT"
+}
