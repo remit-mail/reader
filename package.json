@@ -87,6 +87,9 @@
     "typespec-electrodb-emitter": "^5.2.2"
   },
   "overrides": {
+    "@full-ui/headless-calendar": "7.0.2",
+    "@fullcalendar/core": "7.0.2",
+    "@fullcalendar/react": "7.0.2",
     "@modelcontextprotocol/sdk": {
       "zod": "^4.6.7"
     },
