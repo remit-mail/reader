@@ -1,8 +1,13 @@
 import { createRequire } from "node:module";
 import { hostname } from "node:os";
-import { dirname, join } from "node:path";
-import { webClientPreset } from "@remit/web-client/vite-preset";
+import { dirname, join, resolve } from "node:path";
 import { defineConfig, type Plugin } from "vite";
+
+process.env.REMIT_SPELLCHECK_ENGINE_DIR ??= resolve(
+	import.meta.dirname,
+	"../../build/hunspell",
+);
+const { webClientPreset } = await import("@remit/web-client/vite-preset");
 
 const webClientPublic = join(
 	dirname(
