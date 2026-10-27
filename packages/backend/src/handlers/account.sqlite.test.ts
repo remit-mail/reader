@@ -297,6 +297,19 @@ describe("DELETE /accounts/{accountId}", () => {
 		assert.equal(fanout.sent.length, 1);
 		assert.deepEqual(await listedAccountIds(), []);
 	});
+
+	it("answers 404 for an account already deleted", async () => {
+		const account = await seedAccount(AccountAuthType.Password);
+		await respond(() =>
+			deleteAccount(context({ accountId: account.accountId }), caller()),
+		);
+
+		const response = await respond(() =>
+			deleteAccount(context({ accountId: account.accountId }), caller()),
+		);
+
+		assert.equal(response.statusCode, 404);
+	});
 });
 
 describe("PATCH /accounts/{accountId}", () => {

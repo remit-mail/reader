@@ -7,7 +7,7 @@ import {
 import type { StorageService } from "@remit/storage-service";
 import { createStorageService } from "@remit/storage-service/s3";
 import { env } from "expect-env";
-import type { CascadeServices } from "./cascade.js";
+import { type CascadeServices, cascadeServicesOf } from "./cascade.js";
 import type {
 	AccountDataPurgeFinalizeEvent,
 	AccountFinalizeEvent,
@@ -49,25 +49,7 @@ let cascadeServicesPromise: Promise<CascadeServices> | null = null;
 // backend-specific wiring here.
 export const getCascadeServices = (): Promise<CascadeServices> => {
 	if (!cascadeServicesPromise) {
-		cascadeServicesPromise = getClient().then((remitClient) => ({
-			accountConfigService: remitClient.accountConfig,
-			accountService: remitClient.account,
-			addressService: remitClient.address,
-			mailboxService: remitClient.mailbox,
-			messageService: remitClient.message,
-			messageFlagService: remitClient.messageFlag,
-			envelopeService: remitClient.envelope,
-			outboxMessageService: remitClient.outboxMessage,
-			threadMessageService: remitClient.threadMessage,
-			mailboxLockService: remitClient.mailboxLock,
-			messagePlacementMoveService: remitClient.placementMove,
-			messageFlagPushService: remitClient.flagPush,
-			accountExportRequestService: remitClient.accountExportRequest,
-			accountSettingService: remitClient.accountSetting,
-			filterService: remitClient.filter,
-			labelService: remitClient.label,
-			messageLabelService: remitClient.messageLabel,
-		}));
+		cascadeServicesPromise = getClient().then(cascadeServicesOf);
 	}
 	return cascadeServicesPromise;
 };
