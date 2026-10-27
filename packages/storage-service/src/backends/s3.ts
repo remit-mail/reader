@@ -1,7 +1,6 @@
-import { createHash } from "node:crypto";
-import { PassThrough, type Readable } from "node:stream";
-import { pipeline } from "node:stream/promises";
-import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
+import type { Readable } from "node:stream";
+import { promisify } from "node:util";
+import { createGunzip, gunzipSync, gzip } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	DeleteObjectsCommand,
@@ -33,6 +32,8 @@ import {
 } from "../storage.js";
 import { parseStorageUri } from "../uri.js";
 
+const gzipAsync = promisify(gzip);
+
 interface StoreParams {
 	key: string;
 	content: Buffer;
@@ -52,7 +53,7 @@ export const createS3StorageService = (
 		const contentEncoding = compress
 			? ContentEncoding.Gzip
 			: ContentEncoding.None;
-		const body = compress ? gzipSync(content) : content;
+		const body = compress ? await gzipAsync(content) : content;
 
 		await client.send(
 			new PutObjectCommand({
@@ -83,55 +84,6 @@ export const createS3StorageService = (
 			contentType: "message/rfc822",
 		});
 	};
-
-	const storeMessageBodyStream: StorageService["storeMessageBodyStream"] =
-		async (params) => {
-			const { accountConfigId, accountId, messageId, content } = params;
-			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
-
-			// Hash the logical (pre-gzip) bytes as they flow, gzip them, and feed
-			// the gzipped stream to a multipart Upload — the whole body is never
-			// held in memory. `Upload` buffers only one part at a time.
-			const hash = createHash("sha256");
-			const hashTap = new PassThrough();
-			hashTap.on("data", (chunk: Buffer) => hash.update(chunk));
-
-			const gzip = createGzip();
-			const uploadBody = new PassThrough();
-
-			let storedBytes = 0;
-			uploadBody.on("data", (chunk: Buffer) => {
-				storedBytes += chunk.length;
-			});
-
-			const upload = new Upload({
-				client,
-				params: {
-					Bucket: bucketName,
-					Key: key,
-					Body: uploadBody,
-					ContentType: "message/rfc822",
-					ContentEncoding: "gzip",
-				},
-			});
-
-			const pumped = pipeline(content, hashTap, gzip, uploadBody);
-			await Promise.all([upload.done(), pumped]).catch(async (error) => {
-				// Abort the multipart upload so a failed pump doesn't leak parts.
-				await upload.abort().catch(() => {});
-				throw error;
-			});
-
-			return {
-				uri: `s3://${bucketName}/${key}`,
-				storageType: StorageType.S3,
-				storageLocation: bucketName,
-				storageKey: key,
-				sizeBytes: storedBytes,
-				checksumSha256: hash.digest("hex"),
-				contentEncoding: ContentEncoding.Gzip,
-			};
-		};
 
 	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
 		const {
@@ -598,7 +550,6 @@ export const createS3StorageService = (
 
 	return {
 		storeMessageBody,
-		storeMessageBodyStream,
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,

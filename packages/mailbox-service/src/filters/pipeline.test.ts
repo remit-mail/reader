@@ -8,6 +8,7 @@ import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
+	FilterState,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "../placement-move.js";
 import {
@@ -86,16 +87,20 @@ const pipeline = () =>
 		{ info: () => {}, error: () => {} },
 	);
 
+const evaluate = async (accountId: string, msg: FilterMessage) => {
+	const filters = pipeline();
+	const active = await store.filter.listByAccountAndState(
+		ACCOUNT,
+		FilterState.Active,
+	);
+	return filters.decide(await filters.prepare(ACCOUNT, accountId, active), msg);
+};
+
 describe("FilterPipeline over literal filters", () => {
 	it("resolves the move for a matching sender", async () => {
 		const filter = await senders(archive);
 
-		const decision = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			fromGithub,
-		);
+		const decision = await evaluate(account.accountId, fromGithub);
 
 		assert.deepEqual(decision.move, {
 			destinationMailboxId: archive,
@@ -106,15 +111,10 @@ describe("FilterPipeline over literal filters", () => {
 	it("resolves nothing for a sender no clause names", async () => {
 		await senders(archive);
 
-		const decision = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-2",
-			{
-				...fromGithub,
-				from: "hello@stripe.com",
-			},
-		);
+		const decision = await evaluate(account.accountId, {
+			...fromGithub,
+			from: "hello@stripe.com",
+		});
 
 		assert.equal(decision.move, undefined);
 		assert.deepEqual(decision.labels, []);
@@ -126,12 +126,7 @@ describe("FilterPipeline over literal filters", () => {
 		mock.timers.setTime(9_000_000);
 		const rival = await senders(projects);
 
-		const decision = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-3",
-			fromGithub,
-		);
+		const decision = await evaluate(account.accountId, fromGithub);
 
 		assert.deepEqual(decision.move, {
 			destinationMailboxId: projects,
@@ -158,18 +153,8 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 		const travel = await seedMailbox(store, sibling, "Travel");
 		const filter = await senders(travel.mailboxId);
 
-		const mine = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			fromGithub,
-		);
-		const theirs = await pipeline().evaluate(
-			ACCOUNT,
-			sibling.accountId,
-			"m-2",
-			fromGithub,
-		);
+		const mine = await evaluate(account.accountId, fromGithub);
+		const theirs = await evaluate(sibling.accountId, fromGithub);
 
 		assert.deepEqual(mine, { labels: [] });
 		assert.deepEqual(theirs.move, {
@@ -185,12 +170,7 @@ describe("FilterPipeline scopes a filter to its folder's account", () => {
 	it("turns the filter off when no account holds its folder any more", async () => {
 		const filter = await senders("mbx-gone");
 
-		const decision = await pipeline().evaluate(
-			ACCOUNT,
-			account.accountId,
-			"m-1",
-			fromGithub,
-		);
+		const decision = await evaluate(account.accountId, fromGithub);
 
 		assert.deepEqual(decision, { labels: [] });
 		const stored = await store.filter.get(ACCOUNT, filter.filterId);

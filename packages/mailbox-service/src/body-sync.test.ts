@@ -270,7 +270,12 @@ const read = (
 const sync = (
 	service: BodySyncService,
 	messageIds: string[],
-	options: { force?: boolean; mailbox?: MailboxItem } = {},
+	options: {
+		force?: boolean;
+		mailbox?: MailboxItem;
+		concurrency?: number;
+		bytesInFlight?: number;
+	} = {},
 ) =>
 	service.syncBodies(
 		messageIds,
@@ -281,7 +286,11 @@ const sync = (
 			uidValidity: (options.mailbox ?? world.inbox).uidValidity,
 		},
 		async () => world.imap.connection(),
-		options.force ?? false,
+		{
+			force: options.force ?? false,
+			concurrency: options.concurrency ?? 1,
+			bytesInFlight: options.bytesInFlight ?? 64 * 1024 * 1024,
+		},
 	);
 
 const flagSender = async (email: string, flags: AddressFlags) => {
@@ -788,6 +797,7 @@ describe("body sync and the quarantine", () => {
 			world.account.accountConfigId,
 			{ ...placementOf(world.inbox), uidValidity: world.inbox.uidValidity },
 			async () => assert.fail("a quarantined message is not fetched"),
+			{ force: false, concurrency: 1, bytesInFlight: 64 * 1024 * 1024 },
 		);
 
 		assert.equal(result.skippedCount, 1);
@@ -936,5 +946,100 @@ describe("mail-derived calendar suggestions", () => {
 
 		assert.ok((await messageRow(messageId)).bodyStorageKey);
 		assert.deepEqual(await suggestions(messageId), []);
+	});
+});
+
+describe("a batch is stored with bounded concurrency", () => {
+	const arriveBatch = async (
+		size: number,
+		tag: string,
+		text = "body",
+	): Promise<string[]> => {
+		const messageIds: string[] = [];
+		for (let i = 0; i < size; i++) {
+			messageIds.push(
+				await arrive(
+					eml(
+						{ From: `Sender ${i} <s${i}@example.com>`, Subject: `${tag} ${i}` },
+						`${text} ${tag} ${i}`,
+					),
+				),
+			);
+		}
+		return messageIds;
+	};
+
+	const storingInto = (
+		failing: string | null,
+	): { storage: StorageService; peak: () => number } => {
+		const working = world.store.storage();
+		const broken = world.store.brokenStorage();
+		let active = 0;
+		let peak = 0;
+		return {
+			peak: () => peak,
+			storage: {
+				...working,
+				storeMessageBody: async (params) => {
+					active++;
+					peak = Math.max(peak, active);
+					const target = params.messageId === failing ? broken : working;
+					return target.storeMessageBody(params).finally(() => {
+						active--;
+					});
+				},
+			},
+		};
+	};
+
+	it("stores every message of the batch at concurrency 4", async () => {
+		const messageIds = await arriveBatch(6, "parallel");
+
+		const result = await sync(bodySync(), messageIds, { concurrency: 4 });
+
+		assert.deepEqual(result.syncedMessageIds, messageIds);
+		for (const messageId of messageIds) {
+			assert.ok((await messageRow(messageId)).bodyStorageKey);
+		}
+	});
+
+	it("stores the neighbours already in flight when one store fails", async () => {
+		const messageIds = await arriveBatch(4, "neighbours");
+		const failing = messageIds[1];
+		const { storage } = storingInto(failing);
+
+		await assert.rejects(
+			sync(bodySync({ storage }), messageIds, { concurrency: 4 }),
+		);
+
+		assert.equal((await messageRow(failing)).bodyStorageKey, undefined);
+		for (const messageId of messageIds.filter((id) => id !== failing)) {
+			assert.ok((await messageRow(messageId)).bodyStorageKey);
+		}
+	});
+
+	it("holds a body back while the ones in flight fill the byte budget", async () => {
+		const large = "x".repeat(200_000);
+		const messageIds = await arriveBatch(2, "large", large);
+		const { storage, peak } = storingInto(null);
+
+		const result = await sync(bodySync({ storage }), messageIds, {
+			concurrency: 4,
+			bytesInFlight: 300_000,
+		});
+
+		assert.deepEqual(result.syncedMessageIds, messageIds);
+		assert.equal(peak(), 1);
+	});
+
+	it("lets one body through when it alone exceeds the byte budget", async () => {
+		const messageIds = await arriveBatch(2, "oversized", "x".repeat(10_000));
+
+		const result = await sync(bodySync(), messageIds, {
+			concurrency: 4,
+			bytesInFlight: 1,
+		});
+
+		assert.deepEqual(result.syncedMessageIds, messageIds);
 	});
 });

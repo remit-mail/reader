@@ -540,6 +540,7 @@ describe("copying a message", () => {
 				uidValidity: inbox.uidValidity,
 			},
 			async () => imap.connection(),
+			{ force: false, concurrency: 1, bytesInFlight: 1024 * 1024 },
 		);
 		return messageId;
 	};

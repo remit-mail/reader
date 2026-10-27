@@ -486,8 +486,7 @@ describe("ImapFlowConnection.fetchMessageBodies — a body the server no longer 
 			currentMailbox: "INBOX",
 		});
 		const uids: number[] = [];
-		for await (const { uid, source } of connection.fetchMessageBodies([1, 2])) {
-			source.resume();
+		for await (const { uid } of connection.fetchMessageBodies([1, 2])) {
 			uids.push(uid);
 		}
 		return uids;

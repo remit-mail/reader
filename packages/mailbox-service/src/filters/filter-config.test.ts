@@ -5,6 +5,7 @@ import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
+	FilterState,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "../placement-move.js";
 import {
@@ -68,9 +69,18 @@ describe("buildFilterConfig", () => {
 	it("runs a literal filter on the body-sync pass", async () => {
 		const config = buildFilterConfig(repos());
 
-		const decision = await new FilterPipeline(config, {
-			info: () => {},
-		}).evaluate("cfg-1", accountId, "m-1", message);
+		const pipeline = new FilterPipeline(config, { info: () => {} });
+		const decision = pipeline.decide(
+			await pipeline.prepare(
+				"cfg-1",
+				accountId,
+				await config.filterService.listByAccountAndState(
+					"cfg-1",
+					FilterState.Active,
+				),
+			),
+			message,
+		);
 
 		assert.deepEqual(decision.move, {
 			destinationMailboxId: archiveId,

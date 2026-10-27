@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import type {
 	FilterItem,
 	IFilterRepository,
@@ -46,19 +45,18 @@ export interface FilterDecision {
 
 const EMPTY_DECISION: FilterDecision = { labels: [] };
 
+export type PreparedFilters = readonly FilterItem[];
+
 /**
  * Evaluates a synced message against the account's active filters and resolves
  * the actions to apply (RFC 034). Reads only — listing filters and refreshing
  * lazy expiry; the caller applies the
  * resulting {@link FilterDecision}.
  *
- * `evaluate` isolates every failure in this read/decision phase from body sync,
- * matching the placement-resolution precedent (#1246): a schema-drifted query
- * must never fail the surrounding message store, since the body is
- * already durable by the time this runs. The apply of the decision — label
- * writes and the move enqueue — is the caller's responsibility and is *not*
- * swallowed there, so a genuine DDB/SQS write failure still propagates and
- * requeues the message.
+ * `prepare` narrows the account's active filters to the ones that can act on
+ * one account's mail; `decide` matches a message against them without a read.
+ * The apply of the decision — label writes and the move enqueue — is the
+ * caller's responsibility.
  */
 export class FilterPipeline {
 	constructor(
@@ -66,27 +64,34 @@ export class FilterPipeline {
 		private readonly log: FilterLogger,
 	) {}
 
-	async evaluate(
-		accountConfigId: string,
-		accountId: string,
-		messageId: string,
-		msg: FilterMessage,
-	): Promise<FilterDecision> {
-		return this.match(accountConfigId, accountId, msg).catch(
-			(error: unknown) => {
-				this.log.error?.(
-					{
-						alert: "body_sync_filter_match_failed",
-						messageId,
-						accountConfigId,
-						errorName: (error as { name?: string })?.name,
-						error: inspect(error),
-					},
-					"Filter matching failed; body already stored, continuing without filter actions (best-effort, non-fatal)",
-				);
-				return EMPTY_DECISION;
-			},
+	decide(prepared: PreparedFilters, msg: FilterMessage): FilterDecision {
+		const matched = prepared.filter((filter) => filterMatches(filter, msg));
+		if (matched.length === 0) return EMPTY_DECISION;
+
+		const labels: FilterDecision["labels"] = [];
+		const seenLabels = new Set<string>();
+		for (const filter of matched) {
+			if (filter.actionLabelId === NO_ACTION) continue;
+			if (seenLabels.has(filter.actionLabelId)) continue;
+			seenLabels.add(filter.actionLabelId);
+			labels.push({ labelId: filter.actionLabelId, filterId: filter.filterId });
+		}
+
+		const winner = selectMoveWinner(
+			matched.filter((filter) => filter.actionMailboxId !== NO_ACTION),
 		);
+
+		return {
+			labels,
+			...(winner
+				? {
+						move: {
+							destinationMailboxId: winner.actionMailboxId,
+							filterId: winner.filterId,
+						},
+					}
+				: {}),
+		};
 	}
 
 	/**
@@ -116,18 +121,12 @@ export class FilterPipeline {
 		return false;
 	}
 
-	private async match(
+	async prepare(
 		accountConfigId: string,
 		accountId: string,
-		msg: FilterMessage,
-	): Promise<FilterDecision> {
-		const active = await this.config.filterService.listByAccountAndState(
-			accountConfigId,
-			FilterState.Active,
-		);
-		if (active.length === 0) return EMPTY_DECISION;
-
-		const matched: FilterItem[] = [];
+		active: readonly FilterItem[],
+	): Promise<PreparedFilters> {
+		const filters: FilterItem[] = [];
 		for (const filter of active) {
 			// Lazy expiry (RFC 034 Decision 1.2): reading a Temporary filter past
 			// its expiresAt patches it to Expired on this read and drops it from
@@ -135,34 +134,9 @@ export class FilterPipeline {
 			const usable = await this.config.filterService.refreshExpiry(filter);
 			if (usable.state !== FilterState.Active) continue;
 			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
-			if (filterMatches(usable, msg)) matched.push(usable);
+			filters.push(usable);
 		}
-		if (matched.length === 0) return EMPTY_DECISION;
-
-		const labels: FilterDecision["labels"] = [];
-		const seenLabels = new Set<string>();
-		for (const filter of matched) {
-			if (filter.actionLabelId === NO_ACTION) continue;
-			if (seenLabels.has(filter.actionLabelId)) continue;
-			seenLabels.add(filter.actionLabelId);
-			labels.push({ labelId: filter.actionLabelId, filterId: filter.filterId });
-		}
-
-		const winner = selectMoveWinner(
-			matched.filter((filter) => filter.actionMailboxId !== NO_ACTION),
-		);
-
-		return {
-			labels,
-			...(winner
-				? {
-						move: {
-							destinationMailboxId: winner.actionMailboxId,
-							filterId: winner.filterId,
-						},
-					}
-				: {}),
-		};
+		return filters;
 	}
 }
 

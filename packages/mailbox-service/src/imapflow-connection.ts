@@ -5,7 +5,6 @@
  * Provides the same interface but uses ImapFlow under the hood.
  */
 
-import { Readable } from "node:stream";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import type {
@@ -768,21 +767,9 @@ export class ImapFlowConnection {
 		return null;
 	};
 
-	/**
-	 * Fetch full message bodies (RFC822 source) for many UIDs in ONE pipelined
-	 * ranged UID FETCH on a single connection — the desktop-client pattern.
-	 *
-	 * Mirrors `fetchMessages`: one comma-joined UID range, one `client.fetch`,
-	 * one SELECT (the caller opens the box once for the whole batch). Yields
-	 * `{ uid, source }` as each message arrives so the caller can stream each
-	 * body straight to storage without buffering the whole batch.
-	 *
-	 * `source` is a readable stream over the message bytes — callers must
-	 * consume it (e.g. pipe to an upload) before requesting the next item.
-	 */
 	async *fetchMessageBodies(
 		uids: number[],
-	): AsyncGenerator<{ uid: number; source: Readable }> {
+	): AsyncGenerator<{ uid: number; source: Buffer }> {
 		this.ensureConnected();
 		const { client } = this;
 
@@ -824,7 +811,7 @@ export class ImapFlowConnection {
 					continue;
 				}
 
-				yield { uid: msg.uid, source: Readable.from(msg.source) };
+				yield { uid: msg.uid, source: msg.source };
 			}
 		} catch (error) {
 			// A mid-stream socket drop surfaces as imapflow's

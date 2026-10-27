@@ -45,6 +45,8 @@ export interface AttemptBudgets {
 export interface ImapWorkerConfig {
 	readonly attempts: AttemptBudgets;
 	readonly bodyBatchSize: number;
+	readonly bodyProcessConcurrency: number;
+	readonly bodyProcessBytesInFlight: number;
 	readonly mailboxFreshnessMs: number;
 	readonly workerVersion: string;
 }
@@ -62,17 +64,21 @@ export interface ProcessContext {
 
 export const DEFAULT_MAILBOX_FRESHNESS_MS = 60_000;
 
-export const defaultImapWorkerConfig: Omit<ImapWorkerConfig, "workerVersion"> =
-	{
-		attempts: {
-			body: SYNC_WARNING_SURFACE_ATTEMPTS,
-			placementMove: 3,
-			flagPush: 3,
-			appendSent: 3,
-			messageMove: 3,
-			messageDelete: 3,
-			messageCopy: 3,
-		},
-		bodyBatchSize: 200,
-		mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
-	};
+export const defaultImapWorkerConfig: Omit<
+	ImapWorkerConfig,
+	| "workerVersion"
+	| "bodyBatchSize"
+	| "bodyProcessConcurrency"
+	| "bodyProcessBytesInFlight"
+> = {
+	attempts: {
+		body: SYNC_WARNING_SURFACE_ATTEMPTS,
+		placementMove: 3,
+		flagPush: 3,
+		appendSent: 3,
+		messageMove: 3,
+		messageDelete: 3,
+		messageCopy: 3,
+	},
+	mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
+};
