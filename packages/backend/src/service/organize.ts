@@ -14,6 +14,7 @@ import {
 	literalClauseTerms,
 	NO_ACTION,
 	PlacementMoveService,
+	type PreparedFilters,
 } from "@remit/mailbox-service";
 import { buildFilterConfig } from "@remit/mailbox-service/filter-config";
 import type { RemitClient } from "./data-client.js";
@@ -583,6 +584,14 @@ export const backApplyFilter = async (
 		...nothing,
 		matched: match.messageIds.length,
 	};
+	const preparedByAccount = new Map<string, Promise<PreparedFilters>>();
+	const preparedFor = (accountId: string): Promise<PreparedFilters> => {
+		const known = preparedByAccount.get(accountId);
+		if (known) return known;
+		const prepared = pipeline.prepare(accountConfigId, accountId);
+		preparedByAccount.set(accountId, prepared);
+		return prepared;
+	};
 	for (const messageId of match.messageIds) {
 		const message = await filterMessageOf(client, accountConfigId, messageId);
 		if (!message) continue;
@@ -593,12 +602,7 @@ export const backApplyFilter = async (
 		if (folderAccountId !== undefined && folderAccountId !== accountId) {
 			continue;
 		}
-		const decision = await pipeline.evaluate(
-			accountConfigId,
-			accountId,
-			messageId,
-			message,
-		);
+		const decision = pipeline.decide(await preparedFor(accountId), message);
 		const move = (decision.move?.filterId ?? filterId) === filterId;
 		if (!move && filter.actionLabelId === NO_ACTION) continue;
 		const outcome = await applyOrganize(

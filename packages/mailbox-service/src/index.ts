@@ -103,6 +103,7 @@ export {
 	type FilterDecision,
 	type FilterLogger,
 	FilterPipeline,
+	type PreparedFilters,
 } from "./filters/pipeline.js";
 export {
 	type FlagPushConfig,
