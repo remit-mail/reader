@@ -12,10 +12,9 @@ const webClientPublic = join(
 	"public",
 );
 
-const runtimeConfigDevServer = (): Plugin => ({
-	name: "remit-runtime-config-dev",
-	apply: "serve",
-	configureServer(server) {
+const runtimeConfigPreview = (): Plugin => ({
+	name: "remit-runtime-config-preview",
+	configurePreviewServer(server) {
 		const override = process.env.REMIT_RUNTIME_CONFIG;
 		if (!override) return;
 		server.middlewares.use((req, res, next) => {
@@ -31,10 +30,10 @@ const preset = webClientPreset();
 
 export default defineConfig({
 	...preset,
-	plugins: [runtimeConfigDevServer(), ...(preset.plugins ?? [])],
+	plugins: [runtimeConfigPreview(), ...(preset.plugins ?? [])],
 	publicDir: webClientPublic,
 	build: { ...preset.build, outDir: "dist", emptyOutDir: true },
-	server: {
+	preview: {
 		host: "0.0.0.0",
 		allowedHosts: [
 			hostname(),
