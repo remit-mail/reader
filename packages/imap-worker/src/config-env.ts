@@ -8,6 +8,8 @@ import {
 import { workerVersion } from "./worker-version.js";
 
 const DEFAULT_CONNECTIONS_PER_ACCOUNT = 2;
+const BODY_BATCH_SIZE = 200;
+const BODY_PROCESS_CONCURRENCY = 8;
 
 // Deployments that drive sync from a test harness set MAILBOX_FRESHNESS_MS low
 // so their explicit nudges are never no-oped by the freshness gate.
@@ -52,7 +54,8 @@ export const imapWorkerConfigFromEnv = (
 				env,
 			),
 		},
-		bodyBatchSize: defaultImapWorkerConfig.bodyBatchSize,
+		bodyBatchSize: BODY_BATCH_SIZE,
+		bodyProcessConcurrency: BODY_PROCESS_CONCURRENCY,
 		mailboxFreshnessMs: resolveMailboxFreshnessMs(env),
 		workerVersion: workerVersion(),
 	};

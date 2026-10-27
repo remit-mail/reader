@@ -1,4 +1,4 @@
-import { PassThrough, type Readable } from "node:stream";
+import type { Readable } from "node:stream";
 import { inspect } from "node:util";
 import {
 	provisionDefaultCalendar,
@@ -6,6 +6,7 @@ import {
 } from "@remit/calendar-service";
 import {
 	type BodyPartItem,
+	type FilterItem,
 	type IAddressRepository,
 	type ICalendarStore,
 	type ICalendarSuggestionRepository,
@@ -60,9 +61,14 @@ import {
 	type FilterConfig,
 	type FilterDecision,
 	FilterPipeline,
+	type PreparedFilters,
 } from "./filters/pipeline.js";
 import type { FlagQueueService } from "./flag-queue.js";
-import { placementOf, resolveFolderRoleMailboxes } from "./folder-placement.js";
+import {
+	type FolderRoleMailboxes,
+	placementOf,
+	resolveFolderRoleMailboxes,
+} from "./folder-placement.js";
 import {
 	classifyPlacement,
 	type FolderPlacement,
@@ -242,6 +248,17 @@ const noopLogger: BodySyncLogger = {
 	info: () => {},
 };
 
+export interface SyncBodiesOptions {
+	/** Re-fetch every message, its body stored or not (the read-miss cue). */
+	force: boolean;
+	/**
+	 * How many fetched messages are stored at once. The FETCH stays one command
+	 * on the account's one connection; this bounds the storage, database and
+	 * queue work behind it.
+	 */
+	concurrency: number;
+}
+
 export interface SyncBodiesResult {
 	syncedCount: number;
 	syncedMessageIds: string[];
@@ -332,6 +349,52 @@ export interface CalendarSuggestionConfig {
 	filterService: Pick<IFilterRepository, "listByAccountAndState">;
 }
 
+/**
+ * The account-wide reads a batch of messages shares, made at most once per
+ * batch rather than once per message. Each loads on first use, so a step no
+ * message reaches costs nothing, and a failed load rejects inside that step's
+ * own isolation, as the per-message read did.
+ */
+interface BatchLookups {
+	placement: {
+		config: PlacementConfig;
+		roleMailboxes: () => Promise<FolderRoleMailboxes>;
+	} | null;
+	filters: {
+		pipeline: FilterPipeline;
+		prepared: () => Promise<PreparedFilters>;
+	} | null;
+	calendar: {
+		config: CalendarSuggestionConfig;
+		activeFilters: () => Promise<FilterItem[]>;
+	} | null;
+}
+
+const once = <T>(load: () => Promise<T>): (() => Promise<T>) => {
+	let loaded: Promise<T> | undefined;
+	return () => {
+		loaded ??= load();
+		return loaded;
+	};
+};
+
+type StoreOutcome =
+	| { kind: "Stored" }
+	| { kind: "Quarantined" }
+	| { kind: "Failed"; error: unknown };
+
+interface FetchedBody {
+	uid: number;
+	messageId: string;
+	body: Buffer;
+}
+
+const readAll = async (source: Readable): Promise<Buffer> => {
+	const chunks: Buffer[] = [];
+	for await (const chunk of source) chunks.push(Buffer.from(chunk));
+	return Buffer.concat(chunks);
+};
+
 export class BodySyncService {
 	private log: BodySyncLogger;
 	private readonly filterPipeline?: FilterPipeline;
@@ -362,10 +425,8 @@ export class BodySyncService {
 		accountConfigId: string,
 		folder: BodySyncRoundFolder,
 		getConnection: ConnectionGetter,
-		force = false,
+		{ force, concurrency }: SyncBodiesOptions,
 	): Promise<SyncBodiesResult> {
-		const syncedMessageIds: string[] = [];
-		const syncedUids: number[] = [];
 		let skippedCount = 0;
 		const location = {
 			accountId,
@@ -448,7 +509,7 @@ export class BodySyncService {
 		}
 
 		if (pending.size === 0) {
-			return this.buildResult(syncedMessageIds, skippedCount, []);
+			return this.buildResult([], skippedCount, []);
 		}
 
 		const connection = await getConnection();
@@ -456,8 +517,19 @@ export class BodySyncService {
 		// connection already on this mailbox skips the SELECT entirely.
 		await connection.openBox(folder.fullPath);
 
-		let connectionLost = false;
-		try {
+		const lookups = this.batchLookups(accountConfigId, accountId);
+		const fetched: FetchedBody[] = [];
+		const outcomes = new Map<number, StoreOutcome>();
+		const stream: { lost: boolean; faults: unknown[] } = {
+			lost: false,
+			faults: [],
+		};
+		const log = this.log;
+
+		// The FETCH stays one command on the one connection. Each body is read
+		// off it whole before the next is asked for, so the stream is drained in
+		// order however many stores are running behind it.
+		async function* fetchRows(): AsyncGenerator<FetchedBody> {
 			for await (const { uid, source } of connection.fetchMessageBodies([
 				...pending.keys(),
 			])) {
@@ -468,63 +540,88 @@ export class BodySyncService {
 					source.resume();
 					continue;
 				}
-				try {
-					await this.storeStreamedBody(
+				yield { uid, messageId, body: await readAll(source) };
+			}
+		}
+
+		const endStream = (error: unknown): null => {
+			log.error?.(
+				{ error: (error as Error).message },
+				"Body fetch stream failed",
+			);
+			// Fail-fast: a dropped connection mid-stream leaves every
+			// not-yet-yielded UID in `pending`; they fall through to
+			// failedMessageIds and re-enqueue. Any other error is a real fault,
+			// raised once the stores already running have finished.
+			if (!isConnectionDrop(error)) {
+				stream.faults.push(error);
+				return null;
+			}
+			stream.lost = true;
+			log.info?.(
+				{ remainingCount: pending.size - fetched.length },
+				"Connection lost, aborting batch",
+			);
+			return null;
+		};
+
+		async function* drain(): AsyncGenerator<FetchedBody> {
+			const fetching = fetchRows();
+			for (;;) {
+				const step = await fetching.next().catch(endStream);
+				if (!step || step.done) return;
+				fetched.push(step.value);
+				yield step.value;
+			}
+		}
+
+		await pMap(
+			drain(),
+			async ({ uid, messageId, body }) => {
+				outcomes.set(
+					uid,
+					await this.storeFetchedBody(
 						messageId,
 						accountId,
 						accountConfigId,
-						source,
+						body,
 						folder.placement,
 						reStoredMessageIds.has(messageId),
-					);
-				} catch (error) {
-					// The one error in this frame that is the message's own fault. It
-					// reaches here from the parse call and nowhere else, so the S3, DB
-					// and queue work this same frame wraps cannot be mistaken for it.
-					// The row is durable before the UID leaves `pending`, so the
-					// message is never let go of unrecorded.
-					if (error instanceof BodyParseError && this.quarantineConfig) {
-						await this.recordQuarantine(
-							this.quarantineConfig,
-							messageId,
-							location,
-							error,
-						);
-						pending.delete(uid);
-						skippedCount++;
-						source.resume();
-						continue;
-					}
+						lookups,
+						location,
+					),
+				);
+			},
+			{ concurrency },
+		);
 
-					// Anything else is our own storage, database or queue failing. It
-					// aborts the batch, which redelivers whole; what stored skips.
-					throw error;
-				}
+		const syncedMessageIds: string[] = [];
+		const syncedUids: number[] = [];
+		const faults: unknown[] = [];
+		for (const { uid, messageId } of fetched) {
+			const outcome = outcomes.get(uid);
+			if (outcome?.kind === "Stored") {
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
 				syncedUids.push(uid);
 			}
-		} catch (error) {
-			this.log.error?.(
-				{ error: (error as Error).message },
-				"Body fetch stream failed",
-			);
-			// Fail-fast: a dropped connection mid-stream leaves every not-yet-yielded
-			// UID in `pending`; they fall through to failedMessageIds and re-enqueue.
-			// Any other error is a real fault — let it crash.
-			if (!isConnectionDrop(error)) {
-				throw error;
+			if (outcome?.kind === "Quarantined") {
+				pending.delete(uid);
+				skippedCount++;
 			}
-			connectionLost = true;
-			this.log.info?.(
-				{ remainingCount: pending.size },
-				"Connection lost, aborting batch",
-			);
+			if (outcome?.kind === "Failed") faults.push(outcome.error);
 		}
+
+		// A message that failed on our own storage, database or queue fails the
+		// batch, which redelivers whole; its neighbours are stored by then and
+		// skip on the redelivery.
+		const allFaults = [...faults, ...stream.faults];
+		if (allFaults.length > 0) throw allFaults[0];
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
 		const failedMessageIds = [...pending.values()];
+		const connectionLost = stream.lost;
 
 		await this.syncWarningService.settle(
 			{
@@ -615,75 +712,86 @@ export class BodySyncService {
 	}
 
 	/**
-	 * Stream one message body straight to storage while teeing the bytes into a
-	 * buffer for the parse-dependent steps (snippet, classification, parsed-body
-	 * cache, per-part objects). The S3 upload never sees a whole-body concat —
-	 * the storage service streams it — but mailparser still needs the full bytes,
-	 * so we collect them in parallel. Later issues move parsing off the hot path.
+	 * Store one fetched body and run the parse-dependent steps on it, reporting
+	 * how it ended rather than throwing, so one message's failure never cuts
+	 * short the neighbours stored beside it. Every message keeps its own
+	 * "Body stored" or failure record.
 	 *
 	 * `isReStore` marks a re-fetch of a message whose row already carried
 	 * `bodyStorageKey` (the `force` re-arm in {@link syncBodies}): the
 	 * post-store steps then re-materialize the body artifacts without
 	 * re-running any decision (issue #1011).
 	 */
-	private async storeStreamedBody(
+	private async storeFetchedBody(
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
-		source: Readable,
+		body: Buffer,
 		placement: FolderPlacement,
 		isReStore: boolean,
-	): Promise<void> {
-		const toStorage = new PassThrough();
-		const chunks: Buffer[] = [];
-
-		// Tee the source: bytes flow to storage as a stream (no whole-body concat
-		// on the upload path) while we also collect them for the parse-dependent
-		// steps below, which still need the full body for mailparser. The store
-		// and the tee are awaited together so neither rejection is orphaned.
-		const tee = new Promise<void>((resolve, reject) => {
-			source.on("data", (chunk: Buffer) => {
-				chunks.push(chunk);
-				toStorage.write(chunk);
-			});
-			source.on("end", () => {
-				toStorage.end();
-				resolve();
-			});
-			source.on("error", (err) => {
-				toStorage.destroy(err);
-				reject(err);
-			});
-		});
-
-		const [ref] = await Promise.all([
-			this.storageService.storeMessageBodyStream({
+		lookups: BatchLookups,
+		location: {
+			accountId: string;
+			accountConfigId: string;
+			mailboxPath: string;
+		},
+	): Promise<StoreOutcome> {
+		const stored = await this.storageService
+			.storeMessageBody({
 				accountConfigId,
 				accountId,
 				messageId,
-				content: toStorage,
-			}),
-			tee,
-		]);
+				content: body,
+			})
+			.then((ref) =>
+				this.applyPostStoreSteps(
+					messageId,
+					accountId,
+					accountConfigId,
+					body,
+					{ uri: ref.uri },
+					placement,
+					isReStore,
+					lookups,
+				),
+			)
+			.then(
+				(): StoreOutcome => ({ kind: "Stored" }),
+				(error: unknown): StoreOutcome => ({ kind: "Failed", error }),
+			);
+		if (stored.kind !== "Failed") return stored;
 
-		const body = Buffer.concat(chunks);
+		const { error } = stored;
 
-		await this.applyPostStoreSteps(
+		// The one error in this frame that is the message's own fault. It
+		// reaches here from the parse call and nowhere else, so the S3, DB and
+		// queue work this same frame wraps cannot be mistaken for it. The row is
+		// durable before the UID leaves `pending`, so the message is never let go
+		// of unrecorded.
+		if (!(error instanceof BodyParseError) || !this.quarantineConfig) {
+			this.log.error?.(
+				{ messageId, accountId, error: inspect(error) },
+				"Body store failed",
+			);
+			return stored;
+		}
+		return this.recordQuarantine(
+			this.quarantineConfig,
 			messageId,
-			accountId,
-			accountConfigId,
-			body,
-			{
-				uri: ref.uri,
-			},
-			placement,
-			isReStore,
+			location,
+			error,
+		).then(
+			(): StoreOutcome => ({ kind: "Quarantined" }),
+			(recordError: unknown): StoreOutcome => ({
+				kind: "Failed",
+				error: recordError,
+			}),
 		);
 	}
 
 	/**
 	 * The steps every synced body must go through regardless of which path
-	 * fetched it first — the sync path ({@link storeStreamedBody}) and the
+	 * fetched it first — the sync path ({@link storeFetchedBody}) and the
 	 * read-path backfill ({@link fetchAndGetBody}) both call this instead of
 	 * duplicating (and drifting on) their own subset. Before issue #1271,
 	 * `fetchAndGetBody` skipped classification/placement entirely — a message
@@ -720,6 +828,7 @@ export class BodySyncService {
 		 * message's existing category is carried forward unchanged.
 		 */
 		isReStore: boolean,
+		lookups: BatchLookups,
 	): Promise<ParsedMail> {
 		// The one operation on this path that can fail because of how the message
 		// is built. Its own try block lives in `parseMessageBody`, so this frame —
@@ -792,6 +901,7 @@ export class BodySyncService {
 		// (action != leave); the move is enqueued only for a confident,
 		// actionable verdict.
 		const resolved = await this.resolvePlacement(
+			lookups,
 			messageId,
 			accountId,
 			accountConfigId,
@@ -803,12 +913,7 @@ export class BodySyncService {
 		// FilterPipeline.evaluate swallows any read/decision failure and returns
 		// no actions, so a schema-drifted filter query never fails the body store.
 		// The DECISION is computed here; the applies below are unswallowed.
-		const filterDecision = await this.evaluateFilters(
-			accountConfigId,
-			accountId,
-			messageId,
-			parsed,
-		);
+		const filterDecision = await this.evaluateFilters(lookups, parsed);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -923,6 +1028,7 @@ export class BodySyncService {
 		);
 
 		await this.deriveCalendarSuggestions(
+			lookups,
 			messageId,
 			accountConfigId,
 			parsed,
@@ -1093,6 +1199,7 @@ export class BodySyncService {
 				{ uri: ref.uri },
 				folder.placement,
 				message.bodyStorageKey != null,
+				this.batchLookups(accountConfigId, accountId),
 			);
 		} else {
 			parsed = await simpleParser(body);
@@ -1355,19 +1462,20 @@ export class BodySyncService {
 	 * failing a body store that otherwise succeeded.
 	 */
 	private async deriveCalendarSuggestions(
+		lookups: BatchLookups,
 		messageId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
 		storedBodyKey: string | undefined,
 	): Promise<void> {
-		if (!this.calendarConfig) return;
+		const { calendar } = lookups;
+		if (!calendar) return;
 		if (hasStoredBody(storedBodyKey)) return;
 
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarStore, calendarSuggestionService, filterService } =
-			this.calendarConfig;
+		const { calendarStore, calendarSuggestionService } = calendar.config;
 
 		await Promise.resolve()
 			.then(async () => {
@@ -1377,10 +1485,7 @@ export class BodySyncService {
 				// move, so this is the only reader such a rule has.
 				const sender = extractPrimaryFromEmail(parsed);
 				if (sender) {
-					const active = await filterService.listByAccountAndState(
-						accountConfigId,
-						FilterState.Active,
-					);
+					const active = await calendar.activeFilters();
 					if (isSenderMuted(active, sender)) {
 						this.log.debug?.(
 							{ messageId, sender },
@@ -1465,18 +1570,58 @@ export class BodySyncService {
 	 * the returned decision are the caller's and are deliberately unswallowed.
 	 */
 	private async evaluateFilters(
-		accountConfigId: string,
-		accountId: string,
-		messageId: string,
+		lookups: BatchLookups,
 		parsed: ParsedMail,
 	): Promise<FilterDecision> {
-		if (!this.filterPipeline) return { labels: [] };
-		return this.filterPipeline.evaluate(
-			accountConfigId,
-			accountId,
-			messageId,
+		const { filters } = lookups;
+		if (!filters) return { labels: [] };
+		return filters.pipeline.decide(
+			await filters.prepared(),
 			toFilterMessage(parsed),
 		);
+	}
+
+	/**
+	 * The per-batch reads, scoped to one account. Nothing outlives the batch, so
+	 * a filter, folder role or mute changed between batches is seen by the next.
+	 */
+	private batchLookups(
+		accountConfigId: string,
+		accountId: string,
+	): BatchLookups {
+		const { placementConfig, filterPipeline, calendarConfig } = this;
+		return {
+			placement: placementConfig
+				? {
+						config: placementConfig,
+						roleMailboxes: once(() =>
+							resolveFolderRoleMailboxes(
+								placementConfig.mailboxSpecialUseService,
+								accountId,
+							),
+						),
+					}
+				: null,
+			filters: filterPipeline
+				? {
+						pipeline: filterPipeline,
+						prepared: once(() =>
+							filterPipeline.prepare(accountConfigId, accountId),
+						),
+					}
+				: null,
+			calendar: calendarConfig
+				? {
+						config: calendarConfig,
+						activeFilters: once(() =>
+							calendarConfig.filterService.listByAccountAndState(
+								accountConfigId,
+								FilterState.Active,
+							),
+						),
+					}
+				: null,
+		};
 	}
 
 	/**
@@ -1507,15 +1652,16 @@ export class BodySyncService {
 	 * what distinguishes the latter, and neither case marks the message decided.
 	 */
 	private async resolvePlacement(
+		lookups: BatchLookups,
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
 	): Promise<PlacementOutcome> {
-		if (!this.placementConfig) return {};
+		if (!lookups.placement) return {};
 		return this.computePlacement(
-			this.placementConfig,
+			lookups.placement,
 			messageId,
 			accountId,
 			accountConfigId,
@@ -1538,14 +1684,14 @@ export class BodySyncService {
 	}
 
 	private async computePlacement(
-		placementConfig: PlacementConfig,
+		placementLookups: NonNullable<BatchLookups["placement"]>,
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
 	): Promise<PlacementOutcome> {
-		const { mailboxSpecialUseService } = placementConfig;
+		const { mailboxSpecialUseService } = placementLookups.config;
 
 		const message = await this.messageService.get(messageId);
 
@@ -1556,10 +1702,7 @@ export class BodySyncService {
 		// true)`) skip the decision steps entirely, so only the pass that first
 		// stores a body ever reaches this method.
 
-		const roleMailboxes = await resolveFolderRoleMailboxes(
-			mailboxSpecialUseService,
-			accountId,
-		);
+		const roleMailboxes = await placementLookups.roleMailboxes();
 		const { junkMailbox, inboxMailbox } = roleMailboxes;
 		const placement = placementOf(message.mailboxId, roleMailboxes);
 

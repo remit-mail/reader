@@ -252,7 +252,7 @@ export const syncMessageBody = async (
 					account.accountConfigId,
 					folder,
 					getConnectionChecked,
-					force,
+					{ force, concurrency: config.bodyProcessConcurrency },
 				);
 
 				if (result.failedMessageIds.length === 0) {

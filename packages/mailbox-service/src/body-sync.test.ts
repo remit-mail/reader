@@ -22,7 +22,11 @@ import {
 	MessageClassificationState,
 } from "@remit/domain-enums";
 import type { StorageService } from "@remit/storage-service";
-import { type BodySyncFolder, BodySyncService } from "./body-sync.js";
+import {
+	type BodySyncFolder,
+	type BodySyncLogger,
+	BodySyncService,
+} from "./body-sync.js";
 import { NO_ACTION } from "./filters/match.js";
 import { FlagPushService } from "./flag-push.js";
 import { FlagQueueService } from "./flag-queue.js";
@@ -158,6 +162,7 @@ afterEach(async () => {
 
 interface Wiring {
 	storage?: StorageService;
+	log?: BodySyncLogger;
 	placement?: boolean;
 	filters?: boolean;
 	quarantine?: boolean;
@@ -192,7 +197,7 @@ const bodySync = (wiring: Wiring = {}): BodySyncService => {
 		store.address,
 		store.envelope,
 		new SyncWarningService(store.syncWarning),
-		silentLog,
+		wiring.log ?? silentLog,
 		wiring.placement
 			? {
 					mailboxSpecialUseService: store.mailboxSpecialUse,
@@ -270,7 +275,11 @@ const read = (
 const sync = (
 	service: BodySyncService,
 	messageIds: string[],
-	options: { force?: boolean; mailbox?: MailboxItem } = {},
+	options: {
+		force?: boolean;
+		mailbox?: MailboxItem;
+		concurrency?: number;
+	} = {},
 ) =>
 	service.syncBodies(
 		messageIds,
@@ -281,7 +290,7 @@ const sync = (
 			uidValidity: (options.mailbox ?? world.inbox).uidValidity,
 		},
 		async () => world.imap.connection(),
-		options.force ?? false,
+		{ force: options.force ?? false, concurrency: options.concurrency ?? 1 },
 	);
 
 const flagSender = async (email: string, flags: AddressFlags) => {
@@ -788,6 +797,7 @@ describe("body sync and the quarantine", () => {
 			world.account.accountConfigId,
 			{ ...placementOf(world.inbox), uidValidity: world.inbox.uidValidity },
 			async () => assert.fail("a quarantined message is not fetched"),
+			{ force: false, concurrency: 1 },
 		);
 
 		assert.equal(result.skippedCount, 1);
@@ -936,5 +946,80 @@ describe("mail-derived calendar suggestions", () => {
 
 		assert.ok((await messageRow(messageId)).bodyStorageKey);
 		assert.deepEqual(await suggestions(messageId), []);
+	});
+});
+
+describe("a batch is stored with bounded concurrency", () => {
+	const recordingLog = (): BodySyncLogger & { messages: string[] } => {
+		const messages: string[] = [];
+		const record = (_obj: Record<string, unknown>, msg: string) => {
+			messages.push(msg);
+		};
+		return { messages, info: record, warn: record, error: record };
+	};
+
+	const arriveBatch = async (size: number, tag: string): Promise<string[]> => {
+		const messageIds: string[] = [];
+		for (let i = 0; i < size; i++) {
+			messageIds.push(
+				await arrive(
+					eml(
+						{ From: `Sender ${i} <s${i}@example.com>`, Subject: `${tag} ${i}` },
+						`body ${tag} ${i}`,
+					),
+				),
+			);
+		}
+		return messageIds;
+	};
+
+	const storedEvents = (log: { messages: string[] }) =>
+		log.messages.filter((msg) => msg === "Body stored").length;
+
+	it("stores the same set at concurrency 1 and 4", async () => {
+		const serialLog = recordingLog();
+		const serialIds = await arriveBatch(6, "serial");
+		const serial = await sync(bodySync({ log: serialLog }), serialIds, {
+			concurrency: 1,
+		});
+
+		const parallelLog = recordingLog();
+		const parallelIds = await arriveBatch(6, "parallel");
+		const parallel = await sync(bodySync({ log: parallelLog }), parallelIds, {
+			concurrency: 4,
+		});
+
+		assert.deepEqual(serial.syncedMessageIds, serialIds);
+		assert.deepEqual(parallel.syncedMessageIds, parallelIds);
+		assert.equal(storedEvents(serialLog), 6);
+		assert.equal(storedEvents(parallelLog), 6);
+		for (const messageId of [...serialIds, ...parallelIds]) {
+			assert.ok((await messageRow(messageId)).bodyStorageKey);
+		}
+	});
+
+	it("stores every neighbour of a message whose store fails", async () => {
+		const messageIds = await arriveBatch(5, "neighbours");
+		const failing = messageIds[1];
+		const working = world.store.storage();
+		const broken = world.store.brokenStorage();
+		const storage: StorageService = {
+			...working,
+			storeMessageBody: (params) =>
+				(params.messageId === failing ? broken : working).storeMessageBody(
+					params,
+				),
+		};
+		const log = recordingLog();
+
+		await assert.rejects(
+			sync(bodySync({ storage, log }), messageIds, { concurrency: 4 }),
+		);
+
+		assert.equal((await messageRow(failing)).bodyStorageKey, undefined);
+		for (const messageId of messageIds.filter((id) => id !== failing)) {
+			assert.ok((await messageRow(messageId)).bodyStorageKey);
+		}
+		assert.equal(storedEvents(log), 4);
 	});
 });

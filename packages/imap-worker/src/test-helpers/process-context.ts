@@ -38,7 +38,12 @@ export const processContext = (
 	queues: unusedPort("queues"),
 	pool: unusedPort("pool"),
 	metrics: recordingMetrics(),
-	config: { ...defaultImapWorkerConfig, workerVersion: "test" },
+	config: {
+		...defaultImapWorkerConfig,
+		bodyBatchSize: 200,
+		bodyProcessConcurrency: 8,
+		workerVersion: "test",
+	},
 	log: noopLogger,
 	oauth: unusedPort("oauth"),
 	accountObjects: unusedPort("accountObjects"),
