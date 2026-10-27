@@ -1,3 +1,4 @@
+import type { RemitClient } from "@remit/backend/client";
 import type {
 	IAccountConfigRepository,
 	IAccountExportRequestRepository,
@@ -44,6 +45,26 @@ export interface CascadeServices {
 	labelService: ILabelRepository;
 	messageLabelService: IMessageLabelRepository;
 }
+
+export const cascadeServicesOf = (client: RemitClient): CascadeServices => ({
+	accountConfigService: client.accountConfig,
+	accountService: client.account,
+	addressService: client.address,
+	mailboxService: client.mailbox,
+	messageService: client.message,
+	messageFlagService: client.messageFlag,
+	envelopeService: client.envelope,
+	outboxMessageService: client.outboxMessage,
+	threadMessageService: client.threadMessage,
+	mailboxLockService: client.mailboxLock,
+	messagePlacementMoveService: client.placementMove,
+	messageFlagPushService: client.flagPush,
+	accountExportRequestService: client.accountExportRequest,
+	accountSettingService: client.accountSetting,
+	filterService: client.filter,
+	labelService: client.label,
+	messageLabelService: client.messageLabel,
+});
 
 export interface CascadeResult {
 	entities: CascadeEntity[];

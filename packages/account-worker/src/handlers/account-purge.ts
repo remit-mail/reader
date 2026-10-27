@@ -1,7 +1,6 @@
 import type { GroupedQueueProducer } from "@remit/data-ports";
 import type { Logger } from "@remit/logger";
 import type { CascadeServices } from "../cascade.js";
-import { getCascadeServices } from "../config.js";
 import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
@@ -10,7 +9,7 @@ import type {
 
 export interface ProcessPurgeFanoutDeps {
 	queue: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>;
-	services?: CascadeServices;
+	services: CascadeServices;
 }
 
 /**
@@ -81,7 +80,7 @@ export const processAccountDataPurge = async (
 	deps: ProcessPurgeFanoutDeps,
 ): Promise<void> => {
 	const { accountId, accountConfigId } = event;
-	const services = deps.services ?? (await getCascadeServices());
+	const { services } = deps;
 
 	let mailboxIds: Set<string>;
 	try {

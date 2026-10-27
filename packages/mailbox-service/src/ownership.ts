@@ -10,14 +10,21 @@ import {
 
 // A read refuses with NotFound so another tenant's account does not leak its
 // existence; an action names the resource already, so it is refused outright.
+// A deleted account keeps its row until the purge finishes, and is gone to its owner.
 export const ownedAccount = <
-	A extends Pick<AccountItem, "accountId" | "accountConfigId">,
+	A extends Pick<AccountItem, "accountId" | "accountConfigId" | "deletedAt">,
 >(
 	account: A,
 	accountConfigId: string,
 	mode: AccessMode,
 ): Refusable<A> => {
-	if (account.accountConfigId === accountConfigId) return accept(account);
+	if (account.accountConfigId === accountConfigId) {
+		if (account.deletedAt === undefined) return accept(account);
+		return refuse({
+			kind: "NotFound",
+			message: `Account not found: ${account.accountId}`,
+		});
+	}
 	if (mode === "read") {
 		return refuse({
 			kind: "NotFound",
