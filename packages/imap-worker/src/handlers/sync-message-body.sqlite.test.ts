@@ -132,6 +132,15 @@ const batchOf = (
 const runBatch = (w: World, event: SyncMessageBodyEvent, receiveCount = 1) =>
 	syncMessageBody(event, w.ctx(), receiveCount);
 
+const runBatchOneAtATime = (w: World, event: SyncMessageBodyEvent) => {
+	const ctx = w.ctx();
+	return syncMessageBody(
+		event,
+		{ ...ctx, config: { ...ctx.config, bodyProcessConcurrency: 1 } },
+		1,
+	);
+};
+
 const arrangeFiling = async () => {
 	const w = await store.world();
 	const inbox = await w.folder("INBOX");
@@ -157,11 +166,26 @@ const arrangeFiling = async () => {
 };
 
 describe("a body batch whose filter files mail while the queue is refusing", () => {
-	it("fails at the first filing it cannot enqueue and leaves the rest untouched", async () => {
+	it("stores no body for a filing it cannot enqueue, whichever store runs first", async () => {
 		const { w, first, second, event } = await arrangeFiling();
 		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
 
 		await assert.rejects(runBatch(w, event), /ECONNREFUSED/);
+
+		for (const message of [first, second]) {
+			assert.equal((await w.row(message.messageId))?.bodyStorageKey, undefined);
+			assert.equal(
+				(await w.client.placementMove.find(message.messageId))?.state,
+				"pending",
+			);
+		}
+	});
+
+	it("stops at the first filing it cannot enqueue when stores run one at a time", async () => {
+		const { w, first, second, event } = await arrangeFiling();
+		w.refuseSends(new Error("connect ECONNREFUSED 127.0.0.1:9324"));
+
+		await assert.rejects(runBatchOneAtATime(w, event), /ECONNREFUSED/);
 
 		const untouched = await w.row(second.messageId);
 		assert.equal(untouched?.status, MessageStatus.active);
