@@ -1,4 +1,3 @@
-import { inspect } from "node:util";
 import type {
 	FilterItem,
 	IFilterRepository,
@@ -46,12 +45,7 @@ export interface FilterDecision {
 
 const EMPTY_DECISION: FilterDecision = { labels: [] };
 
-/** The filters that can act on one account's mail, loaded once per batch. */
-export interface PreparedFilters {
-	filters: readonly FilterItem[];
-}
-
-const NO_FILTERS: PreparedFilters = { filters: [] };
+export type PreparedFilters = readonly FilterItem[];
 
 /**
  * Evaluates a synced message against the account's active filters and resolves
@@ -59,13 +53,10 @@ const NO_FILTERS: PreparedFilters = { filters: [] };
  * lazy expiry; the caller applies the
  * resulting {@link FilterDecision}.
  *
- * `prepare` loads the usable filters once per batch of messages and isolates
- * every failure in that read from body sync, matching the placement-resolution
- * precedent (#1246): a schema-drifted query must never fail the surrounding
- * message stores. `decide` then matches each message without a read. The apply
- * of the decision — label writes and the move enqueue — is the caller's
- * responsibility and is *not* swallowed there, so a genuine DDB/SQS write
- * failure still propagates and requeues the message.
+ * `prepare` narrows the account's active filters to the ones that can act on
+ * one account's mail; `decide` matches a message against them without a read.
+ * The apply of the decision — label writes and the move enqueue — is the
+ * caller's responsibility.
  */
 export class FilterPipeline {
 	constructor(
@@ -73,31 +64,8 @@ export class FilterPipeline {
 		private readonly log: FilterLogger,
 	) {}
 
-	async prepare(
-		accountConfigId: string,
-		accountId: string,
-	): Promise<PreparedFilters> {
-		return this.usableFilters(accountConfigId, accountId).catch(
-			(error: unknown) => {
-				this.log.error?.(
-					{
-						alert: "body_sync_filter_match_failed",
-						accountConfigId,
-						accountId,
-						errorName: (error as { name?: string })?.name,
-						error: inspect(error),
-					},
-					"Filter loading failed; bodies stored without filter actions (best-effort, non-fatal)",
-				);
-				return NO_FILTERS;
-			},
-		);
-	}
-
 	decide(prepared: PreparedFilters, msg: FilterMessage): FilterDecision {
-		const matched = prepared.filters.filter((filter) =>
-			filterMatches(filter, msg),
-		);
+		const matched = prepared.filter((filter) => filterMatches(filter, msg));
 		if (matched.length === 0) return EMPTY_DECISION;
 
 		const labels: FilterDecision["labels"] = [];
@@ -153,14 +121,11 @@ export class FilterPipeline {
 		return false;
 	}
 
-	private async usableFilters(
+	async prepare(
 		accountConfigId: string,
 		accountId: string,
+		active: readonly FilterItem[],
 	): Promise<PreparedFilters> {
-		const active = await this.config.filterService.listByAccountAndState(
-			accountConfigId,
-			FilterState.Active,
-		);
 		const filters: FilterItem[] = [];
 		for (const filter of active) {
 			// Lazy expiry (RFC 034 Decision 1.2): reading a Temporary filter past
@@ -171,7 +136,7 @@ export class FilterPipeline {
 			if (!(await this.appliesTo(accountConfigId, accountId, usable))) continue;
 			filters.push(usable);
 		}
-		return { filters };
+		return filters;
 	}
 }
 

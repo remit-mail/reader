@@ -79,7 +79,7 @@ const syncBody = (messageId: string, source: FakeImapConnection) =>
 			uidValidity: inbox.uidValidity,
 		},
 		async () => source,
-		{ force: false, concurrency: 1 },
+		{ force: false, concurrency: 1, bytesInFlight: 1024 * 1024 },
 	);
 
 const warnings = async () =>

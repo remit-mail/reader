@@ -1,4 +1,3 @@
-import type { Readable } from "node:stream";
 import { inspect } from "node:util";
 import {
 	provisionDefaultCalendar,
@@ -249,14 +248,9 @@ const noopLogger: BodySyncLogger = {
 };
 
 export interface SyncBodiesOptions {
-	/** Re-fetch every message, its body stored or not (the read-miss cue). */
 	force: boolean;
-	/**
-	 * How many fetched messages are stored at once. The FETCH stays one command
-	 * on the account's one connection; this bounds the storage, database and
-	 * queue work behind it.
-	 */
 	concurrency: number;
+	bytesInFlight: number;
 }
 
 export interface SyncBodiesResult {
@@ -349,32 +343,24 @@ export interface CalendarSuggestionConfig {
 	filterService: Pick<IFilterRepository, "listByAccountAndState">;
 }
 
-/**
- * The account-wide reads a batch of messages shares, made at most once per
- * batch rather than once per message. Each loads on first use, so a step no
- * message reaches costs nothing, and a failed load rejects inside that step's
- * own isolation, as the per-message read did.
- */
 interface BatchLookups {
-	placement: {
-		config: PlacementConfig;
-		roleMailboxes: () => Promise<FolderRoleMailboxes>;
-	} | null;
-	filters: {
-		pipeline: FilterPipeline;
-		prepared: () => Promise<PreparedFilters>;
-	} | null;
-	calendar: {
-		config: CalendarSuggestionConfig;
-		activeFilters: () => Promise<FilterItem[]>;
-	} | null;
+	roleMailboxes: () => Promise<FolderRoleMailboxes>;
+	activeFilters: () => Promise<FilterItem[]>;
+	usableFilters: () => Promise<PreparedFilters>;
 }
 
+// A failed load is forgotten, so the next message retries it rather than the
+// rest of the batch inheriting the failure.
 const once = <T>(load: () => Promise<T>): (() => Promise<T>) => {
 	let loaded: Promise<T> | undefined;
 	return () => {
-		loaded ??= load();
-		return loaded;
+		if (loaded) return loaded;
+		const attempt = load();
+		loaded = attempt;
+		attempt.then(undefined, () => {
+			if (loaded === attempt) loaded = undefined;
+		});
+		return attempt;
 	};
 };
 
@@ -382,18 +368,6 @@ type StoreOutcome =
 	| { kind: "Stored" }
 	| { kind: "Quarantined" }
 	| { kind: "Failed"; error: unknown };
-
-interface FetchedBody {
-	uid: number;
-	messageId: string;
-	body: Buffer;
-}
-
-const readAll = async (source: Readable): Promise<Buffer> => {
-	const chunks: Buffer[] = [];
-	for await (const chunk of source) chunks.push(Buffer.from(chunk));
-	return Buffer.concat(chunks);
-};
 
 export class BodySyncService {
 	private log: BodySyncLogger;
@@ -425,7 +399,7 @@ export class BodySyncService {
 		accountConfigId: string,
 		folder: BodySyncRoundFolder,
 		getConnection: ConnectionGetter,
-		{ force, concurrency }: SyncBodiesOptions,
+		{ force, concurrency, bytesInFlight }: SyncBodiesOptions,
 	): Promise<SyncBodiesResult> {
 		let skippedCount = 0;
 		const location = {
@@ -518,79 +492,91 @@ export class BodySyncService {
 		await connection.openBox(folder.fullPath);
 
 		const lookups = this.batchLookups(accountConfigId, accountId);
-		const fetched: FetchedBody[] = [];
-		const outcomes = new Map<number, StoreOutcome>();
-		const stream: { lost: boolean; faults: unknown[] } = {
-			lost: false,
-			faults: [],
-		};
 		const log = this.log;
-
-		// The FETCH stays one command on the one connection. Each body is read
-		// off it whole before the next is asked for, so the stream is drained in
-		// order however many stores are running behind it.
-		async function* fetchRows(): AsyncGenerator<FetchedBody> {
-			for await (const { uid, source } of connection.fetchMessageBodies([
-				...pending.keys(),
-			])) {
-				const messageId = pending.get(uid);
-				if (!messageId) {
-					// A UID we didn't ask for — drain the stream so the connection
-					// stays usable, then ignore it.
-					source.resume();
-					continue;
-				}
-				yield { uid, messageId, body: await readAll(source) };
-			}
-		}
+		const stream: {
+			lost: boolean;
+			fault: { error: unknown } | null;
+			failed: boolean;
+			bytes: number;
+			settled: () => void;
+		} = {
+			lost: false,
+			fault: null,
+			failed: false,
+			bytes: 0,
+			settled: () => {},
+		};
 
 		const endStream = (error: unknown): null => {
 			log.error?.(
 				{ error: (error as Error).message },
 				"Body fetch stream failed",
 			);
-			// Fail-fast: a dropped connection mid-stream leaves every
-			// not-yet-yielded UID in `pending`; they fall through to
-			// failedMessageIds and re-enqueue. Any other error is a real fault,
-			// raised once the stores already running have finished.
-			if (!isConnectionDrop(error)) {
-				stream.faults.push(error);
+			// A dropped connection leaves every not-yet-yielded UID in `pending`;
+			// they fall through to failedMessageIds and re-enqueue. Any other error
+			// is a real fault, raised once the stores already running have finished.
+			if (isConnectionDrop(error)) {
+				stream.lost = true;
+				log.info?.(
+					{ remainingCount: pending.size },
+					"Connection lost, aborting batch",
+				);
 				return null;
 			}
-			stream.lost = true;
-			log.info?.(
-				{ remainingCount: pending.size - fetched.length },
-				"Connection lost, aborting batch",
-			);
+			stream.fault = { error };
 			return null;
 		};
 
-		async function* drain(): AsyncGenerator<FetchedBody> {
-			const fetching = fetchRows();
+		// The FETCH stays one command on the one connection, read in order. A row
+		// waits while the bodies already being stored hold the byte budget, but one
+		// always goes through, and none is pulled after a store has failed.
+		async function* fetchedBodies(): AsyncGenerator<{
+			uid: number;
+			messageId: string;
+			body: Buffer;
+		}> {
+			const rows = connection.fetchMessageBodies([...pending.keys()]);
 			for (;;) {
-				const step = await fetching.next().catch(endStream);
+				const step = await rows.next().catch(endStream);
 				if (!step || step.done) return;
-				fetched.push(step.value);
-				yield step.value;
+				const { uid, source } = step.value;
+				const messageId = pending.get(uid);
+				if (!messageId) continue;
+				while (
+					!stream.failed &&
+					stream.bytes > 0 &&
+					stream.bytes + source.length > bytesInFlight
+				) {
+					await new Promise<void>((resolve) => {
+						stream.settled = resolve;
+					});
+				}
+				if (stream.failed) {
+					await rows.return(undefined);
+					return;
+				}
+				stream.bytes += source.length;
+				yield { uid, messageId, body: source };
 			}
 		}
 
-		await pMap(
-			drain(),
+		const stored = await pMap(
+			fetchedBodies(),
 			async ({ uid, messageId, body }) => {
-				outcomes.set(
-					uid,
-					await this.storeFetchedBody(
-						messageId,
-						accountId,
-						accountConfigId,
-						body,
-						folder.placement,
-						reStoredMessageIds.has(messageId),
-						lookups,
-						location,
-					),
+				const outcome = await this.storeFetchedBody(
+					messageId,
+					accountId,
+					accountConfigId,
+					body,
+					folder.placement,
+					reStoredMessageIds.has(messageId),
+					lookups,
+					location,
 				);
+				stream.bytes -= body.length;
+				if (outcome.kind === "Failed") stream.failed = true;
+				stream.settled();
+				return { uid, messageId, outcome };
 			},
 			{ concurrency },
 		);
@@ -598,25 +584,23 @@ export class BodySyncService {
 		const syncedMessageIds: string[] = [];
 		const syncedUids: number[] = [];
 		const faults: unknown[] = [];
-		for (const { uid, messageId } of fetched) {
-			const outcome = outcomes.get(uid);
-			if (outcome?.kind === "Stored") {
+		for (const { uid, messageId, outcome } of stored) {
+			if (outcome.kind === "Stored") {
 				pending.delete(uid);
 				syncedMessageIds.push(messageId);
 				syncedUids.push(uid);
 			}
-			if (outcome?.kind === "Quarantined") {
+			if (outcome.kind === "Quarantined") {
 				pending.delete(uid);
 				skippedCount++;
 			}
-			if (outcome?.kind === "Failed") faults.push(outcome.error);
+			if (outcome.kind === "Failed") faults.push(outcome.error);
 		}
 
-		// A message that failed on our own storage, database or queue fails the
-		// batch, which redelivers whole; its neighbours are stored by then and
-		// skip on the redelivery.
-		const allFaults = [...faults, ...stream.faults];
-		if (allFaults.length > 0) throw allFaults[0];
+		// A store failing on our own storage, database or queue fails the batch,
+		// which redelivers whole; what stored skips on the redelivery.
+		if (faults.length > 0) throw faults[0];
+		if (stream.fault) throw stream.fault.error;
 
 		// Anything still pending was never yielded (mid-stream drop or a UID the
 		// server silently omitted) — re-enqueue it.
@@ -711,17 +695,6 @@ export class BodySyncService {
 		};
 	}
 
-	/**
-	 * Store one fetched body and run the parse-dependent steps on it, reporting
-	 * how it ended rather than throwing, so one message's failure never cuts
-	 * short the neighbours stored beside it. Every message keeps its own
-	 * "Body stored" or failure record.
-	 *
-	 * `isReStore` marks a re-fetch of a message whose row already carried
-	 * `bodyStorageKey` (the `force` re-arm in {@link syncBodies}): the
-	 * post-store steps then re-materialize the body artifacts without
-	 * re-running any decision (issue #1011).
-	 */
 	private async storeFetchedBody(
 		messageId: string,
 		accountId: string,
@@ -909,11 +882,11 @@ export class BodySyncService {
 			classification,
 		);
 
-		// Index-time filter pass (RFC 034). Isolated the same way placement is —
-		// FilterPipeline.evaluate swallows any read/decision failure and returns
-		// no actions, so a schema-drifted filter query never fails the body store.
-		// The DECISION is computed here; the applies below are unswallowed.
-		const filterDecision = await this.evaluateFilters(lookups, parsed);
+		const filterDecision = await this.evaluateFilters(
+			lookups,
+			messageId,
+			parsed,
+		);
 
 		// Store the parsed-body cache BEFORE persisting bodyStorageKey. The skip
 		// guard in syncBodies treats a stored bodyStorageKey as "fully synced",
@@ -1185,12 +1158,10 @@ export class BodySyncService {
 				content: body,
 			});
 
-			// Same shared step the sync path (storeStreamedBody) runs — issue
-			// #1271 unified the two body paths so classification/placement no
-			// longer depends on which one fetched the body first. A store from
-			// here is a re-store exactly when the row already claimed a stored
-			// body — the NoSuchKey fallback above; a row with no bodyStorageKey is
-			// a genuine first store and takes the full decision pass.
+			// A store from here is a re-store exactly when the row already claimed
+			// a stored body — the NoSuchKey fallback above; a row with no
+			// bodyStorageKey is a genuine first store and takes the full decision
+			// pass.
 			parsed = await this.applyPostStoreSteps(
 				messageId,
 				accountId,
@@ -1468,14 +1439,13 @@ export class BodySyncService {
 		parsed: ParsedMail,
 		storedBodyKey: string | undefined,
 	): Promise<void> {
-		const { calendar } = lookups;
-		if (!calendar) return;
+		if (!this.calendarConfig) return;
 		if (hasStoredBody(storedBodyKey)) return;
 
 		const parts = calendarParts(parsed);
 		if (parts.length === 0) return;
 
-		const { calendarStore, calendarSuggestionService } = calendar.config;
+		const { calendarStore, calendarSuggestionService } = this.calendarConfig;
 
 		await Promise.resolve()
 			.then(async () => {
@@ -1485,7 +1455,7 @@ export class BodySyncService {
 				// move, so this is the only reader such a rule has.
 				const sender = extractPrimaryFromEmail(parsed);
 				if (sender) {
-					const active = await calendar.activeFilters();
+					const active = await lookups.activeFilters();
 					if (isSenderMuted(active, sender)) {
 						this.log.debug?.(
 							{ messageId, sender },
@@ -1565,62 +1535,68 @@ export class BodySyncService {
 	 * move); the caller applies them. A no-op returning no actions when no
 	 * {@link FilterConfig} is wired.
 	 *
-	 * Isolation lives in {@link FilterPipeline.evaluate}: this read/decision phase
-	 * never fails the body store (the #1246 placement precedent). The applies of
-	 * the returned decision are the caller's and are deliberately unswallowed.
+	 * A failed filter read never fails the body store (the #1246 placement
+	 * precedent). The applies of the returned decision are the caller's and are
+	 * deliberately unswallowed.
 	 */
 	private async evaluateFilters(
 		lookups: BatchLookups,
+		messageId: string,
 		parsed: ParsedMail,
 	): Promise<FilterDecision> {
-		const { filters } = lookups;
-		if (!filters) return { labels: [] };
-		return filters.pipeline.decide(
-			await filters.prepared(),
-			toFilterMessage(parsed),
-		);
+		const { filterPipeline } = this;
+		if (!filterPipeline) return { labels: [] };
+		return lookups
+			.usableFilters()
+			.then((usable) => filterPipeline.decide(usable, toFilterMessage(parsed)))
+			.catch((error: unknown): FilterDecision => {
+				this.log.error?.(
+					{
+						alert: "body_sync_filter_match_failed",
+						messageId,
+						errorName: (error as { name?: string })?.name,
+						error: inspect(error),
+					},
+					"Filter matching failed; body already stored, continuing without filter actions (best-effort, non-fatal)",
+				);
+				return { labels: [] };
+			});
 	}
 
-	/**
-	 * The per-batch reads, scoped to one account. Nothing outlives the batch, so
-	 * a filter, folder role or mute changed between batches is seen by the next.
-	 */
 	private batchLookups(
 		accountConfigId: string,
 		accountId: string,
 	): BatchLookups {
-		const { placementConfig, filterPipeline, calendarConfig } = this;
+		const { placementConfig, filterPipeline } = this;
+		const filterService =
+			this.filterConfig?.filterService ?? this.calendarConfig?.filterService;
+		const activeFilters = once(async () =>
+			filterService
+				? filterService.listByAccountAndState(
+						accountConfigId,
+						FilterState.Active,
+					)
+				: [],
+		);
 		return {
-			placement: placementConfig
-				? {
-						config: placementConfig,
-						roleMailboxes: once(() =>
-							resolveFolderRoleMailboxes(
-								placementConfig.mailboxSpecialUseService,
-								accountId,
-							),
-						),
-					}
-				: null,
-			filters: filterPipeline
-				? {
-						pipeline: filterPipeline,
-						prepared: once(() =>
-							filterPipeline.prepare(accountConfigId, accountId),
-						),
-					}
-				: null,
-			calendar: calendarConfig
-				? {
-						config: calendarConfig,
-						activeFilters: once(() =>
-							calendarConfig.filterService.listByAccountAndState(
-								accountConfigId,
-								FilterState.Active,
-							),
-						),
-					}
-				: null,
+			roleMailboxes: once(async () =>
+				placementConfig
+					? resolveFolderRoleMailboxes(
+							placementConfig.mailboxSpecialUseService,
+							accountId,
+						)
+					: { junkMailbox: null, inboxMailbox: null },
+			),
+			activeFilters,
+			usableFilters: once(async () =>
+				filterPipeline
+					? filterPipeline.prepare(
+							accountConfigId,
+							accountId,
+							await activeFilters(),
+						)
+					: [],
+			),
 		};
 	}
 
@@ -1659,9 +1635,10 @@ export class BodySyncService {
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
 	): Promise<PlacementOutcome> {
-		if (!lookups.placement) return {};
+		if (!this.placementConfig) return {};
 		return this.computePlacement(
-			lookups.placement,
+			this.placementConfig,
+			lookups,
 			messageId,
 			accountId,
 			accountConfigId,
@@ -1684,14 +1661,15 @@ export class BodySyncService {
 	}
 
 	private async computePlacement(
-		placementLookups: NonNullable<BatchLookups["placement"]>,
+		placementConfig: PlacementConfig,
+		lookups: BatchLookups,
 		messageId: string,
 		accountId: string,
 		accountConfigId: string,
 		parsed: ParsedMail,
 		classification: UpdateMessageInput,
 	): Promise<PlacementOutcome> {
-		const { mailboxSpecialUseService } = placementLookups.config;
+		const { mailboxSpecialUseService } = placementConfig;
 
 		const message = await this.messageService.get(messageId);
 
@@ -1702,7 +1680,7 @@ export class BodySyncService {
 		// true)`) skip the decision steps entirely, so only the pass that first
 		// stores a body ever reaches this method.
 
-		const roleMailboxes = await placementLookups.roleMailboxes();
+		const roleMailboxes = await lookups.roleMailboxes();
 		const { junkMailbox, inboxMailbox } = roleMailboxes;
 		const placement = placementOf(message.mailboxId, roleMailboxes);
 

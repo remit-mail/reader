@@ -1,4 +1,3 @@
-import { Readable } from "node:stream";
 import { simpleParser } from "mailparser";
 import type {
 	FlatMailboxInfo,
@@ -532,12 +531,12 @@ export class FakeImapConnection implements IImapConnection {
 
 	async *fetchMessageBodies(
 		uids: number[],
-	): AsyncGenerator<{ uid: number; source: Readable }> {
+	): AsyncGenerator<{ uid: number; source: Buffer }> {
 		this.server.run("BODY", `${this.selected} ${this.uidList(uids)}`);
 		const folder = this.open();
 		for (const uid of uids) {
 			const stored = folder.messages.get(uid);
-			if (stored) yield { uid, source: Readable.from([stored.raw]) };
+			if (stored) yield { uid, source: stored.raw };
 		}
 	}
 

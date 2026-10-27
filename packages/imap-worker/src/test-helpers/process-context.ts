@@ -42,6 +42,7 @@ export const processContext = (
 		...defaultImapWorkerConfig,
 		bodyBatchSize: 200,
 		bodyProcessConcurrency: 8,
+		bodyProcessBytesInFlight: 256 * 1024 * 1024,
 		workerVersion: "test",
 	},
 	log: noopLogger,

@@ -2,7 +2,6 @@
  * Types for the remit-mailbox-service
  */
 
-import type { Readable } from "node:stream";
 import type { ImapTransport } from "imapflow";
 
 export type { ImapTransport };
@@ -258,13 +257,12 @@ export interface IImapConnection {
 	fetchMessageBody(uid: number): Promise<Buffer | null>;
 	/**
 	 * Fetch full message bodies for many UIDs in ONE pipelined ranged UID FETCH.
-	 * Yields `{ uid, source }` per message; `source` is a readable stream the
-	 * caller must consume before requesting the next item. Requires a mailbox to
-	 * be open (one SELECT for the whole batch).
+	 * Yields `{ uid, source }` per message. Requires a mailbox to be open (one
+	 * SELECT for the whole batch).
 	 */
 	fetchMessageBodies(
 		uids: number[],
-	): AsyncGenerator<{ uid: number; source: Readable }>;
+	): AsyncGenerator<{ uid: number; source: Buffer }>;
 	/**
 	 * Add flags to messages by UID.
 	 * Requires mailbox to be open.

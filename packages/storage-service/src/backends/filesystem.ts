@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+
 import { createWriteStream } from "node:fs";
 import {
 	mkdir,
@@ -10,9 +10,9 @@ import {
 	writeFile,
 } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
-import { PassThrough, Readable } from "node:stream";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGunzip, createGzip, gunzipSync, gzipSync } from "node:zlib";
+import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import {
 	UPLOAD_ROUTE_PREFIX,
@@ -90,37 +90,6 @@ export const createFilesystemStorageService = (
 			content,
 		});
 	};
-
-	const storeMessageBodyStream: StorageService["storeMessageBodyStream"] =
-		async (params) => {
-			const { accountConfigId, accountId, messageId, content } = params;
-			const key = buildMessageBodyKey(accountConfigId, accountId, messageId);
-			const fullPath = join(basePath, key);
-			await mkdir(dirname(fullPath), { recursive: true });
-
-			const hash = createHash("sha256");
-			const hashTap = new PassThrough();
-			hashTap.on("data", (chunk: Buffer) => hash.update(chunk));
-
-			await pipeline(
-				content,
-				hashTap,
-				createGzip(),
-				createWriteStream(fullPath),
-			);
-
-			const { size } = await stat(fullPath);
-
-			return {
-				uri: `file://${fullPath}`,
-				storageType: StorageType.Filesystem,
-				storageLocation: basePath,
-				storageKey: key,
-				sizeBytes: size,
-				checksumSha256: hash.digest("hex"),
-				contentEncoding: ContentEncoding.Gzip,
-			};
-		};
 
 	const storeBodyPart: StorageService["storeBodyPart"] = (params) => {
 		const { accountConfigId, accountId, messageId, partPath, content } = params;
@@ -449,7 +418,6 @@ export const createFilesystemStorageService = (
 
 	return {
 		storeMessageBody,
-		storeMessageBodyStream,
 		storeBodyPart,
 		bodyPartExists,
 		retrieveBodyPart,

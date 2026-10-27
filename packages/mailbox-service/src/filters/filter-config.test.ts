@@ -5,6 +5,7 @@ import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
+	FilterState,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "../placement-move.js";
 import {
@@ -70,7 +71,14 @@ describe("buildFilterConfig", () => {
 
 		const pipeline = new FilterPipeline(config, { info: () => {} });
 		const decision = pipeline.decide(
-			await pipeline.prepare("cfg-1", accountId),
+			await pipeline.prepare(
+				"cfg-1",
+				accountId,
+				await config.filterService.listByAccountAndState(
+					"cfg-1",
+					FilterState.Active,
+				),
+			),
 			message,
 		);
 

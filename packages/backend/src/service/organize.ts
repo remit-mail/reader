@@ -584,11 +584,15 @@ export const backApplyFilter = async (
 		...nothing,
 		matched: match.messageIds.length,
 	};
+	const active = await client.filter.listByAccountAndState(
+		accountConfigId,
+		FilterState.Active,
+	);
 	const preparedByAccount = new Map<string, Promise<PreparedFilters>>();
 	const preparedFor = (accountId: string): Promise<PreparedFilters> => {
 		const known = preparedByAccount.get(accountId);
 		if (known) return known;
-		const prepared = pipeline.prepare(accountConfigId, accountId);
+		const prepared = pipeline.prepare(accountConfigId, accountId, active);
 		preparedByAccount.set(accountId, prepared);
 		return prepared;
 	};

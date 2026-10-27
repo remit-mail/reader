@@ -8,6 +8,7 @@ import {
 	FilterClauseField,
 	FilterMatchOperator,
 	FilterScope,
+	FilterState,
 } from "@remit/domain-enums";
 import { PlacementMoveService } from "../placement-move.js";
 import {
@@ -88,7 +89,11 @@ const pipeline = () =>
 
 const evaluate = async (accountId: string, msg: FilterMessage) => {
 	const filters = pipeline();
-	return filters.decide(await filters.prepare(ACCOUNT, accountId), msg);
+	const active = await store.filter.listByAccountAndState(
+		ACCOUNT,
+		FilterState.Active,
+	);
+	return filters.decide(await filters.prepare(ACCOUNT, accountId, active), msg);
 };
 
 describe("FilterPipeline over literal filters", () => {
