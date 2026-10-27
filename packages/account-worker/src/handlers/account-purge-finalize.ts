@@ -4,7 +4,7 @@ import {
 	type CascadeServices,
 	collectMessageChildEntities,
 } from "../cascade.js";
-import type { DeletionCapabilities } from "../deletion-capabilities.js";
+import type { DeletionCapabilities } from "../deletion-port.js";
 import type { AccountDataPurgeFinalizeEvent } from "../events.js";
 
 export interface PurgeFinalizeDeps {

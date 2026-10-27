@@ -2,7 +2,7 @@ import type { RemitClient } from "@remit/backend/client";
 import type { GroupedQueueProducer } from "@remit/data-ports";
 import { createLogger } from "@remit/logger";
 import { cascadeServicesOf } from "./cascade.js";
-import type { DeletionCapabilities } from "./deletion-capabilities.js";
+import type { DeletionCapabilities } from "./deletion-port.js";
 import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
@@ -15,7 +15,7 @@ import { processOrganizeJob } from "./handlers/organize-job.js";
 import { processSenderCategoryBackApply } from "./handlers/sender-category-backapply.js";
 
 export type { CascadeEntity } from "./cascade.js";
-export type { DeletionCapabilities } from "./deletion-capabilities.js";
+export type { DeletionCapabilities } from "./deletion-port.js";
 export type { AccountDataPurgeEvent, AccountDataPurgeFinalizeEvent };
 
 export type ClientFanoutEvent = OrganizeJobEvent | SenderCategoryBackApplyEvent;
