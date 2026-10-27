@@ -26,19 +26,19 @@ function write(root, path, contents) {
 	writeFileSync(full, contents);
 }
 
-// Three packages with a suite each: `collected` and `other` are picked up by
-// test-parallel, `sharded` runs from a runner file inside itself, the way
-// web-client does.
-function fixture({ exclude = "sharded", shardStep = true } = {}) {
+// Two packages with a suite each, both picked up by test-parallel.
+function fixture({ extraScripts = {} } = {}) {
 	const root = mkdtempSync(join(tmpdir(), "ci-coverage-"));
 	roots.push(root);
 	write(
 		root,
 		"package.json",
-		JSON.stringify({ scripts: { "test:ci": "node npm-scripts/run.mjs" } }),
+		JSON.stringify({
+			scripts: { "test:ci": "node npm-scripts/run.mjs", ...extraScripts },
+		}),
 	);
 	write(root, "npm-scripts/lib/tooling.test.mjs", "");
-	for (const name of ["collected", "other", "sharded"]) {
+	for (const name of ["collected", "other"]) {
 		write(
 			root,
 			`packages/${name}/package.json`,
@@ -51,23 +51,13 @@ function fixture({ exclude = "sharded", shardStep = true } = {}) {
 	}
 	write(
 		root,
-		"packages/sharded/scripts/shard.mjs",
-		'spawn(process.execPath, ["--test", ...files]);\n',
-	);
-	write(
-		root,
 		".github/workflows/ci.yml",
 		[
 			"jobs:",
 			"  test:",
 			"    steps:",
 			"      - name: Unit tests",
-			"        env:",
-			`          TEST_EXCLUDE: ${exclude}`,
 			"        run: npm run test:ci",
-			...(shardStep
-				? ["      - run: node packages/sharded/scripts/shard.mjs"]
-				: []),
 			"",
 		].join("\n"),
 	);
@@ -78,32 +68,17 @@ const check = (root) =>
 	spawnSync(process.execPath, [guard, root], { encoding: "utf8" });
 
 describe("check:ci-coverage seeding", () => {
-	it("accepts a tree where every package runs by one route or the other", () => {
+	it("accepts a tree where the runner collects every package", () => {
 		const { status, stdout } = check(fixture());
 		assert.equal(status, 0, stdout);
-		assert.match(stdout, /TEST_EXCLUDE drops sharded/);
+		assert.match(stdout, /CI coverage OK/);
 	});
 
-	// The reproduction from #448: one more word in TEST_EXCLUDE deleted a
-	// package's whole suite and the guard printed `CI coverage OK`.
-	it("rejects a package TEST_EXCLUDE drops from the runner", () => {
-		const { status, stderr } = check(fixture({ exclude: "sharded,collected" }));
+	it("rejects a check script no workflow reaches", () => {
+		const { status, stderr } = check(
+			fixture({ extraScripts: { "check:orphan": "node orphan.mjs" } }),
+		);
 		assert.equal(status, 1);
-		assert.match(stderr, /"packages\/collected#test:run" runs nowhere/);
-		assert.match(stderr, /TEST_EXCLUDE drops packages\/collected/);
-	});
-
-	// The other half: an excluded package must not be excused by the exclusion
-	// itself, only by a runner CI actually reaches.
-	it("rejects an excluded package once nothing invokes its runner", () => {
-		const { status, stderr } = check(fixture({ shardStep: false }));
-		assert.equal(status, 1);
-		assert.match(stderr, /"packages\/sharded#test:run" runs nowhere/);
-	});
-
-	it("rejects an exclusion naming no workspace at all", () => {
-		const { status, stderr } = check(fixture({ exclude: "sharded,typo" }));
-		assert.equal(status, 1);
-		assert.match(stderr, /TEST_EXCLUDE names "typo"/);
+		assert.match(stderr, /"check:orphan" is not reached by any workflow/);
 	});
 });

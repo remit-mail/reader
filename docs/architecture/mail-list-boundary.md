@@ -25,7 +25,7 @@ On a live instance, INBOX holds 14,187 non-deleted thread messages: 4,753 `perso
 
 The newest 100 rows are 77 `automated`, 14 `newsletter`, 3 `marketing`, 2 `social`, 2 `transactional`, and 2 `personal`. Personal mail is the bottom third of this inbox by recency.
 
-`applyInboxFilters` (`packages/web-client/src/components/mail/MailboxPane.tsx:136`) filters `t.category` in the browser over `threadsData.pages.flatMap(...)`. The list query (`MailboxPane.tsx:327`) calls `threadOperationsListThreads` with `{ order, continuationToken }` and no filter of any kind. `DEFAULT_THREADS_PAGE_SIZE` is 50 (`packages/backend/src/handlers/thread.ts:27`). Selecting "Personal" therefore filters 50 rows that contain, on this mailbox, two matches — and selecting "Social" filters 50 rows that contain none.
+`applyInboxFilters` (`remit-mail/reader-ui packages/web-client/src/components/mail/MailboxPane.tsx`) filters `t.category` in the browser over `threadsData.pages.flatMap(...)`. The list query (`MailboxPane.tsx:327`) calls `threadOperationsListThreads` with `{ order, continuationToken }` and no filter of any kind. `DEFAULT_THREADS_PAGE_SIZE` is 50 (`packages/backend/src/handlers/thread.ts:27`). Selecting "Personal" therefore filters 50 rows that contain, on this mailbox, two matches — and selecting "Social" filters 50 rows that contain none.
 
 The cost of not fixing it is the same number read the other way. To fill one screen of 50 `social` rows by client-side filtering, the client must read roughly 8,060 rows — 162 pages. To show all 88 `social` rows it must read all 14,187 — 284 pages, each one also triggering an `enrichThreadRows` batch read of up to 50 messages and their addresses. A server-side `where` returns 50 rows in one query.
 
@@ -71,7 +71,7 @@ It superseded an arrangement in which `countByMailbox` computed the exact SQL co
 
 `count` stays opt-in (`count: true`), because it is an additional read over the whole match set. It must not be coupled to keystrokes, and it is asked for only where a number is rendered — under a search, and not for a free-text query too short for the index. On this mailbox an exact count is one index range scan on SQLite, and a full partition read on DynamoDB.
 
-Buys: a number the UI can show without hedging, and the removal of `countMatches` (`packages/web-client/src/lib/bulk-actions.ts:218`), which today pages an entire result set through the browser to learn its size. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
+Buys: a number the UI can show without hedging, and the removal of `countMatches` (`remit-mail/reader-ui packages/web-client/src/lib/bulk-actions.ts`), which today pages an entire result set through the browser to learn its size. Gives up: one extra query per counted request, and a count that is genuinely expensive on DynamoDB rather than cheap and wrong.
 
 Stands as a decision; not implemented in the slice that fixes the reported bug. It moves to #305 with every surface that would render a number — see [`docs/design/mail-list-server-query.md`](../design/mail-list-server-query.md) D13 and D20. The read-bound fields this decision leans on are withdrawn (D14); an absent `count` needs no new field, since `count` is already optional.
 
@@ -87,7 +87,7 @@ Buys: the bug closes with zero new API surface, and the two list paths converge 
 
 ### D6 — `uncategorized` remains a filterable value
 
-`MessageCategory` includes `uncategorized`, `ThreadMessage.category` defaults to it, and its TypeSpec doc already frames the pending state as "a named value, not absence". A server-side category filter must be able to express it, and `toDisplayCategory` (`packages/web-client/src/lib/display-category.ts:17`) must keep mapping it to its own section rather than folding it into `personal` (issue #45).
+`MessageCategory` includes `uncategorized`, `ThreadMessage.category` defaults to it, and its TypeSpec doc already frames the pending state as "a named value, not absence". A server-side category filter must be able to express it, and `toDisplayCategory` (`remit-mail/reader-ui packages/web-client/src/lib/display-category.ts`) must keep mapping it to its own section rather than folding it into `personal` (issue #45).
 
 Buys: the chip keeps working for pre-classification rows, and D1 does not regress a closed bug. Gives up: nothing.
 
@@ -95,7 +95,7 @@ Buys: the chip keeps working for pre-classification rows, and D1 does not regres
 
 Both could be denormalized onto `thread_message` the way `category` was, and `dkimMismatch` is the better candidate of the two because `MessageItem.authenticity` is immutable once synced, whereas `senderTrust` derives from mutable VIP flags and would fan out a write to every row from a sender on each change.
 
-Neither is denormalized here. The only shipped surface that filters on them is the spam-rescue panel (`packages/web-client/src/hooks/useRescueCandidates.ts`), which issues one bounded 500-row query and is a bounded panel by design, not a paginated list. The cost of doing it anyway is a schema change plus a backfill over every existing message, for no surface that needs it.
+Neither is denormalized here. The only shipped surface that filters on them is the spam-rescue panel (`remit-mail/reader-ui packages/web-client/src/hooks/useRescueCandidates.ts`), which issues one bounded 500-row query and is a bounded panel by design, not a paginated list. The cost of doing it anyway is a schema change plus a backfill over every existing message, for no surface that needs it.
 
 Buys: the correction stays inside one release with no data migration beyond an index. Gives up: the off-row path survives, so those two filters keep returning short pages, now with the D3 bound visible instead of implied.
 

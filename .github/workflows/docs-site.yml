@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -28,43 +32,19 @@ jobs:
         run: npm ci --no-audit --no-fund --loglevel=error
       - name: Build
         run: npm run build -w @remit/docs-site
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-pages-artifact@v3
         with:
-          name: docs-site
           path: doc/remit.email/output
-          retention-days: 1
 
-  # Its own job so this is the only place that pushes to gh-pages carry the
-  # shared cross-workflow concurrency group below -- the build above stays
-  # cheap to re-run and never blocks on another push in flight.
-  publish:
+  deploy:
     needs: build
     runs-on: ubuntu-latest
-    # Two pushes from main queue behind each other instead of one cancelling
-    # the other. gh-pages-publish.mjs is what actually protects the branch, via
-    # a leased push that is rejected rather than silently overwritten if it
-    # loses a race, and retried against the branch's new tip.
-    concurrency:
-      group: gh-pages-branch-push
-      cancel-in-progress: false
     permissions:
-      contents: write
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 1
-      - uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-      - uses: actions/download-artifact@v8
-        with:
-          name: docs-site
-          path: docs-site-download
-
-      # The docs site owns the whole branch.
-      - name: Publish the site to the gh-pages branch root
-        run: >-
-          node npm-scripts/gh-pages-publish.mjs publish
-          --source docs-site-download
-          --dest .
-          --message "Publish the docs site from ${{ github.sha }}"
+      - id: deployment
+        uses: actions/deploy-pages@v4

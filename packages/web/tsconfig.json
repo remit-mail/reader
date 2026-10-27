@@ -8,15 +8,9 @@
 		"strict": true,
 		"verbatimModuleSyntax": true,
 		"isolatedModules": true,
-		"allowImportingTsExtensions": true,
 		"skipLibCheck": true,
 		"noEmit": true,
-		"types": ["node", "vite/client"],
-		"paths": { "@/*": ["../../node_modules/@remit/web-client/src/*"] }
+		"types": ["node"]
 	},
-	"include": [
-		"src",
-		"vite.config.ts",
-		"../../node_modules/@remit/web-client/src/vite-env.d.ts"
-	]
+	"include": ["src", "vite.config.ts"]
 }
