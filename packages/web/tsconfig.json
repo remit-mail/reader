@@ -12,11 +12,11 @@
 		"skipLibCheck": true,
 		"noEmit": true,
 		"types": ["node", "vite/client"],
-		"paths": { "@/*": ["./node_modules/@remit/web-client/src/*"] }
+		"paths": { "@/*": ["../../node_modules/@remit/web-client/src/*"] }
 	},
 	"include": [
 		"src",
 		"vite.config.ts",
-		"./node_modules/@remit/web-client/src/vite-env.d.ts"
+		"../../node_modules/@remit/web-client/src/vite-env.d.ts"
 	]
 }
