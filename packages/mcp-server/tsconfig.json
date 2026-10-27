@@ -12,13 +12,6 @@
 	"include": [
 		"src/**/*.ts",
 		"src/**/*.tsx",
-		"../../node_modules/@remit/ui/src/components/mcp-*.tsx",
-		"../../node_modules/@remit/ui/src/components/auth-card.tsx",
-		"../../node_modules/@remit/ui/src/components/auth-hero.tsx",
-		"../../node_modules/@remit/ui/src/components/banner.tsx",
-		"../../node_modules/@remit/ui/src/components/button.tsx",
-		"../../node_modules/@remit/ui/src/components/input.tsx",
 		"vite.pages.config.ts"
-	],
-	"exclude": ["../../node_modules/@remit/ui/src/**/*.stories.tsx"]
+	]
 }

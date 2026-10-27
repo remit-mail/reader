@@ -5,13 +5,13 @@
   "type": "module",
   "description": "The self-host web client: the published @remit/web-client shell composed with the better-auth provider.",
   "scripts": {
-    "build": "vite build --configLoader runner",
-    "start": "npm run build && vite preview --configLoader runner",
+    "build": "vite build",
+    "start": "npm run build && vite preview",
     "test:typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@remit/ui": "0.0.223",
-    "@remit/web-client": "0.0.325",
+    "@remit/ui": "0.0.224",
+    "@remit/web-client": "0.0.326",
     "react": "19.2.7",
     "react-dom": "19.2.7"
   },

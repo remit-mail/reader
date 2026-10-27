@@ -235,9 +235,6 @@ async function main() {
 			target: "node22",
 			minify: true,
 			sourcemap: false,
-			// @remit/ui ships its .tsx source without a tsconfig, so nothing else
-			// tells esbuild which JSX runtime its components compile against.
-			jsx: "automatic",
 			banner: { js: CJS_REQUIRE_BANNER },
 			define: {
 				...DIRNAME_DEFINES,

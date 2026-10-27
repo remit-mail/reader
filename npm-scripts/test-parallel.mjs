@@ -2,13 +2,11 @@
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { undeclaredExclusions } from "./lib/ci-coverage.mjs";
 import {
 	NODE_TEST_FLAGS_VAR,
 	nodeTestFlags,
 	suiteConcurrency,
 } from "./lib/test-bounds.mjs";
-import { readWorkflowSources } from "./lib/workflows.mjs";
 import {
 	discoverWorkspaces,
 	WORKSPACE_SCRIPT,
@@ -120,21 +118,7 @@ process.on("SIGINT", () => abandon("SIGINT", 130));
 process.on("SIGTERM", () => abandon("SIGTERM", 143));
 
 async function main() {
-	const exclude = (process.env.TEST_EXCLUDE ?? "")
-		.split(",")
-		.map((name) => name.trim())
-		.filter(Boolean);
-	const { sources } = await readWorkflowSources(root);
-	const undeclared = undeclaredExclusions(exclude, sources);
-	if (undeclared.length > 0) {
-		throw new Error(
-			`TEST_EXCLUDE drops ${undeclared.join(", ")}, which no workflow file declares. ` +
-				"check:ci-coverage reads the exclusions out of the workflow text and can " +
-				"see no other source, so these suites would run nowhere and nothing " +
-				"would say so. Declare the exclusion in the workflow that sets it.",
-		);
-	}
-	const { suites, skipped } = await discoverWorkspaces(root, { exclude });
+	const { suites, skipped } = await discoverWorkspaces(root);
 	if (skipped.length > 0) {
 		console.log(`no tests to run for: ${skipped.join(", ")}`);
 	}

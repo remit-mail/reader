@@ -5,17 +5,12 @@ import { readFileSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-	coverageViolations,
-	testExclusions,
-	workspaceScriptId,
-} from "./lib/ci-coverage.mjs";
+import { coverageViolations, workspaceScriptId } from "./lib/ci-coverage.mjs";
 import { discoverScriptSuites } from "./lib/test-suites.mjs";
 import { readWorkflowSources } from "./lib/workflows.mjs";
 import {
 	discoverWorkspaces,
 	WORKSPACE_SCRIPT,
-	workspaceDir,
 } from "./lib/workspace-suites.mjs";
 
 // The tree to check, this repo unless a path is given. The guard's own suite
@@ -88,14 +83,9 @@ async function collectWorkspaces() {
 const { files: workflowFiles, sources: workflowSources } =
 	await readWorkflowSources(repoRoot);
 
-// What the runner behind `test:ci` executes in CI, asked of the runner with the
-// arguments CI hands it. Asking the runner rather than asserting the workflow's
-// shape keeps the guard honest about which packages it picks up; passing the
-// workflow's own `TEST_EXCLUDE` keeps it honest about which ones it drops.
-// `discoverWorkspaces` rejects a name matching no workspace, so a typo in the
-// list fails here rather than silently excluding nothing.
-const exclude = testExclusions(workflowSources);
-const { suites } = await discoverWorkspaces(repoRoot, { exclude });
+// What the runner behind `test:ci` executes in CI, asked of the runner rather
+// than asserted from the workflow's shape.
+const { suites } = await discoverWorkspaces(repoRoot);
 
 // Only files the repo tracks are followed; a path a script builds at runtime, or
 // one outside the tree, simply reaches nothing further.
@@ -116,7 +106,6 @@ const violations = coverageViolations({
 	collectedScripts: suites.map((suite) =>
 		workspaceScriptId(suite.workspace, WORKSPACE_SCRIPT),
 	),
-	excludedWorkspaces: exclude.map(workspaceDir),
 	readFile: readSource,
 	allowUnreachable: manifest.ciCoverage?.allowUnreachable ?? {},
 });
@@ -133,11 +122,6 @@ if (violations.length > 0) {
 	process.exit(1);
 }
 
-const dropped =
-	exclude.length > 0
-		? ` TEST_EXCLUDE drops ${exclude.join(", ")} from test:ci, each run by a runner CI reaches instead.`
-		: "";
-
 console.log(
-	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script in the root manifest and in every workspace, every suite is collected.${dropped}`,
+	`CI coverage OK: ${workflowFiles.length} workflow files reach every test:*/check:* script in the root manifest and in every workspace, every suite is collected.`,
 );

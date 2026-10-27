@@ -7,4 +7,4 @@ A workspace of the root manifest, so it installs with the rest of the repository
 - `npm run build -w @remit/docs-site` renders the site to `doc/remit.email/output`.
 - `npm run dev -w @remit/docs-site` serves it on port 3100.
 
-`.github/workflows/docs-site.yml` builds it on every push to `main` that touches `doc/remit.email/`, and publishes it to the root of the `gh-pages` branch.
+`.github/workflows/docs-site.yml` builds it on every push to `main` that touches `doc/remit.email/`, and deploys it to GitHub Pages as a Pages artifact.

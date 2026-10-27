@@ -9,9 +9,7 @@ import { join } from "node:path";
 export const WORKSPACE_SCRIPT = "test:run";
 export const PACKAGES_DIR = "packages";
 
-// The directory a `TEST_EXCLUDE` name refers to. The list is written as bare
-// package directory names, and every other consumer works in repo-relative
-// paths, so the translation lives with the discovery that defines it.
+// A package directory name as the repo-relative path every consumer works in.
 export function workspaceDir(name) {
 	return `${PACKAGES_DIR}/${name}`;
 }
@@ -45,29 +43,14 @@ export async function countTestFiles(dir) {
 // A workspace that cannot be read is an error, never a silent skip: dropping a
 // manifest here would quietly remove that workspace's whole suite from a run
 // that still reports green.
-export async function discoverWorkspaces(root, { exclude = [] } = {}) {
+export async function discoverWorkspaces(root) {
 	const packagesDir = join(root, PACKAGES_DIR);
-	const excluded = new Set(exclude);
 	const names = await readdir(packagesDir);
-	for (const name of excluded) {
-		if (!names.includes(name)) {
-			throw new Error(
-				`TEST_EXCLUDE names "${name}", which is not a workspace under packages/`,
-			);
-		}
-	}
 	const suites = [];
 	const skipped = [];
 	for (const name of names) {
 		const dir = join(packagesDir, name);
 		if (!(await stat(dir)).isDirectory()) continue;
-		// A workspace whose suite runs elsewhere is excluded here so it is not run a second time. Named
-		// rather than inferred: an unknown name in the list is a typo that would
-		// silently drop nothing, so it must match a real workspace.
-		if (excluded.has(name)) {
-			skipped.push(`${name} (excluded)`);
-			continue;
-		}
 		const manifestPath = join(dir, "package.json");
 		let manifest;
 		try {
