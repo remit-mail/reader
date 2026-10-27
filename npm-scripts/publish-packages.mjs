@@ -79,6 +79,33 @@ const generated = [
 			files: ["**/*"],
 		},
 	},
+	// The Hunspell WebAssembly engine npm run build:hunspell compiles from
+	// docker/hunspell/. The web client stages it into its build, and only this
+	// repo runs the Emscripten toolchain that produces it.
+	{
+		dir: "build/hunspell",
+		name: "@remit/spellcheck-engine",
+		peerDependencies: {},
+		license: "(MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later)",
+		manifest: {
+			name: "@remit/spellcheck-engine",
+			version: "0.0.0",
+			description:
+				"Hunspell compiled to WebAssembly for the Remit composer spellchecker, with its licence texts and the pins it was built from.",
+			files: [
+				"hunspell.wasm",
+				"hunspell.mjs",
+				"LICENSE",
+				"license.hunspell",
+				"pin.env",
+			],
+			exports: {
+				"./package.json": "./package.json",
+				"./hunspell.mjs": "./hunspell.mjs",
+				"./hunspell.wasm": "./hunspell.wasm",
+			},
+		},
+	},
 ];
 
 const run = (cmd, args, opts = {}) =>
@@ -221,10 +248,10 @@ const synthesizeManifest = ({ dir, manifest }) => {
 	);
 };
 
-const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
+const stampGeneratedMetadata = ({ dir, peerDependencies, license }) => {
 	const manifestPath = join(repoRoot, dir, "package.json");
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	manifest.license = "MIT";
+	manifest.license = license ?? "MIT";
 	manifest.publishConfig = { ...manifest.publishConfig, access: "public" };
 	manifest.repository = { type: "git", url: repositoryUrl };
 	if (Object.keys(peerDependencies).length > 0) {
