@@ -1,5 +1,6 @@
 import type { Readable } from "node:stream";
-import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { createGunzip, gunzipSync, gzip } from "node:zlib";
 import {
 	DeleteObjectCommand,
 	DeleteObjectsCommand,
@@ -31,6 +32,8 @@ import {
 } from "../storage.js";
 import { parseStorageUri } from "../uri.js";
 
+const gzipAsync = promisify(gzip);
+
 interface StoreParams {
 	key: string;
 	content: Buffer;
@@ -50,7 +53,7 @@ export const createS3StorageService = (
 		const contentEncoding = compress
 			? ContentEncoding.Gzip
 			: ContentEncoding.None;
-		const body = compress ? gzipSync(content) : content;
+		const body = compress ? await gzipAsync(content) : content;
 
 		await client.send(
 			new PutObjectCommand({

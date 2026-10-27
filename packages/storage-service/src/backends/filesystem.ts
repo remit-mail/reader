@@ -11,7 +11,8 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
+import { promisify } from "node:util";
+import { createGunzip, gunzipSync, gzip } from "node:zlib";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
 import {
 	UPLOAD_ROUTE_PREFIX,
@@ -35,6 +36,8 @@ import {
 	computeChecksum,
 	isStorageNotFoundError,
 } from "../storage.js";
+
+const gzipAsync = promisify(gzip);
 
 interface StoreParams {
 	key: string;
@@ -65,7 +68,7 @@ export const createFilesystemStorageService = (
 		const contentEncoding = compress
 			? ContentEncoding.Gzip
 			: ContentEncoding.None;
-		const body = compress ? gzipSync(content) : content;
+		const body = compress ? await gzipAsync(content) : content;
 
 		const fullPath = join(basePath, key);
 		await mkdir(dirname(fullPath), { recursive: true });
