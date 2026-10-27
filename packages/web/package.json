@@ -5,8 +5,8 @@
   "type": "module",
   "description": "The self-host web client: the published @remit/web-client shell composed with the better-auth provider.",
   "scripts": {
-    "dev": "vite --configLoader runner",
-    "build": "vite build --configLoader runner",
+    "dev": "REMIT_SPELLCHECK_ENGINE_DIR=${REMIT_SPELLCHECK_ENGINE_DIR:-../../build/hunspell} vite --configLoader runner",
+    "build": "REMIT_SPELLCHECK_ENGINE_DIR=${REMIT_SPELLCHECK_ENGINE_DIR:-../../build/hunspell} vite build --configLoader runner",
     "test:typecheck": "tsgo --noEmit"
   },
   "dependencies": {

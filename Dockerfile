@@ -118,7 +118,7 @@ ENV GITHUB_SHA=${GIT_SHA}
 ARG REMIT_SPELLCHECK_LANGUAGES
 ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
 
-RUN REMIT_SPELLCHECK_ENGINE_DIR=/app/build/hunspell npm run build -w packages/web
+RUN npm run build -w packages/web
 
 RUN npm run build -w packages/mcp-server
 
