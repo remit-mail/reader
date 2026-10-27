@@ -87,6 +87,10 @@ A host composes at build time, in its entry. A host with every queue calls `crea
 
 The pool is an instance, `createConnectionPool({ size, overflow }, connect)`, keyed by account. `overflow: "Open"` dials an extra connection when every slot is busy and closes it on release; `overflow: "Wait"` queues the borrow until a slot is released. The Lambda entry runs two slots that open on overflow; a Durable Object runs one slot that waits, so one account's IMAP work runs in order on one connection.
 
+## A8. Every tuning value is host configuration
+
+A shared package exposes each tuning value (batch size, concurrency, pool size, SQLite parameter budget, timeout) as a required, typed field on the object a host composes, and ships no default for it. Every host (the self-hosted app, Lambda, reader-cloudflare and any later host) passes its own value from its config module. A host retunes without a reader release, in modest steps. `maxBoundParameters` on `SqliteLimits` in drizzle-service is one such field. `bodyBatchSize` and `bodyProcessConcurrency` on imap-worker's sync configuration are two more.
+
 ## FAQ
 
 **Why not one repository implementation parameterized by dialect?** Because it cannot be typed. `PgDatabase` and `BaseSQLiteDatabase` are distinct types, `PgTable` and `SQLiteTable` are distinct types, and drizzle exposes no cross-dialect base with a working query builder. One body serving two engines needs a cast, and a cast means the types stop describing what executes.
