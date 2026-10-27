@@ -1,5 +1,4 @@
-
-import { type Readable } from "node:stream";
+import type { Readable } from "node:stream";
 import { createGunzip, gunzipSync, gzipSync } from "node:zlib";
 import {
 	DeleteObjectCommand,

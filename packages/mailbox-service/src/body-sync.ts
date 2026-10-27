@@ -41,6 +41,7 @@ import {
 	type ParsedBody,
 	type StorageService,
 } from "@remit/storage-service";
+import { Semaphore } from "async-mutex";
 import { type ParsedMail, simpleParser } from "mailparser";
 import pMap from "p-map";
 import { BodyParseError, parseMessageBody } from "./body-parse.js";
@@ -497,15 +498,8 @@ export class BodySyncService {
 			lost: boolean;
 			fault: { error: unknown } | null;
 			failed: boolean;
-			bytes: number;
-			settled: () => void;
-		} = {
-			lost: false,
-			fault: null,
-			failed: false,
-			bytes: 0,
-			settled: () => {},
-		};
+		} = { lost: false, fault: null, failed: false };
+		const budget = new Semaphore(bytesInFlight);
 
 		const endStream = (error: unknown): null => {
 			log.error?.(
@@ -527,9 +521,8 @@ export class BodySyncService {
 			return null;
 		};
 
-		// The FETCH stays one command on the one connection, read in order. A row
-		// waits while the bodies already being stored hold the byte budget, but one
-		// always goes through, and none is pulled after a store has failed.
+		// The FETCH stays one command on the one connection, read in order; no
+		// row is pulled after a store has failed.
 		async function* fetchedBodies(): AsyncGenerator<{
 			uid: number;
 			messageId: string;
@@ -542,20 +535,10 @@ export class BodySyncService {
 				const { uid, source } = step.value;
 				const messageId = pending.get(uid);
 				if (!messageId) continue;
-				while (
-					!stream.failed &&
-					stream.bytes > 0 &&
-					stream.bytes + source.length > bytesInFlight
-				) {
-					await new Promise<void>((resolve) => {
-						stream.settled = resolve;
-					});
-				}
 				if (stream.failed) {
 					await rows.return(undefined);
 					return;
 				}
-				stream.bytes += source.length;
 				yield { uid, messageId, body: source };
 			}
 		}
@@ -563,19 +546,22 @@ export class BodySyncService {
 		const stored = await pMap(
 			fetchedBodies(),
 			async ({ uid, messageId, body }) => {
-				const outcome = await this.storeFetchedBody(
-					messageId,
-					accountId,
-					accountConfigId,
-					body,
-					folder.placement,
-					reStoredMessageIds.has(messageId),
-					lookups,
-					location,
+				// A body larger than the whole budget takes all of it and goes alone.
+				const outcome = await budget.runExclusive(
+					() =>
+						this.storeFetchedBody(
+							messageId,
+							accountId,
+							accountConfigId,
+							body,
+							folder.placement,
+							reStoredMessageIds.has(messageId),
+							lookups,
+							location,
+						),
+					Math.min(body.length, bytesInFlight),
 				);
-				stream.bytes -= body.length;
 				if (outcome.kind === "Failed") stream.failed = true;
-				stream.settled();
 				return { uid, messageId, outcome };
 			},
 			{ concurrency },
