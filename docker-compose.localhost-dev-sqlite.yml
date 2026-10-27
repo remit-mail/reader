@@ -192,9 +192,9 @@ services:
     command:
       - npm
       - run
-      - dev
+      - start
       - -w
-      - "@remit/web-client"
+      - "@remit/web"
       - --
       - --port
       - "4123"

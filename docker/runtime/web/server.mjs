@@ -16,7 +16,7 @@ import { createBrotliDecompress } from "node:zlib";
 const DIST_DIR = process.env.WEB_DIST_DIR ?? "/app/dist";
 const PORT = Number(process.env.PORT ?? "8080");
 
-// dist/config.js is whatever this image was built with (packages/web-client's
+// dist/config.js is whatever this image was built with (packages/web's
 // build-time default, or a --auth cognito build's own values) — not something
 // this server should overwrite, since that would silently drop every field it
 // doesn't know about and turn a write failure (read-only dist/) into a crash

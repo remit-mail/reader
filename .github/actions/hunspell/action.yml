@@ -2,7 +2,7 @@ name: Spellchecker engine
 description: >-
   Puts the Hunspell WebAssembly engine in build/hunspell, restoring it from a
   cache keyed on the recipe rather than compiling it in the 3.4 GB Emscripten
-  image. Every job that builds the web client or Storybook needs the engine.
+  image. Every job that builds the web client or publishes the engine needs it.
 
 # The engine is a pure function of docker/hunspell/ — a pinned release tarball
 # checksummed on download, a pinned toolchain image, the build script and its

@@ -45,7 +45,7 @@ const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
 
 // The TypeSpec-generated packages (dir/name mapping shared with
 // check-consumer-typecheck.mjs via lib/generated-packages.mjs), in dependency
-// order (all are leaves), plus the built web client as a data package.
+// order (all are leaves), plus the spellchecker's engine as a data package.
 // `peerDependencies` names the runtime libraries the built output imports but
 // expects the consumer to supply — merged onto whatever the emitter declared so
 // a standalone install resolves them.
@@ -60,23 +60,31 @@ const generated = [
 		name,
 		peerDependencies: generatedPeerDependencies[name] ?? {},
 	})),
-	// The built web client as a static-asset data package: index.html, the
-	// hashed asset bundle, locales, and the default runtime config.js
-	// (better-auth self-host). A deployment installs it and replaces config.js
-	// with its own values instead of building the client from source. `build`
-	// runs the vite build (which empties dist/) before the manifest is
-	// synthesized into it, so packing sees a fresh tree.
+	// The Hunspell WebAssembly engine npm run build:hunspell compiles from
+	// docker/hunspell/. The web client stages it into its build, and only this
+	// repo runs the Emscripten toolchain that produces it.
 	{
-		dir: "packages/web-client/dist",
-		name: "@remit/web-client-dist",
+		dir: "build/hunspell",
+		name: "@remit/spellcheck-engine",
 		peerDependencies: {},
-		build: ["npm", ["run", "build", "-w", "@remit/web-client"]],
+		license: "(MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later)",
 		manifest: {
-			name: "@remit/web-client-dist",
+			name: "@remit/spellcheck-engine",
 			version: "0.0.0",
 			description:
-				"Built Remit web client — static assets and the default runtime config.",
-			files: ["**/*"],
+				"Hunspell compiled to WebAssembly for the Remit composer spellchecker, with its licence texts and the pins it was built from.",
+			files: [
+				"hunspell.wasm",
+				"hunspell.mjs",
+				"LICENSE",
+				"license.hunspell",
+				"pin.env",
+			],
+			exports: {
+				"./package.json": "./package.json",
+				"./hunspell.mjs": "./hunspell.mjs",
+				"./hunspell.wasm": "./hunspell.wasm",
+			},
 		},
 	},
 ];
@@ -221,10 +229,10 @@ const synthesizeManifest = ({ dir, manifest }) => {
 	);
 };
 
-const stampGeneratedMetadata = ({ dir, peerDependencies }) => {
+const stampGeneratedMetadata = ({ dir, peerDependencies, license }) => {
 	const manifestPath = join(repoRoot, dir, "package.json");
 	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	manifest.license = "MIT";
+	manifest.license = license ?? "MIT";
 	manifest.publishConfig = { ...manifest.publishConfig, access: "public" };
 	manifest.repository = { type: "git", url: repositoryUrl };
 	if (Object.keys(peerDependencies).length > 0) {
@@ -296,8 +304,6 @@ const failures = [];
 
 for (const pkg of packages) {
 	if (pkg.kind !== "workspace") {
-		if (pkg.build)
-			run(pkg.build[0], pkg.build[1], { cwd: repoRoot, stdio: "inherit" });
 		synthesizeManifest(pkg);
 		stampGeneratedMetadata(pkg);
 	}

@@ -106,27 +106,26 @@ COPY --from=hunspell-wasm /out/ ./build/hunspell/
 ARG GIT_SHA=""
 ENV GITHUB_SHA=${GIT_SHA}
 
-# Compose the web client from the primitives with the better-auth shell only —
-# the self-host stack is a distributor and omits the Cognito shell entirely.
-# Same-origin relative API base (packages/web-client/src/lib/client.ts defaults
-# VITE_API_URL-less builds to "/api"); Caddy proxies /api and /content to
-# apisix/backend, so no build-time API host is needed.
+# packages/web composes the published @remit/web-client with the better-auth
+# shell only — the self-host stack is a distributor and omits the Cognito shell
+# entirely. The client defaults to the same-origin "/api" base; Caddy proxies
+# /api and /content to apisix/backend, so no build-time API host is needed.
 # The list is what NOTICE.txt and the staged licence files describe, so it is
 # fixed here rather than at run time; an empty list builds a web client with no
-# spellchecker at all. Adding a tag also needs its row in
-# packages/web-client/spellcheck/languages.ts. The default lives on the global
+# spellchecker at all. Adding a tag also needs its row in the web client's
+# spellcheck/languages.ts in remit-mail/reader-ui. The default lives on the global
 # ARG at the top of this file, which also decides whether the engine is built.
 ARG REMIT_SPELLCHECK_LANGUAGES
 ENV REMIT_SPELLCHECK_LANGUAGES=${REMIT_SPELLCHECK_LANGUAGES}
 
-RUN npm run build:dist -w packages/web-client -- --auth better-auth
+RUN npm run build -w packages/web
 
 RUN npm run build -w packages/mcp-server
 
 # Only the brotli form of the engine and the dictionaries lands in the image;
 # the server sends it with Content-Encoding: br, so what the browser receives
 # is the upstream source byte for byte.
-RUN node npm-scripts/compress-spellcheck.mjs packages/web-client/dist/spellcheck
+RUN node npm-scripts/compress-spellcheck.mjs packages/web/dist/spellcheck
 
 # Bakes the generated route table into the apisix image. backend:8080 is the
 # in-network service name/port every runtime target below also uses.
@@ -357,7 +356,7 @@ RUN apk add --no-cache nodejs \
 WORKDIR /app
 RUN chown node:node /app
 USER node
-COPY --from=builder --chown=node:node /app/packages/web-client/dist ./dist
+COPY --from=builder --chown=node:node /app/packages/web/dist ./dist
 COPY --chown=node:node docker/runtime/web/server.mjs ./server.mjs
 ENV PORT=8080
 ENV WEB_DIST_DIR=/app/dist

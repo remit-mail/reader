@@ -40,16 +40,10 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    # An optimization, not the correctness guarantee: shared with
-    # storybook-pages.yml, storybook-preview.yml and
-    # storybook-preview-cleanup.yml so the four producers usually serialize
-    # instead of piling up. It cannot be relied on for correctness by itself --
-    # GitHub holds at most one running and one pending job per group, so a
-    # third simultaneous producer can still bump a pending one.
-    # gh-pages-publish.mjs is what actually protects the branch, via a leased
-    # push that is rejected rather than silently overwritten if it loses a
-    # race, and retried against the branch's new tip. All four files must
-    # spell this group the same way; a test asserts they do.
+    # Two pushes from main queue behind each other instead of one cancelling
+    # the other. gh-pages-publish.mjs is what actually protects the branch, via
+    # a leased push that is rejected rather than silently overwritten if it
+    # loses a race, and retried against the branch's new tip.
     concurrency:
       group: gh-pages-branch-push
       cancel-in-progress: false
@@ -67,16 +61,10 @@ jobs:
           name: docs-site
           path: docs-site-download
 
-      # The docs site owns the branch root, so this publish replaces every
-      # root entry -- except the two subtrees the Storybook publishers own.
-      # `storybook/` is the Storybook built from main; `pr/` holds the
-      # per-pull-request previews. Dropping either from --preserve deletes a
-      # live site the next time main's prose changes.
+      # The docs site owns the whole branch.
       - name: Publish the site to the gh-pages branch root
         run: >-
           node npm-scripts/gh-pages-publish.mjs publish
           --source docs-site-download
           --dest .
-          --preserve storybook
-          --preserve pr
           --message "Publish the docs site from ${{ github.sha }}"

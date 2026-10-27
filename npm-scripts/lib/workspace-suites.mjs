@@ -61,8 +61,7 @@ export async function discoverWorkspaces(root, { exclude = [] } = {}) {
 	for (const name of names) {
 		const dir = join(packagesDir, name);
 		if (!(await stat(dir)).isDirectory()) continue;
-		// A workspace whose suite runs elsewhere (web-client fans out across the
-		// shard matrix) is excluded here so it is not run a second time. Named
+		// A workspace whose suite runs elsewhere is excluded here so it is not run a second time. Named
 		// rather than inferred: an unknown name in the list is a typo that would
 		// silently drop nothing, so it must match a real workspace.
 		if (excluded.has(name)) {

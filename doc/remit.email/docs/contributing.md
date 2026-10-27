@@ -34,9 +34,9 @@ npm test --workspaces --if-present
 
 `npm run dev:sqlite` brings the whole app up from the worktree: SQLite, the queue, the migrator, the backend, the workers, the web client. The dev stack is the shape a real install runs, so what you develop against is what ships. State lives under `.remit/dev-sqlite`; deleting that directory resets the stack.
 
-## Storybook previews
+## The user interface
 
-`main` publishes Storybook to GitHub Pages, and a pull request gets its own preview on demand: tick "Deploy Storybook preview" in the bot comment it opens with. UI changes land with their stories in the same pull request.
+The components, the web client and the Storybook live in [remit-mail/reader-ui](https://github.com/remit-mail/reader-ui). UI changes land there with their stories in the same pull request.
 
 ## Bugs and security
 

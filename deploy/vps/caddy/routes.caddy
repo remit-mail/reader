@@ -38,7 +38,7 @@
 	# packages/auth-service (CLIENT_IP_HEADER).
 	request_header X-Remit-Client-IP {client_ip}
 
-	# Routing mirrors the dev vite proxy 1:1 (packages/web-client/vite.config.ts):
+	# Routing mirrors the dev vite proxy 1:1 (packages/web/vite.config.ts):
 	#   /api/auth/*  -> apisix, path unchanged (better-auth's own routes)
 	#   /api/*       -> apisix, with the /api prefix stripped (business routes,
 	#                   matching the openapi-generated apisix route table, which

@@ -305,10 +305,7 @@ const NavGroupView = (
 		),
 	);
 
-// The Storybook is published to `storybook/` on the same Pages branch this
-// site's root is published to, so a relative href from the current page's depth
-// reaches it whatever prefix the site is served under.
-const ElsewhereView = (prefix: string, repository: string): JSX.Element =>
+const ElsewhereView = (repository: string): JSX.Element =>
 	h(
 		"div",
 		{ class: "nav-group nav-group-elsewhere" },
@@ -316,7 +313,6 @@ const ElsewhereView = (prefix: string, repository: string): JSX.Element =>
 		h(
 			"ul",
 			{ class: "nav-list" },
-			h("li", null, h("a", { href: `${prefix}storybook/` }, "Storybook")),
 			repository ? h("li", null, h("a", { href: repository }, "GitHub")) : null,
 		),
 	);
@@ -378,7 +374,7 @@ export default function ReaderDocsTemplate({
 					...readNav(config).map((group) =>
 						NavGroupView(group, pages, prefix, currentHref),
 					),
-					ElsewhereView(prefix, repository),
+					ElsewhereView(repository),
 				),
 				h(
 					"main",
