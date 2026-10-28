@@ -2,9 +2,8 @@
  * What an operator can tell from the log when the Microsoft OAuth start fails.
  *
  * Every credential failure answers the same 500 with the same body, so the
- * backend log for that request is the only place an instance with no Microsoft
- * app registered is told apart from a secret that cannot be read: the first
- * must not read like a live outage. Driven through the real handler so what is
+ * backend log for that request is the only place a secret that cannot be read
+ * is named. An instance with no Microsoft app registered answers 501 instead. Driven through the real handler so what is
  * asserted is the line a deployment actually writes, correlation id and all.
  */
 
@@ -59,30 +58,35 @@ const headerOf = (
 	return undefined;
 };
 
-const start = async (msOAuth: MsOAuthConfig): Promise<Outcome> => {
-	const awsRequestId = `req-${randomUUID()}`;
-	const handler = withTelemetry(
+const startRequest = (
+	msOAuth: MsOAuthConfig,
+	awsRequestId: string,
+): Promise<APIGatewayProxyResult> =>
+	withTelemetry(
 		lambdaHandler(
 			async () => client,
 			testApiConfig({ corsAllowedOrigins: [WEB_ORIGIN], msOAuth }),
 		),
-	);
-	const { result: response, logged } = await captureStdout(() =>
-		handler(
-			{
-				httpMethod: "POST",
-				path: START_PATH,
-				headers: {},
-				queryStringParameters: null,
-				body: JSON.stringify({ email: "matthijs@example.com" }),
-				requestContext: {
-					authorizer: {
-						claims: { sub: "cognito-sub", email: "person@example.com" },
-					},
+	)(
+		{
+			httpMethod: "POST",
+			path: START_PATH,
+			headers: {},
+			queryStringParameters: null,
+			body: JSON.stringify({ email: "matthijs@example.com" }),
+			requestContext: {
+				authorizer: {
+					claims: { sub: "cognito-sub", email: "person@example.com" },
 				},
-			} as unknown as APIGatewayProxyEvent,
-			{ awsRequestId, functionName: "test" } as Context,
-		),
+			},
+		} as unknown as APIGatewayProxyEvent,
+		{ awsRequestId, functionName: "test" } as Context,
+	);
+
+const start = async (msOAuth: MsOAuthConfig): Promise<Outcome> => {
+	const awsRequestId = `req-${randomUUID()}`;
+	const { result: response, logged } = await captureStdout(() =>
+		startRequest(msOAuth, awsRequestId),
 	);
 
 	assert.equal(
@@ -147,14 +151,19 @@ after(() => {
 	restoreStdout();
 });
 
-describe("a Microsoft OAuth start that cannot load its credentials", () => {
-	it("says an instance has no Microsoft app registered", async () => {
-		const { response, log } = await start({ mode: "Disabled" });
+describe("a Microsoft OAuth start on an instance with no Microsoft app", () => {
+	it("answers 501 not_configured, a refusal the wizard can show", async () => {
+		const response = await startRequest(
+			{ mode: "Disabled" },
+			`req-${randomUUID()}`,
+		);
 
-		assertGenericFiveHundred(response);
-		assertNamesOnly(log, NO_APP_REGISTERED);
+		assert.equal(response.statusCode, 501);
+		assert.equal(JSON.parse(response.body).code, "not_configured");
 	});
+});
 
+describe("a Microsoft OAuth start that cannot load its credentials", () => {
 	for (const [condition, value] of [
 		["carries no string value", undefined],
 		["lacks a credential field", JSON.stringify({ clientId: "an-app-id" })],

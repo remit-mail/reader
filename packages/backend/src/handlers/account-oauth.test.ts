@@ -10,20 +10,13 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AccountService } from "@remit/domain-enums";
-import type { Context } from "openapi-backend";
-import { testApiConfig } from "../config/test-config.js";
 import {
 	type OAuthState,
 	STATE_TTL_MS,
 	signState,
 	verifyState,
 } from "../oauth-state.js";
-import type { RemitClient } from "../service/data-client.js";
-import {
-	getWebOrigin,
-	MicrosoftOAuthOperations,
-	parseJwtClaims,
-} from "./account-oauth.js";
+import { getWebOrigin, parseJwtClaims } from "./account-oauth.js";
 
 function makeJwtToken(claims: Record<string, unknown>): string {
 	const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString(
@@ -367,28 +360,5 @@ describe("web origin selection", () => {
 			getWebOrigin(["https://staging.example.com", "https://app.example.com"]),
 			"https://staging.example.com",
 		);
-	});
-});
-
-describe("Microsoft sign-in start", () => {
-	it("answers 501 not_configured on an instance with no Microsoft app", async () => {
-		const answer =
-			await MicrosoftOAuthOperations.MicrosoftOAuthOperations_microsoftOAuthStart(
-				{ request: { requestBody: {} } } as unknown as Context,
-				{
-					client: {} as RemitClient,
-					identity: {
-						kind: "user",
-						accountConfigId: "acc-config-1",
-						sub: "user-1",
-						email: "user@example.com",
-					},
-					config: testApiConfig({ msOAuth: { mode: "Disabled" } }),
-				},
-			);
-
-		assert.ok("statusCode" in answer);
-		assert.equal(answer.statusCode, 501);
-		assert.equal(answer.body.code, "not_configured");
 	});
 });
