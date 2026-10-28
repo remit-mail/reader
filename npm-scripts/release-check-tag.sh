@@ -23,11 +23,13 @@
 # prevent: it would let a release build proceed and overwrite a tag it never
 # actually checked.
 #
-# One case this deliberately still fails closed: GHCR answers a package that
-# has never been published at all with "denied", not "manifest unknown" —
-# also confirmed live. The first release after adding a new
-# docker/runtime/<service> blocks here until that service's package exists in
-# GHCR. That's intended, not a bug to route around.
+# GHCR answers a package that has never been published at all with "denied",
+# not "manifest unknown" — also confirmed live — and answers an auth failure
+# the same way. On "denied" the script asks GHCR for an anonymous pull token:
+# the roster is public, so a 403 there means the package does not exist yet
+# and the release that adds a new docker/runtime/<service> publishes it. A
+# granted token means the package exists and the denial is an auth failure,
+# which aborts.
 #
 # Environment:
 #   TAG       tag to check (e.g. v1.4.1). Required.
@@ -57,7 +59,13 @@ for target in "${ALL_TARGETS[@]}"; do
 	status=0
 	output="$(docker manifest inspect "$ref" 2>&1)" || status=$?
 
-	case "$(classify_manifest_check "$status" "$output")" in
+	anonymous_token_status=""
+	if [ "$status" -ne 0 ] && [[ "$output" == *"denied"* ]] && [ "${REGISTRY%%/*}" = ghcr.io ]; then
+		anonymous_token_status="$(curl -s -o /dev/null -w "%{http_code}" \
+			"https://ghcr.io/token?scope=repository:${REGISTRY#*/}/${target}:pull" || true)"
+	fi
+
+	case "$(classify_manifest_check "$status" "$output" "$anonymous_token_status")" in
 	exists)
 		existing+=("$ref")
 		;;
