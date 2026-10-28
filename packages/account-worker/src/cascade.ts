@@ -46,7 +46,30 @@ export interface CascadeServices {
 	messageLabelService: IMessageLabelRepository;
 }
 
-export const cascadeServicesOf = (client: RemitClient): CascadeServices => ({
+export type CascadeRepositories = Pick<
+	RemitClient,
+	| "accountConfig"
+	| "account"
+	| "address"
+	| "mailbox"
+	| "message"
+	| "messageFlag"
+	| "envelope"
+	| "outboxMessage"
+	| "threadMessage"
+	| "mailboxLock"
+	| "placementMove"
+	| "flagPush"
+	| "accountExportRequest"
+	| "accountSetting"
+	| "filter"
+	| "label"
+	| "messageLabel"
+>;
+
+export const cascadeServicesOf = (
+	client: CascadeRepositories,
+): CascadeServices => ({
 	accountConfigService: client.accountConfig,
 	accountService: client.account,
 	addressService: client.address,
@@ -348,4 +371,25 @@ export const enumerateCascadeEntities = async (
 	);
 
 	return { entities, messageIds };
+};
+
+/**
+ * `eraseAccountConfig` for a backend that deletes by enumerated key: every
+ * entity the account config owns except the AccountConfig row itself.
+ */
+export const eraseByEnumeration = async (
+	accountConfigId: string,
+	services: CascadeServices,
+	cascadeDelete: (entities: CascadeEntity[], log: Logger) => Promise<void>,
+	log: Logger,
+): Promise<void> => {
+	const { entities } = await enumerateCascadeEntities(
+		accountConfigId,
+		services,
+		log,
+	);
+	await cascadeDelete(
+		entities.filter((entity) => entity.entityType !== "AccountConfig"),
+		log,
+	);
 };

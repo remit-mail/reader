@@ -538,6 +538,18 @@ export const createS3StorageService = (
 		return key;
 	};
 
+	const deleteExportArchive = async (
+		accountConfigId: string,
+		exportRequestId: string,
+	): Promise<void> => {
+		await client.send(
+			new DeleteObjectCommand({
+				Bucket: bucketName,
+				Key: buildExportArchiveKey(accountConfigId, exportRequestId),
+			}),
+		);
+	};
+
 	const getPresignedDownloadUrl = (
 		key: string,
 		expiresInSeconds: number,
@@ -570,6 +582,7 @@ export const createS3StorageService = (
 		exists,
 		delete: del,
 		storeExportArchiveStream,
+		deleteExportArchive,
 		getPresignedDownloadUrl,
 	};
 };

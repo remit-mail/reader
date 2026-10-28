@@ -71,6 +71,12 @@ const recordingCapabilities = (): Recorded => {
 			cascadeDelete: async (entities) => {
 				deleted.push(...entities);
 			},
+			eraseAccountConfig: async () => {
+				throw new Error("a per-account purge never erases the account config");
+			},
+			deleteExportArchives: async () => {
+				throw new Error("a per-account purge never deletes export archives");
+			},
 		},
 	};
 };

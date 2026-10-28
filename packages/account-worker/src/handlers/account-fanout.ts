@@ -17,12 +17,9 @@ import {
 	type DeletionCapabilities,
 	getDeletionCapabilities,
 } from "../deletion-capabilities.js";
-import type {
-	AccountDeleteEvent,
-	AccountFanoutEvent,
-	AccountFinalizeEvent,
-} from "../events.js";
+import type { AccountFanoutEvent } from "../events.js";
 import { processAccountFanoutEvent } from "../process.js";
+import { processAccountDelete } from "./account-delete.js";
 import { processAccountExport } from "./account-export.js";
 import { processAccountDataPurge } from "./account-purge.js";
 
@@ -65,31 +62,12 @@ export const processAccountFanout = async (
 		return;
 	}
 
-	await processAccountDelete(event, log, services, deps);
-};
-
-const processAccountDelete = async (
-	event: AccountDeleteEvent,
-	log: Logger,
-	services: CascadeServices,
-	deps: ProcessAccountFanoutDeps,
-): Promise<void> => {
-	const { accountConfigId } = event;
-	const signOut = deps.signOut ?? (await getDeletionCapabilities()).signOut;
-	const { accountFinalize } = deps.queues;
-
-	const accountConfig =
-		await services.accountConfigService.get(accountConfigId);
-	const userId = accountConfig.userId;
-
-	await signOut(userId, log);
-
-	const finalizeEvent: AccountFinalizeEvent = {
-		type: "FinalizeAccountDelete",
-		accountConfigId,
-	};
-	await accountFinalize.send({ body: finalizeEvent });
-	log.info({ accountConfigId }, "Enqueued finalize event");
+	await processAccountDelete(event, log, {
+		services,
+		signOut: deps.signOut ?? (await getDeletionCapabilities()).signOut,
+		enqueueFinalize: (finalizeEvent) =>
+			deps.queues.accountFinalize.send({ body: finalizeEvent }),
+	});
 };
 
 const log = createLogger();

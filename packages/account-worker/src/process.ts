@@ -7,11 +7,16 @@ import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
 	AccountDeleteEvent,
+	AccountDeleteFinalizeEvent,
 	AccountExportEvent,
+	AccountFinalizeEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 } from "./events.js";
-import { processAccountDelete } from "./handlers/account-delete.js";
+import {
+	finalizeAccountDelete,
+	processAccountDelete,
+} from "./handlers/account-delete.js";
 import { processAccountExport } from "./handlers/account-export.js";
 import { processAccountDataPurge } from "./handlers/account-purge.js";
 import { processAccountDataPurgeFinalize } from "./handlers/account-purge-finalize.js";
@@ -24,7 +29,9 @@ export type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
 	AccountDeleteEvent,
+	AccountDeleteFinalizeEvent,
 	AccountExportEvent,
+	AccountFinalizeEvent,
 };
 
 export type ClientFanoutEvent = OrganizeJobEvent | SenderCategoryBackApplyEvent;
@@ -35,6 +42,7 @@ export interface AccountFanoutContext {
 
 export type AccountPurgeEvent =
 	| AccountDeleteEvent
+	| AccountDeleteFinalizeEvent
 	| AccountDataPurgeEvent
 	| AccountDataPurgeFinalizeEvent;
 
@@ -44,7 +52,7 @@ export interface AccountExportContext {
 
 export interface AccountPurgeContext {
 	client: RemitClient;
-	purgeQueue: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>;
+	purgeQueue: GroupedQueueProducer<AccountFinalizeEvent>;
 	capabilities: DeletionCapabilities;
 }
 
@@ -79,6 +87,16 @@ export const processAccountPurgeEvent = (
 	switch (event.type) {
 		case "AccountDelete":
 			return processAccountDelete(event, log, {
+				services,
+				signOut: ctx.capabilities.signOut,
+				enqueueFinalize: (finalizeEvent) =>
+					ctx.purgeQueue.send({
+						body: finalizeEvent,
+						groupId: finalizeEvent.accountConfigId,
+					}),
+			});
+		case "FinalizeAccountDelete":
+			return finalizeAccountDelete(event, log, {
 				services,
 				capabilities: ctx.capabilities,
 			});

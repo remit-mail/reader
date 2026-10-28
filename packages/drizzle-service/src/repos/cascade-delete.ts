@@ -17,7 +17,6 @@ import { outboxMessageTable } from "../schema/i4-outbox-message.js";
 import { quarantineTable } from "../schema/quarantine.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
-import { filterTable, labelTable, messageLabelTable } from "../schema.js";
 import { SearchIndex } from "../search/thread-message-search.js";
 import { inList, pairInList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
@@ -59,9 +58,6 @@ const KEYED_TYPES = new Set([
 	"Account",
 	"MessagePlacementMove",
 	"MessageFlagPush",
-	"Filter",
-	"Label",
-	"MessageLabel",
 ]);
 
 const groupByType = (
@@ -225,31 +221,6 @@ export const runDrizzleCascadeDelete = async (
 			),
 		);
 	}
-	const filterIds = (grouped.get("Filter") ?? []).map((k) => k.filterId);
-	if (filterIds.length > 0) {
-		appItems.push(
-			app.delete(filterTable).where(inList(filterTable.filterId, filterIds)),
-		);
-	}
-
-	const labelIds = (grouped.get("Label") ?? []).map((k) => k.labelId);
-	if (labelIds.length > 0) {
-		appItems.push(
-			app.delete(labelTable).where(inList(labelTable.labelId, labelIds)),
-		);
-	}
-
-	const messageLabelIds = (grouped.get("MessageLabel") ?? []).map(
-		(k) => k.messageLabelId,
-	);
-	if (messageLabelIds.length > 0) {
-		items.push(
-			mail
-				.delete(messageLabelTable)
-				.where(inList(messageLabelTable.messageLabelId, messageLabelIds)),
-		);
-	}
-
 	await stores.mail.batch(items);
 	await stores.app.batch(appItems);
 	await new SearchIndex(mail, stores.search).sync(threadMessageIds);

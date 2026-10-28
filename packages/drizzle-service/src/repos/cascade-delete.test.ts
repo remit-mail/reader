@@ -10,13 +10,10 @@ import {
 	addressTable,
 	bodyPartTable,
 	envelopeTable,
-	filterTable,
-	labelTable,
 	mailboxLockTable,
 	mailboxTable,
 	messageFlagPushTable,
 	messageFlagTable,
-	messageLabelTable,
 	messagePlacementMoveTable,
 	messageTable,
 	outboxMessageTable,
@@ -46,9 +43,6 @@ const MESSAGE_FLAG_ID = "00000000-0000-4000-8000-000000000003";
 const BODY_PART_ID = "00000000-0000-4000-8000-000000000004";
 const OTHER_MAILBOX_ID = "mbx-cascade-2";
 const QUARANTINE_ID = "quarantine-cascade-1";
-const FILTER_ID = "filter-cascade-1";
-const LABEL_ID = "label-cascade-1";
-const MESSAGE_LABEL_ID = "message-label-cascade-1";
 
 describe("runDrizzleCascadeDelete", () => {
 	let db: TestDb;
@@ -257,35 +251,6 @@ describe("runDrizzleCascadeDelete", () => {
 			createdAt: NOW,
 			updatedAt: NOW,
 		});
-		await db.insert(filterTable).values({
-			filterId: FILTER_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			name: "Receipts",
-			scope: "Standing",
-			ruleChangedAt: NOW,
-			actionChangedAt: NOW,
-			literalClauses: [{ field: "Subject", value: "receipt" }],
-			actionLabelId: LABEL_ID,
-			createdAt: NOW,
-			updatedAt: NOW,
-		});
-		await db.insert(labelTable).values({
-			labelId: LABEL_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			name: "Receipts",
-			normalizedName: "receipts",
-			createdAt: NOW,
-			updatedAt: NOW,
-		});
-		await db.insert(messageLabelTable).values({
-			messageLabelId: MESSAGE_LABEL_ID,
-			messageId: MESSAGE_ID,
-			labelId: LABEL_ID,
-			accountConfigId: ACCOUNT_CONFIG_ID,
-			appliedByFilterId: FILTER_ID,
-			createdAt: NOW,
-			updatedAt: NOW,
-		});
 	});
 
 	after(async () => {
@@ -331,18 +296,6 @@ describe("runDrizzleCascadeDelete", () => {
 		{
 			entityType: "MessageFlagPush",
 			key: { messageId: MESSAGE_ID, flagName: "\\Flagged" },
-		},
-		{
-			entityType: "Filter",
-			key: { accountConfigId: ACCOUNT_CONFIG_ID, filterId: FILTER_ID },
-		},
-		{
-			entityType: "Label",
-			key: { accountConfigId: ACCOUNT_CONFIG_ID, labelId: LABEL_ID },
-		},
-		{
-			entityType: "MessageLabel",
-			key: { messageLabelId: MESSAGE_LABEL_ID },
 		},
 	];
 
@@ -483,33 +436,6 @@ describe("runDrizzleCascadeDelete", () => {
 			).length,
 			0,
 			"quarantine rows carry the user's folder names and parser output, so account deletion must take them",
-		);
-		assert.equal(
-			(
-				await db
-					.select()
-					.from(filterTable)
-					.where(eq(filterTable.filterId, FILTER_ID))
-			).length,
-			0,
-		);
-		assert.equal(
-			(
-				await db
-					.select()
-					.from(labelTable)
-					.where(eq(labelTable.labelId, LABEL_ID))
-			).length,
-			0,
-		);
-		assert.equal(
-			(
-				await db
-					.select()
-					.from(messageLabelTable)
-					.where(eq(messageLabelTable.messageLabelId, MESSAGE_LABEL_ID))
-			).length,
-			0,
 		);
 	});
 

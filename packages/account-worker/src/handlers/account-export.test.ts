@@ -34,6 +34,7 @@ const buildDeps = (
 			},
 		},
 		accountConfigService: {
+			get: async () => [{ accountConfigId: "cfg-1" }],
 			describe: async () => ({ account: [{ accountId: "acc-1" }] }),
 		},
 		accountService: {

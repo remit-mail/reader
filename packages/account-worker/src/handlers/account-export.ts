@@ -62,6 +62,16 @@ const appendMessageBodies = async (
 	return appended;
 };
 
+const accountConfigLive = async (
+	services: CascadeServices,
+	accountConfigId: string,
+): Promise<boolean> => {
+	const [accountConfig] = await services.accountConfigService.get([
+		accountConfigId,
+	]);
+	return accountConfig !== undefined && accountConfig.deletedAt === undefined;
+};
+
 export const processAccountExport = async (
 	event: AccountExportEvent,
 	log: Logger,
@@ -70,6 +80,13 @@ export const processAccountExport = async (
 	const { accountConfigId, accountExportRequestId } = event;
 	const { accountExportRequestService } = services;
 
+	if (!(await accountConfigLive(services, accountConfigId))) {
+		log.info(
+			{ accountConfigId, accountExportRequestId },
+			"Account config is being deleted; export skipped",
+		);
+		return;
+	}
 	await accountExportRequestService.get(accountExportRequestId);
 	await accountExportRequestService.update(accountExportRequestId, {
 		state: "Processing",
@@ -103,6 +120,26 @@ export const processAccountExport = async (
 			storageService,
 			log,
 		);
+
+		// A delete-me that landed while the bodies streamed erases this request;
+		// abandon the upload and drop whatever part of it landed.
+		if (!(await accountConfigLive(services, accountConfigId))) {
+			archive.abort();
+			passthrough.destroy(new Error("account config deleted during export"));
+			await uploadDone.then(
+				() => undefined,
+				() => undefined,
+			);
+			await storageService.deleteExportArchive(
+				accountConfigId,
+				accountExportRequestId,
+			);
+			log.info(
+				{ accountConfigId, accountExportRequestId },
+				"Account config deleted during export; archive abandoned",
+			);
+			return;
+		}
 
 		await archive.finalize();
 		await archiveSettled;

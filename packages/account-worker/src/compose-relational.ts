@@ -1,7 +1,9 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+	type AccountConfigEraser,
 	type CascadeDeleter,
+	createSqliteAccountConfigEraser,
 	createSqliteCascadeDeleter,
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
@@ -41,6 +43,16 @@ const getDeleter = (): Promise<CascadeDeleter> => {
 	return deleterPromise;
 };
 
+let eraserPromise: Promise<AccountConfigEraser> | undefined;
+
+const getEraser = (): Promise<AccountConfigEraser> => {
+	if (!eraserPromise)
+		eraserPromise = createSqliteAccountConfigEraser(
+			sqliteDatabasePathsFromEnv(),
+		);
+	return eraserPromise;
+};
+
 /**
  * The self-host stack's deletion capabilities (RFC 035/036).
  *
@@ -53,6 +65,8 @@ const getDeleter = (): Promise<CascadeDeleter> => {
  *   is nothing to invalidate.
  * - `deleteStoragePrefix`: recursive filesystem removal.
  * - `cascadeDelete`: the Drizzle cascade over SQLite.
+ * - `eraseAccountConfig`: one keyed delete per table over SQLite.
+ * - `deleteExportArchives`: recursive filesystem removal of the exports.
  */
 export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({
@@ -75,4 +89,10 @@ export const buildRelationalDeletionCapabilities =
 			const deleter = await getDeleter();
 			await deleter(entities, log);
 		},
+		eraseAccountConfig: async (accountConfigId, _services, log) => {
+			const eraser = await getEraser();
+			await eraser(accountConfigId, log);
+		},
+		deleteExportArchives: (accountConfigId, log) =>
+			deleteStoragePrefix(`exports/${accountConfigId}/`, log),
 	});
