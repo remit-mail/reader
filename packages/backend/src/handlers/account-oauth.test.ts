@@ -11,13 +11,12 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { AccountService } from "@remit/domain-enums";
 import {
-	getWebOrigin,
 	type OAuthState,
-	parseJwtClaims,
 	STATE_TTL_MS,
 	signState,
 	verifyState,
-} from "./account-oauth.js";
+} from "../oauth-state.js";
+import { getWebOrigin, parseJwtClaims } from "./account-oauth.js";
 
 function makeJwtToken(claims: Record<string, unknown>): string {
 	const header = Buffer.from(JSON.stringify({ alg: "RS256" })).toString(

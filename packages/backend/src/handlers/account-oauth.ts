@@ -1,4 +1,4 @@
-import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import type {
 	AccountService as AccountServiceName,
 	MicrosoftOAuthStartRequest,
@@ -23,6 +23,7 @@ import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
 import { loadMsOAuth } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
+import { type OAuthState, signState, verifyState } from "../oauth-state.js";
 import { rawApiResponse } from "../response.js";
 import type { QueueName } from "../service/queues.js";
 import type {
@@ -37,97 +38,6 @@ import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
 
 const OUTLOOK_IMAP_HOST = "outlook.office365.com";
-
-// ─── HMAC state signing ──────────────────────────────────────────────────────
-
-export interface OAuthState {
-	accountConfigId: string;
-	nonce: string;
-	timestamp: number;
-	services: AccountServiceName[];
-}
-
-const ACCOUNT_SERVICES: readonly string[] = Object.values(AccountService);
-
-const isServiceList = (value: unknown): value is AccountServiceName[] =>
-	Array.isArray(value) &&
-	value.length > 0 &&
-	value.every(
-		(service) =>
-			typeof service === "string" && ACCOUNT_SERVICES.includes(service),
-	);
-
-export const STATE_TTL_MS = 10 * 60 * 1000; // 10 minutes
-
-/**
- * Derive a signing key from the client secret, namespaced to avoid reuse.
- * The key is HMAC-SHA256("oauth-state-signing:" + clientSecret).
- */
-function deriveSigningKey(clientSecret: string): Buffer {
-	return createHmac("sha256", `oauth-state-signing:${clientSecret}`)
-		.update("")
-		.digest();
-}
-
-function base64urlEncode(buf: Buffer): string {
-	return buf.toString("base64url");
-}
-
-function base64urlDecode(str: string): Buffer {
-	return Buffer.from(str, "base64url");
-}
-
-export async function signState(
-	payload: OAuthState,
-	clientSecret: string,
-): Promise<string> {
-	const key = deriveSigningKey(clientSecret);
-	const payloadBuf = Buffer.from(JSON.stringify(payload), "utf8");
-	const payloadEncoded = base64urlEncode(payloadBuf);
-	const sig = createHmac("sha256", key).update(payloadEncoded).digest();
-	const sigEncoded = base64urlEncode(sig);
-	return `${payloadEncoded}.${sigEncoded}`;
-}
-
-export async function verifyState(
-	state: string,
-	clientSecret: string,
-): Promise<OAuthState> {
-	const dotIndex = state.lastIndexOf(".");
-	if (dotIndex < 0) throw new Error("Malformed state: missing dot separator");
-
-	const payloadEncoded = state.slice(0, dotIndex);
-	const sigEncoded = state.slice(dotIndex + 1);
-
-	const key = deriveSigningKey(clientSecret);
-	const expectedSig = createHmac("sha256", key).update(payloadEncoded).digest();
-	const actualSig = base64urlDecode(sigEncoded);
-
-	if (
-		actualSig.length !== expectedSig.length ||
-		!timingSafeEqual(actualSig, expectedSig)
-	) {
-		throw new Error("State signature verification failed");
-	}
-
-	const payload = JSON.parse(
-		base64urlDecode(payloadEncoded).toString("utf8"),
-	) as OAuthState;
-
-	if (Date.now() - payload.timestamp > STATE_TTL_MS) {
-		throw new Error("State has expired");
-	}
-
-	if (payload.services === undefined) {
-		return { ...payload, services: [AccountService.Mail] };
-	}
-
-	if (!isServiceList(payload.services)) {
-		throw new Error("State names no requested services");
-	}
-
-	return payload;
-}
 
 // ─── JWT claims parsing ──────────────────────────────────────────────────────
 
@@ -483,11 +393,31 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	);
 };
 
+export interface SignInNotConfigured {
+	statusCode: 501;
+	body: { code: "not_configured"; message: string };
+}
+
+/**
+ * An instance with no Microsoft app answers the start of a sign-in with a
+ * refusal the onboarding wizard can show, rather than the 500 the config load
+ * would otherwise throw.
+ */
+const signInNotConfigured = (): SignInNotConfigured => ({
+	statusCode: 501,
+	body: {
+		code: "not_configured",
+		message:
+			"Microsoft sign-in is not configured on this instance; connect the account with an app password instead.",
+	},
+});
+
 export const MicrosoftOAuthOperations = {
 	MicrosoftOAuthOperations_microsoftOAuthStart: async (
 		context: Context,
 		ctx: HandlerContext,
-	): Promise<{ authorizationUrl: string }> => {
+	): Promise<{ authorizationUrl: string } | SignInNotConfigured> => {
+		if (ctx.config.msOAuth.mode === "Disabled") return signInNotConfigured();
 		const accountConfigId = ctx.identity.accountConfigId;
 
 		const input = context.request.requestBody as MicrosoftOAuthStartRequest;
