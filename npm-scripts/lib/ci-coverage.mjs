@@ -51,8 +51,7 @@ const FILE_ARGUMENT = /[\w./-]+\.(?:mjs|cjs|js|sh)/g;
 const QUOTED_PATH = /["'`]([\w./-]+\.(?:mjs|cjs|js|sh))["'`]/g;
 const GUARDED_PREFIXES = ["test:", "check:"];
 // A `#` line in a workflow, or a `//` line in a script, names work without
-// running it: `images.yml` documents `npm run images:publish` in its header
-// comment. Matching those reports coverage that does not exist.
+// running it: a header comment that documents `npm run images:publish`. Matching those reports coverage that does not exist.
 export function stripComments(text, kind) {
 	if (kind === "yaml") {
 		return text.replace(/^\s*#.*$/gm, "").replace(/(\s)#.*$/gm, "$1");

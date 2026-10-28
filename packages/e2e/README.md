@@ -15,14 +15,14 @@ running. Two things can be running.
 **The image stack** (`npm run e2e`) drives the published
 `ghcr.io/remit-mail/reader/*` images exactly as an operator gets them: the
 reference SQLite compose file, plus the mail servers and a loopback edge
-port (`deploy/vps/docker-compose.e2e.yml`). This is the deploy signal, and it
-runs every spec.
+port (`deploy/vps/docker-compose.e2e.yml`). It runs every spec, the packaged
+edge included.
 
 **The source stack** (`npm run e2e:dev`) is the same deployment shape assembled
 from the worktree — the queue sidecar, the migrator, the backend, the imap and
 smtp workers, and the vite dev server, all from source, with the same mail
 containers (`deploy/vps/docker-compose.dovecot.yml`). It is cheap enough to run
-on a pull request, which makes it a regression guard rather than a deploy gate.
+on a pull request, which makes it the regression guard.
 
 Both stacks get Dovecot, where mail arrives, and Mailpit, where mail goes.
 Mailpit accepts the submission a send makes and hands the accepted bytes back

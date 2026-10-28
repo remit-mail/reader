@@ -25,9 +25,8 @@ e2e_compose() {
 #
 # Anything in E2E_OVERRIDABLE that is already set in the caller's environment is
 # appended afterwards, and the later assignment wins for both readers. That is
-# what lets a post-publish CI job pin REMIT_TAG to the digest it just built
-# instead of racing whatever `latest` resolves to, and lets a second run on one
-# machine move its ports.
+# what lets a run pin REMIT_TAG to one release instead of whatever `latest`
+# resolves to, and lets a second run on one machine move its ports.
 E2E_OVERRIDABLE=(REMIT_TAG E2E_HTTP_PORT E2E_IMAP_PORT E2E_IMAP_NAMED_TRASH_PORT
 	E2E_SMTP_PORT E2E_SMTP_HTTP_PORT E2E_SMTP_REJECT_PORT E2E_SMTP_REJECT_HTTP_PORT
 	E2E_QUEUE_PORT E2E_MSOAUTH_TOKEN_PORT)

@@ -1472,7 +1472,7 @@ version_valid() {
 	printf '%s' "$1" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'
 }
 
-# An operator may pin a sha-<sha> build or `latest`; those are tags, not
+# An operator may pin `latest` or another non-version tag; those are tags, not
 # versions, and they are still allowed as an explicit --tag target. Anything
 # outside this set never reaches a docker command line.
 tag_valid() {
@@ -1550,7 +1550,7 @@ do_check() {
 		return 1
 	fi
 	_cur=$(get_var REMIT_TAG)
-	# A tag that is not a version — `latest`, or a pinned sha- build — cannot be
+	# A tag that is not a version, such as `latest`, cannot be
 	# compared, so the published release is offered rather than hidden.
 	if ! version_valid "$_cur"; then
 		CHECK_AVAILABLE=true

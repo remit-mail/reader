@@ -26,8 +26,8 @@
 # One case this deliberately still fails closed: GHCR answers a package that
 # has never been published at all with "denied", not "manifest unknown" —
 # also confirmed live. The first release after adding a new
-# docker/runtime/<service> blocks here until images.yml has published that
-# service to main at least once. That's intended, not a bug to route around.
+# docker/runtime/<service> blocks here until that service's package exists in
+# GHCR. That's intended, not a bug to route around.
 #
 # Environment:
 #   TAG       tag to check (e.g. v1.4.1). Required.

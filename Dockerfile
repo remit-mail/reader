@@ -14,8 +14,8 @@
 # Roster (RFC 035 D1): apisix, backend, imap-worker, smtp-worker,
 # account-worker, web.
 #
-# `npm run docker:build -- <target>` wraps this for local use; CI
-# (.github/workflows/images.yml) builds every target on push to main.
+# `npm run docker:build -- <target>` wraps this for local use; the Release
+# workflow (.github/workflows/release.yml) builds every target for a vX.Y.Z tag.
 
 # Which dictionaries this image carries, declared up here because it also
 # decides whether the engine is compiled at all. The empty list is the

@@ -3,7 +3,7 @@
 # locally — whichever container-runtime.sh resolves).
 #
 # The CI fleet (self-hosted runners) has podman, not docker/buildx, so the
-# Images workflow drives this instead of `docker buildx bake`. It also runs
+# Release workflow drives this instead of `docker buildx bake`. It also runs
 # locally against docker; the docker-only equivalents remain `npm run
 # docker:build` (per-target docker build) and `docker buildx bake`
 # (docker-bake.hcl).
@@ -16,14 +16,14 @@
 # CI lanes are ephemeral, so their local layer cache starts empty every run.
 # When CACHE_REF is set, unchanged layers (base images, the workspace npm ci)
 # are pulled from a registry cache instead of rebuilt. The lane must be
-# authenticated to that registry; the Images workflow already logs into GHCR.
+# authenticated to that registry; the Release workflow already logs into GHCR.
 #
 # Environment:
-#   TAG          image tag to build and push (e.g. sha-<git-sha>). Required.
+#   TAG          image tag to build and push (e.g. v1.4.1). Required.
 #   REGISTRY     registry/namespace prefix. Default ghcr.io/remit-mail/reader.
 #   PUSH         "1" to push built tags, "0" to build only. Default "0".
-#   PUSH_LATEST  "1" to also tag and push :latest. Default "0". Only main
-#                should set this — a non-main run must not move :latest.
+#   PUSH_LATEST  "1" to also tag and push :latest. Default "0". Only the
+#                Release workflow sets this, so :latest is the newest release.
 #   CACHE_REF    registry repo for the layer cache (e.g.
 #                ghcr.io/remit-mail/reader/cache). Unset disables registry
 #                caching; the build still reuses the local layer cache.
@@ -37,7 +37,7 @@ cd "$REPO_ROOT"
 source "$(dirname "${BASH_SOURCE[0]}")/lib/container-runtime.sh"
 
 REGISTRY="${REGISTRY:-ghcr.io/remit-mail/reader}"
-TAG="${TAG:?TAG is required (e.g. sha-<git-sha>)}"
+TAG="${TAG:?TAG is required (e.g. v1.4.1)}"
 PUSH="${PUSH:-0}"
 PUSH_LATEST="${PUSH_LATEST:-0}"
 CACHE_REF="${CACHE_REF:-}"
@@ -45,14 +45,9 @@ CACHE_TO="${CACHE_TO:-1}"
 
 # The build commit baked into the web client (bug-report version link). `.git`
 # is dockerignored, so the build cannot resolve it itself — pass it as a build
-# arg. Prefer the checkout's HEAD; fall back to the `sha-<sha>` TAG the Images
-# workflow sets. Empty is fine: the build then labels itself "dev".
+# arg from the checkout's HEAD. Empty is fine: the build then labels itself
+# "dev".
 GIT_SHA="$(git rev-parse HEAD 2>/dev/null || true)"
-if [ -z "$GIT_SHA" ]; then
-	case "$TAG" in
-	sha-*) GIT_SHA="${TAG#sha-}" ;;
-	esac
-fi
 
 # shellcheck source=npm-scripts/lib/image-roster.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib/image-roster.sh"
