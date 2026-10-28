@@ -10,6 +10,7 @@ import type { CascadeServices } from "../cascade.js";
 import {
 	type FanoutQueues,
 	getCascadeServices,
+	getStorageService,
 	sqsFanoutQueues,
 } from "../config.js";
 import {
@@ -49,7 +50,10 @@ export const processAccountFanout = async (
 	}
 
 	if (event.type === "AccountExport") {
-		await processAccountExport(event, log);
+		await processAccountExport(event, log, {
+			services,
+			storageService: getStorageService(),
+		});
 		return;
 	}
 
