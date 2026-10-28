@@ -18,8 +18,8 @@ import { AccountService } from "@remit/domain-enums";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { telemetryHandler } from "../api-fixture.js";
 import { testApiConfig } from "../config/test-config.js";
+import { signState } from "../oauth-state.js";
 import { _resetForTest, type RemitClient } from "../service/data-client.js";
-import { signState } from "./account-oauth.js";
 import { createCalendarSqliteClient } from "./calendar-sqlite-fixture.js";
 
 const CLIENT_SECRET = "callback-test-client-secret";

@@ -63,6 +63,10 @@
       "types": "./src/service/trigger-sync.ts",
       "default": "./src/service/trigger-sync.ts"
     },
+    "./oauth-state": {
+      "types": "./src/oauth-state.ts",
+      "default": "./src/oauth-state.ts"
+    },
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -127,6 +131,10 @@
       "./trigger-sync": {
         "types": "./dist/src/service/trigger-sync.d.ts",
         "default": "./dist/src/service/trigger-sync.js"
+      },
+      "./oauth-state": {
+        "types": "./dist/src/oauth-state.d.ts",
+        "default": "./dist/src/oauth-state.js"
       },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",
