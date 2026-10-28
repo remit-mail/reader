@@ -16,6 +16,7 @@ import {
 	createSqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
+import { noopLogger } from "@remit/logger";
 import { RefreshTokenError } from "@remit/mail-oauth-service";
 import type { ConnectionScope } from "@remit/mailbox-service";
 import type { SecretsService } from "@remit/secrets-service";
@@ -103,6 +104,7 @@ describe("a read-path connection scope", () => {
 				seen.push(credentials);
 				return opened;
 			},
+			noopLogger,
 		)(
 			repo,
 			secrets,
@@ -118,9 +120,14 @@ describe("a read-path connection scope", () => {
 		const created = await outlookAccount();
 
 		await assert.rejects(
-			lifecycleConnectionScope(revoked, () => opened)(repo, secrets)(
-				created.accountId,
-			),
+			lifecycleConnectionScope(
+				revoked,
+				() => opened,
+				noopLogger,
+			)(
+				repo,
+				secrets,
+			)(created.accountId),
 			(error: unknown) =>
 				error instanceof AccountNeedsReconnectError && error.statusCode === 409,
 		);
@@ -144,9 +151,14 @@ describe("a read-path connection scope", () => {
 		});
 
 		await assert.rejects(
-			lifecycleConnectionScope(minting, () => opened)(repo, secrets)(
-				created.accountId,
-			),
+			lifecycleConnectionScope(
+				minting,
+				() => opened,
+				noopLogger,
+			)(
+				repo,
+				secrets,
+			)(created.accountId),
 			AccountNeedsReconnectError,
 		);
 

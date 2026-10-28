@@ -1,7 +1,7 @@
 import type { ConnectionScopeFactory } from "@remit/backend/create-remit-client";
 import type { AccountItem } from "@remit/data-ports";
 import { ConflictError } from "@remit/data-ports/errors";
-import { logger } from "@remit/logger";
+import type { Logger } from "@remit/logger";
 import type { ConnectionScope } from "@remit/mailbox-service";
 import type { MailCredentials } from "@remit/mailbox-service/types";
 import type { TokenService } from "./context.js";
@@ -37,7 +37,11 @@ export type OpenConnection = (
  * and answers 409 instead of surfacing as a 500.
  */
 export const lifecycleConnectionScope =
-	(tokenService: TokenService, open: OpenConnection): ConnectionScopeFactory =>
+	(
+		tokenService: TokenService,
+		open: OpenConnection,
+		log: Logger,
+	): ConnectionScopeFactory =>
 	(accountService, secrets) =>
 	async (accountId) => {
 		const account = await accountService.get(accountId);
@@ -45,7 +49,7 @@ export const lifecycleConnectionScope =
 		await withOAuthLifecycle(
 			buildLifecycleDeps(secrets, accountService, tokenService),
 			account,
-			logger,
+			log,
 			async (credentials) => {
 				opened.push(await open(account, credentials));
 			},

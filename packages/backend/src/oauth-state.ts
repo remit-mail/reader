@@ -95,10 +95,7 @@ export async function verifyState(
 export const ACCOUNT_SETTINGS_ROUTE = "/settings/accounts";
 
 /** Where a refused Microsoft sign-in sends the browser back to, carrying why. */
-export const oauthRefusalUrl = (
-	webOrigin: string,
-	oauthError: string,
-): string => {
+export const oauthRefusalUrl = (webOrigin: string, oauthError: string): string => {
 	const url = new URL(`${webOrigin}${ACCOUNT_SETTINGS_ROUTE}`);
 	url.searchParams.set("oauthError", oauthError);
 	return url.toString();

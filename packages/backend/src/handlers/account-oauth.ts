@@ -229,14 +229,18 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 			return null;
 		});
 	if (tokenSet === null)
-		return redirect(oauthRefusalUrl(webOrigin, "exchange_failed"));
+		return redirect(
+			oauthRefusalUrl(webOrigin, "exchange_failed"),
+		);
 
 	if (!tokenSet.refreshToken) {
 		logger.error(
 			{ accountConfigId },
 			"MS OAuth token exchange returned no refresh_token",
 		);
-		return redirect(oauthRefusalUrl(webOrigin, "exchange_failed"));
+		return redirect(
+			oauthRefusalUrl(webOrigin, "exchange_failed"),
+		);
 	}
 
 	// Extract the user's email from the ID token returned alongside the access
@@ -312,7 +316,9 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	)
 		return redirect(scopeRefusalUrl(webOrigin, email, [redemption.service]));
 	if (redemption.kind === "refused")
-		return redirect(oauthRefusalUrl(webOrigin, redemption.reason));
+		return redirect(
+			oauthRefusalUrl(webOrigin, redemption.reason),
+		);
 
 	const grantedScopes = [
 		...new Set([...tokenSet.grantedScopes, ...redemption.grantedScopes]),
