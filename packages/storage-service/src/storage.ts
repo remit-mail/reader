@@ -423,23 +423,6 @@ export const buildExportArchiveKey = (
 	exportRequestId: string,
 ): string => `exports/${accountConfigId}/${exportRequestId}/export.zip`;
 
-const EXPORT_ARCHIVE_KEY =
-	/^exports\/([A-Za-z0-9_-]+)\/([A-Za-z0-9_-]+)\/export\.zip$/;
-
-export interface ParsedExportArchiveKey {
-	accountConfigId: string;
-	exportRequestId: string;
-}
-
-/** The inverse of `buildExportArchiveKey`; null for any other key. */
-export const parseExportArchiveKey = (
-	storageKey: string,
-): ParsedExportArchiveKey | null => {
-	const match = storageKey.match(EXPORT_ARCHIVE_KEY);
-	if (!match) return null;
-	return { accountConfigId: match[1], exportRequestId: match[2] };
-};
-
 export const isStorageNotFoundError = (error: unknown): boolean => {
 	if (typeof error !== "object" || error === null) return false;
 	const obj = error as Record<string, unknown>;

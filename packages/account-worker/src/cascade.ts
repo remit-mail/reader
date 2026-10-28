@@ -372,24 +372,3 @@ export const enumerateCascadeEntities = async (
 
 	return { entities, messageIds };
 };
-
-/**
- * `eraseAccountConfig` for a backend that deletes by enumerated key: every
- * entity the account config owns except the AccountConfig row itself.
- */
-export const eraseByEnumeration = async (
-	accountConfigId: string,
-	services: CascadeServices,
-	cascadeDelete: (entities: CascadeEntity[], log: Logger) => Promise<void>,
-	log: Logger,
-): Promise<void> => {
-	const { entities } = await enumerateCascadeEntities(
-		accountConfigId,
-		services,
-		log,
-	);
-	await cascadeDelete(
-		entities.filter((entity) => entity.entityType !== "AccountConfig"),
-		log,
-	);
-};

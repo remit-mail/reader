@@ -1,5 +1,5 @@
 import type { Logger } from "@remit/logger";
-import type { CascadeEntity, CascadeServices } from "./cascade.js";
+import type { CascadeEntity } from "./cascade.js";
 
 /**
  * The four steps of the deletion cascade that vary by deployment. Everything
@@ -54,18 +54,7 @@ export interface DeletionCapabilities {
 	cascadeDelete(entities: CascadeEntity[], log: Logger): Promise<void>;
 	/**
 	 * Remove every row an account config owns except the AccountConfig row,
-	 * which the caller deletes last. AWS: enumerate and cascade
-	 * (`eraseByEnumeration`). Relational: one keyed delete per table.
+	 * which the caller deletes last. Relational: one keyed delete per table.
 	 */
-	eraseAccountConfig(
-		accountConfigId: string,
-		services: CascadeServices,
-		log: Logger,
-	): Promise<void>;
-	/**
-	 * Delete the account config's export archives under
-	 * `exports/{accountConfigId}/`. AWS: a no-op, the bucket lifecycle expires
-	 * them and the finalize role holds no grant there. Relational: removal.
-	 */
-	deleteExportArchives(accountConfigId: string, log: Logger): Promise<void>;
+	eraseAccountConfig(accountConfigId: string, log: Logger): Promise<void>;
 }

@@ -23,8 +23,8 @@ export {
 export type { RepositoryDb, SqliteStore } from "./db.js";
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
 export {
-	type AccountConfigEraser,
-	createSqliteAccountConfigEraser,
+	accountIdsOf,
+	eraseAccountConfigAppRows,
 	runDrizzleAccountConfigErase,
 } from "./repos/account-config-erase.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";

@@ -56,9 +56,9 @@ export const finalizeAccountDelete = async (
 
 	await capabilities.assertReady(log);
 	await capabilities.invalidateContent(accountConfigId, log);
-	await capabilities.eraseAccountConfig(accountConfigId, services, log);
+	await capabilities.eraseAccountConfig(accountConfigId, log);
 	await capabilities.deleteStoragePrefix(`accounts/${accountConfigId}/`, log);
-	await capabilities.deleteExportArchives(accountConfigId, log);
+	await capabilities.deleteStoragePrefix(`exports/${accountConfigId}/`, log);
 	await services.accountConfigService.delete(accountConfigId);
 	log.info({ accountConfigId }, "AccountConfig deleted; erase complete");
 };

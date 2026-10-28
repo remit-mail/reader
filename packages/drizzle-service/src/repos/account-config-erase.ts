@@ -5,152 +5,159 @@ import {
 	SQLiteTable,
 } from "drizzle-orm/sqlite-core";
 import type { SqliteBatchItem } from "../batch.js";
-import { BETTER_SQLITE3_LIMITS, chunk } from "../bound-parameters.js";
-import {
-	openSqliteDatabases,
-	type SqliteDatabasePaths,
-	type SqliteStores,
-	syncStores,
-} from "../databases.js";
+import { chunk } from "../bound-parameters.js";
+import type { SqliteStores } from "../databases.js";
+import type { SqliteStore } from "../db.js";
 import {
 	accountConfigTable,
 	accountTable,
 } from "../schema/i4-account-config.js";
-import {
-	mailboxAttributeTable,
-	mailboxFlagTable,
-	mailboxSpecialUseTable,
-	mailboxTable,
-} from "../schema/i4-mailbox.js";
-import { mailboxLockTable } from "../schema/i4-mailbox-lock.js";
-import { threadMessageTable } from "../schema/thread-message.js";
-import {
-	calendarEventIndexTable,
-	calendarObjectTable,
-	calendarTable,
-	messageTable,
-} from "../schema.js";
+import { mailboxTable } from "../schema/i4-mailbox.js";
+import { calendarTable, messageTable } from "../schema.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
 import { SearchIndex } from "../search/thread-message-search.js";
 import type { CascadeDeleteLogger } from "./cascade-delete.js";
 import { inList } from "./in-list.js";
-import { deleteMessageSubtree } from "./message.js";
 
-const ACCOUNT_CONFIG_COLUMN = "account_config_id";
+/**
+ * The column an account config owns a table's rows by: its own id where the
+ * table carries it, else the first id of the parent it hangs off.
+ */
+export const OWNER_KEYS = [
+	"account_config_id",
+	"account_id",
+	"mailbox_id",
+	"message_id",
+	"calendar_id",
+] as const;
 
-// Durable Object SQLite caps a bound value at 2 MB; a chunk of message ids
-// stays far below it.
-const MESSAGE_IDS_PER_STATEMENT = 5_000;
+export type OwnerKey = (typeof OWNER_KEYS)[number];
 
-export interface TenantTable {
+export interface OwnedTable {
 	readonly table: SQLiteTable;
-	readonly accountConfigColumn: SQLiteColumn;
+	readonly ownerKey: OwnerKey;
+	readonly ownerColumn: SQLiteColumn;
 }
 
-const tenantTablesOf = (
-	tables: Record<string, unknown>,
-	except: readonly SQLiteTable[],
-): TenantTable[] =>
+export const ownedTablesOf = (tables: Record<string, unknown>): OwnedTable[] =>
 	Object.values(tables).flatMap((table) => {
-		if (!(table instanceof SQLiteTable) || except.includes(table)) return [];
-		const accountConfigColumn = getTableConfig(table).columns.find(
-			(column) => column.name === ACCOUNT_CONFIG_COLUMN,
-		);
-		return accountConfigColumn === undefined
-			? []
-			: [{ table, accountConfigColumn }];
+		if (!(table instanceof SQLiteTable)) return [];
+		const { columns } = getTableConfig(table);
+		for (const ownerKey of OWNER_KEYS) {
+			const ownerColumn = columns.find((column) => column.name === ownerKey);
+			if (ownerColumn !== undefined) return [{ table, ownerKey, ownerColumn }];
+		}
+		return [];
 	});
 
+// Durable Object SQLite caps a bound value at 2 MB; a chunk of ids stays far
+// below it.
+const IDS_PER_STATEMENT = 5_000;
+
+type OwnerIds = Readonly<Record<OwnerKey, readonly string[]>>;
+
+const keyedDeletes = (
+	store: SqliteStore<Record<string, unknown>>,
+	tables: readonly OwnedTable[],
+	ids: OwnerIds,
+): SqliteBatchItem[] =>
+	tables
+		.filter(({ table }) => table !== accountConfigTable)
+		.flatMap(({ table, ownerKey, ownerColumn }) =>
+			ownerKey === "account_config_id"
+				? ids.account_config_id.map((id) =>
+						store.db.delete(table).where(eq(ownerColumn, id)),
+					)
+				: chunk(ids[ownerKey], IDS_PER_STATEMENT).map((slice) =>
+						store.db.delete(table).where(inList(ownerColumn, slice)),
+					),
+		);
+
+const APP_TABLES = ownedTablesOf(appTables);
+const MAIL_TABLES = ownedTablesOf(mailTables);
+
+const idsOf = async <Row>(
+	rows: PromiseLike<Row[]>,
+	pick: (row: Row) => string,
+): Promise<string[]> => (await rows).map(pick);
+
 /**
- * Every app table keyed by account config id, except the account config row
- * itself, which the caller deletes last as the erase-in-progress marker.
+ * Delete the app database rows an account config owns, except the
+ * AccountConfig row itself, which the caller deletes last.
  */
-export const APP_TENANT_TABLES: readonly TenantTable[] = tenantTablesOf(
-	appTables,
-	[accountConfigTable],
-);
+export const eraseAccountConfigAppRows = async (
+	app: SqliteStore<Record<string, unknown>>,
+	accountConfigId: string,
+	accountIds: readonly string[],
+): Promise<void> => {
+	const calendarIds = await idsOf(
+		app.db
+			.select({ calendarId: calendarTable.calendarId })
+			.from(calendarTable)
+			.where(eq(calendarTable.accountConfigId, accountConfigId)),
+		(row) => row.calendarId,
+	);
+	await app.batch(
+		keyedDeletes(app, APP_TABLES, {
+			account_config_id: [accountConfigId],
+			account_id: accountIds,
+			mailbox_id: [],
+			message_id: [],
+			calendar_id: calendarIds,
+		}),
+	);
+};
 
-export const MAIL_TENANT_TABLES: readonly TenantTable[] = tenantTablesOf(
-	mailTables,
-	[],
-);
+export const accountIdsOf = (
+	app: SqliteStore<Record<string, unknown>>,
+	accountConfigId: string,
+): Promise<string[]> =>
+	idsOf(
+		app.db
+			.select({ accountId: accountTable.accountId })
+			.from(accountTable)
+			.where(eq(accountTable.accountConfigId, accountConfigId)),
+		(row) => row.accountId,
+	);
 
 /**
- * Delete every row an account config owns, across the app, mail and search
- * databases, by key rather than by enumerating rows: one statement per table
- * keyed by account config id, plus the tables reached only through an
- * account, mailbox, message or calendar id. A rerun deletes what is left.
+ * Delete every row an account config owns across the app, mail and search
+ * databases, one keyed statement per table. A rerun deletes what is left.
  */
 export const runDrizzleAccountConfigErase = async (
 	stores: SqliteStores,
 	accountConfigId: string,
 	log: CascadeDeleteLogger,
 ): Promise<void> => {
-	const app = stores.app.db;
-	const mail = stores.mail.db;
-
-	const accountIds = (
-		await app
-			.select({ accountId: accountTable.accountId })
-			.from(accountTable)
-			.where(eq(accountTable.accountConfigId, accountConfigId))
-	).map((row) => row.accountId);
-	const mailboxIds = (
-		await mail
+	const { app, mail, search } = stores;
+	const accountIds = await accountIdsOf(app, accountConfigId);
+	const mailboxIds = await idsOf(
+		mail.db
 			.select({ mailboxId: mailboxTable.mailboxId })
 			.from(mailboxTable)
-			.where(inList(mailboxTable.accountId, accountIds))
-	).map((row) => row.mailboxId);
-	const messageIds = (
-		await mail
+			.where(inList(mailboxTable.accountId, accountIds)),
+		(row) => row.mailboxId,
+	);
+	const messageIds = await idsOf(
+		mail.db
 			.select({ messageId: messageTable.messageId })
 			.from(messageTable)
-			.where(inList(messageTable.mailboxId, mailboxIds))
-	).map((row) => row.messageId);
-	const threadMessageIds = (
-		await mail
-			.select({ threadMessageId: threadMessageTable.threadMessageId })
-			.from(threadMessageTable)
-			.where(eq(threadMessageTable.accountConfigId, accountConfigId))
-	).map((row) => row.threadMessageId);
-	const calendarIds = (
-		await app
-			.select({ calendarId: calendarTable.calendarId })
-			.from(calendarTable)
-			.where(eq(calendarTable.accountConfigId, accountConfigId))
-	).map((row) => row.calendarId);
+			.where(inList(messageTable.mailboxId, mailboxIds)),
+		(row) => row.messageId,
+	);
 
-	const mailItems: SqliteBatchItem[] = [
-		...chunk(messageIds, MESSAGE_IDS_PER_STATEMENT).flatMap((ids) =>
-			deleteMessageSubtree(mail, ids),
-		),
-		...[mailboxAttributeTable, mailboxFlagTable, mailboxSpecialUseTable].map(
-			(table) => mail.delete(table).where(inList(table.mailboxId, mailboxIds)),
-		),
-		mail
-			.delete(mailboxLockTable)
-			.where(inList(mailboxLockTable.accountId, accountIds)),
-		mail.delete(mailboxTable).where(inList(mailboxTable.accountId, accountIds)),
-		...MAIL_TENANT_TABLES.map(({ table, accountConfigColumn }) =>
-			mail.delete(table).where(eq(accountConfigColumn, accountConfigId)),
-		),
-	];
-	const appItems: SqliteBatchItem[] = [
-		app
-			.delete(calendarEventIndexTable)
-			.where(inList(calendarEventIndexTable.calendarId, calendarIds)),
-		app
-			.delete(calendarObjectTable)
-			.where(inList(calendarObjectTable.calendarId, calendarIds)),
-		...APP_TENANT_TABLES.map(({ table, accountConfigColumn }) =>
-			app.delete(table).where(eq(accountConfigColumn, accountConfigId)),
-		),
-	];
-
-	await stores.mail.batch(mailItems);
-	await stores.app.batch(appItems);
-	await new SearchIndex(mail, stores.search).sync(threadMessageIds);
+	await new SearchIndex(mail.db, search).removeAccount(accountConfigId);
+	await mail.batch(
+		keyedDeletes(mail, MAIL_TABLES, {
+			account_config_id: [accountConfigId],
+			account_id: accountIds,
+			mailbox_id: mailboxIds,
+			message_id: messageIds,
+			calendar_id: [],
+		}),
+	);
+	await eraseAccountConfigAppRows(app, accountConfigId, accountIds);
 
 	log.info(
 		{
@@ -160,18 +167,4 @@ export const runDrizzleAccountConfigErase = async (
 		},
 		"Drizzle account config erase complete",
 	);
-};
-
-export type AccountConfigEraser = (
-	accountConfigId: string,
-	log: CascadeDeleteLogger,
-) => Promise<void>;
-
-export const createSqliteAccountConfigEraser = async (
-	paths: SqliteDatabasePaths,
-): Promise<AccountConfigEraser> => {
-	const databases = await openSqliteDatabases(paths);
-	const stores = syncStores(databases, BETTER_SQLITE3_LIMITS);
-	return (accountConfigId, log) =>
-		runDrizzleAccountConfigErase(stores, accountConfigId, log);
 };

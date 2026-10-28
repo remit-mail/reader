@@ -121,29 +121,23 @@ export const processAccountExport = async (
 			log,
 		);
 
-		// A delete-me that landed while the bodies streamed erases this request;
-		// abandon the upload and drop whatever part of it landed.
+		await archive.finalize();
+		await archiveSettled;
+		const objectKey = await uploadDone;
+
+		// Delete-me sets deletedAt before it queues the erase, so a config that
+		// is gone or deleting now means this archive would outlive the account.
 		if (!(await accountConfigLive(services, accountConfigId))) {
-			archive.abort();
-			passthrough.destroy(new Error("account config deleted during export"));
-			await uploadDone.then(
-				() => undefined,
-				() => undefined,
-			);
 			await storageService.deleteExportArchive(
 				accountConfigId,
 				accountExportRequestId,
 			);
 			log.info(
 				{ accountConfigId, accountExportRequestId },
-				"Account config deleted during export; archive abandoned",
+				"Account config deleted during export; archive removed",
 			);
 			return;
 		}
-
-		await archive.finalize();
-		await archiveSettled;
-		const objectKey = await uploadDone;
 
 		const expiresAt = Date.now() + THIRTY_DAYS_MILLIS;
 

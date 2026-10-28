@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtemp, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { finished } from "node:stream/promises";
 import { after, before, describe, it } from "node:test";
 import { MailboxCursorState } from "@remit/domain-enums";
 import {
@@ -236,5 +237,67 @@ describe("processAccountExport over SQLite repositories and filesystem storage",
 			),
 			false,
 		);
+	});
+
+	it("skips a message with no stored body and still completes", async () => {
+		const event = { type: "AccountExport" as const, ...(await seedTenant()) };
+		const consulted: string[] = [];
+		const skipped = `${event.accountConfigId}-msg-2`;
+
+		await processAccountExport(event, noopLogger, {
+			services: cascadeServicesOf(repositories),
+			storageService: {
+				...storage,
+				retrieveMessageBodyStream: async (
+					accountConfigId,
+					accountId,
+					messageId,
+				) => {
+					consulted.push(messageId);
+					return messageId === skipped
+						? null
+						: storage.retrieveMessageBodyStream(
+								accountConfigId,
+								accountId,
+								messageId,
+							);
+				},
+			},
+		});
+
+		assert.equal(consulted.length, MESSAGE_COUNT);
+		const request = await repositories.accountExportRequest.get(
+			event.accountExportRequestId,
+		);
+		assert.equal(request.state, "Ready");
+	});
+
+	it("marks the request Failed and rethrows when the upload fails", async () => {
+		const event = { type: "AccountExport" as const, ...(await seedTenant()) };
+
+		await assert.rejects(
+			processAccountExport(event, noopLogger, {
+				services: cascadeServicesOf(repositories),
+				storageService: {
+					...storage,
+					storeExportArchiveStream: async (
+						_accountConfigId,
+						_exportRequestId,
+						body,
+					) => {
+						body.resume();
+						await finished(body);
+						throw new Error("storage refused the archive");
+					},
+				},
+			}),
+			/storage refused the archive/,
+		);
+
+		const request = await repositories.accountExportRequest.get(
+			event.accountExportRequestId,
+		);
+		assert.equal(request.state, "Failed");
+		assert.equal(request.errorMessage, "storage refused the archive");
 	});
 });

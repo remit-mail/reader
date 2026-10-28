@@ -74,9 +74,6 @@ const recordingCapabilities = (): Recorded => {
 			eraseAccountConfig: async () => {
 				throw new Error("a per-account purge never erases the account config");
 			},
-			deleteExportArchives: async () => {
-				throw new Error("a per-account purge never deletes export archives");
-			},
 		},
 	};
 };

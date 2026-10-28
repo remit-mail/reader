@@ -8,14 +8,6 @@ import {
 } from "drizzle-orm/sqlite-core";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { syncStores } from "../databases.js";
-import {
-	bodyPartTable,
-	calendarEventIndexTable,
-	calendarObjectTable,
-	mailboxFlagTable,
-	mailboxTable,
-	messageTable,
-} from "../schema.js";
 import * as appTables from "../schema-sets/app.js";
 import * as mailTables from "../schema-sets/mail.js";
 import { createTestDb, type TestDb } from "../test-db.js";
@@ -26,27 +18,34 @@ const log = { info: () => {} };
 const ERASED = "cfg-erased";
 const KEPT = "cfg-kept";
 
-interface KeyedTable {
-	readonly name: string;
-	readonly table: SQLiteTable;
-	readonly accountConfigColumn: SQLiteColumn;
-}
-
-const keyedTables: KeyedTable[] = Object.entries({
-	...appTables,
-	...mailTables,
-}).flatMap(([name, table]) => {
-	if (!(table instanceof SQLiteTable)) return [];
-	const accountConfigColumn = getTableConfig(table).columns.find(
-		(column) => column.name === "account_config_id",
-	);
-	return accountConfigColumn === undefined
-		? []
-		: [{ name, table, accountConfigColumn }];
+const ownerIdsOf = (tenant: string): Record<string, string> => ({
+	account_config_id: tenant,
+	account_id: `${tenant}-account`,
+	mailbox_id: `${tenant}-mailbox`,
+	message_id: `${tenant}-message`,
+	calendar_id: `${tenant}-calendar`,
 });
 
+interface Owned {
+	readonly name: string;
+	readonly table: SQLiteTable;
+	readonly ownerColumn: SQLiteColumn;
+}
+
+const owned: Owned[] = Object.entries({ ...appTables, ...mailTables }).flatMap(
+	([name, table]) => {
+		if (!(table instanceof SQLiteTable)) return [];
+		const ownerKeys = Object.keys(ownerIdsOf(ERASED));
+		const ownerColumn = ownerKeys
+			.map((key) =>
+				getTableConfig(table).columns.find((column) => column.name === key),
+			)
+			.find((column) => column !== undefined);
+		return ownerColumn === undefined ? [] : [{ name, table, ownerColumn }];
+	},
+);
+
 const fillerOf = (column: SQLiteColumn, tenant: string): unknown => {
-	if (column.name === "account_config_id") return tenant;
 	switch (column.dataType) {
 		case "number":
 			return 1;
@@ -61,26 +60,27 @@ const fillerOf = (column: SQLiteColumn, tenant: string): unknown => {
 	}
 };
 
-const rowOf = (
-	table: SQLiteTable,
-	tenant: string,
-	overrides: Record<string, unknown> = {},
-): Record<string, unknown> => ({
-	...Object.fromEntries(
-		Object.entries(getTableColumns(table))
-			.filter(([, column]) => column.notNull && !column.hasDefault)
-			.map(([key, column]) => [key, fillerOf(column, tenant)]),
-	),
-	...overrides,
-});
+const rowOf = (table: SQLiteTable, tenant: string): Record<string, unknown> => {
+	const ownerIds = ownerIdsOf(tenant);
+	return Object.fromEntries(
+		Object.entries(getTableColumns(table)).flatMap(([key, column]) => {
+			const ownerId = ownerIds[column.name];
+			if (ownerId !== undefined) return [[key, ownerId]];
+			if (column.notNull && !column.hasDefault)
+				return [[key, fillerOf(column, tenant)]];
+			return [];
+		}),
+	);
+};
 
 const countOf = async (
 	db: TestDb,
-	table: SQLiteTable,
-	column: SQLiteColumn,
-	value: string,
-): Promise<number> =>
-	(await db.select().from(table).where(eq(column, value))).length;
+	{ table, ownerColumn }: Owned,
+	tenant: string,
+): Promise<number> => {
+	const ownerId = ownerIdsOf(tenant)[ownerColumn.name] ?? "";
+	return (await db.select().from(table).where(eq(ownerColumn, ownerId))).length;
+};
 
 describe("runDrizzleAccountConfigErase", () => {
 	let db: TestDb;
@@ -89,121 +89,39 @@ describe("runDrizzleAccountConfigErase", () => {
 	before(async () => {
 		({ db, close } = await createTestDb());
 		for (const tenant of [ERASED, KEPT]) {
-			for (const { table } of keyedTables) {
+			for (const { table } of owned) {
 				await db.insert(table).values(rowOf(table, tenant) as never);
 			}
-			await db.insert(appTables.accounts).values(
-				rowOf(appTables.accounts, tenant, {
-					accountId: `${tenant}-account`,
-				}) as never,
-			);
-			await db.insert(mailboxTable).values(
-				rowOf(mailboxTable, tenant, {
-					mailboxId: `${tenant}-mailbox`,
-					accountId: `${tenant}-account`,
-				}) as never,
-			);
-			await db.insert(mailboxFlagTable).values(
-				rowOf(mailboxFlagTable, tenant, {
-					mailboxId: `${tenant}-mailbox`,
-				}) as never,
-			);
-			await db.insert(messageTable).values(
-				rowOf(messageTable, tenant, {
-					messageId: `${tenant}-message`,
-					mailboxId: `${tenant}-mailbox`,
-				}) as never,
-			);
-			await db.insert(bodyPartTable).values(
-				rowOf(bodyPartTable, tenant, {
-					messageId: `${tenant}-message`,
-				}) as never,
-			);
-			await db.insert(appTables.calendarCollections).values(
-				rowOf(appTables.calendarCollections, tenant, {
-					calendarId: `${tenant}-calendar`,
-				}) as never,
-			);
-			await db.insert(calendarObjectTable).values(
-				rowOf(calendarObjectTable, tenant, {
-					calendarObjectId: `${tenant}-object`,
-					calendarId: `${tenant}-calendar`,
-				}) as never,
-			);
-			await db.insert(calendarEventIndexTable).values(
-				rowOf(calendarEventIndexTable, tenant, {
-					calendarId: `${tenant}-calendar`,
-					calendarObjectId: `${tenant}-object`,
-				}) as never,
-			);
 		}
-
-		await runDrizzleAccountConfigErase(
-			syncStores(
-				{ app: db, mail: db, search: db } as never,
-				BETTER_SQLITE3_LIMITS,
-			),
-			ERASED,
-			log,
+		const stores = syncStores(
+			{ app: db, mail: db, search: db } as never,
+			BETTER_SQLITE3_LIMITS,
 		);
+		await runDrizzleAccountConfigErase(stores, ERASED, log);
 	});
 
 	after(async () => {
 		await close();
 	});
 
-	test("leaves no row of the erased account config in any table keyed by it", async () => {
-		for (const { name, table, accountConfigColumn } of keyedTables) {
-			const expected = table === appTables.accountConfigs ? 1 : 0;
+	test("leaves no row of the erased account config in any table it owns", async () => {
+		for (const entry of owned) {
+			const expected = entry.table === appTables.accountConfigs ? 1 : 0;
 			assert.equal(
-				await countOf(db, table, accountConfigColumn, ERASED),
+				await countOf(db, entry, ERASED),
 				expected,
-				`${name} keeps rows of the erased account config`,
-			);
-		}
-	});
-
-	test("deletes the rows reached through its accounts, mailboxes, messages and calendars", async () => {
-		const reached: [SQLiteTable, SQLiteColumn, string][] = [
-			[mailboxTable, mailboxTable.accountId, `${ERASED}-account`],
-			[mailboxFlagTable, mailboxFlagTable.mailboxId, `${ERASED}-mailbox`],
-			[messageTable, messageTable.mailboxId, `${ERASED}-mailbox`],
-			[bodyPartTable, bodyPartTable.messageId, `${ERASED}-message`],
-			[
-				calendarObjectTable,
-				calendarObjectTable.calendarId,
-				`${ERASED}-calendar`,
-			],
-			[
-				calendarEventIndexTable,
-				calendarEventIndexTable.calendarId,
-				`${ERASED}-calendar`,
-			],
-		];
-		for (const [table, column, value] of reached) {
-			assert.equal(
-				await countOf(db, table, column, value),
-				0,
-				`${getTableConfig(table).name} keeps ${value}`,
+				`${entry.name} keeps rows of the erased account config`,
 			);
 		}
 	});
 
 	test("keeps every row of another account config", async () => {
-		for (const { name, table, accountConfigColumn } of keyedTables) {
-			assert.ok(
-				(await countOf(db, table, accountConfigColumn, KEPT)) > 0,
-				`${name} lost rows of another account config`,
+		for (const entry of owned) {
+			assert.equal(
+				await countOf(db, entry, KEPT),
+				1,
+				`${entry.name} lost rows of another account config`,
 			);
 		}
-		assert.equal(
-			await countOf(
-				db,
-				messageTable,
-				messageTable.mailboxId,
-				`${KEPT}-mailbox`,
-			),
-			1,
-		);
 	});
 });

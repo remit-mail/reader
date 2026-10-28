@@ -1,11 +1,13 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
-	type AccountConfigEraser,
-	type CascadeDeleter,
-	createSqliteAccountConfigEraser,
-	createSqliteCascadeDeleter,
+	BETTER_SQLITE3_LIMITS,
+	openSqliteDatabases,
+	runDrizzleAccountConfigErase,
+	runDrizzleCascadeDelete,
+	type SqliteStores,
 	sqliteDatabasePathsFromEnv,
+	syncStores,
 } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
@@ -31,26 +33,17 @@ const deleteStoragePrefix = async (
 	log.info({ keyPrefix, target }, "Filesystem storage prefix cleanup complete");
 };
 
-// The Drizzle cascade deleter is opened once, on first use, and reused: it
-// opens the app, mail and search databases (the native binding loads there,
-// hence async). Built lazily so the fanout worker — which signs out but never
-// cascade-deletes — does not open a database handle it will not use.
-let deleterPromise: Promise<CascadeDeleter> | undefined;
+// The app, mail and search databases are opened once, on first use, and
+// shared by both deletes (the native binding loads there, hence async). Built
+// lazily so the fanout worker — which signs out but never deletes rows — does
+// not open a database handle it will not use.
+let storesPromise: Promise<SqliteStores> | undefined;
 
-const getDeleter = (): Promise<CascadeDeleter> => {
-	if (!deleterPromise)
-		deleterPromise = createSqliteCascadeDeleter(sqliteDatabasePathsFromEnv());
-	return deleterPromise;
-};
-
-let eraserPromise: Promise<AccountConfigEraser> | undefined;
-
-const getEraser = (): Promise<AccountConfigEraser> => {
-	if (!eraserPromise)
-		eraserPromise = createSqliteAccountConfigEraser(
-			sqliteDatabasePathsFromEnv(),
-		);
-	return eraserPromise;
+const getStores = (): Promise<SqliteStores> => {
+	storesPromise ??= openSqliteDatabases(sqliteDatabasePathsFromEnv()).then(
+		(databases) => syncStores(databases, BETTER_SQLITE3_LIMITS),
+	);
+	return storesPromise;
 };
 
 /**
@@ -66,7 +59,6 @@ const getEraser = (): Promise<AccountConfigEraser> => {
  * - `deleteStoragePrefix`: recursive filesystem removal.
  * - `cascadeDelete`: the Drizzle cascade over SQLite.
  * - `eraseAccountConfig`: one keyed delete per table over SQLite.
- * - `deleteExportArchives`: recursive filesystem removal of the exports.
  */
 export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({
@@ -85,14 +77,8 @@ export const buildRelationalDeletionCapabilities =
 		},
 		deleteStoragePrefix: (keyPrefix, log) =>
 			deleteStoragePrefix(keyPrefix, log),
-		cascadeDelete: async (entities, log) => {
-			const deleter = await getDeleter();
-			await deleter(entities, log);
-		},
-		eraseAccountConfig: async (accountConfigId, _services, log) => {
-			const eraser = await getEraser();
-			await eraser(accountConfigId, log);
-		},
-		deleteExportArchives: (accountConfigId, log) =>
-			deleteStoragePrefix(`exports/${accountConfigId}/`, log),
+		cascadeDelete: async (entities, log) =>
+			runDrizzleCascadeDelete(await getStores(), entities, log),
+		eraseAccountConfig: async (accountConfigId, log) =>
+			runDrizzleAccountConfigErase(await getStores(), accountConfigId, log),
 	});
