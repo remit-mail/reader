@@ -393,7 +393,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	);
 };
 
-interface SignInNotConfigured {
+export interface SignInNotConfigured {
 	statusCode: 501;
 	body: { code: "not_configured"; message: string };
 }
