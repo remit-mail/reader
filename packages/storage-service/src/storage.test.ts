@@ -9,6 +9,7 @@ import { createFilesystemStorageService } from "./backends/filesystem.js";
 import {
 	buildBodyPartKey,
 	buildDeduplicatedKey,
+	buildExportArchiveKey,
 	buildMessageBodyKey,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
@@ -17,6 +18,7 @@ import {
 	createMockStorageService,
 	isStorageNotFoundError,
 	parseContentStorageKey,
+	parseExportArchiveKey,
 } from "./storage.js";
 import { buildStorageUri, parseStorageUri } from "./uri.js";
 
@@ -139,6 +141,22 @@ describe("parseContentStorageKey", () => {
 
 	test("returns null for a key that doesn't match the accounts/.../messages/... layout", () => {
 		assert.strictEqual(parseContentStorageKey("nope/whatever"), null);
+	});
+});
+
+describe("parseExportArchiveKey", () => {
+	test("reads back the ids an export archive key was built from", () => {
+		assert.deepStrictEqual(
+			parseExportArchiveKey(buildExportArchiveKey("cfg-1", "exp-1")),
+			{ accountConfigId: "cfg-1", exportRequestId: "exp-1" },
+		);
+	});
+
+	test("returns null for a key outside the exports namespace", () => {
+		assert.strictEqual(
+			parseExportArchiveKey("accounts/cfg-1/exports/exp-1/export.zip"),
+			null,
+		);
 	});
 });
 
