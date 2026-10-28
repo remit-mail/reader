@@ -372,7 +372,7 @@ click. At a shell:
 ```bash
 remit update                    # install the current release
 remit update --check            # report what is available, change nothing
-remit update --tag sha-<git-sha>
+remit update --tag v1.5.0
 remit update --recover          # finish an update that was interrupted
 ```
 

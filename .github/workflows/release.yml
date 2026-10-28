@@ -20,8 +20,8 @@
 # verbatim on the self-update consent screen; a lightweight tag has none, and
 # that surface has nothing legitimate to show.
 #
-# `:latest` belongs to main (see images.yml) and this workflow must not move
-# it, so images:publish runs here with PUSH_LATEST=0.
+# `:latest` is the newest release: the reference compose file defaults
+# REMIT_TAG to it, so images:publish runs here with PUSH_LATEST=1.
 #
 # The GitHub release object is the definition of a published version (RFC 037
 # D2, R1a) — never the presence of an image tag. Pushing eight images is not
@@ -104,7 +104,7 @@ jobs:
           REGISTRY: ghcr.io/remit-mail/reader
           TAG: ${{ github.ref_name }}
           PUSH: "1"
-          PUSH_LATEST: "0"
+          PUSH_LATEST: "1"
 
       # RFC 037 D3 / #131. The manifest is published as the release's own
       # `stable.json` asset — atomic with the release, needing no write to the

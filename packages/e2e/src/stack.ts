@@ -6,8 +6,8 @@
  * infer: whether the packaged edge is in front of the app.
  *
  *   "image"  the published-image stack (`npm run e2e`). Caddy terminates the
- *            request and APISIX gates every business route on the JWT. This is
- *            the deploy signal, and it runs the whole suite.
+ *            request and APISIX gates every business route on the JWT. It runs
+ *            the whole suite.
  *   "dev"    the source-built stack (`npm run e2e:dev`). The browser talks to
  *            the vite dev server, whose proxy table mirrors the Caddy routing
  *            1:1, and which forwards to the backend directly. There is no edge

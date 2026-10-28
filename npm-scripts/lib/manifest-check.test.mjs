@@ -6,16 +6,17 @@ import { fileURLToPath } from "node:url";
 
 const LIB = join(dirname(fileURLToPath(import.meta.url)), "manifest-check.sh");
 
-function classify(status, output) {
+function classify(status, output, anonymousTokenStatus = "") {
 	return execFileSync(
 		"bash",
 		[
 			"-c",
-			'source "$1"; classify_manifest_check "$2" "$3"',
+			'source "$1"; classify_manifest_check "$2" "$3" "$4"',
 			"classify",
 			LIB,
 			String(status),
 			output,
+			anonymousTokenStatus,
 		],
 		{ encoding: "utf8" },
 	).trim();
@@ -50,10 +51,32 @@ describe("classify_manifest_check", () => {
 		assert.equal(classify(1, output), "abort");
 	});
 
-	it("reads denied for a never-published package as abort", () => {
-		const output =
-			'Get "https://ghcr.io/v2/remit-mail/reader/new-service/manifests/v1.0.0": denied';
-		assert.equal(classify(1, output), "abort");
+	const denied =
+		'Get "https://ghcr.io/v2/remit-mail/reader/new-service/manifests/v1.0.0": denied';
+
+	// A release that adds a docker/runtime/<service> must publish it: GHCR
+	// refuses an anonymous pull token only for a package that does not exist.
+	it("reads denied for a never-published package as absent", () => {
+		assert.equal(classify(1, denied, "403"), "absent");
+	});
+
+	it("reads denied for a package that grants an anonymous token as abort", () => {
+		assert.equal(classify(1, denied, "200"), "abort");
+	});
+
+	it("reads denied with no anonymous token probe as abort", () => {
+		assert.equal(classify(1, denied), "abort");
+	});
+
+	it("reads denied when the token probe could not connect as abort", () => {
+		assert.equal(classify(1, denied, "000"), "abort");
+	});
+
+	it("reads an unauthorized response as abort even when the probe says 403", () => {
+		assert.equal(
+			classify(1, "unauthorized: authentication required", "403"),
+			"abort",
+		);
 	});
 
 	it("reads an unauthorized response as abort", () => {
