@@ -46,7 +46,30 @@ export interface CascadeServices {
 	messageLabelService: IMessageLabelRepository;
 }
 
-export const cascadeServicesOf = (client: RemitClient): CascadeServices => ({
+export type CascadeRepositories = Pick<
+	RemitClient,
+	| "accountConfig"
+	| "account"
+	| "address"
+	| "mailbox"
+	| "message"
+	| "messageFlag"
+	| "envelope"
+	| "outboxMessage"
+	| "threadMessage"
+	| "mailboxLock"
+	| "placementMove"
+	| "flagPush"
+	| "accountExportRequest"
+	| "accountSetting"
+	| "filter"
+	| "label"
+	| "messageLabel"
+>;
+
+export const cascadeServicesOf = (
+	client: CascadeRepositories,
+): CascadeServices => ({
 	accountConfigService: client.accountConfig,
 	accountService: client.account,
 	addressService: client.address,

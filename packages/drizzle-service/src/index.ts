@@ -22,6 +22,11 @@ export {
 } from "./databases.js";
 export type { RepositoryDb, SqliteStore } from "./db.js";
 export { CreateFailedConflictError, NotFoundError } from "./error.js";
+export {
+	accountIdsOf,
+	eraseAccountConfigAppRows,
+	runDrizzleAccountConfigErase,
+} from "./repos/account-config-erase.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";

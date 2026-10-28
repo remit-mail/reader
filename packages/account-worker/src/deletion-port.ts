@@ -52,4 +52,9 @@ export interface DeletionCapabilities {
 	 * through its repository as the cascade-in-progress marker.
 	 */
 	cascadeDelete(entities: CascadeEntity[], log: Logger): Promise<void>;
+	/**
+	 * Remove every row an account config owns except the AccountConfig row,
+	 * which the caller deletes last. Relational: one keyed delete per table.
+	 */
+	eraseAccountConfig(accountConfigId: string, log: Logger): Promise<void>;
 }

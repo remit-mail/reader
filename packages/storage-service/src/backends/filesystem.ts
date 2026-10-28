@@ -478,6 +478,13 @@ export const createFilesystemStorageService = (
 			await pipeline(body, createWriteStream(fullPath));
 			return key;
 		},
+		deleteExportArchive: (accountConfigId, exportRequestId) =>
+			rm(
+				join(basePath, buildExportArchiveKey(accountConfigId, exportRequestId)),
+				{
+					force: true,
+				},
+			),
 		getPresignedDownloadUrl: (_key: string, _expiresInSeconds: number) => {
 			throw new Error(
 				"getPresignedDownloadUrl is not supported on the filesystem backend",

@@ -205,6 +205,16 @@ export interface CreateFilterInput {
 	actionMailboxId?: string;
 }
 
+export type OrganizeJobState = "Pending" | "Running" | "Complete" | "Failed";
+
+export interface OrganizeJob {
+	organizeJobId: string;
+	state: OrganizeJobState;
+	matchedCount: number;
+	appliedCount: number;
+	failedCount: number;
+}
+
 export interface UpdateFilterInput {
 	name?: string;
 	scope?: "Standing" | "Temporary";
@@ -703,6 +713,15 @@ export class ApiClient {
 		return this.json("POST", "/messages/not-spam", { messageIds });
 	}
 
+	/** The RFC 822 source the server holds for a message, as the "view source" action reads it. */
+	async getRawMessage(messageId: string): Promise<string> {
+		const result = await this.json<{ raw: string }>(
+			"GET",
+			`/messages/${messageId}/raw`,
+		);
+		return result.raw;
+	}
+
 	async describeMessage(messageId: string): Promise<MessageSummary> {
 		const result = await this.json<{ message: MessageSummary }>(
 			"GET",
@@ -765,6 +784,16 @@ export class ApiClient {
 
 	getOutboxMessage(outboxMessageId: string): Promise<OutboxRow> {
 		return this.json("GET", `/outbox/${outboxMessageId}`);
+	}
+
+	/** Save a message to the outbox without sending it, as compose saves a draft. */
+	createDraft(input: {
+		accountId: string;
+		toAddresses: string[];
+		subject: string;
+		textBody?: string;
+	}): Promise<{ outboxMessageId: string; status: string }> {
+		return this.json("POST", "/outbox", input);
 	}
 
 	/**
@@ -1017,6 +1046,27 @@ export class ApiClient {
 			actionMailboxId: "None",
 			...input,
 		});
+	}
+
+	/** Queue a one-time "all like these" back-apply, the organize sheet's Run now. */
+	createOrganizeJob(
+		accountId: string,
+		input: Omit<CreateFilterInput, "name" | "scope" | "expiresAt">,
+	): Promise<{ organizeJobId: string; state: OrganizeJobState }> {
+		return this.json("POST", `/accounts/${accountId}/organize`, {
+			matchOperator: "And",
+			literalClauses: [],
+			actionLabelId: "None",
+			actionMailboxId: "None",
+			...input,
+		});
+	}
+
+	getOrganizeJob(
+		accountId: string,
+		organizeJobId: string,
+	): Promise<OrganizeJob> {
+		return this.json("GET", `/accounts/${accountId}/organize/${organizeJobId}`);
 	}
 
 	async listFilters(accountId: string): Promise<Filter[]> {

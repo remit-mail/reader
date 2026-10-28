@@ -1,9 +1,9 @@
+import { once } from "node:events";
 import { PassThrough } from "node:stream";
 import type { Logger } from "@remit/logger";
 import type { StorageService } from "@remit/storage-service";
 import { ZipArchive } from "archiver";
 import type { CascadeServices } from "../cascade.js";
-import { getCascadeServices, getStorageService } from "../config.js";
 import type { AccountExportEvent } from "../events.js";
 
 const THIRTY_DAYS_MILLIS = 30 * 24 * 60 * 60 * 1000;
@@ -12,11 +12,6 @@ export interface ProcessAccountExportDeps {
 	services: CascadeServices;
 	storageService: StorageService;
 }
-
-const defaultDeps = async (): Promise<ProcessAccountExportDeps> => ({
-	services: await getCascadeServices(),
-	storageService: getStorageService(),
-});
 
 const appendMessageBodies = async (
 	archive: ZipArchive,
@@ -52,9 +47,13 @@ const appendMessageBodies = async (
 					continue;
 				}
 
+				// One body in flight at a time, so an export holds one message in
+				// memory and one open storage read, not the whole account.
+				const written = once(archive, "entry");
 				archive.append(body, {
 					name: `accounts/${account.accountId}/${mailbox.fullPath ?? mailbox.mailboxId}/${message.messageId}.eml`,
 				});
+				await written;
 				appended += 1;
 			}
 		}
@@ -63,15 +62,31 @@ const appendMessageBodies = async (
 	return appended;
 };
 
+const accountConfigLive = async (
+	services: CascadeServices,
+	accountConfigId: string,
+): Promise<boolean> => {
+	const [accountConfig] = await services.accountConfigService.get([
+		accountConfigId,
+	]);
+	return accountConfig !== undefined && accountConfig.deletedAt === undefined;
+};
+
 export const processAccountExport = async (
 	event: AccountExportEvent,
 	log: Logger,
-	deps?: ProcessAccountExportDeps,
+	{ services, storageService }: ProcessAccountExportDeps,
 ): Promise<void> => {
 	const { accountConfigId, accountExportRequestId } = event;
-	const { services, storageService } = deps ?? (await defaultDeps());
 	const { accountExportRequestService } = services;
 
+	if (!(await accountConfigLive(services, accountConfigId))) {
+		log.info(
+			{ accountConfigId, accountExportRequestId },
+			"Account config is being deleted; export skipped",
+		);
+		return;
+	}
 	await accountExportRequestService.get(accountExportRequestId);
 	await accountExportRequestService.update(accountExportRequestId, {
 		state: "Processing",
@@ -109,6 +124,20 @@ export const processAccountExport = async (
 		await archive.finalize();
 		await archiveSettled;
 		const objectKey = await uploadDone;
+
+		// Delete-me sets deletedAt before it queues the erase, so a config that
+		// is gone or deleting now means this archive would outlive the account.
+		if (!(await accountConfigLive(services, accountConfigId))) {
+			await storageService.deleteExportArchive(
+				accountConfigId,
+				accountExportRequestId,
+			);
+			log.info(
+				{ accountConfigId, accountExportRequestId },
+				"Account config deleted during export; archive removed",
+			);
+			return;
+		}
 
 		const expiresAt = Date.now() + THIRTY_DAYS_MILLIS;
 

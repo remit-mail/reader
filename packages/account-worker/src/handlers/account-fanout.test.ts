@@ -8,7 +8,7 @@ import { processAccountFanout } from "./account-fanout.js";
 
 const buildServices = (): CascadeServices =>
 	({
-		accountConfigService: { get: async () => ({ userId: "user-1" }) },
+		accountConfigService: { get: async () => [{ userId: "user-1" }] },
 	}) as unknown as CascadeServices;
 
 const deleteEvent: AccountDeleteEvent = {

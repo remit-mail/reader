@@ -6,9 +6,18 @@ import type { DeletionCapabilities } from "./deletion-port.js";
 import type {
 	AccountDataPurgeEvent,
 	AccountDataPurgeFinalizeEvent,
+	AccountDeleteEvent,
+	AccountDeleteFinalizeEvent,
+	AccountExportEvent,
+	AccountFinalizeEvent,
 	OrganizeJobEvent,
 	SenderCategoryBackApplyEvent,
 } from "./events.js";
+import {
+	finalizeAccountDelete,
+	processAccountDelete,
+} from "./handlers/account-delete.js";
+import { processAccountExport } from "./handlers/account-export.js";
 import { processAccountDataPurge } from "./handlers/account-purge.js";
 import { processAccountDataPurgeFinalize } from "./handlers/account-purge-finalize.js";
 import { processOrganizeJob } from "./handlers/organize-job.js";
@@ -16,7 +25,14 @@ import { processSenderCategoryBackApply } from "./handlers/sender-category-backa
 
 export type { CascadeEntity } from "./cascade.js";
 export type { DeletionCapabilities } from "./deletion-port.js";
-export type { AccountDataPurgeEvent, AccountDataPurgeFinalizeEvent };
+export type {
+	AccountDataPurgeEvent,
+	AccountDataPurgeFinalizeEvent,
+	AccountDeleteEvent,
+	AccountDeleteFinalizeEvent,
+	AccountExportEvent,
+	AccountFinalizeEvent,
+};
 
 export type ClientFanoutEvent = OrganizeJobEvent | SenderCategoryBackApplyEvent;
 
@@ -25,12 +41,18 @@ export interface AccountFanoutContext {
 }
 
 export type AccountPurgeEvent =
+	| AccountDeleteEvent
+	| AccountDeleteFinalizeEvent
 	| AccountDataPurgeEvent
 	| AccountDataPurgeFinalizeEvent;
 
+export interface AccountExportContext {
+	client: RemitClient;
+}
+
 export interface AccountPurgeContext {
 	client: RemitClient;
-	purgeQueue: GroupedQueueProducer<AccountDataPurgeFinalizeEvent>;
+	purgeQueue: GroupedQueueProducer<AccountFinalizeEvent>;
 	capabilities: DeletionCapabilities;
 }
 
@@ -48,12 +70,36 @@ export const processAccountFanoutEvent = (
 	}
 };
 
+export const processAccountExportEvent = (
+	event: AccountExportEvent,
+	ctx: AccountExportContext,
+): Promise<void> =>
+	processAccountExport(event, log, {
+		services: cascadeServicesOf(ctx.client),
+		storageService: ctx.client.storage,
+	});
+
 export const processAccountPurgeEvent = (
 	event: AccountPurgeEvent,
 	ctx: AccountPurgeContext,
 ): Promise<void> => {
 	const services = cascadeServicesOf(ctx.client);
 	switch (event.type) {
+		case "AccountDelete":
+			return processAccountDelete(event, log, {
+				services,
+				signOut: ctx.capabilities.signOut,
+				enqueueFinalize: (finalizeEvent) =>
+					ctx.purgeQueue.send({
+						body: finalizeEvent,
+						groupId: finalizeEvent.accountConfigId,
+					}),
+			});
+		case "FinalizeAccountDelete":
+			return finalizeAccountDelete(event, log, {
+				services,
+				capabilities: ctx.capabilities,
+			});
 		case "AccountDataPurge":
 			return processAccountDataPurge(event, log, {
 				services,

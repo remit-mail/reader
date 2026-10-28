@@ -288,6 +288,15 @@ export interface StorageService {
 	): Promise<string>;
 
 	/**
+	 * Delete the export archive of the given config + request. Deleting a
+	 * missing archive is a no-op.
+	 */
+	deleteExportArchive(
+		accountConfigId: string,
+		exportRequestId: string,
+	): Promise<void>;
+
+	/**
 	 * Generate a presigned URL that grants temporary GET access to a raw S3 key.
 	 * Use for export archives — the key must already exist in the bucket.
 	 * Not supported on filesystem backends; throws if called there.
@@ -660,6 +669,11 @@ export const createMockStorageService = (): StorageService => {
 			}
 			storage.set(`mock://${key}`, Buffer.concat(chunks));
 			return key;
+		},
+		deleteExportArchive: async (accountConfigId, exportRequestId) => {
+			storage.delete(
+				`mock://${buildExportArchiveKey(accountConfigId, exportRequestId)}`,
+			);
 		},
 		getPresignedDownloadUrl: async (key: string, _expiresInSeconds: number) =>
 			`mock://presigned/${key}`,
