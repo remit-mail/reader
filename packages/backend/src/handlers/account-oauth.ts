@@ -21,9 +21,15 @@ import {
 import { serializeEncryptedPayload } from "@remit/secrets-service";
 import type { APIGatewayProxyResult } from "aws-lambda";
 import type { Context } from "openapi-backend";
-import { loadMsOAuth } from "../config/msoauth.js";
+import { loadMsOAuth, type MailServerOverride } from "../config/msoauth.js";
 import { safeJsonParse } from "../json.js";
-import { type OAuthState, signState, verifyState } from "../oauth-state.js";
+import {
+	ACCOUNT_SETTINGS_ROUTE,
+	type OAuthState,
+	oauthRefusalUrl,
+	signState,
+	verifyState,
+} from "../oauth-state.js";
 import { rawApiResponse } from "../response.js";
 import type { QueueName } from "../service/queues.js";
 import type {
@@ -37,7 +43,19 @@ import type {
 import { triggerAccountSyncSafe } from "./account.js";
 import { findActiveDuplicateMailbox } from "./account-guards.js";
 
-const OUTLOOK_IMAP_HOST = "outlook.office365.com";
+const OUTLOOK_IMAP: MailServerOverride = {
+	host: "outlook.office365.com",
+	port: 993,
+	tls: true,
+	startTls: false,
+};
+
+const OUTLOOK_SMTP: MailServerOverride = {
+	host: "smtp.office365.com",
+	port: 587,
+	tls: false,
+	startTls: true,
+};
 
 // ─── JWT claims parsing ──────────────────────────────────────────────────────
 
@@ -73,7 +91,7 @@ const scopeRefusalUrl = (
 	email: string,
 	missingServices: readonly AccountServiceName[],
 ): string => {
-	const url = new URL(`${webOrigin}/settings/accounts`);
+	const url = new URL(`${webOrigin}${ACCOUNT_SETTINGS_ROUTE}`);
 	url.searchParams.set("oauthError", "scope_not_granted");
 	url.searchParams.set("oauthEmail", email);
 	url.searchParams.set("missingServices", missingServices.join(","));
@@ -138,15 +156,14 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 
 	// If Microsoft returned an error, pass it through to the frontend
 	if (qs.error) {
-		const errorCode = encodeURIComponent(qs.error);
-		return redirect(`${webOrigin}/settings/accounts?oauthError=${errorCode}`);
+		return redirect(oauthRefusalUrl(webOrigin, qs.error));
 	}
 
 	const code = qs.code;
 	const state = qs.state;
 
 	if (!code || !state) {
-		return redirect(`${webOrigin}/settings/accounts?oauthError=missing_params`);
+		return redirect(oauthRefusalUrl(webOrigin, "missing_params"));
 	}
 
 	const loaded = await loadMsOAuth(ctx.config.msOAuth).catch((err: unknown) => {
@@ -164,7 +181,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 		return null;
 	});
 	if (loaded === null)
-		return redirect(`${webOrigin}/settings/accounts?oauthError=config_error`);
+		return redirect(oauthRefusalUrl(webOrigin, "config_error"));
 	const { config, credentials } = loaded;
 
 	// Verify the HMAC-signed state
@@ -186,7 +203,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 		},
 	);
 	if (statePayload === null)
-		return redirect(`${webOrigin}/settings/accounts?oauthError=invalid_state`);
+		return redirect(oauthRefusalUrl(webOrigin, "invalid_state"));
 
 	const { accountConfigId } = statePayload;
 	const [firstService] = orderServices(statePayload.services);
@@ -212,18 +229,14 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 			return null;
 		});
 	if (tokenSet === null)
-		return redirect(
-			`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
-		);
+		return redirect(oauthRefusalUrl(webOrigin, "exchange_failed"));
 
 	if (!tokenSet.refreshToken) {
 		logger.error(
 			{ accountConfigId },
 			"MS OAuth token exchange returned no refresh_token",
 		);
-		return redirect(
-			`${webOrigin}/settings/accounts?oauthError=exchange_failed`,
-		);
+		return redirect(oauthRefusalUrl(webOrigin, "exchange_failed"));
 	}
 
 	// Extract the user's email from the ID token returned alongside the access
@@ -263,7 +276,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 			{ accountConfigId },
 			"MS OAuth: could not extract email from token claims",
 		);
-		return redirect(`${webOrigin}/settings/accounts?oauthError=missing_email`);
+		return redirect(oauthRefusalUrl(webOrigin, "missing_email"));
 	}
 
 	const { account, accountConfig, secrets } = ctx.client;
@@ -275,8 +288,10 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	const existingAccounts = (
 		await account.listAllByAccountConfig(accountConfigId)
 	).filter((a) => a.authType === AccountAuthType.OauthMicrosoft);
+	const imapServer = config.overrides.imapServer ?? OUTLOOK_IMAP;
+	const smtpServer = config.overrides.smtpServer ?? OUTLOOK_SMTP;
 	const existing = findActiveDuplicateMailbox(existingAccounts, {
-		imapHost: OUTLOOK_IMAP_HOST,
+		imapHost: imapServer.host,
 		username: email,
 	});
 
@@ -297,9 +312,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	)
 		return redirect(scopeRefusalUrl(webOrigin, email, [redemption.service]));
 	if (redemption.kind === "refused")
-		return redirect(
-			`${webOrigin}/settings/accounts?oauthError=${redemption.reason}`,
-		);
+		return redirect(oauthRefusalUrl(webOrigin, redemption.reason));
 
 	const grantedScopes = [
 		...new Set([...tokenSet.grantedScopes, ...redemption.grantedScopes]),
@@ -364,15 +377,15 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 			grantedScopes,
 			oauthRefreshTokenHash,
 			oauthTokenUpdatedAt,
-			imapHost: OUTLOOK_IMAP_HOST,
-			imapPort: 993,
-			imapTls: true,
-			imapStartTls: false,
+			imapHost: imapServer.host,
+			imapPort: imapServer.port,
+			imapTls: imapServer.tls,
+			imapStartTls: imapServer.startTls,
 			smtpEnabled: true,
-			smtpHost: "smtp.office365.com",
-			smtpPort: 587,
-			smtpTls: false,
-			smtpStartTls: true,
+			smtpHost: smtpServer.host,
+			smtpPort: smtpServer.port,
+			smtpTls: smtpServer.tls,
+			smtpStartTls: smtpServer.startTls,
 			isActive: true,
 			connectionState: ConnectionState.NotAuthenticated,
 		});
@@ -389,7 +402,7 @@ export const microsoftOAuthCallback: PublicOperationHandler<"sync"> = async (
 	}
 
 	return redirect(
-		`${webOrigin}/settings/accounts?connected=${encodeURIComponent(accountId)}`,
+		`${webOrigin}${ACCOUNT_SETTINGS_ROUTE}?connected=${encodeURIComponent(accountId)}`,
 	);
 };
 

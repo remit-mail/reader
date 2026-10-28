@@ -67,6 +67,10 @@
       "types": "./src/oauth-state.ts",
       "default": "./src/oauth-state.ts"
     },
+    "./msoauth": {
+      "types": "./src/config/msoauth.ts",
+      "default": "./src/config/msoauth.ts"
+    },
     "./content-handler": {
       "types": "./dev-server/content-handler.ts",
       "default": "./dev-server/content-handler.ts"
@@ -135,6 +139,10 @@
       "./oauth-state": {
         "types": "./dist/src/oauth-state.d.ts",
         "default": "./dist/src/oauth-state.js"
+      },
+      "./msoauth": {
+        "types": "./dist/src/config/msoauth.d.ts",
+        "default": "./dist/src/config/msoauth.js"
       },
       "./content-handler": {
         "types": "./dist/dev-server/content-handler.d.ts",

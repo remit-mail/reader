@@ -22,5 +22,10 @@ export {
 	type WorkerMetrics,
 } from "./context.js";
 export type { ImapEvent, WorkerEvent } from "./events.js";
+export {
+	AccountNeedsReconnectError,
+	lifecycleConnectionScope,
+	type OpenConnection,
+} from "./lifecycle-connection-scope.js";
 export { processEvent } from "./processor.js";
 export type { WorkerQueues } from "./queues.js";
