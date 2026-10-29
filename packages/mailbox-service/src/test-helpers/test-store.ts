@@ -181,8 +181,6 @@ export const seedMessage = async (
 		sequenceNumber: uid,
 		rfc822Size: 100,
 		internalDate: 1_700_000_000_000 + uid,
-		envelopeId: randomUUID(),
-		rootBodyPartId: randomUUID(),
 		status: "active",
 		syncStatus: "synced",
 		...overrides.message,

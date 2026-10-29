@@ -21,14 +21,10 @@ export interface IMessageRepository {
 	clearBodyStorageKey(messageId: string): Promise<MessageItem>;
 	clearSpamReport(messageId: string): Promise<MessageItem>;
 	setSearchText(messageId: string, text: string): Promise<void>;
-	copySearchText(
+	copyMessage(
 		sourceMessageId: string,
-		targetMessageId: string,
-	): Promise<void>;
-	copyMessageData(
-		sourceMessageId: string,
-		targetMessageId: string,
-	): Promise<void>;
+		input: CreateMessageInput,
+	): Promise<{ item: MessageItem; created: boolean }>;
 	syncSearch(messageIds: string[]): Promise<void>;
 	listMissingSearchText(
 		after: string,

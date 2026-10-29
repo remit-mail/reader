@@ -109,8 +109,6 @@ describe("message objects follow the last row that references them", () => {
 			sequenceNumber: uid,
 			rfc822Size: 10,
 			internalDate: 1700000000000,
-			envelopeId: deriveEnvelopeId(messageId),
-			rootBodyPartId: deriveRootBodyPartId(messageId),
 			bodyStorageKey: stored.uri,
 		});
 		return { messageId, accountId, bodyStorageKey: stored.uri };
@@ -184,8 +182,6 @@ describe("message objects follow the last row that references them", () => {
 			sequenceNumber: 1,
 			rfc822Size: 10,
 			internalDate: 1700000000000,
-			envelopeId: deriveEnvelopeId(messageId),
-			rootBodyPartId: deriveRootBodyPartId(messageId),
 			bodyStorageKey: `file://${join(legacy, "body.eml")}`,
 		});
 

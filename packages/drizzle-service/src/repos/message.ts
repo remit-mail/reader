@@ -31,8 +31,8 @@ import {
 	bodyPartParameterId as deriveBodyPartParameterId,
 	envelopeAddressId as deriveEnvelopeAddressId,
 	envelopeId as deriveEnvelopeId,
+	messageReferenceId as deriveMessageReferenceId,
 	rootBodyPartId as deriveRootBodyPartId,
-	deterministicBase36Id,
 } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
@@ -479,24 +479,17 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			});
 	}
 
-	async copySearchText(
+	async copyMessage(
 		sourceMessageId: string,
-		targetMessageId: string,
-	): Promise<void> {
-		const [source] = await this.db
-			.select({ text: messageSearchTextTable.text })
-			.from(messageSearchTextTable)
-			.where(eq(messageSearchTextTable.messageId, sourceMessageId));
-		if (!source) return;
-		await this.setSearchText(targetMessageId, source.text);
-	}
-
-	async copyMessageData(
-		sourceMessageId: string,
-		targetMessageId: string,
-	): Promise<void> {
-		const [envelopes, references, addresses, parts, parameters] =
+		input: CreateMessageInput,
+	): Promise<{ item: MessageItem; created: boolean }> {
+		const targetMessageId = input.messageId;
+		const [searchTexts, envelopes, references, addresses, parts, parameters] =
 			await Promise.all([
+				this.db
+					.select({ text: messageSearchTextTable.text })
+					.from(messageSearchTextTable)
+					.where(eq(messageSearchTextTable.messageId, sourceMessageId)),
 				this.db
 					.select()
 					.from(envelopeTable)
@@ -521,19 +514,22 @@ export class DrizzleMessageRepository implements IMessageRepository {
 
 		const now = Date.now();
 		const envelopeId = deriveEnvelopeId(targetMessageId);
+		const copiedPartIds = new Map(
+			parts.map((part) => [
+				part.bodyPartId,
+				deriveBodyPartId(targetMessageId, part.partPath),
+			]),
+		);
 		const partPaths = new Map(
 			parts.map((part) => [part.bodyPartId, part.partPath]),
 		);
-		const partPathOf = (bodyPartId: string): string => {
-			const partPath = partPaths.get(bodyPartId);
-			if (partPath === undefined) {
-				throw new Error(
-					`Body part ${bodyPartId} of message ${sourceMessageId} has no row`,
-				);
-			}
-			return partPath;
-		};
 
+		const searchTextRows = searchTexts.map((row) => ({
+			messageId: targetMessageId,
+			text: row.text,
+			createdAt: now,
+			updatedAt: now,
+		}));
 		const envelopeRows = envelopes.map((row) => ({
 			...row,
 			envelopeId,
@@ -543,8 +539,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		}));
 		const referenceRows = references.map((row) => ({
 			...row,
-			messageReferenceId: deterministicBase36Id(
-				`msgref:${targetMessageId}:${row.referenceType}:${row.referenceOrder}`,
+			messageReferenceId: deriveMessageReferenceId(
+				targetMessageId,
+				row.referenceType,
+				row.referenceOrder,
 			),
 			messageId: targetMessageId,
 			envelopeId,
@@ -569,27 +567,41 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			parentBodyPartId:
 				row.parentBodyPartId === null
 					? null
-					: deriveBodyPartId(targetMessageId, partPathOf(row.parentBodyPartId)),
+					: (copiedPartIds.get(row.parentBodyPartId) ?? null),
 			createdAt: now,
 			updatedAt: now,
 		}));
-		const parameterRows = parameters.map((row) => {
-			const partPath = partPathOf(row.bodyPartId);
-			return {
-				...row,
-				bodyPartParameterId: deriveBodyPartParameterId(
-					targetMessageId,
-					partPath,
-					row.parameterName,
-				),
-				messageId: targetMessageId,
-				bodyPartId: deriveBodyPartId(targetMessageId, partPath),
-				createdAt: now,
-				updatedAt: now,
-			};
+		const parameterRows = parameters.flatMap((row) => {
+			const partPath = partPaths.get(row.bodyPartId);
+			if (partPath === undefined) return [];
+			return [
+				{
+					...row,
+					bodyPartParameterId: deriveBodyPartParameterId(
+						targetMessageId,
+						partPath,
+						row.parameterName,
+					),
+					messageId: targetMessageId,
+					bodyPartId: deriveBodyPartId(targetMessageId, partPath),
+					createdAt: now,
+					updatedAt: now,
+				},
+			];
 		});
 
-		const statements: SqliteBatchItem[] = [
+		const insertCopy = this.db
+			.insert(messageTable)
+			.values(this.rowOf(input))
+			.onConflictDoNothing({ target: messageTable.messageId })
+			.returning();
+		const clones: SqliteBatchItem[] = [
+			...searchTextRows.map((row) =>
+				this.db
+					.insert(messageSearchTextTable)
+					.values(row)
+					.onConflictDoNothing({ target: messageSearchTextTable.messageId }),
+			),
 			...chunkRows(envelopeTable, envelopeRows, this.maxBoundParameters).map(
 				(slice) =>
 					this.db.insert(envelopeTable).values(slice).onConflictDoNothing(),
@@ -629,8 +641,10 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					.onConflictDoNothing(),
 			),
 		];
-		if (statements.length === 0) return;
-		await this.batch(statements);
+		const [inserted] = await this.batch([insertCopy, ...clones]);
+		const [row] = inserted;
+		if (row) return { item: toMessageItem(row), created: true };
+		return { item: await this.get(targetMessageId), created: false };
 	}
 
 	async syncSearch(messageIds: string[]): Promise<void> {
