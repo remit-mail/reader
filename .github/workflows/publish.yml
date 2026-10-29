@@ -1,18 +1,15 @@
-# Publish pipeline: one registry-gated mechanism publishes every open-core
-# `@remit/*` package — the workspace services under packages/ and the
-# TypeSpec-generated packages under build/. The public registry is the source of
-# truth for versions: each package publishes only when its freshly built content
-# differs from the version on npm, patch-bumping from the registry version (or
-# seeding 0.0.1). No changesets, no committed version bumps.
+# Publish pipeline: semantic-release publishes every open-core `@remit/*`
+# package — the workspace services under packages/ and the TypeSpec-generated
+# packages under build/ — on every push to main. Each package's
+# `<name>@<version>` git tag is its version, and the conventional commits that
+# touched it since that tag pick the next one. Versions never land in git; the
+# job pushes the new tags. It is gated behind the `NPM_PUBLISH_ENABLED`
+# repository variable so publishing is armed deliberately.
 #
-# Publishing runs on `pkgs-v*` tags (`v*` tags release the app and are handled by
-# release.yml). The release script bumps each changed package by a patch from the
-# registry version. It is gated behind the `NPM_PUBLISH_ENABLED` repository
-# variable so publishing is armed deliberately. Set the variable to `true` to go
-# live.
+# `v*` tags release the app and are handled by release.yml.
 #
-# The pull request half — the dry run that packs every package and checks the
-# publish surface without writing to the registry — lives in ci.yml as
+# The pull request half — the dry run that prints each package's next version
+# and packs it without tagging or publishing — lives in ci.yml as
 # `publish-dry-run`, because only a job in that workflow can be a dependency of
 # the `gate` job branch protection requires.
 #
@@ -23,7 +20,7 @@ name: Publish
 
 on:
   push:
-    tags: ["pkgs-v*"]
+    branches: [main]
 
 concurrency:
   group: publish
@@ -34,7 +31,7 @@ jobs:
     if: github.event_name == 'push' && vars.NPM_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
     steps:
       - uses: actions/checkout@v7
@@ -49,9 +46,9 @@ jobs:
       - run: make
       # @remit/spellcheck-engine is published from build/hunspell.
       - uses: ./.github/actions/hunspell
-      # Content-hash-gated: publishes only packages whose content changed,
-      # generated (build/) before the workspace set that depends on them. Safe on
-      # every run.
       - run: npm run release
         env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"

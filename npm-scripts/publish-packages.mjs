@@ -1,55 +1,35 @@
 #!/usr/bin/env node
-// Registry-gated publishing for every publishable @remit/* package: the
-// workspace services under packages/ and the TypeSpec-generated packages under
-// build/. The public registry is the single source of truth for versions —
-// there are no changeset files and no committed version bumps.
+// Publishes every publishable @remit/* package with semantic-release, driven
+// per package by @anolilab/multi-semantic-release: the workspace services under
+// packages/ and the TypeSpec-generated packages under build/. Each package's
+// last `<name>@<version>` git tag is its version; conventional commits since
+// that tag pick the bump (a `!` or BREAKING CHANGE footer is a major, `feat` a
+// minor, anything else a patch). Versions never land in git; the tag is the
+// record.
 //
-// Per package each run: build a deterministic content hash of the freshly packed
-// output and compare it against the version currently on the registry. Identical
-// -> skip. Different -> publish over the registry's latest: a minor bump when the
-// new version removes an export or changes its declaration (the packages are
-// pre-1.0, so the minor is the breaking digit), a patch bump otherwise. Absent
-// -> seed 0.0.1. The hash normalizes the version field and hashes file contents,
-// so tarball timestamps and the version string never trigger a spurious
-// republish; `*` inter-package ranges keep an upstream bump from cascading into a
-// dependent's content. Idempotent and safe on every run.
-//
-// Generated packages publish before the workspace set that depends on them.
-// Version bumps are written into the working-tree manifest only when actually
-// publishing (never in dry-run) and are never committed — CI runs on an ephemeral
-// checkout.
+// A workspace package's commits are the ones touching its directory. The
+// generated packages live in gitignored build/, so no commit touches them;
+// their commits are the ones touching the inputs they are generated from,
+// listed in `rootFiles` below. A package whose local dependency releases gets a
+// patch too, and dependencies publish before their dependents.
 //
 // Usage: publish-packages.mjs [--dry-run]
-//   --dry-run  compute and print each decision, pack-check, never publish.
-import { execFileSync, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import {
-	mkdirSync,
-	mkdtempSync,
-	readdirSync,
-	readFileSync,
-	rmSync,
-	statSync,
-	writeFileSync,
-} from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
-import ts from "typescript";
-import { apiBreaks, apiSurface } from "./lib/api-diff.mjs";
+//   --dry-run  print each package's next version and pack-check it, against
+//              the local clone, without tagging or publishing.
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import multiSemanticRelease from "@anolilab/multi-semantic-release";
 import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
-import {
-	isMissingPackage,
-	withVersionPropagation,
-} from "./lib/registry-fetch.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
 
 const repositoryUrl = "git+https://github.com/remit-mail/reader.git";
+const releaseBranch = "main";
+const dryRunBranch = "semantic-release-dry-run";
 
-// The TypeSpec-generated packages (dir/name mapping shared with
-// check-consumer-typecheck.mjs via lib/generated-packages.mjs), in dependency
-// order (all are leaves), plus the spellchecker's engine as a data package.
 // `peerDependencies` names the runtime libraries the built output imports but
 // expects the consumer to supply — merged onto whatever the emitter declared so
 // a standalone install resolves them.
@@ -58,198 +38,70 @@ const generatedPeerDependencies = {
 	"@remit/api-http-client": { "@tanstack/react-query": "^5.0.0" },
 	"@remit/api-openapi-spec": { ajv: "^8.0.0" },
 };
-const generated = [
-	...GENERATED_PACKAGES.map(({ dir, name }) => ({
-		dir,
-		name,
-		peerDependencies: generatedPeerDependencies[name] ?? {},
-	})),
-	// The Hunspell WebAssembly engine npm run build:hunspell compiles from
-	// docker/hunspell/. The web client stages it into its build, and only this
-	// repo runs the Emscripten toolchain that produces it.
-	{
-		dir: "build/hunspell",
-		name: "@remit/spellcheck-engine",
-		peerDependencies: {},
-		license: "(MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later)",
-		manifest: {
-			name: "@remit/spellcheck-engine",
-			version: "0.0.0",
-			description:
-				"Hunspell compiled to WebAssembly for the Remit composer spellchecker, with its licence texts and the pins it was built from.",
-			files: [
-				"hunspell.wasm",
-				"hunspell.mjs",
-				"LICENSE",
-				"license.hunspell",
-				"pin.env",
-			],
-			exports: {
-				"./package.json": "./package.json",
-				"./hunspell.mjs": "./hunspell.mjs",
-				"./hunspell.wasm": "./hunspell.wasm",
-			},
-		},
-	},
+const typespecPackages = GENERATED_PACKAGES.map(({ dir, name }) => ({
+	dir,
+	name,
+	peerDependencies: generatedPeerDependencies[name] ?? {},
+}));
+const typespecInputs = [
+	"typespec",
+	"Makefile",
+	"openapi-ts.config.js",
+	"npm-scripts/generate-request-validators.mjs",
+	"package.json",
 ];
 
+// The Hunspell WebAssembly engine npm run build:hunspell compiles from
+// docker/hunspell/. The web client stages it into its build, and only this repo
+// runs the Emscripten toolchain that produces it.
+const spellcheckEngine = {
+	dir: "build/hunspell",
+	name: "@remit/spellcheck-engine",
+	peerDependencies: {},
+	license: "(MPL-1.1 OR GPL-2.0-or-later OR LGPL-2.1-or-later)",
+	manifest: {
+		name: "@remit/spellcheck-engine",
+		version: "0.0.0",
+		description:
+			"Hunspell compiled to WebAssembly for the Remit composer spellchecker, with its licence texts and the pins it was built from.",
+		files: [
+			"hunspell.wasm",
+			"hunspell.mjs",
+			"LICENSE",
+			"license.hunspell",
+			"pin.env",
+		],
+		exports: {
+			"./package.json": "./package.json",
+			"./hunspell.mjs": "./hunspell.mjs",
+			"./hunspell.wasm": "./hunspell.wasm",
+		},
+	},
+};
+const spellcheckInputs = [
+	"docker/hunspell",
+	"npm-scripts/build-hunspell.mjs",
+	".github/actions/hunspell",
+];
+
+const generated = [...typespecPackages, spellcheckEngine];
+
 const run = (cmd, args, opts = {}) =>
-	execFileSync(cmd, args, { encoding: "utf8", ...opts });
+	execFileSync(cmd, args, { encoding: "utf8", cwd: repoRoot, ...opts });
 
 const readManifest = (dir) =>
 	JSON.parse(readFileSync(join(repoRoot, dir, "package.json"), "utf8"));
 
-// Publishable workspace packages: everything under packages/ not marked private.
-const workspacePackages = () => {
-	const out = [];
-	for (const name of readdirSync(join(repoRoot, "packages"))) {
-		const dir = join("packages", name);
-		let manifest;
-		try {
-			manifest = readManifest(dir);
-		} catch {
-			continue;
-		}
-		if (manifest.private) continue;
-		out.push({ dir, name: manifest.name, kind: "workspace" });
-	}
-	return out;
-};
-
-const walkFiles = (root) => {
-	const out = [];
-	const recurse = (current) => {
-		for (const entry of readdirSync(current)) {
-			const path = join(current, entry);
-			if (statSync(path).isDirectory()) recurse(path);
-			else out.push(path);
-		}
-	};
-	recurse(root);
-	return out;
-};
-
-// Hash of an extracted package: version normalized to a constant, then the
-// sha256 of each file's bytes combined with its path, ordered by path. The same
-// function runs over the freshly packed output and the downloaded registry
-// tarball, so equal content yields equal hashes regardless of version or tar
-// metadata.
-const hashPackageDir = (packageDir) => {
-	const manifestPath = join(packageDir, "package.json");
-	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	manifest.version = "0.0.0";
-	writeFileSync(manifestPath, JSON.stringify(manifest));
-
-	const files = walkFiles(packageDir)
-		.map((path) => relative(packageDir, path))
-		.sort();
-	const combined = createHash("sha256");
-	for (const rel of files) {
-		const fileHash = createHash("sha256")
-			.update(readFileSync(join(packageDir, rel)))
-			.digest("hex");
-		combined.update(`${fileHash}\0${rel}\n`);
-	}
-	return combined.digest("hex");
-};
-
-// Inside the package's own directory, so a packed package that ships
-// TypeScript source resolves its imports through the package's node_modules and
-// then the root's when its declarations are emitted. The directory is empty
-// while the fresh pack runs, and gitignored, so it never reaches the tarball.
-const withTempDir = (pkgDir, fn) => {
-	const scratch = join(repoRoot, pkgDir, ".tmp");
-	mkdirSync(scratch, { recursive: true });
-	const dir = mkdtempSync(join(scratch, "remit-pack-"));
-	try {
-		return fn(dir);
-	} finally {
-		rmSync(dir, { recursive: true, force: true });
-	}
-};
-
-const extractedTarballDir = (tempDir) => {
-	const tarball = readdirSync(tempDir).find((f) => f.endsWith(".tgz"));
-	run("tar", ["-xzf", join(tempDir, tarball), "-C", tempDir]);
-	return join(tempDir, "package");
-};
-
-const rootCompilerOptions = () => {
-	const configPath = join(repoRoot, "tsconfig.json");
-	const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
-	return ts.parseJsonConfigFileContent(config, ts.sys, repoRoot).options;
-};
-
-const packageApi = (packageDir) =>
-	apiSurface(ts, packageDir, { baseOptions: rootCompilerOptions() });
-
-const packDir = (tempDir, name) => {
-	const dir = join(tempDir, name);
-	mkdirSync(dir);
-	return dir;
-};
-
-const freshPackage = (pkgDir, tempDir) => {
-	const dest = packDir(tempDir, "fresh");
-	run("npm", ["pack", "--pack-destination", dest, "--loglevel=error"], {
-		cwd: join(repoRoot, pkgDir),
-	});
-	return extractedTarballDir(dest);
-};
-
-// The version this compares against was read from the packument a moment ago,
-// which is ahead of the replicas: a publish on main and a pull request's dry run
-// raced, and the run died on a tarball the registry had accepted but not yet
-// served. The pack is retried while that is what ETARGET means, and the last
-// attempt's failure ends the run as before.
-const publishedPackage = (name, version, tempDir) => {
-	const dest = packDir(tempDir, "published");
-	withVersionPropagation(() =>
-		run(
-			"npm",
-			[
-				"pack",
-				`${name}@${version}`,
-				"--pack-destination",
-				dest,
-				"--loglevel=error",
-			],
-			{
-				cwd: repoRoot,
-			},
-		),
-	);
-	return extractedTarballDir(dest);
-};
-
-const registryLatest = (name) => {
-	try {
-		return run("npm", ["view", name, "version", "--loglevel=error"], {
-			cwd: repoRoot,
-			stdio: ["ignore", "pipe", "pipe"],
-		}).trim();
-	} catch (error) {
-		if (isMissingPackage(error)) return null;
-		throw error;
-	}
-};
-
-const patchBump = (version) => {
-	const [major, minor, patch] = version.split(".").map(Number);
-	return `${major}.${minor}.${patch + 1}`;
-};
-
-const minorBump = (version) => {
-	const [major, minor] = version.split(".").map(Number);
-	return `${major}.${minor + 1}.0`;
-};
-
-const setVersion = (pkgDir, version) => {
-	const manifestPath = join(repoRoot, pkgDir, "package.json");
-	const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-	manifest.version = version;
-	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-};
+const workspacePackages = () =>
+	readdirSync(join(repoRoot, "packages"))
+		.map((name) => join("packages", name))
+		.filter((dir) => {
+			try {
+				return !readManifest(dir).private;
+			} catch {
+				return false;
+			}
+		});
 
 const synthesizeManifest = ({ dir, manifest }) => {
 	if (!manifest) return;
@@ -274,39 +126,109 @@ const stampGeneratedMetadata = ({ dir, peerDependencies, license }) => {
 	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
-// One package failing must not abandon the rest of the run, so this reports the
-// outcome instead of throwing; the caller collects failures and exits non-zero.
-// Verbose, because npm logs a refused trusted-publishing token exchange only at
-// that level and otherwise reports it as a bare ENEEDAUTH.
-const publish = (pkgDir) => {
-	const { error, status, signal } = spawnSync(
-		"npm",
-		[
-			"publish",
-			"--access",
-			"public",
-			...(process.env.GITHUB_ACTIONS === "true" ? ["--provenance"] : []),
-			"--loglevel=verbose",
-		],
-		{ cwd: join(repoRoot, pkgDir), stdio: "inherit" },
-	);
-	if (error) return { ok: false, error: error.message };
-	if (signal) return { ok: false, error: `npm publish killed by ${signal}` };
-	if (status !== 0) return { ok: false, error: `npm publish exited ${status}` };
-	return { ok: true };
+// multi-semantic-release finds packages through the root `workspaces` only, and
+// build/ cannot be a workspace: npm resolves the generated packages through the
+// root's `file:build/*` dependencies. The generated directories join the list
+// for the length of the release and the manifest is put back afterwards.
+const withGeneratedWorkspaces = async (fn) => {
+	const manifestPath = join(repoRoot, "package.json");
+	const original = readFileSync(manifestPath, "utf8");
+	const manifest = JSON.parse(original);
+	manifest.workspaces = [
+		...manifest.workspaces,
+		...generated.map(({ dir }) => dir),
+	];
+	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+	try {
+		return await fn();
+	} finally {
+		writeFileSync(manifestPath, original);
+	}
 };
 
-const packCheck = (pkgDir) =>
-	run("npm", ["pack", "--dry-run", "--loglevel=error"], {
-		cwd: join(repoRoot, pkgDir),
-		stdio: "inherit",
-	});
+// semantic-release reads the branch from the CI environment and refuses any
+// branch it is not configured for, so the dry run hides the CI from it and
+// releases from whatever branch is checked out. A pull request's merge commit
+// is a detached HEAD, which gets a throwaway branch for the run.
+const withDryRunBranch = async (fn) => {
+	const current = run("git", ["rev-parse", "--abbrev-ref", "HEAD"]).trim();
+	if (current !== "HEAD") return await fn(current);
+	const head = run("git", ["rev-parse", "HEAD"]).trim();
+	run("git", ["switch", "--quiet", "--create", dryRunBranch]);
+	try {
+		return await fn(dryRunBranch);
+	} finally {
+		run("git", ["switch", "--quiet", "--detach", head]);
+		run("git", ["branch", "--quiet", "--delete", "--force", dryRunBranch]);
+	}
+};
+
+const plugins = [
+	[
+		"@semantic-release/commit-analyzer",
+		{
+			preset: "conventionalcommits",
+			releaseRules: [
+				{ breaking: true, release: "major" },
+				{ type: "feat", release: "minor" },
+				{ type: "*", release: "patch" },
+			],
+		},
+	],
+	[
+		"@semantic-release/release-notes-generator",
+		{ preset: "conventionalcommits" },
+	],
+	...(dryRun ? [] : ["@semantic-release/npm"]),
+];
+
+const release = async ({ paths, rootFiles, branch, env }) =>
+	await multiSemanticRelease(
+		paths,
+		{
+			plugins,
+			...(dryRun ? { repositoryUrl: pathToFileURL(repoRoot).href } : {}),
+		},
+		{ cwd: repoRoot, env },
+		{
+			dryRun,
+			branches: [branch],
+			deps: { bump: "satisfy" },
+			rootFiles: { files: rootFiles.files, packages: rootFiles.packages },
+		},
+	);
+
+const manifestPaths = (dirs) => dirs.map((dir) => join(dir, "package.json"));
+
+const releaseAll = async (branch, env) => [
+	...(await release({
+		paths: manifestPaths([
+			...typespecPackages.map(({ dir }) => dir),
+			...workspacePackages(),
+		]),
+		rootFiles: {
+			files: typespecInputs,
+			packages: typespecPackages.map(({ name }) => name),
+		},
+		branch,
+		env,
+	})),
+	...(await release({
+		paths: manifestPaths([spellcheckEngine.dir]),
+		rootFiles: { files: spellcheckInputs, packages: [spellcheckEngine.name] },
+		branch,
+		env,
+	})),
+];
+
+const describe = ({ result }) => {
+	if (!result?.nextRelease) return "no release";
+	const { lastRelease, nextRelease } = result;
+	return `${lastRelease?.version ?? "none"} -> ${nextRelease.version} (${nextRelease.type})`;
+};
 
 console.log("Checking publish closure...\n");
-run("node", ["npm-scripts/check-publish-closure.mjs"], {
-	cwd: repoRoot,
-	stdio: "inherit",
-});
+run("node", ["npm-scripts/check-publish-closure.mjs"], { stdio: "inherit" });
 
 // The dry run is the pre-publish gate every pull request passes. Verify the
 // closure guard's own logic, then compile a clean-install consumer against the
@@ -315,85 +237,39 @@ run("node", ["npm-scripts/check-publish-closure.mjs"], {
 if (dryRun) {
 	console.log("\nVerifying publish-closure guard...\n");
 	run("node", ["--test", "npm-scripts/lib/publish-closure.test.mjs"], {
-		cwd: repoRoot,
-		stdio: "inherit",
-	});
-	console.log("\nVerifying the API diff that picks the bump...\n");
-	run("node", ["--test", "npm-scripts/lib/api-diff.test.mjs"], {
-		cwd: repoRoot,
 		stdio: "inherit",
 	});
 	console.log("\nConsumer typecheck acceptance...\n");
 	run("node", ["npm-scripts/check-consumer-typecheck.mjs"], {
-		cwd: repoRoot,
 		stdio: "inherit",
 	});
 }
 
-if (!dryRun)
-	console.log(`\nPublishing with npm ${run("npm", ["--version"]).trim()}\n`);
+for (const pkg of generated) {
+	synthesizeManifest(pkg);
+	stampGeneratedMetadata(pkg);
+}
 
-const packages = [...generated, ...workspacePackages()];
-const summary = [];
-const failures = [];
+const dryRunEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([key]) => key !== "GITHUB_ACTIONS"),
+);
+const releaseEnv = { ...process.env, npm_config_workspaces_update: "false" };
 
-for (const pkg of packages) {
-	if (pkg.kind !== "workspace") {
-		synthesizeManifest(pkg);
-		stampGeneratedMetadata(pkg);
+const packages = await withGeneratedWorkspaces(() =>
+	dryRun
+		? withDryRunBranch((branch) => releaseAll(branch, dryRunEnv))
+		: releaseAll(releaseBranch, releaseEnv),
+);
+
+if (dryRun) {
+	for (const { dir, result } of packages) {
+		if (!result?.nextRelease) continue;
+		run("npm", ["pack", "--dry-run", "--loglevel=error"], {
+			cwd: dir,
+			stdio: "inherit",
+		});
 	}
-	const latest = registryLatest(pkg.name);
-
-	const decided = withTempDir(pkg.dir, (tempDir) => {
-		const fresh = freshPackage(pkg.dir, tempDir);
-		if (latest === null) {
-			const target = "0.0.1";
-			return {
-				target,
-				decision: `seed ${target} (not on registry)`,
-				breaks: [],
-			};
-		}
-		const published = publishedPackage(pkg.name, latest, tempDir);
-		if (hashPackageDir(published) === hashPackageDir(fresh)) {
-			return { decision: `skip (identical to ${latest})`, breaks: [] };
-		}
-		const breaks = apiBreaks(packageApi(published), packageApi(fresh));
-		const bump = breaks.length > 0 ? "minor" : "patch";
-		const target = bump === "minor" ? minorBump(latest) : patchBump(latest);
-		return {
-			target,
-			decision: `publish ${latest} -> ${target} (${bump})`,
-			breaks,
-		};
-	});
-	summary.push({
-		name: pkg.name,
-		decision: decided.decision,
-		breaks: decided.breaks,
-	});
-	if (decided.target === undefined) continue;
-	const { target } = decided;
-
-	if (dryRun) {
-		packCheck(pkg.dir);
-		continue;
-	}
-	setVersion(pkg.dir, target);
-	const { ok, error } = publish(pkg.dir);
-	if (ok) console.log(`published ${pkg.name}@${target}`);
-	else failures.push({ name: pkg.name, version: target, error });
 }
 
 console.log(`\n${dryRun ? "Dry run" : "Publish"} decisions:`);
-for (const { name, decision, breaks } of summary) {
-	console.log(`  ${name}: ${decision}`);
-	for (const line of breaks) console.log(`    ${line}`);
-}
-
-if (failures.length > 0) {
-	console.error("\nPublish failures:");
-	for (const f of failures)
-		console.error(`  ${f.name}@${f.version}: ${f.error}`);
-	process.exit(1);
-}
+for (const pkg of packages) console.log(`  ${pkg.name}: ${describe(pkg)}`);

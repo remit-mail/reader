@@ -61,6 +61,7 @@
     "@remit/drizzle-sqlite-schema": "file:build/drizzle-entities-sqlite"
   },
   "devDependencies": {
+    "@anolilab/multi-semantic-release": "^4.6.1",
     "@biomejs/biome": "^2.5.4",
     "@hey-api/openapi-ts": "^0.99.0",
     "@kattebak/typespec-drizzle-orm-generator": "^5.0.2",
@@ -77,8 +78,10 @@
     "@typespec/http": "~1.17.0",
     "@typespec/openapi": "~1.17.0",
     "@typespec/openapi3": "~1.17.0",
+    "conventional-changelog-conventionalcommits": "^9.3.1",
     "drizzle-orm": "0.45.2",
     "openapi-client-axios": "^7.9.1",
+    "semantic-release": "^25.0.9",
     "sharp": "0.35.5",
     "short-uuid": "^6.0.3",
     "tsx": "^4",

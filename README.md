@@ -60,7 +60,9 @@ you lose it you have to re-enter each account's credentials.
 The repository is an npm workspace. The generated API packages (client, types,
 schemas) are published to npm and consumed as dependencies; TypeSpec in
 `typespec/` is the single source of truth for the API and the database schema.
-Tag `vX.Y.Z` releases the app; tag `pkgs-vX.Y.Z` publishes the npm packages.
+Tag `vX.Y.Z` releases the app. A merge to `main` publishes the npm packages:
+semantic-release reads the conventional commits that touched each package
+since its last `<name>@<version>` tag, then publishes and tags the next version.
 
 ```
 npm ci
