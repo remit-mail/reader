@@ -1,5 +1,6 @@
 import { rm } from "node:fs/promises";
 import { join } from "node:path";
+import { auth_user } from "@remit/auth-service/schema";
 import {
 	BETTER_SQLITE3_LIMITS,
 	openSqliteDatabases,
@@ -10,6 +11,7 @@ import {
 	syncStores,
 } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger";
+import { eq } from "drizzle-orm";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
 
 // Mirrors `@remit/storage-service`'s filesystem-backend default: bodies
@@ -34,9 +36,8 @@ const deleteStoragePrefix = async (
 };
 
 // The app, mail and search databases are opened once, on first use, and
-// shared by both deletes (the native binding loads there, hence async). Built
-// lazily so the fanout worker — which signs out but never deletes rows — does
-// not open a database handle it will not use.
+// shared by every delete (the native binding loads there, hence async). Built
+// lazily so a worker that never deletes does not open a database handle.
 let storesPromise: Promise<SqliteStores> | undefined;
 
 const getStores = (): Promise<SqliteStores> => {
@@ -46,28 +47,14 @@ const getStores = (): Promise<SqliteStores> => {
 	return storesPromise;
 };
 
-/**
- * The self-host stack's deletion capabilities (RFC 035/036).
- *
- * - `signOut`: no-op. Deleting the AccountConfig row severs the session's
- *   account→data resolution, and there is no federated session store to sign
- *   out of; better-auth session rows are owned by the auth service, outside this
- *   worker's data seam.
- * - `invalidateContent`: no-op. Caddy proxies `/content/*` straight to the
- *   backend with no response cache (`deploy/vps/caddy/routes.caddy`), so there
- *   is nothing to invalidate.
- * - `deleteStoragePrefix`: recursive filesystem removal.
- * - `cascadeDelete`: the Drizzle cascade over SQLite.
- * - `eraseAccountConfig`: one keyed delete per table over SQLite.
- */
 export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({
 		assertReady: async () => {},
 		signOut: async (userId, log) => {
-			log.info(
-				{ userId },
-				"Sign-out is a no-op on the relational backend; AccountConfig removal severs session data access",
-			);
+			await (await getStores()).app.db
+				.delete(auth_user)
+				.where(eq(auth_user.id, userId));
+			log.info({ userId }, "Auth user erased");
 		},
 		invalidateContent: async (contentPrefix, log) => {
 			log.info(

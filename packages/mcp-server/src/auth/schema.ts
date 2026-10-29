@@ -276,7 +276,9 @@ export const mcp_device_code = sqliteTable(
 		id: text("id").primaryKey(),
 		deviceCode: text("device_code").notNull(),
 		userCode: text("user_code").notNull(),
-		userId: text("user_id"),
+		userId: text("user_id").references(() => auth_user.id, {
+			onDelete: "cascade",
+		}),
 		expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
 		status: text("status").notNull(),
 		lastPolledAt: integer("last_polled_at", { mode: "timestamp_ms" }),

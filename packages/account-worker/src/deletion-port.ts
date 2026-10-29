@@ -1,25 +1,6 @@
 import type { Logger } from "@remit/logger";
 import type { CascadeEntity } from "./cascade.js";
 
-/**
- * The four steps of the deletion cascade that vary by deployment. Everything
- * else — enumerating the AccountConfig's rows, the FIFO purge orchestration, the
- * queue sends — is backend-neutral and lives in the handlers unchanged.
- *
- * Two composition roots build this:
- *
- * - The DynamoDB composition (AWS custody stack): Cognito global sign-out,
- *   CloudFront invalidation, raw-S3 prefix delete, DynamoDB `BatchWriteItem`
- *   cascade. Byte-for-byte the pre-split behavior. It imports the AWS SDK /
- *   ElectroDB graph and lives outside this shared, open-core module; it is
- *   injected here through `setDeletionCapabilities` so that graph never reaches
- *   the relational tree.
- * - `compose-relational.ts` (self-host stack, RFC 035/036): no-op sign-out
- *   (deleting the AccountConfig severs the session's data resolution; there is
- *   no CDN to sign out of), no-op invalidation (Caddy proxies `/content/*`
- *   straight to the backend with no cache), filesystem prefix delete, and the
- *   Drizzle cascade over SQLite.
- */
 export interface DeletionCapabilities {
 	/**
 	 * Validate every precondition the destructive steps depend on, BEFORE any row
@@ -29,10 +10,6 @@ export interface DeletionCapabilities {
 	 * Relational is a no-op — its steps carry no such deploy-time configuration.
 	 */
 	assertReady(log: Logger): Promise<void>;
-	/**
-	 * Invalidate the deleted user's active auth sessions. AWS: Cognito
-	 * `AdminUserGlobalSignOut`. Relational: no-op.
-	 */
 	signOut(userId: string, log: Logger): Promise<void>;
 	/**
 	 * Purge any CDN/edge cache under a tenant/account content prefix
