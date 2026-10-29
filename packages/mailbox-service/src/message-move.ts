@@ -910,8 +910,8 @@ export class MessageMoveService {
 			sequenceNumber: 0, // Will be updated by worker
 			rfc822Size: sourceMessage.rfc822Size,
 			internalDate: sourceMessage.internalDate,
-			envelopeId: sourceMessage.envelopeId, // Share envelope with source
-			rootBodyPartId: sourceMessage.rootBodyPartId, // Share body parts with source
+			envelopeId: sourceMessage.envelopeId,
+			rootBodyPartId: sourceMessage.rootBodyPartId,
 			status: MessageStatus.moving,
 			syncStatus: MessageSyncStatus.pending,
 			bodyStorageKey: sourceMessage.bodyStorageKey,
@@ -928,6 +928,7 @@ export class MessageMoveService {
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
 		await this.messageService.copySearchText(messageId, newMessageId);
+		await this.messageService.copyMessageData(messageId, newMessageId);
 
 		// Copy ThreadMessage entry
 		const sourceThreadMessage = await this.threadMessageService.getByMessageId(

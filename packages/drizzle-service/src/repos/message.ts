@@ -19,6 +19,7 @@ import {
 	type SQL,
 } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
+import { chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -26,8 +27,12 @@ import {
 	NotFoundError,
 } from "../error.js";
 import {
+	bodyPartId as deriveBodyPartId,
+	bodyPartParameterId as deriveBodyPartParameterId,
+	envelopeAddressId as deriveEnvelopeAddressId,
 	envelopeId as deriveEnvelopeId,
 	rootBodyPartId as deriveRootBodyPartId,
+	deterministicBase36Id,
 } from "../id.js";
 import { decodeToken, resultList } from "../pagination.js";
 import {
@@ -210,6 +215,7 @@ const placementTerms = (expected: PlacementPredicate): SQL[] => {
 export class DrizzleMessageRepository implements IMessageRepository {
 	private readonly db: DB;
 	private readonly batch: WriteBatch;
+	private readonly maxBoundParameters: number;
 
 	constructor(
 		store: SqliteStore<Record<string, unknown>>,
@@ -218,6 +224,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 	) {
 		this.db = store.db;
 		this.batch = store.batch;
+		this.maxBoundParameters = store.maxBoundParameters;
 	}
 
 	private rowOf(input: CreateMessageInput) {
@@ -482,6 +489,148 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.where(eq(messageSearchTextTable.messageId, sourceMessageId));
 		if (!source) return;
 		await this.setSearchText(targetMessageId, source.text);
+	}
+
+	async copyMessageData(
+		sourceMessageId: string,
+		targetMessageId: string,
+	): Promise<void> {
+		const [envelopes, references, addresses, parts, parameters] =
+			await Promise.all([
+				this.db
+					.select()
+					.from(envelopeTable)
+					.where(eq(envelopeTable.messageId, sourceMessageId)),
+				this.db
+					.select()
+					.from(messageReferenceTable)
+					.where(eq(messageReferenceTable.messageId, sourceMessageId)),
+				this.db
+					.select()
+					.from(envelopeAddressTable)
+					.where(eq(envelopeAddressTable.messageId, sourceMessageId)),
+				this.db
+					.select()
+					.from(bodyPartTable)
+					.where(eq(bodyPartTable.messageId, sourceMessageId)),
+				this.db
+					.select()
+					.from(bodyPartParameterTable)
+					.where(eq(bodyPartParameterTable.messageId, sourceMessageId)),
+			]);
+
+		const now = Date.now();
+		const envelopeId = deriveEnvelopeId(targetMessageId);
+		const partPaths = new Map(
+			parts.map((part) => [part.bodyPartId, part.partPath]),
+		);
+		const partPathOf = (bodyPartId: string): string => {
+			const partPath = partPaths.get(bodyPartId);
+			if (partPath === undefined) {
+				throw new Error(
+					`Body part ${bodyPartId} of message ${sourceMessageId} has no row`,
+				);
+			}
+			return partPath;
+		};
+
+		const envelopeRows = envelopes.map((row) => ({
+			...row,
+			envelopeId,
+			messageId: targetMessageId,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const referenceRows = references.map((row) => ({
+			...row,
+			messageReferenceId: deterministicBase36Id(
+				`msgref:${targetMessageId}:${row.referenceType}:${row.referenceOrder}`,
+			),
+			messageId: targetMessageId,
+			envelopeId,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const addressRows = addresses.map((row) => ({
+			...row,
+			envelopeAddressId: deriveEnvelopeAddressId(
+				targetMessageId,
+				row.addressRole,
+				row.addressOrder,
+			),
+			messageId: targetMessageId,
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const partRows = parts.map((row) => ({
+			...row,
+			bodyPartId: deriveBodyPartId(targetMessageId, row.partPath),
+			messageId: targetMessageId,
+			parentBodyPartId:
+				row.parentBodyPartId === null
+					? null
+					: deriveBodyPartId(targetMessageId, partPathOf(row.parentBodyPartId)),
+			createdAt: now,
+			updatedAt: now,
+		}));
+		const parameterRows = parameters.map((row) => {
+			const partPath = partPathOf(row.bodyPartId);
+			return {
+				...row,
+				bodyPartParameterId: deriveBodyPartParameterId(
+					targetMessageId,
+					partPath,
+					row.parameterName,
+				),
+				messageId: targetMessageId,
+				bodyPartId: deriveBodyPartId(targetMessageId, partPath),
+				createdAt: now,
+				updatedAt: now,
+			};
+		});
+
+		const statements: SqliteBatchItem[] = [
+			...chunkRows(envelopeTable, envelopeRows, this.maxBoundParameters).map(
+				(slice) =>
+					this.db.insert(envelopeTable).values(slice).onConflictDoNothing(),
+			),
+			...chunkRows(
+				messageReferenceTable,
+				referenceRows,
+				this.maxBoundParameters,
+			).map((slice) =>
+				this.db
+					.insert(messageReferenceTable)
+					.values(slice)
+					.onConflictDoNothing(),
+			),
+			...chunkRows(
+				envelopeAddressTable,
+				addressRows,
+				this.maxBoundParameters,
+			).map((slice) =>
+				this.db
+					.insert(envelopeAddressTable)
+					.values(slice)
+					.onConflictDoNothing(),
+			),
+			...chunkRows(bodyPartTable, partRows, this.maxBoundParameters).map(
+				(slice) =>
+					this.db.insert(bodyPartTable).values(slice).onConflictDoNothing(),
+			),
+			...chunkRows(
+				bodyPartParameterTable,
+				parameterRows,
+				this.maxBoundParameters,
+			).map((slice) =>
+				this.db
+					.insert(bodyPartParameterTable)
+					.values(slice)
+					.onConflictDoNothing(),
+			),
+		];
+		if (statements.length === 0) return;
+		await this.batch(statements);
 	}
 
 	async syncSearch(messageIds: string[]): Promise<void> {

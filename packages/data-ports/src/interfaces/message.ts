@@ -25,6 +25,10 @@ export interface IMessageRepository {
 		sourceMessageId: string,
 		targetMessageId: string,
 	): Promise<void>;
+	copyMessageData(
+		sourceMessageId: string,
+		targetMessageId: string,
+	): Promise<void>;
 	syncSearch(messageIds: string[]): Promise<void>;
 	listMissingSearchText(
 		after: string,
