@@ -86,7 +86,7 @@
     "typespec-electrodb-emitter": "^5.2.2"
   },
   "overrides": {
-    "@remit/web-client": {
+    "@modelcontextprotocol/sdk": {
       "zod": "4.6.7"
     },
     "ajv": "8.20.0",

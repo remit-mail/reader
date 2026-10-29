@@ -200,7 +200,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@remit/logger": "*",
     "@remit/api-openapi-spec": "*",
-    "zod": "^4.6.7"
+    "zod": "^3.25.0"
   },
   "publishConfig": {
     "access": "public"

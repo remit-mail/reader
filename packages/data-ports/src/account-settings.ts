@@ -170,6 +170,8 @@ export function parseAccountSettingValue(
 	return schema.parse(value) as AnyAccountSettingValue;
 }
 
+type SafeParseResult<T> = ReturnType<z.ZodType<T>["safeParse"]>;
+
 /**
  * Non-throwing variant: returns the zod SafeParse result so a caller with a
  * recovery path can branch on `success`. Accepts composite names like above.
@@ -177,17 +179,15 @@ export function parseAccountSettingValue(
 export function safeParseAccountSettingValue<N extends AccountSettingNameValue>(
 	name: N,
 	value: unknown,
-): z.ZodSafeParseResult<AccountSettingValueFor<N>>;
+): SafeParseResult<AccountSettingValueFor<N>>;
 export function safeParseAccountSettingValue(
 	name: StoredSettingName,
 	value: unknown,
-): z.ZodSafeParseResult<AnyAccountSettingValue>;
+): SafeParseResult<AnyAccountSettingValue>;
 export function safeParseAccountSettingValue(
 	name: StoredSettingName,
 	value: unknown,
-): z.ZodSafeParseResult<AnyAccountSettingValue> {
+): SafeParseResult<AnyAccountSettingValue> {
 	const schema = accountSettingRegistry[baseSettingName(name)];
-	return schema.safeParse(
-		value,
-	) as z.ZodSafeParseResult<AnyAccountSettingValue>;
+	return schema.safeParse(value) as SafeParseResult<AnyAccountSettingValue>;
 }
