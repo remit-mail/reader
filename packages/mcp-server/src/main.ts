@@ -2,7 +2,6 @@ import { serve } from "@hono/node-server";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
-	DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
 import { logger } from "@remit/logger";
@@ -43,7 +42,6 @@ const repositories = createSqliteRepositories(
 	BETTER_SQLITE3_LIMITS,
 	{
 		storage,
-		messageObjectDeleteConcurrency: DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 	},
 );
 

@@ -42,6 +42,11 @@ export interface IMessageRepository {
 		messageId: string,
 		expected: PlacementPredicate,
 	): Promise<boolean>;
+	/** {@link deleteIfPlacement} for many rows of one folder, each still at its uid. */
+	deleteManyIfPlacement(
+		mailboxId: string,
+		placements: ReadonlyArray<{ messageId: string; uid: number }>,
+	): Promise<void>;
 	listByMailbox(
 		mailboxId: string,
 		options?: { limit?: number; continuationToken?: string },

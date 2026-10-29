@@ -34,6 +34,8 @@ import { parseStorageUri } from "../uri.js";
 
 const gzipAsync = promisify(gzip);
 
+const STORAGE_DELETE_BATCH_SIZE = 1000;
+
 interface StoreParams {
 	key: string;
 	content: Buffer;
@@ -368,6 +370,28 @@ export const createS3StorageService = (
 		} while (continuationToken);
 	};
 
+	const deleteKeys: StorageService["deleteKeys"] = async (keys) => {
+		for (
+			let start = 0;
+			start < keys.length;
+			start += STORAGE_DELETE_BATCH_SIZE
+		) {
+			const batch = keys.slice(start, start + STORAGE_DELETE_BATCH_SIZE);
+			const response = await client.send(
+				new DeleteObjectsCommand({
+					Bucket: bucketName,
+					Delete: { Objects: batch.map((Key) => ({ Key })), Quiet: true },
+				}),
+			);
+			const failed = response.Errors ?? [];
+			if (failed.length > 0) {
+				throw new Error(
+					`S3 refused to delete ${failed.length} of ${batch.length} objects, first ${failed[0].Key}: ${failed[0].Code} ${failed[0].Message}`,
+				);
+			}
+		}
+	};
+
 	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] = (
 		accountConfigId,
 		accountId,
@@ -573,6 +597,7 @@ export const createS3StorageService = (
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deletePrefix,
+		deleteKeys,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

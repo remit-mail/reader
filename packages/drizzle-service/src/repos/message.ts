@@ -8,6 +8,7 @@ import type {
 import {
 	and,
 	asc,
+	type Column,
 	eq,
 	exists,
 	gt,
@@ -19,7 +20,7 @@ import {
 	type SQL,
 } from "drizzle-orm";
 import type { SqliteBatchItem, WriteBatch } from "../batch.js";
-import { chunkRows } from "../bound-parameters.js";
+import { chunk, chunkRows } from "../bound-parameters.js";
 import type { RepositoryDb, SqliteStore } from "../db.js";
 import {
 	CreateFailedConflictError,
@@ -50,7 +51,7 @@ import {
 } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import type { SearchIndex } from "../search/thread-message-search.js";
-import { inList } from "./in-list.js";
+import { inList, pairInList } from "./in-list.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
@@ -123,18 +124,23 @@ export type SubtreeDb = Pick<
 	"delete" | "select"
 >;
 
+export type SubtreeGuard = (messageId: Column) => SQL;
+
+export const MAIL_DELETE_BATCH_SIZE = 100;
+
 /**
  * The statements that delete a message and its whole per-message subtree by
  * message id: the child tables, then the message row. The caller runs them as
- * one batch so the subtree goes atomically. `removed` reads the rows the batch
- * deletes; it goes first, so it sees them under the same guard. `guard` rides
- * every statement, so a guard that reads the message row holds until the last
- * statement removes it.
+ * one batch so the subtree goes atomically. `removed` and `removedParts` read
+ * the message and body-part rows the batch deletes; they go first, so they see
+ * them under the same guard. `guard` rides every statement on that
+ * statement's own `messageId` column, so a guard that reads the message row
+ * holds until the last statement removes it.
  */
 export function deleteMessageSubtree(
 	db: SubtreeDb,
-	messageIds: string[],
-	guard?: SQL,
+	messageIds: readonly string[],
+	guard?: SubtreeGuard,
 ) {
 	const removed = db
 		.select({
@@ -142,46 +148,118 @@ export function deleteMessageSubtree(
 			bodyStorageKey: messageTable.bodyStorageKey,
 		})
 		.from(messageTable)
-		.where(and(inList(messageTable.messageId, messageIds), guard));
-	if (messageIds.length === 0) return { removed, statements: [] };
+		.where(
+			and(
+				inList(messageTable.messageId, messageIds),
+				guard?.(messageTable.messageId),
+			),
+		);
+	const removedParts = db
+		.select({
+			messageId: bodyPartTable.messageId,
+			partPath: bodyPartTable.partPath,
+		})
+		.from(bodyPartTable)
+		.where(
+			and(
+				inList(bodyPartTable.messageId, messageIds),
+				guard?.(bodyPartTable.messageId),
+			),
+		);
+	if (messageIds.length === 0) {
+		return { removed, removedParts, statements: [] };
+	}
 	const statements: SqliteBatchItem[] = [
 		db
 			.delete(messageFlagTable)
-			.where(and(inList(messageFlagTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(messageFlagTable.messageId, messageIds),
+					guard?.(messageFlagTable.messageId),
+				),
+			),
 		db
 			.delete(messageReferenceTable)
-			.where(and(inList(messageReferenceTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(messageReferenceTable.messageId, messageIds),
+					guard?.(messageReferenceTable.messageId),
+				),
+			),
 		db
 			.delete(envelopeAddressTable)
-			.where(and(inList(envelopeAddressTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(envelopeAddressTable.messageId, messageIds),
+					guard?.(envelopeAddressTable.messageId),
+				),
+			),
 		db
 			.delete(bodyPartParameterTable)
-			.where(and(inList(bodyPartParameterTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(bodyPartParameterTable.messageId, messageIds),
+					guard?.(bodyPartParameterTable.messageId),
+				),
+			),
 		db
 			.delete(bodyPartStorageTable)
-			.where(and(inList(bodyPartStorageTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(bodyPartStorageTable.messageId, messageIds),
+					guard?.(bodyPartStorageTable.messageId),
+				),
+			),
 		db
 			.delete(rawMessageStorageTable)
-			.where(and(inList(rawMessageStorageTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(rawMessageStorageTable.messageId, messageIds),
+					guard?.(rawMessageStorageTable.messageId),
+				),
+			),
 		db
 			.delete(bodyPartTable)
-			.where(and(inList(bodyPartTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(bodyPartTable.messageId, messageIds),
+					guard?.(bodyPartTable.messageId),
+				),
+			),
 		db
 			.delete(bodyStructureRefetchTable)
 			.where(
-				and(inList(bodyStructureRefetchTable.messageId, messageIds), guard),
+				and(
+					inList(bodyStructureRefetchTable.messageId, messageIds),
+					guard?.(bodyStructureRefetchTable.messageId),
+				),
 			),
 		db
 			.delete(messageSearchTextTable)
-			.where(and(inList(messageSearchTextTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(messageSearchTextTable.messageId, messageIds),
+					guard?.(messageSearchTextTable.messageId),
+				),
+			),
 		db
 			.delete(envelopeTable)
-			.where(and(inList(envelopeTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(envelopeTable.messageId, messageIds),
+					guard?.(envelopeTable.messageId),
+				),
+			),
 		db
 			.delete(messageTable)
-			.where(and(inList(messageTable.messageId, messageIds), guard)),
+			.where(
+				and(
+					inList(messageTable.messageId, messageIds),
+					guard?.(messageTable.messageId),
+				),
+			),
 	];
-	return { removed, statements };
+	return { removed, removedParts, statements };
 }
 
 /**
@@ -705,31 +783,65 @@ export class DrizzleMessageRepository implements IMessageRepository {
 					),
 				),
 		);
-		const listings = await this.db
-			.select({ threadMessageId: threadMessageTable.threadMessageId })
-			.from(threadMessageTable)
-			.where(eq(threadMessageTable.messageId, messageId));
-		const subtree = deleteMessageSubtree(this.db, [messageId], placed);
-		const [removed] = await this.batch([
-			subtree.removed,
-			this.db
-				.delete(threadMessageTable)
-				.where(and(eq(threadMessageTable.messageId, messageId), placed)),
-			...subtree.statements,
-		]);
-		await this.search.sync(listings.map((row) => row.threadMessageId));
-		await this.messageObjects.reclaim(removed);
-		return removed.length > 0;
+		return (await this.removeMessages([messageId], () => placed)) > 0;
+	}
+
+	async deleteManyIfPlacement(
+		mailboxId: string,
+		placements: ReadonlyArray<{ messageId: string; uid: number }>,
+	): Promise<void> {
+		const placed = this.db
+			.select({ messageId: messageTable.messageId })
+			.from(messageTable)
+			.where(
+				and(
+					eq(messageTable.mailboxId, mailboxId),
+					pairInList(
+						messageTable.messageId,
+						messageTable.uid,
+						placements.map(({ messageId, uid }) => [messageId, uid] as const),
+					),
+				),
+			);
+		await this.removeMessages(
+			placements.map((placement) => placement.messageId),
+			(column) => inArray(column, placed),
+		);
 	}
 
 	async deleteMany(messageIds: string[]): Promise<void> {
-		if (messageIds.length === 0) return;
-		const subtree = deleteMessageSubtree(this.db, messageIds);
-		const [removed] = await this.batch([
-			subtree.removed,
-			...subtree.statements,
-		]);
-		await this.messageObjects.reclaim(removed);
+		await this.removeMessages(messageIds);
+	}
+
+	private async removeMessages(
+		messageIds: readonly string[],
+		guard?: SubtreeGuard,
+	): Promise<number> {
+		let removedCount = 0;
+		for (const batch of chunk(messageIds, MAIL_DELETE_BATCH_SIZE)) {
+			const listings = await this.db
+				.select({ threadMessageId: threadMessageTable.threadMessageId })
+				.from(threadMessageTable)
+				.where(inList(threadMessageTable.messageId, batch));
+			const subtree = deleteMessageSubtree(this.db, batch, guard);
+			const [removed, removedParts] = await this.batch([
+				subtree.removed,
+				subtree.removedParts,
+				this.db
+					.delete(threadMessageTable)
+					.where(
+						and(
+							inList(threadMessageTable.messageId, batch),
+							guard?.(threadMessageTable.messageId),
+						),
+					),
+				...subtree.statements,
+			]);
+			await this.search.sync(listings.map((row) => row.threadMessageId));
+			await this.messageObjects.reclaim(removed, removedParts);
+			removedCount += removed.length;
+		}
+		return removedCount;
 	}
 
 	async listByMailbox(

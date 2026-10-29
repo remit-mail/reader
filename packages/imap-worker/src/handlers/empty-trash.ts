@@ -301,20 +301,7 @@ export const handleEmptyTrash = async (
 					const sweptIds = new Set(swept.map((message) => message.messageId));
 					const deletedCount = swept.length;
 
-					for (const message of swept) {
-						await messageService.delete(message.messageId);
-
-						const threadMessage = await threadMessageService.findByMessageId(
-							account.accountConfigId,
-							message.messageId,
-						);
-						if (threadMessage) {
-							await threadMessageService.delete(
-								threadMessage.accountConfigId,
-								threadMessage.threadMessageId,
-							);
-						}
-					}
+					await messageService.deleteMany([...sweptIds]);
 
 					// Everything this sweep did not carry through is still marked for a
 					// deletion that will never come: mail another client already

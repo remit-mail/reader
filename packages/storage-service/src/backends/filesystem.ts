@@ -4,6 +4,7 @@ import {
 	readdir,
 	readFile,
 	rm,
+	rmdir,
 	stat,
 	unlink,
 	writeFile,
@@ -38,6 +39,21 @@ import {
 } from "../storage.js";
 
 const gzipAsync = promisify(gzip);
+
+const DIRECTORY_IN_USE = new Set(["ENOENT", "ENOTEMPTY", "EEXIST"]);
+
+const keepDirectoryInUse = (error: unknown): void => {
+	if (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		typeof error.code === "string" &&
+		DIRECTORY_IN_USE.has(error.code)
+	) {
+		return;
+	}
+	throw error;
+};
 
 interface StoreParams {
 	key: string;
@@ -340,6 +356,17 @@ export const createFilesystemStorageService = (
 		await rm(join(basePath, prefix), { recursive: true, force: true });
 	};
 
+	const deleteKeys: StorageService["deleteKeys"] = async (keys) => {
+		const paths = keys.map((key) => join(basePath, key));
+		await Promise.all(paths.map((path) => rm(path, { force: true })));
+		const directories = [...new Set(paths.map((path) => dirname(path)))].sort(
+			(a, b) => b.length - a.length,
+		);
+		for (const directory of directories) {
+			await rmdir(directory).catch(keepDirectoryInUse);
+		}
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -430,6 +457,7 @@ export const createFilesystemStorageService = (
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deletePrefix,
+		deleteKeys,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

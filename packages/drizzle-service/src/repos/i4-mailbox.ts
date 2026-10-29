@@ -42,11 +42,8 @@ import { messageFlagPushTable } from "../schema/i4-message-flag-push.js";
 import { messagePlacementMoveTable } from "../schema/i4-message-placement-move.js";
 import { messageTable } from "../schema/message-data.js";
 import { syncWarningTable } from "../schema/sync-warning.js";
-import { threadMessageTable } from "../schema/thread-message.js";
-import type { SearchIndex } from "../search/thread-message-search.js";
 import { inList } from "./in-list.js";
-import { deleteMessageSubtree } from "./message.js";
-import type { MessageObjects } from "./message-objects.js";
+import type { DrizzleMessageRepository } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
 	shortUuid.constants.uuid25Base36,
@@ -61,7 +58,6 @@ type DB = RepositoryDb<Record<string, unknown>>;
  * the file's write lock, so the bound is what keeps a large folder's delete from
  * parking every other writer behind it (D8).
  */
-const MAIL_DELETE_BATCH_SIZE = 100;
 
 /**
  * The folders under `path`. A flat namespace nests nothing: with no delimiter
@@ -155,8 +151,7 @@ export class MailboxRepo implements IMailboxRepository {
 
 	constructor(
 		store: SqliteStore<Record<string, unknown>>,
-		private search: SearchIndex,
-		private messageObjects: MessageObjects,
+		private messages: Pick<DrizzleMessageRepository, "deleteMany">,
 	) {
 		this.db = store.db;
 		this.batch = store.batch;
@@ -549,32 +544,11 @@ export class MailboxRepo implements IMailboxRepository {
 		// Ordered, batched and resumable rather than one transaction (D8). The
 		// caller keeps the row `deleting` until the last commit, so an interrupted
 		// run re-enters here and continues against whatever is left.
-		for (;;) {
-			const rows = await this.db
-				.select({ messageId: messageTable.messageId })
-				.from(messageTable)
-				.where(eq(messageTable.mailboxId, mailboxId))
-				.limit(MAIL_DELETE_BATCH_SIZE);
-			if (rows.length === 0) break;
-			const messageIds = rows.map((row) => row.messageId);
-			const listings = await this.db
-				.select({ threadMessageId: threadMessageTable.threadMessageId })
-				.from(threadMessageTable)
-				.where(inList(threadMessageTable.messageId, messageIds));
-
-			// The primitive the rest of the codebase deletes mail with: nine
-			// per-message child tables. A bespoke table list would orphan them.
-			const subtree = deleteMessageSubtree(this.db, messageIds);
-			const [removed] = await this.batch([
-				subtree.removed,
-				...subtree.statements,
-				this.db
-					.delete(threadMessageTable)
-					.where(inList(threadMessageTable.messageId, messageIds)),
-			]);
-			await this.search.sync(listings.map((row) => row.threadMessageId));
-			await this.messageObjects.reclaim(removed);
-		}
+		const rows = await this.db
+			.select({ messageId: messageTable.messageId })
+			.from(messageTable)
+			.where(eq(messageTable.mailboxId, mailboxId));
+		await this.messages.deleteMany(rows.map((row) => row.messageId));
 
 		await this.db
 			.delete(mailboxSpecialUseTable)

@@ -38,6 +38,8 @@ import {
 } from "@remit/domain-enums";
 import {
 	isStorageNotFoundError,
+	MATERIALIZED_SENTINEL_PART_PATH,
+	MATERIALIZED_SENTINEL_V2_PART_PATH,
 	type ParsedBody,
 	type StorageService,
 } from "@remit/storage-service";
@@ -125,26 +127,6 @@ export const isBodyPartDeferralEnabled = (): boolean => {
 	const normalized = raw.trim().toLowerCase();
 	return normalized !== "false" && normalized !== "0" && normalized !== "off";
 };
-
-/**
- * Sentinel object written under a message's parts prefix once lazy
- * materialization has stored EVERY leaf. The read path checks it first with a
- * single HEAD and early-returns, skipping the body.eml GET, the MIME re-parse,
- * and the per-leaf HEADs on every warm re-open.
- *
- * Deliberately an S3-only marker (no Message-row flag). A leading dot keeps it
- * out of any real IMAP section path (those are dot-separated digits).
- */
-const MATERIALIZED_SENTINEL_PART_PATH = ".materialized";
-
-/**
- * The sentinel for a message carrying a forwarded message. Those parts were
- * once stored under a layout in which the forwarded message's root overwrote
- * its own row, so a `.materialized` written then vouches for objects at the
- * wrong paths. Its own name makes every such message materialize once more,
- * overwriting what is there; no other message is touched.
- */
-const MATERIALIZED_SENTINEL_V2_PART_PATH = ".materialized.2";
 
 /**
  * A mid-stream socket drop during the ranged body fetch surfaces as a typed
