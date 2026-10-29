@@ -177,18 +177,17 @@ export function parseAccountSettingValue(
 export function safeParseAccountSettingValue<N extends AccountSettingNameValue>(
 	name: N,
 	value: unknown,
-): z.SafeParseReturnType<unknown, AccountSettingValueFor<N>>;
+): z.ZodSafeParseResult<AccountSettingValueFor<N>>;
 export function safeParseAccountSettingValue(
 	name: StoredSettingName,
 	value: unknown,
-): z.SafeParseReturnType<unknown, AnyAccountSettingValue>;
+): z.ZodSafeParseResult<AnyAccountSettingValue>;
 export function safeParseAccountSettingValue(
 	name: StoredSettingName,
 	value: unknown,
-): z.SafeParseReturnType<unknown, AnyAccountSettingValue> {
+): z.ZodSafeParseResult<AnyAccountSettingValue> {
 	const schema = accountSettingRegistry[baseSettingName(name)];
-	return schema.safeParse(value) as z.SafeParseReturnType<
-		unknown,
-		AnyAccountSettingValue
-	>;
+	return schema.safeParse(
+		value,
+	) as z.ZodSafeParseResult<AnyAccountSettingValue>;
 }
