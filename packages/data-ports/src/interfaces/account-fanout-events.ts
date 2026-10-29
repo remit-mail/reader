@@ -3,6 +3,7 @@ import type { ThreadMessageItem } from "../types.js";
 export type AccountDeleteEvent = {
 	type: "AccountDelete";
 	accountConfigId: string;
+	userId: string;
 };
 
 /**

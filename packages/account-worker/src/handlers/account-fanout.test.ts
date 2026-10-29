@@ -14,6 +14,7 @@ const buildServices = (): CascadeServices =>
 const deleteEvent: AccountDeleteEvent = {
 	type: "AccountDelete",
 	accountConfigId: "cfg-1",
+	userId: "user-1",
 };
 
 describe("processAccountFanout on account delete", () => {

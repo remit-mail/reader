@@ -26,7 +26,7 @@ export const processAccountDelete = async (
 		return;
 	}
 
-	await signOut(accountConfig.userId, log);
+	await signOut(event.userId, log);
 	await enqueueFinalize({ type: "FinalizeAccountDelete", accountConfigId });
 	log.info({ accountConfigId }, "Enqueued finalize event");
 };

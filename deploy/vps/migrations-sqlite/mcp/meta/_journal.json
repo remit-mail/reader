@@ -15,6 +15,13 @@
       "when": 1792854870304,
       "tag": "0001_mcp_device_authorization",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1793256177202,
+      "tag": "0002_mcp_device_code_user_fk",
+      "breakpoints": true
     }
   ]
 }

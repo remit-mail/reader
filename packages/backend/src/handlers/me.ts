@@ -99,7 +99,11 @@ export const MeOperations = {
 		}
 
 		await ctx.client.queues.accountFanout.send({
-			body: { type: "AccountDelete", accountConfigId },
+			body: {
+				type: "AccountDelete",
+				accountConfigId,
+				userId: ctx.identity.sub,
+			},
 		});
 
 		// biome-ignore lint/plugin/no-logger-info: account deletion is an audit-grade signal

@@ -81,7 +81,7 @@ describe("account delete on a host that runs the finalize step from its own queu
 		const signedOut: string[] = [];
 
 		await processAccountDelete(
-			{ type: "AccountDelete", accountConfigId },
+			{ type: "AccountDelete", accountConfigId, userId: "auth-user-1" },
 			noopLogger,
 			{
 				services,
@@ -91,7 +91,7 @@ describe("account delete on a host that runs the finalize step from its own queu
 				enqueueFinalize: (event) => queue.send({ body: event }),
 			},
 		);
-		assert.deepEqual(signedOut, [accountConfig.userId]);
+		assert.deepEqual(signedOut, ["auth-user-1"]);
 		const [queued] = queue.sent;
 		assert.deepEqual(queued?.body, {
 			type: "FinalizeAccountDelete",

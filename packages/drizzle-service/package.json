@@ -29,7 +29,6 @@
     "tsx": "*"
   },
   "dependencies": {
-    "@remit/auth-service": "*",
     "@remit/data-ports": "*",
     "@remit/domain-enums": "*",
     "drizzle-orm": "^0.45.2",
