@@ -528,7 +528,6 @@ export class MessageMoveService {
 					accountConfigId,
 					messageId,
 					trashMailbox.mailboxId,
-					true,
 				);
 
 				await this.addressService.reconcileJunkOnlyForMessage(
@@ -718,16 +717,6 @@ export class MessageMoveService {
 			destinationMailboxId,
 		);
 
-		// Check if moving to/from Trash
-		const trashMailbox =
-			await this.mailboxSpecialUseService.findTrashMailbox(accountId);
-		const isMovingToTrash = Boolean(
-			trashMailbox && destinationMailboxId === trashMailbox.mailboxId,
-		);
-		const isMovingFromTrash = Boolean(
-			trashMailbox && message.mailboxId === trashMailbox.mailboxId,
-		);
-
 		// The optimistic write is a transition off the row this call read
 		// (imap-mutations R3). Three mailbox lookups stand between the read and
 		// here, and PLACEMENT_MOVE_PUSH runs on a queue this account's FIFO group
@@ -769,7 +758,6 @@ export class MessageMoveService {
 			accountConfigId,
 			messageId,
 			destinationMailboxId,
-			isMovingToTrash,
 		);
 
 		await this.addressService.reconcileJunkOnlyForMessage(
@@ -778,11 +766,6 @@ export class MessageMoveService {
 				accountConfigId,
 			),
 		);
-
-		// If moving FROM Trash, clear isDeleted
-		if (isMovingFromTrash) {
-			await this.updateThreadMessageDeleted(accountConfigId, messageId, false);
-		}
 
 		this.log.info(
 			{
@@ -1250,15 +1233,10 @@ export class MessageMoveService {
 			messages.map((message) => this.settledPlacement(message, accountId)),
 		);
 
-	/**
-	 * Update ThreadMessage for move operations.
-	 * Updates mailboxId and optionally isDeleted.
-	 */
 	private updateThreadMessageForMove = async (
 		accountConfigId: string,
 		messageId: string,
 		newMailboxId: string,
-		isDeleted: boolean,
 	): Promise<void> => {
 		const threadMessage = await this.threadMessageService.getByMessageId(
 			accountConfigId,
@@ -1272,7 +1250,6 @@ export class MessageMoveService {
 				threadMessageId: threadMessage.threadMessageId,
 				sentDate: threadMessage.sentDate,
 				newMailboxId,
-				isDeleted,
 			},
 			"Updating ThreadMessage for move",
 		);
@@ -1280,7 +1257,7 @@ export class MessageMoveService {
 		await this.threadMessageService.update(
 			threadMessage.accountConfigId,
 			threadMessage.threadMessageId,
-			{ mailboxId: newMailboxId, isDeleted },
+			{ mailboxId: newMailboxId, isDeleted: false },
 			{
 				// Composites contain CURRENT values for condition checking
 				// ElectroDB uses these to verify the item state before updating
@@ -1300,7 +1277,6 @@ export class MessageMoveService {
 				messageId,
 				threadMessageId: threadMessage.threadMessageId,
 				newMailboxId,
-				isDeleted,
 			},
 			"Updated ThreadMessage for move",
 		);
