@@ -6,10 +6,10 @@ import {
 	rootBodyPartId as deriveRootBodyPartId,
 } from "../id.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
+import { createTestDb, type TestDb } from "../test-db.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import type { DrizzleMessageRepository } from "./message.js";
 import { messageObjectsInMemory } from "./message-objects.js";
-import { createTestDb, type TestDb } from "./test-helpers.js";
 
 describe("DrizzleMessageRepository", () => {
 	let db: TestDb;
@@ -38,7 +38,7 @@ describe("DrizzleMessageRepository", () => {
 	};
 
 	before(async () => {
-		({ db, stop } = await createTestDb());
+		({ db, close: stop } = await createTestDb());
 		const repos = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
