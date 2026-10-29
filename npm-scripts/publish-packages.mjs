@@ -1,21 +1,6 @@
 #!/usr/bin/env node
-// Publishes every publishable @remit/* package with semantic-release, driven
-// per package by @anolilab/multi-semantic-release: the workspace services under
-// packages/ and the TypeSpec-generated packages under build/. Each package's
-// last `<name>@<version>` git tag is its version; conventional commits since
-// that tag pick the bump (a `!` or BREAKING CHANGE footer is a major, `feat` a
-// minor, anything else a patch). Versions never land in git; the tag is the
-// record.
-//
-// A workspace package's commits are the ones touching its directory. The
-// generated packages live in gitignored build/, so no commit touches them;
-// their commits are the ones touching the inputs they are generated from,
-// listed in `rootFiles` below. A package whose local dependency releases gets a
-// patch too, and dependencies publish before their dependents.
-//
-// Usage: publish-packages.mjs [--dry-run]
-//   --dry-run  print each package's next version and pack-check it, against
-//              the local clone, without tagging or publishing.
+// Generated packages live in gitignored build/, so no commit touches them; they
+// release on changes to the inputs listed in their `rootFiles`.
 import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -45,10 +30,8 @@ const typespecPackages = GENERATED_PACKAGES.map(({ dir, name }) => ({
 }));
 const typespecInputs = [
 	"typespec",
-	"Makefile",
 	"openapi-ts.config.js",
 	"npm-scripts/generate-request-validators.mjs",
-	"package.json",
 ];
 
 // The Hunspell WebAssembly engine npm run build:hunspell compiles from
@@ -126,10 +109,9 @@ const stampGeneratedMetadata = ({ dir, peerDependencies, license }) => {
 	writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 };
 
-// multi-semantic-release finds packages through the root `workspaces` only, and
-// build/ cannot be a workspace: npm resolves the generated packages through the
-// root's `file:build/*` dependencies. The generated directories join the list
-// for the length of the release and the manifest is put back afterwards.
+// multi-semantic-release finds packages only through the root `workspaces`, and
+// build/ cannot stay there because npm resolves it through `file:build/*`
+// dependencies, so the generated directories join the list for the run only.
 const withGeneratedWorkspaces = async (fn) => {
 	const manifestPath = join(repoRoot, "package.json");
 	const original = readFileSync(manifestPath, "utf8");
@@ -172,12 +154,10 @@ const plugins = [
 				{ breaking: true, release: "major" },
 				{ type: "feat", release: "minor" },
 				{ type: "*", release: "patch" },
+				{ type: "test", release: false },
+				{ type: "docs", release: false },
 			],
 		},
-	],
-	[
-		"@semantic-release/release-notes-generator",
-		{ preset: "conventionalcommits" },
 	],
 	...(dryRun ? [] : ["@semantic-release/npm"]),
 ];
@@ -194,7 +174,7 @@ const release = async ({ paths, rootFiles, branch, env }) =>
 			dryRun,
 			branches: [branch],
 			deps: { bump: "satisfy" },
-			rootFiles: { files: rootFiles.files, packages: rootFiles.packages },
+			rootFiles,
 		},
 	);
 
@@ -253,6 +233,7 @@ for (const pkg of generated) {
 const dryRunEnv = Object.fromEntries(
 	Object.entries(process.env).filter(([key]) => key !== "GITHUB_ACTIONS"),
 );
+// Stops `npm version` in a package from reinstalling the whole workspace.
 const releaseEnv = { ...process.env, npm_config_workspaces_update: "false" };
 
 const packages = await withGeneratedWorkspaces(() =>
@@ -273,3 +254,14 @@ if (dryRun) {
 
 console.log(`\n${dryRun ? "Dry run" : "Publish"} decisions:`);
 for (const pkg of packages) console.log(`  ${pkg.name}: ${describe(pkg)}`);
+
+const untagged = packages.filter(
+	({ result }) => result?.nextRelease && !result.lastRelease?.version,
+);
+if (dryRun && untagged.length > 0) {
+	console.error(
+		"\nNo previous release tag; seed one by hand before publishing:",
+	);
+	for (const { name } of untagged) console.error(`  ${name}`);
+	process.exit(1);
+}
