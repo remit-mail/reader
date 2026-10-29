@@ -48,7 +48,12 @@ export const composeSqliteRepositories = (
 	const messageObjects = new MessageObjects(mail.db, objects);
 	const accountSetting = new AccountSettingRepo(app.db);
 	const address = new AddressRepo(mail.db);
-	const mailbox = new MailboxRepo(mail, searchIndex, messageObjects);
+	const message = new DrizzleMessageRepository(
+		mail,
+		searchIndex,
+		messageObjects,
+	);
+	const mailbox = new MailboxRepo(mail, message);
 	const account = new AccountRepo(app.db, mailbox);
 	const calendarSuggestion = new CalendarSuggestionRepo(mail.db);
 	return {
@@ -63,7 +68,7 @@ export const composeSqliteRepositories = (
 			accountSetting,
 		),
 		mailboxLock: new MailboxLockRepo(mail.db),
-		message: new DrizzleMessageRepository(mail, searchIndex, messageObjects),
+		message,
 		messageFlag: new DrizzleMessageFlagRepository(mail.db),
 		outboxMessage: new OutboxMessageRepo(mail.db),
 		outboxAttachment: new OutboxAttachmentRepo(mail),

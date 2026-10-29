@@ -119,7 +119,7 @@ export const openStore = async (): Promise<{
 	const repositories = createSqliteRepositories(
 		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
 		BETTER_SQLITE3_LIMITS,
-		{ storage, messageObjectDeleteConcurrency: 1 },
+		{ storage },
 	);
 	const queuesOn = (queue: RecordingQueue) => ({
 		sync: queue.fifo,

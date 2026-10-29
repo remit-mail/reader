@@ -283,6 +283,12 @@ export interface StorageService {
 	deletePrefix(keyPrefix: string): Promise<void>;
 
 	/**
+	 * Delete the objects at `keys`, issuing one backend call per 1000 keys and
+	 * no listing. A key that holds nothing is skipped.
+	 */
+	deleteKeys(keys: readonly string[]): Promise<void>;
+
+	/**
 	 * Stream a finished export archive (already-compressed ZIP) to the export
 	 * key for the given config + request, uncompressed at rest. The body is
 	 * streamed via a multipart upload and never buffered whole. Returns the raw
@@ -319,19 +325,23 @@ export interface StorageService {
 // the edge can verify cross-tenant isolation at the URL prefix without
 // loading any database record. The inner `accountId` distinguishes between
 // multiple IMAP-account records owned by the same tenant.
+const MESSAGE_BODY_OBJECT = "body.eml";
+const PARSED_BODY_OBJECT = "parsed.json.gz";
+const BODY_PARTS_PREFIX = "parts/";
+
 export const buildMessageBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/body.eml`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/${MESSAGE_BODY_OBJECT}`;
 
 export const buildParsedBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parsed.json.gz`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/${PARSED_BODY_OBJECT}`;
 
 export const buildBodyPartKey = (
 	accountConfigId: string,
@@ -339,7 +349,7 @@ export const buildBodyPartKey = (
 	messageId: string,
 	partPath: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/${BODY_PARTS_PREFIX}${partPath}`;
 
 export const buildOutboxAttachmentPrefix = (
 	accountConfigId: string,
@@ -422,19 +432,65 @@ export const parseContentStorageKey = (
 	};
 };
 
-const MESSAGE_OBJECT_PREFIX =
-	/(?:^|\/)(accounts\/[^/]+\/(?:[^/]+\/)?messages\/[^/]+\/)[^/]+$/;
+/**
+ * Sentinel object written under a message's parts prefix once lazy
+ * materialization has stored EVERY leaf. The read path checks it first with a
+ * single HEAD and early-returns, skipping the body.eml GET, the MIME re-parse,
+ * and the per-leaf HEADs on every warm re-open.
+ *
+ * Deliberately an S3-only marker (no Message-row flag). A leading dot keeps it
+ * out of any real IMAP section path (those are dot-separated digits).
+ */
+export const MATERIALIZED_SENTINEL_PART_PATH = ".materialized";
 
-export const messageObjectPrefixOf = (bodyStorageUri: string): string => {
-	const match = parseStorageUri(bodyStorageUri).storageKey.match(
-		MESSAGE_OBJECT_PREFIX,
-	);
+/**
+ * The sentinel for a message carrying a forwarded message. Those parts were
+ * once stored under a layout in which the forwarded message's root overwrote
+ * its own row, so a `.materialized` written then vouches for objects at the
+ * wrong paths. Its own name makes every such message materialize once more,
+ * overwriting what is there; no other message is touched.
+ */
+export const MATERIALIZED_SENTINEL_V2_PART_PATH = ".materialized.2";
+
+const MESSAGE_BODY_KEY =
+	/(?:^|\/)(accounts\/[^/]+\/(?:[^/]+\/)?messages\/)([^/]+)\/([^/]+)$/;
+
+export interface MessageObjectKeys {
+	own: string[];
+	shared: string[];
+}
+
+/**
+ * The storage keys a message's objects live at. `own` sit under the message's
+ * own id and no other message reads them. `shared` is the raw body
+ * `bodyStorageKey` names, which a copy shares with its source and every other
+ * copy, so it goes only once no row names it.
+ */
+export const messageObjectKeysOf = (
+	bodyStorageKey: string,
+	messageId: string,
+	partPaths: Iterable<string>,
+): MessageObjectKeys => {
+	const match =
+		parseStorageUri(bodyStorageKey).storageKey.match(MESSAGE_BODY_KEY);
 	if (!match) {
 		throw new Error(
-			`${bodyStorageUri} is not a message body key; its objects cannot be found to delete`,
+			`${bodyStorageKey} is not a message body key; its objects cannot be found to delete`,
 		);
 	}
-	return match[1];
+	const [, messages, ownerId, body] = match;
+	const own = `${messages}${messageId}/`;
+	return {
+		own: [
+			`${own}${PARSED_BODY_OBJECT}`,
+			...[
+				MATERIALIZED_SENTINEL_PART_PATH,
+				MATERIALIZED_SENTINEL_V2_PART_PATH,
+				...partPaths,
+			].map((partPath) => `${own}${BODY_PARTS_PREFIX}${partPath}`),
+		],
+		shared: [`${messages}${ownerId}/${body}`],
+	};
 };
 
 export const computeChecksum = (content: Buffer): string =>
@@ -580,6 +636,10 @@ export const createMockStorageService = (): StorageService => {
 		}
 	};
 
+	const deleteKeys: StorageService["deleteKeys"] = async (keys) => {
+		for (const key of keys) storage.delete(`${MOCK_ROOT}${key}`);
+	};
+
 	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] = (
 		accountConfigId,
 		accountId,
@@ -667,6 +727,7 @@ export const createMockStorageService = (): StorageService => {
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
 		deletePrefix,
+		deleteKeys,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

@@ -283,12 +283,11 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 		BETTER_SQLITE3_LIMITS,
 		{
 			storage: {
-				deletePrefix: () =>
+				deleteKeys: () =>
 					Promise.reject(
 						new Error("the migrator deletes no mail, so it holds no storage"),
 					),
 			},
-			messageObjectDeleteConcurrency: 1,
 		},
 	).mailboxSpecialUse;
 	try {

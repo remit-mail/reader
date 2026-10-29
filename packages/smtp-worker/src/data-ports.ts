@@ -14,7 +14,6 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 	const {
 		BETTER_SQLITE3_LIMITS,
 		createSqliteRepositories,
-		DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 		openSqliteDatabases,
 		sqliteDatabasePathsFromEnv,
 	} = await import("@remit/drizzle-service");
@@ -24,7 +23,6 @@ const buildSqliteDataPorts = async (): Promise<SmtpDataPorts> => {
 		BETTER_SQLITE3_LIMITS,
 		{
 			storage: createStorageService(),
-			messageObjectDeleteConcurrency: DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 		},
 	);
 

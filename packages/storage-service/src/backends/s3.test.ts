@@ -403,3 +403,43 @@ describe("createS3StorageService: outbox attachments", () => {
 		);
 	});
 });
+
+describe("createS3StorageService: deleteKeys", () => {
+	test("deletes in one DeleteObjects per thousand keys and lists nothing", async () => {
+		const { client, commands, stored } = createFakeS3Client();
+		const storage = createS3StorageService(client, "bucket");
+		const keys = Array.from({ length: 1500 }, (_, i) => `k/${i}`);
+		for (const key of keys) {
+			stored.set(key, { body: Buffer.alloc(1), etag: key });
+		}
+		stored.set("kept", { body: Buffer.alloc(1), etag: "kept" });
+
+		await storage.deleteKeys(keys);
+
+		assert.deepStrictEqual(
+			commands.map((command) => {
+				const del = command.input.Delete as { Objects: unknown[] };
+				return [command.name, del.Objects.length];
+			}),
+			[
+				["DeleteObjectsCommand", 1000],
+				["DeleteObjectsCommand", 500],
+			],
+		);
+		assert.deepStrictEqual([...stored.keys()], ["kept"]);
+	});
+
+	test("a key the bucket refuses to delete fails the call", async () => {
+		const client = {
+			send: async () => ({
+				Errors: [{ Key: "k/1", Code: "AccessDenied", Message: "denied" }],
+			}),
+		} as unknown as S3Client;
+		const storage = createS3StorageService(client, "bucket");
+
+		await assert.rejects(
+			storage.deleteKeys(["k/1", "k/2"]),
+			/refused to delete 1 of 2 objects, first k\/1: AccessDenied denied/,
+		);
+	});
+});

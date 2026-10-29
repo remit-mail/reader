@@ -75,7 +75,6 @@ export {
 export { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
 export { MessageLabelRepo } from "./repos/message-label.js";
 export {
-	DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 	type MessageObjectStore,
 	messageObjectsInMemory,
 } from "./repos/message-objects.js";

@@ -13,10 +13,6 @@ import type { StorageService } from "@remit/storage-service";
 import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import {
-	envelopeId as deriveEnvelopeId,
-	rootBodyPartId as deriveRootBodyPartId,
-} from "../id.js";
-import {
 	createSqliteRepositories,
 	type SqliteRepositories,
 } from "../sqlite-repositories.js";
@@ -25,6 +21,17 @@ import { mailboxCreated } from "./test-helpers.js";
 
 const ACCOUNT_CONFIG_ID = "cfg-objects";
 
+const bodyPart = (partPath: string) => ({
+	partPath,
+	parentPartPath: null,
+	mediaType: "TEXT" as const,
+	mediaSubtype: "plain",
+	transferEncoding: "7BIT" as const,
+	sizeOctets: 4,
+	isMultipart: false,
+	parameters: [],
+});
+
 describe("message objects follow the last row that references them", () => {
 	let db: TestDb;
 	let close: () => Promise<void>;
@@ -32,26 +39,26 @@ describe("message objects follow the last row that references them", () => {
 	let storage: StorageService;
 	let failDeletesAfter = Number.POSITIVE_INFINITY;
 	let repos: SqliteRepositories;
+	let deleteCalls: number[] = [];
 
 	before(async () => {
 		({ db, close } = await createTestDb());
 		directory = mkdtempSync(join(tmpdir(), "message-objects-"));
 		storage = createFilesystemStorageService(directory);
+		const counted: Pick<StorageService, "deleteKeys"> = {
+			deleteKeys: (keys) => {
+				deleteCalls.push(keys.length);
+				if (failDeletesAfter <= 0) {
+					return Promise.reject(new Error("storage went away"));
+				}
+				failDeletesAfter -= 1;
+				return storage.deleteKeys(keys);
+			},
+		};
 		repos = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
-			{
-				storage: {
-					deletePrefix: (prefix) => {
-						if (failDeletesAfter <= 0) {
-							return Promise.reject(new Error("storage went away"));
-						}
-						failDeletesAfter -= 1;
-						return storage.deletePrefix(prefix);
-					},
-				},
-				messageObjectDeleteConcurrency: 1,
-			},
+			{ storage: counted },
 		);
 	});
 
@@ -111,6 +118,7 @@ describe("message objects follow the last row that references them", () => {
 			internalDate: 1700000000000,
 			bodyStorageKey: stored.uri,
 		});
+		await repos.envelope.upsertBodyParts(messageId, [bodyPart("1")]);
 		return { messageId, accountId, bodyStorageKey: stored.uri };
 	};
 
@@ -184,6 +192,7 @@ describe("message objects follow the last row that references them", () => {
 			internalDate: 1700000000000,
 			bodyStorageKey: `file://${join(legacy, "body.eml")}`,
 		});
+		await repos.envelope.upsertBodyParts(messageId, [bodyPart("1")]);
 
 		await repos.message.delete(messageId);
 
@@ -197,7 +206,7 @@ describe("message objects follow the last row that references them", () => {
 		for (let uid = 1; uid <= 101; uid += 1) {
 			rows.push(await message(accountId, doomed.mailboxId, uid));
 		}
-		failDeletesAfter = 100;
+		failDeletesAfter = 1;
 
 		await assert.rejects(
 			repos.mailbox.deleteMailboxWithMail(accountId, doomed.mailboxId),
@@ -209,5 +218,54 @@ describe("message objects follow the last row that references them", () => {
 			rows.map((row) => storage.exists(row.bodyStorageKey)),
 		);
 		assert.equal(gone.filter((exists) => !exists).length, 100);
+	});
+
+	const gone = async (
+		rows: readonly {
+			accountId: string;
+			messageId: string;
+			bodyStorageKey: string;
+		}[],
+	) => {
+		for (const row of rows) {
+			assert.equal(await storage.exists(row.bodyStorageKey), false);
+			assert.equal(await part(row), null);
+		}
+	};
+
+	test("deleting many messages makes one storage call per batch and keeps a body a copy shares", async () => {
+		const accountId = randomId();
+		const inbox = await folder(accountId, "INBOX");
+		const rows = [];
+		for (let uid = 1; uid <= 300; uid += 1) {
+			rows.push(await message(accountId, inbox.mailboxId, uid));
+		}
+		const [shared, ...unshared] = rows;
+		const copy = await message(accountId, inbox.mailboxId, 301, {
+			from: shared.messageId,
+		});
+		deleteCalls = [];
+
+		await repos.message.deleteMany(rows.map((row) => row.messageId));
+
+		assert.equal(deleteCalls.length, 3);
+		assert.ok(await storage.retrieve(copy.bodyStorageKey));
+		assert.ok(await part(copy));
+		await gone(unshared);
+	});
+
+	test("a folder delete makes one storage call per batch and removes every object", async () => {
+		const accountId = randomId();
+		const doomed = await folder(accountId, "Archive");
+		const rows = [];
+		for (let uid = 1; uid <= 250; uid += 1) {
+			rows.push(await message(accountId, doomed.mailboxId, uid));
+		}
+		deleteCalls = [];
+
+		await repos.mailbox.deleteMailboxWithMail(accountId, doomed.mailboxId);
+
+		assert.equal(deleteCalls.length, 3);
+		await gone(rows);
 	});
 });

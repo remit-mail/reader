@@ -1,7 +1,6 @@
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
-	DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 	openSqliteDatabases,
 	sqliteDatabasePathsFromEnv,
 } from "@remit/drizzle-service";
@@ -25,7 +24,6 @@ export const composeSqliteClient = async (
 	return createRemitClient({
 		repositories: createSqliteRepositories(databases, BETTER_SQLITE3_LIMITS, {
 			storage: shared.storage,
-			messageObjectDeleteConcurrency: DEFAULT_MESSAGE_OBJECT_DELETE_CONCURRENCY,
 		}),
 		...shared,
 	});

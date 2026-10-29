@@ -10,6 +10,7 @@
  * (e.g. `1`, `1.2`, `2.1.3`) but a defensive encode keeps the builder safe
  * if the path ever carries unexpected characters.
  */
+import { buildBodyPartKey } from "@remit/storage-service";
 import type { ContentSigner } from "./contentSignature.js";
 
 export interface BuildContentUrlInput {
@@ -58,7 +59,12 @@ export const buildContentUrl = (input: BuildContentUrlInput): string => {
 		input;
 	return buildStorageContentUrl({
 		domain,
-		storageKey: `accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`,
+		storageKey: buildBodyPartKey(
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+		),
 		sign,
 	});
 };

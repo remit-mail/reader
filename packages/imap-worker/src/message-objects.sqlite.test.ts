@@ -18,9 +18,16 @@ before(async () => {
 
 after(() => store.close());
 
+const storedPartPaths = new Map<string, string[]>();
+
 const storeBody = async (w: World, message: SeededMessage): Promise<void> => {
 	const { accountConfigId, accountId } = w.account;
 	const { messageId } = message;
+	const partPaths = (await w.client.envelope.listBodyParts(messageId)).map(
+		(part) => part.partPath,
+	);
+	assert.ok(partPaths.length > 0, "the synced message has body-part rows");
+	storedPartPaths.set(messageId, partPaths);
 	const body = await w.client.storage.storeMessageBody({
 		accountConfigId,
 		accountId,
@@ -33,13 +40,15 @@ const storeBody = async (w: World, message: SeededMessage): Promise<void> => {
 		messageId,
 		parsed: { text: "hi", html: null, attachments: [] },
 	});
-	await w.client.storage.storeBodyPart({
-		accountConfigId,
-		accountId,
-		messageId,
-		partPath: "1",
-		content: Buffer.from("hi"),
-	});
+	for (const partPath of partPaths) {
+		await w.client.storage.storeBodyPart({
+			accountConfigId,
+			accountId,
+			messageId,
+			partPath,
+			content: Buffer.from("hi"),
+		});
+	}
 	await w.client.message.update(messageId, { bodyStorageKey: body.uri });
 };
 
@@ -58,29 +67,34 @@ const stored = async (w: World, message: SeededMessage) => {
 			accountId,
 			messageId,
 		),
-		part: await storage.retrieveBodyPart(
-			accountConfigId,
-			accountId,
-			messageId,
-			"1",
+		parts: await Promise.all(
+			(storedPartPaths.get(messageId) ?? []).map((partPath) =>
+				storage.retrieveBodyPart(
+					accountConfigId,
+					accountId,
+					messageId,
+					partPath,
+				),
+			),
 		),
 	};
 };
 
 const assertGone = async (w: World, message: SeededMessage): Promise<void> => {
 	assert.equal(await w.row(message.messageId), undefined);
-	assert.deepEqual(await stored(w, message), {
-		body: null,
-		parsed: null,
-		part: null,
-	});
+	const objects = await stored(w, message);
+	assert.equal(objects.body, null);
+	assert.equal(objects.parsed, null);
+	assert.ok(objects.parts.length > 0);
+	assert.ok(objects.parts.every((part) => part === null));
 };
 
 const assertKept = async (w: World, message: SeededMessage): Promise<void> => {
 	const objects = await stored(w, message);
 	assert.ok(objects.body);
 	assert.ok(objects.parsed);
-	assert.ok(objects.part);
+	assert.ok(objects.parts.length > 0);
+	assert.ok(objects.parts.every((part) => part !== null));
 };
 
 const isEventOf =
