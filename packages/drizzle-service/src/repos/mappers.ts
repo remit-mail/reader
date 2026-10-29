@@ -1,7 +1,6 @@
 import type {
 	BodyPartItem,
 	BodyPartParameterItem,
-	BodyPartStorageItem,
 	EnvelopeAddressItem,
 	EnvelopeItem,
 	MessageReferenceItem,
@@ -9,7 +8,6 @@ import type {
 } from "@remit/data-ports";
 import type {
 	bodyPartParameterTable,
-	bodyPartStorageTable,
 	bodyPartTable,
 	envelopeAddressTable,
 	envelopeTable,
@@ -130,26 +128,5 @@ export function toRawMessageStorageItem(
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
 		...(row.expiresAt !== null ? { expiresAt: row.expiresAt } : {}),
-	};
-}
-
-export function toBodyPartStorageItem(
-	row: typeof bodyPartStorageTable.$inferSelect,
-): BodyPartStorageItem {
-	return {
-		bodyPartStorageId: row.bodyPartStorageId,
-		messageId: row.messageId,
-		bodyPartId: row.bodyPartId,
-		storageType: row.storageType,
-		storageLocation: row.storageLocation,
-		storageKey: row.storageKey,
-		decodedSizeBytes: row.decodedSizeBytes,
-		checksumSha256: row.checksumSha256,
-		contentEncoding: row.contentEncoding,
-		isDeduped: row.isDeduped,
-		storedAt: row.storedAt,
-		createdAt: row.createdAt,
-		updatedAt: row.updatedAt,
-		...(row.dedupHash !== null ? { dedupHash: row.dedupHash } : {}),
 	};
 }

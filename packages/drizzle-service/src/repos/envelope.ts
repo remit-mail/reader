@@ -25,7 +25,6 @@ import {
 } from "../id.js";
 import {
 	bodyPartParameterTable,
-	bodyPartStorageTable,
 	bodyPartTable,
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
@@ -38,7 +37,6 @@ import { inList } from "./in-list.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
-	toBodyPartStorageItem,
 	toEnvelopeAddressItem,
 	toEnvelopeItem,
 	toMessageReferenceItem,
@@ -74,7 +72,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			bodyParts,
 			bodyPartParameters,
 			rawMessageStorages,
-			bodyPartStorages,
 		] = await Promise.all([
 			this.db
 				.select()
@@ -100,10 +97,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 				.select()
 				.from(rawMessageStorageTable)
 				.where(eq(rawMessageStorageTable.messageId, messageId)),
-			this.db
-				.select()
-				.from(bodyPartStorageTable)
-				.where(eq(bodyPartStorageTable.messageId, messageId)),
 		]);
 
 		if (envelopes.length === 0) {
@@ -117,7 +110,6 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			bodyPart: bodyParts.map(toBodyPartItem),
 			bodyPartParameter: bodyPartParameters.map(toBodyPartParameterItem),
 			rawMessageStorage: rawMessageStorages.map(toRawMessageStorageItem),
-			bodyPartStorage: bodyPartStorages.map(toBodyPartStorageItem),
 		};
 	}
 

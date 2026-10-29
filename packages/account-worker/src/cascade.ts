@@ -147,12 +147,6 @@ export const collectMessageChildEntities = (
 			key: { rawStorageId: rms.rawStorageId },
 		});
 	}
-	for (const bps of messageData.bodyPartStorage) {
-		entities.push({
-			entityType: "BodyPartStorage",
-			key: { bodyPartStorageId: bps.bodyPartStorageId },
-		});
-	}
 };
 
 export const enumerateCascadeEntities = async (
@@ -251,13 +245,6 @@ export const enumerateCascadeEntities = async (
 					entities.push({
 						entityType: "RawMessageStorage",
 						key: { rawStorageId: rms.rawStorageId },
-					});
-				}
-
-				for (const bps of messageData.bodyPartStorage) {
-					entities.push({
-						entityType: "BodyPartStorage",
-						key: { bodyPartStorageId: bps.bodyPartStorageId },
 					});
 				}
 			}

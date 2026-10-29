@@ -102,7 +102,6 @@ export type {
 	BodyPartItem,
 	BodyPartParameterItem,
 	BodyPartParameterUpsertInput,
-	BodyPartStorageItem,
 	BodyPartUpsertInput,
 	CalendarCollectionItem,
 	CalendarEventIndexItem,

@@ -216,35 +216,6 @@ dedup/
     {hash}                       # Content-addressable storage for attachments
 ```
 
-## Integration with ElectroDB Entities
-
-```typescript
-import { BodyPartStorageService } from "@remit/remit-electrodb-service";
-import { createStorageService } from "@remit/storage-service";
-
-const storage = createStorageService();
-const bodyPartStorageService = new BodyPartStorageService(config);
-
-// Store content and create entity reference
-const ref = await storage.store(content, {
-  key: `messages/${messageId}/parts/${partPath}`,
-  contentEncoding: ContentEncoding.Gzip,
-});
-
-await bodyPartStorageService.create({
-  messageId,
-  bodyPartId,
-  storageType: ref.storageType,
-  storageLocation: ref.storageLocation,
-  storageKey: ref.storageKey,
-  decodedSizeBytes: content.length,
-  checksumSha256: ref.checksumSha256,
-  contentEncoding: ref.contentEncoding,
-  isDeduped: false,
-  storedAt: Date.now(),
-});
-```
-
 ## Exports
 
 ```typescript

@@ -4,7 +4,6 @@ import type {
 	AddressSchema,
 	BodyPartParameterSchema,
 	BodyPartSchema,
-	BodyPartStorageSchema,
 	CalendarCollectionSchema,
 	CalendarEventIndexSchema,
 	CalendarFeedTokenSchema,
@@ -84,7 +83,6 @@ export type MessageReferenceInput = Pick<
 export type EnvelopeAddressItem = z.infer<typeof EnvelopeAddressSchema>;
 export type BodyPartParameterItem = z.infer<typeof BodyPartParameterSchema>;
 export type RawMessageStorageItem = z.infer<typeof RawMessageStorageSchema>;
-export type BodyPartStorageItem = z.infer<typeof BodyPartStorageSchema>;
 export type EnvelopeItem = z.infer<typeof EnvelopeSchema>;
 export type MailboxLockItem = z.infer<typeof MailboxLockSchema>;
 export type MailboxSpecialUseItem = z.infer<
@@ -187,7 +185,6 @@ export type MessageData = {
 	bodyPart: BodyPartItem[];
 	bodyPartParameter: BodyPartParameterItem[];
 	rawMessageStorage: RawMessageStorageItem[];
-	bodyPartStorage: BodyPartStorageItem[];
 };
 
 export type MessageDescription = {
@@ -199,7 +196,6 @@ export type MessageDescription = {
 	bodyPart: BodyPartItem[];
 	bodyPartParameter: BodyPartParameterItem[];
 	rawMessageStorage: RawMessageStorageItem[];
-	bodyPartStorage: BodyPartStorageItem[];
 };
 
 export type WithMailboxLockResult<T> = {
