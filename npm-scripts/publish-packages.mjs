@@ -24,6 +24,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -31,7 +32,6 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -153,8 +153,13 @@ const hashPackageDir = (packageDir) => {
 	return combined.digest("hex");
 };
 
+// Under the repository, so a packed package that ships TypeScript source
+// resolves its imports through the root node_modules when its declarations are
+// emitted.
 const withTempDir = (fn) => {
-	const dir = mkdtempSync(join(tmpdir(), "remit-pack-"));
+	const scratch = join(repoRoot, ".tmp");
+	mkdirSync(scratch, { recursive: true });
+	const dir = mkdtempSync(join(scratch, "remit-pack-"));
 	try {
 		return fn(dir);
 	} finally {
@@ -168,43 +173,53 @@ const extractedTarballDir = (tempDir) => {
 	return join(tempDir, "package");
 };
 
-const inspectPackageDir = (packageDir) => ({
-	api: apiSurface(ts, packageDir),
-	hash: hashPackageDir(packageDir),
-});
+const rootCompilerOptions = () => {
+	const configPath = join(repoRoot, "tsconfig.json");
+	const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
+	return ts.parseJsonConfigFileContent(config, ts.sys, repoRoot).options;
+};
 
-const freshPackage = (pkgDir) =>
-	withTempDir((tempDir) => {
-		run("npm", ["pack", "--pack-destination", tempDir, "--loglevel=error"], {
-			cwd: join(repoRoot, pkgDir),
-		});
-		return inspectPackageDir(extractedTarballDir(tempDir));
+const packageApi = (packageDir) =>
+	apiSurface(ts, packageDir, { baseOptions: rootCompilerOptions() });
+
+const packDir = (tempDir, name) => {
+	const dir = join(tempDir, name);
+	mkdirSync(dir);
+	return dir;
+};
+
+const freshPackage = (pkgDir, tempDir) => {
+	const dest = packDir(tempDir, "fresh");
+	run("npm", ["pack", "--pack-destination", dest, "--loglevel=error"], {
+		cwd: join(repoRoot, pkgDir),
 	});
+	return extractedTarballDir(dest);
+};
 
 // The version this compares against was read from the packument a moment ago,
 // which is ahead of the replicas: a publish on main and a pull request's dry run
 // raced, and the run died on a tarball the registry had accepted but not yet
 // served. The pack is retried while that is what ETARGET means, and the last
 // attempt's failure ends the run as before.
-const publishedPackage = (name, version) =>
-	withTempDir((tempDir) => {
-		withVersionPropagation(() =>
-			run(
-				"npm",
-				[
-					"pack",
-					`${name}@${version}`,
-					"--pack-destination",
-					tempDir,
-					"--loglevel=error",
-				],
-				{
-					cwd: repoRoot,
-				},
-			),
-		);
-		return inspectPackageDir(extractedTarballDir(tempDir));
-	});
+const publishedPackage = (name, version, tempDir) => {
+	const dest = packDir(tempDir, "published");
+	withVersionPropagation(() =>
+		run(
+			"npm",
+			[
+				"pack",
+				`${name}@${version}`,
+				"--pack-destination",
+				dest,
+				"--loglevel=error",
+			],
+			{
+				cwd: repoRoot,
+			},
+		),
+	);
+	return extractedTarballDir(dest);
+};
 
 const registryLatest = (name) => {
 	try {
@@ -326,36 +341,38 @@ for (const pkg of packages) {
 		synthesizeManifest(pkg);
 		stampGeneratedMetadata(pkg);
 	}
-	const fresh = freshPackage(pkg.dir);
 	const latest = registryLatest(pkg.name);
 
-	let target;
-	if (latest === null) {
-		target = "0.0.1";
-		summary.push({
-			name: pkg.name,
-			decision: `seed ${target} (not on registry)`,
-			breaks: [],
-		});
-	} else {
-		const published = publishedPackage(pkg.name, latest);
-		if (published.hash === fresh.hash) {
-			summary.push({
-				name: pkg.name,
-				decision: `skip (identical to ${latest})`,
+	const decided = withTempDir((tempDir) => {
+		const fresh = freshPackage(pkg.dir, tempDir);
+		if (latest === null) {
+			const target = "0.0.1";
+			return {
+				target,
+				decision: `seed ${target} (not on registry)`,
 				breaks: [],
-			});
-			continue;
+			};
 		}
-		const breaks = apiBreaks(published.api, fresh.api);
+		const published = publishedPackage(pkg.name, latest, tempDir);
+		if (hashPackageDir(published) === hashPackageDir(fresh)) {
+			return { decision: `skip (identical to ${latest})`, breaks: [] };
+		}
+		const breaks = apiBreaks(packageApi(published), packageApi(fresh));
 		const bump = breaks.length > 0 ? "minor" : "patch";
-		target = bump === "minor" ? minorBump(latest) : patchBump(latest);
-		summary.push({
-			name: pkg.name,
+		const target = bump === "minor" ? minorBump(latest) : patchBump(latest);
+		return {
+			target,
 			decision: `publish ${latest} -> ${target} (${bump})`,
 			breaks,
-		});
-	}
+		};
+	});
+	summary.push({
+		name: pkg.name,
+		decision: decided.decision,
+		breaks: decided.breaks,
+	});
+	if (decided.target === undefined) continue;
+	const { target } = decided;
 
 	if (dryRun) {
 		packCheck(pkg.dir);

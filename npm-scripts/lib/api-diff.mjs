@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 
 const DECLARATION = /\.d\.[cm]?ts$/;
@@ -94,8 +94,89 @@ export const entryPoints = (packageDir, manifest) => {
 	return entries;
 };
 
-const declarationText = (ts, printer, symbol) =>
+const isInside = (dir, fileName) => fileName.startsWith(`${dir}/`);
+
+const isSource = (fileName) =>
+	TYPESCRIPT.test(fileName) && !DECLARATION.test(fileName);
+
+const declarationPath = (fileName) =>
+	fileName.replace(/\.([cm]?)tsx?$/, (_, flavour) => `.d.${flavour}ts`);
+
+const EMIT_DECLARATIONS = {
+	declaration: true,
+	emitDeclarationOnly: true,
+	noEmitOnError: false,
+	noEmit: false,
+	composite: false,
+	incremental: false,
+	declarationMap: false,
+	sourceMap: false,
+	skipLibCheck: true,
+	outDir: undefined,
+	rootDir: undefined,
+	declarationDir: undefined,
+};
+
+// A package's tsconfig extends the repository's, which the tarball does not
+// carry, so the caller supplies the base options and the package's own
+// compilerOptions apply on top of them.
+const sourceOptions = (ts, packageDir, baseOptions) => {
+	const configPath = join(packageDir, "tsconfig.json");
+	const own = existsSync(configPath)
+		? ts.convertCompilerOptionsFromJson(
+				ts.readConfigFile(configPath, ts.sys.readFile).config
+					?.compilerOptions ?? {},
+				packageDir,
+			).options
+		: {};
+	return { ...baseOptions, ...own, ...EMIT_DECLARATIONS };
+};
+
+const emitDeclarations = (ts, packageDir, sourceFiles, baseOptions) => {
+	const program = ts.createProgram(
+		sourceFiles,
+		sourceOptions(ts, packageDir, baseOptions),
+	);
+	const emitted = new Map();
+	const collect = (fileName, text, _bom, _onError, sources) => {
+		if (!DECLARATION.test(fileName)) return;
+		for (const source of sources ?? []) {
+			emitted.set(declarationPath(source.fileName), text);
+		}
+	};
+	for (const source of program.getSourceFiles()) {
+		if (!isInside(packageDir, source.fileName) || !isSource(source.fileName))
+			continue;
+		program.emit(source, collect, undefined, true);
+	}
+	return emitted;
+};
+
+// The package's TypeScript sources are hidden behind the declarations emitted
+// from them, so `./x.js` resolves to the emitted `x.d.ts` and not to `x.ts`.
+const overlayHost = (ts, options, packageDir, emitted) => {
+	const host = ts.createCompilerHost(options);
+	const hidden = (fileName) =>
+		isInside(packageDir, fileName) && isSource(fileName);
+	return {
+		...host,
+		fileExists: (fileName) =>
+			emitted.has(fileName) || (!hidden(fileName) && host.fileExists(fileName)),
+		readFile: (fileName) =>
+			emitted.get(fileName) ??
+			(hidden(fileName) ? undefined : host.readFile(fileName)),
+		getSourceFile: (fileName, languageVersion, ...rest) =>
+			emitted.has(fileName)
+				? ts.createSourceFile(fileName, emitted.get(fileName), languageVersion)
+				: host.getSourceFile(fileName, languageVersion, ...rest),
+	};
+};
+
+// Only declarations inside the package count: a re-export from another
+// package is that package's API and its own version.
+const declarationText = (ts, printer, packageDir, symbol) =>
 	(symbol.declarations ?? [])
+		.filter((node) => isInside(packageDir, node.getSourceFile().fileName))
 		.map((node) =>
 			printer
 				.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile())
@@ -105,35 +186,48 @@ const declarationText = (ts, printer, symbol) =>
 		.sort()
 		.join("\n");
 
-// Keys are `<subpath> <export name>`. The value is the printed declaration, or
-// null when the entry is TypeScript source: its text carries implementation
-// bodies, so only its export names are compared.
-export const apiSurface = (ts, packageDir) => {
+// Keys are `<subpath> <export name>`, values the printed declaration. An entry
+// that is TypeScript source is compared through the declarations the compiler
+// emits for it, so implementation bodies never count.
+export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 	const manifest = JSON.parse(
 		readFileSync(join(packageDir, "package.json"), "utf8"),
 	);
-	const entries = entryPoints(packageDir, manifest);
+	const entries = entryPoints(packageDir, manifest).map(
+		({ subpath, file }) => ({ subpath, path: join(packageDir, file) }),
+	);
 	const surface = new Map();
 	if (entries.length === 0) return surface;
 
+	const sources = entries.map(({ path }) => path).filter(isSource);
+	const emitted =
+		sources.length > 0
+			? emitDeclarations(ts, packageDir, sources, baseOptions)
+			: new Map();
+	const declared = entries.map(({ subpath, path }) => ({
+		subpath,
+		path: isSource(path) ? declarationPath(path) : path,
+	}));
+
+	const options = {
+		noEmit: true,
+		noLib: true,
+		types: [],
+		module: ts.ModuleKind.ESNext,
+		moduleResolution: ts.ModuleResolutionKind.Bundler,
+	};
 	const program = ts.createProgram(
-		entries.map(({ file }) => join(packageDir, file)),
-		{
-			noEmit: true,
-			noLib: true,
-			types: [],
-			module: ts.ModuleKind.ESNext,
-			moduleResolution: ts.ModuleResolutionKind.Bundler,
-		},
+		declared.map(({ path }) => path),
+		options,
+		overlayHost(ts, options, packageDir, emitted),
 	);
 	const checker = program.getTypeChecker();
 	const printer = ts.createPrinter({ removeComments: true });
 
-	for (const { subpath, file } of entries) {
-		const source = program.getSourceFile(join(packageDir, file));
+	for (const { subpath, path } of declared) {
+		const source = program.getSourceFile(path);
 		const moduleSymbol = source && checker.getSymbolAtLocation(source);
 		if (!moduleSymbol) continue;
-		const printed = DECLARATION.test(file);
 		for (const exported of checker.getExportsOfModule(moduleSymbol)) {
 			const target =
 				exported.flags & ts.SymbolFlags.Alias
@@ -141,7 +235,7 @@ export const apiSurface = (ts, packageDir) => {
 					: exported;
 			surface.set(
 				`${subpath} ${exported.name}`,
-				printed ? declarationText(ts, printer, target) : null,
+				declarationText(ts, printer, packageDir, target),
 			);
 		}
 	}
@@ -155,8 +249,7 @@ export const apiBreaks = (before, after) => {
 			breaks.push(`removed ${key}`);
 			continue;
 		}
-		const next = after.get(key);
-		if (text !== null && next !== null && text !== next) {
+		if (text !== after.get(key)) {
 			breaks.push(`changed ${key}`);
 		}
 	}

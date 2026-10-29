@@ -153,18 +153,43 @@ describe("apiBreaks", {
 		assert.equal(apiSurface(ts, dir).size, 0);
 	});
 
-	it("compares only export names of a TypeScript source entry", () => {
+	it("reports a changed signature in a package that ships source", () => {
+		const exports = { ".": { types: "./src/index.ts" } };
+		const index =
+			'export { countThreads } from "./threads.js";\nexport const label = "threads";\n';
+		assert.deepEqual(
+			breaksBetween(
+				exports,
+				{
+					"src/index.ts": index,
+					"src/threads.ts":
+						"export function countThreads(accountId: string) {\n\treturn accountId.length;\n}\n",
+				},
+				{
+					"src/index.ts": index,
+					"src/threads.ts":
+						"export function countThreads(accountId: string, mailboxId: string) {\n\treturn accountId.length + mailboxId.length;\n}\n",
+				},
+			),
+			["changed . countThreads"],
+		);
+	});
+
+	it("reports nothing for a body change in a package that ships source", () => {
 		const exports = { ".": { types: "./src/index.ts" } };
 		assert.deepEqual(
 			breaksBetween(
 				exports,
 				{
 					"src/index.ts":
-						"export const a = (): number => 1;\nexport const b = 2;\n",
+						"export function countThreads(accountId: string): number {\n\treturn accountId.length;\n}\n",
 				},
-				{ "src/index.ts": "export const a = (): number => 2;\n" },
+				{
+					"src/index.ts":
+						"export function countThreads(accountId: string): number {\n\treturn accountId.trim().length;\n}\n",
+				},
 			),
-			["removed . b"],
+			[],
 		);
 	});
 });
