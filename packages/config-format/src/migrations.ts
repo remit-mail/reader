@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 import { ConfigVersionError } from "./errors.js";
 import { CURRENT_SCHEMA_VERSION } from "./version.js";
 

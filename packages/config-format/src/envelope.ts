@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 import { CONFIG_KIND } from "./version.js";
 
 /**
