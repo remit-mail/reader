@@ -39,7 +39,6 @@ export const buildThreadMessageTrashUpdate = (
 	set: {
 		uid: newUid,
 		mailboxId: destinationMailboxId,
-		isDeleted: true,
 	},
 	composites: currentComposites(threadMessage),
 });

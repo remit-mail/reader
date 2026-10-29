@@ -302,12 +302,14 @@ describe("a message the database already holds, sighted in another folder", () =
 		);
 	});
 
-	it("marks the listing row deleted in Trash and clears it on the way out", async () => {
+	it("keeps the listing row listed in Trash and on the way out", async () => {
 		imap.condstore = false;
 		const { uid, message } = await arrive(inbox);
 		const inTrash = await serverMove(inbox, uid, trash);
 		await sync(trash);
-		assert.equal((await threadOf(message.messageId)).isDeleted, true);
+		const trashed = await threadOf(message.messageId);
+		assert.equal(trashed.mailboxId, trash.mailboxId);
+		assert.equal(trashed.isDeleted, false);
 
 		await serverMove(trash, inTrash, inbox);
 		await sync(inbox);

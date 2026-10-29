@@ -1768,7 +1768,7 @@ export class MessageSyncService {
 			(await this.messageService.repointIfPlacement(
 				messageId,
 				{ status: item.status, mailboxId: item.mailboxId, uid: item.uid },
-				{ mailboxId, uid: msg.uid, isDeleted: sighting === "discarded" },
+				{ mailboxId, uid: msg.uid, isDeleted: false },
 			));
 
 		if (repointable && !repointed) unresolvedSighting = true;

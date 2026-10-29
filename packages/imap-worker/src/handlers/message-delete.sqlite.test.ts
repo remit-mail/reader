@@ -95,7 +95,7 @@ describe("a move to Trash", () => {
 		assert.equal(row?.uid, trashUid);
 		assert.equal(row?.status, MessageStatus.active);
 		assert.deepEqual(await a.w.threadRows(a.messageId), [
-			{ mailboxId: a.trashId, uid: trashUid, isDeleted: true },
+			{ mailboxId: a.trashId, uid: trashUid, isDeleted: false },
 		]);
 	});
 
