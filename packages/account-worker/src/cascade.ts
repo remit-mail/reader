@@ -94,13 +94,6 @@ export interface CascadeResult {
 	messageIds: string[];
 }
 
-/**
- * Expand one message's 9 child entities (flags, envelope, addresses, body
- * parts, references, raw/body storage) into the cascade plan. The Message row
- * itself is pushed by the caller — this only collects the children that a
- * `describe()` reveals. Shared by the tenant cascade enumerator and the
- * per-account purge worker.
- */
 export const collectMessageChildEntities = (
 	entities: CascadeEntity[],
 	messageData: MessageDescription,
@@ -145,12 +138,6 @@ export const collectMessageChildEntities = (
 		entities.push({
 			entityType: "RawMessageStorage",
 			key: { rawStorageId: rms.rawStorageId },
-		});
-	}
-	for (const bps of messageData.bodyPartStorage) {
-		entities.push({
-			entityType: "BodyPartStorage",
-			key: { bodyPartStorageId: bps.bodyPartStorageId },
 		});
 	}
 };
@@ -203,63 +190,10 @@ export const enumerateCascadeEntities = async (
 					key: { messageId: message.messageId },
 				});
 
-				const messageData = await messageService.describe(message.messageId);
-
-				for (const flag of messageData.messageFlag) {
-					entities.push({
-						entityType: "MessageFlag",
-						key: { messageFlagId: flag.messageFlagId },
-					});
-				}
-
-				for (const envelope of messageData.envelope) {
-					entities.push({
-						entityType: "Envelope",
-						key: { envelopeId: envelope.envelopeId },
-					});
-				}
-
-				for (const ref of messageData.messageReference) {
-					entities.push({
-						entityType: "MessageReference",
-						key: { messageReferenceId: ref.messageReferenceId },
-					});
-				}
-
-				for (const addr of messageData.envelopeAddress) {
-					entities.push({
-						entityType: "EnvelopeAddress",
-						key: { envelopeAddressId: addr.envelopeAddressId },
-					});
-				}
-
-				for (const bp of messageData.bodyPart) {
-					entities.push({
-						entityType: "BodyPart",
-						key: { bodyPartId: bp.bodyPartId },
-					});
-				}
-
-				for (const bpp of messageData.bodyPartParameter) {
-					entities.push({
-						entityType: "BodyPartParameter",
-						key: { bodyPartParameterId: bpp.bodyPartParameterId },
-					});
-				}
-
-				for (const rms of messageData.rawMessageStorage) {
-					entities.push({
-						entityType: "RawMessageStorage",
-						key: { rawStorageId: rms.rawStorageId },
-					});
-				}
-
-				for (const bps of messageData.bodyPartStorage) {
-					entities.push({
-						entityType: "BodyPartStorage",
-						key: { bodyPartStorageId: bps.bodyPartStorageId },
-					});
-				}
+				collectMessageChildEntities(
+					entities,
+					await messageService.describe(message.messageId),
+				);
 			}
 		}
 

@@ -1,0 +1,1 @@
+DROP TABLE `body_part_storage`;

@@ -4,7 +4,6 @@
 export {
 	addresses,
 	bodyPartParameters,
-	bodyPartStorages,
 	bodyParts,
 	bodyStructureRefetches,
 	calendarSuggestions,

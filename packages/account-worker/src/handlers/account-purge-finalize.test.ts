@@ -17,7 +17,6 @@ const messageDescription = {
 	bodyPart: [],
 	bodyPartParameter: [],
 	rawMessageStorage: [],
-	bodyPartStorage: [],
 };
 
 const fakeClient = (accountGone = false): RemitClient =>

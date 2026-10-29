@@ -29,6 +29,13 @@
       "when": 1793257800685,
       "tag": "0003_message_by_body_storage_key",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793263007631,
+      "tag": "0004_drop_body_part_storage",
+      "breakpoints": true
     }
   ]
 }

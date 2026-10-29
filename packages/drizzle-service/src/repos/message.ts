@@ -38,7 +38,6 @@ import {
 import { decodeToken, resultList } from "../pagination.js";
 import {
 	bodyPartParameterTable,
-	bodyPartStorageTable,
 	bodyPartTable,
 	bodyStructureRefetchTable,
 	envelopeAddressTable,
@@ -55,7 +54,6 @@ import { inList, pairInList } from "./in-list.js";
 import {
 	toBodyPartItem,
 	toBodyPartParameterItem,
-	toBodyPartStorageItem,
 	toEnvelopeAddressItem,
 	toEnvelopeItem,
 	toMessageReferenceItem,
@@ -200,14 +198,6 @@ export function deleteMessageSubtree(
 				and(
 					inList(bodyPartParameterTable.messageId, messageIds),
 					guard?.(bodyPartParameterTable.messageId),
-				),
-			),
-		db
-			.delete(bodyPartStorageTable)
-			.where(
-				and(
-					inList(bodyPartStorageTable.messageId, messageIds),
-					guard?.(bodyPartStorageTable.messageId),
 				),
 			),
 		db
@@ -407,7 +397,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			bodyParts,
 			bodyPartParameters,
 			rawMessageStorages,
-			bodyPartStorages,
 		] = await Promise.all([
 			this.db
 				.select()
@@ -441,10 +430,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 				.select()
 				.from(rawMessageStorageTable)
 				.where(eq(rawMessageStorageTable.messageId, messageId)),
-			this.db
-				.select()
-				.from(bodyPartStorageTable)
-				.where(eq(bodyPartStorageTable.messageId, messageId)),
 		]);
 
 		if (messages.length === 0) {
@@ -467,7 +452,6 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			bodyPart: bodyParts.map(toBodyPartItem),
 			bodyPartParameter: bodyPartParameters.map(toBodyPartParameterItem),
 			rawMessageStorage: rawMessageStorages.map(toRawMessageStorageItem),
-			bodyPartStorage: bodyPartStorages.map(toBodyPartStorageItem),
 		};
 	}
 

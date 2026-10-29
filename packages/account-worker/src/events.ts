@@ -28,7 +28,7 @@ export type AccountDataPurgeSubtreeItem = {
  * S3-delete, CloudFront, and DDB batch-write grants.
  *
  * - `subtrees`: delete each `{ threadMessageId, messageId }` subtree (the
- *   Message, its 9 child entities, and the manifest row). Idempotent.
+ *   Message, its child entities, and the manifest row). Idempotent.
  * - `container`: the last message — delete the account-keyed container rows
  *   (mailboxes, outbox, locks), the S3 prefix, and the CloudFront cache. The
  *   tenant-shared Address is never deleted.

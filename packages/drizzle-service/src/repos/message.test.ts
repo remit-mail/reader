@@ -122,7 +122,6 @@ describe("DrizzleMessageRepository", () => {
 			assert.equal(desc.bodyPart.length, 0);
 			assert.equal(desc.bodyPartParameter.length, 0);
 			assert.equal(desc.rawMessageStorage.length, 0);
-			assert.equal(desc.bodyPartStorage.length, 0);
 		});
 
 		test("throws NotFoundError for unknown messageId", async () => {
