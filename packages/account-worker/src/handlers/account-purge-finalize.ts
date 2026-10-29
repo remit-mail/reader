@@ -37,7 +37,7 @@ export const processAccountDataPurgeFinalize = async (
 /**
  * Delete a batch of message subtrees. For each `{ threadMessageId, messageId }`
  * the manifest row is deleted UNCONDITIONALLY — there are ghost ThreadMessages
- * whose Message is already gone — and the Message + its 9 child entities are
+ * whose Message is already gone — and the Message + its child entities are
  * deleted only when `describe()` resolves. A `describe()` 404 means the subtree
  * is already gone: skip the children, still drop the manifest row.
  */
