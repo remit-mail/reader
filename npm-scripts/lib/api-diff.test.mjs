@@ -192,4 +192,35 @@ describe("apiBreaks", {
 			[],
 		);
 	});
+
+	it("reports a change in an unexported type an export refers to", () => {
+		assert.deepEqual(
+			breaksBetween(
+				rootEntry,
+				{
+					"index.d.ts":
+						"type Opts = { a: string };\nexport declare function f(o: Opts): void;\nexport {};\n",
+				},
+				{
+					"index.d.ts":
+						"type Opts = { a: number };\nexport declare function f(o: Opts): void;\nexport {};\n",
+				},
+			),
+			["changed (local) index.d.ts"],
+		);
+	});
+
+	it("fails instead of comparing through an import it cannot resolve", () => {
+		const dir = writePackage(
+			{ ".": { types: "./src/index.ts" } },
+			{
+				"src/index.ts":
+					'import { session } from "not-installed";\nexport const current = () => session();\n',
+			},
+		);
+		assert.throws(
+			() => apiSurface(ts, dir),
+			/Cannot find module 'not-installed'/,
+		);
+	});
 });

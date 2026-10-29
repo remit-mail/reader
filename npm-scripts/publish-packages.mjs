@@ -153,11 +153,12 @@ const hashPackageDir = (packageDir) => {
 	return combined.digest("hex");
 };
 
-// Under the repository, so a packed package that ships TypeScript source
-// resolves its imports through the root node_modules when its declarations are
-// emitted.
-const withTempDir = (fn) => {
-	const scratch = join(repoRoot, ".tmp");
+// Inside the package's own directory, so a packed package that ships
+// TypeScript source resolves its imports through the package's node_modules and
+// then the root's when its declarations are emitted. The directory is empty
+// while the fresh pack runs, and gitignored, so it never reaches the tarball.
+const withTempDir = (pkgDir, fn) => {
+	const scratch = join(repoRoot, pkgDir, ".tmp");
 	mkdirSync(scratch, { recursive: true });
 	const dir = mkdtempSync(join(scratch, "remit-pack-"));
 	try {
@@ -343,7 +344,7 @@ for (const pkg of packages) {
 	}
 	const latest = registryLatest(pkg.name);
 
-	const decided = withTempDir((tempDir) => {
+	const decided = withTempDir(pkg.dir, (tempDir) => {
 		const fresh = freshPackage(pkg.dir, tempDir);
 		if (latest === null) {
 			const target = "0.0.1";

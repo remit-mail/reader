@@ -132,11 +132,43 @@ const sourceOptions = (ts, packageDir, baseOptions) => {
 	return { ...baseOptions, ...own, ...EMIT_DECLARATIONS };
 };
 
+const UNRESOLVED_MODULE = new Set([2307, 2792]);
+
+// An import the compiler cannot resolve types everything through it as `any`
+// on both sides of the comparison, which reads as no change. That must fail the
+// run, never fall back to a patch.
+const assertResolved = (ts, program, packageDir, counts) => {
+	const unresolved = program
+		.getSourceFiles()
+		.filter((source) => isInside(packageDir, source.fileName))
+		.flatMap((source) => program.getSemanticDiagnostics(source))
+		.filter((diagnostic) => UNRESOLVED_MODULE.has(diagnostic.code))
+		.filter(counts)
+		.map(
+			(diagnostic) =>
+				`${relative(packageDir, diagnostic.file.fileName)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
+		);
+	if (unresolved.length > 0) {
+		throw new Error(
+			`unresolved imports in ${packageDir}:\n  ${unresolved.join("\n  ")}`,
+		);
+	}
+};
+
+const isRelativeImport = (diagnostic) =>
+	/^["']\./.test(
+		diagnostic.file.text.slice(
+			diagnostic.start,
+			diagnostic.start + diagnostic.length,
+		),
+	);
+
 const emitDeclarations = (ts, packageDir, sourceFiles, baseOptions) => {
 	const program = ts.createProgram(
 		sourceFiles,
 		sourceOptions(ts, packageDir, baseOptions),
 	);
+	assertResolved(ts, program, packageDir, () => true);
 	const emitted = new Map();
 	const collect = (fileName, text, _bom, _onError, sources) => {
 		if (!DECLARATION.test(fileName)) return;
@@ -174,9 +206,8 @@ const overlayHost = (ts, options, packageDir, emitted) => {
 
 // Only declarations inside the package count: a re-export from another
 // package is that package's API and its own version.
-const declarationText = (ts, printer, packageDir, symbol) =>
-	(symbol.declarations ?? [])
-		.filter((node) => isInside(packageDir, node.getSourceFile().fileName))
+const printed = (ts, printer, nodes) =>
+	nodes
 		.map((node) =>
 			printer
 				.printNode(ts.EmitHint.Unspecified, node, node.getSourceFile())
@@ -186,9 +217,42 @@ const declarationText = (ts, printer, packageDir, symbol) =>
 		.sort()
 		.join("\n");
 
-// Keys are `<subpath> <export name>`, values the printed declaration. An entry
-// that is TypeScript source is compared through the declarations the compiler
-// emits for it, so implementation bodies never count.
+const declarationText = (ts, printer, packageDir, symbol) =>
+	printed(
+		ts,
+		printer,
+		(symbol.declarations ?? []).filter((node) =>
+			isInside(packageDir, node.getSourceFile().fileName),
+		),
+	);
+
+const MODULE_SYNTAX = new Set([
+	"ImportDeclaration",
+	"ImportEqualsDeclaration",
+	"ExportDeclaration",
+	"ExportAssignment",
+]);
+
+// A type an export refers to but does not export changes what the export
+// accepts or returns without changing its own text, so each declaration
+// file's unexported statements are compared as one entry.
+const isExported = (ts, statement) =>
+	ts.canHaveModifiers(statement) &&
+	(ts.getModifiers(statement) ?? []).some(
+		(modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+	);
+
+const localStatements = (ts, source) =>
+	source.statements.filter(
+		(statement) =>
+			!MODULE_SYNTAX.has(ts.SyntaxKind[statement.kind]) &&
+			!isExported(ts, statement),
+	);
+
+// Keys are `<subpath> <export name>` and `(local) <declaration file>`, values
+// the printed declarations. An entry that is TypeScript source is compared
+// through the declarations the compiler emits for it, so implementation bodies
+// never count.
 export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 	const manifest = JSON.parse(
 		readFileSync(join(packageDir, "package.json"), "utf8"),
@@ -221,13 +285,19 @@ export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 		options,
 		overlayHost(ts, options, packageDir, emitted),
 	);
+	assertResolved(ts, program, packageDir, isRelativeImport);
 	const checker = program.getTypeChecker();
 	const printer = ts.createPrinter({ removeComments: true });
 
 	for (const { subpath, path } of declared) {
 		const source = program.getSourceFile(path);
-		const moduleSymbol = source && checker.getSymbolAtLocation(source);
-		if (!moduleSymbol) continue;
+		if (!source) {
+			throw new Error(`${subpath}: no declarations at ${path}`);
+		}
+		const moduleSymbol = checker.getSymbolAtLocation(source);
+		if (!moduleSymbol) {
+			throw new Error(`${subpath}: ${path} is not a module`);
+		}
 		for (const exported of checker.getExportsOfModule(moduleSymbol)) {
 			const target =
 				exported.flags & ts.SymbolFlags.Alias
@@ -238,6 +308,15 @@ export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 				declarationText(ts, printer, packageDir, target),
 			);
 		}
+	}
+	for (const source of program.getSourceFiles()) {
+		if (!isInside(packageDir, source.fileName)) continue;
+		const locals = localStatements(ts, source);
+		if (locals.length === 0) continue;
+		surface.set(
+			`(local) ${relative(packageDir, source.fileName)}`,
+			printed(ts, printer, locals),
+		);
 	}
 	return surface;
 };
