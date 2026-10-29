@@ -54,6 +54,9 @@
 	},
 	"devDependencies": {
 		"@aws-sdk/core": "*",
+		"@remit/auth-service": "*",
+		"better-sqlite3": "^12.11.1",
+		"drizzle-orm": "^0.45.2",
 		"esbuild": "^0.28.1"
 	},
 	"license": "MIT",

@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
 	BETTER_SQLITE3_LIMITS,
+	eraseAuthUserOf,
 	openSqliteDatabases,
 	runDrizzleAccountConfigErase,
 	runDrizzleCascadeDelete,
@@ -34,9 +35,8 @@ const deleteStoragePrefix = async (
 };
 
 // The app, mail and search databases are opened once, on first use, and
-// shared by both deletes (the native binding loads there, hence async). Built
-// lazily so the fanout worker — which signs out but never deletes rows — does
-// not open a database handle it will not use.
+// shared by every delete (the native binding loads there, hence async). Built
+// lazily so a worker that never deletes does not open a database handle.
 let storesPromise: Promise<SqliteStores> | undefined;
 
 const getStores = (): Promise<SqliteStores> => {
@@ -49,10 +49,8 @@ const getStores = (): Promise<SqliteStores> => {
 /**
  * The self-host stack's deletion capabilities (RFC 035/036).
  *
- * - `signOut`: no-op. Deleting the AccountConfig row severs the session's
- *   account→data resolution, and there is no federated session store to sign
- *   out of; better-auth session rows are owned by the auth service, outside this
- *   worker's data seam.
+ * - `signOut`: deletes the better-auth login user from the app database,
+ *   which cascades to its sessions. An AccountConfig's `userId` is its own id.
  * - `invalidateContent`: no-op. Caddy proxies `/content/*` straight to the
  *   backend with no response cache (`deploy/vps/caddy/routes.caddy`), so there
  *   is nothing to invalidate.
@@ -63,12 +61,8 @@ const getStores = (): Promise<SqliteStores> => {
 export const buildRelationalDeletionCapabilities =
 	(): DeletionCapabilities => ({
 		assertReady: async () => {},
-		signOut: async (userId, log) => {
-			log.info(
-				{ userId },
-				"Sign-out is a no-op on the relational backend; AccountConfig removal severs session data access",
-			);
-		},
+		signOut: async (userId, log) =>
+			eraseAuthUserOf((await getStores()).app, userId, log),
 		invalidateContent: async (contentPrefix, log) => {
 			log.info(
 				{ contentPrefix },

@@ -27,6 +27,7 @@ export {
 	eraseAccountConfigAppRows,
 	runDrizzleAccountConfigErase,
 } from "./repos/account-config-erase.js";
+export { eraseAuthUserOf } from "./repos/auth-user-erase.js";
 export { CalendarCollectionRepo } from "./repos/calendar-collection.js";
 export { CalendarEventIndexRepo } from "./repos/calendar-event-index.js";
 export { CalendarFeedTokenRepo } from "./repos/calendar-feed-token.js";

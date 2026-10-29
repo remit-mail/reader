@@ -14,9 +14,8 @@ import type { CascadeEntity } from "./cascade.js";
  *   ElectroDB graph and lives outside this shared, open-core module; it is
  *   injected here through `setDeletionCapabilities` so that graph never reaches
  *   the relational tree.
- * - `compose-relational.ts` (self-host stack, RFC 035/036): no-op sign-out
- *   (deleting the AccountConfig severs the session's data resolution; there is
- *   no CDN to sign out of), no-op invalidation (Caddy proxies `/content/*`
+ * - `compose-relational.ts` (self-host stack, RFC 035/036): sign-out deletes
+ *   the login user with its sessions, no-op invalidation (Caddy proxies `/content/*`
  *   straight to the backend with no cache), filesystem prefix delete, and the
  *   Drizzle cascade over SQLite.
  */
@@ -31,7 +30,8 @@ export interface DeletionCapabilities {
 	assertReady(log: Logger): Promise<void>;
 	/**
 	 * Invalidate the deleted user's active auth sessions. AWS: Cognito
-	 * `AdminUserGlobalSignOut`. Relational: no-op.
+	 * `AdminUserGlobalSignOut`. Relational: delete the login user, which takes
+	 * its sessions with it.
 	 */
 	signOut(userId: string, log: Logger): Promise<void>;
 	/**
