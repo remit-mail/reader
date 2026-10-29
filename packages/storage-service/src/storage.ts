@@ -312,19 +312,25 @@ export interface StorageService {
 // the edge can verify cross-tenant isolation at the URL prefix without
 // loading any database record. The inner `accountId` distinguishes between
 // multiple IMAP-account records owned by the same tenant.
+export const buildMessageObjectPrefix = (
+	accountConfigId: string,
+	accountId: string,
+	messageId: string,
+): string => `accounts/${accountConfigId}/${accountId}/messages/${messageId}/`;
+
 export const buildMessageBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/body.eml`;
+	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}body.eml`;
 
 export const buildParsedBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parsed.json.gz`;
+	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}parsed.json.gz`;
 
 export const buildBodyPartKey = (
 	accountConfigId: string,
@@ -332,7 +338,7 @@ export const buildBodyPartKey = (
 	messageId: string,
 	partPath: string,
 ): string =>
-	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
+	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}parts/${partPath}`;
 
 export const buildOutboxAttachmentPrefix = (
 	accountConfigId: string,

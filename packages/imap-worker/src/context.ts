@@ -48,6 +48,7 @@ export interface ImapWorkerConfig {
 	readonly bodyProcessConcurrency: number;
 	readonly bodyProcessBytesInFlight: number;
 	readonly mailboxFreshnessMs: number;
+	readonly messageObjectDeleteConcurrency: number;
 	readonly workerVersion: string;
 }
 
@@ -81,4 +82,5 @@ export const defaultImapWorkerConfig: Omit<
 		messageCopy: 3,
 	},
 	mailboxFreshnessMs: DEFAULT_MAILBOX_FRESHNESS_MS,
+	messageObjectDeleteConcurrency: 8,
 };

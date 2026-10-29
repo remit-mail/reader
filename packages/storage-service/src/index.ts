@@ -21,6 +21,7 @@ export {
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
 	buildMessageBodyKey,
+	buildMessageObjectPrefix,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,

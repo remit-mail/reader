@@ -12,8 +12,9 @@ import { handlePlacementMovePush } from "./handlers/placement-move-push.js";
 import { syncMailboxes } from "./handlers/sync-mailboxes.js";
 import { syncMessageBody } from "./handlers/sync-message-body.js";
 import { syncMessages } from "./handlers/sync-messages.js";
+import { withMessageObjectCleanup } from "./message-objects.js";
 
-export const processEvent = async (
+const dispatch = async (
 	event: WorkerEvent,
 	ctx: ProcessContext,
 	receiveCount: number,
@@ -49,3 +50,10 @@ export const processEvent = async (
 			throw new Error(`Unknown event type: ${(event as WorkerEvent).type}`);
 	}
 };
+
+export const processEvent = (
+	event: WorkerEvent,
+	ctx: ProcessContext,
+	receiveCount: number,
+): Promise<void> =>
+	dispatch(event, withMessageObjectCleanup(ctx), receiveCount);
