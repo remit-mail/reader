@@ -7,7 +7,7 @@ import {
 	LabelColor,
 	MessageCategory,
 } from "@remit/domain-enums";
-import { z } from "zod/v4";
+import { z } from "zod";
 import { CONFIG_KIND, CURRENT_SCHEMA_VERSION } from "./version.js";
 
 const NonEmpty = z.string().min(1);

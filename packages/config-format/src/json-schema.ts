@@ -1,4 +1,4 @@
-import { z } from "zod/v4";
+import { z } from "zod";
 import { ReaderConfigDocumentSchema } from "./document.js";
 import { CONFIG_SCHEMA_ID, CURRENT_SCHEMA_VERSION } from "./version.js";
 
