@@ -465,6 +465,8 @@ export type MailboxSubtreeTransitionIntent = {
 export type CreateMessageInput = Omit<
 	MessageItem,
 	| "messageId"
+	| "envelopeId"
+	| "rootBodyPartId"
 	| "createdAt"
 	| "updatedAt"
 	| "status"

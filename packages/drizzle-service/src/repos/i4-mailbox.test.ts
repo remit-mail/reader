@@ -564,8 +564,6 @@ describe("MailboxRepo", () => {
 				sequenceNumber: uid,
 				rfc822Size: 10,
 				internalDate: 1700000000000,
-				envelopeId: deriveEnvelopeId(messageId),
-				rootBodyPartId: deriveRootBodyPartId(messageId),
 			});
 			await db.insert(threadMessageTable).values({
 				threadMessageId: randomId(),

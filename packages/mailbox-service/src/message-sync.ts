@@ -15,7 +15,6 @@ import { storedDisplayName } from "@remit/data-ports/display-name";
 import type { JunkRoleMailboxes } from "@remit/data-ports/folder-role";
 import {
 	deriveAddressId,
-	deriveBodyPartId,
 	deriveCopyMessageId,
 	deriveEnvelopeId,
 	deriveMessageId,
@@ -45,7 +44,7 @@ import {
 	type CursorRebuildSnapshot,
 	matchCursorRebuild,
 } from "./mailbox-cursor-rebuild.js";
-import { ROOT_PART_PATH, walkMimeStructure } from "./mime-walker.js";
+import { walkMimeStructure } from "./mime-walker.js";
 import type { QuarantineService } from "./quarantine.js";
 import type { SyncWarningRound, SyncWarningService } from "./sync-warning.js";
 import {
@@ -1650,7 +1649,6 @@ export class MessageSyncService {
 
 		const messageId = messageIdForSighting(accountId, mailboxId, msg);
 		const envelopeId = deriveEnvelopeId(messageId);
-		const rootBodyPartId = deriveBodyPartId(messageId, ROOT_PART_PATH);
 
 		const internalDateMs = msg.internalDate.getTime();
 		const { value: sentDate, usedFallback: dateFellBack } = parseHeaderDate(
@@ -1742,8 +1740,6 @@ export class MessageSyncService {
 			sequenceNumber: msg.seq,
 			rfc822Size: msg.size ?? 0,
 			internalDate: msg.internalDate.getTime(),
-			envelopeId,
-			rootBodyPartId,
 		});
 
 		// The server has just named this folder and this UID for a message the

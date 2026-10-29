@@ -903,15 +903,13 @@ export class MessageMoveService {
 		// the copy at uid=0 with an undelivered event; upsert no-ops on the row
 		// and lets the event be re-enqueued below, keeping the operation
 		// idempotent and the copy re-drivable (issue #75).
-		const copyRow = await this.messageService.upsertWithStatus({
+		const copyRow = await this.messageService.copyMessage(messageId, {
 			messageId: newMessageId,
 			mailboxId: destinationMailboxId,
 			uid: 0, // Will be updated by worker after IMAP COPY
 			sequenceNumber: 0, // Will be updated by worker
 			rfc822Size: sourceMessage.rfc822Size,
 			internalDate: sourceMessage.internalDate,
-			envelopeId: sourceMessage.envelopeId, // Share envelope with source
-			rootBodyPartId: sourceMessage.rootBodyPartId, // Share body parts with source
 			status: MessageStatus.moving,
 			syncStatus: MessageSyncStatus.pending,
 			bodyStorageKey: sourceMessage.bodyStorageKey,
@@ -927,7 +925,6 @@ export class MessageMoveService {
 			classificationState: sourceMessage.classificationState,
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
-		await this.messageService.copySearchText(messageId, newMessageId);
 
 		// Copy ThreadMessage entry
 		const sourceThreadMessage = await this.threadMessageService.getByMessageId(

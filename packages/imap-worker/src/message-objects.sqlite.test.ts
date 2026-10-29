@@ -103,6 +103,46 @@ const queuedEvent = <T extends WorkerEvent["type"]>(
 
 const run = (w: World, event: WorkerEvent) => processEvent(event, w.ctx(), 1);
 
+const messageData = async (w: World, messageId: string) => {
+	const row = await w.row(messageId);
+	assert.ok(row, `message ${messageId} exists`);
+	const parts = await w.client.envelope.listBodyParts(messageId);
+	const envelope = await w.client.envelope.getEnvelope(row.envelopeId);
+	const { envelopeAddress } = await w.client.message.describe(messageId);
+	const pathOf = new Map(parts.map((part) => [part.bodyPartId, part.partPath]));
+	return {
+		root: pathOf.get(row.rootBodyPartId),
+		envelope: {
+			messageId: envelope.messageId === messageId,
+			subject: envelope.subject,
+			messageIdValue: envelope.messageIdValue,
+			dateValue: envelope.dateValue,
+		},
+		addresses: envelopeAddress
+			.map((address) => ({
+				role: address.addressRole,
+				order: address.addressOrder,
+				email: address.normalizedEmail,
+			}))
+			.sort((a, b) =>
+				`${a.role}${a.order}`.localeCompare(`${b.role}${b.order}`),
+			),
+		parts: parts
+			.map((part) => ({
+				partPath: part.partPath,
+				parentPartPath:
+					part.parentBodyPartId === undefined
+						? undefined
+						: pathOf.get(part.parentBodyPartId),
+				mediaType: part.mediaType,
+				mediaSubtype: part.mediaSubtype,
+				sizeOctets: part.sizeOctets,
+				isMultipart: part.isMultipart,
+			}))
+			.sort((a, b) => a.partPath.localeCompare(b.partPath)),
+	};
+};
+
 describe("removing a message's last row removes its stored objects", () => {
 	it("a permanent delete removes the body, parsed body and parts", async () => {
 		const w = await store.world();
@@ -215,12 +255,15 @@ describe("removing a message's last row removes its stored objects", () => {
 		await assertGone(w, deleted);
 		await assertKept(w, kept);
 	});
-	it("a copy keeps the body it shares after its source is deleted", async () => {
+	it("a copy keeps its parts, envelope and shared body after its source is deleted", async () => {
 		const w = await store.world();
 		const inbox = await w.folder("INBOX");
 		const projects = await w.folder("Projects");
 		const source = await w.message(inbox);
 		await storeBody(w, source);
+		const sourceData = await messageData(w, source.messageId);
+		assert.ok(sourceData.parts.length > 0, "the source has body parts");
+		assert.ok(sourceData.envelope.subject, "the source has an envelope");
 		const copyId = await w.client.messageMove.copyMessage(
 			w.account.accountConfigId,
 			source.messageId,
@@ -228,16 +271,19 @@ describe("removing a message's last row removes its stored objects", () => {
 			w.account.accountId,
 		);
 		await run(w, queuedEvent(w, "MESSAGE_COPY"));
+
+		assert.deepEqual(await messageData(w, copyId), sourceData);
+
 		await w.client.messageMove.deleteMessage(
 			w.account.accountConfigId,
 			source.messageId,
 			w.account.accountId,
 			{ permanent: true },
 		);
-
 		await run(w, queuedEvent(w, "MESSAGE_DELETE"));
 
 		assert.equal(await w.row(source.messageId), undefined);
+		assert.deepEqual(await messageData(w, copyId), sourceData);
 		const copy = await w.row(copyId);
 		assert.ok(copy?.bodyStorageKey);
 		assert.ok(await w.client.storage.retrieve(copy.bodyStorageKey));

@@ -149,8 +149,6 @@ describe("DrizzleMessageRepository", () => {
 				sequenceNumber: 1,
 				rfc822Size: 512,
 				internalDate: NOW,
-				envelopeId: deriveEnvelopeId(MOVE_MESSAGE_ID),
-				rootBodyPartId: deriveRootBodyPartId(MOVE_MESSAGE_ID),
 				status: "active" as const,
 				syncStatus: "synced" as const,
 			});
@@ -264,8 +262,6 @@ describe("DrizzleMessageRepository", () => {
 				sequenceNumber: 1,
 				rfc822Size: 10,
 				internalDate: NOW,
-				envelopeId: DEL_ENVELOPE_ID,
-				rootBodyPartId: DEL_ROOT_BODY_PART_ID,
 				status: "active",
 				syncStatus: "synced",
 			});

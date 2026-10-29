@@ -42,3 +42,12 @@ export const envelopeAddressId = (
 	order: number,
 ): string =>
 	generateDeterministicId(`envelopeaddress:${messageId}:${role}:${order}`);
+
+export const messageReferenceId = (
+	messageId: string,
+	referenceType: string,
+	referenceOrder: number,
+): string =>
+	deterministicBase36Id(
+		`msgref:${messageId}:${referenceType}:${referenceOrder}`,
+	);

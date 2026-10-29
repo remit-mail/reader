@@ -105,8 +105,6 @@ const seedAccountWithInboxThread = async (
 		sequenceNumber: 1,
 		rfc822Size: 10,
 		internalDate: NOW,
-		envelopeId: randomUUID(),
-		rootBodyPartId: randomUUID(),
 		status: "active",
 		syncStatus: "synced",
 	});

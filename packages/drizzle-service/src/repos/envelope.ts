@@ -21,7 +21,7 @@ import {
 	bodyPartId as deriveBodyPartId,
 	bodyPartParameterId as deriveBodyPartParameterId,
 	envelopeId as deriveEnvelopeId,
-	deterministicBase36Id,
+	messageReferenceId as deriveMessageReferenceId,
 } from "../id.js";
 import {
 	bodyPartParameterTable,
@@ -229,8 +229,10 @@ export class DrizzleEnvelopeRepository implements IEnvelopeRepository {
 			.where(eq(messageReferenceTable.messageId, messageId));
 		const rows = references.map((reference) => ({
 			...reference,
-			messageReferenceId: deterministicBase36Id(
-				`msgref:${messageId}:${reference.referenceType}:${reference.referenceOrder}`,
+			messageReferenceId: deriveMessageReferenceId(
+				messageId,
+				reference.referenceType,
+				reference.referenceOrder,
 			),
 			messageId,
 			envelopeId,

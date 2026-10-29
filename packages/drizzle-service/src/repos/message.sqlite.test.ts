@@ -85,8 +85,6 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		const created = await repo.create({
 			...BASE_INPUT,
 			messageId: AUTO_MOVED_ID,
-			envelopeId: deriveEnvelopeId(AUTO_MOVED_ID),
-			rootBodyPartId: deriveRootBodyPartId(AUTO_MOVED_ID),
 			movedByRemit: true,
 			filterMove: filterMove as unknown as never,
 		});
@@ -160,8 +158,6 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 			sequenceNumber: 2,
 			rfc822Size: 1024,
 			internalDate: NOW,
-			envelopeId: deriveEnvelopeId(inboundId),
-			rootBodyPartId: deriveRootBodyPartId(inboundId),
 		});
 
 		assert.equal(created, true);
@@ -182,8 +178,6 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 				...BASE_INPUT,
 				messageId: LOCK_ID,
 				uid: 7,
-				envelopeId: deriveEnvelopeId(LOCK_ID),
-				rootBodyPartId: deriveRootBodyPartId(LOCK_ID),
 				status: "moving" as const,
 				syncStatus: "pending" as const,
 			});
@@ -255,8 +249,6 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 				...BASE_INPUT,
 				messageId: GONE_ID,
 				uid: 9,
-				envelopeId: deriveEnvelopeId(GONE_ID),
-				rootBodyPartId: deriveRootBodyPartId(GONE_ID),
 			});
 		});
 
@@ -319,19 +311,19 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		);
 	});
 
-	test("copySearchText gives a copy the source's search text", async () => {
+	test("copyMessage gives a copy the source's search text", async () => {
 		const source = "00000000-0000-0000-4444-000000000001";
 		const copy = "00000000-0000-0000-4444-000000000002";
-		for (const [messageId, uid] of [
-			[source, 201],
-			[copy, 202],
-		] as const) {
-			await repo.create({ ...BASE_INPUT, messageId, uid });
-			await repo.update(messageId, { bodyStorageKey: "file:///bodies/shared" });
-		}
+		await repo.create({ ...BASE_INPUT, messageId: source, uid: 201 });
+		await repo.update(source, { bodyStorageKey: "file:///bodies/shared" });
 		await repo.setSearchText(source, "the shared body");
 
-		await repo.copySearchText(source, copy);
+		await repo.copyMessage(source, {
+			...BASE_INPUT,
+			messageId: copy,
+			uid: 202,
+			bodyStorageKey: "file:///bodies/shared",
+		});
 
 		const missing = await repo.listMissingSearchText("", 100);
 		assert.equal(
