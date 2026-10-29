@@ -8,6 +8,7 @@ import type {
 	MailboxSubtreeTransitionIntent,
 	MailboxTransitionIntent,
 	MailboxTransitionWrite,
+	RemovedMessage,
 	ResultList,
 	UpdateMailboxInput,
 } from "@remit/data-ports";
@@ -45,7 +46,7 @@ import { syncWarningTable } from "../schema/sync-warning.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import type { SearchIndex } from "../search/thread-message-search.js";
 import { inList } from "./in-list.js";
-import { deleteMessageSubtree } from "./message.js";
+import { deleteMessageSubtree, removedMessages } from "./message.js";
 
 const base36Translator = shortUuid.createTranslator(
 	shortUuid.constants.uuid25Base36,
@@ -528,7 +529,7 @@ export class MailboxRepo implements IMailboxRepository {
 	async deleteMailboxWithMail(
 		accountId: string,
 		mailboxId: string,
-	): Promise<void> {
+	): Promise<RemovedMessage[]> {
 		// Tenant scope, and the re-entry guard in the same read: a redelivery that
 		// arrives after the final commit finds no row and has nothing left to do,
 		// exactly as `delete` no-ops. Every removal below keys on `mailboxId`
@@ -542,11 +543,12 @@ export class MailboxRepo implements IMailboxRepository {
 					eq(mailboxTable.mailboxId, mailboxId),
 				),
 			);
-		if (!owned) return;
+		if (!owned) return [];
 
 		// Ordered, batched and resumable rather than one transaction (D8). The
 		// caller keeps the row `deleting` until the last commit, so an interrupted
 		// run re-enters here and continues against whatever is left.
+		const removed: RemovedMessage[] = [];
 		for (;;) {
 			const rows = await this.db
 				.select({ messageId: messageTable.messageId })
@@ -562,12 +564,13 @@ export class MailboxRepo implements IMailboxRepository {
 
 			// The primitive the rest of the codebase deletes mail with: nine
 			// per-message child tables. A bespoke table list would orphan them.
-			await this.batch([
-				...deleteMessageSubtree(this.db, messageIds),
+			const results = await this.batch([
 				this.db
 					.delete(threadMessageTable)
 					.where(inList(threadMessageTable.messageId, messageIds)),
+				...deleteMessageSubtree(this.db, messageIds),
 			]);
+			removed.push(...removedMessages(results));
 			await this.search.sync(listings.map((row) => row.threadMessageId));
 		}
 
@@ -601,5 +604,6 @@ export class MailboxRepo implements IMailboxRepository {
 		// effect of a folder delete is the outcome the design rules out.
 
 		await this.delete(accountId, mailboxId);
+		return removed;
 	}
 }

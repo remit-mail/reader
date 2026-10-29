@@ -30,6 +30,7 @@ import {
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
 	buildMessageBodyKey,
+	buildMessageObjectPrefix,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
@@ -338,6 +339,20 @@ export const createFilesystemStorageService = (
 			await rm(dirPath, { recursive: true, force: true });
 		};
 
+	const deleteMessageObjects: StorageService["deleteMessageObjects"] = async (
+		accountConfigId,
+		accountId,
+		messageId,
+	) => {
+		await rm(
+			join(
+				basePath,
+				buildMessageObjectPrefix(accountConfigId, accountId, messageId),
+			),
+			{ recursive: true, force: true },
+		);
+	};
+
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
 		const checksumSha256 = computeChecksum(content);
@@ -427,6 +442,7 @@ export const createFilesystemStorageService = (
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
+		deleteMessageObjects,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

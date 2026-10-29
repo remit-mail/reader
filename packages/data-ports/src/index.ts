@@ -170,6 +170,7 @@ export type {
 	QuarantineUpsertInput,
 	RawMessageStorageItem,
 	RemovableAccountField,
+	RemovedMessage,
 	ResultList,
 	SearchOptions,
 	SenderSignerStandingItem,

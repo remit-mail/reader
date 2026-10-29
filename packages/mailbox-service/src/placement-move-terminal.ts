@@ -92,10 +92,9 @@ export const resolveExhaustedPlacementMoveFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId);
-		const reconciled = await deps.messageService.deleteIfPlacement(
-			messageId,
-			input.placement,
-		);
+		const reconciled =
+			(await deps.messageService.deleteIfPlacement(messageId, input.placement))
+				.length > 0;
 		deps.log.info(
 			{
 				metric: "placement_move_stale_row_reconciled",

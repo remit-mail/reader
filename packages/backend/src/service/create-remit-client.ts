@@ -56,6 +56,10 @@ import {
 } from "@remit/secrets-service";
 import type { SmtpGetSocket } from "@remit/smtp-service";
 import type { StorageService } from "@remit/storage-service";
+import {
+	mailboxRepositoryWithObjectCleanup,
+	messageRepositoryWithObjectCleanup,
+} from "./message-object-cleanup.js";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
 export type { ConnectionScope };
@@ -234,6 +238,7 @@ export interface RemitClientSharedDeps {
 	connectionScope: ConnectionScopeFactory;
 	mailTransports: MailTransports;
 	queues: RemitClientQueues;
+	messageObjectDeleteConcurrency: number;
 }
 
 export interface RemitClientDeps extends RemitClientSharedDeps {
@@ -308,17 +313,24 @@ export const buildReadPathFilterConfig = (
 export const createRemitCore = (
 	deps: Omit<RemitClientDeps, "queues">,
 ): RemitClientCore => {
-	const { repositories, storage, secrets, connectionScope, mailTransports } =
-		deps;
+	const {
+		repositories,
+		storage,
+		secrets,
+		connectionScope,
+		mailTransports,
+		messageObjectDeleteConcurrency,
+	} = deps;
+	const cleanup = { storage, concurrency: messageObjectDeleteConcurrency };
 	return {
 		accountConfig: repositories.accountConfig,
 		account: repositories.account,
 		accountSetting: repositories.accountSetting,
 		address: repositories.address,
-		mailbox: repositories.mailbox,
+		mailbox: mailboxRepositoryWithObjectCleanup(repositories.mailbox, cleanup),
 		mailboxSpecialUse: repositories.mailboxSpecialUse,
 		mailboxLock: repositories.mailboxLock,
-		message: repositories.message,
+		message: messageRepositoryWithObjectCleanup(repositories.message, cleanup),
 		messageFlag: repositories.messageFlag,
 		outboxMessage: repositories.outboxMessage,
 		threadMessage: repositories.threadMessage,

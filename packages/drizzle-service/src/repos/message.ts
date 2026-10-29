@@ -4,6 +4,7 @@ import type {
 	MessageDescription,
 	MessageItem,
 	PlacementPredicate,
+	RemovedMessage,
 } from "@remit/data-ports";
 import {
 	and,
@@ -163,9 +164,27 @@ export function deleteMessageSubtree(
 		db
 			.delete(messageTable)
 			.where(and(inList(messageTable.messageId, messageIds), guard))
-			.returning({ messageId: messageTable.messageId }),
+			.returning({
+				messageId: messageTable.messageId,
+				bodyStorageKey: messageTable.bodyStorageKey,
+			}),
 	];
 }
+
+const isRemovedMessage = (value: unknown): value is RemovedMessage =>
+	typeof value === "object" &&
+	value !== null &&
+	"messageId" in value &&
+	typeof value.messageId === "string" &&
+	"bodyStorageKey" in value &&
+	(value.bodyStorageKey === null || typeof value.bodyStorageKey === "string");
+
+export const removedMessages = (
+	results: readonly unknown[],
+): RemovedMessage[] => {
+	const removed = results.at(-1);
+	return Array.isArray(removed) ? removed.filter(isRemovedMessage) : [];
+};
 
 /**
  * The WHERE terms of a placement transition (imap-mutations R3). A field the
@@ -510,14 +529,14 @@ export class DrizzleMessageRepository implements IMessageRepository {
 		);
 	}
 
-	async delete(messageId: string): Promise<void> {
-		await this.deleteMany([messageId]);
+	delete(messageId: string): Promise<RemovedMessage[]> {
+		return this.deleteMany([messageId]);
 	}
 
 	async deleteIfPlacement(
 		messageId: string,
 		expected: PlacementPredicate,
-	): Promise<boolean> {
+	): Promise<RemovedMessage[]> {
 		const placed = exists(
 			this.db
 				.select({ messageId: messageTable.messageId })
@@ -540,13 +559,14 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			...deleteMessageSubtree(this.db, [messageId], placed),
 		]);
 		await this.search.sync(listings.map((row) => row.threadMessageId));
-		const removed = results.at(-1);
-		return Array.isArray(removed) && removed.length > 0;
+		return removedMessages(results);
 	}
 
-	async deleteMany(messageIds: string[]): Promise<void> {
-		if (messageIds.length === 0) return;
-		await this.batch(deleteMessageSubtree(this.db, messageIds));
+	async deleteMany(messageIds: string[]): Promise<RemovedMessage[]> {
+		if (messageIds.length === 0) return [];
+		return removedMessages(
+			await this.batch(deleteMessageSubtree(this.db, messageIds)),
+		);
 	}
 
 	async listByMailbox(

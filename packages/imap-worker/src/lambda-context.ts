@@ -12,7 +12,6 @@ import { createConnectionPool } from "./connection-pool.js";
 import { createConnectionScopeWithCredentials } from "./connection-scope.js";
 import type { ProcessContext, WorkerMetrics } from "./context.js";
 import { createEmitEvent, type EmitEvent } from "./emit.js";
-import { filesystemAccountObjects } from "./filesystem-account-objects.js";
 import type { WorkerQueues } from "./queues.js";
 import { s3AccountObjects } from "./s3-account-objects.js";
 import { sqsWorkerQueues, workerQueueUrlsFromEnv } from "./sqs-queues.js";
@@ -44,11 +43,7 @@ const buildContext = async (log: Logger): Promise<ProcessContext> => ({
 				: undefined,
 		}),
 	),
-	accountObjects: process.env.S3_BUCKET_NAME
-		? s3AccountObjects(() => env.S3_BUCKET_NAME)
-		: filesystemAccountObjects(
-				process.env.STORAGE_LOCAL_PATH ?? ".remit/storage",
-			),
+	accountObjects: s3AccountObjects(() => env.S3_BUCKET_NAME),
 });
 
 let context: Promise<ProcessContext> | undefined;

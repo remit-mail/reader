@@ -37,6 +37,7 @@ export {
 	type ParsedContentStorageKey,
 	type ParsedOutboxAttachmentKey,
 	parseContentStorageKey,
+	parseMessageBodyUri,
 	parseOutboxAttachmentKey,
 	type StorageReference,
 	type StorageService,

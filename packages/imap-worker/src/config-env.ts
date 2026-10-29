@@ -59,8 +59,6 @@ export const imapWorkerConfigFromEnv = (
 		bodyProcessConcurrency: BODY_PROCESS_CONCURRENCY,
 		bodyProcessBytesInFlight: BODY_PROCESS_BYTES_IN_FLIGHT,
 		mailboxFreshnessMs: resolveMailboxFreshnessMs(env),
-		messageObjectDeleteConcurrency:
-			defaultImapWorkerConfig.messageObjectDeleteConcurrency,
 		workerVersion: workerVersion(),
 	};
 };

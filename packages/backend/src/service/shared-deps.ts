@@ -20,6 +20,8 @@ import {
 } from "./create-remit-client.js";
 import type { QueueName, RemitClientQueues } from "./queues.js";
 
+const MESSAGE_OBJECT_DELETE_CONCURRENCY = 8;
+
 export type SqsQueueUrls = Record<QueueName, string>;
 
 export const sqsQueueUrlsFromEnv = (): SqsQueueUrls => ({
@@ -54,5 +56,6 @@ export const buildSharedDeps = (
 		connectionScope: passwordConnectionScope(imapTransport),
 		mailTransports: { imap: () => imapTransport, smtp: directSmtpSocket },
 		queues,
+		messageObjectDeleteConcurrency: MESSAGE_OBJECT_DELETE_CONCURRENCY,
 	};
 };

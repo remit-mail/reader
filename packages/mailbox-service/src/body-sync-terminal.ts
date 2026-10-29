@@ -125,14 +125,14 @@ export const resolveExhaustedBodySyncFailures = async (
 		const message = await deps.messageService.get(messageId);
 
 		if (await isMessageGoneFromOpenMailbox(connection, message.uid)) {
-			const reconciled = await deps.messageService.deleteIfPlacement(
-				messageId,
-				{
-					status: message.status,
-					mailboxId: message.mailboxId,
-					uid: message.uid,
-				},
-			);
+			const reconciled =
+				(
+					await deps.messageService.deleteIfPlacement(messageId, {
+						status: message.status,
+						mailboxId: message.mailboxId,
+						uid: message.uid,
+					})
+				).length > 0;
 			deps.log.info(
 				{
 					metric: "body_sync_stale_row_reconciled",

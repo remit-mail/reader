@@ -824,3 +824,8 @@ export type ObserveSenderSignerStandingInput = {
 	signerDomain: string;
 	observedAt: number;
 };
+
+export type RemovedMessage = {
+	messageId: string;
+	bodyStorageKey: string | null;
+};

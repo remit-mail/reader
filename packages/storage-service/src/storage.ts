@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { ContentEncoding, StorageType } from "@remit/domain-enums";
+import { parseStorageUri } from "./uri.js";
 
 export type StorageTypeValue = (typeof StorageType)[keyof typeof StorageType];
 export type ContentEncodingValue =
@@ -179,6 +180,16 @@ export interface StorageService {
 		accountConfigId: string,
 		accountId: string,
 		outboxMessageId: string,
+	): Promise<void>;
+
+	/**
+	 * Remove every object stored under a message: its body, parsed body and
+	 * parts. Deleting a message with nothing stored is a no-op.
+	 */
+	deleteMessageObjects(
+		accountConfigId: string,
+		accountId: string,
+		messageId: string,
 	): Promise<void>;
 
 	/**
@@ -421,6 +432,15 @@ export const parseContentStorageKey = (
 	};
 };
 
+export const parseMessageBodyUri = (
+	uri: string,
+): ParsedContentStorageKey | null => {
+	const path = `/${parseStorageUri(uri).storageKey}`;
+	const start = path.lastIndexOf("/accounts/", path.lastIndexOf("/messages/"));
+	if (start < 0) return null;
+	return parseContentStorageKey(path.slice(start + 1));
+};
+
 export const computeChecksum = (content: Buffer): string =>
 	createHash("sha256").update(content).digest("hex");
 
@@ -438,16 +458,18 @@ export const isStorageNotFoundError = (error: unknown): boolean => {
 	return false;
 };
 
+const MOCK_ROOT = "s3://mock/";
+
 export const createMockStorageService = (): StorageService => {
 	const storage = new Map<string, Buffer>();
 
 	const storeInternal = (key: string, content: Buffer): StorageReference => {
 		const checksumSha256 = computeChecksum(content);
-		const uri = `mock://${key}`;
+		const uri = `${MOCK_ROOT}${key}`;
 		storage.set(uri, content);
 		return {
 			uri,
-			storageType: StorageType.Filesystem,
+			storageType: StorageType.S3,
 			storageLocation: "mock",
 			storageKey: key,
 			sizeBytes: content.length,
@@ -500,13 +522,13 @@ export const createMockStorageService = (): StorageService => {
 		accountId,
 		outboxMessageId,
 	) => {
-		const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
+		const prefix = `${MOCK_ROOT}${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
 		const items: OutboxAttachmentListItem[] = [];
 		for (const [uri, content] of storage.entries()) {
 			if (!uri.startsWith(prefix)) continue;
 			items.push({
 				outboxAttachmentId: uri.slice(prefix.length),
-				key: uri.slice("mock://".length),
+				key: uri.slice(MOCK_ROOT.length),
 				sizeBytes: content.length,
 			});
 		}
@@ -515,7 +537,7 @@ export const createMockStorageService = (): StorageService => {
 
 	const listOutboxDraftsWithAttachments: StorageService["listOutboxDraftsWithAttachments"] =
 		async (accountConfigId, accountId) => {
-			const root = `mock://accounts/${accountConfigId}/${accountId}/outbox/`;
+			const root = `${MOCK_ROOT}accounts/${accountConfigId}/${accountId}/outbox/`;
 			const drafts = new Set<string>();
 			for (const uri of storage.keys()) {
 				if (!uri.startsWith(root)) continue;
@@ -529,7 +551,7 @@ export const createMockStorageService = (): StorageService => {
 	const deleteOutboxAttachment: StorageService["deleteOutboxAttachment"] =
 		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) => {
 			storage.delete(
-				`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+				`${MOCK_ROOT}${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
 			);
 		};
 
@@ -540,7 +562,7 @@ export const createMockStorageService = (): StorageService => {
 		outboxAttachmentId,
 	) => {
 		const content = storage.get(
-			`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+			`${MOCK_ROOT}${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
 		);
 		return content ? { sizeBytes: content.length } : null;
 	};
@@ -548,7 +570,7 @@ export const createMockStorageService = (): StorageService => {
 	const retrieveOutboxAttachment: StorageService["retrieveOutboxAttachment"] =
 		async (accountConfigId, accountId, outboxMessageId, outboxAttachmentId) =>
 			storage.get(
-				`mock://${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
+				`${MOCK_ROOT}${buildOutboxAttachmentKey(accountConfigId, accountId, outboxMessageId, outboxAttachmentId)}`,
 			) ?? null;
 
 	const createOutboxAttachmentUploadUrl: StorageService["createOutboxAttachmentUploadUrl"] =
@@ -556,13 +578,29 @@ export const createMockStorageService = (): StorageService => {
 			uploadUrl: `mock://upload/${buildOutboxAttachmentKey(params.accountConfigId, params.accountId, params.outboxMessageId, params.outboxAttachmentId)}?max=${params.sizeBytes}&exp=${params.expiresAt}`,
 		});
 
-	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
-		async (accountConfigId, accountId, outboxMessageId) => {
-			const prefix = `mock://${buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId)}`;
-			for (const uri of [...storage.keys()]) {
-				if (uri.startsWith(prefix)) storage.delete(uri);
-			}
-		};
+	const deletePrefix = async (prefix: string): Promise<void> => {
+		for (const uri of [...storage.keys()]) {
+			if (uri.startsWith(`${MOCK_ROOT}${prefix}`)) storage.delete(uri);
+		}
+	};
+
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] = (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) =>
+		deletePrefix(
+			buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId),
+		);
+
+	const deleteMessageObjects: StorageService["deleteMessageObjects"] = (
+		accountConfigId,
+		accountId,
+		messageId,
+	) =>
+		deletePrefix(
+			buildMessageObjectPrefix(accountConfigId, accountId, messageId),
+		);
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
 		params,
@@ -589,7 +627,7 @@ export const createMockStorageService = (): StorageService => {
 		accountId,
 		messageId,
 	) => {
-		const uri = `mock://${buildParsedBodyKey(accountConfigId, accountId, messageId)}`;
+		const uri = `${MOCK_ROOT}${buildParsedBodyKey(accountConfigId, accountId, messageId)}`;
 		const content = storage.get(uri);
 		if (!content) return null;
 		return JSON.parse(content.toString("utf8")) as ParsedBody;
@@ -601,7 +639,7 @@ export const createMockStorageService = (): StorageService => {
 		messageId,
 		partPath,
 	) => {
-		const uri = `mock://${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
+		const uri = `${MOCK_ROOT}${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
 		return storage.get(uri) ?? null;
 	};
 
@@ -610,13 +648,13 @@ export const createMockStorageService = (): StorageService => {
 		accountId,
 		messageId,
 	) => {
-		const uri = `mock://${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
+		const uri = `${MOCK_ROOT}${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
 		return storage.get(uri) ?? null;
 	};
 
 	const retrieveMessageBodyStream: StorageService["retrieveMessageBodyStream"] =
 		async (accountConfigId, accountId, messageId) => {
-			const uri = `mock://${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
+			const uri = `${MOCK_ROOT}${buildMessageBodyKey(accountConfigId, accountId, messageId)}`;
 			const content = storage.get(uri);
 			if (!content) return null;
 			return Readable.from(content);
@@ -628,7 +666,7 @@ export const createMockStorageService = (): StorageService => {
 		messageId,
 		partPath,
 	) => {
-		const uri = `mock://${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
+		const uri = `${MOCK_ROOT}${buildBodyPartKey(accountConfigId, accountId, messageId, partPath)}`;
 		return storage.has(uri);
 	};
 
@@ -641,6 +679,7 @@ export const createMockStorageService = (): StorageService => {
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
+		deleteMessageObjects,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,
@@ -673,12 +712,12 @@ export const createMockStorageService = (): StorageService => {
 			for await (const chunk of body) {
 				chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
 			}
-			storage.set(`mock://${key}`, Buffer.concat(chunks));
+			storage.set(`${MOCK_ROOT}${key}`, Buffer.concat(chunks));
 			return key;
 		},
 		deleteExportArchive: async (accountConfigId, exportRequestId) => {
 			storage.delete(
-				`mock://${buildExportArchiveKey(accountConfigId, exportRequestId)}`,
+				`${MOCK_ROOT}${buildExportArchiveKey(accountConfigId, exportRequestId)}`,
 			);
 		},
 		getPresignedDownloadUrl: async (key: string, _expiresInSeconds: number) =>

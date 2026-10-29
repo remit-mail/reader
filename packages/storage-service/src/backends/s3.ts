@@ -24,6 +24,7 @@ import {
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
 	buildMessageBodyKey,
+	buildMessageObjectPrefix,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
@@ -338,41 +339,53 @@ export const createS3StorageService = (
 			return { uploadUrl };
 		};
 
-	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
-		async (accountConfigId, accountId, outboxMessageId) => {
-			const prefix = buildOutboxAttachmentPrefix(
-				accountConfigId,
-				accountId,
-				outboxMessageId,
-			);
-			let continuationToken: string | undefined;
+	const deletePrefix = async (prefix: string): Promise<void> => {
+		let continuationToken: string | undefined;
 
-			do {
-				const response = await client.send(
-					new ListObjectsV2Command({
+		do {
+			const response = await client.send(
+				new ListObjectsV2Command({
+					Bucket: bucketName,
+					Prefix: prefix,
+					ContinuationToken: continuationToken,
+				}),
+			);
+			const keys = (response.Contents ?? [])
+				.map((object) => object.Key)
+				.filter((key): key is string => typeof key === "string");
+
+			if (keys.length > 0) {
+				await client.send(
+					new DeleteObjectsCommand({
 						Bucket: bucketName,
-						Prefix: prefix,
-						ContinuationToken: continuationToken,
+						Delete: { Objects: keys.map((Key) => ({ Key })) },
 					}),
 				);
-				const keys = (response.Contents ?? [])
-					.map((object) => object.Key)
-					.filter((key): key is string => typeof key === "string");
+			}
 
-				if (keys.length > 0) {
-					await client.send(
-						new DeleteObjectsCommand({
-							Bucket: bucketName,
-							Delete: { Objects: keys.map((Key) => ({ Key })) },
-						}),
-					);
-				}
+			continuationToken = response.IsTruncated
+				? response.NextContinuationToken
+				: undefined;
+		} while (continuationToken);
+	};
 
-				continuationToken = response.IsTruncated
-					? response.NextContinuationToken
-					: undefined;
-			} while (continuationToken);
-		};
+	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] = (
+		accountConfigId,
+		accountId,
+		outboxMessageId,
+	) =>
+		deletePrefix(
+			buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId),
+		);
+
+	const deleteMessageObjects: StorageService["deleteMessageObjects"] = (
+		accountConfigId,
+		accountId,
+		messageId,
+	) =>
+		deletePrefix(
+			buildMessageObjectPrefix(accountConfigId, accountId, messageId),
+		);
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content, contentType } = params;
@@ -569,6 +582,7 @@ export const createS3StorageService = (
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
+		deleteMessageObjects,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

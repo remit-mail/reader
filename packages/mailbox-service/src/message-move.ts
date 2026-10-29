@@ -914,16 +914,13 @@ export class MessageMoveService {
 			rootBodyPartId: sourceMessage.rootBodyPartId, // Share body parts with source
 			status: MessageStatus.moving,
 			syncStatus: MessageSyncStatus.pending,
-			bodyStorageKey: sourceMessage.bodyStorageKey,
-			// The copy inherits the source's stored body, so body-sync's skip guard
-			// will never re-derive these. Carry them across or the copy is
-			// permanently `uncategorized` while its body says it is fully synced
-			// (issue #45).
+			// No bodyStorageKey: the copy stores its own body under its own id, so
+			// deleting the source never takes the copy's body with it (issue #1483).
+			// Until it does, it shows the source's category rather than
+			// `uncategorized` (issue #45).
 			category: sourceMessage.category,
 			// The record of whether that category was the classifier's answer travels
-			// with it (issue #331). Defaulting the copy to `NotExamined` would put a
-			// row no classifier will ever reach — its body is already stored — into
-			// the cohort a backfill selects as never examined.
+			// with it (issue #331).
 			classificationState: sourceMessage.classificationState,
 			hasListUnsubscribe: sourceMessage.hasListUnsubscribe,
 		});
