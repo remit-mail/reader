@@ -181,9 +181,15 @@ describe("executeThreadSearch", () => {
 	it("passes category to the port's search, not to the off-row filter", async () => {
 		const { client, windowCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			category: [MessageCategory.personal],
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				category: [MessageCategory.personal],
+			},
+			false,
+		);
 
 		assert.deepEqual(windowCalls.length, 1);
 		assert.deepEqual(windowCalls[0].search.category, [
@@ -198,11 +204,17 @@ describe("executeThreadSearch", () => {
 	it("takes the count-only path for a category-only query", async () => {
 		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			category: [MessageCategory.personal, MessageCategory.marketing],
-			count: true,
-			results: false,
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				category: [MessageCategory.personal, MessageCategory.marketing],
+				count: true,
+				results: false,
+			},
+			false,
+		);
 
 		assert.equal(windowCalls.length, 0, "no window read in count-only mode");
 		assert.equal(countCalls.length, 1);
@@ -220,10 +232,16 @@ describe("executeThreadSearch", () => {
 	it("keeps category in search when an off-row criterion is also set", async () => {
 		const { client, windowCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			category: [MessageCategory.personal],
-			senderTrust: [SenderTrust.Unknown],
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				category: [MessageCategory.personal],
+				senderTrust: [SenderTrust.Unknown],
+			},
+			false,
+		);
 
 		assert.equal(windowCalls.length, 1);
 		assert.deepEqual(windowCalls[0].search.category, [
@@ -238,7 +256,13 @@ describe("executeThreadSearch", () => {
 	it("serves category from the row, so it survives an absent message row", async () => {
 		const { client } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{},
+			false,
+		);
 
 		assert.deepEqual(
 			response.items?.map((item) => item.category),
@@ -275,10 +299,16 @@ describe("executeThreadSearch", () => {
 			label: { listByAccountConfig: async () => [] },
 		};
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			count: true,
-			limit: pageSize,
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				count: true,
+				limit: pageSize,
+			},
+			false,
+		);
 
 		assert.deepEqual(windowCalls, [pageSize]);
 		assert.equal(response.items?.length, pageSize);
@@ -291,10 +321,16 @@ describe("executeThreadSearch", () => {
 	it("omits count under senderTrust rather than counting the page", async () => {
 		const { client, countCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			senderTrust: [SenderTrust.Unknown],
-			count: true,
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				senderTrust: [SenderTrust.Unknown],
+				count: true,
+			},
+			false,
+		);
 
 		assert.equal(response.count, undefined);
 		assert.equal(countCalls.length, 0, "nothing to count off the row");
@@ -304,10 +340,16 @@ describe("executeThreadSearch", () => {
 	it("omits count under dkimMismatch rather than counting the page", async () => {
 		const { client } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			dkimMismatch: true,
-			count: true,
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				dkimMismatch: true,
+				count: true,
+			},
+			false,
+		);
 
 		assert.equal(response.count, undefined);
 	});
@@ -317,11 +359,17 @@ describe("executeThreadSearch", () => {
 	it("reads nothing for a count-only request under an off-row criterion", async () => {
 		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			dkimMismatch: true,
-			count: true,
-			results: false,
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				dkimMismatch: true,
+				count: true,
+				results: false,
+			},
+			false,
+		);
 
 		assert.deepEqual(response, {});
 		assert.equal(windowCalls.length, 0);
@@ -338,12 +386,14 @@ describe("executeThreadSearch", () => {
 			ACCOUNT,
 			MAILBOX,
 			criteria,
+			false,
 		);
 		const countOnly = await executeThreadSearch(
 			fakeClient(ACCOUNT_ROWS).client,
 			ACCOUNT,
 			MAILBOX,
 			{ ...criteria, results: false },
+			false,
 		);
 
 		assert.equal(withRows.count, 2);
@@ -356,10 +406,16 @@ describe("executeThreadSearch", () => {
 		for (const limit of [1, 500]) {
 			const { client } = fakeClient(ACCOUNT_ROWS);
 			responses.push(
-				await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-					count: true,
-					limit,
-				}),
+				await executeThreadSearch(
+					client,
+					ACCOUNT,
+					MAILBOX,
+					{
+						count: true,
+						limit,
+					},
+					false,
+				),
 			);
 		}
 
@@ -379,10 +435,16 @@ describe("executeThreadSearch", () => {
 	it("holds the count still while the caller pages", async () => {
 		const { client, windowCalls, countCalls } = fakeClient(ACCOUNT_ROWS);
 
-		const response = await executeThreadSearch(client, ACCOUNT, MAILBOX, {
-			count: true,
-			continuationToken: "page-three",
-		});
+		const response = await executeThreadSearch(
+			client,
+			ACCOUNT,
+			MAILBOX,
+			{
+				count: true,
+				continuationToken: "page-three",
+			},
+			false,
+		);
 
 		assert.equal(windowCalls[0].continuationToken, "page-three");
 		assert.equal(countCalls.length, 1);
@@ -390,7 +452,11 @@ describe("executeThreadSearch", () => {
 	});
 
 	it("projects category, so the DynamoDB port reads it with the row", () => {
-		assert.ok(buildSearchThreadsOptions({}).attributes.includes("category"));
-		assert.ok(buildListThreadsOptions({}).attributes.includes("category"));
+		assert.ok(
+			buildSearchThreadsOptions({}, false).attributes.includes("category"),
+		);
+		assert.ok(
+			buildListThreadsOptions({}, false).attributes.includes("category"),
+		);
 	});
 });

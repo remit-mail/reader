@@ -3,7 +3,12 @@ import type {
 	SenderTrust,
 	ThreadSearchResponse,
 } from "@remit/api-openapi-types";
-import type { ResultList, ThreadMessageItem } from "@remit/data-ports";
+import type {
+	IMailboxRepository,
+	IMailboxSpecialUseRepository,
+	ResultList,
+	ThreadMessageItem,
+} from "@remit/data-ports";
 import { NotFoundError } from "@remit/data-ports/errors";
 import { isValidMessageId } from "@remit/data-ports/id";
 import type { Context } from "openapi-backend";
@@ -51,41 +56,58 @@ const THREAD_LIST_ATTRIBUTES: ReadonlyArray<keyof ThreadMessageItem> = [
 	"updatedAt",
 ];
 
+export interface TrashMailboxClient {
+	mailbox: Pick<IMailboxRepository, "resolveAccountId">;
+	mailboxSpecialUse: Pick<IMailboxSpecialUseRepository, "findTrashMailbox">;
+}
+
 /**
- * Build the `listByMailbox` options for the thread list handler.
- *
- * Exposed as a pure helper so the `excludeDeleted: true` default — which is
- * the entire point of the #212 fix on the handler side — is testable without
- * standing up DynamoDB. The defaults must stay opt-out from the user (a
- * future Trash / All-Mail view can flip the flag) and opt-in at the
- * service layer.
+ * A row trashed through reader keeps its `isDeleted` mark while it sits in
+ * Trash (#212), so the Trash folder is the one mailbox whose listing includes
+ * deleted rows (#1497). The lookup is the one a move to Trash files mail by,
+ * so the folder listed is the folder the mail was moved into.
  */
-export const buildListThreadsOptions = (query: {
-	continuationToken?: string;
-	order?: "asc" | "desc";
-}) => ({
+export const isTrashMailbox = async (
+	client: TrashMailboxClient,
+	mailboxId: string,
+): Promise<boolean> => {
+	const accountId = await client.mailbox.resolveAccountId(mailboxId);
+	if (accountId === null) return false;
+	const trash = await client.mailboxSpecialUse.findTrashMailbox(accountId);
+	return trash?.mailboxId === mailboxId;
+};
+
+export const buildListThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+	},
+	inTrash: boolean,
+) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: DEFAULT_THREADS_PAGE_SIZE,
 	attributes: [...THREAD_LIST_ATTRIBUTES],
-	excludeDeleted: true,
+	excludeDeleted: !inTrash,
 });
 
 /**
- * Build the `searchByMailboxWindow` options for the thread search handler.
- * Same #212 `excludeDeleted` default as `buildListThreadsOptions`. The caller's
- * `limit` is forwarded raw and clamped server-side (THREAD_SEARCH_MAX_LIMIT).
+ * The caller's `limit` is forwarded raw and clamped server-side
+ * (THREAD_SEARCH_MAX_LIMIT).
  */
-export const buildSearchThreadsOptions = (query: {
-	continuationToken?: string;
-	order?: "asc" | "desc";
-	limit?: number;
-}) => ({
+export const buildSearchThreadsOptions = (
+	query: {
+		continuationToken?: string;
+		order?: "asc" | "desc";
+		limit?: number;
+	},
+	inTrash: boolean,
+) => ({
 	order: query.order ?? ("desc" as const),
 	continuationToken: query.continuationToken,
 	limit: query.limit,
 	attributes: [...THREAD_LIST_ATTRIBUTES],
-	excludeDeleted: true,
+	excludeDeleted: !inTrash,
 });
 
 const toArray = <T>(value: T | T[] | undefined): T[] | undefined => {
@@ -175,6 +197,7 @@ export const executeThreadSearch = async (
 	accountConfigId: string,
 	mailboxId: string,
 	params: ThreadSearchParams,
+	inTrash: boolean,
 ): Promise<ThreadSearchResponse> => {
 	const search = {
 		query: params.query,
@@ -191,11 +214,14 @@ export const executeThreadSearch = async (
 	};
 	const wantCount = params.count === true;
 	const wantResults = params.results !== false;
-	const options = buildSearchThreadsOptions({
-		continuationToken: params.continuationToken,
-		order: params.order,
-		limit: params.limit,
-	});
+	const options = buildSearchThreadsOptions(
+		{
+			continuationToken: params.continuationToken,
+			order: params.order,
+			limit: params.limit,
+		},
+		inTrash,
+	);
 
 	if (hasOffRowCriteria(offRow)) {
 		if (!wantResults) return {};
@@ -238,7 +264,7 @@ export const executeThreadSearch = async (
 			accountConfigId,
 			mailboxId,
 			search,
-			{ excludeDeleted: true, order: params.order },
+			{ excludeDeleted: options.excludeDeleted, order: params.order },
 		);
 	}
 
@@ -336,7 +362,10 @@ export const ThreadOperations: Record<
 		const result = await client.threadMessage.listByMailbox(
 			accountConfigId,
 			mailboxId,
-			buildListThreadsOptions({ continuationToken, order }),
+			buildListThreadsOptions(
+				{ continuationToken, order },
+				await isTrashMailbox(client, mailboxId),
+			),
 		);
 
 		const items = await enrichThreadRows(result.items, client, accountConfigId);
@@ -370,11 +399,17 @@ export const ThreadOperations: Record<
 			limit?: number;
 		};
 
-		return executeThreadSearch(ctx.client, accountConfigId, mailboxId, {
-			...raw,
-			senderTrust: toArray(raw.senderTrust),
-			category: toArray(raw.category),
-		});
+		return executeThreadSearch(
+			ctx.client,
+			accountConfigId,
+			mailboxId,
+			{
+				...raw,
+				senderTrust: toArray(raw.senderTrust),
+				category: toArray(raw.category),
+			},
+			await isTrashMailbox(ctx.client, mailboxId),
+		);
 	},
 };
 
