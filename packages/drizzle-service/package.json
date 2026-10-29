@@ -36,7 +36,9 @@
     "uuid": "^13.0.2",
     "@remit/drizzle-sqlite-schema": "*",
     "better-sqlite3": "^12.11.1",
-    "@types/better-sqlite3": "^7.6.13"
+    "@types/better-sqlite3": "^7.6.13",
+    "@remit/storage-service": "*",
+    "p-map": "^2.1.0"
   },
   "license": "MIT",
   "publishConfig": {

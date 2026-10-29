@@ -10,6 +10,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import {
 	clampThreadSearchLimit,
 	type DrizzleThreadMessageRepository,
@@ -102,6 +103,7 @@ describe("DrizzleThreadMessageRepository.searchByMailboxWindow / countByMailbox"
 				search: harness.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 	});
 
@@ -411,6 +413,7 @@ describe("DrizzleThreadMessageRepository.searchByDate", () => {
 				search: harness.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		);
 		repo = repositories.threadMessage;
 		messages = repositories.message;
@@ -949,6 +952,7 @@ describe("DrizzleThreadMessageRepository — native text search", () => {
 				search: harness.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 	});
 
@@ -1128,6 +1132,7 @@ describe("DrizzleThreadMessageRepository — core CRUD", () => {
 				search: harness.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 	});
 

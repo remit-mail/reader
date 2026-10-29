@@ -96,9 +96,10 @@ export const resolveExhaustedMessageDeleteFailure = async (
 	await connection.openBox(sourceMailboxPath, true);
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
-		const reconciled =
-			(await deps.messageService.deleteIfPlacement(messageId, input.placement))
-				.length > 0;
+		const reconciled = await deps.messageService.deleteIfPlacement(
+			messageId,
+			input.placement,
+		);
 		deps.log.info(
 			{
 				metric: "message_delete_stale_row_reconciled",

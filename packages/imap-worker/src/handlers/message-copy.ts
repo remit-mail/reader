@@ -170,9 +170,10 @@ export const handleMessageCopy = async (
 				destinationMailboxId,
 			);
 			if (destination.kind === "gone") {
-				const reconciled =
-					(await messageService.deleteIfPlacement(newMessageId, copyPlacement))
-						.length > 0;
+				const reconciled = await messageService.deleteIfPlacement(
+					newMessageId,
+					copyPlacement,
+				);
 				log.warn(
 					{
 						metric: "message_copy_destination_gone",
@@ -262,9 +263,10 @@ export const handleMessageCopy = async (
 			// reality, the same terminal outcome `resolveExhaustedMessageMoveFailure`
 			// calls `reconciled`. Routine: metric, no alarm.
 			const settleNeverLanded = async (reason: string): Promise<void> => {
-				const reconciled =
-					(await messageService.deleteIfPlacement(newMessageId, copyPlacement))
-						.length > 0;
+				const reconciled = await messageService.deleteIfPlacement(
+					newMessageId,
+					copyPlacement,
+				);
 				log.info(
 					{
 						metric: "message_copy_not_landed",

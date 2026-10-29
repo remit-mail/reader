@@ -1,3 +1,4 @@
+import "@kattebak/typespec-drizzle-orm-generator";
 import "typespec-electrodb-emitter";
 
 import "../enums/AuthResultVerdict.tsp";
@@ -160,6 +161,7 @@ model AutoMovedInfo {
     sk: [],
   }
 )
+@Drizzle.indexDef("message_by_body_storage_key", [MessageRecord.bodyStorageKey])
 model MessageRecord {
   @doc("Primary identifier (internal UUID)")
   @visibility(Lifecycle.Read)

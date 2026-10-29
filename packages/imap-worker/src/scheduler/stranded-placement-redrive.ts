@@ -105,14 +105,11 @@ const removeUnresolvableCopy = async (
 	reason: string,
 	now: number,
 ): Promise<boolean> => {
-	const removed =
-		(
-			await deps.client.message.deleteIfPlacement(row.messageId, {
-				status: MessageStatus.moving,
-				mailboxId: row.mailboxId,
-				uid: 0,
-			})
-		).length > 0;
+	const removed = await deps.client.message.deleteIfPlacement(row.messageId, {
+		status: MessageStatus.moving,
+		mailboxId: row.mailboxId,
+		uid: 0,
+	});
 	if (!removed) return false;
 	deps.log.error(
 		{

@@ -30,7 +30,6 @@ import {
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
 	buildMessageBodyKey,
-	buildMessageObjectPrefix,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
@@ -328,29 +327,17 @@ export const createFilesystemStorageService = (
 
 	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
 		async (accountConfigId, accountId, outboxMessageId) => {
-			const dirPath = join(
-				basePath,
+			await deletePrefix(
 				buildOutboxAttachmentPrefix(
 					accountConfigId,
 					accountId,
 					outboxMessageId,
 				),
 			);
-			await rm(dirPath, { recursive: true, force: true });
 		};
 
-	const deleteMessageObjects: StorageService["deleteMessageObjects"] = async (
-		accountConfigId,
-		accountId,
-		messageId,
-	) => {
-		await rm(
-			join(
-				basePath,
-				buildMessageObjectPrefix(accountConfigId, accountId, messageId),
-			),
-			{ recursive: true, force: true },
-		);
+	const deletePrefix: StorageService["deletePrefix"] = async (prefix) => {
+		await rm(join(basePath, prefix), { recursive: true, force: true });
 	};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
@@ -442,7 +429,7 @@ export const createFilesystemStorageService = (
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
-		deleteMessageObjects,
+		deletePrefix,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

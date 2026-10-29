@@ -4,7 +4,6 @@ import type {
 	MailboxItem,
 	MailboxSubtreeTransitionIntent,
 	MailboxTransitionIntent,
-	RemovedMessage,
 	ResultList,
 	UpdateMailboxInput,
 } from "../types.js";
@@ -89,10 +88,7 @@ export interface IMailboxRepository {
 	 * refuses the delete while any binding stands, so there is nothing to unbind
 	 * and deleting a user's filters is not a folder delete's decision.
 	 */
-	deleteMailboxWithMail(
-		accountId: string,
-		mailboxId: string,
-	): Promise<RemovedMessage[]>;
+	deleteMailboxWithMail(accountId: string, mailboxId: string): Promise<void>;
 	listByAccount(
 		accountId: string,
 		options?: { limit?: number; continuationToken?: string },

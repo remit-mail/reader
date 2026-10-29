@@ -24,7 +24,6 @@ import {
 	buildDeduplicatedKey,
 	buildExportArchiveKey,
 	buildMessageBodyKey,
-	buildMessageObjectPrefix,
 	buildOutboxAttachmentKey,
 	buildOutboxAttachmentPrefix,
 	buildParsedBodyKey,
@@ -339,7 +338,7 @@ export const createS3StorageService = (
 			return { uploadUrl };
 		};
 
-	const deletePrefix = async (prefix: string): Promise<void> => {
+	const deletePrefix: StorageService["deletePrefix"] = async (prefix) => {
 		let continuationToken: string | undefined;
 
 		do {
@@ -376,15 +375,6 @@ export const createS3StorageService = (
 	) =>
 		deletePrefix(
 			buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId),
-		);
-
-	const deleteMessageObjects: StorageService["deleteMessageObjects"] = (
-		accountConfigId,
-		accountId,
-		messageId,
-	) =>
-		deletePrefix(
-			buildMessageObjectPrefix(accountConfigId, accountId, messageId),
 		);
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
@@ -582,7 +572,7 @@ export const createS3StorageService = (
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
-		deleteMessageObjects,
+		deletePrefix,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

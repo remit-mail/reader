@@ -31,20 +31,24 @@ import { LabelRepo } from "./repos/label.js";
 import { DrizzleMessageRepository } from "./repos/message.js";
 import { DrizzleMessageFlagRepository } from "./repos/message-flag.js";
 import { MessageLabelRepo } from "./repos/message-label.js";
+import {
+	type MessageObjectStore,
+	MessageObjects,
+} from "./repos/message-objects.js";
 import { QuarantineRepo } from "./repos/quarantine.js";
 import { SyncWarningRepo } from "./repos/sync-warning.js";
 import { DrizzleThreadMessageRepository } from "./repos/thread-message.js";
 import { SearchIndex } from "./search/thread-message-search.js";
 
-export const composeSqliteRepositories = ({
-	app,
-	mail,
-	search,
-}: SqliteStores) => {
+export const composeSqliteRepositories = (
+	{ app, mail, search }: SqliteStores,
+	objects: MessageObjectStore,
+) => {
 	const searchIndex = new SearchIndex(mail.db, search);
+	const messageObjects = new MessageObjects(mail.db, objects);
 	const accountSetting = new AccountSettingRepo(app.db);
 	const address = new AddressRepo(mail.db);
-	const mailbox = new MailboxRepo(mail, searchIndex);
+	const mailbox = new MailboxRepo(mail, searchIndex, messageObjects);
 	const account = new AccountRepo(app.db, mailbox);
 	const calendarSuggestion = new CalendarSuggestionRepo(mail.db);
 	return {
@@ -59,7 +63,7 @@ export const composeSqliteRepositories = ({
 			accountSetting,
 		),
 		mailboxLock: new MailboxLockRepo(mail.db),
-		message: new DrizzleMessageRepository(mail, searchIndex),
+		message: new DrizzleMessageRepository(mail, searchIndex, messageObjects),
 		messageFlag: new DrizzleMessageFlagRepository(mail.db),
 		outboxMessage: new OutboxMessageRepo(mail.db),
 		outboxAttachment: new OutboxAttachmentRepo(mail),
@@ -90,5 +94,6 @@ export type SqliteRepositories = ReturnType<typeof composeSqliteRepositories>;
 export const createSqliteRepositories = (
 	databases: SqliteDatabases,
 	limits: SqliteLimits,
+	objects: MessageObjectStore,
 ): SqliteRepositories =>
-	composeSqliteRepositories(syncStores(databases, limits));
+	composeSqliteRepositories(syncStores(databases, limits), objects);

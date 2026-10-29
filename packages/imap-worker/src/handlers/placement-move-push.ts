@@ -219,9 +219,10 @@ export const handlePlacementMovePush = async (
 			destinationMailboxId: marker.destinationMailboxId,
 		};
 		if (source.kind === "gone") {
-			const reconciled =
-				(await messageService.deleteIfPlacement(messageId, placementRead))
-					.length > 0;
+			const reconciled = await messageService.deleteIfPlacement(
+				messageId,
+				placementRead,
+			);
 			await markerService.delete(messageId);
 			log.error(
 				{ ...context, reconciled },
@@ -330,9 +331,10 @@ export const handlePlacementMovePush = async (
 					if (outcome.kind === "not-found") {
 						// External delete supersedes the marker entirely (epic invariant 2).
 						await markerService.delete(messageId);
-						const reconciled =
-							(await messageService.deleteIfPlacement(messageId, placementRead))
-								.length > 0;
+						const reconciled = await messageService.deleteIfPlacement(
+							messageId,
+							placementRead,
+						);
 						log.info(
 							{
 								messageId,

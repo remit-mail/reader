@@ -215,4 +215,31 @@ describe("removing a message's last row removes its stored objects", () => {
 		await assertGone(w, deleted);
 		await assertKept(w, kept);
 	});
+	it("a copy keeps the body it shares after its source is deleted", async () => {
+		const w = await store.world();
+		const inbox = await w.folder("INBOX");
+		const projects = await w.folder("Projects");
+		const source = await w.message(inbox);
+		await storeBody(w, source);
+		const copyId = await w.client.messageMove.copyMessage(
+			w.account.accountConfigId,
+			source.messageId,
+			projects.mailboxId,
+			w.account.accountId,
+		);
+		await run(w, queuedEvent(w, "MESSAGE_COPY"));
+		await w.client.messageMove.deleteMessage(
+			w.account.accountConfigId,
+			source.messageId,
+			w.account.accountId,
+			{ permanent: true },
+		);
+
+		await run(w, queuedEvent(w, "MESSAGE_DELETE"));
+
+		assert.equal(await w.row(source.messageId), undefined);
+		const copy = await w.row(copyId);
+		assert.ok(copy?.bodyStorageKey);
+		assert.ok(await w.client.storage.retrieve(copy.bodyStorageKey));
+	});
 });

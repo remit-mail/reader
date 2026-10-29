@@ -6,6 +6,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { syncStore } from "../databases.js";
 import type { Db } from "../db.js";
+import { messageObjectsInMemory } from "../repos/message-objects.js";
 import { messageSearchTextTable } from "../schema/message-data.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
@@ -62,6 +63,7 @@ describe("the thread-message search index in its own database", () => {
 			search: search.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	).threadMessage;
 
 	const found = async (query: string): Promise<string[]> =>

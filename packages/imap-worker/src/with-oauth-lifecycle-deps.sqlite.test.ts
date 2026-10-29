@@ -1,3 +1,4 @@
+import { messageObjectsInMemory } from "@remit/drizzle-service";
 /**
  * What the account row holds after the lifecycle has written to it.
  *
@@ -85,6 +86,7 @@ before(() => {
 			search: db.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	).account;
 });
 

@@ -1,3 +1,4 @@
+import { messageObjectsInMemory } from "@remit/drizzle-service";
 /**
  * What a read-path borrow does with an account it cannot connect.
  *
@@ -86,6 +87,7 @@ before(() => {
 	repo = createSqliteRepositories(
 		{ app: db.db, mail: db.db, search: db.db },
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	).account;
 });
 

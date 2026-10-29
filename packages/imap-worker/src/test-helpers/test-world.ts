@@ -39,6 +39,7 @@ import {
 	FakeImapServer,
 } from "@remit/mailbox-service/test-helpers/fake-imap";
 import { serializeEncryptedPayload } from "@remit/secrets-service";
+import { createStorageService } from "@remit/storage-service/s3";
 import { createConnectionPool } from "../connection-pool.js";
 import type { ConnectionScope } from "../connection-scope.js";
 import type { ProcessContext } from "../context.js";
@@ -114,9 +115,11 @@ export const openStore = async (): Promise<{
 	process.env.BETTER_AUTH_URL = "https://mail.example.com";
 	process.env.BETTER_AUTH_SECRET = "a-signing-secret-of-at-least-32-characters";
 	_resetForTest();
+	const storage = createStorageService();
 	const repositories = createSqliteRepositories(
 		await openSqliteDatabases(sqliteDatabasePathsFromEnv()),
 		BETTER_SQLITE3_LIMITS,
+		{ storage, messageObjectDeleteConcurrency: 1 },
 	);
 	const queuesOn = (queue: RecordingQueue) => ({
 		sync: queue.fifo,
@@ -125,7 +128,10 @@ export const openStore = async (): Promise<{
 		messageManagement: queue,
 		body: queue,
 	});
-	const shared = buildSharedDeps(queuesOn(recordingQueue()));
+	const shared = {
+		...buildSharedDeps(queuesOn(recordingQueue())),
+		storage,
+	};
 	const clientOn = (queue: RecordingQueue): RemitClient =>
 		createRemitClient({ repositories, ...shared, queues: queuesOn(queue) });
 	const client = clientOn(recordingQueue());

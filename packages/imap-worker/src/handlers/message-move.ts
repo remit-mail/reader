@@ -319,14 +319,11 @@ export const handleMessageMove = async (
 				sourceMailboxId,
 			);
 			if (source.kind === "gone") {
-				const reconciled =
-					(
-						await messageService.deleteIfPlacement(messageId, {
-							status: message.status,
-							mailboxId: message.mailboxId,
-							uid: message.uid,
-						})
-					).length > 0;
+				const reconciled = await messageService.deleteIfPlacement(messageId, {
+					status: message.status,
+					mailboxId: message.mailboxId,
+					uid: message.uid,
+				});
 				log.warn(
 					{
 						metric: "message_move_source_gone",

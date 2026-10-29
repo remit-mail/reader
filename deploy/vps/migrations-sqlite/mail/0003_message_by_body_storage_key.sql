@@ -1,0 +1,1 @@
+CREATE INDEX `message_by_body_storage_key` ON `message` (`body_storage_key`);

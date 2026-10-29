@@ -1,5 +1,3 @@
-import { rm } from "node:fs/promises";
-import { join } from "node:path";
 import { auth_user } from "@remit/auth-service/schema";
 import {
 	BETTER_SQLITE3_LIMITS,
@@ -11,28 +9,18 @@ import {
 	syncStores,
 } from "@remit/drizzle-service";
 import type { Logger } from "@remit/logger";
+import { createFilesystemStorageService } from "@remit/storage-service/filesystem";
 import { eq } from "drizzle-orm";
 import type { DeletionCapabilities } from "./deletion-capabilities.js";
 
-// Mirrors `@remit/storage-service`'s filesystem-backend default: bodies
-// live under `STORAGE_LOCAL_PATH` (`.remit/storage` when unset). The cascade
-// deletes the same `accounts/{accountConfigId}/…` key prefixes the S3 backend
-// would, translated to a recursive directory removal.
-const storageBasePath = (): string =>
-	process.env.STORAGE_LOCAL_PATH ?? ".remit/storage";
-
-/**
- * Recursively remove every stored object under a key prefix. Replay-safe:
- * `force: true` swallows a missing directory (ENOENT), matching the S3 backend's
- * "delete on missing keys is a 200" idempotency.
- */
 const deleteStoragePrefix = async (
 	keyPrefix: string,
 	log: Logger,
 ): Promise<void> => {
-	const target = join(storageBasePath(), keyPrefix);
-	await rm(target, { recursive: true, force: true });
-	log.info({ keyPrefix, target }, "Filesystem storage prefix cleanup complete");
+	await createFilesystemStorageService(
+		process.env.STORAGE_LOCAL_PATH ?? ".remit/storage",
+	).deletePrefix(keyPrefix);
+	log.info({ keyPrefix }, "Storage prefix cleanup complete");
 };
 
 // The app, mail and search databases are opened once, on first use, and

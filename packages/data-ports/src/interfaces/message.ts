@@ -5,7 +5,6 @@ import type {
 	MessageItem,
 	PlacementPredicate,
 	PlacementTransitionInput,
-	RemovedMessage,
 	ResultList,
 	UpdateMessageInput,
 } from "../types.js";
@@ -31,18 +30,18 @@ export interface IMessageRepository {
 		after: string,
 		limit: number,
 	): Promise<Array<{ messageId: string; bodyStorageKey: string }>>;
-	delete(messageId: string): Promise<RemovedMessage[]>;
-	deleteMany(messageIds: string[]): Promise<RemovedMessage[]>;
+	delete(messageId: string): Promise<void>;
+	deleteMany(messageIds: string[]): Promise<void>;
 	/**
 	 * Delete the row, its per-message subtree and its thread listings, only
 	 * while its placement still matches what the caller read (imap-mutations
-	 * R3). Resolves with the removed row, or with none when the predicate did
-	 * not match and nothing was deleted.
+	 * R3). Resolves `false` when the predicate did not match and nothing was
+	 * deleted.
 	 */
 	deleteIfPlacement(
 		messageId: string,
 		expected: PlacementPredicate,
-	): Promise<RemovedMessage[]>;
+	): Promise<boolean>;
 	listByMailbox(
 		mailboxId: string,
 		options?: { limit?: number; continuationToken?: string },

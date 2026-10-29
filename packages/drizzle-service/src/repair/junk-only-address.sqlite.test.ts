@@ -7,6 +7,7 @@ import { drizzle } from "drizzle-orm/better-sqlite3";
 import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { AccountSettingRepo } from "../repos/i4-account-setting.js";
 import type { MailboxSpecialUseRepo } from "../repos/i4-mailbox-special-use.js";
+import { messageObjectsInMemory } from "../repos/message-objects.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { applyMigrationSet } from "../test-shipped-sqlite-schema.js";
 import {
@@ -190,6 +191,7 @@ describe("addresses standing only on mail in Junk", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailboxSpecialUse;
 		accountSetting = new AccountSettingRepo(db as never);
 		applyMigrationSet(sqlite, "app");

@@ -10,6 +10,7 @@ import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import type { DrizzleMessageRepository } from "./message.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 const SCHEMA = { ...messageDataSchema, threadMessages: threadMessageTable };
 
@@ -47,6 +48,7 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		repo = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).message;
 	});
 
@@ -259,26 +261,20 @@ describe("DrizzleMessageRepository (sqlite)", () => {
 		});
 
 		test("keeps the row when its placement no longer matches what was read", async () => {
-			const deleted =
-				(
-					await repo.deleteIfPlacement(GONE_ID, {
-						mailboxId: MAILBOX_ID,
-						uid: 8,
-					})
-				).length > 0;
+			const deleted = await repo.deleteIfPlacement(GONE_ID, {
+				mailboxId: MAILBOX_ID,
+				uid: 8,
+			});
 
 			assert.equal(deleted, false);
 			assert.equal((await repo.get(GONE_ID)).uid, 9);
 		});
 
 		test("deletes the row while its placement still matches", async () => {
-			const deleted =
-				(
-					await repo.deleteIfPlacement(GONE_ID, {
-						mailboxId: MAILBOX_ID,
-						uid: 9,
-					})
-				).length > 0;
+			const deleted = await repo.deleteIfPlacement(GONE_ID, {
+				mailboxId: MAILBOX_ID,
+				uid: 9,
+			});
 
 			assert.equal(deleted, true);
 			await assert.rejects(() => repo.get(GONE_ID));

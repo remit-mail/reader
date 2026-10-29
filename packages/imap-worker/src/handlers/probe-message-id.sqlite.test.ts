@@ -13,6 +13,7 @@ import {
 	type DrizzleMessageRepository,
 	type DrizzleThreadMessageRepository,
 	type MailboxRepo,
+	messageObjectsInMemory,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -136,6 +137,7 @@ describe("the Message-ID the move, delete and copy probes ask with", () => {
 				search: store.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		);
 		mailboxes = repos.mailbox;
 		messages = repos.message;

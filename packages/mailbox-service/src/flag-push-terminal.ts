@@ -78,9 +78,10 @@ export const resolveExhaustedFlagPushFailure = async (
 
 	if (await isMessageGoneFromOpenMailbox(connection, uid)) {
 		await deps.markerService.delete(messageId, flagName);
-		const reconciled =
-			(await deps.messageService.deleteIfPlacement(messageId, input.placement))
-				.length > 0;
+		const reconciled = await deps.messageService.deleteIfPlacement(
+			messageId,
+			input.placement,
+		);
 		deps.log.info(
 			{
 				metric: "flag_push_stale_row_reconciled",

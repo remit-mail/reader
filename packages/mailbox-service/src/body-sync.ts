@@ -1214,14 +1214,11 @@ export class BodySyncService {
 			);
 		}
 
-		const reconciled =
-			(
-				await this.messageService.deleteIfPlacement(messageId, {
-					status: message.status,
-					mailboxId: message.mailboxId,
-					uid,
-				})
-			).length > 0;
+		const reconciled = await this.messageService.deleteIfPlacement(messageId, {
+			status: message.status,
+			mailboxId: message.mailboxId,
+			uid,
+		});
 
 		if (!reconciled) {
 			throw new MessagePlacementUnsettledError(

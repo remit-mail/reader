@@ -22,6 +22,13 @@
       "when": 1792952114012,
       "tag": "0002_address_by_normalized_email",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793257800685,
+      "tag": "0003_message_by_body_storage_key",
+      "breakpoints": true
     }
   ]
 }

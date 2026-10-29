@@ -6,6 +6,7 @@ import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, type TestDb } from "../test-db.js";
 import { AddressRepo } from "./i4-address.js";
 import type { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 const CONFIG = "cfg-1";
 
@@ -133,6 +134,7 @@ describe("reconciling one message's addresses at the moment it moves", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailboxSpecialUse;
 	});
 

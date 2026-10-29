@@ -183,16 +183,6 @@ export interface StorageService {
 	): Promise<void>;
 
 	/**
-	 * Remove every object stored under a message: its body, parsed body and
-	 * parts. Deleting a message with nothing stored is a no-op.
-	 */
-	deleteMessageObjects(
-		accountConfigId: string,
-		accountId: string,
-		messageId: string,
-	): Promise<void>;
-
-	/**
 	 * Every draft under an account that has attachment objects in storage,
 	 * including drafts whose row is long gone. The sweep needs the prefixes that
 	 * exist, not the rows that exist — a discarded draft is invisible to the
@@ -287,6 +277,12 @@ export interface StorageService {
 	delete(uri: string): Promise<void>;
 
 	/**
+	 * Delete every object whose key starts with `keyPrefix`, a key path ending
+	 * in `/`. Deleting a prefix that holds nothing is a no-op.
+	 */
+	deletePrefix(keyPrefix: string): Promise<void>;
+
+	/**
 	 * Stream a finished export archive (already-compressed ZIP) to the export
 	 * key for the given config + request, uncompressed at rest. The body is
 	 * streamed via a multipart upload and never buffered whole. Returns the raw
@@ -323,25 +319,19 @@ export interface StorageService {
 // the edge can verify cross-tenant isolation at the URL prefix without
 // loading any database record. The inner `accountId` distinguishes between
 // multiple IMAP-account records owned by the same tenant.
-export const buildMessageObjectPrefix = (
-	accountConfigId: string,
-	accountId: string,
-	messageId: string,
-): string => `accounts/${accountConfigId}/${accountId}/messages/${messageId}/`;
-
 export const buildMessageBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}body.eml`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/body.eml`;
 
 export const buildParsedBodyKey = (
 	accountConfigId: string,
 	accountId: string,
 	messageId: string,
 ): string =>
-	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}parsed.json.gz`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parsed.json.gz`;
 
 export const buildBodyPartKey = (
 	accountConfigId: string,
@@ -349,7 +339,7 @@ export const buildBodyPartKey = (
 	messageId: string,
 	partPath: string,
 ): string =>
-	`${buildMessageObjectPrefix(accountConfigId, accountId, messageId)}parts/${partPath}`;
+	`accounts/${accountConfigId}/${accountId}/messages/${messageId}/parts/${partPath}`;
 
 export const buildOutboxAttachmentPrefix = (
 	accountConfigId: string,
@@ -432,13 +422,19 @@ export const parseContentStorageKey = (
 	};
 };
 
-export const parseMessageBodyUri = (
-	uri: string,
-): ParsedContentStorageKey | null => {
-	const path = `/${parseStorageUri(uri).storageKey}`;
-	const start = path.lastIndexOf("/accounts/", path.lastIndexOf("/messages/"));
-	if (start < 0) return null;
-	return parseContentStorageKey(path.slice(start + 1));
+const MESSAGE_OBJECT_PREFIX =
+	/(?:^|\/)(accounts\/[^/]+\/(?:[^/]+\/)?messages\/[^/]+\/)[^/]+$/;
+
+export const messageObjectPrefixOf = (bodyStorageUri: string): string => {
+	const match = parseStorageUri(bodyStorageUri).storageKey.match(
+		MESSAGE_OBJECT_PREFIX,
+	);
+	if (!match) {
+		throw new Error(
+			`${bodyStorageUri} is not a message body key; its objects cannot be found to delete`,
+		);
+	}
+	return match[1];
 };
 
 export const computeChecksum = (content: Buffer): string =>
@@ -578,9 +574,9 @@ export const createMockStorageService = (): StorageService => {
 			uploadUrl: `mock://upload/${buildOutboxAttachmentKey(params.accountConfigId, params.accountId, params.outboxMessageId, params.outboxAttachmentId)}?max=${params.sizeBytes}&exp=${params.expiresAt}`,
 		});
 
-	const deletePrefix = async (prefix: string): Promise<void> => {
+	const deletePrefix: StorageService["deletePrefix"] = async (keyPrefix) => {
 		for (const uri of [...storage.keys()]) {
-			if (uri.startsWith(`${MOCK_ROOT}${prefix}`)) storage.delete(uri);
+			if (uri.startsWith(`${MOCK_ROOT}${keyPrefix}`)) storage.delete(uri);
 		}
 	};
 
@@ -591,15 +587,6 @@ export const createMockStorageService = (): StorageService => {
 	) =>
 		deletePrefix(
 			buildOutboxAttachmentPrefix(accountConfigId, accountId, outboxMessageId),
-		);
-
-	const deleteMessageObjects: StorageService["deleteMessageObjects"] = (
-		accountConfigId,
-		accountId,
-		messageId,
-	) =>
-		deletePrefix(
-			buildMessageObjectPrefix(accountConfigId, accountId, messageId),
 		);
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = async (
@@ -679,7 +666,7 @@ export const createMockStorageService = (): StorageService => {
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
-		deleteMessageObjects,
+		deletePrefix,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,
