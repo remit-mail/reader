@@ -4,6 +4,7 @@ import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import type { AccountRepo } from "./i4-account.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 function makeAccountInput(accountConfigId: string) {
@@ -34,6 +35,7 @@ describe("AccountRepo", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).account;
 	});
 
@@ -175,6 +177,7 @@ describe("AccountRepo", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailbox;
 		mailboxCreated(
 			await mailboxRepo.create({

@@ -13,6 +13,7 @@ import {
 	shippedTableDdl,
 } from "../test-shipped-sqlite-schema.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 function makeMailboxInput(accountId: string, fullPath = "INBOX") {
@@ -49,6 +50,7 @@ describe("MailboxRepo (sqlite)", () => {
 				search: testDb.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailbox;
 	});
 
@@ -222,6 +224,7 @@ describe("MailboxRepo (sqlite, shipped migrations)", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailbox;
 		close = async () => {
 			sqlite.close();

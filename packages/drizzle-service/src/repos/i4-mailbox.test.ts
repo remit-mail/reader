@@ -18,6 +18,7 @@ import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId, type TestDb } from "../test-db.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
 import { deleteMessageSubtree } from "./message.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 /** Every state a row can carry, for a transition that decides against none. */
@@ -62,6 +63,7 @@ describe("MailboxRepo", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).mailbox;
 	});
 
@@ -554,6 +556,7 @@ describe("MailboxRepo", () => {
 					search: db,
 				},
 				BETTER_SQLITE3_LIMITS,
+				messageObjectsInMemory(),
 			).message.create({
 				messageId,
 				mailboxId,
@@ -682,7 +685,7 @@ describe("MailboxRepo", () => {
 
 			// The shape an interruption leaves: one message's rows already gone,
 			// the mailbox row still there and still `deleting`.
-			await syncBatch(db)(deleteMessageSubtree(db, [first]));
+			await syncBatch(db)(deleteMessageSubtree(db, [first]).statements);
 			await repo.transition(accountId, mailbox.mailboxId, {
 				from: EVERY_STATE,
 				to: MailboxSyncStatus.deleting,

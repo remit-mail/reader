@@ -46,6 +46,7 @@ import { threadMessageTable } from "../schema/thread-message.js";
 import type { SearchIndex } from "../search/thread-message-search.js";
 import { inList } from "./in-list.js";
 import { deleteMessageSubtree } from "./message.js";
+import type { MessageObjects } from "./message-objects.js";
 
 const base36Translator = shortUuid.createTranslator(
 	shortUuid.constants.uuid25Base36,
@@ -155,6 +156,7 @@ export class MailboxRepo implements IMailboxRepository {
 	constructor(
 		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
+		private messageObjects: MessageObjects,
 	) {
 		this.db = store.db;
 		this.batch = store.batch;
@@ -562,13 +564,16 @@ export class MailboxRepo implements IMailboxRepository {
 
 			// The primitive the rest of the codebase deletes mail with: nine
 			// per-message child tables. A bespoke table list would orphan them.
-			await this.batch([
-				...deleteMessageSubtree(this.db, messageIds),
+			const subtree = deleteMessageSubtree(this.db, messageIds);
+			const [removed] = await this.batch([
+				subtree.removed,
+				...subtree.statements,
 				this.db
 					.delete(threadMessageTable)
 					.where(inList(threadMessageTable.messageId, messageIds)),
 			]);
 			await this.search.sync(listings.map((row) => row.threadMessageId));
+			await this.messageObjects.reclaim(removed);
 		}
 
 		await this.db

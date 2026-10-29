@@ -7,6 +7,7 @@ import {
 } from "../sqlite-repositories.js";
 import type { OpenTestStores } from "../test-stores.js";
 import type { AccountConfigRepo } from "./i4-account-config.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 export const accountConfigRepoSuite = (open: OpenTestStores): void => {
 	describe("AccountConfigRepo", () => {
@@ -17,7 +18,10 @@ export const accountConfigRepoSuite = (open: OpenTestStores): void => {
 		before(async () => {
 			const opened = await open();
 			close = opened.close;
-			repos = composeSqliteRepositories(opened.stores);
+			repos = composeSqliteRepositories(
+				opened.stores,
+				messageObjectsInMemory(),
+			);
 			repo = repos.accountConfig;
 		});
 

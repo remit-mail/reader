@@ -281,6 +281,15 @@ const runSqlite = async (mode: Mode): Promise<void> => {
 			search: searchDb,
 		},
 		BETTER_SQLITE3_LIMITS,
+		{
+			storage: {
+				deletePrefix: () =>
+					Promise.reject(
+						new Error("the migrator deletes no mail, so it holds no storage"),
+					),
+			},
+			messageObjectDeleteConcurrency: 1,
+		},
 	).mailboxSpecialUse;
 	try {
 		if (mode.kind === "check") {

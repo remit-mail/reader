@@ -327,16 +327,18 @@ export const createFilesystemStorageService = (
 
 	const deleteOutboxAttachments: StorageService["deleteOutboxAttachments"] =
 		async (accountConfigId, accountId, outboxMessageId) => {
-			const dirPath = join(
-				basePath,
+			await deletePrefix(
 				buildOutboxAttachmentPrefix(
 					accountConfigId,
 					accountId,
 					outboxMessageId,
 				),
 			);
-			await rm(dirPath, { recursive: true, force: true });
 		};
+
+	const deletePrefix: StorageService["deletePrefix"] = async (prefix) => {
+		await rm(join(basePath, prefix), { recursive: true, force: true });
+	};
 
 	const storeDeduplicated: StorageService["storeDeduplicated"] = (params) => {
 		const { accountConfigId, accountId, content } = params;
@@ -427,6 +429,7 @@ export const createFilesystemStorageService = (
 		listOutboxAttachments,
 		listOutboxDraftsWithAttachments,
 		deleteOutboxAttachments,
+		deletePrefix,
 		deleteOutboxAttachment,
 		statOutboxAttachment,
 		retrieveOutboxAttachment,

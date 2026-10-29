@@ -4,6 +4,7 @@ import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createTestDb, randomId } from "../test-db.js";
 import type { OutboxAttachmentRepo } from "./i4-outbox-attachment.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 const CAP = { maxTotalBytes: 1000, maxCount: 3, nowSeconds: 1_000_000 };
 
@@ -36,6 +37,7 @@ before(async () => {
 			search: harness.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	).outboxAttachment;
 });
 

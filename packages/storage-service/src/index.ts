@@ -29,6 +29,7 @@ export {
 	computeChecksum,
 	createMockStorageService,
 	isStorageNotFoundError,
+	messageObjectPrefixOf,
 	type OutboxAttachmentListItem,
 	type OutboxAttachmentUploadTarget,
 	type ParsedAttachmentMeta,

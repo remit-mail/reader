@@ -8,6 +8,7 @@ import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	messageObjectsInMemory,
 	type SqliteRepositories,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
@@ -73,6 +74,7 @@ beforeEach(() => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 });
 

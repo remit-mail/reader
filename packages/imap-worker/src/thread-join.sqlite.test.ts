@@ -9,6 +9,7 @@ import { deriveThreadId } from "@remit/data-ports/id";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MessageSyncService, SyncWarningService } from "@remit/mailbox-service";
@@ -62,6 +63,7 @@ const syncInOrder = async (
 	const repos = createSqliteRepositories(
 		{ app: db, mail: db, search: db },
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 	const service = new MessageSyncService(
 		{} as never,

@@ -15,6 +15,7 @@ import { AccountAuthType, ConnectionState } from "@remit/domain-enums";
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	messageObjectsInMemory,
 	openSqliteDatabases,
 } from "@remit/drizzle-service";
 import { applyShippedMigrations } from "@remit/drizzle-service/test-sqlite";
@@ -69,7 +70,11 @@ export const openStore = async () => {
 	});
 	let storages = 0;
 	return {
-		...createSqliteRepositories(databases, BETTER_SQLITE3_LIMITS),
+		...createSqliteRepositories(
+			databases,
+			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
+		),
 		storage: (): StorageService =>
 			createFilesystemStorageService(
 				join(dir, `storage-${++storages}`),

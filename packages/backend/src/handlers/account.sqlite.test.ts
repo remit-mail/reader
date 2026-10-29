@@ -20,6 +20,7 @@ import {
 	type AccountRepo,
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { MICROSOFT_SERVICE_SCOPES } from "@remit/mail-oauth-service";
@@ -136,6 +137,7 @@ beforeEach(async () => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 	accounts = repos.account;
 	await repos.accountConfig.create({

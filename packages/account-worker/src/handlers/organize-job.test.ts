@@ -13,6 +13,7 @@ import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type DrizzleThreadMessageRepository,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import { noopLogger } from "@remit/logger";
@@ -193,6 +194,7 @@ const world = async (filters: FilterItem[]): Promise<World> => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	).threadMessage;
 	const { inbox, archive } = await seedThreads(threadMessage);
 	const updates: Update[] = [];

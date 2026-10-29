@@ -55,6 +55,7 @@ import {
 	toMessageReferenceItem,
 	toRawMessageStorageItem,
 } from "./mappers.js";
+import type { MessageObjects } from "./message-objects.js";
 
 type DB = RepositoryDb<Record<string, unknown>>;
 
@@ -112,22 +113,33 @@ function toMessageItem(row: typeof messageTable.$inferSelect): MessageItem {
 	};
 }
 
-export type SubtreeDb = Pick<RepositoryDb<Record<string, unknown>>, "delete">;
+export type SubtreeDb = Pick<
+	RepositoryDb<Record<string, unknown>>,
+	"delete" | "select"
+>;
 
 /**
  * The statements that delete a message and its whole per-message subtree by
  * message id: the child tables, then the message row. The caller runs them as
- * one batch so the subtree goes atomically; the last statement returns the
- * message ids it removed. `guard` rides every statement, so
- * a guard that reads the message row holds until the last statement removes it.
+ * one batch so the subtree goes atomically. `removed` reads the rows the batch
+ * deletes; it goes first, so it sees them under the same guard. `guard` rides
+ * every statement, so a guard that reads the message row holds until the last
+ * statement removes it.
  */
 export function deleteMessageSubtree(
 	db: SubtreeDb,
 	messageIds: string[],
 	guard?: SQL,
-): SqliteBatchItem[] {
-	if (messageIds.length === 0) return [];
-	return [
+) {
+	const removed = db
+		.select({
+			messageId: messageTable.messageId,
+			bodyStorageKey: messageTable.bodyStorageKey,
+		})
+		.from(messageTable)
+		.where(and(inList(messageTable.messageId, messageIds), guard));
+	if (messageIds.length === 0) return { removed, statements: [] };
+	const statements: SqliteBatchItem[] = [
 		db
 			.delete(messageFlagTable)
 			.where(and(inList(messageFlagTable.messageId, messageIds), guard)),
@@ -162,9 +174,9 @@ export function deleteMessageSubtree(
 			.where(and(inList(envelopeTable.messageId, messageIds), guard)),
 		db
 			.delete(messageTable)
-			.where(and(inList(messageTable.messageId, messageIds), guard))
-			.returning({ messageId: messageTable.messageId }),
+			.where(and(inList(messageTable.messageId, messageIds), guard)),
 	];
+	return { removed, statements };
 }
 
 /**
@@ -202,6 +214,7 @@ export class DrizzleMessageRepository implements IMessageRepository {
 	constructor(
 		store: SqliteStore<Record<string, unknown>>,
 		private search: SearchIndex,
+		private messageObjects: MessageObjects,
 	) {
 		this.db = store.db;
 		this.batch = store.batch;
@@ -533,20 +546,27 @@ export class DrizzleMessageRepository implements IMessageRepository {
 			.select({ threadMessageId: threadMessageTable.threadMessageId })
 			.from(threadMessageTable)
 			.where(eq(threadMessageTable.messageId, messageId));
-		const results = await this.batch([
+		const subtree = deleteMessageSubtree(this.db, [messageId], placed);
+		const [removed] = await this.batch([
+			subtree.removed,
 			this.db
 				.delete(threadMessageTable)
 				.where(and(eq(threadMessageTable.messageId, messageId), placed)),
-			...deleteMessageSubtree(this.db, [messageId], placed),
+			...subtree.statements,
 		]);
 		await this.search.sync(listings.map((row) => row.threadMessageId));
-		const removed = results.at(-1);
-		return Array.isArray(removed) && removed.length > 0;
+		await this.messageObjects.reclaim(removed);
+		return removed.length > 0;
 	}
 
 	async deleteMany(messageIds: string[]): Promise<void> {
 		if (messageIds.length === 0) return;
-		await this.batch(deleteMessageSubtree(this.db, messageIds));
+		const subtree = deleteMessageSubtree(this.db, messageIds);
+		const [removed] = await this.batch([
+			subtree.removed,
+			...subtree.statements,
+		]);
+		await this.messageObjects.reclaim(removed);
 	}
 
 	async listByMailbox(

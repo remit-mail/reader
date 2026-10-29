@@ -8,6 +8,7 @@ import {
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
 import type { DrizzleMessageRepository } from "./message.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { createTestDb, type TestDb } from "./test-helpers.js";
 
 describe("DrizzleMessageRepository", () => {
@@ -41,6 +42,7 @@ describe("DrizzleMessageRepository", () => {
 		const repos = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		);
 		messageRepo = repos.message;
 		envelopeRepo = repos.envelope;

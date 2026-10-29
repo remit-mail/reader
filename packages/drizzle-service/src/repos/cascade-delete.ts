@@ -102,7 +102,7 @@ export const runDrizzleCascadeDelete = async (
 	const items: SqliteBatchItem[] = [];
 	const appItems: SqliteBatchItem[] = [];
 	const messageIds = (grouped.get("Message") ?? []).map((k) => k.messageId);
-	items.push(...deleteMessageSubtree(mail, messageIds));
+	items.push(...deleteMessageSubtree(mail, messageIds).statements);
 
 	const threadMessageIds = (grouped.get("ThreadMessage") ?? []).map(
 		(k) => k.threadMessageId,

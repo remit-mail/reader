@@ -6,6 +6,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import {
 	type DrizzleThreadMessageRepository,
 	THREAD_SEARCH_MAX_LIMIT,
@@ -67,6 +68,7 @@ describe("DrizzleThreadMessageRepository.listByFieldTerms (sqlite, #459)", () =>
 				search: created.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 
 		await repo.create(

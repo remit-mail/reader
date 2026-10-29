@@ -10,6 +10,7 @@ import {
 	BETTER_SQLITE3_LIMITS,
 	composeSqliteRepositories,
 	mailboxTable,
+	messageObjectsInMemory,
 	messageTable,
 	openSqliteDatabases,
 	syncStores,
@@ -169,6 +170,7 @@ describe("processAccountExport over SQLite repositories and filesystem storage",
 		close = databases.close;
 		repositories = composeSqliteRepositories(
 			syncStores(databases, BETTER_SQLITE3_LIMITS),
+			messageObjectsInMemory(),
 		);
 		storage = createFilesystemStorageService(join(directory, "storage"));
 	});

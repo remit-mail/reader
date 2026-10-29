@@ -5,6 +5,7 @@ import { BETTER_SQLITE3_LIMITS } from "../bound-parameters.js";
 import { envelopeId as deriveEnvelopeId } from "../id.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { createTestDb, type TestDb } from "./test-helpers.js";
 
 describe("DrizzleEnvelopeRepository", () => {
@@ -23,6 +24,7 @@ describe("DrizzleEnvelopeRepository", () => {
 		repo = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).envelope;
 
 		await repo.upsertEnvelope({

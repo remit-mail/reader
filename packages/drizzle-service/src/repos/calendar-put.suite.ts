@@ -18,6 +18,7 @@ import {
 } from "../schema.js";
 import { composeSqliteRepositories } from "../sqlite-repositories.js";
 import type { OpenTestStores } from "../test-stores.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-1";
 
@@ -74,7 +75,10 @@ export const calendarPutSuite = (open: OpenTestStores): void => {
 			const opened = await open();
 			db = opened.stores.app.db;
 			close = opened.close;
-			store = composeSqliteRepositories(opened.stores).calendarStore;
+			store = composeSqliteRepositories(
+				opened.stores,
+				messageObjectsInMemory(),
+			).calendarStore;
 			const collection = await provisionDefaultCalendar(
 				store,
 				ACCOUNT_CONFIG_ID,

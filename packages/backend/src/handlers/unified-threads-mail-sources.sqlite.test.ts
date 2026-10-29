@@ -13,6 +13,7 @@ import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
 	type MailboxRepo,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Context } from "openapi-backend";
@@ -42,6 +43,7 @@ beforeEach(() => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 	client = {
 		account: repos.account,

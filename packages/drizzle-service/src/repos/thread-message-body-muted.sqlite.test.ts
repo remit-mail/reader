@@ -16,6 +16,7 @@ import { messageSearchTextTable } from "../schema/message-data.js";
 import { threadMessageTable } from "../schema/thread-message.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import type { DrizzleThreadMessageRepository } from "./thread-message.js";
 
 const ACCOUNT = "acct-seam";
@@ -68,6 +69,7 @@ describe("thread-message body and muted-sender predicates (sqlite)", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 	});
 

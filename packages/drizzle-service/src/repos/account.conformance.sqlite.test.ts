@@ -5,6 +5,7 @@ import { randomId } from "../id.js";
 import { accountTable } from "../schema.js";
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb } from "../test-db-sqlite.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 let close: (() => Promise<void>) | undefined;
 
@@ -21,6 +22,7 @@ accountRepositoryConformance({
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).account;
 	},
 	teardown: async () => {

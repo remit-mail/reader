@@ -13,6 +13,7 @@ import {
 	LIVE_TOTALS,
 	totalRows,
 } from "./category-fixture.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import {
 	type DrizzleThreadMessageRepository,
 	THREAD_SEARCH_MAX_LIMIT,
@@ -68,6 +69,7 @@ describe("DrizzleThreadMessageRepository (sqlite)", () => {
 				search: db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).threadMessage;
 	});
 

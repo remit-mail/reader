@@ -6,6 +6,7 @@ import type { RepositoryDb } from "../db.js";
 import { composeSqliteRepositories } from "../sqlite-repositories.js";
 import type { OpenTestStores } from "../test-stores.js";
 import { CalendarCollectionRepo } from "./calendar-collection.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 const ACCOUNT_CONFIG_ID = "account-config-default";
 
@@ -19,7 +20,10 @@ export const calendarDefaultSuite = (open: OpenTestStores): void => {
 			const opened = await open();
 			db = opened.stores.app.db;
 			close = opened.close;
-			store = composeSqliteRepositories(opened.stores).calendarStore;
+			store = composeSqliteRepositories(
+				opened.stores,
+				messageObjectsInMemory(),
+			).calendarStore;
 		});
 
 		after(() => close());

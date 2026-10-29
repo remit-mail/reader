@@ -18,6 +18,7 @@ import { createSqliteTestDb } from "../test-db-sqlite.js";
 import type { AccountSettingRepo } from "./i4-account-setting.js";
 import type { MailboxRepo } from "./i4-mailbox.js";
 import type { MailboxSpecialUseRepo } from "./i4-mailbox-special-use.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 import { mailboxCreated } from "./test-helpers.js";
 
 const makeMailboxInput = (
@@ -65,6 +66,7 @@ describe("MailboxSpecialUseRepo role lookups (sqlite)", () => {
 				search: testDb.db,
 			},
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		);
 		repo = repos.mailboxSpecialUse;
 		mailboxes = repos.mailbox;

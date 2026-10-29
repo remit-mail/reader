@@ -18,6 +18,7 @@ import {
 import {
 	BETTER_SQLITE3_LIMITS,
 	createSqliteRepositories,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { MailFailureKind } from "@remit/logger";
@@ -71,6 +72,7 @@ const openWorld = async (smtpOptions: FakeSmtpOptions = {}): Promise<World> => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 	const smtp = await startFakeSmtp(smtpOptions);
 	const queue = recordingQueue();

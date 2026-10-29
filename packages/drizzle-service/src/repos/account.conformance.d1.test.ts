@@ -3,6 +3,7 @@ import { NotFoundError } from "../error.js";
 import { randomId } from "../id.js";
 import { composeSqliteRepositories } from "../sqlite-repositories.js";
 import { openD1TestStores } from "../test-d1.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 let close: (() => Promise<void>) | undefined;
 
@@ -10,7 +11,8 @@ accountRepositoryConformance({
 	async createRepository() {
 		const opened = await openD1TestStores();
 		close = opened.close;
-		return composeSqliteRepositories(opened.stores).account;
+		return composeSqliteRepositories(opened.stores, messageObjectsInMemory())
+			.account;
 	},
 	teardown: async () => {
 		await close?.();

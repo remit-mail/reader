@@ -8,6 +8,7 @@ import {
 import { createSqliteRepositories } from "../sqlite-repositories.js";
 import { createSqliteTestDb, type SqliteTestDb } from "../test-db-sqlite.js";
 import type { DrizzleEnvelopeRepository } from "./envelope.js";
+import { messageObjectsInMemory } from "./message-objects.js";
 
 // Envelope repo on sqlite (RFC 036 D1): the onConflictDoUpdate upsert path and
 // the transactional body-part upsert both run on better-sqlite3 unchanged.
@@ -24,6 +25,7 @@ describe("DrizzleEnvelopeRepository (sqlite)", () => {
 		repo = createSqliteRepositories(
 			{ app: db, mail: db, search: db },
 			BETTER_SQLITE3_LIMITS,
+			messageObjectsInMemory(),
 		).envelope;
 	});
 

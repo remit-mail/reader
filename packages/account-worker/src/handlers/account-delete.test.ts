@@ -7,6 +7,7 @@ import { recordingQueue } from "@remit/data-ports/recording-queue";
 import {
 	BETTER_SQLITE3_LIMITS,
 	composeSqliteRepositories,
+	messageObjectsInMemory,
 	openSqliteDatabases,
 	syncStores,
 } from "@remit/drizzle-service";
@@ -48,6 +49,7 @@ describe("account delete on a host that runs the finalize step from its own queu
 		close = databases.close;
 		repositories = composeSqliteRepositories(
 			syncStores(databases, BETTER_SQLITE3_LIMITS),
+			messageObjectsInMemory(),
 		);
 	});
 

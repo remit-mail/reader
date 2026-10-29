@@ -17,6 +17,7 @@ import {
 	type DrizzleMessageRepository,
 	MailboxLockRepo,
 	type MailboxRepo,
+	messageObjectsInMemory,
 } from "@remit/drizzle-service";
 import { createShippedSqliteDb } from "@remit/drizzle-service/test-sqlite";
 import type { Logger } from "@remit/logger";
@@ -61,6 +62,7 @@ beforeEach(() => {
 			search: store.db,
 		},
 		BETTER_SQLITE3_LIMITS,
+		messageObjectsInMemory(),
 	);
 	accounts = repos.account;
 	mailboxes = repos.mailbox;
