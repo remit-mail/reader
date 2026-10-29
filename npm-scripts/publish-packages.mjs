@@ -6,7 +6,9 @@
 //
 // Per package each run: build a deterministic content hash of the freshly packed
 // output and compare it against the version currently on the registry. Identical
-// -> skip. Different -> publish a patch bump over the registry's latest. Absent
+// -> skip. Different -> publish over the registry's latest: a minor bump when the
+// new version removes an export or changes its declaration (the packages are
+// pre-1.0, so the minor is the breaking digit), a patch bump otherwise. Absent
 // -> seed 0.0.1. The hash normalizes the version field and hashes file contents,
 // so tarball timestamps and the version string never trigger a spurious
 // republish; `*` inter-package ranges keep an upstream bump from cascading into a
@@ -22,6 +24,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
+	mkdirSync,
 	mkdtempSync,
 	readdirSync,
 	readFileSync,
@@ -29,9 +32,10 @@ import {
 	statSync,
 	writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
+import { apiBreaks, apiSurface } from "./lib/api-diff.mjs";
 import { GENERATED_PACKAGES } from "./lib/generated-packages.mjs";
 import {
 	isMissingPackage,
@@ -149,8 +153,14 @@ const hashPackageDir = (packageDir) => {
 	return combined.digest("hex");
 };
 
-const withTempDir = (fn) => {
-	const dir = mkdtempSync(join(tmpdir(), "remit-pack-"));
+// Inside the package's own directory, so a packed package that ships
+// TypeScript source resolves its imports through the package's node_modules and
+// then the root's when its declarations are emitted. The directory is empty
+// while the fresh pack runs, and gitignored, so it never reaches the tarball.
+const withTempDir = (pkgDir, fn) => {
+	const scratch = join(repoRoot, pkgDir, ".tmp");
+	mkdirSync(scratch, { recursive: true });
+	const dir = mkdtempSync(join(scratch, "remit-pack-"));
 	try {
 		return fn(dir);
 	} finally {
@@ -164,38 +174,53 @@ const extractedTarballDir = (tempDir) => {
 	return join(tempDir, "package");
 };
 
-const freshContentHash = (pkgDir) =>
-	withTempDir((tempDir) => {
-		run("npm", ["pack", "--pack-destination", tempDir, "--loglevel=error"], {
-			cwd: join(repoRoot, pkgDir),
-		});
-		return hashPackageDir(extractedTarballDir(tempDir));
+const rootCompilerOptions = () => {
+	const configPath = join(repoRoot, "tsconfig.json");
+	const { config } = ts.readConfigFile(configPath, ts.sys.readFile);
+	return ts.parseJsonConfigFileContent(config, ts.sys, repoRoot).options;
+};
+
+const packageApi = (packageDir) =>
+	apiSurface(ts, packageDir, { baseOptions: rootCompilerOptions() });
+
+const packDir = (tempDir, name) => {
+	const dir = join(tempDir, name);
+	mkdirSync(dir);
+	return dir;
+};
+
+const freshPackage = (pkgDir, tempDir) => {
+	const dest = packDir(tempDir, "fresh");
+	run("npm", ["pack", "--pack-destination", dest, "--loglevel=error"], {
+		cwd: join(repoRoot, pkgDir),
 	});
+	return extractedTarballDir(dest);
+};
 
 // The version this compares against was read from the packument a moment ago,
 // which is ahead of the replicas: a publish on main and a pull request's dry run
 // raced, and the run died on a tarball the registry had accepted but not yet
 // served. The pack is retried while that is what ETARGET means, and the last
 // attempt's failure ends the run as before.
-const publishedContentHash = (name, version) =>
-	withTempDir((tempDir) => {
-		withVersionPropagation(() =>
-			run(
-				"npm",
-				[
-					"pack",
-					`${name}@${version}`,
-					"--pack-destination",
-					tempDir,
-					"--loglevel=error",
-				],
-				{
-					cwd: repoRoot,
-				},
-			),
-		);
-		return hashPackageDir(extractedTarballDir(tempDir));
-	});
+const publishedPackage = (name, version, tempDir) => {
+	const dest = packDir(tempDir, "published");
+	withVersionPropagation(() =>
+		run(
+			"npm",
+			[
+				"pack",
+				`${name}@${version}`,
+				"--pack-destination",
+				dest,
+				"--loglevel=error",
+			],
+			{
+				cwd: repoRoot,
+			},
+		),
+	);
+	return extractedTarballDir(dest);
+};
 
 const registryLatest = (name) => {
 	try {
@@ -212,6 +237,11 @@ const registryLatest = (name) => {
 const patchBump = (version) => {
 	const [major, minor, patch] = version.split(".").map(Number);
 	return `${major}.${minor}.${patch + 1}`;
+};
+
+const minorBump = (version) => {
+	const [major, minor] = version.split(".").map(Number);
+	return `${major}.${minor + 1}.0`;
 };
 
 const setVersion = (pkgDir, version) => {
@@ -288,6 +318,11 @@ if (dryRun) {
 		cwd: repoRoot,
 		stdio: "inherit",
 	});
+	console.log("\nVerifying the API diff that picks the bump...\n");
+	run("node", ["--test", "npm-scripts/lib/api-diff.test.mjs"], {
+		cwd: repoRoot,
+		stdio: "inherit",
+	});
 	console.log("\nConsumer typecheck acceptance...\n");
 	run("node", ["npm-scripts/check-consumer-typecheck.mjs"], {
 		cwd: repoRoot,
@@ -307,26 +342,38 @@ for (const pkg of packages) {
 		synthesizeManifest(pkg);
 		stampGeneratedMetadata(pkg);
 	}
-	const fresh = freshContentHash(pkg.dir);
 	const latest = registryLatest(pkg.name);
 
-	let target;
-	if (latest === null) {
-		target = "0.0.1";
-		summary.push({
-			name: pkg.name,
-			decision: `seed ${target} (not on registry)`,
-		});
-	} else if (publishedContentHash(pkg.name, latest) === fresh) {
-		summary.push({ name: pkg.name, decision: `skip (identical to ${latest})` });
-		continue;
-	} else {
-		target = patchBump(latest);
-		summary.push({
-			name: pkg.name,
-			decision: `publish ${latest} -> ${target}`,
-		});
-	}
+	const decided = withTempDir(pkg.dir, (tempDir) => {
+		const fresh = freshPackage(pkg.dir, tempDir);
+		if (latest === null) {
+			const target = "0.0.1";
+			return {
+				target,
+				decision: `seed ${target} (not on registry)`,
+				breaks: [],
+			};
+		}
+		const published = publishedPackage(pkg.name, latest, tempDir);
+		if (hashPackageDir(published) === hashPackageDir(fresh)) {
+			return { decision: `skip (identical to ${latest})`, breaks: [] };
+		}
+		const breaks = apiBreaks(packageApi(published), packageApi(fresh));
+		const bump = breaks.length > 0 ? "minor" : "patch";
+		const target = bump === "minor" ? minorBump(latest) : patchBump(latest);
+		return {
+			target,
+			decision: `publish ${latest} -> ${target} (${bump})`,
+			breaks,
+		};
+	});
+	summary.push({
+		name: pkg.name,
+		decision: decided.decision,
+		breaks: decided.breaks,
+	});
+	if (decided.target === undefined) continue;
+	const { target } = decided;
 
 	if (dryRun) {
 		packCheck(pkg.dir);
@@ -339,7 +386,10 @@ for (const pkg of packages) {
 }
 
 console.log(`\n${dryRun ? "Dry run" : "Publish"} decisions:`);
-for (const { name, decision } of summary) console.log(`  ${name}: ${decision}`);
+for (const { name, decision, breaks } of summary) {
+	console.log(`  ${name}: ${decision}`);
+	for (const line of breaks) console.log(`    ${line}`);
+}
 
 if (failures.length > 0) {
 	console.error("\nPublish failures:");
