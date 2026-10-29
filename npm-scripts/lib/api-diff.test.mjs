@@ -150,7 +150,10 @@ describe("apiBreaks", {
 			{ "./engine.mjs": "./engine.mjs", "./engine.wasm": "./engine.wasm" },
 			{ "engine.mjs": "export const run = () => {};\n", "engine.wasm": "" },
 		);
-		assert.equal(apiSurface(ts, dir).size, 0);
+		assert.deepEqual(apiSurface(ts, dir), {
+			exports: new Map(),
+			unresolved: [],
+		});
 	});
 
 	it("reports a changed signature in a package that ships source", () => {
@@ -210,17 +213,25 @@ describe("apiBreaks", {
 		);
 	});
 
-	it("fails instead of comparing through an import it cannot resolve", () => {
-		const dir = writePackage(
-			{ ".": { types: "./src/index.ts" } },
-			{
-				"src/index.ts":
-					'import { session } from "not-installed";\nexport const current = () => session();\n',
-			},
-		);
+	const sourceEntry = { ".": { types: "./src/index.ts" } };
+	const resolved = {
+		"src/index.ts": 'export const current = (): string => "session";\n',
+	};
+	const unresolvedImport = {
+		"src/index.ts":
+			'import { session } from "not-installed";\nexport const current = (): string => session();\n',
+	};
+
+	it("reports a minor when the published version no longer resolves", () => {
+		assert.deepEqual(breaksBetween(sourceEntry, unresolvedImport, resolved), [
+			"unresolved . not-installed",
+		]);
+	});
+
+	it("fails instead of comparing through a fresh import it cannot resolve", () => {
 		assert.throws(
-			() => apiSurface(ts, dir),
-			/Cannot find module 'not-installed'/,
+			() => breaksBetween(sourceEntry, resolved, unresolvedImport),
+			/unresolved in the fresh pack:\n {2}\. not-installed/,
 		);
 	});
 });

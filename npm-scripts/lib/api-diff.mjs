@@ -134,41 +134,32 @@ const sourceOptions = (ts, packageDir, baseOptions) => {
 
 const UNRESOLVED_MODULE = new Set([2307, 2792]);
 
-// An import the compiler cannot resolve types everything through it as `any`
-// on both sides of the comparison, which reads as no change. That must fail the
-// run, never fall back to a patch.
-const assertResolved = (ts, program, packageDir, counts) => {
-	const unresolved = program
+const specifierOf = (diagnostic) =>
+	diagnostic.file.text
+		.slice(diagnostic.start, diagnostic.start + diagnostic.length)
+		.replace(/^["']|["']$/g, "");
+
+const unresolvedImports = (program, packageDir, counts) =>
+	program
 		.getSourceFiles()
 		.filter((source) => isInside(packageDir, source.fileName))
 		.flatMap((source) => program.getSemanticDiagnostics(source))
 		.filter((diagnostic) => UNRESOLVED_MODULE.has(diagnostic.code))
 		.filter(counts)
-		.map(
-			(diagnostic) =>
-				`${relative(packageDir, diagnostic.file.fileName)}: ${ts.flattenDiagnosticMessageText(diagnostic.messageText, " ")}`,
-		);
-	if (unresolved.length > 0) {
-		throw new Error(
-			`unresolved imports in ${packageDir}:\n  ${unresolved.join("\n  ")}`,
-		);
-	}
-};
+		.map((diagnostic) => ({
+			fileName: diagnostic.file.fileName,
+			specifier: specifierOf(diagnostic),
+		}));
 
 const isRelativeImport = (diagnostic) =>
-	/^["']\./.test(
-		diagnostic.file.text.slice(
-			diagnostic.start,
-			diagnostic.start + diagnostic.length,
-		),
-	);
+	specifierOf(diagnostic).startsWith(".");
 
 const emitDeclarations = (ts, packageDir, sourceFiles, baseOptions) => {
 	const program = ts.createProgram(
 		sourceFiles,
 		sourceOptions(ts, packageDir, baseOptions),
 	);
-	assertResolved(ts, program, packageDir, () => true);
+	const unresolved = unresolvedImports(program, packageDir, () => true);
 	const emitted = new Map();
 	const collect = (fileName, text, _bom, _onError, sources) => {
 		if (!DECLARATION.test(fileName)) return;
@@ -181,7 +172,7 @@ const emitDeclarations = (ts, packageDir, sourceFiles, baseOptions) => {
 			continue;
 		program.emit(source, collect, undefined, true);
 	}
-	return emitted;
+	return { emitted, unresolved };
 };
 
 // The package's TypeScript sources are hidden behind the declarations emitted
@@ -249,10 +240,11 @@ const localStatements = (ts, source) =>
 			!isExported(ts, statement),
 	);
 
-// Keys are `<subpath> <export name>` and `(local) <declaration file>`, values
-// the printed declarations. An entry that is TypeScript source is compared
-// through the declarations the compiler emits for it, so implementation bodies
-// never count.
+// `exports` keys are `<subpath> <export name>` and `(local) <declaration
+// file>`, values the printed declarations. An entry that is TypeScript source is
+// compared through the declarations the compiler emits for it, so
+// implementation bodies never count. `unresolved` lists the imports and entries
+// the compiler could not read, whose types would otherwise silently be `any`.
 export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 	const manifest = JSON.parse(
 		readFileSync(join(packageDir, "package.json"), "utf8"),
@@ -260,14 +252,15 @@ export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 	const entries = entryPoints(packageDir, manifest).map(
 		({ subpath, file }) => ({ subpath, path: join(packageDir, file) }),
 	);
-	const surface = new Map();
-	if (entries.length === 0) return surface;
+	const exports = new Map();
+	const unresolved = [];
+	if (entries.length === 0) return { exports, unresolved };
 
 	const sources = entries.map(({ path }) => path).filter(isSource);
-	const emitted =
+	const emit =
 		sources.length > 0
 			? emitDeclarations(ts, packageDir, sources, baseOptions)
-			: new Map();
+			: { emitted: new Map(), unresolved: [] };
 	const declared = entries.map(({ subpath, path }) => ({
 		subpath,
 		path: isSource(path) ? declarationPath(path) : path,
@@ -283,27 +276,39 @@ export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 	const program = ts.createProgram(
 		declared.map(({ path }) => path),
 		options,
-		overlayHost(ts, options, packageDir, emitted),
+		overlayHost(ts, options, packageDir, emit.emitted),
 	);
-	assertResolved(ts, program, packageDir, isRelativeImport);
+
+	const subpathOf = new Map(
+		entries.flatMap(({ subpath, path }) => [
+			[path, subpath],
+			[declarationPath(path), subpath],
+		]),
+	);
+	for (const { fileName, specifier } of [
+		...emit.unresolved,
+		...unresolvedImports(program, packageDir, isRelativeImport),
+	]) {
+		const where = subpathOf.get(fileName) ?? relative(packageDir, fileName);
+		unresolved.push(`${where} ${specifier}`);
+	}
+
 	const checker = program.getTypeChecker();
 	const printer = ts.createPrinter({ removeComments: true });
 
 	for (const { subpath, path } of declared) {
 		const source = program.getSourceFile(path);
-		if (!source) {
-			throw new Error(`${subpath}: no declarations at ${path}`);
-		}
-		const moduleSymbol = checker.getSymbolAtLocation(source);
+		const moduleSymbol = source && checker.getSymbolAtLocation(source);
 		if (!moduleSymbol) {
-			throw new Error(`${subpath}: ${path} is not a module`);
+			unresolved.push(`${subpath} ${relative(packageDir, path)}`);
+			continue;
 		}
 		for (const exported of checker.getExportsOfModule(moduleSymbol)) {
 			const target =
 				exported.flags & ts.SymbolFlags.Alias
 					? checker.getAliasedSymbol(exported)
 					: exported;
-			surface.set(
+			exports.set(
 				`${subpath} ${exported.name}`,
 				declarationText(ts, printer, packageDir, target),
 			);
@@ -313,24 +318,36 @@ export const apiSurface = (ts, packageDir, { baseOptions = {} } = {}) => {
 		if (!isInside(packageDir, source.fileName)) continue;
 		const locals = localStatements(ts, source);
 		if (locals.length === 0) continue;
-		surface.set(
+		exports.set(
 			`(local) ${relative(packageDir, source.fileName)}`,
 			printed(ts, printer, locals),
 		);
 	}
-	return surface;
+	return { exports, unresolved: [...new Set(unresolved)].sort() };
 };
 
+// An unresolved import in the fresh pack is a broken build or a broken
+// comparison, so it fails the run. In the published version it is the break
+// itself: it resolves its siblings against the current workspace, which stops
+// resolving the moment a sibling drops a subpath or an export.
 export const apiBreaks = (before, after) => {
+	if (after.unresolved.length > 0) {
+		throw new Error(
+			`unresolved in the fresh pack:\n  ${after.unresolved.join("\n  ")}`,
+		);
+	}
 	const breaks = [];
-	for (const [key, text] of before) {
-		if (!after.has(key)) {
+	for (const [key, text] of before.exports) {
+		if (!after.exports.has(key)) {
 			breaks.push(`removed ${key}`);
 			continue;
 		}
-		if (text !== after.get(key)) {
+		if (text !== after.exports.get(key)) {
 			breaks.push(`changed ${key}`);
 		}
 	}
-	return breaks.sort();
+	return [
+		...before.unresolved.map((line) => `unresolved ${line}`),
+		...breaks.sort(),
+	];
 };
