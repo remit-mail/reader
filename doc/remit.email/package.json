@@ -11,7 +11,7 @@
 	},
 	"devDependencies": {
 		"@types/node": "*",
-		"create-tinyss": "^0.1.5",
+		"create-tinyss": "^0.2.0",
 		"preact": "^10.29.0",
 		"typescript": "*"
 	}
